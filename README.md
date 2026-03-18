@@ -112,7 +112,7 @@ Three skills ship as stubs — configure them for your stack:
 
 ## Origin
 
-Built over 87 sessions and 274+ hours developing [Forager](https://github.com/rfhayn/forager), an iOS app. Every skill and convention exists because its absence caused a real problem — duplicate services, naming drift, lost insights, documentation that was always "I'll update it later." The framework evolved from pain, not theory.
+Built over 87 sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. Every skill and convention exists because its absence caused a real problem — duplicate services, naming drift, lost insights, documentation that was always "I'll update it later." The framework evolved from pain, not theory.
 
 ## License
 
