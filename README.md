@@ -1,30 +1,62 @@
 # Claude Dev Framework
 
-A structured development framework for building software with [Claude Code](https://claude.ai/code). Provides session management, documentation patterns, knowledge capture, and executable workflows via Claude Code skills.
+A structured development framework for building software with [Claude Code](https://claude.ai/code). Session management, knowledge capture, and executable workflows that keep AI-assisted projects consistent across dozens or hundreds of sessions.
 
-## What This Is
+## The Problem
 
-A battle-tested methodology developed over 87 sessions and 274+ hours of AI-assisted development. It enforces consistency, captures institutional knowledge across sessions, and prevents the entropy that accumulates in long-running projects.
+Claude Code is powerful, but every new conversation starts from zero. Context is lost. Naming drifts. The same mistakes get re-learned. Documentation falls behind. Over a long project, entropy wins.
+
+This framework fixes that. It gives Claude Code a structured memory — documentation patterns, executable skills, and knowledge capture workflows that maintain consistency from session 1 to session 100+.
+
+## What You Need
+
+- **[Claude Code](https://claude.ai/code)** (Anthropic's CLI tool for Claude) — this framework is built specifically for it
+- **Git** — the framework uses feature branches, structured commits, and PRs
+- **GitHub CLI (`gh`)** — for PR creation (optional but recommended)
+- That's it. No other dependencies. Works with any language, framework, or platform.
 
 ## Quick Start
 
-### Option A: Start a new project
-1. Click **"Use this template"** on GitHub (or clone this repo)
-2. Open `CLAUDE.md` and complete the Setup Checklist
-3. Run `/session-start` in Claude Code
+### Option A: New project
+1. Clone or download this repo
+2. Rename the folder to your project name
+3. Open it in Claude Code
+4. Run `/session-start` — it walks you through setup
 
-### Option B: Add to an existing project
-1. Copy `.claude/` and `docs/` into your project root
-2. Copy `CLAUDE.md` into your project root (merge with existing if needed)
-3. Open `CLAUDE.md` and complete the Setup Checklist
-4. Run `/session-start` in Claude Code
+### Option B: Existing project
+1. Copy `.claude/`, `docs/`, and `CLAUDE.md` into your project root
+2. Open it in Claude Code
+3. Run `/session-start` — it detects unconfigured items and tells you what to set up
 
-## The Framework: 6 Pillars
+### First session
+1. `/session-start` loads context and checks for setup items
+2. Complete the Setup Checklist in `CLAUDE.md` (build command, test command, etc.)
+3. `/new-milestone M1 Your First Feature` creates your branch and docs
+4. Build. `/commit` when ready. `/pr` when done. `/milestone-complete M1` to wrap up.
 
-### 1. Session Management
-Every session starts with `/session-start` which loads context docs, checks git state, and reports current status. This rebuilds context that would otherwise be lost between conversations.
+## What's Included
 
-### 2. Documentation System (7 Core Docs)
+### 12 Skills (Executable Workflows)
+
+Skills enforce project conventions automatically — naming, commit format, documentation updates. Instead of hoping rules get followed, the skills enforce them.
+
+| Skill | Purpose |
+|-------|---------|
+| `/session-start` | Load context, check git, report status |
+| `/new-milestone` | Create feature branch + update docs |
+| `/build` | Build project *(configure for your stack)* |
+| `/commit` | Commit with M#.#.# conventions |
+| `/pr` | Create structured pull request |
+| `/release-prep` | Deployment pipeline *(configure for your stack)* |
+| `/dev-journal` | Write session narrative |
+| `/log-insight` | Capture technical observation |
+| `/milestone-complete` | Update all docs + retrospective |
+| `/prd-audit` | Verify spec against current code |
+| `/architecture-audit` | Check for violations *(configure your rules)* |
+| `/skills` | List all available skills |
+
+### 7 Core Documentation Templates
+
 | Doc | Purpose |
 |-----|---------|
 | `current-story.md` | **Source of truth** — active milestones, priority queue |
@@ -35,63 +67,52 @@ Every session starts with `/session-start` which loads context docs, checks git 
 | `insights-log.md` | Technical observations (triage inbox) |
 | `development-journal.md` | Narrative chronicle of decisions and learning |
 
-### 3. Knowledge Capture (3 Tiers)
-- **Insights log** — quick observations, promotes to learning notes at 3+ related
-- **Learning notes** — milestone-level implementation narratives
-- **ADRs** — formal architecture decisions with context and trade-offs
+### 2 Composite Agents
 
-### 4. Skills (Executable Workflows)
-Skills enforce conventions automatically. Instead of documenting "always use M#.#.# in commits" and hoping it happens, the `/commit` skill enforces it.
+- **pre-implementation** — runs architecture checks before starting work
+- **session-wrap** — ensures journal + insights are captured before final commit
 
-| Category | Skills |
-|----------|--------|
-| **Workflow** | session-start, new-milestone, build, commit, pr, release-prep |
-| **Documentation** | dev-journal, log-insight, milestone-complete |
-| **Pre-development** | prd-audit, architecture-audit |
+### Naming Convention (M#.#.#)
 
-### 5. Agents (Composite Skills)
-- `pre-implementation` — chains architecture checks before starting work
-- `session-wrap` — chains journal + insights + commit at end of session
-
-### 6. Naming Convention (M#.#.#)
-A 3-level hierarchy that scales to any project:
+A 3-level hierarchy that works for any project:
 ```
 M1       = Major Feature (e.g., "Authentication System")
 M1.2     = Component (e.g., "OAuth Integration")
 M1.2.3   = Task (e.g., "Google Provider Setup")
 ```
 
+### Knowledge Capture Pipeline
+
+```
+Quick observation → Insights Log (table row)
+3+ related insights → Learning Note (narrative doc)
+Architectural decision → ADR (formal record)
+Recurring pattern → CLAUDE.md (loaded every session)
+```
+
 ## Project-Specific Configuration
 
-Three skills need project-specific setup before use:
+Three skills ship as stubs — configure them for your stack:
 
 | Skill | What to configure |
 |-------|-------------------|
-| `/build` | Your build command (npm, cargo, xcodebuild, etc.) |
+| `/build` | Your build command (npm, cargo, xcodebuild, gradle, etc.) |
 | `/release-prep` | Your deployment pipeline (if any) |
 | `/architecture-audit` | Your project's architectural rules to enforce |
 
-The framework reminds you about unconfigured items during `/session-start`.
-
-## Memory System
-
-The framework includes guidance for Claude Code's persistent memory system (`~/.claude/projects/.../memory/`). Memory captures:
-- **User preferences** — how you like to work
-- **Feedback** — corrections and confirmed approaches
-- **Project context** — ongoing work, goals, deadlines
-- **References** — pointers to external resources
+`/session-start` reminds you about unconfigured items until they're set up.
 
 ## Philosophy
 
 - **Process-as-code beats process-as-prose** — Skills enforce conventions; docs explain why
 - **Progressive disclosure** — Load only what's needed per session; archive the rest
-- **Knowledge promotion** — Insight → Learning Note → ADR (or CLAUDE.md rule)
+- **Knowledge promotion** — Insights promote to learning notes promote to ADRs
 - **Single source of truth** — Status lives in one place; everything else links to it
-- **Every commit could be the last** — Insights and journal must be current, always
+- **Every commit could be the last** — Documentation must be current, always
 
 ## Origin
 
-Developed during the building of [Forager](https://github.com/rfhayn/forager), an iOS grocery and recipe management app. The framework evolved organically from M1 through M17, with each pain point becoming a skill or convention.
+Built over 87 sessions and 274+ hours developing [Forager](https://github.com/rfhayn/forager), an iOS app. Every skill and convention exists because its absence caused a real problem — duplicate services, naming drift, lost insights, documentation that was always "I'll update it later." The framework evolved from pain, not theory.
 
 ## License
 
