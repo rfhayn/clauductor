@@ -7,7 +7,7 @@ This is the **framework repo** for Clauductor, a multi-worker orchestration fram
 ## Architecture
 
 ```
-claude-dev-framework/
+clauductor/
 ├── framework/           ← Go source (CLI + HUD binary)
 │   ├── cmd/clauductor/  ← CLI entrypoint
 │   └── internal/        ← packages: state, hud, spawn, config
