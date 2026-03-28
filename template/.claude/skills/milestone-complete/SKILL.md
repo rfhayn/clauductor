@@ -1,6 +1,6 @@
 ---
 name: milestone-complete
-description: Update core documentation files after completing a milestone. Use when marking any M#.#.# as COMPLETE. Ensures documentation stays synchronized. TRIGGER when the user says "milestone is done", "mark it complete", "this milestone is finished", "wrap up the milestone", or any indication that a milestone has been completed.
+description: Update core documentation files after completing a milestone. Cleans up branch-specific next-prompt file. Use when marking any M#.#.# as COMPLETE.
 argument-hint: <M#.#.#>
 ---
 
@@ -21,25 +21,44 @@ argument-hint: <M#.#.#>
 - Update "Last Updated" date to today
 - Update priority queue (remove completed, add next)
 
-### 2. `docs/next-prompt.md`
-- Remove completed milestone guidance
-- Add guidance for the next milestone in the priority queue
+### 2. `docs/next-prompt-M#.#.md` (branch-specific file)
+- **Delete** the branch-specific next-prompt file for this milestone
+- Extract the major.minor (e.g., M1.2 from M1.2.3) to find the correct file
+- If the file contains guidance for other sub-tasks still in progress, only remove the completed section
 
-### 3. `docs/roadmap.md`
+### 3. `docs/next-prompt.md` (hub/index)
+- **Remove** the pointer to the completed milestone from the Active Milestones section
+- If there's a next milestone in the priority queue, add guidance for it (or note it as planned)
+
+### 4. `docs/roadmap.md`
 - Add milestone to Completed table with actual hours
 - Move from Active table if present
 - Update priority queue to match current-story
 
-### 4. `docs/requirements.md`
+### 5. `docs/requirements.md`
 - Mark related requirements as COMPLETE (only if new requirements were fulfilled)
 
-### 5. `docs/insights-log.md`
+### 6. `docs/insights-log.md`
 - Review: are there any unlogged insights from this milestone?
 - Check promotion rules: 3+ insights on same topic → suggest Learning Note
 
-### 6. `docs/development-journal.md`
+### 7. `docs/development-journal.md`
 - Write or update the narrative session entry for this milestone completion
 - Include the **Retro** section (see below)
+
+### 8. Release Orchestration Locks (if orchestration is available)
+
+If `orchestration/` directory exists:
+```bash
+clauductor unlock --worker-id [current-worker]
+clauductor deregister --worker-id [current-worker]
+clauductor event --type milestone-complete --detail "Completed $ARGUMENTS"
+```
+
+Clear the session status:
+```bash
+rm -f orchestration/.session-status
+```
 
 ## Retrospective (mandatory)
 
@@ -56,7 +75,10 @@ Add to the journal entry:
 
 After updating:
 - [ ] `current-story.md` has milestone in Recently Completed table
+- [ ] Branch-specific `docs/next-prompt-M#.#.md` deleted (or cleaned up)
+- [ ] Pointer removed from `docs/next-prompt.md` Active Milestones section
 - [ ] Priority queue is consistent across current-story and roadmap
 - [ ] Actual hours recorded
 - [ ] Journal has retro section
 - [ ] Any unlogged insights captured
+- [ ] Orchestration locks released (if applicable)

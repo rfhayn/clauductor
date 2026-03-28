@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/clauductor/clauductor/internal/hud"
 	"github.com/spf13/cobra"
 )
 
@@ -55,12 +56,7 @@ var watchCmd = &cobra.Command{
 	Short: "Launch the HUD (real-time dashboard)",
 	Long:  `Displays the real-time orchestration dashboard. Reads from the SQLite state database.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Placeholder for M5 HUD implementation
-		fmt.Println("Clauductor HUD v" + Version)
-		fmt.Println("HUD will be implemented in M5. For now, use 'clauductor status' for a snapshot.")
-		fmt.Println("\nPress Ctrl+C to exit.")
-
-		// Block until interrupted
-		select {}
+		source := hud.NewStubDataSource()
+		return hud.Run(source)
 	},
 }

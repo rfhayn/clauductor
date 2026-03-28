@@ -1,8 +1,15 @@
 package state
 
-// Schema for the orchestration database.
-// Implemented in M3; defined here for reference.
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
 
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// Schema for the orchestration database.
 const Schema = `
 CREATE TABLE IF NOT EXISTS workers (
 	id TEXT PRIMARY KEY,
@@ -42,3 +49,51 @@ CREATE TABLE IF NOT EXISTS milestones (
 	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `
+
+// DefaultDBPath returns the default database path relative to cwd.
+func DefaultDBPath() string {
+	cwd, _ := os.Getwd()
+	return filepath.Join(cwd, "orchestration", "framework.db")
+}
+
+// DB wraps a sql.DB connection to the orchestration database.
+type DB struct {
+	conn *sql.DB
+}
+
+// Open opens or creates the SQLite database at the given path.
+// If dbPath is empty, DefaultDBPath() is used.
+func Open(dbPath string) (*DB, error) {
+	if dbPath == "" {
+		dbPath = DefaultDBPath()
+	}
+
+	// Ensure parent directory exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating db directory: %w", err)
+	}
+
+	conn, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on&_journal_mode=WAL")
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+
+	// Create schema
+	if _, err := conn.Exec(Schema); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("creating schema: %w", err)
+	}
+
+	return &DB{conn: conn}, nil
+}
+
+// Close closes the database connection.
+func (db *DB) Close() error {
+	return db.conn.Close()
+}
+
+// Conn returns the underlying *sql.DB for advanced usage.
+func (db *DB) Conn() *sql.DB {
+	return db.conn
+}

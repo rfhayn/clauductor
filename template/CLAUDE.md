@@ -92,21 +92,40 @@ Before implementing ANY feature, use these skills as needed:
 - `/dev-journal` — Session narrative (MANDATORY before every commit)
 - `/milestone-complete <M#.#.#>` — Update docs after milestone completion
 
+### Split Next-Prompt Pattern
+
+Implementation guidance uses per-milestone files:
+- `docs/next-prompt.md` — Hub/index with pointers to active milestones
+- `docs/next-prompt-M#.#.md` — Per-milestone guidance (created by `/new-milestone`, deleted by `/milestone-complete`)
+- Naming uses **major.minor** (e.g., `next-prompt-M1.2.md`) — sub-tasks share one file
+
 ## Project Skills
 
+### Development Skills
 | Skill | Purpose |
 |-------|---------|
-| `/session-start` | Startup checklist |
-| `/new-milestone` | Set up milestone (branch + docs) |
+| `/session-start` | Startup checklist + worker registration |
+| `/new-milestone` | Create branch + per-milestone next-prompt |
 | `/build` | Build project (⚠️ configure first) |
 | `/commit` | Commit with M#.#.# conventions |
 | `/pr` | Create PR with project format |
 | `/release-prep` | Deployment pipeline (⚠️ configure first) |
 | `/dev-journal` | Session narrative entry |
 | `/log-insight` | Log technical insight |
-| `/milestone-complete` | Update docs after completion |
+| `/milestone-complete` | Update docs + clean up next-prompt file |
 | `/prd-audit` | Verify PRD against code |
 | `/architecture-audit` | Check for violations (⚠️ configure first) |
+
+### Orchestration Skills (Clauductor)
+| Skill | Purpose |
+|-------|---------|
+| `/claim` | Declare session type + lock files |
+| `/release` | Release locks, deregister worker |
+| `/blocked` | Report block, start wait/escalation |
+| `/status` | Quick orchestration status |
+| `/supervisor` | Launch orchestration (HUD + dispatch) |
+| `/spawn` | Start new Claude Code session |
+| `/handoff` | Structured handoff between workers |
 
 ## Code Standards
 

@@ -25,4 +25,11 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(watchCmd)
+	rootCmd.AddCommand(registerCmd)
+	rootCmd.AddCommand(deregisterCmd)
+	rootCmd.AddCommand(lockCmd)
+	rootCmd.AddCommand(unlockCmd)
+	rootCmd.AddCommand(eventCmd)
+	rootCmd.AddCommand(queryCmd)
+	rootCmd.AddCommand(statusCmd)
 }

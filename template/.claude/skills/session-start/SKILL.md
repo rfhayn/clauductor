@@ -1,6 +1,6 @@
 ---
 name: session-start
-description: Run the mandatory session startup checklist. Reads context docs, checks git status, reports current milestone and branch. Use at the start of every Claude Code session.
+description: Run the mandatory session startup checklist. Reads context docs, checks git status, registers worker, reports current milestone and branch. Use at the start of every Claude Code session.
 ---
 
 # Session Startup Checklist
@@ -13,10 +13,16 @@ Read `CLAUDE.md` and check if the Setup Checklist has uncompleted items. If so, 
 
 ## Step 2: Load Context Documents
 
-Read these 3 files in order:
+Read these files in order:
 1. `docs/project-naming-standards.md`
 2. `docs/current-story.md`
-3. `docs/next-prompt.md`
+3. `docs/next-prompt.md` (the hub/index)
+
+Then check for branch-specific next-prompt files:
+- Get current branch: !`git branch --show-current`
+- Extract milestone from branch name (e.g., `feature/M1.2.3-description` → `M1.2`)
+- If `docs/next-prompt-M#.#.md` exists for that milestone, read it too
+- If on `main`, check `docs/next-prompt.md` for active milestone pointers and read the relevant files
 
 ## Step 3: Check Git State
 
@@ -25,7 +31,21 @@ Current branch and status:
 - Status: !`git status --short`
 - Recent commits: !`git log --oneline -5`
 
-## Step 4: Report
+## Step 4: Register Worker (if orchestration is available)
+
+If `orchestration/` directory exists, register this session:
+```bash
+clauductor register --name [worker-name] --type [session-type] --milestone [M#.#] --owner [user]
+```
+
+Update the session status file:
+```bash
+echo "M#.#|[type]|[worker-name]|[description]" > orchestration/.session-status
+```
+
+If orchestration is not set up, skip this step silently.
+
+## Step 5: Report
 
 After reading all documents, provide a concise status report:
 
@@ -33,13 +53,14 @@ After reading all documents, provide a concise status report:
 2. **Branch check**: Are we on the correct feature branch? Flag if on `main`
 3. **Uncommitted work**: Any staged/unstaged changes?
 4. **Setup status**: Any unconfigured items in CLAUDE.md Setup Checklist?
-5. **Next action**: What should we work on based on current-story.md and next-prompt.md
+5. **Next action**: What should we work on based on current-story.md and the branch-specific next-prompt
 
-## Step 5: Red Flag Check
+## Step 6: Red Flag Check
 
 Verify:
 - [ ] Not on `main` (should be on feature branch for any code work)
 - [ ] Using correct M#.#.# naming convention
 - [ ] Current work is documented in current-story.md
+- [ ] Branch-specific next-prompt file exists for the active milestone
 
 If any red flags are found, report them before proceeding.
