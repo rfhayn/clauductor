@@ -42,6 +42,26 @@ func TemplatePath() (string, error) {
 	return "", fmt.Errorf("could not find Clauductor template directory — set CLAUDUCTOR_FRAMEWORK env var to framework repo root")
 }
 
+// ListTemplateFiles returns all relative file paths in the template directory.
+func ListTemplateFiles() ([]string, error) {
+	tmplPath, err := TemplatePath()
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	filepath.WalkDir(tmplPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		relPath, _ := filepath.Rel(tmplPath, path)
+		files = append(files, relPath)
+		return nil
+	})
+
+	return files, nil
+}
+
 // CopyTemplate copies all template files to the target directory.
 func CopyTemplate(targetDir string) error {
 	return CopyTemplateWithSkips(targetDir, nil)

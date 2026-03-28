@@ -325,12 +325,16 @@ clauductor init ~/Development/my-app
 cd ~/Development/existing-project
 clauductor install
 #   1. Detects existing project structure
-#   2. Adds .claude/skills/ (skips if skills already exist, prompts to merge)
-#   3. Adds docs/ templates (skips existing files, prompts for conflicts)
-#   4. Adds CLAUDE.md (merges with existing if present)
-#   5. Creates orchestration/ directory + .gitignore entry
-#   6. Initializes framework.db schema
-#   7. Non-destructive — never overwrites existing files without confirmation
+#   2. Categorizes template files into three tiers:
+#      FRAMEWORK files (skills, agents, settings, statusline):
+#        → Always install/overwrite — these ARE the framework
+#      DOC TEMPLATES (current-story, journal, next-prompt, roadmap, etc.):
+#        → Create only if missing — never overwrite project content
+#      CONFIG files (CLAUDE.md, .gitignore):
+#        → Merge — add framework sections, preserve existing content
+#   3. Creates orchestration/ directory + .gitignore entry
+#   4. Initializes framework.db schema
+#   5. Supports --dry-run to preview changes
 
 # Update a project's skills/templates (preserves customizations)
 clauductor update
