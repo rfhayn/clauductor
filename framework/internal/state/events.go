@@ -9,11 +9,15 @@ type Event struct {
 	Detail    string `json:"detail"`
 }
 
-// AppendEvent inserts a new event.
+// AppendEvent inserts a new event. If workerID is empty, it is stored as NULL.
 func (db *DB) AppendEvent(workerID, eventType, detail string) error {
+	var wid interface{}
+	if workerID != "" {
+		wid = workerID
+	}
 	_, err := db.conn.Exec(
 		`INSERT INTO events (worker_id, event_type, detail) VALUES (?, ?, ?)`,
-		workerID, eventType, detail,
+		wid, eventType, detail,
 	)
 	return err
 }

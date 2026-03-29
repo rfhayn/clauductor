@@ -26,8 +26,8 @@ var deregisterCmd = &cobra.Command{
 			return fmt.Errorf("deregistering worker: %w", err)
 		}
 
-		if err := db.AppendEvent(workerID, "worker_deregistered", ""); err != nil {
-			// Worker is already gone, event FK may fail; log to stderr but don't error
+		// Log with empty worker_id since worker is already deleted (FK constraint)
+		if err := db.AppendEvent("", "worker_deregistered", fmt.Sprintf("worker=%s", workerID)); err != nil {
 			fmt.Printf("Warning: could not log event: %v\n", err)
 		}
 
