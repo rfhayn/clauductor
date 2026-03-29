@@ -1,7 +1,7 @@
 ---
 name: spawn
 description: "Launch a new Claude Code session in a tmux pane with appropriate context for a milestone. TRIGGER when the user says \"spawn a session\", \"start a new worker\", \"launch an agent\", \"spin up a session\", \"start a build for\", \"start a research session\", \"add a worker\", \"run another agent\", or any request to start a new parallel Claude Code session."
-argument-hint: <build|research> <PREFIX-#.#> [description]
+argument-hint: <build|research> <PREFIX-#.# or "auto"> [description]
 ---
 
 # Spawn New Claude Code Session
@@ -10,8 +10,10 @@ argument-hint: <build|research> <PREFIX-#.#> [description]
 
 Parse arguments:
 - **Session type**: first argument (build or research)
-- **Milestone**: second argument (PREFIX-#.# format)
+- **Milestone**: second argument (PREFIX-#.# format, or "auto" for self-assignment)
 - **Description**: remaining arguments (optional)
+
+If milestone is "auto", the spawned session will self-assign via `/claim auto` — skip milestone validation in Step 1.
 
 ## Prerequisites
 

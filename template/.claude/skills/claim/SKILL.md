@@ -1,12 +1,28 @@
 ---
 name: claim
 description: "Declare session type (build/research), generate a file manifest from the milestone's next-prompt, and lock claimed files. Required before any build session begins modifying code. TRIGGER when the user says \"claim this milestone\", \"claim files\", \"start working on\", \"lock these files\", \"I'm going to work on\", \"begin build session\", \"claim\", or any request to declare what files a session will modify."
-argument-hint: <PREFIX-#.#>
+argument-hint: <PREFIX-#.# or "auto">
 ---
 
 # Claim Milestone & Lock Files
 
 **Milestone to claim**: $ARGUMENTS
+
+## Step 0: Auto-Assignment (if argument is "auto")
+
+If `$ARGUMENTS` is "auto":
+
+1. Read `docs/current-story.md` and find milestones with status READY or PLANNED in the priority queue
+2. Query existing workers to see what's already claimed:
+   ```bash
+   clauductor query workers
+   ```
+3. Filter out milestones that already have an active worker assigned
+4. Pick the highest-priority unclaimed milestone
+5. If no unclaimed milestones exist, report: "No unclaimed milestones available. Check docs/current-story.md priority queue." and stop.
+6. Otherwise, set the milestone to the selected one and continue to Step 1
+
+This enables autonomous agents to self-assign: `/claim auto` picks the next available work.
 
 ## Prerequisites
 
