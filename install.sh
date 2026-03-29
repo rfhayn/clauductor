@@ -14,7 +14,12 @@ echo ""
 
 check_brew() {
     if ! command -v brew &> /dev/null; then
-        echo "Homebrew not found. Installing..."
+        echo "Homebrew is required but not found."
+        read -p "Install Homebrew? [y/N] " response
+        if [[ "$response" != "y" && "$response" != "Y" ]]; then
+            echo "Please install Homebrew manually: https://brew.sh"
+            exit 1
+        fi
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         # Source brew for current session
         if [[ -f /opt/homebrew/bin/brew ]]; then
