@@ -79,7 +79,7 @@ var milestoneUpdateCmd = &cobra.Command{
 }
 
 func init() {
-	milestoneCreateCmd.Flags().String("id", "", "Milestone ID (e.g. M1.2.3)")
+	milestoneCreateCmd.Flags().String("id", "", "Milestone ID (e.g. AUTH-1.3)")
 	milestoneCreateCmd.Flags().String("title", "", "Milestone title")
 	milestoneCreateCmd.Flags().String("assigned-to", "", "Worker assigned to this milestone")
 

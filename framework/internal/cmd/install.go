@@ -253,7 +253,7 @@ func mergeConfigFile(targetDir, relPath string) error {
 		// If the existing CLAUDE.md doesn't reference Clauductor, append a section
 		if !strings.Contains(existing, "Clauductor") && !strings.Contains(existing, "clauductor") {
 			marker := "\n\n## Clauductor Framework\n\n"
-			marker += "This project uses [Clauductor](https://github.com/your-org/claude-dev-framework) for orchestration.\n\n"
+			marker += "This project uses [Clauductor](https://github.com/rfhayn/clauductor) for orchestration.\n\n"
 			marker += "See `template/CLAUDE.md` in the framework repo for the full reference, or run `clauductor update` to sync skills.\n"
 
 			f, err := os.OpenFile(destPath, os.O_APPEND|os.O_WRONLY, 0644)

@@ -1,3 +1,8 @@
+---
+name: skills
+description: "List all available project skills with usage guidance. TRIGGER when the user says \"list skills\", \"what skills are available\", \"show skills\", \"what can you do\", \"help\", or any request to see available commands."
+---
+
 # Project Skills
 
 List all available project skills with usage guidance.

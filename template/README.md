@@ -1,6 +1,6 @@
 # Project Name
 
-> Created with [Clauductor](https://github.com/your-org/claude-dev-framework) — a multi-worker orchestration framework for Claude Code.
+> Created with [Clauductor](https://github.com/rfhayn/clauductor) — a multi-worker orchestration framework for Claude Code.
 
 ## Getting Started
 
