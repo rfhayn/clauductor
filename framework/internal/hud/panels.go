@@ -36,8 +36,13 @@ func renderHeader(width int) string {
 }
 
 // renderFooter returns the bottom key-bindings bar.
-func renderFooter(width int) string {
-	keys := " ↑↓ scroll  1-4 focus panel  q quit "
+func renderFooter(width int, showHelp bool) string {
+	var keys string
+	if showHelp {
+		keys = " Press any key to close help "
+	} else {
+		keys = " ↑↓ scroll  1-9 sessions  tab focus  r refresh  q quit  ? help "
+	}
 	inner := width - 2
 	if inner < 20 {
 		inner = 20
@@ -62,7 +67,7 @@ func renderFooter(width int) string {
 }
 
 // renderWorkers renders the workers panel.
-func renderWorkers(data HUDData, width int) string {
+func renderWorkers(data HUDData, width int, focused bool) string {
 	var b strings.Builder
 
 	for _, w := range data.Workers {
@@ -94,11 +99,11 @@ func renderWorkers(data HUDData, width int) string {
 	}
 
 	content := strings.TrimRight(b.String(), "\n")
-	return wrapPanel("WORKERS", content, width)
+	return wrapPanel("WORKERS", content, width, focused)
 }
 
 // renderLocks renders the file locks panel.
-func renderLocks(data HUDData, width int) string {
+func renderLocks(data HUDData, width int, focused bool) string {
 	var b strings.Builder
 
 	if len(data.Locks) == 0 {
@@ -137,11 +142,11 @@ func renderLocks(data HUDData, width int) string {
 	}
 
 	content := strings.TrimRight(b.String(), "\n")
-	return wrapPanel("FILE LOCKS", content, width)
+	return wrapPanel("FILE LOCKS", content, width, focused)
 }
 
 // renderMilestones renders the milestones panel.
-func renderMilestones(data HUDData, width int) string {
+func renderMilestones(data HUDData, width int, focused bool) string {
 	var b strings.Builder
 
 	for _, m := range data.Milestones {
@@ -185,19 +190,27 @@ func renderMilestones(data HUDData, width int) string {
 	}
 
 	content := strings.TrimRight(b.String(), "\n")
-	return wrapPanel("MILESTONES", content, width)
+	return wrapPanel("MILESTONES", content, width, focused)
 }
 
 // renderActivity renders the recent activity feed.
-func renderActivity(data HUDData, width int) string {
+func renderActivity(data HUDData, width int, focused bool, scrollOffset int) string {
 	var b strings.Builder
 
-	max := 6
-	if len(data.Events) < max {
-		max = len(data.Events)
+	visible := 6
+	start := scrollOffset
+	if start > len(data.Events)-visible {
+		start = len(data.Events) - visible
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + visible
+	if end > len(data.Events) {
+		end = len(data.Events)
 	}
 
-	for i := 0; i < max; i++ {
+	for i := start; i < end; i++ {
 		e := data.Events[i]
 		ts := dimText.Render(e.Timestamp.Format("15:04"))
 		worker := accentText.Width(10).Render(e.WorkerID)
@@ -205,16 +218,25 @@ func renderActivity(data HUDData, width int) string {
 		b.WriteString(fmt.Sprintf("%s  %s %s\n", ts, worker, detail))
 	}
 
+	// Show scroll indicator if there are more events
+	if len(data.Events) > visible {
+		indicator := fmt.Sprintf("  [%d-%d of %d]", start+1, end, len(data.Events))
+		b.WriteString(dimText.Render(indicator))
+	}
+
 	content := strings.TrimRight(b.String(), "\n")
-	return wrapPanel("RECENT ACTIVITY", content, width)
+	return wrapPanel("RECENT ACTIVITY", content, width, focused)
 }
 
 // --- helpers ---
 
-func wrapPanel(title, content string, width int) string {
+func wrapPanel(title, content string, width int, focused bool) string {
 	titleRendered := panelTitleStyle.Render(title)
 
 	style := panelStyle.Width(width - 2) // -2 for border
+	if focused {
+		style = style.BorderForeground(colorTitle)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		style.Render(lipgloss.JoinVertical(lipgloss.Left,
 			titleRendered,

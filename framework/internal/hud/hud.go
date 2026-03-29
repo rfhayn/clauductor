@@ -2,6 +2,7 @@ package hud
 
 import (
 	"fmt"
+	"os/exec"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,19 @@ import (
 // tickMsg triggers a data refresh.
 type tickMsg time.Time
 
+// panel identifies a focusable panel in the HUD.
+type panel int
+
+const (
+	panelNone       panel = iota
+	panelWorkers
+	panelLocks
+	panelMilestones
+	panelActivity
+)
+
+const panelCount = 4
+
 // Model is the Bubble Tea model for the Clauductor HUD.
 type Model struct {
 	data       HUDData
@@ -19,6 +33,11 @@ type Model struct {
 	height     int
 	err        error
 	quitting   bool
+
+	// Navigation state
+	focusPanel   panel  // currently focused panel (0 = none)
+	scrollOffset int    // scroll offset for activity feed
+	showHelp     bool   // whether help overlay is visible
 }
 
 // New creates a new HUD model with the given data source.
@@ -34,7 +53,7 @@ func New(source DataSource) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchData(),
-		tickEvery(time.Second),
+		tickEvery(2*time.Second),
 	)
 }
 
@@ -42,10 +61,51 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If help overlay is showing, any key closes it
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+
+		case "up", "k":
+			if m.scrollOffset > 0 {
+				m.scrollOffset--
+			}
+
+		case "down", "j":
+			maxScroll := len(m.data.Events) - 6
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if m.scrollOffset < maxScroll {
+				m.scrollOffset++
+			}
+
+		case "tab":
+			next := int(m.focusPanel) + 1
+			if next > panelCount {
+				next = 1
+			}
+			m.focusPanel = panel(next)
+
+		case "esc":
+			m.focusPanel = panelNone
+			m.showHelp = false
+
+		case "?":
+			m.showHelp = true
+
+		case "r":
+			return m, m.fetchData()
+
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			idx := int(msg.String()[0] - '0')
+			return m, switchToPane(idx)
 		}
 
 	case tea.WindowSizeMsg:
@@ -55,7 +115,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(
 			m.fetchData(),
-			tickEvery(time.Second),
+			tickEvery(2*time.Second),
 		)
 
 	case HUDData:
@@ -67,6 +127,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// switchToPane switches to the Nth tmux pane.
+func switchToPane(index int) tea.Cmd {
+	c := exec.Command("tmux", "select-pane", "-t", fmt.Sprintf(":%d", index))
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		// Ignore errors (e.g., pane doesn't exist)
+		return nil
+	})
 }
 
 // View implements tea.Model.
@@ -88,35 +157,37 @@ func (m Model) View() string {
 	header := renderHeader(w)
 
 	// Workers panel — full width
-	workers := renderWorkers(m.data, w)
+	workers := renderWorkers(m.data, w, m.focusPanel == panelWorkers)
 
 	// Middle row: locks + milestones side by side
 	halfW := w / 2
+	var middle string
 	if halfW < 30 {
-		// Too narrow for side-by-side — stack vertically
-		locks := renderLocks(m.data, w)
-		milestones := renderMilestones(m.data, w)
-		middle := lipgloss.JoinVertical(lipgloss.Left, locks, milestones)
-
-		activity := renderActivity(m.data, w)
-		footer := renderFooter(w)
-
-		return lipgloss.JoinVertical(lipgloss.Left,
-			header, workers, middle, activity, footer)
+		locks := renderLocks(m.data, w, m.focusPanel == panelLocks)
+		milestones := renderMilestones(m.data, w, m.focusPanel == panelMilestones)
+		middle = lipgloss.JoinVertical(lipgloss.Left, locks, milestones)
+	} else {
+		locks := renderLocks(m.data, halfW, m.focusPanel == panelLocks)
+		milestones := renderMilestones(m.data, w-halfW, m.focusPanel == panelMilestones)
+		middle = lipgloss.JoinHorizontal(lipgloss.Top, locks, milestones)
 	}
 
-	locks := renderLocks(m.data, halfW)
-	milestones := renderMilestones(m.data, w-halfW)
-	middle := lipgloss.JoinHorizontal(lipgloss.Top, locks, milestones)
-
 	// Activity feed — full width
-	activity := renderActivity(m.data, w)
+	activity := renderActivity(m.data, w, m.focusPanel == panelActivity, m.scrollOffset)
 
 	// Footer
-	footer := renderFooter(w)
+	footer := renderFooter(w, m.showHelp)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	view := lipgloss.JoinVertical(lipgloss.Left,
 		header, workers, middle, activity, footer)
+
+	// Help overlay
+	if m.showHelp {
+		overlay := renderHelpOverlay(w, m.height)
+		return overlay
+	}
+
+	return view
 }
 
 // fetchData returns a Cmd that fetches data from the source.
@@ -139,6 +210,44 @@ func tickEvery(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// renderHelpOverlay renders a centered help overlay with all keybindings.
+func renderHelpOverlay(width, height int) string {
+	help := `
+  CLAUDUCTOR HUD — KEYBOARD SHORTCUTS
+
+  Navigation
+  ----------
+  up / k        Scroll activity feed up
+  down / j      Scroll activity feed down
+  tab           Cycle focus between panels
+  esc           Unfocus panel
+
+  Sessions
+  --------
+  1-9           Switch to worker session N (tmux pane)
+
+  Actions
+  -------
+  r             Force refresh data
+  ?             Toggle this help overlay
+  q / Ctrl+C    Quit HUD
+
+  Press any key to close this help.
+`
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorTitle).
+		Foreground(colorBright).
+		Padding(1, 2).
+		Width(50).
+		Render(help)
+
+	return lipgloss.Place(width, height,
+		lipgloss.Center, lipgloss.Center,
+		box)
 }
 
 // Run starts the HUD program.
