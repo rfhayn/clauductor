@@ -38,6 +38,7 @@ Orchestration:
   /supervisor           Launch orchestration (HUD + dispatch)
   /spawn                Start new Claude Code session
   /handoff              Structured handoff between workers
+  /assign               Auto-dispatch work to agents (supervisor only)
 
 Meta:
   /skills               This list
