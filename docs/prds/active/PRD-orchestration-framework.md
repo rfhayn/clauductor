@@ -459,3 +459,4 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 | 12 | **Naming conflicts** | `clauductor install` prompts for each conflict, recommends using framework version with warning that custom overrides may break functionality. No auto-merge. |
 | 13 | **tmux session naming** | `clauductor-{project-dirname}`. Supports multiple concurrent Clauductor-managed projects, each in its own tmux session. |
 | 14 | **Claude Code version** | `clauductor` checks for minimum Claude Code version on install/init and warns if incompatible. |
+| 15 | **Naming convention** | PREFIX-#.# format (e.g., AUTH-1.3) with configurable prefix registry in CLAUDE.md. Replaces M#.#.# for new projects. Legacy M#.#.# supported for existing projects (e.g., forager). Framework's own milestones (M1-M7) use legacy format for historical reasons. |
