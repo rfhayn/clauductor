@@ -26,10 +26,14 @@ const (
 func classifyFile(relPath string) fileTier {
 	// Framework files — always install/overwrite
 	if strings.HasPrefix(relPath, ".claude/skills/") ||
-		strings.HasPrefix(relPath, ".claude/agents/") ||
 		relPath == ".claude/settings.json" ||
 		relPath == ".claude/statusline.sh" {
 		return tierFramework
+	}
+
+	// Agent files — create only if missing (preserves project-specific agents)
+	if strings.HasPrefix(relPath, ".claude/agents/") {
+		return tierDoc
 	}
 
 	// Config files — merge
