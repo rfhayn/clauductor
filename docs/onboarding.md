@@ -10,7 +10,7 @@ Clauductor is a multi-worker orchestration framework for Claude Code. It coordin
 
 ```bash
 # Clone the framework
-git clone https://github.com/your-org/claude-dev-framework.git ~/clauductor
+git clone https://github.com/rfhayn/clauductor.git ~/clauductor
 cd ~/clauductor
 
 # Install (builds binary, installs Go + tmux if needed)

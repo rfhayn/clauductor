@@ -1,45 +1,61 @@
 # Project Skills
 
-List all available project skills.
+List all available project skills with usage guidance.
 
 ## Instructions
 
-Print the following skills table. Do not run any tools — just output the table directly.
+Print the following skills reference. Do not run any tools — just output the content directly.
 
 ## Output
 
 ```
-Project Skills
-==============
+Project Skills Reference
+========================
 
-Workflow:
-  /session-start        Startup checklist + worker registration
-  /new-milestone        Set up new milestone (branch + docs)
-  /build                Build project (⚠️ configure first)
-  /commit               Commit with PREFIX-#.# conventions
-  /pr                   Create PR with project format
-  /release-prep         Deployment pipeline (⚠️ configure first)
+WORKFLOW — Daily development cycle
+  /session-start        Start here. Every session. Loads context, registers worker,
+                        reports status. MANDATORY.
+  /new-milestone        Creates feature branch + next-prompt file + updates docs.
+                        Usage: /new-milestone AUTH-1 Build user login
+  /build                Runs the project's build command. Configure in SKILL.md first.
+  /commit               Stages files, formats commit with PREFIX-#.# prefix.
+                        Logs event to orchestration if available.
+  /pr                   Creates a PR with structured body. Suggests /review first.
+  /release-prep         Full deployment pipeline. Configure for your stack first.
 
-Documentation:
-  /dev-journal          Write session narrative entry
-  /log-insight          Log a technical insight
-  /milestone-complete   Update docs after completion
+DOCUMENTATION — Knowledge capture
+  /dev-journal          Write session narrative (decisions, learning, AI observations).
+                        MANDATORY before every commit.
+  /log-insight          Capture a technical insight immediately. Don't defer.
+                        Usage: /log-insight topic The insight text
+  /milestone-complete   Wraps up a milestone: updates docs, cleans up next-prompt
+                        file, releases locks, writes retro.
+                        Usage: /milestone-complete AUTH-1
 
-Pre-Development:
-  /prd-audit            Verify PRD against current code
-  /architecture-audit   Check for violations (⚠️ configure first)
-  /review               Review changes (pre-PR quality check)
+PRE-DEVELOPMENT — Quality gates
+  /prd-audit            Verify a PRD against current codebase. Use if PRD is >2 weeks old.
+  /architecture-audit   Check for architectural violations. Configure rules first.
+  /review               Pre-PR quality check. Validates naming, manifest, docs, code quality.
+                        Usage: /review (branch) or /review 42 (PR number)
 
-Orchestration:
-  /claim                Declare session type + lock files
-  /release              Release locks, deregister worker
-  /blocked              Report block, start wait/escalation
-  /status               Quick orchestration status
-  /supervisor           Launch orchestration (HUD + dispatch)
-  /spawn                Start new Claude Code session
-  /handoff              Structured handoff between workers
-  /assign               Auto-dispatch work to agents (supervisor only)
+ORCHESTRATION — Multi-worker coordination
+  /claim                Declare session type (build/research), generate file manifest,
+                        lock files. Required before modifying code in orchestration mode.
+                        Usage: /claim AUTH-1 or /claim auto (self-assign)
+  /release              Release all file locks and deregister this worker.
+  /blocked              Report that you're blocked on a locked file. Starts 15-min
+                        wait/escalation cycle with options (wait, skip, force-claim).
+  /status               Quick inline view of workers, locks, and recent activity.
+  /supervisor           Launch the orchestration loop. Dispatches work, monitors
+                        progress, resolves conflicts. One supervisor at a time.
+  /spawn                Launch a new Claude Code session in a tmux pane.
+                        Usage: /spawn build AUTH-1 Login flow
+                        Usage: /spawn research CACHE-1 Caching strategies
+  /handoff              Structured handoff between workers. Commits pending work,
+                        creates a handoff doc, releases locks, notifies target.
+  /assign               Supervisor-only. Auto-dispatches unclaimed milestones to agents.
+                        Usage: /assign 3 (spawn 3 agents for top priorities)
 
-Meta:
-  /skills               This list
+META
+  /skills               This reference
 ```

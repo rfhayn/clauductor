@@ -11,7 +11,7 @@
 
 ```bash
 # Clone the framework
-git clone https://github.com/your-org/claude-dev-framework.git ~/clauductor
+git clone https://github.com/rfhayn/clauductor.git ~/clauductor
 cd ~/clauductor
 
 # Install (builds binary, installs Go + tmux if needed)
@@ -49,8 +49,8 @@ clauductor install
 ```
 
 The installer handles files in three tiers:
-- **Framework files** (skills, agents, settings) — always installed
-- **Doc templates** (current-story, journal, etc.) — created only if missing
+- **Framework files** (skills, settings, statusline) — always installed
+- **Project files** (agents, docs, README) — created only if missing, never overwrites
 - **Config files** (CLAUDE.md, .gitignore) — merged with existing
 
 ## Your First Milestone
@@ -132,7 +132,11 @@ This creates a tmux session with the HUD dashboard. From there:
 | `clauductor register` | Register a worker |
 | `clauductor lock` | Lock files |
 | `clauductor unlock` | Release locks |
+| `clauductor heartbeat` | Update worker heartbeat |
+| `clauductor milestone` | Create/update milestones |
+| `clauductor event` | Log orchestration event |
 | `clauductor query <type>` | Query state (JSON) |
+| `clauductor export <type>` | Export data (JSON/markdown) |
 
 ## File Structure
 
