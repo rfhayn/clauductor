@@ -150,6 +150,7 @@ Implementation guidance uses per-milestone files:
 | `/supervisor` | Launch orchestration (HUD + dispatch) |
 | `/spawn` | Start new Claude Code session |
 | `/handoff` | Structured handoff between workers |
+| `/assign` | Auto-dispatch work to agents (supervisor only) |
 
 ## Code Standards
 
