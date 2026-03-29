@@ -28,6 +28,7 @@ Documentation:
 Pre-Development:
   /prd-audit            Verify PRD against current code
   /architecture-audit   Check for violations (⚠️ configure first)
+  /review               Review changes (pre-PR quality check)
 
 Orchestration:
   /claim                Declare session type + lock files

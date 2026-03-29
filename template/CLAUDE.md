@@ -138,6 +138,7 @@ Implementation guidance uses per-milestone files:
 | `/milestone-complete` | Update docs + clean up next-prompt file |
 | `/prd-audit` | Verify PRD against code |
 | `/architecture-audit` | Check for violations (⚠️ configure first) |
+| `/review` | Pre-PR review (conventions, quality, docs) |
 
 ### Orchestration Skills (Clauductor)
 | Skill | Purpose |
@@ -160,3 +161,5 @@ Implementation guidance uses per-milestone files:
 ## Quality Gates
 
 **Stop and reassess if:** >5 consecutive build errors, >20 min on one issue, breaking existing features, working on main branch without a feature branch.
+
+**Before creating a PR**, run `/review` to check for convention violations, documentation currency, and code quality.

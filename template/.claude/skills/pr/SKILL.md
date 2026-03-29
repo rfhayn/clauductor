@@ -48,6 +48,10 @@ PREFIX-#.#: Brief Descriptive Title
 PREFIX-#.#: [Next milestone in priority queue]
 ```
 
+## Pre-PR Review (recommended)
+
+Consider running `/review` before creating the PR to check for naming convention compliance, documentation currency, and code quality. This is advisory, not blocking.
+
 ## Process
 
 1. Verify all changes are committed and pushed

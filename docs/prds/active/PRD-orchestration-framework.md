@@ -199,6 +199,26 @@ All orchestration events are logged:
 
 Optional prompt logging captures the full prompt history per session for audit/compliance.
 
+### Code Review (/review)
+
+The framework includes a built-in review skill that checks convention compliance before PRs:
+
+**Checks performed:**
+- Naming convention (branch format, commit PREFIX-#.# prefix, imperative mood)
+- Manifest compliance (files changed vs files claimed, orchestration mode only)
+- Orchestration hooks (modified skills have event logging)
+- Documentation currency (journal, current-story, next-prompt)
+- Code quality (secrets detection, TODOs without milestone context, debug statements)
+- Commit format (length, bullet details, commit count)
+
+**Two modes:**
+- `/review` — local branch, pre-PR
+- `/review <PR#>` — remote PR via `gh pr diff`
+
+**Verdict:** CLEAN | READY FOR PR (N warnings) | NEEDS FIXES (N failures)
+
+The review supplements human review — it catches convention drift and process compliance, not logic bugs.
+
 ## Skill Architecture
 
 ### New Skills
@@ -212,6 +232,8 @@ Optional prompt logging captures the full prompt history per session for audit/c
 | `/blocked` | Report a block, start wait/escalation cycle |
 | `/handoff <target-worker>` | Structured handoff with context between sessions |
 | `/status` | Quick inline status for worker sessions |
+| `/review [PR#]` | Pre-PR code review for convention compliance, manifest adherence, code quality |
+| `/assign [N]` | Auto-dispatch unclaimed milestones to agents (supervisor-only) |
 
 ### Modified Existing Skills
 
@@ -221,6 +243,9 @@ Optional prompt logging captures the full prompt history per session for audit/c
 | `/new-milestone` | Creates next-prompt-M#.#.md (split pattern), registers milestone in sidecar |
 | `/commit` | Logs commit event to orchestration log |
 | `/milestone-complete` | Releases locks, archives next-prompt-M#.#.md, deregisters workers, removes hub pointer |
+| `/pr` | Suggests running /review before PR creation |
+| `/claim` | Supports `auto` argument for agent self-assignment from priority queue |
+| `/spawn` | Supports `auto` milestone for self-assigning agents |
 
 ### Split Next-Prompt Pattern (prerequisite)
 
@@ -372,6 +397,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 ## Milestones
 
 ### M1: Repo Restructure — Template/Source Separation
+**Status: COMPLETE**
 **Scope**: Split repo into framework source + project template
 - Move existing skills, docs, CLAUDE.md into `template/`
 - Create framework's own root CLAUDE.md for framework development
@@ -384,6 +410,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Verify: clone → install → install (existing repo) → framework integrates cleanly
 
 ### M2: Split Next-Prompt Pattern
+**Status: COMPLETE**
 **Scope**: Foundation for multi-milestone awareness
 - Restructure template's docs/next-prompt.md as hub/index
 - Create next-prompt-M#.#.md pattern
@@ -391,6 +418,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Update template CLAUDE.md references
 
 ### M3: State Layer (SQLite + CLI)
+**Status: COMPLETE** (22 unit tests passing)
 **Scope**: Shared state infrastructure
 - Design SQLite schema (workers, locks, events, milestones)
 - Add state commands to `clauductor`: register, deregister, lock, unlock, event, query
@@ -398,6 +426,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Unit tests for state operations
 
 ### M4: Worker Registration & Locking
+**Status: COMPLETE** (all 7 orchestration skills + trigger phrases + orchestration hooks)
 **Scope**: Core coordination skills
 - `/claim` skill — session type declaration, file manifest generation, locking
 - `/release` skill — lock release, worker deregistration
@@ -407,6 +436,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Research/spike sessions: warn on source code modification, allow doc commits
 
 ### M5: HUD (TUI Viewer)
+**Status: 90%** — HUD built with Bubble Tea, keyboard nav, SQLite wired. Pending: real-world tmux testing.
 **Scope**: Real-time ASCII dashboard
 - Go + Bubble Tea TUI reading from SQLite
 - Workers panel, file locks panel, activity feed, milestones panel
@@ -416,6 +446,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Well-designed terminal/ASCII aesthetic
 
 ### M6: Supervisor & Spawning
+**Status: 80%** — Skills written, agent self-assignment added. Pending: tmux spawning E2E test.
 **Scope**: Orchestration intelligence
 - `/supervisor` skill — main orchestration loop
 - `/spawn` skill — launch new Claude Code sessions with context
@@ -425,6 +456,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Agent self-assignment from unclaimed milestones
 
 ### M7: Polish & Enterprise Features
+**Status: IN PROGRESS** — /review skill, /assign skill, export command, onboarding guide built. Pending: prompt logging, full E2E testing.
 **Scope**: Production readiness
 - Prompt logging (optional, per-session)
 - Orchestration log export/query
@@ -460,3 +492,4 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 | 13 | **tmux session naming** | `clauductor-{project-dirname}`. Supports multiple concurrent Clauductor-managed projects, each in its own tmux session. |
 | 14 | **Claude Code version** | `clauductor` checks for minimum Claude Code version on install/init and warns if incompatible. |
 | 15 | **Naming convention** | PREFIX-#.# format (e.g., AUTH-1.3) with configurable prefix registry in CLAUDE.md. Replaces M#.#.# for new projects. Legacy M#.#.# supported for existing projects (e.g., forager). Framework's own milestones (M1-M7) use legacy format for historical reasons. |
+| 16 | **Code review** | Built-in `/review` skill checks convention compliance, manifest adherence, doc currency, code quality. Two modes: branch (pre-PR) and PR. Orchestration-aware. |

@@ -86,6 +86,9 @@ The supervisor accepts natural language commands:
 - **"who has locks?"** → query and report
 - **"what's blocked?"** → list blocked workers
 - **"how's AUTH-1 going?"** → query events for that milestone
+- **"review AUTH-1"** → run `/review` on the AUTH-1 branch
+- **"review PR #42"** → run `/review 42` on an open PR
+- **"what's in review?"** → query events for type "review"
 
 ### Resolve Conflicts
 - **"release locks for [worker]"** → force unlock
