@@ -132,7 +132,7 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 
 ## Origin
 
-Built over 87+ sessions and 274+ hours developing [Forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Clauductor extends it from single-session methodology to multi-worker orchestration.
+Built over 87+ sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Clauductor extends it from single-session methodology to multi-worker orchestration.
 
 ## License
 
