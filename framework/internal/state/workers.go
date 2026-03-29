@@ -50,6 +50,11 @@ func (db *DB) DeregisterWorker(workerID string) error {
 		return fmt.Errorf("releasing locks: %w", err)
 	}
 
+	// Nullify event references (events are audit records, keep them)
+	if _, err := tx.Exec(`UPDATE events SET worker_id = NULL WHERE worker_id = ?`, workerID); err != nil {
+		return fmt.Errorf("nullifying event references: %w", err)
+	}
+
 	res, err := tx.Exec(`DELETE FROM workers WHERE id = ?`, workerID)
 	if err != nil {
 		return fmt.Errorf("deleting worker: %w", err)

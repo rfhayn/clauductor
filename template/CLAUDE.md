@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [ ] **Project description**: Update the Architecture section with your project's structure
 - [ ] **Deployment pipeline**: Configure `/release-prep` skill if you have a deployment target
 - [ ] **Architecture audit rules**: Configure `/architecture-audit` with your project's patterns
-- [ ] **First milestone**: Create your first M#.#.# entry in `docs/current-story.md`
+- [ ] **First milestone**: Create your first PREFIX-#.# entry in `docs/current-story.md`
 
 ## Session Startup (MANDATORY)
 

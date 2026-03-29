@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Create a git commit following project conventions. Enforces M#.#.# prefix, imperative mood, no Co-Authored-By. Use instead of raw git commit. TRIGGER when the user says "commit this", "commit the changes", "let's commit", "make a commit", "save this progress", or any request to create a git commit.
+description: Create a git commit following project conventions. Enforces PREFIX-#.# prefix, imperative mood, no Co-Authored-By. Use instead of raw git commit. TRIGGER when the user says "commit this", "commit the changes", "let's commit", "make a commit", "save this progress", or any request to create a git commit.
 ---
 
 # Project Commit
@@ -16,10 +16,10 @@ Create a commit following project conventions.
 
 ## Commit Rules
 
-1. **Detect milestone** from current branch name (e.g., `feature/M10.3-photo-import` → `M10.3`)
+1. **Detect milestone** from current branch name (e.g., `feature/AUTH-3-oauth-callback` → `AUTH-3`)
 2. **Stage specific files** — never use `git add .` or `git add -A` (risk of committing secrets or large binaries)
 3. **Format commit message**:
-   - First line: `M#.#.#: Brief description` (imperative mood, e.g., "Add", "Fix", "Update")
+   - First line: `PREFIX-#.#: Brief description` (imperative mood, e.g., "Add", "Fix", "Update")
    - Blank line
    - Bullet points of specific changes
 4. **NO Co-Authored-By line** — this is a project convention
@@ -28,7 +28,7 @@ Create a commit following project conventions.
 ## Message Format
 
 ```
-M#.#.#: Brief imperative description
+PREFIX-#.#: Brief imperative description
 
 - Detail 1
 - Detail 2

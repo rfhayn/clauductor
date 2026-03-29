@@ -8,33 +8,36 @@ import (
 
 // SQLiteDataSource reads orchestration state from the SQLite database.
 type SQLiteDataSource struct {
-	dbPath string
+	db *state.DB
 }
 
 // NewSQLiteDataSource creates a data source that reads from the given DB path.
-// If dbPath is empty, uses the default orchestration/framework.db path.
-func NewSQLiteDataSource(dbPath string) *SQLiteDataSource {
-	return &SQLiteDataSource{dbPath: dbPath}
+// The caller should call Close() when done.
+func NewSQLiteDataSource(dbPath string) (*SQLiteDataSource, error) {
+	db, err := state.Open(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return &SQLiteDataSource{db: db}, nil
+}
+
+// Close closes the underlying database connection.
+func (s *SQLiteDataSource) Close() error {
+	return s.db.Close()
 }
 
 // Fetch reads the current state from SQLite and returns it as HUDData.
 func (s *SQLiteDataSource) Fetch() (HUDData, error) {
-	db, err := state.Open(s.dbPath)
-	if err != nil {
-		return HUDData{}, err
-	}
-	defer db.Close()
-
 	data := HUDData{}
 
 	// Fetch workers
-	stateWorkers, err := db.ListWorkers()
+	stateWorkers, err := s.db.ListWorkers()
 	if err != nil {
 		return data, err
 	}
 
 	// Fetch locks (needed for worker lock counts)
-	stateLocks, err := db.ListLocks()
+	stateLocks, err := s.db.ListLocks()
 	if err != nil {
 		return data, err
 	}
@@ -47,7 +50,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 
 	// Map workers
 	for _, w := range stateWorkers {
-		startedAt, _ := time.Parse("2006-01-02T15:04:05Z", w.StartedAt)
+		startedAt, _ := time.Parse("2006-01-02 15:04:05", w.StartedAt)
 		duration := time.Since(startedAt)
 		if startedAt.IsZero() {
 			duration = 0
@@ -66,7 +69,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 
 	// Map locks
 	for _, l := range stateLocks {
-		lockedAt, _ := time.Parse("2006-01-02T15:04:05Z", l.LockedAt)
+		lockedAt, _ := time.Parse("2006-01-02 15:04:05", l.LockedAt)
 		data.Locks = append(data.Locks, Lock{
 			FilePath:  l.FilePath,
 			WorkerID:  l.WorkerID,
@@ -76,12 +79,12 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 	}
 
 	// Fetch recent events
-	stateEvents, err := db.ListRecentEvents(20)
+	stateEvents, err := s.db.ListRecentEvents(20)
 	if err != nil {
 		return data, err
 	}
 	for _, e := range stateEvents {
-		ts, _ := time.Parse("2006-01-02T15:04:05Z", e.Timestamp)
+		ts, _ := time.Parse("2006-01-02 15:04:05", e.Timestamp)
 		data.Events = append(data.Events, Event{
 			Timestamp: ts,
 			WorkerID:  e.WorkerID,
@@ -90,7 +93,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 	}
 
 	// Fetch milestones
-	stateMilestones, err := db.ListMilestones()
+	stateMilestones, err := s.db.ListMilestones()
 	if err != nil {
 		return data, err
 	}

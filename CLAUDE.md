@@ -42,12 +42,13 @@ cd framework && go test ./...
 
 ## Naming Convention
 
-Same M#.#.# format as projects. See `docs/project-naming-standards.md` in `template/`.
+Same PREFIX-#.# format as projects. See `docs/project-naming-standards.md` in `template/`.
+Note: The framework's own milestones (M1-M7) use legacy M# format for historical reasons.
 
 ## Git Workflow
 
-- Branch: `feature/M#.#.#-brief-kebab-case`
-- Commit: `M#.#.#:` imperative mood. No Co-Authored-By.
+- Branch: `feature/PREFIX-#.#-brief-kebab-case`
+- Commit: `PREFIX-#.#:` imperative mood. No Co-Authored-By.
 
 ## Key Files
 
@@ -59,5 +60,5 @@ Same M#.#.# format as projects. See `docs/project-naming-standards.md` in `templ
 
 ```go
 // Comments explain WHY, not WHAT
-// TODOs must include milestone context: TODO (M4): description
+// TODOs must include milestone context: TODO (AUTH-2): description
 ```

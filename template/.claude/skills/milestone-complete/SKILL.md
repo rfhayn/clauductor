@@ -21,9 +21,9 @@ argument-hint: <PREFIX-#.#>
 - Update "Last Updated" date to today
 - Update priority queue (remove completed, add next)
 
-### 2. `docs/next-prompt-M#.#.md` (branch-specific file)
-- **Delete** the branch-specific next-prompt file for this milestone
-- Extract the major.minor (e.g., M1.2 from M1.2.3) to find the correct file
+### 2. Branch-specific next-prompt file
+- **Delete** the branch-specific `docs/next-prompt-[milestone].md` file
+- Find the file matching the milestone ID (e.g., `next-prompt-AUTH-1.md` for AUTH-1)
 - If the file contains guidance for other sub-tasks still in progress, only remove the completed section
 
 ### 3. `docs/next-prompt.md` (hub/index)
@@ -75,7 +75,7 @@ Add to the journal entry:
 
 After updating:
 - [ ] `current-story.md` has milestone in Recently Completed table
-- [ ] Branch-specific `docs/next-prompt-M#.#.md` deleted (or cleaned up)
+- [ ] Branch-specific next-prompt file deleted (or cleaned up)
 - [ ] Pointer removed from `docs/next-prompt.md` Active Milestones section
 - [ ] Priority queue is consistent across current-story and roadmap
 - [ ] Actual hours recorded

@@ -16,7 +16,7 @@ Workflow:
   /session-start        Startup checklist (every session)
   /new-milestone        Set up new milestone (branch + docs)
   /build                Build project (⚠️ configure first)
-  /commit               Commit with M#.#.# conventions
+  /commit               Commit with PREFIX-#.# conventions
   /pr                   Create PR with project format
   /release-prep         Deployment pipeline (⚠️ configure first)
 

@@ -28,6 +28,8 @@ func TemplatePath() (string, error) {
 	}
 
 	candidates := []string{
+		filepath.Join(home, "clauductor", "template"),
+		filepath.Join(home, "Development", "clauductor", "template"),
 		filepath.Join(home, "claude-dev-framework", "template"),
 		filepath.Join(home, "Development", "claude-dev-framework", "template"),
 		filepath.Join(home, ".clauductor", "template"),
@@ -143,6 +145,8 @@ func FindDiffs(targetDir string) ([]FileDiff, error) {
 	comparePaths := []string{
 		".claude/skills",
 		".claude/agents",
+		".claude/settings.json",
+		".claude/statusline.sh",
 	}
 
 	for _, cp := range comparePaths {

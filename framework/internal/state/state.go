@@ -14,7 +14,7 @@ const Schema = `
 CREATE TABLE IF NOT EXISTS workers (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
-	session_type TEXT NOT NULL CHECK(session_type IN ('research', 'spike', 'build', 'test')),
+	session_type TEXT NOT NULL CHECK(session_type IN ('research', 'spike', 'build', 'test', 'supervisor')),
 	milestone TEXT,
 	status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'blocked', 'idle', 'completed')),
 	owner TEXT NOT NULL,

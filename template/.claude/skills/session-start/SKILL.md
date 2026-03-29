@@ -20,8 +20,9 @@ Read these files in order:
 
 Then check for branch-specific next-prompt files:
 - Get current branch: !`git branch --show-current`
-- Extract milestone from branch name (e.g., `feature/M1.2.3-description` → `M1.2`)
-- If `docs/next-prompt-M#.#.md` exists for that milestone, read it too
+- Extract milestone from branch name (e.g., `feature/AUTH-1.3-description` → `AUTH-1`)
+- Also supports legacy format: `feature/M1.2.3-description` → `M1.2`
+- If `docs/next-prompt-[milestone].md` exists for that milestone, read it too
 - If on `main`, check `docs/next-prompt.md` for active milestone pointers and read the relevant files
 
 ## Step 3: Check Git State
@@ -35,12 +36,12 @@ Current branch and status:
 
 If `orchestration/` directory exists, register this session:
 ```bash
-clauductor register --name [worker-name] --type [session-type] --milestone [M#.#] --owner [user]
+clauductor register --name [worker-name] --type [session-type] --milestone [PREFIX-#.#] --owner [user]
 ```
 
 Update the session status file:
 ```bash
-echo "M#.#|[type]|[worker-name]|[description]" > orchestration/.session-status
+echo "PREFIX-#.#|[type]|[worker-name]|[description]" > orchestration/.session-status
 ```
 
 If orchestration is not set up, skip this step silently.
@@ -49,7 +50,7 @@ If orchestration is not set up, skip this step silently.
 
 After reading all documents, provide a concise status report:
 
-1. **Current milestone**: What M#.#.# is active, what status
+1. **Current milestone**: What PREFIX-#.# is active, what status
 2. **Branch check**: Are we on the correct feature branch? Flag if on `main`
 3. **Uncommitted work**: Any staged/unstaged changes?
 4. **Setup status**: Any unconfigured items in CLAUDE.md Setup Checklist?
@@ -59,7 +60,7 @@ After reading all documents, provide a concise status report:
 
 Verify:
 - [ ] Not on `main` (should be on feature branch for any code work)
-- [ ] Using correct M#.#.# naming convention
+- [ ] Using correct PREFIX-#.# naming convention
 - [ ] Current work is documented in current-story.md
 - [ ] Branch-specific next-prompt file exists for the active milestone
 

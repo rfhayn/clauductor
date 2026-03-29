@@ -56,13 +56,13 @@ The installer handles files in three tiers:
 ## Your First Milestone
 
 ```
-/new-milestone M1.1 Build user authentication
+/new-milestone AUTH-1 Build user authentication
 ```
 
 This:
-1. Creates branch `feature/M1.1-build-user-auth`
+1. Creates branch `feature/AUTH-1-build-user-auth`
 2. Updates `docs/current-story.md` with ACTIVE status
-3. Creates `docs/next-prompt-M1.1.md` with implementation guidance
+3. Creates `docs/next-prompt-AUTH-1.md` with implementation guidance
 4. Adds a pointer in `docs/next-prompt.md`
 
 ## Daily Workflow
@@ -72,7 +72,7 @@ This:
 /session-start
 
 # Claim files for a build session
-/claim M1.1
+/claim AUTH-1
 
 # Work... build... test...
 /build
@@ -82,7 +82,7 @@ This:
 /dev-journal
 
 # Milestone done?
-/milestone-complete M1.1
+/milestone-complete AUTH-1
 ```
 
 ## Multi-Worker Orchestration
@@ -97,10 +97,10 @@ This creates a tmux session with the HUD dashboard. From there:
 
 ```
 # Spawn a build agent
-/spawn build M1.2 API routes
+/spawn build API-1 API routes
 
 # Spawn a research agent
-/spawn spike M2.1 caching strategies
+/spawn spike CACHE-1 caching strategies
 
 # Check status
 /status

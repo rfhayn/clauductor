@@ -55,6 +55,6 @@ Entries are reverse chronological (newest at top). Each session gets one entry.
 
 - [ ] Session number is sequential (check previous entry)
 - [ ] Date is correct
-- [ ] Milestone reference uses M#.#.# format
+- [ ] Milestone reference uses PREFIX-#.# format
 - [ ] Entry captures at least one decision with rationale
 - [ ] Entry captures at least one learning item

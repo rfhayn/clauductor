@@ -58,6 +58,7 @@ var watchCmd = &cobra.Command{
 	Short: "Launch the HUD (real-time dashboard)",
 	Long:  `Displays the real-time orchestration dashboard. Reads from the SQLite state database. Use --demo for stub data.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		hud.Version = Version
 		var source hud.DataSource
 
 		if hudDemoMode {
@@ -66,7 +67,12 @@ var watchCmd = &cobra.Command{
 			// Check if orchestration DB exists
 			dbPath := filepath.Join("orchestration", "framework.db")
 			if _, err := os.Stat(dbPath); err == nil {
-				source = hud.NewSQLiteDataSource(dbPath)
+				sqlSource, err := hud.NewSQLiteDataSource(dbPath)
+				if err != nil {
+					return fmt.Errorf("opening orchestration database: %w", err)
+				}
+				defer sqlSource.Close()
+				source = sqlSource
 			} else {
 				// No DB — fall back to demo mode
 				fmt.Println("No orchestration database found. Running in demo mode.")

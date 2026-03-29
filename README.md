@@ -85,7 +85,7 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 | `/release` | Release locks, deregister |
 | `/supervisor` | Orchestration loop — dispatch, monitor |
 | `/spawn` | Launch new Claude Code sessions |
-| `/commit` | Commit with M#.#.# conventions |
+| `/commit` | Commit with PREFIX-#.# conventions |
 | `/status` | Quick orchestration status |
 
 ## Origin

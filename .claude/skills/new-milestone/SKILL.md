@@ -1,7 +1,7 @@
 ---
 name: new-milestone
 description: Set up a new milestone for development. Creates feature branch, updates current-story.md and next-prompt.md with implementation guidance.
-argument-hint: <M#.#.# brief description>
+argument-hint: <PREFIX-#.# brief description>
 ---
 
 # New Milestone Setup
@@ -20,11 +20,11 @@ git checkout main && git pull origin main
 
 ## Step 2: Create Feature Branch
 
-Branch naming: `feature/M#.#.#-brief-kebab-case` (3-5 words max)
+Branch naming: `feature/PREFIX-#.#-brief-kebab-case` (3-5 words max)
 
 ```bash
-git checkout -b feature/M#.#.#-brief-description
-git push -u origin feature/M#.#.#-brief-description
+git checkout -b feature/PREFIX-#.#-brief-description
+git push -u origin feature/PREFIX-#.#-brief-description
 ```
 
 ## Step 3: Update `docs/current-story.md`
@@ -49,14 +49,14 @@ git push -u origin feature/M#.#.#-brief-description
 
 ```bash
 git add docs/current-story.md docs/next-prompt.md
-git commit -m "M#.#.#: Set up milestone - [description]"
+git commit -m "PREFIX-#.#: Set up milestone - [description]"
 git push
 ```
 
 ## Verification
 
 - [ ] On feature branch (not main)
-- [ ] Branch name follows `feature/M#.#.#-description` format
+- [ ] Branch name follows `feature/PREFIX-#.#-description` format
 - [ ] current-story.md updated with ACTIVE status
 - [ ] next-prompt.md has implementation guidance
 - [ ] Initial commit pushed to remote

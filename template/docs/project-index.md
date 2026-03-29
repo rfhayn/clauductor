@@ -7,7 +7,7 @@
 
 ## Session Startup
 
-1. [Project Naming Standards](project-naming-standards.md) — M#.#.# convention
+1. [Project Naming Standards](project-naming-standards.md) — PREFIX-#.# convention
 2. [Current Story](current-story.md) — active milestones, status, priority queue
 3. [Next Prompt](next-prompt.md) — implementation guidance for current work
 
@@ -50,7 +50,7 @@
 | Doc | Purpose |
 |-----|---------|
 | [session-startup-checklist.md](session-startup-checklist.md) | Detailed startup procedure |
-| [project-naming-standards.md](project-naming-standards.md) | M#.#.# naming convention |
+| [project-naming-standards.md](project-naming-standards.md) | PREFIX-#.# naming convention |
 
 ---
 

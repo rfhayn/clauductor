@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/clauductor/clauductor/internal/state"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -70,9 +71,13 @@ func initOrchestration(targetDir string) error {
 
 	fmt.Println("  Created orchestration/ directory")
 
-	// SQLite DB will be created on first use by the state package
-	// For now, just ensure the directory exists
-	fmt.Println("  Orchestration database will be initialized on first start")
+	dbPath := filepath.Join(orchDir, "framework.db")
+	db, err := state.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("initializing database: %w", err)
+	}
+	db.Close()
+	fmt.Println("  Initialized orchestration database")
 	return nil
 }
 

@@ -32,4 +32,6 @@ func init() {
 	rootCmd.AddCommand(eventCmd)
 	rootCmd.AddCommand(queryCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(heartbeatCmd)
+	rootCmd.AddCommand(milestoneCmd)
 }

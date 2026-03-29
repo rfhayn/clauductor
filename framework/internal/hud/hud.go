@@ -131,7 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // switchToPane switches to the Nth tmux pane.
 func switchToPane(index int) tea.Cmd {
-	c := exec.Command("tmux", "select-pane", "-t", fmt.Sprintf(":%d", index))
+	c := exec.Command("tmux", "select-window", "-t", fmt.Sprintf(":%d", index))
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Ignore errors (e.g., pane doesn't exist)
 		return nil

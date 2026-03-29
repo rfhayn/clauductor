@@ -8,10 +8,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Version is set by the cmd package at startup.
+var Version = "0.1.0"
+
 // renderHeader returns the top title bar.
 func renderHeader(width int) string {
 	title := "Clauductor"
-	ver := "v0.1.0"
+	ver := "v" + Version
 
 	// Build: ┌─ Clauductor ─────────── v0.1.0 ─┐
 	inner := width - 2 // account for border chars

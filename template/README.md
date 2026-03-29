@@ -30,7 +30,7 @@ claude
 | Command | Purpose |
 |---|---|
 | `/session-start` | Begin a session (mandatory) |
-| `/new-milestone M#.# description` | Start a new milestone |
-| `/claim M#.#.#` | Claim work and lock files |
+| `/new-milestone PREFIX-#.# description` | Start a new milestone |
+| `/claim PREFIX-#.#` | Claim work and lock files |
 | `/commit` | Commit with project conventions |
 | `/status` | View orchestration status |

@@ -1,7 +1,7 @@
 ---
 name: milestone-complete
-description: Update core documentation files after completing a milestone. Use when marking any M#.#.# as COMPLETE. Ensures documentation stays synchronized. TRIGGER when the user says "milestone is done", "mark it complete", "this milestone is finished", "wrap up the milestone", or any indication that a milestone has been completed.
-argument-hint: <M#.#.#>
+description: Update core documentation files after completing a milestone. Use when marking any PREFIX-#.# as COMPLETE. Ensures documentation stays synchronized. TRIGGER when the user says "milestone is done", "mark it complete", "this milestone is finished", "wrap up the milestone", or any indication that a milestone has been completed.
+argument-hint: <PREFIX-#.#>
 ---
 
 # Milestone Completion Documentation

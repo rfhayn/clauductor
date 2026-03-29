@@ -29,7 +29,7 @@ Current branch and status:
 
 After reading all documents, provide a concise status report:
 
-1. **Current milestone**: What M#.#.# is active, what status
+1. **Current milestone**: What PREFIX-#.# is active, what status
 2. **Branch check**: Are we on the correct feature branch? Flag if on `main`
 3. **Uncommitted work**: Any staged/unstaged changes?
 4. **Setup status**: Any unconfigured items in CLAUDE.md Setup Checklist?
@@ -39,7 +39,7 @@ After reading all documents, provide a concise status report:
 
 Verify:
 - [ ] Not on `main` (should be on feature branch for any code work)
-- [ ] Using correct M#.#.# naming convention
+- [ ] Using correct PREFIX-#.# naming convention
 - [ ] Current work is documented in current-story.md
 
 If any red flags are found, report them before proceeding.
