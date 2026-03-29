@@ -76,7 +76,7 @@ var watchCmd = &cobra.Command{
 			} else {
 				// No DB — fall back to demo mode
 				fmt.Println("No orchestration database found. Running in demo mode.")
-				fmt.Println("Run 'clauductor init' or 'clauductor install' to set up orchestration.\n")
+				fmt.Println("Run 'clauductor init' or 'clauductor install' to set up orchestration.")
 				source = hud.NewStubDataSource()
 			}
 		}
