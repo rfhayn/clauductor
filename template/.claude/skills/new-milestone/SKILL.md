@@ -1,7 +1,7 @@
 ---
 name: new-milestone
-description: Set up a new milestone for development. Creates feature branch, updates current-story.md, and creates branch-specific next-prompt-M#.#.md with implementation guidance.
-argument-hint: <M#.#.# brief description>
+description: "Set up a new milestone for development. Creates feature branch, updates current-story.md, and creates branch-specific next-prompt file with implementation guidance. TRIGGER when the user says \"new milestone\", \"start a new milestone\", \"create milestone\", \"begin feature\", \"next milestone\", \"set up milestone\", or any request to start a new development milestone."
+argument-hint: <PREFIX-#.# brief description>
 ---
 
 # New Milestone Setup

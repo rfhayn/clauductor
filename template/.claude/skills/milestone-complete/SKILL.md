@@ -1,7 +1,7 @@
 ---
 name: milestone-complete
-description: Update core documentation files after completing a milestone. Cleans up branch-specific next-prompt file. Use when marking any M#.#.# as COMPLETE.
-argument-hint: <M#.#.#>
+description: "Update core documentation files after completing a milestone. Cleans up branch-specific next-prompt file. TRIGGER when the user says \"milestone done\", \"mark milestone complete\", \"finish milestone\", \"this is done\", \"wrap up this milestone\", \"close out milestone\", \"mark it complete\", or any indication that a milestone has been completed."
+argument-hint: <PREFIX-#.#>
 ---
 
 # Milestone Completion Documentation

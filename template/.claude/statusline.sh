@@ -55,8 +55,14 @@ if [ -n "$status_file" ] && [ -f "$status_file" ]; then
 fi
 
 # Option 2: Fallback — parse milestone from git branch name
+# Supports both PREFIX-#.# (e.g., AUTH-1.3) and legacy M#.#.# (e.g., M1.2.3)
 if [ -z "$label" ] && [ -n "$branch" ]; then
-  milestone=$(echo "$branch" | grep -oE 'M[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  # Try PREFIX-#.# format first (e.g., feature/AUTH-1.3-description)
+  milestone=$(echo "$branch" | grep -oE '[A-Z]{2,5}-[0-9]+(\.[0-9]+)?' | head -1)
+  # Fall back to M#.#.# format
+  if [ -z "$milestone" ]; then
+    milestone=$(echo "$branch" | grep -oE 'M[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  fi
   if [ -n "$milestone" ]; then
     desc=$(echo "$branch" | sed "s|.*${milestone}-||" | tr '-' ' ')
     [ "$desc" = "$branch" ] && desc=""

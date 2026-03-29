@@ -51,12 +51,34 @@ Worker sessions are added as additional panes.`,
 	},
 }
 
+var hudDemoMode bool
+
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Launch the HUD (real-time dashboard)",
-	Long:  `Displays the real-time orchestration dashboard. Reads from the SQLite state database.`,
+	Long:  `Displays the real-time orchestration dashboard. Reads from the SQLite state database. Use --demo for stub data.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		source := hud.NewStubDataSource()
+		var source hud.DataSource
+
+		if hudDemoMode {
+			source = hud.NewStubDataSource()
+		} else {
+			// Check if orchestration DB exists
+			dbPath := filepath.Join("orchestration", "framework.db")
+			if _, err := os.Stat(dbPath); err == nil {
+				source = hud.NewSQLiteDataSource(dbPath)
+			} else {
+				// No DB — fall back to demo mode
+				fmt.Println("No orchestration database found. Running in demo mode.")
+				fmt.Println("Run 'clauductor init' or 'clauductor install' to set up orchestration.\n")
+				source = hud.NewStubDataSource()
+			}
+		}
+
 		return hud.Run(source)
 	},
+}
+
+func init() {
+	watchCmd.Flags().BoolVar(&hudDemoMode, "demo", false, "Run HUD with demo/stub data")
 }

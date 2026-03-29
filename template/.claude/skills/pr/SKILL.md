@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Create a pull request following project conventions. M#.#.# title, structured body with summary/changes/testing/time, squash merge target. TRIGGER when the user says "create a PR", "make a pull request", "open a PR", "let's PR this", or any request to create or submit a pull request.
+description: "Create a pull request following project conventions. PREFIX-#.# title, structured body with summary/changes/testing/time, squash merge target. TRIGGER when the user says \"create a PR\", \"make a pull request\", \"open a PR\", \"let's PR this\", \"submit a PR\", \"ready for review\", \"push and PR\", or any request to create or submit a pull request."
 ---
 
 # Create Pull Request
@@ -18,7 +18,7 @@ Create a PR following project conventions.
 
 ### Title Format
 ```
-M#.#.#: Brief Descriptive Title
+PREFIX-#.#: Brief Descriptive Title
 ```
 - Under 70 characters
 - Milestone prefix from branch name
@@ -45,7 +45,7 @@ M#.#.#: Brief Descriptive Title
 - Actual: Y hours
 
 ## Next
-M#.#.#: [Next milestone in priority queue]
+PREFIX-#.#: [Next milestone in priority queue]
 ```
 
 ## Process
@@ -61,3 +61,8 @@ M#.#.#: [Next milestone in priority queue]
 - Verify `docs/insights-log.md` is current
 - Verify `docs/development-journal.md` has session entry
 - After merge: update local main, delete feature branch
+
+If orchestration available:
+```bash
+clauductor event --worker-id [worker-name] --type "pr_created" --detail "PR #[number]: [title]"
+```

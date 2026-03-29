@@ -1,6 +1,6 @@
 ---
 name: session-start
-description: Run the mandatory session startup checklist. Reads context docs, checks git status, registers worker, reports current milestone and branch. Use at the start of every Claude Code session.
+description: "Run the mandatory session startup checklist. Reads context docs, checks git status, registers worker, reports current milestone and branch. TRIGGER when the user says \"start session\", \"begin session\", \"let's get started\", \"starting work\", \"resume session\", \"pick up where I left off\", \"what should I work on\", or at the start of every Claude Code session."
 ---
 
 # Session Startup Checklist

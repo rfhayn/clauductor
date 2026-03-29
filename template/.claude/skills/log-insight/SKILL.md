@@ -1,6 +1,6 @@
 ---
 name: log-insight
-description: Log a technical insight to docs/insights-log.md immediately. Use whenever a non-obvious discovery is made during implementation. Do not defer — sessions can clear.
+description: "Log a technical insight to docs/insights-log.md immediately. Do not defer — sessions can clear. TRIGGER when the user says \"log this insight\", \"that's worth noting\", \"remember this\", \"note this gotcha\", \"TIL\", \"important discovery\", \"capture this learning\", or any request to record a technical observation."
 argument-hint: <topic> <insight text>
 ---
 

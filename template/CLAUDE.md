@@ -40,17 +40,39 @@ echo "BUILD COMMAND NOT CONFIGURED — update CLAUDE.md"
 echo "TEST COMMAND NOT CONFIGURED — update CLAUDE.md"
 ```
 
-## Naming Convention (Zero Tolerance)
+## Naming Convention
 
-Always use **M#.#.# format** in all code, commits, docs, and branches:
+Use **PREFIX-#.#** format in all code, commits, docs, and branches:
 
 ```
-M1       = Major Feature
-M1.2     = Component within that feature
-M1.2.3   = Task within that component
+AUTH        = Epic (domain area, defined in prefix registry below)
+AUTH-1      = Feature within that epic
+AUTH-1.3    = Task within that feature
 ```
 
-Never use "Phase 3", "Step 3", or "Story 1.2.3".
+Never use "Phase 3", "Step 3", or unlabeled numbers.
+
+### Prefix Registry
+
+> Update this table as epics are created. Prefixes should be 2-5 uppercase characters.
+
+| Prefix | Domain |
+|--------|--------|
+| _TODO_ | _Define your first epic prefix_ |
+
+### Branch & Commit Format
+
+```
+Branch:  feature/AUTH-1.3-brief-description
+Commit:  AUTH-1.3: imperative mood description
+```
+
+### Depth Flexibility
+
+Choose the granularity that fits the work:
+- `AUTH-1` — for features that don't need sub-task tracking
+- `AUTH-1.3` — for tasks within a feature
+- Sub-tasks below that are checklist items in the task file, not separate IDs
 
 Status indicators: `COMPLETE` | `ACTIVE` | `READY` | `PLANNED`
 
@@ -72,15 +94,15 @@ Before implementing ANY feature, use these skills as needed:
 
 - `/prd-audit <path>` — Required if PRD is >2 weeks old
 - `/architecture-audit` — Required before work touching core patterns (configure rules first)
-- Verify correct M#.#.# format in current-story.md
+- Verify correct PREFIX-#.# format in current-story.md
 - Follow established patterns and ADR decisions
 
 ## Git Workflow
 
 **One phase = one branch = one PR = one squash commit to main.**
 
-- Branch: `feature/M#.#.#-brief-kebab-case` (3-5 words max)
-- Commit: `M#.#.#:` imperative mood. **No Co-Authored-By.**
+- Branch: `feature/PREFIX-#.#-brief-kebab-case` (3-5 words max)
+- Commit: `PREFIX-#.#:` imperative mood. **No Co-Authored-By.**
 - Commit every 15-30 min, push after each commit
 - Skills: `/new-milestone`, `/commit`, `/pr`, `/build`
 
@@ -90,14 +112,15 @@ Before implementing ANY feature, use these skills as needed:
 
 - `/log-insight <topic> <insight>` — Log insights IMMEDIATELY
 - `/dev-journal` — Session narrative (MANDATORY before every commit)
-- `/milestone-complete <M#.#.#>` — Update docs after milestone completion
+- `/milestone-complete <PREFIX-#.#>` — Update docs after milestone completion
 
 ### Split Next-Prompt Pattern
 
 Implementation guidance uses per-milestone files:
 - `docs/next-prompt.md` — Hub/index with pointers to active milestones
-- `docs/next-prompt-M#.#.md` — Per-milestone guidance (created by `/new-milestone`, deleted by `/milestone-complete`)
-- Naming uses **major.minor** (e.g., `next-prompt-M1.2.md`) — sub-tasks share one file
+- `docs/next-prompt-PREFIX-#.md` or `docs/next-prompt-PREFIX-#.#.md` — Per-milestone guidance
+- Created by `/new-milestone`, deleted by `/milestone-complete`
+- File name matches the milestone ID you pass (e.g., `next-prompt-AUTH-1.md` or `next-prompt-AUTH-1.3.md`)
 
 ## Project Skills
 
@@ -107,7 +130,7 @@ Implementation guidance uses per-milestone files:
 | `/session-start` | Startup checklist + worker registration |
 | `/new-milestone` | Create branch + per-milestone next-prompt |
 | `/build` | Build project (⚠️ configure first) |
-| `/commit` | Commit with M#.#.# conventions |
+| `/commit` | Commit with PREFIX-#.# conventions |
 | `/pr` | Create PR with project format |
 | `/release-prep` | Deployment pipeline (⚠️ configure first) |
 | `/dev-journal` | Session narrative entry |
@@ -131,7 +154,7 @@ Implementation guidance uses per-milestone files:
 
 ```
 // Comments explain WHY, not WHAT
-// TODOs must include milestone context: TODO (M4): description
+// TODOs must include milestone context: TODO (AUTH-2): description
 ```
 
 ## Quality Gates
