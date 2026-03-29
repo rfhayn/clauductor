@@ -1,7 +1,7 @@
 # PRD: Clauductor — Multi-Worker Orchestration Framework
 
 **Author**: Rich
-**Status**: DRAFT
+**Status**: ACTIVE
 **Created**: 2026-03-28
 **Last Updated**: 2026-03-28
 
@@ -18,7 +18,7 @@ The result: developers underutilize Claude Code's capacity. You could have 3 age
 
 ## Vision
 
-Evolve claude-dev-framework from a single-session development methodology into a **multi-worker orchestration framework** where:
+Evolve clauductor from a single-session development methodology into a **multi-worker orchestration framework** where:
 
 - Multiple Claude Code sessions (human or agent) work simultaneously on the same codebase
 - A supervisor session dispatches work, monitors progress, and resolves conflicts
@@ -239,8 +239,8 @@ The review supplements human review — it catches convention drift and process 
 
 | Skill | Change |
 |---|---|
-| `/session-start` | Registers worker with sidecar, loads branch-specific next-prompt-M#.#.md |
-| `/new-milestone` | Creates next-prompt-M#.#.md (split pattern), registers milestone in sidecar |
+| `/session-start` | Registers worker with orchestration layer, loads branch-specific next-prompt-M#.#.md |
+| `/new-milestone` | Creates next-prompt-M#.#.md (split pattern), registers milestone in orchestration layer |
 | `/commit` | Logs commit event to orchestration log |
 | `/milestone-complete` | Releases locks, archives next-prompt-M#.#.md, deregisters workers, removes hub pointer |
 | `/pr` | Suggests running /review before PR creation |
@@ -260,7 +260,7 @@ Before orchestration, implement the split next-prompt file pattern:
 The framework repo separates **source** (framework tooling) from **template** (what projects get). Projects never contain framework source code.
 
 ```
-claude-dev-framework/               ← FRAMEWORK REPO (development only)
+clauductor/               ← FRAMEWORK REPO (development only)
 ├── CLAUDE.md                       ← framework's own dev instructions
 ├── framework/                      ← compiled tooling source
 │   ├── cmd/
@@ -329,8 +329,8 @@ No framework source code. No Go files. Just skills, docs, and your code.
 
 ```bash
 # One-time: clone and install the framework
-git clone <repo> ~/claude-dev-framework
-cd ~/claude-dev-framework && ./install.sh
+git clone <repo> ~/clauductor
+cd ~/clauductor && ./install.sh
 
 # install.sh:
 #   1. Checks prerequisites: Go toolchain, tmux
@@ -389,7 +389,7 @@ The `/spawn` skill:
 1. Determines the right context (next-prompt-M#.#.md, PRD, etc.)
 2. Creates a new tmux pane within the Clauductor session
 3. Launches Claude Code in the pane with initial context/prompt
-4. The new session runs `/session-start` which auto-registers with the sidecar
+4. The new session runs `/session-start` which auto-registers with the orchestration layer
 5. If build session: runs `/claim` to declare manifest and lock files
 
 All worker sessions live as tmux panes — the HUD can toggle between them directly.
@@ -431,7 +431,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - `/claim` skill — session type declaration, file manifest generation, locking
 - `/release` skill — lock release, worker deregistration
 - `/blocked` skill — wait/escalation cycle with 15-min escalation
-- Modify `/session-start` to auto-register with sidecar
+- Modify `/session-start` to auto-register with orchestration layer
 - Modify `/commit` to log events
 - Research/spike sessions: warn on source code modification, allow doc commits
 

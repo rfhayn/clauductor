@@ -14,7 +14,7 @@ Clauductor fixes this. It's a coordination protocol — not just a process manag
 
 - **[Claude Code](https://claude.ai/code)** — Anthropic's CLI tool
 - **tmux** — terminal multiplexer (installed automatically)
-- **Go 1.22+** — for building the CLI (installed automatically)
+- **Go 1.24+** — for building the CLI (installed automatically)
 - **Git** + **GitHub CLI (`gh`)** — for git workflow
 
 ## Quick Start
@@ -129,6 +129,12 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 | `clauductor event` | Log orchestration event |
 | `clauductor query <type>` | Query state (JSON) |
 | `clauductor export <type>` | Export data (JSON/markdown) |
+
+## Documentation
+
+- **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
+- **[Onboarding Guide](docs/onboarding.md)** — Complete tutorial from install to multi-worker orchestration
+- **[PRD](docs/prds/active/PRD-orchestration-framework.md)** — Full product requirements and architecture
 
 ## Origin
 

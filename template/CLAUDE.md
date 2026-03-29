@@ -99,7 +99,7 @@ Before implementing ANY feature, use these skills as needed:
 
 ## Git Workflow
 
-**One phase = one branch = one PR = one squash commit to main.**
+**One milestone = one branch = one PR = one squash commit to main.**
 
 - Branch: `feature/PREFIX-#.#-brief-kebab-case` (3-5 words max)
 - Commit: `PREFIX-#.#:` imperative mood. **No Co-Authored-By.**

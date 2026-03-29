@@ -17,7 +17,7 @@ cd ~/clauductor
 ./install.sh
 
 # Restart your shell to pick up PATH changes
-source ~/.zshrc
+source ~/.zshrc  # or ~/.bashrc for bash
 ```
 
 ### 2. Create Your First Project
@@ -196,7 +196,7 @@ clauductor export summary
 
 ## Troubleshooting
 
-**`clauductor: command not found`** — Run `source ~/.zshrc` or add `~/.local/bin` to your PATH.
+**`clauductor: command not found`** — Run `source ~/.zshrc  # or ~/.bashrc for bash` or add `~/.local/bin` to your PATH.
 
 **`CLAUDUCTOR_FRAMEWORK not set`** — Run `./install.sh` again, or set manually: `export CLAUDUCTOR_FRAMEWORK=~/clauductor`
 
