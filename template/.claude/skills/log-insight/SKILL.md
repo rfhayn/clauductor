@@ -28,9 +28,9 @@ Insights are non-obvious technical observations discovered during implementation
 
 Add a new row to the insights log table:
 
-| Date | Milestone | Topic | Insight | Status |
-|------|-----------|-------|---------|--------|
-| [today] | [from branch] | [hierarchical tag] | [the observation] | Raw |
+| Date | Milestone | Topic | Insight | Verification | Status |
+|------|-----------|-------|---------|--------------|--------|
+| [today] | [from branch] | [hierarchical tag] | [the observation] | [how to verify] | Raw |
 
 ### Topic Tags (Hierarchical)
 
