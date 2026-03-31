@@ -145,6 +145,7 @@ func FindDiffs(targetDir string) ([]FileDiff, error) {
 	comparePaths := []string{
 		".claude/skills",
 		".claude/agents",
+		".claude/hooks",
 		".claude/settings.json",
 		".claude/statusline.sh",
 	}
