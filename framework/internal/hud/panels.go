@@ -133,25 +133,41 @@ func renderWorkers(data HUDData, width int, focused bool) string {
 }
 
 // renderLocks renders the file locks panel.
-func renderLocks(data HUDData, width int, focused bool) string {
+func renderLocks(data HUDData, width int, focused bool, scrollOffset int) string {
 	var b strings.Builder
 
 	if len(data.Locks) == 0 {
 		b.WriteString(dimText.Render("  No active file locks"))
+		content := strings.TrimRight(b.String(), "\n")
+		return wrapPanel("FILE LOCKS", content, width, focused)
 	}
 
-	// Find longest path for alignment
+	visible := 5
+	start := scrollOffset
+	if start > len(data.Locks)-visible {
+		start = len(data.Locks) - visible
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + visible
+	if end > len(data.Locks) {
+		end = len(data.Locks)
+	}
+
+	// Find longest path for alignment (across visible locks)
 	maxPath := 0
-	for _, l := range data.Locks {
-		if len(l.FilePath) > maxPath {
-			maxPath = len(l.FilePath)
+	for i := start; i < end; i++ {
+		if len(data.Locks[i].FilePath) > maxPath {
+			maxPath = len(data.Locks[i].FilePath)
 		}
 	}
 	if maxPath > 30 {
 		maxPath = 30
 	}
 
-	for _, l := range data.Locks {
+	for i := start; i < end; i++ {
+		l := data.Locks[i]
 		path := l.FilePath
 		if len(path) > 30 {
 			path = "..." + path[len(path)-27:]
@@ -169,6 +185,12 @@ func renderLocks(data HUDData, width int, focused bool) string {
 			dimText.Render(connector) +
 			brightText.Render(owner)
 		b.WriteString(line + "\n")
+	}
+
+	// Show scroll indicator if there are more locks than visible
+	if len(data.Locks) > visible {
+		indicator := fmt.Sprintf("  [%d-%d of %d]", start+1, end, len(data.Locks))
+		b.WriteString(dimText.Render(indicator))
 	}
 
 	content := strings.TrimRight(b.String(), "\n")
@@ -227,7 +249,7 @@ func renderMilestones(data HUDData, width int, focused bool) string {
 func renderActivity(data HUDData, width int, focused bool, scrollOffset int) string {
 	var b strings.Builder
 
-	visible := 6
+	visible := 10
 	start := scrollOffset
 	if start > len(data.Events)-visible {
 		start = len(data.Events) - visible

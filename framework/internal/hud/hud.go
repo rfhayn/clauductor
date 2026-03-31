@@ -16,14 +16,13 @@ type tickMsg time.Time
 type panel int
 
 const (
-	panelNone       panel = iota
+	panelNone     panel = iota
 	panelWorkers
 	panelLocks
-	panelMilestones
 	panelActivity
 )
 
-const panelCount = 4
+const panelCount = 3
 
 // Model is the Bubble Tea model for the Clauductor HUD.
 type Model struct {
@@ -35,9 +34,10 @@ type Model struct {
 	quitting   bool
 
 	// Navigation state
-	focusPanel   panel  // currently focused panel (0 = none)
-	scrollOffset int    // scroll offset for activity feed
-	showHelp     bool   // whether help overlay is visible
+	focusPanel      panel // currently focused panel (0 = none)
+	scrollOffset    int   // scroll offset for activity feed
+	lockScrollOffset int  // scroll offset for file locks
+	showHelp        bool  // whether help overlay is visible
 }
 
 // New creates a new HUD model with the given data source.
@@ -73,17 +73,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.scrollOffset > 0 {
-				m.scrollOffset--
+			if m.focusPanel == panelLocks {
+				if m.lockScrollOffset > 0 {
+					m.lockScrollOffset--
+				}
+			} else {
+				if m.scrollOffset > 0 {
+					m.scrollOffset--
+				}
 			}
 
 		case "down", "j":
-			maxScroll := len(m.data.Events) - 6
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-			if m.scrollOffset < maxScroll {
-				m.scrollOffset++
+			if m.focusPanel == panelLocks {
+				maxScroll := len(m.data.Locks) - 5
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if m.lockScrollOffset < maxScroll {
+					m.lockScrollOffset++
+				}
+			} else {
+				maxScroll := len(m.data.Events) - 10
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if m.scrollOffset < maxScroll {
+					m.scrollOffset++
+				}
 			}
 
 		case "tab":
@@ -159,10 +175,8 @@ func (m Model) View() string {
 	// Workers panel — full width
 	workers := renderWorkers(m.data, w, m.focusPanel == panelWorkers)
 
-	// Locks and milestones — both full width, stacked vertically
-	locks := renderLocks(m.data, w, m.focusPanel == panelLocks)
-	milestones := renderMilestones(m.data, w, m.focusPanel == panelMilestones)
-	middle := lipgloss.JoinVertical(lipgloss.Left, locks, milestones)
+	// File locks — full width
+	locks := renderLocks(m.data, w, m.focusPanel == panelLocks, m.lockScrollOffset)
 
 	// Activity feed — full width
 	activity := renderActivity(m.data, w, m.focusPanel == panelActivity, m.scrollOffset)
@@ -171,7 +185,7 @@ func (m Model) View() string {
 	footer := renderFooter(w, m.showHelp)
 
 	view := lipgloss.JoinVertical(lipgloss.Left,
-		header, workers, middle, activity, footer)
+		header, workers, locks, activity, footer)
 
 	// Help overlay
 	if m.showHelp {
@@ -211,8 +225,8 @@ func renderHelpOverlay(width, height int) string {
 
   Navigation
   ----------
-  up / k        Scroll activity feed up
-  down / j      Scroll activity feed down
+  up / k        Scroll focused panel up
+  down / j      Scroll focused panel down
   tab           Cycle focus between panels
   esc           Unfocus panel
 
