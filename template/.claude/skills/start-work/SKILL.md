@@ -1,6 +1,6 @@
 ---
 name: start-work
-description: "Pick up a piece of work. Chains session-start → claim → set status → report ready. Degrades to just session-start if no orchestration. TRIGGER when the user says \"start work\", \"pick up\", \"work on\", \"begin work\", \"take this milestone\", \"grab this\", \"I'll work on\", or any request to start working on a specific milestone."
+description: "Pick up a piece of work. Chains session-start → register → claim → set status → report ready. Always uses orchestration. TRIGGER when the user says \"start work\", \"pick up\", \"work on\", \"begin work\", \"take this milestone\", \"grab this\", \"I'll work on\", or any request to start working on a specific milestone."
 argument-hint: "[PREFIX-#.#]"
 ---
 
