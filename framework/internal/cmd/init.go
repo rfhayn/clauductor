@@ -101,6 +101,7 @@ func ensureOrchestrationConfig(targetDir string) error {
 func runCommand(dir string, name string, args ...string) error {
 	cmd := execCommand(name, args...)
 	cmd.Dir = dir
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
