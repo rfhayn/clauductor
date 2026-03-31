@@ -59,8 +59,8 @@ Project State:
   Active milestones: [list from current-story.md]
   Priority queue:    [ordered list]
 
-Workers:
-  [table of registered workers]
+Workers: (use plain text with aligned columns, NOT markdown tables — tables truncate in narrow terminals)
+  [worker-id]  [type]  [status]  [milestone]  [heartbeat]
 
 Available Work:
   [unclaimed milestones from priority queue]
