@@ -73,16 +73,43 @@ func renderFooter(width int, showHelp bool) string {
 func renderWorkers(data HUDData, width int, focused bool) string {
 	var b strings.Builder
 
+	// Calculate dynamic name width from actual data (min 10, max 24)
+	nameW := 10
+	for _, w := range data.Workers {
+		if len(w.Name) > nameW {
+			nameW = len(w.Name)
+		}
+	}
+	if nameW > 24 {
+		nameW = 24
+	}
+
+	// Milestone column: find max width (min 6, max 12)
+	msW := 6
+	for _, w := range data.Workers {
+		if len(w.Milestone) > msW {
+			msW = len(w.Milestone)
+		}
+	}
+	if msW > 12 {
+		msW = 12
+	}
+
 	for _, w := range data.Workers {
 		dot := statusDot(w.Status)
+
+		wName := w.Name
+		if len(wName) > nameW {
+			wName = wName[:nameW-1] + "…"
+		}
 		name := lipgloss.NewStyle().
-			Width(12).
+			Width(nameW).
 			Foreground(colorBright).
 			Bold(true).
-			Render(w.Name)
+			Render(wName)
 
-		milestone := cyanText.Width(6).Render(w.Milestone)
-		wtype := accentText.Width(9).Render(strings.ToUpper(w.Type))
+		milestone := cyanText.Width(msW).Render(truncate(w.Milestone, msW))
+		wtype := accentText.Width(6).Render(strings.ToUpper(w.Type))
 
 		files := dimText.Render("(no locks)")
 		if len(w.LockedFiles) > 0 {
@@ -213,8 +240,19 @@ func renderActivity(data HUDData, width int, focused bool, scrollOffset int) str
 		end = len(data.Events)
 	}
 
-	// Prefix: "HH:MM  " (7) + worker (10) + " " (1) = 18 visible chars
-	prefixWidth := 18
+	// Dynamic worker column width based on actual data
+	workerW := 10
+	for _, e := range data.Events {
+		if len(e.WorkerID) > workerW {
+			workerW = len(e.WorkerID)
+		}
+	}
+	if workerW > 24 {
+		workerW = 24
+	}
+
+	// Prefix: "HH:MM  " (7) + worker (workerW) + " " (1)
+	prefixWidth := 8 + workerW
 	contentWidth := width - 4 // panel borders + padding
 	detailMax := contentWidth - prefixWidth
 	if detailMax < 10 {
@@ -224,7 +262,7 @@ func renderActivity(data HUDData, width int, focused bool, scrollOffset int) str
 	for i := start; i < end; i++ {
 		e := data.Events[i]
 		ts := dimText.Render(e.Timestamp.Format("15:04"))
-		worker := accentText.Width(10).Render(e.WorkerID)
+		worker := accentText.Width(workerW).Render(truncate(e.WorkerID, workerW))
 
 		detail := e.Detail
 		if len(detail) > detailMax {
@@ -309,4 +347,14 @@ func formatDuration(d time.Duration) string {
 	m := int(d.Minutes())
 	s := fmt.Sprintf("%dm", m)
 	return dimText.Width(6).Render(s)
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return s[:max-1] + "…"
 }
