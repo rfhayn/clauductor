@@ -32,9 +32,9 @@ Current branch and status:
 - Status: !`git status --short`
 - Recent commits: !`git log --oneline -5`
 
-## Step 4: Register Worker (if orchestration is available)
+## Step 4: Register Worker
 
-If `orchestration/` directory exists, register this session:
+Register this session with orchestration:
 ```bash
 clauductor register --name [worker-name] --type [session-type] --milestone [PREFIX-#.#] --owner [user]
 ```
@@ -44,7 +44,7 @@ Update the session status file:
 echo "PREFIX-#.#|[type]|[worker-name]|[description]" > orchestration/.session-status
 ```
 
-If orchestration is not set up, skip this step silently.
+If the `clauductor` binary is not available, warn the user — do not skip silently.
 
 ## Step 5: Report
 
