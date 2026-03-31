@@ -30,77 +30,44 @@ claude
 
 Once in Claude Code, run:
 ```
-/session-start
+/start-project
 ```
 
-This loads all context docs, checks git state, registers you as a worker, and reports status.
+This walks you through the full setup: prefix registry, build command, architecture description, and first milestone.
 
-### 3. Define Your First Epic
-
-Open `CLAUDE.md` and add to the Prefix Registry:
-
-| Prefix | Description | Status |
-|--------|-------------|--------|
-| AUTH | Authentication system | PLANNED |
-
-### 4. Start Your First Milestone
+### 3. Daily Workflow
 
 ```
-/new-milestone AUTH-1 User login flow
+/start-work AUTH-1.3    # Registers, claims files, loads context
+# ... work ...
+/done                   # Review → journal → commit → PR → release
 ```
 
-This creates a feature branch, updates `docs/current-story.md` with ACTIVE status, and generates implementation guidance in `docs/next-prompt-AUTH-1.md`.
-
-### 5. Claim and Build
-
-```
-/claim AUTH-1
-```
-
-This locks the files you will be working on. Then build:
-
-```
-# Make your changes...
-/build
-/commit
-```
-
-Repeat the build-commit cycle as you make progress.
-
-### 6. Review and PR
-
-When the milestone is ready for review:
-
-```
-/pr
-```
-
-This creates a pull request with the project format, linking the milestone and summarizing changes.
-
-### 7. Complete the Milestone
-
-```
-/milestone-complete AUTH-1
-```
-
-This updates `docs/current-story.md`, writes a journal entry, and marks the milestone as complete.
+`/start-work` chains `/session-start` + `/claim` into a single command.
+`/done` chains `/review` → `/dev-journal` → `/commit` → `/pr` → `/milestone-complete` → `/release`.
 
 ## Multi-Worker Orchestration
 
-### Starting the Supervisor
+### Starting a Team Workspace
 
-From a Claude Code session:
-
-```
-/supervisor
-```
-
-This launches the orchestration loop with the real-time HUD dashboard.
-
-Alternatively, from the terminal:
+From the terminal:
 
 ```bash
-clauductor start
+clauductor start           # HUD + supervisor + 3 workers
+clauductor start -n 5      # Override to 5 workers
+```
+
+This creates:
+- **Window 0**: HUD dashboard (`clauductor watch`)
+- **Window 1**: Supervisor (auto-dispatches work via `/supervisor`)
+- **Windows 2-N**: Worker terminals (auto-launch claude)
+
+Configure in `orchestration/config.json`:
+```json
+{
+  "default_workers": 3,
+  "auto_claude": true
+}
 ```
 
 ### Spawning Agents
@@ -158,6 +125,23 @@ This reads the priority queue, finds unclaimed READY/PLANNED milestones, and spa
 | **build** | Feature implementation | Full access, locks claimed files |
 | **test** | Writing/running tests | Full access, locks claimed files |
 
+## Hooks (Automatic Safety Checks)
+
+Hooks run automatically via `.claude/settings.json` — no manual invocation needed.
+
+| Hook | When | What |
+|------|------|------|
+| `session-register.sh` | Session start | Registers worker in orchestration DB |
+| `heartbeat.sh` | After edits | Keeps worker alive (60s throttle) |
+| `lock-guard.sh` | Before edits | Warns if file is locked by another worker |
+| `status-sync.sh` | After writes | Syncs milestone status when current-story.md changes |
+
+**Design principles**:
+- All hooks no-op gracefully when `orchestration/` doesn't exist
+- Hooks warn but don't block by default (exit 0)
+- <200ms execution — file stat before SQLite queries
+- See `.claude/hooks/README.md` for the full protocol
+
 ## Skill Reference
 
 Run `/skills` in any Claude Code session to see the full list of available skills.
@@ -166,14 +150,15 @@ Key skills:
 
 | Skill | Purpose |
 |-------|---------|
+| `/start-project` | Guided first-time setup wizard |
+| `/start-work [PREFIX-#.#]` | Pick up work: register + claim + load context |
+| `/done` | Wrap up: review → journal → commit → PR → release |
+| `/pane` | Open new tmux pane (optionally with claude) |
 | `/session-start` | Register worker, load context |
 | `/new-milestone` | Create branch + per-milestone docs |
-| `/claim` | Declare file manifest, lock files |
-| `/release` | Release locks, deregister |
-| `/supervisor` | Orchestration loop |
-| `/spawn` | Launch new Claude Code sessions |
-| `/assign` | Auto-dispatch work (supervisor only) |
 | `/commit` | Commit with PREFIX-#.# conventions |
+| `/spawn` | Launch new Claude Code sessions |
+| `/supervisor` | Orchestration loop |
 | `/status` | Quick orchestration status |
 
 ## Exporting Data

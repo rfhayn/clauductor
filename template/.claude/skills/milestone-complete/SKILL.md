@@ -30,23 +30,18 @@ argument-hint: <PREFIX-#.#>
 - **Remove** the pointer to the completed milestone from the Active Milestones section
 - If there's a next milestone in the priority queue, add guidance for it (or note it as planned)
 
-### 4. `docs/roadmap.md`
-- Add milestone to Completed table with actual hours
-- Move from Active table if present
-- Update priority queue to match current-story
-
-### 5. `docs/requirements.md`
+### 4. `docs/requirements.md`
 - Mark related requirements as COMPLETE (only if new requirements were fulfilled)
 
-### 6. `docs/insights-log.md`
+### 5. `docs/insights-log.md`
 - Review: are there any unlogged insights from this milestone?
 - Check promotion rules: 3+ insights on same topic → suggest Learning Note
 
-### 7. `docs/development-journal.md`
+### 6. `docs/development-journal.md`
 - Write or update the narrative session entry for this milestone completion
 - Include the **Retro** section (see below)
 
-### 8. Release Orchestration Locks (if orchestration is available)
+### 7. Release Orchestration Locks (if orchestration is available)
 
 If `orchestration/` directory exists:
 ```bash
@@ -77,7 +72,7 @@ After updating:
 - [ ] `current-story.md` has milestone in Recently Completed table
 - [ ] Branch-specific next-prompt file deleted (or cleaned up)
 - [ ] Pointer removed from `docs/next-prompt.md` Active Milestones section
-- [ ] Priority queue is consistent across current-story and roadmap
+- [ ] Planning Accuracy table updated in current-story.md
 - [ ] Actual hours recorded
 - [ ] Journal has retro section
 - [ ] Any unlogged insights captured

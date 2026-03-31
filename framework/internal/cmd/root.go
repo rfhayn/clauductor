@@ -35,4 +35,6 @@ func init() {
 	rootCmd.AddCommand(heartbeatCmd)
 	rootCmd.AddCommand(milestoneCmd)
 	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(checkLockCmd)
+	rootCmd.AddCommand(contextCmd)
 }

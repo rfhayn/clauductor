@@ -31,10 +31,10 @@ claude
 
 Once in Claude Code:
 ```
-/session-start
+/start-project
 ```
 
-This loads all context docs, checks git state, and reports status.
+This walks you through setup: prefix registry, build command, architecture, first milestone.
 
 ## Install Into an Existing Project
 
@@ -68,45 +68,39 @@ This:
 ## Daily Workflow
 
 ```
-# Start of session (mandatory)
-/session-start
-
-# Claim files for a build session
-/claim AUTH-1
+# Pick up a milestone (registers, claims files, loads context)
+/start-work AUTH-1
 
 # Work... build... test...
 /build
 /commit
 
-# End of session
-/dev-journal
-
-# Milestone done?
-/milestone-complete AUTH-1
+# Milestone done? This chains: review → journal → commit → PR → release
+/done
 ```
 
 ## Multi-Worker Orchestration
 
-Start the orchestrator to run multiple sessions:
+Start a full team workspace:
 
 ```bash
-clauductor start
+clauductor start           # HUD + supervisor + 3 workers
+clauductor start -n 5      # Override to 5 workers
 ```
 
-This creates a tmux session with the HUD dashboard. From there:
+This creates:
+- **Window 0**: HUD dashboard (`clauductor watch`)
+- **Window 1**: Supervisor (auto-dispatches work)
+- **Windows 2-N**: Worker terminals (auto-launch claude)
 
+From any session:
 ```
-# Spawn a build agent
+# Spawn additional workers
 /spawn build API-1 API routes
-
-# Spawn a research agent
-/spawn spike CACHE-1 caching strategies
+/spawn research CACHE-1 Caching strategies
 
 # Check status
 /status
-
-# Toggle between sessions: press 1, 2, 3...
-# Back to HUD: press Esc
 ```
 
 ## Session Types
@@ -126,16 +120,12 @@ This creates a tmux session with the HUD dashboard. From there:
 | `clauductor install` | Add to existing project |
 | `clauductor install --dry-run` | Preview install changes |
 | `clauductor update` | Upgrade skills to latest |
-| `clauductor start` | Launch tmux + HUD |
+| `clauductor start [-n N]` | Full team workspace (HUD + supervisor + workers) |
 | `clauductor watch` | HUD dashboard only |
 | `clauductor status` | Quick terminal status |
-| `clauductor register` | Register a worker |
-| `clauductor lock` | Lock files |
-| `clauductor unlock` | Release locks |
-| `clauductor heartbeat` | Update worker heartbeat |
-| `clauductor milestone` | Create/update milestones |
-| `clauductor event` | Log orchestration event |
-| `clauductor query <type>` | Query state (JSON) |
+| `clauductor context [--json]` | Orchestration snapshot |
+| `clauductor check-lock --file <path>` | Check file lock status |
+| `clauductor query <type>` | Query state (JSON): workers, locks, events, milestones |
 | `clauductor export <type>` | Export data (JSON/markdown) |
 
 ## File Structure
@@ -148,14 +138,15 @@ my-project/
 ├── .claude/
 │   ├── skills/            ← Orchestration skills
 │   ├── agents/            ← Composite agents
-│   ├── settings.json      ← Permissions + status line
+│   ├── hooks/             ← Automated safety checks
+│   ├── settings.json      ← Permissions + hooks + status line
 │   └── statusline.sh      ← Dynamic status display
 ├── docs/
 │   ├── current-story.md   ← Source of truth for milestones
 │   ├── next-prompt.md     ← Hub/index for implementation guidance
-│   ├── roadmap.md         ← Milestone sequence
 │   └── prds/              ← Product requirement documents
 └── orchestration/         ← Runtime state (gitignored)
+    ├── config.json        ← Team settings (workers, auto-claude)
     └── framework.db       ← SQLite: workers, locks, events
 ```
 

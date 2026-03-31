@@ -1,6 +1,6 @@
 ---
 name: architecture-audit
-description: "Check codebase for architectural violations. ⚠️ CONFIGURE FIRST: Define your project's architectural rules below. Run before milestones that touch core patterns."
+description: "Check codebase for architectural violations. ⚠️ CONFIGURE FIRST: Define your project's architectural rules below. TRIGGER when the user says \"check architecture\", \"audit architecture\", \"run architecture check\", \"check for violations\", \"architecture review\", or any request to verify architectural patterns."
 user_invocable: true
 ---
 

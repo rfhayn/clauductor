@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Create a git commit following project conventions. Enforces PREFIX-#.# prefix, imperative mood, no Co-Authored-By. Use instead of raw git commit. TRIGGER when the user says "commit this", "commit the changes", "let's commit", "make a commit", "save this progress", or any request to create a git commit.
+description: "Create a git commit following project conventions. Enforces PREFIX-#.# prefix, imperative mood, no Co-Authored-By. TRIGGER when the user says \"commit this\", \"commit the changes\", \"let's commit\", \"make a commit\", \"save this progress\", \"check in the code\", \"snapshot this\", \"git commit\", or any request to create a git commit."
 ---
 
 # Project Commit
@@ -16,7 +16,7 @@ Create a commit following project conventions.
 
 ## Commit Rules
 
-1. **Detect milestone** from current branch name (e.g., `feature/AUTH-3-oauth-callback` → `AUTH-3`)
+1. **Detect milestone** from current branch name (e.g., `feature/AUTH-1.3-oauth-callback` → `AUTH-1.3`)
 2. **Stage specific files** — never use `git add .` or `git add -A` (risk of committing secrets or large binaries)
 3. **Format commit message**:
    - First line: `PREFIX-#.#: Brief description` (imperative mood, e.g., "Add", "Fix", "Update")
@@ -44,8 +44,25 @@ PREFIX-#.#: Brief imperative description
 5. Commit using HEREDOC format
 6. Do NOT push unless explicitly asked
 
+## Commit Message Quality
+
+Good:
+- `AUTH-1.3: Add OAuth callback handler`
+- `DASH-2: Fix chart rendering on empty data`
+- `API-1: Refactor rate limiting middleware`
+
+Bad:
+- `Fixed stuff` (no milestone prefix)
+- `AUTH-1.3: Updated files` (vague)
+- `WIP` (not descriptive)
+
 ## Post-Commit
 
-After committing, remind about:
-- `docs/insights-log.md` — any unlogged technical insights this session?
-- `docs/development-journal.md` — is the journal entry current?
+After committing, automatically run these via Agents (background) for efficiency:
+1. **Journal**: Read the top of `docs/development-journal.md` — if the latest entry doesn't reference today's date or the current milestone, invoke `/dev-journal` via an Agent to update it
+2. **Insights**: Ask the user if there are any unlogged technical insights from this session. If yes, invoke `/log-insight` via an Agent
+
+If orchestration is available, log the commit event:
+```bash
+clauductor event --worker-id [worker-name] --type "commit" --detail "PREFIX-#.#: [commit message first line]"
+```

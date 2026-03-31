@@ -6,6 +6,25 @@ import (
 	"github.com/clauductor/clauductor/internal/state"
 )
 
+// SQLite timestamp formats — tried in order. Drivers may return any of these.
+var sqliteTimeFormats = []string{
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05Z",
+	"2006-01-02T15:04:05.000Z",
+	"2006-01-02T15:04:05",
+	time.RFC3339,
+}
+
+// parseSQLiteTime tries multiple formats to parse a SQLite timestamp string.
+func parseSQLiteTime(s string) time.Time {
+	for _, fmt := range sqliteTimeFormats {
+		if t, err := time.Parse(fmt, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 // SQLiteDataSource reads orchestration state from the SQLite database.
 type SQLiteDataSource struct {
 	db *state.DB
@@ -50,7 +69,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 
 	// Map workers
 	for _, w := range stateWorkers {
-		startedAt, _ := time.Parse("2006-01-02 15:04:05", w.StartedAt)
+		startedAt := parseSQLiteTime(w.StartedAt)
 		duration := time.Since(startedAt)
 		if startedAt.IsZero() {
 			duration = 0
@@ -69,7 +88,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 
 	// Map locks
 	for _, l := range stateLocks {
-		lockedAt, _ := time.Parse("2006-01-02 15:04:05", l.LockedAt)
+		lockedAt := parseSQLiteTime(l.LockedAt)
 		data.Locks = append(data.Locks, Lock{
 			FilePath:  l.FilePath,
 			WorkerID:  l.WorkerID,
@@ -84,7 +103,7 @@ func (s *SQLiteDataSource) Fetch() (HUDData, error) {
 		return data, err
 	}
 	for _, e := range stateEvents {
-		ts, _ := time.Parse("2006-01-02 15:04:05", e.Timestamp)
+		ts := parseSQLiteTime(e.Timestamp)
 		data.Events = append(data.Events, Event{
 			Timestamp: ts,
 			WorkerID:  e.WorkerID,

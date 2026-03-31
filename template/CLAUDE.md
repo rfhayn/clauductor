@@ -124,6 +124,14 @@ Implementation guidance uses per-milestone files:
 
 ## Project Skills
 
+### Lifecycle Skills
+| Skill | Purpose |
+|-------|---------|
+| `/start-project` | Guided first-time setup wizard |
+| `/start-work [PREFIX-#.#]` | Pick up work: session-start + claim + load context |
+| `/done` | Wrap up: review → journal → commit → PR → milestone-complete → release |
+| `/pane` | Open new tmux pane (optionally with claude) |
+
 ### Development Skills
 | Skill | Purpose |
 |-------|---------|
@@ -151,6 +159,20 @@ Implementation guidance uses per-milestone files:
 | `/spawn` | Start new Claude Code session |
 | `/handoff` | Structured handoff between workers |
 | `/assign` | Auto-dispatch work to agents (supervisor only) |
+
+## Hooks
+
+The following hooks run automatically via `.claude/settings.json`:
+
+| Hook | Event | Behavior |
+|------|-------|----------|
+| `session-register.sh` | SessionStart | Auto-register worker in orchestration DB |
+| `heartbeat.sh` | PostToolUse | Keep worker alive (60s throttle) |
+| `lock-guard.sh` | PreToolUse | Warn before editing locked files |
+| `doc-freshness.sh` | PreToolUse | Warn about stale/missing docs before commits |
+| `status-sync.sh` | PostToolUse | Sync milestone status on current-story.md changes |
+
+All hooks gracefully no-op when `orchestration/` doesn't exist. See `.claude/hooks/README.md` for the hook protocol.
 
 ## Code Standards
 

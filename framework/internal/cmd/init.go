@@ -42,9 +42,12 @@ orchestration infrastructure. If path doesn't exist, it will be created.`,
 			return fmt.Errorf("failed to copy template: %w", err)
 		}
 
-		// Initialize orchestration directory
+		// Initialize orchestration directory and config
 		if err := initOrchestration(targetDir); err != nil {
 			return fmt.Errorf("failed to init orchestration: %w", err)
+		}
+		if err := ensureOrchestrationConfig(targetDir); err != nil {
+			fmt.Printf("  Warning: could not create orchestration config: %v\n", err)
 		}
 
 		// Initialize git if not already a repo
@@ -78,6 +81,20 @@ func initOrchestration(targetDir string) error {
 	}
 	db.Close()
 	fmt.Println("  Initialized orchestration database")
+	return nil
+}
+
+// ensureOrchestrationConfig creates orchestration/config.json if it doesn't exist.
+func ensureOrchestrationConfig(targetDir string) error {
+	configPath := filepath.Join(targetDir, "orchestration", "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil // already exists
+	}
+	defaultConfig := []byte("{\n  \"default_workers\": 3,\n  \"auto_claude\": true\n}\n")
+	if err := os.WriteFile(configPath, defaultConfig, 0644); err != nil {
+		return err
+	}
+	fmt.Println("  Created orchestration/config.json")
 	return nil
 }
 

@@ -6,9 +6,7 @@
 
 ## Active Milestones
 
-_Pointers to branch-specific files appear here when milestones are started._
-
-<!-- Format: - [M#.#: Title](next-prompt-M#.#.md) — Branch: `feature/M#.#-description` | Status: ACTIVE -->
+- [LIFE-1: Lifecycle Automation](next-prompt-LIFE-1.1.md) — Branch: `feature/LIFE-1-lifecycle-automation` | Status: IN PROGRESS (1.1–1.3, 1.7a complete)
 
 ---
 

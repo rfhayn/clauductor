@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,13 +10,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// teamConfig holds orchestration/config.json settings.
+type teamConfig struct {
+	DefaultWorkers int  `json:"default_workers"`
+	AutoClaude     bool `json:"auto_claude"`
+}
+
+func loadTeamConfig(targetDir string) teamConfig {
+	cfg := teamConfig{DefaultWorkers: 3, AutoClaude: true}
+	data, err := os.ReadFile(filepath.Join(targetDir, "orchestration", "config.json"))
+	if err != nil {
+		return cfg
+	}
+	json.Unmarshal(data, &cfg)
+	if cfg.DefaultWorkers < 1 {
+		cfg.DefaultWorkers = 3
+	}
+	return cfg
+}
+
+var workerCount int
+
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start Clauductor orchestration (tmux session + HUD)",
-	Long: `Starts a tmux session with the Clauductor HUD in the first pane.
-Worker sessions are added as additional panes.`,
+	Short: "Start Clauductor team workspace (HUD + supervisor + workers)",
+	Long: `Creates a tmux session with a full team workspace:
+  Window 0: HUD (clauductor watch)
+  Window 1: Supervisor (claude with /supervisor)
+  Windows 2-N: Worker terminals (optionally auto-launch claude)
+
+Worker count comes from -n flag, orchestration/config.json, or defaults to 3.
+Auto-claude behavior is controlled by config.json "auto_claude" field.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Verify tmux is available
 		if _, err := execCommand("tmux", "-V").Output(); err != nil {
 			return fmt.Errorf("tmux is required but not found — install with: brew install tmux")
 		}
@@ -25,28 +51,46 @@ Worker sessions are added as additional panes.`,
 			return err
 		}
 
+		cfg := loadTeamConfig(targetDir)
+		numWorkers := cfg.DefaultWorkers
+		if cmd.Flags().Changed("workers") {
+			numWorkers = workerCount
+		}
+
 		projectName := filepath.Base(targetDir)
 		sessionName := fmt.Sprintf("clauductor-%s", projectName)
 
-		// Check if session already exists
+		// Attach if session already exists
 		if err := execCommand("tmux", "has-session", "-t", sessionName).Run(); err == nil {
-			fmt.Printf("Clauductor session '%s' already running. Attaching...\n", sessionName)
+			fmt.Printf("Session '%s' already running. Attaching...\n", sessionName)
 			return runCommand("", "tmux", "attach-session", "-t", sessionName)
 		}
 
-		fmt.Printf("Starting Clauductor session '%s'...\n", sessionName)
+		fmt.Printf("Starting team workspace '%s'...\n", sessionName)
+		fmt.Printf("  HUD + supervisor + %d workers (auto_claude=%v)\n\n", numWorkers, cfg.AutoClaude)
 
-		// Create tmux session with HUD
-		// The HUD will be implemented in M5; for now, start with a status message
-		if err := runCommand("", "tmux", "new-session", "-d", "-s", sessionName, "-c", targetDir); err != nil {
+		// Window 0: HUD
+		if err := runCommand("", "tmux", "new-session", "-d", "-s", sessionName, "-c", targetDir, "-n", "hud"); err != nil {
 			return fmt.Errorf("failed to create tmux session: %w", err)
 		}
+		runCommand("", "tmux", "send-keys", "-t", fmt.Sprintf("%s:hud", sessionName), "clauductor watch", "Enter")
 
-		// Send the HUD command to the first pane (placeholder for M5)
-		hudCmd := fmt.Sprintf("clauductor watch")
-		runCommand("", "tmux", "send-keys", "-t", sessionName, hudCmd, "Enter")
+		// Window 1: Supervisor
+		runCommand("", "tmux", "new-window", "-t", sessionName, "-c", targetDir, "-n", "supervisor")
+		runCommand("", "tmux", "send-keys", "-t", fmt.Sprintf("%s:supervisor", sessionName), "claude '/supervisor'", "Enter")
 
-		// Attach to the session
+		// Windows 2-N: Workers
+		for i := 1; i <= numWorkers; i++ {
+			winName := fmt.Sprintf("worker-%d", i)
+			runCommand("", "tmux", "new-window", "-t", sessionName, "-c", targetDir, "-n", winName)
+			if cfg.AutoClaude {
+				runCommand("", "tmux", "send-keys", "-t", fmt.Sprintf("%s:%s", sessionName, winName), "claude", "Enter")
+			}
+		}
+
+		// Select the supervisor window before attaching
+		runCommand("", "tmux", "select-window", "-t", fmt.Sprintf("%s:supervisor", sessionName))
+
 		return runCommand("", "tmux", "attach-session", "-t", sessionName)
 	},
 }
@@ -64,7 +108,6 @@ var watchCmd = &cobra.Command{
 		if hudDemoMode {
 			source = hud.NewStubDataSource()
 		} else {
-			// Check if orchestration DB exists
 			dbPath := filepath.Join("orchestration", "framework.db")
 			if _, err := os.Stat(dbPath); err == nil {
 				sqlSource, err := hud.NewSQLiteDataSource(dbPath)
@@ -74,7 +117,6 @@ var watchCmd = &cobra.Command{
 				defer sqlSource.Close()
 				source = sqlSource
 			} else {
-				// No DB — fall back to demo mode
 				fmt.Println("No orchestration database found. Running in demo mode.")
 				fmt.Println("Run 'clauductor init' or 'clauductor install' to set up orchestration.")
 				source = hud.NewStubDataSource()
@@ -86,5 +128,6 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
+	startCmd.Flags().IntVarP(&workerCount, "workers", "n", 3, "Number of worker terminals to create")
 	watchCmd.Flags().BoolVar(&hudDemoMode, "demo", false, "Run HUD with demo/stub data")
 }

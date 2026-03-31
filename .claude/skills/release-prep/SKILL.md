@@ -1,6 +1,6 @@
 ---
 name: release-prep
-description: "Full release pipeline from feature branch to deployment. ⚠️ CONFIGURE FIRST: Define your deployment steps below. TRIGGER when the user says \"release this\", \"ship it\", \"deploy\", or any request to take a feature branch through to deployment."
+description: "Full release pipeline from feature branch to deployment. ⚠️ CONFIGURE FIRST: Define your deployment steps below. TRIGGER when the user says \"release this\", \"ship it\", \"deploy\", \"push to production\", \"go live\", \"let's deploy\", or any request to take a feature branch through to deployment."
 ---
 
 # Release Prep — Branch to Deployment

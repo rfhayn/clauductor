@@ -32,3 +32,12 @@ For full history: `docs/archive/milestone-history.md`
 ## Known Issues
 
 _None yet._
+
+---
+
+## Planning Accuracy
+
+| Milestone | Estimated | Actual | Accuracy |
+|-----------|-----------|--------|----------|
+
+_Track estimate vs actual to improve over time._

@@ -17,9 +17,8 @@
 
 | Doc | Purpose | Updated |
 |-----|---------|---------|
-| [current-story.md](current-story.md) | Active milestones + priority queue (source of truth) | Per session |
+| [current-story.md](current-story.md) | Active milestones + priority queue + planning accuracy (source of truth) | Per session |
 | [next-prompt.md](next-prompt.md) | Implementation guidance for current work | Per milestone |
-| [roadmap.md](roadmap.md) | Milestone sequence, planning accuracy | Per milestone |
 | [requirements.md](requirements.md) | Functional requirements traceability | Per milestone |
 | [insights-log.md](insights-log.md) | Technical observations triage inbox | Per session |
 | [development-journal.md](development-journal.md) | Narrative chronicle (decisions, learning, AI tooling) | Per session |

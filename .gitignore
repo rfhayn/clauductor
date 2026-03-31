@@ -1,0 +1,13 @@
+# Clauductor runtime state (local only, not committed)
+orchestration/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

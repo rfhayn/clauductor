@@ -26,6 +26,7 @@ const (
 func classifyFile(relPath string) fileTier {
 	// Framework files — always install/overwrite
 	if strings.HasPrefix(relPath, ".claude/skills/") ||
+		strings.HasPrefix(relPath, ".claude/hooks/") ||
 		relPath == ".claude/settings.json" ||
 		relPath == ".claude/statusline.sh" {
 		return tierFramework
@@ -177,9 +178,12 @@ Use --dry-run to preview changes without modifying anything.`,
 			}
 		}
 
-		// Initialize orchestration directory
+		// Initialize orchestration directory and config
 		if err := initOrchestration(targetDir); err != nil {
 			return fmt.Errorf("failed to init orchestration: %w", err)
+		}
+		if err := ensureOrchestrationConfig(targetDir); err != nil {
+			fmt.Printf("  Warning: could not create orchestration config: %v\n", err)
 		}
 
 		// Ensure orchestration/ is in .gitignore

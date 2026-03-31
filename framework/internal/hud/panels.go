@@ -213,12 +213,25 @@ func renderActivity(data HUDData, width int, focused bool, scrollOffset int) str
 		end = len(data.Events)
 	}
 
+	// Prefix: "HH:MM  " (7) + worker (10) + " " (1) = 18 visible chars
+	prefixWidth := 18
+	contentWidth := width - 4 // panel borders + padding
+	detailMax := contentWidth - prefixWidth
+	if detailMax < 10 {
+		detailMax = 10
+	}
+
 	for i := start; i < end; i++ {
 		e := data.Events[i]
 		ts := dimText.Render(e.Timestamp.Format("15:04"))
 		worker := accentText.Width(10).Render(e.WorkerID)
-		detail := brightText.Render(e.Detail)
-		b.WriteString(fmt.Sprintf("%s  %s %s\n", ts, worker, detail))
+
+		detail := e.Detail
+		if len(detail) > detailMax {
+			detail = detail[:detailMax-1] + "…"
+		}
+
+		b.WriteString(fmt.Sprintf("%s  %s %s\n", ts, worker, brightText.Render(detail)))
 	}
 
 	// Show scroll indicator if there are more events
