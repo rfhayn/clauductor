@@ -12,35 +12,29 @@ import (
 
 // teamConfig holds orchestration/config.json settings.
 type teamConfig struct {
-	DefaultWorkers int  `json:"default_workers"`
-	AutoClaude     bool `json:"auto_claude"`
+	AutoClaude bool `json:"auto_claude"`
 }
 
 func loadTeamConfig(targetDir string) teamConfig {
-	cfg := teamConfig{DefaultWorkers: 3, AutoClaude: true}
+	cfg := teamConfig{AutoClaude: true}
 	data, err := os.ReadFile(filepath.Join(targetDir, "orchestration", "config.json"))
 	if err != nil {
 		return cfg
 	}
 	json.Unmarshal(data, &cfg)
-	if cfg.DefaultWorkers < 1 {
-		cfg.DefaultWorkers = 3
-	}
 	return cfg
 }
 
-var workerCount int
-
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start Clauductor team workspace (HUD + supervisor + workers)",
-	Long: `Creates a tmux session with a full team workspace:
+	Short: "Start Clauductor team workspace (HUD + supervisor)",
+	Long: `Creates a tmux session with:
   Window 0: HUD (clauductor watch)
   Window 1: Supervisor (claude with /supervisor)
-  Windows 2-N: Worker terminals (optionally auto-launch claude)
 
-Worker count comes from -n flag, orchestration/config.json, or defaults to 3.
-Auto-claude behavior is controlled by config.json "auto_claude" field.`,
+Workers are spawned on-demand by the supervisor via /spawn, preventing idle
+claude sessions from burning context and API credits.
+Auto-claude behavior for the supervisor is controlled by config.json "auto_claude" field.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := execCommand("tmux", "-V").Output(); err != nil {
 			return fmt.Errorf("tmux is required but not found — install with: brew install tmux")
@@ -51,11 +45,7 @@ Auto-claude behavior is controlled by config.json "auto_claude" field.`,
 			return err
 		}
 
-		cfg := loadTeamConfig(targetDir)
-		numWorkers := cfg.DefaultWorkers
-		if cmd.Flags().Changed("workers") {
-			numWorkers = workerCount
-		}
+		_ = loadTeamConfig(targetDir) // config read for future use by /spawn
 
 		projectName := filepath.Base(targetDir)
 		sessionName := fmt.Sprintf("clauductor-%s", projectName)
@@ -67,7 +57,7 @@ Auto-claude behavior is controlled by config.json "auto_claude" field.`,
 		}
 
 		fmt.Printf("Starting team workspace '%s'...\n", sessionName)
-		fmt.Printf("  HUD + supervisor + %d workers (auto_claude=%v)\n\n", numWorkers, cfg.AutoClaude)
+		fmt.Printf("  HUD + supervisor (workers spawn on demand)\n\n")
 
 		// Window 0: HUD
 		if err := runCommand("", "tmux", "new-session", "-d", "-s", sessionName, "-c", targetDir, "-n", "hud"); err != nil {
@@ -78,15 +68,6 @@ Auto-claude behavior is controlled by config.json "auto_claude" field.`,
 		// Window 1: Supervisor
 		runCommand("", "tmux", "new-window", "-t", sessionName, "-c", targetDir, "-n", "supervisor")
 		runCommand("", "tmux", "send-keys", "-t", fmt.Sprintf("%s:supervisor", sessionName), "claude '/supervisor'", "Enter")
-
-		// Windows 2-N: Workers
-		for i := 1; i <= numWorkers; i++ {
-			winName := fmt.Sprintf("worker-%d", i)
-			runCommand("", "tmux", "new-window", "-t", sessionName, "-c", targetDir, "-n", winName)
-			if cfg.AutoClaude {
-				runCommand("", "tmux", "send-keys", "-t", fmt.Sprintf("%s:%s", sessionName, winName), "claude", "Enter")
-			}
-		}
 
 		// Select the supervisor window before attaching
 		runCommand("", "tmux", "select-window", "-t", fmt.Sprintf("%s:supervisor", sessionName))
@@ -128,6 +109,5 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	startCmd.Flags().IntVarP(&workerCount, "workers", "n", 3, "Number of worker terminals to create")
 	watchCmd.Flags().BoolVar(&hudDemoMode, "demo", false, "Run HUD with demo/stub data")
 }
