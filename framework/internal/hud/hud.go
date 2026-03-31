@@ -159,18 +159,10 @@ func (m Model) View() string {
 	// Workers panel — full width
 	workers := renderWorkers(m.data, w, m.focusPanel == panelWorkers)
 
-	// Middle row: locks + milestones side by side
-	halfW := w / 2
-	var middle string
-	if halfW < 30 {
-		locks := renderLocks(m.data, w, m.focusPanel == panelLocks)
-		milestones := renderMilestones(m.data, w, m.focusPanel == panelMilestones)
-		middle = lipgloss.JoinVertical(lipgloss.Left, locks, milestones)
-	} else {
-		locks := renderLocks(m.data, halfW, m.focusPanel == panelLocks)
-		milestones := renderMilestones(m.data, w-halfW, m.focusPanel == panelMilestones)
-		middle = lipgloss.JoinHorizontal(lipgloss.Top, locks, milestones)
-	}
+	// Locks and milestones — both full width, stacked vertically
+	locks := renderLocks(m.data, w, m.focusPanel == panelLocks)
+	milestones := renderMilestones(m.data, w, m.focusPanel == panelMilestones)
+	middle := lipgloss.JoinVertical(lipgloss.Left, locks, milestones)
 
 	// Activity feed — full width
 	activity := renderActivity(m.data, w, m.focusPanel == panelActivity, m.scrollOffset)
