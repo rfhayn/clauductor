@@ -181,9 +181,15 @@ func renderLocks(data HUDData, width int, focused bool, scrollOffset int) string
 
 		owner := fmt.Sprintf("%s (%s)", l.WorkerID, l.Milestone)
 
+		lockedTime := ""
+		if !l.LockedAt.IsZero() {
+			lockedTime = " locked " + l.LockedAt.Format("15:04")
+		}
+
 		line := cyanText.Render(path) +
 			dimText.Render(connector) +
-			brightText.Render(owner)
+			brightText.Render(owner) +
+			dimText.Render(lockedTime)
 		b.WriteString(line + "\n")
 	}
 
@@ -307,18 +313,23 @@ func renderActivity(data HUDData, width int, focused bool, scrollOffset int) str
 // --- helpers ---
 
 func wrapPanel(title, content string, width int, focused bool) string {
-	titleRendered := panelTitleStyle.Render(title)
+	// Inner content width: total width minus border (2) minus padding (2)
+	innerWidth := width - 4
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	titleRendered := panelTitleStyle.Width(innerWidth).Render(title)
+	contentRendered := lipgloss.NewStyle().Width(innerWidth).Render(content)
 
 	style := panelStyle.Width(width - 2) // -2 for border
 	if focused {
 		style = style.BorderForeground(colorTitle)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		style.Render(lipgloss.JoinVertical(lipgloss.Left,
-			titleRendered,
-			content,
-		)),
-	)
+	return style.Render(lipgloss.JoinVertical(lipgloss.Left,
+		titleRendered,
+		contentRendered,
+	))
 }
 
 func statusDot(status string) string {
