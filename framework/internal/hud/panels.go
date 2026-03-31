@@ -162,15 +162,15 @@ func renderLocks(data HUDData, width int, focused bool, scrollOffset int) string
 			maxPath = len(data.Locks[i].FilePath)
 		}
 	}
-	if maxPath > 30 {
-		maxPath = 30
+	if maxPath > 50 {
+		maxPath = 50
 	}
 
 	for i := start; i < end; i++ {
 		l := data.Locks[i]
 		path := l.FilePath
-		if len(path) > 30 {
-			path = "..." + path[len(path)-27:]
+		if len(path) > 50 {
+			path = "..." + path[len(path)-47:]
 		}
 
 		padding := maxPath - len(path)
