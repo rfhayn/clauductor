@@ -258,6 +258,93 @@ func TestEmptyDatabaseQueries(t *testing.T) {
 	}
 }
 
+// MARK: - AutoLock Tests
+
+func TestAutoLock_UnlockedFile_AcquiresLock(t *testing.T) {
+	db := openTestDB(t)
+	registerTestWorker(t, db, "w1")
+	result, err := db.AutoLock("w1", "AUTH-1", "main.go")
+	if err != nil {
+		t.Fatalf("AutoLock: %v", err)
+	}
+	if result.Blocked {
+		t.Error("expected not blocked")
+	}
+	if result.Action != "locked" {
+		t.Errorf("expected action=locked, got %q", result.Action)
+	}
+	lock, _ := db.IsFileLocked("main.go")
+	if lock == nil || lock.WorkerID != "w1" {
+		t.Error("expected file locked by w1")
+	}
+}
+
+func TestAutoLock_SameWorker_Idempotent(t *testing.T) {
+	db := openTestDB(t)
+	registerTestWorker(t, db, "w1")
+	db.AutoLock("w1", "AUTH-1", "main.go")
+	result, err := db.AutoLock("w1", "AUTH-1", "main.go")
+	if err != nil {
+		t.Fatalf("AutoLock idempotent: %v", err)
+	}
+	if result.Blocked {
+		t.Error("expected not blocked on re-lock by same worker")
+	}
+	if result.Action != "already_held" {
+		t.Errorf("expected action=already_held, got %q", result.Action)
+	}
+}
+
+func TestAutoLock_DifferentWorker_Conflict(t *testing.T) {
+	db := openTestDB(t)
+	registerTestWorker(t, db, "w1")
+	registerTestWorker(t, db, "w2")
+	db.AutoLock("w1", "AUTH-1", "main.go")
+	result, err := db.AutoLock("w2", "AUTH-1", "main.go")
+	if err != nil {
+		t.Fatalf("AutoLock conflict: %v", err)
+	}
+	if !result.Blocked {
+		t.Error("expected blocked when different worker holds lock")
+	}
+	if result.Conflict == nil || result.Conflict.Owner != "w1" {
+		t.Error("expected conflict with owner=w1")
+	}
+}
+
+func TestAutoLock_DifferentFiles_BothSucceed(t *testing.T) {
+	db := openTestDB(t)
+	registerTestWorker(t, db, "w1")
+	registerTestWorker(t, db, "w2")
+	r1, _ := db.AutoLock("w1", "AUTH-1", "a.go")
+	r2, _ := db.AutoLock("w2", "AUTH-1", "b.go")
+	if r1.Blocked || r2.Blocked {
+		t.Error("different files should not conflict")
+	}
+	if r1.Action != "locked" || r2.Action != "locked" {
+		t.Error("both should acquire locks")
+	}
+}
+
+func TestAutoLock_AfterUnlock_NewWorkerSucceeds(t *testing.T) {
+	db := openTestDB(t)
+	registerTestWorker(t, db, "w1")
+	registerTestWorker(t, db, "w2")
+	db.AutoLock("w1", "AUTH-1", "main.go")
+	db.UnlockFile("main.go")
+	result, _ := db.AutoLock("w2", "AUTH-1", "main.go")
+	if result.Blocked {
+		t.Error("expected success after unlock")
+	}
+	if result.Action != "locked" {
+		t.Errorf("expected action=locked, got %q", result.Action)
+	}
+	lock, _ := db.IsFileLocked("main.go")
+	if lock == nil || lock.WorkerID != "w2" {
+		t.Error("expected file locked by w2")
+	}
+}
+
 func TestDuplicateWorkerRegistration_Fails(t *testing.T) {
 	db := openTestDB(t)
 	registerTestWorker(t, db, "w1")

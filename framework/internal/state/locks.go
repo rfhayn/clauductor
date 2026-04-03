@@ -98,6 +98,56 @@ func (db *DB) ListLocks() ([]Lock, error) {
 	return locks, rows.Err()
 }
 
+// AutoLockResult describes the outcome of an auto-lock attempt.
+type AutoLockResult struct {
+	Blocked  bool         `json:"blocked"`
+	Action   string       `json:"action,omitempty"`   // "locked" or "already_held"
+	Conflict *LockConflict `json:"conflict,omitempty"` // set when blocked
+}
+
+// AutoLock atomically checks and locks a single file for a worker.
+// Returns success if the file is unlocked or already held by the same worker.
+// Returns a conflict if the file is locked by a different worker.
+func (db *DB) AutoLock(workerID, milestone, filePath string) (*AutoLockResult, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var existingWorker, existingMilestone string
+	err = tx.QueryRow(
+		`SELECT worker_id, milestone FROM locks WHERE file_path = ?`, filePath,
+	).Scan(&existingWorker, &existingMilestone)
+
+	if err == nil {
+		// Lock exists
+		if existingWorker == workerID {
+			// Same worker — idempotent, no-op
+			return &AutoLockResult{Blocked: false, Action: "already_held"}, nil
+		}
+		// Different worker — conflict
+		return &AutoLockResult{
+			Blocked: true,
+			Conflict: &LockConflict{FilePath: filePath, Owner: existingWorker},
+		}, nil
+	}
+
+	// No lock exists — acquire it
+	if _, err := tx.Exec(
+		`INSERT INTO locks (file_path, worker_id, milestone) VALUES (?, ?, ?)`,
+		filePath, workerID, milestone,
+	); err != nil {
+		return nil, fmt.Errorf("auto-locking %q: %w", filePath, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit auto-lock: %w", err)
+	}
+
+	return &AutoLockResult{Blocked: false, Action: "locked"}, nil
+}
+
 // IsFileLocked checks if a file is currently locked and returns the lock if so.
 func (db *DB) IsFileLocked(filePath string) (*Lock, error) {
 	var l Lock

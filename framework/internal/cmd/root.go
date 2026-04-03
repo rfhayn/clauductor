@@ -36,5 +36,6 @@ func init() {
 	rootCmd.AddCommand(milestoneCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(checkLockCmd)
+	rootCmd.AddCommand(autoLockCmd)
 	rootCmd.AddCommand(contextCmd)
 }
