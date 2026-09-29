@@ -111,7 +111,7 @@ func startLockRunEnv(t *testing.T, lock, lane string, ttl time.Duration, env []s
 	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_LANE="+lane,
+	cmd.Env = append(append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_LANE="+lane,
 		"LOCKRUN_HELPER_TTL="+ttl.String(), "LOCKRUN_HELPER_ARGV="+string(b)), env...)
 	p := &lockProc{cmd: cmd, stderr: &syncBuf{}, done: make(chan int, 1)}
 	cmd.Stderr = p.stderr
@@ -456,7 +456,7 @@ func TestLockRunDoesNotRepeatCtrlC(t *testing.T) {
 	b, _ := json.Marshal([]string{"/bin/sh", "-c", "ps -o pgid= -p $$ > " + pgFile + "; trap 'echo INT >> " + log + "' INT; echo up >> " + log +
 		"; i=0; while [ $i -lt 30 ]; do sleep 0.05; i=$((i+1)); done"})
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m", "LOCKRUN_HELPER_ARGV="+string(b))
+	cmd.Env = append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m", "LOCKRUN_HELPER_ARGV="+string(b))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // a group of its own, like a terminal job
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -608,7 +608,7 @@ func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...strin
 	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
+	cmd.Env = append(append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
 		"LOCKRUN_HELPER_ARGV="+string(b)), extraEnv...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -693,4 +693,11 @@ func TestLockRunRestoresTheRealTERM(t *testing.T) {
 	if env := childEnv([]string{"TERM=vt100"}); env[0] != "TERM=vt100" {
 		t.Fatal("no workaround: TERM untouched")
 	}
+}
+
+// quickExit is the GORACE setting for a helper process this test binary starts as
+// a child: a -race binary sleeps a second at exit (atexit_sleep_ms) to flush race
+// reports, and a helper's stderr is its test's to read, not a report's.
+func quickExit() string {
+	return "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")
 }

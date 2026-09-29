@@ -380,7 +380,7 @@ func TestTwoPanelsStartedTogether(t *testing.T) {
 		var ps []*proc
 		for i := 0; i < 2; i++ {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperPanelProcess$")
-			cmd.Env = append(os.Environ(), "CLAUDUCTOR_PANEL_HELPER=1", "HELPER_ROOT="+root, "HELPER_HOME="+home)
+			cmd.Env = append(os.Environ(), quickExit(), "CLAUDUCTOR_PANEL_HELPER=1", "HELPER_ROOT="+root, "HELPER_HOME="+home)
 			p := &proc{cmd: cmd, out: &strings.Builder{}, mu: &sync.Mutex{}, done: make(chan error, 1)}
 			cmd.Stdout = &syncWriter{w: p.out, mu: p.mu}
 			cmd.Stderr = cmd.Stdout
@@ -596,4 +596,11 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	stopHand2()
 	// Its abandoned flock must not keep the machine once it is granted.
 	waitFor(t, "the machine lock to be free", func() bool { return machineFree(home) })
+}
+
+// quickExit is the GORACE setting for a helper process this test binary starts as
+// a child: a -race binary sleeps a second at exit (atexit_sleep_ms) to flush race
+// reports, and a helper's stderr is its test's to read, not a report's.
+func quickExit() string {
+	return "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")
 }
