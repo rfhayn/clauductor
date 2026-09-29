@@ -3,6 +3,7 @@ package lease
 import (
 	"bytes"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"io"
 
 	"context"
@@ -44,7 +45,7 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(code)
 	}
-	os.Exit(m.Run())
+	os.Exit(leakcheck.Main(m)) // fails the run if a helper process outlives it
 }
 
 // helperClock is the lock-run helper's clock: the system clock, read

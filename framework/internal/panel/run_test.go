@@ -212,7 +212,7 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Launchd: true, Out: &syncWriter{w: &out, mu: &mu},
-			Runner: fakeRunner(root), TmuxSocket: "clauductor-test-no-server",
+			Runner: fakeRunner(root), TmuxSocket: noServerSocket(),
 			OpenBrowser: func(u string) { mu.Lock(); opened = append(opened, u); mu.Unlock() },
 			OnReady:     func(u string) { ready <- u }})
 	}()

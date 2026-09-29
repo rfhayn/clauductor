@@ -353,7 +353,7 @@ func TestHelperPanelProcess(t *testing.T) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 	err := Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root), Out: os.Stdout,
-		TmuxSocket: "clauductor-test-no-server", OnReady: func(string) { fmt.Println("READY") }})
+		TmuxSocket: noServerSocket(), OnReady: func(string) { fmt.Println("READY") }})
 	if err != nil {
 		fmt.Println("REFUSED:", err)
 		os.Exit(3)

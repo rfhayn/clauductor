@@ -2,11 +2,10 @@ package panel
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,26 +33,7 @@ import (
 
 func throwawaySocket(t *testing.T) (string, string) {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("-short: drives a real tmux server")
-	}
-	tmux, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed")
-	}
-	b := make([]byte, 4)
-	rand.Read(b)
-	sock := "clauductor-test-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
-	t.Cleanup(func() {
-		exec.Command(tmux, "-L", sock, "kill-server").Run()
-		// kill-server leaves the socket file; tmux keeps it in $TMUX_TMPDIR (or /tmp)/tmux-<uid>.
-		dir := os.Getenv("TMUX_TMPDIR")
-		if dir == "" {
-			dir = "/tmp"
-		}
-		os.Remove(filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), sock))
-	})
-	return tmux, sock
+	return leakcheck.TmuxSocket(t)
 }
 
 func gitRun(t *testing.T, dir string, args ...string) string {

@@ -2,12 +2,10 @@ package lanes
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,26 +38,7 @@ func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
 // throwawaySocket is a tmux socket of the test's own, killed at cleanup.
 func throwawaySocket(t *testing.T) (string, string) {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("-short: drives a real tmux server")
-	}
-	tmux, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed")
-	}
-	b := make([]byte, 4)
-	rand.Read(b)
-	sock := "clauductor-test-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
-	t.Cleanup(func() {
-		exec.Command(tmux, "-L", sock, "kill-server").Run()
-		// kill-server leaves the socket file; tmux keeps it in $TMUX_TMPDIR (or /tmp)/tmux-<uid>.
-		dir := os.Getenv("TMUX_TMPDIR")
-		if dir == "" {
-			dir = "/tmp"
-		}
-		os.Remove(filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), sock))
-	})
-	return tmux, sock
+	return leakcheck.TmuxSocket(t)
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
@@ -81,3 +60,6 @@ func lineCount(p string) int {
 	}
 	return len(strings.Fields(string(b)))
 }
+
+// TestMain fails the run if it leaves a tmux server or a helper process behind.
+func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }

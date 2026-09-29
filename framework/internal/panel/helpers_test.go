@@ -2,15 +2,13 @@ package panel
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -300,10 +298,16 @@ func fastTicks() Ticks {
 
 // noServerSocket is a tmux socket name no test starts a server on, so a panel that
 // runs no lane never touches the machine's real panel socket.
-func noServerSocket() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	return "clauductor-test-nosrv-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
+func noServerSocket() string { return leakcheck.NoServerSocket() }
+
+// TestMain fails the run if it leaves a tmux server or a helper process behind. A
+// helper panel (TestHelperPanelProcess) is only a panel: its parent stops it with
+// SIGTERM, which it must handle itself.
+func TestMain(m *testing.M) {
+	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
+	os.Exit(leakcheck.Main(m))
 }
 
 // machineFree reports whether the machine lock in home is free now.

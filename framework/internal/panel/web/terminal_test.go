@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +26,7 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
-	s.Lanes.Socket = "clauductor-test-no-server"
+	s.Lanes.Socket = leakcheck.NoServerSocket()
 	origin := withHeader("Origin", "http://127.0.0.1:4393")
 	ticket := func(lane string) reqOpt {
 		tk, err := s.issueTicket(lane)
@@ -138,7 +139,7 @@ func TestLaneAPIGuards(t *testing.T) {
 	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
-	s.Lanes.Socket = "clauductor-test-no-server"
+	s.Lanes.Socket = leakcheck.NoServerSocket()
 	origin := withHeader("Origin", "http://127.0.0.1:4393")
 	for _, c := range []struct {
 		name, method, target, body string
