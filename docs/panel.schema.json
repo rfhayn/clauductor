@@ -80,7 +80,7 @@
       "type": "string"
     },
     "cards": {
-      "description": "Commands whose output renders as a card in the right column (see *Card output*).",
+      "description": "Commands whose output renders as a card in the Activity drawer (see *Card output*).",
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -162,7 +162,7 @@
       "type": "object"
     },
     "name": {
-      "description": "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
+      "description": "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
       "maxLength": 80,
       "minLength": 1,
       "pattern": "^ *[^ \\t\\n\\f\\r\\v-]",
@@ -174,7 +174,7 @@
         "additionalProperties": false,
         "properties": {
           "command": {
-            "description": "Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. It runs only when you press RUN.",
+            "description": "Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it.",
             "items": {
               "type": "string"
             },
@@ -222,7 +222,7 @@
       "type": "object"
     },
     "templates": {
-      "description": "Lane recipes offered by **+ LANE** (see *Lane templates*).",
+      "description": "Lane recipes offered by **New lane** (see *Lane templates*).",
       "items": {
         "additionalProperties": false,
         "properties": {

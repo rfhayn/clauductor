@@ -102,6 +102,8 @@ type PR struct {
 	ChecksPass int    `json:"checksPass"`
 	ChecksFail int    `json:"checksFail"`
 	ChecksWait int    `json:"checksPending"`
+	// Review is gh's reviewDecision: APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or "".
+	Review string `json:"review,omitempty"`
 }
 
 type ghPR struct {
@@ -111,7 +113,8 @@ type ghPR struct {
 	Author      struct {
 		Login string `json:"login"`
 	} `json:"author"`
-	IsDraft           bool `json:"isDraft"`
+	IsDraft           bool   `json:"isDraft"`
+	ReviewDecision    string `json:"reviewDecision"`
 	StatusCheckRollup []struct {
 		Status     string `json:"status"`     // CheckRun
 		Conclusion string `json:"conclusion"` // CheckRun
@@ -127,7 +130,7 @@ func ParsePRs(out []byte) ([]PR, error) {
 	}
 	prs := make([]PR, 0, len(raw))
 	for _, r := range raw {
-		p := PR{Number: r.Number, Title: r.Title, HeadRef: r.HeadRefName, Author: r.Author.Login, IsDraft: r.IsDraft}
+		p := PR{Number: r.Number, Title: r.Title, HeadRef: r.HeadRefName, Author: r.Author.Login, IsDraft: r.IsDraft, Review: r.ReviewDecision}
 		for _, c := range r.StatusCheckRollup {
 			switch classifyCheck(c.Status, c.Conclusion, c.State) {
 			case "pass":

@@ -238,7 +238,7 @@ func TestThemesDefineEveryToken(t *testing.T) {
 		}
 	}
 	used := map[string]bool{}
-	for _, f := range []string{"panel.css", "themes.css"} {
+	for _, f := range []string{"panel.css", "themes.css", "types.css"} {
 		for _, m := range varRef.FindAllStringSubmatch(cssComment.ReplaceAllString(readWeb(t, f), ""), -1) {
 			used[m[1]] = true
 		}
@@ -262,9 +262,10 @@ func TestThemesDefineEveryToken(t *testing.T) {
 	if regexp.MustCompile(`@(media|supports|container|layer)`).MatchString(cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")) {
 		t.Error("themes.css has a conditional group rule; theme blocks must be top level")
 	}
-	if strings.Contains(cssComment.ReplaceAllString(readWeb(t, "panel.css"), ""), "data-theme") {
-		t.Error("panel.css sets per-theme rules; themes are tokens in themes.css only")
+	if pc := cssComment.ReplaceAllString(readWeb(t, "panel.css"), ""); strings.Contains(pc, "data-theme") || strings.Contains(pc, "data-type") {
+		t.Error("panel.css sets per-theme or per-type rules; themes and type systems are tokens in themes.css and types.css only")
 	}
+	typeTokens := typeTokenSet(t)
 	if len(used) < 20 {
 		t.Fatalf("found only %d var() references; the parser is broken", len(used))
 	}
@@ -283,8 +284,8 @@ func TestThemesDefineEveryToken(t *testing.T) {
 				}
 			}
 			for k := range used {
-				if _, ok := all[k]; !ok && !shapeReq[k] && !colourReq[k] {
-					missing = append(missing, k+" (used by panel.css or panel.js, defined by no theme)")
+				if _, ok := all[k]; !ok && !shapeReq[k] && !colourReq[k] && !typeTokens[k] {
+					missing = append(missing, k+" (used by panel.css or panel.js, defined by no theme and no type system)")
 				}
 			}
 			sort.Strings(missing)
@@ -358,16 +359,6 @@ func TestThemeContrast(t *testing.T) {
 				}
 				return c
 			}
-			surface, panel, panel2 := col("surface"), col("panel"), col("panel-2")
-			for _, bg := range []rgba{surface, panel, panel2} {
-				if bg.a != 1 {
-					t.Errorf("%s: surfaces must be opaque", name)
-				}
-			}
-			textMin := 4.5
-			if th.aaa {
-				textMin = 7
-			}
 			worst := map[string]float64{}
 			check := func(label string, fg, bg rgba, min float64) {
 				r := contrast(over(fg, bg), bg)
@@ -378,86 +369,80 @@ func TestThemeContrast(t *testing.T) {
 					t.Errorf("%s: %s is %.2f:1, want ≥ %.1f:1", name, label, r, min)
 				}
 			}
-			for _, bg := range []rgba{surface, panel, panel2} {
-				check("text", col("text"), bg, textMin)
-				check("dim text", col("text-dim"), bg, textMin)
-				check("accent as text", col("accent"), bg, textMin)
-				check("focus ring", col("focus"), bg, 3)
-				// A state colour is also text (queue holder, PR checks, "waiting: …").
-				for _, s := range []string{"go", "hold", "stop"} {
-					check(s+" as text", col(s), bg, textMin)
-				}
-				check("idle marker", col("idle"), bg, 3)
-			}
-			check("text on primary button", col("accent-ink"), col("accent"), textMin)
-			// Soft tints carry body text and the state's own colour. Cards are tinted over
-			// --panel; banners and bars (.banner, .restore, .warnbar) over --surface.
-			for _, s := range []string{"go", "hold", "stop", "accent"} {
-				for _, base := range []rgba{surface, panel} {
-					soft := over(col(s+"-soft"), base)
-					check("text on "+s+"-soft", col("text"), soft, textMin)
-					check("dim text on "+s+"-soft", col("text-dim"), soft, textMin)
-					check(s+" on its soft tint", col(s), soft, textMin)
-				}
-			}
-			if th.aaa {
-				check("rule (line) vs panel", col("line"), panel, 3)
-			}
-			term := col("term-bg")
-			check("terminal foreground", col("term-fg"), term, 7)
-			check("terminal cursor", col("term-cursor"), term, 3)
-			// Every ANSI colour is terminal text. An aaa theme holds colours 1-15 to 7:1;
-			// its black (0) stays at 3:1, because black is the label colour below and 7:1
-			// on a black background would leave it no room to contrast with anything.
-			for i := 0; i < 16; i++ {
-				min := 3.0
-				if th.aaa && i > 0 {
-					min = 7
-				}
-				check("ANSI colour", col("ansi-"+strconv.Itoa(i)), term, min)
-			}
-			// Labels a TUI draws as one ANSI colour on another: test runners' PASS/FAIL
-			// badges, diff and status chips.
-			pairs := ansiLabelPairs
-			if th.aaa {
-				pairs = aaaLabelPairs
-			}
-			for _, p := range pairs {
-				fg, bg := "ansi-"+strconv.Itoa(p[0]), "ansi-"+strconv.Itoa(p[1])
-				check("ANSI label pair", col(fg), col(bg), 4.5)
-				if r := contrast(col(fg), col(bg)); r < 4.5 {
-					t.Logf("%s: --%s on --%s is %.2f:1", name, fg, bg, r)
-				}
-			}
-			// The four lane states stay apart in colour (they also differ in shape and label).
-			states := []string{"go", "hold", "stop", "idle"}
-			minDE := math.Inf(1)
-			for i := range states {
-				for j := i + 1; j < len(states); j++ {
-					d := deltaE(col(states[i]), col(states[j]))
-					minDE = math.Min(minDE, d)
-					if d < 20 {
-						t.Errorf("%s: --%s and --%s are too alike (ΔE %.1f, want ≥ 20)", name, states[i], states[j], d)
-					}
-				}
-			}
-			report = append(report, fmt.Sprintf("%-18s text %5.2f  dim %5.2f  accent %5.2f  focus %5.2f  term %5.2f  ansi %5.2f  pairs %5.2f  stateΔE %4.1f",
-				name, worst["text"], worst["dim text"], worst["accent as text"], worst["focus ring"], worst["terminal foreground"], worst["ANSI colour"], worst["ANSI label pair"], minDE))
+			checkAll(th.aaa, tok, col, check)
+			report = append(report, fmt.Sprintf("%-14s text-1 %5.2f  text-2 %5.2f  text-3 %5.2f  act %5.2f  warn %5.2f  crit %5.2f  term %5.2f  ansi %5.2f  pairs %5.2f",
+				name, worst["text-1"], worst["text-2"], worst["text-3"], worst["act"], worst["warn as text"], worst["crit as text"], worst["terminal foreground"], worst["ANSI colour"], worst["ANSI label pair"]))
 		}
 	}
-	t.Log("worst ratio per theme × mode, over surface, panel and panel-2:\n" + strings.Join(report, "\n"))
+	t.Log("worst ratio per theme × mode:\n" + strings.Join(report, "\n"))
+}
+
+// checkAll holds one theme × mode's colours to the floors (PANEL-11; docs/panel.md,
+// "Appearance"). The surfaces are every background text sits on: the ground, panes,
+// the alternate pane and zebra rows, the rail. Colour is for what is abnormal, and
+// each abnormal row has its own ink.
+func checkAll(aaa bool, tok map[string]string, col func(string) rgba, check func(string, rgba, rgba, float64)) {
+	text := 4.5
+	if aaa {
+		text = 7
+	}
+	for _, k := range []string{"ground", "pane", "pane-2", "zebra", "rail", "bar", "sel", "warn-bg", "crit-bg"} {
+		if c := col(k); c.a != 1 {
+			check("--"+k+" is opaque", rgba{0, 0, 0, 1}, rgba{255, 255, 255, 1}, 99) // fails with the name
+		}
+	}
+	for _, bgk := range []string{"ground", "pane", "pane-2", "zebra", "rail"} {
+		bg := col(bgk)
+		check("text-1", col("text-1"), bg, text)
+		check("text-2", col("text-2"), bg, text)
+		check("text-3", col("text-3"), bg, text)
+		check("act", col("act"), bg, text) // links and button labels
+		check("ok as text", col("ok"), bg, text)
+		check("warn as text", col("warn"), bg, text)
+		check("crit as text", col("crit"), bg, text)
+		check("info (a graphic)", col("info"), bg, 3)
+		check("focus ring", col("focus"), bg, 3)
+	}
+	check("bar text", col("bar-text"), col("bar"), text)
+	check("bar text-2", col("bar-text-2"), col("bar"), text)
+	check("act-ink on act", col("act-ink"), col("act"), text)
+	check("warn-ink (text and controls) on a warn row", col("warn-ink"), col("warn-bg"), text)
+	check("crit-ink (text and controls) on a crit row", col("crit-ink"), col("crit-bg"), text)
+	check("sel-text on the selection", col("sel-text"), col("sel"), text)
+	check("rule-strong (the focused pane)", col("rule-strong"), col("pane"), 3)
+	// The warn and crit words and squares stay apart in colour, and from normal text.
+	if d := deltaE(col("warn"), col("crit")); d < 20 {
+		check("warn vs crit ΔE ≥ 20", rgba{0, 0, 0, 1}, rgba{0, 0, 0, 1}, 99)
+	}
+	term := col("term-bg")
+	check("terminal foreground", col("term-fg"), term, 7)
+	check("terminal cursor", col("term-cursor"), term, 3)
+	for i := 0; i < 16; i++ {
+		min := 3.0
+		if aaa && i > 0 {
+			min = 7
+		}
+		check("ANSI colour", col("ansi-"+strconv.Itoa(i)), term, min)
+	}
+	pairs := ansiLabelPairs
+	if aaa {
+		pairs = aaaLabelPairs
+	}
+	for _, p := range pairs {
+		check("ANSI label pair", col("ansi-"+strconv.Itoa(p[0])), col("ansi-"+strconv.Itoa(p[1])), 4.5)
+	}
 }
 
 // Every face a theme declares is embedded, every embedded face is used, each family
 // ships its licence, and the fonts stay small (they are in the binary).
 func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
 	t.Parallel()
-	css := cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")
+	css := cssComment.ReplaceAllString(readWeb(t, "types.css")+readWeb(t, "themes.css"), "")
 	used := map[string]bool{}
 	for _, m := range regexp.MustCompile(`url\("fonts/([^"]+)"\)`).FindAllStringSubmatch(css, -1) {
 		used[m[1]] = true
 		if _, err := webFS.ReadFile("static/fonts/" + m[1]); err != nil {
-			t.Errorf("themes.css loads fonts/%s, which is not embedded", m[1])
+			t.Errorf("types.css loads fonts/%s, which is not embedded", m[1])
 		}
 	}
 	entries, err := webFS.ReadDir("static/fonts")

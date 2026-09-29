@@ -33,7 +33,7 @@ only text it types into a lane on its own is a template's first prompt, once.
 
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
-[Alerts](#alerts) · [Themes](#themes) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
+[Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
 [Security model](#security-model) · [Operations](#operations) · [Troubleshooting](#troubleshooting) ·
 [Not yet](#not-yet)
 
@@ -127,7 +127,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   ]
 }
 
-  name          "acme-web", shown in the top bar
+  name          "acme-web", shown in the status bar
   base          origin/main: new lanes branch from it (origin's default branch)
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
@@ -204,9 +204,9 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
 | `version` | integer: 1 or 2 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
-| `name` | string, **required** |  | 1 | Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
+| `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
-| `cards` | array |  | 1 | Commands whose output renders as a card in the right column (see *Card output*). |
+| `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
 | `cards[].id` | string, **required** |  | 1 | Unique among the cards. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `cards[].title` | string |  | 1 | The card's heading. |
 | `cards[].command` | array of strings, **required** |  | 1 | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
@@ -217,7 +217,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
-| `templates` | array |  | 2 | Lane recipes offered by **+ LANE** (see *Lane templates*). |
+| `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
 | `templates[].lane_type` | string, **required** |  | 2 | One of the config's lane types (a value of `lanes`, or a key of `lane_types`). |
@@ -229,7 +229,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `queues[].id` | string, **required** |  | 2 | Unique among the queues. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `queues[].title` | string |  | 2 | Shown on the queue card. |
 | `queues[].lock` | string, **required** |  | 2 | The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `"clauductor/gate.lock"`. No `..`, not absolute. |
-| `queues[].command` | array of strings |  | 2 | Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. It runs only when you press RUN. |
+| `queues[].command` | array of strings |  | 2 | Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it. |
 | `alerts` | object |  | 2 | Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off. |
 | `alerts.idle_minutes` | number | `30` | 2 | A live session idle longer than this raises an idle alert. |
 | `alerts.context_pct` | number | `85` | 2 | A context window at or above this percentage raises a context alert. |
@@ -252,52 +252,124 @@ card.
 
 ## The page
 
-- **Top bar.** LIVE / DISCONNECTED. The page hears from the panel at once when what the view
-  says changes; the polls' own bookkeeping (when each source was last read, the footer's
-  counters) arrives with the next 5 s tick, and a heartbeat comes every 5 s. After three missed
-  beats, or a dropped stream, it says so everywhere: a **DISCONNECTED** bar under the top bar with
-  the reconnect status and a RETRY NOW button, "⚠ DISCONNECTED" in the tab title, hatched and
-  dimmed columns, section headings marked "as of HH:MM", every age frozen at the last word from
-  the panel, and every action that would reach the panel disabled. It reconnects on its own (a
-  check that takes over 5 s counts as failed, and the bar says so) and restores all of it. If the
-  panel was restarted, the bar says so, because the new launch has a new token. The 5-hour and
-  7-day quota gauges are the real subscription budget (labelled **5 h** and **7 d**). **est. $
-  (list price)** (with "· tracked sessions" on wide screens) is the sum of the status line's
-  `total_cost_usd` over the sessions the panel tracks now: live ones, and ones heard from in the
-  last 30 minutes. A session forgotten after that drops out of the sum. It is a list-price
-  estimate, not a bill. `hooks` counts hook events accepted, status-line posts, and events dropped
-  as outside the project; below 1440 px it is left to the footer, which has the same counters, so
-  the bar stays on one row from 1280 px. **+ LANE** opens the Start dialog; it is disabled, with
-  the reason on hover, while lanes cannot start (see [Subscription only](#subscription-only)).
-- **Left column: Needs you, Done, Lanes.** *Needs you* comes first in the page at every width:
-  sessions blocked on you (a permission, elicitation or input notification, or `claude agents`
-  reporting them waiting), quota auto-resume warnings, and stuck or restored template lanes. It
-  shows the specific ask when `claude agents` names one (`Permission: Bash(npm run test:e2e)`),
-  not the hook's generic message. *Done · your move* sits right under it: finished turns, not
-  blocked. The tab title reads `(N) <project>` while N items need you, the favicon carries the
-  same count, and a new item is announced to screen readers (a polite live region).
-- **Lanes (left, under Needs you).** One per worktree with a live session or recent activity. The
-  stripe is green for busy, amber for waiting, grey for idle, and red when the lane is busy but no
-  hook has arrived from it for 60 s ("no hooks"). The status line repeats the state as a shape
-  (see [Themes](#themes)). The chip is the lane type from `lanes`. Worktrees with no session are
-  listed underneath. A lane has one name everywhere (card, tab, Needs you, alerts, the feed): a
-  lane with a terminal is called what you named it when you started it. A status that is not a
-  current `claude agents` reading is marked `≈`, the stripe turns dashed, and the card says how
-  old the last good reading is ("stale · read 3m ago").
-- **Terminals (centre).** One tab per lane, with a status dot. The selected tab is that lane's
-  live terminal: type into it as you would in Terminal.app. Under it are **ATTACH IN
-  TERMINAL.APP**, **INTERRUPT (ESC)**, **RESTART** and **STOP LANE**. Stop and restart ask for
-  confirmation in the page, in words built from the lane's state: idle gets `/exit`, busy or
+The page is built around lanes (PANEL-11). From the top: the status bar, the Needs-you rows (only
+when something needs you), then a rail on the left (the lane table and the worktree tree) and the
+workspace of the lane you selected (its terminal tabs, its header, its terminal, and a side panel
+with everything about it).
+
+It is drawn the way control rooms and trading desks are: grey at rest, and colour only when
+something is abnormal. Normal work (working, idle, finished) is plain text in three tones. Amber
+means it needs you, red means it failed or is stale, and the one link colour marks what you can
+click or type into. Every state is a word and a small square, never a colour alone. Numbers sit in
+aligned columns with their units. The one motion on the page is a brief flash on a figure whose
+value just changed.
+
+- **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
+  lane. Totals live here and nowhere else.
+  - The **5-hour** and **7-day quota**, each a bar with its reset countdown. On the 5-hour bar a
+    magenta mark shows where the window lands at its reset at the current burn rate.
+  - **Burn rate**: the 5-hour quota's change per hour over the last 30 minutes, when there are at
+    least 5 minutes of it, and when it runs out at that rate. That time turns amber when it comes
+    before the reset.
+  - **est. $ (list price)**: the sum of the status line's `total_cost_usd` over the sessions the
+    panel tracks now (live ones, and ones heard from in the last 30 minutes), then today's cost and
+    the cost per hour over the last hour, with a sparkline. It is a list-price estimate, not a bill.
+    Today counts a session already running when the panel started only from that start on.
+  - **Lanes**: a one-line bar of working, needing you and idle, with the counts.
+  - **Needs you**: how many, and how long the oldest has waited.
+  - **Gate** (the first queue): who holds it, how many wait and the oldest wait. Clicking it shows
+    the lane that holds it.
+  - **Claude processes**: CPU and memory of the lanes' claude processes, with a sparkline (see
+    *What the panel reads, and when*).
+  - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
+  - At the right: **New lane**, **Activity** (the drawer), **Refresh** and **Appearance**. **New
+    lane** is disabled, with the reason on hover, while lanes cannot start (*Subscription only*).
+- **Lost the panel.** The page hears from the panel at once when what the view says changes; the
+  polls' own bookkeeping arrives with the next 5 s tick, and a heartbeat comes every 5 s. After
+  three missed beats, or a dropped stream, it says so everywhere: **Disconnected** in the status
+  bar, a red bar under it with the reconnect status and **Retry now**, "⚠ Disconnected" in the tab
+  title, the page dimmed, headings marked "as of HH:MM", every age frozen at the last word from the
+  panel, and every action that would reach the panel disabled. It reconnects on its own (a check
+  that takes over 5 s counts as failed) and restores all of it. If the panel restarted, the bar
+  says so: the new launch has a new token.
+- **Needs you (rows under the status bar, only when something needs you).** First in the page at
+  every width, across every lane, each row tinted amber (needs you) or red (blocking): sessions
+  blocked on you (a permission, elicitation or input notification, or `claude agents` reporting
+  them waiting), quota auto-resume warnings, and stuck or restored template lanes. A row names the
+  lane, the specific ask when `claude agents` names one (`Permission: Bash(npm run test:e2e)`), and
+  how long it has waited. **Open terminal** selects the lane and takes focus to its terminal's
+  frame, never inside; clicking the row selects the lane. **Alerts** follow (every alert that
+  belongs to no lane, and every blocking alert of any lane), then **Your move** (finished turns,
+  not blocked). The tab title reads `(N) <project>` while N items need you, the favicon carries
+  the count, and a new item is announced to screen readers (a polite live region).
+- **Banners (under that).** Each says what it is. **No hooks**: a lane is busy per `claude agents`
+  and no hook has come from it since it went busy, for 60 s; usually the session never loaded the
+  hooks, so restart it. **Cannot read**: `claude agents`, `git worktree list` or the panel's tmux
+  server cannot be read. **Config changed**, **Events dropped**, **Hooks** and **Lane registry**
+  say what their name says. Lanes that lost their tmux session are announced once, in the
+  **Restore** bar, with **Restore all**.
+- **The rail: Lanes.** A two-hour timeline of every lane's state, one line each, then the lane
+  table: one row per lane (a tmux lane the panel started, or a worktree with a claude session
+  started elsewhere). A row needing you is tinted amber; one exited, orphaned, stale (busy with no
+  hook for 60 s) or with a failure is tinted red. A status that is not a current `claude agents`
+  reading is marked `≈`, with how old the last good reading is. Click a column heading to sort by
+  it (again to reverse). **Columns** chooses which columns show; the default is state, time in
+  state, context, cache and cost per hour, and the others are cost, model, busy ratio, lines,
+  lines per hour, turns per hour, asks per hour, compactions, last failure, running agents, git,
+  pull request, gate and CPU. The choice and the sort are kept per browser. The cache column
+  reads "92%" (its hit ratio) while the cache is warm, "cold in 1:52" in amber in the last two
+  minutes, and "cold" once it has gone cold. A table wider than the rail scrolls inside it,
+  never the page, and while the rail runs past its foot a line there says "More below". A lane has one name
+  everywhere: a lane with a terminal is called what you named it when you started it.
+- **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
+  worktree (its lane type, branch and path, and once read, ahead/behind and how many files
+  changed), each lane's claude session (state, uptime, context), and its agents, nested by which
+  agent started which, with finished ones folded under "N finished". A worktree with no lane has
+  **Start lane here**, which opens the Start dialog on it. The rail's edge drags (or, focused,
+  moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
+  width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
+  and whether it shows are kept per browser; below 900 px it starts hidden.
+- **Terminal tabs.** One tab per lane, with its state square and name, then **+** (the Start
+  dialog). A tablist: Tab reaches the selected tab only, and ←, →, Home and End move and select at
+  once. Selecting a lane (a tab, a row, a tree node, a Needs-you row) never enters its terminal.
+- **The lane's header.** Its name and state, branch and worktree, model (as the status line
+  reports it) with effort (its template's, else its lane type's), thinking and fast mode, uptime,
+  context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
+  documented), and cost with cost per hour. **Hide details** folds the side panel; kept.
+- **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
+  Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart** and **Stop lane**. Stop
+  and restart ask in the page, in words built from the lane's state: idle gets `/exit`, busy or
   waiting gets Escape (and what that interrupts: its subagents, an open question), and whether it
-  holds or waits in a queue. An orphaned lane has **RESUME** and **FORGET** instead of a
-  terminal. The terminal takes the height left in the column, so its controls stay on screen
-  whatever banners are showing.
+  holds or waits in a queue. An orphaned lane has **Resume** and **Forget** instead of a terminal.
+  A lane started outside the panel says it has no terminal here.
+- **The side panel: a tab per family of figures.** The choice of tab is kept.
+  - **Agents**: the lane's sessions (pid, state and for how long, compaction, last failure), then a
+    Gantt of its agents over the lane's window (at most two hours): one row each, nested under
+    the agent that started it, running ones reaching now, finished ones grey, with their duration.
+  - **Figures**: time in state; context with tokens in and out and the window; the prompt cache's
+    hit ratio (a sparkline), its cold-in countdown (amber under two minutes), the last miss cause
+    and the tokens a cold cache would rebuild; cost and cost per hour (a sparkline); the busy ratio
+    (API time over wall time); wall and API time; lines added and removed, and per hour; turns and
+    asks, and per hour; compactions; the last failure; running and finished subagents; the claude
+    process's CPU and memory; thinking, fast mode and output style.
+  - **Git**: branch, HEAD, path, upstream with ahead and behind, changed and untracked files, the
+    diff stat against HEAD, the last commit's age, and the template's first-prompt state; then the
+    branch's pull request, its checks and review decision.
+  - **Gate**: for each queue, whether this lane holds it, waits in it and where, or is not in it;
+    the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
+  - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
+  Below 1180 px the side panel moves under the terminal.
+- **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
+  failure, never an empty list), the project's cards, and every lane's last events, grouped by
+  lane. Escape or Close closes it and returns focus.
 - **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
-  the page, not picking a lane, not OPEN TERMINAL (which takes focus to the terminal's frame).
+  the page, not picking a lane, not **Open terminal** (which takes focus to the terminal's frame).
   The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every
-  key is claude's, Tab, Shift+Tab and Escape included. **Ctrl+]** leaves, back to the lane's tab;
-  a line above the terminal says so while you are in it. A double Escape does not leave, because
-  claude uses Esc Esc itself (to go back to an earlier message).
+  key is claude's, Tab, Shift+Tab and Escape included, but the page's size keys (Ctrl+Alt+=, −,
+  0), which resize the page and never reach claude. **Ctrl+]**
+  leaves, back to the lane's tab; a line above the terminal says so while you are in it. A double
+  Escape does not leave, because claude uses Esc Esc itself (to go back to an earlier message).
+  The cursor does not blink.
 - **The mouse and the terminal.** The wheel scrolls the lane's history: the panel's tmux has
   `mouse on`, so the first wheel-up enters tmux's copy mode, and the line above the terminal says
   "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
@@ -306,31 +378,56 @@ card.
   panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
   here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
   Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
-- **Selected lane (centre, below the terminal).** Its sessions (pid, status, context %, model,
-  est. $), running subagents with their age, and the lane's own event feed. A lane card marked
-  `· tmux` has a terminal; clicking it opens that tab. Workflow agents stop under a different
-  `agent_id` and `agent_type` (`workflow-subagent`) than they started with, so a
-  `workflow-subagent` stop with an unknown id retires the oldest running agent of any type. Any
-  other typed stop with an unknown id retires the oldest agent of its own type. An unknown id
-  with an empty type is an internal agent that never sent a start, and retires nothing. A session
-  that `claude agents` reports idle for 10 s, or gone, has its running list cleared. The hook
-  `Stop` clears nothing, because background agents outlive the turn.
-- **Right column.** *Alerts* (a waiting alert already in Needs you is not repeated; the heading
-  counts it; a row that leads to a lane is a button), *Queues*, the project's cards, *Open PRs*:
-  from `gh`, with "cannot read" on failure (never an empty list), and *Feed*: the last events
-  across all lanes. See [Current or stale](#current-or-stale) for when an item is marked
-  approximate.
-- **Banners (top of the centre column).** Each says what it is. **NO HOOKS**: a lane is busy per
-  `claude agents` and no hook has come from it since it went busy, for 60 s; usually the session
-  never loaded the hooks, so restart it. **CANNOT READ**: `claude agents`, `git worktree list` or
-  the panel's tmux server cannot be read. **CONFIG UNTRUSTED**, **EVENTS DROPPED**, **HOOKS** and
-  **LANE REGISTRY** say what their name says. Lanes that lost their tmux session are announced
-  once, in the **RESTORE** bar, with RESTORE ALL.
-- **Footer.** One line: hook events, status posts, drops and notifications. **ALL COUNTERS**
+- **Footer.** One line: hook events, status posts, drops and notifications. **All counters**
   opens the rest (the choice is remembered): drops by cause (foreign `cwd`, overflow, malformed,
   unknown event name), unknown notification types, the last, mean and worst `claude agents` poll
   latency and its current interval, the filter in use and why, the Claude Code version against
   the one the heuristics were verified on, and notifications sent or failed.
+
+### Which agent started which
+
+A `SubagentStart` hook names only the new agent, never the one that started it (verified on Claude
+Code 2.1.284). The call that starts it does: a `PreToolUse` for the Agent (or Task) tool fired
+inside agent A carries A's `agent_id` (on the main thread it has none), and the new agent's
+`SubagentStart` follows it within tens of milliseconds. That call's `PostToolUse` names both: the
+caller's `agent_id` and the new agent's `tool_response.agentId`.
+
+So a starting subagent is placed under the caller of the oldest Agent call in its session, made in
+the last 2 s, that asked for the same subagent type, and marked `≈` until the call's
+`PostToolUse` confirms or corrects it; that pair is exact. It arrives at once for a background
+agent, and when the agent finishes for a foreground one. Workflow agents start as
+`workflow-subagent` with nothing naming their run; the run's id and name come in the Workflow
+call's `PostToolUse`. They are grouped under their session's newest run, always marked `≈`,
+because two runs overlapping in one session cannot be told apart. Subagents nest at most three
+levels below the session. The panel reads only the Agent call's `subagent_type` and
+`description`, and the response's `agentId`, `runId` and `workflowName`; the prompt and every
+other field are never decoded, and no transcript is read (not even its path).
+
+- Workflow agents stop under a different `agent_id` and `agent_type` (`workflow-subagent`) than
+  they started with in some versions, so a `workflow-subagent` stop with an unknown id retires the
+  oldest running agent of any type. Any other typed stop with an unknown id retires the oldest
+  agent of its own type. An unknown id with an empty type is an internal agent that never sent a
+  start, and retires nothing. A session that `claude agents` reports idle for 10 s, or gone, has
+  its running list cleared. The hook `Stop` clears nothing, because background agents outlive the
+  turn. A retired agent moves to the lane's finished list (the last 20 per session).
+
+### What the panel reads, and when
+
+Every figure on the page comes from what the panel already reads: the status-line posts, hooks,
+`claude agents`, `git worktree list`, `gh pr list` (now also asked for the review decision) and
+the gate's lease on disk. Nothing costs a model token and nothing reads a transcript. Two reads
+were added for the dashboard, and both run only while a page is in view: an open page that is
+visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after the last word.
+
+- **ps**, every 10 s: one `ps -o pid=,pcpu=,rss=` for the claude processes `claude agents` names.
+  CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
+- **git**, every 30 s, for each worktree a lane runs in: one `git status --porcelain=v2 --branch`,
+  plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
+  HEAD moved.
+
+The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
+minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
+spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
 
 ## Lanes
 
@@ -345,7 +442,7 @@ pauses, while a workflow in a background session fails.
 
 ### Starting a lane
 
-**+ LANE** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
+**New lane** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
 
 - **New branch and worktree.** The server runs `git fetch`, then
   `git worktree add -b <prefix><name> <worktree_dir>/<name> <base>`. The prefix is the type's
@@ -384,7 +481,7 @@ exits and the lane shows a dead pane; STOP it and start it again.
 
 ### Lane templates
 
-**+ LANE** offers the config's `templates`. Pick one, give the lane a name (and an issue if the
+**New lane** offers the config's `templates`. Pick one, give the lane a name (and an issue if the
 template uses `{issue}`), and START:
 
 1. The server validates every value: the name is a lane id; the issue is one line of plain text
@@ -428,23 +525,23 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 
 | What | Shown as | What you can do |
 |---|---|---|
-| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **RESUME**, or **FORGET** |
-| registered, the panel stopped during an action | orphaned, with the action | **RESUME**, or **FORGET** |
-| a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **STOP** only; without a session id it cannot be restarted |
-| registered, its directory no longer a worktree | the reason is added | **FORGET** |
-| a record that fails validation on load (session id not a UUID, relative path, unknown mode…) | "corrupt registry record" | **STOP**, **FORGET**; it is never launched |
+| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, or **Forget** |
+| registered, the panel stopped during an action | orphaned, with the action | **Resume**, or **Forget** |
+| a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **Stop lane** only; without a session id it cannot be restarted |
+| registered, its directory no longer a worktree | the reason is added | **Forget** |
+| a record that fails validation on load (session id not a UUID, relative path, unknown mode…) | "corrupt registry record" | **Stop lane**, **Forget**; it is never launched |
 | a record with an invalid lane id | a banner | edit or delete the file |
 
 ### Controls
 
 | Button | What it does |
 |---|---|
-| **INTERRUPT (ESC)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **STOP LANE** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
-| **RESTART** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
-| **RESUME** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
-| **FORGET** (orphans) | Drops the registry record. The worktree and the conversation stay. |
-| **ATTACH IN TERMINAL.APP** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
+| **Interrupt (Esc)** | `tmux send-keys Escape`, which is claude's interrupt. |
+| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **Restart** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
+| **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
+| **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
+| **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
 Sent together, a long line can sit in claude's input box unsubmitted.
@@ -468,22 +565,22 @@ We chose this over the alternatives:
 The panel refuses to start, restart or resume a lane while `ANTHROPIC_API_KEY` or
 `ANTHROPIC_AUTH_TOKEN` is set, in the panel's own environment or in the tmux server's global
 environment (`tmux -L <socket> show-environment -g`), which every lane inherits. Either key
-outranks the subscription login. The page shows the reason and disables **+ LANE**; it re-reads
+outranks the subscription login. The page shows the reason and disables **New lane**; it re-reads
 the tmux environment when the lane set changes and every 30 s, and every start reads it again. If
 the tmux environment cannot be read, the panel refuses too: unknown is not "no key". As a second
 layer, the lane command unsets both variables.
 
 ### Quota guard
 
-At or above `quota_guard.five_hour_pct`, **+ LANE** and **RESTORE ALL** refuse, and the dialog
+At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse, and the dialog
 offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
 blocks: the guard acts only on a number it has.
 
 ### Restore after a reboot
 
 tmux lanes do not survive a reboot. When the panel starts, every registered lane whose tmux
-session is gone is **restorable**, and a banner offers **RESTORE ALL** (each lane also keeps its
-own **RESUME**). A restore:
+session is gone is **restorable**, and a banner offers **Restore all** (each lane also keeps its
+own **Resume**). A restore:
 
 - runs `claude --resume <the lane's own session id>` in its worktree, or `--session-id <id>` for
   a session that never had a prompt. It **never** uses `--continue`;
@@ -517,7 +614,7 @@ any implementation.
 | `<lock>/` | Held while it exists. `mkdir` either creates it or fails with `EEXIST`. |
 | `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, child_pid, child_pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
 | `<lock>.waiters/<arrival>-<nonce>.json` | One per waiter, same fields. The numeric arrival (unix ns, or unix s followed by nine zeros) orders the queue. |
-| `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **CANCEL WAIT**). |
+| `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **Cancel wait**). |
 | `<lock>.reclaim/` | A short mutex, taken only to remove a stale holder. |
 
 `pstart` is the holder's process start time exactly as `LC_ALL=C ps -o lstart= -p <pid>`
@@ -594,8 +691,8 @@ stderr while it waits, so an agent reading the output knows why the gate is slow
 ### On the page
 
 The page shows each queue: the holder (lane, pid, age, TTL, and "stale" if it is), then the
-waiters in order, each with **CANCEL WAIT**. **RUN** starts the queue's `command` through
-`lock-run` in the selected lane's worktree, detached, with its output in
+waiters in order, each with **Cancel wait** (the drawer lists every queue; a lane's Gate tab shows where that lane stands). **Run in `<lane>`** (the lane's Gate tab) starts the queue's `command` through
+`lock-run` in that lane's worktree, detached, with its output in
 `~/.clauductor/panel/<project hash>/queue-logs/`.
 
 ### In a project's gate script
@@ -677,7 +774,7 @@ lease_proc_dead() {
   fi
   return 1
 }
-lease_get() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//' || true; }
+lease_get() { LC_ALL=C sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | LC_ALL=C sed 's/[[:space:]]*$//' || true; }
 # lease_mtime PATH: its modification time in unix seconds: GNU stat, then BSD stat.
 # Unknown reads as now (young), so missing data never makes a lock look abandoned.
 lease_mtime() {
@@ -689,14 +786,18 @@ lease_mtime() {
 # started, renewed and ttl integers; nonce, pstart, child_pstart, host, lane and cmd
 # strings; and a nonce of 16 lower-case hex digits. An invalid owner.json counts as
 # missing; an invalid waiter file holds no place in the queue and is never removed.
+# Byte for byte (LC_ALL=C), as Go decodes: a string may hold any byte but \000-\037,
+# so DEL (0x7f, which json.Marshal writes unescaped) and bytes that are not UTF-8 are
+# allowed whatever the user's locale.
 lease_valid() {
-  _j=$(awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
-  _S='"([^"\\[:cntrl:]]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _j=$(LC_ALL=C awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
+  _c=$(printf '\001-\037')
+  _S='"([^"\\'"$_c"']|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
   _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
   _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
-  printf '%s\n' "$_j" | grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
-  if printf '%s\n' "$_j" | grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
-  if printf '%s\n' "$_j" | grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
+  printf '%s\n' "$_j" | LC_ALL=C grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
+  if printf '%s\n' "$_j" | LC_ALL=C grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
+  if printf '%s\n' "$_j" | LC_ALL=C grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
   lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$'
 }
 # lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
@@ -810,6 +911,8 @@ exit status, and the files left behind.
 | `ownerless-old`, `ownerless-young` | reclaim a lock directory with no `owner.json` once it is 10 s old, and wait until then |
 | `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old`, `garbage-owner-old`, `string-pid-owner-old` | treat an invalid `owner.json` (truncated, no 16-hex nonce, not a flat object, a field of the wrong type) as missing, even with a live pid in it |
 | `spaced-owner-live` | read a valid record written with spaces, newlines, escapes and an extra `null` field as the live holder it names |
+| `del-owner-live` | read a live holder whose `cmd` holds DEL (0x7f, which `json.Marshal` writes unescaped) as live: wait |
+| `high-bytes-owner-live` | read a live holder whose `cmd` holds bytes that are not UTF-8 (0xff 0xfe) as live, whatever the waiter's locale: wait |
 | `live-waiter-ahead`, `dead-waiter-ahead` | never jump a live waiter that arrived first; skip and remove a dead one |
 | `other-host-waiter-stale`, `other-host-waiter-fresh` | judge another host's waiter by a 60 s TTL, whatever `ttl` its file names |
 | `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
@@ -821,7 +924,8 @@ exit status, and the files left behind.
 `TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
 this page. The suite is falsified in the same run: two controls, one that ignores the lease and
 one that always takes it, must fail every case that depends on the rule they break, and each of
-15 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
+17 mutants of `lease.sh` (`leaseShMutants`: DEL rejected as a control character, the old
+`[:cntrl:]` rule in the user's locale (run in a UTF-8 locale), EPERM read as dead, start times compared across
 sources, an unverifiable pid read as dead, pid reuse ignored, the command ignored, a waiter's own
 `ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
 record, the record's shape or its integer fields unchecked, invalid waiter files removed or queued,
@@ -894,81 +998,127 @@ the config's `name` only while the config is trusted; `name` must be one line of
 does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
 
-## Themes
+## Appearance
 
-The **theme** button at the right of the top bar picks one of six designs and a mode: **System**
-(follows the OS light or dark setting), **Light** or **Dark**. The menu works from the keyboard:
-Down or Enter opens it, the arrow keys, Home and End move, Enter picks, Escape closes it and
-returns focus to the button. Each theme shows a swatch drawn from its own tokens. The choice is
-kept per browser in `localStorage`. Without storage the page shows Console and the picker still
-works for the visit. A small script, `static/theme.js`, loads first and sets the theme before
-the first paint, so a stored theme never flashes the default. Changing theme re-colours the
-open terminals at once. Every theme's terminal is dark, in light mode too: only a dark
-background lets each ANSI colour read as text and also carry a label in another ANSI colour.
+**Appearance**, at the right of the status bar, holds three independent choices, each kept per
+browser (without storage the page shows the defaults and the menu still works for the visit). A
+small script, `static/theme.js`, loads first and applies all three before the first paint, so a
+stored choice never flashes the default.
 
-| Theme | Idea | Faces |
-|---|---|---|
-| **Console** (default) | An instrument panel at night: navy, a signal-blue readout, a plotting grid, uppercase telemetry labels. | Chakra Petch, IBM Plex Sans, JetBrains Mono |
-| **Chart room** | A nautical chart: white water, chart magenta, a latitude-scale border, italic names, sentence case, square corners. Dark is a dimmed night palette. | Newsreader italic, Public Sans, DM Mono |
-| **Ward monitor** | A ward's central monitoring station: rounded bed tiles, soft shadows, big condensed figures, surgical teal. The roomiest. | Barlow Semi Condensed, Barlow, Red Hat Mono |
-| **Duplicator** | A dispatch office: forms typed in duplicator violet, dashed carbon-form rules, a tractor-feed edge. The densest. | Courier Prime |
-| **High contrast** | For low vision and glare: black and white, 7:1 page text and terminal colours (see below for its three exceptions), 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
-| **Shop floor** | Safety signage: concrete and asphalt, stencil lettering, a hazard-stripe edge, heavy borders, wide state stripes. | Big Shoulders Stencil, Archivo, Martian Mono |
+- **Theme**: colour, surfaces, separators and density, in a **Mode**: **System** (the default:
+  follows the OS light or dark setting), **Light** or **Dark**. Each theme's light and dark are
+  designed apart, not inverted.
+- **Type**: the UI face, the data face (every aligned value: ids, SHAs, durations, figures) and the
+  terminal face. **Theme's choice** (the default) takes the type system the theme suggests; any
+  theme works with any type system.
+- **Size**: the page's text, 85% to 175% in 5% steps (with nothing chosen, 110% on a window at
+  least 1440 px wide, 100% below), and the terminal's, 11 to 24 px, apart from the page's (with
+  nothing chosen, the type system's size times the page's). Each is a slider with A− and A+
+  beside it, and the menu stays open while you change them. **Ctrl+Alt+=** and **Ctrl+Alt+−**
+  step the page's size and **Ctrl+Alt+0** resets it, inside a terminal too: the terminal takes
+  them and never sends them to claude. The browser's own zoom keys stay the browser's.
+- **At a large size the layout folds.** When the rail and the side panel would leave the
+  terminal fewer than 85 columns of its face, the side panel folds, then the rail; they come back
+  when there is room. **Show details** and **Lanes** show them anyway for the visit. From 140% the
+  status bar puts each figure on one line and drops the secondary ones (cost today and per hour,
+  CPU and memory, interruptions, hooks). The page never scrolls sideways; if the window is short,
+  it scrolls down to the terminal rather than squeezing it.
 
-A lane's state is never shown by colour alone. Busy is a filled circle, waiting a diamond,
-idle a hollow circle, and blocked or stale a square, and each also has its word ("busy",
-"waiting: …", "no hooks", "blocking"). Lane cards and terminal tabs take keyboard focus, and
-Enter opens them. A long lane name wraps to two lines; hovering the card shows it whole.
+The menu works from the keyboard: Down or Enter opens it, the arrow keys, Home and End move, Enter
+picks, Escape closes it and returns focus to the button. On a Tuned slider, Left and Right change
+its value. Changing the theme re-colours the open terminals at once; changing the type system
+loads its terminal face first, then refits every terminal to the new cell. Every theme's terminal
+is dark: only a dark background lets each ANSI colour read as text and also carry a label in
+another ANSI colour.
 
-### Adding a theme: the token contract
+| Theme | After | Light | Dark | Suggests |
+|---|---|---|---|---|
+| **Grey HMI** (default) | ISA-101 control rooms | A mid-light grey ground, darker grey rules; colour only when abnormal | A neutral charcoal, never navy; desaturated amber and red | Highway |
+| **Terminal Amber** | The Bloomberg terminal | Black ink on cool white; black-on-amber blocks for what is abnormal or selected | Amber on true black, white secondary text | Cockpit |
+| **Glass Cockpit** | Airbus-style displays | Light grey with a dark instrument bezel for the status bar | Black: green nominal, amber caution, red warning, cyan only for what you can act on, magenta for projections | Cockpit |
+| **Tuned** | Linear's generated themes | Generated in CIE LCh from a base hue, an accent hue and a contrast (the Tuned sliders); separators 6 L from the ground | The same inputs; contrast at its top holds all text, and the terminal, to AAA (7:1) | Civic |
+| **TUI** | btop, k9s, lazygit | ANSI colours, box-drawn panes with their titles in the border, braille sparklines, a key-hint bar | The same, dark; the focused pane shown by its border | Engineer |
+| **System Native** | macOS Activity Monitor | System greys, zebra rows, a source-list sidebar; the accent only for the selection | macOS dark greys, flat fills | Hyperlegible |
 
-A theme is only tokens. `web/static/panel.css` references tokens and never a colour or a face
-of its own, so a theme adds no component CSS. To add one:
+| Type system | UI | Data | Terminal |
+|---|---|---|---|
+| **Cockpit** | B612 | B612 Mono | Iosevka Term (B612 Mono's round brackets read as square ones at terminal sizes) |
+| **Highway** (default) | Overpass | Overpass Mono | Overpass Mono |
+| **Civic** | Public Sans | Commit Mono | Commit Mono |
+| **Hyperlegible** | Atkinson Hyperlegible Next | Atkinson Hyperlegible Mono | Atkinson Hyperlegible Mono |
+| **Engineer** | Iosevka Aile | Iosevka | Iosevka Term (half a pixel larger: Iosevka reads small) |
+| **Variable** | Mona Sans, condensed in tables | Monaspace Neon | Monaspace Argon |
 
-1. Add `{ id, name, note }` to `THEMES` in `web/static/theme.js`, with `aaa: true` if it must
-   meet 7:1 text contrast.
-2. In `web/static/themes.css`, add three blocks:
-   - `[data-theme="<id>"]` holds the shape and type tokens, shared by both modes: the faces
-     (`--font-display`, `--font-body`, `--font-mono`, `--font-label`), the type scale and case
-     (`--fs-root`, `--display-*`, `--label-*`, `--btn-size`, `--caps`), and the
-     shape (`--r`, `--r-btn`, `--r-chip`, `--bw`, `--line-style`, `--stripe`, `--pad`,
-     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--term-size`, `--term-min-contrast`, `--band`,
-     `--band-h`, `--backdrop`, `--backdrop-size`).
-   - `[data-theme="<id>"][data-mode="light"]` and `…[data-mode="dark"]` each hold every colour:
-     `--surface`, `--panel`, `--panel-2`, `--line`, `--line-strong`, `--text`, `--text-dim`,
-     `--accent`, `--accent-ink`, `--accent-soft`, `--go`, `--hold`, `--stop` and their `-soft`
-     tints, `--idle`, `--focus`, `--grid`, `--scrim`, and the terminal's `--term-bg`,
-     `--term-fg`, `--term-cursor`, `--term-selection` and `--ansi-0` to `--ansi-15`.
-3. Put any new font in `web/static/fonts/` with its `OFL-<family>.txt`, and add an `@font-face`.
+Rules that hold for every theme × type: weights 400 and 700 only; x-heights evened with
+`font-size-adjust: ex-height .52`; every figure in tabular, lining, slashed-zero digits; nothing
+under 11.5 px at 100%; sentence-case headings; no chips, pills, cards, gradients, glows or
+shadows except on what floats (menus, the drawer, the dialog). All faces are self-hosted Latin
+subsets under the SIL OFL 1.1 (B612 is also offered under EPL 2.0 and EDL 1.0; the panel uses the
+OFL). Overpass Mono, Commit Mono, the Iosevka faces, Mona Sans and Monaspace were subset from
+upstream to keep the box-drawing and prompt glyphs a terminal needs, where the font has them.
+Mona Sans and Monaspace carry Reserved Font Names, so their subsets are renamed Panel Sans, Panel
+Data Mono and Panel Term Mono, as the OFL requires of a modified font. Before PANEL-11 every
+terminal drew in Menlo whatever the theme (the face was fixed in `panel.js`), so the largest
+thing on the page looked the same in every theme.
 
-`themes_test.go` then checks the theme. It fails if a theme × mode lacks any token that another
-theme defines or that `panel.css` or `panel.js` uses, if `theme.js` and `themes.css` disagree on
-the list, or if a theme block sits inside `@media` or another conditional rule. It fails if
-`panel.css` fades anything with `opacity` except a disabled control, since a fade would undo
-every ratio below. Quiet rows step back with `--panel-2` instead. It also checks contrast,
-measured on `--surface`, `--panel` and `--panel-2`:
+### Adding a theme or a type system: the token contract
 
-- text, dim text, accent text and the state colours as text must reach 4.5:1 (7:1 for an `aaa`
-  theme), and so must text, dim text and the state's own colour on each `-soft` tint, laid over
-  both `--panel` (cards) and `--surface` (banners), and text on the primary button;
-- the focus ring and the idle marker must reach 3:1;
-- the terminal foreground must reach 7:1 on its background, and each ANSI colour 3:1 (7:1 for
-  colours 1–15 in an `aaa` theme);
-- the label pairs a TUI draws (black on green, yellow and cyan; white on red, blue and magenta;
-  and the bright variants) must reach 4.5:1. Black on red is not required: with red also at
-  3:1 on the background, no red carries both black and white text at 4.5:1;
-- in an `aaa` theme every colour is light (7:1 on black), and two light colours differ by at
-  most 3:1, so white text on a coloured label cannot be legible there. Black carries every
-  label instead, at 4.5:1 on each colour, and ANSI black itself stays at 3:1 on the
-  background. Those two figures, and white-on-colour labels, are the High contrast theme's
-  three exceptions to 7:1. What the palette cannot promise, xterm enforces:
-  `--term-min-contrast` sets its `minimumContrastRatio` (4.5 in every theme, 7 in High
-  contrast), so it lightens or darkens any text a program draws, on any ANSI or truecolor
-  background, to that ratio. White on red therefore renders at 7:1 there as another colour;
-- busy, waiting, blocked and idle must differ by at least ΔE 20.
+A theme and a type system are only tokens. `web/static/panel.css` references tokens and never a
+colour or a face of its own, so neither adds component CSS. The root size is the theme's
+`--fs-root` times your `--ui-scale`, and every size in `panel.css` is in rem.
 
-It fails, too, on a font file that no theme loads or that has no licence, and on more than 700
-KB of fonts.
+To add a theme, add `{ id, name, note, type }` to `THEMES` in `web/static/theme.js` (`type` is the
+type system it suggests; `tuned: true` marks a generated one), then three blocks to
+`web/static/themes.css`:
+
+- `[data-theme="<id>"]`: density and shape, shared by both modes: `--fs-root`, `--ui-scale` (1;
+  theme.js overrides it), `--row-h`, `--cell-x`, `--pane-p`, `--r-ctl` (controls only; panes are
+  square), `--bw`, `--rail-w`, `--side-w`, `--term-min-contrast`, and the TUI switches `--tui` (1
+  boxes panes with their titles in the border), `--keyhints` (`flex` shows the key-hint bar),
+  `--spark` (`"line"` or `"braille"`) and `--title-case`.
+- `[data-theme="<id>"][data-mode="light"]` and `…[data-mode="dark"]`: every colour. Surfaces
+  `--ground`, `--pane`, `--pane-2`, `--zebra`, `--rail`, `--bar`; rules `--rule`,
+  `--rule-strong`; text `--text-1`, `--text-2`, `--text-3`, `--bar-text`, `--bar-text-2`; states
+  `--ok` (a text tier unless the theme's convention colours nominal), `--warn`, `--crit` and
+  their rows `--warn-bg`, `--crit-bg` with inks `--warn-ink`, `--crit-ink`; `--act` (only what you
+  can click or type into) and `--act-ink`; `--info` (projections); `--sel`, `--sel-text`,
+  `--focus`, `--scrim`; and the terminal's `--term-bg`, `--term-fg`, `--term-cursor`,
+  `--term-selection` and `--ansi-0` to `--ansi-15`.
+
+To add a type system, add `{ id, name, note }` to `TYPES` in `theme.js` and a
+`[data-type="<id>"]` block to `web/static/types.css` with `--font-ui`, `--font-data`,
+`--font-term`, `--num` (the figures' `font-feature-settings`), `--table-stretch`, `--term-size` and
+`--data-bump`. Put its faces in `web/static/fonts/` with an `OFL-<family>.txt` each, and add their
+`@font-face`s to `types.css`.
+
+What checks them:
+
+- `themes_test.go`, for every theme × mode: the text tiers, `--act`, `--ok`, `--warn` and `--crit`
+  reach 4.5:1 on every surface; `--bar-text` and `--bar-text-2` on the bar, `--act-ink` on
+  `--act`, each ink on its row (its text, and any control on it, which takes the ink) and `--sel-text` on the selection reach 4.5:1; `--info`,
+  `--focus` and `--rule-strong` reach 3:1; warn and crit differ by ΔE 20; the terminal foreground
+  reaches 7:1, each ANSI colour 3:1, and the label pairs a TUI draws 4.5:1 (black on green, yellow
+  and cyan; white on red, blue and magenta; and the bright variants). It fails if a theme × mode
+  lacks a token another defines or that `panel.css` or `panel.js` uses and no type system
+  defines, if `theme.js` and `themes.css` disagree, if a theme block sits inside a conditional
+  rule, if `panel.css` fades anything with `opacity` but a disabled control, or on a font file no
+  type system loads, one without a licence, or more than 700 KB of fonts.
+- `tells_test.go`: `panel.css` has no uppercase, letter-spacing, gradient, animation, weight other
+  than 400 and 700, glow, rounded pane, or shadow on anything that does not float; it evens
+  x-heights and sets the figure features; nothing is under 11.5 px; `panel.js` joins no words
+  with " · " and puts no arrow on a button, and the cursor does not blink. It also runs the Tuned
+  generator over a grid of hues, accents and contrasts, in both modes, and holds every output to
+  the same floors, and to AAA (7:1, with the High contrast terminal palette) at full contrast.
+- `types_test.go`: `theme.js` and `types.css` agree, every type system sets every type token and
+  nothing else, the faces it names have an `@font-face`, every theme suggests a type system that
+  exists, no token is set in both layers, and each type system's files stay under 125 KB (the
+  brief asked for about 120; the largest, Variable, is 117 KB with Mona Sans's width axis).
+- The browser test (`testdata/browser/run.sh`) loads every type system's faces through
+  `document.fonts`, checks that each terminal face draws `(` curved enough not to read as `[`,
+  that a type change refits the terminal to the new cell, that the size keys pressed inside a
+  terminal resize the page and send claude nothing (a fake claude records its input), and that
+  at 175% on a 1440 px window the page does not scroll sideways and every main control is
+  reachable.
 
 ## Signals: hooks and the status line
 
@@ -983,7 +1133,9 @@ time, project and port. All three are removed on a clean stop, but only while `p
 that panel: a panel never deletes another panel's files. A `pid` naming a process that is not
 running (or one with another start time) means the panel was killed and the files are stale.
 
-So the snippet reads `pid` and checks that the process is alive (`kill -0`) before it posts: a
+So the snippet reads `pid`, takes it only as a positive integer (`kill -0 -1` and `kill -0 0`
+succeed whatever runs, since they signal every process you own or your process group), and
+checks that the process is alive (`kill -0`) before it posts: a
 panel killed with `SIGKILL` leaves `port` behind, and another program may hold that port by now.
 It posts only then, never waits (background, 0.5 s cap), and prints nothing, so the status line
 is unaffected on a machine that has never run the panel, or whose panel is down:
@@ -992,7 +1144,9 @@ is unaffected on a machine that has never run the panel, or whose panel is down:
 ```bash
 input=$(cat)
 panel="$HOME/.clauductor/panel"
-if [ -f "$panel/port" ] && pid=$(cat "$panel/pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
+pid=$(cat "$panel/pid" 2>/dev/null)
+case "$pid" in ''|0*|*[!0-9]*) pid= ;; esac   # digits only, not 0: kill -0 -1 and kill -0 0 always succeed
+if [ -f "$panel/port" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   port=$(cat "$panel/port")
   printf '%s' "$input" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
     --data-binary @- "http://127.0.0.1:$port/status" >/dev/null 2>&1 &
@@ -1015,9 +1169,12 @@ event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 ```
 
 for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`, `SessionEnd`,
-`StopFailure`, `PermissionRequest` (observed only, never answered), `PreCompact`, `PostCompact`
-and `CwdChanged`. `SessionStart` is left out because HTTP hooks do not fire for it (Claude Code
-2.1.284); new sessions are found through `claude agents --json`.
+`StopFailure`, `PermissionRequest` (observed only, never answered), `PreCompact`, `PostCompact`,
+`CwdChanged`, and from PANEL-11 `PreToolUse` and `PostToolUse` with the matcher
+`Agent|Task|Workflow`, so the panel hears them only for the calls that start agents (see [Which
+agent started which](#which-agent-started-which)); it answers them 204, no decision.
+`SessionStart` is left out because HTTP hooks do not fire for it (Claude Code 2.1.284); new
+sessions are found through `claude agents --json`.
 
 - The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
   Code documents no free-form key for ownership. Only tagged entries are replaced or removed;
@@ -1211,7 +1368,7 @@ runs them only for the exact bytes you trusted. Trusting records the file's SHA-
 `~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
-starts, but its cards, queue RUN and templates stay **off**, under a red **CONFIG UNTRUSTED**
+starts, but its cards, queue RUN and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
@@ -1301,7 +1458,7 @@ opens `http://127.0.0.1:<port>/` instead.
 - every lane registry that lists no lanes.
 
 A registry that still lists lanes is kept, and `uninstall` says so: those lanes may still run in
-tmux, and RESUME needs their session ids. It never touches lanes. The panel's hooks stay in
+tmux, and Resume needs their session ids. It never touches lanes. The panel's hooks stay in
 `~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes them.
 
 ### Dependencies
@@ -1358,10 +1515,10 @@ UNTRUSTED** banner says which. Review it and run `clauductor panel trust` (see
 
 Usually Claude's workspace-trust dialog in a new directory: it defaults to **No, exit**. Press ↓,
 then Enter, in the lane's terminal; if claude already exited, STOP the lane and start it again. If
-**+ LANE** is disabled, hover it for the reason (an API key, see
+**New lane** is disabled, hover it for the reason (an API key, see
 [Subscription only](#subscription-only); or the [quota guard](#quota-guard)).
 
-### A lane shows NO HOOKS
+### A lane shows No hooks
 
 The session is busy per `claude agents` but no hook has come from it for 60 s: usually it never
 loaded the hooks. Restart it.

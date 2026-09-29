@@ -404,8 +404,17 @@ func TestPageEntersTheTerminalOnlyOnPurpose(t *testing.T) {
 	if strings.Contains(js, "setInterval(render") {
 		t.Error("panel.js re-renders on a timer; only ages tick (tickAges)")
 	}
-	rebuild := regexp.MustCompile(`\$\("(left|right|detail|tabs|termbar|banners|restorebar|obs|connbar)"\)\.(replaceChildren|innerHTML)`)
+	rebuild := regexp.MustCompile(`\$\("(needs|lanelist|tree|tabs|lanehead|side|termbar|banners|restorebar|obs|connbar|drawerbody|lanecounts)"\)\.(replaceChildren|innerHTML)`)
 	if m := rebuild.FindString(js); m != "" {
 		t.Errorf("panel.js rebuilds a live region (%s); patch it in place", m)
+	}
+	// The guard names regions that exist: a renamed region would pass it vacuously.
+	page, _ := webFS.ReadFile("index.html")
+	rs := rebuild.String()
+	ids := rs[strings.Index(rs, `"(`)+2 : strings.Index(rs, `)"`)]
+	for _, r := range strings.Split(ids, "|") {
+		if !strings.Contains(string(page), `id="`+r+`"`) {
+			t.Errorf("the rebuild guard names #%s, which index.html does not have", r)
+		}
 	}
 }

@@ -16,7 +16,8 @@ import (
 
 // The status-line snippet in docs/panel.md is what projects paste into their
 // status-line script. The test runs THAT text: it posts to the recorded port only
-// while ~/.clauductor/panel/pid names a live process, and otherwise stays silent.
+// while ~/.clauductor/panel/pid names a live process (a positive integer), and
+// otherwise stays silent.
 func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 	for _, tool := range []string{"bash", "curl"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -56,6 +57,11 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 		{"live panel", strconv.Itoa(os.Getpid()), true},
 		{"killed panel (stale files)", strconv.Itoa(dead.Process.Pid), false},
 		{"no pid file", "", false},
+		// kill -0 -1 signals every process the user owns, and kill -0 0 the process
+		// group: both succeed, so a pid must be digits only, and not 0, before kill -0.
+		{"pid file says -1", "-1", false},
+		{"pid file says 0", "0", false},
+		{"pid file is not a number", "12 34", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()

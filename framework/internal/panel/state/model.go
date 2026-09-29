@@ -54,7 +54,31 @@ type FeedEvent struct {
 type subagent struct {
 	Type  string
 	Since time.Time
+	link  agentLink
 }
+
+// agentLink is where a subagent sits in its session's tree (PANEL-11; nesting.go).
+type agentLink struct {
+	Parent  string // the agent that started it; "" for the session itself
+	Desc    string // the Agent call's description
+	Approx  bool   // Parent is paired by timing and type, not yet confirmed by the call's result
+	Run     string // the workflow run it belongs to (workflow-subagent), by the heuristic in nesting.go
+	RunName string
+}
+
+// finishedAgent is a subagent that stopped, kept so the page can list what a lane
+// has already run (PANEL-11). Ended is when the panel learned it stopped: the stop
+// hook, or the moment a clear (idle, gone, SessionEnd) retired it.
+type finishedAgent struct {
+	ID    string
+	Type  string
+	Since time.Time
+	Ended time.Time
+	link  agentLink
+}
+
+// maxFinished caps the finished subagents a session keeps, newest kept.
+const maxFinished = 20
 
 type note struct {
 	Type    string
@@ -70,10 +94,13 @@ type session struct {
 	LastEventAt time.Time
 	HookStatus  string // from hooks alone: busy | idle | waiting
 	Subagents   map[string]subagent
+	Finished    []finishedAgent // oldest first, at most maxFinished
+	nest        nesting         // pending Agent calls, confirmed edges, workflow runs (nesting.go)
 	Note        *note
 	CtxPct      *float64
 	Model       string
 	StatusAt    time.Time // last status-line post
+	Stats       Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
 	// From `claude agents --json`.
 	Agent     *signals.Agent
 	BusySince time.Time
@@ -134,6 +161,8 @@ type Model struct {
 	// laneGone is when a successful tmux poll first found a registered lane's
 	// session missing, by lane id (PANEL-7).
 	laneGone map[string]time.Time
+	// trend holds the trends, the lane timelines, ps and git (PANEL-11; trends.go).
+	trend *trends
 }
 
 // Quota is the latest account quota the status line reported.
@@ -295,6 +324,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	detail := ""
 	switch ev.Event {
 	case "UserPromptSubmit":
+		s.Stats.Turns++
 		s.HookStatus = "busy"
 		s.LastPromptAt = now
 		s.Done, s.Failure = nil, nil
@@ -313,10 +343,14 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		s.Failure = &note{Type: typ, At: now}
 		detail = "error_type " + signals.OneLine(typ)
 	case "PermissionRequest":
+		if s.HookStatus != "waiting" {
+			s.Stats.Asks++
+		}
 		s.HookStatus = "waiting"
 		s.Note = &note{Type: "permission_prompt", Message: signals.OneLine("wants to use " + ev.ToolName), At: now}
 		detail = signals.OneLine(ev.ToolName)
 	case "PreCompact":
+		s.Stats.Compactions++
 		s.Compacting = compactionTrigger(ev)
 		detail = s.Compacting
 	case "PostCompact":
@@ -325,17 +359,24 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	case "CwdChanged":
 		// Recorded, never followed: the lane binding stays where it was made.
 		detail = signals.OneLine(ev.PreviousCwd + " → " + ev.Cwd)
+	case "PreToolUse":
+		detail = s.nest.pre(ev, now)
+	case "PostToolUse":
+		detail = s.post(ev, now)
 	case "SubagentStart":
-		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now}
+		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now, link: s.nest.link(ev, now)}
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "SubagentStop":
-		s.stopSubagent(ev.AgentID, ev.AgentType)
+		s.stopSubagent(ev.AgentID, ev.AgentType, now)
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "Notification":
 		k := signals.ClassifyNotification(ev.NotificationType)
 		n := &note{Type: ev.NotificationType, Message: signals.OneLine(ev.Message), At: now}
 		switch {
 		case k.Waiting:
+			if s.HookStatus != "waiting" {
+				s.Stats.Asks++
+			}
 			s.HookStatus = "waiting"
 			s.Note = n
 		case k.NeedsYou:
@@ -364,7 +405,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		detail = strings.TrimSpace(ev.NotificationType + " " + signals.OneLine(ev.Message))
 	case "SessionEnd":
 		s.HookStatus = "ended"
-		s.Subagents = map[string]subagent{}
+		s.clearSubagents(now)
 		s.Done, s.Compacting = nil, ""
 		detail = ev.Reason
 	}
@@ -382,9 +423,9 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 //   - any other type: the oldest running agent of that same type.
 //
 // Hook Stop clears nothing: background agents outlive the turn that started them.
-func (s *session) stopSubagent(id, typ string) {
+func (s *session) stopSubagent(id, typ string, now time.Time) {
 	if _, ok := s.Subagents[id]; ok {
-		delete(s.Subagents, id)
+		s.retire(id, now)
 		return
 	}
 	var oldest string
@@ -397,7 +438,36 @@ func (s *session) stopSubagent(id, typ string) {
 		oldest = s.oldestSubagent(func(a subagent) bool { return a.Type == typ })
 	}
 	if oldest != "" {
-		delete(s.Subagents, oldest)
+		s.retire(oldest, now)
+	}
+}
+
+// retire moves a running subagent to the finished list.
+func (s *session) retire(id string, now time.Time) {
+	a, ok := s.Subagents[id]
+	if !ok {
+		return
+	}
+	delete(s.Subagents, id)
+	s.Finished = append(s.Finished, finishedAgent{ID: id, Type: a.Type, Since: a.Since, Ended: now, link: a.link})
+	if n := len(s.Finished); n > maxFinished {
+		s.Finished = append([]finishedAgent(nil), s.Finished[n-maxFinished:]...)
+	}
+}
+
+// clearSubagents retires every running subagent, oldest first, so the finished list
+// keeps its order.
+func (s *session) clearSubagents(now time.Time) {
+	ids := make([]string, 0, len(s.Subagents))
+	for id := range s.Subagents {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		a, b := s.Subagents[ids[i]], s.Subagents[ids[j]]
+		return a.Since.Before(b.Since) || (a.Since.Equal(b.Since) && ids[i] < ids[j])
+	})
+	for _, id := range ids {
+		s.retire(id, now)
 	}
 }
 
@@ -448,7 +518,9 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		}
 		if p.Cost.TotalCostUSD != nil {
 			m.costByID[p.SessionID] = *p.Cost.TotalCostUSD
+			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
+		s.Stats.fold(p, now)
 	}
 	rl := p.RateLimits
 	// Merge per window: a live payload was seen carrying seven_day without five_hour,
@@ -521,7 +593,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 			}
 			// A session idle this long has no agent running, whatever stops were missed.
 			if now.Sub(s.IdleSince) >= idleClearsAgents {
-				s.Subagents = map[string]subagent{}
+				s.clearSubagents(now)
 			}
 		} else {
 			s.IdleSince = time.Time{}
@@ -552,7 +624,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 			s.Agent = nil
 			s.Note, s.Done = nil, nil
 			s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}
-			s.Subagents = map[string]subagent{}
+			s.clearSubagents(now)
 		}
 	}
 	m.forgetSessions(now)
@@ -620,27 +692,45 @@ type View struct {
 	TmuxSocket   string                `json:"tmuxSocket"`
 	LaneBase     string                `json:"laneBase"`
 	WorktreeRoot string                `json:"worktreeRoot"`
+	// Trends are the global trends and what they imply (PANEL-11).
+	Trends Trends `json:"trends"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
 
 // LaneView is one lane (a worktree) as rendered.
 type LaneView struct {
-	ID          string         `json:"id"`
-	Path        string         `json:"path"`
-	Branch      string         `json:"branch"`
-	Type        string         `json:"type"`
-	Name        string         `json:"name"`
-	Status      string         `json:"status"` // waiting | busy | idle | none
-	WaitingFor  string         `json:"waitingFor,omitempty"`
-	CtxPct      *float64       `json:"ctxPct"`
-	Subagents   []SubagentView `json:"subagents"`
-	LastEvent   string         `json:"lastEvent,omitempty"`
-	LastEventAt int64          `json:"lastEventAt,omitempty"`
-	LastHookAt  int64          `json:"lastHookAt,omitempty"`
-	Stale       bool           `json:"stale"`
-	Sessions    []SessionView  `json:"sessions"`
-	Terminal    string         `json:"terminal,omitempty"` // the lane id of a tmux lane in this worktree
+	ID         string         `json:"id"`
+	Path       string         `json:"path"`
+	Branch     string         `json:"branch"`
+	Type       string         `json:"type"`
+	Name       string         `json:"name"`
+	Status     string         `json:"status"` // waiting | busy | idle | none
+	WaitingFor string         `json:"waitingFor,omitempty"`
+	CtxPct     *float64       `json:"ctxPct"`
+	Subagents  []SubagentView `json:"subagents"`
+	// FinishedSubagents are the lane's stopped subagents, newest first, at most
+	// maxFinished (PANEL-11: the page's "N finished" list).
+	FinishedSubagents []SubagentView `json:"finishedSubagents"`
+	// Metrics sum the lane's sessions' figures (PANEL-11); State and StateSince are
+	// the lane's own (its leading session's).
+	Metrics Metrics `json:"metrics"`
+	// Timeline is the lane's state over the last TrendWindow; HitSpark and CostSpark
+	// its prompt-cache hit ratio and est. $ a minute; CostPerH over the last hour.
+	Timeline  []Segment `json:"timeline,omitempty"`
+	HitSpark  *Spark    `json:"hitSpark,omitempty"`
+	CostSpark *Spark    `json:"costSpark,omitempty"`
+	CostPerH  *float64  `json:"costPerH,omitempty"`
+	// Git is the worktree's last git read, taken only while a page is open.
+	Git *GitView `json:"git,omitempty"`
+	// Head is the worktree's HEAD commit, from `git worktree list`.
+	Head        string        `json:"head,omitempty"`
+	LastEvent   string        `json:"lastEvent,omitempty"`
+	LastEventAt int64         `json:"lastEventAt,omitempty"`
+	LastHookAt  int64         `json:"lastHookAt,omitempty"`
+	Stale       bool          `json:"stale"`
+	Sessions    []SessionView `json:"sessions"`
+	Terminal    string        `json:"terminal,omitempty"` // the lane id of a tmux lane in this worktree
 	// SubagentsApprox: the subagent pairing heuristics were verified on another
 	// Claude Code version than the one running, so the list is approximate.
 	SubagentsApprox bool `json:"subagentsApprox,omitempty"`
@@ -660,7 +750,12 @@ type SessionView struct {
 	Model      string   `json:"model,omitempty"`
 	EstCostUSD *float64 `json:"estCostUsd"`
 	BusySince  int64    `json:"busySince,omitempty"`
-	Stale      bool     `json:"stale"`
+	// StartedAt is when the session's process started, per `claude agents` (0 when
+	// it is not listed): the lane's uptime on the page.
+	StartedAt int64 `json:"startedAt,omitempty"`
+	// Metrics are this session's dashboard figures (PANEL-11).
+	Metrics Metrics `json:"metrics"`
+	Stale   bool    `json:"stale"`
 	// v2.
 	WaitingKind string `json:"waitingKind,omitempty"` // the waitingFor enum: permission | input | sandbox | worker | dialog | other
 	AgentID     string `json:"agentId,omitempty"`     // `claude agents` id (background sessions)
@@ -673,12 +768,201 @@ type SessionView struct {
 	Approx bool `json:"approx,omitempty"`
 }
 
-// SubagentView is one running subagent.
+// Metrics are a session's figures from its status line, and a lane's summed over its
+// sessions (PANEL-11), for the page's lane dashboard. A figure the status line has not
+// sent is absent (nil or zero with omitempty), never a guess. Nothing here costs a
+// model token: every field is read from a post the panel already receives, or from
+// the hooks and `claude agents` state it already keeps.
+type Metrics struct {
+	CtxPct        *float64 `json:"ctxPct,omitempty"`
+	CtxWindow     int64    `json:"ctxWindow,omitempty"`    // context_window_size, tokens
+	InputTokens   int64    `json:"inputTokens,omitempty"`  // total_input_tokens
+	OutputTokens  int64    `json:"outputTokens,omitempty"` // total_output_tokens
+	CacheRead     int64    `json:"cacheReadTokens,omitempty"`
+	CacheWrite    int64    `json:"cacheWriteTokens,omitempty"`
+	CacheHitRatio *float64 `json:"cacheHitRatio,omitempty"` // prompt_cache.hit_ratio, 0..1
+	CacheWarm     *bool    `json:"cacheWarm,omitempty"`
+	CacheExpires  int64    `json:"cacheExpiresAt,omitempty"` // unix ms
+	CacheMisses   int64    `json:"cacheMisses,omitempty"`
+	CacheRequests int64    `json:"cacheRequests,omitempty"`
+	LastMissCause string   `json:"lastMissCause,omitempty"`
+	RecacheTokens int64    `json:"recacheTokens,omitempty"` // tokens the next request writes if the cache is cold
+	LinesAdded    int64    `json:"linesAdded,omitempty"`
+	LinesRemoved  int64    `json:"linesRemoved,omitempty"`
+	DurationMs    int64    `json:"durationMs,omitempty"`    // total_duration_ms: wall time of the session
+	APIDurationMs int64    `json:"apiDurationMs,omitempty"` // total_api_duration_ms
+	CostUSD       *float64 `json:"costUsd,omitempty"`
+	Over200k      bool     `json:"over200k,omitempty"`
+	Thinking      *bool    `json:"thinking,omitempty"`
+	FastMode      *bool    `json:"fastMode,omitempty"`
+	OutputStyle   string   `json:"outputStyle,omitempty"`
+	StatusAt      int64    `json:"statusAt,omitempty"` // the last status-line post, unix ms
+	// From hooks and `claude agents`, not the status line.
+	Turns       int `json:"turns,omitempty"`       // UserPromptSubmit hooks
+	Asks        int `json:"asks,omitempty"`        // times it stopped to wait on you (a waiting notification or PermissionRequest)
+	Compactions int `json:"compactions,omitempty"` // PreCompact hooks
+	// From ps, while a page is open (PANEL-11): the claude process itself.
+	CPU               *float64 `json:"cpu,omitempty"` // % of one core
+	RSSMB             *float64 `json:"rssMb,omitempty"`
+	SubagentsRunning  int      `json:"subagentsRunning"`
+	SubagentsFinished int      `json:"subagentsFinished"`
+	State             string   `json:"state,omitempty"`      // busy | waiting | idle
+	StateSince        int64    `json:"stateSince,omitempty"` // unix ms: when it entered that state (time in state)
+}
+
+// fold takes the figures a status post carries; a field it omits keeps its last value.
+func (x *Metrics) fold(p signals.StatusPayload, now time.Time) {
+	x.StatusAt = ms(now)
+	cw := p.ContextWindow
+	if cw.UsedPercentage != nil {
+		v := *cw.UsedPercentage
+		x.CtxPct = &v
+	}
+	setI := func(dst *int64, v *int64) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	setI(&x.CtxWindow, cw.ContextWindowSize)
+	setI(&x.InputTokens, cw.TotalInputTokens)
+	setI(&x.OutputTokens, cw.TotalOutputTokens)
+	if u := cw.CurrentUsage; u != nil {
+		x.CacheRead, x.CacheWrite = u.CacheReadInputTokens, u.CacheCreationInputTokens
+	}
+	c := p.Cost
+	setI(&x.LinesAdded, c.TotalLinesAdded)
+	setI(&x.LinesRemoved, c.TotalLinesRemoved)
+	setI(&x.DurationMs, c.TotalDurationMs)
+	setI(&x.APIDurationMs, c.TotalAPIDurationMs)
+	if c.TotalCostUSD != nil {
+		v := *c.TotalCostUSD
+		x.CostUSD = &v
+	}
+	if pc := p.PromptCache; pc != nil {
+		if pc.HitRatio != nil {
+			v := *pc.HitRatio
+			x.CacheHitRatio = &v
+		}
+		if pc.Warm != nil {
+			v := *pc.Warm
+			x.CacheWarm = &v
+		}
+		if pc.ExpiresAt != nil {
+			x.CacheExpires = *pc.ExpiresAt * 1000
+		}
+		setI(&x.CacheMisses, pc.Misses)
+		setI(&x.CacheRequests, pc.Requests)
+		setI(&x.RecacheTokens, pc.RecacheTokensIfCold)
+		if pc.LastMissCause != nil {
+			x.LastMissCause = *pc.LastMissCause
+		}
+	}
+	if p.Exceeds200k != nil {
+		x.Over200k = *p.Exceeds200k
+	}
+	if p.Thinking != nil && p.Thinking.Enabled != nil {
+		v := *p.Thinking.Enabled
+		x.Thinking = &v
+	}
+	if p.FastMode != nil {
+		v := *p.FastMode
+		x.FastMode = &v
+	}
+	if p.OutputStyle.Name != "" {
+		x.OutputStyle = p.OutputStyle.Name
+	}
+}
+
+// metrics are the session's status-line figures plus what hooks and `claude agents`
+// say: its subagents, and how long it has been in the state it is in.
+func (s *session) metrics(state string) Metrics {
+	x := s.Stats
+	x.SubagentsRunning, x.SubagentsFinished = len(s.Subagents), len(s.Finished)
+	x.State = state
+	var since time.Time
+	switch state {
+	case "busy":
+		since = s.BusySince
+	case "waiting":
+		since = s.WaitingSince
+		if since.IsZero() && s.Note != nil {
+			since = s.Note.At
+		}
+	case "idle":
+		since = s.IdleSince
+	}
+	x.StateSince = ms(since)
+	return x
+}
+
+// add sums o into a lane's metrics: counts and durations add, the context and the
+// cache figures come from the session with the most context in use.
+func (x *Metrics) add(o Metrics) {
+	x.InputTokens += o.InputTokens
+	x.OutputTokens += o.OutputTokens
+	x.CacheRead += o.CacheRead
+	x.CacheWrite += o.CacheWrite
+	x.LinesAdded += o.LinesAdded
+	x.LinesRemoved += o.LinesRemoved
+	x.DurationMs += o.DurationMs
+	x.APIDurationMs += o.APIDurationMs
+	x.CacheMisses += o.CacheMisses
+	x.CacheRequests += o.CacheRequests
+	x.SubagentsRunning += o.SubagentsRunning
+	x.Turns += o.Turns
+	x.Asks += o.Asks
+	x.Compactions += o.Compactions
+	addF := func(dst **float64, v *float64) {
+		if v != nil {
+			t := *v
+			if *dst != nil {
+				t += **dst
+			}
+			*dst = &t
+		}
+	}
+	addF(&x.CPU, o.CPU)
+	addF(&x.RSSMB, o.RSSMB)
+	x.SubagentsFinished += o.SubagentsFinished
+	if o.CostUSD != nil {
+		v := *o.CostUSD
+		if x.CostUSD != nil {
+			v += *x.CostUSD
+		}
+		x.CostUSD = &v
+	}
+	if o.StatusAt > x.StatusAt {
+		x.StatusAt = o.StatusAt
+	}
+	x.Over200k = x.Over200k || o.Over200k
+	if o.CtxPct != nil && (x.CtxPct == nil || *o.CtxPct > *x.CtxPct) {
+		x.CtxPct, x.CtxWindow = o.CtxPct, o.CtxWindow
+		x.CacheHitRatio, x.CacheWarm, x.CacheExpires = o.CacheHitRatio, o.CacheWarm, o.CacheExpires
+		x.LastMissCause, x.RecacheTokens = o.LastMissCause, o.RecacheTokens
+		x.Thinking, x.FastMode, x.OutputStyle = o.Thinking, o.FastMode, o.OutputStyle
+	}
+}
+
+// SubagentView is one running subagent, or a finished one (Ended set). Parent is the
+// agent that started it ("" for the session); ParentApprox says the pairing is by
+// timing and type and not yet confirmed; Run and RunName group workflow agents under
+// their run, always approximately (nesting.go).
 type SubagentView struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Since   int64  `json:"since"`
-	Session string `json:"session"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Since        int64  `json:"since"`
+	Ended        int64  `json:"ended,omitempty"`
+	Session      string `json:"session"`
+	Parent       string `json:"parent,omitempty"`
+	ParentApprox bool   `json:"parentApprox,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Run          string `json:"run,omitempty"`
+	RunName      string `json:"runName,omitempty"`
+}
+
+func subView(id, typ string, since, ended time.Time, session string, l agentLink) SubagentView {
+	return SubagentView{ID: id, Type: typ, Since: ms(since), Ended: ms(ended), Session: session,
+		Parent: l.Parent, ParentApprox: l.Approx, Description: l.Desc, Run: l.Run, RunName: l.RunName}
 }
 
 // NeedView is one "needs you" item.
@@ -743,7 +1027,8 @@ func (m *Model) Snapshot(now time.Time) View {
 		}
 		typ, name := m.cfg.LaneFor(wt.Branch)
 		lv := LaneView{ID: wt.Path, Path: wt.Path, Branch: wt.Branch, Type: typ, Name: name,
-			Status: "none", Subagents: []SubagentView{}, Sessions: []SessionView{}, LastHookAt: ms(m.laneHookAt[wt.Path])}
+			Status: "none", Subagents: []SubagentView{}, FinishedSubagents: []SubagentView{}, Sessions: []SessionView{},
+			LastHookAt: ms(m.laneHookAt[wt.Path]), Head: wt.Head}
 		ss := byLane[wt.Path]
 		sort.Slice(ss, func(i, j int) bool { return ss[i].ID < ss[j].ID })
 		lv.Terminal = termByWT[wt.Path]
@@ -775,15 +1060,20 @@ func (m *Model) Snapshot(now time.Time) View {
 			if s.Agent != nil {
 				sv.Name, sv.PID, sv.Kind = s.Agent.Name, s.Agent.PID, s.Agent.Kind
 				sv.AgentID, sv.AgentState = s.Agent.ID, s.Agent.State
+				sv.StartedAt = s.Agent.StartedAt
 			}
 			if c, ok := m.costByID[s.ID]; ok {
 				c := c
 				sv.EstCostUSD = &c
 			}
+			sv.Metrics = s.metrics(st)
+			sv.Metrics.CPU, sv.Metrics.RSSMB = m.procOf(s, now)
 			lv.Sessions = append(lv.Sessions, sv)
+			lv.Metrics.add(sv.Metrics)
 			// On a tie, a current reading beats an approximate one.
 			if r, cur := statusRank[st], statusRank[lv.Status]; r > cur || (r == cur && lv.Approx && !approx) {
 				lv.Status, lv.WaitingFor, lv.Approx = st, wf, approx
+				lv.Metrics.State, lv.Metrics.StateSince = sv.Metrics.State, sv.Metrics.StateSince
 			}
 			if s.CtxPct != nil && (lv.CtxPct == nil || *s.CtxPct > *lv.CtxPct) {
 				lv.CtxPct = s.CtxPct
@@ -792,7 +1082,10 @@ func (m *Model) Snapshot(now time.Time) View {
 				lv.Stale = true
 			}
 			for id, a := range s.Subagents {
-				lv.Subagents = append(lv.Subagents, SubagentView{ID: id, Type: a.Type, Since: ms(a.Since), Session: s.ID})
+				lv.Subagents = append(lv.Subagents, subView(id, a.Type, a.Since, time.Time{}, s.ID, a.link))
+			}
+			for _, a := range s.Finished {
+				lv.FinishedSubagents = append(lv.FinishedSubagents, subView(a.ID, a.Type, a.Since, a.Ended, s.ID, a.link))
 			}
 			if s.LastEventAt.After(newest) {
 				newest = s.LastEventAt
@@ -801,6 +1094,13 @@ func (m *Model) Snapshot(now time.Time) View {
 			m.needsFor(&v, wt, name, lv.Terminal, s, st, now)
 		}
 		sort.Slice(lv.Subagents, func(i, j int) bool { return lv.Subagents[i].Since < lv.Subagents[j].Since })
+		sort.SliceStable(lv.FinishedSubagents, func(i, j int) bool {
+			a, b := lv.FinishedSubagents[i], lv.FinishedSubagents[j]
+			return a.Ended > b.Ended || (a.Ended == b.Ended && a.Since > b.Since)
+		})
+		if len(lv.FinishedSubagents) > maxFinished {
+			lv.FinishedSubagents = lv.FinishedSubagents[:maxFinished]
+		}
 		lv.SubagentsApprox = m.heuristicsApprox()
 		lv.LastEventAt = ms(newest)
 		if lv.Stale {
@@ -838,6 +1138,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		v.Feed = append(v.Feed, ev)
 	}
 	m.snapshotV2(&v, now)
+	m.trendsView(&v, now)
 	return v
 }
 

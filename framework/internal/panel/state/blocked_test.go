@@ -306,7 +306,8 @@ func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 	check(3*time.Second, true)
 	// The page renders it wherever it renders a status.
 	js := readWeb(t, "panel.js")
-	for _, use := range []string{"l.approx", "lane.approx", "s.approx", "x.approx"} {
+	// PANEL-11: a lane (x) joins its terminal (x.t) and its worktree's LaneView (x.lv).
+	for _, use := range []string{"x.lv.approx", "x.t.approx", "s.approx", "n.approx"} {
 		if !strings.Contains(js, use) {
 			t.Errorf("panel.js never reads %s: an approximate status would render as current", use)
 		}

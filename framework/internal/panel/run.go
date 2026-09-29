@@ -105,6 +105,11 @@ type Ticks struct {
 	Hub           time.Duration // the hub's re-derivation when nothing arrives
 	HubCoalesce   time.Duration // how long an update waits for more before the push
 	Heartbeat     time.Duration // an open /events stream's heartbeat
+	// PANEL-11: the dashboard's trends, and two reads taken only while a page is in
+	// view (a page says so every minute; web.Server.PageVisible).
+	Trends time.Duration // the trends and the lane-state timelines (no spawn)
+	Procs  time.Duration // one `ps` of the claude processes
+	Git    time.Duration // one `git status` per worktree with a lane (a second only when dirty)
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -117,6 +122,7 @@ func DefaultTicks() Ticks {
 		CardWatch: 2 * time.Second, Queues: time.Second, Prompt: time.Second, PromptKick: promptKickEvery,
 		Obs: time.Second, Notify: 2 * time.Second, Trust: 5 * time.Second, Token: 2 * time.Second,
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
+		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
 	}
 }
 
@@ -131,6 +137,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.CardWatch, &d.CardWatch}, {&t.Queues, &d.Queues}, {&t.Prompt, &d.Prompt}, {&t.PromptKick, &d.PromptKick},
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
+		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def
