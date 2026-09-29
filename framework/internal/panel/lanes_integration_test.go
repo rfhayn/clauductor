@@ -466,15 +466,15 @@ type tickCounter struct {
 func (c *tickCounter) count() int { c.mu.Lock(); defer c.mu.Unlock(); return c.n }
 
 func (c *tickCounter) NewTicker(d time.Duration) clock.Ticker {
-	real := c.Clock.NewTicker(d)
+	inner := c.Clock.NewTicker(d)
 	if d != c.period {
-		return real
+		return inner
 	}
-	ct := &countedTicker{real: real, c: make(chan time.Time), stop: make(chan struct{})}
+	ct := &countedTicker{inner: inner, c: make(chan time.Time), stop: make(chan struct{})}
 	go func() {
 		for {
 			select {
-			case v := <-real.C():
+			case v := <-inner.C():
 				select {
 				case ct.c <- v: // delivered: the reader has finished the tick before
 					c.mu.Lock()
@@ -492,14 +492,14 @@ func (c *tickCounter) NewTicker(d time.Duration) clock.Ticker {
 }
 
 type countedTicker struct {
-	real clock.Ticker
-	c    chan time.Time
-	stop chan struct{}
-	once sync.Once
+	inner clock.Ticker
+	c     chan time.Time
+	stop  chan struct{}
+	once  sync.Once
 }
 
 func (t *countedTicker) C() <-chan time.Time { return t.c }
-func (t *countedTicker) Stop()               { t.once.Do(func() { t.real.Stop(); close(t.stop) }) }
+func (t *countedTicker) Stop()               { t.once.Do(func() { t.inner.Stop(); close(t.stop) }) }
 
 // A terminal whose page has gone quiet (hidden: no "alive") is closed with 4000,
 // and a page that keeps saying "alive" keeps its terminal.

@@ -185,13 +185,13 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 // that loop instead of sleeping itself.
 func tracedSleep(t *testing.T, dir string) (trace string) {
 	t.Helper()
-	real, err := exec.LookPath("sleep")
+	sleepBin, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Skip("no sleep")
 	}
 	trace = filepath.Join(t.TempDir(), "sleep-trace")
 	os.Remove(filepath.Join(dir, "sleep")) // noPSPath links the real one
-	script := "#!/bin/sh\necho \"$*\" >> " + shq(trace) + "\nexec " + shq(real) + " \"$@\"\n"
+	script := "#!/bin/sh\necho \"$*\" >> " + shq(trace) + "\nexec " + shq(sleepBin) + " \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
