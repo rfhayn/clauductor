@@ -123,7 +123,7 @@ var exportSummaryCmd = &cobra.Command{
 
 		summary := map[string]interface{}{
 			"workers": map[string]interface{}{
-				"total":    len(workers),
+				"total":     len(workers),
 				"by_status": workerStatus,
 			},
 			"locks": map[string]interface{}{
@@ -133,7 +133,7 @@ var exportSummaryCmd = &cobra.Command{
 				"total": len(events),
 			},
 			"milestones": map[string]interface{}{
-				"total":    len(milestones),
+				"total":     len(milestones),
 				"by_status": milestoneStatus,
 			},
 		}

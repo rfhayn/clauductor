@@ -82,6 +82,7 @@ func laneByName(v View, name string) *LaneView {
 }
 
 func TestReducerReplaysSpikeHooks(t *testing.T) {
+	t.Parallel()
 	evs := spikeHooks(t)
 	spikeCwd := evs[0].Cwd
 	tests := []struct {
@@ -131,6 +132,7 @@ func TestReducerReplaysSpikeHooks(t *testing.T) {
 }
 
 func TestReducerDropsEventsOutsideTheProject(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		cwd      string
 		wantLane string // "" = dropped
@@ -166,6 +168,7 @@ func TestReducerDropsEventsOutsideTheProject(t *testing.T) {
 }
 
 func TestReducerStatusLine(t *testing.T) {
+	t.Parallel()
 	sp, err := signals.ParseStatus(fixture(t, "statusline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -211,6 +214,7 @@ func TestReducerStatusLine(t *testing.T) {
 }
 
 func TestReducerAgentsPoll(t *testing.T) {
+	t.Parallel()
 	agents, err := signals.ParseAgents(fixture(t, "agents.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -253,6 +257,7 @@ func TestReducerAgentsPoll(t *testing.T) {
 }
 
 func TestReducerRealAgentsCapture(t *testing.T) {
+	t.Parallel()
 	agents, err := signals.ParseAgents(fixture(t, "agents-real.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -271,6 +276,7 @@ func TestReducerRealAgentsCapture(t *testing.T) {
 }
 
 func TestReducerNeedsYou(t *testing.T) {
+	t.Parallel()
 	notif := func(kind string) signals.HookEvent {
 		return signals.HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature",
 			Event: "Notification", NotificationType: kind, Message: "Claude needs your permission to use Bash"}
@@ -317,6 +323,7 @@ func TestReducerNeedsYou(t *testing.T) {
 }
 
 func TestReducerStaleHookBanner(t *testing.T) {
+	t.Parallel()
 	cwd := "/repo/.claude/worktrees/build-add-feature"
 	agent := func(status string) []signals.Agent {
 		return []signals.Agent{{SessionID: "s", Cwd: cwd, Status: status}}
@@ -367,6 +374,7 @@ func TestReducerStaleHookBanner(t *testing.T) {
 }
 
 func TestReducerFeedIsARingBuffer(t *testing.T) {
+	t.Parallel()
 	m := NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 	for i := 0; i < FeedCap+50; i++ {
@@ -385,6 +393,7 @@ func TestReducerFeedIsARingBuffer(t *testing.T) {
 }
 
 func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
+	t.Parallel()
 	m := NewModel(testConfig(t), "/repo", t0)
 	v := m.Snapshot(t0)
 	for _, k := range []string{"prs", "agents", "worktrees"} {
@@ -415,6 +424,7 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 }
 
 func TestReducerSubagentLifecycle(t *testing.T) {
+	t.Parallel()
 	cwd := "/repo/.claude/worktrees/build-add-feature"
 	start := func(id, typ string) signals.HookEvent {
 		return signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: id, AgentType: typ}
@@ -517,6 +527,7 @@ func TestReducerSubagentLifecycle(t *testing.T) {
 }
 
 func TestReducerCostCoversTrackedSessionsOnly(t *testing.T) {
+	t.Parallel()
 	cwd := "/repo"
 	cost := func(v float64) signals.StatusPayload {
 		p := signals.StatusPayload{SessionID: "old", Cwd: cwd}
@@ -551,6 +562,7 @@ func notifEv(typ string) signals.HookEvent {
 }
 
 func TestNotificationEffects(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		typ         string
 		wantStatus  string
@@ -601,6 +613,7 @@ func TestNotificationEffects(t *testing.T) {
 }
 
 func TestAgentCompletedIsDoneOnceIdle(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Stop"}, t0)
 	m.ApplyHook(notifEv("agent_completed"), t0.Add(time.Second))
@@ -611,6 +624,7 @@ func TestAgentCompletedIsDoneOnceIdle(t *testing.T) {
 }
 
 func TestElicitationCompleteAnswersTheDialog(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	m.ApplyHook(notifEv("elicitation_dialog"), t0)
 	m.ApplyHook(notifEv("elicitation_complete"), t0.Add(time.Second))
@@ -622,6 +636,7 @@ func TestElicitationCompleteAnswersTheDialog(t *testing.T) {
 
 // C2: the new events are subscribed and applied; PermissionRequest only observed.
 func TestV2HookEvents(t *testing.T) {
+	t.Parallel()
 	for _, ev := range []string{"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged"} {
 		found := false
 		for _, e := range signals.HookEvents {
@@ -669,6 +684,7 @@ func TestV2HookEvents(t *testing.T) {
 
 // C4: a session is bound once; the panel's own session id wins over cwd.
 func TestSessionBindingByID(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	// A session the panel did not launch binds at first sight by cwd, and a later
 	// `cd` into another worktree does not move it.
@@ -710,6 +726,7 @@ func TestSessionBindingByID(t *testing.T) {
 
 // C5: a quota window expires at resets_at.
 func TestQuotaExpiresAtResetsAt(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	five, seven := 80.0, 40.0
 	r5, r7 := t0.Add(time.Hour).Unix(), t0.Add(72*time.Hour).Unix()
@@ -735,6 +752,7 @@ func TestQuotaExpiresAtResetsAt(t *testing.T) {
 
 // C6: `claude agents` id, state and the waitingFor enum are decoded.
 func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
+	t.Parallel()
 	agents, err := signals.ParseAgents([]byte(`[{"pid":1,"cwd":"` + buildWT + `","kind":"background","sessionId":"bg","id":"a1b2","state":"running","status":"waiting","waitingFor":"permission prompt"}]`))
 	if err != nil {
 		t.Fatal(err)
@@ -762,6 +780,7 @@ func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
 
 // C14: subagent heuristics are tagged with the version they were verified on.
 func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "SubagentStart", AgentID: "a", AgentType: "builder"}, t0)
 	m.ApplyClaudeVersion(HeuristicsVerifiedOn, nil, t0)

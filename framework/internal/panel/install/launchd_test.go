@@ -18,6 +18,7 @@ import (
 )
 
 func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// A pre-existing, too-open directory is tightened, not trusted.
 	if err := os.MkdirAll(config.PanelDir(home), 0o755); err != nil {
@@ -61,6 +62,7 @@ func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
 }
 
 func TestPlistContent(t *testing.T) {
+	t.Parallel()
 	home := "/Users/me"
 	path := pathForAgent(home, func(tool string) (string, error) {
 		switch tool {
@@ -96,7 +98,7 @@ func TestPlistContent(t *testing.T) {
 	if strings.Contains(p, "ANTHROPIC") {
 		t.Fatal("plist carries an API key variable")
 	}
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" && !testing.Short() { // -short: no real plutil
 		f := filepath.Join(t.TempDir(), "a.plist")
 		os.WriteFile(f, []byte(p), 0o644)
 		if out, err := exec.Command("/usr/bin/plutil", "-lint", f).CombinedOutput(); err != nil {
@@ -106,6 +108,7 @@ func TestPlistContent(t *testing.T) {
 }
 
 func TestInstallAndUninstallWithATempHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
@@ -121,8 +124,17 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	}
 	var out bytes.Buffer
 	old, _ := LoadOrCreateToken(home)
-	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, App: true, Out: &out, Exec: fake, Self: self}); err != nil {
+	// launchctl print keeps finding the booted-out job: the install polls it 50 times,
+	// 100 ms apart, on the clock, then bootstraps anyway.
+	f := clock.NewFake(t0)
+	err, waited := driven(f, 100*time.Millisecond, func() error {
+		return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, App: true, Out: &out, Exec: fake, Self: self})
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if waited != 50*100*time.Millisecond {
+		t.Fatalf("the install waited %v for bootout, want 50 polls 100 ms apart", waited)
 	}
 	if tok, _ := LoadOrCreateToken(home); tok == old || !tokenRe.MatchString(tok) {
 		t.Fatal("install did not rotate the token")
@@ -166,6 +178,7 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 }
 
 func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	project := t.TempDir()
 	fake := func(argv ...string) ([]byte, error) { t.Fatalf("ran %v", argv); return nil, nil }
@@ -178,8 +191,10 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	os.MkdirAll(filepath.Join(AppPath(home), "Contents"), 0o755) // someone else's app
 	ok := func(argv ...string) ([]byte, error) { return nil, nil }
-	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"}); err == nil ||
-		!strings.Contains(err.Error(), "not made by clauductor") {
+	f := clock.NewFake(t0)
+	if err, _ := driven(f, 100*time.Millisecond, func() error {
+		return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"})
+	}); err == nil || !strings.Contains(err.Error(), "not made by clauductor") {
 		t.Fatalf("replaced a foreign app: %v", err)
 	}
 	if err := Uninstall(home, nil, ok); err != nil {
@@ -191,6 +206,7 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 }
 
 func TestBrowserOpensOncePerLogin(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Unix(1_790_000_000, 0)
 	if !ShouldOpenAtLogin(home, now) {
@@ -208,6 +224,7 @@ func TestBrowserOpensOncePerLogin(t *testing.T) {
 // bootstrap that fails once (launchd's error 5 when the old job is still tearing
 // down; seen live).
 func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
@@ -236,18 +253,27 @@ func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond}); err != nil {
+	f := clock.NewFake(t0)
+	err, waited := driven(f, time.Millisecond, func() error {
+		return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond})
+	})
+	if err != nil {
 		t.Fatalf("install: %v (calls %v)", err, calls)
 	}
 	got := strings.Join(calls, ",")
 	if !strings.Contains(got, "bootout,print,print,print,bootstrap,bootstrap") {
 		t.Fatalf("launchctl sequence %s", got)
 	}
+	// Two polls apart, then the longer pause (20 polls) before the retry.
+	if waited != 22*time.Millisecond {
+		t.Fatalf("the install waited %v, want 2 polls and the 20-poll pause (22 ms)", waited)
+	}
 }
 
 // F7: uninstall removes what the agent owns, and keeps a lane registry only while it
 // still lists lanes.
 func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	RotateToken(home)
 	dir := config.PanelDir(home)

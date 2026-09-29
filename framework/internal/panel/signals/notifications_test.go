@@ -4,6 +4,7 @@ import "testing"
 
 // C1: every documented notification type is mapped explicitly.
 func TestNotificationTableCoversEveryDocumentedType(t *testing.T) {
+	t.Parallel()
 	if n := len(NotificationTypes()); n != 12 {
 		t.Fatalf("want the 12 documented types, got %d", n)
 	}

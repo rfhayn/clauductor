@@ -2,12 +2,9 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,23 +86,13 @@ func testLaneManager(t *testing.T) *lanes.LaneManager {
 // throwawaySocket is a tmux socket of the test's own, killed at cleanup.
 func throwawaySocket(t *testing.T) (string, string) {
 	t.Helper()
-	tmux, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed")
-	}
-	b := make([]byte, 4)
-	rand.Read(b)
-	sock := "clauductor-test-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
-	t.Cleanup(func() {
-		exec.Command(tmux, "-L", sock, "kill-server").Run()
-		// kill-server leaves the socket file; tmux keeps it in $TMUX_TMPDIR (or /tmp)/tmux-<uid>.
-		dir := os.Getenv("TMUX_TMPDIR")
-		if dir == "" {
-			dir = "/tmp"
-		}
-		os.Remove(filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), sock))
-	})
-	return tmux, sock
+	return leakcheck.TmuxSocket(t)
+}
+
+// securitySocket is throwawaySocket for a SECURITY test: it runs under -short too.
+func securitySocket(t *testing.T) (string, string) {
+	t.Helper()
+	return leakcheck.SecurityTmuxSocket(t)
 }
 
 // shq single-quotes s for a POSIX shell.
@@ -136,3 +123,6 @@ func loadConfig(t *testing.T, b []byte) (*config.Config, error) {
 func readWorktreesFrom(out []byte) ([]signals.Worktree, error) {
 	return signals.ReadWorktrees(context.Background(), func(context.Context, string, []string) ([]byte, error) { return out, nil }, "/")
 }
+
+// TestMain fails the run if it leaves a tmux server or a helper process behind.
+func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }

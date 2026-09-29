@@ -19,6 +19,7 @@ import (
 // expensive. This scans every shipped source file of the package (tests excluded,
 // since they must name what they forbid) for the ways a transcript would be reached.
 func TestNoSourceReadsTranscripts(t *testing.T) {
+	t.Parallel()
 	forbidden := []string{".jsonl", "transcript_path", "TranscriptPath", "/.claude/projects"}
 	var scanned int
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
@@ -114,6 +115,7 @@ func transcriptReaches(fset *token.FileSet, f *ast.File) []string {
 }
 
 func TestTranscriptScannerCatchesJoinedPaths(t *testing.T) {
+	t.Parallel()
 	// Falsification: the scanner must catch the forms the string test cannot.
 	for _, src := range []string{
 		`package x; import "path/filepath"; var p = filepath.Join(home, ".claude", "projects")`,
@@ -172,6 +174,7 @@ func panelSources(t *testing.T) []string {
 }
 
 func TestNoSourceReachesTranscriptsByJoinOrNewReadSite(t *testing.T) {
+	t.Parallel()
 	fset := token.NewFileSet()
 	counts := map[string]int{}
 	for _, name := range panelSources(t) {

@@ -15,6 +15,7 @@ import (
 )
 
 func TestHostAllowListIsExact(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	s.HostNames = []string{"myproject.localhost"}
 	p := strconv.Itoa(testPort)
@@ -51,6 +52,7 @@ func TestHostAllowListIsExact(t *testing.T) {
 // Origin must equal "http://" + THIS request's Host, on every POST and on the
 // WebSocket upgrade: a page on one allowed name cannot drive the panel on another.
 func TestOriginMustMatchThisRequestsHost(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	p := strconv.Itoa(testPort)
 	cases := []struct {
@@ -85,6 +87,7 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 
 // Both listeners serve one server, and clauductor.localhost reaches it.
 func TestListenLoopbackServesBothAddresses(t *testing.T) {
+	t.Parallel()
 	ln4, ln6, why, err := ListenLoopback(0)
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +126,7 @@ func TestListenLoopbackServesBothAddresses(t *testing.T) {
 // A process holding [::1]:<port> must be refused before the token is sent, since
 // clauductor.localhost resolves to ::1 first.
 func TestListenLoopbackRefusesAForeignV6Holder(t *testing.T) {
+	t.Parallel()
 	foreign, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
 		t.Skip("no IPv6 loopback")

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -224,3 +226,108 @@ type termMsg struct {
 func hookURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag) }
 
 func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
+
+// ---- driving a running panel ----
+
+// pollCounter counts each source's polls through Options.OnPoll, so a test asserts
+// after N iterations of a source instead of sleeping and hoping they ran.
+type pollCounter struct {
+	mu      sync.Mutex
+	n       map[string]int
+	changed chan struct{}
+}
+
+func newPollCounter() *pollCounter {
+	return &pollCounter{n: map[string]int{}, changed: make(chan struct{})}
+}
+
+// hook is the Options.OnPoll.
+func (p *pollCounter) hook(source string) {
+	p.mu.Lock()
+	p.n[source]++
+	close(p.changed)
+	p.changed = make(chan struct{})
+	p.mu.Unlock()
+}
+
+func (p *pollCounter) count(source string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.n[source]
+}
+
+// more waits until source has polled n more times than it had when called.
+func (p *pollCounter) more(t *testing.T, source string, n int) {
+	t.Helper()
+	p.until(t, source, p.count(source)+n)
+}
+
+// until waits until source has polled n times in all.
+func (p *pollCounter) until(t *testing.T, source string, n int) {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		p.mu.Lock()
+		got, changed := p.n[source], p.changed
+		p.mu.Unlock()
+		if got >= n {
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatalf("the %s source polled %d times, want %d", source, got, n)
+		}
+	}
+}
+
+// fastTicks is the cadence the panel's integration tests run at: every source a
+// test waits on polls within a tenth of a second, so a test waits for polls, not
+// for the production cadence. Ratios the model reads (the agents cadence) keep
+// their order: fast < slow.
+func fastTicks() Ticks {
+	return Ticks{
+		Worktrees: 500 * time.Millisecond, WorktreeWatch: 100 * time.Millisecond, WorktreeKick: 100 * time.Millisecond,
+		AgentsFast: 100 * time.Millisecond, AgentsSlow: 250 * time.Millisecond, AgentsQuiet: 100 * time.Millisecond,
+		TmuxFast: 100 * time.Millisecond, TmuxIdle: 100 * time.Millisecond, CardWatch: 100 * time.Millisecond,
+		Queues: 100 * time.Millisecond, Prompt: 50 * time.Millisecond, PromptKick: 100 * time.Millisecond,
+		Obs: 50 * time.Millisecond, Notify: 50 * time.Millisecond, Trust: 50 * time.Millisecond, Token: 50 * time.Millisecond,
+		Hub: 250 * time.Millisecond,
+	}
+}
+
+// noServerSocket is a tmux socket name no test starts a server on, so a panel that
+// runs no lane never touches the machine's real panel socket.
+func noServerSocket() string { return leakcheck.NoServerSocket() }
+
+// TestMain fails the run if it leaves a tmux server or a helper process behind. A
+// helper panel (TestHelperPanelProcess) is only a panel: its parent stops it with
+// SIGTERM, which it must handle itself.
+func TestMain(m *testing.M) {
+	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") == "1" {
+		os.Exit(m.Run())
+	}
+	os.Exit(leakcheck.Main(m))
+}
+
+// machineFree reports whether the machine lock in home is free now.
+func machineFree(home string) bool {
+	f, err := install.LockMachine(home)
+	if err == nil {
+		f.Close()
+	}
+	return err == nil
+}
+
+// waitMachineFree waits, after a panel stopped, until its machine lock is free, or
+// another panel has claimed the machine (its pid file: a launchd start that was
+// waiting takes over at once). The flock goes with the open file, and a child that
+// another (parallel) test forks at that moment holds a copy until it execs: the next
+// panel in this home would be refused as a second one. A lock still held after 5 s
+// is the next start's to report.
+func waitMachineFree(home string) {
+	claimed := func() bool { _, err := os.Stat(filepath.Join(config.PanelDir(home), "pid")); return err == nil }
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !machineFree(home) && !claimed(); {
+		time.Sleep(5 * time.Millisecond)
+	}
+}

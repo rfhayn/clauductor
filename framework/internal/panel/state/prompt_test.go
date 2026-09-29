@@ -10,6 +10,7 @@ import (
 )
 
 func TestFirstPromptDecision(t *testing.T) {
+	t.Parallel()
 	start := t0
 	tests := []struct {
 		name string
@@ -48,6 +49,7 @@ func TestFirstPromptDecision(t *testing.T) {
 }
 
 func TestPromptWaitsForAFreshPoll(t *testing.T) {
+	t.Parallel()
 	m := v2Model(t)
 	rec := types.LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
 	m.ApplyTmux([]types.TmuxLane{{ID: "tpl", Path: buildWT}}, []types.LaneRecord{rec}, "", nil, t0)

@@ -16,7 +16,7 @@ type tickMsg time.Time
 type panel int
 
 const (
-	panelNone     panel = iota
+	panelNone panel = iota
 	panelWorkers
 	panelLocks
 	panelActivity
@@ -26,18 +26,18 @@ const panelCount = 3
 
 // Model is the Bubble Tea model for the Clauductor HUD.
 type Model struct {
-	data       HUDData
-	source     DataSource
-	width      int
-	height     int
-	err        error
-	quitting   bool
+	data     HUDData
+	source   DataSource
+	width    int
+	height   int
+	err      error
+	quitting bool
 
 	// Navigation state
-	focusPanel      panel // currently focused panel (0 = none)
-	scrollOffset    int   // scroll offset for activity feed
-	lockScrollOffset int  // scroll offset for file locks
-	showHelp        bool  // whether help overlay is visible
+	focusPanel       panel // currently focused panel (0 = none)
+	scrollOffset     int   // scroll offset for activity feed
+	lockScrollOffset int   // scroll offset for file locks
+	showHelp         bool  // whether help overlay is visible
 }
 
 // New creates a new HUD model with the given data source.

@@ -47,6 +47,7 @@ func fixtureLeaks(b []byte) []string {
 }
 
 func TestFixturesAreScrubbed(t *testing.T) {
+	t.Parallel()
 	n := 0
 	// Every testdata directory of the panel and its packages: the tree is the
 	// authority, so a package that adds fixtures is scanned without a list to update.

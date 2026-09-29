@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -53,6 +54,7 @@ func do(s *Server, method, target, body string, opts ...reqOpt) *httptest.Respon
 }
 
 func TestListenBindsLoopbackOnly(t *testing.T) {
+	t.Parallel()
 	ln, err := listen(0)
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +73,7 @@ func TestListenBindsLoopbackOnly(t *testing.T) {
 }
 
 func TestListenRefusesATakenPort(t *testing.T) {
+	t.Parallel()
 	busy, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +91,7 @@ func TestListenRefusesATakenPort(t *testing.T) {
 }
 
 func TestBrowserRoutesNeedTheToken(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	tests := []struct {
 		name   string
@@ -115,6 +119,7 @@ func TestBrowserRoutesNeedTheToken(t *testing.T) {
 }
 
 func TestTokenExchangeSetsAStrictCookie(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/?t="+s.Token, "")
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
@@ -131,6 +136,7 @@ func TestTokenExchangeSetsAStrictCookie(t *testing.T) {
 }
 
 func TestForeignHostRefused(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	// [::1]:4393 is allowed since v2 (clauductor.localhost resolves to ::1 first);
 	// hosts_test.go covers the full list.
@@ -151,6 +157,7 @@ func TestForeignHostRefused(t *testing.T) {
 }
 
 func TestStateChangingRequestsNeedOurOrigin(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	tests := []struct {
 		origin string
@@ -177,6 +184,7 @@ func TestStateChangingRequestsNeedOurOrigin(t *testing.T) {
 }
 
 func TestIngestEndpoints(t *testing.T) {
+	t.Parallel()
 	s, hooks := newTestServer(t)
 	w := do(s, "POST", "/hook", `{"hook_event_name":"Stop","cwd":"/repo"}`)
 	if w.Code != http.StatusNoContent {
@@ -219,6 +227,7 @@ func TestIngestEndpoints(t *testing.T) {
 }
 
 func TestEventsStreamsFullStateOnConnect(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	ts := httptest.NewUnstartedServer(nil)
 	ts.Start()
@@ -264,6 +273,7 @@ func TestEventsStreamsFullStateOnConnect(t *testing.T) {
 // C3: a body dropped because the processor is behind is counted, apart from
 // foreign-cwd drops, and raises a banner.
 func TestIngestOverflowIsCounted(t *testing.T) {
+	t.Parallel()
 	s, hooks := newTestServer(t)
 	for i := 0; i < cap(hooks)+3; i++ {
 		if w := do(s, "POST", "/hook", `{"hook_event_name":"Stop","session_id":"x","cwd":"/repo"}`); w.Code != 204 {
@@ -292,6 +302,7 @@ func TestIngestOverflowIsCounted(t *testing.T) {
 // /hook answers 204 with an empty body, which Claude Code reads as "no decision".
 // Any body could be read as a decision, and /hook takes no token.
 func TestHookNeverAnswersAPermissionRequest(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	for _, ev := range []string{"PermissionRequest", "PreCompact", "StopFailure"} {
 		w := do(s, "POST", "/hook", `{"hook_event_name":"`+ev+`","session_id":"x","cwd":"/repo","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`)
@@ -304,17 +315,70 @@ func TestHookNeverAnswersAPermissionRequest(t *testing.T) {
 // The stream beats even when nothing changes, so the page can tell a quiet panel
 // from a dead one (audit P1-4), and carries the server's clock for the ages.
 func TestEventsStreamHasAHeartbeat(t *testing.T) {
-	old := HeartbeatEvery
-	HeartbeatEvery = 50 * time.Millisecond
-	defer func() { HeartbeatEvery = old }()
+	t.Parallel()
 	s, _ := newTestServer(t)
-	w := do(s, "GET", "/events", "", withCookie(s)) // do's context ends the stream after 1 s
-	body := w.Body.String()
-	if n := strings.Count(body, "event: state\n"); n != 1 {
-		t.Fatalf("%d state events in a stream where nothing changed, want 1:\n%s", n, body)
+	f := clock.NewFake(t0)
+	s.Hub = NewHub(s.Hub.model, f)
+	s.Heartbeat = 5 * time.Second
+	ts := httptest.NewServer(nil)
+	defer ts.Close()
+	s.Port = ts.Listener.Addr().(*net.TCPAddr).Port
+	ts.Config.Handler = s.Handler()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/events", nil)
+	req.AddCookie(&http.Cookie{Name: s.cookieName(), Value: s.Token})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if n := strings.Count(body, "event: hb\ndata: {\"now\":"); n < 5 {
-		t.Fatalf("%d heartbeats in 1 s at 50 ms, want at least 5:\n%s", n, body)
+	defer resp.Body.Close()
+	events := make(chan string, 16)
+	go func() { // one SSE event (up to its blank line) per message
+		br := bufio.NewReader(resp.Body)
+		var ev strings.Builder
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				close(events)
+				return
+			}
+			if line == "\n" && ev.Len() > 0 {
+				events <- ev.String()
+				ev.Reset()
+			} else if line != "\n" {
+				ev.WriteString(line)
+			}
+		}
+	}()
+	next := func() string {
+		t.Helper()
+		for {
+			select {
+			case ev, ok := <-events:
+				if !ok {
+					t.Fatal("the stream ended")
+				}
+				if strings.HasPrefix(ev, "retry:") {
+					continue
+				}
+				return ev
+			case <-time.After(5 * time.Second):
+				t.Fatal("no event: the stream stopped beating")
+			}
+		}
+	}
+	if ev := next(); !strings.HasPrefix(ev, "event: state\n") {
+		t.Fatalf("first event %q, want the state", ev)
+	}
+	f.BlockUntil(1) // the stream's heartbeat ticker
+	// Five beats on the server's clock, and nothing changes: no second state event.
+	for i := 1; i <= 5; i++ {
+		f.Advance(s.Heartbeat)
+		want := fmt.Sprintf("event: hb\ndata: {\"now\":%d}\n", t0.Add(time.Duration(i)*s.Heartbeat).UnixMilli())
+		if ev := next(); ev != want {
+			t.Fatalf("beat %d: %q, want %q", i, ev, want)
+		}
 	}
 }
 
@@ -322,6 +386,7 @@ func TestEventsStreamHasAHeartbeat(t *testing.T) {
 // exactly one place, enterTerm (Enter or a click on the terminal); the xterm is out
 // of the Tab order; Ctrl+] leaves; nothing redraws the page on a timer (P1-3).
 func TestPageEntersTheTerminalOnlyOnPurpose(t *testing.T) {
+	t.Parallel()
 	js := readWeb(t, "panel.js")
 	if n := strings.Count(js, ".term.focus("); n != 1 {
 		t.Fatalf("panel.js focuses a terminal in %d places, want 1 (enterTerm)", n)

@@ -101,6 +101,7 @@ func topKeys(t *testing.T, b []byte) []string {
 }
 
 func TestInstallOnFreshHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	changed, err := InstallHooks(home, 4393)
 	if err != nil || !changed {
@@ -122,6 +123,7 @@ func TestInstallOnFreshHome(t *testing.T) {
 }
 
 func TestInstallIsIdempotent(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, SettingsPath(home), foreignSettings)
 	if _, err := InstallHooks(home, 4393); err != nil {
@@ -146,6 +148,7 @@ func TestInstallIsIdempotent(t *testing.T) {
 }
 
 func TestInstallPreservesForeignHooksAndKeys(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, SettingsPath(home), foreignSettings)
 	if _, err := InstallHooks(home, 4393); err != nil {
@@ -182,6 +185,7 @@ func TestInstallPreservesForeignHooksAndKeys(t *testing.T) {
 }
 
 func TestUninstallRemovesOnlyOurs(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, SettingsPath(home), foreignSettings)
 	if _, err := InstallHooks(home, 4393); err != nil {
@@ -216,6 +220,7 @@ func TestUninstallRemovesOnlyOurs(t *testing.T) {
 }
 
 func TestInstallRefusesInvalidSettings(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, SettingsPath(home), `{"hooks": [}`)
 	if _, err := InstallHooks(home, 4393); err == nil {
@@ -228,6 +233,7 @@ func TestInstallRefusesInvalidSettings(t *testing.T) {
 }
 
 func TestUninstallWithoutSettingsIsANoop(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	changed, err := UninstallHooks(home)
 	if err != nil || changed {
@@ -239,6 +245,7 @@ func TestUninstallWithoutSettingsIsANoop(t *testing.T) {
 }
 
 func TestInstallRefusesTrailingData(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	const bad = `{"model":"x"} {"env":{"FOO":"bar"}}`
 	writeFile(t, SettingsPath(home), bad)
@@ -260,6 +267,7 @@ func TestInstallRefusesTrailingData(t *testing.T) {
 }
 
 func TestInstallFollowsASymlinkedSettingsFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dotfiles := t.TempDir()
 	target := filepath.Join(dotfiles, "claude-settings.json")
@@ -287,6 +295,7 @@ func TestInstallFollowsASymlinkedSettingsFile(t *testing.T) {
 }
 
 func TestBackupKeepsThePrePanelFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, SettingsPath(home), foreignSettings)
 	for _, port := range []int{4393, 4394, 4395} {
@@ -303,6 +312,7 @@ func TestBackupKeepsThePrePanelFile(t *testing.T) {
 }
 
 func TestInstallIsIdempotentWhenAUserHookFollowsOurs(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if _, err := InstallHooks(home, 4393); err != nil {
 		t.Fatal(err)

@@ -18,6 +18,9 @@ import (
 // page, against lock-run, so the documentation cannot drift from the protocol.
 func docLeaseSh(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +40,17 @@ func docLeaseSh(t *testing.T) string {
 // shell, under bash with set -euo pipefail as run-local.sh would.
 func startShellLease(t *testing.T, leaseSh, lock, lane, body string) *lockProc {
 	t.Helper()
+	return startShellLeaseEnv(t, leaseSh, lock, lane, body, nil)
+}
+
+// startShellLeaseEnv is startShellLease with env added to the shell's environment.
+func startShellLeaseEnv(t *testing.T, leaseSh, lock, lane, body string, env []string) *lockProc {
+	t.Helper()
 	script := "set -euo pipefail; . " + leaseSh + "; lease_run \"$1\" \"$2\" sh -c \"$3\""
 	cmd := exec.Command("bash", "-c", script, "lease", lock, lane, body)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	p := &lockProc{cmd: cmd, stderr: &syncBuf{}, done: make(chan int, 1)}
 	cmd.Stderr = p.stderr
 	if err := cmd.Start(); err != nil {
@@ -57,6 +69,7 @@ func startShellLease(t *testing.T, leaseSh, lock, lane, body string) *lockProc {
 }
 
 func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
 	}
@@ -66,6 +79,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 	}
 
 	t.Run("shell holder, lock-run waiter past its TTL", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		sh := startShellLease(t, leaseSh, lock, "shell", "echo S-start >> "+log+"; sleep 3; echo S-end >> "+log)
@@ -87,6 +101,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 	})
 
 	t.Run("lock-run holder stopped, shell waiter keeps waiting", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		lr := startLockRun(t, lock, "go", time.Second, "/bin/sh", "-c", body(log, "G"))
@@ -94,14 +109,22 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		// Stop lock-run and its command group: no renewal, far past the 1 s TTL.
 		syscall.Kill(lr.cmd.Process.Pid, syscall.SIGSTOP)
 		pg, _ := exec.Command("/bin/ps", "-o", "pgid=", "-p", firstChild(t, lr.cmd.Process.Pid)).Output()
-		pgid := strings.TrimSpace(string(pg))
-		exec.Command("/bin/kill", "-STOP", "-"+pgid).Run()
-		sh := startShellLease(t, leaseSh, lock, "shell", body(log, "S"))
-		time.Sleep(4 * time.Second)
+		pgid, err := strconv.Atoi(strings.TrimSpace(string(pg)))
+		if err != nil {
+			t.Fatalf("the command's process group %q: %v", pg, err)
+		}
+		// kill(2) itself: procps' kill(1) reads "-<pgid>" as a signal, not a group.
+		syscall.Kill(-pgid, syscall.SIGSTOP)
+		// The shell judges the TTL by `date +%s`, in whole seconds: three iterations of
+		// its 1 s wait loop put the holder's 1 s TTL at least a second in the past.
+		bin := t.TempDir()
+		trace := tracedSleep(t, bin)
+		sh := startShellLeaseEnv(t, leaseSh, lock, "shell", body(log, "S"), []string{"PATH=" + bin + ":" + os.Getenv("PATH")})
+		waitUntil(t, "three iterations of the shell's wait loop", 10*time.Second, func() bool { return lineCount(trace) >= 3 })
 		if lineCount(log) != 1 {
 			t.Fatalf("the shell took a stopped holder's lease: %v", readLog(t, log))
 		}
-		exec.Command("/bin/kill", "-CONT", "-"+pgid).Run()
+		syscall.Kill(-pgid, syscall.SIGCONT)
 		syscall.Kill(lr.cmd.Process.Pid, syscall.SIGCONT)
 		if code := lr.wait(t, 10*time.Second); code != 0 {
 			t.Fatalf("lock-run exit %d: %s", code, lr.stderr)
@@ -115,6 +138,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 	})
 
 	t.Run("shell reclaims a dead holder and releases", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		os.Mkdir(lock, 0o755)
@@ -135,6 +159,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 	})
 
 	t.Run("the panel can cancel a shell waiter", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c", body(log, "G"))
@@ -158,6 +183,28 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 	})
 }
 
+// tracedSleep writes a `sleep` into dir that appends a line to the returned trace
+// file each time it is called, then sleeps. lease.sh sleeps once per iteration of
+// its wait loop, so with dir first on its PATH a test asserts after N iterations of
+// that loop instead of sleeping itself.
+func tracedSleep(t *testing.T, dir string) (trace string) {
+	t.Helper()
+	sleepBin, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep")
+	}
+	trace = filepath.Join(t.TempDir(), "sleep-trace")
+	os.Remove(filepath.Join(dir, "sleep")) // noPSPath links the real one
+	script := "#!/bin/sh\necho \"$*\" >> " + shq(trace) + "\nexec " + shq(sleepBin) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return trace
+}
+
+// shq single-quotes s for a POSIX shell.
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
 // firstChild returns the pid of a process's first child, as a string for ps.
 func firstChild(t *testing.T, pid int) string {
 	t.Helper()
@@ -176,9 +223,11 @@ func firstChild(t *testing.T, pid int) string {
 // holds the lease: child_pid in owner.json keeps the record live, for Go and shell
 // readers alike, until the gate itself ends.
 func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
+	t.Parallel()
 	leaseSh := docLeaseSh(t)
 	for _, waiterKind := range []string{"lock-run", "shell"} {
 		t.Run(waiterKind, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 			holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c",
@@ -188,7 +237,7 @@ func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 				return lineCount(log) == 1 && err == nil && o.ChildPID > 0
 			})
 			holder.cmd.Process.Signal(syscall.SIGKILL)
-			time.Sleep(200 * time.Millisecond)
+			holder.wait(t, 5*time.Second) // lock-run is gone; its gate runs on
 			var w *lockProc
 			if waiterKind == "shell" {
 				w = startShellLease(t, leaseSh, lock, "b", "echo B-ran >> "+log)
@@ -208,6 +257,9 @@ func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 // noPSPath is a PATH with every tool lease.sh uses except ps.
 func noPSPath(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	bin := t.TempDir()
 	for _, tool := range []string{"sh", "bash", "awk", "sed", "head", "stat", "date", "hostname", "od", "tr",
 		"mkdir", "mv", "rm", "ls", "grep", "sort", "sleep", "rmdir", "cat"} {
@@ -224,9 +276,10 @@ func noPSPath(t *testing.T) string {
 // and a pid that is alive but cannot be verified is live: missing data never
 // deletes someone else's lease or waiter file.
 func TestShellLeaseWithoutPS(t *testing.T) {
+	t.Parallel()
 	leaseSh := docLeaseSh(t)
 	path := noPSPath(t)
-	run := func(lock, lane, body string) *lockProc {
+	run := func(path, lock, lane, body string) *lockProc {
 		script := "set -euo pipefail; . " + leaseSh + "; lease_run \"$1\" \"$2\" sh -c \"$3\""
 		cmd := exec.Command(filepath.Join(path, "bash"), "-c", script, "lease", lock, lane, body)
 		cmd.Env = []string{"PATH=" + path, "HOME=" + os.Getenv("HOME")}
@@ -247,11 +300,12 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		return p
 	}
 	t.Run("waits behind a live lock-run holder", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
-		h := startLockRun(t, lock, "go", time.Second, "/bin/sh", "-c", "echo G-start >> "+log+"; sleep 2; echo G-end >> "+log)
+		h := startLockRun(t, lock, "go", time.Second, "/bin/sh", "-c", "echo G-start >> "+shq(log)+"; sleep 2; echo G-end >> "+shq(log))
 		waitUntil(t, "held", 5*time.Second, func() bool { return lineCount(log) == 1 })
-		s := run(lock, "shell", "echo S-ran >> "+log)
+		s := run(path, lock, "shell", "echo S-ran >> "+shq(log))
 		if code := s.wait(t, 15*time.Second); code != 0 {
 			t.Fatalf("exit %d: %s", code, s.stderr)
 		}
@@ -261,14 +315,17 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		}
 	})
 	t.Run("never deletes a live waiter it cannot verify (EPERM)", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		os.MkdirAll(waitersDir(lock), 0o755)
 		// pid 1 is alive and not ours: kill -0 answers EPERM. No start time recorded.
 		other := filepath.Join(waitersDir(lock), "1-00000000000000aa.json")
 		writeLeaseFile(other, LeaseOwner{V: 1, Nonce: "00000000000000aa", PID: 1, Host: hostName(), Lane: "someone"})
-		s := run(lock, "shell", "echo S-ran >> "+log)
-		time.Sleep(2500 * time.Millisecond)
+		own := noPSPath(t) // its own PATH: the traced sleep counts this shell's loop only
+		trace := tracedSleep(t, own)
+		s := run(own, lock, "shell", "echo S-ran >> "+shq(log))
+		waitUntil(t, "two iterations of the shell's wait loop", 10*time.Second, func() bool { return lineCount(trace) >= 2 })
 		if _, err := os.Stat(other); err != nil {
 			t.Fatal("deleted a live waiter's file on missing data")
 		}
@@ -281,13 +338,14 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		}
 	})
 	t.Run("reclaims a dead holder", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 		os.Mkdir(lock, 0o755)
 		now := time.Now().Unix()
 		writeLeaseFile(filepath.Join(lock, ownerFileName), LeaseOwner{V: 1, Nonce: "00000000000000bb", PID: deadPID(t),
 			PStart: "Thu Jan 1 00:00:00 1970", Host: hostName(), Started: now, Renewed: now})
-		s := run(lock, "shell", "echo S-ran >> "+log)
+		s := run(path, lock, "shell", "echo S-ran >> "+shq(log))
 		if code := s.wait(t, 10*time.Second); code != 0 || lineCount(log) != 1 {
 			t.Fatalf("exit %d: %s", code, s.stderr)
 		}
@@ -297,6 +355,7 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 // Round 2: the documented run-local.sh runs the gate unqueued, with one warning,
 // when neither clauductor nor lease.sh is there; it never aborts.
 func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -331,9 +390,11 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 // with SIGKILL, then the gate exits. Holder and command are both dead: Go and shell
 // waiters must BOTH take the lease promptly, not wait for the daemon.
 func TestDaemonLeftByTheGateDoesNotHoldTheLease(t *testing.T) {
+	t.Parallel()
 	leaseSh := docLeaseSh(t)
 	for _, waiterKind := range []string{"lock-run", "shell"} {
 		t.Run(waiterKind, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 			daemonPid := filepath.Join(dir, "daemon.pid")

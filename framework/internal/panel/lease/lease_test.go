@@ -3,6 +3,7 @@ package lease
 import (
 	"bytes"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"io"
 
 	"context"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -29,7 +31,7 @@ func TestMain(m *testing.M) {
 		ttl, _ := time.ParseDuration(os.Getenv("LOCKRUN_HELPER_TTL"))
 		var argv []string
 		_ = json.Unmarshal([]byte(os.Getenv("LOCKRUN_HELPER_ARGV")), &argv)
-		code, err := LockRun(context.Background(), LockRunOptions{Clock: clock.System, Lock: lock, Lane: os.Getenv("LOCKRUN_HELPER_LANE"),
+		code, err := LockRun(context.Background(), LockRunOptions{Clock: helperClock(), Lock: lock, Lane: os.Getenv("LOCKRUN_HELPER_LANE"),
 			TTL: ttl, Poll: 50 * time.Millisecond, Argv: argv})
 		if err != nil {
 			os.Stderr.WriteString(err.Error() + "\n")
@@ -43,7 +45,47 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(code)
 	}
-	os.Exit(m.Run())
+	os.Exit(leakcheck.Main(m)) // fails the run if a helper process outlives it
+}
+
+// helperClock is the lock-run helper's clock: the system clock, read
+// LOCKRUN_HELPER_SKEW ahead (a waiter that sees a holder's TTL long past without
+// waiting for it), with each wait of the waiter loop appended to LOCKRUN_HELPER_TRACE
+// (a test asserts after N iterations of that loop instead of sleeping).
+func helperClock() clock.Clock {
+	clk := clock.System
+	if d, err := time.ParseDuration(os.Getenv("LOCKRUN_HELPER_SKEW")); err == nil && d != 0 {
+		clk = clock.Func(func() time.Time { return clock.System.Now().Add(d) })
+	}
+	if trace := os.Getenv("LOCKRUN_HELPER_TRACE"); trace != "" {
+		return tracingClock{Clock: clk, trace: trace}
+	}
+	return clk
+}
+
+// tracingClock appends a line to trace for every After: once per iteration of
+// lock-run's waiter loop, after that iteration's checks.
+type tracingClock struct {
+	clock.Clock
+	trace string
+}
+
+func (c tracingClock) After(d time.Duration) <-chan time.Time {
+	if f, err := os.OpenFile(c.trace, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		f.WriteString("wait\n")
+		f.Close()
+	}
+	return c.Clock.After(d)
+}
+
+// waitIterations waits until p, tracing into trace, has finished n more iterations
+// of its wait loop than it had at mark, or has left the loop by exiting: the
+// caller's assertions then say which.
+func waitIterations(t *testing.T, p *lockProc, trace string, mark, n int) {
+	t.Helper()
+	waitUntil(t, fmt.Sprintf("%d wait-loop iterations", n), 10*time.Second, func() bool {
+		return lineCount(trace) >= mark+n || p.exited.Load()
+	})
 }
 
 // syncBuf is a buffer a child process writes while the test reads it.
@@ -59,14 +101,24 @@ type lockProc struct {
 	cmd    *exec.Cmd
 	stderr *syncBuf
 	done   chan int
+	exited atomic.Bool // set just before the exit code is sent on done
 }
 
 func startLockRun(t *testing.T, lock, lane string, ttl time.Duration, argv ...string) *lockProc {
 	t.Helper()
+	return startLockRunEnv(t, lock, lane, ttl, nil, argv...)
+}
+
+// startLockRunEnv is startLockRun with extra LOCKRUN_HELPER_* settings in env.
+func startLockRunEnv(t *testing.T, lock, lane string, ttl time.Duration, env []string, argv ...string) *lockProc {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_LANE="+lane,
-		"LOCKRUN_HELPER_TTL="+ttl.String(), "LOCKRUN_HELPER_ARGV="+string(b))
+	cmd.Env = append(append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_LANE="+lane,
+		"LOCKRUN_HELPER_TTL="+ttl.String(), "LOCKRUN_HELPER_ARGV="+string(b)), env...)
 	p := &lockProc{cmd: cmd, stderr: &syncBuf{}, done: make(chan int, 1)}
 	cmd.Stderr = p.stderr
 	if err := cmd.Start(); err != nil {
@@ -78,6 +130,7 @@ func startLockRun(t *testing.T, lock, lane string, ttl time.Duration, argv ...st
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		}
+		p.exited.Store(true)
 		p.done <- code
 	}()
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
@@ -126,6 +179,7 @@ func deadPID(t *testing.T) int {
 }
 
 func TestLeaseStale(t *testing.T) {
+	t.Parallel()
 	// pid 1 is alive and started "T1"; pid 2 is gone; pid 3 is alive but started "T9"
 	// (a reused pid); pid 4 is alive with an unreadable start time.
 	proc := func(pid int) (bool, string) {
@@ -200,14 +254,24 @@ func TestLeaseStale(t *testing.T) {
 
 // Two processes want the gate at once: the second waits, then runs; never both.
 func TestLockRunTwoProcessesQueue(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
+	lock, log, release := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log"), filepath.Join(dir, "release")
 	body := func(n string) []string {
-		return []string{"/bin/sh", "-c", "echo " + n + "-start >> " + log + "; sleep 0.6; echo " + n + "-end >> " + log}
+		return []string{"/bin/sh", "-c", "echo " + n + "-start >> " + log + "; sleep 0.2; echo " + n + "-end >> " + log}
 	}
-	a := startLockRun(t, lock, "lane-a", time.Minute, body("A")...)
+	// A holds until the test releases it, so B and C are both queued behind it
+	// however slowly they start.
+	a := startLockRun(t, lock, "lane-a", time.Minute, "/bin/sh", "-c",
+		"echo A-start >> "+log+"; while [ ! -e "+release+" ]; do sleep 0.02; done; echo A-end >> "+log)
 	waitUntil(t, "A holds the lease", 5*time.Second, func() bool { return len(readLog(t, log)) > 0 })
+	// The queue orders by arrival (the waiter file's name): C starts only once B's
+	// waiter file is there, so B arrived first.
 	b := startLockRun(t, lock, "lane-b", time.Minute, body("B")...)
+	waitUntil(t, "B's waiter file", 5*time.Second, func() bool {
+		v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+		return len(v.Waiters) == 1 && v.Waiters[0].Lane == "lane-b"
+	})
 	c := startLockRun(t, lock, "lane-c", time.Minute, body("C")...)
 	// B and C are both queued while A holds, in arrival order, and the panel sees it.
 	waitUntil(t, "two waiters", 5*time.Second, func() bool {
@@ -217,6 +281,9 @@ func TestLockRunTwoProcessesQueue(t *testing.T) {
 	v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 	if v.Holder == nil || v.Holder.Lane != "lane-a" || v.Waiters[0].Lane != "lane-b" || v.Waiters[1].Lane != "lane-c" {
 		t.Fatalf("queue view %+v", v)
+	}
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	for _, p := range []*lockProc{a, b, c} {
 		if code := p.wait(t, 10*time.Second); code != 0 {
@@ -237,6 +304,7 @@ func TestLockRunTwoProcessesQueue(t *testing.T) {
 
 // A holder whose pid is gone is reclaimed by the next waiter.
 func TestLockRunReclaimsDeadHolder(t *testing.T) {
+	t.Parallel()
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	os.Mkdir(lock, 0o755)
 	now := time.Now().Unix()
@@ -259,6 +327,7 @@ func TestLockRunReclaimsDeadHolder(t *testing.T) {
 // is never reclaimed however long it is silent; a reused pid, or an unverifiable
 // record past its TTL, is.
 func TestLockRunLeaseTTL(t *testing.T) {
+	t.Parallel()
 	plant := func(o LeaseOwner) string {
 		lock := filepath.Join(t.TempDir(), "gate.lock")
 		os.Mkdir(lock, 0o755)
@@ -271,10 +340,12 @@ func TestLockRunLeaseTTL(t *testing.T) {
 	if me.PStart == "" {
 		t.Fatal("cannot read this process's start time")
 	}
-	// Live and verified, an hour past its TTL: the waiter keeps waiting.
+	// Live and verified, an hour past its TTL: the waiter keeps waiting, however many
+	// times it looks.
 	live := plant(me)
-	p := startLockRun(t, live, "next", time.Minute, "/bin/sh", "-c", "exit 0")
-	time.Sleep(2500 * time.Millisecond)
+	trace := filepath.Join(t.TempDir(), "trace")
+	p := startLockRunEnv(t, live, "next", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "exit 0")
+	waitIterations(t, p, trace, 0, 5)
 	select {
 	case code := <-p.done:
 		t.Fatalf("took a live holder's lease (exit %d): %s", code, p.stderr)
@@ -291,8 +362,9 @@ func TestLockRunLeaseTTL(t *testing.T) {
 	// No start time recorded, pid alive: live (round 2: missing data never reclaims).
 	unverified := me
 	unverified.PStart = ""
-	r := startLockRun(t, plant(unverified), "next", time.Minute, "/bin/sh", "-c", "exit 0")
-	time.Sleep(2 * time.Second)
+	trace = filepath.Join(t.TempDir(), "trace")
+	r := startLockRunEnv(t, plant(unverified), "next", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "exit 0")
+	waitIterations(t, r, trace, 0, 5)
 	select {
 	case code := <-r.done:
 		t.Fatalf("reclaimed an alive holder with no start time (exit %d): %s", code, r.stderr)
@@ -305,6 +377,7 @@ func TestLockRunLeaseTTL(t *testing.T) {
 // laptop would be) well past its TTL. The waiter must keep waiting, and run only
 // after the holder resumes and finishes.
 func TestLockRunStoppedHolderKeepsTheLease(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	holder := startLockRun(t, lock, "a", time.Second, "/bin/sh", "-c", "echo A-start >> "+log+"; sleep 1; echo A-end >> "+log)
@@ -320,8 +393,12 @@ func TestLockRunStoppedHolderKeepsTheLease(t *testing.T) {
 		syscall.Kill(pid, syscall.SIGSTOP)
 		defer syscall.Kill(pid, syscall.SIGCONT)
 	}
-	waiter := startLockRun(t, lock, "b", time.Second, "/bin/sh", "-c", "echo B-ran >> "+log)
-	time.Sleep(4 * time.Second) // four TTLs
+	// The waiter reads the clock an hour ahead: the holder's 1 s TTL is long past
+	// at every look it takes.
+	trace := filepath.Join(dir, "trace")
+	waiter := startLockRunEnv(t, lock, "b", time.Second, []string{"LOCKRUN_HELPER_TRACE=" + trace, "LOCKRUN_HELPER_SKEW=1h"},
+		"/bin/sh", "-c", "echo B-ran >> "+log)
+	waitIterations(t, waiter, trace, 0, 5)
 	if lineCount(log) != 1 {
 		t.Fatalf("the waiter ran while the stopped holder held the lease: %v", readLog(t, log))
 	}
@@ -344,14 +421,20 @@ func TestLockRunStoppedHolderKeepsTheLease(t *testing.T) {
 // If lock-run finds its lease gone while the command runs, it stops the command and
 // exits non-zero instead of letting two gates finish.
 func TestLockRunStopsTheCommandWhenItsLeaseIsLost(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "echo up >> "+log+"; sleep 30; echo FINISHED >> "+log)
-	waitUntil(t, "running", 5*time.Second, func() bool { return lineCount(log) == 1 })
-	o, err := readLeaseFile(filepath.Join(lock, ownerFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// lock-run rewrites owner.json once, after the command starts, to add the
+	// command's pid. Wait for that write: a rewrite racing it would be overwritten,
+	// and the lease would never look lost. After it only the renewal writes (every
+	// ttl/3, a minute from now), and it keeps the nonce it reads.
+	var o LeaseOwner
+	waitUntil(t, "running, with the command recorded", 5*time.Second, func() bool {
+		var err error
+		o, err = readLeaseFile(filepath.Join(lock, ownerFileName))
+		return lineCount(log) == 1 && err == nil && o.ChildPID > 0
+	})
 	o.Nonce = "00000000000000ff" // someone else's lease now
 	writeLeaseFile(filepath.Join(lock, ownerFileName), o)
 	if code := p.wait(t, 10*time.Second); code != ExitLeaseLost {
@@ -370,13 +453,17 @@ func TestLockRunStopsTheCommandWhenItsLeaseIsLost(t *testing.T) {
 // (the reviewer saw INT twice). lock-run's own group gets it; the command's own
 // group gets it once, from lock-run.
 func TestLockRunDoesNotRepeatCtrlC(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	pgFile := filepath.Join(dir, "pgid")
 	b, _ := json.Marshal([]string{"/bin/sh", "-c", "ps -o pgid= -p $$ > " + pgFile + "; trap 'echo INT >> " + log + "' INT; echo up >> " + log +
 		"; i=0; while [ $i -lt 30 ]; do sleep 0.05; i=$((i+1)); done"})
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m", "LOCKRUN_HELPER_ARGV="+string(b))
+	cmd.Env = append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m", "LOCKRUN_HELPER_ARGV="+string(b))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // a group of its own, like a terminal job
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -398,6 +485,7 @@ func TestLockRunDoesNotRepeatCtrlC(t *testing.T) {
 
 // A lock directory with no owner.json is a holder still starting, until the grace.
 func TestLockRunOwnerlessLock(t *testing.T) {
+	t.Parallel()
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	os.Mkdir(lock, 0o755)
 	if held, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !held || stale {
@@ -410,6 +498,7 @@ func TestLockRunOwnerlessLock(t *testing.T) {
 
 // The panel's CANCEL ends a wait, never the holder; the holder cannot be cancelled.
 func TestLockRunCancelWait(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "echo held >> "+log+"; sleep 1.5; echo done >> "+log)
@@ -442,6 +531,7 @@ func TestLockRunCancelWait(t *testing.T) {
 
 // A signal to lock-run is forwarded to the command, and the lease is released.
 func TestLockRunForwardsSignalAndReleases(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "echo up >> "+log+"; trap 'exit 9' TERM; while :; do sleep 0.05; done")
@@ -472,6 +562,7 @@ func TestLockRunReentry(t *testing.T) {
 // FIFO, deterministically: a live waiter that arrived earlier goes first, even when
 // the lease is free. Only the first live waiter may take it.
 func TestLockRunIsFIFO(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	os.MkdirAll(waitersDir(lock), 0o755)
@@ -480,8 +571,9 @@ func TestLockRunIsFIFO(t *testing.T) {
 	early := filepath.Join(waitersDir(lock), strconv.FormatInt(now.Add(-time.Second).UnixNano(), 10)+"-00000000000000cc.json")
 	writeLeaseFile(early, LeaseOwner{V: 1, Nonce: "00000000000000cc", PID: os.Getpid(), Host: hostName(), Lane: "first",
 		Started: now.Unix(), Renewed: now.Unix()})
-	p := startLockRun(t, lock, "second", time.Minute, "/bin/sh", "-c", "echo ran >> "+log)
-	time.Sleep(1200 * time.Millisecond)
+	trace := filepath.Join(dir, "trace")
+	p := startLockRunEnv(t, lock, "second", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "echo ran >> "+log)
+	waitIterations(t, p, trace, 0, 5)
 	if lineCount(log) != 0 {
 		t.Fatal("jumped the queue: ran while an earlier live waiter was ahead")
 	}
@@ -498,6 +590,7 @@ func TestLockRunIsFIFO(t *testing.T) {
 // flock someone still holds (an orphan that inherited the fd) never keeps a record
 // whose holder and command are dead.
 func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
+	t.Parallel()
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	os.Mkdir(lock, 0o755)
 	now := time.Now().Unix()
@@ -515,11 +608,13 @@ func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
 
 // startLockRunPTY runs the lock-run helper on a real pty as a session leader in
 // the terminal's foreground, the way an interactive `bash run-local.sh` runs it.
+// Its two tests are about the terminal a gate runs on (SECURITY: a stuck gate, a
+// doubled Ctrl-C), so they run under -short too.
 func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...string) (*exec.Cmd, *os.File, chan int) {
 	t.Helper()
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
+	cmd.Env = append(append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
 		"LOCKRUN_HELPER_ARGV="+string(b)), extraEnv...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -544,6 +639,7 @@ func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...strin
 // command's group must be the foreground group, and lock-run must take the
 // terminal back when it ends.
 func TestLockRunCommandCanUseTheTerminal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log, fg := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log"), filepath.Join(dir, "fg")
 	// The command turns echo off and does not turn it back on (as a killed prompt
@@ -568,6 +664,7 @@ func TestLockRunCommandCanUseTheTerminal(t *testing.T) {
 
 // Ctrl-C typed on the terminal reaches the command's (foreground) group once.
 func TestLockRunCtrlCOnATerminalReachesTheCommandOnce(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	_, ptmx, done := startLockRunPTY(t, lock, nil, "/bin/sh", "-c",
@@ -587,6 +684,7 @@ func TestLockRunCtrlCOnATerminalReachesTheCommandOnce(t *testing.T) {
 // The TERM workaround: started as TERM=dumb CLAUDUCTOR_TERM=<real>, the command
 // gets the real TERM back.
 func TestLockRunRestoresTheRealTERM(t *testing.T) {
+	t.Parallel()
 	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "CLAUDUCTOR_TERM=xterm-256color", "CLAUDUCTOR_TERM_SET=1"})
 	if strings.Join(env, " ") != "PATH=/bin TERM=xterm-256color" {
 		t.Fatalf("env %v", env)
@@ -600,5 +698,41 @@ func TestLockRunRestoresTheRealTERM(t *testing.T) {
 	}
 	if env := childEnv([]string{"TERM=vt100"}); env[0] != "TERM=vt100" {
 		t.Fatal("no workaround: TERM untouched")
+	}
+}
+
+// quickExit is the GORACE setting for a helper process this test binary starts as
+// a child: a -race binary sleeps a second at exit (atexit_sleep_ms) to flush race
+// reports, and a helper's stderr is its test's to read, not a report's.
+func quickExit() string {
+	return "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")
+}
+
+// A signal that reaches lock-run after it has won the lease, but before its command
+// runs, is passed on to the command once it starts; it is not lost in between, which
+// would leave lock-run running a command that never heard it. Not parallel: it sets
+// the package's afterAcquire hook, and signals this process.
+func TestLockRunPassesOnASignalFromBeforeTheCommandStarted(t *testing.T) {
+	dir := t.TempDir()
+	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
+	// SIGHUP, not TERM or INT: leakcheck.Main listens for those two in this process.
+	afterAcquire = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGHUP) }
+	defer func() { afterAcquire = nil }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	code, err := LockRun(ctx, LockRunOptions{Clock: clock.System, Lock: lock, TTL: time.Minute, Stderr: io.Discard,
+		Argv: []string{"/bin/sh", "-c", "trap 'echo HUP >> " + log + "; exit 9' HUP; while :; do sleep 0.05; done"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 9: the command's trap ran; 128+1: HUP reached it before it set the trap. Either
+	// way the command heard it. Without it the command runs until ctx ends and gets
+	// TERM (143).
+	if code != 9 && code != 128+int(syscall.SIGHUP) {
+		t.Fatalf("exit %d after %v: the command never got the SIGHUP sent while lock-run started it", code, time.Since(start))
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatal("lease not released")
 	}
 }

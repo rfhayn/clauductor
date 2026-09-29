@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 // ↑ keypresses (audit P1-2). Real tmux, a real client on a PTY, on a throwaway
 // socket: the client is what xterm.js is in the browser.
 func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	dir := t.TempDir()
 	got := filepath.Join(dir, "input")
@@ -40,7 +42,7 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 		t.Fatalf("status is %q, want off", s)
 	}
 	// Only the wheel came back to the root table: no click or menu bindings.
-	if keys := show("list-keys", "-T", "root"); strings.Count(keys, "\n") != 0 || !strings.Contains(keys, "WheelUpPane") {
+	if keys := leakcheck.TableKeys(tmux, sock, "root"); strings.Count(keys, "\n") != 0 || !strings.Contains(keys, "WheelUpPane") {
 		t.Fatalf("root table after hardening:\n%s", keys)
 	}
 
@@ -101,6 +103,7 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 }
 
 func TestInputKind(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"\x1b[<64;10;5M": inMouse, "\x1b[<65;3;4M\x1b[<65;3;4M": inMouse, "\x1b[<0;1;1m": inMouse,
 		"\x1b[A": inScroll, "\x1bOB": inScroll, "\x1b[5~": inScroll, "\x1b[1;2A": inScroll,

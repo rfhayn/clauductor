@@ -8,6 +8,7 @@ import (
 )
 
 func TestConfigExampleFixtureParses(t *testing.T) {
+	t.Parallel()
 	cfg := testConfig(t)
 	if cfg.Name != "My Project" || len(cfg.Cards) != 2 {
 		t.Fatalf("%+v", cfg)
@@ -15,6 +16,7 @@ func TestConfigExampleFixtureParses(t *testing.T) {
 }
 
 func TestConfigRejects(t *testing.T) {
+	t.Parallel()
 	tests := map[string]string{
 		"missing name":        `{"lanes":{}}`,
 		"unknown key":         `{"name":"x","lane":{}}`,
@@ -38,6 +40,7 @@ func TestConfigRejects(t *testing.T) {
 }
 
 func TestRefreshIntervalFloor(t *testing.T) {
+	t.Parallel()
 	r, err := ParseRefresh("interval:1")
 	if err != nil || r.Interval != minCardInterval {
 		t.Fatalf("%v %v", r, err)
@@ -49,6 +52,7 @@ func TestRefreshIntervalFloor(t *testing.T) {
 }
 
 func TestLaneFor(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{Name: "x", Lanes: map[string]string{
 		"change/": "build", "change/propose-*": "propose", "fix/": "fix", "main": "orchestrator",
 	}}
@@ -70,6 +74,7 @@ func TestLaneFor(t *testing.T) {
 }
 
 func TestTemplateRendering(t *testing.T) {
+	t.Parallel()
 	c := v2Config(t, tplJSON)
 	r, err := c.RenderTemplate("build", "add-x", "")
 	if err != nil {
@@ -106,6 +111,7 @@ func TestTemplateRendering(t *testing.T) {
 }
 
 func TestTemplateConfigValidation(t *testing.T) {
+	t.Parallel()
 	bad := map[string]string{
 		"unknown placeholder":   `,"templates":[{"id":"a","lane_type":"build","first_prompt":"do {thing}"}]`,
 		"newline in the prompt": `,"templates":[{"id":"a","lane_type":"build","first_prompt":"line one\nline two"}]`,
@@ -138,6 +144,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 
 // The config name reaches notification titles: one line, no leading dash.
 func TestConfigNameIsPlainText(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{`-eproperty p : 1`, " -x", "a\nb", "a‮b", "\x1b[31m"} {
 		b, _ := json.Marshal(map[string]any{"name": bad})
 		if _, err := parseConfig(b); err == nil {
@@ -150,6 +157,7 @@ func TestConfigNameIsPlainText(t *testing.T) {
 }
 
 func TestHostNamesConfig(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"*.localhost", "evil.com", "a.b.localhost", "UPPER.localhost", "localhost", ".localhost", "-a.localhost", "a_b.localhost"} {
 		if _, err := parseConfig([]byte(`{"name":"T","host_names":["` + bad + `"]}`)); err == nil {
 			t.Errorf("accepted host name %q", bad)
@@ -161,6 +169,7 @@ func TestHostNamesConfig(t *testing.T) {
 }
 
 func TestConfigRejectsBadLaneKeys(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{
 		`{"name":"x","tmux_socket":"a b"}`,
 		`{"name":"x","tmux_socket":"../x"}`,

@@ -96,6 +96,7 @@ func clockReads(fset *token.FileSet, f *ast.File) (calls []string, system map[st
 }
 
 func TestOnlyPackageClockReadsTheTime(t *testing.T) {
+	t.Parallel()
 	fset := token.NewFileSet()
 	scanned := 0
 	seen := map[string]map[string]int{}
@@ -142,6 +143,7 @@ func TestOnlyPackageClockReadsTheTime(t *testing.T) {
 }
 
 func TestClockCheckCatchesEveryForm(t *testing.T) {
+	t.Parallel()
 	// Falsification: each form a second clock can take is caught, and a method of the
 	// same name on something else is not.
 	for src, want := range map[string]int{

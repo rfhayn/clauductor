@@ -540,7 +540,9 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 // 3.x ships it: into copy mode (-e: it ends when you scroll back to the bottom),
 // or to the program if it asked for the mouse itself. Clicks and the right-click
 // menu (kill-pane, respawn-pane) stay unbound. In copy mode, q or Escape leaves.
-// The status bar is off: the tab already names the lane.
+// The status bar is off: the tab already names the lane. The condition nests `||`
+// two at a time: tmux before 3.5 reads only the first two arguments of one, and
+// passed every wheel to the program (seen on Ubuntu 24.04's tmux 3.4).
 var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "prefix2", "None",
 	";", "unbind-key", "-q", "-a", "-T", "prefix",
@@ -548,7 +550,7 @@ var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "status", "off",
 	";", "set-option", "-g", "mouse", "on",
 	";", "bind-key", "-T", "root", "WheelUpPane",
-	"if-shell", "-F", "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e"}
+	"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e"}
 
 // Harden applies hardenArgs if the socket has a server. The panel runs it whenever
 // it finds the server (every tmux poll) and before every viewer attaches.

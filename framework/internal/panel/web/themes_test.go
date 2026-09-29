@@ -202,6 +202,7 @@ func themeTokens(tb themeBlocks, id, mode string) map[string]string {
 }
 
 func TestThemesDefineEveryToken(t *testing.T) {
+	t.Parallel()
 	tb := parseThemes(t, readWeb(t, "themes.css"))
 	themes := declaredThemes(t)
 
@@ -323,6 +324,7 @@ var aaaLabelPairs = [][2]int{
 // pairs the palette cannot promise (in an aaa theme, white on red is at most 3:1), so
 // every theme sets one, at least 4.5, and an aaa theme at least 7.
 func TestThemeTerminalMinimumContrast(t *testing.T) {
+	t.Parallel()
 	tb := parseThemes(t, readWeb(t, "themes.css"))
 	if !strings.Contains(readWeb(t, "panel.js"), "minimumContrastRatio") {
 		t.Error("panel.js never sets xterm's minimumContrastRatio")
@@ -342,6 +344,7 @@ func TestThemeTerminalMinimumContrast(t *testing.T) {
 }
 
 func TestThemeContrast(t *testing.T) {
+	t.Parallel()
 	tb := parseThemes(t, readWeb(t, "themes.css"))
 	var report []string
 	for _, th := range declaredThemes(t) {
@@ -448,6 +451,7 @@ func TestThemeContrast(t *testing.T) {
 // Every face a theme declares is embedded, every embedded face is used, each family
 // ships its licence, and the fonts stay small (they are in the binary).
 func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
+	t.Parallel()
 	css := cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")
 	used := map[string]bool{}
 	for _, m := range regexp.MustCompile(`url\("fonts/([^"]+)"\)`).FindAllStringSubmatch(css, -1) {
@@ -490,6 +494,7 @@ func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
 // Opacity would multiply every colour under it and void the contrast checks above, so
 // panel.css may use it only on a disabled control (WCAG exempts inactive components).
 func TestPanelCSSFadesNothingButDisabledControls(t *testing.T) {
+	t.Parallel()
 	css := cssComment.ReplaceAllString(readWeb(t, "panel.css"), "")
 	n := 0
 	for _, m := range cssBlock.FindAllStringSubmatch(css, -1) {

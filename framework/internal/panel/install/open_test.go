@@ -28,6 +28,7 @@ func serveHealthz(t *testing.T, network, addr, body string) (net.Listener, int) 
 }
 
 func TestOpenURLChecksBothLoopbacks(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	os.MkdirAll(config.PanelDir(home), 0o700)
 	os.WriteFile(filepath.Join(config.PanelDir(home), "pid"), []byte("4242\n"), 0o600)
@@ -65,6 +66,7 @@ func TestOpenURLChecksBothLoopbacks(t *testing.T) {
 // F6: `clauductor panel open` sends the token only to the panel whose PID is in the
 // pid file.
 func TestOpenURLOnlyTrustsThePanelsPID(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if _, err := RotateToken(home); err != nil {
 		t.Fatal(err)

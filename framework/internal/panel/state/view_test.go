@@ -12,6 +12,7 @@ import (
 
 // viewKey ignores the clock and the polls' bookkeeping, and nothing else.
 func TestViewKeyIgnoresThePollsBookkeeping(t *testing.T) {
+	t.Parallel()
 	m := NewModel(testConfig(t), "/repo", t0)
 	a := m.Snapshot(t0)
 	b := a
@@ -44,6 +45,7 @@ func TestViewKeyIgnoresThePollsBookkeeping(t *testing.T) {
 // Needs you shows the specific ask `claude agents` names, not the hook's generic
 // message (audit P2-6).
 func TestNeedsYouPrefersTheSpecificWaitingFor(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(npm run test:e2e)"), nil, t0)
 	m.ApplyHook(permissionHook(), t0)
@@ -64,6 +66,7 @@ func TestNeedsYouPrefersTheSpecificWaitingFor(t *testing.T) {
 // A lane with a terminal has one name everywhere: the one it was started with
 // (audit P2-12). Its card, Needs you and alerts all say it.
 func TestALaneWithATerminalHasOneName(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, `,"alerts":{"waiting_seconds":1}`)
 	rec := types.LaneRecord{ID: "orchestrator", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
 	m.ApplyTmux([]types.TmuxLane{{ID: "orchestrator", Path: xWT}}, []types.LaneRecord{rec}, "", nil, t0)
@@ -92,6 +95,7 @@ func TestALaneWithATerminalHasOneName(t *testing.T) {
 // A view that only gets older is the same view: no text in it carries an age, so
 // the hub does not push it (audit P1-3). The page computes every age itself.
 func TestAViewThatOnlyAgesDoesNotChange(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, `,"alerts":{"waiting_seconds":1,"idle_minutes":1}`)
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(ls)"), nil, t0)
 	m.ApplyHook(permissionHook(), t0)
@@ -115,6 +119,7 @@ func TestAViewThatOnlyAgesDoesNotChange(t *testing.T) {
 
 // Each banner carries its kind, so the page labels it (audit P2-9).
 func TestBannersCarryTheirKind(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	m.ApplyTmux(nil, []types.LaneRecord{{ID: "gone", SessionID: "s9", Path: xWT, Type: "build", ActionDone: true}}, "", nil, t0)
 	v := m.Snapshot(t0)

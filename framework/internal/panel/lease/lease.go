@@ -454,6 +454,10 @@ func reclaim(lock string, judged LeaseOwner, host string, now time.Time, proc Pr
 	return true, nil
 }
 
+// afterAcquire, when a test sets it, runs once lock-run holds the lease and before
+// it starts the command: the window a signal must not be lost in.
+var afterAcquire func()
+
 // LockRunOptions configures one lock-run.
 type LockRunOptions struct {
 	Lock   string        // the lease directory
@@ -501,9 +505,16 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		return 2, err
 	}
 	lock = filepath.Clean(lock)
+	// One channel for INT, TERM and HUP, from here to the exit. While lock-run waits,
+	// a signal ends the wait; once it holds the lease, one is passed on to the
+	// command, including one that arrived between winning the lease and starting it:
+	// it waits in the channel until the command runs.
+	sigs := make(chan os.Signal, 4)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
 	// Re-entry: a gate script that re-runs itself through lock-run already holds it.
 	if os.Getenv("CLAUDUCTOR_LOCK_HELD") == lock {
-		return runChild(ctx, o, lock, nil)
+		return runChild(ctx, o, lock, nil, sigs)
 	}
 	if err := os.MkdirAll(waitersDir(lock), 0o755); err != nil {
 		return 2, fmt.Errorf("lock-run: %w", err)
@@ -518,10 +529,6 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	}
 	cancelFile := filepath.Join(waitersDir(lock), me.Nonce+".cancel")
 	leaveQueue := func() { _ = os.Remove(myWait); _ = os.Remove(cancelFile) }
-
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigs)
 
 	lastRenew, lastSay := now, ""
 	say := func(s string) {
@@ -565,7 +572,10 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 					return 2, fmt.Errorf("lock-run: writing owner.json: %w", err)
 				}
 				leaveQueue()
-				return runChild(ctx, o, lock, &held)
+				if afterAcquire != nil {
+					afterAcquire()
+				}
+				return runChild(ctx, o, lock, &held, sigs)
 			} else if !errors.Is(err, os.ErrExist) {
 				leaveQueue()
 				return 2, fmt.Errorf("lock-run: %w", err)
@@ -612,7 +622,7 @@ func who(o LeaseOwner) string {
 // runChild runs the command. When held is set it holds the lease: it renews it every
 // ttl/3 and releases it after the command exits, but only while owner.json still
 // carries its own nonce (a lease it lost to a reclaim is not its to remove).
-func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner) (int, error) {
+func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner, sigs <-chan os.Signal) (int, error) {
 	cmd := exec.Command(o.Argv[0], o.Argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	if cmd.Stdin == nil {
@@ -664,6 +674,9 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 			_ = os.RemoveAll(lock)
 		}
 	}
+	// INT, TERM and HUP to lock-run go on to the command's group, once each, from the
+	// channel LockRun has listened on since before it took the lease: one that
+	// arrived before the start is passed on as soon as the command runs.
 	if err := cmd.Start(); err != nil {
 		release()
 		return 127, fmt.Errorf("lock-run: %w", err)
@@ -705,10 +718,6 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 			}
 		}()
 	}
-	// INT, TERM and HUP to lock-run go on to the command's group, once each.
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigs)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var werr error

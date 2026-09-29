@@ -9,6 +9,7 @@ import (
 )
 
 func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	alive := map[int]bool{100: true}
 	starts := map[int]string{100: "Mon Sep 28 10:00:00 2026"}
@@ -48,6 +49,7 @@ func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
 // A pid that dies and is reused between two checks is never seen gone; the 30 s
 // re-read still catches the new start time.
 func TestProcCacheRereadsAStartTimeEvery30s(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	start := "Mon Sep 28 10:00:00 2026"
 	c := &ProcCache{Alive: func(int) bool { return true }, Start: func(int) string { return start }, Now: func() time.Time { return clock }}

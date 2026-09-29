@@ -11,10 +11,10 @@ import (
 
 // checkLockResult is the JSON output of the check-lock command.
 type checkLockResult struct {
-	Locked   bool   `json:"locked"`
-	WorkerID string `json:"worker_id,omitempty"`
+	Locked    bool   `json:"locked"`
+	WorkerID  string `json:"worker_id,omitempty"`
 	Milestone string `json:"milestone,omitempty"`
-	LockedAt string `json:"locked_at,omitempty"`
+	LockedAt  string `json:"locked_at,omitempty"`
 }
 
 var checkLockCmd = &cobra.Command{

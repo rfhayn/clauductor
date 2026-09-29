@@ -2,11 +2,10 @@ package panel
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
@@ -33,23 +33,13 @@ import (
 
 func throwawaySocket(t *testing.T) (string, string) {
 	t.Helper()
-	tmux, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Skip("tmux not installed")
-	}
-	b := make([]byte, 4)
-	rand.Read(b)
-	sock := "clauductor-test-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
-	t.Cleanup(func() {
-		exec.Command(tmux, "-L", sock, "kill-server").Run()
-		// kill-server leaves the socket file; tmux keeps it in $TMUX_TMPDIR (or /tmp)/tmux-<uid>.
-		dir := os.Getenv("TMUX_TMPDIR")
-		if dir == "" {
-			dir = "/tmp"
-		}
-		os.Remove(filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), sock))
-	})
-	return tmux, sock
+	return leakcheck.TmuxSocket(t)
+}
+
+// securitySocket is throwawaySocket for a SECURITY test: it runs under -short too.
+func securitySocket(t *testing.T) (string, string) {
+	t.Helper()
+	return leakcheck.SecurityTmuxSocket(t)
 }
 
 func gitRun(t *testing.T, dir string, args ...string) string {
@@ -76,10 +66,12 @@ func gitOnlyRunner(ctx context.Context, dir string, argv []string) ([]byte, erro
 }
 
 type panelRun struct {
+	home                 string
 	base, cookie, origin string
 	cancel               func()
 	done                 chan error
 	once                 sync.Once
+	polls                *pollCounter // each source's polls (Options.OnPoll)
 }
 
 func startPanel(t *testing.T, root, home, sock string) *panelRun {
@@ -92,10 +84,13 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
+	polls := newPollCounter()
 	o := Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: gitOnlyRunner,
 		// sh stands in for claude; the claude flags land in its ignored positional args.
 		TmuxSocket: sock, LaneProgram: []string{"/bin/sh", "-c", "exec /bin/sh", "lane"}, StopTimeout: 1500 * time.Millisecond,
-		OnReady: func(u string) { ready <- u }}
+		// A (re)started lane must stay up FastExit to count as started: sh does.
+		FastExit: 500 * time.Millisecond,
+		OnReady:  func(u string) { ready <- u }, OnPoll: polls.hook, Ticks: fastTicks()}
 	if tweak != nil {
 		tweak(&o)
 	}
@@ -104,8 +99,8 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 	case u := <-ready:
 		pu, _ := url.Parse(u)
 		port, _ := strconv.Atoi(pu.Port())
-		p := &panelRun{base: "http://" + pu.Host, origin: "http://" + pu.Host,
-			cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done}
+		p := &panelRun{home: home, base: "http://" + pu.Host, origin: "http://" + pu.Host,
+			cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
 		t.Cleanup(p.stop)
 		return p
 	case err := <-done:
@@ -123,6 +118,7 @@ func (p *panelRun) stop() {
 		case <-p.done:
 		case <-time.After(5 * time.Second):
 		}
+		waitMachineFree(p.home)
 	})
 }
 
@@ -212,6 +208,7 @@ func findTerm(v state.View, id string) *state.TermLaneView {
 }
 
 func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
@@ -240,14 +237,16 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	c := p.dial(t, "orch")
 	send(t, c, termMsg{Type: "resize", Cols: 120, Rows: 40})
 	send(t, c, termMsg{Type: "input", Data: "echo pa''nel-ok-$((6*7))"})
-	time.Sleep(300 * time.Millisecond)
+	readUntil(t, c, "$((6*7))") // the shell has the line; now its Enter
 	send(t, c, termMsg{Type: "input", Data: "\r"})
 	readUntil(t, c, "panel-ok-42")
 	out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{window_width}x#{window_height}").Output()
 	if strings.TrimSpace(string(out)) != "120x40" { // the status line is off (PANEL-6)
 		t.Fatalf("resize message did not reach tmux: window is %s", out)
 	}
-	// The lane runs the panel's own session id, and the registry holds the binding.
+	// The lane runs the panel's own session id, and the registry holds the binding
+	// (in the state once the tmux source, kicked by the start, has polled).
+	waitFor(t, "orch in the state", func() bool { return findTerm(p.state(t), "orch") != nil })
 	v := p.state(t)
 	orch := findTerm(v, "orch")
 	if orch == nil || !orch.Registered || !uuidRe.MatchString(orch.SessionID) || orch.Orphan != "" {
@@ -268,9 +267,13 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	if websocket.CloseStatus(rerr) != websocket.StatusPolicyViolation {
 		t.Fatalf("unknown message type: %v, want a policy-violation close", rerr)
 	}
-	// Closing the browser leaves the lane running.
+	// Closing the browser leaves the lane running: once the panel has detached the
+	// viewer's tmux client, the session is still there.
 	c.Close(websocket.StatusNormalClosure, "")
-	time.Sleep(300 * time.Millisecond)
+	waitFor(t, "the viewer's tmux client to detach", func() bool {
+		out, err := exec.Command(tmux, "-L", sock, "list-clients", "-t", "=orch").Output()
+		return err == nil && strings.TrimSpace(string(out)) == ""
+	})
 	if !hasSession(tmux, sock, "orch") {
 		t.Fatal("closing the viewer ended the lane")
 	}
@@ -307,7 +310,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	})
 	c2 := p2.dial(t, "fx")
 	send(t, c2, termMsg{Type: "input", Data: "pwd"})
-	time.Sleep(300 * time.Millisecond)
+	readUntil(t, c2, "pwd")
 	send(t, c2, termMsg{Type: "input", Data: "\r"})
 	readUntil(t, c2, ".wt/fx")
 	c2.Close(websocket.StatusNormalClosure, "")
@@ -439,12 +442,64 @@ func closeCode(c *websocket.Conn, within time.Duration) websocket.StatusCode {
 	}
 }
 
+// tickCounter is the system clock, counting the ticks its tickers of one period
+// have delivered: a test waits for N of them instead of sleeping.
+type tickCounter struct {
+	clock.Clock
+	period time.Duration
+	mu     sync.Mutex
+	n      int
+}
+
+func (c *tickCounter) count() int { c.mu.Lock(); defer c.mu.Unlock(); return c.n }
+
+func (c *tickCounter) NewTicker(d time.Duration) clock.Ticker {
+	inner := c.Clock.NewTicker(d)
+	if d != c.period {
+		return inner
+	}
+	ct := &countedTicker{inner: inner, c: make(chan time.Time), stop: make(chan struct{})}
+	go func() {
+		for {
+			select {
+			case v := <-inner.C():
+				select {
+				case ct.c <- v: // delivered: the reader has finished the tick before
+					c.mu.Lock()
+					c.n++
+					c.mu.Unlock()
+				case <-ct.stop:
+					return
+				}
+			case <-ct.stop:
+				return
+			}
+		}
+	}()
+	return ct
+}
+
+type countedTicker struct {
+	inner clock.Ticker
+	c     chan time.Time
+	stop  chan struct{}
+	once  sync.Once
+}
+
+func (t *countedTicker) C() <-chan time.Time { return t.c }
+func (t *countedTicker) Stop()               { t.once.Do(func() { t.inner.Stop(); close(t.stop) }) }
+
 // A terminal whose page has gone quiet (hidden: no "alive") is closed with 4000,
 // and a page that keeps saying "alive" keeps its terminal.
 func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
-	_, sock := throwawaySocket(t)
+	t.Parallel()
+	_, sock := securitySocket(t) // security: runs under -short
 	root, home := rootLaneProject(t)
-	p := startPanelWith(t, root, home, sock, func(o *Options) { o.TermIdleTimeout = 800 * time.Millisecond })
+	// The terminal checks for silence every idle/4 (110 ms here, a period no other
+	// ticker of the panel has): those checks are counted.
+	const idle = 440 * time.Millisecond
+	checks := &tickCounter{Clock: clock.System, period: idle / 4}
+	p := startPanelWith(t, root, home, sock, func(o *Options) { o.TermIdleTimeout, o.Clock = idle, checks })
 	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
@@ -453,13 +508,16 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 		t.Fatalf("quiet terminal closed with %v, want %v (idle)", got, closeIdle)
 	}
 	busy := p.dial(t, "orch")
-	stop := time.After(2500 * time.Millisecond)
-	for alive := true; alive; {
-		select {
-		case <-stop:
-			alive = false
-		case <-time.After(200 * time.Millisecond):
-			send(t, busy, termMsg{Type: "alive"})
+	// "alive" at every check, for twelve checks: three idle timeouts. A terminal
+	// closed meanwhile stops its checks.
+	deadline := time.Now().Add(10 * time.Second)
+	for end := checks.count() + 13; checks.count() < end; {
+		send(t, busy, termMsg{Type: "alive"})
+		for n := checks.count(); checks.count() == n; {
+			if time.Now().After(deadline) {
+				t.Fatalf("the terminal's idle checks stopped: it was closed (%v) while the page said alive", closeCode(busy, time.Second))
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 	if got := closeCode(busy, 100*time.Millisecond); got != -1 {
@@ -470,7 +528,8 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 // Rotating the token (rotate-token, or a reinstall) kills the old one in the running
 // panel: its terminals close with 4001 and its cookie gets 401.
 func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
-	_, sock := throwawaySocket(t)
+	t.Parallel()
+	_, sock := securitySocket(t) // security: runs under -short
 	root, home := rootLaneProject(t)
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.Launchd, o.NoOpen, o.OpenBrowser = true, true, func(string) {}
@@ -506,6 +565,7 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 // not a scroll key leaves copy mode, then goes to the lane. The page is told when
 // the lane is scrolled back, and when it is not any more. Real tmux, real panel.
 func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	p := startPanel(t, root, home, sock)

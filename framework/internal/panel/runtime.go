@@ -308,6 +308,9 @@ func (r *Runtime) pollOnce(ctx context.Context, s *source) (time.Duration, bool)
 	if up != nil {
 		r.hub.Update(up)
 	}
+	if r.o.OnPoll != nil {
+		r.o.OnPoll(s.name)
+	}
 	if next == 0 {
 		next = s.every
 	}

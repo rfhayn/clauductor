@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -22,9 +23,10 @@ import (
 // names. The lane manager points at a socket with no server: a request that got past
 // every guard answers 404 "no such lane", never 101.
 func TestTerminalUpgradeGuards(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
-	s.Lanes.Socket = "clauductor-test-no-server"
+	s.Lanes.Socket = leakcheck.NoServerSocket()
 	origin := withHeader("Origin", "http://127.0.0.1:4393")
 	ticket := func(lane string) reqOpt {
 		tk, err := s.issueTicket(lane)
@@ -100,6 +102,7 @@ func httptestWithProtocol(p string) *http.Request {
 
 // The page carries no inline script or style and loads nothing from another origin.
 func TestPageCSPIsSelfOnly(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/", "", withCookie(s))
 	csp := w.Header().Get("Content-Security-Policy")
@@ -133,9 +136,10 @@ type reqOptList []reqOpt
 
 // Lane control is a POST: it needs the cookie and the panel's own Origin.
 func TestLaneAPIGuards(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
-	s.Lanes.Socket = "clauductor-test-no-server"
+	s.Lanes.Socket = leakcheck.NoServerSocket()
 	origin := withHeader("Origin", "http://127.0.0.1:4393")
 	for _, c := range []struct {
 		name, method, target, body string
@@ -181,6 +185,7 @@ func TestLaneAPIGuards(t *testing.T) {
 }
 
 func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/?t="+s.Token, "")
 	if c := w.Header().Get("Set-Cookie"); strings.Contains(c, "Max-Age") {
@@ -196,7 +201,8 @@ func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
 // F4: a terminal that passed auth just before a token rotation is closed as soon as
 // it registers, and tickets issued under the old token die with it.
 func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
-	tmux, sock := throwawaySocket(t)
+	t.Parallel()
+	tmux, sock := securitySocket(t) // security: runs under -short
 	if err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "a", "/bin/sh").Run(); err != nil {
 		t.Fatal(err)
 	}

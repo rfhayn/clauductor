@@ -49,6 +49,7 @@ func waitingAlerts(v View) []AlertView {
 }
 
 func TestFailedPollMakesWaitingApproximateAndSilent(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, `,"alerts":{"waiting_seconds":60}`)
 	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
 	// A current reading, past the threshold: Needs you and the alert are exact, and
@@ -110,6 +111,7 @@ func TestFailedPollMakesWaitingApproximateAndSilent(t *testing.T) {
 // blocked on you, since when, and how sure are we", from ONE predicate. Every case
 // drives both surfaces from the same inputs and they must agree.
 func TestNeedsYouAndAlertsAgree(t *testing.T) {
+	t.Parallel()
 	type want struct {
 		blocked, approx bool
 	}
@@ -201,6 +203,7 @@ func TestNeedsYouAndAlertsAgree(t *testing.T) {
 // An approximate alert is shown, and never interrupts. It holds the mark of an
 // alert already notified, so the data flickering stale and back never re-notifies.
 func TestNotifierNeverInterruptsOnApproximateData(t *testing.T) {
+	t.Parallel()
 	exact := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "a", Text: "w", Since: t0.UnixMilli()}
 	approx := exact
 	approx.Approx = true
@@ -225,6 +228,7 @@ func TestNotifierNeverInterruptsOnApproximateData(t *testing.T) {
 // Sessions are forgotten even while `claude agents` keeps failing: a stale reading
 // does not keep a silent session on the page forever.
 func TestSessionsAreForgottenWhilePollsFail(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	m.ApplyAgents(waitingAgent("busy", ""), nil, t0)
 	for i := 1; i <= 40; i++ {
@@ -239,6 +243,7 @@ func TestSessionsAreForgottenWhilePollsFail(t *testing.T) {
 // Review round (PANEL-5): a still-open permission prompt must not drop out of
 // Needs you because `claude agents` has been failing for longer than the forget age.
 func TestOpenWaitingNoteSurvivesLongPollFailure(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
 	m.ApplyHook(permissionHook(), t0)
@@ -260,6 +265,7 @@ func TestOpenWaitingNoteSurvivesLongPollFailure(t *testing.T) {
 // `claude agents` poll slower than the interval finishes more than two intervals
 // after the previous one, yet nothing has gone stale.
 func TestSlowPollIsNotStale(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	// Poll 1 took 7 s (it included the filter cross-check) and finished at t0. The
 	// loop sleeps the 5 s interval, then poll 2 takes 7 s: it lands at t0+12s.
@@ -279,6 +285,7 @@ func TestSlowPollIsNotStale(t *testing.T) {
 // Review round (PANEL-5): approx reaches every place the page shows a status: the
 // lane card and summary chip, the sessions table, and the terminal tab.
 func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, "")
 	rec := types.LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
 	m.ApplyTmux([]types.TmuxLane{{ID: "lane-x", Path: xWT}}, []types.LaneRecord{rec}, "", nil, t0)
@@ -308,6 +315,7 @@ func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 
 // A 15 s interval must not make every reading look stale between polls.
 func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
+	t.Parallel()
 	m := NewModel(v2Config(t, ""), "/p", t0)
 	m.agentsNext = agentsQuiet
 	m.ApplyAgentsTimed(nil, nil, 100*time.Millisecond, t0)
@@ -320,6 +328,7 @@ func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
 }
 
 func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
+	t.Parallel()
 	boom := errors.New("claude agents: boom")
 	withNote := func(t *testing.T) *Model {
 		m := NewModel(v2Config(t, ""), "/p", t0)
