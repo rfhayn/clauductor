@@ -29,8 +29,10 @@ const $ = (id) => document.getElementById(id);
 // The page is described by building fresh elements, then patched into the live DOM:
 // an element whose key (data-k) or position matches is kept and only its differences
 // are applied, so focus, selection and scroll survive an update. Every control has a
-// stable key. A region (the nearest keyed element) that holds the active text
-// selection is not touched until the selection is gone.
+// stable key. While text is selected, the keyed element at each end of the selection
+// (a card, a row) is held as it is, so what you selected stays put; everything else,
+// including a new card next to it and the heading counts, still updates. Headings
+// are never held.
 function key(e, k) { e.dataset.k = k; return e; }
 // Handlers live on the element as data, so a patch can swap them without re-adding
 // listeners: a kept element runs the handler of the newest description of it.
@@ -40,14 +42,17 @@ function on(e, type, fn) {
   e.addEventListener(type, dispatch);
   return e;
 }
-let selRegion = null;
-function selectionRegion() {
+let selHeld = new Set();
+function heldBySelection() {
+  const held = new Set();
   const s = window.getSelection();
-  if (!s || s.isCollapsed || !s.rangeCount) return null;
-  let n = s.getRangeAt(0).commonAncestorContainer;
-  if (n.nodeType !== 1) n = n.parentElement;
-  if (!n || n.closest(".xterm")) return null;
-  return n.closest("[data-k]") || n;
+  if (!s || s.isCollapsed || !s.rangeCount) return held;
+  for (let n of [s.anchorNode, s.focusNode]) {
+    if (n && n.nodeType !== 1) n = n.parentElement;
+    const k = n && !n.closest(".xterm") ? n.closest("[data-k]") : null;
+    if (k && k.tagName !== "H2") held.add(k);
+  }
+  return held;
 }
 function sameKind(o, n) { return o.nodeType === n.nodeType && (o.nodeType !== 1 || o.tagName === n.tagName); }
 function keyOf(n) { return n.nodeType === 1 && n.dataset.k != null ? n.dataset.k : null; }
@@ -59,13 +64,13 @@ function syncAttrs(o, n) {
   if (n._h) { o._h = n._h; for (const t of Object.keys(n._h)) o.addEventListener(t, dispatch); } else o._h = null;
 }
 function morph(o, n) {
-  if (o === selRegion) return;
+  if (selHeld.has(o)) return;
   syncAttrs(o, n);
   patch(o, n.childNodes);
 }
 // patch makes parent's children match kids, keeping every node it can.
 function patch(parent, kids) {
-  if (parent === selRegion) return;
+  if (selHeld.has(parent)) return;
   kids = Array.from(kids);
   const olds = Array.from(parent.childNodes);
   const byKey = new Map(), loose = [];
@@ -118,9 +123,9 @@ function age(ms, before, after) {
 }
 function tickAges() {
   if (frozenAt) return;
-  const hold = selectionRegion();
+  const held = [...heldBySelection()];
   for (const e of document.querySelectorAll("span.age[data-at]")) {
-    if (hold && hold.contains(e)) continue;
+    if (held.some((h) => h.contains(e))) continue;
     setText(e, (e.dataset.pre || "") + ageText(+e.dataset.at) + (e.dataset.post || ""));
   }
 }
@@ -177,16 +182,22 @@ function lost(expired) {
 }
 // EventSource gives up silently on a 401 (e.g. the panel restarted with a new token),
 // so probe with fetch to tell "server down" from "session expired".
+// A check that hangs counts as failed after PROBE_MS, and so does a stream that
+// opens but says nothing.
+const PROBE_MS = 5000;
 async function probe() {
   clearTimeout(conn.timer);
   conn.nextAt = 0;
   renderConn();
+  const ac = new AbortController();
+  const limit = setTimeout(() => ac.abort(), PROBE_MS);
   try {
-    const r = await fetch("/api/state", { cache: "no-store" });
+    const r = await fetch("/api/state", { cache: "no-store", signal: ac.signal });
     if (r.status === 401) { lost(true); return; }
     if (!r.ok) throw new Error(r.status);
-  } catch (e) { lost(conn.expired); return; }
+  } catch (e) { lost(conn.expired); return; } finally { clearTimeout(limit); }
   connect();
+  conn.timer = setTimeout(() => { if (conn.state !== "live") lost(); }, PROBE_MS);
 }
 setInterval(() => {
   if (conn.state === "live" && Date.now() - lastBeat > BEAT_MISS_MS) lost();
@@ -210,7 +221,9 @@ function renderConn() {
   const wait = conn.nextAt ? Math.max(0, Math.ceil((conn.nextAt - Date.now()) / 1000)) : 0;
   const status = conn.expired
     ? "The panel restarted with a new token: open the URL clauductor panel printed, or run clauductor panel open."
-    : conn.nextAt ? "Reconnecting: attempt " + conn.attempt + ", next try in " + wait + " s." : "Reconnecting now…";
+    : !conn.nextAt ? "Checking whether the panel is back…"
+    : conn.attempt > 1 ? "Reconnect failed (attempt " + (conn.attempt - 1) + ") · retrying in " + wait + " s."
+    : "Retrying in " + wait + " s.";
   const retry = key(el("button", "btn", "RETRY NOW"), "retry");
   retry.type = "button";
   on(retry, "click", () => probe());
@@ -383,17 +396,20 @@ function leaveTerm(id) {
   const tab = document.querySelector('#tabs [data-k="tab:' + CSS.escape(id) + '"]');
   if (tab) tab.focus(); else $("termhost").focus();
 }
+let overTerm = false;
 function renderHint() {
-  const host = $("termhost"), a = document.activeElement;
+  const host = $("termhost"), a = document.activeElement, t = terms[selTerm];
   const inTerm = a && a.classList && a.classList.contains("xterm-helper-textarea") && host.contains(a);
-  const sel = IS_MAC ? "⌥-drag selects text" : "Shift-drag selects text";
+  const copy = IS_MAC ? "⌘C copies" : "Ctrl+Shift+C copies";
   const hint = $("termhint");
   // The line is always there, so entering the terminal never resizes it.
-  if (inTerm) setText(hint, "Ctrl+] leaves the terminal · typing into " + selTerm + " · " + sel + " · the wheel scrolls its history");
-  else if (a === host && terms[selTerm]) setText(hint, "Press Enter to type into the terminal");
-  else if (terms[selTerm]) setText(hint, "Click the terminal, or Tab to it and press Enter, to type into it");
+  if (t && t.scrolled) setText(hint, "Scrolled back in history · any key returns to the live screen and is typed · Esc only returns");
+  else if (inTerm) setText(hint, "Ctrl+] leaves the terminal · typing into " + selTerm + " · drag selects, " + copy + " · the wheel scrolls its history");
+  else if (a === host && t) setText(hint, "Press Enter to type into the terminal");
+  else if (overTerm && t) setText(hint, "Click to type into the terminal · drag selects text, " + copy + " · the wheel scrolls its history");
+  else if (t) setText(hint, "Click the terminal, or Tab to it and press Enter, to type into it");
   else setText(hint, "");
-  hint.classList.toggle("on", !!(inTerm || a === host));
+  hint.classList.toggle("on", !!(inTerm || a === host || (t && t.scrolled)));
 }
 document.addEventListener("focusin", renderHint);
 document.addEventListener("focusout", () => setTimeout(renderHint, 0));
@@ -404,6 +420,8 @@ document.addEventListener("focusout", () => setTimeout(renderHint, 0));
   host.addEventListener("keydown", (ev) => {
     if (ev.target === host && ev.key === "Enter") { ev.preventDefault(); enterTerm(); }
   });
+  host.addEventListener("mouseenter", () => { overTerm = true; renderHint(); });
+  host.addEventListener("mouseleave", () => { overTerm = false; renderHint(); });
   // A click on the frame around the terminal enters it too; xterm handles its own.
   host.addEventListener("mousedown", (ev) => { if (ev.target === host) { ev.preventDefault(); enterTerm(); } });
 }
@@ -453,8 +471,11 @@ function ensureTerm(id) {
     fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: termFontSize(),
     cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches, scrollback: 2000, macOptionIsMeta: true,
     // tmux asks for mouse reports (so the wheel scrolls its history), which would
-    // take every drag too: Option-drag (Shift-drag elsewhere) still selects text.
+    // take every drag too: an Option-press forces a selection (see the mousedown
+    // handler below, which turns a plain press into one).
     macOptionClickForcesSelection: true,
+    // An Option-click would otherwise move claude's cursor by sending it arrow keys.
+    altClickMovesCursor: false,
     theme: termTheme(), minimumContrastRatio: termMinContrast(),
     // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
     // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
@@ -464,7 +485,28 @@ function ensureTerm(id) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(host);
-  const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false };
+  const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false, scrolled: false };
+  // tmux has the mouse, so that the wheel scrolls its history, and it takes no
+  // clicks. A plain press would reach tmux and do nothing, so it becomes a text
+  // selection instead, exactly as an Option-press (Shift off a Mac) would: drag
+  // selects, and ⌘C copies through xterm. Nothing is taken from claude, which never
+  // saw clicks here.
+  host.addEventListener("mousedown", (ev) => {
+    if (ev.panelForced || ev.button !== 0) return;
+    // The frame around the terminal (#termhost) is focusable, and a press would
+    // otherwise focus it after xterm has focused its input: keep the input, so ⌘C
+    // reaches xterm's copy and typing reaches claude.
+    ev.preventDefault();
+    setTimeout(() => term.focus(), 0);
+    if (ev.altKey || ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
+    ev.stopImmediatePropagation();
+    if (!IS_MAC) term.clearSelection(); // Shift extends a selection; start a fresh one
+    const e2 = new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true, view: window, detail: ev.detail,
+      screenX: ev.screenX, screenY: ev.screenY, clientX: ev.clientX, clientY: ev.clientY, button: 0, buttons: ev.buttons,
+      altKey: IS_MAC, shiftKey: !IS_MAC });
+    e2.panelForced = true;
+    ev.target.dispatchEvent(e2);
+  }, true);
   // Ctrl+] is the way out; nothing else is taken from claude.
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.ctrlKey && !ev.altKey && !ev.metaKey && (ev.code === "BracketRight" || ev.key === "]")) {
@@ -509,7 +551,12 @@ async function connectTerm(t) {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { t.delay = 1000; fitTerm(t); termSend(t, { type: "resize", cols: t.term.cols, rows: t.term.rows }); sendFocus(t); };
   ws.onmessage = (e) => {
-    if (typeof e.data === "string") return; // {"type":"exit"}: onclose follows
+    if (typeof e.data === "string") {
+      // {"type":"scroll","back":…}: the lane is (or no longer is) scrolled back in
+      // tmux's copy mode. {"type":"exit"}: onclose follows.
+      try { const m = JSON.parse(e.data); if (m.type === "scroll") { t.scrolled = !!m.back; renderHint(); } } catch (x) {}
+      return;
+    }
     t.term.write(new Uint8Array(e.data));
   };
   ws.onclose = (e) => {
@@ -818,7 +865,10 @@ function openStart() {
   sel.replaceChildren(...(S.laneTypes || []).map((x) => { const o = el("option", null, x.name); o.value = x.name; return o; }));
   if (prev) sel.value = prev;
   const wt = $("st-wt");
-  wt.replaceChildren(...S.lanes.concat(S.quietWorktrees).map((l) => { const o = el("option", null, l.name + " · " + l.path); o.value = l.path; return o; }));
+  // A worktree path can be longer than the dialog: it is cut from the left, where
+  // every path is the same, and the whole path is the option's title.
+  const tail = (p) => p.length > 44 ? "…" + p.slice(-43) : p;
+  wt.replaceChildren(...S.lanes.concat(S.quietWorktrees).map((l) => { const o = el("option", null, l.name + " · " + tail(l.path)); o.value = l.path; o.title = l.path; return o; }));
   $("st-err").textContent = "";
   $("startdlg").hidden = false;
   stTypeChanged();
@@ -839,7 +889,7 @@ $("addlane").addEventListener("click", openStart);
 $("st-cancel").addEventListener("click", closeStart);
 $("startdlg").addEventListener("keydown", (e) => { if (e.key === "Escape") closeStart(); });
 $("st-type").addEventListener("change", stTypeChanged);
-$("st-wt").addEventListener("change", () => { if (!$("st-name").value) $("st-name").value = slug($("st-wt").value.split("/").pop()); stUpdate(); });
+$("st-wt").addEventListener("change", () => { $("st-wt").title = $("st-wt").value; if (!$("st-name").value) $("st-name").value = slug($("st-wt").value.split("/").pop()); stUpdate(); });
 $("st-name").addEventListener("input", stUpdate);
 $("st-issue").addEventListener("input", stUpdate);
 $("st-tpl").addEventListener("change", stUpdate);
@@ -1118,7 +1168,7 @@ function announceNeeds() {
 
 function render() {
   if (!S) { renderConn(); return; }
-  selRegion = selectionRegion();
+  selHeld = heldBySelection();
   const off = offline();
   const n = S.needsYou.length;
   document.title = (off ? "⚠ DISCONNECTED · " : "") + (n ? "(" + n + ") " : "") + S.name + " · Panel";

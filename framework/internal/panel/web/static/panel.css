@@ -83,9 +83,11 @@ h2.mh { font-size: var(--label-size); }
 /* A long lane name wraps to two lines, then clips; the card's title has it whole. */
 .nm { font: 600 .8rem/1.2 var(--font-mono); overflow: hidden; overflow-wrap: anywhere; min-width: 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-/* The name keeps its width; the type chip gives way (its full text is on hover). */
-.lane .nm { flex: 0 0 auto; max-width: 100%; }
-.kind { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
+/* The name keeps its width; when name and type chip do not fit on one line (the
+   larger type of High contrast), the chip moves under the name, whole. */
+.lane > .row:first-child { flex-wrap: wrap; row-gap: 3px; }
+.lane .nm { flex: 0 1 auto; max-width: 100%; }
+.kind { flex: none; }
 .kind { font: 600 .6rem/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 5px; border-radius: var(--r-btn); background: var(--panel-2); color: var(--text-dim); white-space: nowrap; }
 .sub { color: var(--text-dim); font-size: .75rem; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ctx { height: 4px; background: var(--panel-2); border-radius: var(--r-chip); overflow: hidden; }
@@ -154,7 +156,11 @@ th { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: 
 .dlg { background: var(--panel); border: var(--bw) solid var(--line-strong); border-radius: var(--r); padding: 16px; width: min(34rem, 100%); display: grid; gap: 10px; font-size: .85rem; }
 .dlg h3 { margin: 0; font-family: var(--font-display); font-weight: var(--display-weight); font-style: var(--display-style); font-size: 1.1rem; line-height: 1.2;
   letter-spacing: var(--display-track); text-transform: var(--display-case); }
-.dlg label { display: grid; gap: 4px; }
+/* One column that never grows past the dialog: a long worktree path in a <select>
+   used to widen it off screen. */
+.dlg { grid-template-columns: minmax(0, 1fr); }
+.dlg label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.dlg select, .dlg input[type=text] { width: 100%; max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 .dlg label.inline { display: flex; gap: 6px; align-items: center; }
 .dlg fieldset { border: 1px solid var(--line); border-radius: var(--r); display: grid; gap: 4px; padding: 8px 10px; margin: 0; }
 .dlg legend { font-family: var(--font-label); font-weight: var(--label-weight); font-size: var(--label-size); letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--text-dim); padding: 0 4px; }

@@ -67,9 +67,11 @@ func NewToken() (string, error) {
 
 // Hub owns the model and fans snapshots out to SSE subscribers.
 //
-// It pushes a snapshot only when the view changed. Every age on the page is computed
-// in the browser from a timestamp, so a view that differs only in `now` is the same
-// view: pushing it anyway would redraw the page every tick for nothing. The SSE
+// It pushes a snapshot at once only when what the view says changed (viewKey).
+// Every age on the page is computed in the browser from a timestamp, and the
+// bookkeeping of the polls (when each source was last read, the footer's counters,
+// a lease's renewal) moves every 2 s while nothing happens: none of that is news.
+// It still reaches the page, on the 5 s tick, if it is all that changed. The SSE
 // handler sends its own heartbeat (HeartbeatEvery) so the page can still tell a
 // quiet panel from a dead one.
 type Hub struct {
@@ -78,9 +80,12 @@ type Hub struct {
 	now   func() time.Time
 	subs  map[chan []byte]struct{}
 	dirty chan struct{}
-	// last is the key (viewKey) of the last snapshot broadcast.
-	last [sha256.Size]byte
-	sent bool
+	// last is the key (viewKey) of the last snapshot broadcast, and lastFull the
+	// key of all of it (fullKey).
+	last, lastFull [sha256.Size]byte
+	sent           bool
+	// Coalesce is how long an update waits for more before the push. Zero means 150 ms.
+	Coalesce time.Duration
 	// TickEvery is how often derived state (stale hooks, approximate readings) is
 	// re-derived when nothing arrives. Zero means 5 s.
 	TickEvery time.Duration
@@ -106,24 +111,68 @@ func (h *Hub) Update(fn func(m *Model, now time.Time)) {
 
 // Snapshot returns the current view as JSON.
 func (h *Hub) Snapshot() []byte {
-	b, _ := h.snapshotKeyed()
+	b, _, _ := h.snapshotKeyed()
 	return b
 }
 
-// snapshotKeyed returns the current view as JSON, and its key.
-func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte) {
+// snapshotKeyed returns the current view as JSON, its key and its full key.
+func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte) {
 	h.mu.Lock()
 	v := h.model.Snapshot(h.now())
 	h.mu.Unlock()
 	b, _ := json.Marshal(v)
-	return b, viewKey(v)
+	return b, viewKey(v), fullKey(v)
 }
 
-// viewKey identifies a view's content: everything but the clock it was taken at.
-func viewKey(v View) [sha256.Size]byte {
+// fullKey identifies everything in a view but the clock it was taken at.
+func fullKey(v View) [sha256.Size]byte {
 	v.Now = 0
 	b, _ := json.Marshal(v)
 	return sha256.Sum256(b)
+}
+
+// viewKey identifies what a view says: fullKey without the polls' bookkeeping.
+// Left out: when each source was last read (not whether it can be), when
+// `claude agents` last answered, the footer's counters and the top bar's hook
+// count, a card's run time, the quota's arrival time, and a lease's renewal.
+func viewKey(v View) [sha256.Size]byte {
+	v.Now, v.AgentsReadAt, v.HookEvents, v.StatusPosts, v.Dropped = 0, 0, 0, 0, 0
+	v.Observe = ObsView{}
+	src := make(map[string]SourceStatus, len(v.Sources))
+	for k, s := range v.Sources {
+		s.At = 0
+		src[k] = s
+	}
+	v.Sources = src
+	v.QueuesSrc.At = 0
+	if v.Quota != nil {
+		q := *v.Quota
+		q.At = 0
+		v.Quota = &q
+	}
+	cards := make([]CardState, len(v.Cards))
+	for i, c := range v.Cards {
+		c.Source.At = 0
+		cards[i] = c
+	}
+	v.Cards = cards
+	qs := make([]QueueView, len(v.Queues))
+	for i, q := range v.Queues {
+		if q.Holder != nil {
+			h := *q.Holder
+			h.Renewed = 0
+			q.Holder = &h
+		}
+		ws := make([]LeaseView, len(q.Waiters))
+		for j, w := range q.Waiters {
+			w.Renewed = 0
+			ws[j] = w
+		}
+		q.Waiters = ws
+		qs[i] = q
+	}
+	v.Queues = qs
+	return fullKey(v)
 }
 
 // Pushes is how many snapshots the hub has broadcast.
@@ -156,22 +205,28 @@ func (h *Hub) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-h.dirty:
-			time.Sleep(150 * time.Millisecond) // coalesce bursts
+			wait := h.Coalesce
+			if wait <= 0 {
+				wait = 150 * time.Millisecond
+			}
+			time.Sleep(wait) // coalesce bursts
+			h.broadcast(false)
 		case <-tick.C:
+			h.broadcast(true)
 		}
-		h.broadcast()
 	}
 }
 
-// broadcast pushes the current view to every subscriber if it changed.
-func (h *Hub) broadcast() {
-	snap, key := h.snapshotKeyed()
+// broadcast pushes the current view to every subscriber if what it says changed,
+// or, on a tick, if anything in it changed.
+func (h *Hub) broadcast(tick bool) {
+	snap, key, full := h.snapshotKeyed()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.sent && key == h.last {
+	if h.sent && key == h.last && (!tick || full == h.lastFull) {
 		return
 	}
-	h.last, h.sent = key, true
+	h.last, h.lastFull, h.sent = key, full, true
 	h.pushes.Add(1)
 	for ch := range h.subs {
 		select { // keep only the latest snapshot per slow subscriber

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/creack/pty"
 )
 
@@ -66,7 +67,7 @@ func TestHubPushesOnlyAChangedView(t *testing.T) {
 		t.Fatal("a no-op update was pushed")
 	}
 	// A real change is pushed, once.
-	h.Update(func(m *Model, now time.Time) { m.hookEvents++ })
+	h.Update(func(m *Model, now time.Time) { m.prs = append(m.prs, PR{Number: 7, Title: "Synthetic"}) })
 	if !recv(time.Second) {
 		t.Fatal("a changed view was not pushed")
 	}
@@ -78,8 +79,8 @@ func TestHubPushesOnlyAChangedView(t *testing.T) {
 	}
 }
 
-// viewKey ignores the clock and nothing else.
-func TestViewKeyIgnoresOnlyNow(t *testing.T) {
+// viewKey ignores the clock and the polls' bookkeeping, and nothing else.
+func TestViewKeyIgnoresThePollsBookkeeping(t *testing.T) {
 	m := NewModel(testConfig(t), "/repo", t0)
 	a := m.Snapshot(t0)
 	b := a
@@ -87,9 +88,66 @@ func TestViewKeyIgnoresOnlyNow(t *testing.T) {
 	if viewKey(a) != viewKey(b) {
 		t.Fatal("two views that differ only in now have different keys")
 	}
+	// The polls' bookkeeping is not news; it reaches the page on the tick (fullKey).
 	b.HookEvents++
+	b.AgentsReadAt += 2000
+	b.Sources = map[string]SourceStatus{"agents": {OK: true, At: 99}}
+	a.Sources = map[string]SourceStatus{"agents": {OK: true, At: 1}}
+	if viewKey(a) != viewKey(b) {
+		t.Fatal("poll bookkeeping changed the view key")
+	}
+	if fullKey(a) == fullKey(b) {
+		t.Fatal("poll bookkeeping did not change the full key")
+	}
+	b.PRs = append(b.PRs, PR{Number: 7})
 	if viewKey(a) == viewKey(b) {
 		t.Fatal("a changed view has the same key")
+	}
+	b.PRs = a.PRs
+	b.Sources = map[string]SourceStatus{"agents": {OK: false, Error: "exit 1", At: 99}}
+	if viewKey(a) == viewKey(b) {
+		t.Fatal("a source that fails has the same key")
+	}
+}
+
+// Steady polling that changes nothing the page shows is pushed only on the tick
+// (re-audit P2-4): 20 s of 2 s polls, scaled down 20 times, give at most one push
+// per 5 s tick, not one per poll.
+func TestSteadyPollingPushesOnlyOnTheTick(t *testing.T) {
+	m := alertModel(t, "")
+	h := NewHub(m, time.Now)
+	h.Coalesce, h.TickEvery = 5*time.Millisecond, 250*time.Millisecond // 5 s → 250 ms
+	ch, cancel := h.subscribe()
+	defer cancel()
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go h.Run(ctx)
+	pushes := 0
+	deadline := time.After(time.Second)            // 20 s
+	poll := time.NewTicker(100 * time.Millisecond) // 2 s
+	defer poll.Stop()
+	for n := int64(1); ; n++ {
+		select {
+		case <-ch:
+			pushes++
+			n--
+			continue
+		case <-poll.C:
+			h.Update(func(m *Model, now time.Time) {
+				m.ApplyAgentsTimed(waitingAgent("idle", ""), nil, 40*time.Millisecond, now)
+				m.ApplyObs(Obs{AgentsPolls: n, AgentsPollMs: 30 + n})
+			})
+			continue
+		case <-deadline:
+		}
+		break
+	}
+	// The ticks at 250, 500, 750 and 1000 ms, plus the first push.
+	if pushes > 6 {
+		t.Fatalf("%d pushes in 20 s (scaled) of polls that changed nothing, want at most 6", pushes)
+	}
+	if pushes < 2 {
+		t.Fatalf("%d pushes: the bookkeeping never reached the page on the tick", pushes)
 	}
 }
 
@@ -311,5 +369,83 @@ func TestPageEntersTheTerminalOnlyOnPurpose(t *testing.T) {
 	rebuild := regexp.MustCompile(`\$\("(left|right|detail|tabs|termbar|banners|restorebar|obs|connbar)"\)\.(replaceChildren|innerHTML)`)
 	if m := rebuild.FindString(js); m != "" {
 		t.Errorf("panel.js rebuilds a live region (%s); patch it in place", m)
+	}
+}
+
+func TestInputKind(t *testing.T) {
+	for in, want := range map[string]string{
+		"\x1b[<64;10;5M": inMouse, "\x1b[<65;3;4M\x1b[<65;3;4M": inMouse, "\x1b[<0;1;1m": inMouse,
+		"\x1b[A": inScroll, "\x1bOB": inScroll, "\x1b[5~": inScroll, "\x1b[1;2A": inScroll,
+		"\x1b": inEscape, "y": inKey, "yes please": inKey, "\r": inKey, "\x1b[Z": inKey, "\x1bb": inKey,
+	} {
+		if got := inputKind(in); got != want {
+			t.Errorf("inputKind(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// Typing while scrolled back reaches claude (re-audit P2-2): the first key that is
+// not a scroll key leaves copy mode, then goes to the lane. The page is told when
+// the lane is scrolled back, and when it is not any more. Real tmux, real panel.
+func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	p := startPanel(t, root, home, sock)
+	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	c := p.dial(t, "orch")
+	send(t, c, termMsg{Type: "input", Data: "seq 1 300\r"})
+	readUntil(t, c, "300")
+	scroll := make(chan string, 8)
+	go func() {
+		for {
+			typ, b, err := c.Read(context.Background())
+			if err != nil {
+				return
+			}
+			if typ == websocket.MessageText && strings.Contains(string(b), `"scroll"`) {
+				scroll <- string(b)
+			}
+		}
+	}()
+	expect := func(want string) {
+		t.Helper()
+		select {
+		case got := <-scroll:
+			if got != want {
+				t.Fatalf("page told %s, want %s", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("page never told %s", want)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		send(t, c, termMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	inMode := func() string {
+		out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{pane_in_mode}").Output()
+		return strings.TrimSpace(string(out))
+	}
+	if inMode() != "1" {
+		t.Fatal("premise: the wheel did not put the pane in copy mode")
+	}
+	marker := filepath.Join(t.TempDir(), "typed")
+	send(t, c, termMsg{Type: "input", Data: "touch " + shq(marker) + "\r"})
+	expect(`{"type":"scroll","back":false}`)
+	waitFor(t, "the typed command to run in the lane", func() bool { _, err := os.Stat(marker); return err == nil })
+	if inMode() != "0" {
+		t.Fatal("the pane is still in copy mode")
+	}
+	// Escape while scrolled back only returns: claude would read it as an interrupt.
+	for i := 0; i < 3; i++ {
+		send(t, c, termMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	send(t, c, termMsg{Type: "input", Data: "\x1b"})
+	expect(`{"type":"scroll","back":false}`)
+	if inMode() != "0" {
+		t.Fatal("Escape did not leave copy mode")
 	}
 }

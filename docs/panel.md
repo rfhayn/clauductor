@@ -135,12 +135,14 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 
 ## What each part of the page means
 
-- **Top bar.** LIVE / DISCONNECTED. The page hears from the panel whenever the view changes,
-  and gets a heartbeat every 5 s. After three missed beats, or a dropped stream, it says so
+- **Top bar.** LIVE / DISCONNECTED. The page hears from the panel at once when what the view
+  says changes; the polls' own bookkeeping (when each source was last read, the footer's
+  counters) arrives with the next 5 s tick, and a heartbeat comes every 5 s. After three missed beats, or a dropped stream, it says so
   everywhere: a **DISCONNECTED** bar under the top bar with the reconnect status and a RETRY
   NOW button, "⚠ DISCONNECTED" in the tab title, hatched and dimmed columns, section headings
   marked "as of HH:MM", every age frozen at the last word from the panel, and every action that
-  would reach the panel disabled. It reconnects on its own and restores all of it. If the panel
+  would reach the panel disabled. It reconnects on its own (a check that takes over 5 s counts
+  as failed, and the bar says so) and restores all of it. If the panel
   was restarted, the bar says so, because the new launch has a new token. The 5-hour and 7-day quota gauges are the
   real subscription budget (labelled **5 h** and **7 d**). **est. $ (list price)** (with
   "· tracked sessions" on wide screens) is the sum of the status
@@ -181,9 +183,13 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   a line above the terminal says so while you are in it. A double Escape does not leave, because
   claude uses Esc Esc itself (to go back to an earlier message).
 - **The mouse and the terminal.** The wheel scrolls the lane's history: the panel's tmux has
-  `mouse on`, so the first wheel-up enters tmux's copy mode, which ends when you scroll back to
-  the bottom (or press q or Escape). Before this the wheel reached claude as ↑ keypresses. Because
-  tmux now takes the mouse, select text with **Option-drag** (Shift-drag off a Mac). tmux's status
+  `mouse on`, so the first wheel-up enters tmux's copy mode, and the line above the terminal says
+  "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
+  scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude,
+  so nothing you type is lost. Escape only leaves, since claude would read it as an interrupt. The
+  panel asks tmux about copy mode only after a wheel, never per keystroke. Before this the wheel
+  reached claude as ↑ keypresses. tmux takes no clicks here, so a plain drag selects text in the
+  browser (the page turns a plain press into xterm's Option-press), and ⌘C copies it. tmux's status
   bar is off; the tab names the lane.
 - **Selected lane (centre, below the terminal).** Its sessions (pid, status, context %, model,
   est. $), running subagents with their age, and the lane's own event feed. A lane card marked

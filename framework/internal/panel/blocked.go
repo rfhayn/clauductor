@@ -32,12 +32,12 @@ func (m *Model) staleWhy(now time.Time) string {
 	// No age in the text: the page shows how old the reading is (View.AgentsReadAt),
 	// so the view does not change, and is not pushed, every second it gets older.
 	if m.agentsOKAt.IsZero() {
-		return "`claude agents` has not been read"
+		return "claude agents hasn't answered yet"
 	}
 	if !m.agentsSrc.OK {
-		return "`claude agents` failing; showing its last reading"
+		return "claude agents isn't answering, so this is its last answer"
 	}
-	return "`claude agents` reading is old"
+	return "claude agents hasn't answered lately"
 }
 
 // sessionStatus is the session's status as the page shows it: the current `claude
@@ -104,11 +104,11 @@ func (m *Model) blocked(s *session, now time.Time) (blockInfo, bool) {
 			}
 			switch {
 			case reading == nil && s.Agent == nil && m.agentsFresh(now):
-				b.Approx, b.Why = true, "from hooks only; `claude agents` does not list the session"
+				b.Approx, b.Why = true, "only a hook says so; claude agents doesn't list the session"
 			case reading == nil:
-				b.Approx, b.Why = true, "from hooks only; "+m.staleWhy(now)
+				b.Approx, b.Why = true, "only a hook says so; "+m.staleWhy(now)
 			case reading.Status != "waiting":
-				b.Approx, b.Why = true, "a hook says waiting; `claude agents` says "+reading.Status
+				b.Approx, b.Why = true, "a hook says waiting, claude agents says "+reading.Status
 			}
 			return b, true
 		}
@@ -129,7 +129,7 @@ func (m *Model) blocked(s *session, now time.Time) (blockInfo, bool) {
 		if s.Agent != nil && s.Agent.Status == "waiting" {
 			b.Why = m.staleWhy(now)
 		} else {
-			b.Why = "from hooks only"
+			b.Why = "only hooks say so"
 			b.Since = s.LastHookAt
 		}
 	}
@@ -155,7 +155,7 @@ func approxLabel(label string, b blockInfo) string {
 	if !b.Approx {
 		return label
 	}
-	return fmt.Sprintf("%s (stale/approx: %s)", label, b.Why)
+	return fmt.Sprintf("%s (≈ stale: %s)", label, b.Why)
 }
 
 // forgetSessions drops sessions the panel has not heard from in forgetSessionAge:

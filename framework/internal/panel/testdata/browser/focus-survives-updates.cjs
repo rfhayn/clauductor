@@ -52,8 +52,24 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     }
     const after = await p.evaluate(() => getSelection().toString());
     if (!text || after !== text) fail("the selection changed from " + JSON.stringify(text) + " to " + JSON.stringify(after));
+    // A selection from the Needs-you heading into a card holds that card only: a
+    // new blocker still appears, and the heading and the title count it.
+    await p.evaluate(() => {
+      const l = document.getElementById("left"), r = document.createRange();
+      r.setStart(l.querySelector("h2.mh"), 0); r.setEnd(l.querySelector(".card.ask"), 1);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+    });
+    const sid2 = "00000000-0000-4000-8000-000000000002";
+    await post("/hook", { session_id: sid2, cwd: root, hook_event_name: "UserPromptSubmit", prompt: "y" });
+    await post("/hook", { session_id: sid2, cwd: root, hook_event_name: "Notification", notification_type: "permission_prompt",
+      message: "Claude needs your permission to use Edit" });
+    await p.waitForTimeout(1500);
+    const r2 = await p.evaluate(() => ({ cards: document.querySelectorAll("#left .card.ask").length,
+      head: document.querySelector("#left h2.mh").textContent, title: document.title, sel: getSelection().toString().length }));
+    if (r2.cards !== 2 || !r2.head.startsWith("Needs you · 2") || !r2.title.startsWith("(2)")) fail("with a selection across Needs you, the new blocker did not show: " + JSON.stringify(r2));
+    if (!r2.sel) fail("the selection across Needs you was lost");
     if (errors.length) fail("page errors: " + errors.join(" | "));
-    if (!process.exitCode) console.log("ok: focus and selection survived " + seen.size + " updates");
+    if (!process.exitCode) console.log("ok: focus and selection survived " + seen.size + " updates; a new blocker showed through a selection");
   } finally {
     await b.close();
   }
