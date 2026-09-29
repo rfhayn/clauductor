@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
@@ -252,7 +253,7 @@ type Server struct {
 	Status  chan<- []byte // raw status-line bodies
 	Refresh func()        // re-poll every source now
 	// Lanes controls lanes (v1). Nil when tmux is unavailable: the panel still watches.
-	Lanes *LaneManager
+	Lanes *lanes.LaneManager
 	// CookieMaxAge, when > 0, makes the session cookie persistent (seconds). Used when
 	// the panel runs under launchd with a persistent token.
 	CookieMaxAge int

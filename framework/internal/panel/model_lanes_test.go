@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -22,13 +23,13 @@ func TestReducerReconcilesLanes(t *testing.T) {
 	// Lane a's session reports from a subdirectory of the ROOT worktree (it ran cd):
 	// its lane is still the one the registry binds its session id to.
 	m.ApplyHook(signals.HookEvent{SessionID: sidA, Cwd: "/repo/sub", Event: "UserPromptSubmit", Prompt: "go"}, t0)
-	recs := []LaneRecord{
+	recs := []lanes.LaneRecord{
 		{ID: "a", SessionID: sidA, Path: "/repo/.wt/x", Type: "fix", ActionDone: true},
 		{ID: "b", SessionID: sidB, Path: "/repo", Type: "orchestrator", ActionDone: true},
 		{ID: "c", SessionID: "33333333-3333-4333-8333-333333333333", Path: "/repo", Type: "orchestrator", Action: "start"},
 		{ID: "e", SessionID: "44444444-4444-4444-8444-444444444444", Path: "/gone/wt", Type: "fix", ActionDone: true},
 	}
-	tmux := []TmuxLane{
+	tmux := []lanes.TmuxLane{
 		{ID: "a", Path: "/repo/.wt/x", Type: "fix"},
 		{ID: "d", Path: "/repo", Attached: 1},
 		{ID: "e", Path: "/gone/wt", Dead: true, DeadStatus: "1"},

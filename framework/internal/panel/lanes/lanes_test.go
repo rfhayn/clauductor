@@ -1,4 +1,4 @@
-package panel
+package lanes
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 func TestValidLaneID(t *testing.T) {
@@ -348,5 +349,53 @@ func TestRegistryReloadNeverResurrectsADeletedLane(t *testing.T) {
 	<-deleted
 	if _, ok := r.Get("a"); ok { // ...the deleted lane must not be back
 		t.Fatal("a reload applied a stale read over a delete")
+	}
+}
+
+func TestAgentReadyUnderTheLock(t *testing.T) {
+	sid := "s1"
+	for _, c := range []struct {
+		agents []signals.Agent
+		ready  bool
+	}{
+		{[]signals.Agent{{SessionID: sid, Status: "idle"}}, true},
+		{[]signals.Agent{{SessionID: sid, Status: "busy"}}, false},
+		{[]signals.Agent{{SessionID: sid, Status: "idle", WaitingFor: "permission prompt"}}, false},
+		{[]signals.Agent{{SessionID: sid, Status: "waiting"}}, false},
+		{[]signals.Agent{{SessionID: "other", Status: "idle"}}, false},
+		{nil, false},
+	} {
+		if got := AgentReady(c.agents, sid) == ""; got != c.ready {
+			t.Errorf("%+v: ready %v, want %v", c.agents, got, c.ready)
+		}
+	}
+}
+
+func TestSelectRestorable(t *testing.T) {
+	sid := func(n byte) string { return "11111111-1111-4111-8111-11111111111" + string(n) }
+	recs := []LaneRecord{
+		{ID: "a", SessionID: sid('a'), Path: "/ok"},
+		{ID: "b", SessionID: sid('b'), Path: "/ok"},   // running: not lost
+		{ID: "c", SessionID: sid('c'), Path: "/ok"},   // live in another process
+		{ID: "d", SessionID: sid('a'), Path: "/ok"},   // same session as a
+		{ID: "e", SessionID: sid('e'), Path: "/gone"}, // worktree removed
+		{ID: "f", SessionID: "not-a-uuid", Path: "/ok"},
+	}
+	pick, skip := SelectRestorable(recs, map[string]bool{"b": true}, map[string]bool{sid('c'): true},
+		func(p string) bool { return p == "/ok" })
+	if len(pick) != 1 || pick[0].ID != "a" {
+		t.Fatalf("pick %+v", pick)
+	}
+	why := map[string]string{}
+	for _, s := range skip {
+		why[s.ID] = s.Reason
+	}
+	for id, want := range map[string]string{"c": "already runs", "d": "restored once only", "e": "no longer exists", "f": "no valid session id"} {
+		if !strings.Contains(why[id], want) {
+			t.Errorf("%s: skip reason %q, want %q", id, why[id], want)
+		}
+	}
+	if _, ok := why["b"]; ok {
+		t.Error("a running lane is not a skip, it is not lost")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -118,8 +119,8 @@ type Model struct {
 	hooks       hookHealth // PANEL-5: the hook install's health (singleton.go)
 
 	// v1 lanes on the panel's tmux socket.
-	tmuxLanes    []TmuxLane
-	laneRecords  []LaneRecord
+	tmuxLanes    []lanes.TmuxLane
+	laneRecords  []lanes.LaneRecord
 	regProblems  []string
 	tmuxSrc      SourceStatus
 	startBlocked string
@@ -870,7 +871,7 @@ func (m *Model) ApplyRegistryProblems(p []string) { m.regProblems = p }
 
 // ApplyTmux records a reconciliation input: the panel's tmux socket, the lane
 // registry, and whether lanes may start.
-func (m *Model) ApplyTmux(lanes []TmuxLane, recs []LaneRecord, blocked string, err error, now time.Time) {
+func (m *Model) ApplyTmux(lanes []lanes.TmuxLane, recs []lanes.LaneRecord, blocked string, err error, now time.Time) {
 	m.tmuxSrc = SourceStatus{OK: err == nil, At: ms(now)}
 	m.startBlocked = blocked
 	if err != nil {
@@ -896,7 +897,7 @@ func (m *Model) ApplyTmux(lanes []TmuxLane, recs []LaneRecord, blocked string, e
 }
 
 func (m *Model) terminalViews(now time.Time) []TermLaneView {
-	tmux := map[string]TmuxLane{}
+	tmux := map[string]lanes.TmuxLane{}
 	for _, tl := range m.tmuxLanes {
 		tmux[tl.ID] = tl
 	}

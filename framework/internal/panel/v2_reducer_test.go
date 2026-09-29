@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -165,8 +166,8 @@ func TestSessionBindingByID(t *testing.T) {
 	}
 	// A panel-launched session is bound by its registry session id, even when its
 	// first event comes from elsewhere (it ran `cd /tmp` before the first hook).
-	rec := LaneRecord{ID: "fixer", SessionID: "launched", Path: "/repo/.claude/worktrees/fix-thing", Type: "fix", ActionDone: true}
-	m.ApplyTmux(nil, []LaneRecord{rec}, "", nil, t0)
+	rec := lanes.LaneRecord{ID: "fixer", SessionID: "launched", Path: "/repo/.claude/worktrees/fix-thing", Type: "fix", ActionDone: true}
+	m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, t0)
 	if !m.ApplyHook(signals.HookEvent{SessionID: "launched", Cwd: "/tmp", Event: "UserPromptSubmit"}, t0) {
 		t.Fatal("a registry-bound session's event was dropped for its cwd")
 	}

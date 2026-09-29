@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -302,7 +303,7 @@ func decide(action, why string) PromptDecision { return PromptDecision{Action: a
 // flight, keyed by lane id.
 func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 	out := map[string]PromptDecision{}
-	tmux := map[string]TmuxLane{}
+	tmux := map[string]lanes.TmuxLane{}
 	for _, tl := range m.tmuxLanes {
 		tmux[tl.ID] = tl
 	}
@@ -349,7 +350,7 @@ func (m *Model) agentsFresh(now time.Time) bool {
 
 // restoredPending reports whether a restored lane still waits for you: it was
 // resumed on a conversation and nothing has happened in it since.
-func (m *Model) restoredPending(rec LaneRecord) bool {
+func (m *Model) restoredPending(rec lanes.LaneRecord) bool {
 	if rec.Restored == 0 || !rec.Conversation {
 		return false
 	}
@@ -381,7 +382,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 		v.Done = []NeedView{}
 	}
 
-	recs := map[string]LaneRecord{}
+	recs := map[string]lanes.LaneRecord{}
 	for _, r := range m.laneRecords {
 		recs[r.ID] = r
 	}

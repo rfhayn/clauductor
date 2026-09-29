@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -61,11 +62,11 @@ func (f *fakeTmux) count(cmd string) int {
 
 func tmuxPollerFor(t *testing.T, f *fakeTmux, clock *time.Time) *tmuxPoller {
 	t.Helper()
-	reg, err := OpenRegistry(t.TempDir(), t.TempDir())
+	reg, err := lanes.OpenRegistry(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	lm := &LaneManager{TmuxPath: "tmux", Socket: "test", Registry: reg, Exec: f.exec,
+	lm := &lanes.LaneManager{TmuxPath: "tmux", Socket: "test", Registry: reg, Exec: f.exec,
 		LookupEnv: func(string) (string, bool) { return "", false }}
 	return newTmuxPoller(lm, "", func() time.Time { return *clock })
 }
@@ -259,7 +260,7 @@ func TestAgentsCadence(t *testing.T) {
 // A lane start records the lane, then kicks the agents loop, whose next interval
 // must already count the lane: the model learns of it only from the next tmux poll.
 func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
-	reg, err := OpenRegistry(t.TempDir(), t.TempDir())
+	reg, err := lanes.OpenRegistry(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +269,7 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 	if x.hasLanes() {
 		t.Fatal("no lane yet")
 	}
-	if _, err := reg.Begin(LaneRecord{ID: "lane-a", SessionID: "s-a", Path: "/p", Type: "build", Mode: "root"}, "start", t0); err != nil {
+	if _, err := reg.Begin(lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", Path: "/p", Type: "build", Mode: "root"}, "start", t0); err != nil {
 		t.Fatal(err)
 	}
 	if !x.hasLanes() {
@@ -294,15 +295,15 @@ func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
 
 // ---- the first-prompt loop ----
 
-func promptRuntime(t *testing.T, clock *time.Time, rec LaneRecord, running bool) (*runtimeV2, *Hub) {
+func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*runtimeV2, *Hub) {
 	t.Helper()
 	m := NewModel(v2Config(t, ""), "/p", *clock)
 	hub := NewHub(m, func() time.Time { return *clock })
-	var tl []TmuxLane
+	var tl []lanes.TmuxLane
 	if running {
-		tl = []TmuxLane{{ID: rec.ID, Path: "/p"}}
+		tl = []lanes.TmuxLane{{ID: rec.ID, Path: "/p"}}
 	}
-	hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(tl, []LaneRecord{rec}, "", nil, now) })
+	hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(tl, []lanes.LaneRecord{rec}, "", nil, now) })
 	p := &pollers{hub: hub, kickAgents: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
 	return &runtimeV2{hub: hub, p: p, o: Options{Out: &strings.Builder{}}}, hub
 }
@@ -318,7 +319,7 @@ func drained(ch chan struct{}) bool {
 
 func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 	clock := t0
-	rec := LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "pending", ActionAt: t0.Add(-time.Hour).UnixMilli(), ActionDone: true}
+	rec := lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "pending", ActionAt: t0.Add(-time.Hour).UnixMilli(), ActionDone: true}
 	x, hub := promptRuntime(t, &clock, rec, false)
 	kicks := 0
 	for i := 0; i < 60; i++ {
@@ -327,7 +328,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 			kicks++
 		}
 		clock = clock.Add(time.Second)
-		hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, []LaneRecord{rec}, "", nil, now) })
+		hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, now) })
 	}
 	if kicks != 0 {
 		t.Fatalf("a pending lane whose tmux session is gone kicked %d claude agents polls in a minute; want 0", kicks)
@@ -349,7 +350,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
 	clock := t0
 	// Typed, not yet confirmed: waits on `claude agents` for confirmGrace.
-	rec := LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "sent", PromptAt: t0.UnixMilli(), ActionAt: t0.UnixMilli(), ActionDone: true}
+	rec := lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "sent", PromptAt: t0.UnixMilli(), ActionAt: t0.UnixMilli(), ActionDone: true}
 	x, _ := promptRuntime(t, &clock, rec, true)
 	var at []time.Time
 	for i := 0; i < 20; i++ { // promptLoop ticks once a second
@@ -391,10 +392,10 @@ func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
 	// Its lane's pane is dead: dropped at once.
 	for _, tc := range []struct {
 		name string
-		tl   []TmuxLane
-	}{{"pane dead", []TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
+		tl   []lanes.TmuxLane
+	}{{"pane dead", []lanes.TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
 		m := withNote(t)
-		m.ApplyTmux(tc.tl, []LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+		m.ApplyTmux(tc.tl, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
 		m.ApplyAgents(nil, boom, t0.Add(time.Minute))
 		if m.sessions["s-a"] != nil {
 			t.Fatalf("%s: a waiting note kept while polls fail", tc.name)
@@ -402,7 +403,7 @@ func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
 	}
 	// A live pane, or a tmux poll that failed, keeps it.
 	m = withNote(t)
-	m.ApplyTmux([]TmuxLane{{ID: "lane-a"}}, []LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-a"}}, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
 	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
 	if m.sessions["s-a"] == nil {
 		t.Fatal("dropped while its pane is alive")

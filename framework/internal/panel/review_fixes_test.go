@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
@@ -83,12 +84,12 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 		name, status string
 		err          error
 	}{{"waiting", "waiting", nil}, {"busy", "busy", nil}, {"unknown", "", errors.New("claude agents: unreadable")}} {
-		code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "lane-" + c.name})
+		code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "lane-" + c.name})
 		if code != 200 {
 			t.Fatalf("%s: start: %d %v", c.name, code, body)
 		}
 		// F8: while it runs, no second lane may share its checkout.
-		if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "second"}); code != 409 || body["code"] != "path-taken" {
+		if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "second"}); code != 409 || body["code"] != "path-taken" {
 			t.Fatalf("a second lane in the same checkout: %d %v", code, body)
 		}
 		agents.set(agentJSON(startedSession(t, body), c.status, root), c.err)
@@ -105,7 +106,7 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 		}
 	}
 
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "lane-idle"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "lane-idle"})
 	if code != 200 {
 		t.Fatalf("idle: start: %d %v", code, body)
 	}
@@ -125,7 +126,7 @@ func TestResumeRefusesALiveOrUncheckableSession(t *testing.T) {
 	root, home := rootLaneProject(t)
 	agents := &fakeAgents{}
 	p := startPanelWith(t, root, home, sock, func(o *Options) { o.Runner = agents.run; o.FastExit = 300 * time.Millisecond })
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
 	if code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
@@ -163,14 +164,14 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 		// Like claude on a session with no conversation: --resume exits 1 at once.
 		o.LaneProgram = []string{"/bin/sh", "-c", `case "$*" in *--resume*) exit 1;; esac; exec /bin/sh`, "lane"}
 	})
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
 	if code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	sid := startedSession(t, body)
 	agents.set(agentJSON(sid, "busy", root), nil)
 	waitFor(t, "busy in claude agents to mark a conversation", func() bool {
-		r, _ := OpenRegistry(home, root)
+		r, _ := lanes.OpenRegistry(home, root)
 		rec, _ := r.Get("orch")
 		return rec.Conversation
 	})
@@ -182,7 +183,7 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 	if !strings.HasPrefix(string(cmd), "0 ") || !strings.Contains(string(cmd), "--session-id "+sid) {
 		t.Fatalf("after the fallback the lane runs %q", cmd)
 	}
-	r, _ := OpenRegistry(home, root)
+	r, _ := lanes.OpenRegistry(home, root)
 	if rec, _ := r.Get("orch"); rec.Conversation || !rec.ActionDone {
 		t.Fatalf("registry after the fallback: %+v", rec)
 	}
@@ -274,16 +275,16 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 		os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700)
 		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)
 	}
-	empty, _ := OpenRegistry(home, "/empty")
-	empty.Put(LaneRecord{ID: "a", SessionID: sid, Path: "/empty", Mode: "root", Action: "start"})
+	empty, _ := lanes.OpenRegistry(home, "/empty")
+	empty.Put(lanes.LaneRecord{ID: "a", SessionID: sid, Path: "/empty", Mode: "root", Action: "start"})
 	empty.Delete("a")
-	live, _ := OpenRegistry(home, "/live")
-	live.Put(LaneRecord{ID: "b", SessionID: sid, Path: "/live", Mode: "root", Action: "start"})
+	live, _ := lanes.OpenRegistry(home, "/live")
+	live.Put(lanes.LaneRecord{ID: "b", SessionID: sid, Path: "/live", Mode: "root", Action: "start"})
 	var out strings.Builder
 	if err := Uninstall(home, &out, func(...string) ([]byte, error) { return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"token", "browser-opened", "pid", "port", "bin", "logs", filepath.Dir(RegistryPath(home, "/empty"))} {
+	for _, f := range []string{"token", "browser-opened", "pid", "port", "bin", "logs", filepath.Dir(lanes.RegistryPath(home, "/empty"))} {
 		p := f
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(dir, f)
@@ -292,7 +293,7 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 			t.Errorf("%s survived uninstall", p)
 		}
 	}
-	if _, err := os.Stat(RegistryPath(home, "/live")); err != nil || !strings.Contains(out.String(), "Kept "+RegistryPath(home, "/live")) {
+	if _, err := os.Stat(lanes.RegistryPath(home, "/live")); err != nil || !strings.Contains(out.String(), "Kept "+lanes.RegistryPath(home, "/live")) {
 		t.Fatalf("a registry with lanes was not kept and reported: %v\n%s", err, out.String())
 	}
 }
@@ -302,13 +303,13 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 // valid lane id is reported.
 func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 	home := t.TempDir()
-	path := RegistryPath(home, "/repo")
+	path := lanes.RegistryPath(home, "/repo")
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte(`{"version":1,"project":"/repo","lanes":[
 		{"id":"bad","sessionId":"x; rm -rf ~","path":"/repo","type":"fix","mode":"root","action":"start","actionDone":true},
 		{"id":"Not A Lane","sessionId":"`+sid+`","path":"/repo","mode":"root","action":"start"}]}`), 0o600)
 	m := testLaneManager(t)
-	reg, err := OpenRegistry(home, "/repo")
+	reg, err := lanes.OpenRegistry(home, "/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +395,7 @@ func TestStopRechecksIdleBeforeTheEnter(t *testing.T) {
 		o.Runner = runner
 		o.LaneProgram = []string{"/bin/sh", "-c", "stty raw -echo; exec cat >> " + shq(keys), "lane"}
 	})
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
 	if code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}

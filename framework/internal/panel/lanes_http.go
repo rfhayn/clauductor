@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the
@@ -40,7 +41,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeLaneErr(w http.ResponseWriter, e *LaneError) {
+// laneErr is an expected failure the HTTP layer reports in the lanes' vocabulary.
+func laneErr(status int, code, format string, a ...any) *lanes.LaneError {
+	return &lanes.LaneError{Status: status, Code: code, Msg: fmt.Sprintf(format, a...)}
+}
+
+func writeLaneErr(w http.ResponseWriter, e *lanes.LaneError) {
 	writeJSON(w, e.Status, map[string]any{"ok": false, "error": e.Msg, "code": e.Code})
 }
 
@@ -56,7 +62,7 @@ func (s *Server) startLane(w http.ResponseWriter, r *http.Request) {
 	if s.noLanes(w) {
 		return
 	}
-	var req StartRequest
+	var req lanes.StartRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
@@ -80,7 +86,7 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
 		return
 	}
-	var lerr *LaneError
+	var lerr *lanes.LaneError
 	switch r.PathValue("action") {
 	case "stop":
 		lerr = s.Lanes.Stop(r.Context(), id)
@@ -90,7 +96,7 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		lerr = s.Lanes.Restart(r.Context(), id)
 	case "resume":
 		if lerr = s.Lanes.Resume(r.Context(), id); lerr == nil {
-			s.Lanes.markRestored(id)
+			s.Lanes.MarkRestored(id)
 		}
 	case "forget":
 		lerr = s.Lanes.Forget(r.Context(), id)

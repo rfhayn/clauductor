@@ -3,10 +3,10 @@ package panel
 import (
 	"context"
 	"regexp"
-	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/coder/websocket"
 )
 
@@ -45,20 +45,9 @@ func inputKind(d string) string {
 	return inKey
 }
 
-// InCopyMode reports whether the lane's pane is scrolled back in tmux's copy mode.
-func (m *LaneManager) InCopyMode(ctx context.Context, id string) bool {
-	out, err := m.tmux(ctx, "display-message", "-p", "-t", "="+id+":", "#{pane_in_mode}")
-	return err == nil && strings.TrimSpace(string(out)) == "1"
-}
-
-// LeaveCopyMode returns the lane's pane to the live screen.
-func (m *LaneManager) LeaveCopyMode(ctx context.Context, id string) {
-	_, _ = m.tmux(ctx, "send-keys", "-t", "="+id+":", "-X", "cancel")
-}
-
 // copyWatch is one viewer's view of its lane's copy mode.
 type copyWatch struct {
-	lanes *LaneManager
+	lanes *lanes.LaneManager
 	id    string
 	conn  *websocket.Conn
 	maybe atomic.Bool // a wheel was sent: the pane may be in copy mode

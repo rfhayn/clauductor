@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -67,29 +68,10 @@ func TestFirstPromptDecision(t *testing.T) {
 	}
 }
 
-func TestAgentReadyUnderTheLock(t *testing.T) {
-	sid := "s1"
-	for _, c := range []struct {
-		agents []signals.Agent
-		ready  bool
-	}{
-		{[]signals.Agent{{SessionID: sid, Status: "idle"}}, true},
-		{[]signals.Agent{{SessionID: sid, Status: "busy"}}, false},
-		{[]signals.Agent{{SessionID: sid, Status: "idle", WaitingFor: "permission prompt"}}, false},
-		{[]signals.Agent{{SessionID: sid, Status: "waiting"}}, false},
-		{[]signals.Agent{{SessionID: "other", Status: "idle"}}, false},
-		{nil, false},
-	} {
-		if got := AgentReady(c.agents, sid) == ""; got != c.ready {
-			t.Errorf("%+v: ready %v, want %v", c.agents, got, c.ready)
-		}
-	}
-}
-
 func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	m := v2Model(t)
-	rec := LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
-	m.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
+	rec := lanes.LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
+	m.ApplyTmux([]lanes.TmuxLane{{ID: "tpl", Path: buildWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m.PromptDecisions(t0.Add(time.Second))["tpl"]; d.Action != "send" {
 		t.Fatalf("fresh idle: %+v", d)
@@ -101,7 +83,7 @@ func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	}
 	// Or it simply stops arriving for longer than two intervals.
 	m2 := v2Model(t)
-	m2.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
+	m2.ApplyTmux([]lanes.TmuxLane{{ID: "tpl", Path: buildWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
 	m2.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m2.PromptDecisions(t0.Add(11 * time.Second))["tpl"]; d.Action == "send" {
 		t.Fatalf("typed on a stale poll: %+v", d)
@@ -111,35 +93,6 @@ func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	m2.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: "permission_prompt"}, t0.Add(12*time.Second))
 	if d := m2.PromptDecisions(t0.Add(13 * time.Second))["tpl"]; d.Action == "send" {
 		t.Fatalf("typed into a waiting session: %+v", d)
-	}
-}
-
-func TestSelectRestorable(t *testing.T) {
-	sid := func(n byte) string { return "11111111-1111-4111-8111-11111111111" + string(n) }
-	recs := []LaneRecord{
-		{ID: "a", SessionID: sid('a'), Path: "/ok"},
-		{ID: "b", SessionID: sid('b'), Path: "/ok"},   // running: not lost
-		{ID: "c", SessionID: sid('c'), Path: "/ok"},   // live in another process
-		{ID: "d", SessionID: sid('a'), Path: "/ok"},   // same session as a
-		{ID: "e", SessionID: sid('e'), Path: "/gone"}, // worktree removed
-		{ID: "f", SessionID: "not-a-uuid", Path: "/ok"},
-	}
-	pick, skip := SelectRestorable(recs, map[string]bool{"b": true}, map[string]bool{sid('c'): true},
-		func(p string) bool { return p == "/ok" })
-	if len(pick) != 1 || pick[0].ID != "a" {
-		t.Fatalf("pick %+v", pick)
-	}
-	why := map[string]string{}
-	for _, s := range skip {
-		why[s.ID] = s.Reason
-	}
-	for id, want := range map[string]string{"c": "already runs", "d": "restored once only", "e": "no longer exists", "f": "no valid session id"} {
-		if !strings.Contains(why[id], want) {
-			t.Errorf("%s: skip reason %q, want %q", id, why[id], want)
-		}
-	}
-	if _, ok := why["b"]; ok {
-		t.Error("a running lane is not a skip, it is not lost")
 	}
 }
 

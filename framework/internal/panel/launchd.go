@@ -364,6 +364,9 @@ func appleScriptString(s string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
 }
 
+// shq single-quotes s for a POSIX shell.
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
 // AppScript is the launcher's AppleScript source.
 func AppScript(bin string) string {
 	return "do shell script " + appleScriptString(shq(bin)+" panel open")
@@ -422,7 +425,12 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 		if err != nil {
 			continue
 		}
-		var f registryFile
+		// The lane registry's file (lanes.RegistryPath), read only to count its lanes.
+		var f struct {
+			Version int               `json:"version"`
+			Project string            `json:"project"`
+			Lanes   []json.RawMessage `json:"lanes"`
+		}
 		if json.Unmarshal(b, &f) == nil && len(f.Lanes) == 0 {
 			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
 				return err

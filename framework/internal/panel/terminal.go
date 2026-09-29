@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 )
@@ -187,7 +188,7 @@ func clampDim(v, def int) uint16 {
 // attachEnv is the environment of a viewer's tmux client.
 func attachEnv() []string {
 	env := []string{}
-	for _, kv := range tmuxEnv() {
+	for _, kv := range lanes.TmuxEnv() {
 		if strings.HasPrefix(kv, "TERM=") {
 			continue
 		}

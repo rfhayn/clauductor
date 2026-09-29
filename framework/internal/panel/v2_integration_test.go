@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -33,7 +34,7 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*at
 				return []byte("[]"), nil
 			}
 			var f registryFile
-			b, _ := os.ReadFile(RegistryPath(home, root))
+			b, _ := os.ReadFile(lanes.RegistryPath(home, root))
 			_ = json.Unmarshal(b, &f)
 			var out []signals.Agent
 			for _, l := range f.Lanes {
@@ -102,10 +103,10 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	p := startPanelWith(t, root, home, sock, tweak)
 
 	// Placeholders are validated server-side: a newline in the issue is refused.
-	if code, body := p.post(t, "/api/lanes", StartRequest{Template: "fix", Name: "bug", Issue: "7\n/exit"}); code != 400 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "bug", Issue: "7\n/exit"}); code != 400 {
 		t.Fatalf("newline in the issue: %d %v", code, body)
 	}
-	if code, body := p.post(t, "/api/lanes", StartRequest{Template: "fix", Name: "bug", Issue: "7"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "bug", Issue: "7"}); code != 200 {
 		t.Fatalf("start template lane: %d %v", code, body)
 	}
 	if b := gitRun(t, root, "branch", "--list", "fix/bug"); !strings.Contains(b, "fix/bug") {
@@ -188,10 +189,10 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		t.Fatalf("status post %d", code)
 	}
 	waitFor(t, "the quota to land", func() bool { return p.state(t).QuotaGuard != "" })
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 || body["code"] != "quota" {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 || body["code"] != "quota" {
 		t.Fatalf("quota guard: %d %v", code, body)
 	}
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch", OverrideQuota: true}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch", OverrideQuota: true}); code != 200 {
 		t.Fatalf("override: %d %v", code, body)
 	}
 
@@ -251,7 +252,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	if v.Trust.Trusted || !strings.Contains(strings.Join(v.Banners, " "), "changed since you trusted it") {
 		t.Fatalf("untrusted state: %+v %v", v.Trust, v.Banners)
 	}
-	if code, body := p.post(t, "/api/lanes", StartRequest{Template: "fix", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
 		t.Fatalf("template under an untrusted config: %d %v", code, body)
 	}
 	// `clauductor panel trust` lifts it in the running panel.
@@ -261,26 +262,5 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })
 	if !p.state(t).Trust.Trusted {
 		t.Fatal("still untrusted")
-	}
-}
-
-// Typed text that starts with "-" must reach the lane as text, not as a send-keys
-// flag (review 2026-09-28: "-N" was read as an option).
-func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
-	tmux, sock := throwawaySocket(t)
-	out := filepath.Join(t.TempDir(), "typed")
-	if err := exec.Command(tmux, "-L", sock, "new-session", "-d", "-s", "t", "cat > "+out).Run(); err != nil {
-		t.Fatal(err)
-	}
-	m := &LaneManager{TmuxPath: tmux, Socket: sock, EnterDelay: 100 * time.Millisecond}
-	for _, text := range []string{"-N 3 --help", "--", "-l"} {
-		if err := m.sendText(context.Background(), "t", text); err != nil {
-			t.Fatalf("%q: %v", text, err)
-		}
-	}
-	waitFor(t, "the typed lines", func() bool { return lineCount(out) >= 5 })
-	b, _ := os.ReadFile(out)
-	if string(b) != "-N 3 --help\n--\n-l\n" {
-		t.Fatalf("typed %q", b)
 	}
 }

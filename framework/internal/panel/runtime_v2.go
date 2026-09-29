@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -63,11 +64,11 @@ type Orchestration struct {
 	RunQueue   func(ctx context.Context, queue, worktree string) (*lease.QueueRun, error)
 }
 
-func (o *Orchestration) startGate() StartGate {
+func (o *Orchestration) startGate() lanes.StartGate {
 	if o == nil {
-		return StartGate{}
+		return lanes.StartGate{}
 	}
-	return StartGate{Trusted: o.Trusted, QuotaGuard: o.QuotaGuard}
+	return lanes.StartGate{Trusted: o.Trusted, QuotaGuard: o.QuotaGuard}
 }
 
 type runtimeV2 struct {
@@ -77,7 +78,7 @@ type runtimeV2 struct {
 	cfgPath string
 	hub     *Hub
 	p       *pollers
-	lanes   *LaneManager
+	lanes   *lanes.LaneManager
 	srv     atomic.Pointer[Server]
 
 	trust     atomic.Bool
@@ -123,12 +124,12 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustV
 	return tv
 }
 
-func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *Hub, p *pollers, lanes *LaneManager) *runtimeV2 {
-	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lanes, trustView: tv,
+func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *Hub, p *pollers, lm *lanes.LaneManager) *runtimeV2 {
+	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lm, trustView: tv,
 		runs: map[string]*lease.QueueRun{}}
 	x.trust.Store(tv.Trusted)
 	x.notifier = Notifier{MinInterval: cfg.AlertThresholds().MinInterval, Project: cfg.Name}
-	x.notifyPath = filepath.Join(filepath.Dir(RegistryPath(o.Home, root)), "notifier.json")
+	x.notifyPath = filepath.Join(filepath.Dir(lanes.RegistryPath(o.Home, root)), "notifier.json")
 	if b, err := os.ReadFile(x.notifyPath); err == nil {
 		var st NotifierState
 		if json.Unmarshal(b, &st) == nil {
@@ -648,7 +649,7 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*leas
 		argv = []string{exe, "lock-run"}
 	}
 	argv = append(append(append([]string{}, argv...), "--lane", lane, lock, "--"), q.Command...)
-	logDir := filepath.Join(filepath.Dir(RegistryPath(x.o.Home, x.root)), "queue-logs")
+	logDir := filepath.Join(filepath.Dir(lanes.RegistryPath(x.o.Home, x.root)), "queue-logs")
 	if err := config.EnsurePrivateDir(logDir); err != nil {
 		return nil, err
 	}

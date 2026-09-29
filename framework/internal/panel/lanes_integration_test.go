@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
@@ -221,13 +222,13 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	p := startPanel(t, root, home, sock)
 
 	// Start a lane in the project root.
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start root lane: %d %v", code, body)
 	}
 	if !hasSession(tmux, sock, "orch") {
 		t.Fatal("no tmux session after start")
 	}
-	if code, _ := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 {
+	if code, _ := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 {
 		t.Fatalf("a second lane with the same id: %d, want 409", code)
 	}
 
@@ -273,7 +274,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 
 	// A new branch and worktree. The remote is unreachable: fetch fails, which is
 	// reported, not fatal.
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "fix", Mode: "new", Name: "fx"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "fix", Mode: "new", Name: "fx"})
 	if code != 200 {
 		t.Fatalf("start new-branch lane: %d %v", code, body)
 	}
@@ -310,7 +311,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 
 	// An API key in the tmux server's global environment blocks every start.
 	exec.Command(tmux, "-L", sock, "set-environment", "-g", "ANTHROPIC_API_KEY", "sk-test").Run()
-	code, body = p2.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "blocked"})
+	code, body = p2.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "blocked"})
 	if code != 409 || body["code"] != "api-key" || !strings.Contains(fmt.Sprint(body["error"]), "tmux server") {
 		t.Fatalf("start with a key in tmux's environment: %d %v", code, body)
 	}
@@ -327,7 +328,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 		t.Fatalf("hook: %d", code)
 	}
 	waitFor(t, "the registry to record fx's conversation", func() bool {
-		r, _ := OpenRegistry(home, root)
+		r, _ := lanes.OpenRegistry(home, root)
 		rec, _ := r.Get("fx")
 		return rec.Conversation
 	})
@@ -400,7 +401,7 @@ func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	p := startPanel(t, root, home, sock)
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
 	if code != 409 || body["code"] != "api-key" || !strings.Contains(fmt.Sprint(body["error"]), "ANTHROPIC_API_KEY") {
 		t.Fatalf("got %d %v", code, body)
 	}
@@ -441,7 +442,7 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 	_, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	p := startPanelWith(t, root, home, sock, func(o *Options) { o.TermIdleTimeout = 800 * time.Millisecond })
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	quiet := p.dial(t, "orch")
@@ -471,7 +472,7 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.Launchd, o.NoOpen, o.OpenBrowser = true, true, func(string) {}
 	})
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	c := p.dial(t, "orch")

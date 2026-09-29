@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -279,8 +280,8 @@ func TestSlowPollIsNotStale(t *testing.T) {
 // lane card and summary chip, the sessions table, and the terminal tab.
 func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 	m := alertModel(t, "")
-	rec := LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
-	m.ApplyTmux([]TmuxLane{{ID: "lane-x", Path: xWT}}, []LaneRecord{rec}, "", nil, t0)
+	rec := lanes.LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
+	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-x", Path: xWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
 	check := func(at time.Duration, want bool) {
 		t.Helper()

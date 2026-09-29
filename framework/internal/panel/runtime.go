@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -175,7 +176,7 @@ func Run(ctx context.Context, o Options) error {
 		cfg.TmuxSocket = o.TmuxSocket
 	}
 	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
-	lanes, lanesWhy := newLaneManager(o, cfg, root)
+	lm, lanesWhy := newLaneManager(o, cfg, root)
 	model := NewModel(cfg, root, time.Now())
 	hub := NewHub(model, time.Now)
 	hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
@@ -196,10 +197,10 @@ func Run(ctx context.Context, o Options) error {
 	defer cancel()
 	p := &pollers{hub: hub, run: o.Runner, root: root, cfg: cfg,
 		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
-	if lanes != nil {
-		p.registry = lanes.Registry // set before ingest starts reading it
+	if lm != nil {
+		p.registry = lm.Registry // set before ingest starts reading it
 	}
-	p.x = newRuntimeV2(o, cfg, root, cfgPath, trust, hub, p, lanes)
+	p.x = newRuntimeV2(o, cfg, root, cfgPath, trust, hub, p, lm)
 	hooks := make(chan []byte, 256)
 	status := make(chan []byte, 64)
 
@@ -210,10 +211,10 @@ func Run(ctx context.Context, o Options) error {
 	start(func() { p.worktreeLoop(ctx) })
 	start(func() { p.agentsLoop(ctx) })
 	start(func() { p.prLoop(ctx) })
-	start(func() { p.tmuxLoop(ctx, lanes, lanesWhy) })
+	start(func() { p.tmuxLoop(ctx, lm, lanesWhy) })
 	start(func() { keeper.loop(ctx, hooksOK) })
-	if lanes != nil {
-		lanes.Changed = func() { kick(p.kickTmux); p.kickWorktrees(); kick(p.kickAgents) }
+	if lm != nil {
+		lm.Changed = func() { kick(p.kickTmux); p.kickWorktrees(); kick(p.kickAgents) }
 	}
 	for _, c := range cfg.Cards {
 		c := c
@@ -223,13 +224,13 @@ func Run(ctx context.Context, o Options) error {
 	}
 	p.x.start(ctx, start)
 
-	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lanes}
+	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lm}
 	srv.Orch = p.x.orchestration()
 	srv.HostNames = cfg.HostNames
 	p.x.srv.Store(srv)
 	srv.TermIdleTimeout = o.TermIdleTimeout
-	if lanes != nil {
-		lanes.Stopped = srv.closeTerminals
+	if lm != nil {
+		lm.Stopped = srv.closeTerminals
 	}
 	if o.Launchd {
 		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
@@ -322,7 +323,7 @@ type pollers struct {
 	kickPRs    chan struct{}
 	kickTmux   chan struct{}
 	cardKicks  []chan struct{}
-	registry   *Registry // nil when lanes are unavailable
+	registry   *lanes.Registry // nil when lanes are unavailable
 	x          *runtimeV2
 
 	mu         sync.Mutex
@@ -560,16 +561,16 @@ func pathSignature(path string) string {
 
 // newLaneManager wires lane control, or returns why it is unavailable. A missing tmux
 // or claude disables starting lanes; the panel still watches.
-func newLaneManager(o Options, cfg *config.Config, root string) (*LaneManager, string) {
+func newLaneManager(o Options, cfg *config.Config, root string) (*lanes.LaneManager, string) {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return nil, "tmux was not found on the panel's PATH, so lanes cannot start or be shown here"
 	}
-	reg, err := OpenRegistry(o.Home, root)
+	reg, err := lanes.OpenRegistry(o.Home, root)
 	if err != nil {
 		return nil, "the lane registry cannot be read, so lanes are not managed: " + err.Error()
 	}
-	m := &LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
+	m := &lanes.LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
 		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit}
 	if m.FastExit == 0 {
 		m.FastExit = 3 * time.Second
@@ -607,7 +608,7 @@ const (
 
 // tmuxPoller reconciles the lane registry with the socket, one tick at a time.
 type tmuxPoller struct {
-	lanes *LaneManager
+	lanes *lanes.LaneManager
 	why   string // lanes are unavailable (from newLaneManager)
 	now   func() time.Time
 
@@ -617,12 +618,12 @@ type tmuxPoller struct {
 	tmuxWhy    string    // what show-environment said then
 }
 
-func newTmuxPoller(lanes *LaneManager, why string, now func() time.Time) *tmuxPoller {
-	return &tmuxPoller{lanes: lanes, why: why, now: now, lastReload: now()}
+func newTmuxPoller(lm *lanes.LaneManager, why string, now func() time.Time) *tmuxPoller {
+	return &tmuxPoller{lanes: lm, why: why, now: now, lastReload: now()}
 }
 
 // laneSetSig names the lane set: whether the socket has a server, and each lane.
-func laneSetSig(up bool, ls []TmuxLane) string {
+func laneSetSig(up bool, ls []lanes.TmuxLane) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%t", up)
 	for _, l := range ls {
@@ -657,13 +658,13 @@ func (t *tmuxPoller) tick(ctx context.Context) (func(m *Model, now time.Time), t
 				if len(ls) > 0 {
 					_ = t.lanes.Harden(ctx)
 				}
-				t.tmuxWhy = t.lanes.tmuxEnvBlocked(ctx)
+				t.tmuxWhy = t.lanes.TmuxEnvBlocked(ctx)
 			}
 		}
 	}
 	blocked := t.why
 	if blocked == "" {
-		blocked = t.lanes.envBlocked()
+		blocked = t.lanes.EnvBlocked()
 	}
 	if blocked == "" {
 		blocked = t.tmuxWhy
@@ -685,8 +686,8 @@ func (t *tmuxPoller) tick(ctx context.Context) (func(m *Model, now time.Time), t
 // after a lane command. Every 30 s it also re-reads the registry file from disk
 // rather than trusting its in-memory copy. The reducer matches the result against
 // claude agents (by session id) and the worktree list.
-func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) {
-	t := newTmuxPoller(lanes, why, time.Now)
+func (p *pollers) tmuxLoop(ctx context.Context, lm *lanes.LaneManager, why string) {
+	t := newTmuxPoller(lm, why, time.Now)
 	for {
 		update, next := t.tick(ctx)
 		if ctx.Err() != nil {

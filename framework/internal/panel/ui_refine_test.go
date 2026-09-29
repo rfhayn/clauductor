@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
@@ -165,7 +166,7 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 		"/bin/sh", "-c", prog).CombinedOutput(); err != nil {
 		t.Fatalf("new-session: %v %s", err, out)
 	}
-	m := &LaneManager{TmuxPath: tmux, Socket: sock}
+	m := &lanes.LaneManager{TmuxPath: tmux, Socket: sock}
 	if err := m.Harden(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -261,8 +262,8 @@ func TestNeedsYouPrefersTheSpecificWaitingFor(t *testing.T) {
 // (audit P2-12). Its card, Needs you and alerts all say it.
 func TestALaneWithATerminalHasOneName(t *testing.T) {
 	m := alertModel(t, `,"alerts":{"waiting_seconds":1}`)
-	rec := LaneRecord{ID: "orchestrator", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
-	m.ApplyTmux([]TmuxLane{{ID: "orchestrator", Path: xWT}}, []LaneRecord{rec}, "", nil, t0)
+	rec := lanes.LaneRecord{ID: "orchestrator", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
+	m.ApplyTmux([]lanes.TmuxLane{{ID: "orchestrator", Path: xWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(ls)"), nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(ls)"), nil, t0.Add(5*time.Second))
 	v := m.Snapshot(t0.Add(6 * time.Second))
@@ -312,7 +313,7 @@ func TestAViewThatOnlyAgesDoesNotChange(t *testing.T) {
 // Each banner carries its kind, so the page labels it (audit P2-9).
 func TestBannersCarryTheirKind(t *testing.T) {
 	m := alertModel(t, "")
-	m.ApplyTmux(nil, []LaneRecord{{ID: "gone", SessionID: "s9", Path: xWT, Type: "build", ActionDone: true}}, "", nil, t0)
+	m.ApplyTmux(nil, []lanes.LaneRecord{{ID: "gone", SessionID: "s9", Path: xWT, Type: "build", ActionDone: true}}, "", nil, t0)
 	v := m.Snapshot(t0)
 	if len(v.BannerItems) != len(v.Banners) {
 		t.Fatalf("%d banner items for %d banners", len(v.BannerItems), len(v.Banners))
@@ -392,7 +393,7 @@ func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
 	tmux, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	p := startPanel(t, root, home, sock)
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	c := p.dial(t, "orch")
