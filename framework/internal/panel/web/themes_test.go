@@ -238,7 +238,7 @@ func TestThemesDefineEveryToken(t *testing.T) {
 		}
 	}
 	used := map[string]bool{}
-	for _, f := range []string{"panel.css", "themes.css"} {
+	for _, f := range []string{"panel.css", "themes.css", "types.css"} {
 		for _, m := range varRef.FindAllStringSubmatch(cssComment.ReplaceAllString(readWeb(t, f), ""), -1) {
 			used[m[1]] = true
 		}
@@ -262,9 +262,10 @@ func TestThemesDefineEveryToken(t *testing.T) {
 	if regexp.MustCompile(`@(media|supports|container|layer)`).MatchString(cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")) {
 		t.Error("themes.css has a conditional group rule; theme blocks must be top level")
 	}
-	if strings.Contains(cssComment.ReplaceAllString(readWeb(t, "panel.css"), ""), "data-theme") {
-		t.Error("panel.css sets per-theme rules; themes are tokens in themes.css only")
+	if pc := cssComment.ReplaceAllString(readWeb(t, "panel.css"), ""); strings.Contains(pc, "data-theme") || strings.Contains(pc, "data-type") {
+		t.Error("panel.css sets per-theme or per-type rules; themes and type systems are tokens in themes.css and types.css only")
 	}
+	typeTokens := typeTokenSet(t)
 	if len(used) < 20 {
 		t.Fatalf("found only %d var() references; the parser is broken", len(used))
 	}
@@ -283,8 +284,8 @@ func TestThemesDefineEveryToken(t *testing.T) {
 				}
 			}
 			for k := range used {
-				if _, ok := all[k]; !ok && !shapeReq[k] && !colourReq[k] {
-					missing = append(missing, k+" (used by panel.css or panel.js, defined by no theme)")
+				if _, ok := all[k]; !ok && !shapeReq[k] && !colourReq[k] && !typeTokens[k] {
+					missing = append(missing, k+" (used by panel.css or panel.js, defined by no theme and no type system)")
 				}
 			}
 			sort.Strings(missing)
@@ -452,12 +453,12 @@ func TestThemeContrast(t *testing.T) {
 // ships its licence, and the fonts stay small (they are in the binary).
 func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
 	t.Parallel()
-	css := cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")
+	css := cssComment.ReplaceAllString(readWeb(t, "types.css")+readWeb(t, "themes.css"), "")
 	used := map[string]bool{}
 	for _, m := range regexp.MustCompile(`url\("fonts/([^"]+)"\)`).FindAllStringSubmatch(css, -1) {
 		used[m[1]] = true
 		if _, err := webFS.ReadFile("static/fonts/" + m[1]); err != nil {
-			t.Errorf("themes.css loads fonts/%s, which is not embedded", m[1])
+			t.Errorf("types.css loads fonts/%s, which is not embedded", m[1])
 		}
 	}
 	entries, err := webFS.ReadDir("static/fonts")

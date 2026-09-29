@@ -1,0 +1,89 @@
+/* The panel's type systems (PANEL-11). A type system is only tokens: the faces (UI
+   body, display, labels, figures and the terminal), their weights, case and tracking,
+   --type-adjust (a size factor that evens out x-heights, so a face with a small
+   x-height is not smaller to the eye), --num (the numeric features figures use) and
+   --term-size, the terminal's base size.
+   The contract (docs/panel.md, "Appearance"):
+   - [data-type="<id>"] sets every type token, and nothing else. themes.css sets
+     colour, surface, border and density, and no type token; themes_test.go checks both.
+   - theme.js puts data-type on <html> before first paint: your choice, else the type
+     system the theme pairs with. Any theme works with any type system.
+   Fonts are embedded in the binary (SIL OFL 1.1; licences beside the files). A face
+   downloads only when a rule in the active type system uses it.
+   The six below are placeholders: the faces the six themes shipped with. */
+@font-face { font-family: "Chakra Petch"; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-style: normal; font-display: swap; src: url("fonts/ibm-plex-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-style: normal; font-display: swap; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Newsreader"; font-weight: 600; font-style: italic; font-display: swap; src: url("fonts/newsreader-latin-600-italic.woff2") format("woff2"); }
+@font-face { font-family: "Newsreader"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/newsreader-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 500 700; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("fonts/barlow-semi-condensed-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Red Hat Mono"; font-weight: 300 700; font-style: normal; font-display: swap; src: url("fonts/red-hat-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Next"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Big Shoulders Stencil"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/big-shoulders-stencil-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/archivo-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-weight: 100 800; font-stretch: 75%; font-style: normal; font-display: swap; src: url("fonts/martian-mono-latin-standard-normal.woff2") format("woff2"); }
+
+/* Instrument: Chakra Petch, IBM Plex Sans, JetBrains Mono. */
+:root, [data-type="instrument"] {
+  --font-display: "Chakra Petch", "Segoe UI", ui-sans-serif, system-ui, sans-serif; --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-term: "JetBrains Mono", Menlo, ui-monospace, monospace; --display-weight: 700; --display-style: normal;
+  --display-case: uppercase; --display-track: .06em; --label-case: uppercase;
+  --label-track: .14em; --label-weight: 600; --caps: normal;
+  --font-label: var(--font-mono); --label-size: .66rem; --btn-size: .7rem;
+  --term-size: 13px; --type-adjust: 1; --num: "tnum" 1;
+}
+/* Chart: Newsreader, DM Mono. */
+[data-type="chart"] {
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif; --font-body: "Newsreader", "Iowan Old Style", Georgia, serif; --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-term: "DM Mono", Menlo, ui-monospace, monospace; --display-weight: 600; --display-style: italic;
+  --display-case: none; --display-track: 0; --label-case: none;
+  --label-track: .02em; --label-weight: 600; --caps: all-small-caps;
+  --font-label: var(--font-body); --label-size: .84rem; --btn-size: .84rem;
+  --term-size: 13.5px; --type-adjust: 1; --num: "tnum" 1;
+}
+/* Clinical: Barlow Semi Condensed, Barlow, Red Hat Mono. */
+[data-type="clinical"] {
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif; --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-term: "Red Hat Mono", Menlo, ui-monospace, monospace; --display-weight: 700; --display-style: normal;
+  --display-case: none; --display-track: .01em; --label-case: uppercase;
+  --label-track: .09em; --label-weight: 600; --caps: normal;
+  --font-label: var(--font-display); --label-size: .78rem; --btn-size: .78rem;
+  --term-size: 14px; --type-adjust: 1; --num: "tnum" 1;
+}
+/* Typewriter: Courier Prime. */
+[data-type="typewriter"] {
+  --font-display: "Courier Prime", "Courier New", ui-monospace, monospace; --font-body: "Courier Prime", "Courier New", ui-monospace, monospace; --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
+  --font-term: "Courier Prime", "Courier New", ui-monospace, monospace; --display-weight: 700; --display-style: normal;
+  --display-case: uppercase; --display-track: .12em; --label-case: uppercase;
+  --label-track: .08em; --label-weight: 700; --caps: normal;
+  --font-label: var(--font-mono); --label-size: .72rem; --btn-size: .76rem;
+  --term-size: 13.5px; --type-adjust: 1; --num: "tnum" 1;
+}
+/* Hyperlegible: Atkinson Hyperlegible Next and Mono. */
+[data-type="hyperlegible"] {
+  --font-display: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif; --font-body: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, sans-serif; --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-term: "Atkinson Hyperlegible Mono", Menlo, ui-monospace, monospace; --display-weight: 800; --display-style: normal;
+  --display-case: none; --display-track: 0; --label-case: none;
+  --label-track: .01em; --label-weight: 800; --caps: normal;
+  --font-label: var(--font-body); --label-size: .82rem; --btn-size: .8rem;
+  --term-size: 15px; --type-adjust: 1; --num: "tnum" 1;
+}
+/* Stencil: Big Shoulders Stencil, Archivo, Martian Mono. The mono face is declared at
+   font-stretch 75% only, so its wdth axis always renders condensed (the `font`
+   shorthand would reset a font-variation-settings). */
+[data-type="stencil"] {
+  --font-display: "Big Shoulders Stencil", Impact, "Arial Narrow", sans-serif; --font-body: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-term: "Martian Mono", Menlo, ui-monospace, monospace; --display-weight: 800; --display-style: normal;
+  --display-case: uppercase; --display-track: .04em; --label-case: uppercase;
+  --label-track: .1em; --label-weight: 700; --caps: normal;
+  --font-label: var(--font-mono); --label-size: .64rem; --btn-size: .7rem;
+  --term-size: 12.5px; --type-adjust: 1; --num: "tnum" 1;
+}

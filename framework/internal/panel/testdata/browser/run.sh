@@ -1,8 +1,12 @@
 #!/bin/bash
-# Browser test for the panel page (PANEL-6): focus and a text selection survive
-# live updates. It builds clauductor, starts a throwaway panel (its own port, HOME,
-# tmux socket and project; a fake `claude` and `gh`), feeds it status posts that
-# change what the page shows, and drives the page with Playwright.
+# Browser tests for the panel page. It builds clauductor, starts a throwaway panel (its
+# own port, HOME, tmux socket and project; a fake `claude` and `gh`), and drives the
+# page with Playwright:
+# - focus-survives-updates.cjs (PANEL-6): focus and a text selection survive live
+#   updates, fed by status posts that change what the page shows;
+# - appearance-and-keys.cjs (PANEL-11): every type system loads, a type change refits
+#   the terminal, and the tabs, Enter, Ctrl+] and the size keys behave. It needs two
+#   lanes, which this starts through the page's own API.
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -38,7 +42,7 @@ chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 proj="$tmp/project"
 git -C "$proj" init -q -b main
 cat > "$proj/.clauductor/panel.json" <<JSON
-{ "name": "Focus test", "version": 2, "lanes": { "main": "orchestrator" }, "tmux_socket": "$sock" }
+{ "name": "Focus test", "version": 2, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock" }
 JSON
 git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
 proj=$(cd "$proj" && pwd -P)
@@ -49,4 +53,14 @@ for _ in $(seq 100); do grep -q 't=' "$tmp/panel.log" 2>/dev/null && break; slee
 url=$(grep -o 'http://[^ ]*t=[0-9a-f]*' "$tmp/panel.log" | head -1)
 [ -n "$url" ] || { cat "$tmp/panel.log"; echo "the panel did not start"; exit 1; }
 
-node "$here/focus-survives-updates.cjs" "http://127.0.0.1:$port" "${url##*t=}" "$proj"
+tok=${url##*t=}
+base="http://127.0.0.1:$port"
+curl -s -c "$tmp/cj" -o /dev/null "$base/?t=$tok"
+for body in '{"type":"orchestrator","mode":"root","name":"main"}' '{"type":"build","mode":"new","name":"second"}'; do
+  curl -sf -b "$tmp/cj" -H "Origin: $base" -H 'Content-Type: application/json' -d "$body" "$base/api/lanes" > /dev/null \
+    || { cat "$tmp/panel.log"; echo "could not start a lane: $body"; exit 1; }
+done
+status=0
+node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
+node "$here/appearance-and-keys.cjs" "$base" "$tok" || status=1
+exit $status

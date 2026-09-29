@@ -1,51 +1,28 @@
-/* The panel's themes. Components in panel.css reference only the tokens defined here.
-   The contract (docs/panel.md, "Themes"):
-   - [data-theme="<id>"] sets the theme's shape and type tokens, shared by both modes.
+/* The panel's themes: colour, surface, border and density. Components in panel.css
+   reference only tokens; the faces are the type system's (types.css), so any theme
+   works with any type system (PANEL-11).
+   The contract (docs/panel.md, "Appearance"):
+   - [data-theme="<id>"] sets the theme's shape and density tokens, shared by both modes:
+     radii, rules, stripes, padding and gaps, --fs-root (the root size before the type
+     system's --type-adjust and your --ui-scale), the rail and side-panel widths, the
+     band, the backdrop and --term-min-contrast.
    - [data-theme="<id>"][data-mode="light"|"dark"] sets every colour token.
-   theme.js puts both attributes on <html> before first paint, and the picker's swatches
+   - No type token (a face, weight, case, tracking or type size) is set here.
+   theme.js puts the attributes on <html> before first paint, and the picker's swatches
    carry them too, so a swatch shows the real tokens of the theme it names.
    themes_test.go fails if a theme × mode misses a token or a contrast floor.
    --term-min-contrast is xterm's minimumContrastRatio: whatever colours a program
-   combines (SGR 97 on 41, a truecolor diff), xterm lifts the text to this ratio.
-   Fonts are embedded in the binary (SIL OFL 1.1; licences beside the files). A face
-   downloads only when a rule in the active theme uses it. */
+   combines (SGR 97 on 41, a truecolor diff), xterm lifts the text to this ratio. */
 
-@font-face { font-family: "Chakra Petch"; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-style: normal; font-display: swap; src: url("fonts/ibm-plex-sans-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-style: normal; font-display: swap; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Newsreader"; font-weight: 600; font-style: italic; font-display: swap; src: url("fonts/newsreader-latin-600-italic.woff2") format("woff2"); }
-@font-face { font-family: "Public Sans"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/public-sans-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Mono"; font-weight: 500 700; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-500-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow Semi Condensed"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("fonts/barlow-semi-condensed-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Red Hat Mono"; font-weight: 300 700; font-style: normal; font-display: swap; src: url("fonts/red-hat-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Courier Prime"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Courier Prime"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Next"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Big Shoulders Stencil"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/big-shoulders-stencil-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Archivo"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/archivo-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Martian Mono"; font-weight: 100 800; font-stretch: 75%; font-style: normal; font-display: swap; src: url("fonts/martian-mono-latin-standard-normal.woff2") format("woff2"); }
 
 /* ---- 1. Console (the default): an instrument panel at night. Navy glass, a signal-blue
    readout, a 24 px plotting grid, uppercase telemetry labels. Medium density. ---- */
 :root, [data-theme="console"] {
-  --font-display: "Chakra Petch", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --fs-root: 16px; --display-weight: 700; --display-style: normal; --display-case: uppercase; --display-track: .06em;
-  --label-case: uppercase; --label-track: .14em; --label-weight: 600; --caps: normal;
-  --r: 4px; --r-btn: 3px; --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 3px;
-  --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 2px;
-  --font-label: var(--font-mono); --label-size: .66rem;
-  --btn-size: .68rem;
-  --term-min-contrast: 4.5; --term-size: 13px;
-  --band: var(--line); --band-h: 1px;
-  --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  --backdrop-size: 24px 24px;
+  --fs-root: 16px; --ui-scale: 1; --r: 4px; --r-btn: 3px;
+  --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 3px;
+  --pad: .5rem .625rem; --gap: .5rem; --col-pad: .75rem; --shadow: none;
+  --focus-w: 2px; --rail-w: 15rem; --side-w: 16rem; --term-min-contrast: 4.5;
+  --band: var(--line); --band-h: 1px; --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); --backdrop-size: 24px 24px;
 }
 :root, [data-theme="console"][data-mode="dark"] {
   --surface: #0d1424; --panel: #131d33; --panel-2: #1a2743; --line: #2a3b60; --line-strong: #3d5485;
@@ -75,19 +52,11 @@
    the dark mode is the dimmed night palette a bridge uses to keep its night vision.
    Italic serif names, sentence case, square corners, roomier than the console. ---- */
 [data-theme="chartroom"] {
-  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
-  --font-body: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --fs-root: 16px; --display-weight: 600; --display-style: italic; --display-case: none; --display-track: 0;
-  --label-case: none; --label-track: .02em; --label-weight: 600; --caps: all-small-caps;
-  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 1px; --line-style: solid; --stripe: 4px;
-  --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 2px;
-  --font-label: var(--font-body); --label-size: .8rem;
-  --btn-size: .8rem;
-  --term-min-contrast: 4.5; --term-size: 13px;
-  --band: repeating-linear-gradient(90deg, var(--text) 0 32px, var(--panel) 32px 64px); --band-h: 5px;
-  --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  --backdrop-size: 120px 120px;
+  --fs-root: 16.5px; --ui-scale: 1; --r: 0; --r-btn: 0;
+  --r-chip: 0; --bw: 1px; --line-style: solid; --stripe: 4px;
+  --pad: .625rem .75rem; --gap: .625rem; --col-pad: .875rem; --shadow: none;
+  --focus-w: 2px; --rail-w: 14.5rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
+  --band: repeating-linear-gradient(90deg, var(--text) 0 32px, var(--panel) 32px 64px); --band-h: 5px; --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); --backdrop-size: 120px 120px;
 }
 [data-theme="chartroom"][data-mode="light"] {
   --surface: #e6f0f5; --panel: #ffffff; --panel-2: #f1f6f9; --line: #b9ccd8; --line-strong: #6f8a9b;
@@ -116,18 +85,11 @@
    is a bed tile, soft and rounded; figures are big and condensed; the accent is
    surgical teal. Roomiest of the six, light-first. ---- */
 [data-theme="ward"] {
-  --font-display: "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
-  --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --fs-root: 16.5px; --display-weight: 700; --display-style: normal; --display-case: none; --display-track: .01em;
-  --label-case: uppercase; --label-track: .09em; --label-weight: 600; --caps: normal;
-  --r: 12px; --r-btn: 999px; --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 5px;
-  --pad: 12px 14px; --gap: 12px; --col-pad: 16px; --shadow: 0 1px 2px var(--scrim), 0 2px 10px -6px var(--scrim); --focus-w: 3px;
-  --font-label: var(--font-display); --label-size: .76rem;
-  --btn-size: .72rem;
-  --term-min-contrast: 4.5; --term-size: 13px;
-  --band: var(--accent); --band-h: 3px;
-  --backdrop: none; --backdrop-size: auto;
+  --fs-root: 17px; --ui-scale: 1; --r: 12px; --r-btn: 999px;
+  --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 5px;
+  --pad: .75rem .875rem; --gap: .75rem; --col-pad: 1rem; --shadow: 0 1px 2px var(--scrim), 0 2px 10px -6px var(--scrim);
+  --focus-w: 3px; --rail-w: 14rem; --side-w: 15rem; --term-min-contrast: 4.5;
+  --band: var(--accent); --band-h: 3px; --backdrop: none; --backdrop-size: auto;
 }
 [data-theme="ward"][data-mode="light"] {
   --surface: #e9f0ee; --panel: #ffffff; --panel-2: #f2f7f5; --line: #d0ddd9; --line-strong: #9db3ad;
@@ -156,18 +118,11 @@
    violet, cards have carbon-form dashed rules, the top edge is a tractor-feed
    perforation, and everything is one typewriter face. Densest of the six. ---- */
 [data-theme="duplicator"] {
-  --font-display: "Courier Prime", "Courier New", ui-monospace, monospace;
-  --font-body: "Courier Prime", "Courier New", ui-monospace, monospace;
-  --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
-  --fs-root: 15.5px; --display-weight: 700; --display-style: normal; --display-case: uppercase; --display-track: .12em;
-  --label-case: uppercase; --label-track: .08em; --label-weight: 700; --caps: normal;
-  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 1px; --line-style: dashed; --stripe: 3px;
-  --pad: 6px 8px; --gap: 6px; --col-pad: 10px; --shadow: none; --focus-w: 2px;
-  --font-label: var(--font-mono); --label-size: .7rem;
-  --btn-size: .74rem;
-  --term-min-contrast: 4.5; --term-size: 13px;
-  --band: radial-gradient(circle at 6px 50%, var(--line-strong) 2.5px, transparent 3px) 0 0 / 14px 100% repeat-x, var(--panel-2); --band-h: 8px;
-  --backdrop: linear-gradient(transparent 27px, var(--grid) 27px); --backdrop-size: 100% 28px;
+  --fs-root: 15px; --ui-scale: 1; --r: 0; --r-btn: 0;
+  --r-chip: 0; --bw: 1px; --line-style: dashed; --stripe: 3px;
+  --pad: .375rem .5rem; --gap: .375rem; --col-pad: .625rem; --shadow: none;
+  --focus-w: 2px; --rail-w: 16rem; --side-w: 17rem; --term-min-contrast: 4.5;
+  --band: radial-gradient(circle at 6px 50%, var(--line-strong) 2.5px, transparent 3px) 0 0 / 14px 100% repeat-x, var(--panel-2); --band-h: 8px; --backdrop: linear-gradient(transparent 27px, var(--grid) 27px); --backdrop-size: 100% 28px;
 }
 [data-theme="duplicator"][data-mode="light"] {
   --surface: #eeedf3; --panel: #fbfaff; --panel-2: #efecf7; --line: #c9c1dc; --line-strong: #8e80b3;
@@ -196,18 +151,11 @@
    AAA text everywhere (7:1), 2 px rules, a 3 px focus ring with a gap, the largest type,
    no translucent fills, and state spelled out in words and shapes. ---- */
 [data-theme="contrast"] {
-  --font-display: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --fs-root: 18px; --display-weight: 800; --display-style: normal; --display-case: none; --display-track: 0;
-  --label-case: none; --label-track: .01em; --label-weight: 800; --caps: normal;
-  --r: 2px; --r-btn: 2px; --r-chip: 2px; --bw: 2px; --line-style: solid; --stripe: 8px;
-  --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 3px;
-  --font-label: var(--font-body); --label-size: .82rem;
-  --btn-size: .78rem;
-  --term-min-contrast: 7; --term-size: 15px;
-  --band: var(--text); --band-h: 4px;
-  --backdrop: none; --backdrop-size: auto;
+  --fs-root: 18px; --ui-scale: 1; --r: 2px; --r-btn: 2px;
+  --r-chip: 2px; --bw: 2px; --line-style: solid; --stripe: 8px;
+  --pad: .625rem .75rem; --gap: .625rem; --col-pad: .875rem; --shadow: none;
+  --focus-w: 3px; --rail-w: 13.5rem; --side-w: 14rem; --term-min-contrast: 7;
+  --band: var(--text); --band-h: 4px; --backdrop: none; --backdrop-size: auto;
 }
 [data-theme="contrast"][data-mode="light"] {
   --surface: #ffffff; --panel: #ffffff; --panel-2: #efefef; --line: #595959; --line-strong: #000000;
@@ -234,22 +182,13 @@
 
 /* ---- 6. Shop floor: the plant floor. Concrete and asphalt, stencilled crate lettering,
    a hazard-stripe edge, heavy borders and wide state stripes; ink-black (or, at night,
-   safety-yellow) controls. Colours follow the safety-sign convention. The mono face is
-   declared at font-stretch 75% only, so its wdth axis always renders condensed (the
-   `font` shorthand would reset a font-variation-settings). ---- */
+   safety-yellow) controls. Colours follow the safety-sign convention. ---- */
 [data-theme="shopfloor"] {
-  --font-display: "Big Shoulders Stencil", Impact, "Arial Narrow", sans-serif;
-  --font-body: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --fs-root: 16px; --display-weight: 800; --display-style: normal; --display-case: uppercase; --display-track: .04em;
-  --label-case: uppercase; --label-track: .1em; --label-weight: 700; --caps: normal;
-  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 2px; --line-style: solid; --stripe: 7px;
-  --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 3px;
-  --font-label: var(--font-mono); --label-size: .6rem;
-  --btn-size: .68rem;
-  --term-min-contrast: 4.5; --term-size: 13px;
-  --band: repeating-linear-gradient(-45deg, #f5c400 0 10px, #161616 10px 20px); --band-h: 8px;
-  --backdrop: none; --backdrop-size: auto;
+  --fs-root: 16px; --ui-scale: 1; --r: 0; --r-btn: 0;
+  --r-chip: 0; --bw: 2px; --line-style: solid; --stripe: 7px;
+  --pad: .5rem .625rem; --gap: .5rem; --col-pad: .75rem; --shadow: none;
+  --focus-w: 3px; --rail-w: 15rem; --side-w: 16rem; --term-min-contrast: 4.5;
+  --band: repeating-linear-gradient(-45deg, #f5c400 0 10px, #161616 10px 20px); --band-h: 8px; --backdrop: none; --backdrop-size: auto;
 }
 [data-theme="shopfloor"][data-mode="light"] {
   --surface: #e3e2de; --panel: #f7f7f4; --panel-2: #ebeae5; --line: #b9b7ae; --line-strong: #6d6a61;
