@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -29,13 +30,11 @@ const AppName = "Clauductor Panel.app"
 // appMarker is written inside the launcher so uninstall removes only an app it made.
 const appMarker = "clauductor-panel-launcher"
 
-func panelDir(home string) string { return filepath.Join(home, ".clauductor", "panel") }
-
 // TokenPath holds the persistent token in launchd mode.
-func TokenPath(home string) string { return filepath.Join(panelDir(home), "token") }
+func TokenPath(home string) string { return filepath.Join(config.PanelDir(home), "token") }
 
 // LogDir holds the login agent's stdout and stderr.
-func LogDir(home string) string { return filepath.Join(panelDir(home), "logs") }
+func LogDir(home string) string { return filepath.Join(config.PanelDir(home), "logs") }
 
 // PlistPath is the login agent's definition.
 func PlistPath(home string) string {
@@ -44,26 +43,20 @@ func PlistPath(home string) string {
 
 // InstalledBinary is where install copies the clauductor binary the agent runs, so
 // the agent never depends on a build directory or a worktree that may disappear.
-func InstalledBinary(home string) string { return filepath.Join(panelDir(home), "bin", "clauductor") }
+func InstalledBinary(home string) string {
+	return filepath.Join(config.PanelDir(home), "bin", "clauductor")
+}
 
 // AppPath is the launcher app.
 func AppPath(home string) string { return filepath.Join(home, "Applications", AppName) }
 
 var tokenRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// ensurePrivateDir makes dir (0700), and tightens it if it already exists looser.
-func ensurePrivateDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	return os.Chmod(dir, 0o700)
-}
-
 // LoadOrCreateToken returns the persistent token, creating it on first use. The
 // file is 0600 in a 0700 directory; a file with any other content is replaced.
 func LoadOrCreateToken(home string) (string, error) {
 	path := TokenPath(home)
-	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
+	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return "", err
 	}
 	if b, err := os.ReadFile(path); err == nil {
@@ -78,7 +71,7 @@ func LoadOrCreateToken(home string) (string, error) {
 // new file within 2 s and rotates: old cookies, terminals and event streams die.
 func RotateToken(home string) (string, error) {
 	path := TokenPath(home)
-	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
+	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return "", err
 	}
 	return writeNewToken(path)
@@ -118,14 +111,14 @@ const loginOpenGap = 5 * time.Minute
 // shouldOpenAtLogin decides whether a launchd start opens the browser, and records
 // the open when it does.
 func shouldOpenAtLogin(home string, now time.Time) bool {
-	path := filepath.Join(panelDir(home), "browser-opened")
+	path := filepath.Join(config.PanelDir(home), "browser-opened")
 	if b, err := os.ReadFile(path); err == nil {
 		if sec, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil &&
 			now.Sub(time.Unix(sec, 0)) < loginOpenGap {
 			return false
 		}
 	}
-	_ = ensurePrivateDir(filepath.Dir(path))
+	_ = config.EnsurePrivateDir(filepath.Dir(path))
 	_ = os.WriteFile(path, []byte(strconv.FormatInt(now.Unix(), 10)+"\n"), 0o600)
 	return true
 }
@@ -262,7 +255,7 @@ func copyFileAtomic(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	if err := ensurePrivateDir(filepath.Dir(dst)); err != nil {
+	if err := config.EnsurePrivateDir(filepath.Dir(dst)); err != nil {
 		return err
 	}
 	tmp := dst + ".tmp"
@@ -303,10 +296,10 @@ func Install(o InstallOptions) error {
 	if o.Config != "" {
 		cfg = signals.ResolvePath(o.Config)
 	} else {
-		cfg = filepath.Join(project, DefaultConfigRel)
+		cfg = filepath.Join(project, config.DefaultConfigRel)
 	}
 	// Fail now rather than in a crash loop under launchd.
-	if _, err := LoadConfig(cfg); err != nil {
+	if _, err := config.LoadConfig(cfg); err != nil {
 		return err
 	}
 	if o.Config == "" {
@@ -316,7 +309,7 @@ func Install(o InstallOptions) error {
 	if err := copyFileAtomic(o.Self, bin); err != nil {
 		return fmt.Errorf("copying the binary to %s: %w", bin, err)
 	}
-	if err := ensurePrivateDir(LogDir(o.Home)); err != nil {
+	if err := config.EnsurePrivateDir(LogDir(o.Home)); err != nil {
 		return err
 	}
 	// Every install rotates the token, so reinstalling is also how to revoke it.
@@ -408,7 +401,7 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 	if b, err := run("/bin/launchctl", "bootout", guiDomain()+"/"+LaunchdLabel); err != nil {
 		fmt.Fprintf(out, "launchctl bootout: %s (fine if it was not loaded)\n", strings.TrimSpace(string(b)))
 	}
-	dir := panelDir(home)
+	dir := config.PanelDir(home)
 	// Everything the agent owns goes. port, pid and owner.json belong to a running
 	// panel, which bootout has just stopped.
 	for _, p := range []string{PlistPath(home), TokenPath(home), filepath.Join(dir, "browser-opened"),

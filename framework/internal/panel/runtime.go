@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -83,9 +84,9 @@ func Run(ctx context.Context, o Options) error {
 	root := signals.ResolvePath(o.Project)
 	cfgPath := o.ConfigPath
 	if cfgPath == "" {
-		cfgPath = filepath.Join(root, DefaultConfigRel)
+		cfgPath = filepath.Join(root, config.DefaultConfigRel)
 	}
-	cfg, rawCfg, err := LoadConfigRaw(cfgPath)
+	cfg, rawCfg, err := config.LoadConfigRaw(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -168,8 +169,8 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if o.TmuxSocket != "" {
-		if !socketNameRe.MatchString(o.TmuxSocket) {
-			return fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, socketNameRe)
+		if !config.SocketNameRe.MatchString(o.TmuxSocket) {
+			return fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, config.SocketNameRe)
 		}
 		cfg.TmuxSocket = o.TmuxSocket
 	}
@@ -315,7 +316,7 @@ type pollers struct {
 	hub        *Hub
 	run        signals.Runner
 	root       string
-	cfg        *Config
+	cfg        *config.Config
 	kickWT     chan struct{}
 	kickAgents chan struct{}
 	kickPRs    chan struct{}
@@ -487,8 +488,8 @@ func (p *pollers) prLoop(ctx context.Context) {
 	})
 }
 
-func (p *pollers) cardLoop(ctx context.Context, c CardConfig, kickCh chan struct{}) {
-	rule, _ := ParseRefresh(c.Refresh) // validated at load
+func (p *pollers) cardLoop(ctx context.Context, c config.CardConfig, kickCh chan struct{}) {
+	rule, _ := config.ParseRefresh(c.Refresh) // validated at load
 	runCard := func() {
 		if !p.x.trusted() {
 			p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, nil, errUntrusted, now) })
@@ -559,7 +560,7 @@ func pathSignature(path string) string {
 
 // newLaneManager wires lane control, or returns why it is unavailable. A missing tmux
 // or claude disables starting lanes; the panel still watches.
-func newLaneManager(o Options, cfg *Config, root string) (*LaneManager, string) {
+func newLaneManager(o Options, cfg *config.Config, root string) (*LaneManager, string) {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return nil, "tmux was not found on the panel's PATH, so lanes cannot start or be shown here"

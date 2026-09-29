@@ -2,7 +2,6 @@ package panel
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 // The lane registry is the panel's durable memory of the lanes it started: which
@@ -75,17 +76,17 @@ func (l LaneRecord) validate() string {
 		return "path is not a clean absolute path"
 	case !laneTypeRe.MatchString(l.Type):
 		return "lane type has characters a lane type never has"
-	case l.Branch != "" && !branchRe.MatchString(l.Branch):
+	case l.Branch != "" && !config.BranchRe.MatchString(l.Branch):
 		return "branch is not a branch the panel would create"
 	case !laneModes[l.Mode]:
 		return "unknown mode"
 	case !laneActions[l.Action]:
 		return "unknown action"
-	case l.Model != "" && !launchOptRe.MatchString(l.Model), l.Effort != "" && !launchOptRe.MatchString(l.Effort):
+	case l.Model != "" && !config.LaunchOptRe.MatchString(l.Model), l.Effort != "" && !config.LaunchOptRe.MatchString(l.Effort):
 		return "model or effort is not a launch option the panel would pass"
 	case !promptStates[l.PromptState]:
 		return "unknown first-prompt state"
-	case l.FirstPrompt != "" && typableText(l.FirstPrompt, maxFirstPrompt) != nil:
+	case l.FirstPrompt != "" && config.TypableText(l.FirstPrompt, config.MaxFirstPrompt) != nil:
 		return "first prompt is not one line of plain text"
 	}
 	return ""
@@ -109,11 +110,9 @@ type Registry struct {
 	afterRead func()
 }
 
-// RegistryPath is where a project's registry lives. The hash keeps projects apart
-// without putting a path in a file name.
+// RegistryPath is where a project's registry lives.
 func RegistryPath(home, project string) string {
-	sum := sha256.Sum256([]byte(project))
-	return filepath.Join(panelDir(home), hex.EncodeToString(sum[:8]), "lanes.json")
+	return filepath.Join(config.ProjectDir(home, project), "lanes.json")
 }
 
 // OpenRegistry loads (or starts) a project's registry.
@@ -146,7 +145,7 @@ func (r *Registry) Reload() error {
 	lanes := map[string]LaneRecord{}
 	r.problems = nil
 	for i, l := range f.Lanes {
-		if !ValidLaneID(l.ID) {
+		if !config.ValidLaneID(l.ID) {
 			r.problems = append(r.problems, fmt.Sprintf("lane registry %s: record %d has an invalid lane id and is ignored", r.path, i))
 			continue
 		}
@@ -256,7 +255,7 @@ func (r *Registry) Delete(id string) error {
 // writeLocked writes atomically: a temp file in the same private directory, then a
 // rename, so a crash leaves either the old registry or the new one.
 func (r *Registry) writeLocked() error {
-	if err := ensurePrivateDir(filepath.Dir(r.path)); err != nil {
+	if err := config.EnsurePrivateDir(filepath.Dir(r.path)); err != nil {
 		return err
 	}
 	f := registryFile{Version: 1, Project: r.project, Lanes: []LaneRecord{}}

@@ -12,12 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
-func v2Config(t *testing.T, extra string) *Config {
+func v2Config(t *testing.T, extra string) *config.Config {
 	t.Helper()
-	c, err := ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
+	c, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,73 +28,6 @@ func v2Config(t *testing.T, extra string) *Config {
 const tplJSON = `,"templates":[
  {"id":"build","title":"Build a change","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"Run build-change for {name}","model":"opus","effort":"high"},
  {"id":"fix","title":"Fix an issue","lane_type":"fix","first_prompt":"Fix issue {issue} on branch fix/{name}"}]`
-
-func TestTemplateRendering(t *testing.T) {
-	c := v2Config(t, tplJSON)
-	r, err := c.RenderTemplate("build", "add-x", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Branch != "change/add-x" || r.FirstPrompt != "Run build-change for add-x" || r.Model != "opus" || r.LaneType != "build" {
-		t.Fatalf("%+v", r)
-	}
-	r, err = c.RenderTemplate("fix", "login-bug", " #412 ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Branch != "fix/login-bug" || r.FirstPrompt != "Fix issue #412 on branch fix/login-bug" {
-		t.Fatalf("default prefix and trimmed issue: %+v", r)
-	}
-	bad := []struct{ tpl, name, issue, why string }{
-		{"fix", "x", "412\n/exit", "a newline would submit early"},
-		{"fix", "x", "4\r12", "an embedded carriage return"},
-		{"fix", "x", "\x1b[2J", "an escape sequence drives the TUI"},
-		{"fix", "x", "a‮b", "a bidi override hides text"},
-		{"fix", "x", " ", "a line separator"},
-		{"fix", "x", "", "the template needs an issue"},
-		{"fix", "x", strings.Repeat("a", 201), "too long"},
-		{"build", "x", "1", "the template takes no issue"},
-		{"build", "Bad Name", "", "the name is a lane id"},
-		{"build", "-x", "", "a leading dash"},
-		{"nope", "x", "", "unknown template"},
-	}
-	for _, b := range bad {
-		if _, err := c.RenderTemplate(b.tpl, b.name, b.issue); err == nil {
-			t.Errorf("accepted %q/%q (%s)", b.name, b.issue, b.why)
-		}
-	}
-}
-
-func TestTemplateConfigValidation(t *testing.T) {
-	bad := map[string]string{
-		"unknown placeholder":   `,"templates":[{"id":"a","lane_type":"build","first_prompt":"do {thing}"}]`,
-		"newline in the prompt": `,"templates":[{"id":"a","lane_type":"build","first_prompt":"line one\nline two"}]`,
-		"escape in the prompt":  `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x\u001b[31m"}]`,
-		"unknown lane type":     `,"templates":[{"id":"a","lane_type":"nope","first_prompt":"x"}]`,
-		"no {name} in pattern":  `,"templates":[{"id":"a","lane_type":"build","branch_pattern":"change/fixed","first_prompt":"x"}]`,
-		"no prefix, no pattern": `,"templates":[{"id":"a","lane_type":"orchestrator","first_prompt":"x"}]`,
-		"bad model":             `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x","model":"--dangerously"}]`,
-		"duplicate id":          `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x"},{"id":"a","lane_type":"build","first_prompt":"y"}]`,
-		"escaping lock":         `,"queues":[{"id":"g","lock":"../outside"}]`,
-		"absolute lock":         `,"queues":[{"id":"g","lock":"/tmp/x"}]`,
-		"empty command":         `,"queues":[{"id":"g","lock":"clauductor/gate.lock","command":[]}]`,
-		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
-		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
-		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":3`,
-	}
-	for why, extra := range bad {
-		if _, err := ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","main":"orchestrator"}` + extra + `}`)); err == nil {
-			t.Errorf("accepted: %s", why)
-		}
-	}
-	c := v2Config(t, `,"version":2,"queues":[{"id":"gate","title":"Gate","lock":"clauductor/gate.lock","command":["bash","infra/ci/run-local.sh"]}],"alerts":{"idle_minutes":0.5,"context_pct":0},"quota_guard":{"five_hour_pct":0}`)
-	th := c.AlertThresholds()
-	if th.Idle != 30*time.Second || th.ContextPct != 0 || th.FiveHourPct != DefaultFiveHourPct || !th.Notify || th.GuardPct != 0 ||
-		th.MinInterval != DefaultNotifyInterval*time.Second || th.Waiting != DefaultWaitingSeconds*time.Second {
-		t.Fatalf("thresholds %+v", th)
-	}
-}
 
 func TestFirstPromptDecision(t *testing.T) {
 	start := t0
@@ -224,50 +158,6 @@ func alertKinds(v View) map[string]string {
 		out[a.Kind] = a.Severity
 	}
 	return out
-}
-
-func TestAlertThresholds(t *testing.T) {
-	m := alertModel(t, `,"alerts":{"idle_minutes":10,"context_pct":80,"five_hour_pct":90,"waiting_seconds":60}`)
-	cwd := "/repo/w/x"
-	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0)
-	ctx, five := 79.0, 89.0
-	p := signals.StatusPayload{SessionID: "s", Cwd: cwd}
-	p.ContextWindow.UsedPercentage = &ctx
-	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five}
-	m.ApplyStatus(p, t0)
-	// Just under every threshold: nothing.
-	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(9*time.Minute))
-	if v := m.Snapshot(t0.Add(9 * time.Minute)); len(v.Alerts) != 0 {
-		t.Fatalf("under thresholds: %+v", v.Alerts)
-	}
-	ctx, five = 80, 90
-	m.ApplyStatus(p, t0.Add(10*time.Minute))
-	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(10*time.Minute))
-	k := alertKinds(m.Snapshot(t0.Add(10 * time.Minute)))
-	if k[AlertIdle] != signals.SevInfo || k[AlertContext] != signals.SevWarn || k[AlertQuota] != signals.SevWarn {
-		t.Fatalf("at thresholds: %+v", k)
-	}
-	// Waiting: a permission prompt older than 60 s.
-	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting", WaitingFor: "permission prompt"}}, nil, t0.Add(11*time.Minute))
-	if k := alertKinds(m.Snapshot(t0.Add(11*time.Minute + 59*time.Second))); k[AlertWaiting] != "" {
-		t.Fatalf("waiting fired early: %+v", k)
-	}
-	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertWaiting] != signals.SevBlock {
-		t.Fatalf("waiting did not fire: %+v", k)
-	}
-	// A 0 threshold is off.
-	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0}`)
-	off.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
-	ctx, five = 99, 99
-	off.ApplyStatus(p, t0)
-	if v := off.Snapshot(t0.Add(time.Hour)); len(v.Alerts) != 0 {
-		t.Fatalf("disabled alerts fired: %+v", v.Alerts)
-	}
-	// quota_auto_resume_stale: it will not continue by itself.
-	m.ApplyHook(signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
-	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertNoAutoResume] != signals.SevWarn {
-		t.Fatalf("no auto-resume alert: %+v", k)
-	}
 }
 
 func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
@@ -407,19 +297,6 @@ func TestConfigTrust(t *testing.T) {
 	}
 }
 
-// The config name reaches notification titles: one line, no leading dash.
-func TestConfigNameIsPlainText(t *testing.T) {
-	for _, bad := range []string{`-eproperty p : 1`, " -x", "a\nb", "a‮b", "\x1b[31m"} {
-		b, _ := json.Marshal(map[string]any{"name": bad})
-		if _, err := ParseConfig(b); err == nil {
-			t.Errorf("accepted name %q", bad)
-		}
-	}
-	if _, err := ParseConfig([]byte(`{"name":"My Project · panel"}`)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Review 2026-09-28: only what blocks you interrupts, and a restart never
 // re-notifies an alert that is still active.
 func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
@@ -461,5 +338,49 @@ func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 	// Without the saved state it would have notified again (the test's premise).
 	if out := (&Notifier{MinInterval: time.Minute}).Process([]AlertView{block}, nil, t0); len(out) != 1 {
 		t.Fatal("premise: a fresh notifier notifies")
+	}
+}
+
+func TestAlertThresholds(t *testing.T) {
+	m := alertModel(t, `,"alerts":{"idle_minutes":10,"context_pct":80,"five_hour_pct":90,"waiting_seconds":60}`)
+	cwd := "/repo/w/x"
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0)
+	ctx, five := 79.0, 89.0
+	p := signals.StatusPayload{SessionID: "s", Cwd: cwd}
+	p.ContextWindow.UsedPercentage = &ctx
+	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five}
+	m.ApplyStatus(p, t0)
+	// Just under every threshold: nothing.
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(9*time.Minute))
+	if v := m.Snapshot(t0.Add(9 * time.Minute)); len(v.Alerts) != 0 {
+		t.Fatalf("under thresholds: %+v", v.Alerts)
+	}
+	ctx, five = 80, 90
+	m.ApplyStatus(p, t0.Add(10*time.Minute))
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(10*time.Minute))
+	k := alertKinds(m.Snapshot(t0.Add(10 * time.Minute)))
+	if k[AlertIdle] != signals.SevInfo || k[AlertContext] != signals.SevWarn || k[AlertQuota] != signals.SevWarn {
+		t.Fatalf("at thresholds: %+v", k)
+	}
+	// Waiting: a permission prompt older than 60 s.
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting", WaitingFor: "permission prompt"}}, nil, t0.Add(11*time.Minute))
+	if k := alertKinds(m.Snapshot(t0.Add(11*time.Minute + 59*time.Second))); k[AlertWaiting] != "" {
+		t.Fatalf("waiting fired early: %+v", k)
+	}
+	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertWaiting] != signals.SevBlock {
+		t.Fatalf("waiting did not fire: %+v", k)
+	}
+	// A 0 threshold is off.
+	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0}`)
+	off.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
+	ctx, five = 99, 99
+	off.ApplyStatus(p, t0)
+	if v := off.Snapshot(t0.Add(time.Hour)); len(v.Alerts) != 0 {
+		t.Fatalf("disabled alerts fired: %+v", v.Alerts)
+	}
+	// quota_auto_resume_stale: it will not continue by itself.
+	m.ApplyHook(signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
+	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertNoAutoResume] != signals.SevWarn {
+		t.Fatalf("no auto-resume alert: %+v", k)
 	}
 }

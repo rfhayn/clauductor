@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
@@ -248,7 +249,7 @@ func TestOpenURLOnlyTrustsThePanelsPID(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok pid=999\n") }))
 	defer ts.Close()
 	port, _ := strconv.Atoi(strings.TrimPrefix(ts.URL, "http://127.0.0.1:"))
-	pid := filepath.Join(panelDir(home), "pid")
+	pid := filepath.Join(config.PanelDir(home), "pid")
 	os.WriteFile(pid, []byte("123\n"), 0o600)
 	if u, err := OpenURL(context.Background(), home, port); err == nil || strings.Contains(u, "t=") {
 		t.Fatalf("token sent to an impostor: %q %v", u, err)
@@ -268,7 +269,7 @@ func TestOpenURLOnlyTrustsThePanelsPID(t *testing.T) {
 func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 	home := t.TempDir()
 	RotateToken(home)
-	dir := panelDir(home)
+	dir := config.PanelDir(home)
 	for _, f := range []string{"browser-opened", "pid", "port", "bin/clauductor", "logs/panel.log"} {
 		os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700)
 		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)

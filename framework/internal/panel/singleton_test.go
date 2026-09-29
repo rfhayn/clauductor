@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
@@ -40,7 +41,7 @@ func otherProcess(t *testing.T) int {
 
 func writePanelFiles(t *testing.T, home string, pid, port int, owner *PanelOwner) {
 	t.Helper()
-	dir := panelDir(home)
+	dir := config.PanelDir(home)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestSecondPanelIsRefused(t *testing.T) {
 	if after, _ := os.ReadFile(SettingsPath(home)); string(after) != string(before) {
 		t.Fatal("a refused panel re-pointed the hooks")
 	}
-	if b, _ := os.ReadFile(filepath.Join(panelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
+	if b, _ := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
 		t.Fatalf("a refused panel touched the pid file: %q", b)
 	}
 	if b, _ := os.ReadFile(MarkerPath(home)); strings.TrimSpace(string(b)) != "4393" {
@@ -157,7 +158,7 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("never ready")
 			}
-			if b, _ := os.ReadFile(filepath.Join(panelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
+			if b, _ := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
 				t.Fatalf("the new panel did not claim the pid file: %q", b)
 			}
 			var o PanelOwner
@@ -213,7 +214,7 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 	if b, err := os.ReadFile(MarkerPath(home)); err != nil || strings.TrimSpace(string(b)) != "4394" {
 		t.Fatalf("exit removed or changed another panel's marker: %q %v", b, err)
 	}
-	if b, err := os.ReadFile(filepath.Join(panelDir(home), "pid")); err != nil || strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
+	if b, err := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); err != nil || strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
 		t.Fatalf("exit removed another panel's pid file: %q %v", b, err)
 	}
 	if _, err := os.Stat(OwnerPath(home)); err != nil {
@@ -223,7 +224,7 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 	root2, home2 := setupProject(t)
 	_, _, stop2 := runPanel(t, Options{Project: root2, Port: 0, NoOpen: true, Home: home2, Runner: fakeRunner(root2)})
 	stop2()
-	for _, p := range []string{MarkerPath(home2), filepath.Join(panelDir(home2), "pid"), OwnerPath(home2)} {
+	for _, p := range []string{MarkerPath(home2), filepath.Join(config.PanelDir(home2), "pid"), OwnerPath(home2)} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Fatalf("%s left behind after a clean stop", p)
 		}

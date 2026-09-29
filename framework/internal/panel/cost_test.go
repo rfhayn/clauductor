@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -195,7 +196,7 @@ func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 	q := lease.QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
 	// queueLoop's read, with fake processes: pids 4001-4003 are alive only to the
 	// injected kill(0), so a reader that bypassed the cache would find them gone.
-	x := &runtimeV2{cfg: &Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
+	x := &runtimeV2{cfg: &config.Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
 		procs: lease.ProcCache{Alive: isAlive, Start: start, Now: func() time.Time { return t0 }}}
 	for i := 0; i < 60; i++ { // once a second for a minute
 		qs, err := x.readQueues(context.Background(), t0)

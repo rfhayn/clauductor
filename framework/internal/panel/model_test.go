@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -25,9 +26,13 @@ func fixture(t *testing.T, name string) []byte {
 	return b
 }
 
-func testConfig(t *testing.T) *Config {
+func testConfig(t *testing.T) *config.Config {
 	t.Helper()
-	cfg, err := ParseConfig(fixture(t, "panel.json"))
+	b, err := os.ReadFile(filepath.Join("config", "testdata", "panel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.ParseConfig(b)
 	if err != nil {
 		t.Fatal(err)
 	}

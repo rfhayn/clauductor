@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -23,7 +24,7 @@ func (req StartRequest) withTemplate(rec LaneRecord) LaneRecord {
 
 // launchOptions are a lane's model and effort: its lane type's, overridden by the
 // template it was started from (recorded in the registry).
-func (m *LaneManager) launchOptions(id, laneType string) LaneTypeConfig {
+func (m *LaneManager) launchOptions(id, laneType string) config.LaneTypeConfig {
 	lt := m.Cfg.LaneTypes[laneType]
 	if m.Registry != nil {
 		if rec, ok := m.Registry.Get(id); ok {
@@ -123,7 +124,7 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillRe
 	}
 	// Re-validated at the moment of typing: a registry edited by hand must not be
 	// able to smuggle a newline or an escape sequence into the lane.
-	if err := typableText(rec.FirstPrompt, maxFirstPrompt); err != nil {
+	if err := config.TypableText(rec.FirstPrompt, config.MaxFirstPrompt); err != nil {
 		_ = m.Registry.Update(id, func(r *LaneRecord) bool { r.PromptState = "skipped"; return true })
 		return fmt.Errorf("first prompt %v; not typed", err)
 	}

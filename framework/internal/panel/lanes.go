@@ -9,13 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -27,17 +27,6 @@ import (
 // The only inputs a browser can supply are a lane id (validated below), a lane type
 // (checked against the config), a worktree path (checked against `git worktree
 // list`) and a flag. It never supplies a command.
-
-var laneIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
-
-// ValidLaneID reports whether id can name a lane (and so a tmux session and a
-// worktree directory). It is also what keeps an id safe inside a tmux target and a
-// Terminal.app command.
-func ValidLaneID(id string) bool { return laneIDRe.MatchString(id) }
-
-// branchRe is checked before `git check-ref-format`, so nothing that looks like an
-// option (a leading "-") ever reaches git.
-var branchRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 
 // apiKeyVars outrank the subscription login; a lane never starts while one is set.
 var apiKeyVars = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
@@ -76,7 +65,7 @@ func ParseTmuxPanes(out []byte) []TmuxLane {
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		f := strings.Split(sc.Text(), "\t")
-		if len(f) < 8 || !ValidLaneID(f[0]) || seen[f[0]] {
+		if len(f) < 8 || !config.ValidLaneID(f[0]) || seen[f[0]] {
 			continue
 		}
 		seen[f[0]] = true
@@ -112,7 +101,7 @@ type LaneManager struct {
 	TmuxPath string         // absolute path of tmux
 	Socket   string         // tmux -L name
 	Root     string         // project root (resolved)
-	Cfg      *Config        //
+	Cfg      *config.Config //
 	Registry *Registry      // durable lane ↔ session binding
 	Run      signals.Runner // runs git and `claude agents` (injectable for tests)
 	Program  []string       // the lane program; default the absolute path of `claude`
@@ -231,7 +220,7 @@ func (m *LaneManager) ListServer(ctx context.Context) (lanes []TmuxLane, up bool
 // Exists reports whether a lane's tmux session is running. "=" makes the match
 // exact; without it tmux would take "lane" to mean "lane-2".
 func (m *LaneManager) Exists(ctx context.Context, id string) bool {
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		return false
 	}
 	_, err := m.tmux(ctx, "has-session", "-t", "="+id)
@@ -411,7 +400,7 @@ type StartRequest struct {
 	Issue         string `json:"issue,omitempty"`
 	OverrideQuota bool   `json:"overrideQuota,omitempty"`
 
-	tpl *RenderedTemplate // set by StartLane after validation, never from JSON
+	tpl *config.RenderedTemplate // set by StartLane after validation, never from JSON
 }
 
 // StartResult reports a started lane.
@@ -434,8 +423,8 @@ func (m *LaneManager) now() time.Time {
 // project root, an existing worktree, or a new branch's new worktree.
 func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult, *LaneError) {
 	id := req.Name
-	if !ValidLaneID(id) {
-		return StartResult{}, laneErr(400, "invalid", "lane name %q must match %s", id, laneIDRe)
+	if !config.ValidLaneID(id) {
+		return StartResult{}, laneErr(400, "invalid", "lane name %q must match %s", id, config.LaneIDRe)
 	}
 	if !m.Cfg.HasLaneType(req.Type) {
 		return StartResult{}, laneErr(400, "invalid", "unknown lane type %q", req.Type)
@@ -491,7 +480,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		if req.tpl != nil {
 			res.Branch = req.tpl.Branch
 		}
-		if !branchRe.MatchString(res.Branch) {
+		if !config.BranchRe.MatchString(res.Branch) {
 			return res, laneErr(400, "invalid", "branch %q is not allowed", res.Branch)
 		}
 		if _, err := m.Run(ctx, m.Root, []string{"git", "check-ref-format", "--branch", res.Branch}); err != nil {
@@ -600,7 +589,7 @@ func (m *LaneManager) Interrupt(ctx context.Context, id string) *LaneError {
 // permission or a dialog, or unknown) gets Escape and then kill-session, never a
 // typed Enter: an Enter would confirm whatever default the dialog has focused.
 func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		return laneErr(400, "invalid", "invalid lane id")
 	}
 	m.mu.Lock()
@@ -804,7 +793,7 @@ func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action s
 
 // Restart stops a registered lane and resumes its own session in the same place.
 func (m *LaneManager) Restart(ctx context.Context, id string) *LaneError {
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		return laneErr(400, "invalid", "invalid lane id")
 	}
 	if why := m.StartBlocked(ctx); why != "" {
@@ -832,7 +821,7 @@ func (m *LaneManager) Restart(ctx context.Context, id string) *LaneError {
 // Resume restarts an orphaned lane (registered, with no tmux session: after a
 // reboot, or a tmux server that died) on its own session id.
 func (m *LaneManager) Resume(ctx context.Context, id string) *LaneError {
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		return laneErr(400, "invalid", "invalid lane id")
 	}
 	if why := m.StartBlocked(ctx); why != "" {
@@ -850,7 +839,7 @@ func (m *LaneManager) Resume(ctx context.Context, id string) *LaneError {
 // Forget removes an orphan from the registry. A lane that is still running must be
 // stopped instead.
 func (m *LaneManager) Forget(ctx context.Context, id string) *LaneError {
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		return laneErr(400, "invalid", "invalid lane id")
 	}
 	m.mu.Lock()

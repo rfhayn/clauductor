@@ -10,12 +10,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
 	home := t.TempDir()
 	// A pre-existing, too-open directory is tightened, not trusted.
-	if err := os.MkdirAll(panelDir(home), 0o755); err != nil {
+	if err := os.MkdirAll(config.PanelDir(home), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	tok, err := LoadOrCreateToken(home)
@@ -32,7 +34,7 @@ func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
 	if fi.Mode().Perm() != 0o600 {
 		t.Fatalf("token file mode %o, want 600", fi.Mode().Perm())
 	}
-	di, _ := os.Stat(panelDir(home))
+	di, _ := os.Stat(config.PanelDir(home))
 	if di.Mode().Perm() != 0o700 {
 		t.Fatalf("token dir mode %o, want 700", di.Mode().Perm())
 	}
@@ -103,7 +105,7 @@ func TestPlistContent(t *testing.T) {
 func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	writeFile(t, filepath.Join(project, DefaultConfigRel), `{"name":"P"}`)
+	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	self := filepath.Join(t.TempDir(), "clauductor")
 	os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755)
 	var calls []string
@@ -170,7 +172,7 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 	if _, err := os.Stat(PlistPath(home)); err == nil {
 		t.Fatal("a refused install wrote the plist")
 	}
-	writeFile(t, filepath.Join(project, DefaultConfigRel), `{"name":"P"}`)
+	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	os.MkdirAll(filepath.Join(AppPath(home), "Contents"), 0o755) // someone else's app
 	ok := func(argv ...string) ([]byte, error) { return nil, nil }
 	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"}); err == nil ||
@@ -205,7 +207,7 @@ func TestBrowserOpensOncePerLogin(t *testing.T) {
 func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	writeFile(t, filepath.Join(project, DefaultConfigRel), `{"name":"P"}`)
+	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	self := filepath.Join(t.TempDir(), "clauductor")
 	os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755)
 	var calls []string

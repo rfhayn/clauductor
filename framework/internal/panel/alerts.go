@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -67,7 +68,7 @@ func mins(d time.Duration) string {
 }
 
 // computeAlerts evaluates every threshold. A threshold of 0 is off.
-func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView {
+func (m *Model) computeAlerts(v *View, th config.Thresholds, now time.Time) []AlertView {
 	out := []AlertView{}
 	lanes := map[string]LaneView{}
 	for _, l := range v.Lanes {

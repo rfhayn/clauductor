@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 func TestHostAllowListIsExact(t *testing.T) {
@@ -85,11 +87,11 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 
 func TestHostNamesConfig(t *testing.T) {
 	for _, bad := range []string{"*.localhost", "evil.com", "a.b.localhost", "UPPER.localhost", "localhost", ".localhost", "-a.localhost", "a_b.localhost"} {
-		if _, err := ParseConfig([]byte(`{"name":"T","host_names":["` + bad + `"]}`)); err == nil {
+		if _, err := config.ParseConfig([]byte(`{"name":"T","host_names":["` + bad + `"]}`)); err == nil {
 			t.Errorf("accepted host name %q", bad)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"T","host_names":["myproject.localhost","a1-b2.localhost"]}`)); err != nil {
+	if _, err := config.ParseConfig([]byte(`{"name":"T","host_names":["myproject.localhost","a1-b2.localhost"]}`)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -164,8 +166,8 @@ func serveHealthz(t *testing.T, network, addr, body string) (net.Listener, int) 
 
 func TestOpenURLChecksBothLoopbacks(t *testing.T) {
 	home := t.TempDir()
-	os.MkdirAll(panelDir(home), 0o700)
-	os.WriteFile(filepath.Join(panelDir(home), "pid"), []byte("4242\n"), 0o600)
+	os.MkdirAll(config.PanelDir(home), 0o700)
+	os.WriteFile(filepath.Join(config.PanelDir(home), "pid"), []byte("4242\n"), 0o600)
 	ctx := context.Background()
 
 	// Ours on both: open clauductor.localhost.

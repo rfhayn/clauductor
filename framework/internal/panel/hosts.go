@@ -9,11 +9,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 // The panel is opened at http://clauductor.localhost:<port>. macOS (and every
@@ -30,22 +31,12 @@ import (
 // to "http://" + the Host of THAT request, so a page on localhost cannot drive the
 // panel at clauductor.localhost, or the reverse.
 
-// DefaultHostName is the name the panel is opened at.
-const DefaultHostName = "clauductor.localhost"
-
-// localhostNameRe is the only shape an extra host name may have: one DNS label under
-// .localhost, lower case.
-var localhostNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.localhost$`)
-
-// ValidHostName reports whether a configured extra host name is allowed.
-func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
-
 // allowedHosts is the exact Host allow-list, lower case.
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.Port)
-	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, DefaultHostName + ":" + p}
+	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, config.DefaultHostName + ":" + p}
 	for _, n := range s.HostNames {
-		if ValidHostName(n) {
+		if config.ValidHostName(n) {
 			hs = append(hs, n+":"+p)
 		}
 	}
@@ -84,7 +75,7 @@ func ListenLoopback(port int) (ln4, ln6 net.Listener, v6why string, err error) {
 		if errors.Is(err, syscall.EADDRINUSE) {
 			ln4.Close()
 			return nil, nil, "", fmt.Errorf("port %d on [::1] is already in use by another process. The browser resolves %s to ::1 first, "+
-				"so it would reach that process; free the port or pass --port", p, DefaultHostName)
+				"so it would reach that process; free the port or pass --port", p, config.DefaultHostName)
 		}
 		return ln4, nil, err.Error(), nil
 	}
@@ -100,7 +91,7 @@ func ListenLoopback(port int) (ln4, ln6 net.Listener, v6why string, err error) {
 // listens on both loopbacks, else 127.0.0.1.
 func PanelHost(dualStack bool) string {
 	if dualStack {
-		return DefaultHostName
+		return config.DefaultHostName
 	}
 	return LoopbackHost
 }
@@ -123,7 +114,7 @@ func healthz(ctx context.Context, base string) (string, error) {
 // addresses the browser may use for clauductor.localhost answer as this panel (the
 // PID beside the marker). If nothing listens on [::1], the 127.0.0.1 URL is used.
 func openURLChecked(ctx context.Context, home string, port int, token string) (string, error) {
-	pidFile := filepath.Join(panelDir(home), "pid")
+	pidFile := filepath.Join(config.PanelDir(home), "pid")
 	want, err := os.ReadFile(pidFile)
 	if err != nil {
 		return "", fmt.Errorf("no %s: the panel is not running (launchctl kickstart -k %s/%s)", pidFile, guiDomain(), LaunchdLabel)
@@ -148,7 +139,7 @@ func openURLChecked(ctx context.Context, home string, port int, token string) (s
 		return "", fmt.Errorf("cannot check %s (%v); not sending it the token", v6, err)
 	case got != ok:
 		return "", fmt.Errorf("%s answers /healthz with %q, not as the panel whose pid is %s. The browser resolves %s to ::1 first, "+
-			"so the token is not sent", v6, got, strings.TrimSpace(string(want)), DefaultHostName)
+			"so the token is not sent", v6, got, strings.TrimSpace(string(want)), config.DefaultHostName)
 	}
-	return "http://" + DefaultHostName + ":" + p + "/?t=" + token, nil
+	return "http://" + config.DefaultHostName + ":" + p + "/?t=" + token, nil
 }

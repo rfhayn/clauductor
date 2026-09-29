@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 func TestValidLaneID(t *testing.T) {
@@ -16,12 +18,12 @@ func TestValidLaneID(t *testing.T) {
 	bad := []string{"", "-a", "A", "Add", "a_b", "a.b", "a:b", "a b", "a/b", "../x", "=a", "a;b", "a'b",
 		"a\nb", "é", strings.Repeat("a", 42), "$(id)", "`id`"}
 	for _, id := range ok {
-		if !ValidLaneID(id) {
+		if !config.ValidLaneID(id) {
 			t.Errorf("ValidLaneID(%q) = false, want true", id)
 		}
 	}
 	for _, id := range bad {
-		if ValidLaneID(id) {
+		if config.ValidLaneID(id) {
 			t.Errorf("ValidLaneID(%q) = true, want false", id)
 		}
 	}
@@ -29,7 +31,7 @@ func TestValidLaneID(t *testing.T) {
 
 func testLaneManager(t *testing.T) *LaneManager {
 	t.Helper()
-	cfg, err := ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
+	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
 		"tmux_socket":"sock","lane_types":{"build":{"model":"opus","effort":"high"}}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +195,7 @@ func TestBranchPrefixAndLaneTypes(t *testing.T) {
 	if strings.Join(names, ",") != "build,fix,orchestrator,propose" {
 		t.Fatalf("LaneTypeList = %v", names)
 	}
-	if m.Cfg.Socket() != "sock" || m.Cfg.BaseRef() != DefaultBase || m.Cfg.WorktreeRoot("/repo") != "/repo/.claude/worktrees" {
+	if m.Cfg.Socket() != "sock" || m.Cfg.BaseRef() != config.DefaultBase || m.Cfg.WorktreeRoot("/repo") != "/repo/.claude/worktrees" {
 		t.Fatalf("defaults: %s %s %s", m.Cfg.Socket(), m.Cfg.BaseRef(), m.Cfg.WorktreeRoot("/repo"))
 	}
 }
@@ -210,11 +212,11 @@ func TestConfigRejectsBadLaneKeys(t *testing.T) {
 		`{"name":"x","lane_types":{"build":{"effort":"--dangerously-skip-permissions"}}}`,
 		`{"name":"x","lane_types":{"build":{"modle":"opus"}}}`,
 	} {
-		if _, err := ParseConfig([]byte(body)); err == nil {
+		if _, err := config.ParseConfig([]byte(body)); err == nil {
 			t.Errorf("accepted %s", body)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
+	if _, err := config.ParseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
 		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -33,7 +34,7 @@ func ConfigHash(raw []byte) string {
 
 // TrustPath is where a project's trusted config hashes live.
 func TrustPath(home, project string) string {
-	return filepath.Join(filepath.Dir(RegistryPath(home, project)), "trusted-config.json")
+	return filepath.Join(config.ProjectDir(home, project), "trusted-config.json")
 }
 
 func readTrust(path string) (trustFile, error) {
@@ -55,19 +56,19 @@ func readTrust(path string) (trustFile, error) {
 }
 
 func writeTrust(path string, t trustFile) error {
-	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
+	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(t, "", "  ") // map keys marshal sorted
-	return writeAtomic(path, append(b, '\n'), 0o600)
+	return config.WriteAtomic(path, append(b, '\n'), 0o600)
 }
 
 // CheckTrust decides whether a config may run its commands. The first config seen
 // for a path is trusted and recorded (you started the panel on it). A changed one is
 // trusted only when trustNow is set, which records it.
-func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (TrustView, error) {
+func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.TrustView, error) {
 	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
-	tv := TrustView{Hash: hash, Path: cfgPath}
+	tv := config.TrustView{Hash: hash, Path: cfgPath}
 	path := TrustPath(home, project)
 	t, err := readTrust(path)
 	if err != nil {
@@ -98,9 +99,9 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (TrustView, 
 func TrustConfig(home, project, cfgPath string) (string, error) {
 	project = signals.ResolvePath(project)
 	if cfgPath == "" {
-		cfgPath = filepath.Join(project, DefaultConfigRel)
+		cfgPath = filepath.Join(project, config.DefaultConfigRel)
 	}
-	_, raw, err := LoadConfigRaw(cfgPath)
+	_, raw, err := config.LoadConfigRaw(cfgPath)
 	if err != nil {
 		return "", err
 	}

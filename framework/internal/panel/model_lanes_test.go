@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -11,7 +12,7 @@ import (
 // sessions (hooks and claude agents), binding a lane to its session by session id.
 // Anything that does not add up is shown as an orphan, never dropped.
 func TestReducerReconcilesLanes(t *testing.T) {
-	cfg, err := ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"}}`))
+	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

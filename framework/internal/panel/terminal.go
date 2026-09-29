@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 )
@@ -149,7 +150,7 @@ func (s *Server) closeTerminals(lane string) {
 // issueTicketHandler serves POST /api/lanes/{id}/ticket.
 func (s *Server) issueTicketHandler(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
 		return
 	}
@@ -214,7 +215,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("lane")
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		http.Error(w, "invalid lane id", http.StatusBadRequest)
 		return
 	}

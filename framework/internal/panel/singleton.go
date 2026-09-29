@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -44,11 +45,11 @@ type PanelOwner struct {
 }
 
 // OwnerPath is the running panel's owner record.
-func OwnerPath(home string) string { return filepath.Join(panelDir(home), "owner.json") }
+func OwnerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
 
 // LockPath is the machine lock a running panel holds with flock(2). The file itself
 // is never removed: a new inode would let a second panel lock it too.
-func LockPath(home string) string { return filepath.Join(panelDir(home), "lock") }
+func LockPath(home string) string { return filepath.Join(config.PanelDir(home), "lock") }
 
 // OtherPanelError is a start refused because another panel holds the machine.
 type OtherPanelError struct{ Owner PanelOwner }
@@ -60,7 +61,7 @@ func (e *OtherPanelError) Error() string { return errOtherPanel(&e.Owner).Error(
 // panel holds it. The lock lasts until the returned file is closed or the process
 // exits, however it exits.
 func lockMachine(home string) (*os.File, error) {
-	if err := ensurePrivateDir(panelDir(home)); err != nil {
+	if err := config.EnsurePrivateDir(config.PanelDir(home)); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(LockPath(home), os.O_CREATE|os.O_RDWR, 0o600)
@@ -89,7 +90,7 @@ func lockMachine(home string) (*os.File, error) {
 // panel started by hand). It gives up when ctx ends; a lock taken after that is
 // released at once.
 func waitMachineLock(ctx context.Context, home string) (*os.File, error) {
-	if err := ensurePrivateDir(panelDir(home)); err != nil {
+	if err := config.EnsurePrivateDir(config.PanelDir(home)); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(LockPath(home), os.O_CREATE|os.O_RDWR, 0o600)
@@ -133,7 +134,7 @@ func (o PanelOwner) describe() string {
 	return s
 }
 
-func pidPath(home string) string { return filepath.Join(panelDir(home), "pid") }
+func pidPath(home string) string { return filepath.Join(config.PanelDir(home), "pid") }
 
 func readPIDFile(home string) int {
 	b, err := os.ReadFile(pidPath(home))
@@ -213,17 +214,17 @@ func errOtherPanel(o *PanelOwner) error {
 // claimPanelFiles records this process as the machine's panel: owner.json and pid,
 // then the port marker last (status-line scripts post once it exists).
 func claimPanelFiles(home string, o PanelOwner) error {
-	if err := ensurePrivateDir(panelDir(home)); err != nil {
+	if err := config.EnsurePrivateDir(config.PanelDir(home)); err != nil {
 		return err
 	}
 	b, _ := json.Marshal(o)
-	if err := writeAtomic(OwnerPath(home), append(b, '\n'), 0o600); err != nil {
+	if err := config.WriteAtomic(OwnerPath(home), append(b, '\n'), 0o600); err != nil {
 		return err
 	}
-	if err := writeAtomic(pidPath(home), []byte(strconv.Itoa(o.PID)+"\n"), 0o600); err != nil {
+	if err := config.WriteAtomic(pidPath(home), []byte(strconv.Itoa(o.PID)+"\n"), 0o600); err != nil {
 		return err
 	}
-	return writeAtomic(MarkerPath(home), []byte(strconv.Itoa(o.Port)+"\n"), 0o600)
+	return config.WriteAtomic(MarkerPath(home), []byte(strconv.Itoa(o.Port)+"\n"), 0o600)
 }
 
 // releasePanelFiles removes the marker, pid and owner files only while the pid file

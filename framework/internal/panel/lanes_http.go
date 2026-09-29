@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the
@@ -74,7 +76,7 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if !ValidLaneID(id) {
+	if !config.ValidLaneID(id) {
 		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
 		return
 	}

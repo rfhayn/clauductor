@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -176,7 +177,7 @@ func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error
 	// Re-read immediately before the rename: if the file is no longer what this edit
 	// was computed from, another writer changed it, and renaming would lose its
 	// change. The window left is the rename itself.
-	return true, writeAtomicChecked(path, out.Bytes(), mode, func() error {
+	return true, config.WriteAtomicChecked(path, out.Bytes(), mode, func() error {
 		if beforeSettingsRename != nil {
 			beforeSettingsRename(path)
 		}
@@ -199,41 +200,6 @@ func jsonEqual(a, b []byte) bool {
 		return false
 	}
 	return bytes.Equal(ca.Bytes(), cb.Bytes())
-}
-
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	return writeAtomicChecked(path, data, mode, nil)
-}
-
-// writeAtomicChecked writes a temp file, then runs check (if set) right before the
-// rename; a check error abandons the write.
-func writeAtomicChecked(path string, data []byte, mode os.FileMode, check func() error) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings.json.tmp-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name) // no-op after a successful rename
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(name, mode); err != nil {
-		return err
-	}
-	if check != nil {
-		if err := check(); err != nil {
-			return err
-		}
-	}
-	return os.Rename(name, path)
 }
 
 // isOurs reports whether one hook object is tagged as the panel's.

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -90,7 +91,7 @@ type CardState struct {
 
 // Model is the panel's whole in-memory state.
 type Model struct {
-	cfg       *Config
+	cfg       *config.Config
 	root      string
 	startedAt time.Time
 
@@ -142,7 +143,7 @@ type Quota struct {
 }
 
 // NewModel returns an empty model. Every source starts Pending.
-func NewModel(cfg *Config, root string, now time.Time) *Model {
+func NewModel(cfg *config.Config, root string, now time.Time) *Model {
 	m := &Model{
 		cfg:          cfg,
 		root:         root,
@@ -605,12 +606,12 @@ type View struct {
 	StatusPosts  int                     `json:"statusPosts"`
 	Dropped      int                     `json:"dropped"`
 	// v1.
-	Terminals    []TermLaneView `json:"terminals"`
-	LaneTypes    []LaneTypeInfo `json:"laneTypes"`
-	StartBlocked string         `json:"startBlocked,omitempty"`
-	TmuxSocket   string         `json:"tmuxSocket"`
-	LaneBase     string         `json:"laneBase"`
-	WorktreeRoot string         `json:"worktreeRoot"`
+	Terminals    []TermLaneView        `json:"terminals"`
+	LaneTypes    []config.LaneTypeInfo `json:"laneTypes"`
+	StartBlocked string                `json:"startBlocked,omitempty"`
+	TmuxSocket   string                `json:"tmuxSocket"`
+	LaneBase     string                `json:"laneBase"`
+	WorktreeRoot string                `json:"worktreeRoot"`
 	// v2 (model_v2.go).
 	ViewV2
 }

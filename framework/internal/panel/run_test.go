@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -43,7 +44,7 @@ func setupProject(t *testing.T) (root, home string) {
 	t.Helper()
 	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
 		"cards":[{"id":"c","title":"Card","command":["echo","card"],"refresh":"interval:60"}]}`)
 	return root, home
 }

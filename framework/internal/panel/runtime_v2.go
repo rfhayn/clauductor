@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -71,7 +72,7 @@ func (o *Orchestration) startGate() StartGate {
 
 type runtimeV2 struct {
 	o       Options
-	cfg     *Config
+	cfg     *config.Config
 	root    string
 	cfgPath string
 	hub     *Hub
@@ -80,7 +81,7 @@ type runtimeV2 struct {
 	srv     atomic.Pointer[Server]
 
 	trust     atomic.Bool
-	trustView TrustView
+	trustView config.TrustView
 	malformed atomic.Int64
 	lastHook  atomic.Int64 // unix ns of the last hook the ingest accepted
 	// agentsQuietNow: the agents loop is sleeping the quiet interval (hookSeen kicks it).
@@ -105,11 +106,11 @@ type runtimeV2 struct {
 	lastQ      string
 }
 
-func checkConfigTrust(o Options, root, cfgPath string, raw []byte) TrustView {
+func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustView {
 	hash := ConfigHash(raw)
 	tv, err := CheckTrust(o.Home, root, cfgPath, hash, o.TrustConfig)
 	if err != nil {
-		tv = TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
+		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
 	state := "trusted"
 	if !tv.Trusted {
@@ -122,7 +123,7 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) TrustView {
 	return tv
 }
 
-func newRuntimeV2(o Options, cfg *Config, root, cfgPath string, tv TrustView, hub *Hub, p *pollers, lanes *LaneManager) *runtimeV2 {
+func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *Hub, p *pollers, lanes *LaneManager) *runtimeV2 {
 	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lanes, trustView: tv,
 		runs: map[string]*lease.QueueRun{}}
 	x.trust.Store(tv.Trusted)
@@ -420,7 +421,7 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 		if string(st) != x.savedState {
 			// Saved before sending: a crash mid-send loses one notification rather
 			// than repeating it at every restart.
-			if err := ensurePrivateDir(filepath.Dir(x.notifyPath)); err == nil && writeAtomic(x.notifyPath, st, 0o600) == nil {
+			if err := config.EnsurePrivateDir(filepath.Dir(x.notifyPath)); err == nil && config.WriteAtomic(x.notifyPath, st, 0o600) == nil {
 				x.savedState = string(st)
 			}
 		}
@@ -648,7 +649,7 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*leas
 	}
 	argv = append(append(append([]string{}, argv...), "--lane", lane, lock, "--"), q.Command...)
 	logDir := filepath.Join(filepath.Dir(RegistryPath(x.o.Home, x.root)), "queue-logs")
-	if err := ensurePrivateDir(logDir); err != nil {
+	if err := config.EnsurePrivateDir(logDir); err != nil {
 		return nil, err
 	}
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.log", queue, time.Now().Format("20060102-150405")))

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
@@ -211,7 +212,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},
 		"base":"main","worktree_dir":".wt"}`)
 	gitRun(t, root, "add", ".")
 	gitRun(t, root, "commit", "-q", "-m", "init")
@@ -396,7 +397,7 @@ func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	p := startPanel(t, root, home, sock)
 	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
@@ -419,7 +420,7 @@ func rootLaneProject(t *testing.T) (root, home string) {
 	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
 	return root, home
 }
 

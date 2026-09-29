@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -55,15 +56,6 @@ type NotifierStats struct {
 	Deferred   int    `json:"deferred"`   // alerts held back by the per-lane rate limit
 }
 
-// TrustView says whether the config's argv may run (see trust.go).
-type TrustView struct {
-	Trusted bool   `json:"trusted"`
-	Hash    string `json:"hash"`
-	Prev    string `json:"prev,omitempty"`
-	Path    string `json:"path"`
-	Note    string `json:"note,omitempty"`
-}
-
 type modelV2 struct {
 	droppedUnknown int
 	unknownNotifs  int
@@ -74,7 +66,7 @@ type modelV2 struct {
 	queues         []lease.QueueView
 	queuesSrc      SourceStatus
 	notifier       NotifierStats
-	trust          TrustView
+	trust          config.TrustView
 	versionSet     bool
 }
 
@@ -118,18 +110,18 @@ func (v *View) banner(kind, text string) {
 // ViewV2 is the v2 part of the View.
 type ViewV2 struct {
 	// Done holds finished turns and completed agents: your move, but not blocked.
-	Done       []NeedView        `json:"done"`
-	Alerts     []AlertView       `json:"alerts"`
-	Templates  []TemplateInfo    `json:"templates"`
-	Queues     []lease.QueueView `json:"queues"`
-	QueuesSrc  SourceStatus      `json:"queuesSource"`
-	Thresholds Thresholds        `json:"thresholds"`
+	Done       []NeedView            `json:"done"`
+	Alerts     []AlertView           `json:"alerts"`
+	Templates  []config.TemplateInfo `json:"templates"`
+	Queues     []lease.QueueView     `json:"queues"`
+	QueuesSrc  SourceStatus          `json:"queuesSource"`
+	Thresholds config.Thresholds     `json:"thresholds"`
 	// QuotaGuard is set when the 5-hour quota is at or above the guard: a new lane
 	// needs the override.
-	QuotaGuard string    `json:"quotaGuard,omitempty"`
-	Restorable []string  `json:"restorable"`
-	Observe    ObsView   `json:"observe"`
-	Trust      TrustView `json:"trust"`
+	QuotaGuard string           `json:"quotaGuard,omitempty"`
+	Restorable []string         `json:"restorable"`
+	Observe    ObsView          `json:"observe"`
+	Trust      config.TrustView `json:"trust"`
 	// Warnings are soft banners: nothing is lost, but something is approximate.
 	Warnings []string `json:"warnings"`
 }
@@ -151,7 +143,7 @@ func (m *Model) ApplyObs(o Obs) { m.v2.obs = o }
 func (m *Model) ApplyNotifier(n NotifierStats) { m.v2.notifier = n }
 
 // ApplyTrust records whether the config is trusted.
-func (m *Model) ApplyTrust(t TrustView) { m.v2.trust = t }
+func (m *Model) ApplyTrust(t config.TrustView) { m.v2.trust = t }
 
 // ApplyQueues records a read of the queues' leases.
 func (m *Model) ApplyQueues(qs []lease.QueueView, err error, now time.Time) {

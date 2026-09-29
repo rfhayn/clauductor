@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -58,7 +59,7 @@ func v2Project(t *testing.T, cfg string) (root, home string) {
 	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), cfg)
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), cfg)
 	gitRun(t, root, "add", ".")
 	gitRun(t, root, "commit", "-q", "-m", "init")
 	gitRun(t, root, "remote", "add", "origin", filepath.Join(root, "no-such-remote"))
@@ -243,7 +244,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	}
 	p.stop()
 	// The config changes (a pull): the card and templates are off, loudly.
-	writeFile(t, filepath.Join(root, DefaultConfigRel), strings.Replace(cfg, "card-ran", "card-changed", 1))
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), strings.Replace(cfg, "card-ran", "card-changed", 1))
 	p = run()
 	waitFor(t, "the untrusted card", func() bool { _, e := cardOK(p); return strings.Contains(e, "not run") })
 	v := p.state(t)
