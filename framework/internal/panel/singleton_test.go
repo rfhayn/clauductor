@@ -457,23 +457,96 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 	})
 }
 
-// Review round (PANEL-5): under launchd (KeepAlive SuccessfulExit=false) a refused
-// start exits 0, so launchd does not retry it every 30 s; it says why, once.
-func TestLaunchdRefusalExitsCleanly(t *testing.T) {
+// PANEL-7 (was PANEL-5's clean exit): under launchd a start that finds a panel
+// started by hand waits on the machine lock, says so once, and takes over when that
+// panel exits, rather than exiting 0 and leaving the login agent down. A hand start
+// is still refused at once. A launchd start whose launchd stops it while it waits
+// exits 0.
+func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	root, home := setupProject(t)
-	_, _, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
-	defer stop()
-	var out strings.Builder
-	var mu sync.Mutex
-	err := runBounded(t, Options{Project: root, Port: 0, Home: home, Launchd: true, Runner: fakeRunner(root),
-		Out: &syncWriter{w: &out, mu: &mu}, OpenBrowser: func(string) {}})
-	mu.Lock()
-	defer mu.Unlock()
-	if err != nil || !strings.Contains(out.String(), "another clauductor panel is running") {
-		t.Fatalf("a refused launchd start must exit 0 and log why: err %v, log:\n%s", err, out.String())
-	}
-	// A hand-started panel is still refused with an error (non-zero exit).
+	_, _, stopHand := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	handStopped := false
+	defer func() {
+		if !handStopped {
+			stopHand()
+		}
+	}()
+
+	// A hand-started second panel is refused with an error (non-zero exit), at once.
+	t0 := time.Now()
 	if err := runBounded(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)}); err == nil {
 		t.Fatal("a refused hand start returned no error")
 	}
+	if d := time.Since(t0); d > 2*time.Second {
+		t.Fatalf("a hand start waited %v instead of refusing at once", d)
+	}
+
+	var out strings.Builder
+	var mu sync.Mutex
+	logged := func() string { mu.Lock(); defer mu.Unlock(); return out.String() }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan string, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Launchd: true, Runner: fakeRunner(root),
+			Out: &syncWriter{w: &out, mu: &mu}, OpenBrowser: func(string) {}, OnReady: func(u string) { ready <- u }})
+	}()
+	waitFor(t, "the launchd start to say it waits", func() bool {
+		return strings.Contains(logged(), "waiting for the running panel to exit")
+	})
+	select {
+	case u := <-ready:
+		t.Fatalf("the launchd start served (%s) while the hand-started panel runs", u)
+	case err := <-done:
+		t.Fatalf("the launchd start exited (%v) instead of waiting; log:\n%s", err, logged())
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	stopHand()
+	handStopped = true
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("the launchd start exited (%v) instead of taking over; log:\n%s", err, logged())
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the launchd start did not take over; log:\n%s", logged())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("the launchd panel: %v", err)
+	}
+
+	// Stopped by launchd while it waits: exit 0, and the lock is not left held.
+	_, _, stopHand2 := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done2 := make(chan error, 1)
+	var out2 strings.Builder
+	go func() {
+		done2 <- Run(ctx2, Options{Project: root, Port: 0, Home: home, Launchd: true, Runner: fakeRunner(root),
+			Out: &syncWriter{w: &out2, mu: &mu}, OpenBrowser: func(string) {}})
+	}()
+	waitFor(t, "the second launchd start to wait", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Contains(out2.String(), "waiting for the running panel to exit")
+	})
+	cancel2()
+	select {
+	case err := <-done2:
+		if err != nil {
+			t.Fatalf("a launchd start stopped while waiting: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a launchd start stopped while waiting did not exit")
+	}
+	stopHand2()
+	// Its abandoned flock must not keep the machine once it is granted.
+	waitFor(t, "the machine lock to be free", func() bool {
+		f, err := lockMachine(home)
+		if err == nil {
+			f.Close()
+		}
+		return err == nil
+	})
 }

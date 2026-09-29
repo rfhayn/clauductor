@@ -158,10 +158,16 @@ func approxLabel(label string, b blockInfo) string {
 	return fmt.Sprintf("%s (≈ stale: %s)", label, b.Why)
 }
 
+// waitingNoteMaxAge bounds how long a session with an open waiting note is kept
+// while polls fail (PANEL-7): a day without a hook or a status line from it.
+const waitingNoteMaxAge = 24 * time.Hour
+
 // forgetSessions drops sessions the panel has not heard from in forgetSessionAge:
 // no hook, no status line, and no `claude agents` reading that recent. It runs on
-// every poll, failed or not, so a failing poll never keeps a session forever, except
-// one with an open waiting note, which only a working poll can clear.
+// every poll, failed or not, so a failing poll never keeps a session forever. One
+// with an open waiting note, which only a working poll can clear, is kept longer,
+// but not without bound: until its lane's pane is dead (or its tmux session gone),
+// or waitingNoteMaxAge passes without a word from it, whichever comes first.
 func (m *Model) forgetSessions(now time.Time) {
 	for id, s := range m.sessions {
 		if s.Agent != nil && now.Sub(m.agentsOKAt) <= forgetSessionAge {
@@ -170,6 +176,15 @@ func (m *Model) forgetSessions(now time.Time) {
 		// While polls fail, nothing can say an open prompt was answered: a session
 		// with a waiting note stays in Needs you (marked approximate) until one can.
 		if !m.agentsSrc.OK && s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
+			heard := s.LastHookAt
+			if s.StatusAt.After(heard) {
+				heard = s.StatusAt
+			}
+			if !m.lanePaneDead(id) && now.Sub(heard) <= waitingNoteMaxAge {
+				continue
+			}
+			delete(m.sessions, id)
+			delete(m.costByID, id)
 			continue
 		}
 		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
@@ -177,6 +192,26 @@ func (m *Model) forgetSessions(now time.Time) {
 			delete(m.costByID, id) // the est. $ sum covers tracked sessions only
 		}
 	}
+}
+
+// lanePaneDead: the session is a registered lane's, and a successful tmux poll
+// shows that lane's pane dead or its session gone, so nothing in it can be waiting.
+func (m *Model) lanePaneDead(sessionID string) bool {
+	if !m.tmuxSrc.OK {
+		return false
+	}
+	for _, rec := range m.laneRecords {
+		if rec.SessionID != sessionID {
+			continue
+		}
+		for _, tl := range m.tmuxLanes {
+			if tl.ID == rec.ID {
+				return tl.Dead
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // agentsPollCap bounds how much a slow poll widens the freshness window: each

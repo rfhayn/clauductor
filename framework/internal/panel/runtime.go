@@ -155,6 +155,23 @@ func Run(ctx context.Context, o Options) error {
 	// lock comes first, so two panels started at the same instant cannot both pass;
 	// the pid-file check then catches a panel from before the lock.
 	lock, err := lockMachine(o.Home)
+	var held *OtherPanelError
+	if errors.As(err, &held) && o.Launchd {
+		// Under launchd, a panel started by hand holds the machine: wait for it to
+		// exit, then take over (PANEL-7). Exiting instead would leave the login agent
+		// down after that panel stops, since KeepAlive restarts only a failed exit.
+		fmt.Fprintf(o.Out, "waiting for the running panel to exit (%s)\n", held.Owner.describe())
+		lock, err = waitMachineLock(ctx, o.Home)
+		if ctx.Err() != nil {
+			if lock != nil {
+				lock.Close()
+			}
+			return nil
+		}
+		if err == nil {
+			fmt.Fprintln(o.Out, "the running panel exited; taking over")
+		}
+	}
 	if err == nil {
 		defer lock.Close()
 		if other := RunningPanel(ctx, o.Home, os.Getpid(), LiveProc); other != nil {
@@ -642,40 +659,118 @@ func newLaneManager(o Options, cfg *Config, root string) (*LaneManager, string) 
 	return m, why
 }
 
-// tmuxLoop reconciles the lane registry with the socket: at start (so lanes that
-// outlived a panel restart reappear, and lanes a reboot killed show as orphans),
-// every 2 s, and right after a lane command. Every 30 s it also re-reads the
-// registry file from disk rather than trusting its in-memory copy. The reducer
-// matches the result against claude agents (by session id) and the worktree list.
-func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) {
-	lastReload := time.Now()
-	loop(ctx, 2*time.Second, p.kickTmux, func() {
-		if lanes == nil {
-			p.hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, errors.New(why), now) })
-			return
+// tmux poll cadence (PANEL-7). Every tmux call is a process spawn, and the panel
+// is meant to idle for days.
+const (
+	// tmuxFast is the list-panes interval while the socket has lanes.
+	tmuxFast = 2 * time.Second
+	// tmuxIdle is the interval while it has none: a lane the panel starts or
+	// restores kicks the loop at once, so nothing waits for this.
+	tmuxIdle = 10 * time.Second
+	// tmuxRecheck is how often show-environment (an API key in the server's
+	// environment) and Harden run while the lane set stays the same. A lane start
+	// checks the environment itself, and every viewer hardens before it attaches.
+	tmuxRecheck = 30 * time.Second
+	// registryReload is how often the registry is re-read from disk.
+	registryReload = 30 * time.Second
+)
+
+// tmuxPoller reconciles the lane registry with the socket, one tick at a time.
+type tmuxPoller struct {
+	lanes *LaneManager
+	why   string // lanes are unavailable (from newLaneManager)
+	now   func() time.Time
+
+	lastReload time.Time
+	lastCheck  time.Time // the last show-environment / Harden
+	checkedSig string    // the lane set they ran against
+	tmuxWhy    string    // what show-environment said then
+}
+
+func newTmuxPoller(lanes *LaneManager, why string, now func() time.Time) *tmuxPoller {
+	return &tmuxPoller{lanes: lanes, why: why, now: now, lastReload: now()}
+}
+
+// laneSetSig names the lane set: whether the socket has a server, and each lane.
+func laneSetSig(up bool, ls []TmuxLane) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%t", up)
+	for _, l := range ls {
+		b.WriteString("|" + l.ID)
+	}
+	return b.String()
+}
+
+// tick polls once, and returns the model update and how long to wait before the
+// next tick. list-panes (one call covers every lane) runs every tick;
+// show-environment and Harden only when the lane set changed or tmuxRecheck
+// passed, and never without a server: no server has no environment to check.
+func (t *tmuxPoller) tick(ctx context.Context) (func(m *Model, now time.Time), time.Duration) {
+	if t.lanes == nil {
+		why := t.why
+		return func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, errors.New(why), now) }, tmuxIdle
+	}
+	now := t.now()
+	if now.Sub(t.lastReload) >= registryReload {
+		t.lastReload = now
+		if err := t.lanes.Registry.Reload(); err != nil {
+			why := t.why
+			return func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, err, now) }, tmuxFast
 		}
-		if time.Since(lastReload) >= 30*time.Second {
-			lastReload = time.Now()
-			if err := lanes.Registry.Reload(); err != nil {
-				p.hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, err, now) })
-				return
+	}
+	ls, up, err := t.lanes.ListServer(ctx)
+	if err == nil {
+		sig := laneSetSig(up, ls)
+		if t.lastCheck.IsZero() || sig != t.checkedSig || now.Sub(t.lastCheck) >= tmuxRecheck {
+			t.lastCheck, t.checkedSig, t.tmuxWhy = now, sig, ""
+			if up {
+				if len(ls) > 0 {
+					_ = t.lanes.Harden(ctx)
+				}
+				t.tmuxWhy = t.lanes.tmuxEnvBlocked(ctx)
 			}
 		}
-		ls, err := lanes.List(ctx)
-		if err == nil && len(ls) > 0 {
-			_ = lanes.Harden(ctx)
-		}
-		blocked := why
-		if blocked == "" {
-			blocked = lanes.StartBlocked(ctx)
-		}
+	}
+	blocked := t.why
+	if blocked == "" {
+		blocked = t.lanes.envBlocked()
+	}
+	if blocked == "" {
+		blocked = t.tmuxWhy
+	}
+	next := tmuxIdle
+	if len(ls) > 0 || err != nil {
+		next = tmuxFast
+	}
+	recs, problems := t.lanes.Registry.List(), t.lanes.Registry.Problems()
+	return func(m *Model, now time.Time) {
+		m.ApplyTmux(ls, recs, blocked, err, now)
+		m.ApplyRegistryProblems(problems)
+	}, next
+}
+
+// tmuxLoop reconciles the lane registry with the socket: at start (so lanes that
+// outlived a panel restart reappear, and lanes a reboot killed show as orphans),
+// every tmuxFast while the socket has lanes (tmuxIdle while it has none), and right
+// after a lane command. Every 30 s it also re-reads the registry file from disk
+// rather than trusting its in-memory copy. The reducer matches the result against
+// claude agents (by session id) and the worktree list.
+func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) {
+	t := newTmuxPoller(lanes, why, time.Now)
+	for {
+		update, next := t.tick(ctx)
 		if ctx.Err() != nil {
 			return
 		}
-		recs, problems := lanes.Registry.List(), lanes.Registry.Problems()
-		p.hub.Update(func(m *Model, now time.Time) {
-			m.ApplyTmux(ls, recs, blocked, err, now)
-			m.ApplyRegistryProblems(problems)
-		})
-	})
+		p.hub.Update(update)
+		timer := time.NewTimer(next)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		case <-p.kickTmux:
+			timer.Stop()
+		}
+	}
 }

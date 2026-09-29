@@ -17,13 +17,14 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 |---|---|---|
 | HTTP hooks | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
 | Status line | the project's status-line script copies its stdin to `POST /status` | context %, 5-hour and 7-day quota, est. cost |
-| `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow | which sessions exist, busy / waiting / idle |
+| `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
-| queue leases | read every 1 s from the git common dir | who holds the gate, who waits |
+| queue leases | read every 1 s from the git common dir; `ps` once per process, then `kill -0` | who holds the gate, who waits |
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
-| `tmux -L <socket> list-panes -a` | polled every 2 s, and right after a lane action | which lanes run, and whether their program exited |
+| `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
+| `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
 
 Keeping the panel current costs **no model tokens**. It never reads transcripts.
@@ -60,9 +61,11 @@ before the lock. Of two panels started at the same instant, exactly one runs. Th
 the running panel's project, pid and port. Live means: the pid is running, and its start time
 equals the one recorded in `owner.json` (a different start time is a reused pid, so the old record
 is stale and is taken over). A panel from before `owner.json` counts as live only if its port
-answers `/healthz` as that pid. If the login agent is the one refused (a hand-started panel holds
-the machine), it logs why once and exits 0, so launchd does not retry it every 30 s. Start it
-again with `launchctl kickstart gui/<uid>/com.clauductor.panel` once the other panel has stopped. Watching several projects from one panel, a multi-project
+answers `/healthz` as that pid. The login agent is not refused: when a hand-started panel holds
+the machine, it logs "waiting for the running panel to exit" once, blocks on the lock, and takes
+over as soon as that panel stops. (Only a live panel from before the lock, which it cannot wait on,
+makes it log why and exit 0; start it again with `launchctl kickstart gui/<uid>/com.clauductor.panel`
+once that panel has stopped.) A panel started by hand is still refused at once. Watching several projects from one panel, a multi-project
 daemon, is future work; until it lands, run one project's panel at a time.
 
 ## Configuration: `.clauductor/panel.json`
@@ -405,7 +408,8 @@ each lane: its id, session id, directory, type, branch, and its last action. The
 written **before** each action and marked done after it, so a panel that crashes mid-action
 finds the half-done action when it restarts. The file is written atomically.
 
-The registry is never trusted on its own. Every 2 s the panel compares it with the tmux socket,
+The registry is never trusted on its own. Every 2 s while lanes run (every 10 s with none, and at
+once after a lane action) the panel compares it with the tmux socket,
 `claude agents --json` (matched by session id) and the worktree list, and it re-reads the file
 every 30 s. Anything that does not add up is shown as an **orphan**, never hidden:
 
@@ -451,7 +455,8 @@ We chose this over the alternatives:
 The panel refuses to start, restart or resume a lane while `ANTHROPIC_API_KEY` or
 `ANTHROPIC_AUTH_TOKEN` is set, in the panel's own environment or in the tmux server's global
 environment (`tmux -L <socket> show-environment -g`), which every lane inherits. Either key
-outranks the subscription login. The page shows the reason and disables **+ LANE**. If the tmux
+outranks the subscription login. The page shows the reason and disables **+ LANE**; it re-reads
+the tmux environment when the lane set changes and every 30 s, and every start reads it again. If the tmux
 environment cannot be read, the panel refuses too: unknown is not "no key". As a second layer,
 the lane command unsets both variables.
 
@@ -596,7 +601,7 @@ send requests to `127.0.0.1`.
   mode, or to the program if it asked for the mouse), so the wheel scrolls history. Clicks and
   the right-click menu (which offers kill-pane and respawn-pane) stay unbound. The same pass sets
   `mouse on` and `status off`. `-f` only applies when the panel starts the server, so the same settings
-  are applied again every time the panel finds a server on its socket (each 2 s poll) and before
+  are applied again whenever the panel finds its socket's lane set changed, every 30 s while lanes run, and before
   every viewer attaches. A server someone else started there, with their `~/.tmux.conf`
   bindings, is stripped too. A lane's viewer therefore cannot use tmux keys to switch to another lane or reach tmux's
   command prompt and `run-shell`.
@@ -719,7 +724,10 @@ uses `{issue}`), and START:
 
 "Needs you" says so when it is stuck: claude not listed as idle after 15 s ("answer any dialog in
 its terminal"), claude exited, the panel stopped mid-typing, or the prompt was typed but not
-submitted after 30 s. If you type into the lane first, the prompt is skipped.
+submitted after 30 s. If you type into the lane first, the prompt is skipped. While it waits on
+claude, the panel asks `claude agents` for a fresh reading at most every 2 s. A pending lane whose
+tmux session is gone (a reboot, a killed tmux server) waits 30 s, then shows "RESTORE the lane"
+and stops asking: no poll can bring it back. Once restored, the prompt is typed as usual.
 
 ### The gate queue: a lease on disk
 
@@ -742,7 +750,9 @@ The protocol is plain files, so a shell script can honour it with no clauductor 
 prints it, with runs of whitespace collapsed to one space (for example
 `Mon Sep 28 23:10:17 2026`), or `proc:<field 22 of /proc/<pid>/stat>` where there is no `ps`.
 It is what tells a live holder from a reused pid. `child_pid` and `child_pstart` name the
-holder's command the same way.
+holder's command the same way. The panel's read-only queue view runs `ps` once per process: a
+start time never changes, and a pid is reused only after its process is gone, so while `kill -0`
+answers, the pid is the process it read. `lock-run`'s waiters, which reclaim, read it every time.
 
 **When a holder is stale** (only a stale holder may be removed):
 
@@ -975,7 +985,8 @@ card, the lane's status chip, the sessions table and the terminal tab show an ap
 with a leading `≈`. A failing poll no longer keeps sessions forever: one silent for 30 minutes
 (no hook, no status line, no current reading) is forgotten either way. The exception is a session
 with an open permission, elicitation or input prompt: while polls fail, nothing can say it was
-answered, so it stays in *Needs you*, marked approximate, until a poll works again.
+answered, so it stays in *Needs you*, marked approximate, until a poll works again, or until its
+lane's pane is dead (or its tmux session gone), or 24 hours pass without a word from it.
 
 Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
 goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.
@@ -1068,7 +1079,9 @@ panel follows within 5 s) or start with `--trust-config`. A red banner names bot
   also runs unfiltered, and if the filter drops any session of the project, it polls unfiltered.
   One poll measured 93–103 ms wall (p50 98 ms), about 105 ms CPU and 148 MB peak RSS on
   2.1.284; at 2 s that is about 5% of a core. So it backs off to 5 s while hooks are flowing (a
-  hook in the last 30 s), and a kick still polls at once.
+  hook in the last 30 s), and to 15 s while the panel has no lane and has heard no hook for 5
+  minutes; a kick (a lane action, a refresh) still polls at once. A reading counts as current for
+  two of whichever interval the loop is on.
 - **Overflow.** A hook body dropped because the panel fell behind is counted apart from foreign
   drops, and raises a banner.
 - **`settings.json`.** The hook install re-reads the file immediately before its rename, and redoes

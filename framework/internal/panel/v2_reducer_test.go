@@ -291,8 +291,9 @@ func TestAgentsFilterAndBackoff(t *testing.T) {
 	if got := MissedByFilter(all, all[:2], in); len(got) != 0 {
 		t.Fatalf("a foreign session missing from the filter is fine: %v", got)
 	}
-	if AgentsInterval(time.Time{}, t0) != 2*time.Second || AgentsInterval(t0.Add(-10*time.Second), t0) != 5*time.Second ||
-		AgentsInterval(t0.Add(-31*time.Second), t0) != 2*time.Second {
+	// With a lane (PANEL-7 adds the quiet interval without one: cost_test.go).
+	if AgentsInterval(time.Time{}, t0, true) != 2*time.Second || AgentsInterval(t0.Add(-10*time.Second), t0, true) != 5*time.Second ||
+		AgentsInterval(t0.Add(-31*time.Second), t0, true) != 2*time.Second {
 		t.Fatal("backoff wrong")
 	}
 }

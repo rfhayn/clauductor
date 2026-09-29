@@ -23,6 +23,10 @@ const (
 	// confirmGrace is how long a typed first prompt may take to show up as a
 	// UserPromptSubmit (or busy) before "Needs you" says it may not have landed.
 	confirmGrace = 30 * time.Second
+	// goneGrace is how long a pending template lane's tmux session may be missing
+	// (a start still coming up, a tmux poll not yet run) before the lane is taken to
+	// need a RESTORE, and the first-prompt loop stops asking for polls (PANEL-7).
+	goneGrace = 30 * time.Second
 )
 
 // Obs are the panel's own counters, kept by the runtime and copied into the model.
@@ -229,12 +233,22 @@ type PromptInput struct {
 	PollFresh    bool      // the last `claude agents` poll succeeded within two intervals
 	Since        time.Time // when the lane's last action began
 	PromptAt     time.Time // when the prompt was typed
+	// GoneSince is when the tmux polls first found the lane's session missing (zero
+	// while it is there, or before the first poll).
+	GoneSince time.Time
 }
 
 // PromptDecision is what to do about a template lane's first prompt.
 type PromptDecision struct {
-	Action string // none | wait | send | skip | stuck | delivered
+	Action string // none | wait | send | skip | stuck | delivered | restore
 	Why    string
+	// Poll: a fresh `claude agents` reading may change a "wait", so the first-prompt
+	// loop asks for one.
+	Poll bool
+}
+
+func promptWait(why string, poll bool) PromptDecision {
+	return PromptDecision{Action: "wait", Why: why, Poll: poll}
 }
 
 // DecideFirstPrompt decides, from structured signals only, whether a template lane
@@ -246,40 +260,48 @@ func DecideFirstPrompt(in PromptInput, now time.Time) PromptDecision {
 	switch in.State {
 	case "pending":
 		if in.Conversation || !in.Prompted.IsZero() {
-			return PromptDecision{"skip", "a prompt was typed in the lane first"}
+			return decide("skip", "a prompt was typed in the lane first")
 		}
 		if !in.Running {
-			return PromptDecision{"wait", "the lane is not running"}
+			// No poll can help: `claude agents` has nothing to say about a lane whose
+			// tmux session is gone. After a reboot or a killed tmux server it stays
+			// gone until you RESTORE it, so past the grace it is marked, not polled.
+			if !in.GoneSince.IsZero() && now.Sub(in.GoneSince) >= goneGrace {
+				return decide("restore", "its tmux session is gone; RESTORE the lane and the first prompt is typed once claude is ready")
+			}
+			return promptWait("the lane is not running", false)
 		}
 		if in.Dead {
-			return PromptDecision{"stuck", "claude exited before its first prompt was typed; RESTART the lane"}
+			return decide("stuck", "claude exited before its first prompt was typed; RESTART the lane")
 		}
 		if in.Listed && in.Status == "idle" && in.WaitingFor == "" && !in.WaitingNote && in.PollFresh {
-			return PromptDecision{"send", ""}
+			return decide("send", "")
 		}
 		if in.Listed && in.Status == "idle" && !in.PollFresh {
-			return PromptDecision{"wait", "waiting for a fresh `claude agents` poll"}
+			return promptWait("waiting for a fresh `claude agents` poll", true)
 		}
 		if now.Sub(in.Since) >= readyGrace {
 			// No age in the text: the page shows how long from the item's time, so the
 			// view stays the same (and unpushed) while nothing changes.
-			return PromptDecision{"stuck", "claude is not ready yet. Answer any dialog in its terminal " +
-				"(workspace trust defaults to \"No, exit\": press ↓ then Enter). The first prompt is typed as soon as claude is idle."}
+			return decide("stuck", "claude is not ready yet. Answer any dialog in its terminal "+
+				"(workspace trust defaults to \"No, exit\": press ↓ then Enter). The first prompt is typed as soon as claude is idle.")
 		}
-		return PromptDecision{"wait", "waiting for claude to be ready"}
+		return promptWait("waiting for claude to be ready", true)
 	case "typing":
-		return PromptDecision{"stuck", "the panel stopped while typing the first prompt. Check the terminal: the panel never types it twice."}
+		return decide("stuck", "the panel stopped while typing the first prompt. Check the terminal: the panel never types it twice.")
 	case "sent":
 		if !in.Prompted.IsZero() && !in.Prompted.Before(in.PromptAt.Add(-time.Second)) || (in.Listed && in.Status == "busy") {
-			return PromptDecision{"delivered", ""}
+			return decide("delivered", "")
 		}
 		if now.Sub(in.PromptAt) >= confirmGrace {
-			return PromptDecision{"stuck", "the first prompt was typed but claude has not started on it. Check the terminal: the text may still sit in the input box."}
+			return decide("stuck", "the first prompt was typed but claude has not started on it. Check the terminal: the text may still sit in the input box.")
 		}
-		return PromptDecision{"wait", "typed; waiting for claude to start"}
+		return promptWait("typed; waiting for claude to start", true)
 	}
-	return PromptDecision{"none", ""}
+	return decide("none", "")
 }
+
+func decide(action, why string) PromptDecision { return PromptDecision{Action: action, Why: why} }
 
 // PromptDecisions returns the decision for every template lane with a prompt in
 // flight, keyed by lane id.
@@ -295,7 +317,8 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 		}
 		tl, running := tmux[rec.ID]
 		in := PromptInput{State: rec.PromptState, Conversation: rec.Conversation, Running: running, Dead: tl.Dead,
-			Since: time.UnixMilli(rec.ActionAt), PromptAt: time.UnixMilli(rec.PromptAt), PollFresh: m.agentsFresh(now)}
+			Since: time.UnixMilli(rec.ActionAt), PromptAt: time.UnixMilli(rec.PromptAt), PollFresh: m.agentsFresh(now),
+			GoneSince: m.laneGone[rec.ID]}
 		if s := m.sessions[rec.SessionID]; s != nil {
 			in.Prompted = s.LastPromptAt
 			// The same predicate as Needs you: never type into a session that may be
@@ -314,13 +337,18 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 
 // agentsFresh: the last `claude agents` poll succeeded recently enough that its
 // reading is current, not the last word of a poll that has since failed or stopped.
-// The loop sleeps at most agentsSlow between iterations, and an iteration takes its
-// own wall time (the filter cross-check included), so the next success can land an
-// interval plus that long after the last: the window is two slow intervals plus the
-// slowest recent iteration. Measured from the finish, a poll slower than the
-// interval would otherwise read as stale between two good polls.
+// The loop sleeps the interval it chose after the last poll (agentsNext; at least
+// agentsSlow counts), and an iteration takes its own wall time (the filter
+// cross-check included), so the next success can land an interval plus that long
+// after the last: the window is two such intervals plus the slowest recent
+// iteration. Measured from the finish, a poll slower than the interval would
+// otherwise read as stale between two good polls.
 func (m *Model) agentsFresh(now time.Time) bool {
-	window := 2*agentsSlow + m.slowestRecentPoll()
+	interval := agentsSlow
+	if m.agentsNext > interval {
+		interval = m.agentsNext
+	}
+	window := 2*interval + m.slowestRecentPoll()
 	return m.agentsSrc.OK && !m.agentsOKAt.IsZero() && now.Sub(m.agentsOKAt) <= window
 }
 

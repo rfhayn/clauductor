@@ -177,6 +177,7 @@ type Model struct {
 	agentsOKAt   time.Time        // the last `claude agents` poll that succeeded
 	agentsDurs   [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
 	agentsDurN   int
+	agentsNext   time.Duration // how long the loop waits after its last poll (agentsFresh)
 	prs          []PR
 	prsSrc       SourceStatus
 	cards        []*CardState
@@ -198,6 +199,9 @@ type Model struct {
 	regProblems  []string
 	tmuxSrc      SourceStatus
 	startBlocked string
+	// laneGone is when a successful tmux poll first found a registered lane's
+	// session missing, by lane id (PANEL-7).
+	laneGone map[string]time.Time
 }
 
 // Quota is the latest account quota the status line reported.
@@ -227,6 +231,7 @@ func NewModel(cfg *Config, root string, now time.Time) *Model {
 		sessions:     map[string]*session{},
 		laneHookAt:   map[string]time.Time{},
 		costByID:     map[string]float64{},
+		laneGone:     map[string]time.Time{},
 	}
 	m.v2.versionSrc = SourceStatus{Pending: true}
 	m.v2.queuesSrc = SourceStatus{Pending: true}
@@ -956,6 +961,21 @@ func (m *Model) ApplyTmux(lanes []TmuxLane, recs []LaneRecord, blocked string, e
 		return
 	}
 	m.tmuxLanes, m.laneRecords = lanes, recs
+	on := map[string]bool{}
+	for _, tl := range lanes {
+		on[tl.ID] = true
+	}
+	gone := map[string]time.Time{}
+	for _, rec := range recs {
+		if !on[rec.ID] {
+			since, ok := m.laneGone[rec.ID]
+			if !ok {
+				since = now
+			}
+			gone[rec.ID] = since
+		}
+	}
+	m.laneGone = gone
 }
 
 func (m *Model) terminalViews(now time.Time) []TermLaneView {
