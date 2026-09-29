@@ -601,6 +601,9 @@ func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) 
 			}
 		}
 		ls, err := lanes.List(ctx)
+		if err == nil && len(ls) > 0 {
+			_ = lanes.Harden(ctx)
+		}
 		blocked := why
 		if blocked == "" {
 			blocked = lanes.StartBlocked(ctx)

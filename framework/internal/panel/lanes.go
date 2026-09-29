@@ -340,7 +340,8 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 		// reach every other lane and tmux's own command prompt (run-shell).
 		";", "set-option", "-g", "prefix", "None",
 		";", "set-option", "-g", "prefix2", "None",
-		";", "unbind-key", "-q", "-a", "-T", "prefix")
+		";", "unbind-key", "-q", "-a", "-T", "prefix",
+		";", "unbind-key", "-q", "-a", "-T", "root")
 	return m.TmuxArgv(args...)
 }
 
@@ -503,6 +504,23 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	return res, nil
 }
 
+// hardenArgs make the panel's socket keyless: no prefix, and no prefix or root
+// (bind -n) bindings. `-f /dev/null` only applies when the panel starts the server,
+// so this also runs against a server someone else started on the socket.
+var hardenArgs = []string{"set-option", "-g", "prefix", "None",
+	";", "set-option", "-g", "prefix2", "None",
+	";", "unbind-key", "-q", "-a", "-T", "prefix",
+	";", "unbind-key", "-q", "-a", "-T", "root"}
+
+// Harden applies hardenArgs if the socket has a server. The panel runs it whenever
+// it finds the server (every tmux poll) and before every viewer attaches.
+func (m *LaneManager) Harden(ctx context.Context) error {
+	if _, err := m.tmux(ctx, hardenArgs...); err != nil && !noServer(err) {
+		return err
+	}
+	return nil
+}
+
 // sendText types text into a lane, then presses Enter as a separate write.
 func (m *LaneManager) sendText(ctx context.Context, id, text string) error {
 	if _, err := m.tmux(ctx, "send-keys", "-t", "="+id+":", "-l", text); err != nil {
@@ -575,8 +593,20 @@ func (m *LaneManager) stopLocked(ctx context.Context, id, sessionID string) *Lan
 	if !lane.Dead {
 		status, found, err := m.agentStatus(ctx, sessionID)
 		if sessionID != "" && err == nil && found && status == "idle" {
-			_ = m.sendText(ctx, id, "/exit")
-			m.waitDead(ctx, id, m.StopTimeout)
+			// C-u first, as its own key: it clears any unsent text in claude's input,
+			// which would otherwise turn "/exit" into part of a prompt.
+			target := "=" + id + ":"
+			_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+			_, _ = m.tmux(ctx, "send-keys", "-t", target, "-l", "/exit")
+			time.Sleep(m.EnterDelay)
+			// Still idle right before the Enter? A dialog may have opened meanwhile.
+			if st, ok, err := m.agentStatus(ctx, sessionID); err == nil && ok && st == "idle" {
+				_, _ = m.tmux(ctx, "send-keys", "-t", target, "Enter")
+				m.waitDead(ctx, id, m.StopTimeout)
+			} else {
+				_, _ = m.tmux(ctx, "send-keys", "-t", target, "Escape")
+				m.waitDead(ctx, id, time.Second)
+			}
 		} else {
 			_, _ = m.tmux(ctx, "send-keys", "-t", "="+id+":", "Escape")
 			m.waitDead(ctx, id, time.Second)

@@ -92,7 +92,8 @@ func TestLaneArgvConstruction(t *testing.T) {
 		";", "set-option", "-t", "=add-x:", "window-size", "latest",
 		";", "set-option", "-g", "prefix", "None",
 		";", "set-option", "-g", "prefix2", "None",
-		";", "unbind-key", "-q", "-a", "-T", "prefix"}
+		";", "unbind-key", "-q", "-a", "-T", "prefix",
+		";", "unbind-key", "-q", "-a", "-T", "root"}
 	if !reflect.DeepEqual(ns[len(ns)-len(tail):], tail) {
 		t.Fatalf("NewSessionArgv tail:\n got %q", ns[len(ns)-len(tail):])
 	}

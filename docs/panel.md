@@ -255,7 +255,7 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | Button | What it does |
 |---|---|
 | **INTERRUPT (ESC)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **STOP LANE** | If `claude agents` reports the lane's session **idle**, types `/exit`, then presses Enter as a separate write, and waits up to 10 s. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **STOP LANE** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
 | **RESTART** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
 | **RESUME** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **FORGET** (orphans) | Drops the registry record. The worktree and the conversation stay. |
@@ -402,7 +402,10 @@ send requests to `127.0.0.1`.
   terminal can do what the lane's user can. Everything above exists so that only you can type
   into it. On the panel's own tmux socket the server never loads `~/.tmux.conf` (`-f
   /dev/null`), and every lane start sets `prefix None`, `prefix2 None` and unbinds the prefix
-  table. A lane's viewer therefore cannot use tmux keys to switch to another lane or reach tmux's
+  and root tables. `-f` only applies when the panel starts the server, so the same settings
+  are applied again every time the panel finds a server on its socket (each 2 s poll) and before
+  every viewer attaches. A server someone else started there, with their `~/.tmux.conf`
+  bindings, is stripped too. A lane's viewer therefore cannot use tmux keys to switch to another lane or reach tmux's
   command prompt and `run-shell`.
 
   After the upgrade, the browser may send only `{"type":"input","data":…}`,

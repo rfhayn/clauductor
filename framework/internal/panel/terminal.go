@@ -224,6 +224,10 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such lane", http.StatusNotFound)
 		return
 	}
+	if err := s.Lanes.Harden(r.Context()); err != nil {
+		http.Error(w, "cannot secure the tmux socket: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	cols, _ := strconv.Atoi(r.URL.Query().Get("cols"))
 	rows, _ := strconv.Atoi(r.URL.Query().Get("rows"))
 

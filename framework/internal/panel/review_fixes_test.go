@@ -111,8 +111,8 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 	if code, body := p.post(t, "/api/lanes/lane-idle/stop", nil); code != 200 {
 		t.Fatalf("idle: stop: %d %v", code, body)
 	}
-	if got := received(); !strings.Contains(got, "/exit\r") {
-		t.Fatalf("idle lane received %q; want /exit then Enter", got)
+	if got := received(); !strings.HasSuffix(got, "\x15/exit\r") {
+		t.Fatalf("idle lane received %q; want C-u, then /exit, then Enter", got)
 	}
 }
 
@@ -334,5 +334,73 @@ func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 	}
 	if lerr := m.Forget(context.Background(), "bad"); lerr != nil {
 		t.Fatalf("forget: %v", lerr)
+	}
+}
+
+// R3: -f /dev/null only applies when the panel starts the tmux server. A server
+// already on the socket, with ~/.tmux.conf's bindings (here a root binding that runs
+// a command), is made keyless as soon as the panel finds it, and before any attach.
+func TestPanelStripsKeyBindingsFromAServerItDidNotStart(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	marker := filepath.Join(t.TempDir(), "ran") // what the binding would run
+	if out, err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "user", "/bin/sh",
+		";", "bind-key", "-n", "F12", "run-shell", "touch "+shq(marker),
+		";", "bind-key", "-T", "prefix", "c", "new-window").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if r, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "root").CombinedOutput(); !strings.Contains(string(r), "F12") {
+		t.Fatalf("setup: the root binding is not there to strip:\n%s", r)
+	}
+	root, home := rootLaneProject(t)
+	startPanel(t, root, home, sock)
+	waitFor(t, "the panel to strip the root and prefix tables", func() bool {
+		r, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "root").CombinedOutput()
+		p, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "prefix").CombinedOutput()
+		o, _ := exec.Command(tmux, "-L", sock, "show-options", "-g", "prefix").Output()
+		return !strings.Contains(string(r), "bind-key") && !strings.Contains(string(p), "bind-key") &&
+			strings.TrimSpace(string(o)) == "prefix None"
+	})
+}
+
+// R1: the idle check is repeated right before the Enter. Here the lane turns
+// "waiting" (a dialog opened) once /exit has been typed: the Enter must not follow.
+func TestStopRechecksIdleBeforeTheEnter(t *testing.T) {
+	_, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	keys := filepath.Join(t.TempDir(), "keys")
+	var mu sync.Mutex
+	var sid string
+	runner := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		if argv[0] != "claude" {
+			return gitOnlyRunner(ctx, dir, argv)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if sid == "" {
+			return []byte("[]"), nil
+		}
+		status := "idle"
+		if b, _ := os.ReadFile(keys); strings.Contains(string(b), "/exit") {
+			status = "waiting"
+		}
+		return []byte(agentJSON(sid, status, root)), nil
+	}
+	p := startPanelWith(t, root, home, sock, func(o *Options) {
+		o.Runner = runner
+		o.LaneProgram = []string{"/bin/sh", "-c", "stty raw -echo; exec cat >> " + shq(keys), "lane"}
+	})
+	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	if code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	mu.Lock()
+	sid = startedSession(t, body)
+	mu.Unlock()
+	if code, body := p.post(t, "/api/lanes/orch/stop", nil); code != 200 {
+		t.Fatalf("stop: %d %v", code, body)
+	}
+	b, _ := os.ReadFile(keys)
+	if got := string(b); strings.ContainsAny(got, "\r\n") || !strings.HasSuffix(got, "/exit\x1b") {
+		t.Fatalf("lane received %q; want C-u, /exit, then Escape and no Enter", got)
 	}
 }
