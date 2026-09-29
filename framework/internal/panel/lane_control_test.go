@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,7 +191,7 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 	if out, _ := exec.Command(tmux, "-L", sock, "show-options", "-g", "prefix").Output(); strings.TrimSpace(string(out)) != "prefix None" {
 		t.Fatalf("panel socket prefix: %q", out)
 	}
-	if out, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "prefix").CombinedOutput(); strings.Contains(string(out), "bind-key") {
+	if out := leakcheck.TableKeys(tmux, sock, "prefix"); strings.Contains(out, "bind-key") {
 		t.Fatalf("prefix table still bound:\n%s", out)
 	}
 }
@@ -250,19 +251,18 @@ func TestPanelStripsKeyBindingsFromAServerItDidNotStart(t *testing.T) {
 		";", "bind-key", "-T", "prefix", "c", "new-window").CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	if r, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "root").CombinedOutput(); !strings.Contains(string(r), "F12") {
+	if r := leakcheck.TableKeys(tmux, sock, "root"); !strings.Contains(r, "F12") {
 		t.Fatalf("setup: the root binding is not there to strip:\n%s", r)
 	}
 	root, home := rootLaneProject(t)
 	startPanel(t, root, home, sock)
 	waitFor(t, "the panel to strip the root and prefix tables", func() bool {
-		r, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "root").CombinedOutput()
-		p, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "prefix").CombinedOutput()
+		r, p := leakcheck.TableKeys(tmux, sock, "root"), leakcheck.TableKeys(tmux, sock, "prefix")
 		o, _ := exec.Command(tmux, "-L", sock, "show-options", "-g", "prefix").Output()
 		// The root table keeps only the wheel binding the panel puts back (PANEL-6).
-		rootLeft := strings.TrimSpace(string(r))
+		rootLeft := strings.TrimSpace(r)
 		return strings.Count(rootLeft, "bind-key") == 1 && strings.Contains(rootLeft, "WheelUpPane") &&
-			!strings.Contains(rootLeft, "F12") && !strings.Contains(string(p), "bind-key") &&
+			!strings.Contains(rootLeft, "F12") && !strings.Contains(p, "bind-key") &&
 			strings.TrimSpace(string(o)) == "prefix None"
 	})
 }

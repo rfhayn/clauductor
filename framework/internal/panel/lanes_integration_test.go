@@ -244,7 +244,9 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	if strings.TrimSpace(string(out)) != "120x40" { // the status line is off (PANEL-6)
 		t.Fatalf("resize message did not reach tmux: window is %s", out)
 	}
-	// The lane runs the panel's own session id, and the registry holds the binding.
+	// The lane runs the panel's own session id, and the registry holds the binding
+	// (in the state once the tmux source, kicked by the start, has polled).
+	waitFor(t, "orch in the state", func() bool { return findTerm(p.state(t), "orch") != nil })
 	v := p.state(t)
 	orch := findTerm(v, "orch")
 	if orch == nil || !orch.Registered || !uuidRe.MatchString(orch.SessionID) || orch.Orphan != "" {

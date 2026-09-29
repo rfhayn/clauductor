@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"github.com/clauductor/clauductor/internal/leakcheck"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +42,7 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 		t.Fatalf("status is %q, want off", s)
 	}
 	// Only the wheel came back to the root table: no click or menu bindings.
-	if keys := show("list-keys", "-T", "root"); strings.Count(keys, "\n") != 0 || !strings.Contains(keys, "WheelUpPane") {
+	if keys := leakcheck.TableKeys(tmux, sock, "root"); strings.Count(keys, "\n") != 0 || !strings.Contains(keys, "WheelUpPane") {
 		t.Fatalf("root table after hardening:\n%s", keys)
 	}
 

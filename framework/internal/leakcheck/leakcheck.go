@@ -253,3 +253,24 @@ func warnStale(tmux string) {
 		}
 	}
 }
+
+// TableKeys is the bindings of one key table on sock, one `bind-key` line each,
+// read from the full `list-keys`. tmux 3.7c's `list-keys -T <table>` prints nothing
+// for a table that `unbind-key -a` emptied and a later bind-key filled again, though
+// the binding is there and works (seen on the macOS runner).
+func TableKeys(tmux, sock, table string) string {
+	out, _ := exec.Command(tmux, "-L", sock, "list-keys").Output()
+	var keep []string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		for i := 0; i+1 < len(f); i++ {
+			if f[i] == "-T" {
+				if f[i+1] == table {
+					keep = append(keep, strings.TrimSpace(line))
+				}
+				break
+			}
+		}
+	}
+	return strings.Join(keep, "\n")
+}
