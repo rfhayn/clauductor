@@ -6,14 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/clauductor/clauductor/internal/panel"
 	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/spf13/cobra"
 )
 
@@ -107,7 +110,8 @@ func init() {
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	_ = panelInstallCmd.MarkFlagRequired("project")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
-	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd)
+	panelInitCmd.Flags().StringVar(&initProject, "project", "", "project root (default: git toplevel of the current directory)")
+	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -136,10 +140,12 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			return err
 		}
 		// Installing is choosing this config: record it as trusted, so the agent does
-		// not start in the untrusted mode.
-		if _, err := install.TrustConfig(home, installProject, installConfig); err != nil {
+		// not start in the untrusted mode, and say what that trusts.
+		h, runs, err := install.TrustConfigReport(home, installProject, installConfig)
+		if err != nil {
 			return err
 		}
+		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(installProject, installConfig), h, runs)
 		return install.Install(install.InstallOptions{Home: home, Project: installProject, Config: installConfig,
 			Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System})
 	},
@@ -215,15 +221,50 @@ event stream is closed. Then 'clauductor panel open' opens the page with the new
 var (
 	trustProject string
 	trustConfig  string
+	initProject  string
 )
+
+var panelInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Write a starter .clauductor/panel.json for this project",
+	Long: `Write <project>/.clauductor/panel.json from what the repository already says: its
+name, its default branch (the base new lanes start from), where its worktrees
+live, the branch prefixes it uses, and a gate script it defines (a package.json
+script or Makefile target named gate, ci, check, verify or test) as a queue. It
+writes no card, and a queue's command runs only when you press RUN. It refuses to
+overwrite an existing file. The file names its JSON Schema, so an editor
+validates it. See docs/panel.md, "Configuration reference".`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir := initProject
+		if dir == "" {
+			dir = "."
+		}
+		res, err := install.InitConfig(context.Background(), signals.ExecRunner, dir)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Wrote %s:\n\n%s\n", res.Path, res.Body)
+		for _, n := range res.Notes {
+			fmt.Fprintf(out, "  %s\n", n)
+		}
+		fmt.Fprintf(out, "\nJSON has no comments, so the reasons are here. It declares \"version\": %d and \"$schema\", so an editor\n"+
+			"validates it. Review it, then run `clauductor panel trust`: until then the panel runs none of its commands.\n", config.LatestVersion)
+		return nil
+	},
+}
 
 var panelTrustCmd = &cobra.Command{
 	Use:   "trust",
 	Short: "Trust panel.json as it is now, so its cards, queue commands and templates run",
 	Long: `panel.json names commands the panel runs and prompts it types into lanes. The
-panel records its SHA-256 on first use; when the file changes (a pull, say), a
-running or starting panel keeps its cards, queue commands and templates off until
-you trust the new version with this command. A running panel notices within 5 s.`,
+panel runs them only for the exact bytes you trusted: a config it has never seen,
+or one that changed (a pull, say), keeps its cards, queue commands and templates
+off until you review it and trust it with this command. A running panel notices
+within 5 s.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -240,11 +281,19 @@ you trust the new version with this command. A running panel notices within 5 s.
 			}
 			project = strings.TrimSpace(string(top))
 		}
-		h, err := install.TrustConfig(home, project, trustConfig)
+		h, runs, err := install.TrustConfigReport(home, project, trustConfig)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Trusted panel config (sha256 %s).\n", h[:12])
+		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(project, trustConfig), h, runs)
 		return nil
 	},
+}
+
+// configPathOf is the config a --project/--config pair names.
+func configPathOf(project, cfg string) string {
+	if cfg != "" {
+		return cfg
+	}
+	return filepath.Join(project, config.DefaultConfigRel)
 }

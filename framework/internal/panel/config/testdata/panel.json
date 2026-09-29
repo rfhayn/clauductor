@@ -8,15 +8,15 @@
   },
   "cards": [
     {
-      "id": "founder-queue",
-      "title": "Founder queue",
-      "command": ["bash", ".claude/founder-queue.sh"],
-      "refresh": "watch:docs/founder-queue.md"
+      "id": "todo",
+      "title": "TODOs",
+      "command": ["sh", "-c", "grep -rn TODO src | head -20"],
+      "refresh": "watch:src"
     },
     {
-      "id": "roadmap-queue",
-      "title": "Roadmap queue",
-      "command": ["sh", "-c", "node infra/roadmap-queue.mjs --json | jq '[.[] | select(.open) | {title: .change, status, owner}]'"],
+      "id": "releases",
+      "title": "Recent releases",
+      "command": ["sh", "-c", "gh release list --limit 5 --json tagName,publishedAt | jq '[.[] | {title: .tagName, published: .publishedAt}]'"],
       "refresh": "interval:300"
     }
   ]

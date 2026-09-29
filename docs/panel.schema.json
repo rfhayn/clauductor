@@ -1,0 +1,297 @@
+{
+  "$id": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 1
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "alerts": false,
+          "host_names": false,
+          "queues": false,
+          "quota_guard": false,
+          "templates": false
+        }
+      }
+    }
+  ],
+  "description": "Generated from the Go config types by `go generate ./internal/panel/config`; do not edit. The reference is docs/panel.md.",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it.",
+      "type": "string"
+    },
+    "alerts": {
+      "additionalProperties": false,
+      "description": "Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off.",
+      "properties": {
+        "context_pct": {
+          "default": 85,
+          "description": "A context window at or above this percentage raises a context alert.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "five_hour_pct": {
+          "default": 90,
+          "description": "The 5-hour quota at or above this percentage raises a quota alert (block at 100%).",
+          "minimum": 0,
+          "type": "number"
+        },
+        "idle_minutes": {
+          "default": 30,
+          "description": "A live session idle longer than this raises an idle alert.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "min_interval_seconds": {
+          "default": 300,
+          "description": "At most one notification per lane per interval.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "notify": {
+          "default": true,
+          "description": "Send macOS notifications for the alerts that interrupt.",
+          "type": "boolean"
+        },
+        "waiting_seconds": {
+          "default": 120,
+          "description": "A permission prompt, MCP elicitation or input request older than this raises a waiting alert.",
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "base": {
+      "default": "origin/main",
+      "description": "What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$",
+      "type": "string"
+    },
+    "cards": {
+      "description": "Commands whose output renders as a card in the right column (see *Card output*).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "argv, run in the project root **without a shell**. Use `[\"sh\", \"-c\", \"...\"]` if you want one. 30-second timeout.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique among the cards.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "refresh": {
+            "description": "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
+            "pattern": "^(watch:.+|interval:0*[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "title": {
+            "description": "The card's heading.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "command",
+          "refresh"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "host_names": {
+      "description": "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `clauductor.localhost` always works. No wildcards.",
+      "items": {
+        "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.localhost$",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "lane_types": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "effort": {
+            "description": "One argv element: `--effort <value>`.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
+            "type": "string"
+          },
+          "model": {
+            "description": "One argv element: `--model <value>`.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Launch options per lane type, passed as `claude --model <m> --effort <e>`.",
+      "propertyNames": {
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "type": "object"
+    },
+    "lanes": {
+      "additionalProperties": {
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "description": "A rule ending in `/` is a prefix (`\"feature/\"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`\"feature/spike-*\"`). Any other rule matches one branch exactly (`\"main\"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`.",
+      "propertyNames": {
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "type": "object"
+    },
+    "name": {
+      "description": "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
+      "maxLength": 80,
+      "minLength": 1,
+      "pattern": "^ *[^ \\t\\n\\f\\r\\v-]",
+      "type": "string"
+    },
+    "queues": {
+      "description": "Shared resources held as a lease on disk (see *Queue and the gate lock protocol*).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. It runs only when you press RUN.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique among the queues.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "lock": {
+            "description": "The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `\"clauductor/gate.lock\"`. No `..`, not absolute.",
+            "not": {
+              "pattern": "\\.\\."
+            },
+            "pattern": "^[A-Za-z0-9._][A-Za-z0-9._/-]{0,199}$",
+            "type": "string"
+          },
+          "title": {
+            "description": "Shown on the queue card.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lock"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "quota_guard": {
+      "additionalProperties": false,
+      "description": "Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*).",
+      "properties": {
+        "five_hour_pct": {
+          "default": 95,
+          "description": "Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "templates": {
+      "description": "Lane recipes offered by **+ LANE** (see *Lane templates*).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_pattern": {
+            "description": "The new branch, with `{name}` (required) and `{issue}`, e.g. `\"feature/{name}\"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one.",
+            "type": "string"
+          },
+          "effort": {
+            "description": "Overrides the lane type's effort.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
+            "type": "string"
+          },
+          "first_prompt": {
+            "description": "ONE line typed into claude once it is ready. `{name}` and `{issue}` only; no newline or control character; at most 4000 characters.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique among the templates.",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "lane_type": {
+            "description": "One of the config's lane types (a value of `lanes`, or a key of `lane_types`).",
+            "type": "string"
+          },
+          "model": {
+            "description": "Overrides the lane type's model.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
+            "type": "string"
+          },
+          "title": {
+            "description": "Shown in the dialog.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lane_type",
+          "first_prompt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "tmux_socket": {
+      "default": "clauductor",
+      "description": "The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions.",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$",
+      "type": "string"
+    },
+    "version": {
+      "description": "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
+      "enum": [
+        1,
+        2
+      ],
+      "type": "integer"
+    },
+    "worktree_dir": {
+      "default": ".claude/worktrees",
+      "description": "Where a new lane's worktree is created: relative to the project root and inside it, or absolute.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "clauductor panel config (.clauductor/panel.json)",
+  "type": "object"
+}

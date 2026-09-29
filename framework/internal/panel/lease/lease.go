@@ -1,4 +1,4 @@
-// Package lease is the on-disk queue lease (the gate on port 3100) that `clauductor
+// Package lease is the on-disk queue lease (a shared gate, say) that `clauductor
 // lock-run` holds and the panel only reads. Of the panel it imports only clock and
 // types, which have no dependencies, so lock-run links nothing else of the panel.
 package lease
@@ -29,8 +29,8 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
-// The lease protocol serialises a shared resource (the full gate on port 3100)
-// between processes that know nothing of each other or of the panel. It lives
+// The lease protocol serialises a shared resource (a full test gate that binds a
+// fixed port, say) between processes that know nothing of each other or of the panel. It lives
 // entirely on disk, so it survives a panel restart, and a POSIX shell can honour it
 // without the panel running. macOS has no flock(1), so the lock is a DIRECTORY,
 // because mkdir(2) is atomic everywhere:
@@ -52,12 +52,20 @@ import (
 //     expiring it would run two gates at once;
 //   - its pid is alive with another start time: the pid was reused, stale.
 //
-// The TTL (renewed + ttl in the past) applies only where the process cannot be
-// checked: a holder on another host, or a record without pstart (or whose start
-// time cannot be read).
+//   - its pid is alive and its start time cannot be verified (no pstart recorded,
+//     none readable, or the two from different sources, ps and /proc): LIVE.
 //
-// owner.json missing or unreadable, in a directory older than ownerGrace (the holder
-// died between mkdir and writing it), is stale too.
+// The TTL (renewed + ttl in the past; ttl 0 never expires) applies only to a record
+// whose processes mean nothing here: one from another host, or with no pid.
+//
+// A record is VALID when checkRecord accepts it: one flat JSON object of strings,
+// integers, true, false or null, its fields of their types, and a nonce of 16
+// lower-case hex digits. lease.sh's lease_valid checks exactly the same.
+//   - owner.json missing or invalid, in a lock directory older than ownerGrace (the
+//     holder died between mkdir and a complete write), is stale; younger, its holder
+//     is starting, and waiters wait.
+//   - an invalid waiter file is not a waiter: it holds no place in the queue, and
+//     nobody removes it (it is not ours to judge).
 //
 // A live holder is NEVER removed or signalled, by the panel or by a waiter.
 // Liveness is decided ONLY by the holder's and its command's pid and start time, the
@@ -65,9 +73,10 @@ import (
 // flock(2) on the lease directory while it runs; that never makes a record live (an
 // orphan that inherited the fd would outlive the gate), and the panel only shows it.
 //
-// Waiters queue FIFO by arrival (the waiter file's name). Only the first live waiter tries mkdir,
-// so the queue is fair. A waiter whose pid is gone, or whose file has not been
-// renewed for waiterTTL, is skipped and its file removed.
+// Waiters queue FIFO by arrival (the waiter file's name). Only the first live waiter
+// tries mkdir, so the queue is fair. A waiter is judged by the holder's rule with a
+// TTL of waiterTTL: on this host by its process, elsewhere by its renewals. A dead
+// one is skipped and its file removed.
 
 // LeaseOwner is the content of owner.json and of each waiter file.
 type LeaseOwner struct {
@@ -298,7 +307,45 @@ func readLeaseFile(path string) (LeaseOwner, error) {
 	if err := json.Unmarshal(b, &o); err != nil {
 		return o, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := checkRecord(b); err != nil {
+		return LeaseOwner{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return o, nil
+}
+
+var (
+	jsonIntRe     = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+	recordIntKeys = map[string]bool{"v": true, "pid": true, "child_pid": true, "started": true, "renewed": true, "ttl": true}
+	recordStrKeys = map[string]bool{"nonce": true, "pstart": true, "child_pstart": true, "host": true, "lane": true, "cmd": true}
+)
+
+// checkRecord is the protocol's validity rule, the one lease.sh's lease_valid
+// applies too: one flat JSON object whose values are strings, integers, true, false
+// or null (no nested value, no fraction or exponent); the integer fields integers
+// and the string fields strings; and a nonce of 16 lower-case hex digits.
+func checkRecord(b []byte) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	for k, raw := range m {
+		v := string(raw)
+		isStr := strings.HasPrefix(v, `"`)
+		if !isStr && !jsonIntRe.MatchString(v) && v != "true" && v != "false" && v != "null" {
+			return fmt.Errorf("%s is not a string, an integer, true, false or null", k)
+		}
+		if recordIntKeys[k] && !jsonIntRe.MatchString(v) {
+			return fmt.Errorf("%s is not an integer", k)
+		}
+		if recordStrKeys[k] && !isStr {
+			return fmt.Errorf("%s is not a string", k)
+		}
+	}
+	var n string
+	if err := json.Unmarshal(m["nonce"], &n); err != nil || !nonceRe.MatchString(n) {
+		return errors.New("no nonce of 16 lower-case hex digits")
+	}
+	return nil
 }
 
 // writeLeaseFile writes atomically (temp + rename in the same directory), so a
@@ -328,9 +375,13 @@ func holderState(lock, host string, now time.Time, proc ProcCheck) (held bool, o
 		return false, o, false, ""
 	}
 	o, err = readLeaseFile(filepath.Join(lock, ownerFileName))
+	if err == nil && !nonceRe.MatchString(o.Nonce) {
+		err = errors.New("no valid nonce") // an invalid record is as good as none
+	}
 	if err != nil {
+		o = LeaseOwner{}
 		if now.Sub(fi.ModTime()) >= ownerGrace {
-			return true, o, true, "it has no readable owner.json after " + ownerGrace.String()
+			return true, o, true, "it has no valid owner.json after " + ownerGrace.String()
 		}
 		return true, o, false, "its holder is starting"
 	}
@@ -457,6 +508,46 @@ func reclaim(lock string, judged LeaseOwner, host string, now time.Time, proc Pr
 // afterAcquire, when a test sets it, runs once lock-run holds the lease and before
 // it starts the command: the window a signal must not be lost in.
 var afterAcquire func()
+
+// errReclaimBusy: the reclaim mutex stayed taken; the caller tries again later.
+var errReclaimBusy = errors.New("the reclaim mutex is taken")
+
+// updateOwner rewrites owner.json, only while it still carries nonce, under the
+// reclaim mutex. A reclaimer holds that mutex from its judgement to its removal, so
+// between this read and this write the record cannot be reclaimed and replaced by a
+// new holder's: a plain read, then rename, could put this holder's record over the
+// next one's. The write itself is atomic (temp file + rename). It reports whether
+// the record was still ours.
+func updateOwner(lock, nonce string, clk clock.Clock, mutate func(*LeaseOwner)) (bool, error) {
+	rd := reclaimDir(lock)
+	for tries := 0; ; tries++ {
+		err := os.Mkdir(rd, 0o755)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return false, err
+		}
+		// A reclaimer that died leaves the mutex behind; it is only ever held for a
+		// few file operations, so an old one is dead.
+		if fi, serr := os.Stat(rd); serr == nil && clk.Now().Sub(fi.ModTime()) >= reclaimStale {
+			_ = os.Remove(rd)
+			continue
+		}
+		if tries >= 20 {
+			return true, errReclaimBusy
+		}
+		<-clk.After(10 * time.Millisecond)
+	}
+	defer os.Remove(rd)
+	ownerPath := filepath.Join(lock, ownerFileName)
+	cur, err := readLeaseFile(ownerPath)
+	if err != nil || cur.Nonce != nonce {
+		return false, nil
+	}
+	mutate(&cur)
+	return true, writeLeaseFile(ownerPath, cur)
+}
 
 // LockRunOptions configures one lock-run.
 type LockRunOptions struct {
@@ -683,11 +774,8 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	}
 	if held != nil {
 		// Record the command beside the holder: the lease stays live while either runs.
-		ownerPath := filepath.Join(lock, ownerFileName)
-		if cur, err := readLeaseFile(ownerPath); err == nil && cur.Nonce == held.Nonce {
-			cur.ChildPID, cur.ChildPStart = cmd.Process.Pid, ProcStart(cmd.Process.Pid)
-			_ = writeLeaseFile(ownerPath, cur)
-		}
+		childPID, childStart := cmd.Process.Pid, ProcStart(cmd.Process.Pid)
+		_, _ = updateOwner(lock, held.Nonce, o.Clock, func(cur *LeaseOwner) { cur.ChildPID, cur.ChildPStart = childPID, childStart })
 	}
 	stop := make(chan struct{})
 	defer close(stop)
@@ -711,8 +799,14 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 						return
 					}
 					if now := o.Clock.Now(); now.Sub(lastRenew) >= o.TTL/3 {
-						cur.Renewed, lastRenew = now.Unix(), now
-						_ = writeLeaseFile(ownerPath, cur)
+						ours, err := updateOwner(lock, held.Nonce, o.Clock, func(cur *LeaseOwner) { cur.Renewed = now.Unix() })
+						if !ours {
+							close(lost)
+							return
+						}
+						if err == nil {
+							lastRenew = now // a busy mutex is tried again next tick
+						}
 					}
 				}
 			}

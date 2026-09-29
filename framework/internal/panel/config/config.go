@@ -25,6 +25,8 @@ const DefaultConfigRel = ".clauductor/panel.json"
 
 // Config is the per-project panel configuration (.clauductor/panel.json).
 type Config struct {
+	// Schema is the JSON Schema the file follows, for editors (SchemaURL). Ignored.
+	Schema string `json:"$schema,omitempty"`
 	// Name is shown in the top bar.
 	Name string `json:"name"`
 	// Lanes maps a branch rule to a lane type. A key ending in "/" is a prefix
@@ -35,7 +37,7 @@ type Config struct {
 	// Cards are project commands whose stdout renders as a card.
 	Cards []CardConfig `json:"cards"`
 
-	// v1: lanes the panel starts itself. All optional; see the Default* constants.
+	// Lanes the panel starts itself. All optional; see the Default* constants.
 
 	// TmuxSocket is the name of the panel's own tmux server (`tmux -L <name>`), so
 	// lanes never mix with the user's own tmux sessions.
@@ -48,13 +50,16 @@ type Config struct {
 	// LaneTypes adds per-type launch options (model, effort) keyed by lane type.
 	LaneTypes map[string]LaneTypeConfig `json:"lane_types"`
 
-	// v2: orchestration. All optional; see TemplateConfig and below.
+	// Orchestration: version 2 keys, all optional; see TemplateConfig and below.
 
-	// Version is the config schema version: 0 (absent), 1 or 2.
+	// Version is the config version the file is written for (MinVersion to
+	// LatestVersion); 0 when the file declares none, which reads as LatestVersion.
+	// Which key needs which version is in Fields.
 	Version int `json:"version,omitempty"`
 	// Templates are lane recipes offered in the Start dialog.
 	Templates []TemplateConfig `json:"templates"`
-	// Queues are shared resources held as an on-disk lease (the gate on port 3100).
+	// Queues are shared resources held as an on-disk lease: a full test gate, say,
+	// that binds a fixed port and so must never run twice at once.
 	Queues []types.QueueConfig `json:"queues"`
 	// Alerts sets the alert thresholds and the OS notifications.
 	Alerts *AlertConfig `json:"alerts"`
@@ -63,6 +68,10 @@ type Config struct {
 	// HostNames are extra names the panel answers to, each "<label>.localhost"
 	// (clauductor.localhost always works). No wildcards.
 	HostNames []string `json:"host_names"`
+
+	// Notices are what loading the file has to say once (no version declared). The
+	// panel prints them at start.
+	Notices []string `json:"-"`
 }
 
 // LaneTypeConfig holds the launch options of one lane type.
@@ -71,7 +80,7 @@ type LaneTypeConfig struct {
 	Effort string `json:"effort"`
 }
 
-// Defaults for the v1 lane keys.
+// Defaults for the lane keys.
 const (
 	DefaultTmuxSocket  = "clauductor"
 	DefaultWorktreeDir = ".claude/worktrees"
@@ -84,6 +93,13 @@ var (
 	// characters real values use ("opus", "claude-opus-4-5[1m]", "high").
 	LaunchOptRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`)
 	baseRe      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`)
+	// nameRe: a name starts, after any spaces, with a character that is neither
+	// white space nor "-", so it is never blank and never read as an option. The
+	// class is spelt out: Go's and ECMAScript's \s differ, and the schema carries it.
+	nameRe = regexp.MustCompile(`^ *[^ \t\n\f\r\v-]`)
+	// refreshRe is the shape of a card refresh rule; ParseRefresh adds what a
+	// pattern cannot say (the watch path stays inside the project).
+	refreshRe = regexp.MustCompile(`^(watch:.+|interval:0*[1-9][0-9]*)$`)
 )
 
 // Socket returns the tmux socket name, defaulted.
@@ -210,7 +226,7 @@ func LoadConfigRaw(path string) (*Config, []byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("no panel config at %s (create it, or pass --config; see docs/panel.md)", path)
+			return nil, nil, fmt.Errorf("no panel config at %s (create one with `clauductor panel init`, or pass --config; see docs/panel.md)", path)
 		}
 		return nil, nil, err
 	}
@@ -219,7 +235,8 @@ func LoadConfigRaw(path string) (*Config, []byte, error) {
 }
 
 // parseConfig parses and validates panel config bytes. Unknown keys are refused so a
-// misspelt key fails loudly instead of being silently ignored.
+// misspelt key fails loudly instead of being silently ignored, and a key newer than
+// the declared version is refused so the version means what it says.
 func parseConfig(raw []byte) (*Config, error) {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
@@ -227,15 +244,23 @@ func parseConfig(raw []byte) (*Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("panel config: %w", err)
 	}
+	notices, err := checkVersion(raw, &c)
+	if err != nil {
+		return nil, err
+	}
+	c.Notices = notices
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
 	return &c, nil
 }
 
+// ParseConfig parses and validates panel config bytes (what LoadConfig reads).
+func ParseConfig(raw []byte) (*Config, error) { return parseConfig(raw) }
+
 // Validate checks the config's invariants.
 func (c *Config) Validate() error {
-	if strings.TrimSpace(c.Name) == "" {
+	if c.Name == "" {
 		return fmt.Errorf("panel config: name is required")
 	}
 	// The name reaches OS notification titles and the page: one line of plain text,
@@ -243,8 +268,8 @@ func (c *Config) Validate() error {
 	if err := TypableText(c.Name, 80); err != nil {
 		return fmt.Errorf("panel config: name %w", err)
 	}
-	if strings.HasPrefix(strings.TrimSpace(c.Name), "-") {
-		return fmt.Errorf("panel config: name must not start with \"-\"")
+	if !nameRe.MatchString(c.Name) {
+		return fmt.Errorf("panel config: name must not be blank or start with \"-\" (it must match %s)", nameRe)
 	}
 	for k, v := range c.Lanes {
 		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
@@ -294,6 +319,9 @@ func (c *Config) Validate() error {
 
 // ParseRefresh parses a card refresh rule.
 func ParseRefresh(s string) (RefreshRule, error) {
+	if !refreshRe.MatchString(s) {
+		return RefreshRule{}, fmt.Errorf("refresh %q: want \"watch:<relpath>\" or \"interval:<seconds>\" (a positive whole number); it must match %s", s, refreshRe)
+	}
 	switch {
 	case strings.HasPrefix(s, "watch:"):
 		rel := strings.TrimPrefix(s, "watch:")
@@ -452,8 +480,8 @@ const MaxFirstPrompt = 4000
 const maxPlaceholderValue = 200
 
 func (c *Config) validateV2() error {
-	if c.Version < 0 || c.Version > 2 {
-		return fmt.Errorf("panel config: version %d is not supported (this panel reads 1 and 2)", c.Version)
+	if c.Version != 0 && (c.Version < MinVersion || c.Version > LatestVersion) {
+		return fmt.Errorf("panel config: version %d is not supported (this panel reads %d to %d)", c.Version, MinVersion, LatestVersion)
 	}
 	seen := map[string]bool{}
 	for i, t := range c.Templates {
@@ -681,6 +709,26 @@ var localhostNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.l
 
 // ValidHostName reports whether a configured extra host name is allowed.
 func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
+
+// RunList describes, one line each, everything the config makes the panel run or
+// type: each card's argv (run on its refresh), each queue's argv (run on RUN), and
+// each template's first prompt (typed into a new lane). Trusting a config trusts
+// exactly these, so trust and install print them.
+func (c *Config) RunList() []string {
+	var out []string
+	for _, card := range c.Cards {
+		out = append(out, fmt.Sprintf("card %s runs %q (%s)", card.ID, card.Command, card.Refresh))
+	}
+	for _, q := range c.Queues {
+		if len(q.Command) > 0 {
+			out = append(out, fmt.Sprintf("queue %s runs %q on RUN", q.ID, q.Command))
+		}
+	}
+	for _, t := range c.Templates {
+		out = append(out, fmt.Sprintf("template %s types %q", t.ID, t.FirstPrompt))
+	}
+	return out
+}
 
 func ShortHash(h string) string {
 	if len(h) > 12 {

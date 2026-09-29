@@ -130,13 +130,14 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 | `clauductor query <type>` | Query state (JSON) |
 | `clauductor export <type>` | Export data (JSON/markdown) |
 | `clauductor panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |
+| `clauductor panel init` | Write a starter `.clauductor/panel.json` for the project, from what the repository already says |
 | `clauductor panel --uninstall-hooks` | Remove the panel's hooks from `~/.claude/settings.json` |
 
 ## Documentation
 
 - **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
 - **[Onboarding Guide](docs/onboarding.md)** — Complete tutorial from install to multi-worker orchestration
-- **[Web panel](docs/panel.md)** — `clauductor panel`: config schema, security model, status-line snippet
+- **[Web panel](docs/panel.md)** — `clauductor panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
 - **[PRD](docs/prds/active/PRD-orchestration-framework.md)** — Full product requirements and architecture
 
 ## Origin

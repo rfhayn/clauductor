@@ -103,7 +103,7 @@ func TestRunEndToEnd(t *testing.T) {
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home,
+		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, TrustConfig: true,
 			Runner: fakeRunner(root), OnReady: func(u string) { ready <- u }})
 	}()
 	var launch string
