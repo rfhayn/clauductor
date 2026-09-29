@@ -170,6 +170,13 @@ type Model struct {
 	hookEvents  int
 	statusPosts int
 	dropped     int
+
+	// v1 lanes on the panel's tmux socket.
+	tmuxLanes    []TmuxLane
+	laneRecords  []LaneRecord
+	regProblems  []string
+	tmuxSrc      SourceStatus
+	startBlocked string
 }
 
 // Quota is the latest account quota the status line reported.
@@ -191,6 +198,7 @@ func NewModel(cfg *Config, root string, now time.Time) *Model {
 		worktreesSrc: SourceStatus{Pending: true},
 		agentsSrc:    SourceStatus{Pending: true},
 		prsSrc:       SourceStatus{Pending: true},
+		tmuxSrc:      SourceStatus{Pending: true},
 		sessions:     map[string]*session{},
 		laneHookAt:   map[string]time.Time{},
 		costByID:     map[string]float64{},
@@ -526,6 +534,13 @@ type View struct {
 	HookEvents  int                     `json:"hookEvents"`
 	StatusPosts int                     `json:"statusPosts"`
 	Dropped     int                     `json:"dropped"`
+	// v1.
+	Terminals    []TermLaneView `json:"terminals"`
+	LaneTypes    []LaneTypeInfo `json:"laneTypes"`
+	StartBlocked string         `json:"startBlocked,omitempty"`
+	TmuxSocket   string         `json:"tmuxSocket"`
+	LaneBase     string         `json:"laneBase"`
+	WorktreeRoot string         `json:"worktreeRoot"`
 }
 
 // LaneView is one lane (a worktree) as rendered.
@@ -544,6 +559,7 @@ type LaneView struct {
 	LastHookAt  int64          `json:"lastHookAt,omitempty"`
 	Stale       bool           `json:"stale"`
 	Sessions    []SessionView  `json:"sessions"`
+	Terminal    string         `json:"terminal,omitempty"` // the lane id of a tmux lane in this worktree
 }
 
 // SessionView is one Claude session inside a lane.
@@ -612,7 +628,17 @@ func (m *Model) Snapshot(now time.Time) View {
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
 		Cards: []CardState{}, PRs: append([]PR{}, m.prs...), Banners: []string{},
 		Quota: m.quota, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
-		Sources: map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc},
+		Sources:   map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc, "tmux": m.tmuxSrc},
+		Terminals: []TermLaneView{}, LaneTypes: m.cfg.LaneTypeList(), StartBlocked: m.startBlocked, TmuxSocket: m.cfg.Socket(),
+		LaneBase: m.cfg.BaseRef(), WorktreeRoot: m.cfg.WorktreeRoot(m.root),
+	}
+	// A lane with a terminal is shown under the worktree it runs in.
+	terms := m.terminalViews(now)
+	termByWT := map[string]string{}
+	for _, tv := range terms {
+		if _, ok := termByWT[tv.Worktree]; tv.Running && tv.Worktree != "" && !ok {
+			termByWT[tv.Worktree] = tv.ID
+		}
 	}
 	byLane := map[string][]*session{}
 	for _, s := range m.sessions {
@@ -627,7 +653,8 @@ func (m *Model) Snapshot(now time.Time) View {
 			Status: "none", Subagents: []SubagentView{}, Sessions: []SessionView{}, LastHookAt: ms(m.laneHookAt[wt.Path])}
 		ss := byLane[wt.Path]
 		sort.Slice(ss, func(i, j int) bool { return ss[i].ID < ss[j].ID })
-		active := false
+		lv.Terminal = termByWT[wt.Path]
+		active := lv.Terminal != ""
 		var newest time.Time
 		for _, s := range ss {
 			live := s.Agent != nil
@@ -691,6 +718,8 @@ func (m *Model) Snapshot(now time.Time) View {
 			v.QuietWorktrees = append(v.QuietWorktrees, lv)
 		}
 	}
+	v.Terminals = terms
+	v.Banners = append(v.Banners, m.regProblems...)
 	if len(m.costByID) > 0 {
 		total := 0.0
 		for _, c := range m.costByID {
@@ -707,4 +736,111 @@ func (m *Model) Snapshot(now time.Time) View {
 		v.Feed = append(v.Feed, m.feed[i])
 	}
 	return v
+}
+
+// TermLaneView is one lane: a registry record, a tmux session on the panel's
+// socket, or both. The reducer reconciles the two and binds a lane to its Claude
+// session by the session id the panel assigned, never by cwd.
+type TermLaneView struct {
+	ID         string   `json:"id"`
+	SessionID  string   `json:"sessionId,omitempty"`
+	Path       string   `json:"path"`
+	Type       string   `json:"type"`
+	Worktree   string   `json:"worktree"` // "" when the path is in none of the project's worktrees
+	Branch     string   `json:"branch"`
+	Status     string   `json:"status"` // busy | idle | waiting | running (no signal yet) | dead | orphaned
+	WaitingFor string   `json:"waitingFor,omitempty"`
+	CtxPct     *float64 `json:"ctxPct"`
+	Created    int64    `json:"created"`
+	Attached   int      `json:"attached"`
+	Running    bool     `json:"running"` // a tmux session exists
+	Dead       bool     `json:"dead"`    // the tmux session exists, the program exited
+	DeadStatus string   `json:"deadStatus,omitempty"`
+	Registered bool     `json:"registered"`
+	// Orphan says what does not add up, e.g. a registered lane whose tmux session is
+	// gone (a reboot), or a tmux session the registry does not know. "" when sound.
+	Orphan string `json:"orphan,omitempty"`
+	Action string `json:"action,omitempty"` // a registry action begun and not finished
+}
+
+// ApplyRegistryProblems records registry records that could not be shown at all.
+func (m *Model) ApplyRegistryProblems(p []string) { m.regProblems = p }
+
+// ApplyTmux records a reconciliation input: the panel's tmux socket, the lane
+// registry, and whether lanes may start.
+func (m *Model) ApplyTmux(lanes []TmuxLane, recs []LaneRecord, blocked string, err error, now time.Time) {
+	m.tmuxSrc = SourceStatus{OK: err == nil, At: ms(now)}
+	m.startBlocked = blocked
+	if err != nil {
+		m.tmuxSrc.Error = err.Error()
+		return
+	}
+	m.tmuxLanes, m.laneRecords = lanes, recs
+}
+
+func (m *Model) terminalViews(now time.Time) []TermLaneView {
+	tmux := map[string]TmuxLane{}
+	for _, tl := range m.tmuxLanes {
+		tmux[tl.ID] = tl
+	}
+	out := []TermLaneView{}
+	seen := map[string]bool{}
+	place := func(tv *TermLaneView) {
+		if i := MatchWorktree(m.worktrees, tv.Path); i >= 0 {
+			wt := m.worktrees[i]
+			tv.Worktree, tv.Branch = wt.Path, wt.Branch
+			if tv.Type == "" {
+				tv.Type, _ = m.cfg.LaneFor(wt.Branch)
+			}
+		}
+	}
+	for _, rec := range m.laneRecords {
+		seen[rec.ID] = true
+		tv := TermLaneView{ID: rec.ID, SessionID: rec.SessionID, Path: rec.Path, Type: rec.Type, Branch: rec.Branch,
+			Created: rec.Created / 1000, Registered: true, Status: "running"}
+		if !rec.ActionDone {
+			tv.Action = rec.Action
+		}
+		if rec.Corrupt != "" {
+			tv.Orphan = "corrupt registry record (" + rec.Corrupt + "): it is never launched; stop or forget it"
+		}
+		place(&tv)
+		if tl, ok := tmux[rec.ID]; ok {
+			tv.Running, tv.Attached, tv.Dead, tv.DeadStatus = true, tl.Attached, tl.Dead, tl.DeadStatus
+			if s := m.sessions[rec.SessionID]; s != nil {
+				tv.Status, tv.WaitingFor = s.status()
+				tv.CtxPct = s.CtxPct
+			}
+			if tl.Dead {
+				tv.Status = "dead"
+			}
+		} else if rec.Corrupt != "" {
+			tv.Status = "orphaned"
+		} else {
+			tv.Status = "orphaned"
+			tv.Orphan = "its tmux session is gone (a reboot, or the tmux server ended)"
+			if !rec.ActionDone {
+				tv.Orphan = "the panel stopped during \"" + rec.Action + "\" and the lane never came up"
+			}
+		}
+		if tv.Worktree == "" && m.worktreesSrc.OK {
+			tv.Orphan = strings.TrimPrefix(tv.Orphan+"; ", "; ") + rec.Path + " is not one of the project's worktrees any more"
+		}
+		out = append(out, tv)
+	}
+	for _, tl := range m.tmuxLanes {
+		if seen[tl.ID] {
+			continue
+		}
+		tv := TermLaneView{ID: tl.ID, Path: tl.Path, Type: tl.Type, Created: tl.Created, Attached: tl.Attached,
+			Running: true, Dead: tl.Dead, DeadStatus: tl.DeadStatus, Status: "running",
+			Orphan: "not in the lane registry, so its session id is unknown: it cannot be restarted or resumed, only stopped"}
+		place(&tv)
+		if tl.Dead {
+			tv.Status = "dead"
+		}
+		out = append(out, tv)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }

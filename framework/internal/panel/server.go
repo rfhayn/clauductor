@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -18,7 +19,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html
+//go:embed web
 var webFS embed.FS
 
 // LoopbackHost is the only address the panel ever binds.
@@ -142,6 +143,26 @@ type Server struct {
 	Hooks   chan<- []byte // raw hook bodies, processed after the 204
 	Status  chan<- []byte // raw status-line bodies
 	Refresh func()        // re-poll every source now
+	// Lanes controls lanes (v1). Nil when tmux is unavailable: the panel still watches.
+	Lanes *LaneManager
+	// CookieMaxAge, when > 0, makes the session cookie persistent (seconds). Used when
+	// the panel runs under launchd with a persistent token.
+	CookieMaxAge int
+
+	// TermIdleTimeout closes a terminal whose page has sent nothing (not even its
+	// once-a-minute "alive" while visible) for this long. Zero means 5 minutes.
+	TermIdleTimeout time.Duration
+
+	// beforeAddViewer, if set, runs between a terminal's auth and its registration
+	// (tests use it to rotate the token in that window).
+	beforeAddViewer func()
+
+	tokenMu sync.RWMutex
+	rotated chan struct{} // closed, and replaced, on each token rotation
+
+	termMu  sync.Mutex
+	tickets map[string]termTicket               // single-use WebSocket tickets
+	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
 }
 
 func (s *Server) cookieName() string { return "clauductor_panel_" + strconv.Itoa(s.Port) }
@@ -167,7 +188,7 @@ func remoteIsLoopback(r *http.Request) bool {
 
 func (s *Server) authed(r *http.Request) bool {
 	c, err := r.Cookie(s.cookieName())
-	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.Token)) == 1
+	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.currentToken())) == 1
 }
 
 // Handler returns the full HTTP handler with every guard applied.
@@ -191,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	s.laneRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Cache-Control", "no-store")
@@ -262,12 +284,13 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if t := r.URL.Query().Get("t"); t != "" {
-		if subtle.ConstantTimeCompare([]byte(t), []byte(s.Token)) != 1 {
+		token := s.currentToken()
+		if subtle.ConstantTimeCompare([]byte(t), []byte(token)) != 1 {
 			http.Error(w, "unauthorized: stale or wrong token", http.StatusUnauthorized)
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: s.Token, Path: "/",
-			HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: token, Path: "/",
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: s.CookieMaxAge})
 		// Drop the token from the address bar and history.
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -277,10 +300,20 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, _ := webFS.ReadFile("web/index.html")
+	// No inline script or style is allowed, and nothing outside this origin. The one
+	// exception is a per-response nonce for the <style> elements xterm.js creates at
+	// run time; panel.js stamps it on them.
+	nonce, err := NewToken()
+	if err != nil {
+		http.Error(w, "no randomness", http.StatusInternalServerError)
+		return
+	}
+	nonce = nonce[:32]
+	page = bytes.Replace(page, []byte("{{STYLE_NONCE}}"), []byte(nonce), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; "+
-		"style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "+
-		"connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'nonce-"+nonce+"'; "+
+		"font-src 'self'; connect-src 'self' ws://"+r.Host+"; img-src 'self' data:; "+
+		"base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Write(page)
 }
 
@@ -295,6 +328,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	ch, cancel := s.Hub.subscribe()
 	defer cancel()
+	rotated := s.rotation() // a token rotation ends this stream; the page's reconnect then gets 401
 	send := func(b []byte) error {
 		_, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b)
 		fl.Flush()
@@ -310,6 +344,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-rotated:
+			return
 		case b := <-ch:
 			if send(b) != nil {
 				return
@@ -321,4 +357,41 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			fl.Flush()
 		}
 	}
+}
+
+func (s *Server) currentToken() string {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.Token
+}
+
+// rotation returns a channel that is closed at the next token rotation.
+func (s *Server) rotation() <-chan struct{} {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	if s.rotated == nil {
+		s.rotated = make(chan struct{})
+	}
+	return s.rotated
+}
+
+// Rotate replaces the token. Every cookie issued for the old one stops working at
+// once, every open terminal is closed (code 4001) and every event stream ends, so
+// nothing opened with the old token outlives it.
+func (s *Server) Rotate(token string) {
+	s.tokenMu.Lock()
+	if token == s.Token {
+		s.tokenMu.Unlock()
+		return
+	}
+	s.Token = token
+	if s.rotated != nil {
+		close(s.rotated)
+	}
+	s.rotated = make(chan struct{})
+	s.tokenMu.Unlock()
+	s.termMu.Lock()
+	s.tickets = nil // a ticket issued under the old token dies with it
+	s.termMu.Unlock()
+	s.closeAllTerminals(4001, "token rotated")
 }

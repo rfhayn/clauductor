@@ -71,6 +71,23 @@ type Options struct {
 	Runner     Runner
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
+
+	// Launchd marks a run under the launchd login agent: the token persists in
+	// TokenPath, the cookie lasts 30 days, and the browser opens once per login
+	// rather than on every start.
+	Launchd bool
+	// TmuxSocket overrides the config's tmux_socket (tests use a throwaway socket).
+	TmuxSocket string
+	// LaneProgram overrides the lane program, `claude` (tests run sh or cat).
+	LaneProgram []string
+	// StopTimeout overrides how long a lane stop waits for /exit (default 10 s).
+	StopTimeout time.Duration
+	// FastExit overrides how long a restarted claude must stay up (default 3 s).
+	FastExit time.Duration
+	// TermIdleTimeout overrides how long a silent terminal stays open (default 5 min).
+	TermIdleTimeout time.Duration
+	// OpenBrowser overrides how the page is opened (tests record the URL instead).
+	OpenBrowser func(url string)
 }
 
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
@@ -144,11 +161,31 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer os.Remove(marker)
+	// The PID sits beside the marker, not in it: status-line scripts read `port` as
+	// digits only. A PID that is not running marks both files stale (SIGKILL skips
+	// the deferred removal).
+	pidFile := filepath.Join(filepath.Dir(marker), "pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(pidFile)
 
-	token, err := NewToken()
+	var token string
+	if o.Launchd {
+		token, err = LoadOrCreateToken(o.Home)
+	} else {
+		token, err = NewToken()
+	}
 	if err != nil {
 		return err
 	}
+	if o.TmuxSocket != "" {
+		if !socketNameRe.MatchString(o.TmuxSocket) {
+			return fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, socketNameRe)
+		}
+		cfg.TmuxSocket = o.TmuxSocket
+	}
+	lanes, lanesWhy := newLaneManager(o, cfg, root)
 	model := NewModel(cfg, root, time.Now())
 	hub := NewHub(model, time.Now)
 	hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
@@ -156,7 +193,10 @@ func Run(ctx context.Context, o Options) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := &pollers{hub: hub, run: o.Runner, root: root, cfg: cfg,
-		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1)}
+		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
+	if lanes != nil {
+		p.registry = lanes.Registry // set before ingest starts reading it
+	}
 	hooks := make(chan []byte, 256)
 	status := make(chan []byte, 64)
 
@@ -167,6 +207,10 @@ func Run(ctx context.Context, o Options) error {
 	start(func() { p.worktreeLoop(ctx) })
 	start(func() { p.agentsLoop(ctx) })
 	start(func() { p.prLoop(ctx) })
+	start(func() { p.tmuxLoop(ctx, lanes, lanesWhy) })
+	if lanes != nil {
+		lanes.Changed = func() { kick(p.kickTmux); p.kickWorktrees(); kick(p.kickAgents) }
+	}
 	for _, c := range cfg.Cards {
 		c := c
 		kick := make(chan struct{}, 1)
@@ -174,7 +218,33 @@ func Run(ctx context.Context, o Options) error {
 		start(func() { p.cardLoop(ctx, c, kick) })
 	}
 
-	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll}
+	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lanes}
+	srv.TermIdleTimeout = o.TermIdleTimeout
+	if lanes != nil {
+		lanes.Stopped = srv.closeTerminals
+	}
+	if o.Launchd {
+		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
+		// follow it so the old token dies in the running panel too.
+		start(func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if tok := readToken(o.Home); tok != "" && tok != srv.currentToken() {
+						srv.Rotate(tok)
+						fmt.Fprintln(o.Out, "token rotated: old cookies, terminals and event streams are closed")
+					}
+				}
+			}
+		})
+	}
+	if o.Launchd {
+		srv.CookieMaxAge = int((30 * 24 * time.Hour).Seconds())
+	}
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -185,12 +255,27 @@ func Run(ctx context.Context, o Options) error {
 	go func() { serveErr <- httpSrv.Serve(ln) }()
 
 	url := fmt.Sprintf("http://%s:%d/?t=%s", LoopbackHost, port, token)
-	fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
+	if o.Launchd {
+		// stdout is a log file under launchd: the token stays in its 0600 file.
+		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
+			cfg.Name, root, LoopbackHost, port, TokenPath(o.Home))
+	} else {
+		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
+	}
 	if o.OnReady != nil {
 		o.OnReady(url)
 	}
-	if !o.NoOpen {
-		openBrowser(url)
+	open := openBrowser
+	if o.OpenBrowser != nil {
+		open = o.OpenBrowser
+	}
+	switch {
+	case o.Launchd:
+		if shouldOpenAtLogin(o.Home, time.Now()) {
+			open(url)
+		}
+	case !o.NoOpen:
+		open(url)
 	}
 
 	select {
@@ -241,7 +326,9 @@ type pollers struct {
 	kickWT     chan struct{}
 	kickAgents chan struct{}
 	kickPRs    chan struct{}
+	kickTmux   chan struct{}
 	cardKicks  []chan struct{}
+	registry   *Registry // nil when lanes are unavailable
 
 	mu         sync.Mutex
 	lastWTKick time.Time
@@ -258,6 +345,7 @@ func (p *pollers) refreshAll() {
 	kick(p.kickWT)
 	kick(p.kickAgents)
 	kick(p.kickPRs)
+	kick(p.kickTmux)
 	for _, k := range p.cardKicks {
 		kick(k)
 	}
@@ -301,6 +389,11 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				continue
 			}
 			ev.Cwd = ResolvePath(ev.Cwd)
+			// A prompt, or a finished turn, means the session has a conversation to
+			// --resume. Hooks can be dropped, so busy in `claude agents` counts too.
+			if (ev.Event == "UserPromptSubmit" || ev.Event == "Stop") && p.registry != nil {
+				_, _ = p.registry.MarkConversation(ev.SessionID)
+			}
 			kept := true
 			p.hub.Update(func(m *Model, now time.Time) { kept = m.ApplyHook(ev, now) })
 			if !kept {
@@ -367,6 +460,9 @@ func (p *pollers) agentsLoop(ctx context.Context) {
 		}
 		for i := range agents {
 			agents[i].Cwd = ResolvePath(agents[i].Cwd)
+			if agents[i].Status == "busy" && p.registry != nil {
+				_, _ = p.registry.MarkConversation(agents[i].SessionID)
+			}
 		}
 		p.hub.Update(func(m *Model, now time.Time) { m.ApplyAgents(agents, err, now) })
 	})
@@ -452,4 +548,73 @@ func pathSignature(path string) string {
 		b.WriteString("|" + strings.Join(names, "|"))
 	}
 	return b.String()
+}
+
+// newLaneManager wires lane control, or returns why it is unavailable. A missing tmux
+// or claude disables starting lanes; the panel still watches.
+func newLaneManager(o Options, cfg *Config, root string) (*LaneManager, string) {
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		return nil, "tmux was not found on the panel's PATH, so lanes cannot start or be shown here"
+	}
+	reg, err := OpenRegistry(o.Home, root)
+	if err != nil {
+		return nil, "the lane registry cannot be read, so lanes are not managed: " + err.Error()
+	}
+	m := &LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
+		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit}
+	if m.FastExit == 0 {
+		m.FastExit = 3 * time.Second
+	}
+	if m.StopTimeout == 0 {
+		m.StopTimeout = 10 * time.Second
+	}
+	why := ""
+	if len(m.Program) == 0 {
+		if claude, err := exec.LookPath("claude"); err == nil {
+			m.Program = []string{claude}
+		} else {
+			m.Program = []string{"claude"}
+			why = "claude was not found on the panel's PATH"
+		}
+	}
+	return m, why
+}
+
+// tmuxLoop reconciles the lane registry with the socket: at start (so lanes that
+// outlived a panel restart reappear, and lanes a reboot killed show as orphans),
+// every 2 s, and right after a lane command. Every 30 s it also re-reads the
+// registry file from disk rather than trusting its in-memory copy. The reducer
+// matches the result against claude agents (by session id) and the worktree list.
+func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) {
+	lastReload := time.Now()
+	loop(ctx, 2*time.Second, p.kickTmux, func() {
+		if lanes == nil {
+			p.hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, errors.New(why), now) })
+			return
+		}
+		if time.Since(lastReload) >= 30*time.Second {
+			lastReload = time.Now()
+			if err := lanes.Registry.Reload(); err != nil {
+				p.hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, err, now) })
+				return
+			}
+		}
+		ls, err := lanes.List(ctx)
+		if err == nil && len(ls) > 0 {
+			_ = lanes.Harden(ctx)
+		}
+		blocked := why
+		if blocked == "" {
+			blocked = lanes.StartBlocked(ctx)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		recs, problems := lanes.Registry.List(), lanes.Registry.Problems()
+		p.hub.Update(func(m *Model, now time.Time) {
+			m.ApplyTmux(ls, recs, blocked, err, now)
+			m.ApplyRegistryProblems(problems)
+		})
+	})
 }

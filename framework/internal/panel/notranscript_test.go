@@ -20,12 +20,13 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if path == "testdata" {
+			// Vendored third-party code is not the panel's source.
+			if path == "testdata" || path == filepath.Join("web", "vendor") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, "_test.go") || !(strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".html")) {
+		if strings.HasSuffix(path, "_test.go") || !(strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")) {
 			return nil
 		}
 		b, err := os.ReadFile(path)
