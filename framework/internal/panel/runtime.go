@@ -82,6 +82,8 @@ type Options struct {
 	LaneProgram []string
 	// StopTimeout overrides how long a lane stop waits for /exit (default 10 s).
 	StopTimeout time.Duration
+	// OpenBrowser overrides how the page is opened (tests record the URL instead).
+	OpenBrowser func(url string)
 }
 
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
@@ -187,7 +189,10 @@ func Run(ctx context.Context, o Options) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := &pollers{hub: hub, run: o.Runner, root: root, cfg: cfg,
-		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1)}
+		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
+	if lanes != nil {
+		p.registry = lanes.Registry // set before ingest starts reading it
+	}
 	hooks := make(chan []byte, 256)
 	status := make(chan []byte, 64)
 
@@ -198,7 +203,6 @@ func Run(ctx context.Context, o Options) error {
 	start(func() { p.worktreeLoop(ctx) })
 	start(func() { p.agentsLoop(ctx) })
 	start(func() { p.prLoop(ctx) })
-	p.kickTmux = make(chan struct{}, 1)
 	start(func() { p.tmuxLoop(ctx, lanes, lanesWhy) })
 	if lanes != nil {
 		lanes.Changed = func() { kick(p.kickTmux); p.kickWorktrees(); kick(p.kickAgents) }
@@ -237,13 +241,17 @@ func Run(ctx context.Context, o Options) error {
 	if o.OnReady != nil {
 		o.OnReady(url)
 	}
+	open := openBrowser
+	if o.OpenBrowser != nil {
+		open = o.OpenBrowser
+	}
 	switch {
 	case o.Launchd:
 		if shouldOpenAtLogin(o.Home, time.Now()) {
-			openBrowser(url)
+			open(url)
 		}
 	case !o.NoOpen:
-		openBrowser(url)
+		open(url)
 	}
 
 	select {
@@ -296,6 +304,7 @@ type pollers struct {
 	kickPRs    chan struct{}
 	kickTmux   chan struct{}
 	cardKicks  []chan struct{}
+	registry   *Registry // nil when lanes are unavailable
 
 	mu         sync.Mutex
 	lastWTKick time.Time
@@ -312,9 +321,7 @@ func (p *pollers) refreshAll() {
 	kick(p.kickWT)
 	kick(p.kickAgents)
 	kick(p.kickPRs)
-	if p.kickTmux != nil {
-		kick(p.kickTmux)
-	}
+	kick(p.kickTmux)
 	for _, k := range p.cardKicks {
 		kick(k)
 	}
@@ -358,6 +365,9 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				continue
 			}
 			ev.Cwd = ResolvePath(ev.Cwd)
+			if ev.Event == "UserPromptSubmit" && p.registry != nil {
+				_, _ = p.registry.MarkConversation(ev.SessionID)
+			}
 			kept := true
 			p.hub.Update(func(m *Model, now time.Time) { kept = m.ApplyHook(ev, now) })
 			if !kept {

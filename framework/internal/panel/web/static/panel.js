@@ -369,7 +369,7 @@ function renderTermBar(t) {
     bar.append(
       el("span", "confirm", stop
         ? "Stop lane " + t.id + "? Claude gets /exit, then its tmux session ends. The worktree stays."
-        : "Restart lane " + t.id + "? It stops, then claude --resume " + t.sessionId + " picks the same conversation up in the same directory."),
+        : "Restart lane " + t.id + "? It stops, then claude resumes its own session " + t.sessionId + " in the same directory."),
       button(stop ? "CONFIRM STOP" : "CONFIRM RESTART", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }),
       button("CANCEL", "", () => { confirmAct = null; render(); }));
   } else {

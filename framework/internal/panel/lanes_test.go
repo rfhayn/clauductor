@@ -309,3 +309,34 @@ func TestNewSessionID(t *testing.T) {
 		t.Fatalf("%q %q", a, b)
 	}
 }
+
+// A reload racing a stop must never bring the stopped lane back. Seen live: the stop
+// kicks the tmux loop, whose 30 s reload read the file just before Stop deleted the
+// record, then applied that stale copy after the delete; the lane stayed "registered"
+// until the next reload. This forces that interleaving.
+func TestRegistryReloadNeverResurrectsADeletedLane(t *testing.T) {
+	r, err := OpenRegistry(t.TempDir(), "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Begin(LaneRecord{ID: "a", SessionID: sid, Path: "/repo"}, "stop", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	read, release := make(chan struct{}), make(chan struct{})
+	r.afterRead = func() { close(read); <-release }
+	reloaded := make(chan struct{})
+	go func() { r.Reload(); close(reloaded) }()
+	<-read // the reload holds the file's old contents, with "a"
+	deleted := make(chan struct{})
+	go func() { r.Delete("a"); close(deleted) }()
+	select { // the delete must wait for the reload, or run first; either way...
+	case <-deleted:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	<-reloaded
+	<-deleted
+	if _, ok := r.Get("a"); ok { // ...the deleted lane must not be back
+		t.Fatal("a reload applied a stale read over a delete")
+	}
+}

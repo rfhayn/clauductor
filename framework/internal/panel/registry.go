@@ -37,6 +37,10 @@ type LaneRecord struct {
 	Action     string `json:"action"`
 	ActionAt   int64  `json:"actionAt"`
 	ActionDone bool   `json:"actionDone"`
+	// Conversation is set once a hook reports a prompt submitted in this session:
+	// only then does `claude --resume <id>` have a conversation to resume. Until
+	// then a restart reuses --session-id <id>.
+	Conversation bool `json:"conversation,omitempty"`
 }
 
 type registryFile struct {
@@ -51,6 +55,9 @@ type Registry struct {
 	project string
 	mu      sync.Mutex
 	lanes   map[string]LaneRecord
+	// afterRead, if set, runs in Reload between reading the file and applying it.
+	// Tests use it to force the interleaving of a reload with a concurrent write.
+	afterRead func()
 }
 
 // RegistryPath is where a project's registry lives. The hash keeps projects apart
@@ -67,14 +74,21 @@ func OpenRegistry(home, project string) (*Registry, error) {
 }
 
 // Reload re-reads the file, so a registry edited or restored outside the panel is
-// picked up.
+// picked up. It reads under the lock: a read taken before a concurrent write and
+// applied after it would resurrect a lane that was just stopped.
 func (r *Registry) Reload() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	b, err := os.ReadFile(r.path)
 	if os.IsNotExist(err) {
+		r.lanes = map[string]LaneRecord{}
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if r.afterRead != nil {
+		r.afterRead()
 	}
 	var f registryFile
 	if err := json.Unmarshal(b, &f); err != nil {
@@ -86,9 +100,7 @@ func (r *Registry) Reload() error {
 			lanes[l.ID] = l
 		}
 	}
-	r.mu.Lock()
 	r.lanes = lanes
-	r.mu.Unlock()
 	return nil
 }
 
@@ -139,6 +151,30 @@ func (r *Registry) Begin(l LaneRecord, action string, now time.Time) (LaneRecord
 func (r *Registry) Done(l LaneRecord) error {
 	l.ActionDone = true
 	return r.Put(l)
+}
+
+// MarkConversation records that a lane's session has a conversation. It returns
+// whether the session belongs to a registered lane.
+func (r *Registry) MarkConversation(sessionID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, l := range r.lanes {
+		if l.SessionID != sessionID || sessionID == "" {
+			continue
+		}
+		if l.Conversation {
+			return true, nil
+		}
+		l.Conversation = true
+		r.lanes[id] = l
+		if err := r.writeLocked(); err != nil {
+			l.Conversation = false
+			r.lanes[id] = l
+			return true, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 // Delete removes a record and writes the file.

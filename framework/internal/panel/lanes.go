@@ -586,8 +586,10 @@ func (m *LaneManager) liveSession(ctx context.Context, sessionID string) (bool, 
 	return false, nil
 }
 
-// resumeLocked starts `claude --resume <session>` for a registered lane whose tmux
-// session is gone, after checking no process holds that session.
+// resumeLocked restarts a registered lane whose tmux session is gone on its own
+// session id, after checking no process holds that session: `claude --resume <id>`
+// once the session has a conversation, else `claude --session-id <id>` again
+// (--resume refuses a session with no conversation).
 func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action string) *LaneError {
 	if m.Exists(ctx, rec.ID) {
 		return laneErr(409, "exists", "lane %q is still running", rec.ID)
@@ -613,7 +615,7 @@ func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action s
 	if err != nil {
 		return laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
-	if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, true)[2:]...); err != nil {
+	if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, rec.Conversation)[2:]...); err != nil {
 		return laneErr(500, "tmux", "starting claude --resume failed: %v", err)
 	}
 	if err := m.Registry.Done(rec); err != nil {

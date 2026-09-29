@@ -301,10 +301,20 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	exec.Command(tmux, "-L", sock, "set-environment", "-g", "-u", "ANTHROPIC_API_KEY").Run()
 
 	// Restart resumes the lane's own session: --resume <its id>, never --continue.
+	// --resume needs a conversation, which the first submitted prompt's hook records.
+	fxSID := findTerm(p2.state(t), "fx").SessionID
+	hook := fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"prompt":"hi"}`, fxSID, ResolvePath(wt))
+	if code := (liveClient{base: p2.base}).post(t, "/hook", hook); code != 204 {
+		t.Fatalf("hook: %d", code)
+	}
+	waitFor(t, "the registry to record fx's conversation", func() bool {
+		r, _ := OpenRegistry(home, root)
+		rec, _ := r.Get("fx")
+		return rec.Conversation
+	})
 	if code, body := p2.post(t, "/api/lanes/fx/restart", nil); code != 200 {
 		t.Fatalf("restart: %d %v", code, body)
 	}
-	fxSID := findTerm(p2.state(t), "fx").SessionID
 	startCmd, _ = exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=fx:", "#{pane_start_command}").Output()
 	if !strings.Contains(string(startCmd), "--resume "+fxSID) || strings.Contains(string(startCmd), "--continue") {
 		t.Fatalf("restarted as %s", startCmd)
@@ -320,8 +330,10 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	if code, body := p2.post(t, "/api/lanes/orch/resume", nil); code != 200 {
 		t.Fatalf("resume: %d %v", code, body)
 	}
+	// orch never had a prompt, so there is nothing to --resume: it gets its own
+	// session id again.
 	startCmd, _ = exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{pane_start_command}").Output()
-	if !strings.Contains(string(startCmd), "--resume "+orch.SessionID) {
+	if !strings.Contains(string(startCmd), "--session-id "+orch.SessionID) || strings.Contains(string(startCmd), "--continue") {
 		t.Fatalf("resumed as %s", startCmd)
 	}
 	if code, _ := p2.post(t, "/api/lanes/orch/forget", nil); code != 409 {
