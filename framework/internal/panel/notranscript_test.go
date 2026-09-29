@@ -143,7 +143,7 @@ var fileReadSites = map[string]int{
 	"hosts.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"registry.go":   1, // the lane registry
 	"trust.go":      1, // the trusted-config record
-	"lease.go":      3, // a lease owner/waiter file; the lease directory opened for flock(2) (2)
+	"lease.go":      4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
 }
 
 func TestNoSourceReachesTranscriptsByJoinOrNewReadSite(t *testing.T) {

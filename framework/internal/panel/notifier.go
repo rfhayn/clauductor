@@ -37,7 +37,9 @@ type Notifier struct {
 	MinInterval time.Duration
 	Project     string
 
-	notified map[string]bool
+	// notified maps an alert key to the Since of the stretch it was notified for: the
+	// same key with another Since is a new stretch, and notifies again.
+	notified map[string]int64
 	lastSent map[string]time.Time
 	stats    NotifierStats
 }
@@ -50,17 +52,16 @@ func Interrupts(a AlertView) bool {
 // NotifierState is what the notifier persists across restarts.
 type NotifierState struct {
 	Stats    NotifierStats    `json:"stats"`
-	Notified []string         `json:"notified"`
+	Notified map[string]int64 `json:"notified"` // alert key → the Since it was notified for
 	LastSent map[string]int64 `json:"lastSent"` // group → unix ms
 }
 
 // State returns the notifier's persistent state.
 func (n *Notifier) State() NotifierState {
-	st := NotifierState{Stats: n.stats, Notified: []string{}, LastSent: map[string]int64{}}
-	for k := range n.notified {
-		st.Notified = append(st.Notified, k)
+	st := NotifierState{Stats: n.stats, Notified: map[string]int64{}, LastSent: map[string]int64{}}
+	for k, since := range n.notified {
+		st.Notified[k] = since
 	}
-	sort.Strings(st.Notified)
 	for g, t := range n.lastSent {
 		st.LastSent[g] = t.UnixMilli()
 	}
@@ -69,9 +70,9 @@ func (n *Notifier) State() NotifierState {
 
 // Restore loads a saved state.
 func (n *Notifier) Restore(st NotifierState) {
-	n.notified, n.lastSent = map[string]bool{}, map[string]time.Time{}
-	for _, k := range st.Notified {
-		n.notified[k] = true
+	n.notified, n.lastSent = map[string]int64{}, map[string]time.Time{}
+	for k, since := range st.Notified {
+		n.notified[k] = since
 	}
 	for g, ms := range st.LastSent {
 		n.lastSent[g] = time.UnixMilli(ms)
@@ -92,7 +93,7 @@ func groupOf(a AlertView) string {
 // Process returns the notifications to send now.
 func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time.Time) []Notice {
 	if n.notified == nil {
-		n.notified, n.lastSent = map[string]bool{}, map[string]time.Time{}
+		n.notified, n.lastSent = map[string]int64{}, map[string]time.Time{}
 	}
 	if day := now.Format("2006-01-02"); day != n.stats.Day {
 		n.stats = NotifierStats{Day: day}
@@ -104,7 +105,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 			continue // shown on the page, never an interruption
 		}
 		active[a.Key] = true
-		if n.notified[a.Key] {
+		if since, ok := n.notified[a.Key]; ok && since == a.Since {
 			continue
 		}
 		g := groupOf(a)
@@ -126,7 +127,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		as := pending[g]
 		if focused[g] {
 			for _, a := range as {
-				n.notified[a.Key] = true
+				n.notified[a.Key] = a.Since
 			}
 			n.stats.Suppressed += len(as)
 			continue
@@ -144,7 +145,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		for _, a := range as {
 			lines = append(lines, a.Text)
 			keys = append(keys, a.Key)
-			n.notified[a.Key] = true
+			n.notified[a.Key] = a.Since
 		}
 		n.lastSent[g] = now
 		n.stats.Interrupts++

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const buildWT = "/repo/.claude/worktrees/build-add-support-access"
+const buildWT = "/repo/.claude/worktrees/build-add-feature"
 
 func v2Model(t *testing.T) *Model {
 	t.Helper()
@@ -66,7 +66,7 @@ func TestNotificationEffects(t *testing.T) {
 			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "UserPromptSubmit"}, t0)
 			m.ApplyHook(notifEv(tc.typ), t0.Add(time.Second))
 			v := m.Snapshot(t0.Add(2 * time.Second))
-			l := laneByName(v, "add-support-access")
+			l := laneByName(v, "add-feature")
 			if l == nil {
 				t.Fatal("lane missing")
 			}
@@ -101,7 +101,7 @@ func TestElicitationCompleteAnswersTheDialog(t *testing.T) {
 	m.ApplyHook(notifEv("elicitation_dialog"), t0)
 	m.ApplyHook(notifEv("elicitation_complete"), t0.Add(time.Second))
 	v := m.Snapshot(t0.Add(2 * time.Second))
-	if len(v.NeedsYou) != 0 || laneByName(v, "add-support-access").Status == "waiting" {
+	if len(v.NeedsYou) != 0 || laneByName(v, "add-feature").Status == "waiting" {
 		t.Fatalf("still waiting: %+v", v.NeedsYou)
 	}
 }
@@ -129,13 +129,13 @@ func TestV2HookEvents(t *testing.T) {
 		t.Fatalf("permission request: %+v", v.NeedsYou)
 	}
 	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreCompact", CompactionTrigger: "auto"}, t0)
-	if c := laneByName(m.Snapshot(t0), "add-support-access").Sessions[0].Compacting; c != "auto" {
+	if c := laneByName(m.Snapshot(t0), "add-feature").Sessions[0].Compacting; c != "auto" {
 		t.Fatalf("compacting %q", c)
 	}
 	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PostCompact", CompactionTrigger: "auto"}, t0)
 	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "StopFailure", ErrorType: "rate_limit"}, t0.Add(time.Second))
 	v = m.Snapshot(t0.Add(2 * time.Second))
-	s := laneByName(v, "add-support-access").Sessions[0]
+	s := laneByName(v, "add-feature").Sessions[0]
 	if s.Compacting != "" || s.Failure != "rate_limit" {
 		t.Fatalf("after PostCompact/StopFailure: %+v", s)
 	}
@@ -162,7 +162,7 @@ func TestSessionBindingByID(t *testing.T) {
 	m.ApplyHook(HookEvent{SessionID: "own", Cwd: "/repo", Event: "Stop"}, t0.Add(time.Second))
 	m.ApplyHook(HookEvent{SessionID: "own", Cwd: "/repo", Event: "CwdChanged", PreviousCwd: buildWT}, t0.Add(time.Second))
 	v := m.Snapshot(t0.Add(2 * time.Second))
-	if l := laneByName(v, "add-support-access"); l == nil || len(l.Sessions) != 1 {
+	if l := laneByName(v, "add-feature"); l == nil || len(l.Sessions) != 1 {
 		t.Fatalf("session moved lanes: %+v", v.Lanes)
 	}
 	if l := laneByName(v, "main"); l != nil && len(l.Sessions) != 0 {
@@ -231,7 +231,7 @@ func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
 	m := v2Model(t)
 	m.ApplyAgents(agents, nil, t0)
 	v := m.Snapshot(t0)
-	s := laneByName(v, "add-support-access").Sessions[0]
+	s := laneByName(v, "add-feature").Sessions[0]
 	if s.AgentID != "a1b2" || s.AgentState != "running" || s.WaitingKind != "permission" {
 		t.Fatalf("view %+v", s)
 	}
@@ -252,12 +252,12 @@ func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
 	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "SubagentStart", AgentID: "a", AgentType: "builder"}, t0)
 	m.ApplyClaudeVersion(HeuristicsVerifiedOn, nil, t0)
 	v := m.Snapshot(t0)
-	if laneByName(v, "add-support-access").SubagentsApprox || len(v.Warnings) != 0 {
+	if laneByName(v, "add-feature").SubagentsApprox || len(v.Warnings) != 0 {
 		t.Fatalf("verified version flagged approximate: %+v", v.Warnings)
 	}
 	m.ApplyClaudeVersion("2.2.0", nil, t0)
 	v = m.Snapshot(t0)
-	if !laneByName(v, "add-support-access").SubagentsApprox || len(v.Warnings) != 1 || !strings.Contains(v.Warnings[0], "2.2.0") {
+	if !laneByName(v, "add-feature").SubagentsApprox || len(v.Warnings) != 1 || !strings.Contains(v.Warnings[0], "2.2.0") {
 		t.Fatalf("other version not flagged: %+v", v.Warnings)
 	}
 	if v.Observe.ClaudeVersion != "2.2.0" || v.Observe.VerifiedOn != "2.1.284" {

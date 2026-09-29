@@ -8,7 +8,7 @@ import (
 
 func TestConfigExampleFixtureParses(t *testing.T) {
 	cfg := testConfig(t)
-	if cfg.Name != "Standing Tee" || len(cfg.Cards) != 2 {
+	if cfg.Name != "My Project" || len(cfg.Cards) != 2 {
 		t.Fatalf("%+v", cfg)
 	}
 }
@@ -73,7 +73,7 @@ func TestParseWorktreePorcelain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wts) != 4 || wts[1].Branch != "change/add-support-access" || wts[3].Branch != "" {
+	if len(wts) != 4 || wts[1].Branch != "change/add-feature" || wts[3].Branch != "" {
 		t.Fatalf("%+v", wts)
 	}
 	real, err := ParseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))

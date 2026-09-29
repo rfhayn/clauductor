@@ -1,5 +1,5 @@
 {
-  "name": "Standing Tee",
+  "name": "My Project",
   "lanes": {
     "change/": "build",
     "fix/": "fix",

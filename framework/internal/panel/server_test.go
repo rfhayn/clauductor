@@ -248,7 +248,7 @@ func TestEventsStreamsFullStateOnConnect(t *testing.T) {
 	}()
 	select {
 	case s := <-got:
-		if !strings.Contains(s, "event: state") || !strings.Contains(s, `"name":"Standing Tee"`) {
+		if !strings.Contains(s, "event: state") || !strings.Contains(s, `"name":"My Project"`) {
 			t.Fatalf("first event: %s", s)
 		}
 	case <-deadline:

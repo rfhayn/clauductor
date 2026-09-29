@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // The lease protocol serialises a shared resource (the full gate on port 3100)
@@ -61,16 +62,21 @@ import (
 
 // LeaseOwner is the content of owner.json and of each waiter file.
 type LeaseOwner struct {
-	V       int    `json:"v"`
-	Nonce   string `json:"nonce"`
-	PID     int    `json:"pid"`
-	PStart  string `json:"pstart,omitempty"` // process start time (see above)
-	Host    string `json:"host"`
-	Lane    string `json:"lane,omitempty"`
-	Cmd     string `json:"cmd,omitempty"`
-	Started int64  `json:"started"` // unix seconds
-	Renewed int64  `json:"renewed"` // unix seconds
-	TTL     int64  `json:"ttl"`     // seconds; 0 = no expiry (pid liveness only)
+	V      int    `json:"v"`
+	Nonce  string `json:"nonce"`
+	PID    int    `json:"pid"`
+	PStart string `json:"pstart,omitempty"` // process start time (see above)
+	// ChildPID and ChildPStart name the command lock-run runs. The record is live
+	// while EITHER the holder or its command is: a lock-run killed with SIGKILL
+	// leaves its gate running, and the gate still holds the lease.
+	ChildPID    int    `json:"child_pid,omitempty"`
+	ChildPStart string `json:"child_pstart,omitempty"`
+	Host        string `json:"host"`
+	Lane        string `json:"lane,omitempty"`
+	Cmd         string `json:"cmd,omitempty"`
+	Started     int64  `json:"started"` // unix seconds
+	Renewed     int64  `json:"renewed"` // unix seconds
+	TTL         int64  `json:"ttl"`     // seconds; 0 = no expiry (pid liveness only)
 }
 
 const (
@@ -92,18 +98,45 @@ const (
 type ProcCheck func(pid int) (alive bool, start string)
 
 // ProcStart is the start time of a process as the protocol records it:
-// `LC_ALL=C ps -o lstart= -p <pid>` with whitespace collapsed. "" if unknown.
+// `LC_ALL=C ps -o lstart= -p <pid>` with whitespace collapsed; where there is no
+// ps, "proc:" + field 22 (starttime) of /proc/<pid>/stat. "" if unknown. Values
+// from the two sources are never compared with each other.
 func ProcStart(pid int) string {
 	if pid <= 0 {
 		return ""
 	}
 	cmd := exec.Command("/bin/ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, err := cmd.Output()
+	if out, err := cmd.Output(); err == nil {
+		if v := strings.Join(strings.Fields(string(out)), " "); v != "" {
+			return v
+		}
+	}
+	return procStatStart(pid)
+}
+
+// procStatStart reads field 22 of /proc/<pid>/stat. The command name (field 2) may
+// hold spaces and parentheses, so fields are counted after its last ")".
+func procStatStart(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return ""
 	}
-	return strings.Join(strings.Fields(string(out)), " ")
+	s := string(b)
+	i := strings.LastIndex(s, ") ")
+	if i < 0 {
+		return ""
+	}
+	f := strings.Fields(s[i+2:])
+	if len(f) < 20 {
+		return ""
+	}
+	return "proc:" + f[19]
+}
+
+// sameSource: two start times come from the same source (ps, or /proc).
+func sameSource(a, b string) bool {
+	return strings.HasPrefix(a, "proc:") == strings.HasPrefix(b, "proc:")
 }
 
 // LiveProc is the real ProcCheck.
@@ -140,23 +173,42 @@ func hostName() string {
 	return h
 }
 
-// LeaseStale reports whether a holder (or waiter) may be removed, and why. A holder
-// on this host whose pid is alive with the recorded start time is never stale. The
-// TTL applies only to what cannot be checked: another host, or no start time.
+// procDead judges one recorded process on this host: dead when its pid is gone, or
+// when its start time differs from the recorded one (from the same source): the pid
+// was reused. An alive pid whose start time cannot be verified is LIVE: missing data
+// never deletes somebody else's lease or waiter file.
+func procDead(pid int, recorded string, proc ProcCheck) (bool, string) {
+	alive, start := proc(pid)
+	switch {
+	case !alive:
+		return true, fmt.Sprintf("pid %d is gone", pid)
+	case recorded != "" && start != "" && sameSource(recorded, start) && start != recorded:
+		return true, fmt.Sprintf("pid %d was reused (started %s, the record says %s)", pid, start, recorded)
+	}
+	return false, ""
+}
+
+// LeaseStale reports whether a holder (or waiter) may be removed, and why. On this
+// host it is judged by its processes, never by the clock: stale only when the holder
+// AND its recorded command are both dead (or reused pids). The TTL applies only to a
+// record from another host, whose pids mean nothing here.
 func LeaseStale(o LeaseOwner, host string, now time.Time, proc ProcCheck) (bool, string) {
 	if o.Host == host && o.PID > 0 {
-		alive, start := proc(o.PID)
-		switch {
-		case !alive:
-			return true, fmt.Sprintf("pid %d is gone", o.PID)
-		case o.PStart != "" && start != "" && start != o.PStart:
-			return true, fmt.Sprintf("pid %d was reused (started %s, the holder started %s)", o.PID, start, o.PStart)
-		case o.PStart != "" && start != "":
-			return false, "" // the holder itself: alive, however silent
+		dead, why := procDead(o.PID, o.PStart, proc)
+		if !dead {
+			return false, ""
 		}
+		if o.ChildPID > 0 {
+			if cdead, cwhy := procDead(o.ChildPID, o.ChildPStart, proc); !cdead {
+				return false, ""
+			} else {
+				why += "; its command " + cwhy
+			}
+		}
+		return true, why
 	}
 	if o.TTL > 0 && now.Unix() > o.Renewed+o.TTL {
-		return true, fmt.Sprintf("its lease expired %ds ago (not renewed)", now.Unix()-o.Renewed-o.TTL)
+		return true, fmt.Sprintf("its lease from host %q expired %ds ago (not renewed)", o.Host, now.Unix()-o.Renewed-o.TTL)
 	}
 	return false, ""
 }
@@ -229,17 +281,19 @@ func flocked(lock string) bool {
 	return false
 }
 
-// holdFlock takes flock(2) on the lease directory and keeps it until release.
-func holdFlock(lock string) (release func()) {
+// holdFlock takes flock(2) on the lease directory and keeps it until release. The
+// open file is also passed to the command (ExtraFiles), so the flock outlives a
+// lock-run killed with SIGKILL for as long as its gate runs.
+func holdFlock(lock string) (*os.File, func()) {
 	f, err := os.Open(lock)
 	if err != nil {
-		return func() {}
+		return nil, func() {}
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		f.Close()
-		return func() {}
+		return nil, func() {}
 	}
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
+	return f, func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
 }
 
 // waiterEntry is one waiter file.
@@ -373,7 +427,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	lock = filepath.Clean(lock)
 	// Re-entry: a gate script that re-runs itself through lock-run already holds it.
 	if os.Getenv("CLAUDUCTOR_LOCK_HELD") == lock {
-		return runChild(ctx, o, lock, nil)
+		return runChild(ctx, o, lock, nil, nil)
 	}
 	if err := os.MkdirAll(waitersDir(lock), 0o755); err != nil {
 		return 2, fmt.Errorf("lock-run: %w", err)
@@ -425,7 +479,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		}
 		if ahead == 0 {
 			if err := os.Mkdir(lock, 0o755); err == nil {
-				unflock := holdFlock(lock)
+				flockFile, unflock := holdFlock(lock)
 				defer unflock()
 				held := me
 				held.Started, held.Renewed = now.Unix(), now.Unix()
@@ -435,7 +489,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 					return 2, fmt.Errorf("lock-run: writing owner.json: %w", err)
 				}
 				leaveQueue()
-				return runChild(ctx, o, lock, &held)
+				return runChild(ctx, o, lock, &held, flockFile)
 			} else if !errors.Is(err, os.ErrExist) {
 				leaveQueue()
 				return 2, fmt.Errorf("lock-run: %w", err)
@@ -482,7 +536,7 @@ func who(o LeaseOwner) string {
 // runChild runs the command. When held is set it holds the lease: it renews it every
 // ttl/3 and releases it after the command exits, but only while owner.json still
 // carries its own nonce (a lease it lost to a reclaim is not its to remove).
-func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner) (int, error) {
+func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner, flockFile *os.File) (int, error) {
 	cmd := exec.Command(o.Argv[0], o.Argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	if cmd.Stdin == nil {
@@ -491,12 +545,34 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	if cmd.Stdout == nil {
 		cmd.Stdout = os.Stdout
 	}
-	cmd.Env = append(os.Environ(), "CLAUDUCTOR_LOCK_HELD="+lock)
+	cmd.Env = append(childEnv(os.Environ()), "CLAUDUCTOR_LOCK_HELD="+lock)
 	// The command gets a process group of its own. A Ctrl-C from the terminal then
 	// reaches lock-run only, which passes it on ONCE; and lock-run can stop the whole
 	// gate (its dev server and test runners too) if the lease is lost. The cost: the
 	// command cannot read the terminal, which a gate never needs.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// On a terminal, the command's group must be the terminal's FOREGROUND group:
+	// a background group that touches the terminal (stty, a prompt) is stopped with
+	// SIGTTOU/SIGTTIN, forever, while it holds the lease. lock-run takes the
+	// terminal back when the command ends. Only when lock-run is itself in the
+	// foreground: a lock-run started with & must not steal the terminal.
+	ttyFd := -1
+	if f, ok := cmd.Stdin.(*os.File); ok {
+		if pg, err := tcgetpgrp(int(f.Fd())); err == nil && pg == syscall.Getpgrp() {
+			ttyFd = int(f.Fd())
+			cmd.SysProcAttr.Foreground, cmd.SysProcAttr.Ctty = true, 0 // fd 0 in the child
+		}
+	}
+	if flockFile != nil {
+		cmd.ExtraFiles = []*os.File{flockFile}
+	}
+	takeTerminalBack := func() {
+		if ttyFd >= 0 {
+			signal.Ignore(syscall.SIGTTOU) // lock-run is in the background until this returns
+			_ = tcsetpgrp(ttyFd, syscall.Getpgrp())
+		}
+	}
+	defer takeTerminalBack()
 	group := func(sig syscall.Signal) { _ = syscall.Kill(-cmd.Process.Pid, sig) }
 	release := func() {
 		if held == nil {
@@ -511,6 +587,14 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	if err := cmd.Start(); err != nil {
 		release()
 		return 127, fmt.Errorf("lock-run: %w", err)
+	}
+	if held != nil {
+		// Record the command beside the holder: the lease stays live while either runs.
+		ownerPath := filepath.Join(lock, ownerFileName)
+		if cur, err := readLeaseFile(ownerPath); err == nil && cur.Nonce == held.Nonce {
+			cur.ChildPID, cur.ChildPStart = cmd.Process.Pid, ProcStart(cmd.Process.Pid)
+			_ = writeLeaseFile(ownerPath, cur)
+		}
 	}
 	stop := make(chan struct{})
 	defer close(stop)
@@ -678,4 +762,50 @@ func CancelWait(lock, nonce string) error {
 		}
 	}
 	return errors.New("no such waiter (it may have started or left already)")
+}
+
+// tcgetpgrp returns the foreground process group of the terminal on fd.
+func tcgetpgrp(fd int) (int, error) {
+	var pg int32
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGPGRP), uintptr(unsafe.Pointer(&pg))); e != 0 {
+		return 0, e
+	}
+	return int(pg), nil
+}
+
+// tcsetpgrp makes pg the foreground process group of the terminal on fd.
+func tcsetpgrp(fd, pg int) error {
+	p := int32(pg)
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCSPGRP), uintptr(unsafe.Pointer(&p))); e != 0 {
+		return e
+	}
+	return nil
+}
+
+// childEnv undoes the startup TERM workaround for the command. bubbletea's init (it
+// is linked into this binary for the HUD) asks the terminal for its background
+// colour and waits up to 5 s on a pty that does not answer. A caller skips that by
+// starting lock-run with TERM=dumb and the real value in CLAUDUCTOR_TERM
+// (docs/panel.md's snippet does); the command gets the real TERM back.
+func childEnv(env []string) []string {
+	orig, ok := "", false
+	for _, kv := range env {
+		if v, found := strings.CutPrefix(kv, "CLAUDUCTOR_TERM="); found {
+			orig, ok = v, true
+		}
+	}
+	if !ok {
+		return env
+	}
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "CLAUDUCTOR_TERM=") || strings.HasPrefix(kv, "TERM=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	if orig != "" {
+		out = append(out, "TERM="+orig)
+	}
+	return out
 }

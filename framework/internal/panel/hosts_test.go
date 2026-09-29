@@ -16,12 +16,12 @@ import (
 
 func TestHostAllowListIsExact(t *testing.T) {
 	s, _ := newTestServer(t)
-	s.HostNames = []string{"standingtee.localhost"}
+	s.HostNames = []string{"myproject.localhost"}
 	p := strconv.Itoa(testPort)
 	other := strconv.Itoa(testPort + 1)
 	allowed := []string{
 		"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, "clauductor.localhost:" + p,
-		"standingtee.localhost:" + p, // configured
+		"myproject.localhost:" + p, // configured
 		// Host names compare case-insensitively (RFC 9110 §4.2.3).
 		"CLAUDUCTOR.localhost:" + p, "Clauductor.LocalHost:" + p, "LOCALHOST:" + p,
 	}
@@ -89,7 +89,7 @@ func TestHostNamesConfig(t *testing.T) {
 			t.Errorf("accepted host name %q", bad)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"T","host_names":["standingtee.localhost","a1-b2.localhost"]}`)); err != nil {
+	if _, err := ParseConfig([]byte(`{"name":"T","host_names":["myproject.localhost","a1-b2.localhost"]}`)); err != nil {
 		t.Fatal(err)
 	}
 }

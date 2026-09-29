@@ -410,7 +410,7 @@ func TestConfigNameIsPlainText(t *testing.T) {
 			t.Errorf("accepted name %q", bad)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"Standing Tee · panel"}`)); err != nil {
+	if _, err := ParseConfig([]byte(`{"name":"My Project · panel"}`)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -428,7 +428,7 @@ func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 	if out := n.Process(pageOnly, nil, t0); len(out) != 0 {
 		t.Fatalf("page-only alerts interrupted: %+v", out)
 	}
-	block := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: SevBlock, Terminal: "a", Text: "waiting"}
+	block := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: SevBlock, Terminal: "a", Text: "waiting", Since: t0.UnixMilli()}
 	if out := n.Process(append(pageOnly, block), nil, t0); len(out) != 1 {
 		t.Fatalf("a blocking alert did not interrupt: %+v", out)
 	}
@@ -443,6 +443,15 @@ func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 	}
 	if n2.Stats().Interrupts != 1 {
 		t.Fatalf("interrupt count lost across the restart: %+v", n2.Stats())
+	}
+	// Round 2: the saved state keeps each key's Since. The same condition in a NEW
+	// stretch (it cleared while the panel was down, then came back) notifies again.
+	n3 := &Notifier{MinInterval: time.Minute}
+	n3.Restore(st)
+	again := block
+	again.Since = t0.Add(10 * time.Minute).UnixMilli()
+	if out := n3.Process([]AlertView{again}, nil, t0.Add(11*time.Minute)); len(out) != 1 {
+		t.Fatalf("a new stretch after a restart did not notify: %+v", out)
 	}
 	// Without the saved state it would have notified again (the test's premise).
 	if out := (&Notifier{MinInterval: time.Minute}).Process([]AlertView{block}, nil, t0); len(out) != 1 {

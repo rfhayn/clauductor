@@ -56,7 +56,7 @@ keys are an error, so a misspelt key fails loudly.
 
 ```json
 {
-  "name": "Standing Tee",
+  "name": "My Project",
   "lanes": {
     "change/": "build",
     "fix/": "fix",
@@ -107,7 +107,7 @@ keys are an error, so a misspelt key fails loudly.
 | `queues[].command` | array of strings | Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. |
 | `alerts` | object | Thresholds; a missing key takes the default, `0` turns that alert off. `idle_minutes` (30), `context_pct` (85), `five_hour_pct` (90), `waiting_seconds` (120), `notify` (true: macOS notifications), `min_interval_seconds` (300: at most one notification per lane per interval). |
 | `quota_guard` | object | `five_hour_pct` (95): refuse to start or restore a lane at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
-| `host_names` | array of strings | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"standingtee.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `host_names` | array of strings | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `cards[].refresh` | string, required | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. |
 
 **Card output.** If stdout parses as JSON, it renders as JSON: an array becomes a list (for
@@ -514,7 +514,7 @@ once, and never reads a screen or a transcript.
 
 ```json
 {
-  "name": "Standing Tee",
+  "name": "My Project",
   "version": 2,
   "lanes": { "change/": "build", "fix/": "fix", "ops/": "ops", "main": "orchestrator" },
   "lane_types": { "build": { "model": "opus", "effort": "high" } },
@@ -576,14 +576,16 @@ The protocol is plain files, so a shell script can honour it with no clauductor 
 | Path | Meaning |
 |---|---|
 | `<lock>/` | Held while it exists. `mkdir` either creates it or fails with `EEXIST`. |
-| `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
+| `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, child_pid, child_pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
 | `<lock>.waiters/<arrival>-<nonce>.json` | One per waiter, same fields. The numeric arrival (unix ns, or unix s followed by nine zeros) orders the queue. |
 | `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **CANCEL WAIT**). |
 | `<lock>.reclaim/` | A short mutex, taken only to remove a stale holder. |
 
 `pstart` is the holder's process start time exactly as `LC_ALL=C ps -o lstart= -p <pid>`
 prints it, with runs of whitespace collapsed to one space (for example
-`Mon Sep 28 23:10:17 2026`). It is what tells a live holder from a reused pid.
+`Mon Sep 28 23:10:17 2026`), or `proc:<field 22 of /proc/<pid>/stat>` where there is no `ps`.
+It is what tells a live holder from a reused pid. `child_pid` and `child_pstart` name the
+holder's command the same way.
 
 **When a holder is stale** (only a stale holder may be removed):
 
@@ -592,10 +594,17 @@ prints it, with runs of whitespace collapsed to one space (for example
   silent. A holder stopped with `SIGSTOP`, or on a laptop that slept, is still the holder.
   Expiring it would run two gates at once.
 - **Same host, pid alive, another start time:** the pid was reused. Stale.
-- **Only when the process cannot be checked** (another host, no `pstart`, or a start time that
-  cannot be read): the TTL applies, and the holder is stale once `renewed + ttl` has passed.
-  `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A shell holder writes `ttl: 0`
-  (no expiry) and relies on `pstart`.
+- **Same host, pid alive, start time unverifiable** (none recorded, none readable, or one from
+  `ps` and one from `/proc`): live. Missing data never removes somebody else's lease or waiter
+  file. A lease stuck this way (a reused pid, no start time) is removed by hand.
+- **The command counts too.** `lock-run` records its command as `child_pid` / `child_pstart`.
+  On the same host a record is stale only when the holder **and** the command are both dead. A
+  `lock-run` killed with `SIGKILL` leaves its gate running, and the gate still holds the lease.
+- **Another host:** its pids mean nothing here, so the TTL applies: stale once `renewed + ttl`
+  has passed. `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A shell holder
+  writes `ttl: 0` (no expiry).
+- **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
+  start time is `proc:` + field 22 of `/proc/<pid>/stat`.
 - A directory with no readable `owner.json` for 10 s is stale (its holder died between `mkdir`
   and the write). Never write `owner.json` in place; write a temp file and `mv` it.
 
@@ -605,9 +614,10 @@ ever signals or removes a live holder**, including the panel.
 
 **Defence in depth in `lock-run`:**
 
-- It holds `flock(2)` on the lease directory while it holds the lease, and a Go reader (another
+- It holds `flock(2)` on the lease directory while it holds the lease, and passes that open
+  file to its command, so the lock lasts as long as either runs. A Go reader (another
   `lock-run`, the panel) never judges a flocked lease stale. The kernel drops the lock when the
-  process dies.
+  last process holding it exits.
 - Once a second it checks `owner.json` still carries its nonce. If the lease was taken away, it
   stops the command's whole process group (`TERM`, then `KILL` after 5 s) and exits **70**,
   rather than let two gates finish.
@@ -620,9 +630,11 @@ the same rule as a holder, except that its TTL is 60 s.
 - **Exit status.** The command's status (128+n if a signal ended it), 75 if its wait was
   cancelled, 70 if its lease was taken away, and 130 if it was interrupted while waiting. It
   releases the lease only while `owner.json` still carries its own nonce.
-- **Signals.** The command runs in a process group of its own, so a Ctrl-C from the terminal
-  reaches `lock-run` alone, and `lock-run` passes `SIGINT`, `SIGTERM` or `SIGHUP` on to the
-  command's group **once**. The command cannot read the terminal; a gate never needs to.
+- **Signals and the terminal.** The command runs in a process group of its own, and `lock-run`
+  passes `SIGINT`, `SIGTERM` or `SIGHUP` it receives on to that group **once**. On a terminal
+  (when `lock-run` is in the foreground), the command's group becomes the terminal's foreground
+  group, so it can use the terminal (`stty`, a prompt) and a Ctrl-C reaches it once, straight
+  from the terminal. `lock-run` takes the terminal back when the command ends.
 - **Re-entry.** The command runs with `CLAUDUCTOR_LOCK_HELD=<lock>`. A `lock-run` on the same
   lock inside it runs the command directly, so a script can wrap itself.
 
@@ -652,10 +664,16 @@ if [ -z "$lock" ]; then
   echo "run-local: not in a git checkout; running without the gate queue" >&2
 elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   if command -v clauductor >/dev/null 2>&1; then
-    exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
+    # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
+    # pty that does not answer); lock-run gives the gate the real TERM back.
+    CLAUDUCTOR_TERM="${TERM:-}" TERM=dumb \
+      exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
   fi
-  . "$(dirname "$0")/lease.sh"          # the plain-shell protocol below
-  lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
+  if [ -f "$(dirname "$0")/lease.sh" ]; then
+    . "$(dirname "$0")/lease.sh"        # the plain-shell protocol below
+    lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
+  fi
+  echo "run-local: neither clauductor nor lease.sh found; running without the gate queue" >&2
 fi
 # ...the gate itself...
 ```
@@ -672,19 +690,47 @@ directions: a test extracts this block from this page and runs it against `lock-
 # clauductor lease protocol v1 in plain POSIX shell: interoperates with
 # `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
 # Exit status: the command's; 75 if the wait was cancelled from the panel.
-lease_pstart() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}' || true; }
+# Liveness and start time need ps; without it, kill -0 (EPERM still means alive)
+# and /proc/<pid>/stat field 22. A start time from one source is never compared
+# with one from the other, and an alive pid that cannot be verified is live.
+lease_alive() {
+  if command -v ps >/dev/null 2>&1; then [ -n "$(ps -o pid= -p "$1" 2>/dev/null || true)" ]; return; fi
+  _e=$(kill -0 "$1" 2>&1) && return 0
+  case $_e in *ermitted*) return 0 ;; esac
+  return 1
+}
+lease_pstart() {
+  _v=""
+  if command -v ps >/dev/null 2>&1; then _v=$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}' || true); fi
+  if [ -z "$_v" ] && [ -r "/proc/$1/stat" ]; then _v="proc:$(sed 's/.*) //' "/proc/$1/stat" | awk '{print $20}')"; fi
+  printf '%s\n' "$_v"
+}
+# lease_proc_dead PID RECORDED_START: 0 (true) only when the pid is gone, or was
+# reused (a start time from the same source that differs).
+lease_proc_dead() {
+  lease_alive "$1" || return 0
+  _n=$(lease_pstart "$1")
+  { [ -n "$2" ] && [ -n "$_n" ]; } || return 1
+  _a=${2%%:*} _b=${_n%%:*}
+  if { [ "$_a" = proc ] && [ "$_b" = proc ]; } || { [ "$_a" != proc ] && [ "$_b" != proc ]; }; then
+    [ "$_n" != "$2" ]; return
+  fi
+  return 1
+}
 lease_get() { sed -n "s/.*\"$2\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 || true; }
 lease_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
-# lease_dead FILE WAITER_TTL: 0 (true) when the record's process cannot be the holder.
+# lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
+# only when the holder AND its command (child_pid, written by lock-run) are dead.
 lease_dead() {
   _p=$(lease_get "$1" pid); _s=$(lease_get "$1" pstart); _h=$(lease_get "$1" host)
+  _cp=$(lease_get "$1" child_pid); _cs=$(lease_get "$1" child_pstart)
   _r=$(lease_get "$1" renewed); _t=$(lease_get "$1" ttl); [ -n "$2" ] && _t=$2
   if [ -n "$_p" ] && [ "$_h" = "$(hostname)" ]; then
-    _now=$(lease_pstart "$_p")
-    [ -z "$_now" ] && return 0                              # pid gone
-    if [ -n "$_s" ]; then [ "$_now" != "$_s" ]; return; fi  # reused: dead; same: live, however silent
+    lease_proc_dead "$_p" "$_s" || return 1
+    if [ -n "$_cp" ] && ! lease_proc_dead "$_cp" "$_cs"; then return 1; fi
+    return 0
   fi
-  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # unverifiable: TTL
+  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host: TTL
 }
 lease_holder_stale() {
   if [ ! -f "$1/owner.json" ]; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi

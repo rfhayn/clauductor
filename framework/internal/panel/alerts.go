@@ -103,7 +103,13 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 		if *q.FiveHour >= 100 {
 			sev = SevBlock
 		}
-		out = append(out, AlertView{Key: AlertQuota + ":global", Kind: AlertQuota, Severity: sev, Since: q.At,
+		// Since is the window's reset time: stable for the whole window (q.At moves on
+		// every status post), so a window notifies once.
+		since := q.At
+		if q.FiveHourResets != nil {
+			since = *q.FiveHourResets * 1000
+		}
+		out = append(out, AlertView{Key: AlertQuota + ":global", Kind: AlertQuota, Severity: sev, Since: since,
 			Text: fmt.Sprintf("5-hour quota at %.0f%% (alert at %.0f%%)", *q.FiveHour, th.FiveHourPct)})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return sevRank(out[i].Severity) > sevRank(out[j].Severity) })

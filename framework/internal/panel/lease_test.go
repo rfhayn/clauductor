@@ -2,8 +2,12 @@ package panel
 
 import (
 	"bytes"
+	"fmt"
+	"io"
+
 	"context"
 	"encoding/json"
+	"github.com/creack/pty"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +30,11 @@ func TestMain(m *testing.M) {
 			TTL: ttl, Poll: 50 * time.Millisecond, Argv: argv})
 		if err != nil {
 			os.Stderr.WriteString(err.Error() + "\n")
+		}
+		if f := os.Getenv("LOCKRUN_HELPER_FGFILE"); f != "" {
+			// Did lock-run take the terminal back after the command?
+			pg, err := tcgetpgrp(0)
+			os.WriteFile(f, []byte(fmt.Sprintf("%v", err == nil && pg == syscall.Getpgrp())), 0o644)
 		}
 		os.Exit(code)
 	}
@@ -139,16 +148,32 @@ func TestLeaseStale(t *testing.T) {
 	if s, why := LeaseStale(reused, "h", now, proc); !s || !strings.Contains(why, "reused") {
 		t.Fatalf("a reused pid is not stale: %v %s", s, why)
 	}
-	// Unverifiable (no recorded start time, or none readable): the TTL applies.
+	// Round 2: an alive pid whose start time cannot be verified (none recorded, none
+	// readable, or from another source) is LIVE. Missing data never deletes a lease.
 	noStart := silent
 	noStart.PStart = ""
-	if s, why := LeaseStale(noStart, "h", now, proc); !s || !strings.Contains(why, "expired") {
-		t.Fatal("an unverifiable, unrenewed lease did not expire")
+	if s, why := LeaseStale(noStart, "h", now, proc); s {
+		t.Fatalf("an alive, unverifiable holder was expired: %s", why)
 	}
 	unreadable := silent
 	unreadable.PID = 4
-	if s, _ := LeaseStale(unreadable, "h", now, proc); !s {
-		t.Fatal("an unreadable start time must fall back to the TTL")
+	if s, _ := LeaseStale(unreadable, "h", now, proc); s {
+		t.Fatal("an unreadable start time expired an alive holder")
+	}
+	otherSource := silent
+	otherSource.PStart = "proc:12345"
+	if s, _ := LeaseStale(otherSource, "h", now, proc); s {
+		t.Fatal("a /proc start time was compared with a ps one")
+	}
+	// The command keeps the record live after the holder dies (lock-run SIGKILLed).
+	orphaned := gone
+	orphaned.ChildPID, orphaned.ChildPStart = 1, "T1"
+	if s, why := LeaseStale(orphaned, "h", now, proc); s {
+		t.Fatalf("a record whose command still runs was judged stale: %s", why)
+	}
+	orphaned.ChildPID = 2
+	if s, _ := LeaseStale(orphaned, "h", now, proc); !s {
+		t.Fatal("holder and command both gone must be stale")
 	}
 	// Another host: its pid means nothing here; only the TTL counts.
 	other := silent
@@ -161,8 +186,8 @@ func TestLeaseStale(t *testing.T) {
 	if s, _ := LeaseStale(other, "h", now, proc); s {
 		t.Fatal("judged another host's pid")
 	}
-	noTTL := noStart
-	noTTL.TTL = 0
+	noTTL := other
+	noTTL.Renewed, noTTL.TTL = now.Unix()-3600, 0
 	if s, _ := LeaseStale(noTTL, "h", now, proc); s {
 		t.Fatal("ttl 0 means no expiry")
 	}
@@ -258,13 +283,17 @@ func TestLockRunLeaseTTL(t *testing.T) {
 	if code := q.wait(t, 5*time.Second); code != 0 || !strings.Contains(q.stderr.String(), "reused") {
 		t.Fatalf("reused pid: exit %d: %s", code, q.stderr)
 	}
-	// No start time recorded (an older writer): the TTL applies.
+	// No start time recorded, pid alive: live (round 2: missing data never reclaims).
 	unverified := me
 	unverified.PStart = ""
 	r := startLockRun(t, plant(unverified), "next", time.Minute, "/bin/sh", "-c", "exit 0")
-	if code := r.wait(t, 5*time.Second); code != 0 || !strings.Contains(r.stderr.String(), "expired") {
-		t.Fatalf("unverifiable: exit %d: %s", code, r.stderr)
+	time.Sleep(2 * time.Second)
+	select {
+	case code := <-r.done:
+		t.Fatalf("reclaimed an alive holder with no start time (exit %d): %s", code, r.stderr)
+	default:
 	}
+	r.cmd.Process.Kill()
 }
 
 // The reviewer's case: a real lock-run holder is stopped (SIGSTOP, as a sleeping
@@ -468,12 +497,96 @@ func TestFlockedLeaseIsNeverReclaimed(t *testing.T) {
 	now := time.Now().Unix()
 	writeLeaseFile(filepath.Join(lock, ownerFileName), LeaseOwner{V: 1, Nonce: "00000000000000dd", PID: deadPID(t),
 		Host: hostName(), Started: now, Renewed: now})
-	unflock := holdFlock(lock)
+	_, unflock := holdFlock(lock)
 	if held, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !held || stale {
 		t.Fatal("a flocked lease judged stale")
 	}
 	unflock()
 	if _, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !stale {
 		t.Fatal("without the flock, a dead pid must be stale (the test proves nothing otherwise)")
+	}
+}
+
+// startLockRunPTY runs the lock-run helper on a real pty as a session leader in
+// the terminal's foreground, the way an interactive `bash run-local.sh` runs it.
+func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...string) (*exec.Cmd, *os.File, chan int) {
+	t.Helper()
+	b, _ := json.Marshal(argv)
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
+		"LOCKRUN_HELPER_ARGV="+string(b)), extraEnv...)
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go io.Copy(io.Discard, ptmx) // a pty nobody reads would block the writer
+	done := make(chan int, 1)
+	go func() {
+		err := cmd.Wait()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		}
+		done <- code
+	}()
+	t.Cleanup(func() { cmd.Process.Kill(); ptmx.Close() })
+	return cmd, ptmx, done
+}
+
+// Round 2 (HIGH): in its own process group, a command that touches the terminal
+// (stty) was stopped by SIGTTOU forever while holding the lease. On a terminal the
+// command's group must be the foreground group, and lock-run must take the
+// terminal back when it ends.
+func TestLockRunCommandCanUseTheTerminal(t *testing.T) {
+	dir := t.TempDir()
+	lock, log, fg := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log"), filepath.Join(dir, "fg")
+	_, _, done := startLockRunPTY(t, lock, []string{"LOCKRUN_HELPER_FGFILE=" + fg},
+		"/bin/sh", "-c", "stty -echo && stty echo && echo stty-ok >> "+log)
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command is stuck: stty was stopped (SIGTTOU) while holding the lease")
+	}
+	if strings.Join(readLog(t, log), " ") != "stty-ok" {
+		t.Fatalf("log %v", readLog(t, log))
+	}
+	if b, _ := os.ReadFile(fg); string(b) != "true" {
+		t.Fatalf("lock-run did not take the terminal back: %q", b)
+	}
+}
+
+// Ctrl-C typed on the terminal reaches the command's (foreground) group once.
+func TestLockRunCtrlCOnATerminalReachesTheCommandOnce(t *testing.T) {
+	dir := t.TempDir()
+	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
+	_, ptmx, done := startLockRunPTY(t, lock, nil, "/bin/sh", "-c",
+		"trap 'echo INT >> "+log+"' INT; echo up >> "+log+"; i=0; while [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done")
+	waitUntil(t, "running", 5*time.Second, func() bool { return lineCount(log) == 1 })
+	ptmx.Write([]byte{3}) // ^C
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("did not finish")
+	}
+	if n := strings.Count(strings.Join(readLog(t, log), " "), "INT"); n != 1 {
+		t.Fatalf("the command saw %d INT, want 1", n)
+	}
+}
+
+// The TERM workaround: started as TERM=dumb CLAUDUCTOR_TERM=<real>, the command
+// gets the real TERM back.
+func TestLockRunRestoresTheRealTERM(t *testing.T) {
+	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "CLAUDUCTOR_TERM=xterm-256color"})
+	if strings.Join(env, " ") != "PATH=/bin TERM=xterm-256color" {
+		t.Fatalf("env %v", env)
+	}
+	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM="}); len(env) != 0 {
+		t.Fatalf("an empty original TERM must stay unset: %v", env)
+	}
+	if env := childEnv([]string{"TERM=vt100"}); env[0] != "TERM=vt100" {
+		t.Fatal("no workaround: TERM untouched")
 	}
 }
