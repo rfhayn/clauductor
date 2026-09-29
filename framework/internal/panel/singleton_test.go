@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
@@ -40,17 +41,17 @@ func otherProcess(t *testing.T) int {
 	return cmd.Process.Pid
 }
 
-func writePanelFiles(t *testing.T, home string, pid, port int, owner *PanelOwner) {
+func writePanelFiles(t *testing.T, home string, pid, port int, owner *install.PanelOwner) {
 	t.Helper()
 	dir := config.PanelDir(home)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dir, "pid"), strconv.Itoa(pid)+"\n")
-	writeFile(t, MarkerPath(home), strconv.Itoa(port)+"\n")
+	writeFile(t, install.MarkerPath(home), strconv.Itoa(port)+"\n")
 	if owner != nil {
 		b, _ := json.Marshal(owner)
-		writeFile(t, OwnerPath(home), string(b))
+		writeFile(t, install.OwnerPath(home), string(b))
 	}
 }
 
@@ -66,13 +67,13 @@ func runBounded(t *testing.T, o Options) error {
 func TestSecondPanelIsRefused(t *testing.T) {
 	root, home := setupProject(t)
 	pid := otherProcess(t)
-	other := &PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other-project", Name: "Other", Port: 4393}
+	other := &install.PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other-project", Name: "Other", Port: 4393}
 	writePanelFiles(t, home, pid, 4393, other)
 	// The first panel's hooks, which a second panel must not re-point.
-	if _, err := InstallHooks(home, 4393); err != nil {
+	if _, err := install.InstallHooks(home, 4393); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(SettingsPath(home))
+	before, _ := os.ReadFile(install.SettingsPath(home))
 
 	err := runBounded(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	if err == nil {
@@ -83,13 +84,13 @@ func TestSecondPanelIsRefused(t *testing.T) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
 	}
-	if after, _ := os.ReadFile(SettingsPath(home)); string(after) != string(before) {
+	if after, _ := os.ReadFile(install.SettingsPath(home)); string(after) != string(before) {
 		t.Fatal("a refused panel re-pointed the hooks")
 	}
 	if b, _ := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
 		t.Fatalf("a refused panel touched the pid file: %q", b)
 	}
-	if b, _ := os.ReadFile(MarkerPath(home)); strings.TrimSpace(string(b)) != "4393" {
+	if b, _ := os.ReadFile(install.MarkerPath(home)); strings.TrimSpace(string(b)) != "4393" {
 		t.Fatalf("a refused panel touched the marker: %q", b)
 	}
 }
@@ -124,7 +125,7 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 	}{
 		{"pid reused by another process", func(t *testing.T, home string) {
 			pid := otherProcess(t)
-			writePanelFiles(t, home, pid, 4393, &PanelOwner{PID: pid, PStart: "Mon Jan  1 00:00:00 2001", Project: "/work/gone", Port: 4393})
+			writePanelFiles(t, home, pid, 4393, &install.PanelOwner{PID: pid, PStart: "Mon Jan  1 00:00:00 2001", Project: "/work/gone", Port: 4393})
 		}},
 		{"pid dead", func(t *testing.T, home string) {
 			cmd := exec.Command("true")
@@ -132,7 +133,7 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 				t.Fatal(err)
 			}
 			pid := cmd.Process.Pid
-			writePanelFiles(t, home, pid, 4393, &PanelOwner{PID: pid, PStart: "x", Project: "/work/gone", Port: 4393})
+			writePanelFiles(t, home, pid, 4393, &install.PanelOwner{PID: pid, PStart: "x", Project: "/work/gone", Port: 4393})
 		}},
 		{"older panel's pid, nothing answers its port", func(t *testing.T, home string) {
 			pid := otherProcess(t)
@@ -162,8 +163,8 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 			if b, _ := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
 				t.Fatalf("the new panel did not claim the pid file: %q", b)
 			}
-			var o PanelOwner
-			if b, err := os.ReadFile(OwnerPath(home)); err != nil || json.Unmarshal(b, &o) != nil || o.PID != os.Getpid() || o.Project != root || o.PStart == "" {
+			var o install.PanelOwner
+			if b, err := os.ReadFile(install.OwnerPath(home)); err != nil || json.Unmarshal(b, &o) != nil || o.PID != os.Getpid() || o.Project != root || o.PStart == "" {
 				t.Fatalf("owner.json not claimed: %+v %v", o, err)
 			}
 			cancel()
@@ -210,22 +211,22 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 	root, home := setupProject(t)
 	_, _, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	pid := otherProcess(t)
-	writePanelFiles(t, home, pid, 4394, &PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other", Port: 4394})
+	writePanelFiles(t, home, pid, 4394, &install.PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other", Port: 4394})
 	stop()
-	if b, err := os.ReadFile(MarkerPath(home)); err != nil || strings.TrimSpace(string(b)) != "4394" {
+	if b, err := os.ReadFile(install.MarkerPath(home)); err != nil || strings.TrimSpace(string(b)) != "4394" {
 		t.Fatalf("exit removed or changed another panel's marker: %q %v", b, err)
 	}
 	if b, err := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); err != nil || strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
 		t.Fatalf("exit removed another panel's pid file: %q %v", b, err)
 	}
-	if _, err := os.Stat(OwnerPath(home)); err != nil {
+	if _, err := os.Stat(install.OwnerPath(home)); err != nil {
 		t.Fatalf("exit removed another panel's owner.json: %v", err)
 	}
 	// Its own files it does remove (the premise).
 	root2, home2 := setupProject(t)
 	_, _, stop2 := runPanel(t, Options{Project: root2, Port: 0, NoOpen: true, Home: home2, Runner: fakeRunner(root2)})
 	stop2()
-	for _, p := range []string{MarkerPath(home2), filepath.Join(config.PanelDir(home2), "pid"), OwnerPath(home2)} {
+	for _, p := range []string{install.MarkerPath(home2), filepath.Join(config.PanelDir(home2), "pid"), install.OwnerPath(home2)} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Fatalf("%s left behind after a clean stop", p)
 		}
@@ -240,11 +241,11 @@ func TestHookDriftIsRepaired(t *testing.T) {
 		HookCheckInterval: 100 * time.Millisecond})
 	defer stop()
 	// Another panel (an older binary, which cannot be refused) re-points them.
-	if _, err := InstallHooks(home, port+1); err != nil {
+	if _, err := install.InstallHooks(home, port+1); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "hooks re-pointed back and a warning", func() bool {
-		s, _ := os.ReadFile(SettingsPath(home))
+		s, _ := os.ReadFile(install.SettingsPath(home))
 		v := c.state(t)
 		warned := false
 		for _, w := range v.Warnings {
@@ -252,10 +253,10 @@ func TestHookDriftIsRepaired(t *testing.T) {
 				warned = true
 			}
 		}
-		return strings.Contains(string(s), HookURL(port)) && !strings.Contains(string(s), HookURL(port+1)) && warned
+		return strings.Contains(string(s), install.HookURL(port)) && !strings.Contains(string(s), install.HookURL(port+1)) && warned
 	})
 	// Removed outright (a hand edit): put back too.
-	if _, err := UninstallHooks(home); err != nil {
+	if _, err := install.UninstallHooks(home); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "removed hooks reinstalled", func() bool {
@@ -268,7 +269,7 @@ func TestHookDriftIsRepaired(t *testing.T) {
 // banner, and retries with backoff until the install succeeds.
 func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
 	root, home := setupProject(t)
-	writeFile(t, SettingsPath(home), "{ this is not json")
+	writeFile(t, install.SettingsPath(home), "{ this is not json")
 	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
 		HookRetryBase: 50 * time.Millisecond})
 	defer stop()
@@ -281,7 +282,7 @@ func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
 		return false
 	}
 	waitFor(t, "an install-failure banner", func() bool { return hasBanner(c.state(t)) })
-	writeFile(t, SettingsPath(home), "{}")
+	writeFile(t, install.SettingsPath(home), "{}")
 	waitFor(t, "the retry installs the hooks and clears the banner", func() bool {
 		return ourHooks(t, home)["Stop"] == 1 && !hasBanner(c.state(t))
 	})
@@ -439,7 +440,7 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 	})}
 	go srv.Serve(ln)
 	otherPort := ln.Addr().(*net.TCPAddr).Port
-	if _, err := InstallHooks(home, otherPort); err != nil {
+	if _, err := install.InstallHooks(home, otherPort); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "a conflict banner naming the other panel", func() bool {
@@ -451,13 +452,13 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 		return false
 	})
 	time.Sleep(500 * time.Millisecond) // several checks
-	if s, _ := os.ReadFile(SettingsPath(home)); !strings.Contains(string(s), HookURL(otherPort)) || strings.Contains(string(s), HookURL(port)) {
+	if s, _ := os.ReadFile(install.SettingsPath(home)); !strings.Contains(string(s), install.HookURL(otherPort)) || strings.Contains(string(s), install.HookURL(port)) {
 		t.Fatal("the panel re-pointed the hooks of another live panel")
 	}
 	srv.Close()
 	waitFor(t, "hooks repaired once the other panel is gone", func() bool {
-		s, _ := os.ReadFile(SettingsPath(home))
-		return strings.Contains(string(s), HookURL(port))
+		s, _ := os.ReadFile(install.SettingsPath(home))
+		return strings.Contains(string(s), install.HookURL(port))
 	})
 }
 
@@ -547,7 +548,7 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	stopHand2()
 	// Its abandoned flock must not keep the machine once it is granted.
 	waitFor(t, "the machine lock to be free", func() bool {
-		f, err := lockMachine(home)
+		f, err := install.LockMachine(home)
 		if err == nil {
 			f.Close()
 		}

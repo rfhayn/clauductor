@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -105,8 +106,8 @@ type runtimeV2 struct {
 }
 
 func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustView {
-	hash := ConfigHash(raw)
-	tv, err := CheckTrust(o.Home, root, cfgPath, hash, o.TrustConfig)
+	hash := install.ConfigHash(raw)
+	tv, err := install.CheckTrust(o.Home, root, cfgPath, hash, o.TrustConfig)
 	if err != nil {
 		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
@@ -186,7 +187,7 @@ func (x *runtimeV2) trustLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if trustedNow(x.o.Home, x.root, x.cfgPath, x.trustView.Hash) {
+			if install.TrustedNow(x.o.Home, x.root, x.cfgPath, x.trustView.Hash) {
 				x.trust.Store(true)
 				tv := x.trustView
 				tv.Trusted, tv.Note = true, "trusted by `clauductor panel trust`"

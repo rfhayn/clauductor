@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
@@ -238,64 +237,6 @@ func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
 	s.Rotate(strings.Repeat("c", 64))
 	if _, err := dial(stale, strings.Repeat("c", 64)); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("a ticket issued before a rotation still works: %v", err)
-	}
-}
-
-// F6: `clauductor panel open` sends the token only to the panel whose PID is in the
-// pid file.
-func TestOpenURLOnlyTrustsThePanelsPID(t *testing.T) {
-	home := t.TempDir()
-	if _, err := RotateToken(home); err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok pid=999\n") }))
-	defer ts.Close()
-	port, _ := strconv.Atoi(strings.TrimPrefix(ts.URL, "http://127.0.0.1:"))
-	pid := filepath.Join(config.PanelDir(home), "pid")
-	os.WriteFile(pid, []byte("123\n"), 0o600)
-	if u, err := OpenURL(context.Background(), home, port); err == nil || strings.Contains(u, "t=") {
-		t.Fatalf("token sent to an impostor: %q %v", u, err)
-	}
-	os.WriteFile(pid, []byte("999\n"), 0o600)
-	if u, err := OpenURL(context.Background(), home, port); err != nil || !strings.Contains(u, "/?t=") {
-		t.Fatalf("the real panel: %q %v", u, err)
-	}
-	os.Remove(pid)
-	if _, err := OpenURL(context.Background(), home, port); err == nil {
-		t.Fatal("no pid file, yet the token was handed out")
-	}
-}
-
-// F7: uninstall removes what the agent owns, and keeps a lane registry only while it
-// still lists lanes.
-func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
-	home := t.TempDir()
-	RotateToken(home)
-	dir := config.PanelDir(home)
-	for _, f := range []string{"browser-opened", "pid", "port", "bin/clauductor", "logs/panel.log"} {
-		os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700)
-		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)
-	}
-	empty, _ := lanes.OpenRegistry(home, "/empty")
-	empty.Put(lanes.LaneRecord{ID: "a", SessionID: sid, Path: "/empty", Mode: "root", Action: "start"})
-	empty.Delete("a")
-	live, _ := lanes.OpenRegistry(home, "/live")
-	live.Put(lanes.LaneRecord{ID: "b", SessionID: sid, Path: "/live", Mode: "root", Action: "start"})
-	var out strings.Builder
-	if err := Uninstall(home, &out, func(...string) ([]byte, error) { return nil, nil }); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"token", "browser-opened", "pid", "port", "bin", "logs", filepath.Dir(lanes.RegistryPath(home, "/empty"))} {
-		p := f
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(dir, f)
-		}
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("%s survived uninstall", p)
-		}
-	}
-	if _, err := os.Stat(lanes.RegistryPath(home, "/live")); err != nil || !strings.Contains(out.String(), "Kept "+lanes.RegistryPath(home, "/live")) {
-		t.Fatalf("a registry with lanes was not kept and reported: %v\n%s", err, out.String())
 	}
 }
 

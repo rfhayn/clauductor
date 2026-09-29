@@ -1,4 +1,8 @@
-package panel
+// Package install puts the panel on the machine and keeps it single: the tagged
+// hooks in ~/.claude/settings.json, the launchd login agent and its launcher app,
+// the persistent token, config trust, and the machine lock and marker files that
+// make it one panel per machine.
+package install
 
 import (
 	"bytes"

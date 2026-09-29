@@ -2,13 +2,16 @@ package panel
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -106,4 +109,44 @@ const xWT = "/repo/w/x"
 
 func waitingAgent(status, waitingFor string) []signals.Agent {
 	return []signals.Agent{{SessionID: "s1", Cwd: xWT, Status: status, WaitingFor: waitingFor}}
+}
+
+// shq single-quotes s for a POSIX shell.
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ourHooks counts the panel's tagged hook objects per event in settings.json: a
+// hook is the panel's when its URL carries src=<install.HookTag>.
+func ourHooks(t *testing.T, home string) map[string]int {
+	t.Helper()
+	b, err := os.ReadFile(install.SettingsPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(b, &settings); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int{}
+	hooks, _ := settings["hooks"].(map[string]any)
+	for ev, groups := range hooks {
+		for _, g := range groups.([]any) {
+			for _, h := range g.(map[string]any)["hooks"].([]any) {
+				s, _ := h.(map[string]any)["url"].(string)
+				if u, err := url.Parse(s); err == nil && s != "" && u.Query().Get("src") == install.HookTag {
+					out[ev]++
+				}
+			}
+		}
+	}
+	return out
 }

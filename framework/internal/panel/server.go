@@ -3,11 +3,9 @@ package panel
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
@@ -57,15 +56,6 @@ func ensureLoopback(a net.Addr) error {
 		return fmt.Errorf("refusing to serve on %v: the panel binds loopback only", a)
 	}
 	return nil
-}
-
-// NewToken returns a fresh per-launch secret (32 random bytes, hex).
-func NewToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // Hub owns the model and fans snapshots out to SSE subscribers.
@@ -367,7 +357,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	// No inline script or style is allowed, and nothing outside this origin. The one
 	// exception is a per-response nonce for the <style> elements xterm.js creates at
 	// run time; panel.js stamps it on them.
-	nonce, err := NewToken()
+	nonce, err := install.NewToken()
 	if err != nil {
 		http.Error(w, "no randomness", http.StatusInternalServerError)
 		return

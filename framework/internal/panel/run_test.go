@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
@@ -114,7 +115,7 @@ func TestRunEndToEnd(t *testing.T) {
 	port, _ := strconv.Atoi(u.Port())
 	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
 
-	marker, err := os.ReadFile(MarkerPath(home))
+	marker, err := os.ReadFile(install.MarkerPath(home))
 	if err != nil || strings.TrimSpace(string(marker)) != strconv.Itoa(port) {
 		t.Fatalf("marker %q %v", marker, err)
 	}
@@ -123,8 +124,8 @@ func TestRunEndToEnd(t *testing.T) {
 			t.Fatalf("hook for %s not installed", ev)
 		}
 	}
-	settings, _ := os.ReadFile(SettingsPath(home))
-	if !strings.Contains(string(settings), HookURL(port)) {
+	settings, _ := os.ReadFile(install.SettingsPath(home))
+	if !strings.Contains(string(settings), install.HookURL(port)) {
 		t.Fatal("installed hook does not point at the bound port")
 	}
 
@@ -153,7 +154,7 @@ func TestRunEndToEnd(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
-	if _, err := os.Stat(MarkerPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.MarkerPath(home)); !os.IsNotExist(err) {
 		t.Fatal("marker left behind after shutdown")
 	}
 	if ourHooks(t, home)["Stop"] != 1 {
@@ -177,10 +178,10 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("want a port-in-use error, got %v", err)
 	}
-	if _, err := os.Stat(SettingsPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.SettingsPath(home)); !os.IsNotExist(err) {
 		t.Fatal("a refused launch touched settings.json")
 	}
-	if _, err := os.Stat(MarkerPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.MarkerPath(home)); !os.IsNotExist(err) {
 		t.Fatal("a refused launch wrote the marker")
 	}
 }
@@ -217,16 +218,16 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("never ready")
 	}
-	token, _ := os.ReadFile(TokenPath(home))
+	token, _ := os.ReadFile(install.TokenPath(home))
 	tok := strings.TrimSpace(string(token))
 	if !strings.HasSuffix(launch, "t="+tok) {
 		t.Fatal("launchd run does not use the persistent token")
 	}
-	pid, err := os.ReadFile(filepath.Join(filepath.Dir(MarkerPath(home)), "pid"))
+	pid, err := os.ReadFile(filepath.Join(filepath.Dir(install.MarkerPath(home)), "pid"))
 	if err != nil || strings.TrimSpace(string(pid)) != strconv.Itoa(os.Getpid()) {
 		t.Fatalf("pid file %q %v", pid, err)
 	}
-	if port, _ := os.ReadFile(MarkerPath(home)); !regexp.MustCompile(`^\d+\n$`).Match(port) {
+	if port, _ := os.ReadFile(install.MarkerPath(home)); !regexp.MustCompile(`^\d+\n$`).Match(port) {
 		t.Fatalf("port marker must stay digits only for status-line scripts: %q", port)
 	}
 	cancel()
@@ -239,7 +240,7 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	if len(opened) != 1 || !strings.Contains(opened[0], tok) {
 		t.Fatalf("browser opened %v, want once with the token", opened)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(MarkerPath(home)), "pid")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(install.MarkerPath(home)), "pid")); !os.IsNotExist(err) {
 		t.Fatal("pid file left behind after a clean stop")
 	}
 }

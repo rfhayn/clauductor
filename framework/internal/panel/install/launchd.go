@@ -1,7 +1,9 @@
-package panel
+package install
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -77,8 +80,8 @@ func RotateToken(home string) (string, error) {
 	return writeNewToken(path)
 }
 
-// readToken returns the token file's token, or "" if it is missing or malformed.
-func readToken(home string) string {
+// ReadToken returns the token file's token, or "" if it is missing or malformed.
+func ReadToken(home string) string {
 	b, err := os.ReadFile(TokenPath(home))
 	if err != nil {
 		return ""
@@ -108,9 +111,9 @@ func writeNewToken(path string) (string, error) {
 // a crash loop under KeepAlive cannot open a tab every few seconds.
 const loginOpenGap = 5 * time.Minute
 
-// shouldOpenAtLogin decides whether a launchd start opens the browser, and records
+// ShouldOpenAtLogin decides whether a launchd start opens the browser, and records
 // the open when it does.
-func shouldOpenAtLogin(home string, now time.Time) bool {
+func ShouldOpenAtLogin(home string, now time.Time) bool {
 	path := filepath.Join(config.PanelDir(home), "browser-opened")
 	if b, err := os.ReadFile(path); err == nil {
 		if sec, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil &&
@@ -466,3 +469,23 @@ func OpenURL(ctx context.Context, home string, port int) (string, error) {
 
 // OpenBrowser opens url in the default browser.
 func OpenBrowser(url string) { openBrowser(url) }
+
+// NewToken returns a fresh per-launch secret (32 random bytes, hex).
+func NewToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// MarkerPath is the file whose existence tells a status-line script the panel is up.
+func MarkerPath(home string) string { return filepath.Join(home, ".clauductor", "panel", "port") }
+
+func openBrowser(url string) {
+	name := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		name = "open"
+	}
+	_ = exec.Command(name, url).Start()
+}

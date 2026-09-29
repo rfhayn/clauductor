@@ -1,4 +1,4 @@
-package panel
+package install
 
 import (
 	"crypto/sha256"
@@ -112,8 +112,8 @@ func TrustConfig(home, project, cfgPath string) (string, error) {
 	return h, nil
 }
 
-// trustedNow re-reads the trust file: has the loaded config been trusted since?
-func trustedNow(home, project, cfgPath, hash string) bool {
+// TrustedNow re-reads the trust file: has the loaded config been trusted since?
+func TrustedNow(home, project, cfgPath, hash string) bool {
 	t, err := readTrust(TrustPath(home, signals.ResolvePath(project)))
 	return err == nil && t.Configs[signals.ResolvePath(cfgPath)] == hash
 }

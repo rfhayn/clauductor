@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
@@ -257,7 +258,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 		t.Fatalf("template under an untrusted config: %d %v", code, body)
 	}
 	// `clauductor panel trust` lifts it in the running panel.
-	if _, err := TrustConfig(home, root, ""); err != nil {
+	if _, err := install.TrustConfig(home, root, ""); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })

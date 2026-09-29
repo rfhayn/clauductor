@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
@@ -58,7 +59,7 @@ type termViewer struct {
 
 // issueTicket returns a new single-use ticket for one lane.
 func (s *Server) issueTicket(lane string) (string, error) {
-	t, err := NewToken()
+	t, err := install.NewToken()
 	if err != nil {
 		return "", err
 	}

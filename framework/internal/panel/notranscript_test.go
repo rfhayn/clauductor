@@ -134,15 +134,15 @@ func TestTranscriptScannerCatchesJoinedPaths(t *testing.T) {
 // fileReadSites are the reviewed places the package opens or reads a file. A new
 // one fails this test until it is added here, with what it reads.
 var fileReadSites = map[string]int{
-	"config/config.go":  1, // the panel config
-	"installer.go":      2, // ~/.claude/settings.json, and its re-read before the rename
-	"launchd.go":        6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime_v2.go":     1, // the notifier's saved state (notifier.json)
-	"hosts.go":          1, // the panel's pid file, checked before `panel open` sends the token
-	"lanes/registry.go": 1, // the lane registry
-	"trust.go":          1, // the trusted-config record
-	"lease/lease.go":    4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
-	"singleton.go":      5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
+	"config/config.go":     1, // the panel config
+	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
+	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
+	"runtime_v2.go":        1, // the notifier's saved state (notifier.json)
+	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
+	"lanes/registry.go":    1, // the lane registry
+	"install/trust.go":     1, // the trusted-config record
+	"lease/lease.go":       4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
+	"install/singleton.go": 5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative

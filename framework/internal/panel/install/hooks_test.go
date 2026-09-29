@@ -1,10 +1,11 @@
-package panel
+package install
 
 import (
 	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -326,5 +327,45 @@ func TestInstallIsIdempotentWhenAUserHookFollowsOurs(t *testing.T) {
 	first, _ := json.Marshal(stop[0])
 	if len(stop) != 2 || !strings.Contains(string(first), HookTag) {
 		t.Fatalf("our entry moved or duplicated: %s", after)
+	}
+}
+
+// C12: settings.json is re-read right before the rename; a concurrent write is kept
+// and the panel's edit redone on top of it.
+func TestInstallHooksKeepsAConcurrentWrite(t *testing.T) {
+	home := t.TempDir()
+	path := SettingsPath(home)
+	writeFile(t, path, `{"model":"opus"}`)
+	writes := 0
+	beforeSettingsRename = func(p string) {
+		if writes == 0 { // another writer lands between our read and our rename
+			writes++
+			os.WriteFile(p, []byte(`{"model":"opus","theme":"dark"}`), 0o644)
+		}
+	}
+	defer func() { beforeSettingsRename = nil }()
+	changed, err := InstallHooks(home, 4393)
+	if err != nil || !changed {
+		t.Fatalf("install: %v %v", changed, err)
+	}
+	var got map[string]any
+	b, _ := os.ReadFile(path)
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["theme"] != "dark" {
+		t.Fatalf("the concurrent write was lost: %s", b)
+	}
+	hooks, _ := got["hooks"].(map[string]any)
+	if len(hooks) != len(signals.HookEvents) {
+		t.Fatalf("hooks not installed on top of it: %s", b)
+	}
+	// A writer that never stops: the install gives up rather than overwrite.
+	beforeSettingsRename = func(p string) {
+		writes++
+		os.WriteFile(p, []byte(`{"n":`+strconv.Itoa(writes)+`}`), 0o644)
+	}
+	if _, err := InstallHooks(home, 4394); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("a constantly changing file must be refused: %v", err)
 	}
 }

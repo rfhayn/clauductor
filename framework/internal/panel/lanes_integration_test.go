@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
@@ -477,7 +478,7 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	c := p.dial(t, "orch")
-	newTok, err := RotateToken(home)
+	newTok, err := install.RotateToken(home)
 	if err != nil {
 		t.Fatal(err)
 	}

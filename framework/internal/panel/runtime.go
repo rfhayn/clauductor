@@ -10,13 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -69,9 +69,6 @@ type Options struct {
 	HookRetryBase time.Duration
 }
 
-// MarkerPath is the file whose existence tells a status-line script the panel is up.
-func MarkerPath(home string) string { return filepath.Join(home, ".clauductor", "panel", "port") }
-
 // Run serves the panel until ctx is cancelled.
 func Run(ctx context.Context, o Options) error {
 	if o.Out == nil {
@@ -103,14 +100,14 @@ func Run(ctx context.Context, o Options) error {
 	// hooks or the marker files, so a refused start changes nothing. The machine
 	// lock comes first, so two panels started at the same instant cannot both pass;
 	// the pid-file check then catches a panel from before the lock.
-	lock, err := lockMachine(o.Home)
-	var held *OtherPanelError
+	lock, err := install.LockMachine(o.Home)
+	var held *install.OtherPanelError
 	if errors.As(err, &held) && o.Launchd {
 		// Under launchd, a panel started by hand holds the machine: wait for it to
 		// exit, then take over (PANEL-7). Exiting instead would leave the login agent
 		// down after that panel stops, since KeepAlive restarts only a failed exit.
-		fmt.Fprintf(o.Out, "waiting for the running panel to exit (%s)\n", held.Owner.describe())
-		lock, err = waitMachineLock(ctx, o.Home)
+		fmt.Fprintf(o.Out, "waiting for the running panel to exit (%s)\n", held.Owner.Describe())
+		lock, err = install.WaitMachineLock(ctx, o.Home)
 		if ctx.Err() != nil {
 			if lock != nil {
 				lock.Close()
@@ -123,11 +120,11 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if err == nil {
 		defer lock.Close()
-		if other := RunningPanel(ctx, o.Home, os.Getpid(), lease.LiveProc); other != nil {
-			err = &OtherPanelError{Owner: *other}
+		if other := install.RunningPanel(ctx, o.Home, os.Getpid(), lease.LiveProc); other != nil {
+			err = &install.OtherPanelError{Owner: *other}
 		}
 	}
-	var refused *OtherPanelError
+	var refused *install.OtherPanelError
 	if errors.As(err, &refused) && o.Launchd {
 		// KeepAlive restarts the agent only after a non-zero exit: exit 0, so launchd
 		// does not retry every 30 s, and say why once.
@@ -150,22 +147,22 @@ func Run(ctx context.Context, o Options) error {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	marker := MarkerPath(o.Home)
+	marker := install.MarkerPath(o.Home)
 	// The PID and owner record sit beside the marker, not in it: status-line scripts
 	// read `port` as digits only. A PID that is not running (or runs with another
 	// start time) marks the files stale; SIGKILL skips the removal at exit, which
 	// takes them only while they are still this panel's.
-	if err := claimPanelFiles(o.Home, PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: root,
+	if err := install.ClaimPanelFiles(o.Home, install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: root,
 		Name: cfg.Name, Port: port, Started: time.Now().Unix()}); err != nil {
 		return err
 	}
-	defer releasePanelFiles(o.Home, os.Getpid())
+	defer install.ReleasePanelFiles(o.Home, os.Getpid())
 
 	var token string
 	if o.Launchd {
-		token, err = LoadOrCreateToken(o.Home)
+		token, err = install.LoadOrCreateToken(o.Home)
 	} else {
-		token, err = NewToken()
+		token, err = install.NewToken()
 	}
 	if err != nil {
 		return err
@@ -244,7 +241,7 @@ func Run(ctx context.Context, o Options) error {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					if tok := readToken(o.Home); tok != "" && tok != srv.currentToken() {
+					if tok := install.ReadToken(o.Home); tok != "" && tok != srv.currentToken() {
 						srv.Rotate(tok)
 						fmt.Fprintln(o.Out, "token rotated: old cookies, terminals and event streams are closed")
 					}
@@ -271,20 +268,20 @@ func Run(ctx context.Context, o Options) error {
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
-			cfg.Name, root, PanelHost(ln6 != nil), port, TokenPath(o.Home))
+			cfg.Name, root, PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
 	} else {
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
 	}
 	if o.OnReady != nil {
 		o.OnReady(url)
 	}
-	open := openBrowser
+	open := install.OpenBrowser
 	if o.OpenBrowser != nil {
 		open = o.OpenBrowser
 	}
 	switch {
 	case o.Launchd:
-		if shouldOpenAtLogin(o.Home, time.Now()) {
+		if install.ShouldOpenAtLogin(o.Home, time.Now()) {
 			open(url)
 		}
 	case !o.NoOpen:
@@ -304,14 +301,6 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	return nil
-}
-
-func openBrowser(url string) {
-	name := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		name = "open"
-	}
-	_ = exec.Command(name, url).Start()
 }
 
 type pollers struct {
