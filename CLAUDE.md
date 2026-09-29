@@ -26,7 +26,8 @@ clauductor/
 # Build the clauductor binary
 cd framework && go build -o clauductor ./cmd/clauductor
 
-# Run tests: -short in seconds, the full suite before a push (docs/panel.md, Testing)
+# Run tests: -short in seconds while working; CI (.github/workflows/test.yml) runs the
+# full -race suite on macOS and Ubuntu for every push and PR (docs/panel.md, Testing)
 cd framework && go test -short ./...
 cd framework && go test -race ./...
 

@@ -1105,15 +1105,21 @@ failed.
 
 ```sh
 cd framework
-go test -short ./...    # the fast suite: about 2 s once built
+go test -short ./...    # the fast suite: about 3.5 s once built
 go test -race ./...     # everything, under the race detector: about 15 s once built
 ```
 
-`-short` skips every test that drives something real and slow: a tmux server on a
+`-short` skips the tests that drive something real and slow: a tmux server on a
 throwaway socket, `lock-run` and `lease.sh` as separate processes, panel processes started
-side by side, `node` (the xterm style guard), `osascript` and `plutil`. Run it while you
-work; run the full suite before you push. Both must pass with `gofmt -l .` and `go vet ./...`
-clean, and the clock check (`TestOnlyPackageClockReadsTheTime`) passing.
+side by side, `node` (the xterm style guard), `osascript` and `plutil`. It still runs the
+security tests, tmux or not: a token rotation closes terminals and cookies (twice, once
+during an upgrade), an idle terminal closes, an untrusted config runs no command, and a
+gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
+
+**CI enforces the full suite.** `.github/workflows/test.yml` runs `gofmt -l`, `go vet
+./...` and `go test -race ./...` on macOS and Ubuntu, with tmux, on every push to `main` and
+every pull request into it. `-short` is for working; CI is the gate. The clock check
+(`TestOnlyPackageClockReadsTheTime`) is part of the suite.
 
 The rules the suite keeps, and a new test must too:
 
@@ -1135,6 +1141,14 @@ The rules the suite keeps, and a new test must too:
   calls `t.Parallel()`. A test that sets the environment (`t.Setenv`) or a package hook
   cannot, and runs first, alone. A panel that runs no lane gets a socket no server runs on,
   never the machine's own panel socket.
+- **Leave nothing running.** Every tmux socket comes from `leakcheck.TmuxSocket` (or
+  `SecurityTmuxSocket`), which kills its server and removes its file at cleanup, pass or
+  fail. Each package that starts tmux or helper processes runs `leakcheck.Main` from its
+  `TestMain`: the run fails if a socket of this process is still there afterwards, or a
+  child, a copy of the test binary, or a command naming the run's temp directory is still
+  alive, and it kills them. A timeout or Ctrl-C kills the run's tmux servers first. Only
+  sockets named with this process's pid are touched: a suite someone else runs at the same
+  time is left alone.
 - A helper process the test binary starts gets `GORACE=atexit_sleep_ms=0`. A `-race` binary
   otherwise sleeps a second at exit.
 
