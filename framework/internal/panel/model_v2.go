@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // HeuristicsVerifiedOn is the Claude Code version the undocumented behaviours the
@@ -202,22 +203,22 @@ func (m *Model) QuotaGuard(now time.Time) string {
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.
 // Whether it is blocked comes from blocked, the predicate the waiting alert reads.
-func (m *Model) needsFor(v *View, wt Worktree, name, term string, s *session, st string, now time.Time) {
+func (m *Model) needsFor(v *View, wt signals.Worktree, name, term string, s *session, st string, now time.Time) {
 	if b, ok := m.blocked(s, now); ok {
 		v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: b.Kind,
 			Label: approxLabel(b.Label, b), Severity: b.Severity, Text: b.Text, At: ms(b.Since), Terminal: term, Approx: b.Approx})
 	}
 	// A note that needs you without blocking (quota auto-resume will not fire).
 	if s.Note != nil {
-		if k := ClassifyNotification(s.Note.Type); k.NeedsYou && !k.Waiting {
+		if k := signals.ClassifyNotification(s.Note.Type); k.NeedsYou && !k.Waiting {
 			v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: s.Note.Type,
 				Label: k.Label, Severity: k.Severity, Text: s.Note.Message, At: ms(s.Note.At), Terminal: term})
 		}
 	}
 	if s.Done != nil && st != "busy" && st != "waiting" {
-		k := ClassifyNotification(s.Done.Type)
+		k := signals.ClassifyNotification(s.Done.Type)
 		v.Done = append(v.Done, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: s.Done.Type,
-			Label: k.Label, Severity: SevInfo, Text: s.Done.Message, At: ms(s.Done.At), Terminal: term})
+			Label: k.Label, Severity: signals.SevInfo, Text: s.Done.Message, At: ms(s.Done.At), Terminal: term})
 	}
 }
 
@@ -408,13 +409,13 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			tv.PromptNote = d.Why
 			if d.Action == "stuck" {
 				v.NeedsYou = append(v.NeedsYou, NeedView{Lane: tv.Worktree, Name: tv.ID, Session: rec.SessionID,
-					Kind: "first_prompt", Label: "First prompt (" + rec.Template + ")", Severity: SevBlock, Text: d.Why,
+					Kind: "first_prompt", Label: "First prompt (" + rec.Template + ")", Severity: signals.SevBlock, Text: d.Why,
 					At: rec.ActionAt, Terminal: tv.ID})
 			}
 		}
 		if tv.Running && m.restoredPending(rec) {
 			v.NeedsYou = append(v.NeedsYou, NeedView{Lane: tv.Worktree, Name: tv.ID, Session: rec.SessionID, Kind: "restored",
-				Label: "Restored lane", Severity: SevWarn, At: rec.Restored, Terminal: tv.ID,
+				Label: "Restored lane", Severity: signals.SevWarn, At: rec.Restored, Terminal: tv.ID,
 				Text: "Resumed with claude --resume after its tmux session was lost. If the session was idle over 1 h and above " +
 					"100k tokens, claude first asks whether to resume from a summary: answer it in the terminal. The panel " +
 					"types nothing into a restored lane, so continue it yourself."})
@@ -468,11 +469,11 @@ func short(h string) string {
 }
 
 func sevRank(s string) int {
-	return map[string]int{SevBlock: 3, SevWarn: 2, SevInfo: 1}[s]
+	return map[string]int{signals.SevBlock: 3, signals.SevWarn: 2, signals.SevInfo: 1}[s]
 }
 
 // compactionTrigger reads a compaction event's trigger (manual | auto).
-func compactionTrigger(ev HookEvent) string {
+func compactionTrigger(ev signals.HookEvent) string {
 	t := ev.CompactionTrigger
 	if t == "" {
 		t = ev.Trigger
@@ -480,5 +481,5 @@ func compactionTrigger(ev HookEvent) string {
 	if t == "" {
 		return "compaction"
 	}
-	return oneLine(t)
+	return signals.OneLine(t)
 }

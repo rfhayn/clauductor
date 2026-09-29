@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // panel.json lives in the repository and names argv the panel runs (cards, queue
@@ -64,7 +66,7 @@ func writeTrust(path string, t trustFile) error {
 // for a path is trusted and recorded (you started the panel on it). A changed one is
 // trusted only when trustNow is set, which records it.
 func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (TrustView, error) {
-	project, cfgPath = ResolvePath(project), ResolvePath(cfgPath)
+	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
 	tv := TrustView{Hash: hash, Path: cfgPath}
 	path := TrustPath(home, project)
 	t, err := readTrust(path)
@@ -94,7 +96,7 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (TrustView, 
 
 // TrustConfig records the config at cfgPath as trusted (`clauductor panel trust`).
 func TrustConfig(home, project, cfgPath string) (string, error) {
-	project = ResolvePath(project)
+	project = signals.ResolvePath(project)
 	if cfgPath == "" {
 		cfgPath = filepath.Join(project, DefaultConfigRel)
 	}
@@ -111,6 +113,6 @@ func TrustConfig(home, project, cfgPath string) (string, error) {
 
 // trustedNow re-reads the trust file: has the loaded config been trusted since?
 func trustedNow(home, project, cfgPath, hash string) bool {
-	t, err := readTrust(TrustPath(home, ResolvePath(project)))
-	return err == nil && t.Configs[ResolvePath(cfgPath)] == hash
+	t, err := readTrust(TrustPath(home, signals.ResolvePath(project)))
+	return err == nil && t.Configs[signals.ResolvePath(cfgPath)] == hash
 }

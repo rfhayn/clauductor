@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // PANEL-7: what the panel spawns while it idles. Each cadence rule is pinned with an
@@ -169,7 +170,7 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 	go x.agentsLoop(ctx)
 	waitFor(t, "the first poll, then quiet", func() bool { return count() > 0 && x.agentsQuietNow.Load() })
 	before := count()
-	x.hookSeen(HookEvent{Event: "UserPromptSubmit"})
+	x.hookSeen(signals.HookEvent{Event: "UserPromptSubmit"})
 	waitFor(t, "a poll right after the hook", func() bool { return count() > before })
 }
 

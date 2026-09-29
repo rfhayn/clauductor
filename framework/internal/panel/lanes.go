@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // A lane is one interactive `claude` in its own tmux session on the panel's dedicated
@@ -84,7 +86,7 @@ func ParseTmuxPanes(out []byte) []TmuxLane {
 		}
 		created, _ := strconv.ParseInt(f[5], 10, 64)
 		attached, _ := strconv.Atoi(f[6])
-		lanes = append(lanes, TmuxLane{ID: f[0], Path: ResolvePath(path), Type: f[7], Created: created,
+		lanes = append(lanes, TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
 			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]})
 	}
 	sort.Slice(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
@@ -107,13 +109,13 @@ func laneErr(status int, code, format string, a ...any) *LaneError {
 
 // LaneManager starts, lists and controls lanes on one tmux socket.
 type LaneManager struct {
-	TmuxPath string    // absolute path of tmux
-	Socket   string    // tmux -L name
-	Root     string    // project root (resolved)
-	Cfg      *Config   //
-	Registry *Registry // durable lane ↔ session binding
-	Run      Runner    // runs git and `claude agents` (injectable for tests)
-	Program  []string  // the lane program; default the absolute path of `claude`
+	TmuxPath string         // absolute path of tmux
+	Socket   string         // tmux -L name
+	Root     string         // project root (resolved)
+	Cfg      *Config        //
+	Registry *Registry      // durable lane ↔ session binding
+	Run      signals.Runner // runs git and `claude agents` (injectable for tests)
+	Program  []string       // the lane program; default the absolute path of `claude`
 	// LookupEnv reads the panel's own environment (injectable for tests).
 	LookupEnv func(string) (string, bool)
 	// StopTimeout is how long Stop waits for /exit before killing the session.
@@ -464,11 +466,11 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 			return res, laneErr(409, "path-taken", "lane %q already runs in %s; two sessions in one checkout would edit the same files", other, res.Path)
 		}
 	case "existing":
-		wts, err := readWorktrees(ctx, m.Run, m.Root)
+		wts, err := signals.ReadWorktrees(ctx, m.Run, m.Root)
 		if err != nil {
 			return res, laneErr(500, "git", "cannot read the worktree list: %v", err)
 		}
-		want := ResolvePath(req.Worktree)
+		want := signals.ResolvePath(req.Worktree)
 		for _, w := range wts {
 			if !w.Bare && w.Path == want {
 				res.Path, res.Branch = w.Path, w.Branch
@@ -525,7 +527,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		if err != nil {
 			return fail(laneErr(409, "git", "git worktree add failed: %v", err))
 		}
-		res.Path = ResolvePath(res.Path)
+		res.Path = signals.ResolvePath(res.Path)
 		rec.Path = res.Path
 	}
 	if _, err := m.tmux(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)[2:]...); err != nil {
@@ -680,7 +682,7 @@ func (m *LaneManager) agentStatus(ctx context.Context, sessionID string) (status
 	if err != nil {
 		return "", false, err
 	}
-	agents, err := ParseAgents(out)
+	agents, err := signals.ParseAgents(out)
 	if err != nil {
 		return "", false, err
 	}

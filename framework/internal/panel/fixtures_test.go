@@ -48,9 +48,14 @@ func fixtureLeaks(b []byte) []string {
 
 func TestFixturesAreScrubbed(t *testing.T) {
 	n := 0
-	err := filepath.WalkDir("testdata", func(p string, d os.DirEntry, err error) error {
+	// Every testdata directory of the panel and its packages: the tree is the
+	// authority, so a package that adds fixtures is scanned without a list to update.
+	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
+		}
+		if !strings.Contains(string(filepath.Separator)+p, string(filepath.Separator)+"testdata"+string(filepath.Separator)) {
+			return nil
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 )
@@ -67,7 +68,7 @@ func TestHubPushesOnlyAChangedView(t *testing.T) {
 		t.Fatal("a no-op update was pushed")
 	}
 	// A real change is pushed, once.
-	h.Update(func(m *Model, now time.Time) { m.prs = append(m.prs, PR{Number: 7, Title: "Synthetic"}) })
+	h.Update(func(m *Model, now time.Time) { m.prs = append(m.prs, signals.PR{Number: 7, Title: "Synthetic"}) })
 	if !recv(time.Second) {
 		t.Fatal("a changed view was not pushed")
 	}
@@ -99,7 +100,7 @@ func TestViewKeyIgnoresThePollsBookkeeping(t *testing.T) {
 	if fullKey(a) == fullKey(b) {
 		t.Fatal("poll bookkeeping did not change the full key")
 	}
-	b.PRs = append(b.PRs, PR{Number: 7})
+	b.PRs = append(b.PRs, signals.PR{Number: 7})
 	if viewKey(a) == viewKey(b) {
 		t.Fatal("a changed view has the same key")
 	}

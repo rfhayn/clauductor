@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 const buildWT = "/repo/.claude/worktrees/build-add-feature"
@@ -16,24 +18,8 @@ func v2Model(t *testing.T) *Model {
 	return m
 }
 
-func notifEv(typ string) HookEvent {
-	return HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: typ, Message: "m"}
-}
-
-// C1: every documented notification type is mapped explicitly.
-func TestNotificationTableCoversEveryDocumentedType(t *testing.T) {
-	if n := len(NotificationTypes()); n != 12 {
-		t.Fatalf("want the 12 documented types, got %d", n)
-	}
-	for _, typ := range NotificationTypes() {
-		k := ClassifyNotification(typ)
-		if !k.Known || k.Label == "" || k.Severity == "" {
-			t.Errorf("%s is not mapped: %+v", typ, k)
-		}
-	}
-	if len(notificationTable) != 12 {
-		t.Errorf("the table maps %d types; a new one needs a deliberate row and a test", len(notificationTable))
-	}
+func notifEv(typ string) signals.HookEvent {
+	return signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: typ, Message: "m"}
 }
 
 func TestNotificationEffects(t *testing.T) {
@@ -63,7 +49,7 @@ func TestNotificationEffects(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.typ, func(t *testing.T) {
 			m := v2Model(t)
-			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "UserPromptSubmit"}, t0)
+			m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "UserPromptSubmit"}, t0)
 			m.ApplyHook(notifEv(tc.typ), t0.Add(time.Second))
 			v := m.Snapshot(t0.Add(2 * time.Second))
 			l := laneByName(v, "add-feature")
@@ -88,10 +74,10 @@ func TestNotificationEffects(t *testing.T) {
 
 func TestAgentCompletedIsDoneOnceIdle(t *testing.T) {
 	m := v2Model(t)
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Stop"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Stop"}, t0)
 	m.ApplyHook(notifEv("agent_completed"), t0.Add(time.Second))
 	v := m.Snapshot(t0.Add(2 * time.Second))
-	if len(v.Done) != 1 || len(v.NeedsYou) != 0 || v.Done[0].Severity != SevInfo {
+	if len(v.Done) != 1 || len(v.NeedsYou) != 0 || v.Done[0].Severity != signals.SevInfo {
 		t.Fatalf("done %+v needs %+v", v.Done, v.NeedsYou)
 	}
 }
@@ -110,30 +96,30 @@ func TestElicitationCompleteAnswersTheDialog(t *testing.T) {
 func TestV2HookEvents(t *testing.T) {
 	for _, ev := range []string{"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged"} {
 		found := false
-		for _, e := range HookEvents {
+		for _, e := range signals.HookEvents {
 			found = found || e == ev
 		}
 		if !found {
 			t.Errorf("%s is not subscribed", ev)
 		}
 	}
-	for _, e := range HookEvents {
+	for _, e := range signals.HookEvents {
 		if e == "SessionStart" {
 			t.Error("SessionStart supports no HTTP hooks and must stay out")
 		}
 	}
 	m := v2Model(t)
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PermissionRequest", ToolName: "Bash"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PermissionRequest", ToolName: "Bash"}, t0)
 	v := m.Snapshot(t0)
-	if len(v.NeedsYou) != 1 || !strings.Contains(v.NeedsYou[0].Text, "Bash") || v.NeedsYou[0].Severity != SevBlock {
+	if len(v.NeedsYou) != 1 || !strings.Contains(v.NeedsYou[0].Text, "Bash") || v.NeedsYou[0].Severity != signals.SevBlock {
 		t.Fatalf("permission request: %+v", v.NeedsYou)
 	}
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreCompact", CompactionTrigger: "auto"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreCompact", CompactionTrigger: "auto"}, t0)
 	if c := laneByName(m.Snapshot(t0), "add-feature").Sessions[0].Compacting; c != "auto" {
 		t.Fatalf("compacting %q", c)
 	}
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PostCompact", CompactionTrigger: "auto"}, t0)
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "StopFailure", ErrorType: "rate_limit"}, t0.Add(time.Second))
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PostCompact", CompactionTrigger: "auto"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "StopFailure", ErrorType: "rate_limit"}, t0.Add(time.Second))
 	v = m.Snapshot(t0.Add(2 * time.Second))
 	s := laneByName(v, "add-feature").Sessions[0]
 	if s.Compacting != "" || s.Failure != "rate_limit" {
@@ -141,13 +127,13 @@ func TestV2HookEvents(t *testing.T) {
 	}
 	found := false
 	for _, a := range v.Alerts {
-		found = found || (a.Kind == AlertRateLimit && a.Severity == SevBlock)
+		found = found || (a.Kind == AlertRateLimit && a.Severity == signals.SevBlock)
 	}
 	if !found {
 		t.Fatalf("StopFailure rate_limit raised no alert: %+v", v.Alerts)
 	}
 	// An event name the panel does not subscribe to is counted, not applied.
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreToolUse"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreToolUse"}, t0)
 	if v := m.Snapshot(t0); v.Observe.DroppedUnknownEvent != 1 || v.Observe.DroppedForeign != 0 {
 		t.Fatalf("unknown event: %+v", v.Observe)
 	}
@@ -158,9 +144,9 @@ func TestSessionBindingByID(t *testing.T) {
 	m := v2Model(t)
 	// A session the panel did not launch binds at first sight by cwd, and a later
 	// `cd` into another worktree does not move it.
-	m.ApplyHook(HookEvent{SessionID: "own", Cwd: buildWT, Event: "UserPromptSubmit"}, t0)
-	m.ApplyHook(HookEvent{SessionID: "own", Cwd: "/repo", Event: "Stop"}, t0.Add(time.Second))
-	m.ApplyHook(HookEvent{SessionID: "own", Cwd: "/repo", Event: "CwdChanged", PreviousCwd: buildWT}, t0.Add(time.Second))
+	m.ApplyHook(signals.HookEvent{SessionID: "own", Cwd: buildWT, Event: "UserPromptSubmit"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "own", Cwd: "/repo", Event: "Stop"}, t0.Add(time.Second))
+	m.ApplyHook(signals.HookEvent{SessionID: "own", Cwd: "/repo", Event: "CwdChanged", PreviousCwd: buildWT}, t0.Add(time.Second))
 	v := m.Snapshot(t0.Add(2 * time.Second))
 	if l := laneByName(v, "add-feature"); l == nil || len(l.Sessions) != 1 {
 		t.Fatalf("session moved lanes: %+v", v.Lanes)
@@ -181,7 +167,7 @@ func TestSessionBindingByID(t *testing.T) {
 	// first event comes from elsewhere (it ran `cd /tmp` before the first hook).
 	rec := LaneRecord{ID: "fixer", SessionID: "launched", Path: "/repo/.claude/worktrees/fix-thing", Type: "fix", ActionDone: true}
 	m.ApplyTmux(nil, []LaneRecord{rec}, "", nil, t0)
-	if !m.ApplyHook(HookEvent{SessionID: "launched", Cwd: "/tmp", Event: "UserPromptSubmit"}, t0) {
+	if !m.ApplyHook(signals.HookEvent{SessionID: "launched", Cwd: "/tmp", Event: "UserPromptSubmit"}, t0) {
 		t.Fatal("a registry-bound session's event was dropped for its cwd")
 	}
 	v = m.Snapshot(t0)
@@ -189,7 +175,7 @@ func TestSessionBindingByID(t *testing.T) {
 		t.Fatalf("launched session not in its lane: %+v", v.Lanes)
 	}
 	// A stranger from outside the project is still dropped, and counted as foreign.
-	if m.ApplyHook(HookEvent{SessionID: "stranger", Cwd: "/elsewhere", Event: "Stop"}, t0) {
+	if m.ApplyHook(signals.HookEvent{SessionID: "stranger", Cwd: "/elsewhere", Event: "Stop"}, t0) {
 		t.Fatal("foreign session kept")
 	}
 }
@@ -199,9 +185,9 @@ func TestQuotaExpiresAtResetsAt(t *testing.T) {
 	m := v2Model(t)
 	five, seven := 80.0, 40.0
 	r5, r7 := t0.Add(time.Hour).Unix(), t0.Add(72*time.Hour).Unix()
-	p := StatusPayload{SessionID: "s1", Cwd: buildWT}
-	p.RateLimits.FiveHour = &RateLimit{UsedPercentage: &five, ResetsAt: &r5}
-	p.RateLimits.SevenDay = &RateLimit{UsedPercentage: &seven, ResetsAt: &r7}
+	p := signals.StatusPayload{SessionID: "s1", Cwd: buildWT}
+	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five, ResetsAt: &r5}
+	p.RateLimits.SevenDay = &signals.RateLimit{UsedPercentage: &seven, ResetsAt: &r7}
 	m.ApplyStatus(p, t0)
 	if q := m.Snapshot(t0.Add(59 * time.Minute)).Quota; q.FiveHour == nil || *q.FiveHour != 80 || q.FiveHourExpired {
 		t.Fatalf("before reset: %+v", q)
@@ -221,7 +207,7 @@ func TestQuotaExpiresAtResetsAt(t *testing.T) {
 
 // C6: `claude agents` id, state and the waitingFor enum are decoded.
 func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
-	agents, err := ParseAgents([]byte(`[{"pid":1,"cwd":"` + buildWT + `","kind":"background","sessionId":"bg","id":"a1b2","state":"running","status":"waiting","waitingFor":"permission prompt"}]`))
+	agents, err := signals.ParseAgents([]byte(`[{"pid":1,"cwd":"` + buildWT + `","kind":"background","sessionId":"bg","id":"a1b2","state":"running","status":"waiting","waitingFor":"permission prompt"}]`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +226,7 @@ func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
 	}
 	for in, want := range map[string]string{"permission prompt": "permission", "input needed": "input", "sandbox request": "sandbox",
 		"worker request": "worker", "dialog open": "dialog", "Permission_Prompt": "permission", "something new": "other", "": ""} {
-		if got := waitingForKind(in); got != want {
+		if got := signals.WaitingForKind(in); got != want {
 			t.Errorf("waitingForKind(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -249,7 +235,7 @@ func TestAgentsDecodeIDStateWaitingFor(t *testing.T) {
 // C14: subagent heuristics are tagged with the version they were verified on.
 func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
 	m := v2Model(t)
-	m.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "SubagentStart", AgentID: "a", AgentType: "builder"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "SubagentStart", AgentID: "a", AgentType: "builder"}, t0)
 	m.ApplyClaudeVersion(HeuristicsVerifiedOn, nil, t0)
 	v := m.Snapshot(t0)
 	if laneByName(v, "add-feature").SubagentsApprox || len(v.Warnings) != 0 {
@@ -263,32 +249,32 @@ func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
 	if v.Observe.ClaudeVersion != "2.2.0" || v.Observe.VerifiedOn != "2.1.284" {
 		t.Fatalf("observe %+v", v.Observe)
 	}
-	if got, _ := ParseClaudeVersion([]byte("2.1.284 (Claude Code)\n")); got != "2.1.284" {
+	if got, _ := signals.ParseClaudeVersion([]byte("2.1.284 (Claude Code)\n")); got != "2.1.284" {
 		t.Fatalf("parse %q", got)
 	}
-	if _, err := ParseClaudeVersion([]byte("command not found")); err == nil {
+	if _, err := signals.ParseClaudeVersion([]byte("command not found")); err == nil {
 		t.Fatal("garbage parsed")
 	}
 }
 
 func TestAgentsFilterAndBackoff(t *testing.T) {
-	wts := []Worktree{{Path: "/p/app"}, {Path: "/p/app/.claude/worktrees/x"}}
-	if d := AgentsFilterDir("/p/app", wts); d != "/p/app" {
+	wts := []signals.Worktree{{Path: "/p/app"}, {Path: "/p/app/.claude/worktrees/x"}}
+	if d := signals.AgentsFilterDir("/p/app", wts); d != "/p/app" {
 		t.Fatalf("inside root: %q", d)
 	}
-	wts = append(wts, Worktree{Path: "/p/app-worktrees/y"})
-	if d := AgentsFilterDir("/p/app", wts); d != "/p" {
+	wts = append(wts, signals.Worktree{Path: "/p/app-worktrees/y"})
+	if d := signals.AgentsFilterDir("/p/app", wts); d != "/p" {
 		t.Fatalf("a worktree outside the root widens the filter: %q", d)
 	}
-	if d := AgentsFilterDir("/p/app", append(wts, Worktree{Path: "/q/z"})); d != "" {
+	if d := signals.AgentsFilterDir("/p/app", append(wts, signals.Worktree{Path: "/q/z"})); d != "" {
 		t.Fatalf("nothing in common must mean no filter: %q", d)
 	}
-	all := []Agent{{SessionID: "a", Cwd: "/p/app"}, {SessionID: "b", Cwd: "/p/app-worktrees/y"}, {SessionID: "c", Cwd: "/other"}}
-	in := func(a Agent) bool { return MatchWorktree(wts, a.Cwd) >= 0 }
-	if got := MissedByFilter(all, all[:1], in); !reflect.DeepEqual(got, []string{"b"}) {
+	all := []signals.Agent{{SessionID: "a", Cwd: "/p/app"}, {SessionID: "b", Cwd: "/p/app-worktrees/y"}, {SessionID: "c", Cwd: "/other"}}
+	in := func(a signals.Agent) bool { return signals.MatchWorktree(wts, a.Cwd) >= 0 }
+	if got := signals.MissedByFilter(all, all[:1], in); !reflect.DeepEqual(got, []string{"b"}) {
 		t.Fatalf("missed %v", got)
 	}
-	if got := MissedByFilter(all, all[:2], in); len(got) != 0 {
+	if got := signals.MissedByFilter(all, all[:2], in); len(got) != 0 {
 		t.Fatalf("a foreign session missing from the filter is fine: %v", got)
 	}
 	// With a lane (PANEL-7 adds the quiet interval without one: cost_test.go).

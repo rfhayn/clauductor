@@ -11,24 +11,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // HookTag is the query parameter that marks a hook entry as the panel's own. Claude
 // Code's hook schema documents no free-form key for ownership, so the tag lives in the
 // URL, which Claude Code passes through untouched.
 const HookTag = "clauductor-panel"
-
-// HookEvents are the events the panel subscribes to. SessionStart is absent on
-// purpose: HTTP hooks do not fire for it (verified on Claude Code 2.1.284), so new
-// sessions are found through `claude agents --json` instead.
-//
-// v2 adds StopFailure (its error_type says rate_limit), PermissionRequest, the
-// compaction pair and CwdChanged. The panel only OBSERVES PermissionRequest (and
-// PreCompact, which could block): /hook answers 204 with an empty body, which Claude
-// Code documents as "no decision", so the permission flow proceeds unchanged. It
-// never answers a permission request, because /hook takes no token.
-var HookEvents = []string{"UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "Notification", "SessionEnd",
-	"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged"}
 
 // HookURL is the URL the panel's hooks post to.
 func HookURL(port int) string {
@@ -47,7 +37,7 @@ func InstallHooks(home string, port int) (bool, error) {
 	})
 	return rewriteHooks(home, func(h *orderedObject) error {
 		want := map[string]bool{}
-		for _, ev := range HookEvents {
+		for _, ev := range signals.HookEvents {
 			want[ev] = true
 			if raw, ok := h.get(ev); ok {
 				var probe []json.RawMessage
@@ -61,7 +51,7 @@ func InstallHooks(home string, port int) (bool, error) {
 				stripEvent(h, ev, nil)
 			}
 		}
-		for _, ev := range HookEvents {
+		for _, ev := range signals.HookEvents {
 			// Our current entry stays where it is (a user hook may follow it), so a
 			// repeat install is a no-op; anything else tagged as ours goes.
 			if !stripEvent(h, ev, entry) {

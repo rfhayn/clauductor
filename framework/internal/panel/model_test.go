@@ -10,13 +10,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 var t0 = time.Date(2026, 9, 28, 14, 0, 0, 0, time.UTC)
 
 func fixture(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", name))
+	b, err := os.ReadFile(filepath.Join("signals", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,9 +35,9 @@ func testConfig(t *testing.T) *Config {
 }
 
 // spikeHooks returns the hook payloads Claude Code 2.1.284 actually sent in the spike.
-func spikeHooks(t *testing.T) []HookEvent {
+func spikeHooks(t *testing.T) []signals.HookEvent {
 	t.Helper()
-	var evs []HookEvent
+	var evs []signals.HookEvent
 	sc := bufio.NewScanner(bytes.NewReader(fixture(t, "spike-hooks.log")))
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
@@ -43,7 +45,7 @@ func spikeHooks(t *testing.T) []HookEvent {
 		if line == "" {
 			continue
 		}
-		ev, err := ParseHook([]byte(line))
+		ev, err := signals.ParseHook([]byte(line))
 		if err != nil {
 			t.Fatalf("spike line does not parse: %v", err)
 		}
@@ -55,9 +57,9 @@ func spikeHooks(t *testing.T) []HookEvent {
 	return evs
 }
 
-func fixtureWorktrees(t *testing.T) []Worktree {
+func fixtureWorktrees(t *testing.T) []signals.Worktree {
 	t.Helper()
-	wts, err := ParseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
+	wts, err := signals.ParseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,7 @@ func TestReducerReplaysSpikeHooks(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := NewModel(testConfig(t), "/spike", t0)
-			m.ApplyWorktrees([]Worktree{{Path: spikeCwd, Branch: "main"}}, nil, t0)
+			m.ApplyWorktrees([]signals.Worktree{{Path: spikeCwd, Branch: "main"}}, nil, t0)
 			for i, ev := range evs[:tc.upTo] {
 				if !m.ApplyHook(ev, t0.Add(time.Duration(i)*time.Second)) {
 					t.Fatalf("event %d dropped", i)
@@ -141,8 +143,8 @@ func TestReducerDropsEventsOutsideTheProject(t *testing.T) {
 		t.Run(tc.cwd, func(t *testing.T) {
 			m := NewModel(testConfig(t), "/repo", t0)
 			m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
-			kept := m.ApplyHook(HookEvent{SessionID: "s1", Cwd: tc.cwd, Event: "UserPromptSubmit", Prompt: "hi"}, t0)
-			st := m.ApplyStatus(StatusPayload{SessionID: "s1", Cwd: tc.cwd}, t0)
+			kept := m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: tc.cwd, Event: "UserPromptSubmit", Prompt: "hi"}, t0)
+			st := m.ApplyStatus(signals.StatusPayload{SessionID: "s1", Cwd: tc.cwd}, t0)
 			v := m.Snapshot(t0.Add(time.Second))
 			if tc.wantLane == "" {
 				if kept || st || len(v.Lanes) != 0 || len(v.Feed) != 0 || v.Dropped != 2 {
@@ -158,12 +160,12 @@ func TestReducerDropsEventsOutsideTheProject(t *testing.T) {
 }
 
 func TestReducerStatusLine(t *testing.T) {
-	sp, err := ParseStatus(fixture(t, "statusline.json"))
+	sp, err := signals.ParseStatus(fixture(t, "statusline.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := NewModel(testConfig(t), sp.Cwd, t0)
-	m.ApplyWorktrees([]Worktree{{Path: sp.Cwd, Branch: "main"}}, nil, t0)
+	m.ApplyWorktrees([]signals.Worktree{{Path: sp.Cwd, Branch: "main"}}, nil, t0)
 	if !m.ApplyStatus(sp, t0) {
 		t.Fatal("status dropped")
 	}
@@ -181,7 +183,7 @@ func TestReducerStatusLine(t *testing.T) {
 	partial := sp
 	seven := 71.0
 	partial.RateLimits.FiveHour = nil
-	partial.RateLimits.SevenDay = &RateLimit{UsedPercentage: &seven}
+	partial.RateLimits.SevenDay = &signals.RateLimit{UsedPercentage: &seven}
 	m.ApplyStatus(partial, t0.Add(time.Second))
 	if q := m.Snapshot(t0).Quota; q.FiveHour == nil || *q.FiveHour != 12 || *q.SevenDay != 71 {
 		t.Fatalf("partial quota post: %+v", q)
@@ -193,7 +195,7 @@ func TestReducerStatusLine(t *testing.T) {
 	foreign.SessionID = "someone-else"
 	foreign.Cwd = "/elsewhere"
 	hi := 99.0
-	foreign.RateLimits.FiveHour = &RateLimit{UsedPercentage: &hi}
+	foreign.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &hi}
 	if m.ApplyStatus(foreign, t0) {
 		t.Fatal("foreign status kept")
 	}
@@ -203,7 +205,7 @@ func TestReducerStatusLine(t *testing.T) {
 }
 
 func TestReducerAgentsPoll(t *testing.T) {
-	agents, err := ParseAgents(fixture(t, "agents.json"))
+	agents, err := signals.ParseAgents(fixture(t, "agents.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,11 +247,11 @@ func TestReducerAgentsPoll(t *testing.T) {
 }
 
 func TestReducerRealAgentsCapture(t *testing.T) {
-	agents, err := ParseAgents(fixture(t, "agents-real.json"))
+	agents, err := signals.ParseAgents(fixture(t, "agents-real.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wts, err := ParseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))
+	wts, err := signals.ParseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,12 +265,12 @@ func TestReducerRealAgentsCapture(t *testing.T) {
 }
 
 func TestReducerNeedsYou(t *testing.T) {
-	notif := func(kind string) HookEvent {
-		return HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature",
+	notif := func(kind string) signals.HookEvent {
+		return signals.HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature",
 			Event: "Notification", NotificationType: kind, Message: "Claude needs your permission to use Bash"}
 	}
-	busy := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "busy"}}
-	waiting := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "waiting"}}
+	busy := []signals.Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "busy"}}
+	waiting := []signals.Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "waiting"}}
 	tests := []struct {
 		name  string
 		steps func(m *Model)
@@ -281,7 +283,7 @@ func TestReducerNeedsYou(t *testing.T) {
 		{"other notification types stay in the feed only", func(m *Model) { m.ApplyHook(notif("auth_success"), t0) }, 0},
 		{"a later prompt answers it", func(m *Model) {
 			m.ApplyHook(notif("idle_prompt"), t0)
-			m.ApplyHook(HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Event: "UserPromptSubmit"}, t0.Add(time.Second))
+			m.ApplyHook(signals.HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Event: "UserPromptSubmit"}, t0.Add(time.Second))
 		}, 0},
 		{"going busy answers a permission prompt (no hook fires for a grant)", func(m *Model) {
 			m.ApplyAgents(waiting, nil, t0)
@@ -310,10 +312,10 @@ func TestReducerNeedsYou(t *testing.T) {
 
 func TestReducerStaleHookBanner(t *testing.T) {
 	cwd := "/repo/.claude/worktrees/build-add-feature"
-	agent := func(status string) []Agent {
-		return []Agent{{SessionID: "s", Cwd: cwd, Status: status}}
+	agent := func(status string) []signals.Agent {
+		return []signals.Agent{{SessionID: "s", Cwd: cwd, Status: status}}
 	}
-	hook := HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: "a1", AgentType: "builder"}
+	hook := signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: "a1", AgentType: "builder"}
 	tests := []struct {
 		name  string
 		steps func(m *Model)
@@ -362,7 +364,7 @@ func TestReducerFeedIsARingBuffer(t *testing.T) {
 	m := NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 	for i := 0; i < FeedCap+50; i++ {
-		m.ApplyHook(HookEvent{SessionID: "s", Cwd: "/repo", Event: "Stop", LastAssistantMessage: strings.Repeat("x", 500)}, t0.Add(time.Duration(i)*time.Second))
+		m.ApplyHook(signals.HookEvent{SessionID: "s", Cwd: "/repo", Event: "Stop", LastAssistantMessage: strings.Repeat("x", 500)}, t0.Add(time.Duration(i)*time.Second))
 	}
 	v := m.Snapshot(t0.Add(time.Hour))
 	if len(v.Feed) != FeedCap {
@@ -371,7 +373,7 @@ func TestReducerFeedIsARingBuffer(t *testing.T) {
 	if v.Feed[0].At <= v.Feed[1].At {
 		t.Fatal("feed not newest-first")
 	}
-	if n := len([]rune(v.Feed[0].Detail)); n > detailMax+1 {
+	if n := len([]rune(v.Feed[0].Detail)); n > signals.DetailMax+1 {
 		t.Fatalf("detail not truncated: %d runes", n)
 	}
 }
@@ -387,7 +389,7 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 	if !v.Cards[0].Source.Pending {
 		t.Fatal("card should start pending")
 	}
-	prs, err := ParsePRs(fixture(t, "prs.json"))
+	prs, err := signals.ParsePRs(fixture(t, "prs.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,13 +410,15 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 
 func TestReducerSubagentLifecycle(t *testing.T) {
 	cwd := "/repo/.claude/worktrees/build-add-feature"
-	start := func(id, typ string) HookEvent {
-		return HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: id, AgentType: typ}
+	start := func(id, typ string) signals.HookEvent {
+		return signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: id, AgentType: typ}
 	}
-	stop := func(id, typ string) HookEvent {
-		return HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStop", AgentID: id, AgentType: typ}
+	stop := func(id, typ string) signals.HookEvent {
+		return signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStop", AgentID: id, AgentType: typ}
 	}
-	agent := func(status string) []Agent { return []Agent{{SessionID: "s", Cwd: cwd, Status: status}} }
+	agent := func(status string) []signals.Agent {
+		return []signals.Agent{{SessionID: "s", Cwd: cwd, Status: status}}
+	}
 	tests := []struct {
 		name  string
 		steps func(m *Model)
@@ -462,7 +466,7 @@ func TestReducerSubagentLifecycle(t *testing.T) {
 		{"hook Stop keeps background agents", func(m *Model) {
 			m.ApplyAgents(agent("busy"), nil, t0)
 			m.ApplyHook(start("a1", "builder"), t0)
-			m.ApplyHook(HookEvent{SessionID: "s", Cwd: cwd, Event: "Stop"}, t0.Add(time.Second))
+			m.ApplyHook(signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "Stop"}, t0.Add(time.Second))
 		}, 2 * time.Second, []string{"a1"}},
 		{"idle for 5 s keeps them", func(m *Model) {
 			m.ApplyHook(start("a1", "builder"), t0)
@@ -508,15 +512,15 @@ func TestReducerSubagentLifecycle(t *testing.T) {
 
 func TestReducerCostCoversTrackedSessionsOnly(t *testing.T) {
 	cwd := "/repo"
-	cost := func(v float64) StatusPayload {
-		p := StatusPayload{SessionID: "old", Cwd: cwd}
+	cost := func(v float64) signals.StatusPayload {
+		p := signals.StatusPayload{SessionID: "old", Cwd: cwd}
 		p.Cost.TotalCostUSD = &v
 		return p
 	}
 	m := NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 	m.ApplyStatus(cost(3), t0)
-	later := StatusPayload{SessionID: "new", Cwd: cwd}
+	later := signals.StatusPayload{SessionID: "new", Cwd: cwd}
 	two := 2.0
 	later.Cost.TotalCostUSD = &two
 	m.ApplyStatus(later, t0.Add(40*time.Minute))

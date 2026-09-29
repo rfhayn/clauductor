@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,48 +17,8 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
-
-// Runner runs one command in dir and returns its stdout. Injectable for tests.
-type Runner func(ctx context.Context, dir string, argv []string) ([]byte, error)
-
-const maxCmdOutput = 1 << 20
-
-// ExecRunner runs argv directly (no shell) with a limited stdout.
-func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = dir
-	var out, errb limitedBuffer
-	out.max, errb.max = maxCmdOutput, 4096
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(errb.String())
-		if i := strings.IndexByte(msg, '\n'); i >= 0 {
-			msg = msg[:i]
-		}
-		if msg != "" {
-			return nil, fmt.Errorf("%s: %v: %s", argv[0], err, msg)
-		}
-		return nil, fmt.Errorf("%s: %v", argv[0], err)
-	}
-	return out.Bytes(), nil
-}
-
-type limitedBuffer struct {
-	bytes.Buffer
-	max int
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if room := b.max - b.Len(); room > 0 {
-		if len(p) > room {
-			b.Buffer.Write(p[:room])
-		} else {
-			b.Buffer.Write(p)
-		}
-	}
-	return len(p), nil
-}
 
 // Options configures one panel run.
 type Options struct {
@@ -69,7 +28,7 @@ type Options struct {
 	NoOpen     bool
 	Home       string // the user's home; injectable for tests
 	Out        io.Writer
-	Runner     Runner
+	Runner     signals.Runner
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
 
@@ -110,33 +69,18 @@ type Options struct {
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
 func MarkerPath(home string) string { return filepath.Join(home, ".clauductor", "panel", "port") }
 
-// ResolvePath makes a path comparable with worktree paths: absolute, symlinks
-// resolved (macOS /tmp is /private/tmp). A path that no longer exists is cleaned only.
-func ResolvePath(p string) string {
-	if p == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
-	}
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	return filepath.Clean(p)
-}
-
 // Run serves the panel until ctx is cancelled.
 func Run(ctx context.Context, o Options) error {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
 	if o.Runner == nil {
-		o.Runner = ExecRunner
+		o.Runner = signals.ExecRunner
 	}
 	if o.Home == "" {
 		return errors.New("cannot determine the home directory")
 	}
-	root := ResolvePath(o.Project)
+	root := signals.ResolvePath(o.Project)
 	cfgPath := o.ConfigPath
 	if cfgPath == "" {
 		cfgPath = filepath.Join(root, DefaultConfigRel)
@@ -147,7 +91,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	// The worktree list is the event filter's authority; without it every event
 	// would be dropped, so a failure here is fatal rather than a quiet empty panel.
-	wts, err := readWorktrees(ctx, o.Runner, root)
+	wts, err := signals.ReadWorktrees(ctx, o.Runner, root)
 	if err != nil {
 		return fmt.Errorf("%s: %w", root, err)
 	}
@@ -367,26 +311,9 @@ func openBrowser(url string) {
 	_ = exec.Command(name, url).Start()
 }
 
-func readWorktrees(ctx context.Context, run Runner, root string) ([]Worktree, error) {
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := run(cctx, root, []string{"git", "worktree", "list", "--porcelain"})
-	if err != nil {
-		return nil, err
-	}
-	wts, err := ParseWorktreePorcelain(out)
-	if err != nil {
-		return nil, err
-	}
-	for i := range wts {
-		wts[i].Path = ResolvePath(wts[i].Path)
-	}
-	return wts, nil
-}
-
 type pollers struct {
 	hub        *Hub
-	run        Runner
+	run        signals.Runner
 	root       string
 	cfg        *Config
 	kickWT     chan struct{}
@@ -451,13 +378,13 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 		case <-ctx.Done():
 			return
 		case body := <-hooks:
-			ev, err := ParseHook(body)
+			ev, err := signals.ParseHook(body)
 			if err != nil {
 				p.x.malformed.Add(1)
 				continue
 			}
 			p.x.hookSeen(ev)
-			ev.Cwd = ResolvePath(ev.Cwd)
+			ev.Cwd = signals.ResolvePath(ev.Cwd)
 			// A prompt, or a finished turn, means the session has a conversation to
 			// --resume. Hooks can be dropped, so busy in `claude agents` counts too.
 			if (ev.Event == "UserPromptSubmit" || ev.Event == "Stop") && p.registry != nil {
@@ -469,12 +396,12 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				p.kickWorktrees()
 			}
 		case body := <-status:
-			st, err := ParseStatus(body)
+			st, err := signals.ParseStatus(body)
 			if err != nil {
 				p.x.malformed.Add(1)
 				continue
 			}
-			st.Cwd = ResolvePath(st.Cwd)
+			st.Cwd = signals.ResolvePath(st.Cwd)
 			p.hub.Update(func(m *Model, now time.Time) { m.ApplyStatus(st, now) })
 		}
 	}
@@ -508,7 +435,7 @@ func (p *pollers) worktreeLoop(ctx context.Context) {
 		}
 	}()
 	loop(ctx, 10*time.Second, p.kickWT, func() {
-		wts, err := readWorktrees(ctx, p.run, p.root)
+		wts, err := signals.ReadWorktrees(ctx, p.run, p.root)
 		if ctx.Err() != nil {
 			return
 		}
@@ -527,15 +454,15 @@ func (p *pollers) agentsLoop(ctx context.Context) {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		out, err := p.run(cctx, p.root, []string{"claude", "agents", "--json"})
-		var agents []Agent
+		var agents []signals.Agent
 		if err == nil {
-			agents, err = ParseAgents(out)
+			agents, err = signals.ParseAgents(out)
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		for i := range agents {
-			agents[i].Cwd = ResolvePath(agents[i].Cwd)
+			agents[i].Cwd = signals.ResolvePath(agents[i].Cwd)
 			if agents[i].Status == "busy" && p.registry != nil {
 				_, _ = p.registry.MarkConversation(agents[i].SessionID)
 			}
@@ -549,9 +476,9 @@ func (p *pollers) prLoop(ctx context.Context) {
 		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		out, err := p.run(cctx, p.root, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup"})
-		var prs []PR
+		var prs []signals.PR
 		if err == nil {
-			prs, err = ParsePRs(out)
+			prs, err = signals.ParsePRs(out)
 		}
 		if ctx.Err() != nil {
 			return
@@ -573,9 +500,9 @@ func (p *pollers) cardLoop(ctx context.Context, c CardConfig, kickCh chan struct
 		if ctx.Err() != nil {
 			return
 		}
-		var co *CardOutput
+		var co *signals.CardOutput
 		if err == nil {
-			parsed := ParseCardOutput(out)
+			parsed := signals.ParseCardOutput(out)
 			co = &parsed
 		}
 		p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, co, err, now) })

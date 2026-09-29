@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
 
@@ -62,7 +63,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 func gitOnlyRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	switch argv[0] {
 	case "git":
-		return ExecRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	case "claude", "gh":
 		return []byte("[]"), nil
 	}
@@ -207,7 +208,7 @@ func findTerm(v View, id string) *TermLaneView {
 
 func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	tmux, sock := throwawaySocket(t)
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
 	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},
@@ -286,7 +287,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 		v := p.state(t)
 		o, f := findTerm(v, "orch"), findTerm(v, "fx")
 		return o != nil && f != nil && o.Worktree == root && o.Type == "orchestrator" &&
-			f.Worktree == ResolvePath(wt) && f.Branch == "fix/fx" && f.Type == "fix"
+			f.Worktree == signals.ResolvePath(wt) && f.Branch == "fix/fx" && f.Type == "fix"
 	})
 
 	// The panel restarts; tmux kept the lanes, and the new panel finds them.
@@ -320,7 +321,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	// Restart resumes the lane's own session: --resume <its id>, never --continue.
 	// --resume needs a conversation, which the first submitted prompt's hook records.
 	fxSID := findTerm(p2.state(t), "fx").SessionID
-	hook := fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"prompt":"hi"}`, fxSID, ResolvePath(wt))
+	hook := fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"prompt":"hi"}`, fxSID, signals.ResolvePath(wt))
 	if code := (liveClient{base: p2.base}).post(t, "/hook", hook); code != 204 {
 		t.Fatalf("hook: %d", code)
 	}
@@ -392,7 +393,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 // With a key in the panel's own environment, the API refuses and says why.
 func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 	tmux, sock := throwawaySocket(t)
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
 	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
@@ -415,7 +416,7 @@ func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 
 func rootLaneProject(t *testing.T) (root, home string) {
 	t.Helper()
-	root = ResolvePath(t.TempDir())
+	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
 	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)

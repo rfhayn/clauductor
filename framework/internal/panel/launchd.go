@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // The launchd login agent makes the panel "just there": it starts at login, restarts
@@ -293,13 +295,13 @@ func Install(o InstallOptions) error {
 		}
 		o.Self, _ = filepath.EvalSymlinks(self)
 	}
-	project := ResolvePath(o.Project)
+	project := signals.ResolvePath(o.Project)
 	if fi, err := os.Stat(project); err != nil || !fi.IsDir() {
 		return fmt.Errorf("--project %s is not a directory", o.Project)
 	}
 	cfg := ""
 	if o.Config != "" {
-		cfg = ResolvePath(o.Config)
+		cfg = signals.ResolvePath(o.Config)
 	} else {
 		cfg = filepath.Join(project, DefaultConfigRel)
 	}

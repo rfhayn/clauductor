@@ -6,6 +6,8 @@ import (
 	"os"
 	"sort"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // withTemplate copies a rendered template's launch options and first prompt into the
@@ -109,9 +111,9 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillRe
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	out, err := m.Run(cctx, m.Root, []string{"claude", "agents", "--json"})
 	cancel()
-	var agents []Agent
+	var agents []signals.Agent
 	if err == nil {
-		agents, err = ParseAgents(out)
+		agents, err = signals.ParseAgents(out)
 	}
 	if err != nil {
 		return fmt.Errorf("not typed: cannot read claude agents: %v", err)
@@ -145,7 +147,7 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillRe
 
 // AgentReady says why a session is not ready for typed text, or "" when it is:
 // listed, idle, and waiting for nothing.
-func AgentReady(agents []Agent, sessionID string) string {
+func AgentReady(agents []signals.Agent, sessionID string) string {
 	for _, a := range agents {
 		if a.SessionID != sessionID {
 			continue
@@ -154,7 +156,7 @@ func AgentReady(agents []Agent, sessionID string) string {
 		case a.Status != "idle":
 			return "claude is " + a.Status
 		case a.WaitingFor != "":
-			return "claude is waiting for " + oneLine(a.WaitingFor)
+			return "claude is waiting for " + signals.OneLine(a.WaitingFor)
 		}
 		return ""
 	}
@@ -204,7 +206,7 @@ func (m *LaneManager) liveSessions(ctx context.Context) (map[string]bool, error)
 	if err != nil {
 		return nil, err
 	}
-	agents, err := ParseAgents(out)
+	agents, err := signals.ParseAgents(out)
 	if err != nil {
 		return nil, err
 	}

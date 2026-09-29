@@ -3,6 +3,8 @@ package panel
 import (
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // The reducer reconciles the lane registry with tmux, the worktree list and the
@@ -14,11 +16,11 @@ func TestReducerReconcilesLanes(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewModel(cfg, "/repo", t0)
-	m.ApplyWorktrees([]Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/.wt/x", Branch: "fix/x"}}, nil, t0)
+	m.ApplyWorktrees([]signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/.wt/x", Branch: "fix/x"}}, nil, t0)
 	const sidA, sidB = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 	// Lane a's session reports from a subdirectory of the ROOT worktree (it ran cd):
 	// its lane is still the one the registry binds its session id to.
-	m.ApplyHook(HookEvent{SessionID: sidA, Cwd: "/repo/sub", Event: "UserPromptSubmit", Prompt: "go"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: sidA, Cwd: "/repo/sub", Event: "UserPromptSubmit", Prompt: "go"}, t0)
 	recs := []LaneRecord{
 		{ID: "a", SessionID: sidA, Path: "/repo/.wt/x", Type: "fix", ActionDone: true},
 		{ID: "b", SessionID: sidB, Path: "/repo", Type: "orchestrator", ActionDone: true},

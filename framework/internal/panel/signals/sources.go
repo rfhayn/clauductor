@@ -1,10 +1,11 @@
-package panel
+package signals
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -196,4 +197,53 @@ func ParseCardOutput(out []byte) CardOutput {
 		}
 	}
 	return CardOutput{Kind: "text", Lines: lines}
+}
+
+// AgentsFilterDir is the directory to pass as `claude agents --cwd`: the deepest
+// directory containing the project root and every worktree (worktrees may live
+// outside the root). "" when that is the filesystem root, where a filter would
+// filter nothing.
+func AgentsFilterDir(root string, wts []Worktree) string {
+	common := filepath.Clean(root)
+	for _, w := range wts {
+		if w.Bare {
+			continue
+		}
+		p := filepath.Clean(w.Path)
+		for common != "/" && p != common && !strings.HasPrefix(p, common+"/") {
+			common = filepath.Dir(common)
+		}
+	}
+	if common == "/" || common == "." {
+		return ""
+	}
+	return common
+}
+
+// MissedByFilter returns the in-project session ids the unfiltered list has and the
+// filtered one lacks. The unfiltered list is the authority; a filter that drops a
+// session degrades to "a smaller plausible number", so it is checked, not trusted.
+func MissedByFilter(unfiltered, filtered []Agent, inProject func(Agent) bool) []string {
+	have := map[string]bool{}
+	for _, a := range filtered {
+		have[a.SessionID] = true
+	}
+	var missed []string
+	for _, a := range unfiltered {
+		if a.SessionID != "" && inProject(a) && !have[a.SessionID] {
+			missed = append(missed, a.SessionID)
+		}
+	}
+	return missed
+}
+
+var versionRe = regexp.MustCompile(`\b(\d+\.\d+\.\d+)\b`)
+
+// ParseClaudeVersion reads `claude --version` ("2.1.284 (Claude Code)").
+func ParseClaudeVersion(out []byte) (string, error) {
+	m := versionRe.FindSubmatch(out)
+	if m == nil {
+		return "", fmt.Errorf("unrecognised claude --version output %q", Clip(string(out), 60))
+	}
+	return string(m[1]), nil
 }

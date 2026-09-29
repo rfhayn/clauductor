@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // errUntrusted is what a card shows while the config is untrusted.
@@ -52,55 +52,6 @@ func AgentsInterval(lastHook, now time.Time, lanes bool) time.Duration {
 		return agentsQuiet
 	}
 	return agentsFast
-}
-
-// AgentsFilterDir is the directory to pass as `claude agents --cwd`: the deepest
-// directory containing the project root and every worktree (worktrees may live
-// outside the root). "" when that is the filesystem root, where a filter would
-// filter nothing.
-func AgentsFilterDir(root string, wts []Worktree) string {
-	common := filepath.Clean(root)
-	for _, w := range wts {
-		if w.Bare {
-			continue
-		}
-		p := filepath.Clean(w.Path)
-		for common != "/" && p != common && !strings.HasPrefix(p, common+"/") {
-			common = filepath.Dir(common)
-		}
-	}
-	if common == "/" || common == "." {
-		return ""
-	}
-	return common
-}
-
-// MissedByFilter returns the in-project session ids the unfiltered list has and the
-// filtered one lacks. The unfiltered list is the authority; a filter that drops a
-// session degrades to "a smaller plausible number", so it is checked, not trusted.
-func MissedByFilter(unfiltered, filtered []Agent, inProject func(Agent) bool) []string {
-	have := map[string]bool{}
-	for _, a := range filtered {
-		have[a.SessionID] = true
-	}
-	var missed []string
-	for _, a := range unfiltered {
-		if a.SessionID != "" && inProject(a) && !have[a.SessionID] {
-			missed = append(missed, a.SessionID)
-		}
-	}
-	return missed
-}
-
-var versionRe = regexp.MustCompile(`\b(\d+\.\d+\.\d+)\b`)
-
-// ParseClaudeVersion reads `claude --version` ("2.1.284 (Claude Code)").
-func ParseClaudeVersion(out []byte) (string, error) {
-	m := versionRe.FindSubmatch(out)
-	if m == nil {
-		return "", fmt.Errorf("unrecognised claude --version output %q", clip(string(out), 60))
-	}
-	return string(m[1]), nil
 }
 
 // Orchestration is what the HTTP layer needs from the v2 runtime.
@@ -158,7 +109,7 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) TrustView {
 	hash := ConfigHash(raw)
 	tv, err := CheckTrust(o.Home, root, cfgPath, hash, o.TrustConfig)
 	if err != nil {
-		tv = TrustView{Hash: hash, Path: ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
+		tv = TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
 	state := "trusted"
 	if !tv.Trusted {
@@ -189,7 +140,7 @@ func newRuntimeV2(o Options, cfg *Config, root, cfgPath string, tv TrustView, hu
 
 func (x *runtimeV2) trusted() bool { return x == nil || x.trust.Load() }
 
-func (x *runtimeV2) hookSeen(ev HookEvent) {
+func (x *runtimeV2) hookSeen(ev signals.HookEvent) {
 	x.lastHook.Store(time.Now().UnixNano())
 	// A hook ends the quiet interval: poll now rather than up to 15 s later (once;
 	// the next interval is computed with this hook in it).
@@ -286,7 +237,7 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 	for {
 		now := time.Now()
 		iterStart := now
-		var wts []Worktree
+		var wts []signals.Worktree
 		x.hub.Read(func(m *Model, _ time.Time) { wts = m.Worktrees() })
 		if lastCheck.IsZero() || now.Sub(lastCheck) >= filterRecheck {
 			lastCheck = now
@@ -298,15 +249,15 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 		out, err := x.p.run(cctx, x.root, argv)
 		cancel()
 		dur := time.Since(t0)
-		var agents []Agent
+		var agents []signals.Agent
 		if err == nil {
-			agents, err = ParseAgents(out)
+			agents, err = signals.ParseAgents(out)
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		for i := range agents {
-			agents[i].Cwd = ResolvePath(agents[i].Cwd)
+			agents[i].Cwd = signals.ResolvePath(agents[i].Cwd)
 			// v1: a session seen busy has a conversation, so a restart can --resume it.
 			if agents[i].Status == "busy" && x.p.registry != nil {
 				_, _ = x.p.registry.MarkConversation(agents[i].SessionID)
@@ -340,30 +291,30 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 
 // checkFilter decides whether `--cwd <dir>` may be used: only when the filtered list
 // holds every in-project session the unfiltered one does.
-func (x *runtimeV2) checkFilter(ctx context.Context, wts []Worktree) []string {
-	dir := AgentsFilterDir(x.root, wts)
+func (x *runtimeV2) checkFilter(ctx context.Context, wts []signals.Worktree) []string {
+	dir := signals.AgentsFilterDir(x.root, wts)
 	set := func(desc string) { x.setObs(func(o *Obs) { o.AgentsFilter = desc }) }
 	if dir == "" {
 		set("unfiltered: the worktrees share no directory but /")
 		return nil
 	}
-	run := func(argv []string) ([]Agent, error) {
+	run := func(argv []string) ([]signals.Agent, error) {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		out, err := x.p.run(cctx, x.root, argv)
 		if err != nil {
 			return nil, err
 		}
-		return ParseAgents(out)
+		return signals.ParseAgents(out)
 	}
 	all, err := run([]string{"claude", "agents", "--json"})
 	if err != nil {
-		set("unfiltered: cannot cross-check (" + clip(err.Error(), 80) + ")")
+		set("unfiltered: cannot cross-check (" + signals.Clip(err.Error(), 80) + ")")
 		return nil
 	}
 	filtered, err := run([]string{"claude", "agents", "--json", "--cwd", dir})
 	if err != nil {
-		set("unfiltered: --cwd failed (" + clip(err.Error(), 80) + ")")
+		set("unfiltered: --cwd failed (" + signals.Clip(err.Error(), 80) + ")")
 		return nil
 	}
 	var recs map[string]bool
@@ -373,8 +324,8 @@ func (x *runtimeV2) checkFilter(ctx context.Context, wts []Worktree) []string {
 			recs[r.SessionID] = true
 		}
 	})
-	missed := MissedByFilter(all, filtered, func(a Agent) bool {
-		return recs[a.SessionID] || MatchWorktree(wts, ResolvePath(a.Cwd)) >= 0
+	missed := signals.MissedByFilter(all, filtered, func(a signals.Agent) bool {
+		return recs[a.SessionID] || signals.MatchWorktree(wts, signals.ResolvePath(a.Cwd)) >= 0
 	})
 	if len(missed) > 0 {
 		set(fmt.Sprintf("unfiltered: --cwd %s missed %d session(s) of this project", dir, len(missed)))
@@ -391,7 +342,7 @@ func (x *runtimeV2) versionLoop(ctx context.Context) {
 		cancel()
 		v := ""
 		if err == nil {
-			v, err = ParseClaudeVersion(out)
+			v, err = signals.ParseClaudeVersion(out)
 		}
 		if ctx.Err() != nil {
 			return
@@ -481,7 +432,7 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 			x.setObs(func(o *Obs) {
 				if err != nil {
 					o.NotifyFailed++
-					o.NotifyError = clip(err.Error(), 160)
+					o.NotifyError = signals.Clip(err.Error(), 160)
 				} else {
 					o.NotifySent++
 				}
@@ -574,7 +525,7 @@ func (x *runtimeV2) gitCommonDir(ctx context.Context) (string, error) {
 	if !filepath.IsAbs(d) {
 		d = filepath.Join(x.root, d)
 	}
-	d = ResolvePath(d)
+	d = signals.ResolvePath(d)
 	x.mu.Lock()
 	x.gitDir = d
 	x.mu.Unlock()
@@ -660,13 +611,13 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*leas
 	if len(q.Command) == 0 {
 		return nil, fmt.Errorf("queue %q has no command", queue)
 	}
-	wts, err := readWorktrees(ctx, x.p.run, x.root)
+	wts, err := signals.ReadWorktrees(ctx, x.p.run, x.root)
 	if err != nil {
 		return nil, err
 	}
 	dir := ""
 	for _, w := range wts {
-		if !w.Bare && w.Path == ResolvePath(worktree) {
+		if !w.Bare && w.Path == signals.ResolvePath(worktree) {
 			dir = w.Path
 		}
 	}

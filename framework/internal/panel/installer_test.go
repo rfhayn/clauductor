@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -104,7 +106,7 @@ func TestInstallOnFreshHome(t *testing.T) {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	got := ourHooks(t, home)
-	for _, ev := range HookEvents {
+	for _, ev := range signals.HookEvents {
 		if got[ev] != 1 {
 			t.Fatalf("%s: %d tagged hooks", ev, got[ev])
 		}
@@ -135,7 +137,7 @@ func TestInstallIsIdempotent(t *testing.T) {
 	if !bytes.Equal(first, second) || !fi1.ModTime().Equal(fi2.ModTime()) {
 		t.Fatal("second install rewrote the file")
 	}
-	for _, ev := range HookEvents {
+	for _, ev := range signals.HookEvents {
 		if n := ourHooks(t, home)[ev]; n != 1 {
 			t.Fatalf("%s: %d tagged hooks after two installs", ev, n)
 		}

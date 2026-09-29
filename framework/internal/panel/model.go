@@ -1,93 +1,17 @@
 package panel
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // This file is the pure reducer: events and poll results in, state out. It does no
 // I/O and never reads the clock; every method takes `now`. That keeps it testable
 // against recorded payloads.
-
-// HookEvent is the subset of a Claude Code hook payload the panel uses. Unknown
-// fields are ignored by encoding/json and never stored: in particular the transcript
-// path is deliberately not declared, because the panel never reads transcripts.
-type HookEvent struct {
-	SessionID            string `json:"session_id"`
-	Cwd                  string `json:"cwd"`
-	Event                string `json:"hook_event_name"`
-	AgentID              string `json:"agent_id"`
-	AgentType            string `json:"agent_type"`
-	NotificationType     string `json:"notification_type"`
-	Message              string `json:"message"`
-	Title                string `json:"title"`
-	Prompt               string `json:"prompt"`
-	LastAssistantMessage string `json:"last_assistant_message"`
-	Reason               string `json:"reason"`
-	// v2 events. tool_input is deliberately not declared: it can hold secrets, and
-	// the panel shows only which tool asks.
-	ErrorType         string `json:"error_type"`         // StopFailure
-	ToolName          string `json:"tool_name"`          // PermissionRequest
-	CompactionTrigger string `json:"compaction_trigger"` // PreCompact / PostCompact
-	Trigger           string `json:"trigger"`            // older spelling of compaction_trigger
-	PreviousCwd       string `json:"previous_cwd"`       // CwdChanged
-}
-
-// ParseHook decodes a hook body.
-func ParseHook(body []byte) (HookEvent, error) {
-	var ev HookEvent
-	if err := json.Unmarshal(body, &ev); err != nil {
-		return ev, err
-	}
-	if ev.Event == "" {
-		return ev, fmt.Errorf("hook body has no hook_event_name")
-	}
-	return ev, nil
-}
-
-// StatusPayload is the subset of the statusLine stdin JSON the panel uses.
-type StatusPayload struct {
-	SessionID string `json:"session_id"`
-	Version   string `json:"version"` // the Claude Code version that sent it
-	Cwd       string `json:"cwd"`
-	Workspace struct {
-		CurrentDir string `json:"current_dir"`
-	} `json:"workspace"`
-	Model struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"display_name"`
-	} `json:"model"`
-	Cost struct {
-		TotalCostUSD *float64 `json:"total_cost_usd"`
-	} `json:"cost"`
-	ContextWindow struct {
-		UsedPercentage *float64 `json:"used_percentage"`
-	} `json:"context_window"`
-	RateLimits struct {
-		FiveHour *RateLimit `json:"five_hour"`
-		SevenDay *RateLimit `json:"seven_day"`
-	} `json:"rate_limits"`
-}
-
-// RateLimit is one quota window from the status line.
-type RateLimit struct {
-	UsedPercentage *float64 `json:"used_percentage"`
-	ResetsAt       *int64   `json:"resets_at"`
-}
-
-// ParseStatus decodes a status-line body.
-func ParseStatus(body []byte) (StatusPayload, error) {
-	var s StatusPayload
-	err := json.Unmarshal(body, &s)
-	if err == nil && s.Cwd == "" {
-		s.Cwd = s.Workspace.CurrentDir
-	}
-	return s, err
-}
 
 // Tunables of the reducer.
 const (
@@ -97,7 +21,6 @@ const (
 	activeWindow     = 15 * time.Minute // a hook this recent keeps a session-less lane visible
 	forgetSessionAge = 30 * time.Minute
 	idleClearsAgents = 10 * time.Second // idle this long → no subagent can still be running
-	detailMax        = 140
 )
 
 // SourceStatus reports one input's health. Pending means "not read yet", which the UI
@@ -144,7 +67,7 @@ type session struct {
 	Model       string
 	StatusAt    time.Time // last status-line post
 	// From `claude agents --json`.
-	Agent     *Agent
+	Agent     *signals.Agent
 	BusySince time.Time
 	IdleSince time.Time
 
@@ -159,10 +82,10 @@ type session struct {
 
 // CardState is the last result of one card.
 type CardState struct {
-	ID     string       `json:"id"`
-	Title  string       `json:"title"`
-	Source SourceStatus `json:"source"`
-	Output *CardOutput  `json:"output,omitempty"`
+	ID     string              `json:"id"`
+	Title  string              `json:"title"`
+	Source SourceStatus        `json:"source"`
+	Output *signals.CardOutput `json:"output,omitempty"`
 }
 
 // Model is the panel's whole in-memory state.
@@ -171,14 +94,14 @@ type Model struct {
 	root      string
 	startedAt time.Time
 
-	worktrees    []Worktree
+	worktrees    []signals.Worktree
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
 	agentsOKAt   time.Time        // the last `claude agents` poll that succeeded
 	agentsDurs   [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
 	agentsDurN   int
 	agentsNext   time.Duration // how long the loop waits after its last poll (agentsFresh)
-	prs          []PR
+	prs          []signals.PR
 	prsSrc       SourceStatus
 	cards        []*CardState
 
@@ -249,11 +172,13 @@ func ms(t time.Time) int64 {
 }
 
 // Worktrees returns the current worktree authority (a copy).
-func (m *Model) Worktrees() []Worktree { return append([]Worktree(nil), m.worktrees...) }
+func (m *Model) Worktrees() []signals.Worktree {
+	return append([]signals.Worktree(nil), m.worktrees...)
+}
 
 // ApplyWorktrees records a `git worktree list` result. On error the previous list is
 // kept (so a transient git failure does not drop every event) and the error shown.
-func (m *Model) ApplyWorktrees(wts []Worktree, err error, now time.Time) {
+func (m *Model) ApplyWorktrees(wts []signals.Worktree, err error, now time.Time) {
 	if err != nil {
 		m.worktreesSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
@@ -262,10 +187,10 @@ func (m *Model) ApplyWorktrees(wts []Worktree, err error, now time.Time) {
 	m.worktreesSrc = SourceStatus{OK: true, At: ms(now)}
 }
 
-func (m *Model) lane(cwd string) (Worktree, bool) {
-	i := MatchWorktree(m.worktrees, cwd)
+func (m *Model) lane(cwd string) (signals.Worktree, bool) {
+	i := signals.MatchWorktree(m.worktrees, cwd)
 	if i < 0 {
-		return Worktree{}, false
+		return signals.Worktree{}, false
 	}
 	return m.worktrees[i], true
 }
@@ -294,7 +219,7 @@ func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
 	if sessionID != "" {
 		for _, rec := range m.laneRecords {
 			if rec.SessionID == sessionID {
-				if i := MatchWorktree(m.worktrees, rec.Path); i >= 0 {
+				if i := signals.MatchWorktree(m.worktrees, rec.Path); i >= 0 {
 					return m.worktrees[i].Path, true
 				}
 			}
@@ -309,22 +234,13 @@ func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
 	return "", false
 }
 
-func (m *Model) worktreeByPath(p string) Worktree {
+func (m *Model) worktreeByPath(p string) signals.Worktree {
 	for _, w := range m.worktrees {
 		if w.Path == p {
 			return w
 		}
 	}
-	return Worktree{Path: p}
-}
-
-func oneLine(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if utf8.RuneCountInString(s) > detailMax {
-		r := []rune(s)
-		s = string(r[:detailMax]) + "…"
-	}
-	return s
+	return signals.Worktree{Path: p}
 }
 
 func (m *Model) pushFeed(ev FeedEvent) {
@@ -334,15 +250,15 @@ func (m *Model) pushFeed(ev FeedEvent) {
 	}
 }
 
-func (m *Model) feedFor(wt Worktree, sessionID, event, detail string, now time.Time) {
+func (m *Model) feedFor(wt signals.Worktree, sessionID, event, detail string, now time.Time) {
 	typ, name := m.cfg.LaneFor(wt.Branch)
 	m.pushFeed(FeedEvent{At: ms(now), Lane: wt.Path, Name: name, Type: typ, Session: sessionID, Event: event, Detail: detail})
 }
 
 // ApplyHook folds one hook event into the state. It returns false when the event was
 // dropped because its cwd is outside every project worktree.
-func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
-	if !knownHookEvent(ev.Event) {
+func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
+	if !signals.KnownHookEvent(ev.Event) {
 		// Only the events the panel subscribes to are applied; anything else is
 		// counted apart from foreign-cwd drops and shown, never guessed at.
 		m.v2.droppedUnknown++
@@ -373,11 +289,11 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		s.HookStatus = "busy"
 		s.LastPromptAt = now
 		s.Done, s.Failure = nil, nil
-		detail = oneLine(ev.Prompt)
+		detail = signals.OneLine(ev.Prompt)
 	case "Stop":
 		s.HookStatus = "idle"
 		s.Compacting = ""
-		detail = oneLine(ev.LastAssistantMessage)
+		detail = signals.OneLine(ev.LastAssistantMessage)
 	case "StopFailure":
 		s.HookStatus = "idle"
 		s.Compacting = ""
@@ -386,11 +302,11 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 			typ = "unknown"
 		}
 		s.Failure = &note{Type: typ, At: now}
-		detail = "error_type " + oneLine(typ)
+		detail = "error_type " + signals.OneLine(typ)
 	case "PermissionRequest":
 		s.HookStatus = "waiting"
-		s.Note = &note{Type: "permission_prompt", Message: oneLine("wants to use " + ev.ToolName), At: now}
-		detail = oneLine(ev.ToolName)
+		s.Note = &note{Type: "permission_prompt", Message: signals.OneLine("wants to use " + ev.ToolName), At: now}
+		detail = signals.OneLine(ev.ToolName)
 	case "PreCompact":
 		s.Compacting = compactionTrigger(ev)
 		detail = s.Compacting
@@ -399,7 +315,7 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		detail = compactionTrigger(ev)
 	case "CwdChanged":
 		// Recorded, never followed: the lane binding stays where it was made.
-		detail = oneLine(ev.PreviousCwd + " → " + ev.Cwd)
+		detail = signals.OneLine(ev.PreviousCwd + " → " + ev.Cwd)
 	case "SubagentStart":
 		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now}
 		detail = agentLabel(ev.AgentType, ev.AgentID)
@@ -407,8 +323,8 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		s.stopSubagent(ev.AgentID, ev.AgentType)
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "Notification":
-		k := ClassifyNotification(ev.NotificationType)
-		n := &note{Type: ev.NotificationType, Message: oneLine(ev.Message), At: now}
+		k := signals.ClassifyNotification(ev.NotificationType)
+		n := &note{Type: ev.NotificationType, Message: signals.OneLine(ev.Message), At: now}
 		switch {
 		case k.Waiting:
 			s.HookStatus = "waiting"
@@ -416,7 +332,7 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		case k.NeedsYou:
 			s.Note = n
 		case k.Clears:
-			if s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
+			if s.Note != nil && signals.ClassifyNotification(s.Note.Type).Waiting {
 				s.Note = nil
 				if s.HookStatus == "waiting" {
 					s.HookStatus = "busy"
@@ -436,7 +352,7 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 			}
 			m.v2.unknownNotifs++
 		}
-		detail = strings.TrimSpace(ev.NotificationType + " " + oneLine(ev.Message))
+		detail = strings.TrimSpace(ev.NotificationType + " " + signals.OneLine(ev.Message))
 	case "SessionEnd":
 		s.HookStatus = "ended"
 		s.Subagents = map[string]subagent{}
@@ -500,7 +416,7 @@ func agentLabel(typ, id string) string {
 }
 
 // ApplyStatus folds one status-line payload into the state. Returns false when dropped.
-func (m *Model) ApplyStatus(p StatusPayload, now time.Time) bool {
+func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 	lanePath, ok := m.bindLane(p.SessionID, p.Cwd)
 	if !ok {
 		m.dropped++
@@ -547,7 +463,7 @@ func (m *Model) ApplyStatus(p StatusPayload, now time.Time) bool {
 
 // ApplyAgents folds a `claude agents --json` poll. Entries outside the project are
 // ignored. On error, the previous session list is kept and the error shown.
-func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
+func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 	if err != nil {
 		m.agentsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		// The last reading is kept but is no longer current: agentReading stops
@@ -580,7 +496,7 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 		case prev != a.Status:
 			d := prev + " → " + a.Status
 			if a.WaitingFor != "" {
-				d += " (" + oneLine(a.WaitingFor) + ")"
+				d += " (" + signals.OneLine(a.WaitingFor) + ")"
 			}
 			m.feedFor(wt, a.SessionID, "status", d, now)
 		}
@@ -635,7 +551,7 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 
 // ApplyPRs records a `gh pr list` poll. On error the last list is kept but marked
 // stale by the error; it is never replaced by an empty list.
-func (m *Model) ApplyPRs(prs []PR, err error, now time.Time) {
+func (m *Model) ApplyPRs(prs []signals.PR, err error, now time.Time) {
 	if err != nil {
 		m.prsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
@@ -645,7 +561,7 @@ func (m *Model) ApplyPRs(prs []PR, err error, now time.Time) {
 }
 
 // ApplyCard records one card run.
-func (m *Model) ApplyCard(id string, out *CardOutput, err error, now time.Time) {
+func (m *Model) ApplyCard(id string, out *signals.CardOutput, err error, now time.Time) {
 	for _, c := range m.cards {
 		if c.ID != id {
 			continue
@@ -672,12 +588,12 @@ type View struct {
 	Quota          *Quota     `json:"quota"`
 	// EstCostUSD sums the status line's list-price total_cost_usd over the sessions
 	// the panel currently tracks: live ones, and ones heard from in the last 30 min.
-	EstCostUSD *float64    `json:"estCostUsd"`
-	NeedsYou   []NeedView  `json:"needsYou"`
-	Cards      []CardState `json:"cards"`
-	PRs        []PR        `json:"prs"`
-	Feed       []FeedEvent `json:"feed"`
-	Banners    []string    `json:"banners"`
+	EstCostUSD *float64     `json:"estCostUsd"`
+	NeedsYou   []NeedView   `json:"needsYou"`
+	Cards      []CardState  `json:"cards"`
+	PRs        []signals.PR `json:"prs"`
+	Feed       []FeedEvent  `json:"feed"`
+	Banners    []string     `json:"banners"`
 	// BannerItems are the same banners with their kind, so the page labels each one
 	// for what it is (PANEL-6). Banners stays for existing readers.
 	BannerItems []BannerView `json:"bannerItems"`
@@ -794,7 +710,7 @@ func (m *Model) Snapshot(now time.Time) View {
 	v := View{
 		Name: m.cfg.Name, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
-		Cards: []CardState{}, PRs: append([]PR{}, m.prs...), Banners: []string{}, BannerItems: []BannerView{},
+		Cards: []CardState{}, PRs: append([]signals.PR{}, m.prs...), Banners: []string{}, BannerItems: []BannerView{},
 		Quota: m.quotaAt(now), HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
 		Sources:   map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc, "tmux": m.tmuxSrc},
 		Terminals: []TermLaneView{}, LaneTypes: m.cfg.LaneTypeList(), StartBlocked: m.startBlocked, TmuxSocket: m.cfg.Socket(),
@@ -842,7 +758,7 @@ func (m *Model) Snapshot(now time.Time) View {
 			active = true
 			st, wf, approx := m.sessionStatus(s, now)
 			sv := SessionView{ID: s.ID, Status: st, WaitingFor: wf, CtxPct: s.CtxPct, Model: s.Model,
-				BusySince: ms(s.BusySince), Stale: m.stale(s, now), WaitingKind: waitingForKind(wf),
+				BusySince: ms(s.BusySince), Stale: m.stale(s, now), WaitingKind: signals.WaitingForKind(wf),
 				Compacting: s.Compacting, Unknown: s.Unknown, Approx: approx}
 			if s.Failure != nil {
 				sv.Failure = s.Failure.Type
@@ -986,7 +902,7 @@ func (m *Model) terminalViews(now time.Time) []TermLaneView {
 	out := []TermLaneView{}
 	seen := map[string]bool{}
 	place := func(tv *TermLaneView) {
-		if i := MatchWorktree(m.worktrees, tv.Path); i >= 0 {
+		if i := signals.MatchWorktree(m.worktrees, tv.Path); i >= 0 {
 			wt := m.worktrees[i]
 			tv.Worktree, tv.Branch = wt.Path, wt.Branch
 			if tv.Type == "" {

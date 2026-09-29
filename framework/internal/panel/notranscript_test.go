@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // The panel must never read transcripts: they are documented as unstable between
@@ -64,7 +66,7 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 		}
 	}
 	// And the decoded payload types cannot carry a transcript path in memory.
-	for _, typ := range []reflect.Type{reflect.TypeOf(HookEvent{}), reflect.TypeOf(StatusPayload{})} {
+	for _, typ := range []reflect.Type{reflect.TypeOf(signals.HookEvent{}), reflect.TypeOf(signals.StatusPayload{})} {
 		for i := 0; i < typ.NumField(); i++ {
 			if strings.Contains(strings.ToLower(typ.Field(i).Tag.Get("json")), "transcript") {
 				t.Errorf("%s.%s decodes a transcript field", typ.Name(), typ.Field(i).Name)

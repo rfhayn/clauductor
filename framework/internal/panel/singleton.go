@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // PANEL-5: one panel per machine, enforced.
@@ -264,7 +265,7 @@ func readHookDrift(home string, port int) (hookDrift, error) {
 	want := HookURL(port)
 	foreign := map[string]bool{}
 	var missing []string
-	for _, ev := range HookEvents {
+	for _, ev := range signals.HookEvents {
 		found := false
 		for _, g := range doc.Hooks[ev] {
 			for _, h := range g.Hooks {
@@ -301,7 +302,7 @@ func readHookDrift(home string, port int) (hookDrift, error) {
 		sort.Strings(urls)
 		sort.Ints(d.Ports)
 		d.Text = "they pointed at " + strings.Join(urls, ", ") + ", another panel's address"
-	case len(missing) == len(HookEvents):
+	case len(missing) == len(signals.HookEvents):
 		d.Text = "they had been removed"
 	case len(missing) > 0:
 		d.Text = "missing for " + strings.Join(missing, ", ")

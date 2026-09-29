@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // C3: a body dropped because the processor is behind is counted, apart from
@@ -75,7 +77,7 @@ func TestInstallHooksKeepsAConcurrentWrite(t *testing.T) {
 		t.Fatalf("the concurrent write was lost: %s", b)
 	}
 	hooks, _ := got["hooks"].(map[string]any)
-	if len(hooks) != len(HookEvents) {
+	if len(hooks) != len(signals.HookEvents) {
 		t.Fatalf("hooks not installed on top of it: %s", b)
 	}
 	// A writer that never stops: the install gives up rather than overwrite.

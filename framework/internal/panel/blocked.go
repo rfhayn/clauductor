@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // PANEL-5: one reading, one predicate.
@@ -20,7 +22,7 @@ import (
 // agentReading returns the session's `claude agents` entry only while it is a
 // current reading: the last poll succeeded within two poll intervals. nil when the
 // reading is stale, or the session is not listed.
-func (m *Model) agentReading(s *session, now time.Time) *Agent {
+func (m *Model) agentReading(s *session, now time.Time) *signals.Agent {
 	if s.Agent == nil || !m.agentsFresh(now) {
 		return nil
 	}
@@ -46,7 +48,7 @@ func (m *Model) staleWhy(now time.Time) string {
 // the reading says, as blocked does, so the lane chip and Needs you agree.
 func (m *Model) sessionStatus(s *session, now time.Time) (status, waitingFor string, approx bool) {
 	a := m.agentReading(s, now)
-	if s.Note != nil && ClassifyNotification(s.Note.Type).Waiting && (a == nil || a.Status != "waiting") {
+	if s.Note != nil && signals.ClassifyNotification(s.Note.Type).Waiting && (a == nil || a.Status != "waiting") {
 		// A hook says it waits and no current reading confirms it (see blocked).
 		return "waiting", "", true
 	}
@@ -94,8 +96,8 @@ var waitingLabels = map[string]string{"permission": "Permission", "input": "Inpu
 func (m *Model) blocked(s *session, now time.Time) (blockInfo, bool) {
 	reading := m.agentReading(s, now)
 	if s.Note != nil {
-		if k := ClassifyNotification(s.Note.Type); k.Waiting {
-			b := blockInfo{Kind: s.Note.Type, Since: s.Note.At, Label: k.Label, Text: s.Note.Message, Severity: SevBlock}
+		if k := signals.ClassifyNotification(s.Note.Type); k.Waiting {
+			b := blockInfo{Kind: s.Note.Type, Since: s.Note.At, Label: k.Label, Text: s.Note.Message, Severity: signals.SevBlock}
 			// The hook's message is generic ("Claude needs your permission to use
 			// Bash"); `claude agents` names the call ("permission: Bash(npm test)").
 			// Needs you shows the specific one when there is one (PANEL-6).
@@ -117,11 +119,11 @@ func (m *Model) blocked(s *session, now time.Time) (blockInfo, bool) {
 	if st != "waiting" {
 		return blockInfo{}, false
 	}
-	b := blockInfo{Kind: "waiting", Since: s.WaitingSince, Text: "waiting for input", Severity: SevBlock, Label: "Waiting"}
+	b := blockInfo{Kind: "waiting", Since: s.WaitingSince, Text: "waiting for input", Severity: signals.SevBlock, Label: "Waiting"}
 	if wf != "" {
 		b.Text = askText(wf)
 	}
-	if l := waitingLabels[waitingForKind(wf)]; l != "" {
+	if l := waitingLabels[signals.WaitingForKind(wf)]; l != "" {
 		b.Label = l
 	}
 	if approx {
@@ -142,12 +144,12 @@ func (m *Model) blocked(s *session, now time.Time) (blockInfo, bool) {
 // askText is a waitingFor as Needs you shows it under its label: "permission:
 // Bash(npm test)" is labelled Permission, so the text is "Bash(npm test)".
 func askText(wf string) string {
-	if k := waitingForKind(wf); k != "" && strings.HasPrefix(strings.ToLower(wf), k+":") {
+	if k := signals.WaitingForKind(wf); k != "" && strings.HasPrefix(strings.ToLower(wf), k+":") {
 		if rest := strings.TrimSpace(wf[len(k)+1:]); rest != "" {
-			return oneLine(rest)
+			return signals.OneLine(rest)
 		}
 	}
-	return oneLine(wf)
+	return signals.OneLine(wf)
 }
 
 // approxLabel marks an approximate item's label so the page shows it as such.
@@ -175,7 +177,7 @@ func (m *Model) forgetSessions(now time.Time) {
 		}
 		// While polls fail, nothing can say an open prompt was answered: a session
 		// with a waiting note stays in Needs you (marked approximate) until one can.
-		if !m.agentsSrc.OK && s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
+		if !m.agentsSrc.OK && s.Note != nil && signals.ClassifyNotification(s.Note.Type).Waiting {
 			heard := s.LastHookAt
 			if s.StatusAt.After(heard) {
 				heard = s.StatusAt
@@ -221,7 +223,7 @@ const agentsPollCap = 30 * time.Second
 
 // ApplyAgentsTimed is ApplyAgents for a poll iteration that took dur of wall time,
 // the filter cross-check included. agentsFresh allows for it.
-func (m *Model) ApplyAgentsTimed(agents []Agent, err error, dur time.Duration, now time.Time) {
+func (m *Model) ApplyAgentsTimed(agents []signals.Agent, err error, dur time.Duration, now time.Time) {
 	if dur > agentsPollCap {
 		dur = agentsPollCap
 	}

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 func v2Config(t *testing.T, extra string) *Config {
@@ -134,14 +136,14 @@ func TestFirstPromptDecision(t *testing.T) {
 func TestAgentReadyUnderTheLock(t *testing.T) {
 	sid := "s1"
 	for _, c := range []struct {
-		agents []Agent
+		agents []signals.Agent
 		ready  bool
 	}{
-		{[]Agent{{SessionID: sid, Status: "idle"}}, true},
-		{[]Agent{{SessionID: sid, Status: "busy"}}, false},
-		{[]Agent{{SessionID: sid, Status: "idle", WaitingFor: "permission prompt"}}, false},
-		{[]Agent{{SessionID: sid, Status: "waiting"}}, false},
-		{[]Agent{{SessionID: "other", Status: "idle"}}, false},
+		{[]signals.Agent{{SessionID: sid, Status: "idle"}}, true},
+		{[]signals.Agent{{SessionID: sid, Status: "busy"}}, false},
+		{[]signals.Agent{{SessionID: sid, Status: "idle", WaitingFor: "permission prompt"}}, false},
+		{[]signals.Agent{{SessionID: sid, Status: "waiting"}}, false},
+		{[]signals.Agent{{SessionID: "other", Status: "idle"}}, false},
 		{nil, false},
 	} {
 		if got := AgentReady(c.agents, sid) == ""; got != c.ready {
@@ -154,7 +156,7 @@ func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	m := v2Model(t)
 	rec := LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
 	m.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
-	m.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
+	m.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m.PromptDecisions(t0.Add(time.Second))["tpl"]; d.Action != "send" {
 		t.Fatalf("fresh idle: %+v", d)
 	}
@@ -166,13 +168,13 @@ func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	// Or it simply stops arriving for longer than two intervals.
 	m2 := v2Model(t)
 	m2.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
-	m2.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
+	m2.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m2.PromptDecisions(t0.Add(11 * time.Second))["tpl"]; d.Action == "send" {
 		t.Fatalf("typed on a stale poll: %+v", d)
 	}
 	// A hook says it waits on a permission prompt: no typing.
-	m2.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0.Add(12*time.Second))
-	m2.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: "permission_prompt"}, t0.Add(12*time.Second))
+	m2.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0.Add(12*time.Second))
+	m2.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: "permission_prompt"}, t0.Add(12*time.Second))
 	if d := m2.PromptDecisions(t0.Add(13 * time.Second))["tpl"]; d.Action == "send" {
 		t.Fatalf("typed into a waiting session: %+v", d)
 	}
@@ -212,7 +214,7 @@ func TestSelectRestorable(t *testing.T) {
 func alertModel(t *testing.T, cfgExtra string) *Model {
 	t.Helper()
 	m := NewModel(v2Config(t, cfgExtra), "/repo", t0)
-	m.ApplyWorktrees([]Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x"}}, nil, t0)
+	m.ApplyWorktrees([]signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x"}}, nil, t0)
 	return m
 }
 
@@ -227,52 +229,52 @@ func alertKinds(v View) map[string]string {
 func TestAlertThresholds(t *testing.T) {
 	m := alertModel(t, `,"alerts":{"idle_minutes":10,"context_pct":80,"five_hour_pct":90,"waiting_seconds":60}`)
 	cwd := "/repo/w/x"
-	m.ApplyAgents([]Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0)
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0)
 	ctx, five := 79.0, 89.0
-	p := StatusPayload{SessionID: "s", Cwd: cwd}
+	p := signals.StatusPayload{SessionID: "s", Cwd: cwd}
 	p.ContextWindow.UsedPercentage = &ctx
-	p.RateLimits.FiveHour = &RateLimit{UsedPercentage: &five}
+	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five}
 	m.ApplyStatus(p, t0)
 	// Just under every threshold: nothing.
-	m.ApplyAgents([]Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(9*time.Minute))
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(9*time.Minute))
 	if v := m.Snapshot(t0.Add(9 * time.Minute)); len(v.Alerts) != 0 {
 		t.Fatalf("under thresholds: %+v", v.Alerts)
 	}
 	ctx, five = 80, 90
 	m.ApplyStatus(p, t0.Add(10*time.Minute))
-	m.ApplyAgents([]Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(10*time.Minute))
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(10*time.Minute))
 	k := alertKinds(m.Snapshot(t0.Add(10 * time.Minute)))
-	if k[AlertIdle] != SevInfo || k[AlertContext] != SevWarn || k[AlertQuota] != SevWarn {
+	if k[AlertIdle] != signals.SevInfo || k[AlertContext] != signals.SevWarn || k[AlertQuota] != signals.SevWarn {
 		t.Fatalf("at thresholds: %+v", k)
 	}
 	// Waiting: a permission prompt older than 60 s.
-	m.ApplyAgents([]Agent{{SessionID: "s", Cwd: cwd, Status: "waiting", WaitingFor: "permission prompt"}}, nil, t0.Add(11*time.Minute))
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting", WaitingFor: "permission prompt"}}, nil, t0.Add(11*time.Minute))
 	if k := alertKinds(m.Snapshot(t0.Add(11*time.Minute + 59*time.Second))); k[AlertWaiting] != "" {
 		t.Fatalf("waiting fired early: %+v", k)
 	}
-	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertWaiting] != SevBlock {
+	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertWaiting] != signals.SevBlock {
 		t.Fatalf("waiting did not fire: %+v", k)
 	}
 	// A 0 threshold is off.
 	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0}`)
-	off.ApplyAgents([]Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
+	off.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
 	ctx, five = 99, 99
 	off.ApplyStatus(p, t0)
 	if v := off.Snapshot(t0.Add(time.Hour)); len(v.Alerts) != 0 {
 		t.Fatalf("disabled alerts fired: %+v", v.Alerts)
 	}
 	// quota_auto_resume_stale: it will not continue by itself.
-	m.ApplyHook(HookEvent{SessionID: "s", Cwd: cwd, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
-	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertNoAutoResume] != SevWarn {
+	m.ApplyHook(signals.HookEvent{SessionID: "s", Cwd: cwd, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
+	if k := alertKinds(m.Snapshot(t0.Add(12 * time.Minute))); k[AlertNoAutoResume] != signals.SevWarn {
 		t.Fatalf("no auto-resume alert: %+v", k)
 	}
 }
 
 func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
 	n := &Notifier{MinInterval: 5 * time.Minute, Project: "P"}
-	a1 := AlertView{Key: "waiting:s1", Kind: AlertWaiting, Severity: SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "waiting on you for 3m"}
-	a2 := AlertView{Key: "no_auto_resume:s1", Kind: AlertNoAutoResume, Severity: SevWarn, Terminal: "lane-a", Name: "lane-a", Text: "will not auto-resume"}
-	b1 := AlertView{Key: "waiting:s2", Kind: AlertWaiting, Severity: SevBlock, Terminal: "lane-b", Name: "lane-b", Text: "waiting"}
+	a1 := AlertView{Key: "waiting:s1", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "waiting on you for 3m"}
+	a2 := AlertView{Key: "no_auto_resume:s1", Kind: AlertNoAutoResume, Severity: signals.SevWarn, Terminal: "lane-a", Name: "lane-a", Text: "will not auto-resume"}
+	b1 := AlertView{Key: "waiting:s2", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "lane-b", Name: "lane-b", Text: "waiting"}
 	// Two alerts of one lane: ONE notification.
 	out := n.Process([]AlertView{a1, a2}, nil, t0)
 	if len(out) != 1 || out[0].Title != "P · lane-a" || !strings.Contains(out[0].Body, "waiting") || !strings.Contains(out[0].Body, "auto-resume") {
@@ -283,7 +285,7 @@ func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
 		t.Fatalf("repeated: %+v", out)
 	}
 	// A new alert on the same lane inside the interval waits.
-	a3 := AlertView{Key: "rate_limit:s1", Kind: AlertRateLimit, Severity: SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "rate limit"}
+	a3 := AlertView{Key: "rate_limit:s1", Kind: AlertRateLimit, Severity: signals.SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "rate limit"}
 	if out := n.Process([]AlertView{a1, a2, a3}, nil, t0.Add(2*time.Minute)); len(out) != 0 || n.Stats().Deferred != 1 {
 		t.Fatalf("rate limit: %+v %+v", out, n.Stats())
 	}
@@ -376,7 +378,7 @@ func TestOsascriptArgvRoundTrip(t *testing.T) {
 }
 
 func TestConfigTrust(t *testing.T) {
-	home, root := t.TempDir(), ResolvePath(t.TempDir())
+	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
 	cfg := filepath.Join(root, "panel.json")
 	tv, err := CheckTrust(home, root, cfg, "h1", false)
 	if err != nil || !tv.Trusted || tv.Note == "" {
@@ -423,15 +425,15 @@ func TestConfigNameIsPlainText(t *testing.T) {
 func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 	n := &Notifier{MinInterval: time.Minute}
 	pageOnly := []AlertView{
-		{Key: "idle:s", Kind: AlertIdle, Severity: SevInfo, Terminal: "a", Text: "idle"},
-		{Key: "context:s", Kind: AlertContext, Severity: SevWarn, Terminal: "a", Text: "ctx"},
-		{Key: "quota:global", Kind: AlertQuota, Severity: SevWarn, Text: "quota"},
-		{Key: "stop_failure:s", Kind: AlertStopFailure, Severity: SevWarn, Terminal: "a", Text: "failed"},
+		{Key: "idle:s", Kind: AlertIdle, Severity: signals.SevInfo, Terminal: "a", Text: "idle"},
+		{Key: "context:s", Kind: AlertContext, Severity: signals.SevWarn, Terminal: "a", Text: "ctx"},
+		{Key: "quota:global", Kind: AlertQuota, Severity: signals.SevWarn, Text: "quota"},
+		{Key: "stop_failure:s", Kind: AlertStopFailure, Severity: signals.SevWarn, Terminal: "a", Text: "failed"},
 	}
 	if out := n.Process(pageOnly, nil, t0); len(out) != 0 {
 		t.Fatalf("page-only alerts interrupted: %+v", out)
 	}
-	block := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: SevBlock, Terminal: "a", Text: "waiting", Since: t0.UnixMilli()}
+	block := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "a", Text: "waiting", Since: t0.UnixMilli()}
 	if out := n.Process(append(pageOnly, block), nil, t0); len(out) != 1 {
 		t.Fatalf("a blocking alert did not interrupt: %+v", out)
 	}

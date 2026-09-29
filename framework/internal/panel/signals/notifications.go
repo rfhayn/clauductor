@@ -1,4 +1,4 @@
-package panel
+package signals
 
 // The Notification hook carries a notification_type. Each documented type is mapped
 // here explicitly to what it does to a session, whether it belongs in "Needs you",
@@ -59,7 +59,7 @@ func ClassifyNotification(typ string) NotifKind {
 	}
 	label := "Unknown notification"
 	if typ != "" {
-		label += " " + oneLine(typ)
+		label += " " + OneLine(typ)
 	}
 	return NotifKind{Severity: SevUnknown, Label: label}
 }
@@ -71,9 +71,9 @@ func NotificationTypes() []string {
 		"quota_auto_resume_fired", "quota_auto_resume_stale", "quota_auto_resume_disabled"}
 }
 
-// knownHookEvent is the allow-list of hook_event_name values the reducer applies:
+// KnownHookEvent is the allow-list of hook_event_name values the reducer applies:
 // exactly the events the panel subscribes to. Anything else is counted and dropped.
-func knownHookEvent(name string) bool {
+func KnownHookEvent(name string) bool {
 	for _, e := range HookEvents {
 		if e == name {
 			return true
@@ -82,10 +82,10 @@ func knownHookEvent(name string) bool {
 	return false
 }
 
-// waitingForKind maps `claude agents --json` waitingFor text to its documented enum:
+// WaitingForKind maps `claude agents --json` waitingFor text to its documented enum:
 // permission prompt, input needed, sandbox request, worker request, dialog open.
 // Unrecognised text is "other" and is shown as sent.
-func waitingForKind(s string) string {
+func WaitingForKind(s string) string {
 	l := ""
 	for _, r := range s {
 		if r >= 'A' && r <= 'Z' {

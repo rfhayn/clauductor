@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // Notice is one OS notification: all the new alerts of one lane, grouped.
@@ -55,7 +57,7 @@ func Interrupts(a AlertView) bool {
 }
 
 func interruptKind(a AlertView) bool {
-	return a.Severity == SevBlock || a.Kind == AlertRateLimit || a.Kind == AlertNoAutoResume
+	return a.Severity == signals.SevBlock || a.Kind == AlertRateLimit || a.Kind == AlertNoAutoResume
 }
 
 // NotifierState is what the notifier persists across restarts.
@@ -197,18 +199,9 @@ var notifyScript = []string{`display notification (item 2 of argv) with title (i
 // maxNoticeText caps what a notification carries.
 const maxNoticeText = 240
 
-func clip(s string, n int) string {
-	s = oneLine(s)
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n-1]) + "…"
-	}
-	return s
-}
-
 // NotifyArgv is the argv that shows one notification.
 func NotifyArgv(title, body string) []string {
-	return osascriptArgv(notifyScript, clip(title, 80), clip(body, maxNoticeText))
+	return osascriptArgv(notifyScript, signals.Clip(title, 80), signals.Clip(body, maxNoticeText))
 }
 
 // SendNotice shows a notification with osascript.

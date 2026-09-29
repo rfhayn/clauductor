@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/coder/websocket"
 )
 
@@ -325,7 +326,7 @@ func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 		t.Fatalf("resume of a corrupt record: %v", lerr)
 	}
 	model := NewModel(m.Cfg, "/repo", t0)
-	model.ApplyWorktrees([]Worktree{{Path: "/repo", Branch: "main"}}, nil, t0)
+	model.ApplyWorktrees([]signals.Worktree{{Path: "/repo", Branch: "main"}}, nil, t0)
 	model.ApplyTmux(nil, reg.List(), "", nil, t0)
 	model.ApplyRegistryProblems(reg.Problems())
 	v := model.Snapshot(t0)

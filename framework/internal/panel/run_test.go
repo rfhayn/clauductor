@@ -16,10 +16,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
-func fakeRunner(root string) Runner {
+func fakeRunner(root string) signals.Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		switch strings.Join(argv, " ") {
 		case "git worktree list --porcelain":
@@ -39,7 +41,7 @@ func fakeRunner(root string) Runner {
 
 func setupProject(t *testing.T) (root, home string) {
 	t.Helper()
-	root = ResolvePath(t.TempDir())
+	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
 		"cards":[{"id":"c","title":"Card","command":["echo","card"],"refresh":"interval:60"}]}`)
@@ -114,7 +116,7 @@ func TestRunEndToEnd(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(marker)) != strconv.Itoa(port) {
 		t.Fatalf("marker %q %v", marker, err)
 	}
-	for _, ev := range HookEvents {
+	for _, ev := range signals.HookEvents {
 		if ourHooks(t, home)[ev] != 1 {
 			t.Fatalf("hook for %s not installed", ev)
 		}
@@ -182,7 +184,7 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 }
 
 func TestRunNeedsAConfig(t *testing.T) {
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	err := Run(context.Background(), Options{Project: root, Port: 0, NoOpen: true, Home: t.TempDir(), Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "no panel config") {
 		t.Fatalf("got %v", err)

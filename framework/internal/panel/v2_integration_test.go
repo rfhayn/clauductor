@@ -12,13 +12,15 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // v2Runner runs git and plain commands for real and fakes claude and gh. `claude
 // agents` lists every registered lane whose tmux session exists, as idle, unless
 // hidden is set: then it lists none, which is what a session held at the
 // workspace-trust dialog looks like (verified on 2.1.284).
-func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*atomic.Bool) Runner {
+func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*atomic.Bool) signals.Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		switch {
 		case argv[0] == "gh":
@@ -32,10 +34,10 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*at
 			var f registryFile
 			b, _ := os.ReadFile(RegistryPath(home, root))
 			_ = json.Unmarshal(b, &f)
-			var out []Agent
+			var out []signals.Agent
 			for _, l := range f.Lanes {
 				if exec.Command(tmux, "-L", sock, "has-session", "-t", "="+l.ID).Run() == nil {
-					a := Agent{PID: 1, Cwd: l.Path, Kind: "interactive", SessionID: l.SessionID, Name: l.ID, Status: "idle"}
+					a := signals.Agent{PID: 1, Cwd: l.Path, Kind: "interactive", SessionID: l.SessionID, Name: l.ID, Status: "idle"}
 					if len(waiting) > 0 && waiting[0].Load() {
 						a.Status, a.WaitingFor = "waiting", "permission prompt"
 					}
@@ -47,13 +49,13 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*at
 		case argv[0] == "claude":
 			return nil, fmt.Errorf("unexpected %v", argv)
 		}
-		return ExecRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	}
 }
 
 func v2Project(t *testing.T, cfg string) (root, home string) {
 	t.Helper()
-	root = ResolvePath(t.TempDir())
+	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
 	writeFile(t, filepath.Join(root, DefaultConfigRel), cfg)

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // Alerts are derived, never stored: Snapshot computes them from the state at `now`
@@ -96,30 +98,30 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 			}
 			// The text carries no age: the page shows it from Since, and the notifier
 			// adds it to the notification (noticeLine).
-			add(AlertWaiting, SevBlock, waitingPrefix+approxLabel(label, b), b.Since)
+			add(AlertWaiting, signals.SevBlock, waitingPrefix+approxLabel(label, b), b.Since)
 			out[len(out)-1].Approx = b.Approx
 		}
 		if s.Failure != nil {
 			if s.Failure.Type == "rate_limit" {
-				add(AlertRateLimit, SevBlock, "stopped at the rate limit (StopFailure rate_limit)", s.Failure.At)
+				add(AlertRateLimit, signals.SevBlock, "stopped at the rate limit (StopFailure rate_limit)", s.Failure.At)
 			} else {
-				add(AlertStopFailure, SevWarn, "the turn failed: "+s.Failure.Type, s.Failure.At)
+				add(AlertStopFailure, signals.SevWarn, "the turn failed: "+s.Failure.Type, s.Failure.At)
 			}
 		}
 		if s.Note != nil && (s.Note.Type == "quota_auto_resume_stale" || s.Note.Type == "quota_auto_resume_disabled") {
-			add(AlertNoAutoResume, SevWarn, ClassifyNotification(s.Note.Type).Label+": resume it yourself", s.Note.At)
+			add(AlertNoAutoResume, signals.SevWarn, signals.ClassifyNotification(s.Note.Type).Label+": resume it yourself", s.Note.At)
 		}
 		if th.ContextPct > 0 && s.CtxPct != nil && *s.CtxPct >= th.ContextPct && s.HookStatus != "ended" {
-			add(AlertContext, SevWarn, fmt.Sprintf("context at %.0f%% (alert at %.0f%%)", *s.CtxPct, th.ContextPct), s.StatusAt)
+			add(AlertContext, signals.SevWarn, fmt.Sprintf("context at %.0f%% (alert at %.0f%%)", *s.CtxPct, th.ContextPct), s.StatusAt)
 		}
 		if r := m.agentReading(s, now); th.Idle > 0 && r != nil && r.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
-			add(AlertIdle, SevInfo, "idle", s.IdleSince)
+			add(AlertIdle, signals.SevInfo, "idle", s.IdleSince)
 		}
 	}
 	if q := v.Quota; th.FiveHourPct > 0 && q != nil && q.FiveHour != nil && *q.FiveHour >= th.FiveHourPct {
-		sev := SevWarn
+		sev := signals.SevWarn
 		if *q.FiveHour >= 100 {
-			sev = SevBlock
+			sev = signals.SevBlock
 		}
 		// Since is the window's reset time: stable for the whole window (q.At moves on
 		// every status post), so a window notifies once.

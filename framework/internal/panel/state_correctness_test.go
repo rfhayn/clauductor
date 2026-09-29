@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // PANEL-5 (state correctness). A `claude agents` reading is a snapshot of one poll.
@@ -14,12 +16,12 @@ import (
 
 const xWT = "/repo/w/x"
 
-func waitingAgent(status, waitingFor string) []Agent {
-	return []Agent{{SessionID: "s1", Cwd: xWT, Status: status, WaitingFor: waitingFor}}
+func waitingAgent(status, waitingFor string) []signals.Agent {
+	return []signals.Agent{{SessionID: "s1", Cwd: xWT, Status: status, WaitingFor: waitingFor}}
 }
 
-func permissionHook() HookEvent {
-	return HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "permission_prompt",
+func permissionHook() signals.HookEvent {
+	return signals.HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "permission_prompt",
 		Message: "Claude needs your permission to use Bash"}
 }
 
@@ -28,7 +30,7 @@ func permissionHook() HookEvent {
 func blockedNeeds(v View) []NeedView {
 	var out []NeedView
 	for _, n := range v.NeedsYou {
-		if n.Session == "s1" && (n.Kind == "waiting" || ClassifyNotification(n.Kind).Waiting) {
+		if n.Session == "s1" && (n.Kind == "waiting" || signals.ClassifyNotification(n.Kind).Waiting) {
 			out = append(out, n)
 		}
 	}
@@ -144,20 +146,20 @@ func TestNeedsYouAndAlertsAgree(t *testing.T) {
 		}, 5 * time.Second, want{true, true}},
 		{"hook permission, fresh poll does not list the session", func(m *Model) {
 			m.ApplyHook(permissionHook(), t0)
-			m.ApplyAgents([]Agent{}, nil, t0.Add(time.Second))
+			m.ApplyAgents([]signals.Agent{}, nil, t0.Add(time.Second))
 		}, 5 * time.Second, want{true, true}},
 		{"elicitation answered", func(m *Model) {
-			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "elicitation_dialog"}, t0)
-			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "elicitation_complete"}, t0.Add(time.Second))
+			m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "elicitation_dialog"}, t0)
+			m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "elicitation_complete"}, t0.Add(time.Second))
 		}, 5 * time.Second, want{}},
 		{"quota warning is not a waiting item", func(m *Model) {
 			m.ApplyAgents(waitingAgent("idle", ""), nil, t0)
-			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
+			m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
 		}, 5 * time.Second, want{}},
 		// Before PANEL-5 the quota note took the session's one Needs-you slot, so the
 		// waiting item vanished from Needs you while the alert still fired.
 		{"quota warning while the poll says waiting", func(m *Model) {
-			m.ApplyHook(HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
+			m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: xWT, Event: "Notification", NotificationType: "quota_auto_resume_stale"}, t0)
 			m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
 		}, 5 * time.Second, want{true, false}},
 		{"waiting with no waitingFor", func(m *Model) {
@@ -198,7 +200,7 @@ func TestNeedsYouAndAlertsAgree(t *testing.T) {
 // An approximate alert is shown, and never interrupts. It holds the mark of an
 // alert already notified, so the data flickering stale and back never re-notifies.
 func TestNotifierNeverInterruptsOnApproximateData(t *testing.T) {
-	exact := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: SevBlock, Terminal: "a", Text: "w", Since: t0.UnixMilli()}
+	exact := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "a", Text: "w", Since: t0.UnixMilli()}
 	approx := exact
 	approx.Approx = true
 	if Interrupts(approx) {
@@ -247,7 +249,7 @@ func TestOpenWaitingNoteSurvivesLongPollFailure(t *testing.T) {
 		t.Fatalf("an open permission prompt was forgotten after 45 min of failing polls: %+v", nd)
 	}
 	// Once polls work again and do not list it, it is gone as before.
-	m.ApplyAgents([]Agent{}, nil, t0.Add(46*time.Minute))
+	m.ApplyAgents([]signals.Agent{}, nil, t0.Add(46*time.Minute))
 	if nd := blockedNeeds(m.Snapshot(t0.Add(46 * time.Minute))); len(nd) != 0 {
 		t.Fatalf("a session the working poll no longer lists is still blocked: %+v", nd)
 	}
