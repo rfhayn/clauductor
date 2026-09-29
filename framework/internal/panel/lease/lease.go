@@ -1,4 +1,4 @@
-// Package lease is the on-disk queue lease (the gate on port 3100) that `clauductor
+// Package lease is the on-disk queue lease (a shared gate, say) that `clauductor
 // lock-run` holds and the panel only reads. Of the panel it imports only clock and
 // types, which have no dependencies, so lock-run links nothing else of the panel.
 package lease
@@ -29,8 +29,8 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
-// The lease protocol serialises a shared resource (the full gate on port 3100)
-// between processes that know nothing of each other or of the panel. It lives
+// The lease protocol serialises a shared resource (a full test gate that binds a
+// fixed port, say) between processes that know nothing of each other or of the panel. It lives
 // entirely on disk, so it survives a panel restart, and a POSIX shell can honour it
 // without the panel running. macOS has no flock(1), so the lock is a DIRECTORY,
 // because mkdir(2) is atomic everywhere:
