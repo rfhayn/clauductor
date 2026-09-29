@@ -12,8 +12,10 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel"
 	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/spf13/cobra"
 )
 
@@ -107,7 +109,8 @@ func init() {
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	_ = panelInstallCmd.MarkFlagRequired("project")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
-	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd)
+	panelInitCmd.Flags().StringVar(&initProject, "project", "", "project root (default: git toplevel of the current directory)")
+	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -215,7 +218,41 @@ event stream is closed. Then 'clauductor panel open' opens the page with the new
 var (
 	trustProject string
 	trustConfig  string
+	initProject  string
 )
+
+var panelInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Write a starter .clauductor/panel.json for this project",
+	Long: `Write <project>/.clauductor/panel.json from what the repository already says: its
+name, its default branch (the base new lanes start from), where its worktrees
+live, the branch prefixes it uses, and a gate script it defines (a package.json
+script or Makefile target named gate, ci, check, verify or test) as a queue. It
+writes no card, and a queue's command runs only when you press RUN. It refuses to
+overwrite an existing file. The file names its JSON Schema, so an editor
+validates it. See docs/panel.md, "Configuration reference".`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir := initProject
+		if dir == "" {
+			dir = "."
+		}
+		res, err := install.InitConfig(context.Background(), signals.ExecRunner, dir)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Wrote %s:\n\n%s\n", res.Path, res.Body)
+		for _, n := range res.Notes {
+			fmt.Fprintf(out, "  %s\n", n)
+		}
+		fmt.Fprintf(out, "\nJSON has no comments, so the reasons are here. It declares \"version\": %d and \"$schema\", so an editor\n"+
+			"validates it. Review it, commit it, then run `clauductor panel`: the first run trusts the file as it is.\n", config.LatestVersion)
+		return nil
+	},
+}
 
 var panelTrustCmd = &cobra.Command{
 	Use:   "trust",
