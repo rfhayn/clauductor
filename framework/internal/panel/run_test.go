@@ -16,10 +16,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
+	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
-func fakeRunner(root string) Runner {
+func fakeRunner(root string) signals.Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		switch strings.Join(argv, " ") {
 		case "git worktree list --porcelain":
@@ -39,9 +44,9 @@ func fakeRunner(root string) Runner {
 
 func setupProject(t *testing.T) (root, home string) {
 	t.Helper()
-	root = ResolvePath(t.TempDir())
+	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
 		"cards":[{"id":"c","title":"Card","command":["echo","card"],"refresh":"interval:60"}]}`)
 	return root, home
 }
@@ -50,7 +55,7 @@ type liveClient struct {
 	base, cookie string
 }
 
-func (c liveClient) state(t *testing.T) View {
+func (c liveClient) state(t *testing.T) state.View {
 	t.Helper()
 	req, _ := http.NewRequest("GET", c.base+"/api/state", nil)
 	req.Header.Set("Cookie", c.cookie)
@@ -59,7 +64,7 @@ func (c liveClient) state(t *testing.T) View {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var v View
+	var v state.View
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
 		t.Fatal(err)
 	}
@@ -110,17 +115,17 @@ func TestRunEndToEnd(t *testing.T) {
 	port, _ := strconv.Atoi(u.Port())
 	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
 
-	marker, err := os.ReadFile(MarkerPath(home))
+	marker, err := os.ReadFile(install.MarkerPath(home))
 	if err != nil || strings.TrimSpace(string(marker)) != strconv.Itoa(port) {
 		t.Fatalf("marker %q %v", marker, err)
 	}
-	for _, ev := range HookEvents {
+	for _, ev := range signals.HookEvents {
 		if ourHooks(t, home)[ev] != 1 {
 			t.Fatalf("hook for %s not installed", ev)
 		}
 	}
-	settings, _ := os.ReadFile(SettingsPath(home))
-	if !strings.Contains(string(settings), HookURL(port)) {
+	settings, _ := os.ReadFile(install.SettingsPath(home))
+	if !strings.Contains(string(settings), hookURL(port)) {
 		t.Fatal("installed hook does not point at the bound port")
 	}
 
@@ -149,7 +154,7 @@ func TestRunEndToEnd(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
-	if _, err := os.Stat(MarkerPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.MarkerPath(home)); !os.IsNotExist(err) {
 		t.Fatal("marker left behind after shutdown")
 	}
 	if ourHooks(t, home)["Stop"] != 1 {
@@ -173,16 +178,16 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("want a port-in-use error, got %v", err)
 	}
-	if _, err := os.Stat(SettingsPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.SettingsPath(home)); !os.IsNotExist(err) {
 		t.Fatal("a refused launch touched settings.json")
 	}
-	if _, err := os.Stat(MarkerPath(home)); !os.IsNotExist(err) {
+	if _, err := os.Stat(install.MarkerPath(home)); !os.IsNotExist(err) {
 		t.Fatal("a refused launch wrote the marker")
 	}
 }
 
 func TestRunNeedsAConfig(t *testing.T) {
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	err := Run(context.Background(), Options{Project: root, Port: 0, NoOpen: true, Home: t.TempDir(), Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "no panel config") {
 		t.Fatalf("got %v", err)
@@ -213,16 +218,16 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("never ready")
 	}
-	token, _ := os.ReadFile(TokenPath(home))
+	token, _ := os.ReadFile(install.TokenPath(home))
 	tok := strings.TrimSpace(string(token))
 	if !strings.HasSuffix(launch, "t="+tok) {
 		t.Fatal("launchd run does not use the persistent token")
 	}
-	pid, err := os.ReadFile(filepath.Join(filepath.Dir(MarkerPath(home)), "pid"))
+	pid, err := os.ReadFile(filepath.Join(filepath.Dir(install.MarkerPath(home)), "pid"))
 	if err != nil || strings.TrimSpace(string(pid)) != strconv.Itoa(os.Getpid()) {
 		t.Fatalf("pid file %q %v", pid, err)
 	}
-	if port, _ := os.ReadFile(MarkerPath(home)); !regexp.MustCompile(`^\d+\n$`).Match(port) {
+	if port, _ := os.ReadFile(install.MarkerPath(home)); !regexp.MustCompile(`^\d+\n$`).Match(port) {
 		t.Fatalf("port marker must stay digits only for status-line scripts: %q", port)
 	}
 	cancel()
@@ -235,7 +240,7 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	if len(opened) != 1 || !strings.Contains(opened[0], tok) {
 		t.Fatalf("browser opened %v, want once with the token", opened)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(MarkerPath(home)), "pid")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(install.MarkerPath(home)), "pid")); !os.IsNotExist(err) {
 		t.Fatal("pid file left behind after a clean stop")
 	}
 }

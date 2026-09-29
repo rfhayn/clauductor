@@ -1,0 +1,140 @@
+package web
+
+import (
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/state"
+)
+
+func TestHostAllowListIsExact(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.HostNames = []string{"myproject.localhost"}
+	p := strconv.Itoa(testPort)
+	other := strconv.Itoa(testPort + 1)
+	allowed := []string{
+		"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, "clauductor.localhost:" + p,
+		"myproject.localhost:" + p, // configured
+		// Host names compare case-insensitively (RFC 9110 §4.2.3).
+		"CLAUDUCTOR.localhost:" + p, "Clauductor.LocalHost:" + p, "LOCALHOST:" + p,
+	}
+	refused := []string{
+		"evil.localhost:" + p,                  // no wildcard
+		"clauductor.localhost.evil.com:" + p,   // a suffix is not the name
+		"x.clauductor.localhost:" + p,          // nor is a subdomain of it
+		"clauductor.localhost:" + other,        // wrong port
+		"127.0.0.1:" + other, "[::1]:" + other, // wrong port
+		"clauductor.localhost", "127.0.0.1", // no port
+		"clauductor.localhost.:" + p, // trailing dot
+		"[::2]:" + p, "0.0.0.0:" + p, "127.0.0.2:" + p,
+		"evil.com:" + p, "",
+	}
+	for _, h := range allowed {
+		if w := do(s, "GET", "/healthz", "", withHost(h)); w.Code != 200 {
+			t.Errorf("Host %q refused (%d)", h, w.Code)
+		}
+	}
+	for _, h := range refused {
+		if w := do(s, "GET", "/healthz", "", withHost(h)); w.Code != 403 {
+			t.Errorf("Host %q allowed (%d)", h, w.Code)
+		}
+	}
+}
+
+// Origin must equal "http://" + THIS request's Host, on every POST and on the
+// WebSocket upgrade: a page on one allowed name cannot drive the panel on another.
+func TestOriginMustMatchThisRequestsHost(t *testing.T) {
+	s, _ := newTestServer(t)
+	p := strconv.Itoa(testPort)
+	cases := []struct {
+		host, origin string
+		want         int
+	}{
+		{"clauductor.localhost:" + p, "http://clauductor.localhost:" + p, 204},
+		{"[::1]:" + p, "http://[::1]:" + p, 204},
+		{"CLAUDUCTOR.localhost:" + p, "http://clauductor.localhost:" + p, 204},
+		{"clauductor.localhost:" + p, "http://localhost:" + p, 403},      // cross-host
+		{"localhost:" + p, "http://clauductor.localhost:" + p, 403},      // cross-host
+		{"clauductor.localhost:" + p, "http://127.0.0.1:" + p, 403},      // cross-host
+		{"clauductor.localhost:" + p, "http://evil.localhost:" + p, 403}, // foreign
+		{"clauductor.localhost:" + p, "https://clauductor.localhost:" + p, 403},
+		{"clauductor.localhost:" + p, "", 403},
+	}
+	for _, c := range cases {
+		w := do(s, "POST", "/api/refresh", "", withCookie(s), withHost(c.host), withHeader("Origin", c.origin))
+		if w.Code != c.want {
+			t.Errorf("POST Host %q Origin %q: %d, want %d", c.host, c.origin, w.Code, c.want)
+		}
+	}
+	// A page on localhost opening a terminal WebSocket for clauductor.localhost.
+	for _, origin := range []string{"http://localhost:" + p, "http://evil.localhost:" + p} {
+		w := do(s, "GET", "/ws/term?lane=x", "", withCookie(s), withHost("clauductor.localhost:"+p),
+			withHeader("Origin", origin), withHeader("Connection", "Upgrade"), withHeader("Upgrade", "websocket"))
+		if w.Code != 403 || !strings.Contains(w.Body.String(), "origin") {
+			t.Errorf("WS from %s: %d %q", origin, w.Code, w.Body.String())
+		}
+	}
+}
+
+// Both listeners serve one server, and clauductor.localhost reaches it.
+func TestListenLoopbackServesBothAddresses(t *testing.T) {
+	ln4, ln6, why, err := ListenLoopback(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln4.Close()
+	if ln6 == nil {
+		t.Skip("no IPv6 loopback: " + why)
+	}
+	defer ln6.Close()
+	port := ln4.Addr().(*net.TCPAddr).Port
+	if ln6.Addr().(*net.TCPAddr).Port != port || !ln6.Addr().(*net.TCPAddr).IP.IsLoopback() {
+		t.Fatalf("v6 listener %v", ln6.Addr())
+	}
+	s := &Server{Clock: clock.System, Port: port, Token: "t", Hub: NewHub(state.NewModel(testConfig(t), "/repo", t0), clock.Func(time.Now))}
+	srv := &http.Server{Handler: s.Handler()}
+	go srv.Serve(ln4)
+	go srv.Serve(ln6)
+	defer srv.Close()
+	for _, base := range []string{"http://127.0.0.1", "http://[::1]", "http://clauductor.localhost"} {
+		resp, err := http.Get(fmt.Sprintf("%s:%d/healthz", base, port))
+		if err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || !strings.HasPrefix(string(b), "ok pid=") {
+			t.Fatalf("%s: %d %q", base, resp.StatusCode, b)
+		}
+	}
+	// A second panel on the same port is refused on either address.
+	if _, _, _, err := ListenLoopback(port); err == nil {
+		t.Fatal("bound a taken port")
+	}
+}
+
+// A process holding [::1]:<port> must be refused before the token is sent, since
+// clauductor.localhost resolves to ::1 first.
+func TestListenLoopbackRefusesAForeignV6Holder(t *testing.T) {
+	foreign, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback")
+	}
+	defer foreign.Close()
+	port := foreign.Addr().(*net.TCPAddr).Port
+	ln4, _, _, err := ListenLoopback(port)
+	if err == nil {
+		ln4.Close()
+		t.Fatal("started while another process holds [::1]:port")
+	}
+	if !strings.Contains(err.Error(), "[::1]") {
+		t.Fatalf("error does not name ::1: %v", err)
+	}
+}

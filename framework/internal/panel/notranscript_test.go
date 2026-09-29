@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
 // The panel must never read transcripts: they are documented as unstable between
@@ -54,11 +56,7 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 	// A path assembled from parts is caught too: filepath.Join(home, ".claude",
 	// "projects") never contains the string "/.claude/projects" (review C15).
 	fset := token.NewFileSet()
-	goFiles, _ := filepath.Glob("*.go")
-	for _, name := range goFiles {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, name := range panelSources(t) {
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +66,7 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 		}
 	}
 	// And the decoded payload types cannot carry a transcript path in memory.
-	for _, typ := range []reflect.Type{reflect.TypeOf(HookEvent{}), reflect.TypeOf(StatusPayload{})} {
+	for _, typ := range []reflect.Type{reflect.TypeOf(signals.HookEvent{}), reflect.TypeOf(signals.StatusPayload{})} {
 		for i := 0; i < typ.NumField(); i++ {
 			if strings.Contains(strings.ToLower(typ.Field(i).Tag.Get("json")), "transcript") {
 				t.Errorf("%s.%s decodes a transcript field", typ.Name(), typ.Field(i).Name)
@@ -136,25 +134,47 @@ func TestTranscriptScannerCatchesJoinedPaths(t *testing.T) {
 // fileReadSites are the reviewed places the package opens or reads a file. A new
 // one fails this test until it is added here, with what it reads.
 var fileReadSites = map[string]int{
-	"config.go":     1, // the panel config
-	"installer.go":  2, // ~/.claude/settings.json, and its re-read before the rename
-	"launchd.go":    6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime_v2.go": 1, // the notifier's saved state (notifier.json)
-	"hosts.go":      1, // the panel's pid file, checked before `panel open` sends the token
-	"registry.go":   1, // the lane registry
-	"trust.go":      1, // the trusted-config record
-	"lease.go":      4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
-	"singleton.go":  5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
+	"config/config.go":     1, // the panel config
+	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
+	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
+	"runtime.go":           1, // the notifier's saved state (notifier.json)
+	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
+	"lanes/registry.go":    1, // the lane registry
+	"install/trust.go":     1, // the trusted-config record
+	"lease/lease.go":       4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
+	"install/singleton.go": 5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
+}
+
+// panelSources lists every shipped Go file of the panel and its packages, relative
+// to this directory: the file tree is the authority, not a list of packages.
+func panelSources(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" || path == filepath.Join("web", "vendor") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			out = append(out, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestNoSourceReachesTranscriptsByJoinOrNewReadSite(t *testing.T) {
 	fset := token.NewFileSet()
 	counts := map[string]int{}
-	files, _ := filepath.Glob("*.go")
-	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, name := range panelSources(t) {
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

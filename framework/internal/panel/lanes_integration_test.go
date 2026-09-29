@@ -18,6 +18,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
+	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 	"github.com/coder/websocket"
 )
 
@@ -62,7 +68,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 func gitOnlyRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	switch argv[0] {
 	case "git":
-		return ExecRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	case "claude", "gh":
 		return []byte("[]"), nil
 	}
@@ -137,7 +143,7 @@ func (p *panelRun) post(t *testing.T, path string, body any) (int, map[string]an
 	return resp.StatusCode, out
 }
 
-func (p *panelRun) state(t *testing.T) View {
+func (p *panelRun) state(t *testing.T) state.View {
 	t.Helper()
 	return liveClient{base: p.base, cookie: p.cookie}.state(t)
 }
@@ -156,11 +162,11 @@ func (p *panelRun) dial(t *testing.T, lane string) *websocket.Conn {
 	h.Set("Cookie", p.cookie)
 	h.Set("Origin", p.origin)
 	c, _, err := websocket.Dial(ctx, strings.Replace(p.base, "http", "ws", 1)+"/ws/term?lane="+lane+"&cols=100&rows=30",
-		&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{TermSubprotocol, ticketPrefix + fmt.Sprint(body["ticket"])}})
+		&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{web.TermSubprotocol, ticketPrefix + fmt.Sprint(body["ticket"])}})
 	if err != nil {
 		t.Fatalf("dial %s: %v", lane, err)
 	}
-	if c.Subprotocol() != TermSubprotocol {
+	if c.Subprotocol() != web.TermSubprotocol {
 		t.Fatalf("negotiated %q", c.Subprotocol())
 	}
 	return c
@@ -196,7 +202,7 @@ func hasSession(tmux, sock, id string) bool {
 	return exec.Command(tmux, "-L", sock, "has-session", "-t", "="+id).Run() == nil
 }
 
-func findTerm(v View, id string) *TermLaneView {
+func findTerm(v state.View, id string) *state.TermLaneView {
 	for i := range v.Terminals {
 		if v.Terminals[i].ID == id {
 			return &v.Terminals[i]
@@ -207,10 +213,10 @@ func findTerm(v View, id string) *TermLaneView {
 
 func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	tmux, sock := throwawaySocket(t)
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},
 		"base":"main","worktree_dir":".wt"}`)
 	gitRun(t, root, "add", ".")
 	gitRun(t, root, "commit", "-q", "-m", "init")
@@ -219,13 +225,13 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	p := startPanel(t, root, home, sock)
 
 	// Start a lane in the project root.
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start root lane: %d %v", code, body)
 	}
 	if !hasSession(tmux, sock, "orch") {
 		t.Fatal("no tmux session after start")
 	}
-	if code, _ := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 {
+	if code, _ := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 409 {
 		t.Fatalf("a second lane with the same id: %d, want 409", code)
 	}
 
@@ -271,7 +277,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 
 	// A new branch and worktree. The remote is unreachable: fetch fails, which is
 	// reported, not fatal.
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "fix", Mode: "new", Name: "fx"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "fix", Mode: "new", Name: "fx"})
 	if code != 200 {
 		t.Fatalf("start new-branch lane: %d %v", code, body)
 	}
@@ -286,7 +292,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 		v := p.state(t)
 		o, f := findTerm(v, "orch"), findTerm(v, "fx")
 		return o != nil && f != nil && o.Worktree == root && o.Type == "orchestrator" &&
-			f.Worktree == ResolvePath(wt) && f.Branch == "fix/fx" && f.Type == "fix"
+			f.Worktree == signals.ResolvePath(wt) && f.Branch == "fix/fx" && f.Type == "fix"
 	})
 
 	// The panel restarts; tmux kept the lanes, and the new panel finds them.
@@ -308,7 +314,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 
 	// An API key in the tmux server's global environment blocks every start.
 	exec.Command(tmux, "-L", sock, "set-environment", "-g", "ANTHROPIC_API_KEY", "sk-test").Run()
-	code, body = p2.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "blocked"})
+	code, body = p2.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "blocked"})
 	if code != 409 || body["code"] != "api-key" || !strings.Contains(fmt.Sprint(body["error"]), "tmux server") {
 		t.Fatalf("start with a key in tmux's environment: %d %v", code, body)
 	}
@@ -320,12 +326,12 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	// Restart resumes the lane's own session: --resume <its id>, never --continue.
 	// --resume needs a conversation, which the first submitted prompt's hook records.
 	fxSID := findTerm(p2.state(t), "fx").SessionID
-	hook := fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"prompt":"hi"}`, fxSID, ResolvePath(wt))
+	hook := fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"prompt":"hi"}`, fxSID, signals.ResolvePath(wt))
 	if code := (liveClient{base: p2.base}).post(t, "/hook", hook); code != 204 {
 		t.Fatalf("hook: %d", code)
 	}
 	waitFor(t, "the registry to record fx's conversation", func() bool {
-		r, _ := OpenRegistry(home, root)
+		r, _ := lanes.OpenRegistry(home, root)
 		rec, _ := r.Get("fx")
 		return rec.Conversation
 	})
@@ -392,13 +398,13 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 // With a key in the panel's own environment, the API refuses and says why.
 func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 	tmux, sock := throwawaySocket(t)
-	root := ResolvePath(t.TempDir())
+	root := signals.ResolvePath(t.TempDir())
 	home := t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	p := startPanel(t, root, home, sock)
-	code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
+	code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"})
 	if code != 409 || body["code"] != "api-key" || !strings.Contains(fmt.Sprint(body["error"]), "ANTHROPIC_API_KEY") {
 		t.Fatalf("got %d %v", code, body)
 	}
@@ -415,10 +421,10 @@ func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 
 func rootLaneProject(t *testing.T) (root, home string) {
 	t.Helper()
-	root = ResolvePath(t.TempDir())
+	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
 	gitRun(t, root, "init", "-q", "-b", "main")
-	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
 	return root, home
 }
 
@@ -439,7 +445,7 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 	_, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	p := startPanelWith(t, root, home, sock, func(o *Options) { o.TermIdleTimeout = 800 * time.Millisecond })
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	quiet := p.dial(t, "orch")
@@ -469,11 +475,11 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.Launchd, o.NoOpen, o.OpenBrowser = true, true, func(string) {}
 	})
-	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	c := p.dial(t, "orch")
-	newTok, err := RotateToken(home)
+	newTok, err := install.RotateToken(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,5 +499,71 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	}
 	if code, _ := p.post(t, "/api/lanes/orch/ticket", nil); code != 401 {
 		t.Fatalf("ticket with the old cookie: %d, want 401", code)
+	}
+}
+
+// Typing while scrolled back reaches claude (re-audit P2-2): the first key that is
+// not a scroll key leaves copy mode, then goes to the lane. The page is told when
+// the lane is scrolled back, and when it is not any more. Real tmux, real panel.
+func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	p := startPanel(t, root, home, sock)
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	c := p.dial(t, "orch")
+	send(t, c, termMsg{Type: "input", Data: "seq 1 300\r"})
+	readUntil(t, c, "300")
+	scroll := make(chan string, 8)
+	go func() {
+		for {
+			typ, b, err := c.Read(context.Background())
+			if err != nil {
+				return
+			}
+			if typ == websocket.MessageText && strings.Contains(string(b), `"scroll"`) {
+				scroll <- string(b)
+			}
+		}
+	}()
+	expect := func(want string) {
+		t.Helper()
+		select {
+		case got := <-scroll:
+			if got != want {
+				t.Fatalf("page told %s, want %s", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("page never told %s", want)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		send(t, c, termMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	inMode := func() string {
+		out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{pane_in_mode}").Output()
+		return strings.TrimSpace(string(out))
+	}
+	if inMode() != "1" {
+		t.Fatal("premise: the wheel did not put the pane in copy mode")
+	}
+	marker := filepath.Join(t.TempDir(), "typed")
+	send(t, c, termMsg{Type: "input", Data: "touch " + shq(marker) + "\r"})
+	expect(`{"type":"scroll","back":false}`)
+	waitFor(t, "the typed command to run in the lane", func() bool { _, err := os.Stat(marker); return err == nil })
+	if inMode() != "0" {
+		t.Fatal("the pane is still in copy mode")
+	}
+	// Escape while scrolled back only returns: claude would read it as an interrupt.
+	for i := 0; i < 3; i++ {
+		send(t, c, termMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	send(t, c, termMsg{Type: "input", Data: "\x1b"})
+	expect(`{"type":"scroll","back":false}`)
+	if inMode() != "0" {
+		t.Fatal("Escape did not leave copy mode")
 	}
 }

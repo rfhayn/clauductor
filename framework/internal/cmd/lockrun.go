@@ -6,7 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel"
+	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/spf13/cobra"
 )
 
@@ -37,9 +38,9 @@ cancelled from the panel; 130 if interrupted while waiting. See docs/panel.md.`,
 		if dash != 1 || len(args) < 2 {
 			return fmt.Errorf("usage: clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <command> [args...]")
 		}
-		code, err := panel.LockRun(context.Background(), panel.LockRunOptions{
+		code, err := lease.LockRun(context.Background(), lease.LockRunOptions{
 			Lock: args[0], Lane: lockRunLane, TTL: lockRunTTL, Argv: args[1:],
-			Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
+			Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(), Clock: clock.System,
 		})
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), err)
@@ -51,6 +52,6 @@ cancelled from the panel; 130 if interrupted while waiting. See docs/panel.md.`,
 
 func init() {
 	lockRunCmd.Flags().StringVar(&lockRunLane, "lane", "", "the lane shown to others (default $CLAUDUCTOR_LANE)")
-	lockRunCmd.Flags().DurationVar(&lockRunTTL, "ttl", panel.DefaultLeaseTTL, "lease TTL; renewed every ttl/3 while the command runs")
+	lockRunCmd.Flags().DurationVar(&lockRunTTL, "ttl", lease.DefaultLeaseTTL, "lease TTL; renewed every ttl/3 while the command runs")
 	rootCmd.AddCommand(lockRunCmd)
 }

@@ -11,6 +11,9 @@ import (
 	"syscall"
 
 	"github.com/clauductor/clauductor/internal/panel"
+	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/install"
+	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/spf13/cobra"
 )
 
@@ -47,17 +50,17 @@ other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
 		}
 		out := cmd.OutOrStdout()
 		if panelUninstall {
-			changed, err := panel.UninstallHooks(home)
+			changed, err := install.UninstallHooks(home)
 			if err != nil {
 				return err
 			}
 			if changed {
-				fmt.Fprintf(out, "Removed panel hooks from %s (pre-panel backup: settings.json.clauductor-panel.bak).\n", panel.SettingsPath(home))
+				fmt.Fprintf(out, "Removed panel hooks from %s (pre-panel backup: settings.json.clauductor-panel.bak).\n", install.SettingsPath(home))
 			} else {
-				fmt.Fprintf(out, "No panel hooks in %s.\n", panel.SettingsPath(home))
+				fmt.Fprintf(out, "No panel hooks in %s.\n", install.SettingsPath(home))
 			}
 			// A running panel re-checks its hooks every 30 s and puts them back.
-			if other := panel.RunningPanel(context.Background(), home, os.Getpid(), panel.LiveProc); other != nil {
+			if other := install.RunningPanel(context.Background(), home, os.Getpid(), lease.LiveProc); other != nil {
 				fmt.Fprintf(out, "A panel is running (pid %d); it reinstalls its hooks within 30 s. Stop it first to keep them out.\n", other.PID)
 			}
 			return nil
@@ -134,11 +137,11 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 		}
 		// Installing is choosing this config: record it as trusted, so the agent does
 		// not start in the untrusted mode.
-		if _, err := panel.TrustConfig(home, installProject, installConfig); err != nil {
+		if _, err := install.TrustConfig(home, installProject, installConfig); err != nil {
 			return err
 		}
-		return panel.Install(panel.InstallOptions{Home: home, Project: installProject, Config: installConfig,
-			Port: installPort, App: installApp, Out: cmd.OutOrStdout()})
+		return install.Install(install.InstallOptions{Home: home, Project: installProject, Config: installConfig,
+			Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System})
 	},
 }
 
@@ -153,7 +156,7 @@ var panelUninstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return panel.Uninstall(home, cmd.OutOrStdout(), nil)
+		return install.Uninstall(home, cmd.OutOrStdout(), nil)
 	},
 }
 
@@ -171,17 +174,17 @@ var panelOpenCmd = &cobra.Command{
 		port := openPort
 		if port == 0 {
 			port = 4393
-			if b, err := os.ReadFile(panel.MarkerPath(home)); err == nil {
+			if b, err := os.ReadFile(install.MarkerPath(home)); err == nil {
 				if p, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 					port = p
 				}
 			}
 		}
-		url, err := panel.OpenURL(context.Background(), home, port)
+		url, err := install.OpenURL(context.Background(), home, port)
 		if err != nil {
 			return err
 		}
-		panel.OpenBrowser(url)
+		install.OpenBrowser(url)
 		return nil
 	},
 }
@@ -201,10 +204,10 @@ event stream is closed. Then 'clauductor panel open' opens the page with the new
 		if err != nil {
 			return err
 		}
-		if _, err := panel.RotateToken(home); err != nil {
+		if _, err := install.RotateToken(home); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `clauductor panel open` opens it with the new token.\n", panel.TokenPath(home))
+		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `clauductor panel open` opens it with the new token.\n", install.TokenPath(home))
 		return nil
 	},
 }
@@ -237,7 +240,7 @@ you trust the new version with this command. A running panel notices within 5 s.
 			}
 			project = strings.TrimSpace(string(top))
 		}
-		h, err := panel.TrustConfig(home, project, trustConfig)
+		h, err := install.TrustConfig(home, project, trustConfig)
 		if err != nil {
 			return err
 		}
