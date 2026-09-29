@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -457,29 +456,9 @@ func OpenURL(ctx context.Context, home string, port int) (string, error) {
 		return "", fmt.Errorf("no token at %s: the panel is not installed as a login agent (`clauductor panel install --project <path>`); a panel started by hand prints its own URL", TokenPath(home))
 	}
 	token := strings.TrimSpace(string(b))
-	base := fmt.Sprintf("http://%s:%d", LoopbackHost, port)
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(cctx, http.MethodGet, base+"/healthz", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("the panel is not answering on %s (%v). Restart it: launchctl kickstart -k %s/%s, and read %s",
-			base, err, guiDomain(), LaunchdLabel, LogDir(home))
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-	resp.Body.Close()
-	// Send the token only to THIS panel: whatever holds the port must report the PID
-	// the panel wrote beside its marker.
-	pidFile := filepath.Join(panelDir(home), "pid")
-	want, err := os.ReadFile(pidFile)
-	if err != nil {
-		return "", fmt.Errorf("no %s: the panel is not running (launchctl kickstart -k %s/%s)", pidFile, guiDomain(), LaunchdLabel)
-	}
-	if got := strings.TrimSpace(string(body)); got != "ok pid="+strings.TrimSpace(string(want)) {
-		return "", fmt.Errorf("%s answers /healthz with %q, not as the panel whose pid is %s; not sending it the token",
-			base, got, strings.TrimSpace(string(want)))
-	}
-	return base + "/?t=" + token, nil
+	// Both loopbacks the browser may use for clauductor.localhost must answer as
+	// THIS panel (the PID beside its marker) before the token is sent (hosts.go).
+	return openURLChecked(ctx, home, port, token)
 }
 
 // OpenBrowser opens url in the default browser.

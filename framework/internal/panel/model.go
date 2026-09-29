@@ -28,6 +28,13 @@ type HookEvent struct {
 	Prompt               string `json:"prompt"`
 	LastAssistantMessage string `json:"last_assistant_message"`
 	Reason               string `json:"reason"`
+	// v2 events. tool_input is deliberately not declared: it can hold secrets, and
+	// the panel shows only which tool asks.
+	ErrorType         string `json:"error_type"`         // StopFailure
+	ToolName          string `json:"tool_name"`          // PermissionRequest
+	CompactionTrigger string `json:"compaction_trigger"` // PreCompact / PostCompact
+	Trigger           string `json:"trigger"`            // older spelling of compaction_trigger
+	PreviousCwd       string `json:"previous_cwd"`       // CwdChanged
 }
 
 // ParseHook decodes a hook body.
@@ -45,6 +52,7 @@ func ParseHook(body []byte) (HookEvent, error) {
 // StatusPayload is the subset of the statusLine stdin JSON the panel uses.
 type StatusPayload struct {
 	SessionID string `json:"session_id"`
+	Version   string `json:"version"` // the Claude Code version that sent it
 	Cwd       string `json:"cwd"`
 	Workspace struct {
 		CurrentDir string `json:"current_dir"`
@@ -139,6 +147,14 @@ type session struct {
 	Agent     *Agent
 	BusySince time.Time
 	IdleSince time.Time
+
+	// v2.
+	Done         *note     // a "done" notification (idle_prompt, agent_completed): your move, not blocked
+	Failure      *note     // the last StopFailure (error_type), until the next prompt
+	Compacting   string    // "auto" | "manual" while a compaction runs
+	WaitingSince time.Time // `claude agents` has reported waiting since
+	LastPromptAt time.Time // the last UserPromptSubmit
+	Unknown      string    // the last notification type the table does not know
 }
 
 // CardState is the last result of one card.
@@ -170,6 +186,7 @@ type Model struct {
 	hookEvents  int
 	statusPosts int
 	dropped     int
+	v2          modelV2
 
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []TmuxLane
@@ -187,6 +204,10 @@ type Quota struct {
 	SevenDayResets *int64   `json:"sevenDayResetsAt,omitempty"`
 	At             int64    `json:"at"`
 	FromSession    string   `json:"fromSession,omitempty"`
+	// A window whose resets_at has passed is dropped (its value is from before the
+	// reset) and flagged, so the gauge shows "reset" rather than a stale number.
+	FiveHourExpired bool `json:"fiveHourExpired,omitempty"`
+	SevenDayExpired bool `json:"sevenDayExpired,omitempty"`
 }
 
 // NewModel returns an empty model. Every source starts Pending.
@@ -203,6 +224,8 @@ func NewModel(cfg *Config, root string, now time.Time) *Model {
 		laneHookAt:   map[string]time.Time{},
 		costByID:     map[string]float64{},
 	}
+	m.v2.versionSrc = SourceStatus{Pending: true}
+	m.v2.queuesSrc = SourceStatus{Pending: true}
 	for _, c := range cfg.Cards {
 		m.cards = append(m.cards, &CardState{ID: c.ID, Title: c.Title, Source: SourceStatus{Pending: true}})
 	}
@@ -238,16 +261,52 @@ func (m *Model) lane(cwd string) (Worktree, bool) {
 	return m.worktrees[i], true
 }
 
+// sess returns the session, creating it bound to lane. A session is bound ONCE: an
+// event's cwd follows claude when it runs `cd`, so a later cwd never moves it. The
+// lane is found by bindLane, which prefers the panel's own session id.
 func (m *Model) sess(id, lane string) *session {
 	s := m.sessions[id]
 	if s == nil {
 		s = &session{ID: id, Lane: lane, Subagents: map[string]subagent{}}
 		m.sessions[id] = s
 	}
-	if lane != "" {
+	if s.Lane == "" {
 		s.Lane = lane
 	}
 	return s
+}
+
+// bindLane returns the worktree a session belongs to:
+//  1. a session the panel launched is bound by the session id it assigned
+//     (--session-id), to the worktree its lane runs in, whatever the event's cwd;
+//  2. a session already seen keeps the lane it was bound to at first sight;
+//  3. otherwise (a session started outside the panel) the event's cwd decides, once.
+func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
+	if sessionID != "" {
+		for _, rec := range m.laneRecords {
+			if rec.SessionID == sessionID {
+				if i := MatchWorktree(m.worktrees, rec.Path); i >= 0 {
+					return m.worktrees[i].Path, true
+				}
+			}
+		}
+		if s := m.sessions[sessionID]; s != nil && s.Lane != "" {
+			return s.Lane, true
+		}
+	}
+	if wt, ok := m.lane(cwd); ok {
+		return wt.Path, true
+	}
+	return "", false
+}
+
+func (m *Model) worktreeByPath(p string) Worktree {
+	for _, w := range m.worktrees {
+		if w.Path == p {
+			return w
+		}
+	}
+	return Worktree{Path: p}
 }
 
 func oneLine(s string) string {
@@ -274,29 +333,64 @@ func (m *Model) feedFor(wt Worktree, sessionID, event, detail string, now time.T
 // ApplyHook folds one hook event into the state. It returns false when the event was
 // dropped because its cwd is outside every project worktree.
 func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
-	wt, ok := m.lane(ev.Cwd)
+	if !knownHookEvent(ev.Event) {
+		// Only the events the panel subscribes to are applied; anything else is
+		// counted apart from foreign-cwd drops and shown, never guessed at.
+		m.v2.droppedUnknown++
+		return true
+	}
+	lanePath, ok := m.bindLane(ev.SessionID, ev.Cwd)
 	if !ok {
 		m.dropped++
 		return false
 	}
+	wt := m.worktreeByPath(lanePath)
 	m.hookEvents++
 	m.laneHookAt[wt.Path] = now
 	s := m.sess(ev.SessionID, wt.Path)
 	s.LastHookAt = now
 	s.LastEvent = ev.Event
 	s.LastEventAt = now
-	if ev.Event != "Notification" {
-		// Any later activity from the session answers whatever it was asking.
+	switch ev.Event {
+	case "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd":
+		// The turn moved on, so whatever the session was asking has been answered.
+		// Subagent events do not clear it: a background agent can stop while the
+		// main session still waits on a permission prompt.
 		s.Note = nil
 	}
 	detail := ""
 	switch ev.Event {
 	case "UserPromptSubmit":
 		s.HookStatus = "busy"
+		s.LastPromptAt = now
+		s.Done, s.Failure = nil, nil
 		detail = oneLine(ev.Prompt)
 	case "Stop":
 		s.HookStatus = "idle"
+		s.Compacting = ""
 		detail = oneLine(ev.LastAssistantMessage)
+	case "StopFailure":
+		s.HookStatus = "idle"
+		s.Compacting = ""
+		typ := ev.ErrorType
+		if typ == "" {
+			typ = "unknown"
+		}
+		s.Failure = &note{Type: typ, At: now}
+		detail = "error_type " + oneLine(typ)
+	case "PermissionRequest":
+		s.HookStatus = "waiting"
+		s.Note = &note{Type: "permission_prompt", Message: oneLine("wants to use " + ev.ToolName), At: now}
+		detail = oneLine(ev.ToolName)
+	case "PreCompact":
+		s.Compacting = compactionTrigger(ev)
+		detail = s.Compacting
+	case "PostCompact":
+		s.Compacting = ""
+		detail = compactionTrigger(ev)
+	case "CwdChanged":
+		// Recorded, never followed: the lane binding stays where it was made.
+		detail = oneLine(ev.PreviousCwd + " → " + ev.Cwd)
 	case "SubagentStart":
 		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now}
 		detail = agentLabel(ev.AgentType, ev.AgentID)
@@ -304,12 +398,40 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		s.stopSubagent(ev.AgentID, ev.AgentType)
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "Notification":
-		s.HookStatus = "waiting"
-		s.Note = &note{Type: ev.NotificationType, Message: oneLine(ev.Message), At: now}
+		k := ClassifyNotification(ev.NotificationType)
+		n := &note{Type: ev.NotificationType, Message: oneLine(ev.Message), At: now}
+		switch {
+		case k.Waiting:
+			s.HookStatus = "waiting"
+			s.Note = n
+		case k.NeedsYou:
+			s.Note = n
+		case k.Clears:
+			if s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
+				s.Note = nil
+				if s.HookStatus == "waiting" {
+					s.HookStatus = "busy"
+				}
+			}
+		}
+		if k.Done {
+			s.Done = n
+		}
+		if k.SetsIdle {
+			s.HookStatus = "idle"
+		}
+		if !k.Known {
+			s.Unknown = ev.NotificationType
+			if s.Unknown == "" {
+				s.Unknown = "(no notification_type)"
+			}
+			m.v2.unknownNotifs++
+		}
 		detail = strings.TrimSpace(ev.NotificationType + " " + oneLine(ev.Message))
 	case "SessionEnd":
 		s.HookStatus = "ended"
 		s.Subagents = map[string]subagent{}
+		s.Done, s.Compacting = nil, ""
 		detail = ev.Reason
 	}
 	m.feedFor(wt, ev.SessionID, ev.Event, detail, now)
@@ -370,12 +492,16 @@ func agentLabel(typ, id string) string {
 
 // ApplyStatus folds one status-line payload into the state. Returns false when dropped.
 func (m *Model) ApplyStatus(p StatusPayload, now time.Time) bool {
-	wt, ok := m.lane(p.Cwd)
+	lanePath, ok := m.bindLane(p.SessionID, p.Cwd)
 	if !ok {
 		m.dropped++
 		return false
 	}
+	wt := m.worktreeByPath(lanePath)
 	m.statusPosts++
+	if p.Version != "" {
+		m.v2.statusVersion = p.Version
+	}
 	if p.SessionID != "" {
 		s := m.sess(p.SessionID, wt.Path)
 		s.StatusAt = now
@@ -421,10 +547,14 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 	seen := map[string]bool{}
 	for i := range agents {
 		a := agents[i]
-		wt, ok := m.lane(a.Cwd)
-		if !ok || a.SessionID == "" {
+		if a.SessionID == "" {
 			continue
 		}
+		lanePath, ok := m.bindLane(a.SessionID, a.Cwd)
+		if !ok {
+			continue
+		}
+		wt := m.worktreeByPath(lanePath)
 		seen[a.SessionID] = true
 		s := m.sess(a.SessionID, wt.Path)
 		prev := ""
@@ -462,6 +592,14 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 			// A permission prompt answered in the terminal fires no hook; the
 			// session going busy again is the signal that it was answered.
 			s.Note = nil
+			s.Done = nil
+		}
+		if a.Status == "waiting" {
+			if prev != "waiting" || s.WaitingSince.IsZero() {
+				s.WaitingSince = now
+			}
+		} else {
+			s.WaitingSince = time.Time{}
 		}
 		s.Agent = &a
 	}
@@ -470,12 +608,12 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 			continue
 		}
 		if s.Agent != nil {
-			if wt, ok := m.lane(s.Agent.Cwd); ok {
-				m.feedFor(wt, id, "session", "gone", now)
+			if s.Lane != "" {
+				m.feedFor(m.worktreeByPath(s.Lane), id, "session", "gone", now)
 			}
 			s.Agent = nil
-			s.Note = nil
-			s.BusySince, s.IdleSince = time.Time{}, time.Time{}
+			s.Note, s.Done = nil, nil
+			s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}
 			s.Subagents = map[string]subagent{}
 		}
 		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
@@ -541,6 +679,8 @@ type View struct {
 	TmuxSocket   string         `json:"tmuxSocket"`
 	LaneBase     string         `json:"laneBase"`
 	WorktreeRoot string         `json:"worktreeRoot"`
+	// v2 (model_v2.go).
+	ViewV2
 }
 
 // LaneView is one lane (a worktree) as rendered.
@@ -560,6 +700,9 @@ type LaneView struct {
 	Stale       bool           `json:"stale"`
 	Sessions    []SessionView  `json:"sessions"`
 	Terminal    string         `json:"terminal,omitempty"` // the lane id of a tmux lane in this worktree
+	// SubagentsApprox: the subagent pairing heuristics were verified on another
+	// Claude Code version than the one running, so the list is approximate.
+	SubagentsApprox bool `json:"subagentsApprox,omitempty"`
 }
 
 // SessionView is one Claude session inside a lane.
@@ -575,6 +718,13 @@ type SessionView struct {
 	EstCostUSD *float64 `json:"estCostUsd"`
 	BusySince  int64    `json:"busySince,omitempty"`
 	Stale      bool     `json:"stale"`
+	// v2.
+	WaitingKind string `json:"waitingKind,omitempty"` // the waitingFor enum: permission | input | sandbox | worker | dialog | other
+	AgentID     string `json:"agentId,omitempty"`     // `claude agents` id (background sessions)
+	AgentState  string `json:"agentState,omitempty"`  // `claude agents` state (background sessions)
+	Compacting  string `json:"compacting,omitempty"`
+	Failure     string `json:"failure,omitempty"` // the last StopFailure error_type
+	Unknown     string `json:"unknownNotification,omitempty"`
 }
 
 // SubagentView is one running subagent.
@@ -590,9 +740,14 @@ type NeedView struct {
 	Lane    string `json:"lane"`
 	Name    string `json:"name"`
 	Session string `json:"session"`
-	Kind    string `json:"kind"` // permission_prompt | idle_prompt | waiting
-	Text    string `json:"text"`
-	At      int64  `json:"at,omitempty"`
+	// Kind is a notification type, "waiting" (from `claude agents`), or a v2 kind:
+	// first_prompt | restored.
+	Kind     string `json:"kind"`
+	Label    string `json:"label,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Text     string `json:"text"`
+	At       int64  `json:"at,omitempty"`
+	Terminal string `json:"terminal,omitempty"` // tmux lane id: the one-click jump
 }
 
 var statusRank = map[string]int{"waiting": 3, "busy": 2, "idle": 1}
@@ -627,7 +782,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		Name: m.cfg.Name, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
 		Cards: []CardState{}, PRs: append([]PR{}, m.prs...), Banners: []string{},
-		Quota: m.quota, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
+		Quota: m.quotaAt(now), HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
 		Sources:   map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc, "tmux": m.tmuxSrc},
 		Terminals: []TermLaneView{}, LaneTypes: m.cfg.LaneTypeList(), StartBlocked: m.startBlocked, TmuxSocket: m.cfg.Socket(),
 		LaneBase: m.cfg.BaseRef(), WorktreeRoot: m.cfg.WorktreeRoot(m.root),
@@ -669,9 +824,14 @@ func (m *Model) Snapshot(now time.Time) View {
 			active = true
 			st, wf := s.status()
 			sv := SessionView{ID: s.ID, Status: st, WaitingFor: wf, CtxPct: s.CtxPct, Model: s.Model,
-				BusySince: ms(s.BusySince), Stale: m.stale(s, now)}
+				BusySince: ms(s.BusySince), Stale: m.stale(s, now), WaitingKind: waitingForKind(wf),
+				Compacting: s.Compacting, Unknown: s.Unknown}
+			if s.Failure != nil {
+				sv.Failure = s.Failure.Type
+			}
 			if s.Agent != nil {
 				sv.Name, sv.PID, sv.Kind = s.Agent.Name, s.Agent.PID, s.Agent.Kind
+				sv.AgentID, sv.AgentState = s.Agent.ID, s.Agent.State
 			}
 			if c, ok := m.costByID[s.ID]; ok {
 				c := c
@@ -694,18 +854,10 @@ func (m *Model) Snapshot(now time.Time) View {
 				newest = s.LastEventAt
 				lv.LastEvent = s.LastEvent
 			}
-			if s.Note != nil && (s.Note.Type == "permission_prompt" || s.Note.Type == "idle_prompt") {
-				v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID,
-					Kind: s.Note.Type, Text: s.Note.Message, At: ms(s.Note.At)})
-			} else if st == "waiting" && s.Agent != nil {
-				text := s.Agent.WaitingFor
-				if text == "" {
-					text = "waiting for input"
-				}
-				v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: "waiting", Text: oneLine(text)})
-			}
+			m.needsFor(&v, wt, name, lv.Terminal, s, st)
 		}
 		sort.Slice(lv.Subagents, func(i, j int) bool { return lv.Subagents[i].Since < lv.Subagents[j].Since })
+		lv.SubagentsApprox = m.heuristicsApprox()
 		lv.LastEventAt = ms(newest)
 		if lv.Stale {
 			v.Banners = append(v.Banners, fmt.Sprintf(
@@ -735,6 +887,7 @@ func (m *Model) Snapshot(now time.Time) View {
 	for i := len(m.feed) - 1; i >= 0; i-- {
 		v.Feed = append(v.Feed, m.feed[i])
 	}
+	m.snapshotV2(&v, now)
 	return v
 }
 
@@ -761,6 +914,11 @@ type TermLaneView struct {
 	// gone (a reboot), or a tmux session the registry does not know. "" when sound.
 	Orphan string `json:"orphan,omitempty"`
 	Action string `json:"action,omitempty"` // a registry action begun and not finished
+	// v2.
+	Restorable  bool   `json:"restorable,omitempty"` // registered, its tmux session gone: RESTORE brings it back
+	Template    string `json:"template,omitempty"`
+	PromptState string `json:"promptState,omitempty"` // pending | typing | sent | delivered | skipped
+	PromptNote  string `json:"promptNote,omitempty"`
 }
 
 // ApplyRegistryProblems records registry records that could not be shown at all.

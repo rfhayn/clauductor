@@ -88,6 +88,15 @@ type Options struct {
 	TermIdleTimeout time.Duration
 	// OpenBrowser overrides how the page is opened (tests record the URL instead).
 	OpenBrowser func(url string)
+
+	// v2.
+	// TrustConfig trusts the config as it is now, even if it changed (--trust-config).
+	TrustConfig bool
+	// Notify overrides how an OS notification is shown (tests record it instead).
+	Notify func(Notice) error
+	// LockRunArgv overrides the lock-run command a queue RUN starts (default: this
+	// binary's `lock-run`).
+	LockRunArgv []string
 }
 
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
@@ -124,7 +133,7 @@ func Run(ctx context.Context, o Options) error {
 	if cfgPath == "" {
 		cfgPath = filepath.Join(root, DefaultConfigRel)
 	}
-	cfg, err := LoadConfig(cfgPath)
+	cfg, rawCfg, err := LoadConfigRaw(cfgPath)
 	if err != nil {
 		return err
 	}
@@ -135,11 +144,16 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("%s: %w", root, err)
 	}
 
-	ln, err := Listen(o.Port)
+	ln, ln6, v6why, err := ListenLoopback(o.Port)
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
+	if ln6 != nil {
+		defer ln6.Close()
+	} else {
+		fmt.Fprintf(o.Out, "no IPv6 loopback (%s): serving 127.0.0.1 only, so open the panel at 127.0.0.1\n", v6why)
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Install hooks only once the port is ours, so a refused second launch never
@@ -185,6 +199,7 @@ func Run(ctx context.Context, o Options) error {
 		}
 		cfg.TmuxSocket = o.TmuxSocket
 	}
+	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
 	lanes, lanesWhy := newLaneManager(o, cfg, root)
 	model := NewModel(cfg, root, time.Now())
 	hub := NewHub(model, time.Now)
@@ -197,6 +212,7 @@ func Run(ctx context.Context, o Options) error {
 	if lanes != nil {
 		p.registry = lanes.Registry // set before ingest starts reading it
 	}
+	p.x = newRuntimeV2(o, cfg, root, cfgPath, trust, hub, p, lanes)
 	hooks := make(chan []byte, 256)
 	status := make(chan []byte, 64)
 
@@ -217,8 +233,12 @@ func Run(ctx context.Context, o Options) error {
 		p.cardKicks = append(p.cardKicks, kick)
 		start(func() { p.cardLoop(ctx, c, kick) })
 	}
+	p.x.start(ctx, start)
 
 	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lanes}
+	srv.Orch = p.x.orchestration()
+	srv.HostNames = cfg.HostNames
+	p.x.srv.Store(srv)
 	srv.TermIdleTimeout = o.TermIdleTimeout
 	if lanes != nil {
 		lanes.Stopped = srv.closeTerminals
@@ -251,14 +271,17 @@ func Run(ctx context.Context, o Options) error {
 		// SSE handlers watch the request context; tying it to ctx lets shutdown end them.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
-	serveErr := make(chan error, 1)
+	serveErr := make(chan error, 2)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
+	if ln6 != nil { // [::1]: clauductor.localhost resolves there first
+		go func() { serveErr <- httpSrv.Serve(ln6) }()
+	}
 
-	url := fmt.Sprintf("http://%s:%d/?t=%s", LoopbackHost, port, token)
+	url := fmt.Sprintf("http://%s:%d/?t=%s", PanelHost(ln6 != nil), port, token)
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
-			cfg.Name, root, LoopbackHost, port, TokenPath(o.Home))
+			cfg.Name, root, PanelHost(ln6 != nil), port, TokenPath(o.Home))
 	} else {
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
 	}
@@ -329,6 +352,7 @@ type pollers struct {
 	kickTmux   chan struct{}
 	cardKicks  []chan struct{}
 	registry   *Registry // nil when lanes are unavailable
+	x          *runtimeV2
 
 	mu         sync.Mutex
 	lastWTKick time.Time
@@ -386,8 +410,10 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 		case body := <-hooks:
 			ev, err := ParseHook(body)
 			if err != nil {
+				p.x.malformed.Add(1)
 				continue
 			}
+			p.x.hookSeen(ev)
 			ev.Cwd = ResolvePath(ev.Cwd)
 			// A prompt, or a finished turn, means the session has a conversation to
 			// --resume. Hooks can be dropped, so busy in `claude agents` counts too.
@@ -402,6 +428,7 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 		case body := <-status:
 			st, err := ParseStatus(body)
 			if err != nil {
+				p.x.malformed.Add(1)
 				continue
 			}
 			st.Cwd = ResolvePath(st.Cwd)
@@ -447,6 +474,12 @@ func (p *pollers) worktreeLoop(ctx context.Context) {
 }
 
 func (p *pollers) agentsLoop(ctx context.Context) {
+	if p.x != nil {
+		// v2: --cwd, backoff while hooks flow, latency. It keeps v1's duty below:
+		// a session seen busy is marked as having a conversation.
+		p.x.agentsLoop(ctx)
+		return
+	}
 	loop(ctx, 2*time.Second, p.kickAgents, func() {
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -487,6 +520,10 @@ func (p *pollers) prLoop(ctx context.Context) {
 func (p *pollers) cardLoop(ctx context.Context, c CardConfig, kickCh chan struct{}) {
 	rule, _ := ParseRefresh(c.Refresh) // validated at load
 	runCard := func() {
+		if !p.x.trusted() {
+			p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, nil, errUntrusted, now) })
+			return
+		}
 		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		out, err := p.run(cctx, p.root, c.Command)

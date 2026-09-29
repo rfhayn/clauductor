@@ -21,6 +21,7 @@ var (
 	panelNoOpen    bool
 	panelUninstall bool
 	panelLaunchd   bool
+	panelTrust     bool
 )
 
 // panelCmd is standalone by design: unlike the rest of the CLI it never opens the
@@ -68,13 +69,14 @@ other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return panel.Run(ctx, panel.Options{
-			Project:    project,
-			ConfigPath: panelConfig,
-			Port:       panelPort,
-			NoOpen:     panelNoOpen,
-			Home:       home,
-			Out:        out,
-			Launchd:    panelLaunchd,
+			Project:     project,
+			ConfigPath:  panelConfig,
+			Port:        panelPort,
+			NoOpen:      panelNoOpen,
+			Home:        home,
+			Out:         out,
+			Launchd:     panelLaunchd,
+			TrustConfig: panelTrust,
 		})
 	},
 }
@@ -88,6 +90,9 @@ func init() {
 	// Set only by the login agent's plist: persistent token, 30-day cookie, one browser open per login.
 	panelCmd.Flags().BoolVar(&panelLaunchd, "launchd", false, "run as the launchd login agent")
 	_ = panelCmd.Flags().MarkHidden("launchd")
+	panelCmd.Flags().BoolVar(&panelTrust, "trust-config", false, "trust panel.json as it is now, even if it changed since it was last trusted")
+	panelTrustCmd.Flags().StringVar(&trustProject, "project", "", "project root (default: git toplevel of the current directory)")
+	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
 
 	panelInstallCmd.Flags().StringVar(&installProject, "project", "", "project root the agent serves (required)")
 	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
@@ -95,7 +100,7 @@ func init() {
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	_ = panelInstallCmd.MarkFlagRequired("project")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
-	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd)
+	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -121,6 +126,11 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
+			return err
+		}
+		// Installing is choosing this config: record it as trusted, so the agent does
+		// not start in the untrusted mode.
+		if _, err := panel.TrustConfig(home, installProject, installConfig); err != nil {
 			return err
 		}
 		return panel.Install(panel.InstallOptions{Home: home, Project: installProject, Config: installConfig,
@@ -191,6 +201,43 @@ event stream is closed. Then 'clauductor panel open' opens the page with the new
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `clauductor panel open` opens it with the new token.\n", panel.TokenPath(home))
+		return nil
+	},
+}
+
+var (
+	trustProject string
+	trustConfig  string
+)
+
+var panelTrustCmd = &cobra.Command{
+	Use:   "trust",
+	Short: "Trust panel.json as it is now, so its cards, queue commands and templates run",
+	Long: `panel.json names commands the panel runs and prompts it types into lanes. The
+panel records its SHA-256 on first use; when the file changes (a pull, say), a
+running or starting panel keeps its cards, queue commands and templates off until
+you trust the new version with this command. A running panel notices within 5 s.`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		project := trustProject
+		if project == "" {
+			top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+			if err != nil {
+				return fmt.Errorf("not inside a git repository; pass --project <path>")
+			}
+			project = strings.TrimSpace(string(top))
+		}
+		h, err := panel.TrustConfig(home, project, trustConfig)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Trusted panel config (sha256 %s).\n", h[:12])
 		return nil
 	},
 }

@@ -128,7 +128,9 @@ func TestTokenExchangeSetsAStrictCookie(t *testing.T) {
 
 func TestForeignHostRefused(t *testing.T) {
 	s, _ := newTestServer(t)
-	for _, host := range []string{"evil.example:4393", "127.0.0.1:4394", "localhost", "[::1]:4393", "127.0.0.1.nip.io:4393"} {
+	// [::1]:4393 is allowed since v2 (clauductor.localhost resolves to ::1 first);
+	// hosts_test.go covers the full list.
+	for _, host := range []string{"evil.example:4393", "127.0.0.1:4394", "localhost", "[::2]:4393", "127.0.0.1.nip.io:4393", "evil.localhost:4393"} {
 		for _, target := range []string{"/", "/hook", "/events"} {
 			method := "GET"
 			if target == "/hook" {
@@ -155,7 +157,9 @@ func TestStateChangingRequestsNeedOurOrigin(t *testing.T) {
 		{"null", 403},
 		{"http://127.0.0.1:4394", 403},
 		{"http://127.0.0.1:4393", 204},
-		{"http://localhost:4393", 204},
+		// v2: the Origin must equal "http://" + THIS request's Host (127.0.0.1:4393
+		// here), so the other loopback spelling is cross-host now.
+		{"http://localhost:4393", 403},
 	}
 	for _, tc := range tests {
 		opts := []reqOpt{withCookie(s)}
@@ -244,7 +248,7 @@ func TestEventsStreamsFullStateOnConnect(t *testing.T) {
 	}()
 	select {
 	case s := <-got:
-		if !strings.Contains(s, "event: state") || !strings.Contains(s, `"name":"Standing Tee"`) {
+		if !strings.Contains(s, "event: state") || !strings.Contains(s, `"name":"My Project"`) {
 			t.Fatalf("first event: %s", s)
 		}
 	case <-deadline:

@@ -47,6 +47,22 @@ type Config struct {
 	Base string `json:"base"`
 	// LaneTypes adds per-type launch options (model, effort) keyed by lane type.
 	LaneTypes map[string]LaneTypeConfig `json:"lane_types"`
+
+	// v2: orchestration. All optional; see config_v2.go.
+
+	// Version is the config schema version: 0 (absent), 1 or 2.
+	Version int `json:"version,omitempty"`
+	// Templates are lane recipes offered in the Start dialog.
+	Templates []TemplateConfig `json:"templates"`
+	// Queues are shared resources held as an on-disk lease (the gate on port 3100).
+	Queues []QueueConfig `json:"queues"`
+	// Alerts sets the alert thresholds and the OS notifications.
+	Alerts *AlertConfig `json:"alerts"`
+	// QuotaGuard refuses to start a lane above a 5-hour quota threshold.
+	QuotaGuard *QuotaGuardConfig `json:"quota_guard"`
+	// HostNames are extra names the panel answers to, each "<label>.localhost"
+	// (clauductor.localhost always works). No wildcards.
+	HostNames []string `json:"host_names"`
 }
 
 // LaneTypeConfig holds the launch options of one lane type.
@@ -184,14 +200,22 @@ const minCardInterval = 5 * time.Second
 
 // LoadConfig reads and validates a panel config file.
 func LoadConfig(path string) (*Config, error) {
+	c, _, err := LoadConfigRaw(path)
+	return c, err
+}
+
+// LoadConfigRaw reads and validates a panel config and also returns the exact bytes
+// it parsed, so the trust hash covers what runs rather than a second read.
+func LoadConfigRaw(path string) (*Config, []byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no panel config at %s (create it, or pass --config; see docs/panel.md)", path)
+			return nil, nil, fmt.Errorf("no panel config at %s (create it, or pass --config; see docs/panel.md)", path)
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	return ParseConfig(raw)
+	c, err := ParseConfig(raw)
+	return c, raw, err
 }
 
 // ParseConfig parses and validates panel config bytes. Unknown keys are refused so a
@@ -213,6 +237,14 @@ func ParseConfig(raw []byte) (*Config, error) {
 func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("panel config: name is required")
+	}
+	// The name reaches OS notification titles and the page: one line of plain text,
+	// never anything a command line could read as an option.
+	if err := typableText(c.Name, 80); err != nil {
+		return fmt.Errorf("panel config: name %w", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(c.Name), "-") {
+		return fmt.Errorf("panel config: name must not start with \"-\"")
 	}
 	for k, v := range c.Lanes {
 		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
@@ -257,7 +289,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("panel config: card %q: %w", card.ID, err)
 		}
 	}
-	return nil
+	return c.validateV2()
 }
 
 // ParseRefresh parses a card refresh rule.

@@ -29,6 +29,7 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ws/term", s.terminal)
 	mux.HandleFunc("POST /api/lanes", s.requireAuth(s.startLane))
 	mux.HandleFunc("POST /api/lanes/{id}/{action}", s.requireAuth(s.laneAction))
+	s.orchRoutes(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -60,7 +61,7 @@ func (s *Server) startLane(w http.ResponseWriter, r *http.Request) {
 		writeLaneErr(w, laneErr(http.StatusBadRequest, "malformed-request", "body must be {type, mode, name, worktree?}: %v", err))
 		return
 	}
-	res, lerr := s.Lanes.Start(r.Context(), req)
+	res, lerr := s.Lanes.StartLane(r.Context(), req, s.Orch.startGate())
 	if lerr != nil {
 		writeLaneErr(w, lerr)
 		return
@@ -86,7 +87,9 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 	case "restart":
 		lerr = s.Lanes.Restart(r.Context(), id)
 	case "resume":
-		lerr = s.Lanes.Resume(r.Context(), id)
+		if lerr = s.Lanes.Resume(r.Context(), id); lerr == nil {
+			s.Lanes.markRestored(id)
+		}
 	case "forget":
 		lerr = s.Lanes.Forget(r.Context(), id)
 	case "terminal-app":

@@ -3,12 +3,14 @@ package panel
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"time"
 )
 
 // HookTag is the query parameter that marks a hook entry as the panel's own. Claude
@@ -19,7 +21,14 @@ const HookTag = "clauductor-panel"
 // HookEvents are the events the panel subscribes to. SessionStart is absent on
 // purpose: HTTP hooks do not fire for it (verified on Claude Code 2.1.284), so new
 // sessions are found through `claude agents --json` instead.
-var HookEvents = []string{"UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "Notification", "SessionEnd"}
+//
+// v2 adds StopFailure (its error_type says rate_limit), PermissionRequest, the
+// compaction pair and CwdChanged. The panel only OBSERVES PermissionRequest (and
+// PreCompact, which could block): /hook answers 204 with an empty body, which Claude
+// Code documents as "no decision", so the permission flow proceeds unchanged. It
+// never answers a permission request, because /hook takes no token.
+var HookEvents = []string{"UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "Notification", "SessionEnd",
+	"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged"}
 
 // HookURL is the URL the panel's hooks post to.
 func HookURL(port int) string {
@@ -81,7 +90,33 @@ func sameJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &va) == nil && json.Unmarshal(b, &vb) == nil && reflect.DeepEqual(va, vb)
 }
 
+// errSettingsChanged means settings.json changed on disk between the panel's read
+// and its rename: another writer (Claude Code itself, a dotfile manager) got there
+// first, so the edit is redone on the new content rather than overwriting it.
+var errSettingsChanged = errors.New("settings.json changed while the panel was editing it")
+
+// settingsRetries is how many times a read-modify-write is redone after a
+// concurrent change.
+const settingsRetries = 5
+
+// beforeSettingsRename, if set, runs just before the compare-and-rename (tests use
+// it to simulate a concurrent writer).
+var beforeSettingsRename func(path string)
+
 func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
+	var err error
+	for i := 0; i < settingsRetries; i++ {
+		var changed bool
+		changed, err = rewriteHooksOnce(home, edit)
+		if !errors.Is(err, errSettingsChanged) {
+			return changed, err
+		}
+		time.Sleep(time.Duration(20*(i+1)) * time.Millisecond)
+	}
+	return false, fmt.Errorf("%w %d times in a row; not touching it", err, settingsRetries)
+}
+
+func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error) {
 	path := SettingsPath(home)
 	// Edit the file a symlinked settings.json points at (dotfile managers do this);
 	// renaming over the link would silently replace it with a regular file.
@@ -148,7 +183,22 @@ func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 			}
 		}
 	}
-	return true, writeAtomic(path, out.Bytes(), mode)
+	// Re-read immediately before the rename: if the file is no longer what this edit
+	// was computed from, another writer changed it, and renaming would lose its
+	// change. The window left is the rename itself.
+	return true, writeAtomicChecked(path, out.Bytes(), mode, func() error {
+		if beforeSettingsRename != nil {
+			beforeSettingsRename(path)
+		}
+		now, err := os.ReadFile(path)
+		if os.IsNotExist(err) && orig == nil {
+			return nil
+		}
+		if err != nil || !bytes.Equal(now, orig) {
+			return errSettingsChanged
+		}
+		return nil
+	})
 }
 
 // jsonEqual compares two documents after compaction, so an install that would only
@@ -162,6 +212,12 @@ func jsonEqual(a, b []byte) bool {
 }
 
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	return writeAtomicChecked(path, data, mode, nil)
+}
+
+// writeAtomicChecked writes a temp file, then runs check (if set) right before the
+// rename; a check error abandons the write.
+func writeAtomicChecked(path string, data []byte, mode os.FileMode, check func() error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings.json.tmp-*")
 	if err != nil {
 		return err
@@ -181,6 +237,11 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	if err := os.Chmod(name, mode); err != nil {
 		return err
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	return os.Rename(name, path)
 }

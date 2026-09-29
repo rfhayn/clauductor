@@ -44,12 +44,26 @@ type LaneRecord struct {
 	// Corrupt, when set, says why this record failed validation on load. A corrupt
 	// record is shown, can be stopped or forgotten, and is never launched.
 	Corrupt string `json:"-"`
+
+	// v2: a template lane's launch options and first prompt, and restores.
+	Template    string `json:"template,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	FirstPrompt string `json:"firstPrompt,omitempty"`
+	// PromptState is pending → typing → sent → delivered, or skipped. "typing" is
+	// written before the first keystroke, so a panel that dies mid-typing never
+	// types the prompt a second time.
+	PromptState string `json:"promptState,omitempty"`
+	PromptAt    int64  `json:"promptAt,omitempty"` // unix ms the prompt was typed
+	Restored    int64  `json:"restored,omitempty"` // unix ms of the last restore
 }
 
 var (
 	laneTypeRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{0,64}$`)
 	laneModes   = map[string]bool{"root": true, "existing": true, "new": true}
-	laneActions = map[string]bool{"start": true, "restart": true, "resume": true, "stop": true}
+	laneActions = map[string]bool{"start": true, "restart": true, "resume": true, "stop": true, "restore": true}
+	// v2 prompt states (lanes_v2.go).
+	promptStates = map[string]bool{"": true, "pending": true, "typing": true, "sent": true, "delivered": true, "skipped": true}
 )
 
 // validate checks a record read from disk before any field of it can become argv.
@@ -67,6 +81,12 @@ func (l LaneRecord) validate() string {
 		return "unknown mode"
 	case !laneActions[l.Action]:
 		return "unknown action"
+	case l.Model != "" && !launchOptRe.MatchString(l.Model), l.Effort != "" && !launchOptRe.MatchString(l.Effort):
+		return "model or effort is not a launch option the panel would pass"
+	case !promptStates[l.PromptState]:
+		return "unknown first-prompt state"
+	case l.FirstPrompt != "" && typableText(l.FirstPrompt, maxFirstPrompt) != nil:
+		return "first prompt is not one line of plain text"
 	}
 	return ""
 }

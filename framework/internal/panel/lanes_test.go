@@ -210,7 +210,7 @@ func TestConfigRejectsBadLaneKeys(t *testing.T) {
 			t.Errorf("accepted %s", body)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"x","tmux_socket":"standingtee","base":"origin/main","worktree_dir":"/abs/wt",
+	if _, err := ParseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
 		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
 		t.Fatal(err)
 	}

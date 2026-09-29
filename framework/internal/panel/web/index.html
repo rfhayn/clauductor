@@ -27,6 +27,7 @@
   <button class="btn" id="refresh" type="button" title="Re-poll every source now">↻ REFRESH</button>
 </header>
 <div class="banners" id="banners"></div>
+<div class="banners" id="restorebar" hidden></div>
 <main class="mgrid">
   <section class="mcol" id="left"></section>
   <section class="mcol" id="centre">
@@ -37,10 +38,12 @@
   </section>
   <section class="mcol" id="right"></section>
 </main>
+<footer class="obs" id="obs"></footer>
 <div class="modal" id="startdlg" hidden>
   <form class="dlg" id="startform" autocomplete="off">
     <h3>Start a lane</h3>
     <div class="sub">An interactive claude in its own tmux session. It keeps running when you close this page.</div>
+    <label>Template <select id="st-tpl"></select></label>
     <label>Lane type <select id="st-type"></select></label>
     <fieldset>
       <legend>Where it runs</legend>
@@ -50,6 +53,9 @@
     </fieldset>
     <label id="st-wt-row">Worktree <select id="st-wt"></select></label>
     <label>Lane name <input type="text" id="st-name" maxlength="41" spellcheck="false" placeholder="e.g. add-login"></label>
+    <label id="st-issue-row" hidden>Issue <input type="text" id="st-issue" maxlength="200" spellcheck="false" placeholder="e.g. #412"></label>
+    <div class="sub" id="st-prompt" hidden></div>
+    <label class="inline" id="st-quota-row" hidden><input type="checkbox" id="st-quota"> <span id="st-quota-why"></span></label>
     <div class="sub" id="st-preview"></div>
     <div class="card err" id="st-block" hidden></div>
     <div class="stop" id="st-err"></div>

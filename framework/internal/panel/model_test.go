@@ -130,7 +130,7 @@ func TestReducerDropsEventsOutsideTheProject(t *testing.T) {
 		{"/repo", "main"},
 		{"/repo/apps/web", "main"},
 		// Linked worktrees live inside the main checkout: the longest match must win.
-		{"/repo/.claude/worktrees/build-add-support-access", "add-support-access"},
+		{"/repo/.claude/worktrees/build-add-feature", "add-feature"},
 		{"/repo/.claude/worktrees/fix-thing/apps/web", "thing"},
 		{"/repo-evil", ""},
 		{"/elsewhere/other-project", ""},
@@ -186,8 +186,11 @@ func TestReducerStatusLine(t *testing.T) {
 	if q := m.Snapshot(t0).Quota; q.FiveHour == nil || *q.FiveHour != 12 || *q.SevenDay != 71 {
 		t.Fatalf("partial quota post: %+v", q)
 	}
-	// A status post from another project must not move the quota or the cost.
+	// A status post from another project must not move the quota or the cost. (A
+	// session already bound here keeps its binding when it cds away, so the foreign
+	// post is a different session.)
 	foreign := sp
+	foreign.SessionID = "someone-else"
 	foreign.Cwd = "/elsewhere"
 	hi := 99.0
 	foreign.RateLimits.FiveHour = &RateLimit{UsedPercentage: &hi}
@@ -209,9 +212,9 @@ func TestReducerAgentsPoll(t *testing.T) {
 	m.ApplyAgents(agents, nil, t0)
 	v := m.Snapshot(t0)
 	want := map[string][2]string{ // name → {type, status}
-		"main":               {"orchestrator", "idle"},
-		"add-support-access": {"build", "busy"},
-		"thing":              {"fix", "waiting"},
+		"main":        {"orchestrator", "idle"},
+		"add-feature": {"build", "busy"},
+		"thing":       {"fix", "waiting"},
 	}
 	if len(v.Lanes) != len(want) {
 		t.Fatalf("want %d lanes, got %d: %+v", len(want), len(v.Lanes), v.Lanes)
@@ -236,7 +239,7 @@ func TestReducerAgentsPoll(t *testing.T) {
 	// A failed poll keeps the last good list and says so.
 	m.ApplyAgents(nil, errors.New("claude: not found"), t0.Add(4*time.Second))
 	v = m.Snapshot(t0.Add(4 * time.Second))
-	if v.Sources["agents"].OK || v.Sources["agents"].Error == "" || laneByName(v, "add-support-access") == nil {
+	if v.Sources["agents"].OK || v.Sources["agents"].Error == "" || laneByName(v, "add-feature") == nil {
 		t.Fatalf("failed poll handled wrongly: %+v", v.Sources["agents"])
 	}
 }
@@ -254,29 +257,31 @@ func TestReducerRealAgentsCapture(t *testing.T) {
 	m.ApplyWorktrees(wts, nil, t0)
 	m.ApplyAgents(agents, nil, t0)
 	v := m.Snapshot(t0)
-	if laneByName(v, "main") == nil || laneByName(v, "add-support-access") == nil {
+	if laneByName(v, "main") == nil || laneByName(v, "add-feature") == nil {
 		t.Fatalf("real capture: lanes %+v", v.Lanes)
 	}
 }
 
 func TestReducerNeedsYou(t *testing.T) {
 	notif := func(kind string) HookEvent {
-		return HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-support-access",
+		return HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature",
 			Event: "Notification", NotificationType: kind, Message: "Claude needs your permission to use Bash"}
 	}
-	busy := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-support-access", Status: "busy"}}
-	waiting := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-support-access", Status: "waiting"}}
+	busy := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "busy"}}
+	waiting := []Agent{{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Status: "waiting"}}
 	tests := []struct {
 		name  string
 		steps func(m *Model)
 		want  int
 	}{
 		{"permission prompt shows", func(m *Model) { m.ApplyHook(notif("permission_prompt"), t0) }, 1},
-		{"idle prompt shows", func(m *Model) { m.ApplyHook(notif("idle_prompt"), t0) }, 1},
+		// idle_prompt is a finished turn (your move), not a blocked lane: it goes to
+		// Done, never to Needs you (rubric: "done" distinct from "blocked").
+		{"idle prompt is done, not blocked", func(m *Model) { m.ApplyHook(notif("idle_prompt"), t0) }, 0},
 		{"other notification types stay in the feed only", func(m *Model) { m.ApplyHook(notif("auth_success"), t0) }, 0},
 		{"a later prompt answers it", func(m *Model) {
 			m.ApplyHook(notif("idle_prompt"), t0)
-			m.ApplyHook(HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-support-access", Event: "UserPromptSubmit"}, t0.Add(time.Second))
+			m.ApplyHook(HookEvent{SessionID: "sess-build", Cwd: "/repo/.claude/worktrees/build-add-feature", Event: "UserPromptSubmit"}, t0.Add(time.Second))
 		}, 0},
 		{"going busy answers a permission prompt (no hook fires for a grant)", func(m *Model) {
 			m.ApplyAgents(waiting, nil, t0)
@@ -304,7 +309,7 @@ func TestReducerNeedsYou(t *testing.T) {
 }
 
 func TestReducerStaleHookBanner(t *testing.T) {
-	cwd := "/repo/.claude/worktrees/build-add-support-access"
+	cwd := "/repo/.claude/worktrees/build-add-feature"
 	agent := func(status string) []Agent {
 		return []Agent{{SessionID: "s", Cwd: cwd, Status: status}}
 	}
@@ -338,7 +343,7 @@ func TestReducerStaleHookBanner(t *testing.T) {
 			m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 			tc.steps(m)
 			v := m.Snapshot(t0.Add(tc.at))
-			l := laneByName(v, "add-support-access")
+			l := laneByName(v, "add-feature")
 			if l == nil || l.Stale != tc.want || (len(v.Banners) == 1) != tc.want {
 				t.Fatalf("stale=%v banners=%v, want %v", l != nil && l.Stale, v.Banners, tc.want)
 			}
@@ -402,7 +407,7 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 }
 
 func TestReducerSubagentLifecycle(t *testing.T) {
-	cwd := "/repo/.claude/worktrees/build-add-support-access"
+	cwd := "/repo/.claude/worktrees/build-add-feature"
 	start := func(id, typ string) HookEvent {
 		return HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: id, AgentType: typ}
 	}
