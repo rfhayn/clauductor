@@ -338,12 +338,8 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
 		";", "set-option", "-t", "="+id+":", "@clauductor_type", laneType,
 		";", "set-option", "-t", "="+id+":", "window-size", "latest",
-		// No prefix key on the panel's socket: from a lane's terminal, a prefix would
-		// reach every other lane and tmux's own command prompt (run-shell).
-		";", "set-option", "-g", "prefix", "None",
-		";", "set-option", "-g", "prefix2", "None",
-		";", "unbind-key", "-q", "-a", "-T", "prefix",
-		";", "unbind-key", "-q", "-a", "-T", "root")
+		";")
+	args = append(args, hardenArgs...)
 	return m.TmuxArgv(args...)
 }
 
@@ -516,12 +512,28 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 }
 
 // hardenArgs make the panel's socket keyless: no prefix, and no prefix or root
-// (bind -n) bindings. `-f /dev/null` only applies when the panel starts the server,
-// so this also runs against a server someone else started on the socket.
+// (bind -n) bindings. From a lane's terminal, a prefix would reach every other lane
+// and tmux's own command prompt (run-shell). `-f /dev/null` only applies when the
+// panel starts the server, so this also runs against a server someone else started
+// on the socket.
+//
+// PANEL-6: the mouse wheel scrolls the lane's history. tmux shows a lane on the
+// browser's alternate screen, and xterm.js turns a wheel there into ↑/↓ keypresses
+// unless the program asked for mouse reports: in a permission dialog, ↑ moved the
+// selection. `mouse on` makes tmux ask, so the wheel reaches tmux as a mouse event.
+// Of the root table that unbind-key cleared, only WheelUpPane comes back, as tmux
+// 3.x ships it: into copy mode (-e: it ends when you scroll back to the bottom),
+// or to the program if it asked for the mouse itself. Clicks and the right-click
+// menu (kill-pane, respawn-pane) stay unbound. In copy mode, q or Escape leaves.
+// The status bar is off: the tab already names the lane.
 var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "prefix2", "None",
 	";", "unbind-key", "-q", "-a", "-T", "prefix",
-	";", "unbind-key", "-q", "-a", "-T", "root"}
+	";", "unbind-key", "-q", "-a", "-T", "root",
+	";", "set-option", "-g", "status", "off",
+	";", "set-option", "-g", "mouse", "on",
+	";", "bind-key", "-T", "root", "WheelUpPane",
+	"if-shell", "-F", "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e"}
 
 // Harden applies hardenArgs if the socket has a server. The panel runs it whenever
 // it finds the server (every tmux poll) and before every viewer attaches.

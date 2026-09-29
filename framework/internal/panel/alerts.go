@@ -3,6 +3,7 @@ package panel
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,25 @@ type AlertView struct {
 	// Approx: raised from data that is not current (see blocked). It is shown on the
 	// page and never interrupts.
 	Approx bool `json:"approx,omitempty"`
+}
+
+// waitingPrefix starts a waiting alert's text.
+const waitingPrefix = "waiting on you: "
+
+// noticeLine is an alert's line in an OS notification: its text, with the age the
+// page computes for itself put back in.
+func noticeLine(a AlertView, now time.Time) string {
+	if a.Since == 0 {
+		return a.Text
+	}
+	age := mins(now.Sub(time.UnixMilli(a.Since)))
+	switch a.Kind {
+	case AlertWaiting:
+		return "waiting on you for " + age + ": " + strings.TrimPrefix(a.Text, waitingPrefix)
+	case AlertIdle:
+		return "idle for " + age
+	}
+	return a.Text
 }
 
 func mins(d time.Duration) string {
@@ -74,7 +94,9 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 			if b.Kind == "waiting" {
 				label = b.Text
 			}
-			add(AlertWaiting, SevBlock, fmt.Sprintf("waiting on you for %s: %s", mins(now.Sub(b.Since)), approxLabel(label, b)), b.Since)
+			// The text carries no age: the page shows it from Since, and the notifier
+			// adds it to the notification (noticeLine).
+			add(AlertWaiting, SevBlock, waitingPrefix+approxLabel(label, b), b.Since)
 			out[len(out)-1].Approx = b.Approx
 		}
 		if s.Failure != nil {
@@ -91,7 +113,7 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 			add(AlertContext, SevWarn, fmt.Sprintf("context at %.0f%% (alert at %.0f%%)", *s.CtxPct, th.ContextPct), s.StatusAt)
 		}
 		if r := m.agentReading(s, now); th.Idle > 0 && r != nil && r.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
-			add(AlertIdle, SevInfo, fmt.Sprintf("idle for %s", mins(now.Sub(s.IdleSince))), s.IdleSince)
+			add(AlertIdle, SevInfo, "idle", s.IdleSince)
 		}
 	}
 	if q := v.Quota; th.FiveHourPct > 0 && q != nil && q.FiveHour != nil && *q.FiveHour >= th.FiveHourPct {

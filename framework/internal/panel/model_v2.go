@@ -85,6 +85,29 @@ type ObsView struct {
 	Notifier             NotifierStats `json:"notifier"`
 }
 
+// Banner kinds: the page labels a banner by its kind (PANEL-6), never with one
+// generic label for all of them.
+const (
+	BannerNoHooks   = "no_hooks"  // a busy lane sends no hooks
+	BannerRestore   = "restore"   // lanes lost their tmux session (the restore bar acts on it)
+	BannerDropped   = "dropped"   // events dropped because the panel fell behind
+	BannerUntrusted = "untrusted" // panel.json changed since it was trusted
+	BannerHooks     = "hooks"     // the hook install failed, or another panel has the hooks
+	BannerRegistry  = "registry"  // lane registry records that cannot be shown
+)
+
+// BannerView is one banner with its kind.
+type BannerView struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// banner adds a banner to both lists.
+func (v *View) banner(kind, text string) {
+	v.Banners = append(v.Banners, text)
+	v.BannerItems = append(v.BannerItems, BannerView{Kind: kind, Text: text})
+}
+
 // ViewV2 is the v2 part of the View.
 type ViewV2 struct {
 	// Done holds finished turns and completed agents: your move, but not blocked.
@@ -238,9 +261,10 @@ func DecideFirstPrompt(in PromptInput, now time.Time) PromptDecision {
 			return PromptDecision{"wait", "waiting for a fresh `claude agents` poll"}
 		}
 		if now.Sub(in.Since) >= readyGrace {
-			return PromptDecision{"stuck", fmt.Sprintf("claude is not ready after %ds. Answer any dialog in its terminal "+
-				"(workspace trust defaults to \"No, exit\": press ↓ then Enter). The first prompt is typed as soon as claude is idle.",
-				int(now.Sub(in.Since).Seconds()))}
+			// No age in the text: the page shows how long from the item's time, so the
+			// view stays the same (and unpushed) while nothing changes.
+			return PromptDecision{"stuck", "claude is not ready yet. Answer any dialog in its terminal " +
+				"(workspace trust defaults to \"No, exit\": press ↓ then Enter). The first prompt is typed as soon as claude is idle."}
 		}
 		return PromptDecision{"wait", "waiting for claude to be ready"}
 	case "typing":
@@ -370,7 +394,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 		return sevRank(v.NeedsYou[i].Severity) > sevRank(v.NeedsYou[j].Severity)
 	})
 	if len(v.Restorable) > 0 {
-		v.Banners = append(v.Banners, fmt.Sprintf("%d lane(s) lost their tmux session (a reboot, or the tmux server ended): %s. "+
+		v.banner(BannerRestore, fmt.Sprintf("%d lane(s) lost their tmux session (a reboot, or the tmux server ended): %s. "+
 			"RESTORE ALL resumes each on its own session id.", len(v.Restorable), strings.Join(v.Restorable, ", ")))
 	}
 
@@ -384,11 +408,11 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 		v.Observe.ClaudeVersion = m.v2.statusVersion
 	}
 	if m.v2.obs.OverflowDrops > 0 {
-		v.Banners = append(v.Banners, fmt.Sprintf("%d hook or status-line event(s) were dropped because the panel fell behind. "+
+		v.banner(BannerDropped, fmt.Sprintf("%d hook or status-line event(s) were dropped because the panel fell behind. "+
 			"Lane states may lag until the next `claude agents` poll.", m.v2.obs.OverflowDrops))
 	}
 	if !m.v2.trust.Trusted && m.v2.trust.Hash != "" {
-		v.Banners = append(v.Banners, "panel.json changed since you trusted it ("+short(m.v2.trust.Prev)+" → "+short(m.v2.trust.Hash)+
+		v.banner(BannerUntrusted, "panel.json changed since you trusted it ("+short(m.v2.trust.Prev)+" → "+short(m.v2.trust.Hash)+
 			"). Its commands (cards, queue RUN) and templates are off until you run `clauductor panel trust` (or restart with --trust-config).")
 	}
 	switch {

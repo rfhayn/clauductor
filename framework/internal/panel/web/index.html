@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Clauductor Panel</title>
-<link rel="icon" href="data:,">
+<!-- The favicon is drawn by panel.js: a badge with the Needs-you count (img-src allows data:). -->
+<link rel="icon" id="favicon" href="data:,">
 <!-- The CSP allows only this origin: no inline script or style, no CDN. xterm.js and
      the fonts are vendored into the binary. xterm adds style elements at run time;
      panel.js gives each one this per-response nonce, the only inline style allowed. -->
@@ -37,17 +38,26 @@
   </div>
 </header>
 <div class="band" aria-hidden="true"></div>
-<div class="banners" id="banners"></div>
-<div class="banners" id="restorebar" hidden></div>
+<!-- Shown only while the page has lost the panel: everything below is then as of the
+     time it names, and every action is off. -->
+<div class="connbar" id="connbar" role="alert" hidden></div>
+<!-- New blocking items are announced here, politely, for screen readers. -->
+<div class="sr" id="announce" aria-live="polite"></div>
 <main class="mgrid">
-  <section class="mcol" id="left"></section>
-  <section class="mcol" id="centre">
-    <div class="tabs" id="tabs"></div>
+  <!-- Needs you comes first in the DOM, so it is first at every width. -->
+  <section class="mcol" id="left" aria-label="Needs you and lanes"></section>
+  <section class="mcol" id="centre" aria-label="Terminals and the selected lane">
+    <div class="banners" id="banners"></div>
+    <div class="banners" id="restorebar" hidden></div>
+    <div class="tabrow" id="tabrow">
+      <div class="tabs" id="tabs"></div>
+      <div class="termhint" id="termhint" aria-hidden="true"></div>
+    </div>
     <div class="termhost" id="termhost"><div class="empty" id="termempty"></div><div class="empty" id="termorphan" hidden></div></div>
     <div class="termbar" id="termbar"></div>
     <div class="detail" id="detail"></div>
   </section>
-  <section class="mcol" id="right"></section>
+  <section class="mcol" id="right" aria-label="Alerts, queues, pull requests and the feed"></section>
 </main>
 <footer class="obs" id="obs"></footer>
 <div class="modal" id="startdlg" hidden>

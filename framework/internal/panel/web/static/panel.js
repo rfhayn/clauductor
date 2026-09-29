@@ -24,8 +24,83 @@ function el(tag, cls, text, kids) {
   return e;
 }
 const $ = (id) => document.getElementById(id);
-const now = () => Date.now() - offset;
-function age(ms) {
+
+// ---- Patching in place (PANEL-6) ------------------------------------------------
+// The page is described by building fresh elements, then patched into the live DOM:
+// an element whose key (data-k) or position matches is kept and only its differences
+// are applied, so focus, selection and scroll survive an update. Every control has a
+// stable key. A region (the nearest keyed element) that holds the active text
+// selection is not touched until the selection is gone.
+function key(e, k) { e.dataset.k = k; return e; }
+// Handlers live on the element as data, so a patch can swap them without re-adding
+// listeners: a kept element runs the handler of the newest description of it.
+function dispatch(ev) { const f = this._h && this._h[ev.type]; if (f) f.call(this, ev); }
+function on(e, type, fn) {
+  (e._h || (e._h = {}))[type] = fn;
+  e.addEventListener(type, dispatch);
+  return e;
+}
+let selRegion = null;
+function selectionRegion() {
+  const s = window.getSelection();
+  if (!s || s.isCollapsed || !s.rangeCount) return null;
+  let n = s.getRangeAt(0).commonAncestorContainer;
+  if (n.nodeType !== 1) n = n.parentElement;
+  if (!n || n.closest(".xterm")) return null;
+  return n.closest("[data-k]") || n;
+}
+function sameKind(o, n) { return o.nodeType === n.nodeType && (o.nodeType !== 1 || o.tagName === n.tagName); }
+function keyOf(n) { return n.nodeType === 1 && n.dataset.k != null ? n.dataset.k : null; }
+function syncAttrs(o, n) {
+  for (const a of Array.from(o.attributes)) if (a.name !== "style" && !n.hasAttribute(a.name)) o.removeAttribute(a.name);
+  for (const a of Array.from(n.attributes)) if (a.name !== "style" && o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+  // Styles go through CSSOM: the CSP refuses style attributes.
+  if (o.style.cssText !== n.style.cssText) o.style.cssText = n.style.cssText;
+  if (n._h) { o._h = n._h; for (const t of Object.keys(n._h)) o.addEventListener(t, dispatch); } else o._h = null;
+}
+function morph(o, n) {
+  if (o === selRegion) return;
+  syncAttrs(o, n);
+  patch(o, n.childNodes);
+}
+// patch makes parent's children match kids, keeping every node it can.
+function patch(parent, kids) {
+  if (parent === selRegion) return;
+  kids = Array.from(kids);
+  const olds = Array.from(parent.childNodes);
+  const byKey = new Map(), loose = [];
+  for (const o of olds) { const k = keyOf(o); if (k != null && !byKey.has(k)) byKey.set(k, o); else if (k == null) loose.push(o); }
+  const used = new Set();
+  let li = 0;
+  const plan = kids.map((n) => {
+    const k = keyOf(n);
+    let o = null;
+    if (k != null) { o = byKey.get(k) || null; if (o && (!sameKind(o, n) || used.has(o))) o = null; }
+    else while (li < loose.length) { const c = loose[li++]; if (sameKind(c, n)) { o = c; break; } }
+    if (o) used.add(o);
+    return [o, n];
+  });
+  for (const o of olds) if (!used.has(o)) o.remove();
+  plan.forEach(([o, n], i) => {
+    const node = o || n;
+    if (o) {
+      if (o.nodeType === 1) morph(o, n);
+      else if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue;
+    }
+    const at = parent.childNodes[i];
+    if (at !== node) parent.insertBefore(node, at || null);
+  });
+}
+function patchInto(id, kids) { patch($(id), kids.filter(Boolean)); }
+function setText(e, t) { if (e.textContent !== t) e.textContent = t; }
+
+// ---- Time --------------------------------------------------------------------------
+// Every age is computed here from a timestamp: the server sends none, and pushes a
+// view only when it changed. While the page has lost the panel, the clock stops at
+// the last word from it, so nothing looks fresher than it is.
+let frozenAt = 0;
+const now = () => frozenAt || Date.now() - offset;
+function ageText(ms) {
   if (!ms) return "—";
   const s = Math.max(0, Math.round((now() - ms) / 1000));
   if (s < 60) return s + "s";
@@ -33,41 +108,124 @@ function age(ms) {
   if (s < 86400) return Math.floor(s / 3600) + "h" + String(Math.floor((s % 3600) / 60)).padStart(2, "0");
   return Math.floor(s / 86400) + "d";
 }
+// An age that keeps moving: tickAges rewrites it once a second, in place.
+function age(ms, before, after) {
+  const e = el("span", "age", (before || "") + ageText(ms) + (after || ""));
+  e.dataset.at = ms || 0;
+  if (before) e.dataset.pre = before;
+  if (after) e.dataset.post = after;
+  return e;
+}
+function tickAges() {
+  if (frozenAt) return;
+  const hold = selectionRegion();
+  for (const e of document.querySelectorAll("span.age[data-at]")) {
+    if (hold && hold.contains(e)) continue;
+    setText(e, (e.dataset.pre || "") + ageText(+e.dataset.at) + (e.dataset.post || ""));
+  }
+}
 function hhmm(ms) { const d = new Date(ms); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + String(d.getSeconds()).padStart(2, "0"); }
+function hm(ms) { const d = new Date(ms); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 function pct(v) { return v == null ? "—" : Math.round(v) + "%"; }
 
-function setLive(ok, msg) {
-  const l = $("live");
-  l.textContent = ok ? "LIVE" : (msg || "DISCONNECTED");
-  l.className = ok ? "live" : "live dead";
-}
+// ---- The connection -------------------------------------------------------------
+// LIVE while state or a heartbeat (every 5 s) arrives. Three missed beats, or a
+// dropped stream, and the page says so everywhere: a banner with the reconnect
+// status, the title, dimmed columns, ages frozen at the last word, actions off.
+const BEAT_MISS_MS = 15000;
+let lastBeat = 0;       // Date.now() of the last message from the panel
+let lastServer = 0;     // the panel's clock at that message
+const conn = { state: "connecting", attempt: 0, nextAt: 0, timer: null, expired: false };
+const offline = () => conn.state !== "live" && S !== null;
 
+function heard(serverNow) {
+  lastBeat = Date.now();
+  if (serverNow) { lastServer = serverNow; offset = Date.now() - serverNow; }
+}
 function connect() {
   if (es) es.close();
   es = new EventSource("/events");
   es.addEventListener("state", (e) => {
     S = JSON.parse(e.data);
-    offset = Date.now() - S.now;
-    setLive(true);
+    heard(S.now);
+    goLive();
     render();
   });
-  es.onerror = () => { setLive(false); es.close(); es = null; setTimeout(probe, 2000); };
+  es.addEventListener("hb", (e) => {
+    try { heard(JSON.parse(e.data).now); } catch (x) { heard(0); }
+    if (S) goLive();
+  });
+  es.onerror = () => lost();
+}
+function goLive() {
+  if (conn.state === "live") return;
+  const was = conn.state;
+  conn.state = "live"; conn.attempt = 0; conn.expired = false; frozenAt = 0;
+  clearTimeout(conn.timer);
+  if (was !== "connecting") render();
+}
+function lost(expired) {
+  if (es) { es.close(); es = null; }
+  if (conn.state === "live" || conn.state === "connecting") frozenAt = lastServer || 0;
+  conn.state = "lost"; conn.expired = !!expired;
+  const delay = Math.min(1000 * 2 ** conn.attempt, 10000);
+  conn.attempt++;
+  conn.nextAt = Date.now() + delay;
+  clearTimeout(conn.timer);
+  conn.timer = setTimeout(probe, delay);
+  render();
 }
 // EventSource gives up silently on a 401 (e.g. the panel restarted with a new token),
 // so probe with fetch to tell "server down" from "session expired".
 async function probe() {
+  clearTimeout(conn.timer);
+  conn.nextAt = 0;
+  renderConn();
   try {
     const r = await fetch("/api/state", { cache: "no-store" });
-    if (r.status === 401) { setLive(false, "DISCONNECTED · open the new URL printed by clauductor panel"); setTimeout(probe, 5000); return; }
+    if (r.status === 401) { lost(true); return; }
     if (!r.ok) throw new Error(r.status);
-  } catch (e) { setLive(false); setTimeout(probe, 2000); return; }
+  } catch (e) { lost(conn.expired); return; }
   connect();
+}
+setInterval(() => {
+  if (conn.state === "live" && Date.now() - lastBeat > BEAT_MISS_MS) lost();
+  if (conn.state === "lost") renderConn();
+}, 1000);
+
+function renderConn() {
+  const bar = $("connbar"), live = $("live");
+  const off = offline();
+  document.body.classList.toggle("offline", off);
+  if (!S) {
+    setText(live, conn.state === "lost" ? "DISCONNECTED" : "CONNECTING");
+    live.className = "live dead";
+  } else {
+    setText(live, off ? "DISCONNECTED" : "LIVE");
+    live.className = off ? "live dead" : "live";
+  }
+  bar.hidden = !off;
+  if (!off) return;
+  const asOf = frozenAt ? hhmm(frozenAt) : "—";
+  const wait = conn.nextAt ? Math.max(0, Math.ceil((conn.nextAt - Date.now()) / 1000)) : 0;
+  const status = conn.expired
+    ? "The panel restarted with a new token: open the URL clauductor panel printed, or run clauductor panel open."
+    : conn.nextAt ? "Reconnecting: attempt " + conn.attempt + ", next try in " + wait + " s." : "Reconnecting now…";
+  const retry = key(el("button", "btn", "RETRY NOW"), "retry");
+  retry.type = "button";
+  on(retry, "click", () => probe());
+  patch(bar, [
+    el("b", null, "⚠ DISCONNECTED"),
+    el("span", null, "The panel is not answering. Everything below is as of " + asOf + ", and actions are off until it is back. "),
+    key(el("span", "sub", status), "status"),
+    conn.expired ? null : retry,
+  ].filter(Boolean));
 }
 
 function gauge(id, v, expired) {
   const g = $(id), f = g.querySelector(".fill");
   // A window past its resets_at is dropped by the server: say "reset", not a number.
-  g.querySelector("b").textContent = expired ? "reset" : pct(v);
+  setText(g.querySelector("b"), expired ? "reset" : pct(v));
   f.style.width = (v == null ? 0 : Math.min(100, v)) + "%";
   f.className = "fill" + (v >= 90 ? " s" : v >= 70 ? " h" : "");
 }
@@ -85,32 +243,37 @@ function laneStatusText(l) {
   if (l.sessions.length > 1) t += " · " + l.sessions.length + " sessions";
   return t;
 }
+// How old an approximate status is: the age of the last good `claude agents` read.
+function staleTag(approx) {
+  if (!approx) return null;
+  if (!S.agentsReadAt) return el("span", "stale-tag", "stale · hooks only");
+  return age(S.agentsReadAt, "stale · read ", " ago");
+}
 
 function laneCard(l, quiet) {
-  const c = el("div", "lane " + l.status + (l.stale ? " stale" : "") + (l.id === selected ? " sel" : "") + (quiet ? " quiet" : ""), null, [
-    el("div", "row", null, [el("span", "nm", l.name), el("span", "kind", l.terminal ? l.type + " · tmux" : l.type)]),
+  const c = el("div", "lane " + l.status + (l.stale ? " stale" : "") + (l.approx ? " old-reading" : "") + (l.id === selected ? " sel" : "") + (quiet ? " quiet" : ""), null, [
+    el("div", "row", null, [el("span", "nm", l.name), Object.assign(el("span", "kind", l.terminal ? l.type + " · tmux" : l.type), { title: l.terminal ? l.type + " lane, with a terminal" : l.type })]),
     el("div", "sub", l.branch || "(detached)"),
   ]);
   if (!quiet) {
-    c.appendChild(el("div", "row", null, [
-      Object.assign(el("span", "sub state" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l) + (l.stale ? " · no hooks" : "")),
-        l.approx ? { title: APPROX_TITLE } : {}),
-      el("span", "sub", "ctx " + pct(l.ctxPct)),
-    ]));
+    const st = el("span", "sub state" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l) + (l.stale ? " · no hooks" : ""));
+    if (l.approx) st.title = APPROX_TITLE;
+    c.appendChild(el("div", "row", null, [st, el("span", "sub", "ctx " + pct(l.ctxPct))]));
+    const tag = staleTag(l.approx);
+    if (tag) c.appendChild(el("div", "sub", null, [tag]));
     const bar = el("div", "ctx", null, [el("i")]);
     bar.firstChild.style.width = (l.ctxPct || 0) + "%";
     c.appendChild(bar);
-    c.appendChild(el("div", "sub", l.lastEventAt ? "last: " + l.lastEvent + " · " + age(l.lastEventAt) + " ago" : "no hook event yet"));
+    c.appendChild(l.lastEventAt ? el("div", "sub", "last: " + l.lastEvent + " · ", [age(l.lastEventAt, "", " ago")]) : el("div", "sub", "no hook event yet"));
   }
-  c.addEventListener("click", () => {
+  on(c, "click", () => {
     selected = l.id; try { localStorage.setItem("clauductor-panel-lane", l.id); } catch (e) {}
     if (l.terminal) selectTerm(l.terminal); else render();
   });
-  pressable(c, l.name + ", " + laneStatusText(l));
+  pressable(c, l.name + ", " + laneStatusText(l) + (l.approx ? ", stale" : ""));
   c.title = l.name + " · " + (l.branch || "(detached)");
   if (l.id === selected) c.setAttribute("aria-current", "true");
-  c.dataset.fk = "lane:" + l.id;
-  return c;
+  return key(c, "lane:" + l.id);
 }
 
 // A clickable card or tab is reachable and operable from the keyboard too.
@@ -118,27 +281,27 @@ function pressable(e, label) {
   e.tabIndex = 0;
   e.setAttribute("role", "button");
   if (label) e.setAttribute("aria-label", label);
-  e.addEventListener("keydown", (ev) => {
+  on(e, "keydown", (ev) => {
     if (ev.target === e && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); e.click(); }
   });
 }
 
-function feedList(items, withLane) {
-  if (!items.length) return el("div", "empty", "no events yet");
-  const f = el("div", "feed");
+function feedList(items, withLane, k) {
+  if (!items.length) return key(el("div", "empty", "no events yet"), k + ":empty");
+  const f = key(el("div", "feed"), k);
   for (const e of items) {
     const d = el("span", "d", (withLane ? e.name + " · " : "") + e.event);
     if (e.detail) d.appendChild(el("span", "dim", e.detail));
     d.title = (e.name || "") + " · " + e.event + (e.detail ? " · " + e.detail : "");
-    f.appendChild(el("div", "ev", null, [el("span", "t", hhmm(e.at)), d]));
+    f.appendChild(key(el("div", "ev", null, [el("span", "t", hhmm(e.at)), d]), "ev:" + e.at + ":" + (e.lane || "") + ":" + e.event + ":" + (e.detail || "")));
   }
   return f;
 }
 
-function sourceNote(src, what) {
+function sourceNote(src, what, k) {
   if (!src) return null;
-  if (src.pending) return el("div", "empty", "reading " + what + "…");
-  if (!src.ok) return el("div", "card err", "cannot read " + what + ": " + src.error);
+  if (src.pending) return key(el("div", "empty", "reading " + what + "…"), k);
+  if (!src.ok) return key(el("div", "card err", "cannot read " + what + ": " + src.error), k);
   return null;
 }
 
@@ -170,7 +333,7 @@ function renderJSON(v) {
 
 function projectCard(c) {
   const card = el("div", "card" + (!c.source.pending && !c.source.ok ? " err" : ""), null, [
-    el("div", "row", null, [el("b", null, c.title || c.id), el("span", "sub", c.source.at ? age(c.source.at) + " ago" : "")]),
+    el("div", "row", null, [el("b", null, c.title || c.id), c.source.at ? el("span", "sub", null, [age(c.source.at, "", " ago")]) : el("span", "sub")]),
   ]);
   if (c.source.pending) card.appendChild(el("div", "empty", "running…"));
   else if (!c.source.ok) card.appendChild(el("div", "stop", "cannot read: " + c.source.error));
@@ -181,19 +344,28 @@ function projectCard(c) {
     for (const line of c.output.lines) ul.appendChild(el("li", null, line.replace(/^\s*(?:[-*+]|\d+\.)\s+/, "")));
     card.appendChild(ul);
   }
-  return card;
+  return key(card, "card:" + c.id);
 }
 
 // ---- v1: lane terminals -------------------------------------------------------
 // Each tab is one tmux lane. A lane's xterm and its WebSocket live as long as the
 // lane does, so switching tabs keeps scrollback and costs no reconnect. The page
 // sends only {type: "input", data} and {type: "resize", cols, rows}.
+//
+// The keyboard (PANEL-6). Nothing ever moves focus into a terminal by itself: not
+// loading the page, not picking a lane, not OPEN TERMINAL. The terminal is one stop
+// in the Tab order (#termhost); Enter there, or a click, enters it. Inside, every key
+// is claude's, Tab, Shift+Tab and Escape included, because that is what a terminal is
+// for once you chose it. Ctrl+] leaves, back to the lane's tab, as in telnet. A
+// double Escape does not leave: claude uses Esc Esc itself (to edit an earlier
+// message), so taking it would break claude.
 const terms = {};              // lane id → {id, host, term, fit, ws, retry, delay}
-let selTerm = null, shownTerm = null, tabSig = "", barSig = "", emptySig = "";
+let selTerm = null, shownTerm = null;
 let confirmAct = null;         // {id, action} awaiting the in-page confirmation
 let actMsg = null, busyAct = null;
 let pendingTerm = null;        // a lane to select as soon as a poll shows it
 try { pendingTerm = localStorage.getItem("clauductor-panel-term"); } catch (e) {}
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 function selectTerm(id) {
   selTerm = id;
@@ -202,7 +374,38 @@ function selectTerm(id) {
   if (t && t.worktree) selected = t.worktree;
   confirmAct = null;
   render();
-  if (terms[id]) terms[id].term.focus();
+}
+function enterTerm() {
+  const t = terms[selTerm];
+  if (t && !t.host.hidden) t.term.focus();
+}
+function leaveTerm(id) {
+  const tab = document.querySelector('#tabs [data-k="tab:' + CSS.escape(id) + '"]');
+  if (tab) tab.focus(); else $("termhost").focus();
+}
+function renderHint() {
+  const host = $("termhost"), a = document.activeElement;
+  const inTerm = a && a.classList && a.classList.contains("xterm-helper-textarea") && host.contains(a);
+  const sel = IS_MAC ? "⌥-drag selects text" : "Shift-drag selects text";
+  const hint = $("termhint");
+  // The line is always there, so entering the terminal never resizes it.
+  if (inTerm) setText(hint, "Ctrl+] leaves the terminal · typing into " + selTerm + " · " + sel + " · the wheel scrolls its history");
+  else if (a === host && terms[selTerm]) setText(hint, "Press Enter to type into the terminal");
+  else if (terms[selTerm]) setText(hint, "Click the terminal, or Tab to it and press Enter, to type into it");
+  else setText(hint, "");
+  hint.classList.toggle("on", !!(inTerm || a === host));
+}
+document.addEventListener("focusin", renderHint);
+document.addEventListener("focusout", () => setTimeout(renderHint, 0));
+{
+  const host = $("termhost");
+  host.tabIndex = 0;
+  host.setAttribute("role", "group");
+  host.addEventListener("keydown", (ev) => {
+    if (ev.target === host && ev.key === "Enter") { ev.preventDefault(); enterTerm(); }
+  });
+  // A click on the frame around the terminal enters it too; xterm handles its own.
+  host.addEventListener("mousedown", (ev) => { if (ev.target === host) { ev.preventDefault(); enterTerm(); } });
 }
 
 // The terminal's colours are the active theme's --term-* and --ansi-* tokens, read from
@@ -233,6 +436,7 @@ function retheme() {
     if (t.term.options.fontSize !== size) { t.term.options.fontSize = size; fitTerm(t); }
   }
   renderPicker();
+  renderFavicon();
 }
 document.addEventListener("panel-theme", retheme);
 
@@ -248,6 +452,9 @@ function ensureTerm(id) {
   const term = new Terminal({
     fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: termFontSize(),
     cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches, scrollback: 2000, macOptionIsMeta: true,
+    // tmux asks for mouse reports (so the wheel scrolls its history), which would
+    // take every drag too: Option-drag (Shift-drag elsewhere) still selects text.
+    macOptionClickForcesSelection: true,
     theme: termTheme(), minimumContrastRatio: termMinContrast(),
     // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
     // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
@@ -258,10 +465,20 @@ function ensureTerm(id) {
   term.loadAddon(fit);
   term.open(host);
   const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false };
+  // Ctrl+] is the way out; nothing else is taken from claude.
+  term.attachCustomKeyEventHandler((ev) => {
+    if (ev.ctrlKey && !ev.altKey && !ev.metaKey && (ev.code === "BracketRight" || ev.key === "]")) {
+      if (ev.type === "keydown") { ev.preventDefault(); leaveTerm(id); }
+      return false;
+    }
+    return true;
+  });
   term.onData((d) => termSend(t, { type: "input", data: d }));
   // Tell the server which terminal has keyboard focus: alerts for that lane send no
   // OS notification, because you are looking at it.
   if (term.textarea) {
+    // Out of the Tab order: #termhost is the terminal's one stop, and Enter enters.
+    term.textarea.tabIndex = -1;
     term.textarea.addEventListener("focus", () => { t.focused = true; sendFocus(t); });
     term.textarea.addEventListener("blur", () => { t.focused = false; sendFocus(t); });
   }
@@ -339,13 +556,36 @@ function fitTerm(t) {
   try { t.fit.fit(); } catch (e) {}
 }
 
+// The terminal takes the height the centre column has left once the banners, the
+// tabs and the controls under it are placed, so STOP and INTERRUPT are always on
+// screen. On a narrow screen the page scrolls as a whole, and the terminal takes
+// most of the window.
+const NARROW = matchMedia("(max-width: 980px)");
+function sizeTerm() {
+  const host = $("termhost"), col = $("centre");
+  let h;
+  if (NARROW.matches) h = Math.max(320, Math.round(innerHeight * 0.7));
+  else {
+    const top = host.getBoundingClientRect().top - col.getBoundingClientRect().top + col.scrollTop;
+    const pad = parseFloat(getComputedStyle(col).paddingBottom) || 0;
+    const gap = parseFloat(getComputedStyle(col).rowGap) || 0;
+    h = Math.max(220, Math.floor(col.clientHeight - top - $("termbar").offsetHeight - gap - pad));
+  }
+  if (host.style.height !== h + "px") host.style.height = h + "px";
+  fitTerm(terms[selTerm]);
+}
+{
+  const ro = new ResizeObserver(() => sizeTerm());
+  for (const id of ["centre", "banners", "restorebar", "tabrow", "termbar"]) ro.observe($(id));
+  NARROW.addEventListener("change", sizeTerm);
+}
+
 let linkAsk = null;
 function askOpenLink(uri) {
   let u;
   try { u = new URL(uri); } catch (e) { return; }
   if (u.protocol !== "http:" && u.protocol !== "https:") return;
   linkAsk = u.href;
-  barSig = "";
   render();
 }
 
@@ -360,12 +600,30 @@ async function laneAction(id, action) {
   render();
 }
 
-function button(label, cls, onClick, title) {
+// A button. An action (act) reaches the panel, so it is off while the page has lost it.
+function button(label, cls, onClick, title, k, act) {
   const b = el("button", "btn" + (cls ? " " + cls : ""), label);
   b.type = "button";
   if (title) b.title = title;
-  b.addEventListener("click", onClick);
-  return b;
+  on(b, "click", onClick);
+  if (act && offline()) { b.disabled = true; b.title = "Disconnected from the panel"; }
+  return key(b, k || "b:" + label);
+}
+// Focus a control a render just placed. The terminal is sized first, so a control
+// under it is where it will stay before the column scrolls to show it.
+function focusKey(k) {
+  requestAnimationFrame(() => {
+    const e = document.querySelector('[data-k="' + CSS.escape(k) + '"]');
+    if (!e) return;
+    sizeTerm();
+    e.focus({ preventScroll: true });
+    e.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function tabLabel(x) {
+  // One name per lane: the tab says the lane's name, and its type only when that adds something.
+  return x.type && x.type !== x.id ? [el("span", null, x.id), el("span", "dim", x.type)] : [el("span", null, x.id)];
 }
 
 function renderTerminals(lane) {
@@ -376,36 +634,29 @@ function renderTerminals(lane) {
   if (!selTerm && ts.length) selTerm = (lane && lane.terminal) || ts[0].id;
 
   const add = $("addlane");
-  add.disabled = !!S.startBlocked;
-  add.title = S.startBlocked || "Start a lane: an interactive claude in its own tmux session";
+  add.disabled = !!S.startBlocked || offline();
+  add.title = offline() ? "Disconnected from the panel" : S.startBlocked || "Start a lane: an interactive claude in its own tmux session";
+  $("refresh").disabled = offline();
 
-  const sig = JSON.stringify([ts.map((x) => [x.id, x.status, x.type, x.orphan, x.approx]), selTerm]);
-  if (sig !== tabSig) {
-    tabSig = sig;
-    const tabs = $("tabs");
-    tabs.replaceChildren();
-    for (const x of ts) {
-      const tab = el("div", "tab" + (x.id === selTerm ? " sel" : ""), null, [el("span", "dot " + x.status), el("span", null, x.id), el("span", "dim", x.type || "")]);
-      tab.title = (x.branch || "") + " · " + x.path + " · " + (x.approx ? APPROX : "") + x.status + (x.orphan ? " · " + x.orphan : "") +
-        (x.approx ? " · " + APPROX_TITLE : "");
-      tab.addEventListener("click", () => selectTerm(x.id));
-      pressable(tab, "terminal " + x.id + ", " + x.status);
-      tab.dataset.fk = "tab:" + x.id;
-      tabs.appendChild(tab);
-    }
-    if (!ts.length) tabs.appendChild(el("div", "mh", "Terminals"));
-  }
+  const tabs = ts.map((x) => {
+    const tab = el("div", "tab" + (x.id === selTerm ? " sel" : ""), null, [el("span", "dot " + x.status), ...tabLabel(x)]);
+    tab.title = (x.branch || "") + " · " + x.path + " · " + (x.approx ? APPROX : "") + x.status + (x.orphan ? " · " + x.orphan : "") +
+      (x.approx ? " · " + APPROX_TITLE : "");
+    on(tab, "click", () => selectTerm(x.id));
+    pressable(tab, "terminal " + x.id + ", " + (x.approx ? APPROX : "") + x.status);
+    if (x.id === selTerm) tab.setAttribute("aria-current", "true");
+    return key(tab, "tab:" + x.id);
+  });
+  if (!ts.length) tabs.push(key(el("div", "mh", "Terminals"), "tabs:none"));
+  patchInto("tabs", tabs);
 
-  const esig = JSON.stringify([ts.length, S.startBlocked, S.tmuxSocket]);
-  if (esig !== emptySig) {
-    emptySig = esig;
-    const empty = $("termempty");
-    empty.hidden = ts.length > 0;
-    empty.replaceChildren(
-      el("div", null, "No lane is running on tmux socket " + S.tmuxSocket + "."),
-      el("div", "dim", "+ LANE starts one. Sessions started in a terminal of your own still show their status below, but have no terminal here."));
-    if (S.startBlocked) empty.appendChild(el("div", "card err", S.startBlocked));
-  }
+  const empty = $("termempty");
+  empty.hidden = ts.length > 0;
+  patch(empty, [
+    el("div", null, "No lane is running yet."),
+    el("div", "dim", "+ LANE starts one. Sessions started in a terminal of your own still show their status, but have no terminal here."),
+    S.startBlocked ? el("div", "card err", S.startBlocked) : null,
+  ].filter(Boolean));
 
   const cur = ts.find((x) => x.id === selTerm);
   for (const id of Object.keys(terms)) if (!ts.find((x) => x.id === id && x.running)) disposeTerm(id);
@@ -413,64 +664,88 @@ function renderTerminals(lane) {
   for (const [id, t] of Object.entries(terms)) t.host.hidden = id !== selTerm;
   const orphan = $("termorphan");
   orphan.hidden = !(cur && !cur.running);
-  if (cur && !cur.running) orphan.textContent = "Lane " + cur.id + " is orphaned: " + (cur.orphan || "no tmux session") +
-    ". RESUME restarts claude --resume " + cur.sessionId + " in " + cur.path + "; FORGET drops the record.";
+  if (cur && !cur.running) setText(orphan, "Lane " + cur.id + " is orphaned: " + (cur.orphan || "no tmux session") +
+    ". RESUME restarts claude --resume " + cur.sessionId + " in " + cur.path + "; FORGET drops the record.");
+  const host = $("termhost");
+  host.setAttribute("aria-label", cur && cur.running ? "Terminal of lane " + cur.id + ". Enter types into it; Ctrl+] leaves." : "Terminal");
   if (selTerm !== shownTerm) {
     shownTerm = selTerm;
     const t = terms[selTerm];
-    if (t) requestAnimationFrame(() => { fitTerm(t); t.term.focus(); });
+    if (t) requestAnimationFrame(() => fitTerm(t));
   }
-  renderTermBar(ts.find((x) => x.id === selTerm));
+  renderTermBar(cur);
+  renderHint();
+}
+
+// What STOP or RESTART will do to this lane, from its state now: the server sends
+// /exit only to a lane `claude agents` says is idle, and Escape to any other.
+function stopWords(t, restart) {
+  const lane = S.lanes.find((l) => l.terminal === t.id);
+  const subs = lane ? lane.subagents.length : 0;
+  const subTxt = subs ? subs + " subagent" + (subs > 1 ? "s" : "") : "";
+  const ap = t.approx ? " (≈ not a current reading; the panel checks again before it acts)" : "";
+  let how;
+  if (t.dead) how = "claude has already exited, so its tmux session just ends.";
+  else if (t.status === "idle") how = "claude is idle" + ap + ": it gets /exit, then its tmux session ends.";
+  else if (t.status === "busy") how = "claude is busy" + (subTxt ? " with " + subTxt : "") + ap + ": it gets Escape, which interrupts the turn" +
+    (subTxt ? " and stops the " + subTxt : "") + ", then its tmux session is killed.";
+  else if (t.status === "waiting") how = "claude is waiting on you" + (t.waitingFor ? " (" + t.waitingFor + ")" : "") + ap +
+    ": it gets Escape, which dismisses the question unanswered, then its tmux session is killed.";
+  else how = "its state is not known yet: it gets /exit if claude agents says idle, Escape otherwise, then its tmux session ends.";
+  let q = "";
+  for (const x of S.queues || []) {
+    if (x.holder && x.holder.lane === t.id) q += " It holds the " + (x.title || x.id) + " queue" +
+      (x.waiters.length ? ", with " + x.waiters.length + " waiting behind it" : "") + ".";
+    else if (x.waiters.some((w) => w.lane === t.id)) q += " It is waiting in the " + (x.title || x.id) + " queue.";
+  }
+  return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + how + q +
+    (restart ? " Then claude resumes its own session " + t.sessionId + " in the same directory." : " The worktree stays.");
 }
 
 function renderTermBar(t) {
-  const sig = JSON.stringify([t && t.id, t && t.dead, t && t.running, t && t.orphan, t && t.promptState, t && t.promptNote, confirmAct, actMsg, busyAct, linkAsk]);
-  if (sig === barSig) return;
-  barSig = sig;
-  const bar = $("termbar");
-  bar.replaceChildren();
-  if (!t) return;
-  const busy = busyAct && busyAct.startsWith(t.id + ":");
-  if (linkAsk) {
-    const href = linkAsk;
-    bar.append(el("span", "confirm", "The lane printed a link. Open " + href + " in a new tab?"),
-      button("OPEN LINK", "", () => { linkAsk = null; window.open(href, "_blank", "noopener,noreferrer"); render(); }),
-      button("CANCEL", "", () => { linkAsk = null; render(); }));
-  } else if (!t.running) {
-    bar.append(
-      button("RESUME", "primary", () => laneAction(t.id, "resume"), "claude --resume " + (t.sessionId || "") + " in " + t.path),
-      button("FORGET", "danger", () => { confirmAct = { id: t.id, action: "forget" }; render(); }, "Remove it from the lane registry. The worktree and the conversation stay."));
-    if (confirmAct && confirmAct.id === t.id) {
-      bar.replaceChildren(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."),
-        button("CONFIRM FORGET", "danger", () => { confirmAct = null; laneAction(t.id, "forget"); }),
-        button("CANCEL", "", () => { confirmAct = null; render(); }));
+  const kids = [];
+  if (t) {
+    const busy = busyAct && busyAct.startsWith(t.id + ":");
+    if (linkAsk) {
+      const href = linkAsk;
+      kids.push(key(el("span", "confirm", "The lane printed a link. Open " + href + " in a new tab?"), "linkask"),
+        button("OPEN LINK", "", () => { linkAsk = null; window.open(href, "_blank", "noopener,noreferrer"); render(); }),
+        button("CANCEL", "", () => { linkAsk = null; render(); }, null, "b:link-cancel"));
+    } else if (!t.running) {
+      if (confirmAct && confirmAct.id === t.id) {
+        kids.push(key(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."), "confirm"),
+          button("CONFIRM FORGET", "danger", () => { confirmAct = null; laneAction(t.id, "forget"); }, null, null, true),
+          button("CANCEL", "", () => { confirmAct = null; render(); focusKey("b:FORGET"); }, null, "b:cancel"));
+      } else {
+        kids.push(
+          button("RESUME", "primary", () => laneAction(t.id, "resume"), "claude --resume " + (t.sessionId || "") + " in " + t.path, null, true),
+          button("FORGET", "danger", () => { confirmAct = { id: t.id, action: "forget" }; render(); focusKey("b:cancel"); },
+            "Remove it from the lane registry. The worktree and the conversation stay.", null, true));
+      }
+    } else if (confirmAct && confirmAct.id === t.id) {
+      const stop = confirmAct.action === "stop";
+      const back = stop ? "b:STOP LANE" : "b:RESTART";
+      kids.push(
+        key(el("span", "confirm", stopWords(t, !stop)), "confirm"),
+        button(stop ? "CONFIRM STOP" : "CONFIRM RESTART", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }, null, null, true),
+        button("CANCEL", "", () => { confirmAct = null; render(); focusKey(back); }, null, "b:cancel"));
+    } else {
+      const b = [
+        button("ATTACH IN TERMINAL.APP", "", () => laneAction(t.id, "terminal-app"), "Open a Terminal.app window on this lane (tmux attach)", null, true),
+        button("INTERRUPT (ESC)", "", () => laneAction(t.id, "interrupt"), "Press Escape in the lane", null, true),
+        t.registered ? button("RESTART", "", () => { confirmAct = { id: t.id, action: "restart" }; render(); focusKey("b:cancel"); }, null, null, true) : null,
+        button("STOP LANE", "danger", () => { confirmAct = { id: t.id, action: "stop" }; render(); focusKey("b:cancel"); }, null, null, true),
+      ].filter(Boolean);
+      for (const x of b) { if (busy) x.disabled = true; kids.push(x); }
     }
-  } else if (confirmAct && confirmAct.id === t.id) {
-    const stop = confirmAct.action === "stop";
-    bar.append(
-      el("span", "confirm", stop
-        ? "Stop lane " + t.id + "? Claude gets /exit, then its tmux session ends. The worktree stays."
-        : "Restart lane " + t.id + "? It stops, then claude resumes its own session " + t.sessionId + " in the same directory."),
-      button(stop ? "CONFIRM STOP" : "CONFIRM RESTART", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }),
-      button("CANCEL", "", () => { confirmAct = null; render(); }));
-  } else {
-    const b = [
-      button("ATTACH IN TERMINAL.APP", "", () => laneAction(t.id, "terminal-app"), "Open a Terminal.app window on this lane (tmux attach)"),
-      button("INTERRUPT (ESC)", "", () => laneAction(t.id, "interrupt"), "Press Escape in the lane"),
-      button("RESTART", "", () => { confirmAct = { id: t.id, action: "restart" }; render(); }),
-      button("STOP LANE", "danger", () => { confirmAct = { id: t.id, action: "stop" }; render(); }),
-    ];
-    if (!t.registered) b.splice(2, 1); // no session id to resume
-    for (const x of b) { x.disabled = !!busy; bar.appendChild(x); }
+    if (t.orphan && t.running) kids.push(key(el("span", "hold sub", t.orphan), "orphan"));
+    if (t.template) kids.push(key(el("span", "sub", "template " + t.template + " · first prompt " + (t.promptState || "—") + (t.promptNote ? ": " + t.promptNote : "")), "tpl"));
+    if (t.dead) kids.push(key(el("span", "stop sub", "claude exited" + (t.deadStatus ? " (status " + t.deadStatus + ")" : "") + "; RESTART or STOP"), "dead"));
+    if (busy) kids.push(key(el("span", "sub", busyAct.split(":")[1] + "…"), "busy"));
+    if (actMsg && actMsg.id === t.id) kids.push(key(el("span", actMsg.err ? "stop sub" : "sub", actMsg.text), "msg"));
   }
-  if (t.orphan) bar.appendChild(el("span", "hold sub", t.orphan));
-  if (t.template) bar.appendChild(el("span", "sub", "template " + t.template + " · first prompt " + (t.promptState || "—") + (t.promptNote ? ": " + t.promptNote : "")));
-  if (t.dead) bar.appendChild(el("span", "stop sub", "claude exited" + (t.deadStatus ? " (status " + t.deadStatus + ")" : "") + "; RESTART or STOP"));
-  if (busy) bar.appendChild(el("span", "sub", busyAct.split(":")[1] + "…"));
-  if (actMsg && actMsg.id === t.id) bar.appendChild(el("span", actMsg.err ? "stop sub" : "sub", actMsg.text));
+  patchInto("termbar", kids);
 }
-
-new ResizeObserver(() => fitTerm(terms[selTerm])).observe($("termhost"));
 
 // Terminals stay open only while the page is in view: while visible the page says
 // "alive" once a minute, and the server closes a terminal after 5 minutes without a
@@ -529,7 +804,7 @@ function stUpdate() {
   $("st-preview").textContent = p;
   $("st-block").hidden = !S.startBlocked;
   $("st-block").textContent = S.startBlocked || "";
-  $("st-go").disabled = !!S.startBlocked;
+  $("st-go").disabled = !!S.startBlocked || offline();
 }
 
 function openStart() {
@@ -591,38 +866,82 @@ $("startform").addEventListener("submit", async (e) => {
     pendingTerm = j.lane.id;
     fetch("/api/refresh", { method: "POST" }).catch(() => {});
   } catch (err) { $("st-err").textContent = String(err); }
-  finally { $("st-go").disabled = !!(S && S.startBlocked); }
+  finally { $("st-go").disabled = !!(S && S.startBlocked) || offline(); }
 });
+
 
 // ---- v2: needs you, alerts, queues, restore, observability ----------------------
 function jumpTo(n) {
-  if (n.terminal && S.terminals.find((x) => x.id === n.terminal)) selectTerm(n.terminal);
-  else { selected = n.lane; render(); }
+  if (n.terminal && S.terminals.find((x) => x.id === n.terminal)) {
+    selectTerm(n.terminal);
+    // To the terminal's door, not inside it: Enter there types into claude.
+    requestAnimationFrame(() => { const h = $("termhost"); h.focus({ preventScroll: true }); h.scrollIntoView({ block: "nearest" }); });
+  } else { selected = n.lane; render(); }
 }
-function needCard(n, cls) {
+function needKey(n) { return "need:" + n.lane + ":" + n.session + ":" + n.kind; }
+function needCard(n, cls, k) {
+  const done = cls.includes("done");
   const c = el("div", cls, null, [
-    el("div", "row", null, [el("b", null, n.name), el("span", "sub", n.at ? age(n.at) + (cls.includes("done") ? " ago" : " waiting") : "")]),
+    el("div", "row", null, [el("b", null, n.name), n.at ? el("span", "sub", null, [age(n.at, "", done ? " ago" : " waiting")]) : el("span", "sub")]),
     cls.includes("ask") ? el("span", "who-waits", n.severity === "block" ? "blocking" : "needs you") : null,
     el("div", null, (n.label || n.kind) + (n.text ? ": " + n.text : "")),
   ]);
-  c.appendChild(button(n.terminal ? "OPEN TERMINAL" : "SHOW LANE", "jump", () => jumpTo(n)));
-  return c;
+  c.appendChild(button(n.terminal ? "OPEN TERMINAL" : "SHOW LANE", "jump", () => jumpTo(n), null, "jump"));
+  return key(c, k);
+}
+function heading(text, k) { return key(el("h2", "mh", text), k); }
+function asOf() { return offline() && frozenAt ? " · as of " + hm(frozenAt) : ""; }
+
+function renderLeft() {
+  const kids = [];
+  // Needs you first, at every width: blocking states only. A finished turn is
+  // "done", shown right under it.
+  kids.push(heading("Needs you · " + S.needsYou.length + asOf(), "h:needs"));
+  if (!S.needsYou.length) kids.push(key(el("div", "empty", "nothing blocked on you"), "needs:none"));
+  for (const n of S.needsYou) kids.push(needCard(n, "card ask " + (n.severity || ""), needKey(n)));
+  if ((S.done || []).length) {
+    kids.push(heading("Done · your move · " + S.done.length, "h:done"));
+    for (const n of S.done) kids.push(needCard(n, "card done", "done:" + needKey(n)));
+  }
+  kids.push(heading("Lanes · " + S.lanes.length + asOf(), "h:lanes"));
+  kids.push(sourceNote(S.sources.agents, "claude agents", "src:agents"));
+  if (!S.lanes.length) kids.push(key(el("div", "empty", "no Claude session in this project's worktrees"), "lanes:none"));
+  for (const l of S.lanes) kids.push(laneCard(l, false));
+  if (S.quietWorktrees.length) {
+    kids.push(heading("Worktrees · no session · " + S.quietWorktrees.length, "h:quiet"));
+    for (const l of S.quietWorktrees) kids.push(laneCard(l, true));
+  }
+  patchInto("left", kids);
 }
 
-function renderAlerts(right) {
-  const al = S.alerts || [];
+// Waiting alerts repeat what Needs you already shows; the alert list keeps the rest.
+function shownAlerts() {
+  const asked = new Set(S.needsYou.map((n) => n.session));
+  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)));
+}
+const AGED = { waiting: true, idle: true };
+function renderAlerts(kids) {
+  const all = S.alerts || [], al = shownAlerts();
   const ns = S.observe.notifier || {};
-  right.appendChild(el("div", "mh", "Alerts · " + al.length + " · interruptions today " + (ns.interrupts || 0)));
-  if (!al.length) { right.appendChild(el("div", "empty", "no alert")); return; }
-  const box = el("div", "card");
+  const hidden = all.length - al.length;
+  kids.push(heading("Alerts · " + al.length + (hidden ? " (+" + hidden + " in Needs you)" : "") + " · interruptions today " + (ns.interrupts || 0), "h:alerts"));
+  if (!al.length) { kids.push(key(el("div", "empty", "no alert"), "alerts:none")); return; }
+  const box = key(el("div", "card"), "alerts");
   for (const a of al) {
-    const line = el("div", "alert", null, [el("span", "sev " + a.severity, a.kind.replace("_", " ")),
-      el("span", null, (a.name ? a.name + ": " : "") + a.text)]);
-    if (a.terminal || a.lane) { line.style.cursor = "pointer"; line.addEventListener("click", () => jumpTo(a)); }
-    box.appendChild(line);
+    const text = el("span", null, (a.name ? a.name + ": " : "") + a.text);
+    if (AGED[a.kind] && a.since) text.appendChild(age(a.since, " · "));
+    const kids2 = [el("span", "sev " + a.severity, a.kind.replace("_", " ")), text];
+    // A row that leads somewhere is a button, so the keyboard reaches it too.
+    const line = a.terminal || a.lane ? el("button", "alert jumpable", null, kids2) : el("div", "alert", null, kids2);
+    if (line.tagName === "BUTTON") {
+      line.type = "button";
+      line.title = a.terminal ? "Open the terminal of " + (a.name || a.terminal) : "Show lane " + (a.name || "");
+      on(line, "click", () => jumpTo(a));
+    }
+    box.appendChild(key(line, "alert:" + a.key));
   }
-  if (!S.thresholds.notify) box.appendChild(el("div", "sub", "OS notifications are off (alerts.notify)"));
-  right.appendChild(box);
+  if (!S.thresholds.notify) box.appendChild(key(el("div", "sub", "OS notifications are off (alerts.notify)"), "alerts:off"));
+  kids.push(box);
 }
 
 let queueMsg = null;
@@ -637,29 +956,29 @@ async function queuePost(q, verb, body) {
 }
 
 function leaseLine(l) {
-  return (l.lane || "pid " + l.pid) + " · " + age(l.started) + (l.cmd ? " · " + l.cmd : "");
+  return el("span", null, (l.lane || "pid " + l.pid) + " · ", [age(l.started), document.createTextNode(l.cmd ? " · " + l.cmd : "")]);
 }
 
-function renderQueues(right) {
+function renderQueues(kids) {
   const qs = S.queues || [];
   if (!qs.length && S.queuesSource.ok) return;
-  right.appendChild(el("div", "mh", "Queues · " + qs.length));
-  const src = sourceNote(S.queuesSource, "the queues");
-  if (src) right.appendChild(src);
+  kids.push(heading("Queues · " + qs.length, "h:queues"));
+  kids.push(sourceNote(S.queuesSource, "the queues", "src:queues"));
   for (const q of qs) {
     const c = el("div", "card queue", null, [el("b", null, q.title || q.id)]);
     if (!q.held) c.appendChild(el("div", "sub go", "free"));
     else if (q.holder) {
-      c.appendChild(el("div", "who", null, [el("span", q.holder.stale ? "stop" : "go", "held by " + leaseLine(q.holder) + (q.holder.stale ? " · stale" : "")),
-        el("span", "sub", q.holder.ttl ? "ttl " + q.holder.ttl + "s" : "")]));
+      const who = el("span", q.holder.stale ? "stop" : "go", "held by ", [leaseLine(q.holder)]);
+      if (q.holder.stale) who.appendChild(document.createTextNode(" · stale"));
+      c.appendChild(el("div", "who", null, [who, el("span", "sub", q.holder.ttl ? "ttl " + q.holder.ttl + "s" : "")]));
     } else c.appendChild(el("div", "sub hold", "held"));
     if (q.holderNote) c.appendChild(el("div", "sub hold", q.holderNote));
     if (q.waiters.length) {
       const ol = el("ol");
       for (const w of q.waiters) {
-        const li = el("li", "who", null, [el("span", null, leaseLine(w) + (w.cancelling ? " · cancelling" : ""))]);
-        if (!w.cancelling) li.appendChild(button("CANCEL WAIT", "", () => queuePost(q.id, "cancel", { waiter: w.nonce }), "Ask this waiter to give up. The holder is never stopped."));
-        ol.appendChild(li);
+        const li = el("li", "who", null, [el("span", null, null, [leaseLine(w), document.createTextNode(w.cancelling ? " · cancelling" : "")])]);
+        if (!w.cancelling) li.appendChild(button("CANCEL WAIT", "", () => queuePost(q.id, "cancel", { waiter: w.nonce }), "Ask this waiter to give up. The holder is never stopped.", "cancel:" + w.nonce, true));
+        ol.appendChild(key(li, "w:" + w.nonce));
       }
       c.appendChild(el("div", "sub", "waiting, in order:"));
       c.appendChild(ol);
@@ -667,13 +986,13 @@ function renderQueues(right) {
     if (q.hasCommand) {
       const lane = S.lanes.concat(S.quietWorktrees).find((l) => l.id === selected);
       const b = button("RUN IN " + (lane ? lane.name : "?"), "", () => queuePost(q.id, "run", { worktree: lane.path }),
-        "Run this queue's command through lock-run in the selected lane's worktree; it waits its turn.");
-      b.disabled = !lane || (S.trust && S.trust.hash && !S.trust.trusted);
+        "Run this queue's command through lock-run in the selected lane's worktree; it waits its turn.", "run", true);
+      if (!lane || (S.trust && S.trust.hash && !S.trust.trusted)) b.disabled = true;
       c.appendChild(b);
     }
     if (q.run) c.appendChild(el("div", "sub", "last RUN pid " + q.run.pid + (q.run.exit != null ? " · exit " + q.run.exit : " · running") + " · " + q.run.log));
     if (queueMsg && queueMsg.q === q.id) c.appendChild(el("div", queueMsg.err ? "stop sub" : "sub", queueMsg.text));
-    right.appendChild(c);
+    kids.push(key(c, "queue:" + q.id));
   }
 }
 
@@ -681,21 +1000,21 @@ let restoreMsg = null, restoreBusy = false;
 function renderRestore() {
   const bar = $("restorebar");
   const ids = S.restorable || [];
-  const sig = JSON.stringify([ids, S.quotaGuard, restoreMsg, restoreBusy]);
-  if (bar.dataset.sig === sig) return;
-  bar.dataset.sig = sig;
   bar.hidden = !ids.length && !restoreMsg;
-  bar.replaceChildren();
   const row = el("div", "restore");
+  // The one place a lost tmux session is announced, with the one control for it.
+  row.appendChild(el("b", null, "RESTORE"));
   if (ids.length) {
-    row.appendChild(el("span", null, ids.length + " lane(s) lost their tmux session: " + ids.join(", ") + "."));
-    let over = null;
+    row.appendChild(el("span", null, ids.length + " lane" + (ids.length > 1 ? "s" : "") + " lost " + (ids.length > 1 ? "their" : "its") +
+      " tmux session (a reboot, or the tmux server ended): " + ids.join(", ") + ". RESTORE ALL resumes each on its own session id."));
     if (S.quotaGuard) {
-      over = el("input"); over.type = "checkbox";
-      row.appendChild(el("label", null, null, [over, document.createTextNode(S.quotaGuard + ". Restore anyway.")]));
+      const over = key(el("input"), "over");
+      over.type = "checkbox"; over.id = "restore-over";
+      row.appendChild(key(el("label", null, null, [over, document.createTextNode(S.quotaGuard + ". Restore anyway.")]), "overl"));
     }
     const b = button("RESTORE ALL", "primary", async () => {
       restoreBusy = true; restoreMsg = null; render();
+      const over = $("restore-over");
       try {
         const r = await fetch("/api/lanes/restore-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrideQuota: !!(over && over.checked) }) });
         const j = await r.json().catch(() => ({}));
@@ -707,88 +1026,131 @@ function renderRestore() {
       } catch (e) { restoreMsg = { text: String(e), err: true }; }
       restoreBusy = false;
       render();
-    }, "claude --resume <its own session id> in each lane's worktree; never --continue, never twice");
-    b.disabled = restoreBusy || !!S.startBlocked;
+    }, "claude --resume <its own session id> in each lane's worktree; never --continue, never twice", null, true);
+    if (restoreBusy || S.startBlocked) b.disabled = true;
     row.appendChild(b);
   }
   if (restoreMsg) {
     row.appendChild(el("span", restoreMsg.err ? "stop sub" : "sub", restoreMsg.text));
     row.appendChild(button("DISMISS", "", () => { restoreMsg = null; render(); }));
   }
-  bar.appendChild(row);
+  patch(bar, [key(row, "restore")]);
 }
 
+// Each banner says what it is. The lost-tmux banner is left to the restore bar.
+const BANNER_LABEL = { no_hooks: "NO HOOKS", dropped: "EVENTS DROPPED", untrusted: "CONFIG CHANGED", hooks: "HOOKS", registry: "LANE REGISTRY" };
+const SOURCE_NAME = { worktrees: "git worktree list", agents: "claude agents", tmux: "the panel's tmux server" };
+function renderBanners() {
+  const kids = [];
+  const items = S.bannerItems || S.banners.map((t) => ({ kind: "", text: t }));
+  items.forEach((b, i) => {
+    if (b.kind === "restore") return;
+    const warn = b.kind === "untrusted" || b.kind === "dropped";
+    kids.push(key(el("div", "banner" + (warn ? " warn" : ""), null, [el("b", null, BANNER_LABEL[b.kind] || "NOTICE"), document.createTextNode(b.text)]), "banner:" + b.kind + ":" + i));
+  });
+  for (const [k, src] of Object.entries(S.sources)) {
+    if (k !== "prs" && !src.pending && !src.ok) kids.push(key(el("div", "banner", null, [el("b", null, "CANNOT READ"), document.createTextNode((SOURCE_NAME[k] || k) + ": " + src.error)]), "banner:src:" + k));
+  }
+  (S.warnings || []).forEach((w, i) => kids.push(key(el("div", "warnbar", w), "warn:" + i)));
+  patchInto("banners", kids);
+}
+
+// The footer: one line of the counters that matter, the rest one click away.
+let obsOpen = false;
+try { obsOpen = localStorage.getItem("clauductor-panel-obs") === "open"; } catch (e) {}
 function renderObs() {
   const o = S.observe;
-  const kv = (k, v) => el("span", null, null, [document.createTextNode(k + " "), el("b", null, String(v))]);
-  $("obs").replaceChildren(
-    kv("events", o.hookEvents), kv("status posts", o.statusPosts),
+  const kv = (k, v, cls) => el("span", cls || null, null, [document.createTextNode(k + " "), el("b", null, String(v))]);
+  const toggle = button(obsOpen ? "FEWER" : "ALL COUNTERS", "obstoggle", () => {
+    obsOpen = !obsOpen;
+    try { localStorage.setItem("clauductor-panel-obs", obsOpen ? "open" : "closed"); } catch (e) {}
+    render();
+  }, obsOpen ? "Show the main counters only" : "Show every counter the panel keeps", "obstoggle");
+  toggle.setAttribute("aria-expanded", String(obsOpen));
+  toggle.setAttribute("aria-controls", "obs");
+  const drops = o.droppedForeign + o.overflowDrops + o.malformedDrops + o.droppedUnknownEvent;
+  const kids = [toggle, kv("events", o.hookEvents), kv("status posts", o.statusPosts), kv("dropped", drops),
+    kv("notifications", o.notifySent + (o.notifyFailed ? " · failed " + o.notifyFailed : ""))];
+  if (obsOpen) kids.push(
     kv("dropped: foreign cwd", o.droppedForeign), kv("overflow", o.overflowDrops), kv("malformed", o.malformedDrops),
     kv("unknown event", o.droppedUnknownEvent), kv("unknown notification", o.unknownNotifications),
     kv("claude agents", (o.agentsPolls ? o.agentsPollMs + " ms (avg " + o.agentsPollAvgMs + ", max " + o.agentsPollMaxMs + ")" : "—") +
       " every " + (o.agentsIntervalMs ? o.agentsIntervalMs / 1000 + " s" : "—")),
-    kv("filter", o.agentsFilter || "—"),
-    kv("Claude Code", (o.claudeVersion || "?") + (o.claudeVersion && o.claudeVersion !== o.verifiedOn ? " (verified on " + o.verifiedOn + ")" : "")),
-    kv("notifications", o.notifySent + (o.notifyFailed ? " · failed " + o.notifyFailed : "")),
-  );
-  $("obs").title = o.notifyError || "";
+    kv("filter", o.agentsFilter || "—", "wrap"),
+    kv("Claude Code", (o.claudeVersion || "?") + (o.claudeVersion && o.claudeVersion !== o.verifiedOn ? " (verified on " + o.verifiedOn + ")" : "")));
+  const f = $("obs");
+  f.classList.toggle("open", obsOpen);
+  patch(f, kids.map((x, i) => (x.dataset.k ? x : key(x, "o:" + i))));
+  f.title = o.notifyError || "";
+}
+
+// The tab title and the favicon carry the Needs-you count, so it shows from any tab.
+let favSig = "";
+function tok(name) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9., ]+\))$/.test(v) ? v : "currentColor";
+}
+function renderFavicon() {
+  if (!S) return;
+  const n = S.needsYou.length, off = offline();
+  const sig = [n, off, document.documentElement.dataset.theme, document.documentElement.dataset.mode].join("|");
+  if (sig === favSig) return;
+  favSig = sig;
+  const bg = tok(off ? "--idle" : "--accent"), ink = tok("--surface");
+  let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='1' y='1' width='30' height='30' rx='7' fill='" + bg + "'/>";
+  if (off) svg += "<text x='16' y='23' font-family='sans-serif' font-size='20' font-weight='700' text-anchor='middle' fill='" + ink + "'>!</text>";
+  else if (n) svg += "<circle cx='21' cy='11' r='10' fill='" + tok("--stop") + "' stroke='" + ink + "' stroke-width='2'/>" +
+    "<text x='21' y='15.5' font-family='sans-serif' font-size='13' font-weight='700' text-anchor='middle' fill='" + ink + "'>" + (n > 9 ? "9+" : n) + "</text>";
+  svg += "</svg>";
+  $("favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+// New blocking items are read out once, politely.
+let seenNeeds = null;
+function announceNeeds() {
+  const keys = S.needsYou.map(needKey);
+  if (seenNeeds) {
+    const fresh = S.needsYou.filter((n) => !seenNeeds.has(needKey(n)));
+    if (fresh.length) setText($("announce"), "Needs you: " + fresh.map((n) => n.name + ", " + (n.label || n.kind) + (n.text ? ": " + n.text : "")).join(". "));
+  }
+  seenNeeds = new Set(keys);
 }
 
 function render() {
-  if (!S) return;
-  // The columns are rebuilt on every render; keep keyboard focus on the same card.
-  const fk = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.fk : null;
-  renderBody();
-  if (fk) {
-    const e = document.querySelector('[data-fk="' + CSS.escape(fk) + '"]');
-    if (e && e !== document.activeElement) e.focus({ preventScroll: true });
-  }
-}
-
-function renderBody() {
-  document.title = S.name + " · Panel";
-  $("pname").textContent = S.name;
+  if (!S) { renderConn(); return; }
+  selRegion = selectionRegion();
+  const off = offline();
+  const n = S.needsYou.length;
+  document.title = (off ? "⚠ DISCONNECTED · " : "") + (n ? "(" + n + ") " : "") + S.name + " · Panel";
+  setText($("pname"), S.name);
   gauge("g5", S.quota ? S.quota.fiveHour : null, S.quota && S.quota.fiveHourExpired);
   gauge("g7", S.quota ? S.quota.sevenDay : null, S.quota && S.quota.sevenDayExpired);
-  $("cost").textContent = S.estCostUsd == null ? "—" : S.estCostUsd.toFixed(2);
-  $("hookn").textContent = S.hookEvents + " · status " + S.statusPosts + (S.dropped ? " · dropped " + S.dropped : "");
-
-  const banners = $("banners");
-  banners.replaceChildren();
-  const bannerTexts = [...S.banners];
-  for (const [k, src] of Object.entries(S.sources)) if (k !== "prs" && !src.pending && !src.ok) bannerTexts.push("cannot read " + k + ": " + src.error);
-  for (const t of bannerTexts) banners.appendChild(el("div", "banner", null, [el("b", null, "NO SIGNAL"), document.createTextNode(t)]));
-  for (const w of S.warnings || []) banners.appendChild(el("div", "warnbar", w));
+  setText($("cost"), S.estCostUsd == null ? "—" : S.estCostUsd.toFixed(2));
+  setText($("hookn"), S.hookEvents + " · status " + S.statusPosts + (S.dropped ? " · dropped " + S.dropped : ""));
+  renderConn();
+  renderBanners();
   renderRestore();
   renderObs();
+  renderFavicon();
+  if (!off) announceNeeds();
 
-  // Left: lanes.
-  const left = $("left");
-  left.replaceChildren(el("div", "mh", "Lanes · " + S.lanes.length));
-  const aSrc = sourceNote(S.sources.agents, "claude agents");
-  if (aSrc) left.appendChild(aSrc);
-  if (!S.lanes.length) left.appendChild(el("div", "empty", "no Claude session in this project's worktrees"));
-  for (const l of S.lanes) left.appendChild(laneCard(l, false));
-  if (S.quietWorktrees.length) {
-    left.appendChild(el("div", "mh", "Worktrees · no session · " + S.quietWorktrees.length));
-    for (const l of S.quietWorktrees) left.appendChild(laneCard(l, true));
-  }
-
+  renderLeft();
   // Centre: the selected lane.
   const all = S.lanes.concat(S.quietWorktrees);
   let lane = all.find((l) => l.id === selected) || S.lanes[0] || all[0];
   if (lane && lane.id !== selected) selected = lane.id;
   renderTerminals(lane);
-  const centre = $("detail");
-  centre.replaceChildren();
+  const centre = [];
   if (lane) {
+    const st = el("span", "chip " + ({ busy: "go", waiting: "hold" }[lane.status] || ""), (lane.approx ? APPROX : "") + (lane.status === "none" ? "no session" : lane.status));
+    if (lane.approx) st.title = APPROX_TITLE;
     const chips = el("div", "chips", null, [
       el("span", "chip sig", lane.type),
-      lane.terminal ? el("span", "chip", "tmux lane " + lane.terminal) : null,
-      Object.assign(el("span", "chip " + ({ busy: "go", waiting: "hold" }[lane.status] || ""),
-        (lane.approx ? APPROX : "") + (lane.status === "none" ? "no session" : lane.status)), lane.approx ? { title: APPROX_TITLE } : {}),
+      lane.terminal ? el("span", "chip", "tmux lane") : null,
+      st,
+      lane.approx ? el("span", "chip hold", null, [staleTag(true)]) : null,
       el("span", "chip", "ctx " + pct(lane.ctxPct)),
-      el("span", "chip", "last hook " + (lane.lastHookAt ? age(lane.lastHookAt) + " ago" : "never")),
+      el("span", "chip", null, lane.lastHookAt ? [age(lane.lastHookAt, "last hook ", " ago")] : [document.createTextNode("last hook never")]),
     ]);
     if (lane.stale) chips.appendChild(el("span", "chip stop", "no hooks while busy"));
     const sum = el("div", "summary", null, [
@@ -798,14 +1160,14 @@ function renderBody() {
     if (lane.sessions.length) {
       const tb = el("tbody");
       for (const s of lane.sessions) {
-        tb.appendChild(el("tr", null, null, [
+        tb.appendChild(key(el("tr", null, null, [
           el("td", null, s.name || s.id.slice(0, 8)), el("td", null, s.pid ? String(s.pid) : "—"), el("td", null, s.kind || "hooks only"),
           el("td", { busy: "go", waiting: "hold" }[s.status] || "", (s.approx ? APPROX : "") + s.status + (s.waitingFor ? " · " + s.waitingFor : "") +
             (s.compacting ? " · compacting (" + s.compacting + ")" : "") + (s.failure ? " · failed: " + s.failure : "") +
             (s.unknownNotification ? " · unknown notification " + s.unknownNotification : "") + (s.agentState ? " · " + s.agentState : "")),
           el("td", null, pct(s.ctxPct)), el("td", null, s.model || "—"),
           el("td", null, s.estCostUsd == null ? "—" : "$" + s.estCostUsd.toFixed(2)),
-        ]));
+        ]), "s:" + s.id));
       }
       const th = el("tr", null, null, ["session", "pid", "kind", "status", "ctx", "model", "est. $"].map((h) => el("th", null, h)));
       sum.appendChild(el("div", "tablewrap", null, [el("table", null, null, [el("thead", null, null, [th]), tb])]));
@@ -814,47 +1176,39 @@ function renderBody() {
     if (lane.subagentsApprox) sum.appendChild(el("div", "approx sub", "approximate: the pairing was verified on Claude Code " + S.observe.verifiedOn + ", and " + (S.observe.claudeVersion || "an unknown version") + " is running"));
     if (lane.subagents.length) {
       const ul = el("div", "feed");
-      for (const a of lane.subagents) ul.appendChild(el("div", "ev", null, [el("span", "t", age(a.since)), el("span", "d", (a.type || "(untyped)") + " " + a.id.slice(0, 7))]));
+      for (const a of lane.subagents) ul.appendChild(key(el("div", "ev", null, [el("span", "t", null, [age(a.since)]), el("span", "d", (a.type || "(untyped)") + " " + a.id.slice(0, 7))]), "sa:" + a.id));
       sum.appendChild(ul);
     } else sum.appendChild(el("div", "empty", "none"));
-    centre.appendChild(sum);
-    centre.appendChild(el("div", "mh", "Events · " + lane.name));
-    centre.appendChild(feedList(S.feed.filter((e) => e.lane === lane.id), false));
-  } else centre.appendChild(el("div", "empty", "no worktrees"));
+    centre.push(key(sum, "sum:" + lane.id));
+    centre.push(key(el("div", "mh", "Events · " + lane.name), "h:events"));
+    centre.push(feedList(S.feed.filter((e) => e.lane === lane.id), false, "lanefeed"));
+  } else centre.push(key(el("div", "empty", "No lane yet: start one with + LANE."), "nolane"));
+  patchInto("detail", centre);
 
-  // Right: needs you, cards, PRs, global feed.
-  const right = $("right");
-  // Needs you holds blocking states only; a finished turn is "done", shown apart.
-  right.replaceChildren(el("div", "mh", "Needs you · " + S.needsYou.length));
-  if (!S.needsYou.length) right.appendChild(el("div", "empty", "nothing blocked on you"));
-  for (const n of S.needsYou) right.appendChild(needCard(n, "card ask " + (n.severity || "")));
+  // Right: alerts, queues, the project's cards, PRs, the feed.
+  const right = [];
   renderAlerts(right);
   renderQueues(right);
-  if ((S.done || []).length) {
-    right.appendChild(el("div", "mh", "Done · your move · " + S.done.length));
-    for (const n of S.done) right.appendChild(needCard(n, "card done"));
-  }
-  for (const c of S.cards) right.appendChild(projectCard(c));
-
-  right.appendChild(el("div", "mh", "Open PRs · " + (S.sources.prs.ok ? S.prs.length : "?")));
-  const pSrc = sourceNote(S.sources.prs, "gh pr list");
-  if (pSrc) right.appendChild(pSrc);
-  if (S.sources.prs.ok && !S.prs.length) right.appendChild(el("div", "empty", "none open"));
+  for (const c of S.cards) right.push(projectCard(c));
+  right.push(heading("Open PRs · " + (S.sources.prs.ok ? S.prs.length : "?"), "h:prs"));
+  right.push(sourceNote(S.sources.prs, "gh pr list", "src:prs"));
+  if (S.sources.prs.ok && !S.prs.length) right.push(key(el("div", "empty", "none open"), "prs:none"));
   for (const p of S.prs) {
     const checks = p.checksFail ? el("span", "stop", p.checksFail + " failing") : p.checksPending ? el("span", "hold", p.checksPending + " pending")
       : p.checksPass ? el("span", "go", p.checksPass + " passing") : el("span", "dim", "no checks");
-    right.appendChild(el("div", "card" + (S.sources.prs.ok ? "" : " dim"), null, [
+    right.push(key(el("div", "card" + (S.sources.prs.ok ? "" : " dim"), null, [
       el("div", "mono", "#" + p.number + " " + p.headRefName),
       el("div", null, p.title),
       el("div", "sub", null, [document.createTextNode((p.isDraft ? "draft · " : "") + p.author + " · "), checks]),
-    ]));
+    ]), "pr:" + p.number));
   }
-
-  right.appendChild(el("div", "mh", "Feed"));
-  right.appendChild(feedList(S.feed.slice(0, 60), true));
+  right.push(heading("Feed", "h:feed"));
+  right.push(feedList(S.feed.slice(0, 60), true, "feed"));
+  patchInto("right", right);
+  renderHint();
 }
 
-$("refresh").addEventListener("click", () => { fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
+$("refresh").addEventListener("click", () => { if (!offline()) fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
 
 // ---- Themes: the picker ---------------------------------------------------------
 // A menu button (WAI-ARIA APG): Enter, Space or Down opens it on the checked item, Up on
@@ -933,5 +1287,5 @@ document.addEventListener("pointerdown", (e) => {
   if (!$("thememenu").hidden && !e.target.closest(".picker")) closePicker(false);
 });
 renderPicker();
-setInterval(render, 1000); // ages move between server pushes
+setInterval(tickAges, 1000); // ages move in place; the page is patched only when the panel says something changed
 connect();

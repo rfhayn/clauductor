@@ -357,7 +357,10 @@ func TestPanelStripsKeyBindingsFromAServerItDidNotStart(t *testing.T) {
 		r, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "root").CombinedOutput()
 		p, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "prefix").CombinedOutput()
 		o, _ := exec.Command(tmux, "-L", sock, "show-options", "-g", "prefix").Output()
-		return !strings.Contains(string(r), "bind-key") && !strings.Contains(string(p), "bind-key") &&
+		// The root table keeps only the wheel binding the panel puts back (PANEL-6).
+		rootLeft := strings.TrimSpace(string(r))
+		return strings.Count(rootLeft, "bind-key") == 1 && strings.Contains(rootLeft, "WheelUpPane") &&
+			!strings.Contains(rootLeft, "F12") && !strings.Contains(string(p), "bind-key") &&
 			strings.TrimSpace(string(o)) == "prefix None"
 	})
 }

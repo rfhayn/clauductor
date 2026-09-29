@@ -135,8 +135,13 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 
 ## What each part of the page means
 
-- **Top bar.** LIVE / DISCONNECTED (the page reconnects on its own; if the panel was restarted
-  it says so, because the new launch has a new token). The 5-hour and 7-day quota gauges are the
+- **Top bar.** LIVE / DISCONNECTED. The page hears from the panel whenever the view changes,
+  and gets a heartbeat every 5 s. After three missed beats, or a dropped stream, it says so
+  everywhere: a **DISCONNECTED** bar under the top bar with the reconnect status and a RETRY
+  NOW button, "⚠ DISCONNECTED" in the tab title, hatched and dimmed columns, section headings
+  marked "as of HH:MM", every age frozen at the last word from the panel, and every action that
+  would reach the panel disabled. It reconnects on its own and restores all of it. If the panel
+  was restarted, the bar says so, because the new launch has a new token. The 5-hour and 7-day quota gauges are the
   real subscription budget (labelled **5 h** and **7 d**). **est. $ (list price)** (with
   "· tracked sessions" on wide screens) is the sum of the status
   line's `total_cost_usd` over the sessions the panel tracks now: live ones, and ones heard from
@@ -146,15 +151,40 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   project; below 1440 px it is left to the footer, which has the same counters, so the bar
   stays on one row from 1280 px. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
   lanes cannot start (see *Subscription only*).
-- **Lanes (left).** One per worktree with a live session or recent activity. The stripe is green
+- **Left column: Needs you, Done, Lanes.** *Needs you* comes first in the page at every width:
+  sessions blocked on you (a permission, elicitation or input notification, or `claude agents`
+  reporting them waiting), quota auto-resume warnings, and stuck or restored template lanes. It
+  shows the specific ask when `claude agents` names one (`Permission: Bash(npm run test:e2e)`),
+  not the hook's generic message. *Done · your move* sits right under it: finished turns, not
+  blocked. The tab title reads `(N) <project>` while N items need you, the favicon carries the
+  same count, and a new item is announced to screen readers (a polite live region).
+- **Lanes (left, under Needs you).** One per worktree with a live session or recent activity. The stripe is green
   for busy, amber for waiting, grey for idle, and red when the lane is busy but no hook has
   arrived from it for 60 s ("no hooks"). The status line repeats the state as a shape (see
   *Themes*). The chip is the lane type from `lanes`. Worktrees with no session are
-  listed underneath.
+  listed underneath. A lane has one name everywhere (card, tab, Needs you, alerts, the feed): a
+  lane with a terminal is called what you named it when you started it. A status that is not a
+  current `claude agents` reading is marked `≈`, the stripe turns dashed, and the card says how
+  old the last good reading is ("stale · read 3m ago").
 - **Terminals (centre).** One tab per lane, with a status dot. The selected tab is that lane's
   live terminal: type into it as you would in Terminal.app. Under it are **ATTACH IN
   TERMINAL.APP**, **INTERRUPT (ESC)**, **RESTART** and **STOP LANE**. Stop and restart ask for
-  confirmation in the page. An orphaned lane has **RESUME** and **FORGET** instead of a terminal.
+  confirmation in the page, in words built from the lane's state: idle gets `/exit`, busy or
+  waiting gets Escape (and what that interrupts: its subagents, an open question), and whether it
+  holds or waits in a queue. An orphaned lane has **RESUME** and **FORGET** instead of a
+  terminal. The terminal takes the height left in the column, so its controls stay on screen
+  whatever banners are showing.
+- **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
+  the page, not picking a lane, not OPEN TERMINAL (which takes focus to the terminal's frame).
+  The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every
+  key is claude's, Tab, Shift+Tab and Escape included. **Ctrl+]** leaves, back to the lane's tab;
+  a line above the terminal says so while you are in it. A double Escape does not leave, because
+  claude uses Esc Esc itself (to go back to an earlier message).
+- **The mouse and the terminal.** The wheel scrolls the lane's history: the panel's tmux has
+  `mouse on`, so the first wheel-up enters tmux's copy mode, which ends when you scroll back to
+  the bottom (or press q or Escape). Before this the wheel reached claude as ↑ keypresses. Because
+  tmux now takes the mouse, select text with **Option-drag** (Shift-drag off a Mac). tmux's status
+  bar is off; the tab names the lane.
 - **Selected lane (centre, below the terminal).** Its sessions (pid, status, context %, model,
   est. $), running subagents with their age, and the lane's own event feed. A lane card marked
   `· tmux` has a terminal; clicking it opens that tab. Workflow agents stop under a different
@@ -164,14 +194,16 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   with an empty type is an internal agent that never sent a start, and retires nothing. A session
   that `claude agents` reports idle for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
   background agents outlive the turn.
-- **Right column.** *Needs you*: sessions blocked on you (a permission, elicitation or input
-  notification, or `claude agents` reporting them waiting), quota auto-resume warnings, and
-  stuck or restored template lanes, followed by the project's cards. See *Current or stale* below
-  for when an item is marked approximate. *Open PRs*: from `gh`, with
-  "cannot read" on failure (never an empty list). *Feed*: the last events across all lanes.
-- **Red banner.** A lane is busy per `claude agents` and no hook has come from it since it went
-  busy, for 60 s. Usually the session never loaded the hooks. Restart it. Also shown when `claude
-  agents` or `git worktree list` cannot be read.
+- **Right column.** *Alerts* (a waiting alert already in Needs you is not repeated; the heading
+  counts it; a row that leads to a lane is a button), *Queues*, the project's cards, *Open PRs*:
+  from `gh`, with "cannot read" on failure (never an empty list), and *Feed*: the last events
+  across all lanes. See *Current or stale* below for when an item is marked approximate.
+- **Banners (top of the centre column).** Each says what it is. **NO HOOKS**: a lane is busy per
+  `claude agents` and no hook has come from it since it went busy, for 60 s; usually the session
+  never loaded the hooks, so restart it. **CANNOT READ**: `claude agents`, `git worktree list` or
+  the panel's tmux server cannot be read. **CONFIG CHANGED**, **EVENTS DROPPED**, **HOOKS** and
+  **LANE REGISTRY** say what their name says. Lanes that lost their tmux session are announced
+  once, in the **RESTORE** bar, with RESTORE ALL.
 
 ## Themes
 
@@ -554,7 +586,10 @@ send requests to `127.0.0.1`.
   terminal can do what the lane's user can. Everything above exists so that only you can type
   into it. On the panel's own tmux socket the server never loads `~/.tmux.conf` (`-f
   /dev/null`), and every lane start sets `prefix None`, `prefix2 None` and unbinds the prefix
-  and root tables. `-f` only applies when the panel starts the server, so the same settings
+  and root tables. One root binding comes back: `WheelUpPane`, as tmux ships it (into copy
+  mode, or to the program if it asked for the mouse), so the wheel scrolls history. Clicks and
+  the right-click menu (which offers kill-pane and respawn-pane) stay unbound. The same pass sets
+  `mouse on` and `status off`. `-f` only applies when the panel starts the server, so the same settings
   are applied again every time the panel finds a server on its socket (each 2 s poll) and before
   every viewer attaches. A server someone else started there, with their `~/.tmux.conf`
   bindings, is stripped too. A lane's viewer therefore cannot use tmux keys to switch to another lane or reach tmux's
@@ -1038,7 +1073,8 @@ panel follows within 5 s) or start with `--trust-config`. A red banner names bot
 
 ### Observability
 
-The footer shows the panel's own counters: hook events, status posts, drops by cause (foreign
+The footer shows one line: hook events, status posts, drops and notifications. **ALL
+COUNTERS** opens the rest (the choice is remembered): drops by cause (foreign
 `cwd`, overflow, malformed, unknown event name), unknown notification types, the last, mean and
 worst `claude agents` poll latency and its current interval, the filter in use and why, the
 Claude Code version against the one the heuristics were verified on, and notifications sent or

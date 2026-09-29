@@ -157,7 +157,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		lines := make([]string, 0, len(as))
 		keys := make([]string, 0, len(as))
 		for _, a := range as {
-			lines = append(lines, a.Text)
+			lines = append(lines, noticeLine(a, now))
 			keys = append(keys, a.Key)
 			n.notified[a.Key] = a.Since
 		}

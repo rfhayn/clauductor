@@ -283,7 +283,7 @@ func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 	check := func(at time.Duration, want bool) {
 		t.Helper()
 		v := m.Snapshot(t0.Add(at))
-		l := laneByName(v, "x")
+		l := laneByName(v, "lane-x") // a lane with a terminal is named after it (PANEL-6)
 		if l == nil || l.Approx != want || len(l.Sessions) != 1 || l.Sessions[0].Approx != want {
 			t.Fatalf("+%s: lane/session approx, want %v: %+v", at, want, l)
 		}
