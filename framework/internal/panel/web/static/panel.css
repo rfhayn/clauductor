@@ -120,3 +120,21 @@ th { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: 
 .dlg legend { font: 600 .66rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); padding: 0 4px; }
 .dlg input[type=text], .dlg select { font: 500 .85rem/1.2 var(--font-mono); padding: 6px 8px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line-strong); border-radius: 3px; }
 .dlg .actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* v2: orchestration. */
+.card.done { border-color: var(--line); background: var(--panel-2); opacity: .9; }
+.card.ask.warn { border-color: var(--hold); background: transparent; }
+.card.ask.block { border-color: var(--stop); background: var(--stop-soft); }
+.card .jump { justify-self: start; }
+.alert { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: baseline; font-size: .78rem; }
+.alert .sev { font: 600 .6rem/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 5px; border-radius: 2px; background: var(--panel-2); color: var(--text-dim); }
+.alert .sev.block { color: var(--stop); background: var(--stop-soft); }
+.alert .sev.warn { color: var(--hold); background: var(--hold-soft); }
+.queue .who { font: 500 .76rem/1.3 var(--font-mono); display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.queue ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 4px; }
+.restore { background: var(--hold-soft); border-bottom: 1px solid var(--hold); padding: 8px 16px; font-size: .85rem; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.restore label { display: flex; gap: 4px; align-items: center; font-size: .78rem; }
+.warnbar { background: var(--hold-soft); border-bottom: 1px solid var(--hold); padding: 6px 16px; font-size: .8rem; }
+.obs { border-top: 1px solid var(--line); background: var(--panel); padding: 6px 16px; font: 500 .68rem/1.5 var(--font-mono); color: var(--text-dim); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.obs b { color: var(--text); font-weight: 600; }
+.approx { font-style: italic; color: var(--hold); }
+.tpl-prompt { white-space: normal; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .76rem; color: var(--text-dim); border-left: 2px solid var(--line-strong); padding-left: 8px; }
