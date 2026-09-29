@@ -222,7 +222,8 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 .shell.norail { grid-template-columns: minmax(0, 1fr); }
 .shell.norail .rail, .shell.norail .splitter { display: none; }
 .rail { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--rail); display: grid; align-content: start; gap: calc(var(--tui) * .75rem);
-  padding: calc(var(--tui) * .75rem) calc(var(--tui) * .25rem) 1.5rem; scroll-padding-bottom: 1.5rem; }
+  padding: calc(var(--tui) * .75rem) calc(var(--tui) * .25rem) 0; }
+.rail > #tree { padding-bottom: 2rem; }
 /* While the rail has more below its fold, a line at its foot says so. */
 .morebelow { position: sticky; bottom: 0; margin-top: -1.5rem; padding: .3rem var(--pane-p); background: var(--rail); border-top: 1px solid var(--rule);
   color: var(--text-2); font-size: .75rem; text-align: center; pointer-events: none; }

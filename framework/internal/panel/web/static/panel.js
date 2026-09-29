@@ -1392,7 +1392,7 @@ function termFace() {
 function loadTermFace() {
   const fam = termFamily(), size = termFontSize();
   const first = fam.split(",")[0].trim();
-  const set = () => { termFaceReady = fam; retheme(); };
+  const set = () => { termFaceReady = fam; cellCache = ""; retheme(); if (typeof applyRail === "function") { applyRail(); if (S) render(); } };
   if (!document.fonts || !document.fonts.load) { set(); return; }
   Promise.all([document.fonts.load(size + "px " + first), document.fonts.load("bold " + size + "px " + first)]).then(set, set);
 }
@@ -2100,7 +2100,8 @@ function termCellWidth() {
     const c = document.createElement("canvas").getContext("2d");
     c.font = termFontSize() + "px " + termFamily();
     cellW = c.measureText("MMMMMMMMMM").width / 10 || termFontSize() * 0.6;
-    cellCache = k;
+    // Keep the measure only once the face has loaded; until then it is the fallback's.
+    if (!document.fonts || document.fonts.check(c.font)) cellCache = k;
   }
   return cellW;
 }
