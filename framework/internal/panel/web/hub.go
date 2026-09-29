@@ -38,6 +38,9 @@ type Hub struct {
 	TickEvery time.Duration
 	// pushes counts broadcasts, for tests and the footer.
 	pushes atomic.Int64
+	// rounds counts the times the hub decided whether to push, pushed or not: a test
+	// that drives the hub's clock waits for a round rather than sleeping on it.
+	rounds atomic.Int64
 }
 
 // NewHub wraps a model.
@@ -119,6 +122,7 @@ func (h *Hub) Run(ctx context.Context) {
 // broadcast pushes the current view to every subscriber if what it says changed,
 // or, on a tick, if anything in it changed.
 func (h *Hub) broadcast(tick bool) {
+	defer h.rounds.Add(1)
 	snap, key, full := h.snapshotKeyed()
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -53,6 +53,7 @@ console.log(JSON.stringify(out));
 `
 
 func TestXtermStyleRouteIsNarrow(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed; the style-route guard is untested here")

@@ -9,6 +9,7 @@ import (
 )
 
 func TestConfigTrust(t *testing.T) {
+	t.Parallel()
 	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
 	cfg := filepath.Join(root, "panel.json")
 	tv, err := CheckTrust(home, root, cfg, "h1", false)

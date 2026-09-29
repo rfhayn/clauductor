@@ -22,6 +22,7 @@ import (
 // names. The lane manager points at a socket with no server: a request that got past
 // every guard answers 404 "no such lane", never 101.
 func TestTerminalUpgradeGuards(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
 	s.Lanes.Socket = "clauductor-test-no-server"
@@ -100,6 +101,7 @@ func httptestWithProtocol(p string) *http.Request {
 
 // The page carries no inline script or style and loads nothing from another origin.
 func TestPageCSPIsSelfOnly(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/", "", withCookie(s))
 	csp := w.Header().Get("Content-Security-Policy")
@@ -133,6 +135,7 @@ type reqOptList []reqOpt
 
 // Lane control is a POST: it needs the cookie and the panel's own Origin.
 func TestLaneAPIGuards(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	s.Lanes = testLaneManager(t)
 	s.Lanes.Socket = "clauductor-test-no-server"
@@ -181,6 +184,7 @@ func TestLaneAPIGuards(t *testing.T) {
 }
 
 func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
 	s, _ := newTestServer(t)
 	w := do(s, "GET", "/?t="+s.Token, "")
 	if c := w.Header().Get("Set-Cookie"); strings.Contains(c, "Max-Age") {
@@ -196,6 +200,7 @@ func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
 // F4: a terminal that passed auth just before a token rotation is closed as soon as
 // it registers, and tickets issued under the old token die with it.
 func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	if err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "a", "/bin/sh").Run(); err != nil {
 		t.Fatal(err)
