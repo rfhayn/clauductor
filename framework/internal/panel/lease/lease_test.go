@@ -708,3 +708,32 @@ func TestLockRunRestoresTheRealTERM(t *testing.T) {
 func quickExit() string {
 	return "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")
 }
+
+// A signal that reaches lock-run after it has won the lease, but before its command
+// runs, is passed on to the command once it starts; it is not lost in between, which
+// would leave lock-run running a command that never heard it. Not parallel: it sets
+// the package's afterAcquire hook, and signals this process.
+func TestLockRunPassesOnASignalFromBeforeTheCommandStarted(t *testing.T) {
+	dir := t.TempDir()
+	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
+	// SIGHUP, not TERM or INT: leakcheck.Main listens for those two in this process.
+	afterAcquire = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGHUP) }
+	defer func() { afterAcquire = nil }()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	code, err := LockRun(ctx, LockRunOptions{Clock: clock.System, Lock: lock, TTL: time.Minute, Stderr: io.Discard,
+		Argv: []string{"/bin/sh", "-c", "trap 'echo HUP >> " + log + "; exit 9' HUP; while :; do sleep 0.05; done"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 9: the command's trap ran; 128+1: HUP reached it before it set the trap. Either
+	// way the command heard it. Without it the command runs until ctx ends and gets
+	// TERM (143).
+	if code != 9 && code != 128+int(syscall.SIGHUP) {
+		t.Fatalf("exit %d after %v: the command never got the SIGHUP sent while lock-run started it", code, time.Since(start))
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatal("lease not released")
+	}
+}
