@@ -63,10 +63,40 @@ type StatusPayload struct {
 	} `json:"model"`
 	Cost struct {
 		TotalCostUSD *float64 `json:"total_cost_usd"`
+		// PANEL-11: the lane metrics. Every figure below is from the same post the
+		// panel already receives; none costs a model token or a new poll.
+		TotalDurationMs    *int64 `json:"total_duration_ms"`
+		TotalAPIDurationMs *int64 `json:"total_api_duration_ms"`
+		TotalLinesAdded    *int64 `json:"total_lines_added"`
+		TotalLinesRemoved  *int64 `json:"total_lines_removed"`
 	} `json:"cost"`
 	ContextWindow struct {
-		UsedPercentage *float64 `json:"used_percentage"`
+		UsedPercentage    *float64 `json:"used_percentage"`
+		TotalInputTokens  *int64   `json:"total_input_tokens"`
+		TotalOutputTokens *int64   `json:"total_output_tokens"`
+		ContextWindowSize *int64   `json:"context_window_size"`
+		CurrentUsage      *struct {
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+		} `json:"current_usage"`
 	} `json:"context_window"`
+	Exceeds200k *bool `json:"exceeds_200k_tokens"`
+	PromptCache *struct {
+		Warm      *bool    `json:"warm"`
+		HitRatio  *float64 `json:"hit_ratio"`
+		ExpiresAt *int64   `json:"expires_at"` // unix seconds
+		Requests  *int64   `json:"requests"`
+		Misses    *int64   `json:"misses"`
+	} `json:"prompt_cache"`
+	FastMode *bool `json:"fast_mode"`
+	Thinking *struct {
+		Enabled *bool `json:"enabled"`
+	} `json:"thinking"`
+	OutputStyle struct {
+		Name string `json:"name"`
+	} `json:"output_style"`
 	RateLimits struct {
 		FiveHour *RateLimit `json:"five_hour"`
 		SevenDay *RateLimit `json:"seven_day"`
