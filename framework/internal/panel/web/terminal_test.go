@@ -125,7 +125,7 @@ func TestPageCSPIsSelfOnly(t *testing.T) {
 			t.Errorf("page contains %q", bad)
 		}
 	}
-	for _, path := range []string{"/static/panel.js", "/static/panel.css", "/static/theme.js", "/static/themes.css", "/static/types.css", "/static/xterm-style.js", "/static/fonts/jetbrains-mono-latin-wght-normal.woff2", "/static/fonts/OFL-jetbrains-mono.txt"} {
+	for _, path := range []string{"/static/panel.js", "/static/panel.css", "/static/theme.js", "/static/themes.css", "/static/types.css", "/static/xterm-style.js", "/static/tuned.js", "/static/fonts/overpass-latin-400-normal.woff2", "/static/fonts/OFL-overpass.txt"} {
 		if w := do(s, "GET", path, "", withCookie(s)); w.Code != 200 {
 			t.Errorf("%s: %d", path, w.Code)
 		}

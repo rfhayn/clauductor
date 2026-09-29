@@ -903,8 +903,8 @@ func (r *Runtime) pollProcs(ctx context.Context, now time.Time) (update, time.Du
 		return nil, 0
 	}
 	procs := signals.ParsePS(out)
-	if err != nil && len(procs) > 0 {
-		err = nil // ps exits 1 when a pid is gone; the rest are still good
+	if err != nil && (len(procs) > 0 || len(strings.TrimSpace(string(out))) == 0) {
+		err = nil // ps exits 1 when a pid is gone (or all are): what it listed is still good
 	}
 	return func(m *state.Model, now time.Time) { m.ApplyProcs(procs, err, now) }, 0
 }

@@ -1,89 +1,86 @@
-/* The panel's type systems (PANEL-11). A type system is only tokens: the faces (UI
-   body, display, labels, figures and the terminal), their weights, case and tracking,
-   --type-adjust (a size factor that evens out x-heights, so a face with a small
-   x-height is not smaller to the eye), --num (the numeric features figures use) and
-   --term-size, the terminal's base size.
+/* The panel's type systems (PANEL-11). A type system owns the faces and nothing else:
+   the UI face, the data face (every aligned value: ids, SHAs, durations, figures) and
+   the terminal face, their numeric features, and the terminal's base size. Any theme
+   works with any type system; the theme owns every colour and all density.
    The contract (docs/panel.md, "Appearance"):
-   - [data-type="<id>"] sets every type token, and nothing else. themes.css sets
-     colour, surface, border and density, and no type token; themes_test.go checks both.
-   - theme.js puts data-type on <html> before first paint: your choice, else the type
-     system the theme pairs with. Any theme works with any type system.
-   Fonts are embedded in the binary (SIL OFL 1.1; licences beside the files). A face
-   downloads only when a rule in the active type system uses it.
-   The six below are placeholders: the faces the six themes shipped with. */
-@font-face { font-family: "Chakra Petch"; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-style: normal; font-display: swap; src: url("fonts/ibm-plex-sans-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-style: normal; font-display: swap; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Newsreader"; font-weight: 600; font-style: italic; font-display: swap; src: url("fonts/newsreader-latin-600-italic.woff2") format("woff2"); }
-@font-face { font-family: "Newsreader"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/newsreader-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Mono"; font-weight: 500 700; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-500-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow Semi Condensed"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("fonts/barlow-semi-condensed-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Red Hat Mono"; font-weight: 300 700; font-style: normal; font-display: swap; src: url("fonts/red-hat-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Courier Prime"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Courier Prime"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Next"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Big Shoulders Stencil"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/big-shoulders-stencil-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Archivo"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/archivo-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Martian Mono"; font-weight: 100 800; font-stretch: 75%; font-style: normal; font-display: swap; src: url("fonts/martian-mono-latin-standard-normal.woff2") format("woff2"); }
+   - [data-type="<id>"] sets every type token, and nothing else; themes_test.go and
+     types_test.go keep the two layers apart.
+   - theme.js puts data-type on <html> before first paint: your choice, else the one
+     the theme suggests.
+   - Weights 400 and 700 only. panel.css evens out x-heights for every face with
+     font-size-adjust (ex-height .52), and sets --num on every figure.
+   Fonts are embedded (SIL OFL 1.1, licences beside the files), Latin subsets, at most
+   125 KB a system (types_test.go). Where a face was rebuilt from upstream (Overpass
+   Mono, Commit Mono, the Iosevka faces, Mona Sans, Monaspace), it keeps the box
+   drawing and prompt glyphs a terminal needs, where the upstream font has them. Mona
+   Sans and Monaspace carry Reserved Font Names, so the subsets here are renamed Panel
+   Sans, Panel Data Mono and Panel Term Mono, as the OFL requires of a modified font. */
 
-/* Instrument: Chakra Petch, IBM Plex Sans, JetBrains Mono. */
-:root, [data-type="instrument"] {
-  --font-display: "Chakra Petch", "Segoe UI", ui-sans-serif, system-ui, sans-serif; --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-term: "JetBrains Mono", Menlo, ui-monospace, monospace; --display-weight: 700; --display-style: normal;
-  --display-case: uppercase; --display-track: .06em; --label-case: uppercase;
-  --label-track: .14em; --label-weight: 600; --caps: normal;
-  --font-label: var(--font-mono); --label-size: .66rem; --btn-size: .7rem;
-  --term-size: 13px; --type-adjust: 1; --num: "tnum" 1;
+@font-face { font-family: "B612"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/b612-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "B612"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/b612-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "B612 Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/b612-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "B612 Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/b612-mono-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/overpass-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/overpass-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Overpass Mono"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/overpass-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Public Sans"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/public-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Commit Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/commit-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Commit Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/commit-mono-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Next"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka Aile"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/iosevka-aile-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka Aile"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/iosevka-aile-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/iosevka-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/iosevka-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka Term"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/iosevka-term-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Iosevka Term"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/iosevka-term-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Panel Sans"; font-weight: 400 700; font-stretch: 75% 100%; font-style: normal; font-display: swap; src: url("fonts/mona-sans-latin-wdth-normal.woff2") format("woff2"); }
+@font-face { font-family: "Panel Data Mono"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/monaspace-neon-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Panel Term Mono"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("fonts/monaspace-argon-latin-wght-normal.woff2") format("woff2"); }
+
+/* T2 Highway: Overpass and Overpass Mono, after US highway signage (Red Hat). The
+   default: Grey HMI suggests it. */
+:root, [data-type="highway"] {
+  --font-ui: "Overpass", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Overpass Mono", ui-monospace, Menlo, monospace;
+  --font-term: "Overpass Mono", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13px; --data-bump: 0px;
 }
-/* Chart: Newsreader, DM Mono. */
-[data-type="chart"] {
-  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif; --font-body: "Newsreader", "Iowan Old Style", Georgia, serif; --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-term: "DM Mono", Menlo, ui-monospace, monospace; --display-weight: 600; --display-style: italic;
-  --display-case: none; --display-track: 0; --label-case: none;
-  --label-track: .02em; --label-weight: 600; --caps: all-small-caps;
-  --font-label: var(--font-body); --label-size: .84rem; --btn-size: .84rem;
-  --term-size: 13.5px; --type-adjust: 1; --num: "tnum" 1;
+/* T1 Cockpit: B612 and B612 Mono, drawn for Airbus cockpit displays. */
+[data-type="cockpit"] {
+  --font-ui: "B612", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "B612 Mono", ui-monospace, Menlo, monospace;
+  --font-term: "B612 Mono", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 12.5px; --data-bump: 0px;
 }
-/* Clinical: Barlow Semi Condensed, Barlow, Red Hat Mono. */
-[data-type="clinical"] {
-  --font-display: "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif; --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-term: "Red Hat Mono", Menlo, ui-monospace, monospace; --display-weight: 700; --display-style: normal;
-  --display-case: none; --display-track: .01em; --label-case: uppercase;
-  --label-track: .09em; --label-weight: 600; --caps: normal;
-  --font-label: var(--font-display); --label-size: .78rem; --btn-size: .78rem;
-  --term-size: 14px; --type-adjust: 1; --num: "tnum" 1;
+/* T3 Civic: Public Sans (the US Web Design System) and Commit Mono. */
+[data-type="civic"] {
+  --font-ui: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Commit Mono", ui-monospace, Menlo, monospace;
+  --font-term: "Commit Mono", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13px; --data-bump: 0px;
 }
-/* Typewriter: Courier Prime. */
-[data-type="typewriter"] {
-  --font-display: "Courier Prime", "Courier New", ui-monospace, monospace; --font-body: "Courier Prime", "Courier New", ui-monospace, monospace; --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
-  --font-term: "Courier Prime", "Courier New", ui-monospace, monospace; --display-weight: 700; --display-style: normal;
-  --display-case: uppercase; --display-track: .12em; --label-case: uppercase;
-  --label-track: .08em; --label-weight: 700; --caps: normal;
-  --font-label: var(--font-mono); --label-size: .72rem; --btn-size: .76rem;
-  --term-size: 13.5px; --type-adjust: 1; --num: "tnum" 1;
-}
-/* Hyperlegible: Atkinson Hyperlegible Next and Mono. */
+/* T4 Hyperlegible: Atkinson Hyperlegible Next and Mono (Braille Institute): the most
+   distinct glyphs. */
 [data-type="hyperlegible"] {
-  --font-display: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif; --font-body: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, sans-serif; --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-term: "Atkinson Hyperlegible Mono", Menlo, ui-monospace, monospace; --display-weight: 800; --display-style: normal;
-  --display-case: none; --display-track: 0; --label-case: none;
-  --label-track: .01em; --label-weight: 800; --caps: normal;
-  --font-label: var(--font-body); --label-size: .82rem; --btn-size: .8rem;
-  --term-size: 15px; --type-adjust: 1; --num: "tnum" 1;
+  --font-ui: "Atkinson Hyperlegible Next", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Atkinson Hyperlegible Mono", ui-monospace, Menlo, monospace;
+  --font-term: "Atkinson Hyperlegible Mono", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13px; --data-bump: 0px;
 }
-/* Stencil: Big Shoulders Stencil, Archivo, Martian Mono. The mono face is declared at
-   font-stretch 75% only, so its wdth axis always renders condensed (the `font`
-   shorthand would reset a font-variation-settings). */
-[data-type="stencil"] {
-  --font-display: "Big Shoulders Stencil", Impact, "Arial Narrow", sans-serif; --font-body: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; --font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-term: "Martian Mono", Menlo, ui-monospace, monospace; --display-weight: 800; --display-style: normal;
-  --display-case: uppercase; --display-track: .04em; --label-case: uppercase;
-  --label-track: .1em; --label-weight: 700; --caps: normal;
-  --font-label: var(--font-mono); --label-size: .64rem; --btn-size: .7rem;
-  --term-size: 12.5px; --type-adjust: 1; --num: "tnum" 1;
+/* T5 Engineer: Iosevka Aile, Iosevka and Iosevka Term: the narrowest, so the most
+   columns. Iosevka reads small, so its figures and terminal are half a pixel larger. */
+[data-type="engineer"] {
+  --font-ui: "Iosevka Aile", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Iosevka", ui-monospace, Menlo, monospace;
+  --font-term: "Iosevka Term", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13.5px; --data-bump: .5px;
+}
+/* T6 Variable: GitHub's Mona Sans (condensed in tables) with Monaspace Neon for data
+   and Argon for the terminal, renamed as the OFL requires (see above). */
+[data-type="variable"] {
+  --font-ui: "Panel Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Panel Data Mono", ui-monospace, Menlo, monospace;
+  --font-term: "Panel Term Mono", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 87.5%; --term-size: 12.5px; --data-bump: 0px;
 }

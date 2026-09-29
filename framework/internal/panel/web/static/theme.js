@@ -8,32 +8,30 @@
 // Appearance is three independent choices (PANEL-11), each kept per browser:
 // - Theme: colour, surface, border and density (themes.css), in a mode (System, Light,
 //   Dark).
-// - Type: the faces and type sizes (types.css). "Match theme" (no choice stored) uses
-//   the type system the theme pairs with; any theme works with any type system.
+// - Type: the faces (types.css). "Theme's choice" (nothing stored) uses the type
+//   system the theme suggests; any theme works with any type system.
 // - Size: the page's text size (--ui-scale, below) and the terminal's (panel.js).
 //
 // THEMES and TYPES are the authority for which exist: themes_test.go reads both and
 // fails if themes.css or types.css lacks a block for any id here (or has one for an
 // id not here). aaa marks a theme held to WCAG AAA (7:1) text contrast instead of AA.
-// type is the type system a theme pairs with; wide is its text size on a window at
-// least 1440 px wide when you have not chosen one (110% unless it says otherwise):
-// High contrast is already the largest type, so it stays at 100%.
+// type is the type system a theme suggests; tuned marks the theme generated from your
+// inputs (tuned.js, loaded before this file).
 const THEMES = [
-  { id: "console", name: "Console", note: "Instrument panel at night", type: "instrument" },
-  { id: "chartroom", name: "Chart room", note: "Nautical chart; dimmed night mode", type: "chart" },
-  { id: "ward", name: "Ward monitor", note: "A central monitoring station", type: "clinical" },
-  { id: "duplicator", name: "Duplicator", note: "Typed dispatch forms, violet ink", type: "typewriter" },
-  { id: "contrast", name: "High contrast", note: "AAA text, heavy rules, largest type", aaa: true, type: "hyperlegible", wide: 100 },
-  { id: "shopfloor", name: "Shop floor", note: "Safety signage, hazard edge", type: "stencil" },
+  { id: "hmi", name: "Grey HMI", note: "Grey at rest; colour only when abnormal", type: "highway" },
+  { id: "amber", name: "Terminal Amber", note: "Black on white, amber on black", type: "cockpit" },
+  { id: "cockpit", name: "Glass Cockpit", note: "Nominal green, caution amber, cyan to act", type: "cockpit" },
+  { id: "tuned", name: "Tuned", note: "Generated from a hue, an accent and a contrast", type: "civic", tuned: true },
+  { id: "tui", name: "TUI", note: "ANSI colours, box-drawn panes, key hints", type: "engineer" },
+  { id: "native", name: "System Native", note: "System greys, zebra rows, a sidebar", type: "hyperlegible" },
 ];
-// Placeholders: the faces the six themes shipped with, until the type systems are chosen.
 const TYPES = [
-  { id: "instrument", name: "Instrument", note: "Chakra Petch · IBM Plex Sans · JetBrains Mono" },
-  { id: "chart", name: "Chart", note: "Newsreader · DM Mono" },
-  { id: "clinical", name: "Clinical", note: "Barlow · Red Hat Mono" },
-  { id: "typewriter", name: "Typewriter", note: "Courier Prime" },
-  { id: "hyperlegible", name: "Hyperlegible", note: "Atkinson Hyperlegible Next · Mono" },
-  { id: "stencil", name: "Stencil", note: "Big Shoulders · Archivo · Martian Mono" },
+  { id: "highway", name: "Highway", note: "Overpass and Overpass Mono" },
+  { id: "cockpit", name: "Cockpit", note: "B612 and B612 Mono" },
+  { id: "civic", name: "Civic", note: "Public Sans and Commit Mono" },
+  { id: "hyperlegible", name: "Hyperlegible", note: "Atkinson Hyperlegible Next and Mono" },
+  { id: "engineer", name: "Engineer", note: "Iosevka Aile, Iosevka and Iosevka Term" },
+  { id: "variable", name: "Variable", note: "From Mona Sans and Monaspace" },
 ];
 const MODES = ["system", "light", "dark"];
 
@@ -41,7 +39,9 @@ window.PanelTheme = (function () {
   const root = document.documentElement;
   const KEY_THEME = "clauductor-panel-theme", KEY_MODE = "clauductor-panel-mode", KEY_TYPE = "clauductor-panel-type";
   const dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-  let theme = "console", mode = "system", type = null; // type null: match the theme
+  const KEY_TUNED = "clauductor-panel-tuned";
+  let theme = "hmi", mode = "system", type = null; // type null: the theme's suggestion
+  let tuned = Object.assign({}, window.PanelTuned ? window.PanelTuned.defaults : {});
   // Storage can be missing or throw (a private window, blocked site data): the page
   // then renders the default and the menu still works for this visit.
   try {
@@ -49,16 +49,30 @@ window.PanelTheme = (function () {
     if (THEMES.some((x) => x.id === t)) theme = t;
     if (MODES.includes(m)) mode = m;
     if (TYPES.some((x) => x.id === y)) type = y;
+    const tu = JSON.parse(localStorage.getItem(KEY_TUNED) || "null");
+    if (tu && typeof tu === "object") for (const k of ["hue", "accent", "contrast"]) if (typeof tu[k] === "number") tuned[k] = tu[k];
   } catch (e) {}
 
   function resolved() {
     if (mode !== "system") return mode;
-    // The console was designed dark-first, so with no OS preference it stays dark.
-    return dark && !dark.matches && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    // Follow the system; with no preference at all, light.
+    return dark && dark.matches ? "dark" : "light";
   }
   function typeOf() { return type || THEMES.find((x) => x.id === theme).type; }
-  function state() { return { theme, mode, resolved: resolved(), type: typeOf(), typeChoice: type }; }
+  function state() { return { theme, mode, resolved: resolved(), type: typeOf(), typeChoice: type, tuned: Object.assign({}, tuned) }; }
+  // Tuned's colours are generated and set on <html> through CSSOM, over its defaults in
+  // themes.css; any other theme clears them.
+  let tunedKeys = [];
+  function applyTuned() {
+    for (const k of tunedKeys) root.style.removeProperty("--" + k);
+    tunedKeys = [];
+    const th = THEMES.find((x) => x.id === theme);
+    if (!th.tuned || !window.PanelTuned) return;
+    const t = window.PanelTuned.tokens(tuned, resolved());
+    for (const [k, v] of Object.entries(t)) { root.style.setProperty("--" + k, v); tunedKeys.push(k); }
+  }
   function apply() {
+    applyTuned();
     root.setAttribute("data-theme", theme);
     root.setAttribute("data-mode", resolved());
     root.setAttribute("data-mode-choice", mode);
@@ -69,6 +83,7 @@ window.PanelTheme = (function () {
     try {
       localStorage.setItem(KEY_THEME, theme); localStorage.setItem(KEY_MODE, mode);
       if (type) localStorage.setItem(KEY_TYPE, type); else localStorage.removeItem(KEY_TYPE);
+      localStorage.setItem(KEY_TUNED, JSON.stringify(tuned));
     } catch (e) {}
   }
   if (dark) {
@@ -81,25 +96,28 @@ window.PanelTheme = (function () {
     get: state,
     setTheme(id) { if (THEMES.some((x) => x.id === id)) { theme = id; save(); apply(); } },
     setMode(m) { if (MODES.includes(m)) { mode = m; save(); apply(); } },
-    // null matches the theme.
+    // null takes the theme's suggestion.
     setType(id) { if (id === null || TYPES.some((x) => x.id === id)) { type = id; save(); apply(); } },
+    // Tuned's inputs: hue and accent 0-360, contrast 0-1.
+    setTuned(k, v) {
+      if (!["hue", "accent", "contrast"].includes(k) || !isFinite(v)) return;
+      tuned[k] = k === "contrast" ? Math.max(0, Math.min(1, +v)) : ((+v % 360) + 360) % 360;
+      save(); apply();
+    },
   };
 })();
 
 // The page's text size: one factor, --ui-scale, multiplies the root size, and every
 // size in panel.css is in rem, so the whole page scales with it. It is set here, before
 // the first paint, through CSSOM (the CSP refuses style attributes, not CSSOM). Stored
-// per browser; with nothing stored, the theme's `wide` on a window at least 1440 px
+// per browser, 85% to 130%; with nothing stored, 110% on a window at least 1440 px
 // wide, 100% below. panel.js draws the controls and the keys (Ctrl+Alt+= and
 // Ctrl+Alt+−; the browser's own zoom keys stay the browser's).
 window.PanelScale = (function () {
   const root = document.documentElement;
   const KEY = "clauductor-panel-scale";
-  const STEPS = [85, 90, 100, 110, 120, 130, 145, 160];
-  const auto = () => {
-    const th = THEMES.find((x) => x.id === window.PanelTheme.get().theme);
-    return window.innerWidth >= 1440 ? (th && th.wide) || 110 : 100;
-  };
+  const STEPS = [85, 90, 100, 110, 120, 130];
+  const auto = () => (window.innerWidth >= 1440 ? 110 : 100);
   let stored = null;
   try {
     const v = parseInt(localStorage.getItem(KEY), 10);

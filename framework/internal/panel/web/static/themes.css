@@ -1,213 +1,193 @@
-/* The panel's themes: colour, surface, border and density. Components in panel.css
-   reference only tokens; the faces are the type system's (types.css), so any theme
-   works with any type system (PANEL-11).
+/* The panel's themes (PANEL-11): colour, surfaces, separators and density. Every face
+   and type size is the type system's (types.css), so any theme works with any type.
    The contract (docs/panel.md, "Appearance"):
-   - [data-theme="<id>"] sets the theme's shape and density tokens, shared by both modes:
-     radii, rules, stripes, padding and gaps, --fs-root (the root size before the type
-     system's --type-adjust and your --ui-scale), the rail and side-panel widths, the
-     band, the backdrop and --term-min-contrast.
-   - [data-theme="<id>"][data-mode="light"|"dark"] sets every colour token.
-   - No type token (a face, weight, case, tracking or type size) is set here.
-   theme.js puts the attributes on <html> before first paint, and the picker's swatches
-   carry them too, so a swatch shows the real tokens of the theme it names.
-   themes_test.go fails if a theme × mode misses a token or a contrast floor.
-   --term-min-contrast is xterm's minimumContrastRatio: whatever colours a program
-   combines (SGR 97 on 41, a truecolor diff), xterm lifts the text to this ratio. */
+   - [data-theme="<id>"] sets the theme's density and shape, shared by both modes: row
+     height, radii (panes are square; 3px on controls at most), the rail and side-panel
+     widths, and the TUI switches (--tui, --keyhints, --spark, --title-case).
+   - [data-theme="<id>"][data-mode="light"|"dark"] sets every colour. Light and dark
+     are designed apart, never inverted.
+   - Colour is for what is abnormal: --warn and --crit (with --warn-bg / --crit-bg rows
+     and their -ink text), --info for projections, --act only for what you can click or
+     type into. Normal work renders in the text tiers (--ok is a text tier in every
+     theme but Glass Cockpit and TUI, which keep their conventions).
+   themes_test.go checks every theme x mode: text tiers, --act, --ok, --warn and --crit
+   4.5:1 on every surface, the -ink colours 4.5:1 on their rows, graphics (--info,
+   --focus, --rule-strong) 3:1, and the terminal's floors. The terminal is dark in
+   every theme; --term-min-contrast is xterm's minimumContrastRatio. */
 
-
-/* ---- 1. Console (the default): an instrument panel at night. Navy glass, a signal-blue
-   readout, a 24 px plotting grid, uppercase telemetry labels. Medium density. ---- */
-:root, [data-theme="console"] {
-  --fs-root: 16px; --ui-scale: 1; --r: 4px; --r-btn: 3px;
-  --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 3px;
-  --pad: .5rem .625rem; --gap: .5rem; --col-pad: .75rem; --shadow: none;
-  --focus-w: 2px; --rail-w: 15rem; --side-w: 16rem; --term-min-contrast: 4.5;
-  --band: var(--line); --band-h: 1px; --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); --backdrop-size: 24px 24px;
+/* ---- Grey HMI (the default), after ISA-101 "going grey": normal work is grey text;
+   colour appears only when something is abnormal. Light is a mid-light grey ground with
+   darker grey rules; dark is a neutral charcoal, never navy. ---- */
+:root, [data-theme="hmi"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.5rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 3px; --bw: 1px;
+  --tui: 0; --keyhints: none; --spark: "line"; --title-case: none; --rail-w: 21rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
 }
-:root, [data-theme="console"][data-mode="dark"] {
-  --surface: #0d1424; --panel: #131d33; --panel-2: #1a2743; --line: #2a3b60; --line-strong: #3d5485;
-  --text: #e7edf8; --text-dim: #9aa9c6; --accent: #4cc3ff; --accent-ink: #04121f; --accent-soft: rgba(76,195,255,.14);
-  --go: #3ddc97; --go-soft: rgba(61,220,151,.14); --hold: #ffb020; --hold-soft: rgba(255,176,32,.14);
-  --stop: #ff5d6c; --stop-soft: rgba(255,93,108,.16); --idle: #8190ae; --focus: #4cc3ff;
-  --grid: rgba(76,195,255,.045); --scrim: rgba(4,8,16,.6);
-  --term-bg: #070b14; --term-fg: #d2def2; --term-cursor: #07b5ff; --term-selection: rgba(7,181,255,.3);
-  --ansi-0: #525f77; --ansi-1: #c31c32; --ansi-2: #96edc4; --ansi-3: #ffd685; --ansi-4: #1957e5; --ansi-5: #a127ba; --ansi-6: #a7e5ff; --ansi-7: #edeff2;
-  --ansi-8: #6e7c9a; --ansi-9: #da1f38; --ansi-10: #c4f5de; --ansi-11: #ffe8b9; --ansi-12: #2f67e8; --ansi-13: #b42cd0; --ansi-14: #cbf0ff; --ansi-15: #ffffff;
-  color-scheme: dark;
-}
-[data-theme="console"][data-mode="light"] {
-  --surface: #edf1f7; --panel: #ffffff; --panel-2: #f3f6fb; --line: #cbd5e5; --line-strong: #9fb0cc;
-  --text: #0f1a2e; --text-dim: #4e5d78; --accent: #0063b5; --accent-ink: #ffffff; --accent-soft: rgba(0,99,181,.10);
-  --go: #0a6f48; --go-soft: rgba(11,122,79,.10); --hold: #865700; --hold-soft: rgba(196,132,0,.14);
-  --stop: #bb2438; --stop-soft: rgba(193,37,58,.10); --idle: #66758f; --focus: #0063b5;
-  --grid: rgba(0,99,181,.05); --scrim: rgba(15,26,46,.45);
-  --term-bg: #070b14; --term-fg: #d2def2; --term-cursor: #07b5ff; --term-selection: rgba(7,181,255,.3);
-  --ansi-0: #525f77; --ansi-1: #c31c32; --ansi-2: #96edc4; --ansi-3: #ffd685; --ansi-4: #1957e5; --ansi-5: #a127ba; --ansi-6: #a7e5ff; --ansi-7: #edeff2;
-  --ansi-8: #6e7c9a; --ansi-9: #da1f38; --ansi-10: #c4f5de; --ansi-11: #ffe8b9; --ansi-12: #2f67e8; --ansi-13: #b42cd0; --ansi-14: #cbf0ff; --ansi-15: #ffffff;
-  color-scheme: light;
-}
-
-/* ---- 2. Chart room: a nautical chart. Lanes are soundings on white deep water, the
-   accent is the chart's magenta (lights, cautions), the border is a latitude scale, and
-   the dark mode is the dimmed night palette a bridge uses to keep its night vision.
-   Italic serif names, sentence case, square corners, roomier than the console. ---- */
-[data-theme="chartroom"] {
-  --fs-root: 16.5px; --ui-scale: 1; --r: 0; --r-btn: 0;
-  --r-chip: 0; --bw: 1px; --line-style: solid; --stripe: 4px;
-  --pad: .625rem .75rem; --gap: .625rem; --col-pad: .875rem; --shadow: none;
-  --focus-w: 2px; --rail-w: 14.5rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
-  --band: repeating-linear-gradient(90deg, var(--text) 0 32px, var(--panel) 32px 64px); --band-h: 5px; --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); --backdrop-size: 120px 120px;
-}
-[data-theme="chartroom"][data-mode="light"] {
-  --surface: #e6f0f5; --panel: #ffffff; --panel-2: #f1f6f9; --line: #b9ccd8; --line-strong: #6f8a9b;
-  --text: #13212b; --text-dim: #4a5d6a; --accent: #a3127a; --accent-ink: #ffffff; --accent-soft: rgba(163,18,122,.09);
-  --go: #1b6d36; --go-soft: rgba(29,116,57,.10); --hold: #8b5300; --hold-soft: rgba(191,122,0,.14);
-  --stop: #ba152e; --stop-soft: rgba(192,22,47,.09); --idle: #647785; --focus: #a3127a;
-  --grid: rgba(19,70,110,.08); --scrim: rgba(19,33,43,.4);
-  --term-bg: #060a0d; --term-fg: #c3cdd6; --term-cursor: #e38fca; --term-selection: rgba(227,143,202,.3);
-  --ansi-0: #50606b; --ansi-1: #b6342b; --ansi-2: #b9e5c8; --ansi-3: #f0d8a7; --ansi-4: #2a65a8; --ansi-5: #ae2b87; --ansi-6: #b5e3ea; --ansi-7: #edeff1;
-  --ansi-8: #6a7f8d; --ansi-9: #cc3a30; --ansi-10: #d6efde; --ansi-11: #f6e8cb; --ansi-12: #2f71bc; --ansi-13: #c33197; --ansi-14: #d2eef2; --ansi-15: #ffffff;
-  color-scheme: light;
-}
-[data-theme="chartroom"][data-mode="dark"] {
-  --surface: #0a0f14; --panel: #10171e; --panel-2: #161f28; --line: #243240; --line-strong: #3a4c5d;
-  --text: #c9d2da; --text-dim: #8b99a6; --accent: #df7cc3; --accent-ink: #1a0714; --accent-soft: rgba(223,124,195,.12);
-  --go: #62bd7f; --go-soft: rgba(98,189,127,.12); --hold: #d6a347; --hold-soft: rgba(214,163,71,.13);
-  --stop: #ef7169; --stop-soft: rgba(239,113,105,.13); --idle: #7c8a97; --focus: #df7cc3;
-  --grid: rgba(160,190,215,.05); --scrim: rgba(0,0,0,.55);
-  --term-bg: #060a0d; --term-fg: #c3cdd6; --term-cursor: #e38fca; --term-selection: rgba(227,143,202,.3);
-  --ansi-0: #50606b; --ansi-1: #b6342b; --ansi-2: #b9e5c8; --ansi-3: #f0d8a7; --ansi-4: #2a65a8; --ansi-5: #ae2b87; --ansi-6: #b5e3ea; --ansi-7: #edeff1;
-  --ansi-8: #6a7f8d; --ansi-9: #cc3a30; --ansi-10: #d6efde; --ansi-11: #f6e8cb; --ansi-12: #2f71bc; --ansi-13: #c33197; --ansi-14: #d2eef2; --ansi-15: #ffffff;
-  color-scheme: dark;
-}
-
-/* ---- 3. Ward monitor: the central station a nurse watches a whole ward from. Each lane
-   is a bed tile, soft and rounded; figures are big and condensed; the accent is
-   surgical teal. Roomiest of the six, light-first. ---- */
-[data-theme="ward"] {
-  --fs-root: 17px; --ui-scale: 1; --r: 12px; --r-btn: 999px;
-  --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 5px;
-  --pad: .75rem .875rem; --gap: .75rem; --col-pad: 1rem; --shadow: 0 1px 2px var(--scrim), 0 2px 10px -6px var(--scrim);
-  --focus-w: 3px; --rail-w: 14rem; --side-w: 15rem; --term-min-contrast: 4.5;
-  --band: var(--accent); --band-h: 3px; --backdrop: none; --backdrop-size: auto;
-}
-[data-theme="ward"][data-mode="light"] {
-  --surface: #e9f0ee; --panel: #ffffff; --panel-2: #f2f7f5; --line: #d0ddd9; --line-strong: #9db3ad;
-  --text: #0f1f1c; --text-dim: #4a5f5a; --accent: #006c67; --accent-ink: #ffffff; --accent-soft: rgba(0,115,109,.10);
-  --go: #346c0b; --go-soft: rgba(59,122,12,.11); --hold: #875800; --hold-soft: rgba(214,150,0,.16);
-  --stop: #b71e29; --stop-soft: rgba(195,32,44,.10); --idle: #687b77; --focus: #006c67;
-  --grid: transparent; --scrim: rgba(15,31,28,.18);
-  --term-bg: #07100f; --term-fg: #d3e5e2; --term-cursor: #28beaf; --term-selection: rgba(40,190,175,.3);
-  --ansi-0: #4f6461; --ansi-1: #c71616; --ansi-2: #c2e9a8; --ansi-3: #f9db87; --ansi-4: #1061c9; --ansi-5: #9b24cf; --ansi-6: #a1ebe4; --ansi-7: #ebf0ef;
-  --ansi-8: #66817d; --ansi-9: #de1919; --ansi-10: #dcf3cd; --ansi-11: #fbebbc; --ansi-12: #126ce0; --ansi-13: #aa36db; --ansi-14: #caf4f0; --ansi-15: #ffffff;
-  color-scheme: light;
-}
-[data-theme="ward"][data-mode="dark"] {
-  --surface: #0b1413; --panel: #111d1c; --panel-2: #172725; --line: #243836; --line-strong: #3a5552;
-  --text: #e4efed; --text-dim: #93aaa5; --accent: #3fd0c4; --accent-ink: #062220; --accent-soft: rgba(63,208,196,.13);
-  --go: #8bd450; --go-soft: rgba(139,212,80,.13); --hold: #f2c14e; --hold-soft: rgba(242,193,78,.13);
-  --stop: #ff6b6b; --stop-soft: rgba(255,107,107,.14); --idle: #7f9591; --focus: #3fd0c4;
-  --grid: transparent; --scrim: rgba(0,0,0,.55);
-  --term-bg: #07100f; --term-fg: #d3e5e2; --term-cursor: #28beaf; --term-selection: rgba(40,190,175,.3);
-  --ansi-0: #4f6461; --ansi-1: #c71616; --ansi-2: #c2e9a8; --ansi-3: #f9db87; --ansi-4: #1061c9; --ansi-5: #9b24cf; --ansi-6: #a1ebe4; --ansi-7: #ebf0ef;
-  --ansi-8: #66817d; --ansi-9: #de1919; --ansi-10: #dcf3cd; --ansi-11: #fbebbc; --ansi-12: #126ce0; --ansi-13: #aa36db; --ansi-14: #caf4f0; --ansi-15: #ffffff;
-  color-scheme: dark;
-}
-
-/* ---- 4. Duplicator: the dispatch office. Lanes are typed onto forms in spirit-duplicator
-   violet, cards have carbon-form dashed rules, the top edge is a tractor-feed
-   perforation, and everything is one typewriter face. Densest of the six. ---- */
-[data-theme="duplicator"] {
-  --fs-root: 15px; --ui-scale: 1; --r: 0; --r-btn: 0;
-  --r-chip: 0; --bw: 1px; --line-style: dashed; --stripe: 3px;
-  --pad: .375rem .5rem; --gap: .375rem; --col-pad: .625rem; --shadow: none;
-  --focus-w: 2px; --rail-w: 16rem; --side-w: 17rem; --term-min-contrast: 4.5;
-  --band: radial-gradient(circle at 6px 50%, var(--line-strong) 2.5px, transparent 3px) 0 0 / 14px 100% repeat-x, var(--panel-2); --band-h: 8px; --backdrop: linear-gradient(transparent 27px, var(--grid) 27px); --backdrop-size: 100% 28px;
-}
-[data-theme="duplicator"][data-mode="light"] {
-  --surface: #eeedf3; --panel: #fbfaff; --panel-2: #efecf7; --line: #c9c1dc; --line-strong: #8e80b3;
-  --text: #2a1c50; --text-dim: #5c4d84; --accent: #5a2cbe; --accent-ink: #ffffff; --accent-soft: rgba(90,44,190,.09);
-  --go: #1f6e48; --go-soft: rgba(31,110,72,.10); --hold: #875600; --hold-soft: rgba(196,128,0,.14);
-  --stop: #b0203a; --stop-soft: rgba(176,32,58,.09); --idle: #6b6189; --focus: #5a2cbe;
-  --grid: rgba(90,44,190,.07); --scrim: rgba(42,28,80,.35);
-  --term-bg: #100c17; --term-fg: #e2dbf2; --term-cursor: #bb9af4; --term-selection: rgba(187,154,244,.3);
-  --ansi-0: #665a7c; --ansi-1: #c31c38; --ansi-2: #b9e8d0; --ansi-3: #f8daa5; --ansi-4: #3256e2; --ansi-5: #793edd; --ansi-6: #b6e6ed; --ansi-7: #f0eef3;
-  --ansi-8: #83769b; --ansi-9: #da1f3e; --ansi-10: #d7f2e4; --ansi-11: #fbeacc; --ansi-12: #4665e5; --ansi-13: #8551e0; --ansi-14: #d6f1f5; --ansi-15: #ffffff;
-  color-scheme: light;
-}
-[data-theme="duplicator"][data-mode="dark"] {
-  --surface: #16121f; --panel: #1c1728; --panel-2: #241e33; --line: #362e49; --line-strong: #574a78;
-  --text: #ebe5f8; --text-dim: #aa9ec6; --accent: #b89eff; --accent-ink: #16121f; --accent-soft: rgba(184,158,255,.13);
-  --go: #6fd3a0; --go-soft: rgba(111,211,160,.12); --hold: #f0b44c; --hold-soft: rgba(240,180,76,.12);
-  --stop: #ff7d8e; --stop-soft: rgba(255,125,142,.13); --idle: #8e84a8; --focus: #b89eff;
-  --grid: rgba(184,158,255,.045); --scrim: rgba(6,4,10,.6);
-  --term-bg: #100c17; --term-fg: #e2dbf2; --term-cursor: #bb9af4; --term-selection: rgba(187,154,244,.3);
-  --ansi-0: #665a7c; --ansi-1: #c31c38; --ansi-2: #b9e8d0; --ansi-3: #f8daa5; --ansi-4: #3256e2; --ansi-5: #793edd; --ansi-6: #b6e6ed; --ansi-7: #f0eef3;
-  --ansi-8: #83769b; --ansi-9: #da1f3e; --ansi-10: #d7f2e4; --ansi-11: #fbeacc; --ansi-12: #4665e5; --ansi-13: #8551e0; --ansi-14: #d6f1f5; --ansi-15: #ffffff;
-  color-scheme: dark;
-}
-
-/* ---- 5. High contrast: for low vision and glare. Black on white or white on black,
-   AAA text everywhere (7:1), 2 px rules, a 3 px focus ring with a gap, the largest type,
-   no translucent fills, and state spelled out in words and shapes. ---- */
-[data-theme="contrast"] {
-  --fs-root: 18px; --ui-scale: 1; --r: 2px; --r-btn: 2px;
-  --r-chip: 2px; --bw: 2px; --line-style: solid; --stripe: 8px;
-  --pad: .625rem .75rem; --gap: .625rem; --col-pad: .875rem; --shadow: none;
-  --focus-w: 3px; --rail-w: 13.5rem; --side-w: 14rem; --term-min-contrast: 7;
-  --band: var(--text); --band-h: 4px; --backdrop: none; --backdrop-size: auto;
-}
-[data-theme="contrast"][data-mode="light"] {
-  --surface: #ffffff; --panel: #ffffff; --panel-2: #efefef; --line: #595959; --line-strong: #000000;
-  --text: #000000; --text-dim: #333333; --accent: #0033b3; --accent-ink: #ffffff; --accent-soft: #e6ecff;
-  --go: #005a1c; --go-soft: #e3f4e8; --hold: #6b4200; --hold-soft: #fff1d6;
-  --stop: #9e0012; --stop-soft: #ffe5e8; --idle: #404040; --focus: #b000b0;
-  --grid: transparent; --scrim: rgba(0,0,0,.7);
-  --term-bg: #000000; --term-fg: #ffffff; --term-cursor: #ffff00; --term-selection: rgba(255,255,0,.3);
-  --ansi-0: #5a5a5a; --ansi-1: #ffc7c7; --ansi-2: #32f453; --ansi-3: #edd600; --ansi-4: #bdd6ff; --ansi-5: #ffc0ff; --ansi-6: #28eaff; --ansi-7: #e6e6e6;
-  --ansi-8: #989898; --ansi-9: #ffdddd; --ansi-10: #99faa9; --ansi-11: #ffe70a; --ansi-12: #d7e6ff; --ansi-13: #ffd9ff; --ansi-14: #92f4ff; --ansi-15: #ffffff;
-  color-scheme: light;
-}
-[data-theme="contrast"][data-mode="dark"] {
-  --surface: #000000; --panel: #000000; --panel-2: #1a1a1a; --line: #a6a6a6; --line-strong: #ffffff;
-  --text: #ffffff; --text-dim: #d9d9d9; --accent: #8fd3ff; --accent-ink: #000000; --accent-soft: #0b2233;
-  --go: #6ef08e; --go-soft: #0b2612; --hold: #ffd23f; --hold-soft: #2e2400;
-  --stop: #ff8f8f; --stop-soft: #330d0d; --idle: #c8c8c8; --focus: #ffff00;
-  --grid: transparent; --scrim: rgba(0,0,0,.8);
-  --term-bg: #000000; --term-fg: #ffffff; --term-cursor: #ffff00; --term-selection: rgba(255,255,0,.3);
-  --ansi-0: #5a5a5a; --ansi-1: #ffc7c7; --ansi-2: #32f453; --ansi-3: #edd600; --ansi-4: #bdd6ff; --ansi-5: #ffc0ff; --ansi-6: #28eaff; --ansi-7: #e6e6e6;
-  --ansi-8: #989898; --ansi-9: #ffdddd; --ansi-10: #99faa9; --ansi-11: #ffe70a; --ansi-12: #d7e6ff; --ansi-13: #ffd9ff; --ansi-14: #92f4ff; --ansi-15: #ffffff;
-  color-scheme: dark;
-}
-
-/* ---- 6. Shop floor: the plant floor. Concrete and asphalt, stencilled crate lettering,
-   a hazard-stripe edge, heavy borders and wide state stripes; ink-black (or, at night,
-   safety-yellow) controls. Colours follow the safety-sign convention. ---- */
-[data-theme="shopfloor"] {
-  --fs-root: 16px; --ui-scale: 1; --r: 0; --r-btn: 0;
-  --r-chip: 0; --bw: 2px; --line-style: solid; --stripe: 7px;
-  --pad: .5rem .625rem; --gap: .5rem; --col-pad: .75rem; --shadow: none;
-  --focus-w: 3px; --rail-w: 15rem; --side-w: 16rem; --term-min-contrast: 4.5;
-  --band: repeating-linear-gradient(-45deg, #f5c400 0 10px, #161616 10px 20px); --band-h: 8px; --backdrop: none; --backdrop-size: auto;
-}
-[data-theme="shopfloor"][data-mode="light"] {
-  --surface: #e3e2de; --panel: #f7f7f4; --panel-2: #ebeae5; --line: #b9b7ae; --line-strong: #6d6a61;
-  --text: #161616; --text-dim: #4a4843; --accent: #161616; --accent-ink: #f5c400; --accent-soft: rgba(22,22,22,.08);
-  --go: #096734; --go-soft: rgba(10,116,59,.11); --hold: #7a5700; --hold-soft: rgba(245,196,0,.28);
-  --stop: #ad101c; --stop-soft: rgba(184,17,30,.10); --idle: #66645c; --focus: #0057b8;
-  --grid: transparent; --scrim: rgba(22,22,22,.5);
-  --term-bg: #121314; --term-fg: #ebe9e2; --term-cursor: #cea500; --term-selection: rgba(206,165,0,.3);
+:root, [data-theme="hmi"][data-mode="light"] {
+  --ground: #d6d8da; --pane: #e4e5e7; --pane-2: #cfd1d4; --zebra: #e4e5e7; --rail: #d6d8da; --bar: #e4e5e7;
+  --bar-text: #15181c; --bar-text-2: #3c4148; --rule: #a9adb2; --rule-strong: #62676e; --text-1: #15181c; --text-2: #353a40;
+  --text-3: #4f555c; --ok: #353a40; --warn: #7e4800; --warn-bg: #f2d9ad; --warn-ink: #15181c; --crit: #9a1019;
+  --crit-bg: #f3c9cb; --crit-ink: #15181c; --act: #174a84; --act-ink: #ffffff; --info: #8c1f7c; --sel: #bfc3c8;
+  --sel-text: #15181c; --focus: #174a84; --scrim: rgba(21,24,28,.35);
+  --term-bg: #121314; --term-fg: #e6e5df; --term-cursor: #d7d7d0; --term-selection: rgba(200,200,190,.3);
   --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
   --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
   color-scheme: light;
 }
-[data-theme="shopfloor"][data-mode="dark"] {
-  --surface: #1a1b1c; --panel: #232426; --panel-2: #2c2d30; --line: #3c3e42; --line-strong: #62656b;
-  --text: #f1f0ea; --text-dim: #b0aea5; --accent: #f5c400; --accent-ink: #161616; --accent-soft: rgba(245,196,0,.12);
-  --go: #3ecf7a; --go-soft: rgba(62,207,122,.13); --hold: #ff9f1c; --hold-soft: rgba(255,159,28,.14);
-  --stop: #ff6e64; --stop-soft: rgba(255,110,100,.12); --idle: #9a9890; --focus: #4da3ff;
-  --grid: transparent; --scrim: rgba(0,0,0,.6);
-  --term-bg: #121314; --term-fg: #ebe9e2; --term-cursor: #cea500; --term-selection: rgba(206,165,0,.3);
+[data-theme="hmi"][data-mode="dark"] {
+  --ground: #2f3134; --pane: #383a3e; --pane-2: #2a2c2f; --zebra: #383a3e; --rail: #2f3134; --bar: #383a3e;
+  --bar-text: #e6e7e9; --bar-text-2: #c2c5c9; --rule: #55595f; --rule-strong: #9aa0a6; --text-1: #e6e7e9; --text-2: #c2c5c9;
+  --text-3: #a8adb3; --ok: #c2c5c9; --warn: #e0a64a; --warn-bg: #4a3a1f; --warn-ink: #f3e3c4; --crit: #f58c92;
+  --crit-bg: #4d2427; --crit-ink: #f7d9da; --act: #8ab8ec; --act-ink: #15181c; --info: #e48fd9; --sel: #4a4d52;
+  --sel-text: #e6e7e9; --focus: #8ab8ec; --scrim: rgba(0,0,0,.55);
+  --term-bg: #121314; --term-fg: #e6e5df; --term-cursor: #d7d7d0; --term-selection: rgba(200,200,190,.3);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- Terminal Amber, after the Bloomberg terminal: light is black ink on cool white
+   with black-on-amber inverse blocks for what is active or abnormal; dark is amber on
+   true black with white secondary text. ---- */
+[data-theme="amber"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.5rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 0; --bw: 1px;
+  --tui: 0; --keyhints: none; --spark: "line"; --title-case: none; --rail-w: 21rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
+}
+[data-theme="amber"][data-mode="light"] {
+  --ground: #f4f6f8; --pane: #f4f6f8; --pane-2: #e9edf1; --zebra: #f4f6f8; --rail: #e9edf1; --bar: #000000;
+  --bar-text: #ffb000; --bar-text-2: #ffffff; --rule: #9aa3ad; --rule-strong: #000000; --text-1: #000000; --text-2: #262a2e;
+  --text-3: #474c52; --ok: #262a2e; --warn: #7a4a00; --warn-bg: #ffb000; --warn-ink: #000000; --crit: #a8101a;
+  --crit-bg: #ffc2bd; --crit-ink: #000000; --act: #003f9e; --act-ink: #ffffff; --info: #8e1882; --sel: #ffb000;
+  --sel-text: #000000; --focus: #003f9e; --scrim: rgba(0,0,0,.4);
+  --term-bg: #000000; --term-fg: #ffb000; --term-cursor: #ffb000; --term-selection: rgba(255,176,0,.3);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="amber"][data-mode="dark"] {
+  --ground: #000000; --pane: #000000; --pane-2: #0e0b02; --zebra: #000000; --rail: #000000; --bar: #1a1300;
+  --bar-text: #ffb000; --bar-text-2: #ffffff; --rule: #4a3a10; --rule-strong: #ffb000; --text-1: #ffb000; --text-2: #ffffff;
+  --text-3: #c4973a; --ok: #ffffff; --warn: #ffb000; --warn-bg: #ffb000; --warn-ink: #000000; --crit: #ff6b5e;
+  --crit-bg: #ff6b5e; --crit-ink: #000000; --act: #5aa9ff; --act-ink: #000000; --info: #ff70d0; --sel: #ffb000;
+  --sel-text: #000000; --focus: #5aa9ff; --scrim: rgba(0,0,0,.7);
+  --term-bg: #000000; --term-fg: #ffb000; --term-cursor: #ffb000; --term-selection: rgba(255,176,0,.3);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- Glass Cockpit, after Airbus-style displays: green is nominal, amber caution,
+   red warning, cyan only what you can act on, magenta targets and projections, white
+   labels. Light keeps a dark instrument bezel for the status bar. ---- */
+[data-theme="cockpit"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.5rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 3px; --bw: 1px;
+  --tui: 0; --keyhints: none; --spark: "line"; --title-case: none; --rail-w: 21rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
+}
+[data-theme="cockpit"][data-mode="light"] {
+  --ground: #e3e5e8; --pane: #eceef0; --pane-2: #dadde1; --zebra: #eceef0; --rail: #e3e5e8; --bar: #1d2126;
+  --bar-text: #ffffff; --bar-text-2: #c3c9d0; --rule: #9aa0a8; --rule-strong: #1d2126; --text-1: #101418; --text-2: #2d343b;
+  --text-3: #4c545d; --ok: #16652a; --warn: #7d4700; --warn-bg: #f6d49a; --warn-ink: #101418; --crit: #a0121d;
+  --crit-bg: #f4c7c9; --crit-ink: #101418; --act: #005f80; --act-ink: #ffffff; --info: #95137f; --sel: #c8d9e0;
+  --sel-text: #101418; --focus: #005f80; --scrim: rgba(16,20,24,.4);
+  --term-bg: #000000; --term-fg: #ffffff; --term-cursor: #3fd9ff; --term-selection: rgba(63,217,255,.3);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="cockpit"][data-mode="dark"] {
+  --ground: #000000; --pane: #0b0d10; --pane-2: #14171b; --zebra: #0b0d10; --rail: #000000; --bar: #0b0d10;
+  --bar-text: #ffffff; --bar-text-2: #c9ced6; --rule: #2c323a; --rule-strong: #3fd9ff; --text-1: #ffffff; --text-2: #c9ced6;
+  --text-3: #9aa2ac; --ok: #5fe36f; --warn: #ffbf3c; --warn-bg: #3a2a00; --warn-ink: #ffd98a; --crit: #ff5c5c;
+  --crit-bg: #3d0b0b; --crit-ink: #ffd0d0; --act: #3fd9ff; --act-ink: #000000; --info: #ff66f2; --sel: #16303a;
+  --sel-text: #ffffff; --focus: #3fd9ff; --scrim: rgba(0,0,0,.7);
+  --term-bg: #000000; --term-fg: #ffffff; --term-cursor: #3fd9ff; --term-selection: rgba(63,217,255,.3);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- Tuned, after Linear: generated in CIE LCh from a base hue, an accent hue and a
+   contrast (tuned.js). These values are the defaults; theme.js replaces them with the
+   generated ones for your inputs before the first paint. ---- */
+[data-theme="tuned"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.75rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 3px; --bw: 1px;
+  --tui: 0; --keyhints: none; --spark: "line"; --title-case: none; --rail-w: 21.5rem; --side-w: 16rem; --term-min-contrast: 4.5;
+}
+[data-theme="tuned"][data-mode="light"] {
+  --ground: #f4f7fa; --pane: #f4f7fa; --pane-2: #ebeef2; --zebra: #f4f7fa; --rail: #eef1f4; --bar: #f4f7fa;
+  --bar-text: #1c1f23; --bar-text-2: #50545a; --rule: #e2e6eb; --rule-strong: #8a8e95; --text-1: #1c1f23; --text-2: #50545a;
+  --text-3: #5d6064; --ok: #50545a; --warn: #8d4f00; --warn-bg: #fadfb9; --warn-ink: #3a2e23; --crit: #b52230;
+  --crit-bg: #ffd6d3; --crit-ink: #3f2b2a; --act: #0064a1; --act-ink: #ffffff; --info: #933b8c; --sel: #bedbf4;
+  --sel-text: #23262a; --focus: #0064a1; --scrim: rgba(0,0,0,.35);
+  --term-bg: #0b0c10; --term-fg: #e4e4ea; --term-cursor: #b8b8c8; --term-selection: rgba(184,184,200,.3);
+  --ansi-0: #50606b; --ansi-1: #b6342b; --ansi-2: #b9e5c8; --ansi-3: #f0d8a7; --ansi-4: #2a65a8; --ansi-5: #ae2b87; --ansi-6: #b5e3ea; --ansi-7: #edeff1;
+  --ansi-8: #6a7f8d; --ansi-9: #cc3a30; --ansi-10: #d6efde; --ansi-11: #f6e8cb; --ansi-12: #2f71bc; --ansi-13: #c33197; --ansi-14: #d2eef2; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="tuned"][data-mode="dark"] {
+  --ground: #202224; --pane: #26282b; --pane-2: #191c1f; --zebra: #26282b; --rail: #202224; --bar: #26282b;
+  --bar-text: #f6faff; --bar-text-2: #a8adb4; --rule: #323539; --rule-strong: #6d7177; --text-1: #f6faff; --text-2: #a8adb4;
+  --text-3: #999da2; --ok: #a8adb4; --warn: #e79b42; --warn-bg: #483618; --warn-ink: #e2d2c3; --crit: #ff6e6c;
+  --crit-bg: #512929; --crit-ink: #e9cecd; --act: #0ea6e9; --act-ink: #000000; --info: #cb70c2; --sel: #29455a;
+  --sel-text: #d1d5da; --focus: #0ea6e9; --scrim: rgba(0,0,0,.6);
+  --term-bg: #0b0c10; --term-fg: #e4e4ea; --term-cursor: #b8b8c8; --term-selection: rgba(184,184,200,.3);
+  --ansi-0: #50606b; --ansi-1: #b6342b; --ansi-2: #b9e5c8; --ansi-3: #f0d8a7; --ansi-4: #2a65a8; --ansi-5: #ae2b87; --ansi-6: #b5e3ea; --ansi-7: #edeff1;
+  --ansi-8: #6a7f8d; --ansi-9: #cc3a30; --ansi-10: #d6efde; --ansi-11: #f6e8cb; --ansi-12: #2f71bc; --ansi-13: #c33197; --ansi-14: #d2eef2; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- TUI, after btop, k9s and lazygit: ANSI-16 colours, box-drawn panes with their
+   titles set in the border, braille sparklines and a key-hint bar. ---- */
+[data-theme="tui"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.375rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 0; --bw: 1px;
+  --tui: 1; --keyhints: flex; --spark: "braille"; --title-case: lowercase; --rail-w: 21rem; --side-w: 15.5rem; --term-min-contrast: 4.5;
+}
+[data-theme="tui"][data-mode="light"] {
+  --ground: #fafafa; --pane: #fafafa; --pane-2: #eeeeee; --zebra: #fafafa; --rail: #fafafa; --bar: #eeeeee;
+  --bar-text: #1e1e1e; --bar-text-2: #005f87; --rule: #7a7a7a; --rule-strong: #005f87; --text-1: #1e1e1e; --text-2: #005f87;
+  --text-3: #555555; --ok: #005f00; --warn: #805900; --warn-bg: #fff3c4; --warn-ink: #1e1e1e; --crit: #af0000;
+  --crit-bg: #ffd7d7; --crit-ink: #1e1e1e; --act: #0050a0; --act-ink: #ffffff; --info: #870087; --sel: #005f87;
+  --sel-text: #ffffff; --focus: #870087; --scrim: rgba(0,0,0,.4);
+  --term-bg: #121212; --term-fg: #d0d0d0; --term-cursor: #ffd75f; --term-selection: rgba(95,175,175,.35);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="tui"][data-mode="dark"] {
+  --ground: #1c1c1c; --pane: #1c1c1c; --pane-2: #262626; --zebra: #1c1c1c; --rail: #1c1c1c; --bar: #262626;
+  --bar-text: #d0d0d0; --bar-text-2: #5fafaf; --rule: #5f8787; --rule-strong: #87d7ff; --text-1: #d0d0d0; --text-2: #5fafaf;
+  --text-3: #9a9a9a; --ok: #87d787; --warn: #ffd75f; --warn-bg: #3a3000; --warn-ink: #ffe9a6; --crit: #ff6f6f;
+  --crit-bg: #3a0000; --crit-ink: #ffd0d0; --act: #87afff; --act-ink: #1c1c1c; --info: #d787d7; --sel: #005f87;
+  --sel-text: #ffffff; --focus: #ffd75f; --scrim: rgba(0,0,0,.7);
+  --term-bg: #121212; --term-fg: #d0d0d0; --term-cursor: #ffd75f; --term-selection: rgba(95,175,175,.35);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- System Native, after macOS Activity Monitor: system greys, zebra rows, a
+   source-list sidebar, and the accent colour for the selection only. ---- */
+[data-theme="native"] {
+  --fs-root: 16px; --ui-scale: 1; --row-h: 1.75rem; --cell-x: .5rem; --pane-p: .5rem; --r-ctl: 3px; --bw: 1px;
+  --tui: 0; --keyhints: none; --spark: "line"; --title-case: none; --rail-w: 21.5rem; --side-w: 16rem; --term-min-contrast: 4.5;
+}
+[data-theme="native"][data-mode="light"] {
+  --ground: #ffffff; --pane: #ffffff; --pane-2: #f4f4f6; --zebra: #f4f4f6; --rail: #ececee; --bar: #ececee;
+  --bar-text: #1d1d1f; --bar-text-2: #56565b; --rule: #d0d0d4; --rule-strong: #8a8a8f; --text-1: #1d1d1f; --text-2: #56565b;
+  --text-3: #626267; --ok: #56565b; --warn: #8a4b00; --warn-bg: #fbe7c6; --warn-ink: #1d1d1f; --crit: #b3121a;
+  --crit-bg: #fcd6d7; --crit-ink: #1d1d1f; --act: #0058c4; --act-ink: #ffffff; --info: #8e1a8a; --sel: #0058c4;
+  --sel-text: #ffffff; --focus: #0058c4; --scrim: rgba(0,0,0,.3);
+  --term-bg: #141416; --term-fg: #f0f0f0; --term-cursor: #c0c0c0; --term-selection: rgba(10,94,194,.45);
+  --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
+  --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="native"][data-mode="dark"] {
+  --ground: #1e1e1e; --pane: #1e1e1e; --pane-2: #262628; --zebra: #262628; --rail: #2a2a2c; --bar: #2a2a2c;
+  --bar-text: #f5f5f7; --bar-text-2: #a9a9ae; --rule: #3a3a3c; --rule-strong: #8e8e93; --text-1: #f5f5f7; --text-2: #a9a9ae;
+  --text-3: #a1a1a6; --ok: #a9a9ae; --warn: #ffb340; --warn-bg: #4a3616; --warn-ink: #ffe2b8; --crit: #ff6961;
+  --crit-bg: #4a1c1a; --crit-ink: #ffd6d4; --act: #4aa0ff; --act-ink: #000000; --info: #e07ce6; --sel: #0a5ec2;
+  --sel-text: #ffffff; --focus: #4aa0ff; --scrim: rgba(0,0,0,.6);
+  --term-bg: #141416; --term-fg: #f0f0f0; --term-cursor: #c0c0c0; --term-selection: rgba(10,94,194,.45);
   --ansi-0: #65625a; --ansi-1: #c81c10; --ansi-2: #b9edcf; --ansi-3: #ffe062; --ansi-4: #0a63c7; --ansi-5: #9b31c2; --ansi-6: #b3ebf2; --ansi-7: #efefed;
   --ansi-8: #807c72; --ansi-9: #de2012; --ansi-10: #d9f6e5; --ansi-11: #fff0b2; --ansi-12: #0c6edf; --ansi-13: #a940cf; --ansi-14: #d6f5f8; --ansi-15: #ffffff;
   color-scheme: dark;

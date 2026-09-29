@@ -22,8 +22,8 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const errors = [];
     p.on("pageerror", (e) => errors.push(e.message));
     await p.goto(base + "/?t=" + token);
-    await p.waitForSelector("#needs .card.ask .jump", { timeout: 10000 });
-    await p.focus("#needs .card.ask .jump");
+    await p.waitForSelector("#needs tr.ask .jump", { timeout: 10000 });
+    await p.focus("#needs tr.ask .jump");
     await p.evaluate(() => { window.__focused = document.activeElement; });
 
     // Five seconds of real changes: each status post changes est. $, so the panel
@@ -41,7 +41,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
 
     // A selection inside a patched region survives updates to that region.
     const text = await p.evaluate(() => {
-      const t = [...document.querySelectorAll("#needs .card.ask div")].find((d) => d.textContent.includes("Permission"));
+      const t = [...document.querySelectorAll("#needs tr.ask td")].find((d) => d.textContent.includes("Permission"));
       const r = document.createRange(); r.selectNodeContents(t);
       getSelection().removeAllRanges(); getSelection().addRange(r);
       return getSelection().toString();
@@ -57,7 +57,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     // new blocker still appears, and the heading and the title count it.
     await p.evaluate(() => {
       const l = document.getElementById("needs"), r = document.createRange();
-      r.setStart(l.querySelector("h2.mh"), 0); r.setEnd(l.querySelector(".card.ask"), 1);
+      r.setStart(l.querySelector("h2"), 0); r.setEnd(l.querySelector("tr.ask"), 1);
       getSelection().removeAllRanges(); getSelection().addRange(r);
     });
     const sid2 = "00000000-0000-4000-8000-000000000002";
@@ -65,9 +65,9 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     await post("/hook", { session_id: sid2, cwd: root, hook_event_name: "Notification", notification_type: "permission_prompt",
       message: "Claude needs your permission to use Edit" });
     await p.waitForTimeout(1500);
-    const r2 = await p.evaluate(() => ({ cards: document.querySelectorAll("#needs .card.ask").length,
-      head: document.querySelector("#needs h2.mh").textContent, title: document.title, sel: getSelection().toString().length }));
-    if (r2.cards !== 2 || !r2.head.startsWith("Needs you · 2") || !r2.title.startsWith("(2)")) fail("with a selection across Needs you, the new blocker did not show: " + JSON.stringify(r2));
+    const r2 = await p.evaluate(() => ({ cards: document.querySelectorAll("#needs tr.ask").length,
+      head: document.querySelector("#needs h2").textContent, title: document.title, sel: getSelection().toString().length }));
+    if (r2.cards !== 2 || r2.head.replace(/\s+/g, " ") !== "Needs you 2" || !r2.title.startsWith("(2)")) fail("with a selection across Needs you, the new blocker did not show: " + JSON.stringify(r2));
     if (!r2.sel) fail("the selection across Needs you was lost");
     if (errors.length) fail("page errors: " + errors.join(" | "));
     if (!process.exitCode) console.log("ok: focus and selection survived " + seen.size + " updates; a new blocker showed through a selection");

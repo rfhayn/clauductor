@@ -119,7 +119,7 @@ func TestTypeSystemsAreCompleteAndApartFromThemes(t *testing.T) {
 	}
 	// Every type system defines every type token, and the faces it names are real.
 	all := typeTokenSet(t)
-	for _, want := range []string{"font-display", "font-body", "font-mono", "font-term", "font-label", "type-adjust", "num", "term-size"} {
+	for _, want := range []string{"font-ui", "font-data", "font-term", "num", "term-size", "table-stretch", "data-bump"} {
 		if !all[want] {
 			t.Errorf("no type system defines --%s", want)
 		}
@@ -159,7 +159,7 @@ func TestTypeSystemsAreCompleteAndApartFromThemes(t *testing.T) {
 		faces[m[1]] = true
 	}
 	for id, m := range types {
-		for _, k := range []string{"font-display", "font-body", "font-mono", "font-term"} {
+		for _, k := range []string{"font-ui", "font-data", "font-term"} {
 			first := strings.Trim(strings.TrimSpace(strings.Split(m[k], ",")[0]), `"`)
 			if strings.HasPrefix(first, "var(") {
 				continue
@@ -168,5 +168,42 @@ func TestTypeSystemsAreCompleteAndApartFromThemes(t *testing.T) {
 				t.Errorf("type system %s: --%s starts with %q, which no @font-face in types.css declares", id, k, first)
 			}
 		}
+	}
+}
+
+// Each type system's faces stay small: they are in the binary and a page loads them
+// on first use. The brief's budget is about 120 KB a system; the cap is 125 KB, which
+// the largest (Variable, with Mona Sans's width axis for condensed tables) fits.
+func TestEachTypeSystemFitsItsBudget(t *testing.T) {
+	t.Parallel()
+	css := cssComment.ReplaceAllString(readWeb(t, "types.css"), "")
+	files := map[string][]string{} // family → font files
+	for _, m := range regexp.MustCompile(`@font-face\s*\{[^}]*font-family:\s*"([^"]+)"[^}]*url\("fonts/([^"]+)"\)`).FindAllStringSubmatch(css, -1) {
+		files[m[1]] = append(files[m[1]], m[2])
+	}
+	const cap = 125 * 1024
+	for id, tok := range parseTypes(t) {
+		seen, total := map[string]bool{}, 0
+		for _, k := range []string{"font-ui", "font-data", "font-term"} {
+			fam := strings.Trim(strings.TrimSpace(strings.Split(tok[k], ",")[0]), `"`)
+			for _, f := range files[fam] {
+				if seen[f] {
+					continue
+				}
+				seen[f] = true
+				b, err := webFS.ReadFile("static/fonts/" + f)
+				if err != nil {
+					t.Fatalf("%s: %v", f, err)
+				}
+				total += len(b)
+			}
+		}
+		if len(seen) == 0 {
+			t.Errorf("type system %s loads no font file", id)
+		}
+		if total > cap {
+			t.Errorf("type system %s is %d KB, over the %d KB budget", id, total/1024, cap/1024)
+		}
+		t.Logf("%-12s %3d KB in %d files", id, total/1024, len(seen))
 	}
 }

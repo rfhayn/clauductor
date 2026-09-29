@@ -30,14 +30,14 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
         window.PanelTheme.setType(id);
         const cs = getComputedStyle(document.documentElement);
         const out = { attr: document.documentElement.dataset.type, faces: {} };
-        for (const k of ["font-display", "font-body", "font-mono", "font-term"]) {
+        for (const k of ["font-ui", "font-data", "font-term"]) {
           const fam = cs.getPropertyValue("--" + k).split(",")[0].trim().replace(/"/g, "");
-          const w = k === "font-display" ? getComputedStyle(document.querySelector(".brand h1")).fontWeight : "400";
+          const w = "400";
           await document.fonts.load(w + " 16px \"" + fam + "\"");
           out.faces[k] = fam + ":" + ([...document.fonts].some((f) => f.family.replace(/"/g, "") === fam && f.status === "loaded") ? "loaded" : "NOT LOADED");
         }
         out.body = getComputedStyle(document.body).fontFamily.split(",")[0].replace(/"/g, "");
-        out.bodyWant = cs.getPropertyValue("--font-body").split(",")[0].trim().replace(/"/g, "");
+        out.bodyWant = cs.getPropertyValue("--font-ui").split(",")[0].trim().replace(/"/g, "");
         return out;
       }, id);
       if (r.attr !== id) fail(id + ": data-type is " + r.attr);
@@ -53,10 +53,10 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
       return { w: m.getBoundingClientRect().width / Math.max(1, m.textContent.length), fam: getComputedStyle(rows).fontFamily.split(",")[0].replace(/"/g, ""),
         want: getComputedStyle(document.documentElement).getPropertyValue("--font-term").split(",")[0].trim().replace(/"/g, ""), screen, host };
     });
-    await p.evaluate(() => window.PanelTheme.setType("typewriter"));
+    await p.evaluate(() => window.PanelTheme.setType("cockpit"));
     await p.waitForTimeout(1200);
     const a = await cell();
-    await p.evaluate(() => window.PanelTheme.setType("stencil"));
+    await p.evaluate(() => window.PanelTheme.setType("engineer"));
     await p.waitForTimeout(1200);
     const c = await cell();
     if (a.fam !== a.want || c.fam !== c.want) fail("the terminal's rows do not take the type's face: " + JSON.stringify([a, c]));

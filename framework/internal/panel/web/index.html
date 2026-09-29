@@ -12,6 +12,7 @@
 <meta name="csp-style-nonce" content="{{STYLE_NONCE}}">
 <!-- First, and synchronous: sets data-theme, data-mode, data-type and the text size on
      <html> before the first paint, so a stored appearance never flashes the default. -->
+<script src="/static/tuned.js"></script>
 <script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/types.css">
@@ -21,53 +22,55 @@
 <script src="/vendor/addon-fit/addon-fit.js"></script>
 </head>
 <body>
-<!-- The status bar: the project and whether the page is live, then the telemetry that
-     matters across every lane. -->
+<!-- The status bar: the project, whether the page is live, and the figures that hold
+     across every lane. Totals live here and nowhere else. -->
 <header class="status" id="status">
   <div class="brandrow">
-    <div class="brand"><h1 id="pname">…</h1><span class="callsign">Clauductor panel</span></div>
-    <span class="live dead" id="live">CONNECTING</span>
+    <h1 id="pname">…</h1>
+    <span class="live dead" id="live"><span class="sq" aria-hidden="true"></span><span id="livetext">Connecting</span></span>
     <div class="sp"></div>
     <div class="tools">
-      <button class="btn primary" id="addlane" type="button" title="Start a lane: an interactive claude in its own tmux session">+ New lane</button>
+      <button class="btn primary" id="addlane" type="button" title="Start a lane: an interactive claude in its own tmux session">New lane</button>
       <button class="btn" id="activitybtn" type="button" aria-expanded="false" aria-controls="drawer" title="Every lane's activity, the open pull requests, the queues and the project's cards">Activity</button>
-      <button class="btn" id="refresh" type="button" title="Re-poll every source now">↻ Refresh</button>
+      <button class="btn" id="refresh" type="button" title="Re-poll every source now">Refresh</button>
       <div class="picker">
-        <button class="btn pickbtn" id="themebtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="thememenu" title="Appearance: theme, mode, type and size"><span class="sw" aria-hidden="true"><b>Aa</b><i></i><i></i><i></i><i></i></span><span id="themename">Appearance</span></button>
+        <button class="btn pickbtn" id="themebtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="thememenu" title="Appearance: theme, mode, type and size"><span id="themename">Appearance</span></button>
         <div class="menu" id="thememenu" role="menu" aria-label="Appearance" hidden></div>
       </div>
     </div>
   </div>
-  <div class="telemetry" id="telemetry">
-    <div class="tm gauge" id="g5" title="5-hour quota, from the status line"><span class="k">5 h quota</span><span class="v"><span class="track"><span class="fill"></span></span><b>—</b></span></div>
-    <div class="tm gauge" id="g7" title="7-day quota, from the status line"><span class="k">7 d quota</span><span class="v"><span class="track"><span class="fill"></span></span><b>—</b></span></div>
-    <div class="tm" id="tm-lanes"><span class="k">Lanes</span><span class="v" id="lanecounts">—</span></div>
-    <button class="tm tmbtn" id="tm-gate" type="button"><span class="k">Gate</span><span class="v" id="gatestate">—</span></button>
-    <div class="tm" title="Sum of the status line's total_cost_usd over the sessions tracked now: live ones, and ones heard from in the last 30 min. A list-price estimate, not a bill."><span class="k">est. $ (list price)</span><span class="v"><b id="cost">—</b></span></div>
-    <div class="tm" title="OS notifications the panel sent today"><span class="k">Interruptions today</span><span class="v"><b id="intr">0</b></span></div>
-    <div class="tm hooks" title="Hook events accepted / status-line posts / events dropped (cwd outside the project). The footer has the full counters."><span class="k">Hooks</span><span class="v"><b id="hookn">0</b></span></div>
+  <div class="fields" id="fields">
+    <div class="f" id="g5"><span class="k">5-hour quota</span><span class="v"></span></div>
+    <div class="f" id="g7"><span class="k">7-day quota</span><span class="v"></span></div>
+    <div class="f" id="f-burn"><span class="k">Burn rate</span><span class="v"></span></div>
+    <div class="f" id="f-cost" title="Sum of the status line's total_cost_usd over the sessions tracked now: live ones, and ones heard from in the last 30 min. A list-price estimate, not a bill."><span class="k">est. $ (list price)</span><span class="v"><span class="num" id="cost">—</span><span class="more" id="costmore"></span></span></div>
+    <div class="f" id="f-lanes"><span class="k">Lanes</span><span class="v" id="lanecounts">—</span></div>
+    <div class="f" id="f-attn"><span class="k">Needs you</span><span class="v" id="attn">—</span></div>
+    <button class="f fbtn" id="tm-gate" type="button"><span class="k">Gate</span><span class="v" id="gatestate">—</span></button>
+    <div class="f" id="f-proc" title="CPU and memory of the lanes' claude processes, read while this page is in view"><span class="k">Claude processes</span><span class="v" id="procs">—</span></div>
+    <div class="f" id="f-intr" title="OS notifications the panel sent today"><span class="k">Interruptions today</span><span class="v"><span class="num" id="intr">0</span></span></div>
+    <div class="f hooks" title="Hook events accepted, status-line posts, events dropped (cwd outside the project). The footer has every counter."><span class="k">Hooks</span><span class="v num" id="hookn">0</span></div>
   </div>
 </header>
-<div class="band" aria-hidden="true"></div>
 <!-- Shown only while the page has lost the panel: everything below is then as of the
      time it names, and every action is off. -->
 <div class="connbar" id="connbar" role="alert" hidden></div>
 <!-- New blocking items are announced here, politely, for screen readers. -->
 <div class="sr" id="announce" aria-live="polite"></div>
-<!-- Needs you comes first in the DOM, so it is first at every width: blocking items
-     across every lane, then finished turns, then alerts that belong to no lane. -->
-<section class="needs" id="needs" aria-label="Needs you"></section>
+<!-- Needs you comes first in the DOM, so it is first at every width. It shows only
+     when something needs you. -->
+<section class="needs" id="needs" aria-label="Needs you" hidden></section>
 <div class="banners" id="banners"></div>
 <div class="banners" id="restorebar" hidden></div>
 <main class="shell" id="shell">
   <nav class="rail" id="rail" aria-label="Lanes and worktrees">
-    <div class="railsec" id="lanelist"></div>
-    <div class="railsec" id="tree"></div>
+    <section class="pane" id="lanelist" aria-label="Lanes"></section>
+    <section class="pane" id="tree" aria-label="Worktrees"></section>
   </nav>
   <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-controls="rail" aria-label="Width of the lane list" tabindex="0"></div>
   <section class="workspace" id="workspace" aria-label="The selected lane">
     <div class="tabrow" id="tabrow">
-      <button class="btn railbtn" id="railbtn" type="button" aria-controls="rail" aria-expanded="true" title="Show or hide the lane list and worktrees">☰ Lanes</button>
+      <button class="btn railbtn" id="railbtn" type="button" aria-controls="rail" aria-expanded="true" title="Show or hide the lane list and worktrees">Lanes</button>
       <div class="tabs" id="tabs" role="tablist" aria-label="Lane terminals"></div>
       <button class="tab addtab" id="addtab" type="button" title="Start a new lane" aria-label="New lane">+</button>
     </div>
@@ -79,11 +82,12 @@
           <div class="termhost" id="termhost"><div class="empty" id="termempty"></div><div class="empty" id="termorphan" hidden></div></div>
           <div class="termbar" id="termbar"></div>
         </div>
-        <aside class="side" id="side" aria-label="Agents, worktree, queue, alerts and activity of this lane"></aside>
+        <aside class="side pane" id="side" aria-label="This lane: agents, figures, git, gate, alerts and activity"></aside>
       </div>
     </div>
   </section>
 </main>
+<div class="keyhints" id="keyhints" aria-hidden="true"><span><b>Enter</b> open terminal</span><span><b>Ctrl+]</b> leave terminal</span><span><b>← →</b> lanes</span><span><b>Ctrl+Alt+=</b> larger</span><span><b>Ctrl+Alt+−</b> smaller</span></div>
 <footer class="obs" id="obs"></footer>
 <aside class="drawer" id="drawer" aria-label="Activity across every lane" hidden>
   <div class="drawerhead"><h2>Activity</h2><button class="btn" id="drawerclose" type="button">Close</button></div>
@@ -110,8 +114,8 @@
     <div class="card err" id="st-block" hidden></div>
     <div class="stop" id="st-err"></div>
     <div class="actions">
-      <button type="button" class="btn" id="st-cancel">CANCEL</button>
-      <button type="submit" class="btn primary" id="st-go">START LANE</button>
+      <button type="button" class="btn" id="st-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="st-go">Start lane</button>
     </div>
   </form>
 </div>
