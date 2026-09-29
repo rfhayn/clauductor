@@ -49,6 +49,18 @@ clauductor panel uninstall                    # stop and remove the login agent
 The panel watches one project per run. Stop a hand-started panel with Ctrl-C. Stopping the
 panel never stops a lane: lanes belong to tmux.
 
+**One panel per machine, enforced.** The hook URL in `~/.claude/settings.json`, the files in
+`~/.clauductor/panel/` (`port`, `pid`, `owner.json`, `token`) and the launchd label are all
+per-machine, so a second panel (say `--port 4394` for another project) would re-point every
+session's hooks at itself. A panel therefore refuses to start, and exits non-zero, while
+`~/.clauductor/panel/pid` names another **live** panel. The message names that panel's project,
+pid and port. Live means: the pid is running, and its start time equals the one recorded in
+`owner.json` (a different start time is a reused pid, so the old record is stale and is taken
+over). A panel from before `owner.json` counts as live only if its port answers `/healthz` as that
+pid. If the login agent is the one refused (a hand-started panel holds the machine), launchd
+retries it every 30 s until that panel stops. Watching several projects from one panel, a multi-project
+daemon, is future work; until it lands, run one project's panel at a time.
+
 ## Configuration: `.clauductor/panel.json`
 
 The project keeps its config at `<project>/.clauductor/panel.json` (or pass `--config`). Unknown
@@ -241,8 +253,10 @@ when the panel's marker file exists, never waits (background, 0.5 s cap), and pr
 the status line is unaffected on a machine that has never run the panel:
 
 `~/.clauductor/panel/port` holds the port and nothing else, because scripts read it as digits.
-The panel's PID is in `~/.clauductor/panel/pid` beside it. Both are removed on a clean stop; a
-`pid` naming a process that is not running means the panel was killed and both files are stale.
+The panel's PID is in `~/.clauductor/panel/pid` beside it, and `owner.json` records its start
+time, project and port. All three are removed on a clean stop, but only while `pid` still names
+that panel: a panel never deletes another panel's files. A `pid` naming a process that is not
+running (or one with another start time) means the panel was killed and the files are stale.
 
 ```bash
 input=$(cat)
@@ -256,8 +270,8 @@ fi
 
 ## Hooks
 
-On every start, the panel merges one `type: "http"` hook per event into the **running user's**
-`~/.claude/settings.json`, and nowhere else:
+On every start, and again every 30 s while it runs, the panel merges one `type: "http"` hook per
+event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 
 ```json
 { "type": "http", "url": "http://127.0.0.1:4393/hook?src=clauductor-panel", "timeout": 1 }
@@ -280,6 +294,13 @@ for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`,
   are atomic (temp file + rename, in the same directory).
 - A symlinked `settings.json` (for example, one managed by a dotfiles repo) is followed: the
   panel edits the file it points at, and the link stays a link.
+- **Drift is repaired.** Every 30 s the running panel checks that its hooks are still there and
+  still point at its own port. If something re-pointed them (an older panel binary, which cannot
+  be refused) or removed them, it reinstalls them and a warning bar says what it found, for 10
+  minutes. `--uninstall-hooks` while a panel runs says the panel will put them back.
+- **A failed install is not fatal.** If the install fails (for example, `settings.json` is not
+  valid JSON), the panel still serves, shows a red banner with the error, and retries after 1 s,
+  doubling up to 30 s. Under launchd a fatal error would restart the panel every 30 s instead.
 - The hooks stay installed when the panel stops. While it is down, the connection is refused
   at once and the session is never blocked. `clauductor panel --uninstall-hooks` removes them.
 
@@ -442,7 +463,7 @@ opens `http://127.0.0.1:<port>/` instead.
 `uninstall` removes:
 
 - the plist, the token and the copied binary;
-- the logs, `pid`, `port` and the browser-opened stamp;
+- the logs, `pid`, `port`, `owner.json` and the browser-opened stamp;
 - the app, but only if `install --app` made it;
 - every lane registry that lists no lanes.
 
@@ -477,7 +498,8 @@ send requests to `127.0.0.1`.
   either address, it **exits with an error** and never falls back to another port (the hooks
   post to a fixed URL, and `clauductor.localhost` would reach whatever holds `[::1]`). A machine
   with no IPv6 loopback at all is served on `127.0.0.1` only, and the log says so. A refused
-  start does not touch `settings.json` or the marker.
+  start (port taken, or another live panel on the machine) does not touch `settings.json` or the
+  marker.
 - **The address is `http://clauductor.localhost:<port>`.** macOS and every current browser
   resolve `*.localhost` to loopback with no system change (no `/etc/hosts` entry, no port 80).
   Cookies are per host, so the token exchange happens at that name.
@@ -567,7 +589,8 @@ send requests to `127.0.0.1`.
   authority, never a hand-kept list. It is re-read every 10 s, and early when a worktree is
   added or removed or when an event arrives from an unknown `cwd`.
 - **What the panel writes to disk:**
-  - the marker `~/.clauductor/panel/port` and `pid`, removed on SIGINT/SIGTERM;
+  - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
+    while they are still its own;
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;

@@ -327,6 +327,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	v.Trust = m.v2.trust
 	v.Restorable = []string{}
 	v.Warnings = []string{}
+	m.hookBanners(v, now)
 	if v.Done == nil {
 		v.Done = []NeedView{}
 	}

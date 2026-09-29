@@ -407,10 +407,10 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 		fmt.Fprintf(out, "launchctl bootout: %s (fine if it was not loaded)\n", strings.TrimSpace(string(b)))
 	}
 	dir := panelDir(home)
-	// Everything the agent owns goes. port and pid belong to a running panel, which
-	// bootout has just stopped.
+	// Everything the agent owns goes. port, pid and owner.json belong to a running
+	// panel, which bootout has just stopped.
 	for _, p := range []string{PlistPath(home), TokenPath(home), filepath.Join(dir, "browser-opened"),
-		filepath.Join(dir, "pid"), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
+		filepath.Join(dir, "pid"), OwnerPath(home), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
 		if err := os.RemoveAll(p); err != nil {
 			return err
 		}

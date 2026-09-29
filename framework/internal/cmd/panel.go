@@ -56,6 +56,10 @@ other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
 			} else {
 				fmt.Fprintf(out, "No panel hooks in %s.\n", panel.SettingsPath(home))
 			}
+			// A running panel re-checks its hooks every 30 s and puts them back.
+			if other := panel.RunningPanel(context.Background(), home, os.Getpid(), panel.LiveProc); other != nil {
+				fmt.Fprintf(out, "A panel is running (pid %d); it reinstalls its hooks within 30 s. Stop it first to keep them out.\n", other.PID)
+			}
 			return nil
 		}
 		project := panelProject

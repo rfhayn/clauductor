@@ -188,6 +188,7 @@ type Model struct {
 	statusPosts int
 	dropped     int
 	v2          modelV2
+	hooks       hookHealth // PANEL-5: the hook install's health (singleton.go)
 
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []TmuxLane
