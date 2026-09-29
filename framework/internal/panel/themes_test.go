@@ -328,10 +328,7 @@ func TestThemeTerminalMinimumContrast(t *testing.T) {
 		t.Error("panel.js never sets xterm's minimumContrastRatio")
 	}
 	// xterm applies a lifted colour through span.setAttribute("style"), which the CSP
-	// blocks; without panel.js's CSSOM route the ratio would silently do nothing.
-	if !strings.Contains(readWeb(t, "panel.js"), "HTMLSpanElement.prototype.setAttribute") {
-		t.Error("panel.js does not route xterm's span style attributes through CSSOM")
-	}
+	// blocks; xterm-style.js routes it (TestXtermStyleRouteIsNarrow checks how).
 	for _, th := range declaredThemes(t) {
 		v, err := strconv.ParseFloat(tb.shape[th.id]["term-min-contrast"], 64)
 		want := 4.5

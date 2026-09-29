@@ -11,19 +11,6 @@ const STYLE_NONCE = document.querySelector('meta[name="csp-style-nonce"]').conte
     return e;
   };
 }
-// xterm's DOM renderer colours a cell with a truecolor value, or with a colour lifted to
-// the theme's minimumContrastRatio, through span.setAttribute("style", …). The CSP
-// blocks style attributes, so those cells silently kept their palette colour. Route a
-// span's style attribute through CSSOM instead, which the CSP does not govern. It is
-// scoped to <span> (xterm's cells) and adds nothing a script could not already do:
-// the page never builds markup from server text.
-{
-  const setAttr = Element.prototype.setAttribute;
-  HTMLSpanElement.prototype.setAttribute = function (name, value) {
-    if (String(name).toLowerCase() === "style") { this.style.cssText = String(value); return; }
-    return setAttr.call(this, name, value);
-  };
-}
 // Every piece of text from the server goes through textContent: prompts, card output
 // and PR titles are data, never markup.
 let S = null, offset = 0, es = null, selected = null;

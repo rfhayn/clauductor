@@ -500,8 +500,11 @@ send requests to `127.0.0.1`.
   a CDN or Google Fonts. xterm.js creates `<style>` elements at run time, so `style-src` allows
   one per-response nonce as well; `panel.js` stamps it on those elements. xterm's renderer also
   colours cells through a `<span>`'s `style` attribute (truecolor, and colours lifted to
-  `--term-min-contrast`), which the CSP blocks; `panel.js` routes a span's `style` attribute
-  through CSSOM, which the CSP does not govern, so those colours render.
+  `--term-min-contrast`), which the CSP blocks. `static/xterm-style.js` routes exactly those
+  writes through CSSOM, which the CSP does not govern: only on a `<span>` that is detached or
+  inside `.xterm`, and only for a value made of `color` / `background-color` declarations with a
+  hex or `rgb()` value. Any other style attribute still meets the CSP.
+  `TestXtermStyleRouteIsNarrow` runs it in node (skipped where node is absent).
 - **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
   guarded route. It needs all of the following:
   - the Host check;
