@@ -676,7 +676,7 @@ func TestV2HookEvents(t *testing.T) {
 		t.Fatalf("StopFailure rate_limit raised no alert: %+v", v.Alerts)
 	}
 	// An event name the panel does not subscribe to is counted, not applied.
-	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PreToolUse"}, t0)
+	m.ApplyHook(signals.HookEvent{SessionID: "s1", Cwd: buildWT, Event: "PostToolUseFailure"}, t0)
 	if v := m.Snapshot(t0); v.Observe.DroppedUnknownEvent != 1 || v.Observe.DroppedForeign != 0 {
 		t.Fatalf("unknown event: %+v", v.Observe)
 	}

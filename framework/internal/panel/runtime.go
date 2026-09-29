@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -203,7 +204,7 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 	worktrees := func(ctx context.Context) ([]signals.Worktree, error) {
 		return signals.ReadWorktrees(ctx, r.run, r.root)
 	}
-	prs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup"},
+	prs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision"},
 		signals.ParsePRs)
 	// The table of sources. Each runs in its own goroutine, through Runtime.loop.
 	r.sources = []*source{
@@ -217,6 +218,11 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		{name: "version", every: t.Version, poll: r.pollVersion()},
 		{name: "obs", every: t.Obs, fixedRate: true, waitFirst: true, poll: r.pollObs},
 		{name: "notify", every: t.Notify, fixedRate: true, waitFirst: true, poll: r.pollNotify()},
+		{name: "trends", every: t.Trends, fixedRate: true, poll: func(context.Context, time.Time) (update, time.Duration) {
+			return func(m *state.Model, now time.Time) { m.Sample(now) }, 0
+		}},
+		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
+		{name: "git", every: t.Git, fixedRate: true, poll: r.pollGit},
 	}
 	for _, c := range cfg.Cards {
 		r.sources = append(r.sources, r.cardSource(c))
@@ -869,4 +875,92 @@ func SendNotice(ctx context.Context, nt state.Notice) error {
 		return fmt.Errorf("osascript: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// pageVisible is whether a page has said in the last 90 s that it is in view: the
+// dashboard's reads (ps, git) run only then, so an idle panel spawns nothing for them.
+func (r *Runtime) pageVisible(now time.Time) bool {
+	srv := r.srv.Load()
+	return srv != nil && srv.PageVisible(now)
+}
+
+// pollProcs reads the claude processes' CPU and memory with one ps (PANEL-11).
+func (r *Runtime) pollProcs(ctx context.Context, now time.Time) (update, time.Duration) {
+	if !r.pageVisible(now) {
+		return nil, 0
+	}
+	var pids []int
+	r.hub.Read(func(m *state.Model, _ time.Time) { pids = m.ClaudePIDs() })
+	if len(pids) == 0 {
+		return nil, 0
+	}
+	list := make([]string, len(pids))
+	for i, p := range pids {
+		list[i] = strconv.Itoa(p)
+	}
+	out, err := r.exec(ctx, 5*time.Second, []string{"ps", "-o", "pid=,pcpu=,rss=", "-p", strings.Join(list, ",")})
+	if ctx.Err() != nil {
+		return nil, 0
+	}
+	procs := signals.ParsePS(out)
+	if err != nil && len(procs) > 0 {
+		err = nil // ps exits 1 when a pid is gone; the rest are still good
+	}
+	return func(m *state.Model, now time.Time) { m.ApplyProcs(procs, err, now) }, 0
+}
+
+// pollGit reads each lane's worktree with one `git status`; a second call only when
+// the tree is dirty (the diff stat) or HEAD moved (the commit's time) (PANEL-11).
+func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Duration) {
+	if !r.pageVisible(now) {
+		return nil, 0
+	}
+	var paths []string
+	heads := map[string]string{}
+	times := map[string]int64{}
+	r.hub.Read(func(m *state.Model, now time.Time) {
+		paths = m.LaneWorktrees(now)
+		for _, p := range paths {
+			heads[p], times[p] = m.GitHead(p)
+		}
+	})
+	type read struct {
+		path string
+		g    signals.GitStat
+		err  error
+	}
+	var reads []read
+	for _, p := range paths {
+		if ctx.Err() != nil {
+			return nil, 0
+		}
+		out, err := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "status", "--porcelain=v2", "--branch"})
+		var g signals.GitStat
+		if err == nil {
+			g, err = signals.ParseGitStatusV2(out)
+		}
+		if err == nil && g.Dirty() > 0 {
+			if d, derr := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "diff", "HEAD", "--shortstat"}); derr == nil {
+				g.Files, g.Insertions, g.Deletions = signals.ParseShortstat(d)
+			}
+		}
+		if err == nil && g.Head != "" && g.Head != "(initial)" {
+			if g.Head == heads[p] {
+				g.LastCommitAt = times[p]
+			} else if c, cerr := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "log", "-1", "--format=%ct"}); cerr == nil {
+				if sec, perr := strconv.ParseInt(strings.TrimSpace(string(c)), 10, 64); perr == nil {
+					g.LastCommitAt = sec * 1000
+				}
+			}
+		}
+		reads = append(reads, read{p, g, err})
+	}
+	if len(reads) == 0 {
+		return nil, 0
+	}
+	return func(m *state.Model, now time.Time) {
+		for _, rd := range reads {
+			m.ApplyGit(rd.path, rd.g, rd.err, now)
+		}
+	}, 0
 }

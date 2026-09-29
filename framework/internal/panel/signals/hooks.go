@@ -35,7 +35,42 @@ type HookEvent struct {
 	CompactionTrigger string `json:"compaction_trigger"` // PreCompact / PostCompact
 	Trigger           string `json:"trigger"`            // older spelling of compaction_trigger
 	PreviousCwd       string `json:"previous_cwd"`       // CwdChanged
+	// PANEL-11: which agent started which. The panel subscribes to PreToolUse and
+	// PostToolUse only for the Agent, Task and Workflow tools (HookMatchers), and
+	// reads only the two fields of each it needs (AgentCall, AgentResult): the
+	// input's subagent_type and description, and the response's agentId, runId and
+	// workflowName. The prompt and every other field stay undecoded.
+	ToolUseID    string          `json:"tool_use_id"`
+	ToolInput    json.RawMessage `json:"tool_input"`
+	ToolResponse json.RawMessage `json:"tool_response"`
 }
+
+// AgentCall is what an Agent/Task call's input says: the subagent type it asks for
+// and its short description.
+func (ev HookEvent) AgentCall() (subagentType, description string) {
+	var in struct {
+		SubagentType string `json:"subagent_type"`
+		Description  string `json:"description"`
+	}
+	_ = json.Unmarshal(ev.ToolInput, &in)
+	return in.SubagentType, OneLine(in.Description)
+}
+
+// AgentResult is what an Agent/Task or Workflow call's response names: the agent it
+// started (agentId), or the workflow run (runId, workflowName). Any other shape (a
+// string, an error) yields empty values.
+func (ev HookEvent) AgentResult() (agentID, runID, workflow string) {
+	var out struct {
+		AgentID      string `json:"agentId"`
+		RunID        string `json:"runId"`
+		WorkflowName string `json:"workflowName"`
+	}
+	_ = json.Unmarshal(ev.ToolResponse, &out)
+	return out.AgentID, out.RunID, OneLine(out.WorkflowName)
+}
+
+// IsAgentTool is true for the tools that start subagents.
+func IsAgentTool(name string) bool { return name == "Agent" || name == "Task" }
 
 // ParseHook decodes a hook body.
 func ParseHook(body []byte) (HookEvent, error) {
@@ -89,6 +124,10 @@ type StatusPayload struct {
 		ExpiresAt *int64   `json:"expires_at"` // unix seconds
 		Requests  *int64   `json:"requests"`
 		Misses    *int64   `json:"misses"`
+		// LastMissCause says why the last request missed the cache (null when none).
+		LastMissCause *string `json:"last_miss_cause"`
+		// RecacheTokensIfCold is what the next request would write if the cache went cold.
+		RecacheTokensIfCold *int64 `json:"recache_tokens_if_cold"`
 	} `json:"prompt_cache"`
 	FastMode *bool `json:"fast_mode"`
 	Thinking *struct {
@@ -139,8 +178,17 @@ func OneLine(s string) string {
 // PreCompact, which could block): /hook answers 204 with an empty body, which Claude
 // Code documents as "no decision", so the permission flow proceeds unchanged. It
 // never answers a permission request, because /hook takes no token.
+//
+// PANEL-11 adds PreToolUse and PostToolUse, matched to the tools that start agents
+// (HookMatchers), so the panel can tell which agent started which: a SubagentStart
+// names only the new agent, and the call that started it names its caller
+// (verified on 2.1.284). The panel answers them 204 too: no decision.
 var HookEvents = []string{"UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "Notification", "SessionEnd",
-	"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged"}
+	"StopFailure", "PermissionRequest", "PreCompact", "PostCompact", "CwdChanged", "PreToolUse", "PostToolUse"}
+
+// HookMatchers are the matchers of the events that take one: the panel hears these
+// events only for the tools named.
+var HookMatchers = map[string]string{"PreToolUse": "Agent|Task|Workflow", "PostToolUse": "Agent|Task|Workflow"}
 
 // Clip is OneLine cut further to n runes.
 func Clip(s string, n int) string {

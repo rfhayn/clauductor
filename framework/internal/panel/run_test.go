@@ -33,7 +33,7 @@ func fakeRunner(root string) signals.Runner {
 			return []byte(".git\n"), nil
 		case "claude agents --json":
 			return []byte(fmt.Sprintf(`[{"pid":1,"cwd":%q,"kind":"interactive","sessionId":"s1","name":"lane-1","status":"busy"}]`, root)), nil
-		case "gh pr list --json number,title,headRefName,author,isDraft,statusCheckRollup":
+		case "gh pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision":
 			return []byte(`[]`), nil
 		case "echo card":
 			return []byte("- [ ] an item\n"), nil

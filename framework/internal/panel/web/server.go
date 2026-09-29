@@ -104,6 +104,10 @@ type Server struct {
 	// shown apart from events dropped for a foreign cwd.
 	overflow atomic.Int64
 
+	// seenAt is the last time a page said it is in view (unix ns; PANEL-11). The
+	// dashboard's ps and git reads run only while it is recent.
+	seenAt atomic.Int64
+
 	termMu  sync.Mutex
 	tickets map[string]termTicket               // single-use WebSocket tickets
 	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
@@ -140,6 +144,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/state", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(s.Hub.Snapshot())
+	}))
+	// A page in view says so once a minute; nothing else changes (PANEL-11).
+	mux.HandleFunc("POST /api/seen", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		s.MarkVisible(s.clock().Now())
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	mux.HandleFunc("/api/refresh", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -368,3 +377,15 @@ func (s *Server) clock() clock.Clock {
 	}
 	return s.Clock
 }
+
+// PageVisibleFor is how long a page's "in view" lasts without another.
+const PageVisibleFor = 90 * time.Second
+
+// PageVisible is whether a page said it was in view within PageVisibleFor.
+func (s *Server) PageVisible(now time.Time) bool {
+	at := s.seenAt.Load()
+	return at != 0 && now.Sub(time.Unix(0, at)) < PageVisibleFor
+}
+
+// MarkVisible records that a page is in view now.
+func (s *Server) MarkVisible(now time.Time) { s.seenAt.Store(now.UnixNano()) }

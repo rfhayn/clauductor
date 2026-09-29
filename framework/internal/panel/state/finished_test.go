@@ -114,3 +114,64 @@ func TestMetricsFromTheStatusLine(t *testing.T) {
 		t.Fatalf("lane metrics %+v", lm)
 	}
 }
+
+// PANEL-11: which agent started which, from the payloads recorded on 2.1.284: a
+// SubagentStart names only the new agent; the PreToolUse(Agent) before it names its
+// caller (agent_id, absent on the main thread); the call's PostToolUse confirms the
+// pair (agent_id + tool_response.agentId). Workflow agents join the newest run.
+func TestSubagentNesting(t *testing.T) {
+	t.Parallel()
+	cwd := "/repo/.claude/worktrees/build-add-feature"
+	ev := func(e, agentID, agentType, tool, toolUse, in, out string) signals.HookEvent {
+		h := signals.HookEvent{SessionID: "s", Cwd: cwd, Event: e, AgentID: agentID, AgentType: agentType, ToolName: tool, ToolUseID: toolUse}
+		if in != "" {
+			h.ToolInput = []byte(in)
+		}
+		if out != "" {
+			h.ToolResponse = []byte(out)
+		}
+		return h
+	}
+	m := NewModel(testConfig(t), "/repo", t0)
+	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
+	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "busy"}}, nil, t0)
+	at := func(ms int) time.Time { return t0.Add(time.Duration(ms) * time.Millisecond) }
+	// The main thread starts A in the background; A starts B in the foreground.
+	m.ApplyHook(ev("PreToolUse", "", "", "Agent", "tu1", `{"subagent_type":"general-purpose","description":"outer","prompt":"secret"}`, ""), at(0))
+	m.ApplyHook(ev("SubagentStart", "A", "general-purpose", "", "", "", ""), at(20))
+	m.ApplyHook(ev("PostToolUse", "", "", "Agent", "tu1", "", `{"agentId":"A","status":"async_launched"}`), at(30))
+	m.ApplyHook(ev("PreToolUse", "A", "general-purpose", "Agent", "tu2", `{"subagent_type":"general-purpose","description":"inner"}`, ""), at(1000))
+	m.ApplyHook(ev("SubagentStart", "B", "general-purpose", "", "", "", ""), at(1020))
+	find := func(id string) SubagentView {
+		t.Helper()
+		for _, l := range m.Snapshot(at(5000)).Lanes {
+			for _, a := range append(l.Subagents, l.FinishedSubagents...) {
+				if a.ID == id {
+					return a
+				}
+			}
+		}
+		t.Fatalf("no agent %s", id)
+		return SubagentView{}
+	}
+	if a := find("A"); a.Parent != "" || a.ParentApprox || a.Description != "outer" {
+		t.Fatalf("A: %+v", a)
+	}
+	if b := find("B"); b.Parent != "A" || !b.ParentApprox || b.Description != "inner" {
+		t.Fatalf("B before its call returns: %+v", b)
+	}
+	// B finishes, then A's call returns naming B: the edge is exact, on the finished entry too.
+	m.ApplyHook(ev("SubagentStop", "B", "general-purpose", "", "", "", ""), at(3000))
+	m.ApplyHook(ev("PostToolUse", "A", "general-purpose", "Agent", "tu2", "", `{"agentId":"B","status":"completed"}`), at(3010))
+	if b := find("B"); b.Parent != "A" || b.ParentApprox || b.Ended == 0 {
+		t.Fatalf("B after its call returns: %+v", b)
+	}
+	// A workflow run: its agents join it, approximately.
+	m.ApplyHook(ev("PostToolUse", "", "", "Workflow", "tu3", "", `{"runId":"wf_1","workflowName":"review"}`), at(4000))
+	m.ApplyHook(ev("SubagentStart", "W1", "workflow-subagent", "", "", "", ""), at(4100))
+	if w := find("W1"); w.Run != "wf_1" || w.RunName != "review" || !w.ParentApprox {
+		t.Fatalf("workflow agent: %+v", w)
+	}
+	// A tool response that is not an object (another tool's string output) is ignored.
+	m.ApplyHook(ev("PostToolUse", "", "", "Agent", "tu9", "", `"plain text"`), at(4200))
+}

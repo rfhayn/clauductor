@@ -54,6 +54,16 @@ type FeedEvent struct {
 type subagent struct {
 	Type  string
 	Since time.Time
+	link  agentLink
+}
+
+// agentLink is where a subagent sits in its session's tree (PANEL-11; nesting.go).
+type agentLink struct {
+	Parent  string // the agent that started it; "" for the session itself
+	Desc    string // the Agent call's description
+	Approx  bool   // Parent is paired by timing and type, not yet confirmed by the call's result
+	Run     string // the workflow run it belongs to (workflow-subagent), by the heuristic in nesting.go
+	RunName string
 }
 
 // finishedAgent is a subagent that stopped, kept so the page can list what a lane
@@ -64,6 +74,7 @@ type finishedAgent struct {
 	Type  string
 	Since time.Time
 	Ended time.Time
+	link  agentLink
 }
 
 // maxFinished caps the finished subagents a session keeps, newest kept.
@@ -84,11 +95,12 @@ type session struct {
 	HookStatus  string // from hooks alone: busy | idle | waiting
 	Subagents   map[string]subagent
 	Finished    []finishedAgent // oldest first, at most maxFinished
+	nest        nesting         // pending Agent calls, confirmed edges, workflow runs (nesting.go)
 	Note        *note
 	CtxPct      *float64
 	Model       string
 	StatusAt    time.Time // last status-line post
-	Stats       Metrics   // the latest status-line figures (PANEL-11)
+	Stats       Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
 	// From `claude agents --json`.
 	Agent     *signals.Agent
 	BusySince time.Time
@@ -149,6 +161,8 @@ type Model struct {
 	// laneGone is when a successful tmux poll first found a registered lane's
 	// session missing, by lane id (PANEL-7).
 	laneGone map[string]time.Time
+	// trend holds the trends, the lane timelines, ps and git (PANEL-11; trends.go).
+	trend *trends
 }
 
 // Quota is the latest account quota the status line reported.
@@ -310,6 +324,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	detail := ""
 	switch ev.Event {
 	case "UserPromptSubmit":
+		s.Stats.Turns++
 		s.HookStatus = "busy"
 		s.LastPromptAt = now
 		s.Done, s.Failure = nil, nil
@@ -328,10 +343,14 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		s.Failure = &note{Type: typ, At: now}
 		detail = "error_type " + signals.OneLine(typ)
 	case "PermissionRequest":
+		if s.HookStatus != "waiting" {
+			s.Stats.Asks++
+		}
 		s.HookStatus = "waiting"
 		s.Note = &note{Type: "permission_prompt", Message: signals.OneLine("wants to use " + ev.ToolName), At: now}
 		detail = signals.OneLine(ev.ToolName)
 	case "PreCompact":
+		s.Stats.Compactions++
 		s.Compacting = compactionTrigger(ev)
 		detail = s.Compacting
 	case "PostCompact":
@@ -340,8 +359,12 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	case "CwdChanged":
 		// Recorded, never followed: the lane binding stays where it was made.
 		detail = signals.OneLine(ev.PreviousCwd + " → " + ev.Cwd)
+	case "PreToolUse":
+		detail = s.nest.pre(ev, now)
+	case "PostToolUse":
+		detail = s.post(ev, now)
 	case "SubagentStart":
-		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now}
+		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now, link: s.nest.link(ev, now)}
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "SubagentStop":
 		s.stopSubagent(ev.AgentID, ev.AgentType, now)
@@ -351,6 +374,9 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		n := &note{Type: ev.NotificationType, Message: signals.OneLine(ev.Message), At: now}
 		switch {
 		case k.Waiting:
+			if s.HookStatus != "waiting" {
+				s.Stats.Asks++
+			}
 			s.HookStatus = "waiting"
 			s.Note = n
 		case k.NeedsYou:
@@ -423,7 +449,7 @@ func (s *session) retire(id string, now time.Time) {
 		return
 	}
 	delete(s.Subagents, id)
-	s.Finished = append(s.Finished, finishedAgent{ID: id, Type: a.Type, Since: a.Since, Ended: now})
+	s.Finished = append(s.Finished, finishedAgent{ID: id, Type: a.Type, Since: a.Since, Ended: now, link: a.link})
 	if n := len(s.Finished); n > maxFinished {
 		s.Finished = append([]finishedAgent(nil), s.Finished[n-maxFinished:]...)
 	}
@@ -492,6 +518,7 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		}
 		if p.Cost.TotalCostUSD != nil {
 			m.costByID[p.SessionID] = *p.Cost.TotalCostUSD
+			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
 		s.Stats.fold(p, now)
 	}
@@ -665,6 +692,8 @@ type View struct {
 	TmuxSocket   string                `json:"tmuxSocket"`
 	LaneBase     string                `json:"laneBase"`
 	WorktreeRoot string                `json:"worktreeRoot"`
+	// Trends are the global trends and what they imply (PANEL-11).
+	Trends Trends `json:"trends"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -686,6 +715,14 @@ type LaneView struct {
 	// Metrics sum the lane's sessions' figures (PANEL-11); State and StateSince are
 	// the lane's own (its leading session's).
 	Metrics Metrics `json:"metrics"`
+	// Timeline is the lane's state over the last TrendWindow; HitSpark and CostSpark
+	// its prompt-cache hit ratio and est. $ a minute; CostPerH over the last hour.
+	Timeline  []Segment `json:"timeline,omitempty"`
+	HitSpark  *Spark    `json:"hitSpark,omitempty"`
+	CostSpark *Spark    `json:"costSpark,omitempty"`
+	CostPerH  *float64  `json:"costPerH,omitempty"`
+	// Git is the worktree's last git read, taken only while a page is open.
+	Git *GitView `json:"git,omitempty"`
 	// Head is the worktree's HEAD commit, from `git worktree list`.
 	Head        string        `json:"head,omitempty"`
 	LastEvent   string        `json:"lastEvent,omitempty"`
@@ -748,6 +785,8 @@ type Metrics struct {
 	CacheExpires  int64    `json:"cacheExpiresAt,omitempty"` // unix ms
 	CacheMisses   int64    `json:"cacheMisses,omitempty"`
 	CacheRequests int64    `json:"cacheRequests,omitempty"`
+	LastMissCause string   `json:"lastMissCause,omitempty"`
+	RecacheTokens int64    `json:"recacheTokens,omitempty"` // tokens the next request writes if the cache is cold
 	LinesAdded    int64    `json:"linesAdded,omitempty"`
 	LinesRemoved  int64    `json:"linesRemoved,omitempty"`
 	DurationMs    int64    `json:"durationMs,omitempty"`    // total_duration_ms: wall time of the session
@@ -759,10 +798,16 @@ type Metrics struct {
 	OutputStyle   string   `json:"outputStyle,omitempty"`
 	StatusAt      int64    `json:"statusAt,omitempty"` // the last status-line post, unix ms
 	// From hooks and `claude agents`, not the status line.
-	SubagentsRunning  int    `json:"subagentsRunning"`
-	SubagentsFinished int    `json:"subagentsFinished"`
-	State             string `json:"state,omitempty"`      // busy | waiting | idle
-	StateSince        int64  `json:"stateSince,omitempty"` // unix ms: when it entered that state (time in state)
+	Turns       int `json:"turns,omitempty"`       // UserPromptSubmit hooks
+	Asks        int `json:"asks,omitempty"`        // times it stopped to wait on you (a waiting notification or PermissionRequest)
+	Compactions int `json:"compactions,omitempty"` // PreCompact hooks
+	// From ps, while a page is open (PANEL-11): the claude process itself.
+	CPU               *float64 `json:"cpu,omitempty"` // % of one core
+	RSSMB             *float64 `json:"rssMb,omitempty"`
+	SubagentsRunning  int      `json:"subagentsRunning"`
+	SubagentsFinished int      `json:"subagentsFinished"`
+	State             string   `json:"state,omitempty"`      // busy | waiting | idle
+	StateSince        int64    `json:"stateSince,omitempty"` // unix ms: when it entered that state (time in state)
 }
 
 // fold takes the figures a status post carries; a field it omits keeps its last value.
@@ -807,6 +852,10 @@ func (x *Metrics) fold(p signals.StatusPayload, now time.Time) {
 		}
 		setI(&x.CacheMisses, pc.Misses)
 		setI(&x.CacheRequests, pc.Requests)
+		setI(&x.RecacheTokens, pc.RecacheTokensIfCold)
+		if pc.LastMissCause != nil {
+			x.LastMissCause = *pc.LastMissCause
+		}
 	}
 	if p.Exceeds200k != nil {
 		x.Over200k = *p.Exceeds200k
@@ -860,6 +909,20 @@ func (x *Metrics) add(o Metrics) {
 	x.CacheMisses += o.CacheMisses
 	x.CacheRequests += o.CacheRequests
 	x.SubagentsRunning += o.SubagentsRunning
+	x.Turns += o.Turns
+	x.Asks += o.Asks
+	x.Compactions += o.Compactions
+	addF := func(dst **float64, v *float64) {
+		if v != nil {
+			t := *v
+			if *dst != nil {
+				t += **dst
+			}
+			*dst = &t
+		}
+	}
+	addF(&x.CPU, o.CPU)
+	addF(&x.RSSMB, o.RSSMB)
 	x.SubagentsFinished += o.SubagentsFinished
 	if o.CostUSD != nil {
 		v := *o.CostUSD
@@ -875,17 +938,31 @@ func (x *Metrics) add(o Metrics) {
 	if o.CtxPct != nil && (x.CtxPct == nil || *o.CtxPct > *x.CtxPct) {
 		x.CtxPct, x.CtxWindow = o.CtxPct, o.CtxWindow
 		x.CacheHitRatio, x.CacheWarm, x.CacheExpires = o.CacheHitRatio, o.CacheWarm, o.CacheExpires
+		x.LastMissCause, x.RecacheTokens = o.LastMissCause, o.RecacheTokens
 		x.Thinking, x.FastMode, x.OutputStyle = o.Thinking, o.FastMode, o.OutputStyle
 	}
 }
 
-// SubagentView is one running subagent, or a finished one (Ended set).
+// SubagentView is one running subagent, or a finished one (Ended set). Parent is the
+// agent that started it ("" for the session); ParentApprox says the pairing is by
+// timing and type and not yet confirmed; Run and RunName group workflow agents under
+// their run, always approximately (nesting.go).
 type SubagentView struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Since   int64  `json:"since"`
-	Ended   int64  `json:"ended,omitempty"`
-	Session string `json:"session"`
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Since        int64  `json:"since"`
+	Ended        int64  `json:"ended,omitempty"`
+	Session      string `json:"session"`
+	Parent       string `json:"parent,omitempty"`
+	ParentApprox bool   `json:"parentApprox,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Run          string `json:"run,omitempty"`
+	RunName      string `json:"runName,omitempty"`
+}
+
+func subView(id, typ string, since, ended time.Time, session string, l agentLink) SubagentView {
+	return SubagentView{ID: id, Type: typ, Since: ms(since), Ended: ms(ended), Session: session,
+		Parent: l.Parent, ParentApprox: l.Approx, Description: l.Desc, Run: l.Run, RunName: l.RunName}
 }
 
 // NeedView is one "needs you" item.
@@ -990,6 +1067,7 @@ func (m *Model) Snapshot(now time.Time) View {
 				sv.EstCostUSD = &c
 			}
 			sv.Metrics = s.metrics(st)
+			sv.Metrics.CPU, sv.Metrics.RSSMB = m.procOf(s, now)
 			lv.Sessions = append(lv.Sessions, sv)
 			lv.Metrics.add(sv.Metrics)
 			// On a tie, a current reading beats an approximate one.
@@ -1004,10 +1082,10 @@ func (m *Model) Snapshot(now time.Time) View {
 				lv.Stale = true
 			}
 			for id, a := range s.Subagents {
-				lv.Subagents = append(lv.Subagents, SubagentView{ID: id, Type: a.Type, Since: ms(a.Since), Session: s.ID})
+				lv.Subagents = append(lv.Subagents, subView(id, a.Type, a.Since, time.Time{}, s.ID, a.link))
 			}
 			for _, a := range s.Finished {
-				lv.FinishedSubagents = append(lv.FinishedSubagents, SubagentView{ID: a.ID, Type: a.Type, Since: ms(a.Since), Ended: ms(a.Ended), Session: s.ID})
+				lv.FinishedSubagents = append(lv.FinishedSubagents, subView(a.ID, a.Type, a.Since, a.Ended, s.ID, a.link))
 			}
 			if s.LastEventAt.After(newest) {
 				newest = s.LastEventAt
@@ -1060,6 +1138,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		v.Feed = append(v.Feed, ev)
 	}
 	m.snapshotV2(&v, now)
+	m.trendsView(&v, now)
 	return v
 }
 
