@@ -1,0 +1,6 @@
+[
+  {"pid": 25533, "cwd": "/repo/.claude/worktrees/build-add-support-access", "kind": "interactive", "startedAt": 1790625962459, "sessionId": "sess-build", "name": "repo-fc", "status": "busy"},
+  {"pid": 6222, "cwd": "/repo", "kind": "interactive", "startedAt": 1790640446302, "sessionId": "sess-main", "name": "repo-a3", "status": "idle"},
+  {"pid": 7001, "cwd": "/repo/.claude/worktrees/fix-thing/apps/web", "kind": "interactive", "startedAt": 1790640446302, "sessionId": "sess-fix", "name": "repo-b1", "status": "waiting", "waitingFor": "permission: Bash(gh pr create)"},
+  {"pid": 9999, "cwd": "/elsewhere/other-project", "kind": "interactive", "startedAt": 1790640446302, "sessionId": "sess-foreign", "name": "other", "status": "busy"}
+]

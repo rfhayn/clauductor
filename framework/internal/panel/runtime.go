@@ -1,0 +1,455 @@
+package panel
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Runner runs one command in dir and returns its stdout. Injectable for tests.
+type Runner func(ctx context.Context, dir string, argv []string) ([]byte, error)
+
+const maxCmdOutput = 1 << 20
+
+// ExecRunner runs argv directly (no shell) with a limited stdout.
+func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = dir
+	var out, errb limitedBuffer
+	out.max, errb.max = maxCmdOutput, 4096
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(errb.String())
+		if i := strings.IndexByte(msg, '\n'); i >= 0 {
+			msg = msg[:i]
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("%s: %v: %s", argv[0], err, msg)
+		}
+		return nil, fmt.Errorf("%s: %v", argv[0], err)
+	}
+	return out.Bytes(), nil
+}
+
+type limitedBuffer struct {
+	bytes.Buffer
+	max int
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if room := b.max - b.Len(); room > 0 {
+		if len(p) > room {
+			b.Buffer.Write(p[:room])
+		} else {
+			b.Buffer.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+// Options configures one panel run.
+type Options struct {
+	Project    string // project root (already resolved by the caller)
+	ConfigPath string // "" → <Project>/.clauductor/panel.json
+	Port       int
+	NoOpen     bool
+	Home       string // the user's home; injectable for tests
+	Out        io.Writer
+	Runner     Runner
+	// OnReady, if set, is called with the launch URL once serving (tests use it).
+	OnReady func(url string)
+}
+
+// MarkerPath is the file whose existence tells a status-line script the panel is up.
+func MarkerPath(home string) string { return filepath.Join(home, ".clauductor", "panel", "port") }
+
+// ResolvePath makes a path comparable with worktree paths: absolute, symlinks
+// resolved (macOS /tmp is /private/tmp). A path that no longer exists is cleaned only.
+func ResolvePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
+// Run serves the panel until ctx is cancelled.
+func Run(ctx context.Context, o Options) error {
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	if o.Runner == nil {
+		o.Runner = ExecRunner
+	}
+	if o.Home == "" {
+		return errors.New("cannot determine the home directory")
+	}
+	root := ResolvePath(o.Project)
+	cfgPath := o.ConfigPath
+	if cfgPath == "" {
+		cfgPath = filepath.Join(root, DefaultConfigRel)
+	}
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+	// The worktree list is the event filter's authority; without it every event
+	// would be dropped, so a failure here is fatal rather than a quiet empty panel.
+	wts, err := readWorktrees(ctx, o.Runner, root)
+	if err != nil {
+		return fmt.Errorf("%s: %w", root, err)
+	}
+
+	ln, err := Listen(o.Port)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// Install hooks only once the port is ours, so a refused second launch never
+	// rewrites settings.json.
+	changed, err := InstallHooks(o.Home, port)
+	if err != nil {
+		return fmt.Errorf("installing hooks: %w", err)
+	}
+	if changed {
+		fmt.Fprintf(o.Out, "Installed panel hooks in %s (pre-panel backup: settings.json.clauductor-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", SettingsPath(o.Home))
+	} else {
+		fmt.Fprintf(o.Out, "Panel hooks already present in %s.\n", SettingsPath(o.Home))
+	}
+	marker := MarkerPath(o.Home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(marker, []byte(strconv.Itoa(port)+"\n"), 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(marker)
+
+	token, err := NewToken()
+	if err != nil {
+		return err
+	}
+	model := NewModel(cfg, root, time.Now())
+	hub := NewHub(model, time.Now)
+	hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	p := &pollers{hub: hub, run: o.Runner, root: root, cfg: cfg,
+		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1)}
+	hooks := make(chan []byte, 256)
+	status := make(chan []byte, 64)
+
+	var wg sync.WaitGroup
+	start := func(f func()) { wg.Add(1); go func() { defer wg.Done(); f() }() }
+	start(func() { hub.Run(ctx) })
+	start(func() { p.ingest(ctx, hooks, status) })
+	start(func() { p.worktreeLoop(ctx) })
+	start(func() { p.agentsLoop(ctx) })
+	start(func() { p.prLoop(ctx) })
+	for _, c := range cfg.Cards {
+		c := c
+		kick := make(chan struct{}, 1)
+		p.cardKicks = append(p.cardKicks, kick)
+		start(func() { p.cardLoop(ctx, c, kick) })
+	}
+
+	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll}
+	httpSrv := &http.Server{
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		// SSE handlers watch the request context; tying it to ctx lets shutdown end them.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- httpSrv.Serve(ln) }()
+
+	url := fmt.Sprintf("http://%s:%d/?t=%s", LoopbackHost, port, token)
+	fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
+	if o.OnReady != nil {
+		o.OnReady(url)
+	}
+	if !o.NoOpen {
+		openBrowser(url)
+	}
+
+	select {
+	case <-ctx.Done():
+	case err = <-serveErr:
+	}
+	cancel()
+	shutCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
+	defer done()
+	_ = httpSrv.Shutdown(shutCtx)
+	wg.Wait()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func openBrowser(url string) {
+	name := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		name = "open"
+	}
+	_ = exec.Command(name, url).Start()
+}
+
+func readWorktrees(ctx context.Context, run Runner, root string) ([]Worktree, error) {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := run(cctx, root, []string{"git", "worktree", "list", "--porcelain"})
+	if err != nil {
+		return nil, err
+	}
+	wts, err := ParseWorktreePorcelain(out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range wts {
+		wts[i].Path = ResolvePath(wts[i].Path)
+	}
+	return wts, nil
+}
+
+type pollers struct {
+	hub        *Hub
+	run        Runner
+	root       string
+	cfg        *Config
+	kickWT     chan struct{}
+	kickAgents chan struct{}
+	kickPRs    chan struct{}
+	cardKicks  []chan struct{}
+
+	mu         sync.Mutex
+	lastWTKick time.Time
+}
+
+func kick(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (p *pollers) refreshAll() {
+	kick(p.kickWT)
+	kick(p.kickAgents)
+	kick(p.kickPRs)
+	for _, k := range p.cardKicks {
+		kick(k)
+	}
+}
+
+// kickWorktrees re-reads the worktree authority early (rate-limited), e.g. when an
+// event arrives from a cwd the current list does not know — likely a new worktree.
+func (p *pollers) kickWorktrees() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if time.Since(p.lastWTKick) < 2*time.Second {
+		return
+	}
+	p.lastWTKick = time.Now()
+	kick(p.kickWT)
+}
+
+// loop runs f now, then every d, and whenever kicked.
+func loop(ctx context.Context, d time.Duration, kickCh <-chan struct{}, f func()) {
+	t := time.NewTicker(d)
+	defer t.Stop()
+	for {
+		f()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-kickCh:
+		}
+	}
+}
+
+func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case body := <-hooks:
+			ev, err := ParseHook(body)
+			if err != nil {
+				continue
+			}
+			ev.Cwd = ResolvePath(ev.Cwd)
+			kept := true
+			p.hub.Update(func(m *Model, now time.Time) { kept = m.ApplyHook(ev, now) })
+			if !kept {
+				p.kickWorktrees()
+			}
+		case body := <-status:
+			st, err := ParseStatus(body)
+			if err != nil {
+				continue
+			}
+			st.Cwd = ResolvePath(st.Cwd)
+			p.hub.Update(func(m *Model, now time.Time) { m.ApplyStatus(st, now) })
+		}
+	}
+}
+
+// worktreeLoop polls every 10 s, and also re-reads within ~2 s when git's own
+// worktree registry directory changes (a worktree added or removed).
+func (p *pollers) worktreeLoop(ctx context.Context) {
+	regDir := ""
+	if out, err := p.run(ctx, p.root, []string{"git", "rev-parse", "--git-common-dir"}); err == nil {
+		d := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(p.root, d)
+		}
+		regDir = filepath.Join(d, "worktrees")
+	}
+	go func() {
+		last := pathSignature(regDir)
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if sig := pathSignature(regDir); sig != last {
+					last = sig
+					kick(p.kickWT)
+				}
+			}
+		}
+	}()
+	loop(ctx, 10*time.Second, p.kickWT, func() {
+		wts, err := readWorktrees(ctx, p.run, p.root)
+		if ctx.Err() != nil {
+			return
+		}
+		p.hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, err, now) })
+	})
+}
+
+func (p *pollers) agentsLoop(ctx context.Context) {
+	loop(ctx, 2*time.Second, p.kickAgents, func() {
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		out, err := p.run(cctx, p.root, []string{"claude", "agents", "--json"})
+		var agents []Agent
+		if err == nil {
+			agents, err = ParseAgents(out)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		for i := range agents {
+			agents[i].Cwd = ResolvePath(agents[i].Cwd)
+		}
+		p.hub.Update(func(m *Model, now time.Time) { m.ApplyAgents(agents, err, now) })
+	})
+}
+
+func (p *pollers) prLoop(ctx context.Context) {
+	loop(ctx, 60*time.Second, p.kickPRs, func() {
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		out, err := p.run(cctx, p.root, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup"})
+		var prs []PR
+		if err == nil {
+			prs, err = ParsePRs(out)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		p.hub.Update(func(m *Model, now time.Time) { m.ApplyPRs(prs, err, now) })
+	})
+}
+
+func (p *pollers) cardLoop(ctx context.Context, c CardConfig, kickCh chan struct{}) {
+	rule, _ := ParseRefresh(c.Refresh) // validated at load
+	runCard := func() {
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		out, err := p.run(cctx, p.root, c.Command)
+		if ctx.Err() != nil {
+			return
+		}
+		var co *CardOutput
+		if err == nil {
+			parsed := ParseCardOutput(out)
+			co = &parsed
+		}
+		p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, co, err, now) })
+	}
+	if rule.Interval > 0 {
+		loop(ctx, rule.Interval, kickCh, runCard)
+		return
+	}
+	watched := filepath.Join(p.root, rule.WatchRel)
+	last := pathSignature(watched)
+	runCard()
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-kickCh:
+			runCard()
+		case <-t.C:
+			if sig := pathSignature(watched); sig != last {
+				last = sig
+				runCard()
+			}
+		}
+	}
+}
+
+// pathSignature summarises a file, or a directory and its direct entries, by name,
+// size and mtime. Polling a signature needs no dependency and no platform watcher.
+func pathSignature(path string) string {
+	if path == "" {
+		return ""
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d:%d", fi.Size(), fi.ModTime().UnixNano())
+	if fi.IsDir() {
+		entries, _ := os.ReadDir(path)
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil {
+				names = append(names, fmt.Sprintf("%s:%d:%d", e.Name(), info.Size(), info.ModTime().UnixNano()))
+			}
+		}
+		sort.Strings(names)
+		b.WriteString("|" + strings.Join(names, "|"))
+	}
+	return b.String()
+}

@@ -1,0 +1,17 @@
+worktree /repo
+HEAD 1ff541758ffe66ae3f87dbb9eff7955c05bf3213
+branch refs/heads/main
+
+worktree /repo/.claude/worktrees/build-add-support-access
+HEAD 454faf15dc393f32b4d86f19e178d420fa038129
+branch refs/heads/change/add-support-access
+
+worktree /repo/.claude/worktrees/fix-thing
+HEAD 96bd28f7f6f849355e19732cc3aabd203ee80c4f
+branch refs/heads/fix/thing
+
+worktree /repo/.claude/worktrees/detached
+HEAD 96bd28f7f6f849355e19732cc3aabd203ee80c4f
+detached
+prunable gitdir file points to non-existent location
+
