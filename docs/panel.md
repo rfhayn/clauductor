@@ -121,16 +121,19 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 
 - **Top bar.** LIVE / DISCONNECTED (the page reconnects on its own; if the panel was restarted
   it says so, because the new launch has a new token). The 5-hour and 7-day quota gauges are the
-  real subscription budget. **est. $ · tracked sessions (list price)** is the sum of the status
+  real subscription budget (labelled **5 h** and **7 d**). **est. $ (list price)** (with
+  "· tracked sessions" on wide screens) is the sum of the status
   line's `total_cost_usd` over the sessions the panel tracks now: live ones, and ones heard from
   in the last 30 minutes. A session forgotten after that drops out of the sum. It is a
   list-price estimate, not a bill.
   `hooks` counts hook events accepted, status-line posts, and events dropped as outside the
-  project. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
+  project; below 1440 px it is left to the footer, which has the same counters, so the bar
+  stays on one row from 1280 px. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
   lanes cannot start (see *Subscription only*).
 - **Lanes (left).** One per worktree with a live session or recent activity. The stripe is green
   for busy, amber for waiting, grey for idle, and red when the lane is busy but no hook has
-  arrived from it for 60 s. The chip is the lane type from `lanes`. Worktrees with no session are
+  arrived from it for 60 s ("no hooks"). The status line repeats the state as a shape (see
+  *Themes*). The chip is the lane type from `lanes`. Worktrees with no session are
   listed underneath.
 - **Terminals (centre).** One tab per lane, with a status dot. The selected tab is that lane's
   live terminal: type into it as you would in Terminal.app. Under it are **ATTACH IN
@@ -151,6 +154,82 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 - **Red banner.** A lane is busy per `claude agents` and no hook has come from it since it went
   busy, for 60 s. Usually the session never loaded the hooks. Restart it. Also shown when `claude
   agents` or `git worktree list` cannot be read.
+
+## Themes
+
+The **theme** button at the right of the top bar picks one of six designs and a mode: **System**
+(follows the OS light or dark setting), **Light** or **Dark**. The menu works from the keyboard:
+Down or Enter opens it, the arrow keys, Home and End move, Enter picks, Escape closes it and
+returns focus to the button. Each theme shows a swatch drawn from its own tokens. The choice is
+kept per browser in `localStorage`. Without storage the page shows Console and the picker still
+works for the visit. A small script, `static/theme.js`, loads first and sets the theme before
+the first paint, so a stored theme never flashes the default. Changing theme re-colours the
+open terminals at once. Every theme's terminal is dark, in light mode too: only a dark
+background lets each ANSI colour read as text and also carry a label in another ANSI colour.
+
+| Theme | Idea | Faces |
+|---|---|---|
+| **Console** (default) | An instrument panel at night: navy, a signal-blue readout, a plotting grid, uppercase telemetry labels. | Chakra Petch, IBM Plex Sans, JetBrains Mono |
+| **Chart room** | A nautical chart: white water, chart magenta, a latitude-scale border, italic names, sentence case, square corners. Dark is a dimmed night palette. | Newsreader italic, Public Sans, DM Mono |
+| **Ward monitor** | A ward's central monitoring station: rounded bed tiles, soft shadows, big condensed figures, surgical teal. The roomiest. | Barlow Semi Condensed, Barlow, Red Hat Mono |
+| **Duplicator** | A dispatch office: forms typed in duplicator violet, dashed carbon-form rules, a tractor-feed edge. The densest. | Courier Prime |
+| **High contrast** | For low vision and glare: black and white, 7:1 page text and terminal colours (see below for its three exceptions), 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
+| **Shop floor** | Safety signage: concrete and asphalt, stencil lettering, a hazard-stripe edge, heavy borders, wide state stripes. | Big Shoulders Stencil, Archivo, Martian Mono |
+
+A lane's state is never shown by colour alone. Busy is a filled circle, waiting a diamond,
+idle a hollow circle, and blocked or stale a square, and each also has its word ("busy",
+"waiting: …", "no hooks", "blocking"). Lane cards and terminal tabs take keyboard focus, and
+Enter opens them. A long lane name wraps to two lines; hovering the card shows it whole.
+
+### Adding a theme: the token contract
+
+A theme is only tokens. `web/static/panel.css` references tokens and never a colour or a face
+of its own, so a theme adds no component CSS. To add one:
+
+1. Add `{ id, name, note }` to `THEMES` in `web/static/theme.js`, with `aaa: true` if it must
+   meet 7:1 text contrast.
+2. In `web/static/themes.css`, add three blocks:
+   - `[data-theme="<id>"]` holds the shape and type tokens, shared by both modes: the faces
+     (`--font-display`, `--font-body`, `--font-mono`, `--font-label`), the type scale and case
+     (`--fs-root`, `--display-*`, `--label-*`, `--btn-size`, `--caps`), and the
+     shape (`--r`, `--r-btn`, `--r-chip`, `--bw`, `--line-style`, `--stripe`, `--pad`,
+     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--term-size`, `--term-min-contrast`, `--band`,
+     `--band-h`, `--backdrop`, `--backdrop-size`).
+   - `[data-theme="<id>"][data-mode="light"]` and `…[data-mode="dark"]` each hold every colour:
+     `--surface`, `--panel`, `--panel-2`, `--line`, `--line-strong`, `--text`, `--text-dim`,
+     `--accent`, `--accent-ink`, `--accent-soft`, `--go`, `--hold`, `--stop` and their `-soft`
+     tints, `--idle`, `--focus`, `--grid`, `--scrim`, and the terminal's `--term-bg`,
+     `--term-fg`, `--term-cursor`, `--term-selection` and `--ansi-0` to `--ansi-15`.
+3. Put any new font in `web/static/fonts/` with its `OFL-<family>.txt`, and add an `@font-face`.
+
+`themes_test.go` then checks the theme. It fails if a theme × mode lacks any token that another
+theme defines or that `panel.css` or `panel.js` uses, if `theme.js` and `themes.css` disagree on
+the list, or if a theme block sits inside `@media` or another conditional rule. It fails if
+`panel.css` fades anything with `opacity` except a disabled control, since a fade would undo
+every ratio below. Quiet rows step back with `--panel-2` instead. It also checks contrast,
+measured on `--surface`, `--panel` and `--panel-2`:
+
+- text, dim text, accent text and the state colours as text must reach 4.5:1 (7:1 for an `aaa`
+  theme), and so must text, dim text and the state's own colour on each `-soft` tint, laid over
+  both `--panel` (cards) and `--surface` (banners), and text on the primary button;
+- the focus ring and the idle marker must reach 3:1;
+- the terminal foreground must reach 7:1 on its background, and each ANSI colour 3:1 (7:1 for
+  colours 1–15 in an `aaa` theme);
+- the label pairs a TUI draws (black on green, yellow and cyan; white on red, blue and magenta;
+  and the bright variants) must reach 4.5:1. Black on red is not required: with red also at
+  3:1 on the background, no red carries both black and white text at 4.5:1;
+- in an `aaa` theme every colour is light (7:1 on black), and two light colours differ by at
+  most 3:1, so white text on a coloured label cannot be legible there. Black carries every
+  label instead, at 4.5:1 on each colour, and ANSI black itself stays at 3:1 on the
+  background. Those two figures, and white-on-colour labels, are the High contrast theme's
+  three exceptions to 7:1. What the palette cannot promise, xterm enforces:
+  `--term-min-contrast` sets its `minimumContrastRatio` (4.5 in every theme, 7 in High
+  contrast), so it lightens or darkens any text a program draws, on any ANSI or truecolor
+  background, to that ratio. White on red therefore renders at 7:1 there as another colour;
+- busy, waiting, blocked and idle must differ by at least ΔE 20.
+
+It fails, too, on a font file that no theme loads or that has no licence, and on more than 700
+KB of fonts.
 
 ## The status line: sending the panel a copy
 
@@ -417,9 +496,15 @@ send requests to `127.0.0.1`.
   `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 - **Content Security Policy: this origin only.** `script-src 'self'`, `font-src 'self'`,
   `connect-src 'self' ws://<host>`, and no `'unsafe-inline'` anywhere. The page's JS and CSS are
-  files embedded in the binary. So are xterm.js and the three fonts. The page loads nothing from
+  files embedded in the binary. So are xterm.js and the themes' fonts. The page loads nothing from
   a CDN or Google Fonts. xterm.js creates `<style>` elements at run time, so `style-src` allows
-  one per-response nonce as well; `panel.js` stamps it on those elements.
+  one per-response nonce as well; `panel.js` stamps it on those elements. xterm's renderer also
+  colours cells through a `<span>`'s `style` attribute (truecolor, and colours lifted to
+  `--term-min-contrast`), which the CSP blocks. `static/xterm-style.js` routes exactly those
+  writes through CSSOM, which the CSP does not govern: only on a `<span>` that is detached or
+  inside `.xterm`, and only for a value made of `color` / `background-color` declarations with a
+  hex or `rgb()` value. Any other style attribute still meets the CSP.
+  `TestXtermStyleRouteIsNarrow` runs it in node (skipped where node is absent).
 - **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
   guarded route. It needs all of the following:
   - the Host check;
@@ -498,7 +583,7 @@ send requests to `127.0.0.1`.
 | `github.com/creack/pty` | v1.1.24 | MIT | One PTY per viewer's `tmux attach`. This is why the panel needs no node-pty. |
 | `@xterm/xterm` | 6.0.0 | MIT | The terminal in the page. It is vendored as `web/vendor/xterm/xterm.js`, `xterm.css` and `LICENSE`, and embedded with `go:embed`. |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Fits the terminal to its box. Vendored the same way. |
-| Chakra Petch, IBM Plex Sans, JetBrains Mono | fontsource 5.3.0, latin | SIL OFL 1.1 | The page's fonts, in `web/static/fonts/` with their licences. |
+| Chakra Petch, IBM Plex Sans, JetBrains Mono, Newsreader, Public Sans, DM Mono, Barlow, Barlow Semi Condensed, Red Hat Mono, Courier Prime, Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono, Big Shoulders Stencil, Archivo, Martian Mono | fontsource 5.3.0, latin | SIL OFL 1.1 | The themes' fonts, in `web/static/fonts/` with their licences. About 470 KB in all; a face downloads only when the active theme uses it. |
 
 To update a vendored file, download it with `npm pack <package>@<version>`, copy the file from
 `lib/` (or `files/` for fonts) together with its `LICENSE`, and update this table.

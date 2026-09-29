@@ -87,7 +87,7 @@ function laneCard(l, quiet) {
   ]);
   if (!quiet) {
     c.appendChild(el("div", "row", null, [
-      el("span", "sub" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l)),
+      el("span", "sub state" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l) + (l.stale ? " · no hooks" : "")),
       el("span", "sub", "ctx " + pct(l.ctxPct)),
     ]));
     const bar = el("div", "ctx", null, [el("i")]);
@@ -99,7 +99,21 @@ function laneCard(l, quiet) {
     selected = l.id; try { localStorage.setItem("clauductor-panel-lane", l.id); } catch (e) {}
     if (l.terminal) selectTerm(l.terminal); else render();
   });
+  pressable(c, l.name + ", " + laneStatusText(l));
+  c.title = l.name + " · " + (l.branch || "(detached)");
+  if (l.id === selected) c.setAttribute("aria-current", "true");
+  c.dataset.fk = "lane:" + l.id;
   return c;
+}
+
+// A clickable card or tab is reachable and operable from the keyboard too.
+function pressable(e, label) {
+  e.tabIndex = 0;
+  e.setAttribute("role", "button");
+  if (label) e.setAttribute("aria-label", label);
+  e.addEventListener("keydown", (ev) => {
+    if (ev.target === e && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); e.click(); }
+  });
 }
 
 function feedList(items, withLane) {
@@ -184,6 +198,37 @@ function selectTerm(id) {
   if (terms[id]) terms[id].term.focus();
 }
 
+// The terminal's colours are the active theme's --term-* and --ansi-* tokens, read from
+// <html>, so themes.css stays the one place a colour is defined.
+const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+function termTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (k) => cs.getPropertyValue("--" + k).trim();
+  const th = { background: v("term-bg"), foreground: v("term-fg"), cursor: v("term-cursor"), cursorAccent: v("term-bg"), selectionBackground: v("term-selection") };
+  ANSI.forEach((n, i) => {
+    th[n] = v("ansi-" + i);
+    th["bright" + n[0].toUpperCase() + n.slice(1)] = v("ansi-" + (i + 8));
+  });
+  return th;
+}
+function termFontSize() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--term-size")) || 13;
+}
+// The theme's floor for text a program draws on any colour, ANSI or truecolor.
+function termMinContrast() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--term-min-contrast")) || 1;
+}
+function retheme() {
+  const theme = termTheme(), size = termFontSize(), minC = termMinContrast();
+  for (const t of Object.values(terms)) {
+    t.term.options.theme = theme;
+    t.term.options.minimumContrastRatio = minC;
+    if (t.term.options.fontSize !== size) { t.term.options.fontSize = size; fitTerm(t); }
+  }
+  renderPicker();
+}
+document.addEventListener("panel-theme", retheme);
+
 function termSend(t, msg) {
   if (t.ws && t.ws.readyState === WebSocket.OPEN) t.ws.send(JSON.stringify(msg));
 }
@@ -194,9 +239,9 @@ function ensureTerm(id) {
   host.hidden = true;
   $("termhost").appendChild(host);
   const term = new Terminal({
-    fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: 13,
-    cursorBlink: true, scrollback: 2000, macOptionIsMeta: true,
-    theme: { background: "#070b14", foreground: "#c9d6ee", cursor: "#4cc3ff", selectionBackground: "rgba(76,195,255,.3)" },
+    fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: termFontSize(),
+    cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches, scrollback: 2000, macOptionIsMeta: true,
+    theme: termTheme(), minimumContrastRatio: termMinContrast(),
     // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
     // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
     // to onTitleChange, so they never reach the DOM.
@@ -336,6 +381,8 @@ function renderTerminals(lane) {
       const tab = el("div", "tab" + (x.id === selTerm ? " sel" : ""), null, [el("span", "dot " + x.status), el("span", null, x.id), el("span", "dim", x.type || "")]);
       tab.title = (x.branch || "") + " · " + x.path + " · " + x.status + (x.orphan ? " · " + x.orphan : "");
       tab.addEventListener("click", () => selectTerm(x.id));
+      pressable(tab, "terminal " + x.id + ", " + x.status);
+      tab.dataset.fk = "tab:" + x.id;
       tabs.appendChild(tab);
     }
     if (!ts.length) tabs.appendChild(el("div", "mh", "Terminals"));
@@ -547,6 +594,7 @@ function jumpTo(n) {
 function needCard(n, cls) {
   const c = el("div", cls, null, [
     el("div", "row", null, [el("b", null, n.name), el("span", "sub", n.at ? age(n.at) + (cls.includes("done") ? " ago" : " waiting") : "")]),
+    cls.includes("ask") ? el("span", "who-waits", n.severity === "block" ? "blocking" : "needs you") : null,
     el("div", null, (n.label || n.kind) + (n.text ? ": " + n.text : "")),
   ]);
   c.appendChild(button(n.terminal ? "OPEN TERMINAL" : "SHOW LANE", "jump", () => jumpTo(n)));
@@ -594,7 +642,7 @@ function renderQueues(right) {
     const c = el("div", "card queue", null, [el("b", null, q.title || q.id)]);
     if (!q.held) c.appendChild(el("div", "sub go", "free"));
     else if (q.holder) {
-      c.appendChild(el("div", "who", null, [el("span", q.holder.stale ? "stop" : "go", "held by " + leaseLine(q.holder)),
+      c.appendChild(el("div", "who", null, [el("span", q.holder.stale ? "stop" : "go", "held by " + leaseLine(q.holder) + (q.holder.stale ? " · stale" : "")),
         el("span", "sub", q.holder.ttl ? "ttl " + q.holder.ttl + "s" : "")]));
     } else c.appendChild(el("div", "sub hold", "held"));
     if (q.holderNote) c.appendChild(el("div", "sub hold", q.holderNote));
@@ -680,6 +728,16 @@ function renderObs() {
 
 function render() {
   if (!S) return;
+  // The columns are rebuilt on every render; keep keyboard focus on the same card.
+  const fk = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.fk : null;
+  renderBody();
+  if (fk) {
+    const e = document.querySelector('[data-fk="' + CSS.escape(fk) + '"]');
+    if (e && e !== document.activeElement) e.focus({ preventScroll: true });
+  }
+}
+
+function renderBody() {
   document.title = S.name + " · Panel";
   $("pname").textContent = S.name;
   gauge("g5", S.quota ? S.quota.fiveHour : null, S.quota && S.quota.fiveHourExpired);
@@ -788,5 +846,83 @@ function render() {
 }
 
 $("refresh").addEventListener("click", () => { fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
+
+// ---- Themes: the picker ---------------------------------------------------------
+// A menu button (WAI-ARIA APG): Enter, Space or Down opens it on the checked item, Up on
+// the last; Up/Down/Home/End move; Enter or Space picks; Escape closes and returns
+// focus to the button; Tab closes. Picking applies at once and persists (theme.js).
+const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" };
+function menuItems() { return Array.from($("thememenu").querySelectorAll('[role="menuitemradio"]')); }
+function renderPicker() {
+  const P = window.PanelTheme, cur = P.get(), menu = $("thememenu");
+  const th = P.themes.find((x) => x.id === cur.theme);
+  $("themename").textContent = th.name.toUpperCase();
+  $("themebtn").setAttribute("aria-label", "Theme: " + th.name + ", mode: " + MODE_LABEL[cur.mode]);
+  const focusedKey = menu.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  const item = (key, checked, kids, onPick) => {
+    const e = el("div", "mi", null, kids);
+    e.setAttribute("role", "menuitemradio");
+    e.setAttribute("aria-checked", String(checked));
+    e.tabIndex = -1;
+    e.dataset.key = key;
+    e.addEventListener("click", () => { onPick(); closePicker(true); });
+    return e;
+  };
+  // The headings are visual only: each group carries its own aria-label.
+  const heading = (t) => { const h = el("div", "mh", t); h.setAttribute("aria-hidden", "true"); return h; };
+  const themes = el("div", null, null, [heading("Theme")]);
+  themes.setAttribute("role", "group");
+  themes.setAttribute("aria-label", "Theme");
+  for (const x of P.themes) {
+    const sw = el("span", "sw", null, [el("b", null, "Aa"), el("i"), el("i"), el("i"), el("i")]);
+    sw.setAttribute("data-theme", x.id);
+    sw.setAttribute("data-mode", cur.resolved);
+    sw.setAttribute("aria-hidden", "true");
+    themes.appendChild(item("t:" + x.id, x.id === cur.theme,
+      [sw, el("span", null, x.name, [el("small", null, x.note)]), el("span", "tick", "✓")],
+      () => P.setTheme(x.id)));
+  }
+  const modes = el("div", "modes");
+  modes.setAttribute("role", "group");
+  modes.setAttribute("aria-label", "Mode");
+  for (const m of P.modes) modes.appendChild(item("m:" + m, m === cur.mode, [el("span", null, MODE_LABEL[m])], () => P.setMode(m)));
+  menu.replaceChildren(themes, heading("Mode"), modes);
+  if (focusedKey) { const f = menu.querySelector('[data-key="' + focusedKey + '"]'); if (f) f.focus(); }
+}
+function openPicker(which) {
+  const menu = $("thememenu");
+  renderPicker();
+  menu.hidden = false;
+  menu.classList.remove("flip");
+  if (menu.getBoundingClientRect().left < 8) menu.classList.add("flip");
+  $("themebtn").setAttribute("aria-expanded", "true");
+  const items = menuItems();
+  const target = which === "last" ? items[items.length - 1] : (items.find((x) => x.getAttribute("aria-checked") === "true") || items[0]);
+  target.focus();
+}
+function closePicker(refocus) {
+  $("thememenu").hidden = true;
+  $("themebtn").setAttribute("aria-expanded", "false");
+  if (refocus) $("themebtn").focus();
+}
+$("themebtn").addEventListener("click", () => { if ($("thememenu").hidden) openPicker(); else closePicker(false); });
+$("themebtn").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openPicker(e.key === "ArrowUp" ? "last" : "checked"); }
+});
+$("thememenu").addEventListener("keydown", (e) => {
+  const items = menuItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closePicker(true); }
+  else if (e.key === "Tab") closePicker(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!$("thememenu").hidden && !e.target.closest(".picker")) closePicker(false);
+});
+renderPicker();
 setInterval(render, 1000); // ages move between server pushes
 connect();

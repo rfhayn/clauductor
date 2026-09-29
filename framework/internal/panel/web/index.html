@@ -9,6 +9,10 @@
      the fonts are vendored into the binary. xterm adds style elements at run time;
      panel.js gives each one this per-response nonce, the only inline style allowed. -->
 <meta name="csp-style-nonce" content="{{STYLE_NONCE}}">
+<!-- First, and synchronous: sets data-theme and data-mode on <html> before the first
+     paint, so a stored theme never flashes the default. -->
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/panel.css">
 <link rel="stylesheet" href="/vendor/xterm/xterm.css">
 <script src="/vendor/xterm/xterm.js"></script>
@@ -19,13 +23,20 @@
   <div class="brand"><span id="pname">…</span> <span>/ CONTROL</span></div>
   <span class="live dead" id="live">CONNECTING</span>
   <div class="sp"></div>
-  <div class="gauge" id="g5" title="5-hour quota, from the status line">5 h quota <span class="track"><span class="fill"></span></span> <b>—</b></div>
-  <div class="gauge" id="g7" title="7-day quota, from the status line">7 d quota <span class="track"><span class="fill"></span></span> <b>—</b></div>
-  <div class="gauge" title="Sum of the status line's total_cost_usd over the sessions tracked now: live ones, and ones heard from in the last 30 min. A list-price estimate, not a bill.">est. $ · tracked sessions (list price) <b id="cost">—</b></div>
-  <div class="gauge" title="Hook events accepted / status-line posts / events dropped (cwd outside the project)">hooks <b id="hookn">0</b></div>
+  <div class="gauges">
+    <div class="gauge" id="g5" title="5-hour quota, from the status line">5 h <span class="track"><span class="fill"></span></span> <b>—</b></div>
+    <div class="gauge" id="g7" title="7-day quota, from the status line">7 d <span class="track"><span class="fill"></span></span> <b>—</b></div>
+    <div class="gauge" title="Sum of the status line's total_cost_usd over the sessions tracked now: live ones, and ones heard from in the last 30 min. A list-price estimate, not a bill.">est. $<span class="wide"> · tracked sessions</span> (list price) <b id="cost">—</b></div>
+    <div class="gauge hooks" title="Hook events accepted / status-line posts / events dropped (cwd outside the project). The footer has the full counters.">hooks <b id="hookn">0</b></div>
+  </div>
   <button class="btn primary" id="addlane" type="button" title="Start a lane: an interactive claude in its own tmux session">+ LANE</button>
   <button class="btn" id="refresh" type="button" title="Re-poll every source now">↻ REFRESH</button>
+  <div class="picker">
+    <button class="btn pickbtn" id="themebtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="thememenu" title="Theme and light or dark mode"><span class="sw" aria-hidden="true"><b>Aa</b><i></i><i></i><i></i><i></i></span><span id="themename">THEME</span></button>
+    <div class="menu" id="thememenu" role="menu" aria-label="Theme and mode" hidden></div>
+  </div>
 </header>
+<div class="band" aria-hidden="true"></div>
 <div class="banners" id="banners"></div>
 <div class="banners" id="restorebar" hidden></div>
 <main class="mgrid">
@@ -65,6 +76,7 @@
     </div>
   </form>
 </div>
+<script src="/static/xterm-style.js"></script>
 <script src="/static/panel.js"></script>
 </body>
 </html>
