@@ -194,6 +194,11 @@ func (c *Config) validateV2() error {
 			}
 		}
 	}
+	for _, n := range c.HostNames {
+		if !ValidHostName(n) {
+			return fmt.Errorf("panel config: host_names entry %q must be one lower-case label followed by .localhost (no wildcards)", n)
+		}
+	}
 	if g := c.QuotaGuard; g != nil && g.FiveHourPct != nil && (*g.FiveHourPct < 0 || *g.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_guard.five_hour_pct must be 0 (off) to 100")
 	}

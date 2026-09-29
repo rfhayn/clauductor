@@ -153,7 +153,8 @@ func TestTranscriptScannerCatchesJoinedPaths(t *testing.T) {
 var fileReadSites = map[string]int{
 	"config.go":    1, // the panel config
 	"installer.go": 2, // ~/.claude/settings.json, and its re-read before the rename
-	"launchd.go":   7, // token (3), browser-opened stamp, binary copy, lane registries (uninstall), pid file (open)
+	"launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
+	"hosts.go":     1, // the panel's pid file, checked before `panel open` sends the token
 	"registry.go":  1, // the lane registry
 	"trust.go":     1, // the trusted-config record
 	"lease.go":     1, // a lease owner/waiter file

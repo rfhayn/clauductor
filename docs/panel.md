@@ -107,6 +107,7 @@ keys are an error, so a misspelt key fails loudly.
 | `queues[].command` | array of strings | Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. |
 | `alerts` | object | Thresholds; a missing key takes the default, `0` turns that alert off. `idle_minutes` (30), `context_pct` (85), `five_hour_pct` (90), `waiting_seconds` (120), `notify` (true: macOS notifications), `min_interval_seconds` (300: at most one notification per lane per interval). |
 | `quota_guard` | object | `five_hour_pct` (95): refuse to start or restore a lane at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
+| `host_names` | array of strings | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"standingtee.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `cards[].refresh` | string, required | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. |
 
 **Card output.** If stdout parses as JSON, it renders as JSON: an array becomes a list (for
@@ -347,13 +348,15 @@ Under launchd, the panel runs with `--launchd`:
 `osacompile` that runs `clauductor panel open`. Put it in the Dock, or find it with Spotlight.
 
 ```bash
-clauductor panel open         # checks /healthz, then opens http://127.0.0.1:4393/?t=<token>
+clauductor panel open         # checks /healthz on both loopbacks, then opens http://clauductor.localhost:4393/?t=<token>
 clauductor panel uninstall    # bootout, then remove everything the agent owns
 ```
 
 `open` sends the token only to the panel it expects. `/healthz` answers `ok pid=<pid>`, and
-`open` compares that with `~/.clauductor/panel/pid`; on a mismatch it refuses rather than hand
-the token to whatever holds the port.
+`open` compares that with `~/.clauductor/panel/pid` on **both** `127.0.0.1` and `[::1]`, because
+the browser resolves `clauductor.localhost` to `::1` first. On a mismatch at either address it
+refuses rather than hand the token to whatever holds the port. If nothing listens on `[::1]`, it
+opens `http://127.0.0.1:<port>/` instead.
 
 `uninstall` removes:
 
@@ -388,17 +391,29 @@ A dashboard of your sessions is private, and a browser terminal is a shell, so t
 locked down even on loopback. Loopback is not a trust boundary: any web page you open can
 send requests to `127.0.0.1`.
 
-- **Loopback only.** The server binds `127.0.0.1` and refuses to run if the bound address is not
-  loopback. If the port is taken, it **exits with an error** and never falls back to another port
-  (the hooks post to a fixed URL). A refused start does not touch `settings.json` or the marker.
+- **Loopback only.** The server binds `127.0.0.1:<port>` and `[::1]:<port>` (one server, one
+  state) and refuses to run if either bound address is not loopback. If the port is taken on
+  either address, it **exits with an error** and never falls back to another port (the hooks
+  post to a fixed URL, and `clauductor.localhost` would reach whatever holds `[::1]`). A machine
+  with no IPv6 loopback at all is served on `127.0.0.1` only, and the log says so. A refused
+  start does not touch `settings.json` or the marker.
+- **The address is `http://clauductor.localhost:<port>`.** macOS and every current browser
+  resolve `*.localhost` to loopback with no system change (no `/etc/hosts` entry, no port 80).
+  Cookies are per host, so the token exchange happens at that name.
 - **Per-launch token.** Each start makes 32 random bytes and opens
-  `http://127.0.0.1:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
+  `http://clauductor.localhost:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
   SameSite=Strict` cookie and redirects to `/`, so the token leaves the address bar. Every route
   except `/hook`, `/status` and `/healthz` needs the cookie (401 otherwise). `/healthz` answers
   only `ok` and the panel's PID. Under launchd, the token persists in a 0600 file instead (see above).
-- **DNS rebinding and cross-site requests.** `Host` must be `127.0.0.1:<port>` or
-  `localhost:<port>` on every route. Every state-changing request (every `POST`) must carry an
-  `Origin` of the panel itself. No CORS headers are sent. The page is served with
+- **DNS rebinding and cross-site requests.** `Host` must be exactly one of `127.0.0.1:<port>`,
+  `localhost:<port>`, `[::1]:<port>` and `clauductor.localhost:<port>`, plus any name in the
+  config's `host_names` (each one lower-case label followed by `.localhost`), on every route. There
+  are no wildcards: `evil.localhost` and `clauductor.localhost.evil.com` are refused. Names compare
+  case-insensitively (RFC 9110), so `CLAUDUCTOR.localhost` is accepted. A `*.localhost` name
+  cannot be an attacker's DNS name, because browsers never ask DNS for it. Every state-changing
+  request (every `POST`) must carry an `Origin` equal to `http://` + the `Host` of that same
+  request, so a page on `localhost` cannot drive the panel at `clauductor.localhost`, or the
+  reverse. No CORS headers are sent. The page is served with
   `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 - **Content Security Policy: this origin only.** `script-src 'self'`, `font-src 'self'`,
   `connect-src 'self' ws://<host>`, and no `'unsafe-inline'` anywhere. The page's JS and CSS are
@@ -414,7 +429,8 @@ send requests to `127.0.0.1`.
     `Origin`. A ticket is valid for 30 s, for that one lane, and is sent in the
     `Sec-WebSocket-Protocol` header, never in the URL. The cookie alone is not enough, because
     cookies are not isolated by port (RFC 6265 §8.5). A page on another loopback port, such as a
-    dev server on `:3100`, is same-site, and the browser sends it the panel's cookie. Only the
+    dev server on `:3100`, is same-site, and the browser sends it the panel's cookie. So is a page
+    on another `*.localhost` name, such as `evil.localhost`. Only the
     panel's own page can read a ticket. A test checks that a request from `:3100` cannot open a
     terminal.
   - a valid lane id that names a running lane.

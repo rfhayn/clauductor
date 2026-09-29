@@ -144,11 +144,16 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("%s: %w", root, err)
 	}
 
-	ln, err := Listen(o.Port)
+	ln, ln6, v6why, err := ListenLoopback(o.Port)
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
+	if ln6 != nil {
+		defer ln6.Close()
+	} else {
+		fmt.Fprintf(o.Out, "no IPv6 loopback (%s): serving 127.0.0.1 only, so open the panel at 127.0.0.1\n", v6why)
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Install hooks only once the port is ours, so a refused second launch never
@@ -232,6 +237,7 @@ func Run(ctx context.Context, o Options) error {
 
 	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lanes}
 	srv.Orch = p.x.orchestration()
+	srv.HostNames = cfg.HostNames
 	p.x.srv.Store(srv)
 	srv.TermIdleTimeout = o.TermIdleTimeout
 	if lanes != nil {
@@ -265,14 +271,17 @@ func Run(ctx context.Context, o Options) error {
 		// SSE handlers watch the request context; tying it to ctx lets shutdown end them.
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
-	serveErr := make(chan error, 1)
+	serveErr := make(chan error, 2)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
+	if ln6 != nil { // [::1]: clauductor.localhost resolves there first
+		go func() { serveErr <- httpSrv.Serve(ln6) }()
+	}
 
-	url := fmt.Sprintf("http://%s:%d/?t=%s", LoopbackHost, port, token)
+	url := fmt.Sprintf("http://%s:%d/?t=%s", PanelHost(ln6 != nil), port, token)
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
-			cfg.Name, root, LoopbackHost, port, TokenPath(o.Home))
+			cfg.Name, root, PanelHost(ln6 != nil), port, TokenPath(o.Home))
 	} else {
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
 	}

@@ -60,6 +60,9 @@ type Config struct {
 	Alerts *AlertConfig `json:"alerts"`
 	// QuotaGuard refuses to start a lane above a 5-hour quota threshold.
 	QuotaGuard *QuotaGuardConfig `json:"quota_guard"`
+	// HostNames are extra names the panel answers to, each "<label>.localhost"
+	// (clauductor.localhost always works). No wildcards.
+	HostNames []string `json:"host_names"`
 }
 
 // LaneTypeConfig holds the launch options of one lane type.

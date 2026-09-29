@@ -485,7 +485,8 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 401 {
 		t.Fatalf("old cookie after rotation: %v %v", resp.StatusCode, err)
 	}
-	port := strings.TrimPrefix(p.base, "http://127.0.0.1:")
+	bu, _ := url.Parse(p.base)
+	port := bu.Port()
 	fresh := liveClient{base: p.base, cookie: "clauductor_panel_" + port + "=" + newTok}
 	if v := fresh.state(t); v.Name != "T" {
 		t.Fatalf("new token: %+v", v.Name)

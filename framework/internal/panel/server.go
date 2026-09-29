@@ -161,6 +161,9 @@ type Server struct {
 	tokenMu sync.RWMutex
 	rotated chan struct{} // closed, and replaced, on each token rotation
 
+	// HostNames are extra <label>.localhost names the panel answers to (hosts.go).
+	HostNames []string
+
 	// Orch carries the v2 orchestration (templates, quota guard, queues, restore).
 	Orch *Orchestration
 
@@ -175,15 +178,10 @@ type Server struct {
 
 func (s *Server) cookieName() string { return "clauductor_panel_" + strconv.Itoa(s.Port) }
 
-func (s *Server) hostOK(host string) bool {
-	p := strconv.Itoa(s.Port)
-	return host == "127.0.0.1:"+p || host == "localhost:"+p
-}
+// hostOK and originOK use the exact allow-list in hosts.go.
+func (s *Server) hostOK(host string) bool { return s.hostAllowed(host) }
 
-func (s *Server) originOK(origin string) bool {
-	p := strconv.Itoa(s.Port)
-	return origin == "http://127.0.0.1:"+p || origin == "http://localhost:"+p
-}
+func (s *Server) originOK(origin, host string) bool { return s.originMatches(origin, host) }
 
 func remoteIsLoopback(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -238,7 +236,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		// Every state-changing browser request must come from the panel's own page.
 		if r.URL.Path != "/hook" && r.URL.Path != "/status" &&
-			r.Method != http.MethodGet && r.Method != http.MethodHead && !s.originOK(r.Header.Get("Origin")) {
+			r.Method != http.MethodGet && r.Method != http.MethodHead && !s.originOK(r.Header.Get("Origin"), r.Host) {
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}

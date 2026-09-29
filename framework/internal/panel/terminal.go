@@ -205,7 +205,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 	// A WebSocket upgrade is a GET, which the global guard lets through without an
 	// Origin check; any page can open a WebSocket to loopback, so check here, exactly.
-	if o := r.Header.Get("Origin"); !s.originOK(o) || o != "http://"+r.Host {
+	if o := r.Header.Get("Origin"); !s.originOK(o, r.Host) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
@@ -233,11 +233,10 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	cols, _ := strconv.Atoi(r.URL.Query().Get("cols"))
 	rows, _ := strconv.Atoi(r.URL.Query().Get("rows"))
 
-	p := strconv.Itoa(s.Port)
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{TermSubprotocol},
-		// The library re-checks Origin against Host; allow both loopback spellings.
-		OriginPatterns: []string{"127.0.0.1:" + p, "localhost:" + p},
+		// No patterns: the library then accepts only an Origin whose host equals the
+		// request's Host, the same rule as originOK, as a second layer.
 	})
 	if err != nil {
 		return
