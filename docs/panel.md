@@ -33,7 +33,7 @@ only text it types into a lane on its own is a template's first prompt, once.
 
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
-[Alerts](#alerts) · [Themes](#themes) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
+[Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
 [Security model](#security-model) · [Operations](#operations) · [Troubleshooting](#troubleshooting) ·
 [Not yet](#not-yet)
 
@@ -127,42 +127,14 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   ]
 }
 
-  name          "acme-web", shown in the top bar
+  name          "acme-web", shown in the status bar
   base          origin/main: new lanes branch from it (origin's default branch)
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
   queues        gate runs `make ci` (Makefile target "ci"), and only when you press RUN on the page; also found `pnpm run check`, `pnpm run test`
 ```
 
-| Key | Type | Meaning |
-|---|---|---|
-| `name` | string, required | Shown in the status bar. |
-| `lanes` | object: branch rule → lane type | A rule ending in `/` is a prefix (`"change/"` matches `change/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"change/propose-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
-| `cards` | array | Commands whose output renders as a card in the Activity drawer. |
-| `cards[].id` | string, required | `[a-z0-9][a-z0-9_-]*`, unique. |
-| `cards[].title` | string | Card heading. |
-| `cards[].command` | array of strings, required | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
-| `tmux_socket` | string, default `clauductor` | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. `[A-Za-z0-9_-]{1,64}`. |
-| `worktree_dir` | string, default `.claude/worktrees` | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
-| `base` | string, default `origin/main` | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. |
-| `lane_types` | object: lane type → `{model, effort}` | Launch options per lane type, passed as `claude --model <m> --effort <e>`. Each value is one argv element, `[A-Za-z0-9][A-Za-z0-9._[\]-]*`. |
-| `version` | number, optional | The config schema version: 1 or 2. Anything else is refused. |
-| `templates` | array | Lane recipes offered by **New lane** (see *Lane templates*). |
-| `templates[].id` | string, required | `[a-z0-9][a-z0-9_-]*`, unique. |
-| `templates[].title` | string | Shown in the dialog. |
-| `templates[].lane_type` | string, required | One of the config's lane types. |
-| `templates[].branch_pattern` | string | The new branch, with `{name}` (required) and `{issue}`, e.g. `"change/{name}"`. Empty means the lane type's prefix + `{name}`. |
-| `templates[].first_prompt` | string, required | ONE line typed into claude once it is ready. `{name}` and `{issue}` only; no newline or control character; at most 4000 characters. |
-| `templates[].model`, `.effort` | string | Override the lane type's launch options. |
-| `queues` | array | Shared resources held as a lease (see *The gate queue*). |
-| `queues[].id` | string, required | `[a-z0-9][a-z0-9_-]*`, unique. |
-| `queues[].title` | string | Shown on the queue card. |
-| `queues[].lock` | string, required | The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `"clauductor/gate.lock"`. No `..`, not absolute. |
-| `queues[].command` | array of strings | Optional argv that **Run** starts through `lock-run` in the selected lane's worktree. |
-| `alerts` | object | Thresholds; a missing key takes the default, `0` turns that alert off. `idle_minutes` (30), `context_pct` (85), `five_hour_pct` (90), `waiting_seconds` (120), `notify` (true: macOS notifications), `min_interval_seconds` (300: at most one notification per lane per interval). |
-| `quota_guard` | object | `five_hour_pct` (95): refuse to start or restore a lane at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
-| `host_names` | array of strings | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
-| `cards[].refresh` | string, required | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. |
+### Versions
 
 A config declares the version it is written for, and may use only the keys of that version or an
 earlier one. The **Since** column of the key table says which is which:
@@ -232,9 +204,9 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
 | `version` | integer: 1 or 2 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
-| `name` | string, **required** |  | 1 | Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
+| `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
-| `cards` | array |  | 1 | Commands whose output renders as a card in the right column (see *Card output*). |
+| `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
 | `cards[].id` | string, **required** |  | 1 | Unique among the cards. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `cards[].title` | string |  | 1 | The card's heading. |
 | `cards[].command` | array of strings, **required** |  | 1 | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
@@ -245,7 +217,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
-| `templates` | array |  | 2 | Lane recipes offered by **+ LANE** (see *Lane templates*). |
+| `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
 | `templates[].lane_type` | string, **required** |  | 2 | One of the config's lane types (a value of `lanes`, or a key of `lane_types`). |
@@ -257,7 +229,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `queues[].id` | string, **required** |  | 2 | Unique among the queues. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `queues[].title` | string |  | 2 | Shown on the queue card. |
 | `queues[].lock` | string, **required** |  | 2 | The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `"clauductor/gate.lock"`. No `..`, not absolute. |
-| `queues[].command` | array of strings |  | 2 | Optional argv that **RUN** starts through `lock-run` in the selected lane's worktree. It runs only when you press RUN. |
+| `queues[].command` | array of strings |  | 2 | Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it. |
 | `alerts` | object |  | 2 | Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off. |
 | `alerts.idle_minutes` | number | `30` | 2 | A live session idle longer than this raises an idle alert. |
 | `alerts.context_pct` | number | `85` | 2 | A context window at or above this percentage raises a context alert. |
@@ -402,6 +374,11 @@ value just changed.
   panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
   here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
   Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
+- **Footer.** One line: hook events, status posts, drops and notifications. **All counters**
+  opens the rest (the choice is remembered): drops by cause (foreign `cwd`, overflow, malformed,
+  unknown event name), unknown notification types, the last, mean and worst `claude agents` poll
+  latency and its current interval, the filter in use and why, the Claude Code version against
+  the one the heuristics were verified on, and notifications sent or failed.
 
 ### Which agent started which
 
@@ -447,6 +424,568 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
 spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
+
+## Lanes
+
+A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
+(`tmux -L clauductor`, or `tmux_socket`). tmux owns the process, not the panel, so:
+
+- closing the browser, or restarting or upgrading the panel, leaves every lane running;
+- several viewers can share a lane: browser tabs, and a Terminal.app window.
+
+Lanes are interactive sessions, never `claude --bg`: at a usage limit an interactive session
+pauses, while a workflow in a background session fails.
+
+### Starting a lane
+
+**New lane** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
+
+- **New branch and worktree.** The server runs `git fetch`, then
+  `git worktree add -b <prefix><name> <worktree_dir>/<name> <base>`. The prefix is the type's
+  prefix rule in `lanes` (`fix/` for `fix`). A type with only exact rules (such as `main` →
+  `orchestrator`) has no prefix and cannot start a new branch.
+- **An existing worktree.** Any worktree that `git worktree list` reports.
+- **The project root.** Use this for the orchestrator.
+
+A lane is refused in a directory where another lane is already running, registered or not: two
+sessions in one checkout would edit the same files.
+
+Then it runs, as an argv list with no shell:
+
+```
+tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
+     -e PATH=… -e HOME=… -e LANG=… \
+     /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
+```
+
+- The lane name is the tmux session name and the worktree directory name. It must match
+  `[a-z0-9][a-z0-9-]{0,40}`, so it is safe in a tmux target and in a shell command.
+- The session id is a UUID that the panel generates, so the lane is bound to its Claude session
+  from its first second. The panel never discovers sessions by directory.
+- `-e` gives the session an explicit PATH (the directories of `claude`, `tmux`, `git`, `gh` and
+  `node`, then the panel's own PATH), HOME and LANG. It does not depend on whichever process
+  happened to start the tmux server.
+- `/usr/bin/env -u` removes the API-key variables. It also removes the variables a parent Claude
+  session sets for its children, so a panel started from inside Claude cannot make its lanes look
+  nested.
+- `remain-on-exit` keeps a lane's last screen after `claude` exits. A lane that dies at start
+  shows why, instead of vanishing. The tab's dot turns red.
+
+**A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
+to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
+exits and the lane shows a dead pane; STOP it and start it again.
+
+### Lane templates
+
+**New lane** offers the config's `templates`. Pick one, give the lane a name (and an issue if the
+template uses `{issue}`), and START:
+
+1. The server validates every value: the name is a lane id; the issue is one line of plain text
+   (no newline, no control character, no invisible format character such as a bidi override, at
+   most 200 characters), and must also make a valid branch name if the pattern uses it. The
+   dialog previews the branch and the exact prompt.
+2. The lane starts as any new-branch lane does, with the template's model and effort. The
+   rendered prompt is written into the lane registry with state `pending` **before** the lane
+   starts.
+3. The panel types the prompt **once claude is ready**, and it decides "ready" from structured
+   signals only: `claude agents --json` lists the lane's own session id as `idle` with no
+   `waitingFor`, no hook says the session waits (a permission prompt, an elicitation), and that
+   poll succeeded within the last two poll intervals. Right before the first keystroke, under
+   the lane lock, it reads `claude agents` once more and checks again. It never scrapes the
+   screen. A session held at the workspace-trust dialog is not listed at all (verified on
+   2.1.284), so the prompt can never land in that dialog. The text goes first
+   (`send-keys -l -- <text>`, so text starting with `-` stays text), then Enter as a separate
+   write, 400 ms later.
+4. The state goes `pending` → `typing` → `sent` → `delivered`. `typing` is written before the
+   first keystroke, so a panel that dies mid-typing never types the prompt twice. `delivered`
+   needs proof: the session's `UserPromptSubmit` hook, or `claude agents` showing it busy.
+
+"Needs you" says so when it is stuck: claude not listed as idle after 15 s ("answer any dialog in
+its terminal"), claude exited, the panel stopped mid-typing, or the prompt was typed but not
+submitted after 30 s. If you type into the lane first, the prompt is skipped. While it waits on
+claude, the panel asks `claude agents` for a fresh reading at most every 2 s. A pending lane whose
+tmux session is gone (a reboot, a killed tmux server) waits 30 s, then shows "RESTORE the lane"
+and stops asking: no poll can bring it back. Once restored, the prompt is typed as usual.
+
+### The lane registry
+
+`~/.clauductor/panel/<hash of the project path>/lanes.json` (0600, in a 0700 directory) records
+each lane: its id, session id, directory, type, branch, and its last action. The intent is
+written **before** each action and marked done after it, so a panel that crashes mid-action
+finds the half-done action when it restarts. The file is written atomically.
+
+The registry is never trusted on its own. Every 2 s while lanes run (every 10 s with none, and at
+once after a lane action) the panel compares it with the tmux socket,
+`claude agents --json` (matched by session id) and the worktree list, and it re-reads the file
+every 30 s. Anything that does not add up is shown as an **orphan**, never hidden:
+
+| What | Shown as | What you can do |
+|---|---|---|
+| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, or **Forget** |
+| registered, the panel stopped during an action | orphaned, with the action | **Resume**, or **Forget** |
+| a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **Stop lane** only; without a session id it cannot be restarted |
+| registered, its directory no longer a worktree | the reason is added | **Forget** |
+| a record that fails validation on load (session id not a UUID, relative path, unknown mode…) | "corrupt registry record" | **Stop lane**, **Forget**; it is never launched |
+| a record with an invalid lane id | a banner | edit or delete the file |
+
+### Controls
+
+| Button | What it does |
+|---|---|
+| **Interrupt (Esc)** | `tmux send-keys Escape`, which is claude's interrupt. |
+| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **Restart** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
+| **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
+| **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
+| **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
+
+Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
+Sent together, a long line can sit in claude's input box unsubmitted.
+
+### Window size: the latest client wins
+
+Each browser viewer gets its own PTY and its own tmux client. The lane's window uses tmux's
+`window-size latest`, set explicitly on each lane because `~/.tmux.conf` might change it. The
+window takes the size of whichever client last typed or resized. When you type in the browser,
+the lane fits the browser. When you type in Terminal.app, it fits that window, and the browser
+shows the same screen, clipped or padded, until you type there again.
+
+We chose this over the alternatives:
+
+- `attach -f ignore-size` for the browser would leave a browser-only lane stuck at the detached
+  size.
+- A grouped session per viewer would share one window size anyway, and add sessions to clean up.
+
+### Subscription only
+
+The panel refuses to start, restart or resume a lane while `ANTHROPIC_API_KEY` or
+`ANTHROPIC_AUTH_TOKEN` is set, in the panel's own environment or in the tmux server's global
+environment (`tmux -L <socket> show-environment -g`), which every lane inherits. Either key
+outranks the subscription login. The page shows the reason and disables **New lane**; it re-reads
+the tmux environment when the lane set changes and every 30 s, and every start reads it again. If
+the tmux environment cannot be read, the panel refuses too: unknown is not "no key". As a second
+layer, the lane command unsets both variables.
+
+### Quota guard
+
+At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse, and the dialog
+offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
+blocks: the guard acts only on a number it has.
+
+### Restore after a reboot
+
+tmux lanes do not survive a reboot. When the panel starts, every registered lane whose tmux
+session is gone is **restorable**, and a banner offers **Restore all** (each lane also keeps its
+own **Resume**). A restore:
+
+- runs `claude --resume <the lane's own session id>` in its worktree, or `--session-id <id>` for
+  a session that never had a prompt. It **never** uses `--continue`;
+- never resumes a session twice. A lane is skipped if `claude agents` shows its session id in a
+  running process, if a second lane carries the same session id, or if `claude agents` cannot be
+  read (then nothing is restored). Its worktree must still exist;
+- types nothing into the lane.
+
+**The resume dialog.** A session that was idle for more than an hour and holds more than 100k
+tokens makes claude ask, before the first message, whether to resume from a summary. The panel
+does not answer it for you. Every lane restored on a conversation shows in **Needs you**
+("Restored lane") until you prompt it or it goes busy. Open its terminal, answer the dialog if it
+is there, and continue.
+
+## Queue and the gate lock protocol
+
+Two lanes that both run a full gate that binds a fixed port (a dev server, a test database)
+collide. A queue serialises them. The lease lives entirely on disk, so it survives a panel
+restart, and it works when the panel is not running at all: the gate script takes it itself,
+through `clauductor lock-run`.
+
+macOS has no `flock(1)`, so the lock is a **directory**, because `mkdir` is atomic everywhere.
+The protocol is plain files, so a shell script can honour it with no clauductor at all
+([below](#the-protocol-in-plain-shell)), and a [conformance suite](#the-conformance-suite) checks
+any implementation.
+
+### The lease on disk
+
+| Path | Meaning |
+|---|---|
+| `<lock>/` | Held while it exists. `mkdir` either creates it or fails with `EEXIST`. |
+| `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, child_pid, child_pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
+| `<lock>.waiters/<arrival>-<nonce>.json` | One per waiter, same fields. The numeric arrival (unix ns, or unix s followed by nine zeros) orders the queue. |
+| `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **Cancel wait**). |
+| `<lock>.reclaim/` | A short mutex, taken only to remove a stale holder. |
+
+`pstart` is the holder's process start time exactly as `LC_ALL=C ps -o lstart= -p <pid>`
+prints it, with runs of whitespace collapsed to one space (for example
+`Mon Sep 28 23:10:17 2026`), or `proc:<field 22 of /proc/<pid>/stat>` where there is no `ps`.
+It is what tells a live holder from a reused pid. `child_pid` and `child_pstart` name the
+holder's command the same way. The panel's read-only queue view runs `ps` once per process, and
+again every 30 s: a start time never changes, and a pid is reused only after its process is gone,
+so while `kill -0` answers, the pid is almost surely the process it read; the 30 s re-read covers
+a reuse between two checks. `lock-run`'s waiters, which reclaim, read it every time.
+
+### When a holder is stale
+
+Only a stale holder may be removed.
+
+- **Same host, pid gone** (`ps -p <pid>` finds nothing): stale.
+- **Same host, pid alive, start time equals `pstart`: never stale**, however long it has been
+  silent. A holder stopped with `SIGSTOP`, or on a laptop that slept, is still the holder.
+  Expiring it would run two gates at once.
+- **Same host, pid alive, another start time:** the pid was reused. Stale.
+- **Same host, pid alive, start time unverifiable** (none recorded, none readable, or one from
+  `ps` and one from `/proc`): live. Missing data never removes somebody else's lease or waiter
+  file. A lease stuck this way (a reused pid, no start time) is removed by hand (see
+  [Troubleshooting](#a-lease-never-frees)).
+- **The command counts too.** `lock-run` records its command as `child_pid` / `child_pstart`.
+  On the same host a record is stale only when the holder **and** the command are both dead. A
+  `lock-run` killed with `SIGKILL` leaves its gate running, and the gate still holds the lease.
+- **Another host, or no `pid`:** its processes mean nothing here, so the TTL applies: stale once
+  `renewed + ttl` has passed. `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A
+  shell holder writes `ttl: 0` (no expiry), and `ttl: 0` never expires.
+- **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
+  start time is `proc:` + field 22 of `/proc/<pid>/stat`.
+- **A record is valid** when it is one flat JSON object whose values are strings, integers,
+  `true`, `false` or `null` (nothing nested, no fraction or exponent); `v`, `pid`, `child_pid`,
+  `started`, `renewed` and `ttl` are integers; `nonce`, `pstart`, `child_pstart`, `host`, `lane`
+  and `cmd` are strings; and `nonce` is 16 lower-case hex digits. Go (`checkRecord`) and
+  `lease.sh` (`lease_valid`) apply exactly this, whitespace and newlines allowed. A lock
+  directory whose `owner.json` is missing or invalid is stale once the directory is 10 s old
+  (its holder died between `mkdir` and a complete write); until then its holder is starting,
+  and waiters wait. Never write `owner.json` in place; write a temp file and `mv` it.
+
+**Removing a stale holder.** Only the first live waiter does it, under the reclaim mutex, after
+re-reading `owner.json` and checking it is still the same stale holder (same nonce). **Nothing
+ever signals or removes a live holder**, including the panel.
+
+**FIFO.** Only the first live waiter tries `mkdir`. A waiter is dead, and its file removed, by
+the same rule as a holder, except that its TTL is 60 s whatever its file says. A waiter file
+that is not a valid record is not a waiter: it holds no place in the queue, and nothing removes
+it.
+
+### `lock-run`
+
+- **Exit status.** The command's status (128+n if a signal ended it), 75 if its wait was
+  cancelled, 70 if its lease was taken away, and 130 if it was interrupted while waiting. It
+  releases the lease only while `owner.json` still carries its own nonce.
+- **Signals and the terminal.** The command runs in a process group of its own, and `lock-run`
+  passes `SIGINT`, `SIGTERM` or `SIGHUP` it receives on to that group **once**. On a terminal
+  (when `lock-run` is in the foreground), the command's group becomes the terminal's foreground
+  group, so it can use the terminal (`stty`, a prompt) and a Ctrl-C reaches it once, straight
+  from the terminal. `lock-run` takes the terminal back when the command ends.
+- **Re-entry.** The command runs with `CLAUDUCTOR_LOCK_HELD=<lock>`. A `lock-run` on the same
+  lock inside it runs the command directly, so a script can wrap itself.
+- **Defence in depth.** It holds `flock(2)` on the lease directory while it runs. The flock
+  **never decides liveness**: that is the holder's and the command's pid and start time, the same
+  rule the shell applies, so Go and shell waiters always agree. The command does not inherit the
+  flock (a daemon the gate leaves behind would hold it long after the gate ended). The panel only
+  mentions a flock still held on a stale lease. Once a second it checks `owner.json` still
+  carries its nonce. If the lease was taken away, it stops the command's whole process group
+  (`TERM`, then `KILL` after 5 s) and exits **70**, rather than let two gates finish.
+
+`lock-run` prints `waiting for gate.lock (held by lane add-x (pid 4242) since 14:02:11)` to
+stderr while it waits, so an agent reading the output knows why the gate is slow.
+
+### On the page
+
+The page shows each queue: the holder (lane, pid, age, TTL, and "stale" if it is), then the
+waiters in order, each with **Cancel wait** (the drawer lists every queue; a lane's Gate tab shows where that lane stands). **Run in `<lane>`** (the lane's Gate tab) starts the queue's `command` through
+`lock-run` in that lane's worktree, detached, with its output in
+`~/.clauductor/panel/<project hash>/queue-logs/`.
+
+### In a project's gate script
+
+Put this at the top of the gate script (here `gate.sh`). It needs git 2.5 or later (worktrees)
+and no `--path-format` (git 2.31). It re-runs the script through the queue with
+`clauductor lock-run` when clauductor is installed, and otherwise uses the plain-shell
+implementation below (paste it into the script, or keep it beside it as `lease.sh`). A failure
+to find the git directory runs the gate unqueued with a note, rather than aborting under
+`set -e`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+# Serialise the full gate across every worktree of this repo.
+lock=""
+if common=$(git rev-parse --git-common-dir 2>/dev/null); then
+  case $common in /*) ;; *) common="$PWD/$common" ;; esac
+  lock="$common/clauductor/gate.lock"
+fi
+lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
+if [ -z "$lock" ]; then
+  echo "gate: not in a git checkout; running without the gate queue" >&2
+elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
+  if command -v clauductor >/dev/null 2>&1; then
+    # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
+    # pty that does not answer); lock-run gives the gate the real TERM back, or
+    # leaves it unset if it was unset. Ask the environment, not the shell: bash
+    # sets an unexported TERM=dumb of its own when TERM is unset.
+    term_set="" term_val=""
+    if printenv TERM >/dev/null 2>&1; then term_set=1 term_val=$(printenv TERM); fi
+    CLAUDUCTOR_TERM="$term_val" CLAUDUCTOR_TERM_SET="$term_set" TERM=dumb \
+      exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
+  fi
+  if [ -f "$(dirname "$0")/lease.sh" ]; then
+    . "$(dirname "$0")/lease.sh"        # the plain-shell protocol below
+    lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
+  fi
+  echo "gate: neither clauductor nor lease.sh found; running without the gate queue" >&2
+fi
+# ...the gate itself...
+```
+
+### The protocol in plain shell
+
+`lease.sh` interoperates with `lock-run` in both directions: a test extracts this block from this
+page and runs it against `lock-run`, and through the conformance suite. It sets an `EXIT` trap
+while it waits and while it holds the lease.
+
+<!-- lease.sh begin -->
+```sh
+# clauductor lease protocol v1 in plain POSIX shell: interoperates with
+# `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
+# Exit status: the command's; 75 if the wait was cancelled from the panel.
+# Liveness and start time need ps; without it, kill -0 (EPERM still means alive)
+# and /proc/<pid>/stat field 22. A start time from one source is never compared
+# with one from the other, and an alive pid that cannot be verified is live.
+lease_alive() {
+  if command -v ps >/dev/null 2>&1; then [ -n "$(ps -o pid= -p "$1" 2>/dev/null || true)" ]; return; fi
+  _e=$(kill -0 "$1" 2>&1) && return 0
+  case $_e in *ermitted*) return 0 ;; esac
+  return 1
+}
+lease_pstart() {
+  _v=""
+  if command -v ps >/dev/null 2>&1; then _v=$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}' || true); fi
+  if [ -z "$_v" ] && [ -r "/proc/$1/stat" ]; then _v="proc:$(sed 's/.*) //' "/proc/$1/stat" | awk '{print $20}')"; fi
+  printf '%s\n' "$_v"
+}
+# lease_proc_dead PID RECORDED_START: 0 (true) only when the pid is gone, or was
+# reused (a start time from the same source that differs).
+lease_proc_dead() {
+  lease_alive "$1" || return 0
+  _n=$(lease_pstart "$1")
+  { [ -n "$2" ] && [ -n "$_n" ]; } || return 1
+  _a=${2%%:*} _b=${_n%%:*}
+  if { [ "$_a" = proc ] && [ "$_b" = proc ]; } || { [ "$_a" != proc ] && [ "$_b" != proc ]; }; then
+    [ "$_n" != "$2" ]; return
+  fi
+  return 1
+}
+lease_get() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//' || true; }
+# lease_mtime PATH: its modification time in unix seconds: GNU stat, then BSD stat.
+# Unknown reads as now (young), so missing data never makes a lock look abandoned.
+lease_mtime() {
+  _m=$(stat -c %Y "$1" 2>/dev/null) || _m=$(stat -f %m "$1" 2>/dev/null) || _m=""
+  case $_m in ''|*[!0-9]*) date +%s ;; *) printf '%s\n' "$_m" ;; esac
+}
+# lease_valid FILE: 0 (true) for a valid record, the rule Go applies: one flat JSON
+# object whose values are strings, integers, true, false or null; v, pid, child_pid,
+# started, renewed and ttl integers; nonce, pstart, child_pstart, host, lane and cmd
+# strings; and a nonce of 16 lower-case hex digits. An invalid owner.json counts as
+# missing; an invalid waiter file holds no place in the queue and is never removed.
+lease_valid() {
+  _j=$(awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
+  _S='"([^"\\[:cntrl:]]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
+  _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
+  printf '%s\n' "$_j" | grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
+  if printf '%s\n' "$_j" | grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
+  if printf '%s\n' "$_j" | grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
+  lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$'
+}
+# lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
+# only when the holder AND its command (child_pid, written by lock-run) are dead.
+lease_dead() {
+  _p=$(lease_get "$1" pid); _s=$(lease_get "$1" pstart); _h=$(lease_get "$1" host)
+  _cp=$(lease_get "$1" child_pid); _cs=$(lease_get "$1" child_pstart)
+  _r=$(lease_get "$1" renewed); _t=$(lease_get "$1" ttl); [ -n "$2" ] && _t=$2
+  if [ -n "$_p" ] && [ "$_h" = "$(hostname)" ]; then
+    lease_proc_dead "$_p" "$_s" || return 1
+    if [ -n "$_cp" ] && ! lease_proc_dead "$_cp" "$_cs"; then return 1; fi
+    return 0
+  fi
+  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host, or no pid: TTL
+}
+lease_holder_stale() {
+  if ! lease_valid "$1/owner.json"; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
+  lease_dead "$1/owner.json" ""
+}
+lease_run() {
+  # A quote or backslash would break owner.json, which readers then judge stale.
+  _lock=$1 _lane=$(printf %s "$2" | tr -d '"\\'); shift 2
+  _cmd=$(printf %s "$1" | tr -d '"\\')
+  _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  mkdir -p "$_w"
+  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":0}"
+  _me="$_w/$(date +%s)000000000-$_nonce.json"
+  printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
+  trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
+  _said=""
+  while :; do
+    if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
+    _first=""
+    for _f in $(ls "$_w" 2>/dev/null | grep '\.json$' | sort -t- -k1,1n -k2); do
+      lease_valid "$_w/$_f" || continue
+      if lease_dead "$_w/$_f" 60; then rm -f "$_w/$_f"; continue; fi
+      _first=$_f; break
+    done
+    if [ "$_first" = "${_me##*/}" ] && mkdir "$_lock" 2>/dev/null; then
+      printf '%s\n' "$_rec" > "$_lock/.owner.tmp" && mv "$_lock/.owner.tmp" "$_lock/owner.json"
+      rm -f "$_me"
+      trap 'if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
+      CLAUDUCTOR_LOCK_HELD=$_lock "$@" && _rc=0 || _rc=$?
+      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi
+      trap - EXIT
+      return "$_rc"
+    fi
+    if [ "$_first" = "${_me##*/}" ] && [ -d "$_lock" ] && lease_holder_stale "$_lock"; then
+      _judged=$(lease_get "$_lock/owner.json" nonce)
+      if mkdir "$_lock.reclaim" 2>/dev/null; then
+        if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_judged" ] && lease_holder_stale "$_lock"; then
+          echo "lease: reclaiming $_lock from a dead holder" >&2; rm -rf "$_lock"
+        fi
+        rmdir "$_lock.reclaim"; continue
+      elif [ $(( $(date +%s) - $(lease_mtime "$_lock.reclaim") )) -ge 30 ]; then rmdir "$_lock.reclaim" 2>/dev/null || true
+      fi
+    fi
+    [ -n "$_said" ] || { echo "lease: waiting for $_lock ($(lease_get "$_lock/owner.json" lane))" >&2; _said=1; }
+    sleep 1
+  done
+}
+```
+<!-- lease.sh end -->
+
+### The conformance suite
+
+The protocol has more than one implementation: `lock-run`, the `lease.sh` above, and whatever a
+project writes for itself. `framework/internal/panel/lease/testdata/lease-conformance/` holds the
+suite they must all pass: golden `owner.json` and waiter records (`cases/<case>/`, with
+`{{PLACEHOLDERS}}` filled in from real processes; one left unfilled fails its case) and a
+driver, `conformance.sh`, which prints TAP and exits 1 on a failure.
+
+**The interface.** An implementation waits its turn for a lease, runs a command holding it,
+releases it, and exits with the command's status (75 if its wait was cancelled). The driver hands
+it the lock one of two ways:
+
+```bash
+conformance.sh <impl> [impl-args...]
+#   runs  <impl> [impl-args...] <lockdir> <lane> <command> [args...]
+conformance.sh --lock-env VAR <impl> [impl-args...]
+#   runs  VAR=<lockdir> CLAUDUCTOR_LANE=<lane> <impl> [impl-args...] <command> [args...]
+CASES="dead-pid cancel" conformance.sh …     # some cases;  conformance.sh --list  names them all
+CONFORMANCE_WAIT=3 CONFORMANCE_TIMEOUT=20    # how long a waiter must wait, and a runnable one may take
+```
+
+The first form needs a two-line adapter (the driver's header has the ones for `lock-run` and
+`lease.sh`). The second needs none: a project's own gate wrapper, whose lock is normally
+`<git common dir>/…`, runs the suite as it is once that path can be overridden by `VAR`.
+
+The command must see `CLAUDUCTOR_LOCK_HELD` equal to the lock path **exactly as it was given**:
+cleaned, never symlink-resolved. A gate script compares the two to detect re-entry, and on a
+path through a symlink (macOS's `/tmp` is one, and a git common dir can be) a resolved value never
+matches, so the script would queue behind itself. `symlinked-lock` checks it.
+
+Each case checks only what every implementation must do: whether and when the command runs, its
+exit status, and the files left behind.
+
+| Case | The implementation must |
+|---|---|
+| `live-holder` | wait behind a live holder on this host (start time matches), leave its record alone, write its own `<arrival>-<nonce>.json`; run once the holder's process ends |
+| `dead-pid` | reclaim a holder whose pid is gone, run, and release |
+| `pid-reuse` | reclaim a holder whose pid is alive with another start time |
+| `proc-format` | treat a `proc:` start time as unverifiable against `ps`: wait |
+| `no-ps` | with no `ps` on PATH and no recorded start time, judge by `kill -0`: wait while alive, reclaim once gone |
+| `pstart-no-ps` | with no `ps` on PATH, never read a recorded `ps` start time as a reused pid: wait while alive |
+| `no-ps-foreign-pid` | with no `ps`, read `kill -0`'s `EPERM` (another user's process) as alive (skipped as root) |
+| `other-host-expired`, `other-host-live`, `other-host-no-ttl` | judge another host's holder by `renewed + ttl` only; `ttl: 0` never expires |
+| `missing-pid`, `missing-pid-expired` | judge a record with no `pid` by its TTL alone |
+| `missing-host` | judge a record with no `host` as another host's: its dead pid means nothing |
+| `child-alive`, `child-dead`, `child-reused` | keep a lease whose holder died while its command (`child_pid`) runs; reclaim when both are gone, a reused `child_pid` included |
+| `ownerless-old`, `ownerless-young` | reclaim a lock directory with no `owner.json` once it is 10 s old, and wait until then |
+| `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old`, `garbage-owner-old`, `string-pid-owner-old` | treat an invalid `owner.json` (truncated, no 16-hex nonce, not a flat object, a field of the wrong type) as missing, even with a live pid in it |
+| `spaced-owner-live` | read a valid record written with spaces, newlines, escapes and an extra `null` field as the live holder it names |
+| `live-waiter-ahead`, `dead-waiter-ahead` | never jump a live waiter that arrived first; skip and remove a dead one |
+| `other-host-waiter-stale`, `other-host-waiter-fresh` | judge another host's waiter by a 60 s TTL, whatever `ttl` its file names |
+| `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
+| `cancel` | give up on `<nonce>.cancel`: exit 75, run nothing, remove its files, leave the holder |
+| `reclaim-race` | with three waiters meeting one dead holder, run each command exactly once, never two at a time |
+| `owner-record` | write every field of `owner.json` while it holds, with `pstart` as `ps` prints it; set `CLAUDUCTOR_LOCK_HELD`; exit with the command's status and release |
+| `symlinked-lock` | set `CLAUDUCTOR_LOCK_HELD` to a lock path through a symlink exactly as given |
+
+`TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
+this page. The suite is falsified in the same run: two controls, one that ignores the lease and
+one that always takes it, must fail every case that depends on the rule they break, and each of
+15 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
+sources, an unverifiable pid read as dead, pid reuse ignored, the command ignored, a waiter's own
+`ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
+record, the record's shape or its integer fields unchecked, invalid waiter files removed or queued,
+LIFO order, cancel ignored) must fail at least one case. The cases that need an old lock
+directory set its mtime 60 s back and check that it took; the cases with a young one judge the
+grace by timestamps (the command records when it ran, against the lock's mtime), not by how long
+the driver watched, so a loaded machine cannot stretch or shrink the window. The driver runs
+at most one case per CPU (at least 4) at a time. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
+
+## Alerts
+
+Alerts are derived from the state, never stored, against the `alerts` thresholds:
+
+| Alert | When | Severity |
+|---|---|---|
+| waiting | a permission prompt, MCP elicitation or input request older than `waiting_seconds` | block |
+| rate_limit | `StopFailure` with `error_type: rate_limit` | block |
+| stop_failure | any other `StopFailure` | warn |
+| no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
+| context | `context_window.used_percentage` ≥ `context_pct` | warn |
+| idle | a live session idle longer than `idle_minutes` | info |
+| quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
+
+### Current or stale
+
+Whether a session is blocked on you is decided by ONE predicate, which *Needs you*, the waiting
+alert, the lane chip and the first-prompt decision all read, so they cannot disagree. A `claude
+agents` entry counts as a **current reading** only while the last poll succeeded within two poll
+intervals. A prompt answered in the terminal fires no hook, so only a current reading can say it
+was answered. "Recently" allows for the poll itself: two intervals plus the slowest recent poll
+(the filter cross-check included), so a `claude agents` slower than its interval never reads as
+stale between two good polls. An item is marked **stale/approx** (in its label, and as `approx` in
+`/api/state`) when:
+
+- the last reading said waiting, but the poll has since failed or stopped arriving;
+- a hook says the session waits and no current reading confirms it (never polled, not listed,
+  or listed as idle).
+
+An approximate item is shown and never raises a macOS notification. It also keeps the mark of a
+notification already sent, so a poll that flickers stale and back does not notify twice. The lane
+card, the lane's status chip, the sessions table and the terminal tab show an approximate status
+with a leading `≈`. A failing poll does not keep sessions forever: one silent for 30 minutes (no
+hook, no status line, no current reading) is forgotten either way. The exception is a session
+with an open permission, elicitation or input prompt: while polls fail, nothing can say it was
+answered, so it stays in *Needs you*, marked approximate, until a poll works again, or until its
+lane's pane is dead (or its tmux session gone), or 24 hours pass without a word from it.
+
+### Notifications
+
+Each alert shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS
+notification goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for
+`no_auto_resume`. Idle, context, quota and stop-failure alerts stay on the page, and so does any
+alert marked approximate. A notification goes out:
+
+- once per stretch: an alert that clears and comes back notifies again. What was notified, and
+  when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a
+  panel restart never re-notifies an alert that is still active, and the daily count survives it;
+- grouped: the new alerts of one lane make one notification;
+- rate-limited: at most one notification per lane per `min_interval_seconds`; later ones wait and
+  go out when the interval ends, if still active;
+- suppressed while that lane's terminal has keyboard focus in a visible page (the page reports
+  focus over the terminal's WebSocket). A suppressed alert counts as seen.
+
+The Alerts heading shows **interruptions today**. Notifications run
+`/usr/bin/osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' -- <title> <text>`:
+the text arrives as an argument and is never spliced into AppleScript source, so a quote in a lane
+name cannot run `do shell script`. The `--` matters: osascript keeps parsing options among its
+arguments, so without it a title starting with `-e` would be read as more script. The title is
+the config's `name` only while the config is trusted; `name` must be one line of plain text that
+does not start with `-`. The first one may make macOS ask whether the panel may send
+notifications.
 
 ## Appearance
 
@@ -603,12 +1142,13 @@ event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 { "type": "http", "url": "http://127.0.0.1:4393/hook?src=clauductor-panel", "timeout": 1 }
 ```
 
-for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`,
-`SessionEnd`, and from v2 `StopFailure`, `PermissionRequest` (observed only, never answered),
-`PreCompact`, `PostCompact` and `CwdChanged`, and from PANEL-11 `PreToolUse` and `PostToolUse`
-with the matcher `Agent|Task|Workflow`, so the panel hears them only for the calls that start
-agents (see *Which agent started which*). `SessionStart` is left out because HTTP hooks do not
-fire for it (Claude Code 2.1.284); new sessions are found through `claude agents --json`.
+for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`, `SessionEnd`,
+`StopFailure`, `PermissionRequest` (observed only, never answered), `PreCompact`, `PostCompact`,
+`CwdChanged`, and from PANEL-11 `PreToolUse` and `PostToolUse` with the matcher
+`Agent|Task|Workflow`, so the panel hears them only for the calls that start agents (see [Which
+agent started which](#which-agent-started-which)); it answers them 204, no decision.
+`SessionStart` is left out because HTTP hooks do not fire for it (Claude Code 2.1.284); new
+sessions are found through `claude agents --json`.
 
 - The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
   Code documents no free-form key for ownership. Only tagged entries are replaced or removed;
@@ -681,7 +1221,9 @@ fire for it (Claude Code 2.1.284); new sessions are found through `claude agents
 
 ## Security model
 
-**New lane** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
+A dashboard of your sessions is private, and a browser terminal is a shell, so the page is
+locked down even on loopback. Loopback is not a trust boundary: any web page you open can
+send requests to `127.0.0.1`.
 
 - **Loopback only.** The server binds `127.0.0.1:<port>` and `[::1]:<port>` (one server, one
   state) and refuses to run if either bound address is not loopback. If the port is taken on
@@ -800,7 +1342,7 @@ runs them only for the exact bytes you trusted. Trusting records the file's SHA-
 `~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
-starts, but its cards, queue RUN and templates stay **off**, under a red **CONFIG UNTRUSTED**
+starts, but its cards, queue RUN and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
@@ -831,54 +1373,7 @@ gui/<uid>/com.clauductor.panel` once that panel has stopped.) A panel started by
 refused at once. Watching several projects from one panel, a multi-project daemon, is future
 work; until it lands, run one project's panel at a time.
 
-| What | Shown as | What you can do |
-|---|---|---|
-| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, or **Forget** |
-| registered, the panel stopped during an action | orphaned, with the action | **Resume**, or **Forget** |
-| a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **Stop lane** only; without a session id it cannot be restarted |
-| registered, its directory no longer a worktree | the reason is added | **Forget** |
-| a record that fails validation on load (session id not a UUID, relative path, unknown mode…) | "corrupt registry record" | **Stop lane**, **Forget**; it is never launched |
-| a record with an invalid lane id | a banner | edit or delete the file |
-
-### Controls
-
-| Button | What it does |
-|---|---|
-| **Interrupt (Esc)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
-| **Restart** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
-| **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
-| **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
-| **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
-
-Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
-Sent together, a long line can sit in claude's input box unsubmitted.
-
-### Window size: the latest client wins
-
-Each browser viewer gets its own PTY and its own tmux client. The lane's window uses tmux's
-`window-size latest`, set explicitly on each lane because `~/.tmux.conf` might change it. The
-window takes the size of whichever client last typed or resized. When you type in the browser,
-the lane fits the browser. When you type in Terminal.app, it fits that window, and the browser
-shows the same screen, clipped or padded, until you type there again.
-
-We chose this over the alternatives:
-
-- `attach -f ignore-size` for the browser would leave a browser-only lane stuck at the detached
-  size.
-- A grouped session per viewer would share one window size anyway, and add sessions to clean up.
-
-### Subscription only
-
-The panel refuses to start, restart or resume a lane while `ANTHROPIC_API_KEY` or
-`ANTHROPIC_AUTH_TOKEN` is set, in the panel's own environment or in the tmux server's global
-environment (`tmux -L <socket> show-environment -g`), which every lane inherits. Either key
-outranks the subscription login. The page shows the reason and disables **New lane**; it re-reads
-the tmux environment when the lane set changes and every 30 s, and every start reads it again. If the tmux
-environment cannot be read, the panel refuses too: unknown is not "no key". As a second layer,
-the lane command unsets both variables.
-
-## Run it with no terminal: the launchd agent
+### The launchd agent
 
 ```bash
 clauductor panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
@@ -937,7 +1432,7 @@ opens `http://127.0.0.1:<port>/` instead.
 - every lane registry that lists no lanes.
 
 A registry that still lists lanes is kept, and `uninstall` says so: those lanes may still run in
-tmux, and RESUME needs their session ids. It never touches lanes. The panel's hooks stay in
+tmux, and Resume needs their session ids. It never touches lanes. The panel's hooks stay in
 `~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes them.
 
 ### Dependencies
@@ -973,8 +1468,16 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
 
 ### The panel will not start
 
-**New lane** offers the templates. Pick one, give the lane a name (and an issue if the template
-uses `{issue}`), and START:
+- **"no panel config at …"**: the project has no `.clauductor/panel.json`; `clauductor panel
+  init` writes one.
+- **"unknown field"**: a misspelt or unsupported key. Check it against the [key table](#keys), or
+  let an editor check it against `$schema`.
+- **"… needs "version": 2 or later"**: the file declares an older version than a key it uses.
+  Raise `version`, or remove the key (see [Versions](#versions)).
+- **Another panel is running**: see [One panel per machine](#one-panel-per-machine). The message
+  names that panel's project, pid and port.
+- **The port is taken**: the panel never falls back to another port; free it, or pass `--port`
+  (and `install --port`).
 
 ### Cards, RUN and templates do nothing
 
@@ -986,18 +1489,13 @@ UNTRUSTED** banner says which. Review it and run `clauductor panel trust` (see
 
 Usually Claude's workspace-trust dialog in a new directory: it defaults to **No, exit**. Press ↓,
 then Enter, in the lane's terminal; if claude already exited, STOP the lane and start it again. If
-**+ LANE** is disabled, hover it for the reason (an API key, see
+**New lane** is disabled, hover it for the reason (an API key, see
 [Subscription only](#subscription-only); or the [quota guard](#quota-guard)).
 
-### A lane shows NO HOOKS
+### A lane shows No hooks
 
-| Path | Meaning |
-|---|---|
-| `<lock>/` | Held while it exists. `mkdir` either creates it or fails with `EEXIST`. |
-| `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, child_pid, child_pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
-| `<lock>.waiters/<arrival>-<nonce>.json` | One per waiter, same fields. The numeric arrival (unix ns, or unix s followed by nine zeros) orders the queue. |
-| `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **Cancel wait**). |
-| `<lock>.reclaim/` | A short mutex, taken only to remove a stale holder. |
+The session is busy per `claude agents` but no hook has come from it for 60 s: usually it never
+loaded the hooks. Restart it.
 
 ### The page shows no context % or quota
 
@@ -1006,330 +1504,11 @@ nothing while `~/.clauductor/panel/pid` names no live process.
 
 ### A lease never frees
 
-**Removing a stale holder.** Only the first live waiter does it, under the reclaim mutex, after
-re-reading `owner.json` and checking it is still the same stale holder (same nonce). **Nothing
-ever signals or removes a live holder**, including the panel.
-
-**Defence in depth in `lock-run`:**
-
-- It holds `flock(2)` on the lease directory while it runs. The flock **never decides
-  liveness**: that is the holder's and the command's pid and start time, the same rule the shell
-  applies, so Go and shell waiters always agree. The command does not inherit the flock (a
-  daemon the gate leaves behind would hold it long after the gate ended). The panel only
-  mentions a flock still held on a stale lease.
-- Once a second it checks `owner.json` still carries its nonce. If the lease was taken away, it
-  stops the command's whole process group (`TERM`, then `KILL` after 5 s) and exits **70**,
-  rather than let two gates finish.
-
-**FIFO.** Only the first live waiter tries `mkdir`. A waiter is dead, and its file removed, by
-the same rule as a holder, except that its TTL is 60 s.
-
-**`lock-run` itself:**
-
-- **Exit status.** The command's status (128+n if a signal ended it), 75 if its wait was
-  cancelled, 70 if its lease was taken away, and 130 if it was interrupted while waiting. It
-  releases the lease only while `owner.json` still carries its own nonce.
-- **Signals and the terminal.** The command runs in a process group of its own, and `lock-run`
-  passes `SIGINT`, `SIGTERM` or `SIGHUP` it receives on to that group **once**. On a terminal
-  (when `lock-run` is in the foreground), the command's group becomes the terminal's foreground
-  group, so it can use the terminal (`stty`, a prompt) and a Ctrl-C reaches it once, straight
-  from the terminal. `lock-run` takes the terminal back when the command ends.
-- **Re-entry.** The command runs with `CLAUDUCTOR_LOCK_HELD=<lock>`. A `lock-run` on the same
-  lock inside it runs the command directly, so a script can wrap itself.
-
-The page shows each queue: the holder (lane, pid, age, TTL, and "stale" if it is), then the
-waiters in order, each with **Cancel wait**. **Run** starts the queue's `command` through
-`lock-run` in the selected lane's worktree, detached, with its output in
-`~/.clauductor/panel/<project hash>/queue-logs/`.
-
-**In a project's gate script.** Put this at the top of `run-local.sh`. It needs git 2.5 or later
-(worktrees) and no `--path-format` (git 2.31). It re-runs the script through the queue with
-`clauductor lock-run` when clauductor is installed, and otherwise uses the plain-shell
-implementation below (paste it into the script, or keep it beside it as `lease.sh`). A failure
-to find the git directory runs the gate unqueued with a note, rather than aborting under
-`set -e`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-# Serialise the full gate (port 3100) across every worktree of this repo.
-lock=""
-if common=$(git rev-parse --git-common-dir 2>/dev/null); then
-  case $common in /*) ;; *) common="$PWD/$common" ;; esac
-  lock="$common/clauductor/gate.lock"
-fi
-lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
-if [ -z "$lock" ]; then
-  echo "run-local: not in a git checkout; running without the gate queue" >&2
-elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
-  if command -v clauductor >/dev/null 2>&1; then
-    # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
-    # pty that does not answer); lock-run gives the gate the real TERM back, or
-    # leaves it unset if it was unset. Ask the environment, not the shell: bash
-    # sets an unexported TERM=dumb of its own when TERM is unset.
-    term_set="" term_val=""
-    if printenv TERM >/dev/null 2>&1; then term_set=1 term_val=$(printenv TERM); fi
-    CLAUDUCTOR_TERM="$term_val" CLAUDUCTOR_TERM_SET="$term_set" TERM=dumb \
-      exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
-  fi
-  if [ -f "$(dirname "$0")/lease.sh" ]; then
-    . "$(dirname "$0")/lease.sh"        # the plain-shell protocol below
-    lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
-  fi
-  echo "run-local: neither clauductor nor lease.sh found; running without the gate queue" >&2
-fi
-# ...the gate itself...
-```
-
-`lock-run` prints `waiting for gate.lock (held by lane add-x (pid 4242) since 14:02:11)` to
-stderr while it waits, so an agent reading the output knows why the gate is slow.
-
-**The protocol in plain shell** (`lease.sh`). It interoperates with `lock-run` in both
-directions: a test extracts this block from this page and runs it against `lock-run`. It sets an
-`EXIT` trap while it waits and while it holds the lease.
-
-<!-- lease.sh begin -->
-```sh
-# clauductor lease protocol v1 in plain POSIX shell: interoperates with
-# `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
-# Exit status: the command's; 75 if the wait was cancelled from the panel.
-# Liveness and start time need ps; without it, kill -0 (EPERM still means alive)
-# and /proc/<pid>/stat field 22. A start time from one source is never compared
-# with one from the other, and an alive pid that cannot be verified is live.
-lease_alive() {
-  if command -v ps >/dev/null 2>&1; then [ -n "$(ps -o pid= -p "$1" 2>/dev/null || true)" ]; return; fi
-  _e=$(kill -0 "$1" 2>&1) && return 0
-  case $_e in *ermitted*) return 0 ;; esac
-  return 1
-}
-lease_pstart() {
-  _v=""
-  if command -v ps >/dev/null 2>&1; then _v=$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}' || true); fi
-  if [ -z "$_v" ] && [ -r "/proc/$1/stat" ]; then _v="proc:$(sed 's/.*) //' "/proc/$1/stat" | awk '{print $20}')"; fi
-  printf '%s\n' "$_v"
-}
-# lease_proc_dead PID RECORDED_START: 0 (true) only when the pid is gone, or was
-# reused (a start time from the same source that differs).
-lease_proc_dead() {
-  lease_alive "$1" || return 0
-  _n=$(lease_pstart "$1")
-  { [ -n "$2" ] && [ -n "$_n" ]; } || return 1
-  _a=${2%%:*} _b=${_n%%:*}
-  if { [ "$_a" = proc ] && [ "$_b" = proc ]; } || { [ "$_a" != proc ] && [ "$_b" != proc ]; }; then
-    [ "$_n" != "$2" ]; return
-  fi
-  return 1
-}
-lease_get() { sed -n "s/.*\"$2\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 || true; }
-lease_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
-# lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
-# only when the holder AND its command (child_pid, written by lock-run) are dead.
-lease_dead() {
-  _p=$(lease_get "$1" pid); _s=$(lease_get "$1" pstart); _h=$(lease_get "$1" host)
-  _cp=$(lease_get "$1" child_pid); _cs=$(lease_get "$1" child_pstart)
-  _r=$(lease_get "$1" renewed); _t=$(lease_get "$1" ttl); [ -n "$2" ] && _t=$2
-  if [ -n "$_p" ] && [ "$_h" = "$(hostname)" ]; then
-    lease_proc_dead "$_p" "$_s" || return 1
-    if [ -n "$_cp" ] && ! lease_proc_dead "$_cp" "$_cs"; then return 1; fi
-    return 0
-  fi
-  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host: TTL
-}
-lease_holder_stale() {
-  if [ ! -f "$1/owner.json" ]; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
-  lease_dead "$1/owner.json" ""
-}
-lease_run() {
-  # A quote or backslash would break owner.json, which readers then judge stale.
-  _lock=$1 _lane=$(printf %s "$2" | tr -d '"\\'); shift 2
-  _cmd=$(printf %s "$1" | tr -d '"\\')
-  _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
-  mkdir -p "$_w"
-  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":0}"
-  _me="$_w/$(date +%s)000000000-$_nonce.json"
-  printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
-  trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
-  _said=""
-  while :; do
-    if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
-    _first=""
-    for _f in $(ls "$_w" 2>/dev/null | grep '\.json$' | sort -t- -k1,1n -k2); do
-      if lease_dead "$_w/$_f" 60; then rm -f "$_w/$_f"; continue; fi
-      _first=$_f; break
-    done
-    if [ "$_first" = "${_me##*/}" ] && mkdir "$_lock" 2>/dev/null; then
-      printf '%s\n' "$_rec" > "$_lock/.owner.tmp" && mv "$_lock/.owner.tmp" "$_lock/owner.json"
-      rm -f "$_me"
-      trap 'if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
-      CLAUDUCTOR_LOCK_HELD=$_lock "$@" && _rc=0 || _rc=$?
-      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi
-      trap - EXIT
-      return "$_rc"
-    fi
-    if [ "$_first" = "${_me##*/}" ] && [ -d "$_lock" ] && lease_holder_stale "$_lock"; then
-      _judged=$(lease_get "$_lock/owner.json" nonce)
-      if mkdir "$_lock.reclaim" 2>/dev/null; then
-        if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_judged" ] && lease_holder_stale "$_lock"; then
-          echo "lease: reclaiming $_lock from a dead holder" >&2; rm -rf "$_lock"
-        fi
-        rmdir "$_lock.reclaim"; continue
-      elif [ $(( $(date +%s) - $(lease_mtime "$_lock.reclaim") )) -ge 30 ]; then rmdir "$_lock.reclaim" 2>/dev/null || true
-      fi
-    fi
-    [ -n "$_said" ] || { echo "lease: waiting for $_lock ($(lease_get "$_lock/owner.json" lane))" >&2; _said=1; }
-    sleep 1
-  done
-}
-```
-<!-- lease.sh end -->
-
-### Alerts and notifications
-
-Alerts are derived from the state, never stored, against the `alerts` thresholds:
-
-| Alert | When | Severity |
-|---|---|---|
-| waiting | a permission prompt, MCP elicitation or input request older than `waiting_seconds` | block |
-| rate_limit | `StopFailure` with `error_type: rate_limit` | block |
-| stop_failure | any other `StopFailure` | warn |
-| no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
-| context | `context_window.used_percentage` ≥ `context_pct` | warn |
-| idle | a live session idle longer than `idle_minutes` | info |
-| quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
-
-**Current or stale.** Whether a session is blocked on you is decided by ONE predicate, which
-*Needs you*, the waiting alert, the lane chip and the first-prompt decision all read, so they
-cannot disagree. A `claude agents` entry counts as a **current reading** only while the last poll
-succeeded within two poll intervals. A prompt answered in the terminal fires no hook, so only a
-current reading can say it was answered. "Recently" allows for the poll itself: two intervals plus
-the slowest recent poll (the filter cross-check included), so a `claude agents` slower than its
-interval never reads as stale between two good polls. An item is marked **stale/approx** (in its
-label, and as `approx` in `/api/state`) when:
-
-- the last reading said waiting, but the poll has since failed or stopped arriving;
-- a hook says the session waits and no current reading confirms it (never polled, not listed,
-  or listed as idle).
-
-An approximate item is shown and never raises a macOS notification. It also keeps the mark of a
-notification already sent, so a poll that flickers stale and back does not notify twice. The lane
-card, the lane's status chip, the sessions table and the terminal tab show an approximate status
-with a leading `≈`. A failing poll no longer keeps sessions forever: one silent for 30 minutes
-(no hook, no status line, no current reading) is forgotten either way. The exception is a session
-with an open permission, elicitation or input prompt: while polls fail, nothing can say it was
-answered, so it stays in *Needs you*, marked approximate, until a poll works again, or until its
-lane's pane is dead (or its tmux session gone), or 24 hours pass without a word from it.
-
-Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
-goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.
-Idle, context, quota and stop-failure alerts stay on the page, and so does any alert marked
-approximate. A notification goes out:
-
-- once per stretch: an alert that clears and comes back notifies again. What was notified, and
-  when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a
-  panel restart never re-notifies an alert that is still active, and the daily count survives it;
-- grouped: the new alerts of one lane make one notification;
-- rate-limited: at most one notification per lane per `min_interval_seconds`; later ones wait and
-  go out when the interval ends, if still active;
-- suppressed while that lane's terminal has keyboard focus in a visible page (the page reports
-  focus over the terminal's WebSocket). A suppressed alert counts as seen.
-
-The Alerts heading shows **interruptions today**. Notifications run
-`/usr/bin/osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' -- <title> <text>`:
-the text arrives as an argument and is never spliced into AppleScript source, so a quote in a lane
-name cannot run `do shell script`. The `--` matters: osascript keeps parsing options among its
-arguments, so without it a title starting with `-e` would be read as more script. The title is
-the config's `name` only while the config is trusted; `name` must be one line of plain text that
-does not start with `-`. The first one may make macOS ask whether the panel may send
-notifications.
-
-### Quota guard
-
-At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse, and the dialog
-offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
-blocks: the guard acts only on a number it has.
-
-### Restore after a reboot
-
-tmux lanes do not survive a reboot. When the panel starts, every registered lane whose tmux
-session is gone is **restorable**, and a banner offers **Restore all** (each lane also keeps its
-own **Resume**). A restore:
-
-- runs `claude --resume <the lane's own session id>` in its worktree, or `--session-id <id>` for
-  a session that never had a prompt. It **never** uses `--continue`;
-- never resumes a session twice. A lane is skipped if `claude agents` shows its session id in a
-  running process, if a second lane carries the same session id, or if `claude agents` cannot be
-  read (then nothing is restored). Its worktree must still exist;
-- types nothing into the lane.
-
-**The resume dialog.** A session that was idle for more than an hour and holds more than 100k
-tokens makes claude ask, before the first message, whether to resume from a summary. The panel
-does not answer it for you. Every lane restored on a conversation shows in **Needs you** ("Restored
-lane") until you prompt it or it goes busy. Open its terminal, answer the dialog if it is there,
-and continue.
-
-### Config trust
-
-`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN) and
-prompts it types (templates). The panel records the file's SHA-256 under
-`~/.clauductor/panel/<project hash>/trusted-config.json` the first time it runs on it, and logs
-the hash at every start. When the file changes (a pull, say), the panel still starts, but its
-cards, queue RUN and templates stay **off** until you run `clauductor panel trust` (a running
-panel follows within 5 s) or start with `--trust-config`. A red banner names both hashes.
-`clauductor panel install` trusts the config it installs.
-
-### What v2 changed in how signals are read
-
-- **Notifications.** Each of the 12 documented `notification_type` values maps to what it does
-  to the session, whether it goes in **Needs you**, and how severe it is:
-
-  | Type | Effect | Needs you | Severity |
-  |---|---|---|---|
-  | `permission_prompt` | waiting | yes | block |
-  | `elicitation_dialog`, `elicitation_url_dialog` | waiting | yes | block |
-  | `agent_needs_input` | waiting | yes | block |
-  | `quota_auto_resume_stale`, `quota_auto_resume_disabled` | none | yes | warn |
-  | `idle_prompt` | idle: your move | no: **Done** | info |
-  | `agent_completed` | none | no: **Done** once the turn is over | info |
-  | `elicitation_complete`, `elicitation_response`, `quota_auto_resume_fired` | answers a waiting note | no | info |
-  | `auth_success` | none | no | info |
-  | anything else | none; shown on the session, counted | **never** | unknown |
-
-  **Needs you** holds blocking states only. **Done · your move** lists finished turns apart.
-- **New hook events.** `StopFailure` (its `error_type`), `PermissionRequest`, `PreCompact` and
-  `PostCompact` (shown as "compacting"), and `CwdChanged` (recorded in the feed). The panel only
-  **observes** `PermissionRequest`: `/hook` answers `204` with an empty body, which Claude Code
-  documents as "no decision", so the permission dialog proceeds as usual. `/hook` takes no token,
-  so it must never answer. Only subscribed event names are applied; others are counted.
-- **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
-  session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
-  by its `cwd` at first sight, and a later `cd` does not move it.
-- **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset".
-- **`claude agents`.** `id`, `state` and the `waitingFor` enum (permission prompt, input needed,
-  sandbox request, worker request, dialog open) are decoded. The poll passes `--cwd <the
-  deepest directory holding every worktree>`, but only after a cross-check: every 5 minutes it
-  also runs unfiltered, and if the filter drops any session of the project, it polls unfiltered.
-  One poll measured 93–103 ms wall (p50 98 ms), about 105 ms CPU and 148 MB peak RSS on
-  2.1.284; at 2 s that is about 5% of a core. So it backs off to 5 s while hooks are flowing (a
-  hook in the last 30 s), and to 15 s while the panel has no lane and has heard no hook for 5
-  minutes; a kick (a lane action, a refresh, a hook arriving during the 15 s wait) still polls
-  at once. A reading counts as current for
-  two of whichever interval the loop is on.
-- **Overflow.** A hook body dropped because the panel fell behind is counted apart from foreign
-  drops, and raises a banner.
-- **`settings.json`.** The hook install re-reads the file immediately before its rename, and redoes
-  the edit if another writer changed it meanwhile (up to 5 times, then it refuses).
-- **Version pinning.** The subagent pairing, the missing `SessionStart` HTTP hook and the recorded
-  fixtures were verified on Claude Code **2.1.284**. The panel reads `claude --version`; on any
-  other version the subagent list says "approximate" and a warning bar says why.
-
-### Observability
-
-The footer shows one line: hook events, status posts, drops and notifications. **ALL
-COUNTERS** opens the rest (the choice is remembered): drops by cause (foreign
-`cwd`, overflow, malformed, unknown event name), unknown notification types, the last, mean and
-worst `claude agents` poll latency and its current interval, the filter in use and why, the
-Claude Code version against the one the heuristics were verified on, and notifications sent or
-failed.
+A waiter that keeps waiting behind a holder is doing its job while the holder lives: the page
+shows the holder's lane, pid and age. A holder whose pid was reused and that recorded no start
+time cannot be told from a live one, so nothing removes it by itself. Check the holder with
+`ps -p <pid>`; if it is not the gate, remove the lock directory (`rm -rf <git common
+dir>/clauductor/gate.lock`) and the next waiter goes.
 
 ## Testing
 

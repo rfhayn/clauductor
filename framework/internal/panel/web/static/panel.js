@@ -1759,7 +1759,7 @@ function stUpdate() {
     if (model || effort) p += ", then claude" + (model ? " --model " + model : "") + (effort ? " --effort " + effort : "");
     $("st-prompt").replaceChildren(el("div", null, "Once claude is idle, the panel types this, then Enter:"),
       el("div", "tpl-prompt", fillTpl(tpl.firstPrompt, name, issue)));
-    if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off: panel.json changed since you trusted it (clauductor panel trust)."));
+    if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off until panel.json is trusted as it is now (clauductor panel trust)."));
   } else if (type && (type.model || type.effort)) p += ", then claude" + (type.model ? " --model " + type.model : "") + (type.effort ? " --effort " + type.effort : "");
   $("st-preview").textContent = p;
   $("st-block").hidden = !S.startBlocked;
@@ -1907,7 +1907,7 @@ function renderRestore() {
 }
 
 // Each banner says what it is. The lost-tmux banner is left to the restore bar.
-const BANNER_LABEL = { no_hooks: "No hooks", dropped: "Events dropped", untrusted: "Config changed", hooks: "Hooks", registry: "Lane registry" };
+const BANNER_LABEL = { no_hooks: "No hooks", dropped: "Events dropped", untrusted: "Config untrusted", hooks: "Hooks", registry: "Lane registry" };
 const SOURCE_NAME = { worktrees: "git worktree list", agents: "claude agents", tmux: "the panel's tmux server" };
 function renderBanners() {
   const kids = [];
