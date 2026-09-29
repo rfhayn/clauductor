@@ -95,10 +95,11 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   listed underneath.
 - **Selected lane (centre).** Its sessions (pid, status, context %, model, est. $), running
   subagents with their age, and the lane's own event feed. v0 has no terminal. Workflow agents
-  can stop under a different `agent_id` and `agent_type` than they started with, so a stop with
-  an unknown id retires the oldest running agent of the same type, or failing that the oldest of
-  any type. An untyped stop for an internal agent that never reported a start can therefore
-  retire a real one early: the count may read low, but it does not grow for the whole run. A session that `claude agents` reports idle
+  stop under a different `agent_id` and `agent_type` (`workflow-subagent`) than they started
+  with, so a `workflow-subagent` stop with an unknown id retires the oldest running agent of any
+  type. Any other typed stop with an unknown id retires the oldest agent of its own type. An
+  unknown id with an empty type is an internal agent that never sent a start, and retires
+  nothing. A session that `claude agents` reports idle
   for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
   background agents outlive the turn.
 - **Right column.** *Needs you*: permission and idle-prompt notifications, and sessions that

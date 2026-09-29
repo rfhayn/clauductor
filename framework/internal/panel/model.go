@@ -308,23 +308,31 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 	return true
 }
 
-// stopSubagent removes the stopped agent. Workflow agents were seen (live, 2.1.284)
-// to stop under a different agent_id AND a different agent_type than they started
-// with (start "reviewer", stop "workflow-subagent"), and a build lane stays busy for
-// an hour, so waiting for idle would leave the count inflated all run. An unknown id
-// therefore retires the oldest running agent of the same type, or failing that the
-// oldest of any type (FIFO). Hook Stop clears nothing: background agents outlive the
-// turn that started them.
+// stopSubagent removes the stopped agent. What an unmatched stop means depends on its
+// type, as seen live on Claude Code 2.1.284:
+//   - empty type: an internal agent that never sent a start (the spike saw these too),
+//     so it retires nothing;
+//   - "workflow-subagent": a Workflow agent, which stops under a different id AND type
+//     than it started with ("reviewer"), so it retires the oldest running agent of any
+//     type. A build lane stays busy all run, so waiting for idle would not do;
+//   - any other type: the oldest running agent of that same type.
+//
+// Hook Stop clears nothing: background agents outlive the turn that started them.
 func (s *session) stopSubagent(id, typ string) {
 	if _, ok := s.Subagents[id]; ok {
 		delete(s.Subagents, id)
 		return
 	}
-	if oldest := s.oldestSubagent(func(a subagent) bool { return a.Type == typ }); oldest != "" {
-		delete(s.Subagents, oldest)
+	var oldest string
+	switch typ {
+	case "":
 		return
+	case "workflow-subagent":
+		oldest = s.oldestSubagent(func(subagent) bool { return true })
+	default:
+		oldest = s.oldestSubagent(func(a subagent) bool { return a.Type == typ })
 	}
-	if oldest := s.oldestSubagent(func(subagent) bool { return true }); oldest != "" {
+	if oldest != "" {
 		delete(s.Subagents, oldest)
 	}
 }

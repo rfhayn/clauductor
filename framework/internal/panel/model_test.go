@@ -87,9 +87,9 @@ func TestReducerReplaysSpikeHooks(t *testing.T) {
 		{"turn stopped", 2, "idle", 0, "Stop"},
 		{"subagent started", 4, "busy", 1, "SubagentStart"},
 		{"subagent stopped", 5, "busy", 0, "SubagentStop"},
-		// Events 6-9 include SubagentStops with ids never started and an empty type,
-		// while nothing is running: the fallback has nothing to retire.
-		{"stop for an unknown id with nothing running", 9, "idle", 0, "SubagentStop"},
+		// Events 6-9 include SubagentStops with an empty type for ids never started:
+		// internal agents, which retire nothing.
+		{"empty-type stops for ids never started", 9, "idle", 0, "SubagentStop"},
 		{"whole spike", 15, "idle", 0, "Stop"},
 	}
 	for _, tc := range tests {
@@ -436,15 +436,19 @@ func TestReducerSubagentLifecycle(t *testing.T) {
 			m.ApplyHook(start("af6022d", "reviewer"), t0)
 			m.ApplyHook(stop("ab7ca82", "workflow-subagent"), t0.Add(time.Second))
 		}, 2 * time.Second, nil},
-		{"no id or type match retires the oldest of any type", func(m *Model) {
+		{"a workflow-subagent stop retires the oldest of any type", func(m *Model) {
 			m.ApplyHook(start("A", "builder"), t0)
 			m.ApplyHook(start("B", "reviewer"), t0.Add(time.Second))
 			m.ApplyHook(stop("C", "workflow-subagent"), t0.Add(2*time.Second))
 		}, 3 * time.Second, []string{"B"}},
-		{"an empty type falls back the same way", func(m *Model) {
+		{"an empty-type stop (internal agent, never started) retires nothing", func(m *Model) {
 			m.ApplyHook(start("a1", "builder"), t0)
 			m.ApplyHook(stop("b9", ""), t0.Add(time.Second))
-		}, 2 * time.Second, nil},
+		}, 2 * time.Second, []string{"a1"}},
+		{"another unmatched type does not fall back to any type", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(stop("b9", "general-purpose"), t0.Add(time.Second))
+		}, 2 * time.Second, []string{"a1"}},
 		{"a type match is preferred over an older agent of another type", func(m *Model) {
 			m.ApplyHook(start("A", "builder"), t0)
 			m.ApplyHook(start("B", "reviewer"), t0.Add(time.Second))
