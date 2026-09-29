@@ -249,7 +249,7 @@ validates it. See docs/panel.md, "Configuration reference".`,
 			fmt.Fprintf(out, "  %s\n", n)
 		}
 		fmt.Fprintf(out, "\nJSON has no comments, so the reasons are here. It declares \"version\": %d and \"$schema\", so an editor\n"+
-			"validates it. Review it, commit it, then run `clauductor panel`: the first run trusts the file as it is.\n", config.LatestVersion)
+			"validates it. Review it, then run `clauductor panel trust`: until then the panel runs none of its commands.\n", config.LatestVersion)
 		return nil
 	},
 }
@@ -258,9 +258,10 @@ var panelTrustCmd = &cobra.Command{
 	Use:   "trust",
 	Short: "Trust panel.json as it is now, so its cards, queue commands and templates run",
 	Long: `panel.json names commands the panel runs and prompts it types into lanes. The
-panel records its SHA-256 on first use; when the file changes (a pull, say), a
-running or starting panel keeps its cards, queue commands and templates off until
-you trust the new version with this command. A running panel notices within 5 s.`,
+panel runs them only for the exact bytes you trusted: a config it has never seen,
+or one that changed (a pull, say), keeps its cards, queue commands and templates
+off until you review it and trust it with this command. A running panel notices
+within 5 s.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,

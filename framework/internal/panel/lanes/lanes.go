@@ -911,7 +911,7 @@ type StartGate struct {
 func (m *LaneManager) StartLane(ctx context.Context, req StartRequest, g StartGate) (StartResult, *LaneError) {
 	if req.Template != "" {
 		if g.Trusted != nil && !g.Trusted() {
-			return StartResult{}, laneErr(409, "untrusted-config", "panel.json changed since you trusted it, so its templates are off; run `clauductor panel trust`")
+			return StartResult{}, laneErr(409, "untrusted-config", "panel.json is not trusted as it is now, so its templates are off; review it and run `clauductor panel trust`")
 		}
 		r, err := m.Cfg.RenderTemplate(req.Template, req.Name, req.Issue)
 		if err != nil {

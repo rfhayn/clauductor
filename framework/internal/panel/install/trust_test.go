@@ -12,9 +12,13 @@ func TestConfigTrust(t *testing.T) {
 	t.Parallel()
 	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
 	cfg := filepath.Join(root, "panel.json")
+	// A config never seen is not trusted by being run, and running it records nothing.
 	tv, err := CheckTrust(home, root, cfg, "h1", false)
-	if err != nil || !tv.Trusted || tv.Note == "" {
-		t.Fatalf("first use is trusted and recorded: %+v %v", tv, err)
+	if err != nil || tv.Trusted || tv.Prev != "" || TrustedNow(home, root, cfg, "h1") {
+		t.Fatalf("an unseen config must not be trusted by running it: %+v %v", tv, err)
+	}
+	if tv, _ := CheckTrust(home, root, cfg, "h1", true); !tv.Trusted || tv.Note == "" {
+		t.Fatalf("trusting it (`panel trust`) records it: %+v", tv)
 	}
 	if tv, _ := CheckTrust(home, root, cfg, "h1", false); !tv.Trusted {
 		t.Fatal("unchanged config untrusted")

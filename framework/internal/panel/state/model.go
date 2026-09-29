@@ -1049,7 +1049,7 @@ const (
 	BannerNoHooks   = "no_hooks"  // a busy lane sends no hooks
 	BannerRestore   = "restore"   // lanes lost their tmux session (the restore bar acts on it)
 	BannerDropped   = "dropped"   // events dropped because the panel fell behind
-	BannerUntrusted = "untrusted" // panel.json changed since it was trusted
+	BannerUntrusted = "untrusted" // panel.json is not trusted as it is now
 	BannerHooks     = "hooks"     // the hook install failed, or another panel has the hooks
 	BannerRegistry  = "registry"  // lane registry records that cannot be shown
 )
@@ -1398,8 +1398,12 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			"Lane states may lag until the next `claude agents` poll.", m.v2.obs.OverflowDrops))
 	}
 	if !m.v2.trust.Trusted && m.v2.trust.Hash != "" {
-		v.banner(BannerUntrusted, "panel.json changed since you trusted it ("+config.ShortHash(m.v2.trust.Prev)+" → "+config.ShortHash(m.v2.trust.Hash)+
-			"). Its commands (cards, queue RUN) and templates are off until you run `clauductor panel trust` (or restart with --trust-config).")
+		what := "panel.json changed since you trusted it (" + config.ShortHash(m.v2.trust.Prev) + " → " + config.ShortHash(m.v2.trust.Hash) + ")"
+		if m.v2.trust.Prev == "" {
+			what = "panel.json is not trusted yet (sha256 " + config.ShortHash(m.v2.trust.Hash) + ")"
+		}
+		v.banner(BannerUntrusted, what+". Its commands (cards, queue RUN) and templates are off until you review it and run "+
+			"`clauductor panel trust` (or restart with --trust-config).")
 	}
 	switch {
 	case m.v2.versionSet && m.v2.claudeVersion != HeuristicsVerifiedOn:

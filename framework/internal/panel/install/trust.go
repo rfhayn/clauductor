@@ -63,9 +63,11 @@ func writeTrust(path string, t trustFile) error {
 	return config.WriteAtomic(path, append(b, '\n'), 0o600)
 }
 
-// CheckTrust decides whether a config may run its commands. The first config seen
-// for a path is trusted and recorded (you started the panel on it). A changed one is
-// trusted only when trustNow is set, which records it.
+// CheckTrust decides whether a config may run its commands. Only a config whose
+// exact bytes were trusted may: one never seen before is not (a clone, or a pull
+// that adds panel.json, names commands nobody reviewed), nor is a changed one. Either
+// becomes trusted only when trustNow is set (`clauductor panel trust`,
+// --trust-config, `panel install`), which records it.
 func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.TrustView, error) {
 	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
 	tv := config.TrustView{Hash: hash, Path: cfgPath}
@@ -80,10 +82,10 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.Trus
 	case seen && prev == hash:
 		tv.Trusted = true
 		return tv, nil
-	case !seen:
-		tv.Note = "first run on this config: trusted and recorded"
+	case trustNow && !seen:
+		tv.Note = "trusted and recorded"
 	case trustNow:
-		tv.Note = "changed config trusted by --trust-config"
+		tv.Note = "changed config trusted"
 	default:
 		return tv, nil
 	}

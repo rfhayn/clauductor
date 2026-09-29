@@ -386,7 +386,11 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustV
 	}
 	trustState := "trusted"
 	if !tv.Trusted {
-		trustState = "UNTRUSTED: it changed since you trusted " + config.ShortHash(tv.Prev) + "; its commands and templates are off until `clauductor panel trust`"
+		if tv.Prev == "" {
+			trustState = "UNTRUSTED: not trusted yet; its commands and templates are off until you review it and run `clauductor panel trust`"
+		} else {
+			trustState = "UNTRUSTED: it changed since you trusted " + config.ShortHash(tv.Prev) + "; its commands and templates are off until `clauductor panel trust`"
+		}
 	}
 	if tv.Note != "" {
 		trustState += " (" + tv.Note + ")"

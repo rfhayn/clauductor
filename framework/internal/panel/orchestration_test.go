@@ -66,6 +66,10 @@ func v2Project(t *testing.T, cfg string) (root, home string) {
 	gitRun(t, root, "add", ".")
 	gitRun(t, root, "commit", "-q", "-m", "init")
 	gitRun(t, root, "remote", "add", "origin", filepath.Join(root, "no-such-remote"))
+	// The user reviewed and trusted it (`clauductor panel trust`).
+	if _, err := install.TrustConfig(home, root, ""); err != nil {
+		t.Fatal(err)
+	}
 	return root, home
 }
 
@@ -240,6 +244,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 		"cards":[{"id":"c","command":["echo","card-ran"],"refresh":"interval:60"}],
 		"templates":[{"id":"fix","lane_type":"fix","first_prompt":"hello"}]}`
 	root, home := v2Project(t, cfg)
+	os.Remove(install.TrustPath(home, root)) // a fresh clone on this machine: nobody has trusted it
 	var hidden atomic.Bool
 	run := func() *panelRun {
 		return startPanelWith(t, root, home, sock, func(o *Options) { o.Runner = v2Runner(tmux, sock, home, root, &hidden) })
@@ -248,30 +253,36 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 		v := p.state(t)
 		return v.Cards[0].Source.OK, v.Cards[0].Source.Error
 	}
-	// First run: trusted on first use, the card runs.
-	p := run()
-	waitFor(t, "the card", func() bool { ok, _ := cardOK(p); return ok })
-	if !p.state(t).Trust.Trusted {
-		t.Fatal("first use not trusted")
+	untrusted := func(p *panelRun, banner string) {
+		t.Helper()
+		waitFor(t, "the untrusted card", func() bool { _, e := cardOK(p); return strings.Contains(e, "not run") })
+		v := p.state(t)
+		if v.Trust.Trusted || !strings.Contains(strings.Join(v.Banners, " "), banner) {
+			t.Fatalf("untrusted state: %+v %v", v.Trust, v.Banners)
+		}
+		if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
+			t.Fatalf("template under an untrusted config: %d %v", code, body)
+		}
 	}
+	trust := func(p *panelRun) {
+		t.Helper()
+		// `clauductor panel trust` lifts it in the running panel.
+		if _, err := install.TrustConfig(home, root, ""); err != nil {
+			t.Fatal(err)
+		}
+		waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })
+		if !p.state(t).Trust.Trusted {
+			t.Fatal("still untrusted")
+		}
+	}
+	// A config the panel has never seen runs nothing until it is trusted.
+	p := run()
+	untrusted(p, "not trusted yet")
+	trust(p)
 	p.stop()
-	// The config changes (a pull): the card and templates are off, loudly.
+	// The config changes (a pull): the card and templates are off again, loudly.
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), strings.Replace(cfg, "card-ran", "card-changed", 1))
 	p = run()
-	waitFor(t, "the untrusted card", func() bool { _, e := cardOK(p); return strings.Contains(e, "not run") })
-	v := p.state(t)
-	if v.Trust.Trusted || !strings.Contains(strings.Join(v.Banners, " "), "changed since you trusted it") {
-		t.Fatalf("untrusted state: %+v %v", v.Trust, v.Banners)
-	}
-	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
-		t.Fatalf("template under an untrusted config: %d %v", code, body)
-	}
-	// `clauductor panel trust` lifts it in the running panel.
-	if _, err := install.TrustConfig(home, root, ""); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })
-	if !p.state(t).Trust.Trusted {
-		t.Fatal("still untrusted")
-	}
+	untrusted(p, "changed since you trusted it")
+	trust(p)
 }

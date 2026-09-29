@@ -43,9 +43,9 @@ only text it types into a lane on its own is a template's first prompt, once.
 2. **Init** the project: in its checkout, `clauductor panel init` writes a starter
    `.clauductor/panel.json` from what the repository already says, and prints why it chose each
    value (see [`panel init`](#panel-init)). Review it and commit it.
-3. **Trust** it: the first run on a config trusts it as it is. After the file changes (a pull,
-   say), its commands and templates stay off until you run `clauductor panel trust` (see
-   [Config trust](#config-trust)).
+3. **Trust** it: after reviewing it, run `clauductor panel trust`. Until then the panel starts but
+   runs none of its commands or templates, and it asks again whenever the file changes (a pull,
+   say). See [Config trust](#config-trust).
 4. **Open** it: `clauductor panel` starts the panel and opens the browser. To keep it running
    with no terminal, `clauductor panel install --project <path> --app` installs a login agent;
    then `clauductor panel open` (or the app) opens the page.
@@ -321,7 +321,7 @@ card.
 - **Banners (top of the centre column).** Each says what it is. **NO HOOKS**: a lane is busy per
   `claude agents` and no hook has come from it since it went busy, for 60 s; usually the session
   never loaded the hooks, so restart it. **CANNOT READ**: `claude agents`, `git worktree list` or
-  the panel's tmux server cannot be read. **CONFIG CHANGED**, **EVENTS DROPPED**, **HOOKS** and
+  the panel's tmux server cannot be read. **CONFIG UNTRUSTED**, **EVENTS DROPPED**, **HOOKS** and
   **LANE REGISTRY** say what their name says. Lanes that lost their tmux session are announced
   once, in the **RESTORE** bar, with RESTORE ALL.
 - **Footer.** One line: hook events, status posts, drops and notifications. **ALL COUNTERS**
@@ -1183,12 +1183,16 @@ send requests to `127.0.0.1`.
 ### Config trust
 
 `panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN) and
-prompts it types (templates). The panel records the file's SHA-256 under
-`~/.clauductor/panel/<project hash>/trusted-config.json` the first time it runs on it, and logs
-the hash at every start. When the file changes (a pull, say), the panel still starts, but its
-cards, queue RUN and templates stay **off** until you run `clauductor panel trust` (a running
-panel follows within 5 s) or start with `--trust-config`. A red banner names both hashes.
-`clauductor panel install` trusts the config it installs.
+prompts it types (templates). Anyone who can change the repository can change them, so the panel
+runs them only for the exact bytes you trusted. Trusting records the file's SHA-256 under
+`~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
+start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
+**not** trusted by running it, and neither is one that changed (a pull, say): the panel still
+starts, but its cards, queue RUN and templates stay **off**, under a red **CONFIG UNTRUSTED**
+banner that names the hash (and the trusted one it replaces), until you review the file and run
+`clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
+`clauductor panel install` trusts the config it installs. There is no trust button in the page:
+trusting is a command you run after reading the file.
 
 ## Operations
 
@@ -1321,8 +1325,9 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
 
 ### Cards, RUN and templates do nothing
 
-The config changed since you trusted it: a red banner names both hashes. Run `clauductor panel
-trust` (see [Config trust](#config-trust)).
+The config is not trusted as it is now (never trusted, or changed since): a red **CONFIG
+UNTRUSTED** banner says which. Review it and run `clauductor panel trust` (see
+[Config trust](#config-trust)).
 
 ### A lane dies at start
 
