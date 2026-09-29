@@ -198,3 +198,44 @@ func TestBrowserOpensOncePerLogin(t *testing.T) {
 		t.Fatal("a later login did not open the browser")
 	}
 }
+
+// A reinstall waits for bootout to finish before bootstrapping, and retries a
+// bootstrap that fails once (launchd's error 5 when the old job is still tearing
+// down; seen live).
+func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(project, DefaultConfigRel), `{"name":"P"}`)
+	self := filepath.Join(t.TempDir(), "clauductor")
+	os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755)
+	var calls []string
+	prints, bootstraps := 0, 0
+	fake := func(argv ...string) ([]byte, error) {
+		verb := ""
+		if len(argv) > 1 {
+			verb = argv[1]
+		}
+		calls = append(calls, verb)
+		switch verb {
+		case "print": // the old job lingers for two polls
+			prints++
+			if prints <= 2 {
+				return nil, nil
+			}
+			return []byte("Could not find service"), errors.New("exit status 113")
+		case "bootstrap":
+			bootstraps++
+			if bootstraps == 1 {
+				return []byte("Bootstrap failed: 5: Input/output error"), errors.New("exit status 5")
+			}
+		}
+		return nil, nil
+	}
+	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond}); err != nil {
+		t.Fatalf("install: %v (calls %v)", err, calls)
+	}
+	got := strings.Join(calls, ",")
+	if !strings.Contains(got, "bootout,print,print,print,bootstrap,bootstrap") {
+		t.Fatalf("launchctl sequence %s", got)
+	}
+}

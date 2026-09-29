@@ -236,6 +236,15 @@ type InstallOptions struct {
 	Exec func(argv ...string) ([]byte, error)
 	// Self is the running binary to copy (default os.Executable).
 	Self string
+	// PollDelay spaces launchctl polls (default 100 ms; tests use less).
+	PollDelay time.Duration
+}
+
+func (o InstallOptions) pollDelay() time.Duration {
+	if o.PollDelay > 0 {
+		return o.PollDelay
+	}
+	return 100 * time.Millisecond
 }
 
 func execCombined(argv ...string) ([]byte, error) {
@@ -326,8 +335,23 @@ func Install(o InstallOptions) error {
 		return fmt.Errorf("plutil rejected %s: %v: %s", plist, err, strings.TrimSpace(string(out)))
 	}
 	// Replace a loaded copy; "not loaded" is the normal first-install answer.
-	_, _ = o.Exec("/bin/launchctl", "bootout", guiDomain()+"/"+LaunchdLabel)
-	if out, err := o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist); err != nil {
+	// bootout returns before the old job is gone, and a bootstrap in that window
+	// fails with error 5 (seen live), so wait for the service to disappear.
+	service := guiDomain() + "/" + LaunchdLabel
+	if _, err := o.Exec("/bin/launchctl", "bootout", service); err == nil {
+		for i := 0; i < 50; i++ {
+			if _, err := o.Exec("/bin/launchctl", "print", service); err != nil {
+				break
+			}
+			time.Sleep(o.pollDelay())
+		}
+	}
+	out, err := o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
+	if err != nil { // one retry: the teardown can outlast print's view of it
+		time.Sleep(20 * o.pollDelay())
+		out, err = o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
+	}
+	if err != nil {
 		return fmt.Errorf("launchctl bootstrap %s %s: %v: %s", guiDomain(), plist, err, strings.TrimSpace(string(out)))
 	}
 	fmt.Fprintf(o.Out, "Installed login agent %s (%s)\n  runs %s panel --project %s on 127.0.0.1:%d\n  logs: %s\n",
