@@ -11,6 +11,19 @@ const STYLE_NONCE = document.querySelector('meta[name="csp-style-nonce"]').conte
     return e;
   };
 }
+// xterm's DOM renderer colours a cell with a truecolor value, or with a colour lifted to
+// the theme's minimumContrastRatio, through span.setAttribute("style", …). The CSP
+// blocks style attributes, so those cells silently kept their palette colour. Route a
+// span's style attribute through CSSOM instead, which the CSP does not govern. It is
+// scoped to <span> (xterm's cells) and adds nothing a script could not already do:
+// the page never builds markup from server text.
+{
+  const setAttr = Element.prototype.setAttribute;
+  HTMLSpanElement.prototype.setAttribute = function (name, value) {
+    if (String(name).toLowerCase() === "style") { this.style.cssText = String(value); return; }
+    return setAttr.call(this, name, value);
+  };
+}
 // Every piece of text from the server goes through textContent: prompts, card output
 // and PR titles are data, never markup.
 let S = null, offset = 0, es = null, selected = null;
@@ -214,10 +227,15 @@ function termTheme() {
 function termFontSize() {
   return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--term-size")) || 13;
 }
+// The theme's floor for text a program draws on any colour, ANSI or truecolor.
+function termMinContrast() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--term-min-contrast")) || 1;
+}
 function retheme() {
-  const theme = termTheme(), size = termFontSize();
+  const theme = termTheme(), size = termFontSize(), minC = termMinContrast();
   for (const t of Object.values(terms)) {
     t.term.options.theme = theme;
+    t.term.options.minimumContrastRatio = minC;
     if (t.term.options.fontSize !== size) { t.term.options.fontSize = size; fitTerm(t); }
   }
   renderPicker();
@@ -236,7 +254,7 @@ function ensureTerm(id) {
   const term = new Terminal({
     fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: termFontSize(),
     cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches, scrollback: 2000, macOptionIsMeta: true,
-    theme: termTheme(),
+    theme: termTheme(), minimumContrastRatio: termMinContrast(),
     // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
     // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
     // to onTitleChange, so they never reach the DOM.

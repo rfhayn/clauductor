@@ -5,6 +5,8 @@
    theme.js puts both attributes on <html> before first paint, and the picker's swatches
    carry them too, so a swatch shows the real tokens of the theme it names.
    themes_test.go fails if a theme × mode misses a token or a contrast floor.
+   --term-min-contrast is xterm's minimumContrastRatio: whatever colours a program
+   combines (SGR 97 on 41, a truecolor diff), xterm lifts the text to this ratio.
    Fonts are embedded in the binary (SIL OFL 1.1; licences beside the files). A face
    downloads only when a rule in the active theme uses it. */
 
@@ -40,7 +42,7 @@
   --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 2px;
   --font-label: var(--font-mono); --label-size: .66rem;
   --btn-size: .68rem;
-  --term-size: 13px;
+  --term-min-contrast: 4.5; --term-size: 13px;
   --band: var(--line); --band-h: 1px;
   --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   --backdrop-size: 24px 24px;
@@ -82,7 +84,7 @@
   --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 2px;
   --font-label: var(--font-body); --label-size: .8rem;
   --btn-size: .8rem;
-  --term-size: 13px;
+  --term-min-contrast: 4.5; --term-size: 13px;
   --band: repeating-linear-gradient(90deg, var(--text) 0 32px, var(--panel) 32px 64px); --band-h: 5px;
   --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   --backdrop-size: 120px 120px;
@@ -123,7 +125,7 @@
   --pad: 12px 14px; --gap: 12px; --col-pad: 16px; --shadow: 0 1px 2px var(--scrim), 0 2px 10px -6px var(--scrim); --focus-w: 3px;
   --font-label: var(--font-display); --label-size: .76rem;
   --btn-size: .72rem;
-  --term-size: 13px;
+  --term-min-contrast: 4.5; --term-size: 13px;
   --band: var(--accent); --band-h: 3px;
   --backdrop: none; --backdrop-size: auto;
 }
@@ -163,7 +165,7 @@
   --pad: 6px 8px; --gap: 6px; --col-pad: 10px; --shadow: none; --focus-w: 2px;
   --font-label: var(--font-mono); --label-size: .7rem;
   --btn-size: .74rem;
-  --term-size: 13px;
+  --term-min-contrast: 4.5; --term-size: 13px;
   --band: radial-gradient(circle at 6px 50%, var(--line-strong) 2.5px, transparent 3px) 0 0 / 14px 100% repeat-x, var(--panel-2); --band-h: 8px;
   --backdrop: linear-gradient(transparent 27px, var(--grid) 27px); --backdrop-size: 100% 28px;
 }
@@ -203,7 +205,7 @@
   --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 3px;
   --font-label: var(--font-body); --label-size: .82rem;
   --btn-size: .78rem;
-  --term-size: 15px;
+  --term-min-contrast: 7; --term-size: 15px;
   --band: var(--text); --band-h: 4px;
   --backdrop: none; --backdrop-size: auto;
 }
@@ -245,7 +247,7 @@
   --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 3px;
   --font-label: var(--font-mono); --label-size: .6rem;
   --btn-size: .68rem;
-  --term-size: 13px;
+  --term-min-contrast: 4.5; --term-size: 13px;
   --band: repeating-linear-gradient(-45deg, #f5c400 0 10px, #161616 10px 20px); --band-h: 8px;
   --backdrop: none; --backdrop-size: auto;
 }

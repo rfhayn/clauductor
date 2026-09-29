@@ -173,7 +173,7 @@ background lets each ANSI colour read as text and also carry a label in another 
 | **Chart room** | A nautical chart: white water, chart magenta, a latitude-scale border, italic names, sentence case, square corners. Dark is a dimmed night palette. | Newsreader italic, Public Sans, DM Mono |
 | **Ward monitor** | A ward's central monitoring station: rounded bed tiles, soft shadows, big condensed figures, surgical teal. The roomiest. | Barlow Semi Condensed, Barlow, Red Hat Mono |
 | **Duplicator** | A dispatch office: forms typed in duplicator violet, dashed carbon-form rules, a tractor-feed edge. The densest. | Courier Prime |
-| **High contrast** | For low vision and glare: black and white, 7:1 page text and terminal colours (see below for the one exception), 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
+| **High contrast** | For low vision and glare: black and white, 7:1 page text and terminal colours (see below for its three exceptions), 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
 | **Shop floor** | Safety signage: concrete and asphalt, stencil lettering, a hazard-stripe edge, heavy borders, wide state stripes. | Big Shoulders Stencil, Archivo, Martian Mono |
 
 A lane's state is never shown by colour alone. Busy is a filled circle, waiting a diamond,
@@ -193,7 +193,7 @@ of its own, so a theme adds no component CSS. To add one:
      (`--font-display`, `--font-body`, `--font-mono`, `--font-label`), the type scale and case
      (`--fs-root`, `--display-*`, `--label-*`, `--btn-size`, `--caps`), and the
      shape (`--r`, `--r-btn`, `--r-chip`, `--bw`, `--line-style`, `--stripe`, `--pad`,
-     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--term-size`, `--band`,
+     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--term-size`, `--term-min-contrast`, `--band`,
      `--band-h`, `--backdrop`, `--backdrop-size`).
    - `[data-theme="<id>"][data-mode="light"]` and `…[data-mode="dark"]` each hold every colour:
      `--surface`, `--panel`, `--panel-2`, `--line`, `--line-strong`, `--text`, `--text-dim`,
@@ -222,7 +222,10 @@ measured on `--surface`, `--panel` and `--panel-2`:
   most 3:1, so white text on a coloured label cannot be legible there. Black carries every
   label instead, at 4.5:1 on each colour, and ANSI black itself stays at 3:1 on the
   background. Those two figures, and white-on-colour labels, are the High contrast theme's
-  exceptions to 7:1;
+  three exceptions to 7:1. What the palette cannot promise, xterm enforces:
+  `--term-min-contrast` sets its `minimumContrastRatio` (4.5 in every theme, 7 in High
+  contrast), so it lightens or darkens any text a program draws, on any ANSI or truecolor
+  background, to that ratio. White on red therefore renders at 7:1 there as another colour;
 - busy, waiting, blocked and idle must differ by at least ΔE 20.
 
 It fails, too, on a font file that no theme loads or that has no licence, and on more than 700
@@ -495,7 +498,10 @@ send requests to `127.0.0.1`.
   `connect-src 'self' ws://<host>`, and no `'unsafe-inline'` anywhere. The page's JS and CSS are
   files embedded in the binary. So are xterm.js and the themes' fonts. The page loads nothing from
   a CDN or Google Fonts. xterm.js creates `<style>` elements at run time, so `style-src` allows
-  one per-response nonce as well; `panel.js` stamps it on those elements.
+  one per-response nonce as well; `panel.js` stamps it on those elements. xterm's renderer also
+  colours cells through a `<span>`'s `style` attribute (truecolor, and colours lifted to
+  `--term-min-contrast`), which the CSP blocks; `panel.js` routes a span's `style` attribute
+  through CSSOM, which the CSP does not govern, so those colours render.
 - **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
   guarded route. It needs all of the following:
   - the Host check;

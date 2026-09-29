@@ -283,7 +283,7 @@ func TestThemesDefineEveryToken(t *testing.T) {
 			}
 			for k := range used {
 				if _, ok := all[k]; !ok && !shapeReq[k] && !colourReq[k] {
-					missing = append(missing, k+" (used by panel.css, defined by no theme)")
+					missing = append(missing, k+" (used by panel.css or panel.js, defined by no theme)")
 				}
 			}
 			sort.Strings(missing)
@@ -317,6 +317,31 @@ var ansiLabelPairs = [][2]int{
 var aaaLabelPairs = [][2]int{
 	{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6},
 	{0, 9}, {0, 10}, {0, 11}, {0, 12}, {0, 13}, {0, 14},
+}
+
+// --term-min-contrast is xterm's minimumContrastRatio. It is the only guard for colour
+// pairs the palette cannot promise (in an aaa theme, white on red is at most 3:1), so
+// every theme sets one, at least 4.5, and an aaa theme at least 7.
+func TestThemeTerminalMinimumContrast(t *testing.T) {
+	tb := parseThemes(t, readWeb(t, "themes.css"))
+	if !strings.Contains(readWeb(t, "panel.js"), "minimumContrastRatio") {
+		t.Error("panel.js never sets xterm's minimumContrastRatio")
+	}
+	// xterm applies a lifted colour through span.setAttribute("style"), which the CSP
+	// blocks; without panel.js's CSSOM route the ratio would silently do nothing.
+	if !strings.Contains(readWeb(t, "panel.js"), "HTMLSpanElement.prototype.setAttribute") {
+		t.Error("panel.js does not route xterm's span style attributes through CSSOM")
+	}
+	for _, th := range declaredThemes(t) {
+		v, err := strconv.ParseFloat(tb.shape[th.id]["term-min-contrast"], 64)
+		want := 4.5
+		if th.aaa {
+			want = 7
+		}
+		if err != nil || v < want || v > 21 {
+			t.Errorf("%s: --term-min-contrast is %q, want a number in [%.1f, 21]", th.id, tb.shape[th.id]["term-min-contrast"], want)
+		}
+	}
 }
 
 func TestThemeContrast(t *testing.T) {
