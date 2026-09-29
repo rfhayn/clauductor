@@ -1,0 +1,10 @@
+[
+  {"author":{"is_bot":true,"login":"app/dependabot"},"headRefName":"dependabot/npm_and_yarn/routine-70441b209d","isDraft":false,"number":387,"statusCheckRollup":[],"title":"deps: bump the routine group with 2 updates"},
+  {"author":{"login":"rfhayn"},"headRefName":"ops/control-panel-v0","isDraft":true,"number":394,"title":"Control panel v0","statusCheckRollup":[
+    {"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},
+    {"__typename":"CheckRun","name":"audit","status":"COMPLETED","conclusion":"FAILURE"},
+    {"__typename":"CheckRun","name":"e2e","status":"IN_PROGRESS","conclusion":""},
+    {"__typename":"StatusContext","context":"local-gate","state":"SUCCESS"},
+    {"__typename":"StatusContext","context":"deploy","state":"PENDING"}
+  ]}
+]

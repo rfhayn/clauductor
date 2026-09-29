@@ -1,0 +1,20 @@
+[
+  {
+    "pid": 25533,
+    "cwd": "/Users/rich/Development/standingtee/.claude/worktrees/build-add-support-access",
+    "kind": "interactive",
+    "startedAt": 1790625962459,
+    "sessionId": "7d319d6d-f9db-4a24-9e17-97379650cc35",
+    "name": "standingtee-fc",
+    "status": "busy"
+  },
+  {
+    "pid": 6222,
+    "cwd": "/Users/rich/Development/standingtee",
+    "kind": "interactive",
+    "startedAt": 1790640446302,
+    "sessionId": "ee3fad94-5222-4e27-a50c-23e3c959c25f",
+    "name": "standingtee-a3",
+    "status": "busy"
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "name": "Standing Tee",
+  "lanes": {
+    "change/": "build",
+    "fix/": "fix",
+    "ops/": "ops",
+    "main": "orchestrator"
+  },
+  "cards": [
+    {
+      "id": "founder-queue",
+      "title": "Founder queue",
+      "command": ["bash", ".claude/founder-queue.sh"],
+      "refresh": "watch:docs/founder-queue.md"
+    },
+    {
+      "id": "roadmap-queue",
+      "title": "Roadmap queue",
+      "command": ["sh", "-c", "node infra/roadmap-queue.mjs --json | jq '[.[] | select(.open) | {title: .change, status, owner}]'"],
+      "refresh": "interval:300"
+    }
+  ]
+}

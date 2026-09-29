@@ -1,0 +1,16 @@
+worktree /Users/rich/Development/standingtee
+HEAD 1ff541758ffe66ae3f87dbb9eff7955c05bf3213
+branch refs/heads/main
+
+worktree /Users/rich/Development/standingtee/.claude/worktrees/agent-a8024accc05bc9935
+HEAD bc147bc3ddbd6ccf5ca700be851f9cc8d19942a1
+branch refs/heads/ops/control-room-live
+
+worktree /Users/rich/Development/standingtee/.claude/worktrees/build-add-support-access
+HEAD 69ea152891ebb83f91eb984d187ff31d43950115
+branch refs/heads/change/add-support-access
+
+worktree /Users/rich/Development/standingtee/.claude/worktrees/ops-control-panel-v0
+HEAD 96bd28f7f6f849355e19732cc3aabd203ee80c4f
+branch refs/heads/ops/control-panel-v0
+
