@@ -15,6 +15,7 @@ import (
 )
 
 func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
+	t.Parallel()
 	n := &Notifier{MinInterval: 5 * time.Minute, Project: "P"}
 	a1 := AlertView{Key: "waiting:s1", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "waiting on you for 3m"}
 	a2 := AlertView{Key: "no_auto_resume:s1", Kind: AlertNoAutoResume, Severity: signals.SevWarn, Terminal: "lane-a", Name: "lane-a", Text: "will not auto-resume"}
@@ -62,6 +63,7 @@ func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
 // The notification's AppleScript is fixed text; untrusted text only ever arrives as
 // an argument after it.
 func TestNotifyArgvKeepsTextOutOfTheScript(t *testing.T) {
+	t.Parallel()
 	hostile := `x" & (do shell script "touch /tmp/pwned") & "`
 	argv := NotifyArgv(hostile, hostile+"\n"+hostile)
 	var script []string
@@ -88,6 +90,7 @@ func TestNotifyArgvKeepsTextOutOfTheScript(t *testing.T) {
 // contains is executed. The script returns item 2 of argv instead of displaying it,
 // so the test shows no notification.
 func TestOsascriptArgvRoundTrip(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS only")
 	}
@@ -124,6 +127,7 @@ func TestOsascriptArgvRoundTrip(t *testing.T) {
 // Review 2026-09-28: only what blocks you interrupts, and a restart never
 // re-notifies an alert that is still active.
 func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	n := &Notifier{MinInterval: time.Minute}
 	pageOnly := []AlertView{
 		{Key: "idle:s", Kind: AlertIdle, Severity: signals.SevInfo, Terminal: "a", Text: "idle"},

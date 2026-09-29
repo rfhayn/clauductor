@@ -18,6 +18,7 @@ import (
 // Typed text that starts with "-" must reach the lane as text, not as a send-keys
 // flag (review 2026-09-28: "-N" was read as an option).
 func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	out := filepath.Join(t.TempDir(), "typed")
 	if err := exec.Command(tmux, "-L", sock, "new-session", "-d", "-s", "t", "cat > "+out).Run(); err != nil {

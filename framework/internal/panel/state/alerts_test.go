@@ -8,6 +8,7 @@ import (
 )
 
 func TestAlertThresholds(t *testing.T) {
+	t.Parallel()
 	m := alertModel(t, `,"alerts":{"idle_minutes":10,"context_pct":80,"five_hour_pct":90,"waiting_seconds":60}`)
 	cwd := "/repo/w/x"
 	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0)

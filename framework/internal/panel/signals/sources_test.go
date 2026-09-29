@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseWorktreePorcelain(t *testing.T) {
+	t.Parallel()
 	wts, err := parseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
 	if err != nil {
 		t.Fatal(err)
@@ -23,6 +24,7 @@ func TestParseWorktreePorcelain(t *testing.T) {
 }
 
 func TestParsePRsSummarisesChecks(t *testing.T) {
+	t.Parallel()
 	prs, err := ParsePRs(fixture(t, "prs.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +39,7 @@ func TestParsePRsSummarisesChecks(t *testing.T) {
 }
 
 func TestParseCardOutput(t *testing.T) {
+	t.Parallel()
 	if o := ParseCardOutput([]byte(" [ {\"title\": \"a\"} ]\n")); o.Kind != "json" || string(o.JSON) != `[{"title":"a"}]` {
 		t.Fatalf("%+v", o)
 	}

@@ -17,6 +17,7 @@ import (
 )
 
 func TestValidLaneID(t *testing.T) {
+	t.Parallel()
 	ok := []string{"a", "0", "add-login", "orchestrator", "x-1-2", strings.Repeat("a", 41)}
 	bad := []string{"", "-a", "A", "Add", "a_b", "a.b", "a:b", "a b", "a/b", "../x", "=a", "a;b", "a'b",
 		"a\nb", "é", strings.Repeat("a", 42), "$(id)", "`id`"}
@@ -52,6 +53,7 @@ const sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 // Every command is an argv list; nothing a browser supplies is ever parsed by a shell.
 func TestLaneArgvConstruction(t *testing.T) {
+	t.Parallel()
 	m := testLaneManager(t)
 	unset := []string{"-u", "ANTHROPIC_API_KEY", "-u", "ANTHROPIC_AUTH_TOKEN"}
 	for _, k := range parentSessionVars {
@@ -141,6 +143,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 }
 
 func TestStartRejectsBadInputBeforeRunningAnything(t *testing.T) {
+	t.Parallel()
 	m := testLaneManager(t)
 	m.TmuxPath = "/nonexistent/tmux" // any tmux or git call would fail loudly
 	m.Run = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
@@ -167,6 +170,7 @@ func TestStartRejectsBadInputBeforeRunningAnything(t *testing.T) {
 // An API key in the panel's environment outranks the subscription login: no lane
 // starts, and the refusal says why.
 func TestStartRefusedWhileAnAPIKeyIsSet(t *testing.T) {
+	t.Parallel()
 	for _, k := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} {
 		m := testLaneManager(t)
 		m.LookupEnv = func(name string) (string, bool) { return "sk-test", name == k }
@@ -186,6 +190,7 @@ func TestStartRefusedWhileAnAPIKeyIsSet(t *testing.T) {
 }
 
 func TestBranchPrefixAndLaneTypes(t *testing.T) {
+	t.Parallel()
 	m := testLaneManager(t)
 	for typ, want := range map[string]string{"fix": "fix/", "build": "change/", "propose": "change/propose-", "orchestrator": "", "nope": ""} {
 		if got := m.Cfg.BranchPrefix(typ); got != want {
@@ -205,6 +210,7 @@ func TestBranchPrefixAndLaneTypes(t *testing.T) {
 }
 
 func TestParseTmuxPanes(t *testing.T) {
+	t.Parallel()
 	out := "orchestrator\t/tmp\t/tmp\t0\t\t1790000000\t1\torchestrator\n" +
 		"orchestrator\t/tmp\t/tmp\t0\t\t1790000000\t1\torchestrator\n" + // second pane of the same session
 		"fix-a\t\t/nonexistent/wt\t1\t3\t1790000001\t0\tfix\n" +
@@ -225,6 +231,7 @@ func TestParseTmuxPanes(t *testing.T) {
 // The intent reaches the disk BEFORE the action: a panel killed mid-start leaves a
 // record, which the next start shows as an orphan instead of losing the lane.
 func TestRegistryIsWrittenBeforeTheAction(t *testing.T) {
+	t.Parallel()
 	m := testLaneManager(t)
 	m.TmuxPath = filepath.Join(t.TempDir(), "tmux") // a tmux whose socket has no server
 	os.WriteFile(m.TmuxPath, []byte("#!/bin/sh\necho 'no server running on /tmp/x' >&2\nexit 1\n"), 0o755)
@@ -255,6 +262,7 @@ func TestRegistryIsWrittenBeforeTheAction(t *testing.T) {
 }
 
 func TestRegistryFileIsPrivateAndRoundTrips(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	r, err := OpenRegistry(home, "/repo")
 	if err != nil {
@@ -295,6 +303,7 @@ func TestRegistryFileIsPrivateAndRoundTrips(t *testing.T) {
 }
 
 func TestNewSessionID(t *testing.T) {
+	t.Parallel()
 	a, _ := newSessionID()
 	b, _ := newSessionID()
 	if !uuidRe.MatchString(a) || a == b {
@@ -307,6 +316,7 @@ func TestNewSessionID(t *testing.T) {
 // record, then applied that stale copy after the delete; the lane stayed "registered"
 // until the next reload. This forces that interleaving.
 func TestRegistryReloadNeverResurrectsADeletedLane(t *testing.T) {
+	t.Parallel()
 	r, err := OpenRegistry(t.TempDir(), "/repo")
 	if err != nil {
 		t.Fatal(err)
@@ -334,6 +344,7 @@ func TestRegistryReloadNeverResurrectsADeletedLane(t *testing.T) {
 }
 
 func TestAgentReadyUnderTheLock(t *testing.T) {
+	t.Parallel()
 	sid := "s1"
 	for _, c := range []struct {
 		agents []signals.Agent
@@ -353,6 +364,7 @@ func TestAgentReadyUnderTheLock(t *testing.T) {
 }
 
 func TestSelectRestorable(t *testing.T) {
+	t.Parallel()
 	sid := func(n byte) string { return "11111111-1111-4111-8111-11111111111" + string(n) }
 	recs := []types.LaneRecord{
 		{ID: "a", SessionID: sid('a'), Path: "/ok"},
