@@ -78,15 +78,22 @@ type panelRun struct {
 
 func startPanel(t *testing.T, root, home, sock string) *panelRun {
 	t.Helper()
+	return startPanelWith(t, root, home, sock, nil)
+}
+
+func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options)) *panelRun {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: gitOnlyRunner,
-			// sh stands in for claude; the claude flags land in its ignored positional args.
-			TmuxSocket: sock, LaneProgram: []string{"/bin/sh", "-c", "exec /bin/sh", "lane"}, StopTimeout: 1500 * time.Millisecond,
-			OnReady: func(u string) { ready <- u }})
-	}()
+	o := Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: gitOnlyRunner,
+		// sh stands in for claude; the claude flags land in its ignored positional args.
+		TmuxSocket: sock, LaneProgram: []string{"/bin/sh", "-c", "exec /bin/sh", "lane"}, StopTimeout: 1500 * time.Millisecond,
+		OnReady: func(u string) { ready <- u }}
+	if tweak != nil {
+		tweak(&o)
+	}
+	go func() { done <- Run(ctx, o) }()
 	select {
 	case u := <-ready:
 		pu, _ := url.Parse(u)
@@ -403,5 +410,87 @@ func TestStartRefusedOverHTTPWhileTheKeyIsInThePanelsEnvironment(t *testing.T) {
 		t.Fatal("a refused start still started a tmux server")
 	} else if ee := (&exec.ExitError{}); !errors.As(err, &ee) {
 		t.Fatal(err)
+	}
+}
+
+func rootLaneProject(t *testing.T) (root, home string) {
+	t.Helper()
+	root = ResolvePath(t.TempDir())
+	home = t.TempDir()
+	gitRun(t, root, "init", "-q", "-b", "main")
+	writeFile(t, filepath.Join(root, DefaultConfigRel), `{"name":"T","lanes":{"main":"orchestrator"}}`)
+	return root, home
+}
+
+// closeCode reads until the connection closes and returns its close status.
+func closeCode(c *websocket.Conn, within time.Duration) websocket.StatusCode {
+	ctx, cancel := context.WithTimeout(context.Background(), within)
+	defer cancel()
+	for {
+		if _, _, err := c.Read(ctx); err != nil {
+			return websocket.CloseStatus(err)
+		}
+	}
+}
+
+// A terminal whose page has gone quiet (hidden: no "alive") is closed with 4000,
+// and a page that keeps saying "alive" keeps its terminal.
+func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
+	_, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	p := startPanelWith(t, root, home, sock, func(o *Options) { o.TermIdleTimeout = 800 * time.Millisecond })
+	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	quiet := p.dial(t, "orch")
+	if got := closeCode(quiet, 5*time.Second); got != closeIdle {
+		t.Fatalf("quiet terminal closed with %v, want %v (idle)", got, closeIdle)
+	}
+	busy := p.dial(t, "orch")
+	stop := time.After(2500 * time.Millisecond)
+	for alive := true; alive; {
+		select {
+		case <-stop:
+			alive = false
+		case <-time.After(200 * time.Millisecond):
+			send(t, busy, termMsg{Type: "alive"})
+		}
+	}
+	if got := closeCode(busy, 100*time.Millisecond); got != -1 {
+		t.Fatalf("a terminal that kept saying alive was closed: %v", got)
+	}
+}
+
+// Rotating the token (rotate-token, or a reinstall) kills the old one in the running
+// panel: its terminals close with 4001 and its cookie gets 401.
+func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
+	_, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	p := startPanelWith(t, root, home, sock, func(o *Options) {
+		o.Launchd, o.NoOpen, o.OpenBrowser = true, true, func(string) {}
+	})
+	if code, body := p.post(t, "/api/lanes", StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	c := p.dial(t, "orch")
+	newTok, err := RotateToken(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := closeCode(c, 6*time.Second); got != closeRotated {
+		t.Fatalf("terminal closed with %v after rotation, want %v", got, closeRotated)
+	}
+	req, _ := http.NewRequest("GET", p.base+"/api/state", nil)
+	req.Header.Set("Cookie", p.cookie)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 401 {
+		t.Fatalf("old cookie after rotation: %v %v", resp.StatusCode, err)
+	}
+	port := strings.TrimPrefix(p.base, "http://127.0.0.1:")
+	fresh := liveClient{base: p.base, cookie: "clauductor_panel_" + port + "=" + newTok}
+	if v := fresh.state(t); v.Name != "T" {
+		t.Fatalf("new token: %+v", v.Name)
+	}
+	if code, _ := p.post(t, "/api/lanes/orch/ticket", nil); code != 401 {
+		t.Fatalf("ticket with the old cookie: %d, want 401", code)
 	}
 }

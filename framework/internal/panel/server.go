@@ -149,6 +149,13 @@ type Server struct {
 	// the panel runs under launchd with a persistent token.
 	CookieMaxAge int
 
+	// TermIdleTimeout closes a terminal whose page has sent nothing (not even its
+	// once-a-minute "alive" while visible) for this long. Zero means 5 minutes.
+	TermIdleTimeout time.Duration
+
+	tokenMu sync.RWMutex
+	rotated chan struct{} // closed, and replaced, on each token rotation
+
 	termMu  sync.Mutex
 	tickets map[string]termTicket               // single-use WebSocket tickets
 	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
@@ -177,7 +184,7 @@ func remoteIsLoopback(r *http.Request) bool {
 
 func (s *Server) authed(r *http.Request) bool {
 	c, err := r.Cookie(s.cookieName())
-	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.Token)) == 1
+	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.currentToken())) == 1
 }
 
 // Handler returns the full HTTP handler with every guard applied.
@@ -273,11 +280,12 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if t := r.URL.Query().Get("t"); t != "" {
-		if subtle.ConstantTimeCompare([]byte(t), []byte(s.Token)) != 1 {
+		token := s.currentToken()
+		if subtle.ConstantTimeCompare([]byte(t), []byte(token)) != 1 {
 			http.Error(w, "unauthorized: stale or wrong token", http.StatusUnauthorized)
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: s.Token, Path: "/",
+		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: token, Path: "/",
 			HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: s.CookieMaxAge})
 		// Drop the token from the address bar and history.
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -316,6 +324,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	ch, cancel := s.Hub.subscribe()
 	defer cancel()
+	rotated := s.rotation() // a token rotation ends this stream; the page's reconnect then gets 401
 	send := func(b []byte) error {
 		_, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b)
 		fl.Flush()
@@ -331,6 +340,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-rotated:
+			return
 		case b := <-ch:
 			if send(b) != nil {
 				return
@@ -342,4 +353,38 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			fl.Flush()
 		}
 	}
+}
+
+func (s *Server) currentToken() string {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.Token
+}
+
+// rotation returns a channel that is closed at the next token rotation.
+func (s *Server) rotation() <-chan struct{} {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	if s.rotated == nil {
+		s.rotated = make(chan struct{})
+	}
+	return s.rotated
+}
+
+// Rotate replaces the token. Every cookie issued for the old one stops working at
+// once, every open terminal is closed (code 4001) and every event stream ends, so
+// nothing opened with the old token outlives it.
+func (s *Server) Rotate(token string) {
+	s.tokenMu.Lock()
+	if token == s.Token {
+		s.tokenMu.Unlock()
+		return
+	}
+	s.Token = token
+	if s.rotated != nil {
+		close(s.rotated)
+	}
+	s.rotated = make(chan struct{})
+	s.tokenMu.Unlock()
+	s.closeAllTerminals(4001, "token rotated")
 }

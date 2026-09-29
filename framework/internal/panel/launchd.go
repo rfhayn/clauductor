@@ -70,6 +70,32 @@ func LoadOrCreateToken(home string) (string, error) {
 			return t, os.Chmod(path, 0o600)
 		}
 	}
+	return writeNewToken(path)
+}
+
+// RotateToken replaces the persistent token. A running panel under launchd sees the
+// new file within 2 s and rotates: old cookies, terminals and event streams die.
+func RotateToken(home string) (string, error) {
+	path := TokenPath(home)
+	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
+		return "", err
+	}
+	return writeNewToken(path)
+}
+
+// readToken returns the token file's token, or "" if it is missing or malformed.
+func readToken(home string) string {
+	b, err := os.ReadFile(TokenPath(home))
+	if err != nil {
+		return ""
+	}
+	if t := strings.TrimSpace(string(b)); tokenRe.MatchString(t) {
+		return t
+	}
+	return ""
+}
+
+func writeNewToken(path string) (string, error) {
 	t, err := NewToken()
 	if err != nil {
 		return "", err
@@ -283,7 +309,8 @@ func Install(o InstallOptions) error {
 	if err := ensurePrivateDir(LogDir(o.Home)); err != nil {
 		return err
 	}
-	if _, err := LoadOrCreateToken(o.Home); err != nil {
+	// Every install rotates the token, so reinstalling is also how to revoke it.
+	if _, err := RotateToken(o.Home); err != nil {
 		return err
 	}
 	plist := PlistPath(o.Home)

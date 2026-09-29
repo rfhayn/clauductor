@@ -95,7 +95,7 @@ func init() {
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	_ = panelInstallCmd.MarkFlagRequired("project")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
-	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd)
+	panelCmd.AddCommand(panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -168,6 +168,29 @@ var panelOpenCmd = &cobra.Command{
 			return err
 		}
 		panel.OpenBrowser(url)
+		return nil
+	},
+}
+
+var panelRotateCmd = &cobra.Command{
+	Use:   "rotate-token",
+	Short: "Replace the installed panel's token; old cookies and open terminals stop working",
+	Long: `Write a new ~/.clauductor/panel/token. The running login agent picks it up within
+2 s: every cookie issued for the old token gets 401, and every open terminal and
+event stream is closed. Then 'clauductor panel open' opens the page with the new one.
+'clauductor panel install' also rotates the token.`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if _, err := panel.RotateToken(home); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `clauductor panel open` opens it with the new token.\n", panel.TokenPath(home))
 		return nil
 	},
 }

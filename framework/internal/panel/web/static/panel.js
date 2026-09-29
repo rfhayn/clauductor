@@ -236,8 +236,18 @@ async function connectTerm(t) {
     if (typeof e.data === "string") return; // {"type":"exit"}: onclose follows
     t.term.write(new Uint8Array(e.data));
   };
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (t.gone || t.ws !== ws) return;
+    if (e.code === 4000) { // closed while the page was out of view: reopen when it is back
+      t.idle = true;
+      t.term.write("\r\n\x1b[2m[panel] closed while this page was idle; it reopens when you come back\x1b[0m\r\n");
+      if (document.visibilityState === "visible") wakeTerms();
+      return;
+    }
+    if (e.code === 4001) { // the token was rotated: this page's cookie is dead too
+      t.term.write("\r\n\x1b[2m[panel] the panel's token was rotated; run clauductor panel open\x1b[0m\r\n");
+      return;
+    }
     t.term.write("\r\n\x1b[2m[panel] detached; reconnecting while the lane exists…\x1b[0m\r\n");
     t.retry = setTimeout(() => connectTerm(t), t.delay);
     t.delay = Math.min(t.delay * 2, 10000);
@@ -389,6 +399,20 @@ function renderTermBar(t) {
 }
 
 new ResizeObserver(() => fitTerm(terms[selTerm])).observe($("termhost"));
+
+// Terminals stay open only while the page is in view: while visible the page says
+// "alive" once a minute, and the server closes a terminal after 5 minutes without a
+// message (code 4000). Coming back reopens each one with a fresh ticket.
+setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  for (const t of Object.values(terms)) termSend(t, { type: "alive" });
+}, 60000);
+function wakeTerms() {
+  if (document.visibilityState !== "visible") return;
+  for (const t of Object.values(terms)) if (t.idle) { t.idle = false; t.delay = 1000; connectTerm(t); }
+}
+document.addEventListener("visibilitychange", wakeTerms);
+window.addEventListener("focus", wakeTerms);
 
 // ---- v1: the Start lane dialog ------------------------------------------------
 function slug(s) { return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "").slice(0, 41).replace(/-+$/, ""); }

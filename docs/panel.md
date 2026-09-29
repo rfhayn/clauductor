@@ -37,6 +37,7 @@ clauductor panel --uninstall-hooks            # remove the panel's hooks and exi
 
 clauductor panel install --project ~/Development/app [--config <file>] [--port 4393] [--app]
 clauductor panel open                         # open the installed panel in the browser
+clauductor panel rotate-token                 # replace the installed panel's token
 clauductor panel uninstall                    # stop and remove the login agent
 ```
 
@@ -116,14 +117,12 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   confirmation in the page. An orphaned lane has **RESUME** and **FORGET** instead of a terminal.
 - **Selected lane (centre, below the terminal).** Its sessions (pid, status, context %, model,
   est. $), running subagents with their age, and the lane's own event feed. A lane card marked
-  `· tmux` has a terminal; clicking it opens that tab.
-  Workflow agents
-  stop under a different `agent_id` and `agent_type` (`workflow-subagent`) than they started
-  with, so a `workflow-subagent` stop with an unknown id retires the oldest running agent of any
-  type. Any other typed stop with an unknown id retires the oldest agent of its own type. An
-  unknown id with an empty type is an internal agent that never sent a start, and retires
-  nothing. A session that `claude agents` reports idle
-  for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
+  `· tmux` has a terminal; clicking it opens that tab. Workflow agents stop under a different
+  `agent_id` and `agent_type` (`workflow-subagent`) than they started with, so a
+  `workflow-subagent` stop with an unknown id retires the oldest running agent of any type. Any
+  other typed stop with an unknown id retires the oldest agent of its own type. An unknown id
+  with an empty type is an internal agent that never sent a start, and retires nothing. A session
+  that `claude agents` reports idle for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
   background agents outlive the turn.
 - **Right column.** *Needs you*: permission and idle-prompt notifications, and sessions that
   `claude agents` reports as waiting, followed by the project's cards. *Open PRs*: from `gh`, with
@@ -295,7 +294,8 @@ clauductor panel install --project ~/Development/app          # add --app for a 
 2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
    a build directory or a worktree that may disappear. Re-run `install` after upgrading
    clauductor.
-3. Creates the persistent token `~/.clauductor/panel/token` (0600, directory 0700).
+3. Writes a new persistent token to `~/.clauductor/panel/token` (0600, directory 0700). Every
+   install rotates it, so reinstalling also revokes the old one.
 4. Writes `~/Library/LaunchAgents/com.clauductor.panel.plist` and checks it with `plutil -lint`.
    The plist sets:
    - `RunAtLoad`;
@@ -381,8 +381,17 @@ send requests to `127.0.0.1`.
     terminal.
   - a valid lane id that names a running lane.
 
-  After the upgrade, the browser may send only `{"type":"input","data":…}` and
-  `{"type":"resize","cols":…,"rows":…}`; anything else closes the connection. The browser never
+  After the upgrade, the browser may send only `{"type":"input","data":…}`,
+  `{"type":"resize","cols":…,"rows":…}` and `{"type":"alive"}`; anything else closes the
+  connection.
+  - **Idle pages lose their terminals.** While the page is visible it sends `alive` once a
+    minute. A terminal that hears nothing for 5 minutes (the page is hidden, asleep or gone) is
+    closed with code 4000. When the page is back in view it reopens each terminal with a fresh
+    ticket.
+  - **Token rotation.** `clauductor panel rotate-token` writes a new token file; `install`
+    does too. The running agent notices within 2 s. At once, every cookie for the old token
+    gets 401, every terminal closes with code 4001 and every event stream ends. Then
+    `clauductor panel open` opens the page with the new token. The browser never
   sends a command. The server runs one fixed argv per viewer: `tmux -u -L <socket>
   attach-session -t =<id>`, where `=` makes the match exact. Stopping a lane closes its viewers.
   Closing a viewer only detaches its tmux client.

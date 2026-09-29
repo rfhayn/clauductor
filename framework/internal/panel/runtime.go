@@ -82,6 +82,8 @@ type Options struct {
 	LaneProgram []string
 	// StopTimeout overrides how long a lane stop waits for /exit (default 10 s).
 	StopTimeout time.Duration
+	// TermIdleTimeout overrides how long a silent terminal stays open (default 5 min).
+	TermIdleTimeout time.Duration
 	// OpenBrowser overrides how the page is opened (tests record the URL instead).
 	OpenBrowser func(url string)
 }
@@ -215,8 +217,28 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lanes}
+	srv.TermIdleTimeout = o.TermIdleTimeout
 	if lanes != nil {
 		lanes.Stopped = srv.closeTerminals
+	}
+	if o.Launchd {
+		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
+		// follow it so the old token dies in the running panel too.
+		start(func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if tok := readToken(o.Home); tok != "" && tok != srv.currentToken() {
+						srv.Rotate(tok)
+						fmt.Fprintln(o.Out, "token rotated: old cookies, terminals and event streams are closed")
+					}
+				}
+			}
+		})
 	}
 	if o.Launchd {
 		srv.CookieMaxAge = int((30 * 24 * time.Hour).Seconds())

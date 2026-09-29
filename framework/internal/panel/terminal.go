@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -112,6 +113,26 @@ func (s *Server) removeViewer(lane string, v *termViewer) {
 	delete(s.viewers[lane], v)
 }
 
+// closeAllTerminals closes every viewer of every lane.
+func (s *Server) closeAllTerminals(code websocket.StatusCode, reason string) {
+	s.termMu.Lock()
+	all := s.viewers
+	s.viewers = nil
+	s.termMu.Unlock()
+	for _, vs := range all {
+		for v := range vs {
+			go v.conn.Close(code, reason)
+		}
+	}
+}
+
+// Close codes the page acts on: an idle close reopens when the page is back in
+// view; a rotation does not reopen (the cookie is dead too).
+const (
+	closeIdle    websocket.StatusCode = 4000
+	closeRotated websocket.StatusCode = 4001
+)
+
 // closeTerminals closes every viewer of a lane (it stopped).
 func (s *Server) closeTerminals(lane string) {
 	s.termMu.Lock()
@@ -144,7 +165,7 @@ const maxTermMessage = 1 << 20
 
 // termMsg is the only shape the browser may send.
 type termMsg struct {
-	Type string `json:"type"` // "input" | "resize"
+	Type string `json:"type"` // "input" | "resize" | "alive"
 	Data string `json:"data,omitempty"`
 	Cols int    `json:"cols,omitempty"`
 	Rows int    `json:"rows,omitempty"`
@@ -255,6 +276,32 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// A page that is hidden or gone stops sending "alive" (once a minute while in
+	// view); after TermIdleTimeout of silence the terminal closes. The page reopens
+	// it with a fresh ticket when it is back in view.
+	idle := s.TermIdleTimeout
+	if idle <= 0 {
+		idle = 5 * time.Minute
+	}
+	var lastMsg atomic.Int64
+	lastMsg.Store(time.Now().UnixNano())
+	go func() {
+		t := time.NewTicker(idle / 4)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if time.Since(time.Unix(0, lastMsg.Load())) >= idle {
+					c.Close(closeIdle, "idle")
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	// Browser → PTY: keystrokes and sizes only.
 	for {
 		typ, data, err := c.Read(ctx)
@@ -268,7 +315,9 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			c.Close(websocket.StatusPolicyViolation, "expected {type: input|resize}")
 			return
 		}
+		lastMsg.Store(time.Now().UnixNano())
 		switch m.Type {
+		case "alive":
 		case "input":
 			if _, err := ptmx.Write([]byte(m.Data)); err != nil {
 				return

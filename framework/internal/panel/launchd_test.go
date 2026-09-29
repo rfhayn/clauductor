@@ -115,8 +115,12 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 		return nil, nil
 	}
 	var out bytes.Buffer
+	old, _ := LoadOrCreateToken(home)
 	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, App: true, Out: &out, Exec: fake, Self: self}); err != nil {
 		t.Fatal(err)
+	}
+	if tok, _ := LoadOrCreateToken(home); tok == old || !tokenRe.MatchString(tok) {
+		t.Fatal("install did not rotate the token")
 	}
 	plist, err := os.ReadFile(PlistPath(home))
 	if err != nil {
