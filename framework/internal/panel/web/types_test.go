@@ -96,6 +96,7 @@ func typeTokenSet(t *testing.T) map[string]bool {
 }
 
 func TestTypeSystemsAreCompleteAndApartFromThemes(t *testing.T) {
+	t.Parallel()
 	types := parseTypes(t)
 	ids, pairs := declaredTypes(t)
 	declared := map[string]bool{}

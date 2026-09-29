@@ -12,6 +12,7 @@ import (
 // ones. A stop, and every clear (idle, gone, SessionEnd), retires an agent to that
 // list, newest first, with when it ended; nothing else invents one.
 func TestFinishedSubagentsAreListedNewestFirst(t *testing.T) {
+	t.Parallel()
 	cwd := "/repo/.claude/worktrees/build-add-feature"
 	hook := func(ev, id, typ string) signals.HookEvent {
 		return signals.HookEvent{SessionID: "s", Cwd: cwd, Event: ev, AgentID: id, AgentType: typ}
@@ -77,6 +78,7 @@ func TestFinishedSubagentsAreListedNewestFirst(t *testing.T) {
 // PANEL-11: the lane dashboard's figures come from the status-line post the panel
 // already receives (the recorded one, from Claude Code 2.1.284), summed per lane.
 func TestMetricsFromTheStatusLine(t *testing.T) {
+	t.Parallel()
 	cwd := "/repo/.claude/worktrees/build-add-feature"
 	p, err := signals.ParseStatus(fixture(t, "statusline.json"))
 	if err != nil {
