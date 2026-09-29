@@ -316,7 +316,10 @@ value just changed.
   it (again to reverse). **Columns** chooses which columns show; the default is state, time in
   state, context, cache and cost per hour, and the others are cost, model, busy ratio, lines,
   lines per hour, turns per hour, asks per hour, compactions, last failure, running agents, git,
-  pull request, gate and CPU. The choice and the sort are kept per browser. A lane has one name
+  pull request, gate and CPU. The choice and the sort are kept per browser. The cache column
+  reads "92%" (its hit ratio) while the cache is warm, "cold in 1:52" in amber in the last two
+  minutes, and "cold" once it has gone cold. A table wider than the rail scrolls inside it,
+  never the page, and while the rail runs past its foot a line there says "More below". A lane has one name
   everywhere: a lane with a terminal is called what you named it when you started it.
 - **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
@@ -362,7 +365,8 @@ value just changed.
 - **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
   the page, not picking a lane, not **Open terminal** (which takes focus to the terminal's frame).
   The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every
-  key is claude's, Tab, Shift+Tab and Escape included, and the page's size keys too. **Ctrl+]**
+  key is claude's, Tab, Shift+Tab and Escape included, but the page's size keys (Ctrl+Alt+=, −,
+  0), which resize the page and never reach claude. **Ctrl+]**
   leaves, back to the lane's tab; a line above the terminal says so while you are in it. A double
   Escape does not leave, because claude uses Esc Esc itself (to go back to an earlier message).
   The cursor does not blink.
@@ -1000,11 +1004,18 @@ stored choice never flashes the default.
 - **Type**: the UI face, the data face (every aligned value: ids, SHAs, durations, figures) and the
   terminal face. **Theme's choice** (the default) takes the type system the theme suggests; any
   theme works with any type system.
-- **Size**: the page's text, 85% to 130% (with nothing chosen, 110% on a window at least 1440 px
-  wide, 100% below), and the terminal's, apart from the page's (with nothing chosen, the type
-  system's size times the page's). **Ctrl+Alt+=** and **Ctrl+Alt+−** step the page's size and
-  **Ctrl+Alt+0** resets it; the browser's own zoom keys stay the browser's, and inside a terminal
-  these keys are claude's. Size steps keep the menu open.
+- **Size**: the page's text, 85% to 175% in 5% steps (with nothing chosen, 110% on a window at
+  least 1440 px wide, 100% below), and the terminal's, 11 to 24 px, apart from the page's (with
+  nothing chosen, the type system's size times the page's). Each is a slider with A− and A+
+  beside it, and the menu stays open while you change them. **Ctrl+Alt+=** and **Ctrl+Alt+−**
+  step the page's size and **Ctrl+Alt+0** resets it, inside a terminal too: the terminal takes
+  them and never sends them to claude. The browser's own zoom keys stay the browser's.
+- **At a large size the layout folds.** When the rail and the side panel would leave the
+  terminal fewer than 85 columns of its face, the side panel folds, then the rail; they come back
+  when there is room. **Show details** and **Lanes** show them anyway for the visit. From 140% the
+  status bar puts each figure on one line and drops the secondary ones (cost today and per hour,
+  CPU and memory, interruptions, hooks). The page never scrolls sideways; if the window is short,
+  it scrolls down to the terminal rather than squeezing it.
 
 The menu works from the keyboard: Down or Enter opens it, the arrow keys, Home and End move, Enter
 picks, Escape closes it and returns focus to the button. On a Tuned slider, Left and Right change
@@ -1024,7 +1035,7 @@ another ANSI colour.
 
 | Type system | UI | Data | Terminal |
 |---|---|---|---|
-| **Cockpit** | B612 | B612 Mono | B612 Mono |
+| **Cockpit** | B612 | B612 Mono | Iosevka Term (B612 Mono's round brackets read as square ones at terminal sizes) |
 | **Highway** (default) | Overpass | Overpass Mono | Overpass Mono |
 | **Civic** | Public Sans | Commit Mono | Commit Mono |
 | **Hyperlegible** | Atkinson Hyperlegible Next | Atkinson Hyperlegible Mono | Atkinson Hyperlegible Mono |
@@ -1077,7 +1088,7 @@ What checks them:
 
 - `themes_test.go`, for every theme × mode: the text tiers, `--act`, `--ok`, `--warn` and `--crit`
   reach 4.5:1 on every surface; `--bar-text` and `--bar-text-2` on the bar, `--act-ink` on
-  `--act`, each ink on its row and `--sel-text` on the selection reach 4.5:1; `--info`,
+  `--act`, each ink on its row (its text, and any control on it, which takes the ink) and `--sel-text` on the selection reach 4.5:1; `--info`,
   `--focus` and `--rule-strong` reach 3:1; warn and crit differ by ΔE 20; the terminal foreground
   reaches 7:1, each ANSI colour 3:1, and the label pairs a TUI draws 4.5:1 (black on green, yellow
   and cyan; white on red, blue and magenta; and the bright variants). It fails if a theme × mode
@@ -1096,7 +1107,11 @@ What checks them:
   exists, no token is set in both layers, and each type system's files stay under 125 KB (the
   brief asked for about 120; the largest, Variable, is 117 KB with Mona Sans's width axis).
 - The browser test (`testdata/browser/run.sh`) loads every type system's faces through
-  `document.fonts` and checks that a type change refits the terminal to the new cell.
+  `document.fonts`, checks that each terminal face draws `(` curved enough not to read as `[`,
+  that a type change refits the terminal to the new cell, that the size keys pressed inside a
+  terminal resize the page and send claude nothing (a fake claude records its input), and that
+  at 175% on a 1440 px window the page does not scroll sideways and every main control is
+  reachable.
 
 ## Signals: hooks and the status line
 
@@ -1111,7 +1126,9 @@ time, project and port. All three are removed on a clean stop, but only while `p
 that panel: a panel never deletes another panel's files. A `pid` naming a process that is not
 running (or one with another start time) means the panel was killed and the files are stale.
 
-So the snippet reads `pid` and checks that the process is alive (`kill -0`) before it posts: a
+So the snippet reads `pid`, takes it only as a positive integer (`kill -0 -1` and `kill -0 0`
+succeed whatever runs, since they signal every process you own or your process group), and
+checks that the process is alive (`kill -0`) before it posts: a
 panel killed with `SIGKILL` leaves `port` behind, and another program may hold that port by now.
 It posts only then, never waits (background, 0.5 s cap), and prints nothing, so the status line
 is unaffected on a machine that has never run the panel, or whose panel is down:
@@ -1120,7 +1137,9 @@ is unaffected on a machine that has never run the panel, or whose panel is down:
 ```bash
 input=$(cat)
 panel="$HOME/.clauductor/panel"
-if [ -f "$panel/port" ] && pid=$(cat "$panel/pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
+pid=$(cat "$panel/pid" 2>/dev/null)
+case "$pid" in ''|0*|*[!0-9]*) pid= ;; esac   # digits only, not 0: kill -0 -1 and kill -0 0 always succeed
+if [ -f "$panel/port" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   port=$(cat "$panel/port")
   printf '%s' "$input" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
     --data-binary @- "http://127.0.0.1:$port/status" >/dev/null 2>&1 &

@@ -33,7 +33,9 @@ cat > "$tmp/bin/claude" <<'SH'
 case "$1" in
   --version) echo "2.1.284 (Claude Code)" ;;
   agents) echo "[]" ;;
-  *) exec sleep 3600 ;;
+  # A lane's claude records the bytes typed into it (raw, unechoed), so the browser
+  # test can check which keys reach claude.
+  *) stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
 esac
 SH
 printf '#!/bin/sh\necho "[]"\n' > "$tmp/bin/gh"
@@ -62,5 +64,5 @@ for body in '{"type":"orchestrator","mode":"root","name":"main"}' '{"type":"buil
 done
 status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
-node "$here/appearance-and-keys.cjs" "$base" "$tok" || status=1
+node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 exit $status

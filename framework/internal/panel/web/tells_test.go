@@ -51,6 +51,19 @@ func TestPanelAvoidsTheTells(t *testing.T) {
 			t.Errorf("panel.css sets text at %srem, under the 11.5 px floor: %s", m[1], m[0])
 		}
 	}
+	// A control on an abnormal row takes the row's ink, which themes_test.go holds to
+	// 4.5:1 on the row in every theme × mode; the link colour is not (1.14:1 was found).
+	for _, row := range []string{"abn-warn", "abn-crit"} {
+		ok := false
+		for _, m := range cssBlock.FindAllStringSubmatch(css, -1) {
+			if strings.Contains(m[1], "tr."+row+" .btn") && regexp.MustCompile(`color:\s*inherit`).MatchString(m[2]) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("panel.css does not give a button on a %s row the row's ink", row)
+		}
+	}
 	// The page's words: no "A · B · C" strings and no arrows on buttons.
 	js := readWeb(t, "panel.js")
 	if strings.Contains(js, " · ") {

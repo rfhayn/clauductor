@@ -312,10 +312,15 @@ function spark(sp, o) {
 // A figure with its unit, in the data face.
 function num(text, unit, cls) {
   const e = el("span", "num" + (cls ? " " + cls : ""), text);
-  return unit ? el("span", "nu", null, [e, el("span", "unit", unit)]) : e;
+  return unit ? el("span", "nu", null, [e, document.createTextNode(unit[0] === "/" || unit === "%" ? "" : " "), el("span", "unit", unit)]) : e;
 }
 function money(v) { return v == null ? "—" : "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2)); }
-function kilo(n) { return n == null ? "—" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n); }
+// 1234 → "1.2k", 200000 → "200k" (no ".0").
+function kilo(n) {
+  if (n == null) return "—";
+  const f = (v, u) => (Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1)) + u;
+  return n >= 1e6 ? f(n / 1e6, "M") : n >= 1e3 ? f(n / 1e3, "k") : String(n);
+}
 function dur(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return s + "s";
@@ -334,7 +339,10 @@ function until(ms, pre, warnUnder) {
 function paintUntil(e) {
   const left = Math.max(0, +e.dataset.until - now());
   const s = Math.round(left / 1000);
-  const t = left <= 0 ? "now" : s >= 3600 ? Math.floor(s / 3600) + "h" + String(Math.floor((s % 3600) / 60)).padStart(2, "0") : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  // Days and hours past a day ("4d 15h"), hours and minutes past an hour ("1h 55m"),
+  // then minutes and seconds ("1:52").
+  const t = left <= 0 ? "now" : s >= 86400 ? Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h"
+    : s >= 3600 ? Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   setText(e, e.dataset.pre + t);
   e.classList.toggle("warn", !!e.dataset.warn && left > 0 && left < +e.dataset.warn);
 }
@@ -452,13 +460,15 @@ function pressable(e, label) {
     if (ev.target === e && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); e.click(); }
   });
 }
-function heading(text, k, count, tag) {
+// A heading: its text, its count, then anything after (", as of 08:24" while offline).
+function heading(text, k, count, tag, after) {
   const h = el(tag || "h2", null, text);
   if (count != null) h.appendChild(el("span", "cnt", " " + count));
+  if (after) h.appendChild(document.createTextNode(after));
   return key(h, k);
 }
-function paneHead(k, text, count, extra) {
-  return key(el("div", "pane-h", null, [heading(text, k + ":h", count), el("span", "sp"), ...(extra || [])]), k);
+function paneHead(k, text, count, extra, after) {
+  return key(el("div", "pane-h", null, [heading(text, k + ":h", count, null, after), el("span", "sp"), ...(extra || [])]), k);
 }
 
 // ---- The lane table: sortable, its columns chosen per viewer ------------------------------
@@ -486,14 +496,14 @@ const COLS = [
 ];
 function busyRatio(m) { return m.durationMs >= 60000 && m.apiDurationMs != null ? Math.min(1, (m.apiDurationMs || 0) / m.durationMs) : null; }
 function rateCell(v, dp) { return num(v == null ? "—" : v.toFixed(dp == null ? 0 : dp)); }
-// The cache column: its hit ratio while warm; its countdown, in amber, in the last two
-// minutes before it goes cold; "cold" once it has.
+// The cache column, one format: its hit ratio while warm ("92%"), "cold in 1:52" in the
+// last two minutes (in the abnormal colour), "cold" once it has gone cold.
 function cacheCell(x) {
   const m = laneM(x);
   if (m.cacheExpiresAt) {
     const left = m.cacheExpiresAt - now();
-    if (left <= 0) { const c = el("span", "dim", "cold"); c.title = "The prompt cache has gone cold; the next request rebuilds it" + (m.recacheTokens ? " (" + kilo(m.recacheTokens) + " tokens)" : "") + "."; return c; }
-    if (left < 120000) return until(m.cacheExpiresAt, "", 120000);
+    if (left <= 0) { const c = el("span", null, "cold"); c.title = "The prompt cache has gone cold; the next request rebuilds it" + (m.recacheTokens ? " (" + kilo(m.recacheTokens) + " tokens)" : "") + "."; return c; }
+    if (left < 120000) return until(m.cacheExpiresAt, "cold in ", 120000);
   }
   return num(m.cacheHitRatio == null ? "—" : Math.round(m.cacheHitRatio * 100) + "%");
 }
@@ -621,13 +631,21 @@ function renderRail(ls, cur) {
   const kids = [];
   const nb = button("New lane", "primary small", () => openStart(), "Start a lane: an interactive claude in its own tmux session", "rail:new", true);
   if (S.startBlocked) { nb.disabled = true; nb.title = S.startBlocked; }
-  kids.push(paneHead("lanes", "Lanes" + asOf(), ls.length, [colPicker(), nb]));
+  kids.push(paneHead("lanes", "Lanes", ls.length, [colPicker(), nb], asOf()));
   kids.push(sourceNote(S.sources.agents, "claude agents", "src:agents"));
   if (!ls.length) kids.push(key(el("div", "empty", "No lane yet. Sessions started in this project's worktrees show here too."), "lanes:none"));
   else { kids.push(timeline(ls)); kids.push(laneTable(ls, cur)); }
   patchInto("lanelist", kids);
   patchInto("tree", renderTree(ls, cur));
+  requestAnimationFrame(moreBelow);
 }
+// The rail says "More below" while its content runs past its foot.
+function moreBelow() {
+  const r = $("rail");
+  $("morebelow").hidden = r.scrollTop + r.clientHeight >= r.scrollHeight - 4 || getComputedStyle(r).display === "none";
+}
+$("rail").addEventListener("scroll", moreBelow, { passive: true });
+window.addEventListener("resize", moreBelow);
 
 // The worktree tree, as the old control room's topology had it: the project, each
 // worktree (with or without a lane), each lane's claude session (state, uptime,
@@ -819,16 +837,19 @@ function renderLaneHead(x) {
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
     if (laneApprox(x)) kids.push(key(el("span", "dim", null, [staleTag(true)]), "stale"));
   } else kids.push(key(el("h2", null, "No lane selected"), "name"));
-  const tog = button(sideOpen ? "Hide details" : "Show details", "small", () => {
-    sideOpen = !sideOpen;
+  const fit = fitLayout(), shown = fit.side;
+  const tog = button(shown ? "Hide details" : "Show details", "small", () => {
+    // Showing it on a screen too small for it is your call for this visit; hiding it is kept.
+    if (shown) { sideOpen = false; sideForced = false; } else { sideOpen = true; sideForced = !fitLayout().side; }
     try { localStorage.setItem("clauductor-panel-side", sideOpen ? "open" : "closed"); } catch (e) {}
     render();
-  }, "Show or hide this lane's agents, figures, git, gate, alerts and activity", "sidetog");
-  tog.setAttribute("aria-expanded", String(sideOpen));
+    applyRail();
+  }, fit.sideAuto ? "Hidden to leave the terminal room at this text size; click to show it anyway" : "Show or hide this lane's agents, figures, git, gate, alerts and activity", "sidetog");
+  tog.setAttribute("aria-expanded", String(shown));
   tog.setAttribute("aria-controls", "side");
   kids.push(key(el("span", "sp"), "sp"), tog);
   patchInto("lanehead", kids);
-  $("wsgrid").classList.toggle("noside", !sideOpen);
+  $("wsgrid").classList.toggle("noside", !shown);
 }
 
 // ---- The lane's side panel: tabs between metric families ------------------------------------
@@ -944,16 +965,26 @@ function sideFigures(x) {
     ["Cost", [num(money(m.costUsd)), lv.costPerH != null ? num(money(lv.costPerH), "/h") : null, costSp]],
     ["Busy", busyRatio(m) == null ? "—" : [num(Math.round(busyRatio(m) * 100) + "%"), el("span", "dim", "of the time in the API")]],
     ["Time", m.durationMs ? [num(dur(m.durationMs), "wall"), num(dur(m.apiDurationMs || 0), "API")] : "—"],
-    ["Lines", [num("+" + (m.linesAdded || 0) + " −" + (m.linesRemoved || 0)), rateCell(perHour((m.linesAdded || 0) + (m.linesRemoved || 0), m)), el("span", "unit", "/h")]],
-    ["Turns", [num(String(m.turns || 0)), rateCell(perHour(m.turns || 0, m), 1), el("span", "unit", "/h")]],
-    ["Asked you", [num(String(m.asks || 0)), rateCell(perHour(m.asks || 0, m), 1), el("span", "unit", "/h")]],
-    ["Compactions", num(String(m.compactions || 0))],
     laneFailure(x) ? ["Last failure", el("span", "crit", laneFailure(x))] : null,
     ["Subagents", [num(String(m.subagentsRunning || 0), "running"), num(String(m.subagentsFinished || 0), "finished")]],
     ["Process", m.cpu == null ? el("span", "dim", S.trends.procsError ? "cannot read: " + S.trends.procsError : "read while this page is in view") : [num(Math.round(m.cpu) + "%", "CPU"), num(Math.round(m.rssMb || 0), "MB")]],
     ["Mode", [m.thinking ? "thinking" : "", m.fastMode ? "fast" : "", m.outputStyle || ""].filter(Boolean).join(", ") || "—"],
   ].filter(Boolean);
-  return key(kvRows(rows), "figs");
+  // Counts and their rates per hour of the session's wall time, as a table.
+  const rate = (n, dp) => { const v = perHour(n, m); return v == null ? "—" : v.toFixed(dp); };
+  const lines = (m.linesAdded || 0) + (m.linesRemoved || 0);
+  const tr = (label, total, perh) => el("tr", null, null, [el("th", null, label), el("td", "num", null, [total]), el("td", "num", perh)]);
+  const tbl = el("table", "tbl rates", null, [
+    el("thead", null, null, [el("tr", null, null, [el("th", null, ""), el("th", "num", "Total"), el("th", "num", "Per hour")])]),
+    el("tbody", null, null, [
+      tr("Lines", el("span", null, "+" + (m.linesAdded || 0) + " −" + (m.linesRemoved || 0)), rate(lines, 0)),
+      tr("Turns", document.createTextNode(String(m.turns || 0)), rate(m.turns || 0, 1)),
+      tr("Asked you", document.createTextNode(String(m.asks || 0)), rate(m.asks || 0, 1)),
+      tr("Compactions", document.createTextNode(String(m.compactions || 0)), rate(m.compactions || 0, 1)),
+    ]),
+  ]);
+  tbl.firstChild.firstChild.firstChild.scope = "col";
+  return key(el("div", "figs", null, [kvRows(rows), tbl]), "figs");
 }
 function sideGit(x) {
   const lv = x.lv || {}, g = lv.git, out = [];
@@ -1084,7 +1115,7 @@ function renderNeeds() {
   box.hidden = !S.needsYou.length && !done.length && !al.length;
   const kids = [];
   if (S.needsYou.length) {
-    kids.push(heading("Needs you" + asOf(), "h:needs", S.needsYou.length));
+    kids.push(heading("Needs you", "h:needs", S.needsYou.length, null, asOf()));
     kids.push(key(el("table", "tbl", null, [el("tbody", null, null, S.needsYou.map((n) => needRow(n, "", needKey(n))))]), "needs:tbl"));
   }
   if (al.length) {
@@ -1116,11 +1147,12 @@ function renderStatus(ls) {
   const q = S.quota || {}, tr = S.trends || {};
   // The 5-hour window: where it lands at the reset at the current burn, in --info.
   let proj = null;
-  if (tr.burnPerH != null && q.fiveHourResetsAt && q.fiveHour != null) proj = q.fiveHour + tr.burnPerH * Math.max(0, (q.fiveHourResetsAt * 1000 - now()) / 3.6e6);
+  if (tr.burnPerH > 0 && q.fiveHourResetsAt && q.fiveHour != null) proj = q.fiveHour + tr.burnPerH * Math.max(0, (q.fiveHourResetsAt * 1000 - now()) / 3.6e6);
   quotaField("g5", q.fiveHour, q.fiveHourExpired, q.fiveHourResetsAt, proj);
   quotaField("g7", q.sevenDay, q.sevenDayExpired, q.sevenDayResetsAt, null);
-  patch($("f-burn").querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : [
-    num((tr.burnPerH >= 0 ? "+" : "") + tr.burnPerH.toFixed(1), "%/h"),
+  // A falling 5-hour quota means its window reset: say so rather than a negative rate.
+  patch($("f-burn").querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
+    num("+" + tr.burnPerH.toFixed(1), "%/h"),
     tr.exhaustAt ? el("span", tr.beforeReset ? "warn" : "more", "full at " + hm(tr.exhaustAt) + (tr.beforeReset ? ", before the reset" : "")) : null,
     spark(tr.quota5, { lo: 0, hi: 100 }),
   ].filter(Boolean));
@@ -1368,20 +1400,19 @@ function loadTermFace() {
 // or the theme's --term-size times the page's scale.
 const TERM_KEY = "clauductor-panel-term-size";
 let termSizeOwn = null;
-try { const v = parseFloat(localStorage.getItem(TERM_KEY)); if (v >= 9 && v <= 32) termSizeOwn = v; } catch (e) {}
+try { const v = parseFloat(localStorage.getItem(TERM_KEY)); if (v >= 11 && v <= 24) termSizeOwn = v; } catch (e) {}
 function termAutoSize() {
   const cs = getComputedStyle(document.documentElement);
   const base = parseFloat(cs.getPropertyValue("--term-size")) || 13;
   const scale = parseFloat(cs.getPropertyValue("--ui-scale")) || 1;
-  return Math.round(base * scale * 2) / 2;
+  return Math.max(11, Math.min(24, Math.round(base * scale * 2) / 2));
 }
 function termFontSize() { return termSizeOwn || termAutoSize(); }
 function setTermSize(v) {
-  termSizeOwn = v == null ? null : Math.max(9, Math.min(32, v));
+  termSizeOwn = v == null ? null : Math.max(11, Math.min(24, Math.round(v * 2) / 2));
   try { if (termSizeOwn == null) localStorage.removeItem(TERM_KEY); else localStorage.setItem(TERM_KEY, String(termSizeOwn)); } catch (e) {}
   retheme();
   if (S) render();
-  renderPicker();
 }
 // The theme's floor for text a program draws on any colour, ANSI or truecolor.
 function termMinContrast() {
@@ -1457,6 +1488,11 @@ function ensureTerm(id) {
   }, true);
   // Ctrl+] is the way out; nothing else is taken from claude.
   term.attachCustomKeyEventHandler((ev) => {
+    // The page's size keys work here too, and never reach claude.
+    if (ev.ctrlKey && ev.altKey && !ev.metaKey && SIZE_KEYS[ev.code] != null) {
+      if (ev.type === "keydown") { ev.preventDefault(); sizeKey(ev.code); }
+      return false;
+    }
     if (ev.ctrlKey && !ev.altKey && !ev.metaKey && (ev.code === "BracketRight" || ev.key === "]")) {
       if (ev.type === "keydown") { ev.preventDefault(); leaveTerm(id); }
       return false;
@@ -2029,12 +2065,18 @@ $("refresh").addEventListener("click", () => { if (!offline()) fetch("/api/refre
 // theme.js owns the value (PanelScale); every size in panel.css is in rem. The keys need
 // Alt, so the browser's own zoom (⌘ or Ctrl with = and −) is never taken, and inside a
 // terminal every key stays claude's.
+// Inside a terminal xterm's key handler takes them first (ensureTerm) and never
+// forwards them to claude.
+const SIZE_KEYS = { Equal: 1, NumpadAdd: 1, Minus: -1, NumpadSubtract: -1, Digit0: 0, Numpad0: 0 };
+function sizeKey(code) {
+  const d = SIZE_KEYS[code];
+  if (d === 0) window.PanelScale.reset(); else window.PanelScale.step(d);
+}
 document.addEventListener("keydown", (ev) => {
-  if (!ev.ctrlKey || !ev.altKey || ev.metaKey) return;
-  if (ev.target && ev.target.closest && ev.target.closest(".xterm")) return;
-  if (ev.code === "Equal" || ev.code === "NumpadAdd") { ev.preventDefault(); window.PanelScale.step(1); }
-  else if (ev.code === "Minus" || ev.code === "NumpadSubtract") { ev.preventDefault(); window.PanelScale.step(-1); }
-  else if (ev.code === "Digit0" || ev.code === "Numpad0") { ev.preventDefault(); window.PanelScale.reset(); }
+  if (!ev.ctrlKey || !ev.altKey || ev.metaKey || SIZE_KEYS[ev.code] == null) return;
+  if (ev.target && ev.target.closest && ev.target.closest(".xterm")) return; // handled there
+  ev.preventDefault();
+  sizeKey(ev.code);
 });
 
 // ---- The rail: hide it, or drag (or arrow-key) its edge. Kept per browser. ------------------
@@ -2045,9 +2087,41 @@ const NARROW = matchMedia("(max-width: 900px)");
 let rail = { open: true, openNarrow: false, w: 0 };
 try { rail = Object.assign(rail, JSON.parse(localStorage.getItem(RAIL_KEY) || "{}")); } catch (e) {}
 function saveRail() { try { localStorage.setItem(RAIL_KEY, JSON.stringify(rail)); } catch (e) {} }
+// At a large text size the rail and the side panel would leave the terminal too little
+// room: fitLayout folds the side panel first, then the rail, until the terminal keeps
+// TERM_COLS columns, and shows them again when there is room. Your own choice to show one wins for the visit (sideForced,
+// railForced); hiding one is kept as before.
+// The terminal should keep TERM_COLS columns of the terminal face at its size.
+const TERM_COLS = 85;
+let cellCache = "", cellW = 8;
+function termCellWidth() {
+  const k = termFamily() + "|" + termFontSize();
+  if (k !== cellCache) {
+    const c = document.createElement("canvas").getContext("2d");
+    c.font = termFontSize() + "px " + termFamily();
+    cellW = c.measureText("MMMMMMMMMM").width / 10 || termFontSize() * 0.6;
+    cellCache = k;
+  }
+  return cellW;
+}
+let sideForced = false, railForced = false;
+function fitLayout() {
+  const W = window.innerWidth;
+  const out = { side: sideOpen, rail: rail.open, sideAuto: false, railAuto: false };
+  if (W <= 1180) return out; // the side panel is under the terminal and the rail on top
+  const TERM_MIN = Math.round(TERM_COLS * termCellWidth());
+  const root = getComputedStyle(document.documentElement), rem = parseFloat(root.fontSize) || 16;
+  const railW = Math.min(rail.w || (parseFloat(root.getPropertyValue("--rail-w")) || 21) * rem, 0.38 * W);
+  const sideW = Math.min((parseFloat(root.getPropertyValue("--side-w")) || 16) * rem, 0.32 * W);
+  if (out.side && !sideForced && W - 30 - (out.rail ? railW : 0) - sideW < TERM_MIN) { out.side = false; out.sideAuto = true; }
+  if (out.rail && !railForced && W - 30 - railW - (out.side ? sideW : 0) < TERM_MIN) { out.rail = false; out.railAuto = true; }
+  return out;
+}
 function applyRail() {
   const shell = $("shell"), sp = $("splitter");
-  const open = NARROW.matches ? rail.openNarrow : rail.open;
+  const fit = fitLayout();
+  const open = NARROW.matches ? rail.openNarrow : fit.rail;
+  $("railbtn").title = fit.railAuto ? "Hidden to leave the terminal room at this text size; click to show it anyway" : "Show or hide the lane list and worktrees";
   shell.classList.toggle("norail", !open);
   $("railbtn").setAttribute("aria-expanded", String(open));
   if (rail.w) shell.style.setProperty("--rail-w", rail.w + "px"); else shell.style.removeProperty("--rail-w");
@@ -2060,10 +2134,18 @@ function applyRail() {
 function railMax() { return Math.max(200, Math.round(window.innerWidth * 0.45)); }
 function setRailW(px) { rail.w = Math.max(160, Math.min(railMax(), Math.round(px))); saveRail(); applyRail(); }
 $("railbtn").addEventListener("click", () => {
-  if (NARROW.matches) rail.openNarrow = !rail.openNarrow; else rail.open = !rail.open;
+  if (NARROW.matches) rail.openNarrow = !rail.openNarrow;
+  else if (fitLayout().rail) { rail.open = false; railForced = false; }
+  else { rail.open = true; railForced = true; }
   saveRail(); applyRail();
+  if (S) render();
 });
 NARROW.addEventListener("change", applyRail);
+// A new window size or text size refits the layout.
+let fitTimer = 0;
+function refit() { clearTimeout(fitTimer); fitTimer = setTimeout(() => { applyRail(); if (S) render(); }, 60); }
+window.addEventListener("resize", refit);
+document.addEventListener("panel-scale", refit);
 {
   const sp = $("splitter");
   sp.addEventListener("pointerdown", (ev) => {
@@ -2161,14 +2243,25 @@ function renderPicker() {
     face.setAttribute("data-type", x.id);
     types.appendChild(item("y:" + x.id, cur.typeChoice === x.id, [face, el("span", "tick", "✓")], () => P.setType(x.id)));
   }
-  // Size: the page's text, and the terminal's apart from it.
+  // Size: the page's text (85-175%) and the terminal's (11-24 px), each a slider that
+  // applies as it moves, with A− and A+ beside it.
   const S2 = window.PanelScale, pctv = S2.get(), tsz = termFontSize();
   const step = (key, label, aria, fn) => { const e = item(key, null, [el("span", null, label)], fn, true); e.setAttribute("aria-label", aria); return e; };
+  const sizeSlider = (k, label, min, max, st, val, fmt, onInput) => {
+    const r = el("input");
+    r.type = "range"; r.min = min; r.max = max; r.step = st; r.value = val;
+    r.setAttribute("aria-label", label);
+    r.setAttribute("aria-valuetext", fmt(val));
+    r.dataset.key = k;
+    const out = el("span", "val num", fmt(val));
+    r.addEventListener("input", () => { onInput(+r.value); out.textContent = fmt(+r.value); r.setAttribute("aria-valuetext", fmt(+r.value)); });
+    return [r, out];
+  };
+  const [pr, po] = sizeSlider("sz:page", "Page text size", S2.min, S2.max, 5, pctv, (v) => v + "%", (v) => S2.set(v));
+  const [tr2, to] = sizeSlider("sz:term", "Terminal text size", 11, 24, 0.5, tsz, (v) => v + " px", (v) => setTermSize(v));
   const size = group("Size", "sizes", [heading("Size"),
-    el("div", "sizerow", null, [el("span", null, "Page text"), step("s:pd", "A−", "Page text smaller (Ctrl+Alt+−)", () => S2.step(-1)),
-      el("span", "val num", pctv + "%" + (S2.own() ? "" : " auto")), step("s:pu", "A+", "Page text larger (Ctrl+Alt+=)", () => S2.step(1))]),
-    el("div", "sizerow", null, [el("span", null, "Terminal text"), step("s:td", "A−", "Terminal text smaller", () => setTermSize(termFontSize() - 1)),
-      el("span", "val num", tsz + " px" + (termSizeOwn ? "" : " auto")), step("s:tu", "A+", "Terminal text larger", () => setTermSize(termFontSize() + 1))]),
+    el("div", "sizerow", null, [el("span", null, "Page text" + (S2.own() ? "" : " (auto)")), step("s:pd", "A−", "Page text smaller (Ctrl+Alt+−)", () => S2.step(-1)), pr, step("s:pu", "A+", "Page text larger (Ctrl+Alt+=)", () => S2.step(1)), po]),
+    el("div", "sizerow", null, [el("span", null, "Terminal text" + (termSizeOwn ? "" : " (auto)")), step("s:td", "A−", "Terminal text smaller", () => setTermSize(termFontSize() - 1)), tr2, step("s:tu", "A+", "Terminal text larger", () => setTermSize(termFontSize() + 1)), to]),
     step("s:reset", "Reset both sizes", "Reset the page and terminal text sizes (Ctrl+Alt+0 resets the page)", () => { S2.reset(); setTermSize(null); }),
   ]);
   menu.replaceChildren(el("div", "mcol", null, col1), el("div", "mcol", null, [types, size]));

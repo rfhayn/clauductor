@@ -406,8 +406,8 @@ func checkAll(aaa bool, tok map[string]string, col func(string) rgba, check func
 	check("bar text", col("bar-text"), col("bar"), text)
 	check("bar text-2", col("bar-text-2"), col("bar"), text)
 	check("act-ink on act", col("act-ink"), col("act"), text)
-	check("warn-ink on a warn row", col("warn-ink"), col("warn-bg"), text)
-	check("crit-ink on a crit row", col("crit-ink"), col("crit-bg"), text)
+	check("warn-ink (text and controls) on a warn row", col("warn-ink"), col("warn-bg"), text)
+	check("crit-ink (text and controls) on a crit row", col("crit-ink"), col("crit-bg"), text)
 	check("sel-text on the selection", col("sel-text"), col("sel"), text)
 	check("rule-strong (the focused pane)", col("rule-strong"), col("pane"), 3)
 	// The warn and crit words and squares stay apart in colour, and from normal text.

@@ -27,7 +27,7 @@ const THEMES = [
 ];
 const TYPES = [
   { id: "highway", name: "Highway", note: "Overpass and Overpass Mono" },
-  { id: "cockpit", name: "Cockpit", note: "B612 and B612 Mono" },
+  { id: "cockpit", name: "Cockpit", note: "B612, B612 Mono, Iosevka Term" },
   { id: "civic", name: "Civic", note: "Public Sans and Commit Mono" },
   { id: "hyperlegible", name: "Hyperlegible", note: "Atkinson Hyperlegible Next and Mono" },
   { id: "engineer", name: "Engineer", note: "Iosevka Aile, Iosevka and Iosevka Term" },
@@ -110,13 +110,15 @@ window.PanelTheme = (function () {
 // The page's text size: one factor, --ui-scale, multiplies the root size, and every
 // size in panel.css is in rem, so the whole page scales with it. It is set here, before
 // the first paint, through CSSOM (the CSP refuses style attributes, not CSSOM). Stored
-// per browser, 85% to 130%; with nothing stored, 110% on a window at least 1440 px
-// wide, 100% below. panel.js draws the controls and the keys (Ctrl+Alt+= and
+// per browser, 85% to 175% in 5% steps; with nothing stored, 110% on a window at
+// least 1440 px wide, 100% below. panel.js draws the controls and the keys (Ctrl+Alt+= and
 // Ctrl+Alt+−; the browser's own zoom keys stay the browser's).
 window.PanelScale = (function () {
   const root = document.documentElement;
   const KEY = "clauductor-panel-scale";
-  const STEPS = [85, 90, 100, 110, 120, 130];
+  const MIN = 85, MAX = 175, STEP = 5;
+  const STEPS = [];
+  for (let v = MIN; v <= MAX; v += STEP) STEPS.push(v);
   const auto = () => (window.innerWidth >= 1440 ? 110 : 100);
   let stored = null;
   try {
@@ -126,6 +128,8 @@ window.PanelScale = (function () {
   function current() { return stored || auto(); }
   function apply() {
     root.style.setProperty("--ui-scale", String(current() / 100));
+    // From 140% the status bar folds to one line a figure (panel.css, html.big).
+    root.classList.toggle("big", current() >= 140);
     document.dispatchEvent(new CustomEvent("panel-scale", { detail: { pct: current(), stored: stored !== null } }));
   }
   function save() {
@@ -139,11 +143,13 @@ window.PanelScale = (function () {
     steps: STEPS,
     get: current,
     own: () => stored !== null,
-    step(d) {
-      const cur = current();
-      let i = STEPS.indexOf(cur);
-      if (i < 0) i = STEPS.findIndex((x) => x > cur) - (d > 0 ? 1 : 0);
-      stored = STEPS[Math.max(0, Math.min(STEPS.length - 1, i + d))];
+    min: MIN, max: MAX,
+    step(d) { this.set(current() + d * STEP); },
+    // set takes any value, rounded to a 5% step within 85-175%.
+    set(v) {
+      v = Math.round(+v / STEP) * STEP;
+      if (!isFinite(v)) return;
+      stored = Math.max(MIN, Math.min(MAX, v));
       save(); apply();
     },
     reset() { stored = null; save(); apply(); },

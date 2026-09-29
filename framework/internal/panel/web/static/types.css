@@ -46,12 +46,13 @@
   --font-term: "Overpass Mono", Menlo, ui-monospace, monospace;
   --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13px; --data-bump: 0px;
 }
-/* T1 Cockpit: B612 and B612 Mono, drawn for Airbus cockpit displays. */
+/* T1 Cockpit: B612 and B612 Mono, drawn for Airbus cockpit displays. B612 Mono's round
+   brackets read as square ones at terminal sizes, so the terminal is Iosevka Term. */
 [data-type="cockpit"] {
   --font-ui: "B612", "Helvetica Neue", Arial, sans-serif;
   --font-data: "B612 Mono", ui-monospace, Menlo, monospace;
-  --font-term: "B612 Mono", Menlo, ui-monospace, monospace;
-  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 12.5px; --data-bump: 0px;
+  --font-term: "Iosevka Term", Menlo, ui-monospace, monospace;
+  --num: "tnum" 1, "lnum" 1, "zero" 1; --table-stretch: 100%; --term-size: 13.5px; --data-bump: 0px;
 }
 /* T3 Civic: Public Sans (the US Web Design System) and Commit Mono. */
 [data-type="civic"] {
