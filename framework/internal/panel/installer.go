@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 // HookTag is the query parameter that marks a hook entry as the panel's own. Claude
@@ -31,23 +33,37 @@ func SettingsPath(home string) string { return filepath.Join(home, ".claude", "s
 // tagged panel hook per event in HookEvents. Every other key, and every hook not
 // tagged as ours, is preserved byte for byte. It returns whether the file changed.
 func InstallHooks(home string, port int) (bool, error) {
+	entry, _ := marshalRaw(map[string]any{
+		"hooks": []map[string]any{{"type": "http", "url": HookURL(port), "timeout": 1}},
+	})
 	return rewriteHooks(home, func(h *orderedObject) error {
-		if err := stripOurs(h); err != nil {
-			return err
-		}
-		entry, _ := marshalRaw(map[string]any{
-			"hooks": []map[string]any{{"type": "http", "url": HookURL(port), "timeout": 1}},
-		})
+		want := map[string]bool{}
 		for _, ev := range HookEvents {
-			var groups []json.RawMessage
+			want[ev] = true
 			if raw, ok := h.get(ev); ok {
-				if err := json.Unmarshal(raw, &groups); err != nil {
+				var probe []json.RawMessage
+				if err := json.Unmarshal(raw, &probe); err != nil {
 					return fmt.Errorf("hooks.%s is not an array: %w", ev, err)
 				}
 			}
-			groups = append(groups, entry)
-			b, _ := marshalRaw(groups)
-			h.set(ev, b)
+		}
+		for _, ev := range append([]string(nil), h.keys...) {
+			if !want[ev] {
+				stripEvent(h, ev, nil)
+			}
+		}
+		for _, ev := range HookEvents {
+			// Our current entry stays where it is (a user hook may follow it), so a
+			// repeat install is a no-op; anything else tagged as ours goes.
+			if !stripEvent(h, ev, entry) {
+				var groups []json.RawMessage
+				if raw, ok := h.get(ev); ok {
+					_ = json.Unmarshal(raw, &groups)
+				}
+				groups = append(groups, entry)
+				b, _ := marshalRaw(groups)
+				h.set(ev, b)
+			}
 		}
 		return nil
 	})
@@ -59,8 +75,19 @@ func UninstallHooks(home string) (bool, error) {
 	return rewriteHooks(home, stripOurs)
 }
 
+// sameJSON compares two JSON values structurally.
+func sameJSON(a, b []byte) bool {
+	var va, vb any
+	return json.Unmarshal(a, &va) == nil && json.Unmarshal(b, &vb) == nil && reflect.DeepEqual(va, vb)
+}
+
 func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 	path := SettingsPath(home)
+	// Edit the file a symlinked settings.json points at (dotfile managers do this);
+	// renaming over the link would silently replace it with a regular file.
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
 	orig, err := os.ReadFile(path)
 	mode := os.FileMode(0o644)
 	switch {
@@ -75,6 +102,9 @@ func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 	}
 	root := &orderedObject{}
 	if len(bytes.TrimSpace(orig)) > 0 {
+		if !json.Valid(orig) {
+			return false, fmt.Errorf("%s is not valid JSON (one object expected); not touching it", path)
+		}
 		if err := root.UnmarshalJSON(orig); err != nil {
 			return false, fmt.Errorf("%s is not a JSON object: %w", path, err)
 		}
@@ -109,9 +139,13 @@ func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	if orig != nil {
-		if err := os.WriteFile(path+".clauductor-panel.bak", orig, mode); err != nil {
-			return false, fmt.Errorf("backing up %s: %w", path, err)
+	// The backup is written once and never overwritten, so it keeps the file as it was
+	// before the panel first touched it.
+	if bak := path + ".clauductor-panel.bak"; orig != nil {
+		if _, err := os.Lstat(bak); os.IsNotExist(err) {
+			if err := os.WriteFile(bak, orig, mode); err != nil {
+				return false, fmt.Errorf("backing up %s: %w", path, err)
+			}
 		}
 	}
 	return true, writeAtomic(path, out.Bytes(), mode)
@@ -163,61 +197,74 @@ func isOurs(raw json.RawMessage) bool {
 	return err == nil && u.Query().Get("src") == HookTag
 }
 
-// stripOurs removes tagged hook objects from every event. A matcher group or event
-// array is dropped only when OUR removal emptied it; anything that was already empty
-// is left as the user wrote it.
+// stripOurs removes every tagged hook object from every event.
 func stripOurs(h *orderedObject) error {
 	for _, ev := range append([]string(nil), h.keys...) {
-		raw, _ := h.get(ev)
-		var groups []json.RawMessage
-		if err := json.Unmarshal(raw, &groups); err != nil {
-			continue // not an array: not ours to judge
-		}
-		changed := false
-		kept := make([]json.RawMessage, 0, len(groups))
-		for _, g := range groups {
-			grp := &orderedObject{}
-			if grp.UnmarshalJSON(g) != nil {
-				kept = append(kept, g)
-				continue
-			}
-			hraw, ok := grp.get("hooks")
-			var hs []json.RawMessage
-			if !ok || json.Unmarshal(hraw, &hs) != nil {
-				kept = append(kept, g)
-				continue
-			}
-			var keepHooks []json.RawMessage
-			for _, one := range hs {
-				if isOurs(one) {
-					changed = true
-					continue
-				}
-				keepHooks = append(keepHooks, one)
-			}
-			if len(keepHooks) == len(hs) {
-				kept = append(kept, g)
-				continue
-			}
-			if len(keepHooks) == 0 {
-				continue
-			}
-			b, _ := marshalRaw(keepHooks)
-			grp.set("hooks", b)
-			gb, _ := grp.MarshalJSON()
-			kept = append(kept, gb)
-		}
-		if !changed {
-			continue
-		}
-		if len(kept) == 0 {
-			h.del(ev)
-			continue
-		}
-		b, _ := marshalRaw(kept)
-		h.set(ev, b)
+		stripEvent(h, ev, nil)
 	}
 	return nil
+}
+
+// stripEvent removes tagged hook objects from one event. If keep is non-nil, the
+// first group equal to keep is left untouched and in place, and stripEvent reports
+// whether it found one. A matcher group or event array is dropped only when OUR
+// removal emptied it; anything already empty is left as the user wrote it.
+func stripEvent(h *orderedObject, ev string, keep json.RawMessage) bool {
+	raw, _ := h.get(ev)
+	var groups []json.RawMessage
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return false // not an array: not ours to judge
+	}
+	kept := false
+	changed := false
+	out := make([]json.RawMessage, 0, len(groups))
+	for _, g := range groups {
+		if keep != nil && !kept && sameJSON(g, keep) {
+			kept = true
+			out = append(out, g)
+			continue
+		}
+		grp := &orderedObject{}
+		if grp.UnmarshalJSON(g) != nil {
+			out = append(out, g)
+			continue
+		}
+		hraw, ok := grp.get("hooks")
+		var hs []json.RawMessage
+		if !ok || json.Unmarshal(hraw, &hs) != nil {
+			out = append(out, g)
+			continue
+		}
+		var keepHooks []json.RawMessage
+		for _, one := range hs {
+			if isOurs(one) {
+				changed = true
+				continue
+			}
+			keepHooks = append(keepHooks, one)
+		}
+		if len(keepHooks) == len(hs) {
+			out = append(out, g)
+			continue
+		}
+		if len(keepHooks) == 0 {
+			continue
+		}
+		b, _ := marshalRaw(keepHooks)
+		grp.set("hooks", b)
+		gb, _ := grp.MarshalJSON()
+		out = append(out, gb)
+	}
+	if !changed {
+		return kept
+	}
+	if len(out) == 0 {
+		h.del(ev)
+		return kept
+	}
+	b, _ := marshalRaw(out)
+	h.set(ev, b)
+	return kept
 }
 
 // marshalRaw encodes without HTML escaping. encoding/json's default would rewrite a
@@ -289,8 +336,15 @@ func (o *orderedObject) UnmarshalJSON(b []byte) error {
 		}
 		o.set(k, v)
 	}
-	_, err = dec.Token()
-	return err
+	if _, err := dec.Token(); err != nil {
+		return err
+	}
+	// Anything after the closing brace (a second object, say) is refused: silently
+	// ignoring it would drop the user's settings on the next write.
+	if _, err := dec.Token(); err != io.EOF {
+		return fmt.Errorf("unexpected data after the JSON object")
+	}
+	return nil
 }
 
 func (o *orderedObject) MarshalJSON() ([]byte, error) {

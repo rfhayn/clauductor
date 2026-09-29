@@ -49,7 +49,7 @@ other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
 				return err
 			}
 			if changed {
-				fmt.Fprintf(out, "Removed panel hooks from %s (backup: settings.json.clauductor-panel.bak).\n", panel.SettingsPath(home))
+				fmt.Fprintf(out, "Removed panel hooks from %s (pre-panel backup: settings.json.clauductor-panel.bak).\n", panel.SettingsPath(home))
 			} else {
 				fmt.Fprintf(out, "No panel hooks in %s.\n", panel.SettingsPath(home))
 			}

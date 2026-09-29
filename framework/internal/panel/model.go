@@ -88,6 +88,7 @@ const (
 	busySlack        = 10 * time.Second // a hook may land before the 2 s poll sees "busy"
 	activeWindow     = 15 * time.Minute // a hook this recent keeps a session-less lane visible
 	forgetSessionAge = 30 * time.Minute
+	idleClearsAgents = 10 * time.Second // idle this long → no subagent can still be running
 	detailMax        = 140
 )
 
@@ -137,6 +138,7 @@ type session struct {
 	// From `claude agents --json`.
 	Agent     *Agent
 	BusySince time.Time
+	IdleSince time.Time
 }
 
 // CardState is the last result of one card.
@@ -291,7 +293,7 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now}
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "SubagentStop":
-		delete(s.Subagents, ev.AgentID)
+		s.stopSubagent(ev.AgentID, ev.AgentType)
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "Notification":
 		s.HookStatus = "waiting"
@@ -304,6 +306,29 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 	}
 	m.feedFor(wt, ev.SessionID, ev.Event, detail, now)
 	return true
+}
+
+// stopSubagent removes the stopped agent. Workflow agents were seen (live, 2.1.284)
+// to stop under a different agent_id than they started with, so an unknown id retires
+// the OLDEST running agent of the same type instead. Hook Stop clears nothing:
+// background agents outlive the turn that started them.
+func (s *session) stopSubagent(id, typ string) {
+	if _, ok := s.Subagents[id]; ok {
+		delete(s.Subagents, id)
+		return
+	}
+	oldest := ""
+	for k, a := range s.Subagents {
+		if a.Type != typ {
+			continue
+		}
+		if oldest == "" || a.Since.Before(s.Subagents[oldest].Since) || (a.Since.Equal(s.Subagents[oldest].Since) && k < oldest) {
+			oldest = k
+		}
+	}
+	if oldest != "" {
+		delete(s.Subagents, oldest)
+	}
 }
 
 func agentLabel(typ, id string) string {
@@ -396,6 +421,15 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 		}
 		if a.Status == "idle" {
 			s.BusySince = time.Time{}
+			if prev != "idle" || s.IdleSince.IsZero() {
+				s.IdleSince = now
+			}
+			// A session idle this long has no agent running, whatever stops were missed.
+			if now.Sub(s.IdleSince) >= idleClearsAgents {
+				s.Subagents = map[string]subagent{}
+			}
+		} else {
+			s.IdleSince = time.Time{}
 		}
 		if a.Status == "busy" {
 			// A permission prompt answered in the terminal fires no hook; the
@@ -414,10 +448,12 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 			}
 			s.Agent = nil
 			s.Note = nil
-			s.BusySince = time.Time{}
+			s.BusySince, s.IdleSince = time.Time{}, time.Time{}
+			s.Subagents = map[string]subagent{}
 		}
 		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
 			delete(m.sessions, id)
+			delete(m.costByID, id) // the est. $ sum covers tracked sessions only
 		}
 	}
 }
@@ -452,23 +488,25 @@ func (m *Model) ApplyCard(id string, out *CardOutput, err error, now time.Time) 
 
 // View is the JSON the browser renders. It is derived, never stored.
 type View struct {
-	Name           string                  `json:"name"`
-	Root           string                  `json:"root"`
-	Now            int64                   `json:"now"`
-	StartedAt      int64                   `json:"startedAt"`
-	Lanes          []LaneView              `json:"lanes"`
-	QuietWorktrees []LaneView              `json:"quietWorktrees"`
-	Quota          *Quota                  `json:"quota"`
-	EstCostUSD     *float64                `json:"estCostUsd"`
-	NeedsYou       []NeedView              `json:"needsYou"`
-	Cards          []CardState             `json:"cards"`
-	PRs            []PR                    `json:"prs"`
-	Feed           []FeedEvent             `json:"feed"`
-	Banners        []string                `json:"banners"`
-	Sources        map[string]SourceStatus `json:"sources"`
-	HookEvents     int                     `json:"hookEvents"`
-	StatusPosts    int                     `json:"statusPosts"`
-	Dropped        int                     `json:"dropped"`
+	Name           string     `json:"name"`
+	Root           string     `json:"root"`
+	Now            int64      `json:"now"`
+	StartedAt      int64      `json:"startedAt"`
+	Lanes          []LaneView `json:"lanes"`
+	QuietWorktrees []LaneView `json:"quietWorktrees"`
+	Quota          *Quota     `json:"quota"`
+	// EstCostUSD sums the status line's list-price total_cost_usd over the sessions
+	// the panel currently tracks: live ones, and ones heard from in the last 30 min.
+	EstCostUSD  *float64                `json:"estCostUsd"`
+	NeedsYou    []NeedView              `json:"needsYou"`
+	Cards       []CardState             `json:"cards"`
+	PRs         []PR                    `json:"prs"`
+	Feed        []FeedEvent             `json:"feed"`
+	Banners     []string                `json:"banners"`
+	Sources     map[string]SourceStatus `json:"sources"`
+	HookEvents  int                     `json:"hookEvents"`
+	StatusPosts int                     `json:"statusPosts"`
+	Dropped     int                     `json:"dropped"`
 }
 
 // LaneView is one lane (a worktree) as rendered.

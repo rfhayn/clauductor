@@ -234,3 +234,95 @@ func TestUninstallWithoutSettingsIsANoop(t *testing.T) {
 		t.Fatal("uninstall created a settings file")
 	}
 }
+
+func TestInstallRefusesTrailingData(t *testing.T) {
+	home := t.TempDir()
+	const bad = `{"model":"x"} {"env":{"FOO":"bar"}}`
+	writeFile(t, SettingsPath(home), bad)
+	for _, f := range []func() (bool, error){
+		func() (bool, error) { return InstallHooks(home, 4393) },
+		func() (bool, error) { return UninstallHooks(home) },
+	} {
+		if changed, err := f(); err == nil || changed {
+			t.Fatalf("accepted trailing data: changed=%v err=%v", changed, err)
+		}
+	}
+	if b, _ := os.ReadFile(SettingsPath(home)); string(b) != bad {
+		t.Fatal("file modified")
+	}
+	o := &orderedObject{}
+	if o.UnmarshalJSON([]byte(`{"a":1} {"b":2}`)) == nil {
+		t.Fatal("orderedObject accepted trailing data")
+	}
+}
+
+func TestInstallFollowsASymlinkedSettingsFile(t *testing.T) {
+	home := t.TempDir()
+	dotfiles := t.TempDir()
+	target := filepath.Join(dotfiles, "claude-settings.json")
+	writeFile(t, target, `{"model":"opus"}`)
+	if err := os.MkdirAll(filepath.Dir(SettingsPath(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, SettingsPath(home)); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := InstallHooks(home, 4393); err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	fi, err := os.Lstat(SettingsPath(home))
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the symlink was replaced by a regular file")
+	}
+	b, _ := os.ReadFile(target)
+	if !strings.Contains(string(b), HookURL(4393)) || !strings.Contains(string(b), `"model": "opus"`) {
+		t.Fatalf("target not updated:\n%s", b)
+	}
+	if _, err := os.Stat(target + ".clauductor-panel.bak"); err != nil {
+		t.Fatal("backup not written next to the target")
+	}
+}
+
+func TestBackupKeepsThePrePanelFile(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, SettingsPath(home), foreignSettings)
+	for _, port := range []int{4393, 4394, 4395} {
+		if changed, err := InstallHooks(home, port); err != nil || !changed {
+			t.Fatalf("port %d: changed=%v err=%v", port, changed, err)
+		}
+	}
+	if _, err := UninstallHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(SettingsPath(home) + ".clauductor-panel.bak"); string(b) != foreignSettings {
+		t.Fatal("backup overwritten by a later change")
+	}
+}
+
+func TestInstallIsIdempotentWhenAUserHookFollowsOurs(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallHooks(home, 4393); err != nil {
+		t.Fatal(err)
+	}
+	// The user (or another tool) appends their own Stop hook after ours.
+	m := readSettings(t, home)
+	stop := m["hooks"].(map[string]any)["Stop"].([]any)
+	m["hooks"].(map[string]any)["Stop"] = append(stop, map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": "say done"}}})
+	b, _ := json.MarshalIndent(m, "", "  ")
+	writeFile(t, SettingsPath(home), string(b)+"\n")
+	before, _ := os.ReadFile(SettingsPath(home))
+	changed, err := InstallHooks(home, 4393)
+	if err != nil || changed {
+		t.Fatalf("second install changed=%v err=%v", changed, err)
+	}
+	after, _ := os.ReadFile(SettingsPath(home))
+	if !bytes.Equal(before, after) {
+		t.Fatal("file rewritten")
+	}
+	stop = readSettings(t, home)["hooks"].(map[string]any)["Stop"].([]any)
+	first, _ := json.Marshal(stop[0])
+	if len(stop) != 2 || !strings.Contains(string(first), HookTag) {
+		t.Fatalf("our entry moved or duplicated: %s", after)
+	}
+}

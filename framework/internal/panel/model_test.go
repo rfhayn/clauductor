@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,9 @@ func TestReducerReplaysSpikeHooks(t *testing.T) {
 		{"turn stopped", 2, "idle", 0, "Stop"},
 		{"subagent started", 4, "busy", 1, "SubagentStart"},
 		{"subagent stopped", 5, "busy", 0, "SubagentStop"},
-		{"stop for an id never started is harmless", 9, "idle", 0, "SubagentStop"},
+		// Events 6-9 include SubagentStops with ids never started and an empty type:
+		// nothing of that type runs, so nothing is retired and the count stays at 0.
+		{"stop for an unknown id and type retires nothing", 9, "idle", 0, "SubagentStop"},
 		{"whole spike", 15, "idle", 0, "Stop"},
 	}
 	for _, tc := range tests {
@@ -395,5 +398,106 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 	m.ApplyCard("founder-queue", nil, errors.New("exit status 1"), t0)
 	if c := m.Snapshot(t0).Cards[0]; c.Source.OK || c.Source.Error == "" {
 		t.Fatalf("card error not shown: %+v", c)
+	}
+}
+
+func TestReducerSubagentLifecycle(t *testing.T) {
+	cwd := "/repo/.claude/worktrees/build-add-support-access"
+	start := func(id, typ string) HookEvent {
+		return HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStart", AgentID: id, AgentType: typ}
+	}
+	stop := func(id, typ string) HookEvent {
+		return HookEvent{SessionID: "s", Cwd: cwd, Event: "SubagentStop", AgentID: id, AgentType: typ}
+	}
+	agent := func(status string) []Agent { return []Agent{{SessionID: "s", Cwd: cwd, Status: status}} }
+	tests := []struct {
+		name  string
+		steps func(m *Model)
+		at    time.Duration
+		want  []string // running agent ids
+	}{
+		{"stop by matching id", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(stop("a1", "builder"), t0.Add(time.Second))
+		}, 2 * time.Second, nil},
+		{"workflow agent stops under another id: same type retires it", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(stop("b9", "builder"), t0.Add(time.Second))
+		}, 2 * time.Second, nil},
+		{"unknown id retires the OLDEST of that type", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(start("a2", "builder"), t0.Add(time.Second))
+			m.ApplyHook(start("r1", "reviewer"), t0.Add(time.Second))
+			m.ApplyHook(stop("b9", "builder"), t0.Add(2*time.Second))
+		}, 3 * time.Second, []string{"a2", "r1"}},
+		{"unknown id of another type retires nothing", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(stop("b9", ""), t0.Add(time.Second))
+		}, 2 * time.Second, []string{"a1"}},
+		{"hook Stop keeps background agents", func(m *Model) {
+			m.ApplyAgents(agent("busy"), nil, t0)
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyHook(HookEvent{SessionID: "s", Cwd: cwd, Event: "Stop"}, t0.Add(time.Second))
+		}, 2 * time.Second, []string{"a1"}},
+		{"idle for 5 s keeps them", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyAgents(agent("idle"), nil, t0.Add(time.Second))
+			m.ApplyAgents(agent("idle"), nil, t0.Add(6*time.Second))
+		}, 7 * time.Second, []string{"a1"}},
+		{"idle for 10 s clears them", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyAgents(agent("idle"), nil, t0.Add(time.Second))
+			m.ApplyAgents(agent("idle"), nil, t0.Add(11*time.Second))
+		}, 12 * time.Second, nil},
+		{"busy in between restarts the idle clock", func(m *Model) {
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyAgents(agent("idle"), nil, t0.Add(time.Second))
+			m.ApplyAgents(agent("busy"), nil, t0.Add(5*time.Second))
+			m.ApplyAgents(agent("idle"), nil, t0.Add(8*time.Second))
+			m.ApplyAgents(agent("idle"), nil, t0.Add(12*time.Second))
+		}, 13 * time.Second, []string{"a1"}},
+		{"session gone clears them", func(m *Model) {
+			m.ApplyAgents(agent("busy"), nil, t0)
+			m.ApplyHook(start("a1", "builder"), t0)
+			m.ApplyAgents(nil, nil, t0.Add(2*time.Second))
+		}, 3 * time.Second, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewModel(testConfig(t), "/repo", t0)
+			m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
+			tc.steps(m)
+			var got []string
+			if s := m.sessions["s"]; s != nil {
+				for id := range s.Subagents {
+					got = append(got, id)
+				}
+			}
+			sort.Strings(got)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("running %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReducerCostCoversTrackedSessionsOnly(t *testing.T) {
+	cwd := "/repo"
+	cost := func(v float64) StatusPayload {
+		p := StatusPayload{SessionID: "old", Cwd: cwd}
+		p.Cost.TotalCostUSD = &v
+		return p
+	}
+	m := NewModel(testConfig(t), "/repo", t0)
+	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
+	m.ApplyStatus(cost(3), t0)
+	later := StatusPayload{SessionID: "new", Cwd: cwd}
+	two := 2.0
+	later.Cost.TotalCostUSD = &two
+	m.ApplyStatus(later, t0.Add(40*time.Minute))
+	m.ApplyAgents(nil, nil, t0.Add(40*time.Minute)) // "old" is 40 min silent: forgotten
+	v := m.Snapshot(t0.Add(40 * time.Minute))
+	if v.EstCostUSD == nil || *v.EstCostUSD != 2 {
+		t.Fatalf("est $ %v, want only the tracked session's 2", v.EstCostUSD)
 	}
 }

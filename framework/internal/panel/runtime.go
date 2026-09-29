@@ -132,7 +132,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("installing hooks: %w", err)
 	}
 	if changed {
-		fmt.Fprintf(o.Out, "Installed panel hooks in %s (backup: settings.json.clauductor-panel.bak). Sessions already running load them only on restart.\n", SettingsPath(o.Home))
+		fmt.Fprintf(o.Out, "Installed panel hooks in %s (pre-panel backup: settings.json.clauductor-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", SettingsPath(o.Home))
 	} else {
 		fmt.Fprintf(o.Out, "Panel hooks already present in %s.\n", SettingsPath(o.Home))
 	}

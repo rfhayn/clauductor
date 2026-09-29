@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -32,7 +33,11 @@ func withHost(h string) reqOpt      { return func(r *http.Request) { r.Host = h 
 func withRemote(a string) reqOpt    { return func(r *http.Request) { r.RemoteAddr = a } }
 
 func do(s *Server, method, target, body string, opts ...reqOpt) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, target, strings.NewReader(body))
+	// A bounded context: if a guard regressed, /events would stream forever and the
+	// test would hang instead of failing.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r := httptest.NewRequest(method, target, strings.NewReader(body)).WithContext(ctx)
 	r.Host = "127.0.0.1:" + strconv.Itoa(testPort)
 	r.RemoteAddr = "127.0.0.1:50000"
 	for _, o := range opts {

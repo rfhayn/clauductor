@@ -83,8 +83,10 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 
 - **Top bar.** LIVE / DISCONNECTED (the page reconnects on its own; if the panel was restarted
   it says so, because the new launch has a new token). The 5-hour and 7-day quota gauges are the
-  real subscription budget. **est. $ (list price)** is the sum of the status line's
-  `total_cost_usd` for the sessions this panel run has seen: a list-price estimate, not a bill.
+  real subscription budget. **est. $ · tracked sessions (list price)** is the sum of the status
+  line's `total_cost_usd` over the sessions the panel tracks now: live ones, and ones heard from
+  in the last 30 minutes. A session forgotten after that drops out of the sum. It is a
+  list-price estimate, not a bill.
   `hooks` counts hook events accepted, status-line posts, and events dropped as outside the
   project.
 - **Lanes (left).** One per worktree with a live session or recent activity. The stripe is green
@@ -92,7 +94,11 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   arrived from it for 60 s. The chip is the lane type from `lanes`. Worktrees with no session are
   listed underneath.
 - **Selected lane (centre).** Its sessions (pid, status, context %, model, est. $), running
-  subagents with their age, and the lane's own event feed. v0 has no terminal.
+  subagents with their age, and the lane's own event feed. v0 has no terminal. Workflow agents
+  can stop under a different `agent_id` than they started with, so a stop with an unknown id
+  retires the oldest running agent of the same type. A session that `claude agents` reports idle
+  for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
+  background agents outlive the turn.
 - **Right column.** *Needs you*: permission and idle-prompt notifications, and sessions that
   `claude agents` reports as waiting, followed by the project's cards. *Open PRs*: from `gh`, with
   "cannot read" on failure (never an empty list). *Feed*: the last events across all lanes.
@@ -132,10 +138,16 @@ for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification` 
 
 - The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
   Code documents no free-form key for ownership. Only tagged entries are replaced or removed;
-  every other key and hook is kept, in order.
+  every other key and hook is kept, in order. The panel's current entry stays where it is, even if
+  a user hook follows it.
 - The install is idempotent: a start that would change nothing does not rewrite the file.
-- Before any write, the previous file is copied to `settings.json.clauductor-panel.bak`. The write
-  is atomic (temp file + rename).
+- A file that is not exactly one JSON object (invalid, or with trailing data) is refused and not
+  touched.
+- Before the first write, the file is copied to `settings.json.clauductor-panel.bak`. That backup
+  is never overwritten, so it keeps the file as it was before the panel first touched it. Writes
+  are atomic (temp file + rename, in the same directory).
+- A symlinked `settings.json` (for example, one managed by a dotfiles repo) is followed: the
+  panel edits the file it points at, and the link stays a link.
 - The hooks stay installed when the panel stops. While it is down, the connection is refused
   at once and the session is never blocked. `clauductor panel --uninstall-hooks` removes them.
 
