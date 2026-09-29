@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -18,7 +19,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html
+//go:embed web
 var webFS embed.FS
 
 // LoopbackHost is the only address the panel ever binds.
@@ -142,6 +143,15 @@ type Server struct {
 	Hooks   chan<- []byte // raw hook bodies, processed after the 204
 	Status  chan<- []byte // raw status-line bodies
 	Refresh func()        // re-poll every source now
+	// Lanes controls lanes (v1). Nil when tmux is unavailable: the panel still watches.
+	Lanes *LaneManager
+	// CookieMaxAge, when > 0, makes the session cookie persistent (seconds). Used when
+	// the panel runs under launchd with a persistent token.
+	CookieMaxAge int
+
+	termMu  sync.Mutex
+	tickets map[string]termTicket               // single-use WebSocket tickets
+	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
 }
 
 func (s *Server) cookieName() string { return "clauductor_panel_" + strconv.Itoa(s.Port) }
@@ -191,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	s.laneRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Cache-Control", "no-store")
@@ -267,7 +278,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: s.Token, Path: "/",
-			HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: s.CookieMaxAge})
 		// Drop the token from the address bar and history.
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -277,10 +288,20 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, _ := webFS.ReadFile("web/index.html")
+	// No inline script or style is allowed, and nothing outside this origin. The one
+	// exception is a per-response nonce for the <style> elements xterm.js creates at
+	// run time; panel.js stamps it on them.
+	nonce, err := NewToken()
+	if err != nil {
+		http.Error(w, "no randomness", http.StatusInternalServerError)
+		return
+	}
+	nonce = nonce[:32]
+	page = bytes.Replace(page, []byte("{{STYLE_NONCE}}"), []byte(nonce), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; "+
-		"style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "+
-		"connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'nonce-"+nonce+"'; "+
+		"font-src 'self'; connect-src 'self' ws://"+r.Host+"; img-src 'self' data:; "+
+		"base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	w.Write(page)
 }
 
