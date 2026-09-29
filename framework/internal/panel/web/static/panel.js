@@ -636,7 +636,7 @@ function renderRestore() {
     let over = null;
     if (S.quotaGuard) {
       over = el("input"); over.type = "checkbox";
-      row.appendChild(el("label", null, [over, document.createTextNode(S.quotaGuard + ". Restore anyway.")]));
+      row.appendChild(el("label", null, null, [over, document.createTextNode(S.quotaGuard + ". Restore anyway.")]));
     }
     const b = button("RESTORE ALL", "primary", async () => {
       restoreBusy = true; restoreMsg = null; render();
@@ -664,7 +664,7 @@ function renderRestore() {
 
 function renderObs() {
   const o = S.observe;
-  const kv = (k, v) => el("span", null, [document.createTextNode(k + " "), el("b", null, String(v))]);
+  const kv = (k, v) => el("span", null, null, [document.createTextNode(k + " "), el("b", null, String(v))]);
   $("obs").replaceChildren(
     kv("events", o.hookEvents), kv("status posts", o.statusPosts),
     kv("dropped: foreign cwd", o.droppedForeign), kv("overflow", o.overflowDrops), kv("malformed", o.malformedDrops),
@@ -731,7 +731,7 @@ function render() {
     if (lane.sessions.length) {
       const tb = el("tbody");
       for (const s of lane.sessions) {
-        tb.appendChild(el("tr", null, [
+        tb.appendChild(el("tr", null, null, [
           el("td", null, s.name || s.id.slice(0, 8)), el("td", null, s.pid ? String(s.pid) : "—"), el("td", null, s.kind || "hooks only"),
           el("td", { busy: "go", waiting: "hold" }[s.status] || "", s.status + (s.waitingFor ? " · " + s.waitingFor : "") +
             (s.compacting ? " · compacting (" + s.compacting + ")" : "") + (s.failure ? " · failed: " + s.failure : "") +
@@ -740,8 +740,8 @@ function render() {
           el("td", null, s.estCostUsd == null ? "—" : "$" + s.estCostUsd.toFixed(2)),
         ]));
       }
-      const th = el("tr", null, ["session", "pid", "kind", "status", "ctx", "model", "est. $"].map((h) => el("th", null, h)));
-      sum.appendChild(el("div", "tablewrap", null, [el("table", null, [el("thead", null, [th]), tb])]));
+      const th = el("tr", null, null, ["session", "pid", "kind", "status", "ctx", "model", "est. $"].map((h) => el("th", null, h)));
+      sum.appendChild(el("div", "tablewrap", null, [el("table", null, null, [el("thead", null, null, [th]), tb])]));
     }
     sum.appendChild(el("div", "mh", "Running subagents · " + lane.subagents.length));
     if (lane.subagentsApprox) sum.appendChild(el("div", "approx sub", "approximate: the pairing was verified on Claude Code " + S.observe.verifiedOn + ", and " + (S.observe.claudeVersion || "an unknown version") + " is running"));
