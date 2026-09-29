@@ -418,18 +418,35 @@ case_ownerless_old() {
 	runs a
 }
 
-# The owner grace is 10 s. A young lock is checked for most of it, not for WAIT: an
-# implementation with no grace that is slow to start under load would otherwise
-# reclaim after the check and pass.
-GRACE_CHECK=7
+# honours_grace NAME: NAME ran its command (and released) only once the lock was
+# 10 s old, the owner grace. Judged by timestamps, not by how long the driver
+# watched: on a loaded machine the driver's own checks run late, which would stretch
+# a watched window past the grace (a correct implementation then "runs while it had
+# to wait") or let a slow no-grace implementation start after the window closes.
+# The lock's birth is its mtime (the clock the implementation reads); the command
+# records when it ran.
+honours_grace() {
+	local born=$1 ran
+	finish "$2"
+	[ "$RC" = 0 ] || fail "$2 exit $RC, want 0 ($(tail -n 1 "$CASE_DIR/$2.err" 2>/dev/null))"
+	ran=$(cat "$LOG.ran" 2>/dev/null)
+	case $born$ran in
+	*[!0-9]* | '') fail "no time for the lock's birth ('$born') or the command's run ('$ran')" ;;
+	*) [ $((ran - born)) -ge 9 ] || fail "$2 ran its command $((ran - born)) s after the lock was made; the grace is 10 s" ;;
+	esac
+	log_is "$2"
+	[ ! -e "$LOCK" ] || fail "the lease was not released"
+}
+GRACE_BODY='date +%s > "$LOG.ran"; echo a >> "$LOG"'
 
 # Younger than 10 s, its holder is starting: wait. Once it is 10 s old, reclaim.
 case_ownerless_young() {
 	setup ownerless-young
 	mkdir -p "$LOCK"
-	start a 'echo a >> "$LOG"'
-	still_waiting a "$GRACE_CHECK"
-	runs a
+	local born
+	born=$(mtime "$LOCK")
+	start a "$GRACE_BODY"
+	honours_grace "$born" a
 }
 
 # A truncated owner.json is not a valid record: as good as none.
@@ -444,9 +461,10 @@ case_truncated_owner_old() {
 case_truncated_owner_young() {
 	sleeper
 	setup truncated-owner-young PID="$SLEEPER"
-	start a 'echo a >> "$LOG"'
-	still_waiting a "$GRACE_CHECK"
-	runs a
+	local born
+	born=$(mtime "$LOCK")
+	start a "$GRACE_BODY"
+	honours_grace "$born" a
 }
 
 # Not a flat JSON object (trailing garbage), with a valid nonce and a live pid: not a

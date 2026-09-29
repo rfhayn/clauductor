@@ -826,8 +826,10 @@ sources, an unverifiable pid read as dead, pid reuse ignored, the command ignore
 `ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
 record, the record's shape or its integer fields unchecked, invalid waiter files removed or queued,
 LIFO order, cancel ignored) must fail at least one case. The cases that need an old lock
-directory set its mtime 60 s back and check that it took; the cases with a young one check that
-nothing runs for 7 of the 10 s grace, not just `CONFORMANCE_WAIT`. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
+directory set its mtime 60 s back and check that it took; the cases with a young one judge the
+grace by timestamps (the command records when it ran, against the lock's mtime), not by how long
+the driver watched, so a loaded machine cannot stretch or shrink the window. The driver runs
+at most one case per CPU (at least 4) at a time. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
 
 ## Alerts
 

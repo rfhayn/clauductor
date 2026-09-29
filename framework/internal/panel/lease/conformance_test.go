@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,10 +52,11 @@ func runConformance(driver string, env []string, cases []string, impl ...string)
 	return string(out), err
 }
 
-// conformanceSlots caps the driver runs in flight across these tests. Each run
-// mostly sleeps, so it is far above -parallel; the cap keeps a small CI machine's
-// ps and fork load from bending the timing a case allows.
-var conformanceSlots = make(chan struct{}, 24)
+// conformanceSlots caps the driver runs in flight across these tests: one per CPU
+// (at least 4). Each run mostly sleeps, but forks ps and friends many times a
+// second; more than that on a 3-core CI runner starves the other packages' tests,
+// which go test runs at the same time.
+var conformanceSlots = make(chan struct{}, max(4, runtime.NumCPU()))
 
 // startConformance starts one driver run now and returns a function that waits for
 // its output. Runs start at once, not when -parallel frees a slot.
