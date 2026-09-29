@@ -664,6 +664,13 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 			_ = os.RemoveAll(lock)
 		}
 	}
+	// INT, TERM and HUP to lock-run go on to the command's group, once each. Listen
+	// before the command starts: a signal that arrived between the start and a later
+	// Notify went only to the waiter loop's channel, which nobody reads any more, and
+	// the command never heard it (seen under load: lock-run then never exited).
+	sigs := make(chan os.Signal, 4)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
 	if err := cmd.Start(); err != nil {
 		release()
 		return 127, fmt.Errorf("lock-run: %w", err)
@@ -705,10 +712,6 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 			}
 		}()
 	}
-	// INT, TERM and HUP to lock-run go on to the command's group, once each.
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigs)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	var werr error
