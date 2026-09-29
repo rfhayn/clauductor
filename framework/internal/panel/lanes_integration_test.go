@@ -520,10 +520,15 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 		t.Fatalf("quiet terminal closed with %v, want %v (idle)", got, closeIdle)
 	}
 	busy := p.dial(t, "orch")
-	// "alive" at every check, for twelve checks: three idle timeouts.
+	// "alive" at every check, for twelve checks: three idle timeouts. A terminal
+	// closed meanwhile stops its checks.
+	deadline := time.Now().Add(10 * time.Second)
 	for end := checks.count() + 13; checks.count() < end; {
 		send(t, busy, termMsg{Type: "alive"})
 		for n := checks.count(); checks.count() == n; {
+			if time.Now().After(deadline) {
+				t.Fatalf("the terminal's idle checks stopped: it was closed (%v) while the page said alive", closeCode(busy, time.Second))
+			}
 			time.Sleep(5 * time.Millisecond)
 		}
 	}

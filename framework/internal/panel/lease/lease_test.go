@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -76,11 +77,14 @@ func (c tracingClock) After(d time.Duration) <-chan time.Time {
 	return c.Clock.After(d)
 }
 
-// waitIterations waits until the process tracing into trace has finished n more
-// iterations of its wait loop than it had at mark.
-func waitIterations(t *testing.T, trace string, mark, n int) {
+// waitIterations waits until p, tracing into trace, has finished n more iterations
+// of its wait loop than it had at mark, or has left the loop by exiting: the
+// caller's assertions then say which.
+func waitIterations(t *testing.T, p *lockProc, trace string, mark, n int) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("%d wait-loop iterations", n), 10*time.Second, func() bool { return lineCount(trace) >= mark+n })
+	waitUntil(t, fmt.Sprintf("%d wait-loop iterations", n), 10*time.Second, func() bool {
+		return lineCount(trace) >= mark+n || p.exited.Load()
+	})
 }
 
 // syncBuf is a buffer a child process writes while the test reads it.
@@ -96,6 +100,7 @@ type lockProc struct {
 	cmd    *exec.Cmd
 	stderr *syncBuf
 	done   chan int
+	exited atomic.Bool // set just before the exit code is sent on done
 }
 
 func startLockRun(t *testing.T, lock, lane string, ttl time.Duration, argv ...string) *lockProc {
@@ -124,6 +129,7 @@ func startLockRunEnv(t *testing.T, lock, lane string, ttl time.Duration, env []s
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		}
+		p.exited.Store(true)
 		p.done <- code
 	}()
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
@@ -338,7 +344,7 @@ func TestLockRunLeaseTTL(t *testing.T) {
 	live := plant(me)
 	trace := filepath.Join(t.TempDir(), "trace")
 	p := startLockRunEnv(t, live, "next", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "exit 0")
-	waitIterations(t, trace, 0, 5)
+	waitIterations(t, p, trace, 0, 5)
 	select {
 	case code := <-p.done:
 		t.Fatalf("took a live holder's lease (exit %d): %s", code, p.stderr)
@@ -357,7 +363,7 @@ func TestLockRunLeaseTTL(t *testing.T) {
 	unverified.PStart = ""
 	trace = filepath.Join(t.TempDir(), "trace")
 	r := startLockRunEnv(t, plant(unverified), "next", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "exit 0")
-	waitIterations(t, trace, 0, 5)
+	waitIterations(t, r, trace, 0, 5)
 	select {
 	case code := <-r.done:
 		t.Fatalf("reclaimed an alive holder with no start time (exit %d): %s", code, r.stderr)
@@ -391,7 +397,7 @@ func TestLockRunStoppedHolderKeepsTheLease(t *testing.T) {
 	trace := filepath.Join(dir, "trace")
 	waiter := startLockRunEnv(t, lock, "b", time.Second, []string{"LOCKRUN_HELPER_TRACE=" + trace, "LOCKRUN_HELPER_SKEW=1h"},
 		"/bin/sh", "-c", "echo B-ran >> "+log)
-	waitIterations(t, trace, 0, 5)
+	waitIterations(t, waiter, trace, 0, 5)
 	if lineCount(log) != 1 {
 		t.Fatalf("the waiter ran while the stopped holder held the lease: %v", readLog(t, log))
 	}
@@ -566,7 +572,7 @@ func TestLockRunIsFIFO(t *testing.T) {
 		Started: now.Unix(), Renewed: now.Unix()})
 	trace := filepath.Join(dir, "trace")
 	p := startLockRunEnv(t, lock, "second", time.Minute, []string{"LOCKRUN_HELPER_TRACE=" + trace}, "/bin/sh", "-c", "echo ran >> "+log)
-	waitIterations(t, trace, 0, 5)
+	waitIterations(t, p, trace, 0, 5)
 	if lineCount(log) != 0 {
 		t.Fatal("jumped the queue: ran while an earlier live waiter was ahead")
 	}
