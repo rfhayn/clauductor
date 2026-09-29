@@ -614,10 +614,11 @@ ever signals or removes a live holder**, including the panel.
 
 **Defence in depth in `lock-run`:**
 
-- It holds `flock(2)` on the lease directory while it holds the lease, and passes that open
-  file to its command, so the lock lasts as long as either runs. A Go reader (another
-  `lock-run`, the panel) never judges a flocked lease stale. The kernel drops the lock when the
-  last process holding it exits.
+- It holds `flock(2)` on the lease directory while it runs. The flock **never decides
+  liveness**: that is the holder's and the command's pid and start time, the same rule the shell
+  applies, so Go and shell waiters always agree. The command does not inherit the flock (a
+  daemon the gate leaves behind would hold it long after the gate ended). The panel only
+  mentions a flock still held on a stale lease.
 - Once a second it checks `owner.json` still carries its nonce. If the lease was taken away, it
   stops the command's whole process group (`TERM`, then `KILL` after 5 s) and exits **70**,
   rather than let two gates finish.
@@ -665,8 +666,12 @@ if [ -z "$lock" ]; then
 elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   if command -v clauductor >/dev/null 2>&1; then
     # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
-    # pty that does not answer); lock-run gives the gate the real TERM back.
-    CLAUDUCTOR_TERM="${TERM:-}" TERM=dumb \
+    # pty that does not answer); lock-run gives the gate the real TERM back, or
+    # leaves it unset if it was unset. Ask the environment, not the shell: bash
+    # sets an unexported TERM=dumb of its own when TERM is unset.
+    term_set="" term_val=""
+    if printenv TERM >/dev/null 2>&1; then term_set=1 term_val=$(printenv TERM); fi
+    CLAUDUCTOR_TERM="$term_val" CLAUDUCTOR_TERM_SET="$term_set" TERM=dumb \
       exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
   fi
   if [ -f "$(dirname "$0")/lease.sh" ]; then

@@ -52,9 +52,11 @@ import (
 // owner.json missing or unreadable, in a directory older than ownerGrace (the holder
 // died between mkdir and writing it), is stale too.
 //
-// A live holder is NEVER removed or signalled, by the panel or by a waiter. As
-// defence in depth, lock-run also holds flock(2) on the lease directory while it
-// holds the lease, and a Go reader never judges a flocked lease stale.
+// A live holder is NEVER removed or signalled, by the panel or by a waiter.
+// Liveness is decided ONLY by the holder's and its command's pid and start time, the
+// same rule in Go and in shell, so the two sides always agree. lock-run also holds
+// flock(2) on the lease directory while it runs; that never makes a record live (an
+// orphan that inherited the fd would outlive the gate), and the panel only shows it.
 //
 // Waiters queue FIFO by arrival (the waiter file's name). Only the first live waiter tries mkdir,
 // so the queue is fair. A waiter whose pid is gone, or whose file has not been
@@ -251,10 +253,6 @@ func holderState(lock, host string, now time.Time, proc ProcCheck) (held bool, o
 	if err != nil || !fi.IsDir() {
 		return false, o, false, ""
 	}
-	if flocked(lock) {
-		o, _ = readLeaseFile(filepath.Join(lock, ownerFileName))
-		return true, o, false, "" // a lock-run holds it: alive by the kernel's word
-	}
 	o, err = readLeaseFile(filepath.Join(lock, ownerFileName))
 	if err != nil {
 		if now.Sub(fi.ModTime()) >= ownerGrace {
@@ -267,7 +265,7 @@ func holderState(lock, host string, now time.Time, proc ProcCheck) (held bool, o
 }
 
 // flocked reports whether another open file description holds flock(2) on the
-// lease directory (a running lock-run). The kernel drops it when that process dies.
+// lease directory. Diagnostic only: it never decides liveness.
 func flocked(lock string) bool {
 	f, err := os.Open(lock)
 	if err != nil {
@@ -281,9 +279,8 @@ func flocked(lock string) bool {
 	return false
 }
 
-// holdFlock takes flock(2) on the lease directory and keeps it until release. The
-// open file is also passed to the command (ExtraFiles), so the flock outlives a
-// lock-run killed with SIGKILL for as long as its gate runs.
+// holdFlock takes flock(2) on the lease directory and keeps it until release. It
+// is not passed to the command: a daemon the gate leaves behind must not hold it.
 func holdFlock(lock string) (*os.File, func()) {
 	f, err := os.Open(lock)
 	if err != nil {
@@ -427,7 +424,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	lock = filepath.Clean(lock)
 	// Re-entry: a gate script that re-runs itself through lock-run already holds it.
 	if os.Getenv("CLAUDUCTOR_LOCK_HELD") == lock {
-		return runChild(ctx, o, lock, nil, nil)
+		return runChild(ctx, o, lock, nil)
 	}
 	if err := os.MkdirAll(waitersDir(lock), 0o755); err != nil {
 		return 2, fmt.Errorf("lock-run: %w", err)
@@ -479,7 +476,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		}
 		if ahead == 0 {
 			if err := os.Mkdir(lock, 0o755); err == nil {
-				flockFile, unflock := holdFlock(lock)
+				_, unflock := holdFlock(lock)
 				defer unflock()
 				held := me
 				held.Started, held.Renewed = now.Unix(), now.Unix()
@@ -489,7 +486,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 					return 2, fmt.Errorf("lock-run: writing owner.json: %w", err)
 				}
 				leaveQueue()
-				return runChild(ctx, o, lock, &held, flockFile)
+				return runChild(ctx, o, lock, &held)
 			} else if !errors.Is(err, os.ErrExist) {
 				leaveQueue()
 				return 2, fmt.Errorf("lock-run: %w", err)
@@ -536,7 +533,7 @@ func who(o LeaseOwner) string {
 // runChild runs the command. When held is set it holds the lease: it renews it every
 // ttl/3 and releases it after the command exits, but only while owner.json still
 // carries its own nonce (a lease it lost to a reclaim is not its to remove).
-func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner, flockFile *os.File) (int, error) {
+func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwner) (int, error) {
 	cmd := exec.Command(o.Argv[0], o.Argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = o.Stdin, o.Stdout, o.Stderr
 	if cmd.Stdin == nil {
@@ -557,19 +554,23 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	// terminal back when the command ends. Only when lock-run is itself in the
 	// foreground: a lock-run started with & must not steal the terminal.
 	ttyFd := -1
+	var saved *syscall.Termios
 	if f, ok := cmd.Stdin.(*os.File); ok {
 		if pg, err := tcgetpgrp(int(f.Fd())); err == nil && pg == syscall.Getpgrp() {
 			ttyFd = int(f.Fd())
 			cmd.SysProcAttr.Foreground, cmd.SysProcAttr.Ctty = true, 0 // fd 0 in the child
+			// The command may leave the terminal raw or without echo (stty -echo, a
+			// killed prompt); its settings are put back when lock-run takes it back.
+			saved, _ = getTermios(ttyFd)
 		}
-	}
-	if flockFile != nil {
-		cmd.ExtraFiles = []*os.File{flockFile}
 	}
 	takeTerminalBack := func() {
 		if ttyFd >= 0 {
 			signal.Ignore(syscall.SIGTTOU) // lock-run is in the background until this returns
 			_ = tcsetpgrp(ttyFd, syscall.Getpgrp())
+			if saved != nil {
+				_ = setTermios(ttyFd, saved)
+			}
 		}
 	}
 	defer takeTerminalBack()
@@ -727,6 +728,9 @@ func ReadQueue(q QueueConfig, lock string, now time.Time, proc ProcCheck) QueueV
 		}
 		if stale {
 			v.HolderNote = "stale: " + why + "; the next waiter reclaims it"
+			if flocked(lock) {
+				v.HolderNote += " (an orphaned process still holds its flock; that does not keep it)"
+			}
 		} else if o.Nonce == "" {
 			v.HolderNote = why
 		}
@@ -785,13 +789,17 @@ func tcsetpgrp(fd, pg int) error {
 // childEnv undoes the startup TERM workaround for the command. bubbletea's init (it
 // is linked into this binary for the HUD) asks the terminal for its background
 // colour and waits up to 5 s on a pty that does not answer. A caller skips that by
-// starting lock-run with TERM=dumb and the real value in CLAUDUCTOR_TERM
-// (docs/panel.md's snippet does); the command gets the real TERM back.
+// starting lock-run with TERM=dumb, the real value in CLAUDUCTOR_TERM, and
+// CLAUDUCTOR_TERM_SET=1 if TERM was set at all (docs/panel.md's snippet does). The
+// command gets the real TERM back: set (even to "") if it was set, unset if not.
 func childEnv(env []string) []string {
-	orig, ok := "", false
+	orig, ok, wasSet := "", false, false
 	for _, kv := range env {
 		if v, found := strings.CutPrefix(kv, "CLAUDUCTOR_TERM="); found {
 			orig, ok = v, true
+		}
+		if kv == "CLAUDUCTOR_TERM_SET=1" {
+			wasSet = true
 		}
 	}
 	if !ok {
@@ -799,13 +807,30 @@ func childEnv(env []string) []string {
 	}
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "CLAUDUCTOR_TERM=") || strings.HasPrefix(kv, "TERM=") {
+		if strings.HasPrefix(kv, "CLAUDUCTOR_TERM=") || strings.HasPrefix(kv, "CLAUDUCTOR_TERM_SET=") || strings.HasPrefix(kv, "TERM=") {
 			continue
 		}
 		out = append(out, kv)
 	}
-	if orig != "" {
+	if wasSet || orig != "" {
 		out = append(out, "TERM="+orig)
 	}
 	return out
+}
+
+// getTermios reads a terminal's settings.
+func getTermios(fd int) (*syscall.Termios, error) {
+	var t syscall.Termios
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlGetTermios), uintptr(unsafe.Pointer(&t))); e != 0 {
+		return nil, e
+	}
+	return &t, nil
+}
+
+// setTermios writes a terminal's settings back.
+func setTermios(fd int, t *syscall.Termios) error {
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(ioctlSetTermios), uintptr(unsafe.Pointer(t))); e != 0 {
+		return e
+	}
+	return nil
 }

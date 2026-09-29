@@ -171,8 +171,8 @@ func firstChild(t *testing.T, pid int) string {
 }
 
 // Round 2: a lock-run killed with SIGKILL leaves its gate running. The gate still
-// holds the lease: the flock it inherited (for Go readers) and child_pid in
-// owner.json (for the shell) keep the record live until the gate itself ends.
+// holds the lease: child_pid in owner.json keeps the record live, for Go and shell
+// readers alike, until the gate itself ends.
 func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 	leaseSh := docLeaseSh(t)
 	for _, waiterKind := range []string{"lock-run", "shell"} {
@@ -187,9 +187,6 @@ func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 			})
 			holder.cmd.Process.Signal(syscall.SIGKILL)
 			time.Sleep(200 * time.Millisecond)
-			if !flocked(lock) {
-				t.Fatal("the gate did not inherit the lease's flock from the killed lock-run")
-			}
 			var w *lockProc
 			if waiterKind == "shell" {
 				w = startShellLease(t, leaseSh, lock, "b", "echo B-ran >> "+log)
@@ -325,5 +322,50 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "gate-ran") || !strings.Contains(string(out), "neither clauductor nor lease.sh") {
 		t.Fatalf("%v: %s", err, out)
+	}
+}
+
+// Round 3: the gate leaves a daemon behind (a detached sleep), lock-run is killed
+// with SIGKILL, then the gate exits. Holder and command are both dead: Go and shell
+// waiters must BOTH take the lease promptly, not wait for the daemon.
+func TestDaemonLeftByTheGateDoesNotHoldTheLease(t *testing.T) {
+	leaseSh := docLeaseSh(t)
+	for _, waiterKind := range []string{"lock-run", "shell"} {
+		t.Run(waiterKind, func(t *testing.T) {
+			dir := t.TempDir()
+			lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
+			daemonPid := filepath.Join(dir, "daemon.pid")
+			holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c",
+				"(sleep 60 </dev/null >/dev/null 2>&1 & echo $! > "+daemonPid+"); echo A-start >> "+log+"; sleep 1; echo A-end >> "+log)
+			t.Cleanup(func() {
+				if b, err := os.ReadFile(daemonPid); err == nil {
+					if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+						syscall.Kill(pid, syscall.SIGKILL)
+					}
+				}
+			})
+			waitUntil(t, "the gate runs", 5*time.Second, func() bool {
+				o, err := readLeaseFile(filepath.Join(lock, ownerFileName))
+				return lineCount(log) == 1 && err == nil && o.ChildPID > 0
+			})
+			holder.cmd.Process.Signal(syscall.SIGKILL)
+			waitUntil(t, "the gate ends", 5*time.Second, func() bool { return lineCount(log) == 2 })
+			start := time.Now()
+			var w *lockProc
+			if waiterKind == "shell" {
+				w = startShellLease(t, leaseSh, lock, "b", "echo B-ran >> "+log)
+			} else {
+				w = startLockRun(t, lock, "b", time.Minute, "/bin/sh", "-c", "echo B-ran >> "+log)
+			}
+			if code := w.wait(t, 10*time.Second); code != 0 {
+				t.Fatalf("waiter exit %d: %s", code, w.stderr)
+			}
+			if d := time.Since(start); d > 4*time.Second {
+				t.Fatalf("took %v: the daemon's fd held the lease", d)
+			}
+			if got := strings.Join(readLog(t, log), " "); got != "A-start A-end B-ran" {
+				t.Fatalf("order %q", got)
+			}
+		})
 	}
 }

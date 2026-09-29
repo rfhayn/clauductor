@@ -1,19 +1,19 @@
 [
   {
     "pid": 25533,
-    "cwd": "/Users/rich/Development/myproject/.claude/worktrees/build-add-feature",
+    "cwd": "/home/dev/src/myproject/.claude/worktrees/build-add-feature",
     "kind": "interactive",
     "startedAt": 1790625962459,
-    "sessionId": "7d319d6d-f9db-4a24-9e17-97379650cc35",
+    "sessionId": "00000000-0000-4000-8000-000000000001",
     "name": "myproject-fc",
     "status": "busy"
   },
   {
     "pid": 6222,
-    "cwd": "/Users/rich/Development/myproject",
+    "cwd": "/home/dev/src/myproject",
     "kind": "interactive",
     "startedAt": 1790640446302,
-    "sessionId": "ee3fad94-5222-4e27-a50c-23e3c959c25f",
+    "sessionId": "00000000-0000-4000-8000-000000000002",
     "name": "myproject-a3",
     "status": "busy"
   }

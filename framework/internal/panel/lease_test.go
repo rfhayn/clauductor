@@ -34,7 +34,9 @@ func TestMain(m *testing.M) {
 		if f := os.Getenv("LOCKRUN_HELPER_FGFILE"); f != "" {
 			// Did lock-run take the terminal back after the command?
 			pg, err := tcgetpgrp(0)
-			os.WriteFile(f, []byte(fmt.Sprintf("%v", err == nil && pg == syscall.Getpgrp())), 0o644)
+			tio, terr := getTermios(0)
+			echo := terr == nil && tio.Lflag&syscall.ECHO != 0
+			os.WriteFile(f, []byte(fmt.Sprintf("fg=%v echo=%v", err == nil && pg == syscall.Getpgrp(), echo)), 0o644)
 		}
 		os.Exit(code)
 	}
@@ -489,21 +491,22 @@ func TestLockRunIsFIFO(t *testing.T) {
 	}
 }
 
-// Defence in depth: a lease directory someone holds flock(2) on is live by the
-// kernel's word, even when its owner.json names a dead pid.
-func TestFlockedLeaseIsNeverReclaimed(t *testing.T) {
+// Round 3: liveness is pid and start time only, the same rule as the shell. A
+// flock someone still holds (an orphan that inherited the fd) never keeps a record
+// whose holder and command are dead.
+func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	os.Mkdir(lock, 0o755)
 	now := time.Now().Unix()
 	writeLeaseFile(filepath.Join(lock, ownerFileName), LeaseOwner{V: 1, Nonce: "00000000000000dd", PID: deadPID(t),
 		Host: hostName(), Started: now, Renewed: now})
 	_, unflock := holdFlock(lock)
-	if held, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !held || stale {
-		t.Fatal("a flocked lease judged stale")
+	defer unflock()
+	if held, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !held || !stale {
+		t.Fatal("a flock kept a dead holder's record live")
 	}
-	unflock()
-	if _, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !stale {
-		t.Fatal("without the flock, a dead pid must be stale (the test proves nothing otherwise)")
+	if v := ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc); !strings.Contains(v.HolderNote, "flock") {
+		t.Fatalf("the panel does not mention the orphaned flock: %q", v.HolderNote)
 	}
 }
 
@@ -540,8 +543,10 @@ func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...strin
 func TestLockRunCommandCanUseTheTerminal(t *testing.T) {
 	dir := t.TempDir()
 	lock, log, fg := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log"), filepath.Join(dir, "fg")
+	// The command turns echo off and does not turn it back on (as a killed prompt
+	// would leave it): lock-run must restore the terminal's settings.
 	_, _, done := startLockRunPTY(t, lock, []string{"LOCKRUN_HELPER_FGFILE=" + fg},
-		"/bin/sh", "-c", "stty -echo && stty echo && echo stty-ok >> "+log)
+		"/bin/sh", "-c", "stty -echo && echo stty-ok >> "+log)
 	select {
 	case code := <-done:
 		if code != 0 {
@@ -553,8 +558,8 @@ func TestLockRunCommandCanUseTheTerminal(t *testing.T) {
 	if strings.Join(readLog(t, log), " ") != "stty-ok" {
 		t.Fatalf("log %v", readLog(t, log))
 	}
-	if b, _ := os.ReadFile(fg); string(b) != "true" {
-		t.Fatalf("lock-run did not take the terminal back: %q", b)
+	if b, _ := os.ReadFile(fg); string(b) != "fg=true echo=true" {
+		t.Fatalf("lock-run did not take the terminal back with its settings: %q", b)
 	}
 }
 
@@ -579,12 +584,16 @@ func TestLockRunCtrlCOnATerminalReachesTheCommandOnce(t *testing.T) {
 // The TERM workaround: started as TERM=dumb CLAUDUCTOR_TERM=<real>, the command
 // gets the real TERM back.
 func TestLockRunRestoresTheRealTERM(t *testing.T) {
-	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "CLAUDUCTOR_TERM=xterm-256color"})
+	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "CLAUDUCTOR_TERM=xterm-256color", "CLAUDUCTOR_TERM_SET=1"})
 	if strings.Join(env, " ") != "PATH=/bin TERM=xterm-256color" {
 		t.Fatalf("env %v", env)
 	}
-	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM="}); len(env) != 0 {
-		t.Fatalf("an empty original TERM must stay unset: %v", env)
+	// Round 3: unset stays unset; set-but-empty stays set and empty.
+	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM=", "CLAUDUCTOR_TERM_SET="}); len(env) != 0 {
+		t.Fatalf("an unset TERM must stay unset: %v", env)
+	}
+	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM=", "CLAUDUCTOR_TERM_SET=1"}); strings.Join(env, " ") != "TERM=" {
+		t.Fatalf("a set, empty TERM must stay set: %v", env)
 	}
 	if env := childEnv([]string{"TERM=vt100"}); env[0] != "TERM=vt100" {
 		t.Fatal("no workaround: TERM untouched")
