@@ -204,6 +204,7 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("Run did not stop")
 		}
+		waitMachineFree(o.Home)
 	}
 	return port, c, stop
 }
@@ -568,6 +569,7 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 		t.Fatalf("the launchd panel: %v", err)
 	}
 
+
 	// Stopped by launchd while it waits: exit 0, and the lock is not left held.
 	_, _, stopHand2 := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	ctx2, cancel2 := context.WithCancel(context.Background())
@@ -593,11 +595,5 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	}
 	stopHand2()
 	// Its abandoned flock must not keep the machine once it is granted.
-	waitFor(t, "the machine lock to be free", func() bool {
-		f, err := install.LockMachine(home)
-		if err == nil {
-			f.Close()
-		}
-		return err == nil
-	})
+	waitFor(t, "the machine lock to be free", func() bool { return machineFree(home) })
 }

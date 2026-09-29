@@ -80,6 +80,7 @@ func gitOnlyRunner(ctx context.Context, dir string, argv []string) ([]byte, erro
 }
 
 type panelRun struct {
+	home                 string
 	base, cookie, origin string
 	cancel               func()
 	done                 chan error
@@ -112,7 +113,7 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 	case u := <-ready:
 		pu, _ := url.Parse(u)
 		port, _ := strconv.Atoi(pu.Port())
-		p := &panelRun{base: "http://" + pu.Host, origin: "http://" + pu.Host,
+		p := &panelRun{home: home, base: "http://" + pu.Host, origin: "http://" + pu.Host,
 			cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
 		t.Cleanup(p.stop)
 		return p
@@ -131,6 +132,7 @@ func (p *panelRun) stop() {
 		case <-p.done:
 		case <-time.After(5 * time.Second):
 		}
+		waitMachineFree(p.home)
 	})
 }
 

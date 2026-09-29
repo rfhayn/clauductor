@@ -305,3 +305,22 @@ func noServerSocket() string {
 	rand.Read(b)
 	return "clauductor-test-nosrv-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
 }
+
+// machineFree reports whether the machine lock in home is free now.
+func machineFree(home string) bool {
+	f, err := install.LockMachine(home)
+	if err == nil {
+		f.Close()
+	}
+	return err == nil
+}
+
+// waitMachineFree waits, after a panel stopped, until its machine lock is free. The
+// flock goes with the open file, and a child that another (parallel) test forks at
+// that moment holds a copy until it execs: the next panel in this home would be
+// refused as a second one. A lock still held after 5 s is the next start's to report.
+func waitMachineFree(home string) {
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !machineFree(home); {
+		time.Sleep(5 * time.Millisecond)
+	}
+}
