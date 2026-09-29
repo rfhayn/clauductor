@@ -315,12 +315,15 @@ func machineFree(home string) bool {
 	return err == nil
 }
 
-// waitMachineFree waits, after a panel stopped, until its machine lock is free. The
-// flock goes with the open file, and a child that another (parallel) test forks at
-// that moment holds a copy until it execs: the next panel in this home would be
-// refused as a second one. A lock still held after 5 s is the next start's to report.
+// waitMachineFree waits, after a panel stopped, until its machine lock is free, or
+// another panel has claimed the machine (its pid file: a launchd start that was
+// waiting takes over at once). The flock goes with the open file, and a child that
+// another (parallel) test forks at that moment holds a copy until it execs: the next
+// panel in this home would be refused as a second one. A lock still held after 5 s
+// is the next start's to report.
 func waitMachineFree(home string) {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !machineFree(home); {
+	claimed := func() bool { _, err := os.Stat(filepath.Join(config.PanelDir(home), "pid")); return err == nil }
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !machineFree(home) && !claimed(); {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
