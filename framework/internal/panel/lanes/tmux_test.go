@@ -40,6 +40,9 @@ func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
 // throwawaySocket is a tmux socket of the test's own, killed at cleanup.
 func throwawaySocket(t *testing.T) (string, string) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: drives a real tmux server")
+	}
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		t.Skip("tmux not installed")

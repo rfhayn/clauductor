@@ -65,6 +65,7 @@ func runBounded(t *testing.T, o Options) error {
 }
 
 func TestSecondPanelIsRefused(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	pid := otherProcess(t)
 	other := &install.PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other-project", Name: "Other", Port: 4393}
@@ -98,6 +99,7 @@ func TestSecondPanelIsRefused(t *testing.T) {
 // A panel from before PANEL-5 wrote no owner.json. It is recognised by its
 // /healthz answering as the pid in the pid file.
 func TestSecondPanelIsRefusedByAnOlderPanelsHealthz(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	pid := otherProcess(t)
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -119,6 +121,7 @@ func TestSecondPanelIsRefusedByAnOlderPanelsHealthz(t *testing.T) {
 // A pid file left by a killed panel names a pid that is dead, or reused by another
 // process (its start time differs). Neither is a live panel: the start goes ahead.
 func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		setup func(t *testing.T, home string)
@@ -208,6 +211,7 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 // On exit a panel removes the marker, pid and owner files only if they are still
 // its own. If another panel has claimed them since, they are that panel's.
 func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	_, _, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	pid := otherProcess(t)
@@ -236,6 +240,7 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 // Every check interval the panel verifies that the hooks still point at it; if
 // something re-pointed them, it says so and puts them back.
 func TestHookDriftIsRepaired(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	port, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
 		HookCheckInterval: 100 * time.Millisecond})
@@ -268,6 +273,7 @@ func TestHookDriftIsRepaired(t *testing.T) {
 // launchd a fatal error restarts the panel every 30 s. The panel serves, shows a
 // banner, and retries with backoff until the install succeeds.
 func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	writeFile(t, install.SettingsPath(home), "{ this is not json")
 	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
@@ -289,18 +295,20 @@ func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
 }
 
 // Review round (PANEL-5), end to end: a `claude agents` slower than the poll
-// interval (2 s while no hooks flow) must never make a current reading flicker to
-// stale between two good polls.
+// interval must never make a current reading flicker to stale between two good
+// polls. The production cadence (2 s polls, 5 s slow interval, a 2.5 s `claude
+// agents`) is scaled down ten times, and the reading is watched across five polls.
 func TestSlowAgentsPollNeverFlickersStale(t *testing.T) {
 	if testing.Short() {
-		t.Skip("runs the panel for ~20 s")
+		t.Skip("runs the panel across five slow polls")
 	}
+	t.Parallel()
 	root, home := setupProject(t)
 	base := fakeRunner(root)
 	slow := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		if len(argv) >= 2 && argv[0] == "claude" && argv[1] == "agents" {
 			select {
-			case <-time.After(2500 * time.Millisecond):
+			case <-time.After(250 * time.Millisecond):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -308,29 +316,29 @@ func TestSlowAgentsPollNeverFlickersStale(t *testing.T) {
 		}
 		return base(ctx, dir, argv)
 	}
-	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: slow})
+	ticks := fastTicks()
+	// No hook flows and there is no lane, so the panel polls at its quiet interval:
+	// made the fast one here, as it was when this was found.
+	ticks.AgentsFast, ticks.AgentsQuiet, ticks.AgentsSlow = 200*time.Millisecond, 200*time.Millisecond, 500*time.Millisecond
+	polls := newPollCounter()
+	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: slow, Ticks: ticks, OnPoll: polls.hook})
 	defer stop()
-	deadline := time.Now().Add(25 * time.Second)
-	var first time.Time
-	for time.Now().Before(deadline) {
-		v := c.state(t)
-		for _, n := range v.NeedsYou {
-			if n.Session != "s1" {
-				continue
-			}
-			if first.IsZero() {
-				first = time.Now()
-			} else if n.Approx {
-				t.Fatalf("%s after the first good poll, a current reading read as stale: %+v", time.Since(first), n)
+	seen := func() (found, approx bool) {
+		for _, n := range c.state(t).NeedsYou {
+			if n.Session == "s1" {
+				return true, n.Approx
 			}
 		}
-		if !first.IsZero() && time.Since(first) > 10*time.Second {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
+		return false, false
 	}
-	if first.IsZero() {
-		t.Fatal("the slow poll never produced a Needs-you item")
+	waitFor(t, "the first good poll's Needs-you item", func() bool { found, _ := seen(); return found })
+	end := polls.count("agents") + 5
+	for polls.count("agents") < end {
+		if found, approx := seen(); !found || approx {
+			t.Fatalf("after %d good polls, a current reading read as stale or vanished (found %v, approx %v)",
+				polls.count("agents"), found, approx)
+		}
+		time.Sleep(10 * time.Millisecond) // the page's view, sampled between polls
 	}
 }
 
@@ -356,6 +364,7 @@ func TestHelperPanelProcess(t *testing.T) {
 // pid-file check and fought over the hooks. The machine lock (flock, held for the
 // process lifetime) admits exactly one.
 func TestTwoPanelsStartedTogether(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("starts panel processes")
 	}
@@ -385,26 +394,54 @@ func TestTwoPanelsStartedTogether(t *testing.T) {
 			p := p
 			go func() { p.done <- p.cmd.Wait() }()
 		}
-		time.Sleep(4 * time.Second)
-		var alive, refused []*proc
-		for _, p := range ps {
-			select {
-			case err := <-p.done:
-				p.mu.Lock()
-				out := p.out.String()
-				p.mu.Unlock()
-				if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 3 || !strings.Contains(out, "another clauductor panel is running") {
-					t.Fatalf("round %d: a panel exited without a refusal (%v):\n%s", round, err, out)
+		// Wait until each has decided: served (READY) or exited. A refusal exits at once,
+		// so the decision is not a matter of time.
+		exited := make([]error, len(ps))
+		gone := make([]bool, len(ps))
+		decided := func() bool {
+			n := 0
+			for i, p := range ps {
+				if !gone[i] {
+					select {
+					case exited[i] = <-p.done:
+						gone[i] = true
+					default:
+					}
 				}
-				refused = append(refused, p)
-			default:
-				alive = append(alive, p)
+				p.mu.Lock()
+				ready := strings.Contains(p.out.String(), "READY")
+				p.mu.Unlock()
+				if gone[i] || ready {
+					n++
+				}
 			}
+			return n == len(ps)
+		}
+		waitUntil(t, "both panels to serve or exit", 10*time.Second, decided)
+		var alive, refused []*proc
+		for i, p := range ps {
+			if !gone[i] {
+				alive = append(alive, p)
+				continue
+			}
+			p.mu.Lock()
+			out := p.out.String()
+			p.mu.Unlock()
+			if ee, ok := exited[i].(*exec.ExitError); !ok || ee.ExitCode() != 3 || !strings.Contains(out, "another clauductor panel is running") {
+				t.Fatalf("round %d: a panel exited without a refusal (%v):\n%s", round, exited[i], out)
+			}
+			refused = append(refused, p)
 		}
 		for _, p := range alive {
 			_ = p.cmd.Process.Signal(syscall.SIGTERM)
 			select {
-			case <-p.done:
+			case err := <-p.done:
+				// The one that served stops cleanly: it did not die on its own meanwhile.
+				if err != nil {
+					p.mu.Lock()
+					t.Errorf("round %d: the serving panel exited %v on SIGTERM:\n%s", round, err, p.out.String())
+					p.mu.Unlock()
+				}
 			case <-time.After(5 * time.Second):
 				_ = p.cmd.Process.Kill()
 			}
@@ -426,9 +463,11 @@ func TestTwoPanelsStartedTogether(t *testing.T) {
 // alone rather than fighting over them every 30 s. Once that panel is gone, the
 // next check repairs them.
 func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
+	polls := newPollCounter()
 	port, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
-		HookCheckInterval: 100 * time.Millisecond})
+		HookCheckInterval: 100 * time.Millisecond, OnPoll: polls.hook})
 	defer stop()
 	otherPID := otherProcess(t)
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -451,7 +490,7 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 		}
 		return false
 	})
-	time.Sleep(500 * time.Millisecond) // several checks
+	polls.more(t, "hooks", 5) // several checks
 	if s, _ := os.ReadFile(install.SettingsPath(home)); !strings.Contains(string(s), hookURL(otherPort)) || strings.Contains(string(s), hookURL(port)) {
 		t.Fatal("the panel re-pointed the hooks of another live panel")
 	}
@@ -468,8 +507,11 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 // is still refused at once. A launchd start whose launchd stops it while it waits
 // exits 0.
 func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
-	_, _, stopHand := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	handPolls := newPollCounter()
+	_, _, stopHand := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
+		OnPoll: handPolls.hook, Ticks: fastTicks()})
 	handStopped := false
 	defer func() {
 		if !handStopped {
@@ -500,12 +542,16 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	waitFor(t, "the launchd start to say it waits", func() bool {
 		return strings.Contains(logged(), "waiting for the running panel to exit")
 	})
+	// It is blocked on the machine lock (a flock), which has no loop to count: while
+	// the hand-started panel that holds it runs ten more polls, it must neither serve
+	// nor exit.
+	handPolls.more(t, "obs", 10)
 	select {
 	case u := <-ready:
 		t.Fatalf("the launchd start served (%s) while the hand-started panel runs", u)
 	case err := <-done:
 		t.Fatalf("the launchd start exited (%v) instead of waiting; log:\n%s", err, logged())
-	case <-time.After(500 * time.Millisecond):
+	default:
 	}
 
 	stopHand()

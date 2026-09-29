@@ -6,6 +6,7 @@ import (
 )
 
 func TestPathSignatureSeesChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	a := pathSignature(dir)
 	writeFile(t, dir+"/f", "x")

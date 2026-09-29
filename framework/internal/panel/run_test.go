@@ -46,7 +46,9 @@ func setupProject(t *testing.T) (root, home string) {
 	t.Helper()
 	root = signals.ResolvePath(t.TempDir())
 	home = t.TempDir()
-	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},
+	// A socket of its own with no server: the panel never reaches the machine's
+	// real panel socket.
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Test","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
 		"cards":[{"id":"c","title":"Card","command":["echo","card"],"refresh":"interval:60"}]}`)
 	return root, home
 }
@@ -95,6 +97,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func TestRunEndToEnd(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan string, 1)
@@ -163,6 +166,7 @@ func TestRunEndToEnd(t *testing.T) {
 }
 
 func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	busy, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -187,6 +191,7 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 }
 
 func TestRunNeedsAConfig(t *testing.T) {
+	t.Parallel()
 	root := signals.ResolvePath(t.TempDir())
 	err := Run(context.Background(), Options{Project: root, Port: 0, NoOpen: true, Home: t.TempDir(), Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "no panel config") {
@@ -197,6 +202,7 @@ func TestRunNeedsAConfig(t *testing.T) {
 // Under launchd stdout is a log file: the token must stay in its 0600 file. The
 // browser is opened with it directly, once, and the PID sits beside the port marker.
 func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
+	t.Parallel()
 	root, home := setupProject(t)
 	var out strings.Builder
 	var mu sync.Mutex

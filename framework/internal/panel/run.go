@@ -34,6 +34,10 @@ type Options struct {
 	Runner     signals.Runner
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
+	// OnPoll, if set, is called with a source's name each time one of its polls has
+	// been applied to the model: a test counts a source's iterations with it, rather
+	// than sleeping to see that something did not happen.
+	OnPoll func(source string)
 
 	// Launchd marks a run under the launchd login agent: the token persists in
 	// TokenPath, the cookie lasts 30 days, and the browser opens once per login

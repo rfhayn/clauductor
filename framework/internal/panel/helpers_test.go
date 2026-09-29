@@ -2,13 +2,17 @@ package panel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -224,3 +228,80 @@ type termMsg struct {
 func hookURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag) }
 
 func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
+
+// ---- driving a running panel ----
+
+// pollCounter counts each source's polls through Options.OnPoll, so a test asserts
+// after N iterations of a source instead of sleeping and hoping they ran.
+type pollCounter struct {
+	mu      sync.Mutex
+	n       map[string]int
+	changed chan struct{}
+}
+
+func newPollCounter() *pollCounter {
+	return &pollCounter{n: map[string]int{}, changed: make(chan struct{})}
+}
+
+// hook is the Options.OnPoll.
+func (p *pollCounter) hook(source string) {
+	p.mu.Lock()
+	p.n[source]++
+	close(p.changed)
+	p.changed = make(chan struct{})
+	p.mu.Unlock()
+}
+
+func (p *pollCounter) count(source string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.n[source]
+}
+
+// more waits until source has polled n more times than it had when called.
+func (p *pollCounter) more(t *testing.T, source string, n int) {
+	t.Helper()
+	p.until(t, source, p.count(source)+n)
+}
+
+// until waits until source has polled n times in all.
+func (p *pollCounter) until(t *testing.T, source string, n int) {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		p.mu.Lock()
+		got, changed := p.n[source], p.changed
+		p.mu.Unlock()
+		if got >= n {
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatalf("the %s source polled %d times, want %d", source, got, n)
+		}
+	}
+}
+
+// fastTicks is the cadence the panel's integration tests run at: every source a
+// test waits on polls within a tenth of a second, so a test waits for polls, not
+// for the production cadence. Ratios the model reads (the agents cadence) keep
+// their order: fast < slow.
+func fastTicks() Ticks {
+	return Ticks{
+		Worktrees: 500 * time.Millisecond, WorktreeWatch: 100 * time.Millisecond, WorktreeKick: 100 * time.Millisecond,
+		AgentsFast: 100 * time.Millisecond, AgentsSlow: 250 * time.Millisecond, AgentsQuiet: 100 * time.Millisecond,
+		TmuxFast: 100 * time.Millisecond, TmuxIdle: 100 * time.Millisecond, CardWatch: 100 * time.Millisecond,
+		Queues: 100 * time.Millisecond, Prompt: 50 * time.Millisecond, PromptKick: 100 * time.Millisecond,
+		Obs: 50 * time.Millisecond, Notify: 50 * time.Millisecond, Trust: 50 * time.Millisecond, Token: 50 * time.Millisecond,
+		Hub: 250 * time.Millisecond,
+	}
+}
+
+// noServerSocket is a tmux socket name no test starts a server on, so a panel that
+// runs no lane never touches the machine's real panel socket.
+func noServerSocket() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return "clauductor-test-nosrv-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
+}

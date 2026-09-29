@@ -106,6 +106,9 @@ func startLockRun(t *testing.T, lock, lane string, ttl time.Duration, argv ...st
 // startLockRunEnv is startLockRun with extra LOCKRUN_HELPER_* settings in env.
 func startLockRunEnv(t *testing.T, lock, lane string, ttl time.Duration, env []string, argv ...string) *lockProc {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_LANE="+lane,
@@ -444,6 +447,9 @@ func TestLockRunStopsTheCommandWhenItsLeaseIsLost(t *testing.T) {
 // group gets it once, from lock-run.
 func TestLockRunDoesNotRepeatCtrlC(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 	pgFile := filepath.Join(dir, "pgid")
@@ -597,6 +603,9 @@ func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
 // the terminal's foreground, the way an interactive `bash run-local.sh` runs it.
 func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...string) (*exec.Cmd, *os.File, chan int) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(append(os.Environ(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",

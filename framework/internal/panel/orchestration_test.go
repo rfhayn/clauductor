@@ -87,6 +87,7 @@ func termByID(v state.View, id string) *state.TermLaneView {
 }
 
 func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	marker := filepath.Join(t.TempDir(), "typed")
 	cfg := `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},"base":"main","worktree_dir":".wt",
@@ -101,6 +102,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	tweak := func(o *Options) {
 		o.Runner = v2Runner(tmux, sock, home, root, &hidden, &waiting)
 		o.Notify = func(n state.Notice) error { mu.Lock(); notices = append(notices, n); mu.Unlock(); return nil }
+		o.FastExit = 300 * time.Millisecond // how long a restored lane must stay up (sh does)
 	}
 	p := startPanelWith(t, root, home, sock, tweak)
 
@@ -114,8 +116,14 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	if b := gitRun(t, root, "branch", "--list", "fix/bug"); !strings.Contains(b, "fix/bug") {
 		t.Fatalf("the template's branch was not created: %q", b)
 	}
-	// Not listed in claude agents: nothing may be typed, however long it takes.
-	time.Sleep(2500 * time.Millisecond)
+	// Not listed in claude agents: nothing may be typed, however many times the
+	// panel reads claude agents and decides.
+	settle := func(p *panelRun) {
+		t.Helper()
+		p.polls.more(t, "agents", 5)
+		p.polls.more(t, "prompts", 10)
+	}
+	settle(p)
 	if n := lineCount(marker); n != 0 {
 		t.Fatalf("typed %d time(s) before claude was ready", n)
 	}
@@ -129,7 +137,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		t.Fatalf("typed %q", b)
 	}
 	waitFor(t, "state sent", func() bool { tv := termByID(p.state(t), "bug"); return tv != nil && tv.PromptState == "sent" })
-	time.Sleep(3 * time.Second)
+	settle(p)
 	if n := lineCount(marker); n != 1 {
 		t.Fatalf("the first prompt was typed %d times", n)
 	}
@@ -143,7 +151,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		}
 		return false
 	})
-	time.Sleep(2500 * time.Millisecond)
+	p.polls.more(t, "notify", 10)
 	mu.Lock()
 	if len(notices) != 0 {
 		t.Fatalf("an idle alert interrupted: %+v", notices)
@@ -152,7 +160,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	// A permission prompt older than 1 s blocks the lane: one notification.
 	waiting.Store(true)
 	waitUntil(t, "a waiting notification", 10*time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return len(notices) > 0 })
-	time.Sleep(3 * time.Second)
+	p.polls.more(t, "notify", 10)
 	mu.Lock()
 	if len(notices) != 1 || !strings.Contains(notices[0].Body, "waiting") || !strings.Contains(notices[0].Title, "bug") {
 		t.Fatalf("notices %+v", notices)
@@ -172,7 +180,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		}
 		return false
 	})
-	time.Sleep(4 * time.Second)
+	p.polls.more(t, "notify", 10)
 	mu.Lock()
 	if len(notices) != 1 {
 		t.Fatalf("the restart re-notified: %+v", notices)
@@ -219,13 +227,14 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		t.Fatalf("second restore restored %v", body)
 	}
 	// And the restored template lane is never typed into again.
-	time.Sleep(2 * time.Second)
+	settle(p)
 	if n := lineCount(marker); n != 1 {
 		t.Fatalf("restore retyped the first prompt (%d)", n)
 	}
 }
 
 func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	cfg := `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},"base":"main","worktree_dir":".wt",
 		"cards":[{"id":"c","command":["echo","card-ran"],"refresh":"interval:60"}],

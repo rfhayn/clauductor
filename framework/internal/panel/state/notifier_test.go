@@ -91,6 +91,9 @@ func TestNotifyArgvKeepsTextOutOfTheScript(t *testing.T) {
 // so the test shows no notification.
 func TestOsascriptArgvRoundTrip(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("-short: runs osascript")
+	}
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS only")
 	}

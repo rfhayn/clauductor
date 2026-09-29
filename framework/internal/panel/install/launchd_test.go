@@ -98,7 +98,7 @@ func TestPlistContent(t *testing.T) {
 	if strings.Contains(p, "ANTHROPIC") {
 		t.Fatal("plist carries an API key variable")
 	}
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" && !testing.Short() { // -short: no real plutil
 		f := filepath.Join(t.TempDir(), "a.plist")
 		os.WriteFile(f, []byte(p), 0o644)
 		if out, err := exec.Command("/usr/bin/plutil", "-lint", f).CombinedOutput(); err != nil {

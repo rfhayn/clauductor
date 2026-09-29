@@ -18,6 +18,9 @@ import (
 // page, against lock-run, so the documentation cannot drift from the protocol.
 func docLeaseSh(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -250,6 +253,9 @@ func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 // noPSPath is a PATH with every tool lease.sh uses except ps.
 func noPSPath(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: runs lock-run or lease.sh as real processes")
+	}
 	bin := t.TempDir()
 	for _, tool := range []string{"sh", "bash", "awk", "sed", "head", "stat", "date", "hostname", "od", "tr",
 		"mkdir", "mv", "rm", "ls", "grep", "sort", "sleep", "rmdir", "cat"} {

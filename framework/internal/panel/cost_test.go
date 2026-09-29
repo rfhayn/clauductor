@@ -92,6 +92,7 @@ func runTicks(p *tmuxPoller, clock *time.Time, d time.Duration) (ticks int, inte
 }
 
 func TestTmuxEnvAndHardenRunOnLaneSetChangeOrEvery30s(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	f := &fakeTmux{lanes: []string{"lane-a", "lane-b"}}
 	p := tmuxPollerFor(t, f, &clock)
@@ -120,6 +121,7 @@ func TestTmuxEnvAndHardenRunOnLaneSetChangeOrEvery30s(t *testing.T) {
 }
 
 func TestTmuxIdleSocketSpawnsOnlyListPanesEvery10s(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	f := &fakeTmux{down: true}
 	p := tmuxPollerFor(t, f, &clock)
@@ -141,6 +143,7 @@ func TestTmuxIdleSocketSpawnsOnlyListPanesEvery10s(t *testing.T) {
 }
 
 func TestTmuxEnvBlockStillReported(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	f := &fakeTmux{lanes: []string{"lane-a"}, envOut: "ANTHROPIC_API_KEY=x\n"}
 	p := tmuxPollerFor(t, f, &clock)
@@ -159,6 +162,7 @@ func TestTmuxEnvBlockStillReported(t *testing.T) {
 
 // A hook that arrives while the agents loop sleeps its quiet 15 s polls at once.
 func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	polls := 0
 	run := func(_ context.Context, _ string, argv []string) ([]byte, error) {
@@ -170,19 +174,29 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 		return []byte("[]"), nil
 	}
 	count := func() int { mu.Lock(); defer mu.Unlock(); return polls }
-	m := state.NewModel(v2Config(t, ""), "/p", time.Now())
-	hub := web.NewHub(m, pclock.System)
-	x := &Runtime{hub: hub, root: "/p", run: run, clock: pclock.System, ticks: DefaultTicks(), kickAgents: make(chan struct{}, 1)}
+	// A fake clock that never moves: only the hook's kick can bring the next poll.
+	f := pclock.NewFake(t0)
+	m := state.NewModel(v2Config(t, ""), "/p", t0)
+	hub := web.NewHub(m, f)
+	x := &Runtime{hub: hub, root: "/p", run: run, clock: f, ticks: DefaultTicks(), kickAgents: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go x.loop(ctx, x.agentsSource())
-	waitFor(t, "the first poll, then quiet", func() bool { return count() > 0 && x.agentsQuietNow.Load() })
-	before := count()
+	f.BlockUntil(1) // the first poll (with its --cwd cross-check) is done and the loop waits
+	first := count()
+	if first == 0 || !x.agentsQuietNow.Load() {
+		t.Fatalf("after the first poll: %d calls, quiet %v; want a poll, then quiet", first, x.agentsQuietNow.Load())
+	}
 	x.hookSeen(signals.HookEvent{Event: "UserPromptSubmit"})
-	waitFor(t, "a poll right after the hook", func() bool { return count() > before })
+	waitFor(t, "a poll right after the hook", func() bool { return count() == first+1 })
+	f.BlockUntil(1)
+	if x.agentsQuietNow.Load() {
+		t.Fatal("with a hook just heard the loop still waits the quiet interval")
+	}
 }
 
 func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
+	t.Parallel()
 	gitDir := t.TempDir()
 	lock := filepath.Join(gitDir, "gate.lock")
 	if err := os.MkdirAll(lock+".waiters", 0o755); err != nil {
@@ -235,6 +249,7 @@ func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 // ---- claude agents ----
 
 func TestAgentsCadence(t *testing.T) {
+	t.Parallel()
 	polls := func(lastHook time.Time, lanes bool) int {
 		n := 0
 		for now := t0; now.Before(t0.Add(time.Minute)); now = now.Add(AgentsInterval(lastHook, now, lanes)) {
@@ -266,6 +281,7 @@ func TestAgentsCadence(t *testing.T) {
 // A lane start records the lane, then kicks the agents loop, whose next interval
 // must already count the lane: the model learns of it only from the next tmux poll.
 func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
+	t.Parallel()
 	reg, err := lanes.OpenRegistry(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -310,6 +326,7 @@ func drained(ch chan struct{}) bool {
 }
 
 func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	rec := types.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "pending", ActionAt: t0.Add(-time.Hour).UnixMilli(), ActionDone: true}
 	x, hub := promptRuntime(t, &clock, rec, false)
@@ -340,6 +357,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 }
 
 func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
+	t.Parallel()
 	clock := t0
 	// Typed, not yet confirmed: waits on `claude agents` for confirmGrace.
 	rec := types.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "sent", PromptAt: t0.UnixMilli(), ActionAt: t0.UnixMilli(), ActionDone: true}
@@ -365,6 +383,7 @@ func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
 // ---- PANEL-5 carry-over: a waiting note is not kept without bound ----
 
 func TestAgentsFilterAndBackoff(t *testing.T) {
+	t.Parallel()
 	wts := []signals.Worktree{{Path: "/p/app"}, {Path: "/p/app/.claude/worktrees/x"}}
 	if d := signals.AgentsFilterDir("/p/app", wts); d != "/p/app" {
 		t.Fatalf("inside root: %q", d)

@@ -64,6 +64,7 @@ func startedSession(t *testing.T, body map[string]any) string {
 // waiting lane (a permission or dialog has focus) or an unknown one gets Escape and
 // kill-session, and never an Enter that would confirm the dialog's default.
 func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	keys := filepath.Join(t.TempDir(), "keys")
@@ -88,7 +89,8 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 			t.Fatalf("a second lane in the same checkout: %d %v", code, body)
 		}
 		agents.set(agentJSON(startedSession(t, body), c.status, root), c.err)
-		time.Sleep(300 * time.Millisecond)
+		// The lane program has put its terminal in raw mode once cat opens the file.
+		waitFor(t, "the lane to be recording its keys", func() bool { _, err := os.Stat(keys); return err == nil })
 		if code, body := p.post(t, "/api/lanes/lane-"+c.name+"/stop", nil); code != 200 {
 			t.Fatalf("%s: stop: %d %v", c.name, code, body)
 		}
@@ -117,6 +119,7 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 // F2: a resume is refused while claude agents shows another process on the lane's
 // session, and refused when that cannot be checked.
 func TestResumeRefusesALiveOrUncheckableSession(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	agents := &fakeAgents{}
@@ -150,6 +153,7 @@ func TestResumeRefusesALiveOrUncheckableSession(t *testing.T) {
 // (hooks can be dropped), and a restart whose flag claude rejects (a fast non-zero
 // exit) retries once with the other flag. F5: the panel's socket has no prefix key.
 func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	agents := &fakeAgents{}
@@ -195,6 +199,7 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 // argv. A corrupt one is shown, never launched, and can be forgotten; one without a
 // valid lane id is reported.
 func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := lanes.RegistryPath(home, "/repo")
 	os.MkdirAll(filepath.Dir(path), 0o700)
@@ -237,6 +242,7 @@ func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 // already on the socket, with ~/.tmux.conf's bindings (here a root binding that runs
 // a command), is made keyless as soon as the panel finds it, and before any attach.
 func TestPanelStripsKeyBindingsFromAServerItDidNotStart(t *testing.T) {
+	t.Parallel()
 	tmux, sock := throwawaySocket(t)
 	marker := filepath.Join(t.TempDir(), "ran") // what the binding would run
 	if out, err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "user", "/bin/sh",
@@ -264,6 +270,7 @@ func TestPanelStripsKeyBindingsFromAServerItDidNotStart(t *testing.T) {
 // R1: the idle check is repeated right before the Enter. Here the lane turns
 // "waiting" (a dialog opened) once /exit has been typed: the Enter must not follow.
 func TestStopRechecksIdleBeforeTheEnter(t *testing.T) {
+	t.Parallel()
 	_, sock := throwawaySocket(t)
 	root, home := rootLaneProject(t)
 	keys := filepath.Join(t.TempDir(), "keys")
