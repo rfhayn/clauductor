@@ -242,6 +242,28 @@ func TestThemesDefineEveryToken(t *testing.T) {
 			used[m[1]] = true
 		}
 	}
+	// The tokens panel.js reads for the terminals: --x literals, v("x") in termTheme,
+	// and the 16 ANSI colours its loop builds.
+	js := readWeb(t, "panel.js")
+	for _, m := range regexp.MustCompile(`"--([a-z0-9-]+)"|\bv\("([a-z0-9-]+)"\)`).FindAllStringSubmatch(js, -1) {
+		used[m[1]+m[2]] = true
+	}
+	if !used["term-bg"] || !used["term-size"] {
+		t.Fatal("did not find the terminal tokens panel.js reads; the parser is broken")
+	}
+	if strings.Contains(js, `"ansi-" +`) {
+		for i := 0; i < 16; i++ {
+			used["ansi-"+strconv.Itoa(i)] = true
+		}
+	}
+	// A theme block inside @media would apply only sometimes, and the parser would not
+	// see the condition: theme tokens live at the top level of themes.css only.
+	if regexp.MustCompile(`@(media|supports|container|layer)`).MatchString(cssComment.ReplaceAllString(readWeb(t, "themes.css"), "")) {
+		t.Error("themes.css has a conditional group rule; theme blocks must be top level")
+	}
+	if strings.Contains(cssComment.ReplaceAllString(readWeb(t, "panel.css"), ""), "data-theme") {
+		t.Error("panel.css sets per-theme rules; themes are tokens in themes.css only")
+	}
 	if len(used) < 20 {
 		t.Fatalf("found only %d var() references; the parser is broken", len(used))
 	}
@@ -286,6 +308,15 @@ var ansiLabelPairs = [][2]int{
 	{0, 2}, {0, 3}, {0, 6}, {0, 10}, {0, 11}, {0, 14},
 	{7, 1}, {7, 4}, {7, 5},
 	{15, 1}, {15, 4}, {15, 5}, {15, 9}, {15, 12}, {15, 13},
+}
+
+// aaaLabelPairs: in an aaa theme every colour is at least 7:1 on the black background,
+// so it is light, and two light colours can differ by at most 21/7 = 3:1. White on red,
+// blue or magenta is therefore impossible there; black carries every label instead, at
+// 4.5:1 (7:1 would need a colour lighter than white).
+var aaaLabelPairs = [][2]int{
+	{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6},
+	{0, 9}, {0, 10}, {0, 11}, {0, 12}, {0, 13}, {0, 14},
 }
 
 func TestThemeContrast(t *testing.T) {
@@ -334,11 +365,15 @@ func TestThemeContrast(t *testing.T) {
 				check("idle marker", col("idle"), bg, 3)
 			}
 			check("text on primary button", col("accent-ink"), col("accent"), textMin)
-			// Cards tinted with a soft state colour carry body text and the state's own colour.
+			// Soft tints carry body text and the state's own colour. Cards are tinted over
+			// --panel; banners and bars (.banner, .restore, .warnbar) over --surface.
 			for _, s := range []string{"go", "hold", "stop", "accent"} {
-				soft := over(col(s+"-soft"), panel)
-				check("text on "+s+"-soft", col("text"), soft, textMin)
-				check(s+" on its soft tint", col(s), soft, textMin)
+				for _, base := range []rgba{surface, panel} {
+					soft := over(col(s+"-soft"), base)
+					check("text on "+s+"-soft", col("text"), soft, textMin)
+					check("dim text on "+s+"-soft", col("text-dim"), soft, textMin)
+					check(s+" on its soft tint", col(s), soft, textMin)
+				}
 			}
 			if th.aaa {
 				check("rule (line) vs panel", col("line"), panel, 3)
@@ -346,12 +381,23 @@ func TestThemeContrast(t *testing.T) {
 			term := col("term-bg")
 			check("terminal foreground", col("term-fg"), term, 7)
 			check("terminal cursor", col("term-cursor"), term, 3)
+			// Every ANSI colour is terminal text. An aaa theme holds colours 1-15 to 7:1;
+			// its black (0) stays at 3:1, because black is the label colour below and 7:1
+			// on a black background would leave it no room to contrast with anything.
 			for i := 0; i < 16; i++ {
-				check("ANSI colour", col("ansi-"+strconv.Itoa(i)), term, 3)
+				min := 3.0
+				if th.aaa && i > 0 {
+					min = 7
+				}
+				check("ANSI colour", col("ansi-"+strconv.Itoa(i)), term, min)
 			}
 			// Labels a TUI draws as one ANSI colour on another: test runners' PASS/FAIL
 			// badges, diff and status chips.
-			for _, p := range ansiLabelPairs {
+			pairs := ansiLabelPairs
+			if th.aaa {
+				pairs = aaaLabelPairs
+			}
+			for _, p := range pairs {
 				fg, bg := "ansi-"+strconv.Itoa(p[0]), "ansi-"+strconv.Itoa(p[1])
 				check("ANSI label pair", col(fg), col(bg), 4.5)
 				if r := contrast(col(fg), col(bg)); r < 4.5 {
@@ -417,4 +463,24 @@ func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
 		t.Errorf("embedded fonts total %d KB, want ≤ 700 KB", total/1024)
 	}
 	t.Logf("%d font files, %d KB", len(used), total/1024)
+}
+
+// Opacity would multiply every colour under it and void the contrast checks above, so
+// panel.css may use it only on a disabled control (WCAG exempts inactive components).
+func TestPanelCSSFadesNothingButDisabledControls(t *testing.T) {
+	css := cssComment.ReplaceAllString(readWeb(t, "panel.css"), "")
+	n := 0
+	for _, m := range cssBlock.FindAllStringSubmatch(css, -1) {
+		if !regexp.MustCompile(`(^|[;{\s])opacity\s*:`).MatchString(m[2]) {
+			continue
+		}
+		n++
+		sel := strings.TrimSpace(m[1])
+		if !strings.HasSuffix(sel, ":disabled") {
+			t.Errorf("%s sets opacity; use a token colour instead", sel)
+		}
+	}
+	if n == 0 {
+		t.Fatal("found no opacity at all; .btn:disabled should have one (is the parser broken?)")
+	}
 }

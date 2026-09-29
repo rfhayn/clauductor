@@ -49,8 +49,12 @@ code, .mono { font-family: var(--font-mono); font-size: .84em; }
 .lane.stale { border-left-color: var(--stop); border-left-style: double; }
 .lane.sel { outline: var(--bw) solid var(--accent); outline-offset: -1px; }
 .lane.sel:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
-.lane.quiet { opacity: var(--quiet); padding: 6px 10px; }
+/* Quiet rows step back by surface, not by opacity: a fade would take their dim text
+   below 4.5:1. themes_test.go allows opacity only on disabled controls. */
+.lane.quiet { background: var(--panel-2); box-shadow: none; padding: 6px 10px; }
 .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; min-width: 0; }
+/* The trailing figure of a row (ctx %, an age) never clips; the text before it does. */
+.row > .sub:last-child { flex: none; }
 /* A long lane name wraps to two lines, then clips; the card's title has it whole. */
 .nm { font: 600 .8rem/1.2 var(--font-mono); overflow: hidden; overflow-wrap: anywhere; min-width: 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
@@ -103,7 +107,7 @@ th { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: 
 .tab { font: 600 .72rem/1 var(--font-mono); padding: 7px 10px; border: 1px solid var(--line); border-bottom: 0; border-radius: min(var(--r-btn), 8px) min(var(--r-btn), 8px) 0 0; background: var(--panel); color: var(--text-dim); cursor: pointer; display: flex; gap: 6px; align-items: center; min-width: 0; }
 .tab.sel { background: var(--term-bg); color: var(--term-fg); border-color: var(--line-strong); }
 .tab .dot { margin-right: 0; }
-.tab.sel .dim { color: inherit; opacity: .75; }
+.tab.sel .dim { color: inherit; font-weight: 400; }
 .termhost { height: max(320px, calc(100vh - 260px)); background: var(--term-bg); border: var(--bw) solid var(--line-strong); border-top: 0; border-radius: 0 0 var(--r) var(--r); padding: 6px; position: relative; min-width: 0; }
 .termhost:focus-within { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .termhost .term { width: 100%; height: 100%; }
@@ -124,9 +128,8 @@ th { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: 
 .dlg input[type=text], .dlg select { font: 500 .85rem/1.2 var(--font-mono); padding: 6px 8px; background: var(--panel-2); color: var(--text); border: var(--bw) solid var(--line-strong); border-radius: var(--r-btn); }
 .dlg .actions { display: flex; justify-content: flex-end; gap: 8px; }
 /* v2: orchestration. */
-/* A finished turn reads a little quieter than one still asking: .9 in a theme whose
-   quiet rows are .7, and fully opaque where --quiet is 1 (high contrast). */
-.card.done { border-color: var(--line); background: var(--panel-2); opacity: calc(.667 + var(--quiet) / 3); }
+/* A finished turn reads quieter than one still asking: panel-2, no shadow. */
+.card.done { border-color: var(--line); background: var(--panel-2); box-shadow: none; }
 .card.ask.warn { border-color: var(--hold); background: transparent; }
 .card.ask.block { border-color: var(--stop); background: var(--stop-soft); }
 .card .jump { justify-self: start; }

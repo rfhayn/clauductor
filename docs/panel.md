@@ -173,7 +173,7 @@ background lets each ANSI colour read as text and also carry a label in another 
 | **Chart room** | A nautical chart: white water, chart magenta, a latitude-scale border, italic names, sentence case, square corners. Dark is a dimmed night palette. | Newsreader italic, Public Sans, DM Mono |
 | **Ward monitor** | A ward's central monitoring station: rounded bed tiles, soft shadows, big condensed figures, surgical teal. The roomiest. | Barlow Semi Condensed, Barlow, Red Hat Mono |
 | **Duplicator** | A dispatch office: forms typed in duplicator violet, dashed carbon-form rules, a tractor-feed edge. The densest. | Courier Prime |
-| **High contrast** | For low vision and glare: black and white, 7:1 text everywhere, 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
+| **High contrast** | For low vision and glare: black and white, 7:1 page text and terminal colours (see below for the one exception), 2 px rules, a 3 px focus ring, the largest type, no translucent fills. | Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono |
 | **Shop floor** | Safety signage: concrete and asphalt, stencil lettering, a hazard-stripe edge, heavy borders, wide state stripes. | Big Shoulders Stencil, Archivo, Martian Mono |
 
 A lane's state is never shown by colour alone. Busy is a filled circle, waiting a diamond,
@@ -191,9 +191,9 @@ of its own, so a theme adds no component CSS. To add one:
 2. In `web/static/themes.css`, add three blocks:
    - `[data-theme="<id>"]` holds the shape and type tokens, shared by both modes: the faces
      (`--font-display`, `--font-body`, `--font-mono`, `--font-label`), the type scale and case
-     (`--fs-root`, `--display-*`, `--label-*`, `--btn-size`, `--caps`, `--font-vars`), and the
+     (`--fs-root`, `--display-*`, `--label-*`, `--btn-size`, `--caps`), and the
      shape (`--r`, `--r-btn`, `--r-chip`, `--bw`, `--line-style`, `--stripe`, `--pad`,
-     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--quiet`, `--term-size`, `--band`,
+     `--gap`, `--col-pad`, `--shadow`, `--focus-w`, `--term-size`, `--band`,
      `--band-h`, `--backdrop`, `--backdrop-size`).
    - `[data-theme="<id>"][data-mode="light"]` and `…[data-mode="dark"]` each hold every colour:
      `--surface`, `--panel`, `--panel-2`, `--line`, `--line-strong`, `--text`, `--text-dim`,
@@ -203,16 +203,26 @@ of its own, so a theme adds no component CSS. To add one:
 3. Put any new font in `web/static/fonts/` with its `OFL-<family>.txt`, and add an `@font-face`.
 
 `themes_test.go` then checks the theme. It fails if a theme × mode lacks any token that another
-theme defines or that `panel.css` uses, or if `theme.js` and `themes.css` disagree on the list.
-It also checks contrast, measured on `--surface`, `--panel` and `--panel-2`:
+theme defines or that `panel.css` or `panel.js` uses, if `theme.js` and `themes.css` disagree on
+the list, or if a theme block sits inside `@media` or another conditional rule. It fails if
+`panel.css` fades anything with `opacity` except a disabled control, since a fade would undo
+every ratio below. Quiet rows step back with `--panel-2` instead. It also checks contrast,
+measured on `--surface`, `--panel` and `--panel-2`:
 
 - text, dim text, accent text and the state colours as text must reach 4.5:1 (7:1 for an `aaa`
-  theme), and so must text on each `-soft` tint and on the primary button;
+  theme), and so must text, dim text and the state's own colour on each `-soft` tint, laid over
+  both `--panel` (cards) and `--surface` (banners), and text on the primary button;
 - the focus ring and the idle marker must reach 3:1;
-- the terminal foreground must reach 7:1 on its background, and each ANSI colour 3:1;
+- the terminal foreground must reach 7:1 on its background, and each ANSI colour 3:1 (7:1 for
+  colours 1–15 in an `aaa` theme);
 - the label pairs a TUI draws (black on green, yellow and cyan; white on red, blue and magenta;
   and the bright variants) must reach 4.5:1. Black on red is not required: with red also at
   3:1 on the background, no red carries both black and white text at 4.5:1;
+- in an `aaa` theme every colour is light (7:1 on black), and two light colours differ by at
+  most 3:1, so white text on a coloured label cannot be legible there. Black carries every
+  label instead, at 4.5:1 on each colour, and ANSI black itself stays at 3:1 on the
+  background. Those two figures, and white-on-colour labels, are the High contrast theme's
+  exceptions to 7:1;
 - busy, waiting, blocked and idle must differ by at least ΔE 20.
 
 It fails, too, on a font file that no theme loads or that has no licence, and on more than 700

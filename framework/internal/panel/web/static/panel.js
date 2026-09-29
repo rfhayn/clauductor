@@ -101,6 +101,7 @@ function laneCard(l, quiet) {
   });
   pressable(c, l.name + ", " + laneStatusText(l));
   c.title = l.name + " · " + (l.branch || "(detached)");
+  if (l.id === selected) c.setAttribute("aria-current", "true");
   c.dataset.fk = "lane:" + l.id;
   return c;
 }
@@ -234,7 +235,7 @@ function ensureTerm(id) {
   $("termhost").appendChild(host);
   const term = new Terminal({
     fontFamily: 'Menlo, "JetBrains Mono", ui-monospace, SFMono-Regular, monospace', fontSize: termFontSize(),
-    cursorBlink: true, scrollback: 2000, macOptionIsMeta: true,
+    cursorBlink: !matchMedia("(prefers-reduced-motion: reduce)").matches, scrollback: 2000, macOptionIsMeta: true,
     theme: termTheme(),
     // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
     // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
@@ -376,6 +377,7 @@ function renderTerminals(lane) {
       tab.title = (x.branch || "") + " · " + x.path + " · " + x.status + (x.orphan ? " · " + x.orphan : "");
       tab.addEventListener("click", () => selectTerm(x.id));
       pressable(tab, "terminal " + x.id + ", " + x.status);
+      tab.dataset.fk = "tab:" + x.id;
       tabs.appendChild(tab);
     }
     if (!ts.length) tabs.appendChild(el("div", "mh", "Terminals"));
@@ -861,7 +863,9 @@ function renderPicker() {
     e.addEventListener("click", () => { onPick(); closePicker(true); });
     return e;
   };
-  const themes = el("div", null, null, [el("div", "mh", "Theme")]);
+  // The headings are visual only: each group carries its own aria-label.
+  const heading = (t) => { const h = el("div", "mh", t); h.setAttribute("aria-hidden", "true"); return h; };
+  const themes = el("div", null, null, [heading("Theme")]);
   themes.setAttribute("role", "group");
   themes.setAttribute("aria-label", "Theme");
   for (const x of P.themes) {
@@ -877,7 +881,7 @@ function renderPicker() {
   modes.setAttribute("role", "group");
   modes.setAttribute("aria-label", "Mode");
   for (const m of P.modes) modes.appendChild(item("m:" + m, m === cur.mode, [el("span", null, MODE_LABEL[m])], () => P.setMode(m)));
-  menu.replaceChildren(themes, el("div", "mh", "Mode"), modes);
+  menu.replaceChildren(themes, heading("Mode"), modes);
   if (focusedKey) { const f = menu.querySelector('[data-key="' + focusedKey + '"]'); if (f) f.focus(); }
 }
 function openPicker(which) {
