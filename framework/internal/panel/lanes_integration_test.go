@@ -239,9 +239,11 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	// Anything but {input|resize} closes the connection; a command string is refused.
 	send(t, c, termMsg{Type: "exec", Data: "rm -rf /"})
 	var rerr error
+	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	for rerr == nil { // drain output still in flight, up to the close
-		_, _, rerr = c.Read(context.Background())
+		_, _, rerr = c.Read(dctx)
 	}
+	dcancel()
 	if websocket.CloseStatus(rerr) != websocket.StatusPolicyViolation {
 		t.Fatalf("unknown message type: %v, want a policy-violation close", rerr)
 	}

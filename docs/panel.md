@@ -1,9 +1,14 @@
 # `clauductor panel` — a local web panel over your Claude sessions
 
-`clauductor panel` serves a read-only, live dashboard of every Claude Code session working in
-one project: which lanes (worktrees) have a session, whether each is busy, waiting or idle, its
-context %, its running subagents, what needs you, the account quota, open PRs, and any cards
-the project defines.
+`clauductor panel` serves a live dashboard of every Claude Code session working in one project:
+which lanes (worktrees) have a session, whether each is busy, waiting or idle, its context %,
+its running subagents, what needs you, the account quota, open PRs, and any cards the project
+defines.
+
+From v1 it also **runs lanes**: each lane is an interactive `claude` in its own tmux session,
+with a terminal embedded in the page. You start, stop, interrupt, restart and resume lanes from
+the browser, and a launchd login agent keeps the panel running with no terminal open. You can
+work from the browser alone.
 
 It is **standalone**. It does not need `clauductor install`, the template, the skills, the
 SQLite database or file locks. It reads only Claude Code's own signals, plus git and `gh`:
@@ -16,6 +21,8 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
+| `tmux -L <socket> list-panes -a` | polled every 2 s, and right after a lane action | which lanes run, and whether their program exited |
+| the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
 
 Keeping the panel current costs **no model tokens**. It never reads transcripts.
 
@@ -27,9 +34,14 @@ clauductor panel --project ~/Development/app  # or name it
 clauductor panel --config /tmp/panel.json     # use a config outside the repo
 clauductor panel --port 4393 --no-open        # print the URL instead of opening a browser
 clauductor panel --uninstall-hooks            # remove the panel's hooks and exit
+
+clauductor panel install --project ~/Development/app [--config <file>] [--port 4393] [--app]
+clauductor panel open                         # open the installed panel in the browser
+clauductor panel uninstall                    # stop and remove the login agent
 ```
 
-v0 watches one project per run. Stop it with Ctrl-C.
+The panel watches one project per run. Stop a hand-started panel with Ctrl-C. Stopping the
+panel never stops a lane: lanes belong to tmux.
 
 ## Configuration: `.clauductor/panel.json`
 
@@ -70,6 +82,10 @@ keys are an error, so a misspelt key fails loudly.
 | `cards[].id` | string, required | `[a-z0-9][a-z0-9_-]*`, unique. |
 | `cards[].title` | string | Card heading. |
 | `cards[].command` | array of strings, required | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
+| `tmux_socket` | string, default `clauductor` | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. `[A-Za-z0-9_-]{1,64}`. |
+| `worktree_dir` | string, default `.claude/worktrees` | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
+| `base` | string, default `origin/main` | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. |
+| `lane_types` | object: lane type → `{model, effort}` | Launch options per lane type, passed as `claude --model <m> --effort <e>`. Each value is one argv element, `[A-Za-z0-9][A-Za-z0-9._[\]-]*`. |
 | `cards[].refresh` | string, required | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. |
 
 **Card output.** If stdout parses as JSON, it renders as JSON: an array becomes a list (for
@@ -88,13 +104,20 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   in the last 30 minutes. A session forgotten after that drops out of the sum. It is a
   list-price estimate, not a bill.
   `hooks` counts hook events accepted, status-line posts, and events dropped as outside the
-  project.
+  project. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
+  lanes cannot start (see *Subscription only*).
 - **Lanes (left).** One per worktree with a live session or recent activity. The stripe is green
   for busy, amber for waiting, grey for idle, and red when the lane is busy but no hook has
   arrived from it for 60 s. The chip is the lane type from `lanes`. Worktrees with no session are
   listed underneath.
-- **Selected lane (centre).** Its sessions (pid, status, context %, model, est. $), running
-  subagents with their age, and the lane's own event feed. v0 has no terminal. Workflow agents
+- **Terminals (centre).** One tab per lane, with a status dot. The selected tab is that lane's
+  live terminal: type into it as you would in Terminal.app. Under it are **ATTACH IN
+  TERMINAL.APP**, **INTERRUPT (ESC)**, **RESTART** and **STOP LANE**. Stop and restart ask for
+  confirmation in the page. An orphaned lane has **RESUME** and **FORGET** instead of a terminal.
+- **Selected lane (centre, below the terminal).** Its sessions (pid, status, context %, model,
+  est. $), running subagents with their age, and the lane's own event feed. A lane card marked
+  `· tmux` has a terminal; clicking it opens that tab.
+  Workflow agents
   stop under a different `agent_id` and `agent_type` (`workflow-subagent`) than they started
   with, so a `workflow-subagent` stop with an unknown id retires the oldest running agent of any
   type. Any other typed stop with an unknown id retires the oldest agent of its own type. An
@@ -115,6 +138,10 @@ Hooks carry no cost or context data; only the status line's stdin does. A projec
 quota, context % and est. $ on the panel adds this to its status-line script. It posts only
 when the panel's marker file exists, never waits (background, 0.5 s cap), and prints nothing, so
 the status line is unaffected on a machine that has never run the panel:
+
+`~/.clauductor/panel/port` holds the port and nothing else, because scripts read it as digits.
+The panel's PID is in `~/.clauductor/panel/pid` beside it. Both are removed on a clean stop; a
+`pid` naming a process that is not running means the panel was killed and both files are stale.
 
 ```bash
 input=$(cat)
@@ -154,10 +181,174 @@ for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification` 
 - The hooks stay installed when the panel stops. While it is down, the connection is refused
   at once and the session is never blocked. `clauductor panel --uninstall-hooks` removes them.
 
+## Lanes
+
+A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
+(`tmux -L clauductor`, or `tmux_socket`). tmux owns the process, not the panel, so:
+
+- closing the browser, or restarting or upgrading the panel, leaves every lane running;
+- several viewers can share a lane: browser tabs, and a Terminal.app window.
+
+Lanes are interactive sessions, never `claude --bg`: at a usage limit an interactive session
+pauses, while a workflow in a background session fails.
+
+### Starting a lane
+
+**+ LANE** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
+
+- **New branch and worktree.** The server runs `git fetch`, then
+  `git worktree add -b <prefix><name> <worktree_dir>/<name> <base>`. The prefix is the type's
+  prefix rule in `lanes` (`fix/` for `fix`). A type with only exact rules (such as `main` →
+  `orchestrator`) has no prefix and cannot start a new branch.
+- **An existing worktree.** Any worktree that `git worktree list` reports.
+- **The project root.** Use this for the orchestrator.
+
+Then it runs, as an argv list with no shell:
+
+```
+tmux -L <socket> new-session -d -s <name> -c <dir> -x 200 -y 50 \
+     -e PATH=… -e HOME=… -e LANG=… \
+     /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
+```
+
+- The lane name is the tmux session name and the worktree directory name. It must match
+  `[a-z0-9][a-z0-9-]{0,40}`, so it is safe in a tmux target and in a shell command.
+- The session id is a UUID that the panel generates, so the lane is bound to its Claude session
+  from its first second. The panel never discovers sessions by directory.
+- `-e` gives the session an explicit PATH (the directories of `claude`, `tmux`, `git`, `gh` and
+  `node`, then the panel's own PATH), HOME and LANG. It does not depend on whichever process
+  happened to start the tmux server.
+- `/usr/bin/env -u` removes the API-key variables. It also removes the variables a parent Claude
+  session sets for its children, so a panel started from inside Claude cannot make its lanes look
+  nested.
+- `remain-on-exit` keeps a lane's last screen after `claude` exits. A lane that dies at start
+  shows why, instead of vanishing. The tab's dot turns red.
+
+**A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
+to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
+exits and the lane shows a dead pane; STOP it and start it again.
+
+### The lane registry
+
+`~/.clauductor/panel/<hash of the project path>/lanes.json` (0600, in a 0700 directory) records
+each lane: its id, session id, directory, type, branch, and its last action. The intent is
+written **before** each action and marked done after it, so a panel that crashes mid-action
+finds the half-done action when it restarts. The file is written atomically.
+
+The registry is never trusted on its own. Every 2 s the panel compares it with the tmux socket,
+`claude agents --json` (matched by session id) and the worktree list, and it re-reads the file
+every 30 s. Anything that does not add up is shown as an **orphan**, never hidden:
+
+| What | Shown as | What you can do |
+|---|---|---|
+| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **RESUME**, or **FORGET** |
+| registered, the panel stopped during an action | orphaned, with the action | **RESUME**, or **FORGET** |
+| a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **STOP** only; without a session id it cannot be restarted |
+| registered, its directory no longer a worktree | the reason is added | **FORGET** |
+
+### Controls
+
+| Button | What it does |
+|---|---|
+| **INTERRUPT (ESC)** | `tmux send-keys Escape`, which is claude's interrupt. |
+| **STOP LANE** | Types `/exit`, then presses Enter as a separate write. Waits up to 10 s, then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **RESTART** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel records when the first prompt's hook arrives. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
+| **RESUME** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
+| **FORGET** (orphans) | Drops the registry record. The worktree and the conversation stay. |
+| **ATTACH IN TERMINAL.APP** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
+
+Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
+Sent together, a long line can sit in claude's input box unsubmitted.
+
+### Window size: the latest client wins
+
+Each browser viewer gets its own PTY and its own tmux client. The lane's window uses tmux's
+`window-size latest`, set explicitly on each lane because `~/.tmux.conf` might change it. The
+window takes the size of whichever client last typed or resized. When you type in the browser,
+the lane fits the browser. When you type in Terminal.app, it fits that window, and the browser
+shows the same screen, clipped or padded, until you type there again.
+
+We chose this over the alternatives:
+
+- `attach -f ignore-size` for the browser would leave a browser-only lane stuck at the detached
+  size.
+- A grouped session per viewer would share one window size anyway, and add sessions to clean up.
+
+### Subscription only
+
+The panel refuses to start, restart or resume a lane while `ANTHROPIC_API_KEY` or
+`ANTHROPIC_AUTH_TOKEN` is set, in the panel's own environment or in the tmux server's global
+environment (`tmux -L <socket> show-environment -g`), which every lane inherits. Either key
+outranks the subscription login. The page shows the reason and disables **+ LANE**. If the tmux
+environment cannot be read, the panel refuses too: unknown is not "no key". As a second layer,
+the lane command unsets both variables.
+
+## Run it with no terminal: the launchd agent
+
+```bash
+clauductor panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
+```
+
+`install`:
+
+1. Loads the config and refuses if it is missing or invalid, rather than crash-looping later.
+2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
+   a build directory or a worktree that may disappear. Re-run `install` after upgrading
+   clauductor.
+3. Creates the persistent token `~/.clauductor/panel/token` (0600, directory 0700).
+4. Writes `~/Library/LaunchAgents/com.clauductor.panel.plist` and checks it with `plutil -lint`.
+   The plist sets:
+   - `RunAtLoad`;
+   - `KeepAlive` with `SuccessfulExit = false`, so a crash restarts the panel, throttled to once
+     every 30 s, and `launchctl bootout` stops it for good;
+   - `LimitLoadToSessionType = Aqua`;
+   - logs in `~/.clauductor/panel/logs/`;
+   - `LANG=en_US.UTF-8`;
+   - a PATH made of `/opt/homebrew/bin`, `~/.local/bin`, the directories where `claude`,
+     `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
+     directories. launchd's default PATH has none of these.
+5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
+
+Under launchd, the panel runs with `--launchd`:
+
+- It uses the persistent token, and the cookie lasts 30 days.
+- The token never goes to stdout or stderr, which are the log files. The log names the token
+  file instead.
+- At each start it opens the browser once, with the token. Another start within 5 minutes does
+  not open it again, so a crash loop cannot fill the browser with tabs.
+
+`--app` also builds `~/Applications/Clauductor Panel.app`, an AppleScript applet made by
+`osacompile` that runs `clauductor panel open`. Put it in the Dock, or find it with Spotlight.
+
+```bash
+clauductor panel open         # checks /healthz, then opens http://127.0.0.1:4393/?t=<token>
+clauductor panel uninstall    # bootout, then remove the plist, the copied binary, the token and the app
+```
+
+`uninstall` removes the app only if `install --app` made it, and it never touches lanes. The
+panel's hooks stay in `~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes
+them.
+
+### If the panel is down
+
+The lanes are not affected: they run in tmux whether or not the panel is up.
+
+1. `clauductor panel open` tells you whether the panel answers on its port.
+2. Restart it with `launchctl kickstart -k gui/$(id -u)/com.clauductor.panel`. See its state with
+   `launchctl print gui/$(id -u)/com.clauductor.panel`.
+3. Read `~/.clauductor/panel/logs/panel.err.log`. The usual causes are a port another process
+   holds, or a config that moved. In both cases the log says which.
+4. To reach a lane with no panel, run `tmux -L clauductor ls`, then
+   `tmux -L clauductor attach -t '=<lane>'`. Quote the target, because zsh expands a bare
+   `=word`. Detach with Ctrl-b d; the lane keeps running.
+5. If the config file moved (for example, `--config` pointed into a worktree that was removed),
+   run `install` again with the new path.
+
 ## Security model
 
-A dashboard of your sessions is private, and later versions will add terminals, so the page is
-locked down even on loopback.
+A dashboard of your sessions is private, and a browser terminal is a shell, so the page is
+locked down even on loopback. Loopback is not a trust boundary: any web page you open can
+send requests to `127.0.0.1`.
 
 - **Loopback only.** The server binds `127.0.0.1` and refuses to run if the bound address is not
   loopback. If the port is taken, it **exits with an error** and never falls back to another port
@@ -165,11 +356,43 @@ locked down even on loopback.
 - **Per-launch token.** Each start makes 32 random bytes and opens
   `http://127.0.0.1:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
   SameSite=Strict` cookie and redirects to `/`, so the token leaves the address bar. Every route
-  except `/hook` and `/status` needs the cookie (401 otherwise).
+  except `/hook`, `/status` and `/healthz` needs the cookie (401 otherwise). `/healthz` answers
+  only `ok`. Under launchd, the token persists in a 0600 file instead (see above).
 - **DNS rebinding and cross-site requests.** `Host` must be `127.0.0.1:<port>` or
-  `localhost:<port>` on every route. Every state-changing request (today only `POST
-  /api/refresh`) must carry an `Origin` of the panel itself. No CORS headers are sent. The page
-  is served with a restrictive CSP, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+  `localhost:<port>` on every route. Every state-changing request (every `POST`) must carry an
+  `Origin` of the panel itself. No CORS headers are sent. The page is served with
+  `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+- **Content Security Policy: this origin only.** `script-src 'self'`, `font-src 'self'`,
+  `connect-src 'self' ws://<host>`, and no `'unsafe-inline'` anywhere. The page's JS and CSS are
+  files embedded in the binary. So are xterm.js and the three fonts. The page loads nothing from
+  a CDN or Google Fonts. xterm.js creates `<style>` elements at run time, so `style-src` allows
+  one per-response nonce as well; `panel.js` stamps it on those elements.
+- **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
+  guarded route. It needs all of the following:
+  - the Host check;
+  - the cookie;
+  - an `Origin` exactly equal to `http://<the Host>`, meaning scheme, host and port;
+  - **a single-use ticket**. The page gets one from `POST /api/lanes/<id>/ticket`, which checks
+    `Origin`. A ticket is valid for 30 s, for that one lane, and is sent in the
+    `Sec-WebSocket-Protocol` header, never in the URL. The cookie alone is not enough, because
+    cookies are not isolated by port (RFC 6265 §8.5). A page on another loopback port, such as a
+    dev server on `:3100`, is same-site, and the browser sends it the panel's cookie. Only the
+    panel's own page can read a ticket. A test checks that a request from `:3100` cannot open a
+    terminal.
+  - a valid lane id that names a running lane.
+
+  After the upgrade, the browser may send only `{"type":"input","data":…}` and
+  `{"type":"resize","cols":…,"rows":…}`; anything else closes the connection. The browser never
+  sends a command. The server runs one fixed argv per viewer: `tmux -u -L <socket>
+  attach-session -t =<id>`, where `=` makes the match exact. Stopping a lane closes its viewers.
+  Closing a viewer only detaches its tmux client.
+- **Terminal output is untrusted.** xterm.js renders it to its own DOM, and the page never passes
+  it to `innerHTML`. A link that a lane prints (OSC 8) opens only after an in-page confirmation,
+  and only for `http`/`https`. Title escapes are ignored. There is no automatic linkifier.
+- **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
+  forget, terminal-app. A start names a lane type (checked against the config), a mode, a lane
+  name, and for "existing" a path, which must be one of `git worktree list`'s. Unknown JSON fields
+  are refused.
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
@@ -179,12 +402,34 @@ locked down even on loopback.
   of the project's worktrees, as `git worktree list --porcelain` reports them. That list is the
   authority, never a hand-kept list. It is re-read every 10 s, and early when a worktree is
   added or removed or when an event arrives from an unknown `cwd`.
-- **Nothing is written to disk** except the marker file `~/.clauductor/panel/port` (removed on
-  SIGINT/SIGTERM) and the hook install. Hook bodies include prompt text. The panel keeps only a
-  short one-line summary per event, in a 200-event in-memory ring buffer. It never reads
-  transcript files; a test fails if any panel source mentions one.
+- **What the panel writes to disk:**
+  - the marker `~/.clauductor/panel/port` and `pid`, removed on SIGINT/SIGTERM;
+  - the hook install;
+  - the lane registry;
+  - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
 
-## Not in v0
+  Hook bodies include prompt text. The panel keeps only a short one-line summary per event, in a
+  200-event in-memory ring buffer. It never reads transcript files; a test fails if any panel
+  source mentions one.
 
-v0 only watches. It has no terminals, no lane start/stop, no gate queue and no alerts; those are
-v1 and v2. It runs one project at a time.
+## Dependencies
+
+| What | Version | Licence | Why |
+|---|---|---|---|
+| `github.com/coder/websocket` | v1.8.15 | ISC | WebSocket server. It is the maintained successor of nhooyr.io/websocket, with no dependencies of its own and a `context`-based API that fits the panel's shutdown. It negotiates subprotocols, which carry the terminal ticket, and it re-checks `Origin` itself as a second layer. gorilla/websocket was the alternative; it was archived for a time, and its API predates `context`. |
+| `github.com/creack/pty` | v1.1.24 | MIT | One PTY per viewer's `tmux attach`. This is why the panel needs no node-pty. |
+| `@xterm/xterm` | 6.0.0 | MIT | The terminal in the page. It is vendored as `web/vendor/xterm/xterm.js`, `xterm.css` and `LICENSE`, and embedded with `go:embed`. |
+| `@xterm/addon-fit` | 0.11.0 | MIT | Fits the terminal to its box. Vendored the same way. |
+| Chakra Petch, IBM Plex Sans, JetBrains Mono | fontsource 5.3.0, latin | SIL OFL 1.1 | The page's fonts, in `web/static/fonts/` with their licences. |
+
+To update a vendored file, download it with `npm pack <package>@<version>`, copy the file from
+`lib/` (or `files/` for fonts) together with its `LICENSE`, and update this table.
+
+## Not in v1
+
+- No gate queue, lane templates or alerts. Those are v2.
+- No automatic restore after a reboot. The registry shows the lanes a reboot killed as orphans,
+  each with **RESUME**; v2 can resume them all at once.
+- No removing a worktree from the page.
+- One project per panel.
+- No remote access; the panel is loopback only.

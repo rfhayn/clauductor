@@ -30,10 +30,6 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 	}
 	used, _ := s.issueTicket("a")
 	s.takeTicket(httptestWithProtocol(ticketPrefix+used), "a")
-	expired, _ := s.issueTicket("a")
-	s.termMu.Lock()
-	s.tickets[expired] = termTicket{lane: "a", exp: time.Now().Add(-time.Second)}
-	s.termMu.Unlock()
 	cases := []struct {
 		name   string
 		opts   reqOptList
@@ -53,7 +49,6 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		{"cookie and origin but no ticket", ws(reqOptList{withCookie(s), origin}), "/ws/term?lane=a", 401, "ticket"},
 		{"ticket for another lane", ws(reqOptList{withCookie(s), origin, ticket("b")}), "/ws/term?lane=a", 401, "ticket"},
 		{"ticket used twice", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", ticketPrefix+used)}), "/ws/term?lane=a", 401, "ticket"},
-		{"expired ticket", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", ticketPrefix+expired)}), "/ws/term?lane=a", 401, "ticket"},
 		{"made-up ticket", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", ticketPrefix+strings.Repeat("0", 64))}), "/ws/term?lane=a", 401, "ticket"},
 		{"bad lane id", ws(reqOptList{withCookie(s), origin, ticket("a")}), "/ws/term?lane=../etc", 400, "invalid lane id"},
 		{"lane id as a tmux target", ws(reqOptList{withCookie(s), origin, ticket("a")}), "/ws/term?lane=a:0", 400, "invalid lane id"},
@@ -64,6 +59,17 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		if w.Code != c.status || !strings.Contains(w.Body.String(), c.body) {
 			t.Errorf("%s: got %d %q, want %d %q", c.name, w.Code, strings.TrimSpace(w.Body.String()), c.status, c.body)
 		}
+	}
+	// An expired ticket is refused. It is planted directly, with no other ticket
+	// issued after it: issuing purges expired tickets, which would hide a missing
+	// expiry check.
+	expired, _ := s.issueTicket("a")
+	s.termMu.Lock()
+	s.tickets[expired] = termTicket{lane: "a", exp: time.Now().Add(-time.Second)}
+	s.termMu.Unlock()
+	if w := do(s, "GET", "/ws/term?lane=a", "", ws(reqOptList{withCookie(s), origin,
+		withHeader("Sec-WebSocket-Protocol", ticketPrefix+expired)})...); w.Code != 401 {
+		t.Errorf("expired ticket: got %d %q, want 401", w.Code, w.Body.String())
 	}
 	// A page on :3100 cannot get a ticket either: the ticket POST checks Origin.
 	if w := do(s, "POST", "/api/lanes/a/ticket", "", withCookie(s), withHeader("Origin", "http://127.0.0.1:3100")); w.Code != 403 {
