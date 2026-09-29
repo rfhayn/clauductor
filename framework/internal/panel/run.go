@@ -249,6 +249,9 @@ func Run(ctx context.Context, o Options) error {
 		cfg.TmuxSocket = o.TmuxSocket
 	}
 	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
+	for _, n := range cfg.Notices {
+		fmt.Fprintln(o.Out, n)
+	}
 	lm, lanesWhy := newLaneManager(o, cfg, root, clk)
 	model := state.NewModel(cfg, root, clk.Now())
 	hub := web.NewHub(model, clk)
