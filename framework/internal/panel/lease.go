@@ -154,13 +154,16 @@ func LiveProc(pid int) (bool, string) {
 // process's start time never changes, so while kill(pid, 0) keeps answering, the
 // pid is the process it was: liveness is rechecked with kill every time, and ps
 // runs again only for a pid that is new, or was seen gone since (a pid is reused
-// only after its process is gone). The panel's queue view uses it: the view only
-// reads, and lock-run's waiters, which reclaim, judge with LiveProc every time.
+// only after its process is gone), and every Recheck anyway: a pid that died and
+// was reused between two checks would otherwise keep the old start time for good.
+// The panel's queue view uses it: the view only reads, and lock-run's waiters,
+// which reclaim, judge with LiveProc every time.
 type ProcCache struct {
-	Alive func(pid int) bool   // default PIDAlive
-	Start func(pid int) string // default ProcStart
-	Now   func() time.Time     // default time.Now
-	TTL   time.Duration        // an entry unused this long is dropped; default 1 min
+	Alive   func(pid int) bool   // default PIDAlive
+	Start   func(pid int) string // default ProcStart
+	Now     func() time.Time     // default time.Now
+	TTL     time.Duration        // an entry unused this long is dropped; default 1 min
+	Recheck time.Duration        // a cached start time is read again this often; default 30 s
 
 	mu sync.Mutex
 	m  map[int]procCacheItem
@@ -168,12 +171,13 @@ type ProcCache struct {
 
 type procCacheItem struct {
 	start string
+	read  time.Time
 	used  time.Time
 }
 
 // Check is the ProcCheck.
 func (c *ProcCache) Check(pid int) (bool, string) {
-	alive, start, now, ttl := c.Alive, c.Start, c.Now, c.TTL
+	alive, start, now, ttl, recheck := c.Alive, c.Start, c.Now, c.TTL, c.Recheck
 	if alive == nil {
 		alive = PIDAlive
 	}
@@ -185,6 +189,9 @@ func (c *ProcCache) Check(pid int) (bool, string) {
 	}
 	if ttl <= 0 {
 		ttl = time.Minute
+	}
+	if recheck <= 0 {
+		recheck = 30 * time.Second
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -202,8 +209,8 @@ func (c *ProcCache) Check(pid int) (bool, string) {
 		return false, ""
 	}
 	it, ok := c.m[pid]
-	if !ok {
-		it.start = start(pid)
+	if !ok || t.Sub(it.read) >= recheck {
+		it.start, it.read = start(pid), t
 	}
 	it.used = t
 	c.m[pid] = it

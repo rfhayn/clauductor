@@ -162,8 +162,9 @@ func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
 		}
 		clock = clock.Add(time.Second)
 	}
-	if startCalls != 1 || aliveCalls != 60 {
-		t.Fatalf("a minute of 1 s checks: %d start reads (ps), %d kill(0) checks; want 1 and 60", startCalls, aliveCalls)
+	// Read when new, and again every 30 s (t = 0 and t = 30 s).
+	if startCalls != 2 || aliveCalls != 60 {
+		t.Fatalf("a minute of 1 s checks: %d start reads (ps), %d kill(0) checks; want 2 and 60", startCalls, aliveCalls)
 	}
 	// The process exits and the pid is reused: the start time is read again.
 	alive[100] = false
@@ -171,7 +172,7 @@ func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
 		t.Fatal("a gone pid reads as alive")
 	}
 	alive[100], starts[100] = true, "Mon Sep 28 11:00:00 2026"
-	if _, s := c.Check(100); s != starts[100] || startCalls != 2 {
+	if _, s := c.Check(100); s != starts[100] || startCalls != 3 {
 		t.Fatalf("a reused pid kept the old start time %q (%d reads)", s, startCalls)
 	}
 	// A pid no longer asked about is dropped after the TTL, so the map stays small.
@@ -180,6 +181,49 @@ func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
 	if len(c.m) != 0 {
 		t.Fatalf("stale entries kept: %v", c.m)
 	}
+}
+
+// A pid that dies and is reused between two checks is never seen gone; the 30 s
+// re-read still catches the new start time.
+func TestProcCacheRereadsAStartTimeEvery30s(t *testing.T) {
+	clock := t0
+	start := "Mon Sep 28 10:00:00 2026"
+	c := &ProcCache{Alive: func(int) bool { return true }, Start: func(int) string { return start }, Now: func() time.Time { return clock }}
+	c.Check(300)
+	start = "Mon Sep 28 12:00:00 2026" // reused unseen
+	clock = clock.Add(29 * time.Second)
+	if _, s := c.Check(300); s == start {
+		t.Fatal("re-read before 30 s")
+	}
+	clock = clock.Add(time.Second)
+	if _, s := c.Check(300); s != start {
+		t.Fatalf("after 30 s the cache still says %q", s)
+	}
+}
+
+// A hook that arrives while the agents loop sleeps its quiet 15 s polls at once.
+func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
+	var mu sync.Mutex
+	polls := 0
+	run := func(_ context.Context, _ string, argv []string) ([]byte, error) {
+		if len(argv) >= 3 && argv[1] == "agents" {
+			mu.Lock()
+			polls++
+			mu.Unlock()
+		}
+		return []byte("[]"), nil
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return polls }
+	m := NewModel(v2Config(t, ""), "/p", time.Now())
+	hub := NewHub(m, time.Now)
+	x := &runtimeV2{hub: hub, root: "/p", p: &pollers{hub: hub, run: run, kickAgents: make(chan struct{}, 1)}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go x.agentsLoop(ctx)
+	waitFor(t, "the first poll, then quiet", func() bool { return count() > 0 && x.agentsQuietNow.Load() })
+	before := count()
+	x.hookSeen(HookEvent{Event: "UserPromptSubmit"})
+	waitFor(t, "a poll right after the hook", func() bool { return count() > before })
 }
 
 func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {

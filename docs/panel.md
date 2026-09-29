@@ -19,7 +19,7 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | Status line | the project's status-line script copies its stdin to `POST /status` | context %, 5-hour and 7-day quota, est. cost |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
-| queue leases | read every 1 s from the git common dir; `ps` once per process, then `kill -0` | who holds the gate, who waits |
+| queue leases | read every 1 s from the git common dir; `ps` once per process (and every 30 s), else `kill -0` | who holds the gate, who waits |
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
@@ -750,9 +750,10 @@ The protocol is plain files, so a shell script can honour it with no clauductor 
 prints it, with runs of whitespace collapsed to one space (for example
 `Mon Sep 28 23:10:17 2026`), or `proc:<field 22 of /proc/<pid>/stat>` where there is no `ps`.
 It is what tells a live holder from a reused pid. `child_pid` and `child_pstart` name the
-holder's command the same way. The panel's read-only queue view runs `ps` once per process: a
-start time never changes, and a pid is reused only after its process is gone, so while `kill -0`
-answers, the pid is the process it read. `lock-run`'s waiters, which reclaim, read it every time.
+holder's command the same way. The panel's read-only queue view runs `ps` once per process, and
+again every 30 s: a start time never changes, and a pid is reused only after its process is gone,
+so while `kill -0` answers, the pid is almost surely the process it read; the 30 s re-read covers
+a reuse between two checks. `lock-run`'s waiters, which reclaim, read it every time.
 
 **When a holder is stale** (only a stale holder may be removed):
 
@@ -1080,7 +1081,8 @@ panel follows within 5 s) or start with `--trust-config`. A red banner names bot
   One poll measured 93–103 ms wall (p50 98 ms), about 105 ms CPU and 148 MB peak RSS on
   2.1.284; at 2 s that is about 5% of a core. So it backs off to 5 s while hooks are flowing (a
   hook in the last 30 s), and to 15 s while the panel has no lane and has heard no hook for 5
-  minutes; a kick (a lane action, a refresh) still polls at once. A reading counts as current for
+  minutes; a kick (a lane action, a refresh, a hook arriving during the 15 s wait) still polls
+  at once. A reading counts as current for
   two of whichever interval the loop is on.
 - **Overflow.** A hook body dropped because the panel fell behind is counted apart from foreign
   drops, and raises a banner.

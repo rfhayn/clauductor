@@ -140,6 +140,8 @@ type runtimeV2 struct {
 	trustView TrustView
 	malformed atomic.Int64
 	lastHook  atomic.Int64 // unix ns of the last hook the ingest accepted
+	// agentsQuietNow: the agents loop is sleeping the quiet interval (hookSeen kicks it).
+	agentsQuietNow atomic.Bool
 
 	// procs caches pid start times for the queue view (PANEL-7).
 	procs ProcCache
@@ -197,6 +199,11 @@ func (x *runtimeV2) trusted() bool { return x == nil || x.trust.Load() }
 
 func (x *runtimeV2) hookSeen(ev HookEvent) {
 	x.lastHook.Store(time.Now().UnixNano())
+	// A hook ends the quiet interval: poll now rather than up to 15 s later (once;
+	// the next interval is computed with this hook in it).
+	if x.agentsQuietNow.CompareAndSwap(true, false) && x.p != nil {
+		kick(x.p.kickAgents)
+	}
 }
 
 func (x *runtimeV2) orchestration() *Orchestration {
@@ -315,6 +322,7 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 		}
 		iter := time.Since(iterStart) // the filter cross-check included: agentsFresh allows for it
 		interval := AgentsInterval(x.lastHookAt(), time.Now(), x.hasLanes())
+		x.agentsQuietNow.Store(interval == agentsQuiet)
 		x.hub.Update(func(m *Model, now time.Time) {
 			m.agentsNext = interval // agentsFresh allows for the wait until the next poll
 			m.ApplyAgentsTimed(agents, err, iter, now)
