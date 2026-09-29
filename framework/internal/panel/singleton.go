@@ -81,6 +81,55 @@ func lockMachine(home string) (*os.File, error) {
 	return f, nil
 }
 
+// waitMachineLock takes the machine lock, waiting (flock LOCK_EX, blocking) for
+// the panel that holds it to exit (PANEL-7: the login agent takes over from a
+// panel started by hand). It gives up when ctx ends; a lock taken after that is
+// released at once.
+func waitMachineLock(ctx context.Context, home string) (*os.File, error) {
+	if err := ensurePrivateDir(panelDir(home)); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(LockPath(home), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() {
+		for {
+			err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+			if !errors.Is(err, syscall.EINTR) {
+				done <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			f.Close()
+			return nil, fmt.Errorf("locking %s: %w", LockPath(home), err)
+		}
+		return f, nil
+	case <-ctx.Done():
+		// The flock call cannot be interrupted; close the file (releasing the lock)
+		// once it returns.
+		go func() { <-done; f.Close() }()
+		return nil, ctx.Err()
+	}
+}
+
+// describe names a panel owner in one line.
+func (o PanelOwner) describe() string {
+	s := "pid unknown"
+	if o.PID > 0 {
+		s = fmt.Sprintf("pid %d", o.PID)
+	}
+	if o.Project != "" {
+		s += ", " + o.Project
+	}
+	return s
+}
+
 func pidPath(home string) string { return filepath.Join(panelDir(home), "pid") }
 
 func readPIDFile(home string) int {

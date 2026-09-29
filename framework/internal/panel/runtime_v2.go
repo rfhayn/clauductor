@@ -25,17 +25,29 @@ const (
 	// agentsSlow is the `claude agents` interval while hooks are flowing: the hooks
 	// already carry the state, and each poll spawns a ~100 ms, ~150 MB process
 	// (measured on 2.1.284: p50 98 ms wall, ~105 ms CPU).
-	agentsSlow     = 5 * time.Second
-	hooksFlowing   = 30 * time.Second
+	agentsSlow   = 5 * time.Second
+	hooksFlowing = 30 * time.Second
+	// agentsQuiet is the interval while the panel has no lane and has heard no hook
+	// for hooksQuiet (PANEL-7): nothing is happening that a hook would not announce.
+	agentsQuiet    = 15 * time.Second
+	hooksQuiet     = 5 * time.Minute
 	filterRecheck  = 5 * time.Minute
 	versionRecheck = 10 * time.Minute
+	// promptKickEvery is the fastest the first-prompt loop drives `claude agents`
+	// polls: the fast interval, never faster.
+	promptKickEvery = agentsFast
 )
 
 // AgentsInterval is how long to wait before the next `claude agents` poll: slow
-// while hooks are flowing, fast otherwise.
-func AgentsInterval(lastHook, now time.Time) time.Duration {
-	if !lastHook.IsZero() && now.Sub(lastHook) < hooksFlowing {
+// while hooks are flowing; quiet with no lane (registered or on the socket) and no
+// hook for hooksQuiet; fast otherwise. A zero lastHook is no hook heard.
+func AgentsInterval(lastHook, now time.Time, lanes bool) time.Duration {
+	heard := !lastHook.IsZero()
+	switch {
+	case heard && now.Sub(lastHook) < hooksFlowing:
 		return agentsSlow
+	case !lanes && (!heard || now.Sub(lastHook) >= hooksQuiet):
+		return agentsQuiet
 	}
 	return agentsFast
 }
@@ -128,6 +140,14 @@ type runtimeV2 struct {
 	trustView TrustView
 	malformed atomic.Int64
 	lastHook  atomic.Int64 // unix ns of the last hook the ingest accepted
+	// agentsQuietNow: the agents loop is sleeping the quiet interval (hookSeen kicks it).
+	agentsQuietNow atomic.Bool
+
+	// procs caches pid start times for the queue view (PANEL-7).
+	procs ProcCache
+	// lastPromptKick is when the first-prompt loop last kicked a `claude agents`
+	// poll (promptLoop's goroutine only).
+	lastPromptKick time.Time
 
 	mu       sync.Mutex
 	obs      Obs
@@ -179,6 +199,11 @@ func (x *runtimeV2) trusted() bool { return x == nil || x.trust.Load() }
 
 func (x *runtimeV2) hookSeen(ev HookEvent) {
 	x.lastHook.Store(time.Now().UnixNano())
+	// A hook ends the quiet interval: poll now rather than up to 15 s later (once;
+	// the next interval is computed with this hook in it).
+	if x.agentsQuietNow.CompareAndSwap(true, false) && x.p != nil {
+		kick(x.p.kickAgents)
+	}
 }
 
 func (x *runtimeV2) orchestration() *Orchestration {
@@ -240,9 +265,29 @@ func (x *runtimeV2) setObs(f func(o *Obs)) {
 	x.mu.Unlock()
 }
 
+// lastHookAt is when the ingest last accepted a hook; zero if it never has.
+func (x *runtimeV2) lastHookAt() time.Time {
+	if ns := x.lastHook.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
+// hasLanes: the panel has a lane, registered or on its socket. The registry is
+// read directly: a lane start records it before it kicks this loop, while the
+// model learns of it only from the next tmux poll.
+func (x *runtimeV2) hasLanes() bool {
+	if x.p.registry != nil && len(x.p.registry.List()) > 0 {
+		return true
+	}
+	n := 0
+	x.hub.Read(func(m *Model, _ time.Time) { n = len(m.laneRecords) + len(m.tmuxLanes) })
+	return n > 0
+}
+
 // agentsLoop polls `claude agents --json`: filtered by --cwd once a cross-check with
-// the unfiltered list shows the filter drops nothing in the project, every 2 s, or
-// every 5 s while hooks are flowing, and at once when kicked.
+// the unfiltered list shows the filter drops nothing in the project, at the
+// interval AgentsInterval gives, and at once when kicked.
 func (x *runtimeV2) agentsLoop(ctx context.Context) {
 	var filter []string
 	var lastCheck time.Time
@@ -276,8 +321,12 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 			}
 		}
 		iter := time.Since(iterStart) // the filter cross-check included: agentsFresh allows for it
-		x.hub.Update(func(m *Model, now time.Time) { m.ApplyAgentsTimed(agents, err, iter, now) })
-		interval := AgentsInterval(time.Unix(0, x.lastHook.Load()), time.Now())
+		interval := AgentsInterval(x.lastHookAt(), time.Now(), x.hasLanes())
+		x.agentsQuietNow.Store(interval == agentsQuiet)
+		x.hub.Update(func(m *Model, now time.Time) {
+			m.agentsNext = interval // agentsFresh allows for the wait until the next poll
+			m.ApplyAgentsTimed(agents, err, iter, now)
+		})
 		x.mu.Lock()
 		x.obs.AgentsPolls++
 		x.pollSum += dur.Milliseconds()
@@ -467,38 +516,53 @@ func (x *runtimeV2) promptLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		var ds map[string]PromptDecision
-		x.hub.Read(func(m *Model, now time.Time) { ds = m.PromptDecisions(now) })
-		changed := false
-		for id, d := range ds {
-			switch d.Action {
-			case "send":
-				stillReady := func() string {
-					var d PromptDecision
-					x.hub.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now)[id] })
-					if d.Action != "send" {
-						return "no longer ready (" + d.Why + ")"
-					}
-					return ""
+		x.promptTick(ctx, time.Now())
+	}
+}
+
+// promptTick acts on every template lane's first-prompt decision once. A lane that
+// waits on a `claude agents` reading kicks a poll, at most every promptKickEvery; a
+// lane that waits on anything else (its tmux session is gone) kicks nothing.
+func (x *runtimeV2) promptTick(ctx context.Context, clock time.Time) {
+	var ds map[string]PromptDecision
+	x.hub.Read(func(m *Model, now time.Time) { ds = m.PromptDecisions(now) })
+	changed, poll := false, false
+	for id, d := range ds {
+		switch d.Action {
+		case "send":
+			stillReady := func() string {
+				var d PromptDecision
+				x.hub.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now)[id] })
+				if d.Action != "send" {
+					return "no longer ready (" + d.Why + ")"
 				}
-				if err := x.lanes.DeliverFirstPrompt(ctx, id, stillReady); err != nil {
-					fmt.Fprintf(x.o.Out, "lane %s: first prompt: %v\n", id, err)
-				}
-				changed = true
-			case "skip":
-				_ = x.lanes.SetPromptState(id, "pending", "skipped")
-				changed = true
-			case "delivered":
-				_ = x.lanes.SetPromptState(id, "sent", "delivered")
-				changed = true
-			case "wait":
-				kick(x.p.kickAgents) // readiness is read from `claude agents`
+				return ""
 			}
+			if err := x.lanes.DeliverFirstPrompt(ctx, id, stillReady); err != nil {
+				fmt.Fprintf(x.o.Out, "lane %s: first prompt: %v\n", id, err)
+			}
+			changed = true
+		case "skip":
+			_ = x.lanes.SetPromptState(id, "pending", "skipped")
+			changed = true
+		case "delivered":
+			_ = x.lanes.SetPromptState(id, "sent", "delivered")
+			changed = true
+		case "wait":
+			// Readiness is read from `claude agents`; a wait on anything else (the
+			// lane's tmux session is not there) is not helped by a poll.
+			poll = poll || d.Poll
 		}
-		if changed {
-			kick(x.p.kickTmux)
-			kick(x.p.kickAgents)
-		}
+	}
+	switch {
+	case changed:
+		// Once per transition: see its effect at once.
+		kick(x.p.kickTmux)
+		kick(x.p.kickAgents)
+		x.lastPromptKick = clock
+	case poll && clock.Sub(x.lastPromptKick) >= promptKickEvery:
+		kick(x.p.kickAgents)
+		x.lastPromptKick = clock
 	}
 }
 
@@ -543,23 +607,7 @@ func (x *runtimeV2) queueLoop(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
-		var qs []QueueView
-		var err error
-		for _, q := range x.cfg.Queues {
-			_, lock, lerr := x.queueLock(ctx, q.ID)
-			if lerr != nil {
-				err = lerr
-				break
-			}
-			v := ReadQueue(q, lock, time.Now(), LiveProc)
-			x.mu.Lock()
-			if r := x.runs[q.ID]; r != nil {
-				rc := *r
-				v.Run = &rc
-			}
-			x.mu.Unlock()
-			qs = append(qs, v)
-		}
+		qs, err := x.readQueues(ctx, time.Now())
 		b, _ := json.Marshal(qs)
 		sig := string(b)
 		if err != nil {
@@ -575,6 +623,27 @@ func (x *runtimeV2) queueLoop(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// readQueues reads every queue once. Liveness goes through the pid cache: kill(pid,
+// 0) every time, ps once per process (PANEL-7).
+func (x *runtimeV2) readQueues(ctx context.Context, now time.Time) ([]QueueView, error) {
+	var qs []QueueView
+	for _, q := range x.cfg.Queues {
+		_, lock, err := x.queueLock(ctx, q.ID)
+		if err != nil {
+			return qs, err
+		}
+		v := ReadQueue(q, lock, now, x.procs.Check)
+		x.mu.Lock()
+		if r := x.runs[q.ID]; r != nil {
+			rc := *r
+			v.Run = &rc
+		}
+		x.mu.Unlock()
+		qs = append(qs, v)
+	}
+	return qs, nil
 }
 
 func (x *runtimeV2) cancelWait(queue, nonce string) error {

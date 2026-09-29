@@ -130,6 +130,9 @@ type LaneManager struct {
 	Stopped func(id string)
 	// Now is the clock for registry timestamps.
 	Now func() time.Time
+	// Exec, if set, runs a tmux argv (after the tmux path) instead of tmux itself
+	// (tests count the calls).
+	Exec func(ctx context.Context, argv []string) ([]byte, error)
 
 	mu sync.Mutex // serialises lane actions
 }
@@ -181,6 +184,9 @@ func (m *LaneManager) TmuxArgv(args ...string) []string {
 func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	if m.Exec != nil {
+		return m.Exec(cctx, m.TmuxArgv(args...))
+	}
 	cmd := exec.CommandContext(cctx, m.TmuxPath, m.TmuxArgv(args...)...)
 	cmd.Env = tmuxEnv()
 	var out, errb bytes.Buffer
@@ -203,14 +209,21 @@ func noServer(err error) bool {
 
 // List returns the lanes on the socket. No server means no lanes, not an error.
 func (m *LaneManager) List(ctx context.Context) ([]TmuxLane, error) {
+	lanes, _, err := m.ListServer(ctx)
+	return lanes, err
+}
+
+// ListServer is List, and whether the socket has a server at all: one `list-panes
+// -a` call covers every lane.
+func (m *LaneManager) ListServer(ctx context.Context) (lanes []TmuxLane, up bool, err error) {
 	out, err := m.tmux(ctx, "list-panes", "-a", "-F", tmuxListFormat)
 	if err != nil {
 		if noServer(err) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
-	return ParseTmuxPanes(out), nil
+	return ParseTmuxPanes(out), true, nil
 }
 
 // Exists reports whether a lane's tmux session is running. "=" makes the match
@@ -237,11 +250,25 @@ func (m *LaneManager) find(ctx context.Context, id string) (TmuxLane, bool) {
 // environment, or in the tmux server's global environment that every lane
 // inherits, would outrank the subscription login.
 func (m *LaneManager) StartBlocked(ctx context.Context) string {
+	if why := m.envBlocked(); why != "" {
+		return why
+	}
+	return m.tmuxEnvBlocked(ctx)
+}
+
+// envBlocked is StartBlocked's check of the panel's own environment (no spawn).
+func (m *LaneManager) envBlocked() string {
 	for _, k := range apiKeyVars {
 		if _, ok := m.lookupEnv(k); ok {
 			return fmt.Sprintf("%s is set in the panel's environment. It outranks your subscription login, so no lane starts until it is removed and the panel restarted.", k)
 		}
 	}
+	return ""
+}
+
+// tmuxEnvBlocked is StartBlocked's check of the tmux server's global environment:
+// one `show-environment -g`.
+func (m *LaneManager) tmuxEnvBlocked(ctx context.Context) string {
 	out, err := m.tmux(ctx, "show-environment", "-g")
 	if err != nil {
 		if noServer(err) {

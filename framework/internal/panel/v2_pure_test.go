@@ -114,6 +114,9 @@ func TestFirstPromptDecision(t *testing.T) {
 		{"you typed first: skip", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", Prompted: start, Since: start}, time.Second, "skip"},
 		{"claude exited: stuck", PromptInput{State: "pending", Running: true, Dead: true, Since: start}, time.Second, "stuck"},
 		{"lane down: wait", PromptInput{State: "pending", Since: start}, time.Hour, "wait"},
+		// PANEL-7: a lane seen gone past the grace needs a RESTORE; polls cannot help.
+		{"lane gone within the grace: wait", PromptInput{State: "pending", Since: start, GoneSince: start}, goneGrace - time.Second, "wait"},
+		{"lane gone past the grace: restore", PromptInput{State: "pending", Since: start, GoneSince: start}, goneGrace, "restore"},
 		{"panel died mid-typing: never again", PromptInput{State: "typing", Running: true, Listed: true, Status: "idle", Since: start}, time.Second, "stuck"},
 		{"typed and submitted", PromptInput{State: "sent", Running: true, Prompted: start.Add(time.Second), PromptAt: start}, 2 * time.Second, "delivered"},
 		{"typed, busy", PromptInput{State: "sent", Running: true, Listed: true, Status: "busy", PromptAt: start}, 2 * time.Second, "delivered"},
