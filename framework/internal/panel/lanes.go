@@ -372,7 +372,7 @@ func (m *LaneManager) TerminalAppArgv(id string) []string {
 		"-e", "do script (item 1 of argv)",
 		"-e", "end tell",
 		"-e", "end run",
-		cmd}
+		"--", cmd} // "--": osascript parses options among its arguments
 }
 
 // StartRequest is the body of POST /api/lanes.
@@ -534,7 +534,8 @@ func (m *LaneManager) Harden(ctx context.Context) error {
 
 // sendText types text into a lane, then presses Enter as a separate write.
 func (m *LaneManager) sendText(ctx context.Context, id, text string) error {
-	if _, err := m.tmux(ctx, "send-keys", "-t", "="+id+":", "-l", text); err != nil {
+	// "--": the text may start with "-", which send-keys would read as a flag.
+	if _, err := m.tmux(ctx, "send-keys", "-t", "="+id+":", "-l", "--", text); err != nil {
 		return err
 	}
 	time.Sleep(m.EnterDelay)

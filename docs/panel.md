@@ -548,10 +548,14 @@ uses `{issue}`), and START:
    rendered prompt is written into the lane registry with state `pending` **before** the lane
    starts.
 3. The panel types the prompt **once claude is ready**, and it decides "ready" from structured
-   signals only: `claude agents --json` lists the lane's own session id as `idle`. It never
-   scrapes the screen. A session held at the workspace-trust dialog is not listed at all
-   (verified on 2.1.284), so the prompt can never land in that dialog. The text goes first,
-   then Enter as a separate write, 400 ms later.
+   signals only: `claude agents --json` lists the lane's own session id as `idle` with no
+   `waitingFor`, no hook says the session waits (a permission prompt, an elicitation), and that
+   poll succeeded within the last two poll intervals. Right before the first keystroke, under
+   the lane lock, it reads `claude agents` once more and checks again. It never scrapes the
+   screen. A session held at the workspace-trust dialog is not listed at all
+   (verified on 2.1.284), so the prompt can never land in that dialog. The text goes first
+   (`send-keys -l -- <text>`, so text starting with `-` stays text), then Enter as a separate
+   write, 400 ms later.
 4. The state goes `pending` → `typing` → `sent` → `delivered`. `typing` is written before the
    first keystroke, so a panel that dies mid-typing never types the prompt twice. `delivered`
    needs proof: the session's `UserPromptSubmit` hook, or `claude agents` showing it busy.
@@ -566,32 +570,59 @@ Two lanes that both run the full gate on port 3100 collide. A queue serialises t
 lives entirely on disk, so it survives a panel restart, and it works when the panel is not
 running at all: the gate script takes it itself, through `clauductor lock-run`.
 
-macOS has no `flock(1)`, so the lock is a **directory**, because `mkdir` is atomic everywhere:
+macOS has no `flock(1)`, so the lock is a **directory**, because `mkdir` is atomic everywhere.
+The protocol is plain files, so a shell script can honour it with no clauductor at all (below).
 
 | Path | Meaning |
 |---|---|
 | `<lock>/` | Held while it exists. `mkdir` either creates it or fails with `EEXIST`. |
-| `<lock>/owner.json` | The holder: `{v, nonce, pid, host, lane, cmd, started, renewed, ttl}`, written atomically. |
-| `<lock>.waiters/<arrival ns>-<nonce>.json` | One per waiter, same fields. The name orders the queue. |
+| `<lock>/owner.json` | The holder: `{v, nonce, pid, pstart, host, lane, cmd, started, renewed, ttl}`, written atomically (temp file + `mv`). |
+| `<lock>.waiters/<arrival>-<nonce>.json` | One per waiter, same fields. The numeric arrival (unix ns, or unix s followed by nine zeros) orders the queue. |
 | `<lock>.waiters/<nonce>.cancel` | Asks that waiter to give up (the panel's **CANCEL WAIT**). |
 | `<lock>.reclaim/` | A short mutex, taken only to remove a stale holder. |
 
-- **Owner.** `owner.json` names the pid, the lane (`$CLAUDUCTOR_LANE`, which every panel lane
-  has) and the command.
-- **Liveness.** A holder whose pid is gone (same host: `kill -0` answers `ESRCH`) is stale.
-- **TTL.** `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A lease not renewed for
-  its TTL is stale even if the pid is alive: a hung helper, or a pid the system reused.
+`pstart` is the holder's process start time exactly as `LC_ALL=C ps -o lstart= -p <pid>`
+prints it, with runs of whitespace collapsed to one space (for example
+`Mon Sep 28 23:10:17 2026`). It is what tells a live holder from a reused pid.
+
+**When a holder is stale** (only a stale holder may be removed):
+
+- **Same host, pid gone** (`ps -p <pid>` finds nothing): stale.
+- **Same host, pid alive, start time equals `pstart`: never stale**, however long it has been
+  silent. A holder stopped with `SIGSTOP`, or on a laptop that slept, is still the holder.
+  Expiring it would run two gates at once.
+- **Same host, pid alive, another start time:** the pid was reused. Stale.
+- **Only when the process cannot be checked** (another host, no `pstart`, or a start time that
+  cannot be read): the TTL applies, and the holder is stale once `renewed + ttl` has passed.
+  `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A shell holder writes `ttl: 0`
+  (no expiry) and relies on `pstart`.
 - A directory with no readable `owner.json` for 10 s is stale (its holder died between `mkdir`
-  and the write).
-- **Only a waiter removes a stale holder,** under the reclaim mutex, after re-reading
-  `owner.json` and checking it is still the same stale holder (same nonce). **Nothing ever
-  signals or removes a live holder**, including the panel.
-- **FIFO.** Only the first live waiter tries `mkdir`. A waiter whose pid is gone, or whose file
-  has not been renewed for 60 s, is skipped and its file removed.
-- **Exit status.** `lock-run` exits with the command's status (128+n if a signal ended it; it
-  forwards `SIGINT`, `SIGTERM` and `SIGHUP` to the command), 75 if its wait was cancelled, and
-  130 if it was interrupted while waiting. It releases the lease only while `owner.json` still
-  carries its own nonce.
+  and the write). Never write `owner.json` in place; write a temp file and `mv` it.
+
+**Removing a stale holder.** Only the first live waiter does it, under the reclaim mutex, after
+re-reading `owner.json` and checking it is still the same stale holder (same nonce). **Nothing
+ever signals or removes a live holder**, including the panel.
+
+**Defence in depth in `lock-run`:**
+
+- It holds `flock(2)` on the lease directory while it holds the lease, and a Go reader (another
+  `lock-run`, the panel) never judges a flocked lease stale. The kernel drops the lock when the
+  process dies.
+- Once a second it checks `owner.json` still carries its nonce. If the lease was taken away, it
+  stops the command's whole process group (`TERM`, then `KILL` after 5 s) and exits **70**,
+  rather than let two gates finish.
+
+**FIFO.** Only the first live waiter tries `mkdir`. A waiter is dead, and its file removed, by
+the same rule as a holder, except that its TTL is 60 s.
+
+**`lock-run` itself:**
+
+- **Exit status.** The command's status (128+n if a signal ended it), 75 if its wait was
+  cancelled, 70 if its lease was taken away, and 130 if it was interrupted while waiting. It
+  releases the lease only while `owner.json` still carries its own nonce.
+- **Signals.** The command runs in a process group of its own, so a Ctrl-C from the terminal
+  reaches `lock-run` alone, and `lock-run` passes `SIGINT`, `SIGTERM` or `SIGHUP` on to the
+  command's group **once**. The command cannot read the terminal; a gate never needs to.
 - **Re-entry.** The command runs with `CLAUDUCTOR_LOCK_HELD=<lock>`. A `lock-run` on the same
   lock inside it runs the command directly, so a script can wrap itself.
 
@@ -600,26 +631,108 @@ waiters in order, each with **CANCEL WAIT**. **RUN** starts the queue's `command
 `lock-run` in the selected lane's worktree, detached, with its output in
 `~/.clauductor/panel/<project hash>/queue-logs/`.
 
-**In a project's gate script.** Put this at the top of `run-local.sh`. It re-runs the script
-through the queue when `clauductor` is installed, and runs it unqueued (with a note) where it is
-not, such as on a designer's machine:
+**In a project's gate script.** Put this at the top of `run-local.sh`. It needs git 2.5 or later
+(worktrees) and no `--path-format` (git 2.31). It re-runs the script through the queue with
+`clauductor lock-run` when clauductor is installed, and otherwise uses the plain-shell
+implementation below (paste it into the script, or keep it beside it as `lease.sh`). A failure
+to find the git directory runs the gate unqueued with a note, rather than aborting under
+`set -e`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 # Serialise the full gate (port 3100) across every worktree of this repo.
-lock="$(git rev-parse --path-format=absolute --git-common-dir)/clauductor/gate.lock"
-if [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
+lock=""
+if common=$(git rev-parse --git-common-dir 2>/dev/null); then
+  case $common in /*) ;; *) common="$PWD/$common" ;; esac
+  lock="$common/clauductor/gate.lock"
+fi
+lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
+if [ -z "$lock" ]; then
+  echo "run-local: not in a git checkout; running without the gate queue" >&2
+elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   if command -v clauductor >/dev/null 2>&1; then
-    exec clauductor lock-run --lane "${CLAUDUCTOR_LANE:-$(basename "$PWD")}" "$lock" -- "$0" "$@"
+    exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
   fi
-  echo "run-local: clauductor not installed; running without the gate queue" >&2
+  . "$(dirname "$0")/lease.sh"          # the plain-shell protocol below
+  lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
 fi
 # ...the gate itself...
 ```
 
 `lock-run` prints `waiting for gate.lock (held by lane add-x (pid 4242) since 14:02:11)` to
 stderr while it waits, so an agent reading the output knows why the gate is slow.
+
+**The protocol in plain shell** (`lease.sh`). It interoperates with `lock-run` in both
+directions: a test extracts this block from this page and runs it against `lock-run`. It sets an
+`EXIT` trap while it waits and while it holds the lease.
+
+<!-- lease.sh begin -->
+```sh
+# clauductor lease protocol v1 in plain POSIX shell: interoperates with
+# `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
+# Exit status: the command's; 75 if the wait was cancelled from the panel.
+lease_pstart() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}' || true; }
+lease_get() { sed -n "s/.*\"$2\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 || true; }
+lease_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# lease_dead FILE WAITER_TTL: 0 (true) when the record's process cannot be the holder.
+lease_dead() {
+  _p=$(lease_get "$1" pid); _s=$(lease_get "$1" pstart); _h=$(lease_get "$1" host)
+  _r=$(lease_get "$1" renewed); _t=$(lease_get "$1" ttl); [ -n "$2" ] && _t=$2
+  if [ -n "$_p" ] && [ "$_h" = "$(hostname)" ]; then
+    _now=$(lease_pstart "$_p")
+    [ -z "$_now" ] && return 0                              # pid gone
+    if [ -n "$_s" ]; then [ "$_now" != "$_s" ]; return; fi  # reused: dead; same: live, however silent
+  fi
+  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # unverifiable: TTL
+}
+lease_holder_stale() {
+  if [ ! -f "$1/owner.json" ]; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
+  lease_dead "$1/owner.json" ""
+}
+lease_run() {
+  # A quote or backslash would break owner.json, which readers then judge stale.
+  _lock=$1 _lane=$(printf %s "$2" | tr -d '"\\'); shift 2
+  _cmd=$(printf %s "$1" | tr -d '"\\')
+  _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  mkdir -p "$_w"
+  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":0}"
+  _me="$_w/$(date +%s)000000000-$_nonce.json"
+  printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
+  trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
+  _said=""
+  while :; do
+    if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
+    _first=""
+    for _f in $(ls "$_w" 2>/dev/null | grep '\.json$' | sort -t- -k1,1n -k2); do
+      if lease_dead "$_w/$_f" 60; then rm -f "$_w/$_f"; continue; fi
+      _first=$_f; break
+    done
+    if [ "$_first" = "${_me##*/}" ] && mkdir "$_lock" 2>/dev/null; then
+      printf '%s\n' "$_rec" > "$_lock/.owner.tmp" && mv "$_lock/.owner.tmp" "$_lock/owner.json"
+      rm -f "$_me"
+      trap 'if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
+      CLAUDUCTOR_LOCK_HELD=$_lock "$@" && _rc=0 || _rc=$?
+      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi
+      trap - EXIT
+      return "$_rc"
+    fi
+    if [ "$_first" = "${_me##*/}" ] && [ -d "$_lock" ] && lease_holder_stale "$_lock"; then
+      _judged=$(lease_get "$_lock/owner.json" nonce)
+      if mkdir "$_lock.reclaim" 2>/dev/null; then
+        if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_judged" ] && lease_holder_stale "$_lock"; then
+          echo "lease: reclaiming $_lock from a dead holder" >&2; rm -rf "$_lock"
+        fi
+        rmdir "$_lock.reclaim"; continue
+      elif [ $(( $(date +%s) - $(lease_mtime "$_lock.reclaim") )) -ge 30 ]; then rmdir "$_lock.reclaim" 2>/dev/null || true
+      fi
+    fi
+    [ -n "$_said" ] || { echo "lease: waiting for $_lock ($(lease_get "$_lock/owner.json" lane))" >&2; _said=1; }
+    sleep 1
+  done
+}
+```
+<!-- lease.sh end -->
 
 ### Alerts and notifications
 
@@ -635,9 +748,13 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
 
-Each shows in the **Alerts** panel. A macOS notification goes out for each **new** alert:
+Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
+goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.
+Idle, context, quota and stop-failure alerts stay on the page. A notification goes out:
 
-- once per stretch: an alert that clears and comes back notifies again;
+- once per stretch: an alert that clears and comes back notifies again. What was notified, and
+  when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a
+  panel restart never re-notifies an alert that is still active, and the daily count survives it;
 - grouped: the new alerts of one lane make one notification;
 - rate-limited: at most one notification per lane per `min_interval_seconds`; later ones wait and
   go out when the interval ends, if still active;
@@ -645,9 +762,12 @@ Each shows in the **Alerts** panel. A macOS notification goes out for each **new
   focus over the terminal's WebSocket). A suppressed alert counts as seen.
 
 The Alerts heading shows **interruptions today**. Notifications run
-`/usr/bin/osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' <title> <text>`:
+`/usr/bin/osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' -- <title> <text>`:
 the text arrives as an argument and is never spliced into AppleScript source, so a quote in a lane
-name cannot run `do shell script`. The first one may make macOS ask whether the panel may send
+name cannot run `do shell script`. The `--` matters: osascript keeps parsing options among its
+arguments, so without it a title starting with `-e` would be read as more script. The title is
+the config's `name` only while the config is trusted; `name` must be one line of plain text that
+does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
 
 ### Quota guard

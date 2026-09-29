@@ -135,8 +135,11 @@ type runtimeV2 struct {
 	pollSum  int64
 	notifier Notifier
 	runs     map[string]*QueueRun
-	gitDir   string
-	lastQ    string
+	// notifyPath persists the notifier's state, so a restart never re-notifies.
+	notifyPath string
+	savedState string
+	gitDir     string
+	lastQ      string
 }
 
 func checkConfigTrust(o Options, root, cfgPath string, raw []byte) TrustView {
@@ -161,6 +164,13 @@ func newRuntimeV2(o Options, cfg *Config, root, cfgPath string, tv TrustView, hu
 		runs: map[string]*QueueRun{}}
 	x.trust.Store(tv.Trusted)
 	x.notifier = Notifier{MinInterval: cfg.AlertThresholds().MinInterval, Project: cfg.Name}
+	x.notifyPath = filepath.Join(filepath.Dir(RegistryPath(o.Home, root)), "notifier.json")
+	if b, err := os.ReadFile(x.notifyPath); err == nil {
+		var st NotifierState
+		if json.Unmarshal(b, &st) == nil {
+			x.notifier.Restore(st)
+		}
+	}
 	hub.Update(func(m *Model, now time.Time) { m.ApplyTrust(tv) })
 	return x
 }
@@ -403,9 +413,23 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 			focused = s.FocusedLanes()
 		}
 		x.mu.Lock()
+		// The project name comes from panel.json, so it is config like any other: an
+		// untrusted config does not get to title OS notifications.
+		x.notifier.Project = "clauductor panel"
+		if x.trusted() {
+			x.notifier.Project = x.cfg.Name
+		}
 		notices := x.notifier.Process(v.Alerts, focused, time.Now())
 		stats := x.notifier.Stats()
+		st, _ := json.Marshal(x.notifier.State())
 		x.mu.Unlock()
+		if string(st) != x.savedState {
+			// Saved before sending: a crash mid-send loses one notification rather
+			// than repeating it at every restart.
+			if err := ensurePrivateDir(filepath.Dir(x.notifyPath)); err == nil && writeAtomic(x.notifyPath, st, 0o600) == nil {
+				x.savedState = string(st)
+			}
+		}
 		for _, n := range notices {
 			if !th.Notify {
 				continue
@@ -447,7 +471,15 @@ func (x *runtimeV2) promptLoop(ctx context.Context) {
 		for id, d := range ds {
 			switch d.Action {
 			case "send":
-				if err := x.lanes.DeliverFirstPrompt(ctx, id); err != nil {
+				stillReady := func() string {
+					var d PromptDecision
+					x.hub.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now)[id] })
+					if d.Action != "send" {
+						return "no longer ready (" + d.Why + ")"
+					}
+					return ""
+				}
+				if err := x.lanes.DeliverFirstPrompt(ctx, id, stillReady); err != nil {
 					fmt.Fprintf(x.o.Out, "lane %s: first prompt: %v\n", id, err)
 				}
 				changed = true
@@ -517,7 +549,7 @@ func (x *runtimeV2) queueLoop(ctx context.Context) {
 				err = lerr
 				break
 			}
-			v := ReadQueue(q, lock, time.Now(), PIDAlive)
+			v := ReadQueue(q, lock, time.Now(), LiveProc)
 			x.mu.Lock()
 			if r := x.runs[q.ID]; r != nil {
 				rc := *r

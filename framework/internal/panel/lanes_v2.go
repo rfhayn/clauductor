@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 )
 
 // withTemplate copies a rendered template's launch options and first prompt into the
@@ -88,7 +89,7 @@ func (m *LaneManager) SetPromptState(id, from, to string) error {
 // and it writes "typing" to the registry BEFORE the first keystroke: a panel that
 // dies mid-typing leaves "typing", which is never typed again. The caller has
 // already decided, from `claude agents`, that claude is idle.
-func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string) error {
+func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillReady func() string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rec, ok := m.Registry.Get(id)
@@ -97,6 +98,26 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string) error {
 	}
 	if l, ok := m.find(ctx, id); !ok || l.Dead {
 		return fmt.Errorf("lane %q is not running", id)
+	}
+	// Re-checked under the lane lock, right before the first keystroke: the model's
+	// view (a waiting note from a hook), then a fresh `claude agents` read.
+	if stillReady != nil {
+		if why := stillReady(); why != "" {
+			return fmt.Errorf("not typed: %s", why)
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	out, err := m.Run(cctx, m.Root, []string{"claude", "agents", "--json"})
+	cancel()
+	var agents []Agent
+	if err == nil {
+		agents, err = ParseAgents(out)
+	}
+	if err != nil {
+		return fmt.Errorf("not typed: cannot read claude agents: %v", err)
+	}
+	if why := AgentReady(agents, rec.SessionID); why != "" {
+		return fmt.Errorf("not typed: %s", why)
 	}
 	// Re-validated at the moment of typing: a registry edited by hand must not be
 	// able to smuggle a newline or an escape sequence into the lane.
@@ -120,6 +141,24 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string) error {
 		r.PromptState, r.PromptAt = "sent", m.now().UnixMilli()
 		return true
 	})
+}
+
+// AgentReady says why a session is not ready for typed text, or "" when it is:
+// listed, idle, and waiting for nothing.
+func AgentReady(agents []Agent, sessionID string) string {
+	for _, a := range agents {
+		if a.SessionID != sessionID {
+			continue
+		}
+		switch {
+		case a.Status != "idle":
+			return "claude is " + a.Status
+		case a.WaitingFor != "":
+			return "claude is waiting for " + oneLine(a.WaitingFor)
+		}
+		return ""
+	}
+	return "the session is not in claude agents"
 }
 
 // RestoreSkip is a lane RestoreAll did not restore, and why.

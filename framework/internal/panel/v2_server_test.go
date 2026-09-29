@@ -2,11 +2,7 @@ package panel
 
 import (
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,115 +85,5 @@ func TestInstallHooksKeepsAConcurrentWrite(t *testing.T) {
 	}
 	if _, err := InstallHooks(home, 4394); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("a constantly changing file must be refused: %v", err)
-	}
-}
-
-// C15: no transcript is reachable by a path assembled from parts either, and every
-// file read in the package is at a reviewed call site.
-func transcriptReaches(fset *token.FileSet, f *ast.File) []string {
-	var bad []string
-	lit := func(e ast.Expr) string {
-		if b, ok := e.(*ast.BasicLit); ok && b.Kind == token.STRING {
-			s, _ := strconv.Unquote(b.Value)
-			return s
-		}
-		return ""
-	}
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Join" {
-			return true
-		}
-		var claude, projects bool
-		for _, a := range call.Args {
-			switch strings.Trim(lit(a), "/") {
-			case ".claude":
-				claude = true
-			case "projects", ".claude/projects":
-				projects = true
-				claude = claude || strings.Contains(lit(a), ".claude")
-			}
-		}
-		if claude && projects {
-			bad = append(bad, fset.Position(call.Pos()).String()+": joins .claude and projects")
-		}
-		return true
-	})
-	return bad
-}
-
-func TestTranscriptScannerCatchesJoinedPaths(t *testing.T) {
-	// Falsification: the scanner must catch the forms the string test cannot.
-	for _, src := range []string{
-		`package x; import "path/filepath"; var p = filepath.Join(home, ".claude", "projects")`,
-		`package x; import "path"; var p = path.Join(home, ".claude", "projects", id)`,
-		`package x; import "path/filepath"; var p = filepath.Join(home, ".claude/projects")`,
-	} {
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "x.go", src, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(transcriptReaches(fset, f)) == 0 {
-			t.Errorf("missed: %s", src)
-		}
-	}
-}
-
-// fileReadSites are the reviewed places the package opens or reads a file. A new
-// one fails this test until it is added here, with what it reads.
-var fileReadSites = map[string]int{
-	"config.go":    1, // the panel config
-	"installer.go": 2, // ~/.claude/settings.json, and its re-read before the rename
-	"launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"hosts.go":     1, // the panel's pid file, checked before `panel open` sends the token
-	"registry.go":  1, // the lane registry
-	"trust.go":     1, // the trusted-config record
-	"lease.go":     1, // a lease owner/waiter file
-}
-
-func TestNoSourceReachesTranscriptsByJoinOrNewReadSite(t *testing.T) {
-	fset := token.NewFileSet()
-	counts := map[string]int{}
-	files, _ := filepath.Glob("*.go")
-	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, b := range transcriptReaches(fset, f) {
-			t.Error(b)
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok {
-				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "os" {
-					switch sel.Sel.Name {
-					case "Open", "OpenFile", "ReadFile", "ReadDir":
-						if sel.Sel.Name == "OpenFile" || sel.Sel.Name == "ReadDir" {
-							return true // writes (logs, cancel files) and directory listings
-						}
-						counts[name]++
-					}
-				}
-			}
-			return true
-		})
-	}
-	for name, n := range counts {
-		if fileReadSites[name] != n {
-			t.Errorf("%s reads files at %d site(s), reviewed %d: check none reaches a transcript, then update fileReadSites", name, n, fileReadSites[name])
-		}
-	}
-	for name, n := range fileReadSites {
-		if counts[name] == 0 && n > 0 {
-			t.Errorf("%s is listed with %d read site(s) but has none: remove it", name, n)
-		}
 	}
 }

@@ -29,6 +29,10 @@ type Notice struct {
 //   - A lane whose terminal has focus in the page gets none: you are looking at it.
 //     Those alerts are marked as seen, not deferred.
 //   - Interrupts counts the notifications sent per local day.
+//   - Only what blocks you interrupts: SevBlock alerts, a rate limit, and a lane that
+//     will not auto-resume. Idle, context and quota alerts stay on the page.
+//   - Its state (what was notified, when each lane last was) survives a restart
+//     through State/Restore, so a restart never re-notifies an alert still active.
 type Notifier struct {
 	MinInterval time.Duration
 	Project     string
@@ -36,6 +40,43 @@ type Notifier struct {
 	notified map[string]bool
 	lastSent map[string]time.Time
 	stats    NotifierStats
+}
+
+// Interrupts reports whether an alert may raise an OS notification.
+func Interrupts(a AlertView) bool {
+	return a.Severity == SevBlock || a.Kind == AlertRateLimit || a.Kind == AlertNoAutoResume
+}
+
+// NotifierState is what the notifier persists across restarts.
+type NotifierState struct {
+	Stats    NotifierStats    `json:"stats"`
+	Notified []string         `json:"notified"`
+	LastSent map[string]int64 `json:"lastSent"` // group → unix ms
+}
+
+// State returns the notifier's persistent state.
+func (n *Notifier) State() NotifierState {
+	st := NotifierState{Stats: n.stats, Notified: []string{}, LastSent: map[string]int64{}}
+	for k := range n.notified {
+		st.Notified = append(st.Notified, k)
+	}
+	sort.Strings(st.Notified)
+	for g, t := range n.lastSent {
+		st.LastSent[g] = t.UnixMilli()
+	}
+	return st
+}
+
+// Restore loads a saved state.
+func (n *Notifier) Restore(st NotifierState) {
+	n.notified, n.lastSent = map[string]bool{}, map[string]time.Time{}
+	for _, k := range st.Notified {
+		n.notified[k] = true
+	}
+	for g, ms := range st.LastSent {
+		n.lastSent[g] = time.UnixMilli(ms)
+	}
+	n.stats = st.Stats
 }
 
 func groupOf(a AlertView) string {
@@ -59,6 +100,9 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 	active := map[string]bool{}
 	pending := map[string][]AlertView{}
 	for _, a := range alerts {
+		if !Interrupts(a) {
+			continue // shown on the page, never an interruption
+		}
 		active[a.Key] = true
 		if n.notified[a.Key] {
 			continue
@@ -119,14 +163,16 @@ func (n *Notifier) Stats() NotifierStats { return n.stats }
 // osascriptArgv builds an osascript argv whose script is fixed text and whose data
 // arrives only as arguments (`on run argv`). Untrusted text (a lane name, a prompt
 // fragment) is never spliced into AppleScript source, so a quote in it cannot end a
-// string literal and run `do shell script`.
+// string literal and run `do shell script`. And "--" comes before the data: osascript
+// keeps parsing options among its arguments, so a title starting with "-e" would
+// otherwise be read as more script.
 func osascriptArgv(script []string, args ...string) []string {
 	argv := []string{"/usr/bin/osascript"}
 	argv = append(argv, "-e", "on run argv")
 	for _, line := range script {
 		argv = append(argv, "-e", line)
 	}
-	argv = append(argv, "-e", "end run")
+	argv = append(argv, "-e", "end run", "--")
 	return append(argv, args...)
 }
 

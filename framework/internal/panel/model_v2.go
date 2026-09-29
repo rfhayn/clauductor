@@ -210,6 +210,9 @@ type PromptInput struct {
 	Dead         bool      // ... and its program exited
 	Listed       bool      // `claude agents` lists the session
 	Status       string    // its status there
+	WaitingFor   string    // its waitingFor there
+	WaitingNote  bool      // a hook says it is waiting (permission, elicitation, input)
+	PollFresh    bool      // the last `claude agents` poll succeeded within two intervals
 	Since        time.Time // when the lane's last action began
 	PromptAt     time.Time // when the prompt was typed
 }
@@ -237,8 +240,11 @@ func DecideFirstPrompt(in PromptInput, now time.Time) PromptDecision {
 		if in.Dead {
 			return PromptDecision{"stuck", "claude exited before its first prompt was typed; RESTART the lane"}
 		}
-		if in.Listed && in.Status == "idle" {
+		if in.Listed && in.Status == "idle" && in.WaitingFor == "" && !in.WaitingNote && in.PollFresh {
 			return PromptDecision{"send", ""}
+		}
+		if in.Listed && in.Status == "idle" && !in.PollFresh {
+			return PromptDecision{"wait", "waiting for a fresh `claude agents` poll"}
 		}
 		if now.Sub(in.Since) >= readyGrace {
 			return PromptDecision{"stuck", fmt.Sprintf("claude is not ready after %ds. Answer any dialog in its terminal "+
@@ -274,16 +280,27 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 		}
 		tl, running := tmux[rec.ID]
 		in := PromptInput{State: rec.PromptState, Conversation: rec.Conversation, Running: running, Dead: tl.Dead,
-			Since: time.UnixMilli(rec.ActionAt), PromptAt: time.UnixMilli(rec.PromptAt)}
+			Since: time.UnixMilli(rec.ActionAt), PromptAt: time.UnixMilli(rec.PromptAt), PollFresh: m.agentsFresh(now)}
 		if s := m.sessions[rec.SessionID]; s != nil {
 			in.Prompted = s.LastPromptAt
+			in.WaitingNote = s.Note != nil && ClassifyNotification(s.Note.Type).Waiting
 			if s.Agent != nil {
-				in.Listed, in.Status = true, s.Agent.Status
+				in.Listed, in.Status, in.WaitingFor = true, s.Agent.Status, s.Agent.WaitingFor
 			}
 		}
 		out[rec.ID] = DecideFirstPrompt(in, now)
 	}
 	return out
+}
+
+// agentsFresh: the last `claude agents` poll succeeded within two poll intervals,
+// so "idle" is a current reading, not the last word of a poll that has since failed.
+func (m *Model) agentsFresh(now time.Time) bool {
+	iv := time.Duration(m.v2.obs.AgentsInterval) * time.Millisecond
+	if iv < agentsFast {
+		iv = agentsSlow // not measured yet: allow the slow interval
+	}
+	return m.agentsSrc.OK && m.agentsSrc.At > 0 && now.Sub(time.UnixMilli(m.agentsSrc.At)) <= 2*iv
 }
 
 // restoredPending reports whether a restored lane still waits for you: it was

@@ -238,6 +238,14 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("panel config: name is required")
 	}
+	// The name reaches OS notification titles and the page: one line of plain text,
+	// never anything a command line could read as an option.
+	if err := typableText(c.Name, 80); err != nil {
+		return fmt.Errorf("panel config: name %w", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(c.Name), "-") {
+		return fmt.Errorf("panel config: name must not start with \"-\"")
+	}
 	for k, v := range c.Lanes {
 		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
 			return fmt.Errorf("panel config: lanes entries need a non-empty branch rule and lane type")

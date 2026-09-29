@@ -28,19 +28,32 @@ import (
 // because mkdir(2) is atomic everywhere:
 //
 //	<lock>/              held while it exists; mkdir creates it or fails with EEXIST
-//	<lock>/owner.json    the holder: {v, nonce, pid, host, lane, cmd, started, renewed, ttl}
+//	<lock>/owner.json    the holder: {v, nonce, pid, pstart, host, lane, cmd, started, renewed, ttl}
 //	<lock>.waiters/      one <started>-<nonce>.json per waiter, same fields
 //	<lock>.waiters/<nonce>.cancel   asks that waiter to give up (the panel's CANCEL)
 //	<lock>.reclaim/      a short mutex taken only to remove a stale holder
 //
-// A holder is STALE, and may be removed by a waiter, when
-//   - its pid is gone (same host; kill -0 answers ESRCH), or
-//   - its lease expired: renewed + ttl is in the past (the holder renews every
-//     ttl/3 while it runs, so an expired lease means a hung or reused pid), or
-//   - owner.json is missing or unreadable and the directory is older than
-//     ownerGrace (the holder died between mkdir and writing it).
+// pstart is the holder's process start time as `LC_ALL=C ps -o lstart= -p <pid>`
+// prints it, whitespace collapsed, recorded at acquire. It is what tells a live
+// holder from a reused pid, in Go and in plain shell alike.
 //
-// A live holder is NEVER removed or signalled, by the panel or by a waiter.
+// A holder on THIS host is judged by its process, never by the clock:
+//   - its pid is gone (kill -0 answers ESRCH): stale;
+//   - its pid is alive and its start time matches pstart: LIVE, however long it has
+//     been silent. A stopped (SIGSTOP) or sleeping holder is still the holder;
+//     expiring it would run two gates at once;
+//   - its pid is alive with another start time: the pid was reused, stale.
+//
+// The TTL (renewed + ttl in the past) applies only where the process cannot be
+// checked: a holder on another host, or a record without pstart (or whose start
+// time cannot be read).
+//
+// owner.json missing or unreadable, in a directory older than ownerGrace (the holder
+// died between mkdir and writing it), is stale too.
+//
+// A live holder is NEVER removed or signalled, by the panel or by a waiter. As
+// defence in depth, lock-run also holds flock(2) on the lease directory while it
+// holds the lease, and a Go reader never judges a flocked lease stale.
 //
 // Waiters queue FIFO by arrival (the waiter file's name). Only the first live waiter tries mkdir,
 // so the queue is fair. A waiter whose pid is gone, or whose file has not been
@@ -51,6 +64,7 @@ type LeaseOwner struct {
 	V       int    `json:"v"`
 	Nonce   string `json:"nonce"`
 	PID     int    `json:"pid"`
+	PStart  string `json:"pstart,omitempty"` // process start time (see above)
 	Host    string `json:"host"`
 	Lane    string `json:"lane,omitempty"`
 	Cmd     string `json:"cmd,omitempty"`
@@ -69,7 +83,36 @@ const (
 	DefaultLeaseTTL = 10 * time.Minute
 	// ExitCancelled is lock-run's exit code when its wait is cancelled (EX_TEMPFAIL).
 	ExitCancelled = 75
+	// ExitLeaseLost is lock-run's exit code when it finds its lease taken away while
+	// its command ran; it stops the command first (EX_SOFTWARE).
+	ExitLeaseLost = 70
 )
+
+// ProcCheck reports whether a pid is alive and, if it can tell, its start time.
+type ProcCheck func(pid int) (alive bool, start string)
+
+// ProcStart is the start time of a process as the protocol records it:
+// `LC_ALL=C ps -o lstart= -p <pid>` with whitespace collapsed. "" if unknown.
+func ProcStart(pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	cmd := exec.Command("/bin/ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(out)), " ")
+}
+
+// LiveProc is the real ProcCheck.
+func LiveProc(pid int) (bool, string) {
+	if !PIDAlive(pid) {
+		return false, ""
+	}
+	return true, ProcStart(pid)
+}
 
 var nonceRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
@@ -97,11 +140,20 @@ func hostName() string {
 	return h
 }
 
-// LeaseStale reports whether a holder (or waiter) may be removed, and why. A pid on
-// another host cannot be checked, so only the TTL applies to it.
-func LeaseStale(o LeaseOwner, host string, now time.Time, alive func(int) bool) (bool, string) {
-	if o.Host == host && o.PID > 0 && !alive(o.PID) {
-		return true, fmt.Sprintf("pid %d is gone", o.PID)
+// LeaseStale reports whether a holder (or waiter) may be removed, and why. A holder
+// on this host whose pid is alive with the recorded start time is never stale. The
+// TTL applies only to what cannot be checked: another host, or no start time.
+func LeaseStale(o LeaseOwner, host string, now time.Time, proc ProcCheck) (bool, string) {
+	if o.Host == host && o.PID > 0 {
+		alive, start := proc(o.PID)
+		switch {
+		case !alive:
+			return true, fmt.Sprintf("pid %d is gone", o.PID)
+		case o.PStart != "" && start != "" && start != o.PStart:
+			return true, fmt.Sprintf("pid %d was reused (started %s, the holder started %s)", o.PID, start, o.PStart)
+		case o.PStart != "" && start != "":
+			return false, "" // the holder itself: alive, however silent
+		}
 	}
 	if o.TTL > 0 && now.Unix() > o.Renewed+o.TTL {
 		return true, fmt.Sprintf("its lease expired %ds ago (not renewed)", now.Unix()-o.Renewed-o.TTL)
@@ -142,10 +194,14 @@ func writeLeaseFile(path string, o LeaseOwner) error {
 
 // holderState reads the lock directory: held?, the owner if readable, and whether
 // the holder is stale (and why).
-func holderState(lock, host string, now time.Time, alive func(int) bool) (held bool, o LeaseOwner, stale bool, why string) {
+func holderState(lock, host string, now time.Time, proc ProcCheck) (held bool, o LeaseOwner, stale bool, why string) {
 	fi, err := os.Stat(lock)
 	if err != nil || !fi.IsDir() {
 		return false, o, false, ""
+	}
+	if flocked(lock) {
+		o, _ = readLeaseFile(filepath.Join(lock, ownerFileName))
+		return true, o, false, "" // a lock-run holds it: alive by the kernel's word
 	}
 	o, err = readLeaseFile(filepath.Join(lock, ownerFileName))
 	if err != nil {
@@ -154,8 +210,36 @@ func holderState(lock, host string, now time.Time, alive func(int) bool) (held b
 		}
 		return true, o, false, "its holder is starting"
 	}
-	stale, why = LeaseStale(o, host, now, alive)
+	stale, why = LeaseStale(o, host, now, proc)
 	return true, o, stale, why
+}
+
+// flocked reports whether another open file description holds flock(2) on the
+// lease directory (a running lock-run). The kernel drops it when that process dies.
+func flocked(lock string) bool {
+	f, err := os.Open(lock)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// holdFlock takes flock(2) on the lease directory and keeps it until release.
+func holdFlock(lock string) (release func()) {
+	f, err := os.Open(lock)
+	if err != nil {
+		return func() {}
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return func() {}
+	}
+	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }
 }
 
 // waiterEntry is one waiter file.
@@ -167,7 +251,7 @@ type waiterEntry struct {
 
 // listWaiters returns the waiters in queue order. Dead ones are returned separately
 // so the caller can remove them.
-func listWaiters(lock, host string, now time.Time, alive func(int) bool) (live, dead []waiterEntry) {
+func listWaiters(lock, host string, now time.Time, proc ProcCheck) (live, dead []waiterEntry) {
 	dir := waitersDir(lock)
 	ents, _ := os.ReadDir(dir)
 	cancels := map[string]bool{}
@@ -188,7 +272,7 @@ func listWaiters(lock, host string, now time.Time, alive func(int) bool) (live, 
 		w := waiterEntry{LeaseOwner: o, file: p, cancelled: cancels[o.Nonce]}
 		wo := o
 		wo.TTL = int64(waiterTTL / time.Second)
-		if stale, _ := LeaseStale(wo, host, now, alive); stale {
+		if stale, _ := LeaseStale(wo, host, now, proc); stale {
 			dead = append(dead, w)
 			continue
 		}
@@ -221,7 +305,7 @@ func arrival(file string) int64 {
 // holder and removes it only if it is still the SAME stale holder it judged (same
 // nonce, still stale): between the judgement and the removal another waiter may
 // already have reclaimed it and acquired the lock afresh.
-func reclaim(lock string, judged LeaseOwner, host string, now time.Time, alive func(int) bool) (bool, error) {
+func reclaim(lock string, judged LeaseOwner, host string, now time.Time, proc ProcCheck) (bool, error) {
 	rd := reclaimDir(lock)
 	if err := os.Mkdir(rd, 0o755); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -235,7 +319,7 @@ func reclaim(lock string, judged LeaseOwner, host string, now time.Time, alive f
 		return false, err
 	}
 	defer os.Remove(rd)
-	held, cur, stale, _ := holderState(lock, host, now, alive)
+	held, cur, stale, _ := holderState(lock, host, now, proc)
 	if !held || !stale || cur.Nonce != judged.Nonce {
 		return false, nil
 	}
@@ -255,8 +339,8 @@ type LockRunOptions struct {
 	Stderr io.Writer
 	Stdout io.Writer
 	Stdin  io.Reader
-	// Alive overrides the pid liveness check (tests).
-	Alive func(int) bool
+	// Proc overrides the process check (tests).
+	Proc ProcCheck
 }
 
 // LockRun waits its turn for the lease, runs Argv while holding it, and releases
@@ -276,8 +360,8 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
 	}
-	if o.Alive == nil {
-		o.Alive = PIDAlive
+	if o.Proc == nil {
+		o.Proc = LiveProc
 	}
 	if o.Lane == "" {
 		o.Lane = os.Getenv("CLAUDUCTOR_LANE")
@@ -296,7 +380,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	}
 	host := hostName()
 	now := time.Now()
-	me := LeaseOwner{V: 1, Nonce: newNonce(), PID: os.Getpid(), Host: host, Lane: o.Lane,
+	me := LeaseOwner{V: 1, Nonce: newNonce(), PID: os.Getpid(), PStart: ProcStart(os.Getpid()), Host: host, Lane: o.Lane,
 		Cmd: clip(strings.Join(o.Argv, " "), 200), Started: now.Unix(), Renewed: now.Unix(), TTL: int64(o.TTL / time.Second)}
 	myWait := filepath.Join(waitersDir(lock), fmt.Sprintf("%020d-%s.json", now.UnixNano(), me.Nonce))
 	if err := writeLeaseFile(myWait, me); err != nil {
@@ -328,7 +412,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 			_ = writeLeaseFile(myWait, me)
 			lastRenew = now
 		}
-		live, dead := listWaiters(lock, host, now, o.Alive)
+		live, dead := listWaiters(lock, host, now, o.Proc)
 		for _, d := range dead {
 			_ = os.Remove(d.file)
 		}
@@ -341,6 +425,8 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		}
 		if ahead == 0 {
 			if err := os.Mkdir(lock, 0o755); err == nil {
+				unflock := holdFlock(lock)
+				defer unflock()
 				held := me
 				held.Started, held.Renewed = now.Unix(), now.Unix()
 				if err := writeLeaseFile(filepath.Join(lock, ownerFileName), held); err != nil {
@@ -354,11 +440,11 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 				leaveQueue()
 				return 2, fmt.Errorf("lock-run: %w", err)
 			}
-			held, h, stale, why := holderState(lock, host, now, o.Alive)
+			held, h, stale, why := holderState(lock, host, now, o.Proc)
 			switch {
 			case held && stale:
 				say(fmt.Sprintf("reclaiming %s from %s: %s", lock, who(h), why))
-				ok, err := reclaim(lock, h, host, now, o.Alive)
+				ok, err := reclaim(lock, h, host, now, o.Proc)
 				if err != nil {
 					say("reclaim failed: " + err.Error())
 				}
@@ -406,6 +492,12 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 		cmd.Stdout = os.Stdout
 	}
 	cmd.Env = append(os.Environ(), "CLAUDUCTOR_LOCK_HELD="+lock)
+	// The command gets a process group of its own. A Ctrl-C from the terminal then
+	// reaches lock-run only, which passes it on ONCE; and lock-run can stop the whole
+	// gate (its dev server and test runners too) if the lease is lost. The cost: the
+	// command cannot read the terminal, which a gate never needs.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	group := func(sig syscall.Signal) { _ = syscall.Kill(-cmd.Process.Pid, sig) }
 	release := func() {
 		if held == nil {
 			return
@@ -422,11 +514,15 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	}
 	stop := make(chan struct{})
 	defer close(stop)
+	lost := make(chan struct{})
 	if held != nil {
+		// Once a second, check the lease is still ours; renew it every ttl/3 (only a
+		// reader that cannot check this process uses the TTL).
 		go func() {
-			t := time.NewTicker(o.TTL / 3)
+			t := time.NewTicker(time.Second)
 			defer t.Stop()
 			ownerPath := filepath.Join(lock, ownerFileName)
+			lastRenew := time.Now()
 			for {
 				select {
 				case <-stop:
@@ -434,15 +530,18 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 				case <-t.C:
 					cur, err := readLeaseFile(ownerPath)
 					if err != nil || cur.Nonce != held.Nonce {
-						fmt.Fprintln(o.Stderr, "lock-run: the lease was lost (reclaimed as stale); the command runs on unprotected")
+						close(lost)
 						return
 					}
-					cur.Renewed = time.Now().Unix()
-					_ = writeLeaseFile(ownerPath, cur)
+					if time.Since(lastRenew) >= o.TTL/3 {
+						cur.Renewed, lastRenew = time.Now().Unix(), time.Now()
+						_ = writeLeaseFile(ownerPath, cur)
+					}
 				}
 			}
 		}()
 	}
+	// INT, TERM and HUP to lock-run go on to the command's group, once each.
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigs)
@@ -452,10 +551,25 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	for waiting := true; waiting; {
 		select {
 		case s := <-sigs:
-			_ = cmd.Process.Signal(s) // forward: the command decides how to stop
+			if sig, ok := s.(syscall.Signal); ok {
+				group(sig)
+			}
 		case <-ctx.Done():
-			_ = cmd.Process.Signal(syscall.SIGTERM)
+			group(syscall.SIGTERM)
 			ctx = context.Background()
+		case <-lost:
+			// Someone removed the lease while the command ran: two gates may now
+			// run at once. Stop this one rather than finish unprotected.
+			fmt.Fprintln(o.Stderr, "lock-run: the lease was taken away while the command ran; stopping it")
+			group(syscall.SIGTERM)
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				group(syscall.SIGKILL)
+				<-done
+			}
+			group(syscall.SIGKILL) // anything of the gate's that ignored TERM
+			return ExitLeaseLost, nil
 		case werr = <-done:
 			waiting = false
 		}
@@ -505,22 +619,26 @@ type QueueView struct {
 	Run        *QueueRun   `json:"run,omitempty"` // the last RUN the panel started
 }
 
-func leaseView(o LeaseOwner, host string, now time.Time, alive func(int) bool) LeaseView {
-	stale, why := LeaseStale(o, host, now, alive)
+func leaseView(o LeaseOwner, host string, now time.Time, proc ProcCheck) LeaseView {
+	stale, why := LeaseStale(o, host, now, proc)
+	alive := o.Host != host
+	if !alive {
+		alive, _ = proc(o.PID)
+	}
 	return LeaseView{Nonce: o.Nonce, PID: o.PID, Lane: o.Lane, Cmd: o.Cmd, Started: o.Started * 1000, Renewed: o.Renewed * 1000,
-		TTL: o.TTL, Alive: o.Host != host || alive(o.PID), Stale: stale, StaleWhy: why}
+		TTL: o.TTL, Alive: alive, Stale: stale, StaleWhy: why}
 }
 
 // ReadQueue reads one queue's lease and waiters. It only reads: removing stale
 // entries is the waiters' job, and the panel never touches a holder.
-func ReadQueue(q QueueConfig, lock string, now time.Time, alive func(int) bool) QueueView {
+func ReadQueue(q QueueConfig, lock string, now time.Time, proc ProcCheck) QueueView {
 	host := hostName()
 	v := QueueView{ID: q.ID, Title: q.Title, Lock: lock, HasCommand: len(q.Command) > 0, Waiters: []LeaseView{}}
-	held, o, stale, why := holderState(lock, host, now, alive)
+	held, o, stale, why := holderState(lock, host, now, proc)
 	v.Held = held
 	if held {
 		if o.Nonce != "" {
-			lv := leaseView(o, host, now, alive)
+			lv := leaseView(o, host, now, proc)
 			v.Holder = &lv
 		}
 		if stale {
@@ -529,9 +647,9 @@ func ReadQueue(q QueueConfig, lock string, now time.Time, alive func(int) bool) 
 			v.HolderNote = why
 		}
 	}
-	live, _ := listWaiters(lock, host, now, alive)
+	live, _ := listWaiters(lock, host, now, proc)
 	for _, w := range live {
-		lv := leaseView(w.LeaseOwner, host, now, alive)
+		lv := leaseView(w.LeaseOwner, host, now, proc)
 		lv.Stale, lv.StaleWhy = false, ""
 		lv.Cancelling = w.cancelled
 		v.Waiters = append(v.Waiters, lv)
@@ -549,7 +667,7 @@ func CancelWait(lock, nonce string) error {
 		return errors.New("that is the holder, not a waiter; the panel never stops the holder")
 	}
 	host := hostName()
-	live, _ := listWaiters(lock, host, time.Now(), PIDAlive)
+	live, _ := listWaiters(lock, host, time.Now(), LiveProc)
 	for _, w := range live {
 		if w.Nonce == nonce {
 			f, err := os.OpenFile(filepath.Join(waitersDir(lock), nonce+".cancel"), os.O_CREATE|os.O_WRONLY, 0o644)

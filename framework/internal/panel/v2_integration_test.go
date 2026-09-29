@@ -18,7 +18,7 @@ import (
 // agents` lists every registered lane whose tmux session exists, as idle, unless
 // hidden is set: then it lists none, which is what a session held at the
 // workspace-trust dialog looks like (verified on 2.1.284).
-func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool) Runner {
+func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*atomic.Bool) Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		switch {
 		case argv[0] == "gh":
@@ -35,7 +35,11 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool) Runner {
 			var out []Agent
 			for _, l := range f.Lanes {
 				if exec.Command(tmux, "-L", sock, "has-session", "-t", "="+l.ID).Run() == nil {
-					out = append(out, Agent{PID: 1, Cwd: l.Path, Kind: "interactive", SessionID: l.SessionID, Name: l.ID, Status: "idle"})
+					a := Agent{PID: 1, Cwd: l.Path, Kind: "interactive", SessionID: l.SessionID, Name: l.ID, Status: "idle"}
+					if len(waiting) > 0 && waiting[0].Load() {
+						a.Status, a.WaitingFor = "waiting", "permission prompt"
+					}
+					out = append(out, a)
 				}
 			}
 			j, _ := json.Marshal(out)
@@ -82,16 +86,17 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	cfg := `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},"base":"main","worktree_dir":".wt",
 		"templates":[{"id":"fix","title":"Fix","lane_type":"fix","branch_pattern":"fix/{name}",
 		"first_prompt":"echo prompt-{name}-{issue} >> ` + marker + `"}],
-		"alerts":{"idle_minutes":0.02,"min_interval_seconds":600},"quota_guard":{"five_hour_pct":90}}`
+		"alerts":{"idle_minutes":0.02,"waiting_seconds":1,"min_interval_seconds":600},"quota_guard":{"five_hour_pct":90}}`
 	root, home := v2Project(t, cfg)
-	var hidden atomic.Bool
+	var hidden, waiting atomic.Bool
 	hidden.Store(true) // claude "is at the trust dialog": not in claude agents yet
 	var mu sync.Mutex
 	var notices []Notice
-	p := startPanelWith(t, root, home, sock, func(o *Options) {
-		o.Runner = v2Runner(tmux, sock, home, root, &hidden)
+	tweak := func(o *Options) {
+		o.Runner = v2Runner(tmux, sock, home, root, &hidden, &waiting)
 		o.Notify = func(n Notice) error { mu.Lock(); notices = append(notices, n); mu.Unlock(); return nil }
-	})
+	}
+	p := startPanelWith(t, root, home, sock, tweak)
 
 	// Placeholders are validated server-side: a newline in the issue is refused.
 	if code, body := p.post(t, "/api/lanes", StartRequest{Template: "fix", Name: "bug", Issue: "7\n/exit"}); code != 400 {
@@ -123,17 +128,54 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 		t.Fatalf("the first prompt was typed %d times", n)
 	}
 
-	// The idle alert fired (threshold 1.2 s) and notified once, not every poll.
-	waitFor(t, "an idle notification", func() bool { mu.Lock(); defer mu.Unlock(); return len(notices) > 0 })
+	// The idle alert (threshold 1.2 s) shows on the page but never interrupts.
+	waitFor(t, "the idle alert", func() bool {
+		for _, a := range p.state(t).Alerts {
+			if a.Kind == AlertIdle {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(2500 * time.Millisecond)
+	mu.Lock()
+	if len(notices) != 0 {
+		t.Fatalf("an idle alert interrupted: %+v", notices)
+	}
+	mu.Unlock()
+	// A permission prompt older than 1 s blocks the lane: one notification.
+	waiting.Store(true)
+	waitUntil(t, "a waiting notification", 10*time.Second, func() bool { mu.Lock(); defer mu.Unlock(); return len(notices) > 0 })
 	time.Sleep(3 * time.Second)
 	mu.Lock()
-	if len(notices) != 1 || !strings.Contains(notices[0].Body, "idle") || !strings.Contains(notices[0].Title, "bug") {
+	if len(notices) != 1 || !strings.Contains(notices[0].Body, "waiting") || !strings.Contains(notices[0].Title, "bug") {
 		t.Fatalf("notices %+v", notices)
 	}
 	mu.Unlock()
 	if v := p.state(t); v.Observe.Notifier.Interrupts != 1 || v.Observe.ClaudeVersion != "2.1.284" {
 		t.Fatalf("observability: %+v", v.Observe)
 	}
+	// Restart the panel with the alert still active: no second notification.
+	p.stop()
+	p = startPanelWith(t, root, home, sock, tweak)
+	waitFor(t, "the alert after the restart", func() bool {
+		for _, a := range p.state(t).Alerts {
+			if a.Kind == AlertWaiting {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(4 * time.Second)
+	mu.Lock()
+	if len(notices) != 1 {
+		t.Fatalf("the restart re-notified: %+v", notices)
+	}
+	mu.Unlock()
+	if v := p.state(t); v.Observe.Notifier.Interrupts != 1 {
+		t.Fatalf("interrupt count after restart: %+v", v.Observe.Notifier)
+	}
+	waiting.Store(false)
 
 	// Quota guard: at 95% (guard 90) a lane is refused unless overridden.
 	hi, resets := 95.0, time.Now().Add(time.Hour).Unix()
@@ -216,5 +258,26 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })
 	if !p.state(t).Trust.Trusted {
 		t.Fatal("still untrusted")
+	}
+}
+
+// Typed text that starts with "-" must reach the lane as text, not as a send-keys
+// flag (review 2026-09-28: "-N" was read as an option).
+func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	out := filepath.Join(t.TempDir(), "typed")
+	if err := exec.Command(tmux, "-L", sock, "new-session", "-d", "-s", "t", "cat > "+out).Run(); err != nil {
+		t.Fatal(err)
+	}
+	m := &LaneManager{TmuxPath: tmux, Socket: sock, EnterDelay: 100 * time.Millisecond}
+	for _, text := range []string{"-N 3 --help", "--", "-l"} {
+		if err := m.sendText(context.Background(), "t", text); err != nil {
+			t.Fatalf("%q: %v", text, err)
+		}
+	}
+	waitFor(t, "the typed lines", func() bool { return lineCount(out) >= 5 })
+	b, _ := os.ReadFile(out)
+	if string(b) != "-N 3 --help\n--\n-l\n" {
+		t.Fatalf("typed %q", b)
 	}
 }

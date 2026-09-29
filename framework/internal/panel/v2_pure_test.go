@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,7 +101,11 @@ func TestFirstPromptDecision(t *testing.T) {
 		at   time.Duration
 		want string
 	}{
-		{"idle in claude agents: type it", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", Since: start}, time.Second, "send"},
+		{"idle in claude agents: type it", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", PollFresh: true, Since: start}, time.Second, "send"},
+		// Review 2026-09-28: idle alone is not enough.
+		{"idle, but the last poll is stale", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", Since: start}, time.Second, "wait"},
+		{"idle, but waitingFor is set", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", WaitingFor: "dialog open", PollFresh: true, Since: start}, time.Second, "wait"},
+		{"idle, but a hook says it waits", PromptInput{State: "pending", Running: true, Listed: true, Status: "idle", WaitingNote: true, PollFresh: true, Since: start}, time.Second, "wait"},
 		// Held at the trust dialog, the session is not listed at all (2.1.284).
 		{"not listed yet: wait", PromptInput{State: "pending", Running: true, Since: start}, 5 * time.Second, "wait"},
 		{"not listed for long: ask the human", PromptInput{State: "pending", Running: true, Since: start}, readyGrace, "stuck"},
@@ -118,6 +125,53 @@ func TestFirstPromptDecision(t *testing.T) {
 		if got := DecideFirstPrompt(tc.in, start.Add(tc.at)); got.Action != tc.want {
 			t.Errorf("%s: got %s (%s), want %s", tc.name, got.Action, got.Why, tc.want)
 		}
+	}
+}
+
+func TestAgentReadyUnderTheLock(t *testing.T) {
+	sid := "s1"
+	for _, c := range []struct {
+		agents []Agent
+		ready  bool
+	}{
+		{[]Agent{{SessionID: sid, Status: "idle"}}, true},
+		{[]Agent{{SessionID: sid, Status: "busy"}}, false},
+		{[]Agent{{SessionID: sid, Status: "idle", WaitingFor: "permission prompt"}}, false},
+		{[]Agent{{SessionID: sid, Status: "waiting"}}, false},
+		{[]Agent{{SessionID: "other", Status: "idle"}}, false},
+		{nil, false},
+	} {
+		if got := AgentReady(c.agents, sid) == ""; got != c.ready {
+			t.Errorf("%+v: ready %v, want %v", c.agents, got, c.ready)
+		}
+	}
+}
+
+func TestPromptWaitsForAFreshPoll(t *testing.T) {
+	m := v2Model(t)
+	rec := LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
+	m.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
+	m.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
+	if d := m.PromptDecisions(t0.Add(time.Second))["tpl"]; d.Action != "send" {
+		t.Fatalf("fresh idle: %+v", d)
+	}
+	// The poll fails afterwards: the last "idle" is no longer a current reading.
+	m.ApplyAgents(nil, errors.New("claude agents: exit 1"), t0.Add(2*time.Second))
+	if d := m.PromptDecisions(t0.Add(3 * time.Second))["tpl"]; d.Action == "send" {
+		t.Fatalf("typed on a failed poll: %+v", d)
+	}
+	// Or it simply stops arriving for longer than two intervals.
+	m2 := v2Model(t)
+	m2.ApplyTmux([]TmuxLane{{ID: "tpl", Path: buildWT}}, []LaneRecord{rec}, "", nil, t0)
+	m2.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
+	if d := m2.PromptDecisions(t0.Add(11 * time.Second))["tpl"]; d.Action == "send" {
+		t.Fatalf("typed on a stale poll: %+v", d)
+	}
+	// A hook says it waits on a permission prompt: no typing.
+	m2.ApplyAgents([]Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0.Add(12*time.Second))
+	m2.ApplyHook(HookEvent{SessionID: "s1", Cwd: buildWT, Event: "Notification", NotificationType: "permission_prompt"}, t0.Add(12*time.Second))
+	if d := m2.PromptDecisions(t0.Add(13 * time.Second))["tpl"]; d.Action == "send" {
+		t.Fatalf("typed into a waiting session: %+v", d)
 	}
 }
 
@@ -213,12 +267,12 @@ func TestAlertThresholds(t *testing.T) {
 
 func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
 	n := &Notifier{MinInterval: 5 * time.Minute, Project: "P"}
-	a1 := AlertView{Key: "idle:s1", Kind: AlertIdle, Terminal: "lane-a", Name: "lane-a", Text: "idle for 10m"}
-	a2 := AlertView{Key: "context:s1", Kind: AlertContext, Terminal: "lane-a", Name: "lane-a", Text: "context at 90%"}
-	b1 := AlertView{Key: "waiting:s2", Kind: AlertWaiting, Terminal: "lane-b", Name: "lane-b", Text: "waiting"}
+	a1 := AlertView{Key: "waiting:s1", Kind: AlertWaiting, Severity: SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "waiting on you for 3m"}
+	a2 := AlertView{Key: "no_auto_resume:s1", Kind: AlertNoAutoResume, Severity: SevWarn, Terminal: "lane-a", Name: "lane-a", Text: "will not auto-resume"}
+	b1 := AlertView{Key: "waiting:s2", Kind: AlertWaiting, Severity: SevBlock, Terminal: "lane-b", Name: "lane-b", Text: "waiting"}
 	// Two alerts of one lane: ONE notification.
 	out := n.Process([]AlertView{a1, a2}, nil, t0)
-	if len(out) != 1 || out[0].Title != "P · lane-a" || !strings.Contains(out[0].Body, "idle") || !strings.Contains(out[0].Body, "context") {
+	if len(out) != 1 || out[0].Title != "P · lane-a" || !strings.Contains(out[0].Body, "waiting") || !strings.Contains(out[0].Body, "auto-resume") {
 		t.Fatalf("grouping: %+v", out)
 	}
 	// The same alerts again: nothing (once per stretch).
@@ -226,7 +280,7 @@ func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {
 		t.Fatalf("repeated: %+v", out)
 	}
 	// A new alert on the same lane inside the interval waits.
-	a3 := AlertView{Key: "rate_limit:s1", Kind: AlertRateLimit, Terminal: "lane-a", Name: "lane-a", Text: "rate limit"}
+	a3 := AlertView{Key: "rate_limit:s1", Kind: AlertRateLimit, Severity: SevBlock, Terminal: "lane-a", Name: "lane-a", Text: "rate limit"}
 	if out := n.Process([]AlertView{a1, a2, a3}, nil, t0.Add(2*time.Minute)); len(out) != 0 || n.Stats().Deferred != 1 {
 		t.Fatalf("rate limit: %+v %+v", out, n.Stats())
 	}
@@ -262,7 +316,10 @@ func TestNotifyArgvKeepsTextOutOfTheScript(t *testing.T) {
 	hostile := `x" & (do shell script "touch /tmp/pwned") & "`
 	argv := NotifyArgv(hostile, hostile+"\n"+hostile)
 	var script []string
-	for i := 1; i < len(argv)-2; i += 2 {
+	if argv[len(argv)-3] != "--" {
+		t.Fatalf("no -- between the script and the text: %q", argv)
+	}
+	for i := 1; i < len(argv)-3; i += 2 {
 		if argv[i] != "-e" {
 			t.Fatalf("argv[%d] = %q, want -e", i, argv[i])
 		}
@@ -290,16 +347,28 @@ func TestOsascriptArgvRoundTrip(t *testing.T) {
 	}
 	marker := filepath.Join(t.TempDir(), "pwned")
 	hostile := `a" & (do shell script "touch ` + marker + `") & "b` + "\\\" ' ¬ «data» end run"
-	argv := osascriptArgv([]string{"return item 2 of argv"}, "title", hostile)
-	out, err := exec.Command(argv[0], argv[1:]...).Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSuffix(string(out), "\n"); got != hostile {
-		t.Fatalf("round trip:\n got %q\nwant %q", got, hostile)
+	// osascript parses options among its arguments: a title starting with "-e" is
+	// more script unless "--" ends the options (the reviewer's probe, 2026-09-28).
+	dash := `-eproperty p : (do shell script "touch ` + marker + `") --`
+	for _, args := range [][2]string{{"title", hostile}, {dash, hostile}, {"-e", "-l"}} {
+		for i, want := range args {
+			argv := osascriptArgv([]string{fmt.Sprintf("return item %d of argv", i+1)}, args[0], args[1])
+			out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("%q: %v %s", args, err, out)
+			}
+			if got := strings.TrimSuffix(string(out), "\n"); got != want {
+				t.Fatalf("round trip of item %d:\n got %q\nwant %q", i+1, got, want)
+			}
+		}
 	}
 	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("the argument was executed")
+		t.Fatal("an argument was executed")
+	}
+	// And the notification's own argv puts "--" before the text.
+	argv := NotifyArgv(dash, "x")
+	if argv[len(argv)-3] != "--" {
+		t.Fatalf("no -- before the data: %q", argv)
 	}
 }
 
@@ -330,5 +399,53 @@ func TestConfigTrust(t *testing.T) {
 	// The hash covers the exact bytes.
 	if ConfigHash([]byte("a")) == ConfigHash([]byte("a ")) {
 		t.Fatal("hash ignores bytes")
+	}
+}
+
+// The config name reaches notification titles: one line, no leading dash.
+func TestConfigNameIsPlainText(t *testing.T) {
+	for _, bad := range []string{`-eproperty p : 1`, " -x", "a\nb", "a‮b", "\x1b[31m"} {
+		b, _ := json.Marshal(map[string]any{"name": bad})
+		if _, err := ParseConfig(b); err == nil {
+			t.Errorf("accepted name %q", bad)
+		}
+	}
+	if _, err := ParseConfig([]byte(`{"name":"Standing Tee · panel"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Review 2026-09-28: only what blocks you interrupts, and a restart never
+// re-notifies an alert that is still active.
+func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
+	n := &Notifier{MinInterval: time.Minute}
+	pageOnly := []AlertView{
+		{Key: "idle:s", Kind: AlertIdle, Severity: SevInfo, Terminal: "a", Text: "idle"},
+		{Key: "context:s", Kind: AlertContext, Severity: SevWarn, Terminal: "a", Text: "ctx"},
+		{Key: "quota:global", Kind: AlertQuota, Severity: SevWarn, Text: "quota"},
+		{Key: "stop_failure:s", Kind: AlertStopFailure, Severity: SevWarn, Terminal: "a", Text: "failed"},
+	}
+	if out := n.Process(pageOnly, nil, t0); len(out) != 0 {
+		t.Fatalf("page-only alerts interrupted: %+v", out)
+	}
+	block := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: SevBlock, Terminal: "a", Text: "waiting"}
+	if out := n.Process(append(pageOnly, block), nil, t0); len(out) != 1 {
+		t.Fatalf("a blocking alert did not interrupt: %+v", out)
+	}
+	// Restart: a new notifier restored from the saved state, the alert still active.
+	b, _ := json.Marshal(n.State())
+	var st NotifierState
+	json.Unmarshal(b, &st)
+	n2 := &Notifier{MinInterval: time.Minute}
+	n2.Restore(st)
+	if out := n2.Process([]AlertView{block}, nil, t0.Add(2*time.Minute)); len(out) != 0 {
+		t.Fatalf("re-notified after a restart: %+v", out)
+	}
+	if n2.Stats().Interrupts != 1 {
+		t.Fatalf("interrupt count lost across the restart: %+v", n2.Stats())
+	}
+	// Without the saved state it would have notified again (the test's premise).
+	if out := (&Notifier{MinInterval: time.Minute}).Process([]AlertView{block}, nil, t0); len(out) != 1 {
+		t.Fatal("premise: a fresh notifier notifies")
 	}
 }
