@@ -417,7 +417,7 @@ func TestReducerSourcesNeverReadAsEmptySuccess(t *testing.T) {
 	if len(v.PRs) != 2 {
 		t.Fatal("a failed poll replaced the last known PRs")
 	}
-	m.ApplyCard("founder-queue", nil, errors.New("exit status 1"), t0)
+	m.ApplyCard("todo", nil, errors.New("exit status 1"), t0)
 	if c := m.Snapshot(t0).Cards[0]; c.Source.OK || c.Source.Error == "" {
 		t.Fatalf("card error not shown: %+v", c)
 	}
