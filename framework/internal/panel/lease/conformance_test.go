@@ -175,14 +175,14 @@ func TestLeaseConformanceControlsFail(t *testing.T) {
 	}{
 		{"ignores the lease", "#!/bin/sh\nshift 2\nexec \"$@\"\n", []string{"live-holder", "proc-format", "no-ps",
 			"pstart-no-ps", "other-host-live", "other-host-no-ttl", "missing-pid", "missing-host", "child-alive",
-			"ownerless-young", "truncated-owner-young", "live-waiter-ahead", "other-host-waiter-fresh", "cancel"}},
+			"ownerless-young", "truncated-owner-young", "spaced-owner-live", "live-waiter-ahead", "other-host-waiter-fresh", "cancel"}},
 		{"always takes the lease", `#!/bin/sh
 lock=$1; shift 2
 rm -rf "$lock"; mkdir -p "$lock"
 CLAUDUCTOR_LOCK_HELD=$lock "$@"; rc=$?
 rm -rf "$lock"; exit $rc
 `, []string{"live-holder", "proc-format", "no-ps", "pstart-no-ps", "other-host-live", "other-host-no-ttl",
-			"missing-pid", "missing-host", "child-alive"}},
+			"missing-pid", "missing-host", "child-alive", "spaced-owner-live"}},
 	}
 	runs := map[string]func() (string, error){}
 	for i, ctl := range controls {
@@ -230,6 +230,10 @@ var leaseShMutants = []struct {
 	{"invalid waiter files removed", "      lease_valid \"$_w/$_f\" || continue\n", "      lease_valid \"$_w/$_f\" || { rm -f \"$_w/$_f\"; continue; }\n",
 		[]string{"malformed-waiters"}},
 	{"invalid waiter files queued", "      lease_valid \"$_w/$_f\" || continue\n", "", []string{"malformed-waiters"}},
+	{"the record's shape unchecked", "  printf '%s\\n' \"$_j\" | grep -Eq \"^[[:space:]]*\\\\{($_P(,$_P)*)?\\\\}[[:space:]]*\\$\" || return 1\n", "",
+		[]string{"garbage-owner-old"}},
+	{"the integer fields' type unchecked", "  if printf '%s\\n' \"$_j\" | grep -Eq '\"(v|pid|child_pid|started|renewed|ttl)\"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi\n", "",
+		[]string{"string-pid-owner-old"}},
 	{"LIFO", "sort -t- -k1,1n -k2", "sort -t- -k1,1nr -k2", []string{"live-waiter-ahead"}},
 	{"cancel ignored", "    if [ -e \"$_w/$_nonce.cancel\" ]; then echo \"lease: wait cancelled from the panel\" >&2; return 75; fi\n", "",
 		[]string{"cancel"}},

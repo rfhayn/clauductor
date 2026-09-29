@@ -58,9 +58,9 @@ import (
 // The TTL (renewed + ttl in the past; ttl 0 never expires) applies only to a record
 // whose processes mean nothing here: one from another host, or with no pid.
 //
-// A record is VALID when it parses as a JSON object and its nonce is 16 lower-case
-// hex digits (nonceRe). The shell checks the same thing its own way: a 16-hex nonce,
-// and a file whose last non-space character is "}" (a truncated file is not one).
+// A record is VALID when checkRecord accepts it: one flat JSON object of strings,
+// integers, true, false or null, its fields of their types, and a nonce of 16
+// lower-case hex digits. lease.sh's lease_valid checks exactly the same.
 //   - owner.json missing or invalid, in a lock directory older than ownerGrace (the
 //     holder died between mkdir and a complete write), is stale; younger, its holder
 //     is starting, and waiters wait.
@@ -307,7 +307,45 @@ func readLeaseFile(path string) (LeaseOwner, error) {
 	if err := json.Unmarshal(b, &o); err != nil {
 		return o, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := checkRecord(b); err != nil {
+		return LeaseOwner{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return o, nil
+}
+
+var (
+	jsonIntRe     = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+	recordIntKeys = map[string]bool{"v": true, "pid": true, "child_pid": true, "started": true, "renewed": true, "ttl": true}
+	recordStrKeys = map[string]bool{"nonce": true, "pstart": true, "child_pstart": true, "host": true, "lane": true, "cmd": true}
+)
+
+// checkRecord is the protocol's validity rule, the one lease.sh's lease_valid
+// applies too: one flat JSON object whose values are strings, integers, true, false
+// or null (no nested value, no fraction or exponent); the integer fields integers
+// and the string fields strings; and a nonce of 16 lower-case hex digits.
+func checkRecord(b []byte) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	for k, raw := range m {
+		v := string(raw)
+		isStr := strings.HasPrefix(v, `"`)
+		if !isStr && !jsonIntRe.MatchString(v) && v != "true" && v != "false" && v != "null" {
+			return fmt.Errorf("%s is not a string, an integer, true, false or null", k)
+		}
+		if recordIntKeys[k] && !jsonIntRe.MatchString(v) {
+			return fmt.Errorf("%s is not an integer", k)
+		}
+		if recordStrKeys[k] && !isStr {
+			return fmt.Errorf("%s is not a string", k)
+		}
+	}
+	var n string
+	if err := json.Unmarshal(m["nonce"], &n); err != nil || !nonceRe.MatchString(n) {
+		return errors.New("no nonce of 16 lower-case hex digits")
+	}
+	return nil
 }
 
 // writeLeaseFile writes atomically (temp + rename in the same directory), so a

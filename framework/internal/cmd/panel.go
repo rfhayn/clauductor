@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -139,10 +140,12 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			return err
 		}
 		// Installing is choosing this config: record it as trusted, so the agent does
-		// not start in the untrusted mode.
-		if _, err := install.TrustConfig(home, installProject, installConfig); err != nil {
+		// not start in the untrusted mode, and say what that trusts.
+		h, runs, err := install.TrustConfigReport(home, installProject, installConfig)
+		if err != nil {
 			return err
 		}
+		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(installProject, installConfig), h, runs)
 		return install.Install(install.InstallOptions{Home: home, Project: installProject, Config: installConfig,
 			Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System})
 	},
@@ -278,11 +281,19 @@ within 5 s.`,
 			}
 			project = strings.TrimSpace(string(top))
 		}
-		h, err := install.TrustConfig(home, project, trustConfig)
+		h, runs, err := install.TrustConfigReport(home, project, trustConfig)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Trusted panel config (sha256 %s).\n", h[:12])
+		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(project, trustConfig), h, runs)
 		return nil
 	},
+}
+
+// configPathOf is the config a --project/--config pair names.
+func configPathOf(project, cfg string) string {
+	if cfg != "" {
+		return cfg
+	}
+	return filepath.Join(project, config.DefaultConfigRel)
 }

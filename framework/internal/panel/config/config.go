@@ -710,6 +710,26 @@ var localhostNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.l
 // ValidHostName reports whether a configured extra host name is allowed.
 func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
 
+// RunList describes, one line each, everything the config makes the panel run or
+// type: each card's argv (run on its refresh), each queue's argv (run on RUN), and
+// each template's first prompt (typed into a new lane). Trusting a config trusts
+// exactly these, so trust and install print them.
+func (c *Config) RunList() []string {
+	var out []string
+	for _, card := range c.Cards {
+		out = append(out, fmt.Sprintf("card %s runs %q (%s)", card.ID, card.Command, card.Refresh))
+	}
+	for _, q := range c.Queues {
+		if len(q.Command) > 0 {
+			out = append(out, fmt.Sprintf("queue %s runs %q on RUN", q.ID, q.Command))
+		}
+	}
+	for _, t := range c.Templates {
+		out = append(out, fmt.Sprintf("template %s types %q", t.ID, t.FirstPrompt))
+	}
+	return out
+}
+
 func ShortHash(h string) string {
 	if len(h) > 12 {
 		return h[:12]

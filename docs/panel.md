@@ -550,8 +550,11 @@ Only a stale holder may be removed.
   shell holder writes `ttl: 0` (no expiry), and `ttl: 0` never expires.
 - **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
   start time is `proc:` + field 22 of `/proc/<pid>/stat`.
-- **A record is valid** when it is a complete JSON object whose `nonce` is 16 lower-case hex
-  digits (the shell checks for that nonce and a last non-space character of `}`). A lock
+- **A record is valid** when it is one flat JSON object whose values are strings, integers,
+  `true`, `false` or `null` (nothing nested, no fraction or exponent); `v`, `pid`, `child_pid`,
+  `started`, `renewed` and `ttl` are integers; `nonce`, `pstart`, `child_pstart`, `host`, `lane`
+  and `cmd` are strings; and `nonce` is 16 lower-case hex digits. Go (`checkRecord`) and
+  `lease.sh` (`lease_valid`) apply exactly this, whitespace and newlines allowed. A lock
   directory whose `owner.json` is missing or invalid is stale once the directory is 10 s old
   (its holder died between `mkdir` and a complete write); until then its holder is starting,
   and waiters wait. Never write `owner.json` in place; write a temp file and `mv` it.
@@ -674,14 +677,27 @@ lease_proc_dead() {
   fi
   return 1
 }
-lease_get() { sed -n "s/.*\"$2\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 || true; }
-lease_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
-# lease_valid FILE: 0 (true) for a record with a 16-hex nonce whose last non-space
-# character is "}" (so not truncated). An invalid owner.json counts as missing; an
-# invalid waiter file holds no place in the queue and is never removed.
+lease_get() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//' || true; }
+# lease_mtime PATH: its modification time in unix seconds: GNU stat, then BSD stat.
+# Unknown reads as now (young), so missing data never makes a lock look abandoned.
+lease_mtime() {
+  _m=$(stat -c %Y "$1" 2>/dev/null) || _m=$(stat -f %m "$1" 2>/dev/null) || _m=""
+  case $_m in ''|*[!0-9]*) date +%s ;; *) printf '%s\n' "$_m" ;; esac
+}
+# lease_valid FILE: 0 (true) for a valid record, the rule Go applies: one flat JSON
+# object whose values are strings, integers, true, false or null; v, pid, child_pid,
+# started, renewed and ttl integers; nonce, pstart, child_pstart, host, lane and cmd
+# strings; and a nonce of 16 lower-case hex digits. An invalid owner.json counts as
+# missing; an invalid waiter file holds no place in the queue and is never removed.
 lease_valid() {
-  lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$' || return 1
-  [ "$(awk '{ s = s $0 } END { gsub(/[ \t\r]/, "", s); print substr(s, length(s)) }' "$1" 2>/dev/null)" = "}" ]
+  _j=$(awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
+  _S='"([^"\\[:cntrl:]]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
+  _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
+  printf '%s\n' "$_j" | grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
+  if printf '%s\n' "$_j" | grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
+  if printf '%s\n' "$_j" | grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
+  lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$'
 }
 # lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
 # only when the holder AND its command (child_pid, written by lock-run) are dead.
@@ -792,7 +808,8 @@ exit status, and the files left behind.
 | `missing-host` | judge a record with no `host` as another host's: its dead pid means nothing |
 | `child-alive`, `child-dead`, `child-reused` | keep a lease whose holder died while its command (`child_pid`) runs; reclaim when both are gone, a reused `child_pid` included |
 | `ownerless-old`, `ownerless-young` | reclaim a lock directory with no `owner.json` once it is 10 s old, and wait until then |
-| `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old` | treat an invalid `owner.json` (truncated, or no 16-hex nonce) as missing, even with a live pid in it |
+| `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old`, `garbage-owner-old`, `string-pid-owner-old` | treat an invalid `owner.json` (truncated, no 16-hex nonce, not a flat object, a field of the wrong type) as missing, even with a live pid in it |
+| `spaced-owner-live` | read a valid record written with spaces, newlines, escapes and an extra `null` field as the live holder it names |
 | `live-waiter-ahead`, `dead-waiter-ahead` | never jump a live waiter that arrived first; skip and remove a dead one |
 | `other-host-waiter-stale`, `other-host-waiter-fresh` | judge another host's waiter by a 60 s TTL, whatever `ttl` its file names |
 | `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
@@ -804,11 +821,13 @@ exit status, and the files left behind.
 `TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
 this page. The suite is falsified in the same run: two controls, one that ignores the lease and
 one that always takes it, must fail every case that depends on the rule they break, and each of
-13 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
+15 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
 sources, an unverifiable pid read as dead, pid reuse ignored, the command ignored, a waiter's own
 `ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
-record, invalid waiter files removed or queued, LIFO order, cancel ignored) must fail at least one
-case. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
+record, the record's shape or its integer fields unchecked, invalid waiter files removed or queued,
+LIFO order, cancel ignored) must fail at least one case. The cases that need an old lock
+directory set its mtime 60 s back and check that it took; the cases with a young one check that
+nothing runs for 7 of the 10 s grace, not just `CONFORMANCE_WAIT`. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
 
 ## Alerts
 
@@ -1193,7 +1212,9 @@ start. A config the panel has never seen (a fresh clone, or the file `panel init
 starts, but its cards, queue RUN and templates stay **off**, under a red **CONFIG UNTRUSTED**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
-`clauductor panel install` trusts the config it installs. There is no trust button in the page:
+`clauductor panel install` trusts the config it installs. Both commands print the hash they
+record and everything it trusts: each card's command, each queue's RUN command, and each
+template's first prompt. There is no trust button in the page:
 trusting is a command you run after reading the file.
 
 ## Operations

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -99,19 +100,37 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.Trus
 
 // TrustConfig records the config at cfgPath as trusted (`clauductor panel trust`).
 func TrustConfig(home, project, cfgPath string) (string, error) {
+	h, _, err := TrustConfigReport(home, project, cfgPath)
+	return h, err
+}
+
+// TrustConfigReport trusts the config and also returns what it runs
+// (config.RunList), for the command to print.
+func TrustConfigReport(home, project, cfgPath string) (string, []string, error) {
 	project = signals.ResolvePath(project)
 	if cfgPath == "" {
 		cfgPath = filepath.Join(project, config.DefaultConfigRel)
 	}
-	_, raw, err := config.LoadConfigRaw(cfgPath)
+	cfg, raw, err := config.LoadConfigRaw(cfgPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	h := ConfigHash(raw)
 	if _, err := CheckTrust(home, project, cfgPath, h, true); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return h, nil
+	return h, cfg.RunList(), nil
+}
+
+// PrintTrusted says what was trusted: the hash and every command and prompt.
+func PrintTrusted(w io.Writer, cfgPath, hash string, runs []string) {
+	fmt.Fprintf(w, "Trusted panel config %s (sha256 %s). It runs:\n", cfgPath, config.ShortHash(hash))
+	if len(runs) == 0 {
+		fmt.Fprintln(w, "  nothing: no cards, queue commands or templates")
+	}
+	for _, r := range runs {
+		fmt.Fprintln(w, "  "+r)
+	}
 }
 
 // TrustedNow re-reads the trust file: has the loaded config been trusted since?

@@ -45,7 +45,8 @@ set -u
 ALL_CASES="live-holder dead-pid pid-reuse proc-format no-ps pstart-no-ps no-ps-foreign-pid
 other-host-expired other-host-live other-host-no-ttl missing-pid missing-pid-expired missing-host
 child-alive child-dead child-reused ownerless-old ownerless-young truncated-owner-old
-truncated-owner-young bad-nonce-owner-old live-waiter-ahead dead-waiter-ahead
+truncated-owner-young bad-nonce-owner-old garbage-owner-old string-pid-owner-old spaced-owner-live
+live-waiter-ahead dead-waiter-ahead
 other-host-waiter-stale other-host-waiter-fresh malformed-waiters cancel reclaim-race
 owner-record symlinked-lock"
 
@@ -100,10 +101,21 @@ deadpid() {
 	echo "$p"
 }
 
-# ago SECONDS: a touch -t stamp that many seconds in the past.
-ago() {
-	local t=$(($(date +%s) - $1))
-	date -d "@$t" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$t" +%Y%m%d%H%M.%S
+# mtime PATH: modification time in unix seconds (GNU stat, then BSD stat).
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# age_lock SECONDS: set the lock directory's mtime that far in the past, and check
+# it took: a case that means "old" must not quietly test "young".
+age_lock() {
+	local t=$(($(date +%s) - $1)) stamp
+	stamp=$(date -d "@$t" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$t" +%Y%m%d%H%M.%S)
+	touch -t "$stamp" "$LOCK"
+	local m
+	m=$(mtime "$LOCK")
+	case $m in
+	'' | *[!0-9]*) fail "cannot read the lock's mtime" ;;
+	*) [ $(($(date +%s) - m)) -ge $(($1 - 5)) ] || fail "could not age the lock by $1 s (its mtime is $m)" ;;
+	esac
 }
 
 FAIL=""
@@ -197,11 +209,12 @@ finish() {
 
 log_is() { [ "$(tr '\n' ' ' <"$LOG" | sed 's/ $//')" = "$1" ] || fail "log is '$(tr '\n' ' ' <"$LOG")', want '$1'"; }
 
-# still_waiting NAME: for WAIT seconds, NAME stays alive and runs nothing.
+# still_waiting NAME [SECONDS]: for WAIT (or SECONDS) seconds, NAME stays alive and
+# runs nothing.
 still_waiting() {
-	local p i=0
+	local p i=0 secs=${2:-$WAIT}
 	p=$(pid_of "$1")
-	while [ $i -lt $((WAIT * 10)) ]; do
+	while [ $i -lt $((secs * 10)) ]; do
 		if ! kill -0 "$p" 2>/dev/null; then
 			fail "$1 exited while it had to wait ($(tail -n 1 "$CASE_DIR/$1.err" 2>/dev/null))"
 			return
@@ -400,17 +413,22 @@ case_child_reused() {
 case_ownerless_old() {
 	setup ownerless-old
 	mkdir -p "$LOCK"
-	touch -t "$(ago 60)" "$LOCK"
+	age_lock 60
 	start a 'echo a >> "$LOG"'
 	runs a
 }
+
+# The owner grace is 10 s. A young lock is checked for most of it, not for WAIT: an
+# implementation with no grace that is slow to start under load would otherwise
+# reclaim after the check and pass.
+GRACE_CHECK=7
 
 # Younger than 10 s, its holder is starting: wait. Once it is 10 s old, reclaim.
 case_ownerless_young() {
 	setup ownerless-young
 	mkdir -p "$LOCK"
 	start a 'echo a >> "$LOG"'
-	still_waiting a
+	still_waiting a "$GRACE_CHECK"
 	runs a
 }
 
@@ -418,7 +436,7 @@ case_ownerless_young() {
 case_truncated_owner_old() {
 	sleeper
 	setup truncated-owner-old PID="$SLEEPER"
-	touch -t "$(ago 60)" "$LOCK"
+	age_lock 60
 	start a 'echo a >> "$LOG"'
 	runs a
 }
@@ -427,8 +445,43 @@ case_truncated_owner_young() {
 	sleeper
 	setup truncated-owner-young PID="$SLEEPER"
 	start a 'echo a >> "$LOG"'
-	still_waiting a
+	still_waiting a "$GRACE_CHECK"
 	runs a
+}
+
+# Not a flat JSON object (trailing garbage), with a valid nonce and a live pid: not a
+# valid record, so as good as none.
+case_garbage_owner_old() {
+	sleeper
+	setup garbage-owner-old PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
+	age_lock 60
+	start a 'echo a >> "$LOG"'
+	runs a
+}
+
+# pid as a string: the integer fields must be integers.
+case_string_pid_owner_old() {
+	sleeper
+	setup string-pid-owner-old PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
+	age_lock 60
+	start a 'echo a >> "$LOG"'
+	runs a
+}
+
+# A valid record written with spaces and newlines (another writer's JSON) is a
+# record like any other: a live holder, however old its directory.
+case_spaced_owner_live() {
+	sleeper
+	setup spaced-owner-live PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
+	age_lock 60
+	start a 'echo a >> "$LOG"'
+	still_waiting a
+	holder_untouched_spaced
+	kill_reap "$SLEEPER"
+	runs a
+}
+holder_untouched_spaced() {
+	grep -q '"nonce": "c0ffee0000000001"' "$LOCK/owner.json" 2>/dev/null || fail "a live holder's owner.json was removed or changed"
 }
 
 # Complete JSON with a nonce that is not 16 hex digits is not a valid record either,
@@ -436,7 +489,7 @@ case_truncated_owner_young() {
 case_bad_nonce_owner_old() {
 	sleeper
 	setup bad-nonce-owner-old PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
-	touch -t "$(ago 60)" "$LOCK"
+	age_lock 60
 	start a 'echo a >> "$LOG"'
 	runs a
 }

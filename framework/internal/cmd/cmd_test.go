@@ -226,7 +226,8 @@ func TestPanelHousekeepingCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = cli(t, home, "panel", "trust", "--project", project)
-	if r.code != 0 || !strings.Contains(r.stdout, "Trusted panel config (sha256 ") {
+	if r.code != 0 || !strings.Contains(r.stdout, "Trusted panel config ") || !strings.Contains(r.stdout, "(sha256 ") ||
+		!strings.Contains(r.stdout, "It runs:") {
 		t.Fatalf("trust: exit %d, %q %q", r.code, r.stdout, r.stderr)
 	}
 }
