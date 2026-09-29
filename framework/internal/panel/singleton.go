@@ -389,13 +389,13 @@ func (m *Model) ApplyHookHealth(err error, repaired string, now time.Time) {
 // warning (it drifted and was repaired).
 func (m *Model) hookBanners(v *View, now time.Time) {
 	if m.hooks.otherPID > 0 {
-		v.Banners = append(v.Banners, fmt.Sprintf("The hooks in ~/.claude/settings.json point at another live panel (pid %d, port %d), "+
+		v.banner(BannerHooks, fmt.Sprintf("The hooks in ~/.claude/settings.json point at another live panel (pid %d, port %d), "+
 			"so this panel gets no hook events. It leaves them alone rather than fight over them: there is one panel per machine. "+
 			"Stop one of the two; this panel takes the hooks back within 30 s of the other stopping.", m.hooks.otherPID, m.hooks.otherPort))
 		return
 	}
 	if m.hooks.err != "" {
-		v.Banners = append(v.Banners, "The panel's hooks could not be installed in ~/.claude/settings.json ("+m.hooks.err+
+		v.banner(BannerHooks, "The panel's hooks could not be installed in ~/.claude/settings.json ("+m.hooks.err+
 			"). The panel keeps retrying; until it succeeds, lanes update only from `claude agents` polls.")
 		return
 	}

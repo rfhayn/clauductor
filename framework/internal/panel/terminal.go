@@ -324,6 +324,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Browser → PTY: keystrokes and sizes only.
+	scroll := &copyWatch{lanes: s.Lanes, id: id, conn: c}
 	for {
 		typ, data, err := c.Read(ctx)
 		if err != nil {
@@ -342,6 +343,9 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		case "focus":
 			viewer.focused.Store(m.On)
 		case "input":
+			if !scroll.before(ctx, m.Data) {
+				continue
+			}
 			if _, err := ptmx.Write([]byte(m.Data)); err != nil {
 				return
 			}

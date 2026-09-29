@@ -667,16 +667,22 @@ type View struct {
 	Quota          *Quota     `json:"quota"`
 	// EstCostUSD sums the status line's list-price total_cost_usd over the sessions
 	// the panel currently tracks: live ones, and ones heard from in the last 30 min.
-	EstCostUSD  *float64                `json:"estCostUsd"`
-	NeedsYou    []NeedView              `json:"needsYou"`
-	Cards       []CardState             `json:"cards"`
-	PRs         []PR                    `json:"prs"`
-	Feed        []FeedEvent             `json:"feed"`
-	Banners     []string                `json:"banners"`
-	Sources     map[string]SourceStatus `json:"sources"`
-	HookEvents  int                     `json:"hookEvents"`
-	StatusPosts int                     `json:"statusPosts"`
-	Dropped     int                     `json:"dropped"`
+	EstCostUSD *float64    `json:"estCostUsd"`
+	NeedsYou   []NeedView  `json:"needsYou"`
+	Cards      []CardState `json:"cards"`
+	PRs        []PR        `json:"prs"`
+	Feed       []FeedEvent `json:"feed"`
+	Banners    []string    `json:"banners"`
+	// BannerItems are the same banners with their kind, so the page labels each one
+	// for what it is (PANEL-6). Banners stays for existing readers.
+	BannerItems []BannerView `json:"bannerItems"`
+	// AgentsReadAt is when `claude agents` was last read successfully (0: never).
+	// An approximate status shows how old its reading is from this.
+	AgentsReadAt int64                   `json:"agentsReadAt,omitempty"`
+	Sources      map[string]SourceStatus `json:"sources"`
+	HookEvents   int                     `json:"hookEvents"`
+	StatusPosts  int                     `json:"statusPosts"`
+	Dropped      int                     `json:"dropped"`
 	// v1.
 	Terminals    []TermLaneView `json:"terminals"`
 	LaneTypes    []LaneTypeInfo `json:"laneTypes"`
@@ -783,11 +789,11 @@ func (m *Model) Snapshot(now time.Time) View {
 	v := View{
 		Name: m.cfg.Name, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
-		Cards: []CardState{}, PRs: append([]PR{}, m.prs...), Banners: []string{},
+		Cards: []CardState{}, PRs: append([]PR{}, m.prs...), Banners: []string{}, BannerItems: []BannerView{},
 		Quota: m.quotaAt(now), HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
 		Sources:   map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc, "tmux": m.tmuxSrc},
 		Terminals: []TermLaneView{}, LaneTypes: m.cfg.LaneTypeList(), StartBlocked: m.startBlocked, TmuxSocket: m.cfg.Socket(),
-		LaneBase: m.cfg.BaseRef(), WorktreeRoot: m.cfg.WorktreeRoot(m.root),
+		LaneBase: m.cfg.BaseRef(), WorktreeRoot: m.cfg.WorktreeRoot(m.root), AgentsReadAt: ms(m.agentsOKAt),
 	}
 	// A lane with a terminal is shown under the worktree it runs in.
 	terms := m.terminalViews(now)
@@ -811,6 +817,11 @@ func (m *Model) Snapshot(now time.Time) View {
 		ss := byLane[wt.Path]
 		sort.Slice(ss, func(i, j int) bool { return ss[i].ID < ss[j].ID })
 		lv.Terminal = termByWT[wt.Path]
+		if lv.Terminal != "" {
+			// One name per lane (PANEL-6): a lane with a terminal is called what you
+			// named it when you started it, on its card, its tab, Needs you and alerts.
+			name, lv.Name = lv.Terminal, lv.Terminal
+		}
 		active := lv.Terminal != ""
 		var newest time.Time
 		for _, s := range ss {
@@ -863,7 +874,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		lv.SubagentsApprox = m.heuristicsApprox()
 		lv.LastEventAt = ms(newest)
 		if lv.Stale {
-			v.Banners = append(v.Banners, fmt.Sprintf(
+			v.banner(BannerNoHooks, fmt.Sprintf(
 				"%s is busy per `claude agents` but no hook has arrived from it for %ds. The session probably predates the hook install: restart it to load ~/.claude/settings.json.",
 				name, int(staleAfter.Seconds())))
 		}
@@ -874,7 +885,9 @@ func (m *Model) Snapshot(now time.Time) View {
 		}
 	}
 	v.Terminals = terms
-	v.Banners = append(v.Banners, m.regProblems...)
+	for _, p := range m.regProblems {
+		v.banner(BannerRegistry, p)
+	}
 	if len(m.costByID) > 0 {
 		total := 0.0
 		for _, c := range m.costByID {
@@ -888,7 +901,11 @@ func (m *Model) Snapshot(now time.Time) View {
 	// Newest first for the browser.
 	v.Feed = make([]FeedEvent, 0, len(m.feed))
 	for i := len(m.feed) - 1; i >= 0; i-- {
-		v.Feed = append(v.Feed, m.feed[i])
+		ev := m.feed[i]
+		if id := termByWT[ev.Lane]; id != "" {
+			ev.Name = id // one name per lane, in the feed too
+		}
+		v.Feed = append(v.Feed, ev)
 	}
 	m.snapshotV2(&v, now)
 	return v

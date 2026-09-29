@@ -238,7 +238,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	send(t, c, termMsg{Type: "input", Data: "\r"})
 	readUntil(t, c, "panel-ok-42")
 	out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{window_width}x#{window_height}").Output()
-	if strings.TrimSpace(string(out)) != "120x39" { // 40 rows, less tmux's status line
+	if strings.TrimSpace(string(out)) != "120x40" { // the status line is off (PANEL-6)
 		t.Fatalf("resize message did not reach tmux: window is %s", out)
 	}
 	// The lane runs the panel's own session id, and the registry holds the binding.
