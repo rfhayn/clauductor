@@ -30,7 +30,8 @@ type Notice struct {
 //     Those alerts are marked as seen, not deferred.
 //   - Interrupts counts the notifications sent per local day.
 //   - Only what blocks you interrupts: SevBlock alerts, a rate limit, and a lane that
-//     will not auto-resume. Idle, context and quota alerts stay on the page.
+//     will not auto-resume. Idle, context and quota alerts stay on the page, and so
+//     does any alert marked Approx (raised from a stale or hooks-only reading).
 //   - Its state (what was notified, when each lane last was) survives a restart
 //     through State/Restore, so a restart never re-notifies an alert still active.
 type Notifier struct {
@@ -45,7 +46,15 @@ type Notifier struct {
 }
 
 // Interrupts reports whether an alert may raise an OS notification.
+// An approximate alert never does: it rests on data that is not current (PANEL-5).
 func Interrupts(a AlertView) bool {
+	if a.Approx {
+		return false
+	}
+	return interruptKind(a)
+}
+
+func interruptKind(a AlertView) bool {
 	return a.Severity == SevBlock || a.Kind == AlertRateLimit || a.Kind == AlertNoAutoResume
 }
 
@@ -101,10 +110,15 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 	active := map[string]bool{}
 	pending := map[string][]AlertView{}
 	for _, a := range alerts {
-		if !Interrupts(a) {
+		if !interruptKind(a) {
 			continue // shown on the page, never an interruption
 		}
+		// An approximate alert keeps the mark of a stretch already notified (so the
+		// poll flickering stale and back never re-notifies), but never sends.
 		active[a.Key] = true
+		if !Interrupts(a) {
+			continue
+		}
 		if since, ok := n.notified[a.Key]; ok && since == a.Since {
 			continue
 		}

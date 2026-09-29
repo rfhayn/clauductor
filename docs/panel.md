@@ -148,8 +148,10 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   with an empty type is an internal agent that never sent a start, and retires nothing. A session
   that `claude agents` reports idle for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
   background agents outlive the turn.
-- **Right column.** *Needs you*: permission and idle-prompt notifications, and sessions that
-  `claude agents` reports as waiting, followed by the project's cards. *Open PRs*: from `gh`, with
+- **Right column.** *Needs you*: sessions blocked on you (a permission, elicitation or input
+  notification, or `claude agents` reporting them waiting), quota auto-resume warnings, and
+  stuck or restored template lanes, followed by the project's cards. See *Current or stale* below
+  for when an item is marked approximate. *Open PRs*: from `gh`, with
   "cannot read" on failure (never an empty list). *Feed*: the last events across all lanes.
 - **Red banner.** A lane is busy per `claude agents` and no hook has come from it since it went
   busy, for 60 s. Usually the session never loaded the hooks. Restart it. Also shown when `claude
@@ -884,9 +886,26 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
 
+**Current or stale.** Whether a session is blocked on you is decided by ONE predicate, which
+*Needs you*, the waiting alert, the lane chip and the first-prompt decision all read, so they
+cannot disagree. A `claude agents` entry counts as a **current reading** only while the last poll
+succeeded within two poll intervals. A prompt answered in the terminal fires no hook, so only a
+current reading can say it was answered. An item is marked **stale/approx** (in its label, and as
+`approx` in `/api/state`) when:
+
+- the last reading said waiting, but the poll has since failed or stopped arriving;
+- a hook says the session waits and no current reading confirms it (never polled, not listed,
+  or listed as idle).
+
+An approximate item is shown and never raises a macOS notification. It also keeps the mark of a
+notification already sent, so a poll that flickers stale and back does not notify twice. A
+failing poll no longer keeps sessions forever: one silent for 30 minutes (no hook, no status
+line, no current reading) is forgotten either way.
+
 Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
 goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.
-Idle, context, quota and stop-failure alerts stay on the page. A notification goes out:
+Idle, context, quota and stop-failure alerts stay on the page, and so does any alert marked
+approximate. A notification goes out:
 
 - once per stretch: an alert that clears and comes back notifies again. What was notified, and
   when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a

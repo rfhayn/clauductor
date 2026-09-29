@@ -174,6 +174,7 @@ type Model struct {
 	worktrees    []Worktree
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
+	agentsOKAt   time.Time // the last `claude agents` poll that succeeded
 	prs          []PR
 	prsSrc       SourceStatus
 	cards        []*CardState
@@ -541,9 +542,13 @@ func (m *Model) ApplyStatus(p StatusPayload, now time.Time) bool {
 func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 	if err != nil {
 		m.agentsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
+		// The last reading is kept but is no longer current: agentReading stops
+		// returning it, and a session silent past forgetSessionAge is still forgotten.
+		m.forgetSessions(now)
 		return
 	}
 	m.agentsSrc = SourceStatus{OK: true, At: ms(now)}
+	m.agentsOKAt = now
 	seen := map[string]bool{}
 	for i := range agents {
 		a := agents[i]
@@ -616,11 +621,8 @@ func (m *Model) ApplyAgents(agents []Agent, err error, now time.Time) {
 			s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}
 			s.Subagents = map[string]subagent{}
 		}
-		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
-			delete(m.sessions, id)
-			delete(m.costByID, id) // the est. $ sum covers tracked sessions only
-		}
 	}
+	m.forgetSessions(now)
 }
 
 // ApplyPRs records a `gh pr list` poll. On error the last list is kept but marked
@@ -725,6 +727,9 @@ type SessionView struct {
 	Compacting  string `json:"compacting,omitempty"`
 	Failure     string `json:"failure,omitempty"` // the last StopFailure error_type
 	Unknown     string `json:"unknownNotification,omitempty"`
+	// Approx: Status is not a current `claude agents` reading (the poll failed or is
+	// old, or the session is known from hooks alone).
+	Approx bool `json:"approx,omitempty"`
 }
 
 // SubagentView is one running subagent.
@@ -748,20 +753,12 @@ type NeedView struct {
 	Text     string `json:"text"`
 	At       int64  `json:"at,omitempty"`
 	Terminal string `json:"terminal,omitempty"` // tmux lane id: the one-click jump
+	// Approx: the item rests on data that is not current (a failed or old `claude
+	// agents` poll, or hooks alone). Shown, marked, and never an OS notification.
+	Approx bool `json:"approx,omitempty"`
 }
 
 var statusRank = map[string]int{"waiting": 3, "busy": 2, "idle": 1}
-
-func (s *session) status() (string, string) {
-	if s.Agent != nil {
-		return s.Agent.Status, s.Agent.WaitingFor
-	}
-	switch s.HookStatus {
-	case "busy", "idle", "waiting":
-		return s.HookStatus, ""
-	}
-	return "idle", ""
-}
 
 // stale: `claude agents` says busy, the stretch is at least staleAfter old, and no
 // hook has come from the lane since it began. That is the signature of a session
@@ -822,10 +819,10 @@ func (m *Model) Snapshot(now time.Time) View {
 				continue
 			}
 			active = true
-			st, wf := s.status()
+			st, wf, approx := m.sessionStatus(s, now)
 			sv := SessionView{ID: s.ID, Status: st, WaitingFor: wf, CtxPct: s.CtxPct, Model: s.Model,
 				BusySince: ms(s.BusySince), Stale: m.stale(s, now), WaitingKind: waitingForKind(wf),
-				Compacting: s.Compacting, Unknown: s.Unknown}
+				Compacting: s.Compacting, Unknown: s.Unknown, Approx: approx}
 			if s.Failure != nil {
 				sv.Failure = s.Failure.Type
 			}
@@ -854,7 +851,7 @@ func (m *Model) Snapshot(now time.Time) View {
 				newest = s.LastEventAt
 				lv.LastEvent = s.LastEvent
 			}
-			m.needsFor(&v, wt, name, lv.Terminal, s, st)
+			m.needsFor(&v, wt, name, lv.Terminal, s, st, now)
 		}
 		sort.Slice(lv.Subagents, func(i, j int) bool { return lv.Subagents[i].Since < lv.Subagents[j].Since })
 		lv.SubagentsApprox = m.heuristicsApprox()
@@ -966,7 +963,7 @@ func (m *Model) terminalViews(now time.Time) []TermLaneView {
 		if tl, ok := tmux[rec.ID]; ok {
 			tv.Running, tv.Attached, tv.Dead, tv.DeadStatus = true, tl.Attached, tl.Dead, tl.DeadStatus
 			if s := m.sessions[rec.SessionID]; s != nil {
-				tv.Status, tv.WaitingFor = s.status()
+				tv.Status, tv.WaitingFor, _ = m.sessionStatus(s, now)
 				tv.CtxPct = s.CtxPct
 			}
 			if tl.Dead {

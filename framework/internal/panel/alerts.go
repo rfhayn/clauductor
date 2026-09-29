@@ -32,6 +32,9 @@ type AlertView struct {
 	Session  string `json:"session,omitempty"`
 	Text     string `json:"text"`
 	Since    int64  `json:"since,omitempty"`
+	// Approx: raised from data that is not current (see blocked). It is shown on the
+	// page and never interrupts.
+	Approx bool `json:"approx,omitempty"`
 }
 
 func mins(d time.Duration) string {
@@ -65,21 +68,14 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 			a.Key, a.Kind, a.Severity, a.Text, a.Since = kind+":"+s.ID, kind, sev, text, ms(since)
 			out = append(out, a)
 		}
-		// Waiting on you, for longer than the threshold.
-		if th.Waiting > 0 {
-			var since time.Time
-			label := "waiting for input"
-			if s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
-				since, label = s.Note.At, ClassifyNotification(s.Note.Type).Label
-			} else if s.Agent != nil && s.Agent.Status == "waiting" && !s.WaitingSince.IsZero() {
-				since = s.WaitingSince
-				if s.Agent.WaitingFor != "" {
-					label = oneLine(s.Agent.WaitingFor)
-				}
+		// Waiting on you, for longer than the threshold: the predicate Needs you reads.
+		if b, ok := m.blocked(s, now); ok && th.Waiting > 0 && !b.Since.IsZero() && now.Sub(b.Since) >= th.Waiting {
+			label := b.Label
+			if b.Kind == "waiting" {
+				label = b.Text
 			}
-			if !since.IsZero() && now.Sub(since) >= th.Waiting {
-				add(AlertWaiting, SevBlock, fmt.Sprintf("waiting on you for %s: %s", mins(now.Sub(since)), label), since)
-			}
+			add(AlertWaiting, SevBlock, fmt.Sprintf("waiting on you for %s: %s", mins(now.Sub(b.Since)), approxLabel(label, b)), b.Since)
+			out[len(out)-1].Approx = b.Approx
 		}
 		if s.Failure != nil {
 			if s.Failure.Type == "rate_limit" {
@@ -94,7 +90,7 @@ func (m *Model) computeAlerts(v *View, th Thresholds, now time.Time) []AlertView
 		if th.ContextPct > 0 && s.CtxPct != nil && *s.CtxPct >= th.ContextPct && s.HookStatus != "ended" {
 			add(AlertContext, SevWarn, fmt.Sprintf("context at %.0f%% (alert at %.0f%%)", *s.CtxPct, th.ContextPct), s.StatusAt)
 		}
-		if th.Idle > 0 && s.Agent != nil && s.Agent.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
+		if r := m.agentReading(s, now); th.Idle > 0 && r != nil && r.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
 			add(AlertIdle, SevInfo, fmt.Sprintf("idle for %s", mins(now.Sub(s.IdleSince))), s.IdleSince)
 		}
 	}
