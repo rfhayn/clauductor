@@ -774,7 +774,7 @@ lease_proc_dead() {
   fi
   return 1
 }
-lease_get() { sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//' || true; }
+lease_get() { LC_ALL=C sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 | LC_ALL=C sed 's/[[:space:]]*$//' || true; }
 # lease_mtime PATH: its modification time in unix seconds: GNU stat, then BSD stat.
 # Unknown reads as now (young), so missing data never makes a lock look abandoned.
 lease_mtime() {
@@ -786,14 +786,18 @@ lease_mtime() {
 # started, renewed and ttl integers; nonce, pstart, child_pstart, host, lane and cmd
 # strings; and a nonce of 16 lower-case hex digits. An invalid owner.json counts as
 # missing; an invalid waiter file holds no place in the queue and is never removed.
+# Byte for byte (LC_ALL=C), as Go decodes: a string may hold any byte but \000-\037,
+# so DEL (0x7f, which json.Marshal writes unescaped) and bytes that are not UTF-8 are
+# allowed whatever the user's locale.
 lease_valid() {
-  _j=$(awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
-  _S='"([^"\\[:cntrl:]]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _j=$(LC_ALL=C awk '{ s = s $0 " " } END { print s }' "$1" 2>/dev/null) || return 1
+  _c=$(printf '\001-\037')
+  _S='"([^"\\'"$_c"']|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
   _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
   _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
-  printf '%s\n' "$_j" | grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
-  if printf '%s\n' "$_j" | grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
-  if printf '%s\n' "$_j" | grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
+  printf '%s\n' "$_j" | LC_ALL=C grep -Eq "^[[:space:]]*\\{($_P(,$_P)*)?\\}[[:space:]]*\$" || return 1
+  if printf '%s\n' "$_j" | LC_ALL=C grep -Eq '"(v|pid|child_pid|started|renewed|ttl)"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi
+  if printf '%s\n' "$_j" | LC_ALL=C grep -Eq '"(nonce|pstart|child_pstart|host|lane|cmd)"[[:space:]]*:[[:space:]]*[^"[:space:]]'; then return 1; fi
   lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$'
 }
 # lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
@@ -907,6 +911,8 @@ exit status, and the files left behind.
 | `ownerless-old`, `ownerless-young` | reclaim a lock directory with no `owner.json` once it is 10 s old, and wait until then |
 | `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old`, `garbage-owner-old`, `string-pid-owner-old` | treat an invalid `owner.json` (truncated, no 16-hex nonce, not a flat object, a field of the wrong type) as missing, even with a live pid in it |
 | `spaced-owner-live` | read a valid record written with spaces, newlines, escapes and an extra `null` field as the live holder it names |
+| `del-owner-live` | read a live holder whose `cmd` holds DEL (0x7f, which `json.Marshal` writes unescaped) as live: wait |
+| `high-bytes-owner-live` | read a live holder whose `cmd` holds bytes that are not UTF-8 (0xff 0xfe) as live, whatever the waiter's locale: wait |
 | `live-waiter-ahead`, `dead-waiter-ahead` | never jump a live waiter that arrived first; skip and remove a dead one |
 | `other-host-waiter-stale`, `other-host-waiter-fresh` | judge another host's waiter by a 60 s TTL, whatever `ttl` its file names |
 | `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
@@ -918,7 +924,8 @@ exit status, and the files left behind.
 `TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
 this page. The suite is falsified in the same run: two controls, one that ignores the lease and
 one that always takes it, must fail every case that depends on the rule they break, and each of
-15 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
+17 mutants of `lease.sh` (`leaseShMutants`: DEL rejected as a control character, the old
+`[:cntrl:]` rule in the user's locale (run in a UTF-8 locale), EPERM read as dead, start times compared across
 sources, an unverifiable pid read as dead, pid reuse ignored, the command ignored, a waiter's own
 `ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
 record, the record's shape or its integer fields unchecked, invalid waiter files removed or queued,

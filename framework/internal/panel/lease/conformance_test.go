@@ -214,6 +214,18 @@ var leaseShMutants = []struct {
 	name, old, new string
 	cases          []string // the cases expected to catch it
 }{
+	{name: "DEL rejected as a control character ([:cntrl:])", old: `_S='"([^"\\'"$_c"']|`, new: `_S='"([^"\\[:cntrl:]]|`,
+		cases: []string{"del-owner-live"}},
+	{name: oldCntrlRule,
+		old: `  _S='"([^"\\'"$_c"']|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
+  _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
+  printf '%s\n' "$_j" | LC_ALL=C grep`,
+		new: `  _S='"([^"\\[:cntrl:]]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+  _V="($_S|-?(0|[1-9][0-9]*)|true|false|null)"
+  _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
+  printf '%s\n' "$_j" | grep`,
+		cases: []string{"del-owner-live", "high-bytes-owner-live"}},
 	{"EPERM read as dead", "  case $_e in *ermitted*) return 0 ;; esac\n", "", []string{"no-ps-foreign-pid"}},
 	{"start times compared across ps and /proc",
 		"  if { [ \"$_a\" = proc ] && [ \"$_b\" = proc ]; } || { [ \"$_a\" != proc ] && [ \"$_b\" != proc ]; }; then",
@@ -232,14 +244,18 @@ var leaseShMutants = []struct {
 	{"invalid waiter files removed", "      lease_valid \"$_w/$_f\" || continue\n", "      lease_valid \"$_w/$_f\" || { rm -f \"$_w/$_f\"; continue; }\n",
 		[]string{"malformed-waiters"}},
 	{"invalid waiter files queued", "      lease_valid \"$_w/$_f\" || continue\n", "", []string{"malformed-waiters"}},
-	{"the record's shape unchecked", "  printf '%s\\n' \"$_j\" | grep -Eq \"^[[:space:]]*\\\\{($_P(,$_P)*)?\\\\}[[:space:]]*\\$\" || return 1\n", "",
+	{"the record's shape unchecked", "  printf '%s\\n' \"$_j\" | LC_ALL=C grep -Eq \"^[[:space:]]*\\\\{($_P(,$_P)*)?\\\\}[[:space:]]*\\$\" || return 1\n", "",
 		[]string{"garbage-owner-old"}},
-	{"the integer fields' type unchecked", "  if printf '%s\\n' \"$_j\" | grep -Eq '\"(v|pid|child_pid|started|renewed|ttl)\"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi\n", "",
+	{"the integer fields' type unchecked", "  if printf '%s\\n' \"$_j\" | LC_ALL=C grep -Eq '\"(v|pid|child_pid|started|renewed|ttl)\"[[:space:]]*:[[:space:]]*[^-0-9[:space:]]'; then return 1; fi\n", "",
 		[]string{"string-pid-owner-old"}},
 	{"LIFO", "sort -t- -k1,1n -k2", "sort -t- -k1,1nr -k2", []string{"live-waiter-ahead"}},
 	{"cancel ignored", "    if [ -e \"$_w/$_nonce.cancel\" ]; then echo \"lease: wait cancelled from the panel\" >&2; return 75; fi\n", "",
 		[]string{"cancel"}},
 }
+
+// oldCntrlRule is run in a UTF-8 locale, where the old rule went wrong: there bytes
+// that are not UTF-8 match nothing, so a live holder's record read as invalid.
+const oldCntrlRule = "the old rule: [:cntrl:], in the user's locale"
 
 func TestLeaseConformanceCatchesEveryMutant(t *testing.T) {
 	t.Parallel()
@@ -254,9 +270,17 @@ func TestLeaseConformanceCatchesEveryMutant(t *testing.T) {
 			continue
 		}
 		impl := shImpl(t, dir, "mutant-"+string(rune('a'+i)), strings.Replace(orig, m.old, m.new, 1))
+		env := fast
+		if m.name == oldCntrlRule {
+			loc := "C.UTF-8"
+			if runtime.GOOS == "darwin" {
+				loc = "en_US.UTF-8"
+			}
+			env = append(append([]string(nil), fast...), "LC_ALL="+loc, "LANG="+loc)
+		}
 		runs := make([]func() (string, error), len(m.cases))
 		for j, c := range m.cases {
-			runs[j] = startConformance(driver, fast, []string{c}, impl)
+			runs[j] = startConformance(driver, env, []string{c}, impl)
 		}
 		mutantRuns[i] = runs
 	}

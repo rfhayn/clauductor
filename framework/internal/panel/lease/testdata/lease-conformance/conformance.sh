@@ -46,6 +46,7 @@ ALL_CASES="live-holder dead-pid pid-reuse proc-format no-ps pstart-no-ps no-ps-f
 other-host-expired other-host-live other-host-no-ttl missing-pid missing-pid-expired missing-host
 child-alive child-dead child-reused ownerless-old ownerless-young truncated-owner-old
 truncated-owner-young bad-nonce-owner-old garbage-owner-old string-pid-owner-old spaced-owner-live
+del-owner-live high-bytes-owner-live
 live-waiter-ahead dead-waiter-ahead
 other-host-waiter-stale other-host-waiter-fresh malformed-waiters cancel reclaim-race
 owner-record symlinked-lock"
@@ -128,8 +129,9 @@ render() {
 	shift 2
 	for kv in "$@"; do expr+=(-e "s|{{${kv%%=*}}}|${kv#*=}|g"); done
 	mkdir -p "$(dirname "$dst")"
-	sed "${expr[@]}" "$src" >"$dst"
-	if grep -q '{{' "$dst"; then
+	# Byte for byte: a record may carry bytes that are not UTF-8 (the high-bytes case).
+	LC_ALL=C sed "${expr[@]}" "$src" >"$dst"
+	if LC_ALL=C grep -q '{{' "$dst"; then
 		fail "unfilled placeholder in $(basename "$src"): $(grep -o '{{[A-Z_]*}}' "$dst" | head -n 1)"
 	fi
 }
@@ -243,7 +245,7 @@ waits_then_stop() {
 }
 
 holder_untouched() {
-	grep -q '"nonce":"c0ffee0000000001"' "$LOCK/owner.json" 2>/dev/null || fail "a live holder's owner.json was removed or changed"
+	LC_ALL=C grep -q '"nonce":"c0ffee0000000001"' "$LOCK/owner.json" 2>/dev/null || fail "a live holder's owner.json was removed or changed"
 }
 
 # A live holder on this host (pid alive, start time matches) is never stale, however
@@ -495,6 +497,29 @@ case_spaced_owner_live() {
 	start a 'echo a >> "$LOG"'
 	still_waiting a
 	holder_untouched_spaced
+	kill_reap "$SLEEPER"
+	runs a
+}
+# A string may hold any byte but \000-\037, as Go's decoder has it: DEL (0x7f), which
+# json.Marshal writes unescaped, and bytes that are not UTF-8. A live holder whose cmd
+# carries them is a live holder: waiters wait, whatever the waiter's locale.
+case_del_owner_live() {
+	sleeper
+	setup del-owner-live PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
+	age_lock 60
+	start a 'echo a >> "$LOG"'
+	still_waiting a
+	holder_untouched
+	kill_reap "$SLEEPER"
+	runs a
+}
+case_high_bytes_owner_live() {
+	sleeper
+	setup high-bytes-owner-live PID="$SLEEPER" PSTART="$(pstart "$SLEEPER")"
+	age_lock 60
+	start a 'echo a >> "$LOG"'
+	still_waiting a
+	holder_untouched
 	kill_reap "$SLEEPER"
 	runs a
 }
