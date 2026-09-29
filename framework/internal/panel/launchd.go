@@ -2,8 +2,8 @@ package panel
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -383,11 +383,38 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 	if b, err := run("/bin/launchctl", "bootout", guiDomain()+"/"+LaunchdLabel); err != nil {
 		fmt.Fprintf(out, "launchctl bootout: %s (fine if it was not loaded)\n", strings.TrimSpace(string(b)))
 	}
-	for _, p := range []string{PlistPath(home), InstalledBinary(home), TokenPath(home)} {
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+	dir := panelDir(home)
+	// Everything the agent owns goes. port and pid belong to a running panel, which
+	// bootout has just stopped.
+	for _, p := range []string{PlistPath(home), TokenPath(home), filepath.Join(dir, "browser-opened"),
+		filepath.Join(dir, "pid"), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
+		if err := os.RemoveAll(p); err != nil {
 			return err
 		}
 	}
+	// A lane registry is kept only while it still lists lanes: they may be running in
+	// tmux, and RESUME needs their session ids.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		reg := filepath.Join(dir, e.Name(), "lanes.json")
+		if !e.IsDir() {
+			continue
+		}
+		b, err := os.ReadFile(reg)
+		if err != nil {
+			continue
+		}
+		var f registryFile
+		if json.Unmarshal(b, &f) == nil && len(f.Lanes) == 0 {
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+			continue
+		}
+		fmt.Fprintf(out, "Kept %s: it lists %d lane(s) of %s, which may still run in tmux. Delete it once they are stopped.\n",
+			reg, len(f.Lanes), f.Project)
+	}
+	_ = os.Remove(dir) // only if nothing is left
 	app := AppPath(home)
 	if _, err := os.Stat(filepath.Join(app, "Contents", "Resources", appMarker)); err == nil {
 		if err := os.RemoveAll(app); err != nil {
@@ -415,7 +442,19 @@ func OpenURL(ctx context.Context, home string, port int) (string, error) {
 		return "", fmt.Errorf("the panel is not answering on %s (%v). Restart it: launchctl kickstart -k %s/%s, and read %s",
 			base, err, guiDomain(), LaunchdLabel, LogDir(home))
 	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 	resp.Body.Close()
+	// Send the token only to THIS panel: whatever holds the port must report the PID
+	// the panel wrote beside its marker.
+	pidFile := filepath.Join(panelDir(home), "pid")
+	want, err := os.ReadFile(pidFile)
+	if err != nil {
+		return "", fmt.Errorf("no %s: the panel is not running (launchctl kickstart -k %s/%s)", pidFile, guiDomain(), LaunchdLabel)
+	}
+	if got := strings.TrimSpace(string(body)); got != "ok pid="+strings.TrimSpace(string(want)) {
+		return "", fmt.Errorf("%s answers /healthz with %q, not as the panel whose pid is %s; not sending it the token",
+			base, got, strings.TrimSpace(string(want)))
+	}
 	return base + "/?t=" + token, nil
 }
 

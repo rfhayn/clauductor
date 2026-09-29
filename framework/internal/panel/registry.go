@@ -41,6 +41,34 @@ type LaneRecord struct {
 	// only then does `claude --resume <id>` have a conversation to resume. Until
 	// then a restart reuses --session-id <id>.
 	Conversation bool `json:"conversation,omitempty"`
+	// Corrupt, when set, says why this record failed validation on load. A corrupt
+	// record is shown, can be stopped or forgotten, and is never launched.
+	Corrupt string `json:"-"`
+}
+
+var (
+	laneTypeRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{0,64}$`)
+	laneModes   = map[string]bool{"root": true, "existing": true, "new": true}
+	laneActions = map[string]bool{"start": true, "restart": true, "resume": true, "stop": true}
+)
+
+// validate checks a record read from disk before any field of it can become argv.
+func (l LaneRecord) validate() string {
+	switch {
+	case !uuidRe.MatchString(l.SessionID):
+		return "session id is not a UUID"
+	case !filepath.IsAbs(l.Path) || filepath.Clean(l.Path) != l.Path:
+		return "path is not a clean absolute path"
+	case !laneTypeRe.MatchString(l.Type):
+		return "lane type has characters a lane type never has"
+	case l.Branch != "" && !branchRe.MatchString(l.Branch):
+		return "branch is not a branch the panel would create"
+	case !laneModes[l.Mode]:
+		return "unknown mode"
+	case !laneActions[l.Action]:
+		return "unknown action"
+	}
+	return ""
 }
 
 type registryFile struct {
@@ -51,10 +79,11 @@ type registryFile struct {
 
 // Registry is the lane registry of one project.
 type Registry struct {
-	path    string
-	project string
-	mu      sync.Mutex
-	lanes   map[string]LaneRecord
+	path     string
+	project  string
+	mu       sync.Mutex
+	lanes    map[string]LaneRecord
+	problems []string // records dropped on load, for a banner
 	// afterRead, if set, runs in Reload between reading the file and applying it.
 	// Tests use it to force the interleaving of a reload with a concurrent write.
 	afterRead func()
@@ -95,13 +124,24 @@ func (r *Registry) Reload() error {
 		return fmt.Errorf("lane registry %s is not valid JSON: %w", r.path, err)
 	}
 	lanes := map[string]LaneRecord{}
-	for _, l := range f.Lanes {
-		if ValidLaneID(l.ID) {
-			lanes[l.ID] = l
+	r.problems = nil
+	for i, l := range f.Lanes {
+		if !ValidLaneID(l.ID) {
+			r.problems = append(r.problems, fmt.Sprintf("lane registry %s: record %d has an invalid lane id and is ignored", r.path, i))
+			continue
 		}
+		l.Corrupt = l.validate()
+		lanes[l.ID] = l
 	}
 	r.lanes = lanes
 	return nil
+}
+
+// Problems lists records that could not even be shown (an invalid lane id).
+func (r *Registry) Problems() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.problems...)
 }
 
 // List returns the records, sorted by id.

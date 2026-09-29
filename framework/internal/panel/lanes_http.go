@@ -2,8 +2,10 @@ package panel
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -14,14 +16,17 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 	// up. It answers "ok" and nothing else, so it needs no token.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte("ok\n"))
+		// The PID lets `clauductor panel open` check it is talking to THIS panel (the
+		// one in ~/.clauductor/panel/pid) before it sends the token anywhere.
+		fmt.Fprintf(w, "ok pid=%d\n", os.Getpid())
 	})
 	web, _ := fs.Sub(webFS, "web")
 	files := http.FileServerFS(web)
 	mux.HandleFunc("GET /vendor/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("GET /static/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("POST /api/lanes/{id}/ticket", s.requireAuth(s.issueTicketHandler))
-	mux.HandleFunc("GET /ws/term", s.requireAuth(s.terminal))
+	// The terminal checks the cookie itself, after taking the rotation generation.
+	mux.HandleFunc("GET /ws/term", s.terminal)
 	mux.HandleFunc("POST /api/lanes", s.requireAuth(s.startLane))
 	mux.HandleFunc("POST /api/lanes/{id}/{action}", s.requireAuth(s.laneAction))
 }

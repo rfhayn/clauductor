@@ -174,6 +174,7 @@ type Model struct {
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []TmuxLane
 	laneRecords  []LaneRecord
+	regProblems  []string
 	tmuxSrc      SourceStatus
 	startBlocked string
 }
@@ -718,6 +719,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		}
 	}
 	v.Terminals = terms
+	v.Banners = append(v.Banners, m.regProblems...)
 	if len(m.costByID) > 0 {
 		total := 0.0
 		for _, c := range m.costByID {
@@ -761,6 +763,9 @@ type TermLaneView struct {
 	Action string `json:"action,omitempty"` // a registry action begun and not finished
 }
 
+// ApplyRegistryProblems records registry records that could not be shown at all.
+func (m *Model) ApplyRegistryProblems(p []string) { m.regProblems = p }
+
 // ApplyTmux records a reconciliation input: the panel's tmux socket, the lane
 // registry, and whether lanes may start.
 func (m *Model) ApplyTmux(lanes []TmuxLane, recs []LaneRecord, blocked string, err error, now time.Time) {
@@ -796,6 +801,9 @@ func (m *Model) terminalViews(now time.Time) []TermLaneView {
 		if !rec.ActionDone {
 			tv.Action = rec.Action
 		}
+		if rec.Corrupt != "" {
+			tv.Orphan = "corrupt registry record (" + rec.Corrupt + "): it is never launched; stop or forget it"
+		}
 		place(&tv)
 		if tl, ok := tmux[rec.ID]; ok {
 			tv.Running, tv.Attached, tv.Dead, tv.DeadStatus = true, tl.Attached, tl.Dead, tl.DeadStatus
@@ -806,6 +814,8 @@ func (m *Model) terminalViews(now time.Time) []TermLaneView {
 			if tl.Dead {
 				tv.Status = "dead"
 			}
+		} else if rec.Corrupt != "" {
+			tv.Status = "orphaned"
 		} else {
 			tv.Status = "orphaned"
 			tv.Orphan = "its tmux session is gone (a reboot, or the tmux server ended)"

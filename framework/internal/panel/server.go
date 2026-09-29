@@ -153,6 +153,10 @@ type Server struct {
 	// once-a-minute "alive" while visible) for this long. Zero means 5 minutes.
 	TermIdleTimeout time.Duration
 
+	// beforeAddViewer, if set, runs between a terminal's auth and its registration
+	// (tests use it to rotate the token in that window).
+	beforeAddViewer func()
+
 	tokenMu sync.RWMutex
 	rotated chan struct{} // closed, and replaced, on each token rotation
 
@@ -386,5 +390,8 @@ func (s *Server) Rotate(token string) {
 	}
 	s.rotated = make(chan struct{})
 	s.tokenMu.Unlock()
+	s.termMu.Lock()
+	s.tickets = nil // a ticket issued under the old token dies with it
+	s.termMu.Unlock()
 	s.closeAllTerminals(4001, "token rotated")
 }

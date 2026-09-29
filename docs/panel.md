@@ -200,12 +200,15 @@ pauses, while a workflow in a background session fails.
   prefix rule in `lanes` (`fix/` for `fix`). A type with only exact rules (such as `main` →
   `orchestrator`) has no prefix and cannot start a new branch.
 - **An existing worktree.** Any worktree that `git worktree list` reports.
+
+A lane is refused in a directory where another lane is already running, registered or not: two
+sessions in one checkout would edit the same files.
 - **The project root.** Use this for the orchestrator.
 
 Then it runs, as an argv list with no shell:
 
 ```
-tmux -L <socket> new-session -d -s <name> -c <dir> -x 200 -y 50 \
+tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
      -e PATH=… -e HOME=… -e LANG=… \
      /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
 ```
@@ -244,14 +247,16 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | registered, the panel stopped during an action | orphaned, with the action | **RESUME**, or **FORGET** |
 | a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **STOP** only; without a session id it cannot be restarted |
 | registered, its directory no longer a worktree | the reason is added | **FORGET** |
+| a record that fails validation on load (session id not a UUID, relative path, unknown mode…) | "corrupt registry record" | **STOP**, **FORGET**; it is never launched |
+| a record with an invalid lane id | a banner | edit or delete the file |
 
 ### Controls
 
 | Button | What it does |
 |---|---|
 | **INTERRUPT (ESC)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **STOP LANE** | Types `/exit`, then presses Enter as a separate write. Waits up to 10 s, then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
-| **RESTART** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel records when the first prompt's hook arrives. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
+| **STOP LANE** | If `claude agents` reports the lane's session **idle**, types `/exit`, then presses Enter as a separate write, and waits up to 10 s. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **RESTART** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
 | **RESUME** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **FORGET** (orphans) | Drops the registry record. The worktree and the conversation stay. |
 | **ATTACH IN TERMINAL.APP** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
@@ -322,12 +327,23 @@ Under launchd, the panel runs with `--launchd`:
 
 ```bash
 clauductor panel open         # checks /healthz, then opens http://127.0.0.1:4393/?t=<token>
-clauductor panel uninstall    # bootout, then remove the plist, the copied binary, the token and the app
+clauductor panel uninstall    # bootout, then remove everything the agent owns
 ```
 
-`uninstall` removes the app only if `install --app` made it, and it never touches lanes. The
-panel's hooks stay in `~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes
-them.
+`open` sends the token only to the panel it expects. `/healthz` answers `ok pid=<pid>`, and
+`open` compares that with `~/.clauductor/panel/pid`; on a mismatch it refuses rather than hand
+the token to whatever holds the port.
+
+`uninstall` removes:
+
+- the plist, the token and the copied binary;
+- the logs, `pid`, `port` and the browser-opened stamp;
+- the app, but only if `install --app` made it;
+- every lane registry that lists no lanes.
+
+A registry that still lists lanes is kept, and `uninstall` says so: those lanes may still run in
+tmux, and RESUME needs their session ids. It never touches lanes. The panel's hooks stay in
+`~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes them.
 
 ### If the panel is down
 
@@ -340,7 +356,8 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
    holds, or a config that moved. In both cases the log says which.
 4. To reach a lane with no panel, run `tmux -L clauductor ls`, then
    `tmux -L clauductor attach -t '=<lane>'`. Quote the target, because zsh expands a bare
-   `=word`. Detach with Ctrl-b d; the lane keeps running.
+   `=word`. The panel's socket has no prefix key (see *Security model*), so close the window to
+   detach; the lane keeps running.
 5. If the config file moved (for example, `--config` pointed into a worktree that was removed),
    run `install` again with the new path.
 
@@ -357,7 +374,7 @@ send requests to `127.0.0.1`.
   `http://127.0.0.1:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
   SameSite=Strict` cookie and redirects to `/`, so the token leaves the address bar. Every route
   except `/hook`, `/status` and `/healthz` needs the cookie (401 otherwise). `/healthz` answers
-  only `ok`. Under launchd, the token persists in a 0600 file instead (see above).
+  only `ok` and the panel's PID. Under launchd, the token persists in a 0600 file instead (see above).
 - **DNS rebinding and cross-site requests.** `Host` must be `127.0.0.1:<port>` or
   `localhost:<port>` on every route. Every state-changing request (every `POST`) must carry an
   `Origin` of the panel itself. No CORS headers are sent. The page is served with
@@ -381,6 +398,13 @@ send requests to `127.0.0.1`.
     terminal.
   - a valid lane id that names a running lane.
 
+  **A lane's terminal is a shell.** Claude runs `!` commands, and anyone who can type into the
+  terminal can do what the lane's user can. Everything above exists so that only you can type
+  into it. On the panel's own tmux socket the server never loads `~/.tmux.conf` (`-f
+  /dev/null`), and every lane start sets `prefix None`, `prefix2 None` and unbinds the prefix
+  table. A lane's viewer therefore cannot use tmux keys to switch to another lane or reach tmux's
+  command prompt and `run-shell`.
+
   After the upgrade, the browser may send only `{"type":"input","data":…}`,
   `{"type":"resize","cols":…,"rows":…}` and `{"type":"alive"}`; anything else closes the
   connection.
@@ -390,7 +414,9 @@ send requests to `127.0.0.1`.
     ticket.
   - **Token rotation.** `clauductor panel rotate-token` writes a new token file; `install`
     does too. The running agent notices within 2 s. At once, every cookie for the old token
-    gets 401, every terminal closes with code 4001 and every event stream ends. Then
+    gets 401, every terminal closes with code 4001, every event stream ends, and every ticket
+    not yet used is dropped. A terminal whose upgrade passed the cookie check just before the
+    rotation is closed the moment it registers. Then
     `clauductor panel open` opens the page with the new token. The browser never
   sends a command. The server runs one fixed argv per viewer: `tmux -u -L <socket>
   attach-session -t =<id>`, where `=` makes the match exact. Stopping a lane closes its viewers.

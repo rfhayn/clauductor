@@ -82,6 +82,8 @@ type Options struct {
 	LaneProgram []string
 	// StopTimeout overrides how long a lane stop waits for /exit (default 10 s).
 	StopTimeout time.Duration
+	// FastExit overrides how long a restarted claude must stay up (default 3 s).
+	FastExit time.Duration
 	// TermIdleTimeout overrides how long a silent terminal stays open (default 5 min).
 	TermIdleTimeout time.Duration
 	// OpenBrowser overrides how the page is opened (tests record the URL instead).
@@ -387,7 +389,9 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				continue
 			}
 			ev.Cwd = ResolvePath(ev.Cwd)
-			if ev.Event == "UserPromptSubmit" && p.registry != nil {
+			// A prompt, or a finished turn, means the session has a conversation to
+			// --resume. Hooks can be dropped, so busy in `claude agents` counts too.
+			if (ev.Event == "UserPromptSubmit" || ev.Event == "Stop") && p.registry != nil {
 				_, _ = p.registry.MarkConversation(ev.SessionID)
 			}
 			kept := true
@@ -456,6 +460,9 @@ func (p *pollers) agentsLoop(ctx context.Context) {
 		}
 		for i := range agents {
 			agents[i].Cwd = ResolvePath(agents[i].Cwd)
+			if agents[i].Status == "busy" && p.registry != nil {
+				_, _ = p.registry.MarkConversation(agents[i].SessionID)
+			}
 		}
 		p.hub.Update(func(m *Model, now time.Time) { m.ApplyAgents(agents, err, now) })
 	})
@@ -555,7 +562,10 @@ func newLaneManager(o Options, cfg *Config, root string) (*LaneManager, string) 
 		return nil, "the lane registry cannot be read, so lanes are not managed: " + err.Error()
 	}
 	m := &LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
-		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond}
+		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit}
+	if m.FastExit == 0 {
+		m.FastExit = 3 * time.Second
+	}
 	if m.StopTimeout == 0 {
 		m.StopTimeout = 10 * time.Second
 	}
@@ -598,7 +608,10 @@ func (p *pollers) tmuxLoop(ctx context.Context, lanes *LaneManager, why string) 
 		if ctx.Err() != nil {
 			return
 		}
-		recs := lanes.Registry.List()
-		p.hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(ls, recs, blocked, err, now) })
+		recs, problems := lanes.Registry.List(), lanes.Registry.Problems()
+		p.hub.Update(func(m *Model, now time.Time) {
+			m.ApplyTmux(ls, recs, blocked, err, now)
+			m.ApplyRegistryProblems(problems)
+		})
 	})
 }

@@ -194,6 +194,13 @@ func attachEnv() []string {
 }
 
 func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
+	// Take the rotation generation BEFORE checking the cookie: a rotation between
+	// the check and the viewer's registration would otherwise miss this viewer.
+	gen := s.rotation()
+	if !s.authed(r) {
+		http.Error(w, "unauthorized: open the URL `clauductor panel` printed", http.StatusUnauthorized)
+		return
+	}
 	// A WebSocket upgrade is a GET, which the global guard lets through without an
 	// Origin check; any page can open a WebSocket to loopback, so check here, exactly.
 	if o := r.Header.Get("Origin"); !s.originOK(o) || o != "http://"+r.Host {
@@ -229,9 +236,18 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if s.beforeAddViewer != nil {
+		s.beforeAddViewer()
+	}
 	viewer := &termViewer{conn: c}
 	s.addViewer(id, viewer)
 	defer s.removeViewer(id, viewer)
+	select {
+	case <-gen: // rotated while this upgrade was in flight
+		c.Close(closeRotated, "token rotated")
+		return
+	default:
+	}
 	c.SetReadLimit(maxTermMessage)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

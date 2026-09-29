@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -147,8 +149,8 @@ func TestLaneAPIGuards(t *testing.T) {
 			t.Errorf("%s: got %d %q, want %d", c.name, w.Code, strings.TrimSpace(w.Body.String()), c.status)
 		}
 	}
-	// Tokenless and without lanes: /healthz says only "ok".
-	if w := do(s, "GET", "/healthz", ""); w.Code != 200 || w.Body.String() != "ok\n" {
+	// Tokenless and without lanes: /healthz says only "ok" and the panel's PID.
+	if w := do(s, "GET", "/healthz", ""); w.Code != 200 || w.Body.String() != fmt.Sprintf("ok pid=%d\n", os.Getpid()) {
 		t.Fatalf("/healthz: %d %q", w.Code, w.Body.String())
 	}
 	if w := do(s, "GET", "/healthz", "", withHost("evil.example:4393")); w.Code != 403 {

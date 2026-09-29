@@ -121,6 +121,9 @@ type LaneManager struct {
 	// EnterDelay separates typed text from its Enter: sent together, a long line
 	// can sit in claude's input box unsubmitted.
 	EnterDelay time.Duration
+	// FastExit is how long a (re)started claude must stay up to count as started;
+	// a faster non-zero exit triggers the --resume / --session-id fallback.
+	FastExit time.Duration
 	// Changed is called after a lane is started or stopped (re-poll now).
 	Changed func()
 	// Stopped is called once a lane's tmux session is gone, to close its viewers.
@@ -169,9 +172,10 @@ func tmuxEnv() []string {
 	return env
 }
 
-// TmuxArgv prefixes a tmux command with the socket.
+// TmuxArgv prefixes a tmux command with the socket. `-f /dev/null` means a panel
+// socket's server never loads ~/.tmux.conf, whose bindings could run commands.
 func (m *LaneManager) TmuxArgv(args ...string) []string {
-	return append([]string{"-L", m.Socket}, args...)
+	return append([]string{"-L", m.Socket, "-f", "/dev/null"}, args...)
 }
 
 func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) {
@@ -331,14 +335,19 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
 		";", "set-option", "-t", "="+id+":", "@clauductor_type", laneType,
-		";", "set-option", "-t", "="+id+":", "window-size", "latest")
+		";", "set-option", "-t", "="+id+":", "window-size", "latest",
+		// No prefix key on the panel's socket: from a lane's terminal, a prefix would
+		// reach every other lane and tmux's own command prompt (run-shell).
+		";", "set-option", "-g", "prefix", "None",
+		";", "set-option", "-g", "prefix2", "None",
+		";", "unbind-key", "-q", "-a", "-T", "prefix")
 	return m.TmuxArgv(args...)
 }
 
 // AttachArgv is the argv (after the tmux path) of one viewer's client. -u forces
 // UTF-8 whatever the locale.
 func (m *LaneManager) AttachArgv(id string) []string {
-	return []string{"-u", "-L", m.Socket, "attach-session", "-t", "=" + id}
+	return []string{"-u", "-L", m.Socket, "-f", "/dev/null", "attach-session", "-t", "=" + id}
 }
 
 // shq single-quotes s for a POSIX shell.
@@ -419,6 +428,9 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	switch req.Mode {
 	case "root":
 		res.Path = m.Root
+		if other := m.pathTaken(ctx, res.Path, ""); other != "" {
+			return res, laneErr(409, "path-taken", "lane %q already runs in %s; two sessions in one checkout would edit the same files", other, res.Path)
+		}
 	case "existing":
 		wts, err := readWorktrees(ctx, m.Run, m.Root)
 		if err != nil {
@@ -432,6 +444,9 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		}
 		if res.Path == "" {
 			return res, laneErr(400, "invalid", "%q is not one of this project's worktrees", req.Worktree)
+		}
+		if other := m.pathTaken(ctx, res.Path, ""); other != "" {
+			return res, laneErr(409, "path-taken", "lane %q already runs in %s; two sessions in one checkout would edit the same files", other, res.Path)
 		}
 	case "new":
 		prefix := m.Cfg.BranchPrefix(req.Type)
@@ -509,8 +524,10 @@ func (m *LaneManager) Interrupt(ctx context.Context, id string) *LaneError {
 	return nil
 }
 
-// Stop asks the lane's claude to /exit, waits up to StopTimeout, then kills the
-// tmux session and forgets the lane. The worktree is never removed.
+// Stop ends a lane and forgets it; the worktree is never removed. Only a lane that
+// `claude agents` reports idle is asked to /exit. Anything else (busy, waiting on a
+// permission or a dialog, or unknown) gets Escape and then kill-session, never a
+// typed Enter: an Enter would confirm whatever default the dialog has focused.
 func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 	if !ValidLaneID(id) {
 		return laneErr(400, "invalid", "invalid lane id")
@@ -524,7 +541,7 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 			return laneErr(500, "registry", "cannot write the lane registry: %v", err)
 		}
 	}
-	if lerr := m.stopLocked(ctx, id); lerr != nil {
+	if lerr := m.stopLocked(ctx, id, rec.SessionID); lerr != nil {
 		if !(lerr.Status == 404 && registered) {
 			return lerr
 		}
@@ -538,21 +555,31 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 	return nil
 }
 
-func (m *LaneManager) stopLocked(ctx context.Context, id string) *LaneError {
+func (m *LaneManager) waitDead(ctx context.Context, id string, d time.Duration) {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		l, ok := m.find(ctx, id)
+		if !ok || l.Dead {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (m *LaneManager) stopLocked(ctx context.Context, id, sessionID string) *LaneError {
 	lane, ok := m.find(ctx, id)
 	if !ok {
 		return laneErr(404, "not-found", "no lane %q", id)
 	}
 	defer m.changed()
 	if !lane.Dead {
-		_ = m.sendText(ctx, id, "/exit")
-		deadline := time.Now().Add(m.StopTimeout)
-		for time.Now().Before(deadline) {
-			l, ok := m.find(ctx, id)
-			if !ok || l.Dead {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
+		status, found, err := m.agentStatus(ctx, sessionID)
+		if sessionID != "" && err == nil && found && status == "idle" {
+			_ = m.sendText(ctx, id, "/exit")
+			m.waitDead(ctx, id, m.StopTimeout)
+		} else {
+			_, _ = m.tmux(ctx, "send-keys", "-t", "="+id+":", "Escape")
+			m.waitDead(ctx, id, time.Second)
 		}
 	}
 	if _, err := m.tmux(ctx, "kill-session", "-t", "="+id); err != nil && m.Exists(ctx, id) {
@@ -564,35 +591,98 @@ func (m *LaneManager) stopLocked(ctx context.Context, id string) *LaneError {
 	return nil
 }
 
-// liveSession reports whether a claude process already runs this session id, per
-// `claude agents --json`. Two processes on one session interleave its transcript,
-// so a failure to read the list refuses rather than guesses.
-func (m *LaneManager) liveSession(ctx context.Context, sessionID string) (bool, error) {
+// agentStatus reads one session's status from `claude agents --json`.
+func (m *LaneManager) agentStatus(ctx context.Context, sessionID string) (status string, found bool, err error) {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := m.Run(cctx, m.Root, []string{"claude", "agents", "--json"})
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	agents, err := ParseAgents(out)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	for _, a := range agents {
-		if a.SessionID == sessionID {
-			return true, nil
+		if sessionID != "" && a.SessionID == sessionID {
+			return a.Status, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
+}
+
+// liveSession reports whether a claude process already runs this session id, per
+// `claude agents --json`. Two processes on one session interleave its transcript,
+// so a failure to read the list refuses rather than guesses.
+func (m *LaneManager) liveSession(ctx context.Context, sessionID string) (bool, error) {
+	_, found, err := m.agentStatus(ctx, sessionID)
+	return found, err
+}
+
+// pathTaken returns the id of a running lane (registered or not) in dir, if any.
+// Two claude sessions in one checkout would edit the same files.
+func (m *LaneManager) pathTaken(ctx context.Context, dir, except string) string {
+	lanes, _ := m.List(ctx)
+	for _, l := range lanes {
+		if l.ID != except && l.Path == dir && !l.Dead {
+			return l.ID
+		}
+	}
+	for _, rec := range m.Registry.List() {
+		if rec.ID != except && rec.Path == dir && m.Exists(ctx, rec.ID) {
+			return rec.ID
+		}
+	}
+	return ""
+}
+
+// launchSession starts a registered lane's claude on its own session id and, when
+// claude exits within FastExit with a non-zero status, retries once with the other
+// flag. `--resume` exits 1 on a session with no conversation, and `--session-id`
+// exits 1 on one that has a conversation; the panel only learns which from hooks,
+// which can be dropped. It returns the mode that stayed up.
+func (m *LaneManager) launchSession(ctx context.Context, rec LaneRecord) (resume bool, lerr *LaneError) {
+	resume = rec.Conversation
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)[2:]...); err != nil {
+			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
+		}
+		failed := ""
+		deadline := time.Now().Add(m.FastExit)
+		for time.Now().Before(deadline) {
+			l, ok := m.find(ctx, rec.ID)
+			if ok && l.Dead && l.DeadStatus != "" && l.DeadStatus != "0" {
+				failed = l.DeadStatus
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if failed == "" {
+			return resume, nil
+		}
+		if attempt == 1 {
+			// Leave the dead pane: remain-on-exit keeps claude's own message on screen.
+			return resume, laneErr(409, "launch-failed", "claude exited with status %s both with --resume and with --session-id %s; the lane's terminal shows why", failed, rec.SessionID)
+		}
+		_, _ = m.tmux(ctx, "kill-session", "-t", "="+rec.ID)
+		resume = !resume
+	}
+	return resume, nil
 }
 
 // resumeLocked restarts a registered lane whose tmux session is gone on its own
 // session id, after checking no process holds that session: `claude --resume <id>`
 // once the session has a conversation, else `claude --session-id <id>` again
-// (--resume refuses a session with no conversation).
+// (--resume refuses a session with no conversation), with launchSession's fallback.
 func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action string) *LaneError {
+	if rec.Corrupt != "" {
+		return laneErr(409, "corrupt", "lane %q has a corrupt registry record (%s); forget it", rec.ID, rec.Corrupt)
+	}
 	if m.Exists(ctx, rec.ID) {
 		return laneErr(409, "exists", "lane %q is still running", rec.ID)
+	}
+	if other := m.pathTaken(ctx, rec.Path, rec.ID); other != "" {
+		return laneErr(409, "path-taken", "lane %q already runs in %s", other, rec.Path)
 	}
 	var live bool
 	var err error
@@ -615,8 +705,12 @@ func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action s
 	if err != nil {
 		return laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
-	if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, rec.Conversation)[2:]...); err != nil {
-		return laneErr(500, "tmux", "starting claude --resume failed: %v", err)
+	resumed, lerr := m.launchSession(ctx, rec)
+	rec.Conversation = resumed
+	if lerr != nil {
+		_ = m.Registry.Put(rec)
+		m.changed()
+		return lerr
 	}
 	if err := m.Registry.Done(rec); err != nil {
 		return laneErr(500, "registry", "the lane resumed, but the registry could not record it: %v", err)
@@ -643,7 +737,10 @@ func (m *LaneManager) Restart(ctx context.Context, id string) *LaneError {
 	if err != nil {
 		return laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
-	if lerr := m.stopLocked(ctx, id); lerr != nil && lerr.Status != 404 {
+	if rec.Corrupt != "" {
+		return laneErr(409, "corrupt", "lane %q has a corrupt registry record (%s); stop and forget it", id, rec.Corrupt)
+	}
+	if lerr := m.stopLocked(ctx, id, rec.SessionID); lerr != nil && lerr.Status != 404 {
 		return lerr
 	}
 	return m.resumeLocked(ctx, rec, "restart")

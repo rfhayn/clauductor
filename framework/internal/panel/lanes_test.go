@@ -69,7 +69,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 	}
 
 	ns := m.NewSessionArgv("add-x", "/repo/.claude/worktrees/add-x", "fix", sid, false)
-	head := []string{"-L", "sock", "new-session", "-d", "-s", "add-x", "-c", "/repo/.claude/worktrees/add-x", "-x", "200", "-y", "50"}
+	head := []string{"-L", "sock", "-f", "/dev/null", "new-session", "-d", "-s", "add-x", "-c", "/repo/.claude/worktrees/add-x", "-x", "200", "-y", "50"}
 	if !reflect.DeepEqual(ns[:len(head)], head) {
 		t.Fatalf("NewSessionArgv head:\n got %q\nwant %q", ns[:len(head)], head)
 	}
@@ -89,7 +89,10 @@ func TestLaneArgvConstruction(t *testing.T) {
 	head = ns[:i+1]
 	tail := []string{";", "set-option", "-t", "=add-x:", "remain-on-exit", "on",
 		";", "set-option", "-t", "=add-x:", "@clauductor_type", "fix",
-		";", "set-option", "-t", "=add-x:", "window-size", "latest"}
+		";", "set-option", "-t", "=add-x:", "window-size", "latest",
+		";", "set-option", "-g", "prefix", "None",
+		";", "set-option", "-g", "prefix2", "None",
+		";", "unbind-key", "-q", "-a", "-T", "prefix"}
 	if !reflect.DeepEqual(ns[len(ns)-len(tail):], tail) {
 		t.Fatalf("NewSessionArgv tail:\n got %q", ns[len(ns)-len(tail):])
 	}
@@ -103,7 +106,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 		}
 	}
 
-	if got, want := m.AttachArgv("add-x"), []string{"-u", "-L", "sock", "attach-session", "-t", "=add-x"}; !reflect.DeepEqual(got, want) {
+	if got, want := m.AttachArgv("add-x"), []string{"-u", "-L", "sock", "-f", "/dev/null", "attach-session", "-t", "=add-x"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("AttachArgv %q, want %q", got, want)
 	}
 
@@ -112,7 +115,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 		t.Fatalf("TerminalAppArgv runs %q", osa[0])
 	}
 	cmd := osa[len(osa)-1]
-	if want := `exec '/opt/homebrew/bin/tmux' '-u' '-L' 'sock' 'attach-session' '-t' '=add-x'`; cmd != want {
+	if want := `exec '/opt/homebrew/bin/tmux' '-u' '-L' 'sock' '-f' '/dev/null' 'attach-session' '-t' '=add-x'`; cmd != want {
 		t.Fatalf("Terminal command %q, want %q", cmd, want)
 	}
 	// The command reaches AppleScript as an argument, never inside the script text.
