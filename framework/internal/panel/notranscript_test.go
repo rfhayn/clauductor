@@ -144,6 +144,7 @@ var fileReadSites = map[string]int{
 	"registry.go":   1, // the lane registry
 	"trust.go":      1, // the trusted-config record
 	"lease.go":      4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
+	"singleton.go":  5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
 }
 
 func TestNoSourceReachesTranscriptsByJoinOrNewReadSite(t *testing.T) {

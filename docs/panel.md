@@ -49,6 +49,22 @@ clauductor panel uninstall                    # stop and remove the login agent
 The panel watches one project per run. Stop a hand-started panel with Ctrl-C. Stopping the
 panel never stops a lane: lanes belong to tmux.
 
+**One panel per machine, enforced.** The hook URL in `~/.claude/settings.json`, the files in
+`~/.clauductor/panel/` (`port`, `pid`, `owner.json`, `token`) and the launchd label are all
+per-machine, so a second panel (say `--port 4394` for another project) would re-point every
+session's hooks at itself. A running panel therefore holds `flock(2)` on
+`~/.clauductor/panel/lock` for its whole life; the kernel releases it on any exit, `SIGKILL`
+included, so it can never go stale. A panel refuses to start, and exits non-zero, while another
+process holds that lock, or while `~/.clauductor/panel/pid` names another **live** panel from
+before the lock. Of two panels started at the same instant, exactly one runs. The message names
+the running panel's project, pid and port. Live means: the pid is running, and its start time
+equals the one recorded in `owner.json` (a different start time is a reused pid, so the old record
+is stale and is taken over). A panel from before `owner.json` counts as live only if its port
+answers `/healthz` as that pid. If the login agent is the one refused (a hand-started panel holds
+the machine), it logs why once and exits 0, so launchd does not retry it every 30 s. Start it
+again with `launchctl kickstart gui/<uid>/com.clauductor.panel` once the other panel has stopped. Watching several projects from one panel, a multi-project
+daemon, is future work; until it lands, run one project's panel at a time.
+
 ## Configuration: `.clauductor/panel.json`
 
 The project keeps its config at `<project>/.clauductor/panel.json` (or pass `--config`). Unknown
@@ -148,8 +164,10 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
   with an empty type is an internal agent that never sent a start, and retires nothing. A session
   that `claude agents` reports idle for 10 s, or gone, has its running list cleared. The hook `Stop` clears nothing, because
   background agents outlive the turn.
-- **Right column.** *Needs you*: permission and idle-prompt notifications, and sessions that
-  `claude agents` reports as waiting, followed by the project's cards. *Open PRs*: from `gh`, with
+- **Right column.** *Needs you*: sessions blocked on you (a permission, elicitation or input
+  notification, or `claude agents` reporting them waiting), quota auto-resume warnings, and
+  stuck or restored template lanes, followed by the project's cards. See *Current or stale* below
+  for when an item is marked approximate. *Open PRs*: from `gh`, with
   "cannot read" on failure (never an empty list). *Feed*: the last events across all lanes.
 - **Red banner.** A lane is busy per `claude agents` and no hook has come from it since it went
   busy, for 60 s. Usually the session never loaded the hooks. Restart it. Also shown when `claude
@@ -239,8 +257,10 @@ when the panel's marker file exists, never waits (background, 0.5 s cap), and pr
 the status line is unaffected on a machine that has never run the panel:
 
 `~/.clauductor/panel/port` holds the port and nothing else, because scripts read it as digits.
-The panel's PID is in `~/.clauductor/panel/pid` beside it. Both are removed on a clean stop; a
-`pid` naming a process that is not running means the panel was killed and both files are stale.
+The panel's PID is in `~/.clauductor/panel/pid` beside it, and `owner.json` records its start
+time, project and port. All three are removed on a clean stop, but only while `pid` still names
+that panel: a panel never deletes another panel's files. A `pid` naming a process that is not
+running (or one with another start time) means the panel was killed and the files are stale.
 
 ```bash
 input=$(cat)
@@ -254,8 +274,8 @@ fi
 
 ## Hooks
 
-On every start, the panel merges one `type: "http"` hook per event into the **running user's**
-`~/.claude/settings.json`, and nowhere else:
+On every start, and again every 30 s while it runs, the panel merges one `type: "http"` hook per
+event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 
 ```json
 { "type": "http", "url": "http://127.0.0.1:4393/hook?src=clauductor-panel", "timeout": 1 }
@@ -278,6 +298,15 @@ for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`,
   are atomic (temp file + rename, in the same directory).
 - A symlinked `settings.json` (for example, one managed by a dotfiles repo) is followed: the
   panel edits the file it points at, and the link stays a link.
+- **Drift is repaired.** Every 30 s the running panel checks that its hooks are still there and
+  still point at its own port. If they were removed, or point at a port where no panel answers,
+  it reinstalls them and a warning bar says what it found, for 10 minutes. If they point at
+  another **live** panel (one its lock could not refuse, such as an older binary), it leaves them
+  alone and shows a red banner naming that panel's pid and port, so the two never fight over the
+  hooks. It takes them back at the first check after that panel stops. `--uninstall-hooks` while a panel runs says the panel will put them back.
+- **A failed install is not fatal.** If the install fails (for example, `settings.json` is not
+  valid JSON), the panel still serves, shows a red banner with the error, and retries after 1 s,
+  doubling up to 30 s. Under launchd a fatal error would restart the panel every 30 s instead.
 - The hooks stay installed when the panel stops. While it is down, the connection is refused
   at once and the session is never blocked. `clauductor panel --uninstall-hooks` removes them.
 
@@ -440,7 +469,7 @@ opens `http://127.0.0.1:<port>/` instead.
 `uninstall` removes:
 
 - the plist, the token and the copied binary;
-- the logs, `pid`, `port` and the browser-opened stamp;
+- the logs, `pid`, `port`, `owner.json` and the browser-opened stamp;
 - the app, but only if `install --app` made it;
 - every lane registry that lists no lanes.
 
@@ -475,7 +504,8 @@ send requests to `127.0.0.1`.
   either address, it **exits with an error** and never falls back to another port (the hooks
   post to a fixed URL, and `clauductor.localhost` would reach whatever holds `[::1]`). A machine
   with no IPv6 loopback at all is served on `127.0.0.1` only, and the log says so. A refused
-  start does not touch `settings.json` or the marker.
+  start (port taken, or another live panel on the machine) does not touch `settings.json` or the
+  marker.
 - **The address is `http://clauductor.localhost:<port>`.** macOS and every current browser
   resolve `*.localhost` to loopback with no system change (no `/etc/hosts` entry, no port 80).
   Cookies are per host, so the token exchange happens at that name.
@@ -565,7 +595,8 @@ send requests to `127.0.0.1`.
   authority, never a hand-kept list. It is re-read every 10 s, and early when a worktree is
   added or removed or when an event arrives from an unknown `cwd`.
 - **What the panel writes to disk:**
-  - the marker `~/.clauductor/panel/port` and `pid`, removed on SIGINT/SIGTERM;
+  - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
+    while they are still its own;
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
@@ -884,9 +915,31 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
 
+**Current or stale.** Whether a session is blocked on you is decided by ONE predicate, which
+*Needs you*, the waiting alert, the lane chip and the first-prompt decision all read, so they
+cannot disagree. A `claude agents` entry counts as a **current reading** only while the last poll
+succeeded within two poll intervals. A prompt answered in the terminal fires no hook, so only a
+current reading can say it was answered. "Recently" allows for the poll itself: two intervals plus
+the slowest recent poll (the filter cross-check included), so a `claude agents` slower than its
+interval never reads as stale between two good polls. An item is marked **stale/approx** (in its
+label, and as `approx` in `/api/state`) when:
+
+- the last reading said waiting, but the poll has since failed or stopped arriving;
+- a hook says the session waits and no current reading confirms it (never polled, not listed,
+  or listed as idle).
+
+An approximate item is shown and never raises a macOS notification. It also keeps the mark of a
+notification already sent, so a poll that flickers stale and back does not notify twice. The lane
+card, the lane's status chip, the sessions table and the terminal tab show an approximate status
+with a leading `≈`. A failing poll no longer keeps sessions forever: one silent for 30 minutes
+(no hook, no status line, no current reading) is forgotten either way. The exception is a session
+with an open permission, elicitation or input prompt: while polls fail, nothing can say it was
+answered, so it stays in *Needs you*, marked approximate, until a poll works again.
+
 Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
 goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.
-Idle, context, quota and stop-failure alerts stay on the page. A notification goes out:
+Idle, context, quota and stop-failure alerts stay on the page, and so does any alert marked
+approximate. A notification goes out:
 
 - once per stretch: an alert that clears and comes back notifies again. What was notified, and
   when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a

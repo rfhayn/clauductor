@@ -172,27 +172,18 @@ func (m *Model) QuotaGuard(now time.Time) string {
 }
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.
-func (m *Model) needsFor(v *View, wt Worktree, name, term string, s *session, st string) {
-	added := false
+// Whether it is blocked comes from blocked, the predicate the waiting alert reads.
+func (m *Model) needsFor(v *View, wt Worktree, name, term string, s *session, st string, now time.Time) {
+	if b, ok := m.blocked(s, now); ok {
+		v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: b.Kind,
+			Label: approxLabel(b.Label, b), Severity: b.Severity, Text: b.Text, At: ms(b.Since), Terminal: term, Approx: b.Approx})
+	}
+	// A note that needs you without blocking (quota auto-resume will not fire).
 	if s.Note != nil {
-		if k := ClassifyNotification(s.Note.Type); k.NeedsYou {
+		if k := ClassifyNotification(s.Note.Type); k.NeedsYou && !k.Waiting {
 			v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: s.Note.Type,
 				Label: k.Label, Severity: k.Severity, Text: s.Note.Message, At: ms(s.Note.At), Terminal: term})
-			added = true
 		}
-	}
-	if !added && st == "waiting" && s.Agent != nil {
-		text := s.Agent.WaitingFor
-		if text == "" {
-			text = "waiting for input"
-		}
-		label := map[string]string{"permission": "Permission", "input": "Input needed", "sandbox": "Sandbox request",
-			"worker": "Worker request", "dialog": "Dialog open"}[waitingForKind(text)]
-		if label == "" {
-			label = "Waiting"
-		}
-		v.NeedsYou = append(v.NeedsYou, NeedView{Lane: wt.Path, Name: name, Session: s.ID, Kind: "waiting",
-			Label: label, Severity: SevBlock, Text: oneLine(text), At: ms(s.WaitingSince), Terminal: term})
 	}
 	if s.Done != nil && st != "busy" && st != "waiting" {
 		k := ClassifyNotification(s.Done.Type)
@@ -283,7 +274,11 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 			Since: time.UnixMilli(rec.ActionAt), PromptAt: time.UnixMilli(rec.PromptAt), PollFresh: m.agentsFresh(now)}
 		if s := m.sessions[rec.SessionID]; s != nil {
 			in.Prompted = s.LastPromptAt
-			in.WaitingNote = s.Note != nil && ClassifyNotification(s.Note.Type).Waiting
+			// The same predicate as Needs you: never type into a session that may be
+			// waiting on a dialog, however that is known.
+			_, in.WaitingNote = m.blocked(s, now)
+			// The last listing, current or not: PollFresh says which, and a stale
+			// "idle" waits for a fresh poll rather than being typed into.
 			if s.Agent != nil {
 				in.Listed, in.Status, in.WaitingFor = true, s.Agent.Status, s.Agent.WaitingFor
 			}
@@ -293,14 +288,16 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 	return out
 }
 
-// agentsFresh: the last `claude agents` poll succeeded within two poll intervals,
-// so "idle" is a current reading, not the last word of a poll that has since failed.
+// agentsFresh: the last `claude agents` poll succeeded recently enough that its
+// reading is current, not the last word of a poll that has since failed or stopped.
+// The loop sleeps at most agentsSlow between iterations, and an iteration takes its
+// own wall time (the filter cross-check included), so the next success can land an
+// interval plus that long after the last: the window is two slow intervals plus the
+// slowest recent iteration. Measured from the finish, a poll slower than the
+// interval would otherwise read as stale between two good polls.
 func (m *Model) agentsFresh(now time.Time) bool {
-	iv := time.Duration(m.v2.obs.AgentsInterval) * time.Millisecond
-	if iv < agentsFast {
-		iv = agentsSlow // not measured yet: allow the slow interval
-	}
-	return m.agentsSrc.OK && m.agentsSrc.At > 0 && now.Sub(time.UnixMilli(m.agentsSrc.At)) <= 2*iv
+	window := 2*agentsSlow + m.slowestRecentPoll()
+	return m.agentsSrc.OK && !m.agentsOKAt.IsZero() && now.Sub(m.agentsOKAt) <= window
 }
 
 // restoredPending reports whether a restored lane still waits for you: it was
@@ -332,6 +329,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	v.Trust = m.v2.trust
 	v.Restorable = []string{}
 	v.Warnings = []string{}
+	m.hookBanners(v, now)
 	if v.Done == nil {
 		v.Done = []NeedView{}
 	}

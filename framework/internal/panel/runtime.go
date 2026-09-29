@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +96,13 @@ type Options struct {
 	// LockRunArgv overrides the lock-run command a queue RUN starts (default: this
 	// binary's `lock-run`).
 	LockRunArgv []string
+
+	// PANEL-5.
+	// HookCheckInterval overrides how often the hooks are verified (default 30 s).
+	HookCheckInterval time.Duration
+	// HookRetryBase overrides the first retry delay after a failed hook install
+	// (default 1 s, doubling to HookCheckInterval).
+	HookRetryBase time.Duration
 }
 
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
@@ -144,6 +150,28 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("%s: %w", root, err)
 	}
 
+	// One panel per machine (singleton.go): refuse before touching the port, the
+	// hooks or the marker files, so a refused start changes nothing. The machine
+	// lock comes first, so two panels started at the same instant cannot both pass;
+	// the pid-file check then catches a panel from before the lock.
+	lock, err := lockMachine(o.Home)
+	if err == nil {
+		defer lock.Close()
+		if other := RunningPanel(ctx, o.Home, os.Getpid(), LiveProc); other != nil {
+			err = &OtherPanelError{Owner: *other}
+		}
+	}
+	var refused *OtherPanelError
+	if errors.As(err, &refused) && o.Launchd {
+		// KeepAlive restarts the agent only after a non-zero exit: exit 0, so launchd
+		// does not retry every 30 s, and say why once.
+		fmt.Fprintf(o.Out, "not starting: %v\n", err)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
 	ln, ln6, v6why, err := ListenLoopback(o.Port)
 	if err != nil {
 		return err
@@ -156,33 +184,16 @@ func Run(ctx context.Context, o Options) error {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	// Install hooks only once the port is ours, so a refused second launch never
-	// rewrites settings.json.
-	changed, err := InstallHooks(o.Home, port)
-	if err != nil {
-		return fmt.Errorf("installing hooks: %w", err)
-	}
-	if changed {
-		fmt.Fprintf(o.Out, "Installed panel hooks in %s (pre-panel backup: settings.json.clauductor-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", SettingsPath(o.Home))
-	} else {
-		fmt.Fprintf(o.Out, "Panel hooks already present in %s.\n", SettingsPath(o.Home))
-	}
 	marker := MarkerPath(o.Home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+	// The PID and owner record sit beside the marker, not in it: status-line scripts
+	// read `port` as digits only. A PID that is not running (or runs with another
+	// start time) marks the files stale; SIGKILL skips the removal at exit, which
+	// takes them only while they are still this panel's.
+	if err := claimPanelFiles(o.Home, PanelOwner{PID: os.Getpid(), PStart: ProcStart(os.Getpid()), Project: root,
+		Name: cfg.Name, Port: port, Started: time.Now().Unix()}); err != nil {
 		return err
 	}
-	if err := os.WriteFile(marker, []byte(strconv.Itoa(port)+"\n"), 0o600); err != nil {
-		return err
-	}
-	defer os.Remove(marker)
-	// The PID sits beside the marker, not in it: status-line scripts read `port` as
-	// digits only. A PID that is not running marks both files stale (SIGKILL skips
-	// the deferred removal).
-	pidFile := filepath.Join(filepath.Dir(marker), "pid")
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
-		return err
-	}
-	defer os.Remove(pidFile)
+	defer releasePanelFiles(o.Home, os.Getpid())
 
 	var token string
 	if o.Launchd {
@@ -205,6 +216,18 @@ func Run(ctx context.Context, o Options) error {
 	hub := NewHub(model, time.Now)
 	hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 
+	// Install hooks only once the port is ours, so a refused second launch never
+	// rewrites settings.json. A failed install is a banner and a retry, not a fatal
+	// error; after that, every interval re-checks that they still point here.
+	keeper := &hookKeeper{home: o.Home, port: port, hub: hub, out: o.Out, interval: o.HookCheckInterval, retryBase: o.HookRetryBase}
+	if keeper.interval <= 0 {
+		keeper.interval = 30 * time.Second
+	}
+	if keeper.retryBase <= 0 {
+		keeper.retryBase = time.Second
+	}
+	hooksOK := keeper.check()
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	p := &pollers{hub: hub, run: o.Runner, root: root, cfg: cfg,
@@ -224,6 +247,7 @@ func Run(ctx context.Context, o Options) error {
 	start(func() { p.agentsLoop(ctx) })
 	start(func() { p.prLoop(ctx) })
 	start(func() { p.tmuxLoop(ctx, lanes, lanesWhy) })
+	start(func() { keeper.loop(ctx, hooksOK) })
 	if lanes != nil {
 		lanes.Changed = func() { kick(p.kickTmux); p.kickWorktrees(); kick(p.kickAgents) }
 	}
