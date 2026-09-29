@@ -74,13 +74,27 @@ const foreignSettings = `{
 }
 `
 
+// topKeys reads key order with encoding/json's tokenizer, independently of the
+// orderedObject under test (reading with it would let a reversal cancel itself out).
 func topKeys(t *testing.T, b []byte) []string {
 	t.Helper()
-	o := &orderedObject{}
-	if err := o.UnmarshalJSON(b); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if _, err := dec.Token(); err != nil {
 		t.Fatal(err)
 	}
-	return o.keys
+	var keys []string
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, k.(string))
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return keys
 }
 
 func TestInstallOnFreshHome(t *testing.T) {

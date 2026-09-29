@@ -163,7 +163,11 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 	}
 	defer busy.Close()
 	port := busy.Addr().(*net.TCPAddr).Port
-	err = Run(context.Background(), Options{Project: root, Port: port, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	// A bounded context: if a regression made Run fall back to another port it would
+	// serve instead of failing, and this test must fail rather than hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err = Run(ctx, Options{Project: root, Port: port, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("want a port-in-use error, got %v", err)
 	}
