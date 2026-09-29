@@ -93,6 +93,13 @@ var (
 	// characters real values use ("opus", "claude-opus-4-5[1m]", "high").
 	LaunchOptRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`)
 	baseRe      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`)
+	// nameRe: a name starts, after any spaces, with a character that is neither
+	// white space nor "-", so it is never blank and never read as an option. The
+	// class is spelt out: Go's and ECMAScript's \s differ, and the schema carries it.
+	nameRe = regexp.MustCompile(`^ *[^ \t\n\f\r\v-]`)
+	// refreshRe is the shape of a card refresh rule; ParseRefresh adds what a
+	// pattern cannot say (the watch path stays inside the project).
+	refreshRe = regexp.MustCompile(`^(watch:.+|interval:0*[1-9][0-9]*)$`)
 )
 
 // Socket returns the tmux socket name, defaulted.
@@ -253,7 +260,7 @@ func ParseConfig(raw []byte) (*Config, error) { return parseConfig(raw) }
 
 // Validate checks the config's invariants.
 func (c *Config) Validate() error {
-	if strings.TrimSpace(c.Name) == "" {
+	if c.Name == "" {
 		return fmt.Errorf("panel config: name is required")
 	}
 	// The name reaches OS notification titles and the page: one line of plain text,
@@ -261,8 +268,8 @@ func (c *Config) Validate() error {
 	if err := TypableText(c.Name, 80); err != nil {
 		return fmt.Errorf("panel config: name %w", err)
 	}
-	if strings.HasPrefix(strings.TrimSpace(c.Name), "-") {
-		return fmt.Errorf("panel config: name must not start with \"-\"")
+	if !nameRe.MatchString(c.Name) {
+		return fmt.Errorf("panel config: name must not be blank or start with \"-\" (it must match %s)", nameRe)
 	}
 	for k, v := range c.Lanes {
 		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
@@ -312,6 +319,9 @@ func (c *Config) Validate() error {
 
 // ParseRefresh parses a card refresh rule.
 func ParseRefresh(s string) (RefreshRule, error) {
+	if !refreshRe.MatchString(s) {
+		return RefreshRule{}, fmt.Errorf("refresh %q: want \"watch:<relpath>\" or \"interval:<seconds>\" (a positive whole number); it must match %s", s, refreshRe)
+	}
 	switch {
 	case strings.HasPrefix(s, "watch:"):
 		rel := strings.TrimPrefix(s, "watch:")

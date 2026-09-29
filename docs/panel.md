@@ -157,7 +157,9 @@ earlier one. The **Since** column of the key table says which is which:
 [`docs/panel.schema.json`](panel.schema.json) is the config as a JSON Schema (draft 2020-12):
 every key, its type, the validators' own patterns, the defaults, and the version gate. `init`
 writes it as `"$schema"`, so an editor that reads `$schema` (VS Code does) validates the file as
-you type. The panel ignores the key.
+you type. The panel ignores the key. The URL names the `main` branch, so it is the schema of the
+newest panel: the repository has no release tags yet to pin it to. A key your editor flags that
+your panel accepts (or the reverse) means the two differ in version.
 
 The schema and the key table below are **generated** from the Go config types
 (`framework/internal/panel/config`, `Fields`): `go generate ./internal/panel/config` in
@@ -202,13 +204,13 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
 | `version` | integer: 1 or 2 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
-| `name` | string, **required** |  | 1 | Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not starting with `-`. |
+| `name` | string, **required** |  | 1 | Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the right column (see *Card output*). |
 | `cards[].id` | string, **required** |  | 1 | Unique among the cards. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `cards[].title` | string |  | 1 | The card's heading. |
 | `cards[].command` | array of strings, **required** |  | 1 | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
-| `cards[].refresh` | string, **required** |  | 1 | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. |
+| `cards[].refresh` | string, **required** |  | 1 | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
 | `tmux_socket` | string | `"clauductor"` | 1 | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. Matches `^[A-Za-z0-9_-]{1,64}$`. |
 | `worktree_dir` | string | `".claude/worktrees"` | 1 | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
 | `base` | string | `"origin/main"` | 1 | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. Matches `^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`. |

@@ -51,8 +51,8 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		{"no cookie", ws(reqOptList{origin, ticket("a")}), "/ws/term?lane=a", 401, "unauthorized"},
 		{"wrong cookie", ws(reqOptList{origin, ticket("a"), withHeader("Cookie", s.cookieName()+"=nope")}), "/ws/term?lane=a", 401, "unauthorized"},
 		{"foreign origin", ws(reqOptList{withCookie(s), ticket("a"), withHeader("Origin", "http://evil.example")}), "/ws/term?lane=a", 403, "forbidden origin"},
-		// The dev app on :3100 is same-site: the browser sends it the panel's cookie.
-		{"a page on :3100", ws(reqOptList{withCookie(s), ticket("a"), withHeader("Origin", "http://127.0.0.1:3100")}), "/ws/term?lane=a", 403, "forbidden origin"},
+		// The dev app on :3000 is same-site: the browser sends it the panel's cookie.
+		{"a page on :3000", ws(reqOptList{withCookie(s), ticket("a"), withHeader("Origin", "http://127.0.0.1:3000")}), "/ws/term?lane=a", 403, "forbidden origin"},
 		{"https origin", ws(reqOptList{withCookie(s), ticket("a"), withHeader("Origin", "https://127.0.0.1:4393")}), "/ws/term?lane=a", 403, "forbidden origin"},
 		{"origin spelled differently from Host", ws(reqOptList{withCookie(s), ticket("a"), withHeader("Origin", "http://localhost:4393")}), "/ws/term?lane=a", 403, "forbidden origin"},
 		{"no origin", ws(reqOptList{withCookie(s), ticket("a")}), "/ws/term?lane=a", 403, "forbidden origin"},
@@ -82,9 +82,9 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		withHeader("Sec-WebSocket-Protocol", ticketPrefix+expired)})...); w.Code != 401 {
 		t.Errorf("expired ticket: got %d %q, want 401", w.Code, w.Body.String())
 	}
-	// A page on :3100 cannot get a ticket either: the ticket POST checks Origin.
-	if w := do(s, "POST", "/api/lanes/a/ticket", "", withCookie(s), withHeader("Origin", "http://127.0.0.1:3100")); w.Code != 403 {
-		t.Fatalf("ticket for a :3100 page: %d", w.Code)
+	// A page on :3000 cannot get a ticket either: the ticket POST checks Origin.
+	if w := do(s, "POST", "/api/lanes/a/ticket", "", withCookie(s), withHeader("Origin", "http://127.0.0.1:3000")); w.Code != 403 {
+		t.Fatalf("ticket for a :3000 page: %d", w.Code)
 	}
 	if w := do(s, "POST", "/api/lanes/a/ticket", "", origin); w.Code != 401 {
 		t.Fatalf("ticket without the cookie: %d", w.Code)

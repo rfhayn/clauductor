@@ -87,8 +87,13 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 	if len(s.Required) != 1 || s.Required[0] != "name" {
 		t.Errorf("required %v", s.Required)
 	}
-	if !strings.Contains(string(s.Properties["tmux_socket"]), jsonQuote(SocketNameRe.String())) {
-		t.Errorf("tmux_socket does not carry the validator's pattern: %s", s.Properties["tmux_socket"])
+	for key, re := range map[string]string{"tmux_socket": SocketNameRe.String(), "name": nameRe.String()} {
+		if !strings.Contains(string(s.Properties[key]), `"pattern": "`+jsonQuote(re)+`"`) {
+			t.Errorf("%s does not carry the validator's pattern %s: %s", key, re, s.Properties[key])
+		}
+	}
+	if !strings.Contains(string(s.Properties["cards"]), `"pattern": "`+jsonQuote(refreshRe.String())+`"`) {
+		t.Errorf("cards[].refresh does not carry the validator's pattern %s", refreshRe)
 	}
 	if len(s.AllOf) != 1 || s.AllOf[0].If.Properties.Version.Const != 1 {
 		t.Fatalf("version gate %+v", s.AllOf)

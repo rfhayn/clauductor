@@ -25,6 +25,8 @@ const (
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
 // `clauductor panel init` writes it as "$schema" so editors validate the file.
+// The repository has no release tags yet, so it names main: the schema of the
+// newest panel. Pin it to a tag's path once releases are tagged.
 const SchemaURL = "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json"
 
 // Field documents one key of panel.json. Fields is the ONE table of them: the version
@@ -62,8 +64,8 @@ var Fields = []Field{
 		Doc:    "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
 		Schema: map[string]any{"enum": []int{1, 2}}},
 	{Path: "name", Version: 1, Type: "string", Required: true,
-		Doc:    "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not starting with `-`.",
-		Schema: map[string]any{"minLength": 1, "maxLength": 80, "pattern": `^\s*[^\s-]`}},
+		Doc:   "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
+		Match: nameRe, Schema: map[string]any{"minLength": 1, "maxLength": 80}},
 	{Path: "lanes", Version: 1, Type: "object: branch rule → lane type",
 		Doc:    "A rule ending in `/` is a prefix (`\"feature/\"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`\"feature/spike-*\"`). Any other rule matches one branch exactly (`\"main\"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`.",
 		Schema: map[string]any{"propertyNames": map[string]any{"minLength": 1, "pattern": `\S`}, "additionalProperties": map[string]any{"type": "string", "minLength": 1, "pattern": `\S`}}},
@@ -77,8 +79,8 @@ var Fields = []Field{
 		Doc:    "argv, run in the project root **without a shell**. Use `[\"sh\", \"-c\", \"...\"]` if you want one. 30-second timeout.",
 		Schema: map[string]any{"minItems": 1}},
 	{Path: "cards[].refresh", Version: 1, Type: "string", Required: true,
-		Doc:    "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
-		Schema: map[string]any{"pattern": `^(watch:.+|interval:[1-9][0-9]*)$`}},
+		Doc:   "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
+		Match: refreshRe},
 	{Path: "tmux_socket", Version: 1, Type: "string", Default: DefaultTmuxSocket,
 		Doc: "The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions.", Match: SocketNameRe},
 	{Path: "worktree_dir", Version: 1, Type: "string", Default: DefaultWorktreeDir,

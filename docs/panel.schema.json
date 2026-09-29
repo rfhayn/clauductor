@@ -99,7 +99,7 @@
           },
           "refresh": {
             "description": "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
-            "pattern": "^(watch:.+|interval:[1-9][0-9]*)$",
+            "pattern": "^(watch:.+|interval:0*[1-9][0-9]*)$",
             "type": "string"
           },
           "title": {
@@ -162,10 +162,10 @@
       "type": "object"
     },
     "name": {
-      "description": "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not starting with `-`.",
+      "description": "Shown in the top bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
       "maxLength": 80,
       "minLength": 1,
-      "pattern": "^\\s*[^\\s-]",
+      "pattern": "^ *[^ \\t\\n\\f\\r\\v-]",
       "type": "string"
     },
     "queues": {
