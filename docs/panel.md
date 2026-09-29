@@ -52,13 +52,17 @@ panel never stops a lane: lanes belong to tmux.
 **One panel per machine, enforced.** The hook URL in `~/.claude/settings.json`, the files in
 `~/.clauductor/panel/` (`port`, `pid`, `owner.json`, `token`) and the launchd label are all
 per-machine, so a second panel (say `--port 4394` for another project) would re-point every
-session's hooks at itself. A panel therefore refuses to start, and exits non-zero, while
-`~/.clauductor/panel/pid` names another **live** panel. The message names that panel's project,
-pid and port. Live means: the pid is running, and its start time equals the one recorded in
-`owner.json` (a different start time is a reused pid, so the old record is stale and is taken
-over). A panel from before `owner.json` counts as live only if its port answers `/healthz` as that
-pid. If the login agent is the one refused (a hand-started panel holds the machine), launchd
-retries it every 30 s until that panel stops. Watching several projects from one panel, a multi-project
+session's hooks at itself. A running panel therefore holds `flock(2)` on
+`~/.clauductor/panel/lock` for its whole life; the kernel releases it on any exit, `SIGKILL`
+included, so it can never go stale. A panel refuses to start, and exits non-zero, while another
+process holds that lock, or while `~/.clauductor/panel/pid` names another **live** panel from
+before the lock. Of two panels started at the same instant, exactly one runs. The message names
+the running panel's project, pid and port. Live means: the pid is running, and its start time
+equals the one recorded in `owner.json` (a different start time is a reused pid, so the old record
+is stale and is taken over). A panel from before `owner.json` counts as live only if its port
+answers `/healthz` as that pid. If the login agent is the one refused (a hand-started panel holds
+the machine), it logs why once and exits 0, so launchd does not retry it every 30 s. Start it
+again with `launchctl kickstart gui/<uid>/com.clauductor.panel` once the other panel has stopped. Watching several projects from one panel, a multi-project
 daemon, is future work; until it lands, run one project's panel at a time.
 
 ## Configuration: `.clauductor/panel.json`
@@ -295,9 +299,11 @@ for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`,
 - A symlinked `settings.json` (for example, one managed by a dotfiles repo) is followed: the
   panel edits the file it points at, and the link stays a link.
 - **Drift is repaired.** Every 30 s the running panel checks that its hooks are still there and
-  still point at its own port. If something re-pointed them (an older panel binary, which cannot
-  be refused) or removed them, it reinstalls them and a warning bar says what it found, for 10
-  minutes. `--uninstall-hooks` while a panel runs says the panel will put them back.
+  still point at its own port. If they were removed, or point at a port where no panel answers,
+  it reinstalls them and a warning bar says what it found, for 10 minutes. If they point at
+  another **live** panel (one its lock could not refuse, such as an older binary), it leaves them
+  alone and shows a red banner naming that panel's pid and port, so the two never fight over the
+  hooks. It takes them back at the first check after that panel stops. `--uninstall-hooks` while a panel runs says the panel will put them back.
 - **A failed install is not fatal.** If the install fails (for example, `settings.json` is not
   valid JSON), the panel still serves, shows a red banner with the error, and retries after 1 s,
   doubling up to 30 s. Under launchd a fatal error would restart the panel every 30 s instead.
@@ -913,17 +919,22 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 *Needs you*, the waiting alert, the lane chip and the first-prompt decision all read, so they
 cannot disagree. A `claude agents` entry counts as a **current reading** only while the last poll
 succeeded within two poll intervals. A prompt answered in the terminal fires no hook, so only a
-current reading can say it was answered. An item is marked **stale/approx** (in its label, and as
-`approx` in `/api/state`) when:
+current reading can say it was answered. "Recently" allows for the poll itself: two intervals plus
+the slowest recent poll (the filter cross-check included), so a `claude agents` slower than its
+interval never reads as stale between two good polls. An item is marked **stale/approx** (in its
+label, and as `approx` in `/api/state`) when:
 
 - the last reading said waiting, but the poll has since failed or stopped arriving;
 - a hook says the session waits and no current reading confirms it (never polled, not listed,
   or listed as idle).
 
 An approximate item is shown and never raises a macOS notification. It also keeps the mark of a
-notification already sent, so a poll that flickers stale and back does not notify twice. A
-failing poll no longer keeps sessions forever: one silent for 30 minutes (no hook, no status
-line, no current reading) is forgotten either way.
+notification already sent, so a poll that flickers stale and back does not notify twice. The lane
+card, the lane's status chip, the sessions table and the terminal tab show an approximate status
+with a leading `≈`. A failing poll no longer keeps sessions forever: one silent for 30 minutes
+(no hook, no status line, no current reading) is forgotten either way. The exception is a session
+with an open permission, elicitation or input prompt: while polls fail, nothing can say it was
+answered, so it stays in *Needs you*, marked approximate, until a poll works again.
 
 Each shows in the **Alerts** panel. Only what blocks you **interrupts**: a macOS notification
 goes out for a new `block` alert (waiting, rate_limit, quota at 100%) and for `no_auto_resume`.

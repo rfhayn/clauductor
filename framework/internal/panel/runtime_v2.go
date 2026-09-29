@@ -248,6 +248,7 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 	var lastCheck time.Time
 	for {
 		now := time.Now()
+		iterStart := now
 		var wts []Worktree
 		x.hub.Read(func(m *Model, _ time.Time) { wts = m.Worktrees() })
 		if lastCheck.IsZero() || now.Sub(lastCheck) >= filterRecheck {
@@ -274,7 +275,8 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 				_, _ = x.p.registry.MarkConversation(agents[i].SessionID)
 			}
 		}
-		x.hub.Update(func(m *Model, now time.Time) { m.ApplyAgents(agents, err, now) })
+		iter := time.Since(iterStart) // the filter cross-check included: agentsFresh allows for it
+		x.hub.Update(func(m *Model, now time.Time) { m.ApplyAgentsTimed(agents, err, iter, now) })
 		interval := AgentsInterval(time.Unix(0, x.lastHook.Load()), time.Now())
 		x.mu.Lock()
 		x.obs.AgentsPolls++

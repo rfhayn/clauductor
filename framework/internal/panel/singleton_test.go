@@ -9,9 +9,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -278,4 +281,199 @@ func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
 	waitFor(t, "the retry installs the hooks and clears the banner", func() bool {
 		return ourHooks(t, home)["Stop"] == 1 && !hasBanner(c.state(t))
 	})
+}
+
+// Review round (PANEL-5), end to end: a `claude agents` slower than the poll
+// interval (2 s while no hooks flow) must never make a current reading flicker to
+// stale between two good polls.
+func TestSlowAgentsPollNeverFlickersStale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs the panel for ~20 s")
+	}
+	root, home := setupProject(t)
+	base := fakeRunner(root)
+	slow := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		if len(argv) >= 2 && argv[0] == "claude" && argv[1] == "agents" {
+			select {
+			case <-time.After(2500 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return []byte(fmt.Sprintf(`[{"pid":1,"cwd":%q,"kind":"interactive","sessionId":"s1","status":"waiting","waitingFor":"permission prompt"}]`, root)), nil
+		}
+		return base(ctx, dir, argv)
+	}
+	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: slow})
+	defer stop()
+	deadline := time.Now().Add(25 * time.Second)
+	var first time.Time
+	for time.Now().Before(deadline) {
+		v := c.state(t)
+		for _, n := range v.NeedsYou {
+			if n.Session != "s1" {
+				continue
+			}
+			if first.IsZero() {
+				first = time.Now()
+			} else if n.Approx {
+				t.Fatalf("%s after the first good poll, a current reading read as stale: %+v", time.Since(first), n)
+			}
+		}
+		if !first.IsZero() && time.Since(first) > 10*time.Second {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if first.IsZero() {
+		t.Fatal("the slow poll never produced a Needs-you item")
+	}
+}
+
+// TestHelperPanelProcess is not a test: TestTwoPanelsStartedTogether runs this test
+// binary as a separate panel process through it.
+func TestHelperPanelProcess(t *testing.T) {
+	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") != "1" {
+		t.Skip("helper process for TestTwoPanelsStartedTogether")
+	}
+	root, home := os.Getenv("HELPER_ROOT"), os.Getenv("HELPER_HOME")
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer cancel()
+	err := Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root), Out: os.Stdout,
+		TmuxSocket: "clauductor-test-no-server", OnReady: func(string) { fmt.Println("READY") }})
+	if err != nil {
+		fmt.Println("REFUSED:", err)
+		os.Exit(3)
+	}
+	os.Exit(0)
+}
+
+// Review round (PANEL-5): two panels started at the same instant both passed the
+// pid-file check and fought over the hooks. The machine lock (flock, held for the
+// process lifetime) admits exactly one.
+func TestTwoPanelsStartedTogether(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts panel processes")
+	}
+	for round := 0; round < 3; round++ {
+		root, home := setupProject(t)
+		type proc struct {
+			cmd  *exec.Cmd
+			out  *strings.Builder
+			mu   *sync.Mutex
+			done chan error
+		}
+		var ps []*proc
+		for i := 0; i < 2; i++ {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperPanelProcess$")
+			cmd.Env = append(os.Environ(), "CLAUDUCTOR_PANEL_HELPER=1", "HELPER_ROOT="+root, "HELPER_HOME="+home)
+			p := &proc{cmd: cmd, out: &strings.Builder{}, mu: &sync.Mutex{}, done: make(chan error, 1)}
+			cmd.Stdout = &syncWriter{w: p.out, mu: p.mu}
+			cmd.Stderr = cmd.Stdout
+			ps = append(ps, p)
+		}
+		for _, p := range ps {
+			if err := p.cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, p := range ps {
+			p := p
+			go func() { p.done <- p.cmd.Wait() }()
+		}
+		time.Sleep(4 * time.Second)
+		var alive, refused []*proc
+		for _, p := range ps {
+			select {
+			case err := <-p.done:
+				p.mu.Lock()
+				out := p.out.String()
+				p.mu.Unlock()
+				if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 3 || !strings.Contains(out, "another clauductor panel is running") {
+					t.Fatalf("round %d: a panel exited without a refusal (%v):\n%s", round, err, out)
+				}
+				refused = append(refused, p)
+			default:
+				alive = append(alive, p)
+			}
+		}
+		for _, p := range alive {
+			_ = p.cmd.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-p.done:
+			case <-time.After(5 * time.Second):
+				_ = p.cmd.Process.Kill()
+			}
+		}
+		if len(alive) != 1 || len(refused) != 1 {
+			var outs []string
+			for _, p := range ps {
+				p.mu.Lock()
+				outs = append(outs, p.out.String())
+				p.mu.Unlock()
+			}
+			t.Fatalf("round %d: %d panels ran and %d were refused; want exactly one of each:\n%s", round, len(alive), len(refused), strings.Join(outs, "\n---\n"))
+		}
+	}
+}
+
+// Review round (PANEL-5): when the hooks point at ANOTHER LIVE panel (one this
+// panel could not refuse, e.g. an older binary), the panel says so and leaves them
+// alone rather than fighting over them every 30 s. Once that panel is gone, the
+// next check repairs them.
+func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
+	root, home := setupProject(t)
+	port, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
+		HookCheckInterval: 100 * time.Millisecond})
+	defer stop()
+	otherPID := otherProcess(t)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "ok pid=%d\n", otherPID)
+	})}
+	go srv.Serve(ln)
+	otherPort := ln.Addr().(*net.TCPAddr).Port
+	if _, err := InstallHooks(home, otherPort); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "a conflict banner naming the other panel", func() bool {
+		for _, b := range c.state(t).Banners {
+			if strings.Contains(b, "another live panel") && strings.Contains(b, strconv.Itoa(otherPID)) {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(500 * time.Millisecond) // several checks
+	if s, _ := os.ReadFile(SettingsPath(home)); !strings.Contains(string(s), HookURL(otherPort)) || strings.Contains(string(s), HookURL(port)) {
+		t.Fatal("the panel re-pointed the hooks of another live panel")
+	}
+	srv.Close()
+	waitFor(t, "hooks repaired once the other panel is gone", func() bool {
+		s, _ := os.ReadFile(SettingsPath(home))
+		return strings.Contains(string(s), HookURL(port))
+	})
+}
+
+// Review round (PANEL-5): under launchd (KeepAlive SuccessfulExit=false) a refused
+// start exits 0, so launchd does not retry it every 30 s; it says why, once.
+func TestLaunchdRefusalExitsCleanly(t *testing.T) {
+	root, home := setupProject(t)
+	_, _, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	defer stop()
+	var out strings.Builder
+	var mu sync.Mutex
+	err := runBounded(t, Options{Project: root, Port: 0, Home: home, Launchd: true, Runner: fakeRunner(root),
+		Out: &syncWriter{w: &out, mu: &mu}, OpenBrowser: func(string) {}})
+	mu.Lock()
+	defer mu.Unlock()
+	if err != nil || !strings.Contains(out.String(), "another clauductor panel is running") {
+		t.Fatalf("a refused launchd start must exit 0 and log why: err %v, log:\n%s", err, out.String())
+	}
+	// A hand-started panel is still refused with an error (non-zero exit).
+	if err := runBounded(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)}); err == nil {
+		t.Fatal("a refused hand start returned no error")
+	}
 }

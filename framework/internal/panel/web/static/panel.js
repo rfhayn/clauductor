@@ -72,9 +72,15 @@ function gauge(id, v, expired) {
   f.className = "fill" + (v >= 90 ? " s" : v >= 70 ? " h" : "");
 }
 
+// APPROX marks a status that is not a current `claude agents` reading (a failed or
+// old poll, or hooks alone): shown, never trusted as current.
+const APPROX = "≈ ";
+const APPROX_TITLE = "approximate: not a current `claude agents` reading (the poll failed or is old, or only hooks know)";
+
 function laneStatusText(l) {
-  if (l.status === "waiting") return "waiting" + (l.waitingFor ? ": " + l.waitingFor : "");
-  let t = l.status === "none" ? "no session" : l.status;
+  const a = l.approx ? APPROX : "";
+  if (l.status === "waiting") return a + "waiting" + (l.waitingFor ? ": " + l.waitingFor : "");
+  let t = a + (l.status === "none" ? "no session" : l.status);
   if (l.subagents.length) t += " · " + l.subagents.length + " subagent" + (l.subagents.length > 1 ? "s" : "");
   if (l.sessions.length > 1) t += " · " + l.sessions.length + " sessions";
   return t;
@@ -87,7 +93,8 @@ function laneCard(l, quiet) {
   ]);
   if (!quiet) {
     c.appendChild(el("div", "row", null, [
-      el("span", "sub state" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l) + (l.stale ? " · no hooks" : "")),
+      Object.assign(el("span", "sub state" + (l.status === "waiting" ? " hold" : ""), laneStatusText(l) + (l.stale ? " · no hooks" : "")),
+        l.approx ? { title: APPROX_TITLE } : {}),
       el("span", "sub", "ctx " + pct(l.ctxPct)),
     ]));
     const bar = el("div", "ctx", null, [el("i")]);
@@ -372,14 +379,15 @@ function renderTerminals(lane) {
   add.disabled = !!S.startBlocked;
   add.title = S.startBlocked || "Start a lane: an interactive claude in its own tmux session";
 
-  const sig = JSON.stringify([ts.map((x) => [x.id, x.status, x.type, x.orphan]), selTerm]);
+  const sig = JSON.stringify([ts.map((x) => [x.id, x.status, x.type, x.orphan, x.approx]), selTerm]);
   if (sig !== tabSig) {
     tabSig = sig;
     const tabs = $("tabs");
     tabs.replaceChildren();
     for (const x of ts) {
       const tab = el("div", "tab" + (x.id === selTerm ? " sel" : ""), null, [el("span", "dot " + x.status), el("span", null, x.id), el("span", "dim", x.type || "")]);
-      tab.title = (x.branch || "") + " · " + x.path + " · " + x.status + (x.orphan ? " · " + x.orphan : "");
+      tab.title = (x.branch || "") + " · " + x.path + " · " + (x.approx ? APPROX : "") + x.status + (x.orphan ? " · " + x.orphan : "") +
+        (x.approx ? " · " + APPROX_TITLE : "");
       tab.addEventListener("click", () => selectTerm(x.id));
       pressable(tab, "terminal " + x.id + ", " + x.status);
       tab.dataset.fk = "tab:" + x.id;
@@ -777,7 +785,8 @@ function renderBody() {
     const chips = el("div", "chips", null, [
       el("span", "chip sig", lane.type),
       lane.terminal ? el("span", "chip", "tmux lane " + lane.terminal) : null,
-      el("span", "chip " + ({ busy: "go", waiting: "hold" }[lane.status] || ""), lane.status === "none" ? "no session" : lane.status),
+      Object.assign(el("span", "chip " + ({ busy: "go", waiting: "hold" }[lane.status] || ""),
+        (lane.approx ? APPROX : "") + (lane.status === "none" ? "no session" : lane.status)), lane.approx ? { title: APPROX_TITLE } : {}),
       el("span", "chip", "ctx " + pct(lane.ctxPct)),
       el("span", "chip", "last hook " + (lane.lastHookAt ? age(lane.lastHookAt) + " ago" : "never")),
     ]);
@@ -791,7 +800,7 @@ function renderBody() {
       for (const s of lane.sessions) {
         tb.appendChild(el("tr", null, null, [
           el("td", null, s.name || s.id.slice(0, 8)), el("td", null, s.pid ? String(s.pid) : "—"), el("td", null, s.kind || "hooks only"),
-          el("td", { busy: "go", waiting: "hold" }[s.status] || "", s.status + (s.waitingFor ? " · " + s.waitingFor : "") +
+          el("td", { busy: "go", waiting: "hold" }[s.status] || "", (s.approx ? APPROX : "") + s.status + (s.waitingFor ? " · " + s.waitingFor : "") +
             (s.compacting ? " · compacting (" + s.compacting + ")" : "") + (s.failure ? " · failed: " + s.failure : "") +
             (s.unknownNotification ? " · unknown notification " + s.unknownNotification : "") + (s.agentState ? " · " + s.agentState : "")),
           el("td", null, pct(s.ctxPct)), el("td", null, s.model || "—"),

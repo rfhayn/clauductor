@@ -151,9 +151,25 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	// One panel per machine (singleton.go): refuse before touching the port, the
-	// hooks or the marker files, so a refused start changes nothing.
-	if other := RunningPanel(ctx, o.Home, os.Getpid(), LiveProc); other != nil {
-		return errOtherPanel(other)
+	// hooks or the marker files, so a refused start changes nothing. The machine
+	// lock comes first, so two panels started at the same instant cannot both pass;
+	// the pid-file check then catches a panel from before the lock.
+	lock, err := lockMachine(o.Home)
+	if err == nil {
+		defer lock.Close()
+		if other := RunningPanel(ctx, o.Home, os.Getpid(), LiveProc); other != nil {
+			err = &OtherPanelError{Owner: *other}
+		}
+	}
+	var refused *OtherPanelError
+	if errors.As(err, &refused) && o.Launchd {
+		// KeepAlive restarts the agent only after a non-zero exit: exit 0, so launchd
+		// does not retry every 30 s, and say why once.
+		fmt.Fprintf(o.Out, "not starting: %v\n", err)
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 
 	ln, ln6, v6why, err := ListenLoopback(o.Port)

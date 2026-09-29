@@ -3,13 +3,16 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,9 +21,11 @@ import (
 // The hook URL in ~/.claude/settings.json, ~/.clauductor/panel/{port,pid,token} and
 // the launchd label are all per-machine. A second panel on another port would
 // silently re-point every session's hooks at itself, and its exit would delete the
-// first panel's marker. So a panel refuses to start while the pid file names another
-// LIVE panel, and removes the marker files at exit only while they are still its
-// own. Running several projects from one panel (a multi-project daemon) is future
+// first panel's marker. So a panel holds flock(2) on ~/.clauductor/panel/lock for
+// its whole life (the kernel drops it on any exit, SIGKILL included), refuses to
+// start while another process holds it or while the pid file names another LIVE
+// panel (one from before the lock), and removes the marker files at exit only while
+// they are still its own. Running several projects from one panel (a multi-project daemon) is future
 // work; until then, one project per machine at a time.
 
 // PanelOwner is ~/.clauductor/panel/owner.json: who holds the machine's panel files.
@@ -37,6 +42,44 @@ type PanelOwner struct {
 
 // OwnerPath is the running panel's owner record.
 func OwnerPath(home string) string { return filepath.Join(panelDir(home), "owner.json") }
+
+// LockPath is the machine lock a running panel holds with flock(2). The file itself
+// is never removed: a new inode would let a second panel lock it too.
+func LockPath(home string) string { return filepath.Join(panelDir(home), "lock") }
+
+// OtherPanelError is a start refused because another panel holds the machine.
+type OtherPanelError struct{ Owner PanelOwner }
+
+func (e *OtherPanelError) Error() string { return errOtherPanel(&e.Owner).Error() }
+
+// lockMachine takes the machine lock without waiting. It fails with an
+// *OtherPanelError naming the holder (as far as owner.json says) when another
+// panel holds it. The lock lasts until the returned file is closed or the process
+// exits, however it exits.
+func lockMachine(home string) (*os.File, error) {
+	if err := ensurePrivateDir(panelDir(home)); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(LockPath(home), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("locking %s: %w", LockPath(home), err)
+		}
+		var o PanelOwner
+		if b, rerr := os.ReadFile(OwnerPath(home)); rerr == nil {
+			_ = json.Unmarshal(b, &o)
+		}
+		if o.PID == 0 {
+			o.PID = readPIDFile(home)
+		}
+		return nil, &OtherPanelError{Owner: o}
+	}
+	return f, nil
+}
 
 func pidPath(home string) string { return filepath.Join(panelDir(home), "pid") }
 
@@ -93,7 +136,7 @@ func RunningPanel(ctx context.Context, home string, self int, proc ProcCheck) *P
 
 // errOtherPanel is the refusal: it names the running panel's project and pid.
 func errOtherPanel(o *PanelOwner) error {
-	what := "an older panel (its project is not recorded)"
+	what := "a panel whose project is not recorded (an older panel, or one still starting)"
 	if o.Project != "" {
 		what = o.Project
 		if o.Name != "" {
@@ -104,11 +147,15 @@ func errOtherPanel(o *PanelOwner) error {
 	if o.Port > 0 {
 		port = fmt.Sprintf(" on port %d", o.Port)
 	}
-	return fmt.Errorf("another clauductor panel is running on this machine: %s, pid %d%s. "+
+	pid := "pid unknown"
+	if o.PID > 0 {
+		pid = fmt.Sprintf("pid %d", o.PID)
+	}
+	return fmt.Errorf("another clauductor panel is running on this machine: %s, %s%s. "+
 		"There is one panel per machine: its hooks in ~/.claude/settings.json and the files in ~/.clauductor/panel/ "+
 		"are per-machine, so a second panel would re-point every session's hooks at itself. Stop that one first "+
 		"(Ctrl-C in its terminal, or `launchctl bootout %s/%s` for the login agent), or open it with `clauductor panel open`",
-		what, o.PID, port, guiDomain(), LaunchdLabel)
+		what, pid, port, guiDomain(), LaunchdLabel)
 }
 
 // claimPanelFiles records this process as the machine's panel: owner.json and pid,
@@ -140,15 +187,20 @@ func releasePanelFiles(home string, self int) {
 
 // ---- hook health ----
 
-// HookDrift describes how the hooks in settings.json differ from this panel's, or
-// "" when every subscribed event carries this panel's hook and no other panel's.
-func HookDrift(home string, port int) (string, error) {
+// hookDrift is how the hooks in settings.json differ from this panel's.
+type hookDrift struct {
+	Text  string // "" when every subscribed event carries this panel's hook and no other's
+	Ports []int  // the loopback ports other panel-tagged hooks point at
+}
+
+// readHookDrift compares the hooks in settings.json with this panel's.
+func readHookDrift(home string, port int) (hookDrift, error) {
 	b, err := os.ReadFile(SettingsPath(home))
 	if os.IsNotExist(err) {
-		return "they had been removed", nil
+		return hookDrift{Text: "they had been removed"}, nil
 	}
 	if err != nil {
-		return "", err
+		return hookDrift{}, err
 	}
 	var doc struct {
 		Hooks map[string][]struct {
@@ -156,7 +208,7 @@ func HookDrift(home string, port int) (string, error) {
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return "", fmt.Errorf("%s: %w", SettingsPath(home), err)
+		return hookDrift{}, fmt.Errorf("%s: %w", SettingsPath(home), err)
 	}
 	want := HookURL(port)
 	foreign := map[string]bool{}
@@ -183,40 +235,75 @@ func HookDrift(home string, port int) (string, error) {
 			missing = append(missing, ev)
 		}
 	}
+	var d hookDrift
 	switch {
 	case len(foreign) > 0:
 		urls := make([]string, 0, len(foreign))
 		for u := range foreign {
 			urls = append(urls, u)
+			if pu, err := url.Parse(u); err == nil {
+				if p, err := strconv.Atoi(pu.Port()); err == nil && p > 0 {
+					d.Ports = append(d.Ports, p)
+				}
+			}
 		}
 		sort.Strings(urls)
-		return "they pointed at " + strings.Join(urls, ", ") + ", another panel's address", nil
+		sort.Ints(d.Ports)
+		d.Text = "they pointed at " + strings.Join(urls, ", ") + ", another panel's address"
 	case len(missing) == len(HookEvents):
-		return "they had been removed", nil
+		d.Text = "they had been removed"
 	case len(missing) > 0:
-		return "missing for " + strings.Join(missing, ", "), nil
+		d.Text = "missing for " + strings.Join(missing, ", ")
 	}
-	return "", nil
+	return d, nil
+}
+
+// livePanelAt returns the pid of the panel answering /healthz on a loopback port,
+// or 0 when nothing (or something else) answers.
+func livePanelAt(ctx context.Context, port int) int {
+	got, err := healthz(ctx, "http://127.0.0.1:"+strconv.Itoa(port))
+	if err != nil || !strings.HasPrefix(got, "ok pid=") {
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimPrefix(got, "ok pid="))
+	return pid
 }
 
 // hookKeeper keeps this panel's hooks installed: at start, then every interval.
 // A failed install is a banner and a retry with backoff, never a fatal error (under
 // launchd a fatal error restarts the panel every 30 s).
 type hookKeeper struct {
-	home      string
-	port      int
-	hub       *Hub
-	out       io.Writer
-	interval  time.Duration
-	retryBase time.Duration
-	installed bool // an install has succeeded at least once
+	home       string
+	port       int
+	hub        *Hub
+	out        io.Writer
+	interval   time.Duration
+	retryBase  time.Duration
+	installed  bool // an install has succeeded at least once
+	conflicted bool // the last check found the hooks held by another live panel
 }
 
-// check installs (or verifies) the hooks once, and reports success.
+// check installs (or verifies) the hooks once, and reports success. Hooks that
+// point at another LIVE panel (one the machine lock could not refuse: an older
+// binary) are left alone and a banner says so; fighting over them every interval
+// would flap every session between two panels. Once that panel stops answering,
+// the next check takes them back.
 func (k *hookKeeper) check() bool {
+	d, _ := readHookDrift(k.home, k.port)
+	for _, p := range d.Ports {
+		if pid := livePanelAt(context.Background(), p); pid > 0 && pid != os.Getpid() {
+			k.hub.Update(func(m *Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
+			if !k.conflicted {
+				fmt.Fprintf(k.out, "the hooks point at another live panel (pid %d, port %d); leaving them alone until it stops\n", pid, p)
+			}
+			k.conflicted = true
+			return true
+		}
+	}
+	k.conflicted = false
 	drift := ""
 	if k.installed {
-		drift, _ = HookDrift(k.home, k.port)
+		drift = d.Text
 	}
 	changed, err := InstallHooks(k.home, k.port)
 	if err != nil {
@@ -275,6 +362,13 @@ type hookHealth struct {
 	err        string
 	repairedAt time.Time
 	drift      string
+	otherPID   int // the hooks point at this other live panel, and are left to it
+	otherPort  int
+}
+
+// ApplyHookConflict records that the hooks point at another live panel.
+func (m *Model) ApplyHookConflict(pid, port int, now time.Time) {
+	m.hooks.otherPID, m.hooks.otherPort = pid, port
 }
 
 // ApplyHookHealth records one hook check: an install error, or success (with what
@@ -285,6 +379,7 @@ func (m *Model) ApplyHookHealth(err error, repaired string, now time.Time) {
 		return
 	}
 	m.hooks.err = ""
+	m.hooks.otherPID, m.hooks.otherPort = 0, 0
 	if repaired != "" {
 		m.hooks.repairedAt, m.hooks.drift = now, repaired
 	}
@@ -293,6 +388,12 @@ func (m *Model) ApplyHookHealth(err error, repaired string, now time.Time) {
 // hookBanners adds the hook install's banner (it failed, so lanes are blind) or its
 // warning (it drifted and was repaired).
 func (m *Model) hookBanners(v *View, now time.Time) {
+	if m.hooks.otherPID > 0 {
+		v.Banners = append(v.Banners, fmt.Sprintf("The hooks in ~/.claude/settings.json point at another live panel (pid %d, port %d), "+
+			"so this panel gets no hook events. It leaves them alone rather than fight over them: there is one panel per machine. "+
+			"Stop one of the two; this panel takes the hooks back within 30 s of the other stopping.", m.hooks.otherPID, m.hooks.otherPort))
+		return
+	}
 	if m.hooks.err != "" {
 		v.Banners = append(v.Banners, "The panel's hooks could not be installed in ~/.claude/settings.json ("+m.hooks.err+
 			"). The panel keeps retrying; until it succeeds, lanes update only from `claude agents` polls.")

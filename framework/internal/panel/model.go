@@ -174,7 +174,9 @@ type Model struct {
 	worktrees    []Worktree
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
-	agentsOKAt   time.Time // the last `claude agents` poll that succeeded
+	agentsOKAt   time.Time        // the last `claude agents` poll that succeeded
+	agentsDurs   [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
+	agentsDurN   int
 	prs          []PR
 	prsSrc       SourceStatus
 	cards        []*CardState
@@ -706,6 +708,8 @@ type LaneView struct {
 	// SubagentsApprox: the subagent pairing heuristics were verified on another
 	// Claude Code version than the one running, so the list is approximate.
 	SubagentsApprox bool `json:"subagentsApprox,omitempty"`
+	// Approx: Status comes from a session whose status is not a current reading.
+	Approx bool `json:"approx,omitempty"`
 }
 
 // SessionView is one Claude session inside a lane.
@@ -836,8 +840,9 @@ func (m *Model) Snapshot(now time.Time) View {
 				sv.EstCostUSD = &c
 			}
 			lv.Sessions = append(lv.Sessions, sv)
-			if statusRank[st] > statusRank[lv.Status] {
-				lv.Status, lv.WaitingFor = st, wf
+			// On a tie, a current reading beats an approximate one.
+			if r, cur := statusRank[st], statusRank[lv.Status]; r > cur || (r == cur && lv.Approx && !approx) {
+				lv.Status, lv.WaitingFor, lv.Approx = st, wf, approx
 			}
 			if s.CtxPct != nil && (lv.CtxPct == nil || *s.CtxPct > *lv.CtxPct) {
 				lv.CtxPct = s.CtxPct
@@ -917,6 +922,8 @@ type TermLaneView struct {
 	Template    string `json:"template,omitempty"`
 	PromptState string `json:"promptState,omitempty"` // pending | typing | sent | delivered | skipped
 	PromptNote  string `json:"promptNote,omitempty"`
+	// Approx: Status is not a current `claude agents` reading (PANEL-5).
+	Approx bool `json:"approx,omitempty"`
 }
 
 // ApplyRegistryProblems records registry records that could not be shown at all.
@@ -964,7 +971,7 @@ func (m *Model) terminalViews(now time.Time) []TermLaneView {
 		if tl, ok := tmux[rec.ID]; ok {
 			tv.Running, tv.Attached, tv.Dead, tv.DeadStatus = true, tl.Attached, tl.Dead, tl.DeadStatus
 			if s := m.sessions[rec.SessionID]; s != nil {
-				tv.Status, tv.WaitingFor, _ = m.sessionStatus(s, now)
+				tv.Status, tv.WaitingFor, tv.Approx = m.sessionStatus(s, now)
 				tv.CtxPct = s.CtxPct
 			}
 			if tl.Dead {

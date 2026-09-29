@@ -141,10 +141,16 @@ func approxLabel(label string, b blockInfo) string {
 
 // forgetSessions drops sessions the panel has not heard from in forgetSessionAge:
 // no hook, no status line, and no `claude agents` reading that recent. It runs on
-// every poll, failed or not, so a failing poll never keeps a session forever.
+// every poll, failed or not, so a failing poll never keeps a session forever, except
+// one with an open waiting note, which only a working poll can clear.
 func (m *Model) forgetSessions(now time.Time) {
 	for id, s := range m.sessions {
 		if s.Agent != nil && now.Sub(m.agentsOKAt) <= forgetSessionAge {
+			continue
+		}
+		// While polls fail, nothing can say an open prompt was answered: a session
+		// with a waiting note stays in Needs you (marked approximate) until one can.
+		if !m.agentsSrc.OK && s.Note != nil && ClassifyNotification(s.Note.Type).Waiting {
 			continue
 		}
 		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
@@ -152,4 +158,31 @@ func (m *Model) forgetSessions(now time.Time) {
 			delete(m.costByID, id) // the est. $ sum covers tracked sessions only
 		}
 	}
+}
+
+// agentsPollCap bounds how much a slow poll widens the freshness window: each
+// `claude agents` run times out at 10 s, and an iteration runs at most three (the
+// filter cross-check and the poll).
+const agentsPollCap = 30 * time.Second
+
+// ApplyAgentsTimed is ApplyAgents for a poll iteration that took dur of wall time,
+// the filter cross-check included. agentsFresh allows for it.
+func (m *Model) ApplyAgentsTimed(agents []Agent, err error, dur time.Duration, now time.Time) {
+	if dur > agentsPollCap {
+		dur = agentsPollCap
+	}
+	m.agentsDurs[m.agentsDurN%len(m.agentsDurs)] = dur
+	m.agentsDurN++
+	m.ApplyAgents(agents, err, now)
+}
+
+// slowestRecentPoll is the longest of the last few poll iterations.
+func (m *Model) slowestRecentPoll() time.Duration {
+	var d time.Duration
+	for _, x := range m.agentsDurs {
+		if x > d {
+			d = x
+		}
+	}
+	return d
 }

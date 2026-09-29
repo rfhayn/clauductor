@@ -232,3 +232,73 @@ func TestSessionsAreForgottenWhilePollsFail(t *testing.T) {
 		t.Fatalf("a session silent for 40 min is still shown from a stale reading: %+v", l)
 	}
 }
+
+// Review round (PANEL-5): a still-open permission prompt must not drop out of
+// Needs you because `claude agents` has been failing for longer than the forget age.
+func TestOpenWaitingNoteSurvivesLongPollFailure(t *testing.T) {
+	m := alertModel(t, "")
+	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
+	m.ApplyHook(permissionHook(), t0)
+	for i := 1; i <= 45; i++ {
+		m.ApplyAgents(nil, errors.New("claude agents: exit 1"), t0.Add(time.Duration(i)*time.Minute))
+	}
+	nd := blockedNeeds(m.Snapshot(t0.Add(45 * time.Minute)))
+	if len(nd) != 1 || !nd[0].Approx {
+		t.Fatalf("an open permission prompt was forgotten after 45 min of failing polls: %+v", nd)
+	}
+	// Once polls work again and do not list it, it is gone as before.
+	m.ApplyAgents([]Agent{}, nil, t0.Add(46*time.Minute))
+	if nd := blockedNeeds(m.Snapshot(t0.Add(46 * time.Minute))); len(nd) != 0 {
+		t.Fatalf("a session the working poll no longer lists is still blocked: %+v", nd)
+	}
+}
+
+// Review round (PANEL-5): freshness must allow for the poll's own duration. A
+// `claude agents` poll slower than the interval finishes more than two intervals
+// after the previous one, yet nothing has gone stale.
+func TestSlowPollIsNotStale(t *testing.T) {
+	m := alertModel(t, "")
+	// Poll 1 took 7 s (it included the filter cross-check) and finished at t0. The
+	// loop sleeps the 5 s interval, then poll 2 takes 7 s: it lands at t0+12s.
+	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, 7*time.Second, t0)
+	for _, at := range []time.Duration{9 * time.Second, 11 * time.Second} {
+		if nd := blockedNeeds(m.Snapshot(t0.Add(at))); len(nd) != 1 || nd[0].Approx {
+			t.Fatalf("at +%s, between two slow polls, the reading was called stale: %+v", at, nd)
+		}
+	}
+	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, 7*time.Second, t0.Add(12*time.Second))
+	// Silence well past interval + duration is still stale.
+	if nd := blockedNeeds(m.Snapshot(t0.Add(12*time.Second + time.Minute))); len(nd) != 1 || !nd[0].Approx {
+		t.Fatalf("a minute of silence was not stale: %+v", nd)
+	}
+}
+
+// Review round (PANEL-5): approx reaches every place the page shows a status: the
+// lane card and summary chip, the sessions table, and the terminal tab.
+func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
+	m := alertModel(t, "")
+	rec := LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
+	m.ApplyTmux([]TmuxLane{{ID: "lane-x", Path: xWT}}, []LaneRecord{rec}, "", nil, t0)
+	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
+	check := func(at time.Duration, want bool) {
+		t.Helper()
+		v := m.Snapshot(t0.Add(at))
+		l := laneByName(v, "x")
+		if l == nil || l.Approx != want || len(l.Sessions) != 1 || l.Sessions[0].Approx != want {
+			t.Fatalf("+%s: lane/session approx, want %v: %+v", at, want, l)
+		}
+		if len(v.Terminals) != 1 || v.Terminals[0].Approx != want || v.Terminals[0].Status != "waiting" {
+			t.Fatalf("+%s: terminal approx, want %v: %+v", at, want, v.Terminals)
+		}
+	}
+	check(time.Second, false)
+	m.ApplyAgents(nil, errors.New("claude agents: exit 1"), t0.Add(2*time.Second))
+	check(3*time.Second, true)
+	// The page renders it wherever it renders a status.
+	js := readWeb(t, "panel.js")
+	for _, use := range []string{"l.approx", "lane.approx", "s.approx", "x.approx"} {
+		if !strings.Contains(js, use) {
+			t.Errorf("panel.js never reads %s: an approximate status would render as current", use)
+		}
+	}
+}

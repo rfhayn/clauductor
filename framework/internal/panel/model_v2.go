@@ -288,14 +288,16 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 	return out
 }
 
-// agentsFresh: the last `claude agents` poll succeeded within two poll intervals,
-// so "idle" is a current reading, not the last word of a poll that has since failed.
+// agentsFresh: the last `claude agents` poll succeeded recently enough that its
+// reading is current, not the last word of a poll that has since failed or stopped.
+// The loop sleeps at most agentsSlow between iterations, and an iteration takes its
+// own wall time (the filter cross-check included), so the next success can land an
+// interval plus that long after the last: the window is two slow intervals plus the
+// slowest recent iteration. Measured from the finish, a poll slower than the
+// interval would otherwise read as stale between two good polls.
 func (m *Model) agentsFresh(now time.Time) bool {
-	iv := time.Duration(m.v2.obs.AgentsInterval) * time.Millisecond
-	if iv < agentsFast {
-		iv = agentsSlow // not measured yet: allow the slow interval
-	}
-	return m.agentsSrc.OK && m.agentsSrc.At > 0 && now.Sub(time.UnixMilli(m.agentsSrc.At)) <= 2*iv
+	window := 2*agentsSlow + m.slowestRecentPoll()
+	return m.agentsSrc.OK && !m.agentsOKAt.IsZero() && now.Sub(m.agentsOKAt) <= window
 }
 
 // restoredPending reports whether a restored lane still waits for you: it was
