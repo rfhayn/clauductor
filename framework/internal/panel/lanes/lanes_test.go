@@ -105,7 +105,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 		";", "set-option", "-g", "status", "off",
 		";", "set-option", "-g", "mouse", "on",
 		";", "bind-key", "-T", "root", "WheelUpPane",
-		"if-shell", "-F", "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e"}
+		"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e"}
 	if !reflect.DeepEqual(ns[len(ns)-len(tail):], tail) {
 		t.Fatalf("NewSessionArgv tail:\n got %q", ns[len(ns)-len(tail):])
 	}
@@ -223,7 +223,8 @@ func TestParseTmuxPanes(t *testing.T) {
 	if got[0].ID != "fix-a" || !got[0].Dead || got[0].DeadStatus != "3" || got[0].Path != "/nonexistent/wt" || got[0].Type != "fix" {
 		t.Fatalf("dead lane parsed as %+v", got[0])
 	}
-	if got[1].ID != "orchestrator" || got[1].Attached != 1 || got[1].Path != "/private/tmp" {
+	tmp, _ := filepath.EvalSymlinks("/tmp") // /private/tmp on macOS
+	if got[1].ID != "orchestrator" || got[1].Attached != 1 || got[1].Path != tmp {
 		t.Fatalf("live lane parsed as %+v", got[1])
 	}
 }

@@ -109,8 +109,12 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		// Stop lock-run and its command group: no renewal, far past the 1 s TTL.
 		syscall.Kill(lr.cmd.Process.Pid, syscall.SIGSTOP)
 		pg, _ := exec.Command("/bin/ps", "-o", "pgid=", "-p", firstChild(t, lr.cmd.Process.Pid)).Output()
-		pgid := strings.TrimSpace(string(pg))
-		exec.Command("/bin/kill", "-STOP", "-"+pgid).Run()
+		pgid, err := strconv.Atoi(strings.TrimSpace(string(pg)))
+		if err != nil {
+			t.Fatalf("the command's process group %q: %v", pg, err)
+		}
+		// kill(2) itself: procps' kill(1) reads "-<pgid>" as a signal, not a group.
+		syscall.Kill(-pgid, syscall.SIGSTOP)
 		// The shell judges the TTL by `date +%s`, in whole seconds: three iterations of
 		// its 1 s wait loop put the holder's 1 s TTL at least a second in the past.
 		bin := t.TempDir()
@@ -120,7 +124,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		if lineCount(log) != 1 {
 			t.Fatalf("the shell took a stopped holder's lease: %v", readLog(t, log))
 		}
-		exec.Command("/bin/kill", "-CONT", "-"+pgid).Run()
+		syscall.Kill(-pgid, syscall.SIGCONT)
 		syscall.Kill(lr.cmd.Process.Pid, syscall.SIGCONT)
 		if code := lr.wait(t, 10*time.Second); code != 0 {
 			t.Fatalf("lock-run exit %d: %s", code, lr.stderr)
@@ -299,9 +303,9 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
-		h := startLockRun(t, lock, "go", time.Second, "/bin/sh", "-c", "echo G-start >> "+log+"; sleep 2; echo G-end >> "+log)
+		h := startLockRun(t, lock, "go", time.Second, "/bin/sh", "-c", "echo G-start >> "+shq(log)+"; sleep 2; echo G-end >> "+shq(log))
 		waitUntil(t, "held", 5*time.Second, func() bool { return lineCount(log) == 1 })
-		s := run(path, lock, "shell", "echo S-ran >> "+log)
+		s := run(path, lock, "shell", "echo S-ran >> "+shq(log))
 		if code := s.wait(t, 15*time.Second); code != 0 {
 			t.Fatalf("exit %d: %s", code, s.stderr)
 		}
@@ -320,7 +324,7 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		writeLeaseFile(other, LeaseOwner{V: 1, Nonce: "00000000000000aa", PID: 1, Host: hostName(), Lane: "someone"})
 		own := noPSPath(t) // its own PATH: the traced sleep counts this shell's loop only
 		trace := tracedSleep(t, own)
-		s := run(own, lock, "shell", "echo S-ran >> "+log)
+		s := run(own, lock, "shell", "echo S-ran >> "+shq(log))
 		waitUntil(t, "two iterations of the shell's wait loop", 10*time.Second, func() bool { return lineCount(trace) >= 2 })
 		if _, err := os.Stat(other); err != nil {
 			t.Fatal("deleted a live waiter's file on missing data")
@@ -341,7 +345,7 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		now := time.Now().Unix()
 		writeLeaseFile(filepath.Join(lock, ownerFileName), LeaseOwner{V: 1, Nonce: "00000000000000bb", PID: deadPID(t),
 			PStart: "Thu Jan 1 00:00:00 1970", Host: hostName(), Started: now, Renewed: now})
-		s := run(path, lock, "shell", "echo S-ran >> "+log)
+		s := run(path, lock, "shell", "echo S-ran >> "+shq(log))
 		if code := s.wait(t, 10*time.Second); code != 0 || lineCount(log) != 1 {
 			t.Fatalf("exit %d: %s", code, s.stderr)
 		}
