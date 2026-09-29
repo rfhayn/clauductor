@@ -273,7 +273,7 @@ func (m *LaneManager) LaneCommand(id, laneType, sessionID string, resume bool) [
 		argv = append(argv, "-u", k)
 	}
 	argv = append(argv, m.Program...)
-	lt := m.Cfg.LaneTypes[laneType]
+	lt := m.launchOptions(id, laneType)
 	if lt.Model != "" {
 		argv = append(argv, "--model", lt.Model)
 	}
@@ -331,6 +331,8 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	for _, kv := range m.SessionEnv() {
 		args = append(args, "-e", kv)
 	}
+	// A gate script run inside the lane names its lane in the queue (lock-run).
+	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
 	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
@@ -379,6 +381,12 @@ type StartRequest struct {
 	Mode     string `json:"mode"`     // "new" (new branch + worktree) | "existing" (a worktree) | "root" (the project root)
 	Name     string `json:"name"`     // the lane id; for "new" also the branch name after the type's prefix
 	Worktree string `json:"worktree"` // for "existing": a path from git worktree list
+	// v2 (lanes_v2.go): a template fills the branch and the first prompt.
+	Template      string `json:"template,omitempty"`
+	Issue         string `json:"issue,omitempty"`
+	OverrideQuota bool   `json:"overrideQuota,omitempty"`
+
+	tpl *RenderedTemplate // set by StartLane after validation, never from JSON
 }
 
 // StartResult reports a started lane.
@@ -451,10 +459,13 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		}
 	case "new":
 		prefix := m.Cfg.BranchPrefix(req.Type)
-		if prefix == "" {
+		if prefix == "" && req.tpl == nil {
 			return res, laneErr(400, "invalid", "lane type %q has no branch prefix in lanes; pick an existing worktree or the project root", req.Type)
 		}
 		res.Branch = prefix + id
+		if req.tpl != nil {
+			res.Branch = req.tpl.Branch
+		}
 		if !branchRe.MatchString(res.Branch) {
 			return res, laneErr(400, "invalid", "branch %q is not allowed", res.Branch)
 		}
@@ -469,8 +480,8 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 
 	// The intent is on disk before anything is created, so a crash from here on
 	// leaves a record the next start shows as an orphan.
-	rec, err := m.Registry.Begin(LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
-		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli()}, "start", m.now())
+	rec, err := m.Registry.Begin(req.withTemplate(LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
+		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli()}), "start", m.now())
 	if err != nil {
 		return res, laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -160,6 +161,13 @@ type Server struct {
 	tokenMu sync.RWMutex
 	rotated chan struct{} // closed, and replaced, on each token rotation
 
+	// Orch carries the v2 orchestration (templates, quota guard, queues, restore).
+	Orch *Orchestration
+
+	// overflow counts ingest bodies dropped because the processor was behind; it is
+	// shown apart from events dropped for a foreign cwd.
+	overflow atomic.Int64
+
 	termMu  sync.Mutex
 	tickets map[string]termTicket               // single-use WebSocket tickets
 	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
@@ -274,6 +282,7 @@ func (s *Server) ingest(out chan<- []byte) http.HandlerFunc {
 		select {
 		case out <- body:
 		default: // the processor is behind; dropping one event beats blocking a session
+			s.overflow.Add(1)
 		}
 	}
 }

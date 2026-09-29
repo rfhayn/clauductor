@@ -186,8 +186,11 @@ func TestReducerStatusLine(t *testing.T) {
 	if q := m.Snapshot(t0).Quota; q.FiveHour == nil || *q.FiveHour != 12 || *q.SevenDay != 71 {
 		t.Fatalf("partial quota post: %+v", q)
 	}
-	// A status post from another project must not move the quota or the cost.
+	// A status post from another project must not move the quota or the cost. (A
+	// session already bound here keeps its binding when it cds away, so the foreign
+	// post is a different session.)
 	foreign := sp
+	foreign.SessionID = "someone-else"
 	foreign.Cwd = "/elsewhere"
 	hi := 99.0
 	foreign.RateLimits.FiveHour = &RateLimit{UsedPercentage: &hi}
@@ -272,7 +275,9 @@ func TestReducerNeedsYou(t *testing.T) {
 		want  int
 	}{
 		{"permission prompt shows", func(m *Model) { m.ApplyHook(notif("permission_prompt"), t0) }, 1},
-		{"idle prompt shows", func(m *Model) { m.ApplyHook(notif("idle_prompt"), t0) }, 1},
+		// idle_prompt is a finished turn (your move), not a blocked lane: it goes to
+		// Done, never to Needs you (rubric: "done" distinct from "blocked").
+		{"idle prompt is done, not blocked", func(m *Model) { m.ApplyHook(notif("idle_prompt"), t0) }, 0},
 		{"other notification types stay in the feed only", func(m *Model) { m.ApplyHook(notif("auth_success"), t0) }, 0},
 		{"a later prompt answers it", func(m *Model) {
 			m.ApplyHook(notif("idle_prompt"), t0)

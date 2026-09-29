@@ -76,6 +76,10 @@ type Agent struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"` // busy | idle | waiting
 	WaitingFor string `json:"waitingFor,omitempty"`
+	// ID and State are set for background sessions (`claude agents` lists them with
+	// a short id and a lifecycle state). Interactive sessions on 2.1.284 omit both.
+	ID    string `json:"id,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 // ParseAgents parses `claude agents --json` output.

@@ -50,7 +50,8 @@ type termTicket struct {
 }
 
 type termViewer struct {
-	conn *websocket.Conn
+	conn    *websocket.Conn
+	focused atomic.Bool // the page reports this terminal has keyboard focus (v2: alerts stay quiet)
 }
 
 // issueTicket returns a new single-use ticket for one lane.
@@ -165,10 +166,11 @@ const maxTermMessage = 1 << 20
 
 // termMsg is the only shape the browser may send.
 type termMsg struct {
-	Type string `json:"type"` // "input" | "resize" | "alive"
+	Type string `json:"type"` // "input" | "resize" | "alive" | "focus"
 	Data string `json:"data,omitempty"`
 	Cols int    `json:"cols,omitempty"`
 	Rows int    `json:"rows,omitempty"`
+	On   bool   `json:"focused,omitempty"` // "focus": the terminal has keyboard focus
 }
 
 func clampDim(v, def int) uint16 {
@@ -338,6 +340,8 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		lastMsg.Store(time.Now().UnixNano())
 		switch m.Type {
 		case "alive":
+		case "focus":
+			viewer.focused.Store(m.On)
 		case "input":
 			if _, err := ptmx.Write([]byte(m.Data)); err != nil {
 				return
