@@ -9,6 +9,10 @@
      the fonts are vendored into the binary. xterm adds style elements at run time;
      panel.js gives each one this per-response nonce, the only inline style allowed. -->
 <meta name="csp-style-nonce" content="{{STYLE_NONCE}}">
+<!-- First, and synchronous: sets data-theme and data-mode on <html> before the first
+     paint, so a stored theme never flashes the default. -->
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/themes.css">
 <link rel="stylesheet" href="/static/panel.css">
 <link rel="stylesheet" href="/vendor/xterm/xterm.css">
 <script src="/vendor/xterm/xterm.js"></script>
@@ -25,7 +29,12 @@
   <div class="gauge" title="Hook events accepted / status-line posts / events dropped (cwd outside the project)">hooks <b id="hookn">0</b></div>
   <button class="btn primary" id="addlane" type="button" title="Start a lane: an interactive claude in its own tmux session">+ LANE</button>
   <button class="btn" id="refresh" type="button" title="Re-poll every source now">↻ REFRESH</button>
+  <div class="picker">
+    <button class="btn pickbtn" id="themebtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="thememenu" title="Theme and light or dark mode"><span class="sw" aria-hidden="true"><b>Aa</b><i></i><i></i><i></i><i></i></span><span id="themename">THEME</span></button>
+    <div class="menu" id="thememenu" role="menu" aria-label="Theme and mode" hidden></div>
+  </div>
 </header>
+<div class="band" aria-hidden="true"></div>
 <div class="banners" id="banners"></div>
 <div class="banners" id="restorebar" hidden></div>
 <main class="mgrid">

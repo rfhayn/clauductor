@@ -1,0 +1,272 @@
+/* The panel's themes. Components in panel.css reference only the tokens defined here.
+   The contract (docs/panel.md, "Themes"):
+   - [data-theme="<id>"] sets the theme's shape and type tokens, shared by both modes.
+   - [data-theme="<id>"][data-mode="light"|"dark"] sets every colour token.
+   theme.js puts both attributes on <html> before first paint, and the picker's swatches
+   carry them too, so a swatch shows the real tokens of the theme it names.
+   themes_test.go fails if a theme × mode misses a token or a contrast floor.
+   Fonts are embedded in the binary (SIL OFL 1.1; licences beside the files). A face
+   downloads only when a rule in the active theme uses it. */
+
+@font-face { font-family: "Chakra Petch"; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/chakra-petch-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-style: normal; font-display: swap; src: url("fonts/ibm-plex-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-style: normal; font-display: swap; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Newsreader"; font-weight: 600; font-style: italic; font-display: swap; src: url("fonts/newsreader-latin-600-italic.woff2") format("woff2"); }
+@font-face { font-family: "Public Sans"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/public-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 500 700; font-style: normal; font-display: swap; src: url("fonts/dm-mono-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("fonts/barlow-semi-condensed-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/barlow-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Red Hat Mono"; font-weight: 300 700; font-style: normal; font-display: swap; src: url("fonts/red-hat-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 100 500; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 600 900; font-style: normal; font-display: swap; src: url("fonts/courier-prime-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Next"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 200 800; font-style: normal; font-display: swap; src: url("fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Big Shoulders Stencil"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/big-shoulders-stencil-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 100 900; font-style: normal; font-display: swap; src: url("fonts/archivo-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-weight: 100 800; font-stretch: 75% 112.5%; font-style: normal; font-display: swap; src: url("fonts/martian-mono-latin-standard-normal.woff2") format("woff2"); }
+
+/* ---- 1. Console (the default): an instrument panel at night. Navy glass, a signal-blue
+   readout, a 24 px plotting grid, uppercase telemetry labels. Medium density. ---- */
+:root, [data-theme="console"] {
+  --font-display: "Chakra Petch", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-root: 16px; --display-weight: 700; --display-style: normal; --display-case: uppercase; --display-track: .06em;
+  --label-case: uppercase; --label-track: .14em; --label-weight: 600; --caps: normal;
+  --r: 4px; --r-btn: 3px; --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 3px;
+  --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 2px;
+  --font-label: var(--font-mono); --label-size: .66rem; --quiet: .7;
+  --btn-size: .68rem; --font-vars: normal;
+  --term-size: 13px;
+  --band: var(--line); --band-h: 1px;
+  --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  --backdrop-size: 24px 24px;
+}
+:root, [data-theme="console"][data-mode="dark"] {
+  --surface: #0d1424; --panel: #131d33; --panel-2: #1a2743; --line: #2a3b60; --line-strong: #3d5485;
+  --text: #e7edf8; --text-dim: #9aa9c6; --accent: #4cc3ff; --accent-ink: #04121f; --accent-soft: rgba(76,195,255,.14);
+  --go: #3ddc97; --go-soft: rgba(61,220,151,.14); --hold: #ffb020; --hold-soft: rgba(255,176,32,.14);
+  --stop: #ff5d6c; --stop-soft: rgba(255,93,108,.16); --idle: #8190ae; --focus: #4cc3ff;
+  --grid: rgba(76,195,255,.045); --scrim: rgba(4,8,16,.6);
+  --term-bg: #070b14; --term-fg: #c9d6ee; --term-cursor: #4cc3ff; --term-selection: rgba(76,195,255,.3);
+  --ansi-0: #5d6b88; --ansi-1: #ff5d6c; --ansi-2: #3ddc97; --ansi-3: #ffb020; --ansi-4: #5b95ff; --ansi-5: #c77dff; --ansi-6: #4cc3ff; --ansi-7: #c9d6ee;
+  --ansi-8: #7a89a8; --ansi-9: #ff8b96; --ansi-10: #7cefbd; --ansi-11: #ffd166; --ansi-12: #8cb4ff; --ansi-13: #dcaaff; --ansi-14: #8adcff; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+[data-theme="console"][data-mode="light"] {
+  --surface: #edf1f7; --panel: #ffffff; --panel-2: #f3f6fb; --line: #cbd5e5; --line-strong: #9fb0cc;
+  --text: #0f1a2e; --text-dim: #4e5d78; --accent: #0063b5; --accent-ink: #ffffff; --accent-soft: rgba(0,99,181,.10);
+  --go: #0b7a4f; --go-soft: rgba(11,122,79,.10); --hold: #8a5a00; --hold-soft: rgba(196,132,0,.14);
+  --stop: #c1253a; --stop-soft: rgba(193,37,58,.10); --idle: #66758f; --focus: #0063b5;
+  --grid: rgba(0,99,181,.05); --scrim: rgba(15,26,46,.45);
+  --term-bg: #0f1a2e; --term-fg: #dfe7f5; --term-cursor: #4cc3ff; --term-selection: rgba(76,195,255,.3);
+  --ansi-0: #66758f; --ansi-1: #ff6b78; --ansi-2: #3ddc97; --ansi-3: #ffb020; --ansi-4: #6aa0ff; --ansi-5: #c98bff; --ansi-6: #4cc3ff; --ansi-7: #dfe7f5;
+  --ansi-8: #8391ad; --ansi-9: #ff98a1; --ansi-10: #7cefbd; --ansi-11: #ffd166; --ansi-12: #98bcff; --ansi-13: #deb0ff; --ansi-14: #8adcff; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+
+/* ---- 2. Chart room: a nautical chart. Lanes are soundings on white deep water, the
+   accent is the chart's magenta (lights, cautions), the border is a latitude scale, and
+   the dark mode is the dimmed night palette a bridge uses to keep its night vision.
+   Italic serif names, sentence case, square corners, roomier than the console. ---- */
+[data-theme="chartroom"] {
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-body: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-root: 16px; --display-weight: 600; --display-style: italic; --display-case: none; --display-track: 0;
+  --label-case: none; --label-track: .02em; --label-weight: 600; --caps: all-small-caps;
+  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 1px; --line-style: solid; --stripe: 4px;
+  --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 2px;
+  --font-label: var(--font-body); --label-size: .8rem; --quiet: .75;
+  --btn-size: .8rem; --font-vars: normal;
+  --term-size: 13px;
+  --band: repeating-linear-gradient(90deg, var(--text) 0 32px, var(--panel) 32px 64px); --band-h: 5px;
+  --backdrop: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  --backdrop-size: 120px 120px;
+}
+[data-theme="chartroom"][data-mode="light"] {
+  --surface: #e6f0f5; --panel: #ffffff; --panel-2: #f1f6f9; --line: #b9ccd8; --line-strong: #6f8a9b;
+  --text: #13212b; --text-dim: #4a5d6a; --accent: #a3127a; --accent-ink: #ffffff; --accent-soft: rgba(163,18,122,.09);
+  --go: #1d7439; --go-soft: rgba(29,116,57,.10); --hold: #8f5600; --hold-soft: rgba(191,122,0,.14);
+  --stop: #c0162f; --stop-soft: rgba(192,22,47,.09); --idle: #647785; --focus: #a3127a;
+  --grid: rgba(19,70,110,.08); --scrim: rgba(19,33,43,.4);
+  --term-bg: #f7fafc; --term-fg: #13212b; --term-cursor: #a3127a; --term-selection: rgba(163,18,122,.18);
+  --ansi-0: #13212b; --ansi-1: #b3261e; --ansi-2: #1d7439; --ansi-3: #8a6100; --ansi-4: #1f5aa6; --ansi-5: #a3127a; --ansi-6: #0b6b78; --ansi-7: #677985;
+  --ansi-8: #4a5d6a; --ansi-9: #cf2f25; --ansi-10: #238446; --ansi-11: #9a6c00; --ansi-12: #2b6cc0; --ansi-13: #bf238f; --ansi-14: #0e7f8e; --ansi-15: #778995;
+  color-scheme: light;
+}
+[data-theme="chartroom"][data-mode="dark"] {
+  --surface: #0a0f14; --panel: #10171e; --panel-2: #161f28; --line: #243240; --line-strong: #3a4c5d;
+  --text: #c9d2da; --text-dim: #8b99a6; --accent: #df7cc3; --accent-ink: #1a0714; --accent-soft: rgba(223,124,195,.12);
+  --go: #62bd7f; --go-soft: rgba(98,189,127,.12); --hold: #d6a347; --hold-soft: rgba(214,163,71,.13);
+  --stop: #ef7169; --stop-soft: rgba(239,113,105,.13); --idle: #7c8a97; --focus: #df7cc3;
+  --grid: rgba(160,190,215,.05); --scrim: rgba(0,0,0,.55);
+  --term-bg: #060a0d; --term-fg: #bcc6cf; --term-cursor: #df7cc3; --term-selection: rgba(223,124,195,.25);
+  --ansi-0: #56636f; --ansi-1: #e0625b; --ansi-2: #5bb275; --ansi-3: #cf9d43; --ansi-4: #6f9fd6; --ansi-5: #d777bd; --ansi-6: #58b3bf; --ansi-7: #bcc6cf;
+  --ansi-8: #74828f; --ansi-9: #f08a83; --ansi-10: #7ccc95; --ansi-11: #e2b866; --ansi-12: #93b8e3; --ansi-13: #e79ad2; --ansi-14: #7fc9d3; --ansi-15: #e4e9ee;
+  color-scheme: dark;
+}
+
+/* ---- 3. Ward monitor: the central station a nurse watches a whole ward from. Each lane
+   is a bed tile, soft and rounded; figures are big and condensed; the accent is
+   surgical teal. Roomiest of the six, light-first. ---- */
+[data-theme="ward"] {
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Red Hat Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-root: 16.5px; --display-weight: 700; --display-style: normal; --display-case: none; --display-track: .01em;
+  --label-case: uppercase; --label-track: .09em; --label-weight: 600; --caps: normal;
+  --r: 12px; --r-btn: 999px; --r-chip: 999px; --bw: 1px; --line-style: solid; --stripe: 5px;
+  --pad: 12px 14px; --gap: 12px; --col-pad: 16px; --shadow: 0 1px 2px var(--scrim), 0 2px 10px -6px var(--scrim); --focus-w: 3px;
+  --font-label: var(--font-display); --label-size: .76rem; --quiet: .7;
+  --btn-size: .72rem; --font-vars: normal;
+  --term-size: 13px;
+  --band: var(--accent); --band-h: 3px;
+  --backdrop: none; --backdrop-size: auto;
+}
+[data-theme="ward"][data-mode="light"] {
+  --surface: #e9f0ee; --panel: #ffffff; --panel-2: #f2f7f5; --line: #d0ddd9; --line-strong: #9db3ad;
+  --text: #0f1f1c; --text-dim: #4a5f5a; --accent: #00736d; --accent-ink: #ffffff; --accent-soft: rgba(0,115,109,.10);
+  --go: #3b7a0c; --go-soft: rgba(59,122,12,.11); --hold: #8f5e00; --hold-soft: rgba(214,150,0,.16);
+  --stop: #c3202c; --stop-soft: rgba(195,32,44,.10); --idle: #687b77; --focus: #00736d;
+  --grid: transparent; --scrim: rgba(15,31,28,.18);
+  --term-bg: #0f1c1b; --term-fg: #d6e6e3; --term-cursor: #3fd0c4; --term-selection: rgba(63,208,196,.28);
+  --ansi-0: #5c706c; --ansi-1: #ff6b6b; --ansi-2: #8bd450; --ansi-3: #f2c14e; --ansi-4: #6aa7ff; --ansi-5: #d58cff; --ansi-6: #3fd0c4; --ansi-7: #d6e6e3;
+  --ansi-8: #7b908c; --ansi-9: #ff9393; --ansi-10: #aee57f; --ansi-11: #f8d67f; --ansi-12: #97c1ff; --ansi-13: #e3b0ff; --ansi-14: #7fe2d8; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="ward"][data-mode="dark"] {
+  --surface: #0b1413; --panel: #111d1c; --panel-2: #172725; --line: #243836; --line-strong: #3a5552;
+  --text: #e4efed; --text-dim: #93aaa5; --accent: #3fd0c4; --accent-ink: #062220; --accent-soft: rgba(63,208,196,.13);
+  --go: #8bd450; --go-soft: rgba(139,212,80,.13); --hold: #f2c14e; --hold-soft: rgba(242,193,78,.13);
+  --stop: #ff6b6b; --stop-soft: rgba(255,107,107,.14); --idle: #7f9591; --focus: #3fd0c4;
+  --grid: transparent; --scrim: rgba(0,0,0,.55);
+  --term-bg: #070f0e; --term-fg: #d0e2df; --term-cursor: #3fd0c4; --term-selection: rgba(63,208,196,.28);
+  --ansi-0: #536763; --ansi-1: #ff6b6b; --ansi-2: #8bd450; --ansi-3: #f2c14e; --ansi-4: #6aa7ff; --ansi-5: #d58cff; --ansi-6: #3fd0c4; --ansi-7: #d0e2df;
+  --ansi-8: #748985; --ansi-9: #ff9393; --ansi-10: #aee57f; --ansi-11: #f8d67f; --ansi-12: #97c1ff; --ansi-13: #e3b0ff; --ansi-14: #7fe2d8; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- 4. Duplicator: the dispatch office. Lanes are typed onto forms in spirit-duplicator
+   violet, cards have carbon-form dashed rules, the top edge is a tractor-feed
+   perforation, and everything is one typewriter face. Densest of the six. ---- */
+[data-theme="duplicator"] {
+  --font-display: "Courier Prime", "Courier New", ui-monospace, monospace;
+  --font-body: "Courier Prime", "Courier New", ui-monospace, monospace;
+  --font-mono: "Courier Prime", "Courier New", ui-monospace, monospace;
+  --fs-root: 15.5px; --display-weight: 700; --display-style: normal; --display-case: uppercase; --display-track: .12em;
+  --label-case: uppercase; --label-track: .08em; --label-weight: 700; --caps: normal;
+  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 1px; --line-style: dashed; --stripe: 3px;
+  --pad: 6px 8px; --gap: 6px; --col-pad: 10px; --shadow: none; --focus-w: 2px;
+  --font-label: var(--font-mono); --label-size: .7rem; --quiet: .7;
+  --btn-size: .74rem; --font-vars: normal;
+  --term-size: 13px;
+  --band: radial-gradient(circle at 6px 50%, var(--line-strong) 2.5px, transparent 3px) 0 0 / 14px 100% repeat-x, var(--panel-2); --band-h: 8px;
+  --backdrop: linear-gradient(transparent 27px, var(--grid) 27px); --backdrop-size: 100% 28px;
+}
+[data-theme="duplicator"][data-mode="light"] {
+  --surface: #eeedf3; --panel: #fbfaff; --panel-2: #efecf7; --line: #c9c1dc; --line-strong: #8e80b3;
+  --text: #2a1c50; --text-dim: #5c4d84; --accent: #5a2cbe; --accent-ink: #ffffff; --accent-soft: rgba(90,44,190,.09);
+  --go: #1f6e48; --go-soft: rgba(31,110,72,.10); --hold: #875600; --hold-soft: rgba(196,128,0,.14);
+  --stop: #b0203a; --stop-soft: rgba(176,32,58,.09); --idle: #6b6189; --focus: #5a2cbe;
+  --grid: rgba(90,44,190,.07); --scrim: rgba(42,28,80,.35);
+  --term-bg: #fbfaff; --term-fg: #2a1c50; --term-cursor: #5a2cbe; --term-selection: rgba(90,44,190,.18);
+  --ansi-0: #2a1c50; --ansi-1: #b0203a; --ansi-2: #1f6e48; --ansi-3: #7d5a00; --ansi-4: #2d4fb8; --ansi-5: #5a2cbe; --ansi-6: #0d6a75; --ansi-7: #6b6189;
+  --ansi-8: #5c4d84; --ansi-9: #cc2f4a; --ansi-10: #2a8157; --ansi-11: #946b00; --ansi-12: #3e62d0; --ansi-13: #7440d6; --ansi-14: #147f8c; --ansi-15: #7b7298;
+  color-scheme: light;
+}
+[data-theme="duplicator"][data-mode="dark"] {
+  --surface: #16121f; --panel: #1c1728; --panel-2: #241e33; --line: #362e49; --line-strong: #574a78;
+  --text: #ebe5f8; --text-dim: #aa9ec6; --accent: #b89eff; --accent-ink: #16121f; --accent-soft: rgba(184,158,255,.13);
+  --go: #6fd3a0; --go-soft: rgba(111,211,160,.12); --hold: #f0b44c; --hold-soft: rgba(240,180,76,.12);
+  --stop: #ff7d8e; --stop-soft: rgba(255,125,142,.13); --idle: #8e84a8; --focus: #b89eff;
+  --grid: rgba(184,158,255,.045); --scrim: rgba(6,4,10,.6);
+  --term-bg: #110d18; --term-fg: #e2dbf2; --term-cursor: #b89eff; --term-selection: rgba(184,158,255,.28);
+  --ansi-0: #6b6186; --ansi-1: #ff7d8e; --ansi-2: #6fd3a0; --ansi-3: #f0b44c; --ansi-4: #7fa1ff; --ansi-5: #b89eff; --ansi-6: #5fc8d6; --ansi-7: #e2dbf2;
+  --ansi-8: #7e7399; --ansi-9: #ffa0ad; --ansi-10: #97e3bc; --ansi-11: #f7cc7f; --ansi-12: #a5bdff; --ansi-13: #d2c2ff; --ansi-14: #8edbe5; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- 5. High contrast: for low vision and glare. Black on white or white on black,
+   AAA text everywhere (7:1), 2 px rules, a 3 px focus ring with a gap, the largest type,
+   no translucent fills, and state spelled out in words and shapes. ---- */
+[data-theme="contrast"] {
+  --font-display: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-root: 18px; --display-weight: 800; --display-style: normal; --display-case: none; --display-track: 0;
+  --label-case: none; --label-track: .01em; --label-weight: 800; --caps: normal;
+  --r: 2px; --r-btn: 2px; --r-chip: 2px; --bw: 2px; --line-style: solid; --stripe: 8px;
+  --pad: 10px 12px; --gap: 10px; --col-pad: 14px; --shadow: none; --focus-w: 3px;
+  --font-label: var(--font-body); --label-size: .82rem; --quiet: 1;
+  --btn-size: .78rem; --font-vars: normal;
+  --term-size: 15px;
+  --band: var(--text); --band-h: 4px;
+  --backdrop: none; --backdrop-size: auto;
+}
+[data-theme="contrast"][data-mode="light"] {
+  --surface: #ffffff; --panel: #ffffff; --panel-2: #efefef; --line: #595959; --line-strong: #000000;
+  --text: #000000; --text-dim: #333333; --accent: #0033b3; --accent-ink: #ffffff; --accent-soft: #e6ecff;
+  --go: #005a1c; --go-soft: #e3f4e8; --hold: #6b4200; --hold-soft: #fff1d6;
+  --stop: #9e0012; --stop-soft: #ffe5e8; --idle: #404040; --focus: #b000b0;
+  --grid: transparent; --scrim: rgba(0,0,0,.7);
+  --term-bg: #ffffff; --term-fg: #000000; --term-cursor: #000000; --term-selection: #b3d1ff;
+  --ansi-0: #000000; --ansi-1: #9e0012; --ansi-2: #005a1c; --ansi-3: #6b4200; --ansi-4: #0033b3; --ansi-5: #8a008a; --ansi-6: #005b66; --ansi-7: #4d4d4d;
+  --ansi-8: #333333; --ansi-9: #b8001a; --ansi-10: #006b22; --ansi-11: #7a4c00; --ansi-12: #0040d6; --ansi-13: #a000a0; --ansi-14: #006b78; --ansi-15: #595959;
+  color-scheme: light;
+}
+[data-theme="contrast"][data-mode="dark"] {
+  --surface: #000000; --panel: #000000; --panel-2: #1a1a1a; --line: #a6a6a6; --line-strong: #ffffff;
+  --text: #ffffff; --text-dim: #d9d9d9; --accent: #8fd3ff; --accent-ink: #000000; --accent-soft: #0b2233;
+  --go: #6ef08e; --go-soft: #0b2612; --hold: #ffd23f; --hold-soft: #2e2400;
+  --stop: #ff8f8f; --stop-soft: #330d0d; --idle: #c8c8c8; --focus: #ffff00;
+  --grid: transparent; --scrim: rgba(0,0,0,.8);
+  --term-bg: #000000; --term-fg: #ffffff; --term-cursor: #ffff00; --term-selection: #264f78;
+  --ansi-0: #8c8c8c; --ansi-1: #ff8f8f; --ansi-2: #6ef08e; --ansi-3: #ffd23f; --ansi-4: #8fb8ff; --ansi-5: #f59bff; --ansi-6: #7ae8ff; --ansi-7: #e6e6e6;
+  --ansi-8: #b3b3b3; --ansi-9: #ffb3b3; --ansi-10: #a6ffbd; --ansi-11: #ffe680; --ansi-12: #b8d1ff; --ansi-13: #fbc4ff; --ansi-14: #b0f2ff; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---- 6. Shop floor: the plant floor. Concrete and asphalt, stencilled crate lettering,
+   a hazard-stripe edge, heavy borders and wide state stripes; ink-black (or, at night,
+   safety-yellow) controls. Colours follow the safety-sign convention. The mono face is
+   set condensed (its wdth axis) so lane names fit the cards. ---- */
+[data-theme="shopfloor"] {
+  --font-display: "Big Shoulders Stencil", Impact, "Arial Narrow", sans-serif;
+  --font-body: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-root: 16px; --display-weight: 800; --display-style: normal; --display-case: uppercase; --display-track: .04em;
+  --label-case: uppercase; --label-track: .1em; --label-weight: 700; --caps: normal;
+  --r: 0; --r-btn: 0; --r-chip: 0; --bw: 2px; --line-style: solid; --stripe: 7px;
+  --pad: 8px 10px; --gap: 8px; --col-pad: 12px; --shadow: none; --focus-w: 3px;
+  --font-label: var(--font-mono); --label-size: .6rem; --quiet: .7;
+  --btn-size: .68rem; --font-vars: "wdth" 75;
+  --term-size: 13px;
+  --band: repeating-linear-gradient(-45deg, #f5c400 0 10px, #161616 10px 20px); --band-h: 8px;
+  --backdrop: none; --backdrop-size: auto;
+}
+[data-theme="shopfloor"][data-mode="light"] {
+  --surface: #e3e2de; --panel: #f7f7f4; --panel-2: #ebeae5; --line: #b9b7ae; --line-strong: #6d6a61;
+  --text: #161616; --text-dim: #4a4843; --accent: #161616; --accent-ink: #f5c400; --accent-soft: rgba(22,22,22,.08);
+  --go: #0a743b; --go-soft: rgba(10,116,59,.11); --hold: #7a5700; --hold-soft: rgba(245,196,0,.28);
+  --stop: #b8111e; --stop-soft: rgba(184,17,30,.10); --idle: #66645c; --focus: #0057b8;
+  --grid: transparent; --scrim: rgba(22,22,22,.5);
+  --term-bg: #151617; --term-fg: #e8e6df; --term-cursor: #f5c400; --term-selection: rgba(245,196,0,.3);
+  --ansi-0: #686a6e; --ansi-1: #ff5a4f; --ansi-2: #3ecf7a; --ansi-3: #f5c400; --ansi-4: #4da3ff; --ansi-5: #d88cff; --ansi-6: #36c9d6; --ansi-7: #e8e6df;
+  --ansi-8: #8a8c90; --ansi-9: #ff8a82; --ansi-10: #79e3a4; --ansi-11: #ffdb4d; --ansi-12: #86c0ff; --ansi-13: #e7b3ff; --ansi-14: #76dde6; --ansi-15: #ffffff;
+  color-scheme: light;
+}
+[data-theme="shopfloor"][data-mode="dark"] {
+  --surface: #1a1b1c; --panel: #232426; --panel-2: #2c2d30; --line: #3c3e42; --line-strong: #62656b;
+  --text: #f1f0ea; --text-dim: #b0aea5; --accent: #f5c400; --accent-ink: #161616; --accent-soft: rgba(245,196,0,.12);
+  --go: #3ecf7a; --go-soft: rgba(62,207,122,.13); --hold: #ff9f1c; --hold-soft: rgba(255,159,28,.14);
+  --stop: #ff6e64; --stop-soft: rgba(255,110,100,.12); --idle: #9a9890; --focus: #4da3ff;
+  --grid: transparent; --scrim: rgba(0,0,0,.6);
+  --term-bg: #121314; --term-fg: #e8e6df; --term-cursor: #f5c400; --term-selection: rgba(245,196,0,.3);
+  --ansi-0: #666870; --ansi-1: #ff5a4f; --ansi-2: #3ecf7a; --ansi-3: #f5c400; --ansi-4: #4da3ff; --ansi-5: #d88cff; --ansi-6: #36c9d6; --ansi-7: #e8e6df;
+  --ansi-8: #8a8c90; --ansi-9: #ff8a82; --ansi-10: #79e3a4; --ansi-11: #ffdb4d; --ansi-12: #86c0ff; --ansi-13: #e7b3ff; --ansi-14: #76dde6; --ansi-15: #ffffff;
+  color-scheme: dark;
+}
