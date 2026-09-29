@@ -34,7 +34,15 @@ func throwawaySocket(t *testing.T) (string, string) {
 	b := make([]byte, 4)
 	rand.Read(b)
 	sock := "clauductor-test-" + strconv.Itoa(os.Getpid()) + "-" + hex.EncodeToString(b)
-	t.Cleanup(func() { exec.Command(tmux, "-L", sock, "kill-server").Run() })
+	t.Cleanup(func() {
+		exec.Command(tmux, "-L", sock, "kill-server").Run()
+		// kill-server leaves the socket file; tmux keeps it in $TMUX_TMPDIR (or /tmp)/tmux-<uid>.
+		dir := os.Getenv("TMUX_TMPDIR")
+		if dir == "" {
+			dir = "/tmp"
+		}
+		os.Remove(filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), sock))
+	})
 	return tmux, sock
 }
 
