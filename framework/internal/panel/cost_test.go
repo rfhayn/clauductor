@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	pclock "github.com/clauductor/clauductor/internal/panel/clock"
+
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
@@ -71,7 +73,7 @@ func tmuxPollerFor(t *testing.T, f *fakeTmux, clock *time.Time) *tmuxPoller {
 	}
 	lm := &lanes.LaneManager{TmuxPath: "tmux", Socket: "test", Registry: reg, Exec: f.exec,
 		LookupEnv: func(string) (string, bool) { return "", false }}
-	return newTmuxPoller(lm, "", func() time.Time { return *clock })
+	return newTmuxPoller(lm, "", pclock.Func(func() time.Time { return *clock }), Ticks{})
 }
 
 // run ticks the poller for d of simulated time, stepping by the interval it asks
@@ -168,11 +170,11 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 	}
 	count := func() int { mu.Lock(); defer mu.Unlock(); return polls }
 	m := state.NewModel(v2Config(t, ""), "/p", time.Now())
-	hub := web.NewHub(m, time.Now)
-	x := &runtimeV2{hub: hub, root: "/p", p: &pollers{hub: hub, run: run, kickAgents: make(chan struct{}, 1)}}
+	hub := web.NewHub(m, pclock.System)
+	x := &Runtime{hub: hub, root: "/p", run: run, clock: pclock.System, ticks: DefaultTicks(), kickAgents: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go x.agentsLoop(ctx)
+	go x.loop(ctx, x.agentsSource())
 	waitFor(t, "the first poll, then quiet", func() bool { return count() > 0 && x.agentsQuietNow.Load() })
 	before := count()
 	x.hookSeen(signals.HookEvent{Event: "UserPromptSubmit"})
@@ -200,7 +202,7 @@ func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 	q := lease.QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
 	// queueLoop's read, with fake processes: pids 4001-4003 are alive only to the
 	// injected kill(0), so a reader that bypassed the cache would find them gone.
-	x := &runtimeV2{cfg: &config.Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
+	x := &Runtime{cfg: &config.Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
 		procs: lease.ProcCache{Alive: isAlive, Start: start, Now: func() time.Time { return t0 }}}
 	for i := 0; i < 60; i++ { // once a second for a minute
 		qs, err := x.readQueues(context.Background(), t0)
@@ -268,7 +270,7 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := state.NewModel(v2Config(t, ""), "/p", t0)
-	x := &runtimeV2{hub: web.NewHub(m, func() time.Time { return t0 }), p: &pollers{registry: reg}}
+	x := &Runtime{hub: web.NewHub(m, pclock.Func(func() time.Time { return t0 })), registry: reg}
 	if x.hasLanes() {
 		t.Fatal("no lane yet")
 	}
@@ -285,17 +287,16 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 
 // ---- the first-prompt loop ----
 
-func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*runtimeV2, *web.Hub) {
+func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*Runtime, *web.Hub) {
 	t.Helper()
 	m := state.NewModel(v2Config(t, ""), "/p", *clock)
-	hub := web.NewHub(m, func() time.Time { return *clock })
+	hub := web.NewHub(m, pclock.Func(func() time.Time { return *clock }))
 	var tl []lanes.TmuxLane
 	if running {
 		tl = []lanes.TmuxLane{{ID: rec.ID, Path: "/p"}}
 	}
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(tl, []lanes.LaneRecord{rec}, "", nil, now) })
-	p := &pollers{hub: hub, kickAgents: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
-	return &runtimeV2{hub: hub, p: p, o: Options{Out: &strings.Builder{}}}, hub
+	return &Runtime{hub: hub, kickAgents: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1), o: Options{Out: &strings.Builder{}}}, hub
 }
 
 func drained(ch chan struct{}) bool {
@@ -314,7 +315,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 	kicks := 0
 	for i := 0; i < 60; i++ {
 		x.promptTick(context.Background(), clock)
-		if drained(x.p.kickAgents) {
+		if drained(x.kickAgents) {
 			kicks++
 		}
 		clock = clock.Add(time.Second)
@@ -345,7 +346,7 @@ func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
 	var at []time.Time
 	for i := 0; i < 20; i++ { // promptLoop ticks once a second
 		x.promptTick(context.Background(), clock)
-		if drained(x.p.kickAgents) {
+		if drained(x.kickAgents) {
 			at = append(at, clock)
 		}
 		clock = clock.Add(time.Second)

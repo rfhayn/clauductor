@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -123,8 +124,8 @@ type LaneManager struct {
 	Changed func()
 	// Stopped is called once a lane's tmux session is gone, to close its viewers.
 	Stopped func(id string)
-	// Now is the clock for registry timestamps.
-	Now func() time.Time
+	// Clock is the time registry stamps and every wait use; nil is clock.System.
+	Clock clock.Clock
 	// Exec, if set, runs a tmux argv (after the tmux path) instead of tmux itself
 	// (tests count the calls).
 	Exec func(ctx context.Context, argv []string) ([]byte, error)
@@ -399,7 +400,7 @@ type StartRequest struct {
 	Mode     string `json:"mode"`     // "new" (new branch + worktree) | "existing" (a worktree) | "root" (the project root)
 	Name     string `json:"name"`     // the lane id; for "new" also the branch name after the type's prefix
 	Worktree string `json:"worktree"` // for "existing": a path from git worktree list
-	// v2 (lanes_v2.go): a template fills the branch and the first prompt.
+	// v2 (StartLane): a template fills the branch and the first prompt.
 	Template      string `json:"template,omitempty"`
 	Issue         string `json:"issue,omitempty"`
 	OverrideQuota bool   `json:"overrideQuota,omitempty"`
@@ -416,12 +417,9 @@ type StartResult struct {
 	Notes     []string `json:"notes,omitempty"`
 }
 
-func (m *LaneManager) now() time.Time {
-	if m.Now != nil {
-		return m.Now()
-	}
-	return time.Now()
-}
+func (m *LaneManager) clock() clock.Clock { return clock.Or(m.Clock) }
+
+func (m *LaneManager) now() time.Time { return m.clock().Now() }
 
 // Start starts a lane: a new claude session, with an id the panel assigns, in the
 // project root, an existing worktree, or a new branch's new worktree.
@@ -572,7 +570,7 @@ func (m *LaneManager) sendText(ctx context.Context, id, text string) error {
 	if _, err := m.tmux(ctx, "send-keys", "-t", "="+id+":", "-l", "--", text); err != nil {
 		return err
 	}
-	time.Sleep(m.EnterDelay)
+	m.clock().Sleep(m.EnterDelay)
 	_, err := m.tmux(ctx, "send-keys", "-t", "="+id+":", "Enter")
 	return err
 }
@@ -620,13 +618,13 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 }
 
 func (m *LaneManager) waitDead(ctx context.Context, id string, d time.Duration) {
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
+	deadline := m.now().Add(d)
+	for m.now().Before(deadline) {
 		l, ok := m.find(ctx, id)
 		if !ok || l.Dead {
 			return
 		}
-		time.Sleep(200 * time.Millisecond)
+		m.clock().Sleep(200 * time.Millisecond)
 	}
 }
 
@@ -644,7 +642,7 @@ func (m *LaneManager) stopLocked(ctx context.Context, id, sessionID string) *Lan
 			target := "=" + id + ":"
 			_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
 			_, _ = m.tmux(ctx, "send-keys", "-t", target, "-l", "/exit")
-			time.Sleep(m.EnterDelay)
+			m.clock().Sleep(m.EnterDelay)
 			// Still idle right before the Enter? A dialog may have opened meanwhile.
 			if st, ok, err := m.agentStatus(ctx, sessionID); err == nil && ok && st == "idle" {
 				_, _ = m.tmux(ctx, "send-keys", "-t", target, "Enter")
@@ -724,14 +722,14 @@ func (m *LaneManager) launchSession(ctx context.Context, rec LaneRecord) (resume
 			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
 		}
 		failed := ""
-		deadline := time.Now().Add(m.FastExit)
-		for time.Now().Before(deadline) {
+		deadline := m.now().Add(m.FastExit)
+		for m.now().Before(deadline) {
 			l, ok := m.find(ctx, rec.ID)
 			if ok && l.Dead && l.DeadStatus != "" && l.DeadStatus != "0" {
 				failed = l.DeadStatus
 				break
 			}
-			time.Sleep(200 * time.Millisecond)
+			m.clock().Sleep(200 * time.Millisecond)
 		}
 		if failed == "" {
 			return resume, nil
@@ -766,7 +764,7 @@ func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action s
 		if live, err = m.liveSession(ctx, rec.SessionID); err != nil || !live {
 			break
 		}
-		time.Sleep(200 * time.Millisecond)
+		m.clock().Sleep(200 * time.Millisecond)
 	}
 	if err != nil {
 		return laneErr(409, "unverified", "cannot confirm session %s is not already running (claude agents: %v), so it is not resumed", rec.SessionID, err)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
@@ -23,7 +24,7 @@ func newTestServer(t *testing.T) (*Server, chan []byte) {
 	hooks := make(chan []byte, 8)
 	m := state.NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
-	return &Server{Port: testPort, Token: "secret-token", Hub: NewHub(m, time.Now), Hooks: hooks, Status: make(chan []byte, 8)}, hooks
+	return &Server{Port: testPort, Token: "secret-token", Hub: NewHub(m, clock.Func(time.Now)), Hooks: hooks, Status: make(chan []byte, 8)}, hooks
 }
 
 type reqOpt func(*http.Request)

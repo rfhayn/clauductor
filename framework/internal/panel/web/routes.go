@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
@@ -109,7 +108,7 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		writeLaneErr(w, lerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "at": time.Now().UnixMilli()})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "at": s.clock().Now().UnixMilli()})
 }
 
 // orchRoutes adds the v2 routes. All need the cookie and, as POSTs, pass the global

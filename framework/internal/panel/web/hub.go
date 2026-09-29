@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
@@ -23,7 +24,7 @@ import (
 type Hub struct {
 	mu    sync.Mutex
 	model *state.Model
-	now   func() time.Time
+	clock clock.Clock
 	subs  map[chan []byte]struct{}
 	dirty chan struct{}
 	// last is the key (viewKey) of the last snapshot broadcast, and lastFull the
@@ -40,14 +41,14 @@ type Hub struct {
 }
 
 // NewHub wraps a model.
-func NewHub(m *state.Model, now func() time.Time) *Hub {
-	return &Hub{model: m, now: now, subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
+func NewHub(m *state.Model, c clock.Clock) *Hub {
+	return &Hub{model: m, clock: clock.Or(c), subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
 }
 
 // Update applies fn to the model under the lock and schedules a broadcast.
 func (h *Hub) Update(fn func(m *state.Model, now time.Time)) {
 	h.mu.Lock()
-	fn(h.model, h.now())
+	fn(h.model, h.clock.Now())
 	h.mu.Unlock()
 	select {
 	case h.dirty <- struct{}{}:
@@ -64,7 +65,7 @@ func (h *Hub) Snapshot() []byte {
 // snapshotKeyed returns the current view as JSON, its key and its full key.
 func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte) {
 	h.mu.Lock()
-	v := h.model.Snapshot(h.now())
+	v := h.model.Snapshot(h.clock.Now())
 	h.mu.Unlock()
 	b, _ := json.Marshal(v)
 	return b, state.ViewKey(v), state.FullKey(v)
@@ -93,7 +94,7 @@ func (h *Hub) Run(ctx context.Context) {
 	if every <= 0 {
 		every = 5 * time.Second
 	}
-	tick := time.NewTicker(every)
+	tick := h.clock.NewTicker(every)
 	defer tick.Stop()
 	for {
 		select {
@@ -104,9 +105,9 @@ func (h *Hub) Run(ctx context.Context) {
 			if wait <= 0 {
 				wait = 150 * time.Millisecond
 			}
-			time.Sleep(wait) // coalesce bursts
+			h.clock.Sleep(wait) // coalesce bursts
 			h.broadcast(false)
-		case <-tick.C:
+		case <-tick.C():
 			h.broadcast(true)
 		}
 	}
@@ -137,12 +138,12 @@ func (h *Hub) broadcast(tick bool) {
 func (h *Hub) Read(fn func(m *state.Model, now time.Time)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	fn(h.model, h.now())
+	fn(h.model, h.clock.Now())
 }
 
 // View returns the current view as a value.
 func (h *Hub) View() state.View {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.model.Snapshot(h.now())
+	return h.model.Snapshot(h.clock.Now())
 }

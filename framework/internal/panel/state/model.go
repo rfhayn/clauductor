@@ -109,6 +109,7 @@ type Model struct {
 	agentsDurs   [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
 	agentsDurN   int
 	agentsNext   time.Duration // how long the loop waits after its last poll (agentsFresh)
+	agentsSlow   time.Duration // the slow interval, the least agentsFresh allows for (0: AgentsSlow)
 	prs          []signals.PR
 	prsSrc       SourceStatus
 	cards        []*CardState
@@ -122,7 +123,7 @@ type Model struct {
 	statusPosts int
 	dropped     int
 	v2          modelV2
-	hooks       hookHealth // PANEL-5: the hook install's health (singleton.go)
+	hooks       hookHealth // PANEL-5: the hook install's health (hookhealth.go)
 
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []lanes.TmuxLane
@@ -619,7 +620,7 @@ type View struct {
 	TmuxSocket   string                `json:"tmuxSocket"`
 	LaneBase     string                `json:"laneBase"`
 	WorktreeRoot string                `json:"worktreeRoot"`
-	// v2 (model_v2.go).
+	// v2 (ViewV2, below).
 	ViewV2
 }
 
@@ -1006,7 +1007,7 @@ type Obs struct {
 	NotifyError     string `json:"notifyError,omitempty"`
 }
 
-// NotifierStats are the notifier's counters (see notifier.go).
+// NotifierStats are the Notifier's counters (notifier.go).
 type NotifierStats struct {
 	Day        string `json:"day"`
 	Interrupts int    `json:"interrupts"` // OS notifications sent today
@@ -1291,13 +1292,16 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 // agentsFresh: the last `claude agents` poll succeeded recently enough that its
 // reading is current, not the last word of a poll that has since failed or stopped.
 // The loop sleeps the interval it chose after the last poll (agentsNext; at least
-// agentsSlow counts), and an iteration takes its own wall time (the filter
+// the slow interval counts), and an iteration takes its own wall time (the filter
 // cross-check included), so the next success can land an interval plus that long
 // after the last: the window is two such intervals plus the slowest recent
 // iteration. Measured from the finish, a poll slower than the interval would
 // otherwise read as stale between two good polls.
 func (m *Model) agentsFresh(now time.Time) bool {
-	interval := AgentsSlow
+	interval := m.agentsSlow
+	if interval <= 0 {
+		interval = AgentsSlow
+	}
 	if m.agentsNext > interval {
 		interval = m.agentsNext
 	}
@@ -1424,15 +1428,16 @@ func compactionTrigger(ev signals.HookEvent) string {
 	return signals.OneLine(t)
 }
 
-// AgentsSlow is the `claude agents` interval while hooks are flowing: the hooks
-// already carry the state, and each poll spawns a ~100 ms, ~150 MB process
+// AgentsSlow is the default `claude agents` interval while hooks are flowing: the
+// hooks already carry the state, and each poll spawns a ~100 ms, ~150 MB process
 // (measured on 2.1.284: p50 98 ms wall, ~105 ms CPU). No reading counts as stale
-// sooner than two of these after it (agentsFresh).
+// sooner than two slow intervals after it (agentsFresh).
 const AgentsSlow = 5 * time.Second
 
-// SetAgentsNext records how long the agents loop waits after its last poll, so
-// agentsFresh allows for that wait before it calls a reading stale.
-func (m *Model) SetAgentsNext(d time.Duration) { m.agentsNext = d }
+// SetAgentsCadence records the agents loop's cadence: next, how long it waits after
+// its last poll, and slow, its slow interval (0: AgentsSlow). agentsFresh allows for
+// the longer of the two before it calls a reading stale.
+func (m *Model) SetAgentsCadence(next, slow time.Duration) { m.agentsNext, m.agentsSlow = next, slow }
 
 // LaneCount is how many lanes the model knows of: registry records plus tmux
 // sessions on the panel's socket (a lane may be counted twice; callers test > 0).

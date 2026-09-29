@@ -24,6 +24,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/clauductor/clauductor/internal/panel/clock"
 )
 
 // The lease protocol serialises a shared resource (the full gate on port 3100)
@@ -164,7 +166,7 @@ func LiveProc(pid int) (bool, string) {
 type ProcCache struct {
 	Alive   func(pid int) bool   // default PIDAlive
 	Start   func(pid int) string // default ProcStart
-	Now     func() time.Time     // default time.Now
+	Now     func() time.Time     // default clock.System.Now (the panel passes its clock's)
 	TTL     time.Duration        // an entry unused this long is dropped; default 1 min
 	Recheck time.Duration        // a cached start time is read again this often; default 30 s
 
@@ -188,7 +190,7 @@ func (c *ProcCache) Check(pid int) (bool, string) {
 		start = ProcStart
 	}
 	if now == nil {
-		now = time.Now
+		now = clock.System.Now
 	}
 	if ttl <= 0 {
 		ttl = time.Minute
@@ -463,6 +465,8 @@ type LockRunOptions struct {
 	Stdin  io.Reader
 	// Proc overrides the process check (tests).
 	Proc ProcCheck
+	// Clock is the time lock-run waits, renews and stamps by; default clock.System.
+	Clock clock.Clock
 }
 
 // LockRun waits its turn for the lease, runs Argv while holding it, and releases
@@ -485,6 +489,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	if o.Proc == nil {
 		o.Proc = LiveProc
 	}
+	o.Clock = clock.Or(o.Clock)
 	if o.Lane == "" {
 		o.Lane = os.Getenv("CLAUDUCTOR_LANE")
 	}
@@ -501,7 +506,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		return 2, fmt.Errorf("lock-run: %w", err)
 	}
 	host := hostName()
-	now := time.Now()
+	now := o.Clock.Now()
 	me := LeaseOwner{V: 1, Nonce: newNonce(), PID: os.Getpid(), PStart: ProcStart(os.Getpid()), Host: host, Lane: o.Lane,
 		Cmd: clip(strings.Join(o.Argv, " "), 200), Started: now.Unix(), Renewed: now.Unix(), TTL: int64(o.TTL / time.Second)}
 	myWait := filepath.Join(waitersDir(lock), fmt.Sprintf("%020d-%s.json", now.UnixNano(), me.Nonce))
@@ -523,7 +528,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		}
 	}
 	for {
-		now = time.Now()
+		now = o.Clock.Now()
 		if _, err := os.Stat(cancelFile); err == nil {
 			leaveQueue()
 			say("wait cancelled from the panel; not running " + me.Cmd)
@@ -586,7 +591,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		case <-sigs:
 			leaveQueue()
 			return 130, nil
-		case <-time.After(o.Poll):
+		case <-o.Clock.After(o.Poll):
 		}
 	}
 }
@@ -675,22 +680,22 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 		// Once a second, check the lease is still ours; renew it every ttl/3 (only a
 		// reader that cannot check this process uses the TTL).
 		go func() {
-			t := time.NewTicker(time.Second)
+			t := o.Clock.NewTicker(time.Second)
 			defer t.Stop()
 			ownerPath := filepath.Join(lock, ownerFileName)
-			lastRenew := time.Now()
+			lastRenew := o.Clock.Now()
 			for {
 				select {
 				case <-stop:
 					return
-				case <-t.C:
+				case <-t.C():
 					cur, err := readLeaseFile(ownerPath)
 					if err != nil || cur.Nonce != held.Nonce {
 						close(lost)
 						return
 					}
-					if time.Since(lastRenew) >= o.TTL/3 {
-						cur.Renewed, lastRenew = time.Now().Unix(), time.Now()
+					if now := o.Clock.Now(); now.Sub(lastRenew) >= o.TTL/3 {
+						cur.Renewed, lastRenew = now.Unix(), now
 						_ = writeLeaseFile(ownerPath, cur)
 					}
 				}
@@ -720,7 +725,7 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 			group(syscall.SIGTERM)
 			select {
 			case <-done:
-			case <-time.After(5 * time.Second):
+			case <-o.Clock.After(5 * time.Second):
 				group(syscall.SIGKILL)
 				<-done
 			}
@@ -826,7 +831,7 @@ func CancelWait(lock, nonce string) error {
 		return errors.New("that is the holder, not a waiter; the panel never stops the holder")
 	}
 	host := hostName()
-	live, _ := listWaiters(lock, host, time.Now(), LiveProc)
+	live, _ := listWaiters(lock, host, clock.System.Now(), LiveProc)
 	for _, w := range live {
 		if w.Nonce == nonce {
 			f, err := os.OpenFile(filepath.Join(waitersDir(lock), nonce+".cancel"), os.O_CREATE|os.O_WRONLY, 0o644)

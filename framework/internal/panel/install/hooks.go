@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -106,7 +107,7 @@ func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 		if !errors.Is(err, errSettingsChanged) {
 			return changed, err
 		}
-		time.Sleep(time.Duration(20*(i+1)) * time.Millisecond)
+		clock.System.Sleep(time.Duration(20*(i+1)) * time.Millisecond)
 	}
 	return false, fmt.Errorf("%w %d times in a row; not touching it", err, settingsRetries)
 }

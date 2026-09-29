@@ -48,7 +48,7 @@ type Config struct {
 	// LaneTypes adds per-type launch options (model, effort) keyed by lane type.
 	LaneTypes map[string]LaneTypeConfig `json:"lane_types"`
 
-	// v2: orchestration. All optional; see config_v2.go.
+	// v2: orchestration. All optional; see TemplateConfig and below.
 
 	// Version is the config schema version: 0 (absent), 1 or 2.
 	Version int `json:"version,omitempty"`
@@ -652,7 +652,7 @@ func (c *Config) TemplateList() []TemplateInfo {
 	return out
 }
 
-// TrustView says whether the config's argv may run (see trust.go).
+// TrustView says whether the config's argv may run (install.CheckTrust).
 type TrustView struct {
 	Trusted bool   `json:"trusted"`
 	Hash    string `json:"hash"`

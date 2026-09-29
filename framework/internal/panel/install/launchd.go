@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -235,7 +236,11 @@ type InstallOptions struct {
 	Self string
 	// PollDelay spaces launchctl polls (default 100 ms; tests use less).
 	PollDelay time.Duration
+	// Clock waits between those polls; nil is clock.System.
+	Clock clock.Clock
 }
+
+func (o InstallOptions) clock() clock.Clock { return clock.Or(o.Clock) }
 
 func (o InstallOptions) pollDelay() time.Duration {
 	if o.PollDelay > 0 {
@@ -340,12 +345,12 @@ func Install(o InstallOptions) error {
 			if _, err := o.Exec("/bin/launchctl", "print", service); err != nil {
 				break
 			}
-			time.Sleep(o.pollDelay())
+			o.clock().Sleep(o.pollDelay())
 		}
 	}
 	out, err := o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
 	if err != nil { // one retry: the teardown can outlast print's view of it
-		time.Sleep(20 * o.pollDelay())
+		o.clock().Sleep(20 * o.pollDelay())
 		out, err = o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
 	}
 	if err != nil {
@@ -463,7 +468,7 @@ func OpenURL(ctx context.Context, home string, port int) (string, error) {
 	}
 	token := strings.TrimSpace(string(b))
 	// Both loopbacks the browser may use for clauductor.localhost must answer as
-	// THIS panel (the PID beside its marker) before the token is sent (hosts.go).
+	// THIS panel (the PID beside its marker) before the token is sent (open.go).
 	return openURLChecked(ctx, home, port, token)
 }
 

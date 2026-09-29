@@ -22,8 +22,9 @@ type hookKeeper struct {
 	out        io.Writer
 	interval   time.Duration
 	retryBase  time.Duration
-	installed  bool // an install has succeeded at least once
-	conflicted bool // the last check found the hooks held by another live panel
+	installed  bool          // an install has succeeded at least once
+	conflicted bool          // the last check found the hooks held by another live panel
+	delay      time.Duration // the next retry delay after a failure (backoff)
 }
 
 // check installs (or verifies) the hooks once, and reports success. Hooks that
@@ -74,25 +75,19 @@ func (k *hookKeeper) check() bool {
 	return true
 }
 
-// loop re-checks every interval after a success; after a failure it retries with a
-// delay that doubles from retryBase up to the interval.
-func (k *hookKeeper) loop(ctx context.Context, ok bool) {
-	delay := k.retryBase
-	for {
-		wait := k.interval
-		if ok {
-			delay = k.retryBase
-		} else {
-			wait = delay
-			if delay *= 2; delay > k.interval {
-				delay = k.interval
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(wait):
-		}
-		ok = k.check()
+// nextWait is how long to wait before the next check, given how the last one went:
+// the interval after a success; after a failure a delay that doubles from retryBase
+// up to the interval.
+func (k *hookKeeper) nextWait(ok bool) time.Duration {
+	if k.delay == 0 || ok {
+		k.delay = k.retryBase
 	}
+	if ok {
+		return k.interval
+	}
+	wait := k.delay
+	if k.delay *= 2; k.delay > k.interval {
+		k.delay = k.interval
+	}
+	return wait
 }

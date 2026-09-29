@@ -68,7 +68,7 @@ func (s *Server) issueTicket(lane string) (string, error) {
 	if s.tickets == nil {
 		s.tickets = map[string]termTicket{}
 	}
-	now := time.Now()
+	now := s.clock().Now()
 	for k, v := range s.tickets { // expired tickets never pile up
 		if now.After(v.exp) {
 			delete(s.tickets, k)
@@ -96,7 +96,7 @@ func (s *Server) takeTicket(r *http.Request, lane string) bool {
 	defer s.termMu.Unlock()
 	t, ok := s.tickets[offered]
 	delete(s.tickets, offered)
-	return ok && t.lane == lane && time.Now().Before(t.exp)
+	return ok && t.lane == lane && s.clock().Now().Before(t.exp)
 }
 
 func (s *Server) addViewer(lane string, v *termViewer) {
@@ -308,16 +308,16 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		idle = 5 * time.Minute
 	}
 	var lastMsg atomic.Int64
-	lastMsg.Store(time.Now().UnixNano())
+	lastMsg.Store(s.clock().Now().UnixNano())
 	go func() {
-		t := time.NewTicker(idle / 4)
+		t := s.clock().NewTicker(idle / 4)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				if time.Since(time.Unix(0, lastMsg.Load())) >= idle {
+			case <-t.C():
+				if s.clock().Now().Sub(time.Unix(0, lastMsg.Load())) >= idle {
 					c.Close(CloseIdle, "idle")
 					cancel()
 					return
@@ -327,7 +327,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Browser → PTY: keystrokes and sizes only.
-	scroll := &copyWatch{lanes: s.Lanes, id: id, conn: c}
+	scroll := &copyWatch{lanes: s.Lanes, id: id, conn: c, clock: s.clock()}
 	for {
 		typ, data, err := c.Read(ctx)
 		if err != nil {
@@ -340,7 +340,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			c.Close(websocket.StatusPolicyViolation, "expected {type: input|resize}")
 			return
 		}
-		lastMsg.Store(time.Now().UnixNano())
+		lastMsg.Store(s.clock().Now().UnixNano())
 		switch m.Type {
 		case "alive":
 		case "focus":

@@ -137,7 +137,7 @@ var fileReadSites = map[string]int{
 	"config/config.go":     1, // the panel config
 	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
 	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime_v2.go":        1, // the notifier's saved state (notifier.json)
+	"runtime.go":           1, // the notifier's saved state (notifier.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
 	"install/trust.go":     1, // the trusted-config record

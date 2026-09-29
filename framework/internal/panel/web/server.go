@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 )
@@ -77,6 +78,11 @@ type Server struct {
 	// the panel runs under launchd with a persistent token.
 	CookieMaxAge int
 
+	// Heartbeat is how often an open /events stream beats. Zero means HeartbeatEvery.
+	Heartbeat time.Duration
+	// Clock stamps terminal tickets and times their idle close; nil is clock.System.
+	Clock clock.Clock
+
 	// TermIdleTimeout closes a terminal whose page has sent nothing (not even its
 	// once-a-minute "alive" while visible) for this long. Zero means 5 minutes.
 	TermIdleTimeout time.Duration
@@ -88,7 +94,7 @@ type Server struct {
 	tokenMu sync.RWMutex
 	rotated chan struct{} // closed, and replaced, on each token rotation
 
-	// HostNames are extra <label>.localhost names the panel answers to (hosts.go).
+	// HostNames are extra <label>.localhost names the panel answers to (hosts.go in this package).
 	HostNames []string
 
 	// Orch carries the v2 orchestration (templates, quota guard, queues, restore).
@@ -272,7 +278,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if send(s.Hub.Snapshot()) != nil {
 		return
 	}
-	ping := time.NewTicker(HeartbeatEvery)
+	every := s.Heartbeat
+	if every <= 0 {
+		every = HeartbeatEvery
+	}
+	ping := s.Hub.clock.NewTicker(every)
 	defer ping.Stop()
 	for {
 		select {
@@ -284,10 +294,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if send(b) != nil {
 				return
 			}
-		case <-ping.C:
+		case <-ping.C():
 			// A named event, not a comment: EventSource hides comments from the page,
 			// and the page needs the beat (and the server's clock) to know it is live.
-			if _, err := fmt.Fprintf(w, "event: hb\ndata: {\"now\":%d}\n\n", s.Hub.now().UnixMilli()); err != nil {
+			if _, err := fmt.Fprintf(w, "event: hb\ndata: {\"now\":%d}\n\n", s.Hub.clock.Now().UnixMilli()); err != nil {
 				return
 			}
 			fl.Flush()
@@ -351,3 +361,5 @@ func (s *Server) FocusedLanes() map[string]bool {
 	}
 	return out
 }
+
+func (s *Server) clock() clock.Clock { return clock.Or(s.Clock) }

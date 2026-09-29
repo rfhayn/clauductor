@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/coder/websocket"
 )
@@ -52,6 +53,7 @@ type copyWatch struct {
 	conn  *websocket.Conn
 	maybe atomic.Bool // a wheel was sent: the pane may be in copy mode
 	back  atomic.Bool // what the page was last told
+	clock clock.Clock
 }
 
 // tell sends the page {"type":"scroll","back":…} when it changed.
@@ -71,7 +73,7 @@ func (w *copyWatch) recheck(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(120 * time.Millisecond):
+		case <-w.clock.After(120 * time.Millisecond):
 		}
 		in := w.lanes.InCopyMode(ctx, w.id)
 		w.maybe.Store(in)

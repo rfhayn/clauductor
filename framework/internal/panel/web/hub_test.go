@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	pclock "github.com/clauductor/clauductor/internal/panel/clock"
+
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
@@ -28,7 +30,7 @@ func TestHubPushesOnlyAChangedView(t *testing.T) {
 	m := state.NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 	clock := &fakeClock{t: t0, step: time.Second}
-	h := NewHub(m, clock.now)
+	h := NewHub(m, pclock.Func(clock.now))
 	h.TickEvery = 10 * time.Millisecond
 	ch, cancel := h.subscribe()
 	defer cancel()
@@ -76,7 +78,7 @@ func TestHubPushesOnlyAChangedView(t *testing.T) {
 // per 5 s tick, not one per poll.
 func TestSteadyPollingPushesOnlyOnTheTick(t *testing.T) {
 	m := alertModel(t, "")
-	h := NewHub(m, time.Now)
+	h := NewHub(m, pclock.Func(time.Now))
 	h.Coalesce, h.TickEvery = 5*time.Millisecond, 250*time.Millisecond // 5 s → 250 ms
 	ch, cancel := h.subscribe()
 	defer cancel()
