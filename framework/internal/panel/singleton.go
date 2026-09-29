@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // PANEL-5: one panel per machine, enforced.
@@ -151,7 +153,7 @@ func readPIDFile(home string) int {
 //     /proc) as the one read now: live exactly when they match (else a reused pid);
 //   - otherwise (a panel from before owner.json, or start times that cannot be
 //     compared): live only if the marker's port answers /healthz as that pid.
-func RunningPanel(ctx context.Context, home string, self int, proc ProcCheck) *PanelOwner {
+func RunningPanel(ctx context.Context, home string, self int, proc lease.ProcCheck) *PanelOwner {
 	pid := readPIDFile(home)
 	if pid <= 0 || pid == self {
 		return nil
@@ -162,7 +164,7 @@ func RunningPanel(ctx context.Context, home string, self int, proc ProcCheck) *P
 	}
 	var o PanelOwner
 	if b, err := os.ReadFile(OwnerPath(home)); err == nil && json.Unmarshal(b, &o) == nil && o.PID == pid &&
-		o.PStart != "" && start != "" && sameSource(o.PStart, start) {
+		o.PStart != "" && start != "" && lease.SameSource(o.PStart, start) {
 		if o.PStart != start {
 			return nil
 		}

@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // errUntrusted is what a card shows while the config is untrusted.
@@ -106,7 +108,7 @@ type Orchestration struct {
 	Trusted    func() bool
 	QuotaGuard func() string
 	CancelWait func(queue, nonce string) error
-	RunQueue   func(ctx context.Context, queue, worktree string) (*QueueRun, error)
+	RunQueue   func(ctx context.Context, queue, worktree string) (*lease.QueueRun, error)
 }
 
 func (o *Orchestration) startGate() StartGate {
@@ -114,16 +116,6 @@ func (o *Orchestration) startGate() StartGate {
 		return StartGate{}
 	}
 	return StartGate{Trusted: o.Trusted, QuotaGuard: o.QuotaGuard}
-}
-
-// QueueRun is the last RUN the panel started for a queue.
-type QueueRun struct {
-	PID      int    `json:"pid"`
-	Worktree string `json:"worktree"`
-	Log      string `json:"log"`
-	Started  int64  `json:"started"`
-	Ended    int64  `json:"ended,omitempty"`
-	Exit     *int   `json:"exit,omitempty"`
 }
 
 type runtimeV2 struct {
@@ -144,7 +136,7 @@ type runtimeV2 struct {
 	agentsQuietNow atomic.Bool
 
 	// procs caches pid start times for the queue view (PANEL-7).
-	procs ProcCache
+	procs lease.ProcCache
 	// lastPromptKick is when the first-prompt loop last kicked a `claude agents`
 	// poll (promptLoop's goroutine only).
 	lastPromptKick time.Time
@@ -154,7 +146,7 @@ type runtimeV2 struct {
 	lastObs  Obs
 	pollSum  int64
 	notifier Notifier
-	runs     map[string]*QueueRun
+	runs     map[string]*lease.QueueRun
 	// notifyPath persists the notifier's state, so a restart never re-notifies.
 	notifyPath string
 	savedState string
@@ -181,7 +173,7 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) TrustView {
 
 func newRuntimeV2(o Options, cfg *Config, root, cfgPath string, tv TrustView, hub *Hub, p *pollers, lanes *LaneManager) *runtimeV2 {
 	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lanes, trustView: tv,
-		runs: map[string]*QueueRun{}}
+		runs: map[string]*lease.QueueRun{}}
 	x.trust.Store(tv.Trusted)
 	x.notifier = Notifier{MinInterval: cfg.AlertThresholds().MinInterval, Project: cfg.Name}
 	x.notifyPath = filepath.Join(filepath.Dir(RegistryPath(o.Home, root)), "notifier.json")
@@ -589,7 +581,7 @@ func (x *runtimeV2) gitCommonDir(ctx context.Context) (string, error) {
 	return d, nil
 }
 
-func (x *runtimeV2) queueLock(ctx context.Context, id string) (QueueConfig, string, error) {
+func (x *runtimeV2) queueLock(ctx context.Context, id string) (lease.QueueConfig, string, error) {
 	for _, q := range x.cfg.Queues {
 		if q.ID == id {
 			d, err := x.gitCommonDir(ctx)
@@ -599,7 +591,7 @@ func (x *runtimeV2) queueLock(ctx context.Context, id string) (QueueConfig, stri
 			return q, filepath.Join(d, filepath.Clean(q.Lock)), nil
 		}
 	}
-	return QueueConfig{}, "", fmt.Errorf("no queue %q", id)
+	return lease.QueueConfig{}, "", fmt.Errorf("no queue %q", id)
 }
 
 // queueLoop reads every queue's lease once a second. It only reads.
@@ -627,14 +619,14 @@ func (x *runtimeV2) queueLoop(ctx context.Context) {
 
 // readQueues reads every queue once. Liveness goes through the pid cache: kill(pid,
 // 0) every time, ps once per process (PANEL-7).
-func (x *runtimeV2) readQueues(ctx context.Context, now time.Time) ([]QueueView, error) {
-	var qs []QueueView
+func (x *runtimeV2) readQueues(ctx context.Context, now time.Time) ([]lease.QueueView, error) {
+	var qs []lease.QueueView
 	for _, q := range x.cfg.Queues {
 		_, lock, err := x.queueLock(ctx, q.ID)
 		if err != nil {
 			return qs, err
 		}
-		v := ReadQueue(q, lock, now, x.procs.Check)
+		v := lease.ReadQueue(q, lock, now, x.procs.Check)
 		x.mu.Lock()
 		if r := x.runs[q.ID]; r != nil {
 			rc := *r
@@ -651,13 +643,13 @@ func (x *runtimeV2) cancelWait(queue, nonce string) error {
 	if err != nil {
 		return err
 	}
-	return CancelWait(lock, nonce)
+	return lease.CancelWait(lock, nonce)
 }
 
 // runQueue starts the queue's command through lock-run in one of the project's
 // worktrees, detached, with its output in a log file. It waits its turn like any
 // other gate run; the panel never skips the queue.
-func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*QueueRun, error) {
+func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*lease.QueueRun, error) {
 	if !x.trusted() {
 		return nil, errUntrusted
 	}
@@ -723,7 +715,7 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*Queu
 		logf.Close()
 		return nil, err
 	}
-	run := &QueueRun{PID: cmd.Process.Pid, Worktree: dir, Log: logPath, Started: time.Now().UnixMilli()}
+	run := &lease.QueueRun{PID: cmd.Process.Pid, Worktree: dir, Log: logPath, Started: time.Now().UnixMilli()}
 	x.mu.Lock()
 	x.runs[queue] = run
 	x.mu.Unlock()

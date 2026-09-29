@@ -1,4 +1,7 @@
-package panel
+// Package lease is the on-disk queue lease (the gate on port 3100) that `clauductor
+// lock-run` holds and the panel only reads. It depends on nothing else in the panel,
+// so lock-run links it alone.
+package lease
 
 import (
 	"context"
@@ -137,8 +140,8 @@ func procStatStart(pid int) string {
 	return "proc:" + f[19]
 }
 
-// sameSource: two start times come from the same source (ps, or /proc).
-func sameSource(a, b string) bool {
+// SameSource: two start times come from the same source (ps, or /proc).
+func SameSource(a, b string) bool {
 	return strings.HasPrefix(a, "proc:") == strings.HasPrefix(b, "proc:")
 }
 
@@ -252,7 +255,7 @@ func procDead(pid int, recorded string, proc ProcCheck) (bool, string) {
 	switch {
 	case !alive:
 		return true, fmt.Sprintf("pid %d is gone", pid)
-	case recorded != "" && start != "" && sameSource(recorded, start) && start != recorded:
+	case recorded != "" && start != "" && SameSource(recorded, start) && start != recorded:
 		return true, fmt.Sprintf("pid %d was reused (started %s, the record says %s)", pid, start, recorded)
 	}
 	return false, ""

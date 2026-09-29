@@ -1,6 +1,6 @@
 //go:build darwin
 
-package panel
+package lease
 
 import "syscall"
 

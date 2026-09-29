@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 //go:embed web
@@ -156,14 +158,14 @@ func viewKey(v View) [sha256.Size]byte {
 		cards[i] = c
 	}
 	v.Cards = cards
-	qs := make([]QueueView, len(v.Queues))
+	qs := make([]lease.QueueView, len(v.Queues))
 	for i, q := range v.Queues {
 		if q.Holder != nil {
 			h := *q.Holder
 			h.Renewed = 0
 			q.Holder = &h
 		}
-		ws := make([]LeaseView, len(q.Waiters))
+		ws := make([]lease.LeaseView, len(q.Waiters))
 		for j, w := range q.Waiters {
 			w.Renewed = 0
 			ws[j] = w

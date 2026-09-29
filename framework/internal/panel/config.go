@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // DefaultConfigRel is where a project keeps its panel config, relative to the project root.
@@ -55,7 +57,7 @@ type Config struct {
 	// Templates are lane recipes offered in the Start dialog.
 	Templates []TemplateConfig `json:"templates"`
 	// Queues are shared resources held as an on-disk lease (the gate on port 3100).
-	Queues []QueueConfig `json:"queues"`
+	Queues []lease.QueueConfig `json:"queues"`
 	// Alerts sets the alert thresholds and the OS notifications.
 	Alerts *AlertConfig `json:"alerts"`
 	// QuotaGuard refuses to start a lane above a 5-hour quota threshold.

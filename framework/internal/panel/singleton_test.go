@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // PANEL-5: one panel per machine is enforced, not assumed. The hook URL in
@@ -62,7 +64,7 @@ func runBounded(t *testing.T, o Options) error {
 func TestSecondPanelIsRefused(t *testing.T) {
 	root, home := setupProject(t)
 	pid := otherProcess(t)
-	other := &PanelOwner{PID: pid, PStart: ProcStart(pid), Project: "/work/other-project", Name: "Other", Port: 4393}
+	other := &PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other-project", Name: "Other", Port: 4393}
 	writePanelFiles(t, home, pid, 4393, other)
 	// The first panel's hooks, which a second panel must not re-point.
 	if _, err := InstallHooks(home, 4393); err != nil {
@@ -206,7 +208,7 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 	root, home := setupProject(t)
 	_, _, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	pid := otherProcess(t)
-	writePanelFiles(t, home, pid, 4394, &PanelOwner{PID: pid, PStart: ProcStart(pid), Project: "/work/other", Port: 4394})
+	writePanelFiles(t, home, pid, 4394, &PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/other", Port: 4394})
 	stop()
 	if b, err := os.ReadFile(MarkerPath(home)); err != nil || strings.TrimSpace(string(b)) != "4394" {
 		t.Fatalf("exit removed or changed another panel's marker: %q %v", b, err)

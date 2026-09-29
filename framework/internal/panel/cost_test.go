@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // PANEL-7: what the panel spawns while it idles. Each cadence rule is pinned with an
@@ -146,61 +148,6 @@ func TestTmuxEnvBlockStillReported(t *testing.T) {
 
 // ---- pid start times ----
 
-func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {
-	clock := t0
-	alive := map[int]bool{100: true}
-	starts := map[int]string{100: "Mon Sep 28 10:00:00 2026"}
-	var aliveCalls, startCalls int
-	c := &ProcCache{
-		Alive: func(pid int) bool { aliveCalls++; return alive[pid] },
-		Start: func(pid int) string { startCalls++; return starts[pid] },
-		Now:   func() time.Time { return clock },
-	}
-	for i := 0; i < 60; i++ {
-		if ok, s := c.Check(100); !ok || s != starts[100] {
-			t.Fatalf("check %d: %v %q", i, ok, s)
-		}
-		clock = clock.Add(time.Second)
-	}
-	// Read when new, and again every 30 s (t = 0 and t = 30 s).
-	if startCalls != 2 || aliveCalls != 60 {
-		t.Fatalf("a minute of 1 s checks: %d start reads (ps), %d kill(0) checks; want 2 and 60", startCalls, aliveCalls)
-	}
-	// The process exits and the pid is reused: the start time is read again.
-	alive[100] = false
-	if ok, _ := c.Check(100); ok {
-		t.Fatal("a gone pid reads as alive")
-	}
-	alive[100], starts[100] = true, "Mon Sep 28 11:00:00 2026"
-	if _, s := c.Check(100); s != starts[100] || startCalls != 3 {
-		t.Fatalf("a reused pid kept the old start time %q (%d reads)", s, startCalls)
-	}
-	// A pid no longer asked about is dropped after the TTL, so the map stays small.
-	clock = clock.Add(2 * time.Minute)
-	c.Check(200)
-	if len(c.m) != 0 {
-		t.Fatalf("stale entries kept: %v", c.m)
-	}
-}
-
-// A pid that dies and is reused between two checks is never seen gone; the 30 s
-// re-read still catches the new start time.
-func TestProcCacheRereadsAStartTimeEvery30s(t *testing.T) {
-	clock := t0
-	start := "Mon Sep 28 10:00:00 2026"
-	c := &ProcCache{Alive: func(int) bool { return true }, Start: func(int) string { return start }, Now: func() time.Time { return clock }}
-	c.Check(300)
-	start = "Mon Sep 28 12:00:00 2026" // reused unseen
-	clock = clock.Add(29 * time.Second)
-	if _, s := c.Check(300); s == start {
-		t.Fatal("re-read before 30 s")
-	}
-	clock = clock.Add(time.Second)
-	if _, s := c.Check(300); s != start {
-		t.Fatalf("after 30 s the cache still says %q", s)
-	}
-}
-
 // A hook that arrives while the agents loop sleeps its quiet 15 s polls at once.
 func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 	var mu sync.Mutex
@@ -229,30 +176,26 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 	gitDir := t.TempDir()
 	lock := filepath.Join(gitDir, "gate.lock")
-	if err := os.MkdirAll(waitersDir(lock), 0o755); err != nil {
+	if err := os.MkdirAll(lock+".waiters", 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(lock, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	host := hostName()
-	holder := LeaseOwner{V: 1, Nonce: "0123456789abcdef", PID: 4001, PStart: "S4001", ChildPID: 4002, ChildPStart: "S4002",
+	host, _ := os.Hostname()
+	holder := lease.LeaseOwner{V: 1, Nonce: "0123456789abcdef", PID: 4001, PStart: "S4001", ChildPID: 4002, ChildPStart: "S4002",
 		Host: host, Started: t0.Unix(), Renewed: t0.Unix(), TTL: 600}
-	waiter := LeaseOwner{V: 1, Nonce: "fedcba9876543210", PID: 4003, PStart: "S4003", Host: host, Started: t0.Unix(), Renewed: t0.Unix()}
-	if err := writeLeaseFile(filepath.Join(lock, ownerFileName), holder); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeLeaseFile(filepath.Join(waitersDir(lock), fmt.Sprintf("%020d-%s.json", t0.UnixNano(), waiter.Nonce)), waiter); err != nil {
-		t.Fatal(err)
-	}
+	waiter := lease.LeaseOwner{V: 1, Nonce: "fedcba9876543210", PID: 4003, PStart: "S4003", Host: host, Started: t0.Unix(), Renewed: t0.Unix()}
+	writeLeaseRecord(t, filepath.Join(lock, "owner.json"), holder)
+	writeLeaseRecord(t, filepath.Join(lock+".waiters", fmt.Sprintf("%020d-%s.json", t0.UnixNano(), waiter.Nonce)), waiter)
 	reads := map[int]int{}
 	start := func(pid int) string { reads[pid]++; return fmt.Sprintf("S%d", pid) }
 	isAlive := func(pid int) bool { return pid >= 4001 && pid <= 4003 }
-	q := QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
+	q := lease.QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
 	// queueLoop's read, with fake processes: pids 4001-4003 are alive only to the
 	// injected kill(0), so a reader that bypassed the cache would find them gone.
-	x := &runtimeV2{cfg: &Config{Queues: []QueueConfig{q}}, gitDir: gitDir, runs: map[string]*QueueRun{},
-		procs: ProcCache{Alive: isAlive, Start: start, Now: func() time.Time { return t0 }}}
+	x := &runtimeV2{cfg: &Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
+		procs: lease.ProcCache{Alive: isAlive, Start: start, Now: func() time.Time { return t0 }}}
 	for i := 0; i < 60; i++ { // once a second for a minute
 		qs, err := x.readQueues(context.Background(), t0)
 		if err != nil || len(qs) != 1 {
@@ -273,7 +216,7 @@ func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 	// The same minute without the cache, as queueLoop ran before PANEL-7.
 	uncached := 0
 	for i := 0; i < 60; i++ {
-		ReadQueue(q, lock, t0, func(pid int) (bool, string) { uncached++; return isAlive(pid), start(pid) })
+		lease.ReadQueue(q, lock, t0, func(pid int) (bool, string) { uncached++; return isAlive(pid), start(pid) })
 	}
 	if uncached < 120 {
 		t.Fatalf("the uncached baseline read only %d start times; the fixture does not exercise the reader", uncached)

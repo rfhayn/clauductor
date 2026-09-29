@@ -27,17 +27,6 @@ type TemplateConfig struct {
 	Effort string `json:"effort"`
 }
 
-// QueueConfig is one shared resource held as a lease on disk (see lease.go).
-type QueueConfig struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	// Lock is the lease directory, relative to the git common dir, so every worktree
-	// of the project agrees on one path.
-	Lock string `json:"lock"`
-	// Command, if set, is an argv the panel can run through the queue (RUN).
-	Command []string `json:"command"`
-}
-
 // AlertConfig sets alert thresholds. A missing key takes the default; 0 turns that
 // alert off.
 type AlertConfig struct {

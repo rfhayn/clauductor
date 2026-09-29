@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // Runner runs one command in dir and returns its stdout. Injectable for tests.
@@ -174,7 +176,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if err == nil {
 		defer lock.Close()
-		if other := RunningPanel(ctx, o.Home, os.Getpid(), LiveProc); other != nil {
+		if other := RunningPanel(ctx, o.Home, os.Getpid(), lease.LiveProc); other != nil {
 			err = &OtherPanelError{Owner: *other}
 		}
 	}
@@ -206,7 +208,7 @@ func Run(ctx context.Context, o Options) error {
 	// read `port` as digits only. A PID that is not running (or runs with another
 	// start time) marks the files stale; SIGKILL skips the removal at exit, which
 	// takes them only while they are still this panel's.
-	if err := claimPanelFiles(o.Home, PanelOwner{PID: os.Getpid(), PStart: ProcStart(os.Getpid()), Project: root,
+	if err := claimPanelFiles(o.Home, PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: root,
 		Name: cfg.Name, Port: port, Started: time.Now().Unix()}); err != nil {
 		return err
 	}

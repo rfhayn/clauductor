@@ -1,4 +1,4 @@
-package panel
+package lease
 
 import (
 	"os"
@@ -16,7 +16,7 @@ import (
 // page, against lock-run, so the documentation cannot drift from the protocol.
 func docLeaseSh(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "panel.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 // Round 2: the documented run-local.sh runs the gate unqueued, with one warning,
 // when neither clauductor nor lease.sh is there; it never aborts.
 func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "panel.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

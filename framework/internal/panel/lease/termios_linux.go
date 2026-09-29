@@ -1,6 +1,6 @@
 //go:build linux
 
-package panel
+package lease
 
 import "syscall"
 

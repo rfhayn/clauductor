@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // HeuristicsVerifiedOn is the Claude Code version the undocumented behaviours the
@@ -68,7 +70,7 @@ type modelV2 struct {
 	claudeVersion  string
 	versionSrc     SourceStatus
 	obs            Obs
-	queues         []QueueView
+	queues         []lease.QueueView
 	queuesSrc      SourceStatus
 	notifier       NotifierStats
 	trust          TrustView
@@ -115,12 +117,12 @@ func (v *View) banner(kind, text string) {
 // ViewV2 is the v2 part of the View.
 type ViewV2 struct {
 	// Done holds finished turns and completed agents: your move, but not blocked.
-	Done       []NeedView     `json:"done"`
-	Alerts     []AlertView    `json:"alerts"`
-	Templates  []TemplateInfo `json:"templates"`
-	Queues     []QueueView    `json:"queues"`
-	QueuesSrc  SourceStatus   `json:"queuesSource"`
-	Thresholds Thresholds     `json:"thresholds"`
+	Done       []NeedView        `json:"done"`
+	Alerts     []AlertView       `json:"alerts"`
+	Templates  []TemplateInfo    `json:"templates"`
+	Queues     []lease.QueueView `json:"queues"`
+	QueuesSrc  SourceStatus      `json:"queuesSource"`
+	Thresholds Thresholds        `json:"thresholds"`
 	// QuotaGuard is set when the 5-hour quota is at or above the guard: a new lane
 	// needs the override.
 	QuotaGuard string    `json:"quotaGuard,omitempty"`
@@ -151,7 +153,7 @@ func (m *Model) ApplyNotifier(n NotifierStats) { m.v2.notifier = n }
 func (m *Model) ApplyTrust(t TrustView) { m.v2.trust = t }
 
 // ApplyQueues records a read of the queues' leases.
-func (m *Model) ApplyQueues(qs []QueueView, err error, now time.Time) {
+func (m *Model) ApplyQueues(qs []lease.QueueView, err error, now time.Time) {
 	if err != nil {
 		m.v2.queuesSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
@@ -372,7 +374,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	th := m.cfg.AlertThresholds()
 	v.Templates = m.cfg.TemplateList()
 	v.Thresholds = th
-	v.Queues = append([]QueueView{}, m.v2.queues...)
+	v.Queues = append([]lease.QueueView{}, m.v2.queues...)
 	v.QueuesSrc = m.v2.queuesSrc
 	if len(m.cfg.Queues) == 0 {
 		v.QueuesSrc = SourceStatus{OK: true}
