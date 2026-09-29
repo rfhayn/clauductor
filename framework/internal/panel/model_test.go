@@ -87,9 +87,9 @@ func TestReducerReplaysSpikeHooks(t *testing.T) {
 		{"turn stopped", 2, "idle", 0, "Stop"},
 		{"subagent started", 4, "busy", 1, "SubagentStart"},
 		{"subagent stopped", 5, "busy", 0, "SubagentStop"},
-		// Events 6-9 include SubagentStops with ids never started and an empty type:
-		// nothing of that type runs, so nothing is retired and the count stays at 0.
-		{"stop for an unknown id and type retires nothing", 9, "idle", 0, "SubagentStop"},
+		// Events 6-9 include SubagentStops with ids never started and an empty type,
+		// while nothing is running: the fallback has nothing to retire.
+		{"stop for an unknown id with nothing running", 9, "idle", 0, "SubagentStop"},
 		{"whole spike", 15, "idle", 0, "Stop"},
 	}
 	for _, tc := range tests {
@@ -430,10 +430,26 @@ func TestReducerSubagentLifecycle(t *testing.T) {
 			m.ApplyHook(start("r1", "reviewer"), t0.Add(time.Second))
 			m.ApplyHook(stop("b9", "builder"), t0.Add(2*time.Second))
 		}, 3 * time.Second, []string{"a2", "r1"}},
-		{"unknown id of another type retires nothing", func(m *Model) {
+		// From the live capture: a Workflow agent started as "reviewer" and stopped as
+		// "workflow-subagent" under another id.
+		{"live capture: start reviewer A, stop workflow-subagent B", func(m *Model) {
+			m.ApplyHook(start("af6022d", "reviewer"), t0)
+			m.ApplyHook(stop("ab7ca82", "workflow-subagent"), t0.Add(time.Second))
+		}, 2 * time.Second, nil},
+		{"no id or type match retires the oldest of any type", func(m *Model) {
+			m.ApplyHook(start("A", "builder"), t0)
+			m.ApplyHook(start("B", "reviewer"), t0.Add(time.Second))
+			m.ApplyHook(stop("C", "workflow-subagent"), t0.Add(2*time.Second))
+		}, 3 * time.Second, []string{"B"}},
+		{"an empty type falls back the same way", func(m *Model) {
 			m.ApplyHook(start("a1", "builder"), t0)
 			m.ApplyHook(stop("b9", ""), t0.Add(time.Second))
-		}, 2 * time.Second, []string{"a1"}},
+		}, 2 * time.Second, nil},
+		{"a type match is preferred over an older agent of another type", func(m *Model) {
+			m.ApplyHook(start("A", "builder"), t0)
+			m.ApplyHook(start("B", "reviewer"), t0.Add(time.Second))
+			m.ApplyHook(stop("C", "reviewer"), t0.Add(2*time.Second))
+		}, 3 * time.Second, []string{"A"}},
 		{"hook Stop keeps background agents", func(m *Model) {
 			m.ApplyAgents(agent("busy"), nil, t0)
 			m.ApplyHook(start("a1", "builder"), t0)

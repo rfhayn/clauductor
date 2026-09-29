@@ -309,26 +309,37 @@ func (m *Model) ApplyHook(ev HookEvent, now time.Time) bool {
 }
 
 // stopSubagent removes the stopped agent. Workflow agents were seen (live, 2.1.284)
-// to stop under a different agent_id than they started with, so an unknown id retires
-// the OLDEST running agent of the same type instead. Hook Stop clears nothing:
-// background agents outlive the turn that started them.
+// to stop under a different agent_id AND a different agent_type than they started
+// with (start "reviewer", stop "workflow-subagent"), and a build lane stays busy for
+// an hour, so waiting for idle would leave the count inflated all run. An unknown id
+// therefore retires the oldest running agent of the same type, or failing that the
+// oldest of any type (FIFO). Hook Stop clears nothing: background agents outlive the
+// turn that started them.
 func (s *session) stopSubagent(id, typ string) {
 	if _, ok := s.Subagents[id]; ok {
 		delete(s.Subagents, id)
 		return
 	}
+	if oldest := s.oldestSubagent(func(a subagent) bool { return a.Type == typ }); oldest != "" {
+		delete(s.Subagents, oldest)
+		return
+	}
+	if oldest := s.oldestSubagent(func(subagent) bool { return true }); oldest != "" {
+		delete(s.Subagents, oldest)
+	}
+}
+
+func (s *session) oldestSubagent(match func(subagent) bool) string {
 	oldest := ""
 	for k, a := range s.Subagents {
-		if a.Type != typ {
+		if !match(a) {
 			continue
 		}
 		if oldest == "" || a.Since.Before(s.Subagents[oldest].Since) || (a.Since.Equal(s.Subagents[oldest].Since) && k < oldest) {
 			oldest = k
 		}
 	}
-	if oldest != "" {
-		delete(s.Subagents, oldest)
-	}
+	return oldest
 }
 
 func agentLabel(typ, id string) string {
