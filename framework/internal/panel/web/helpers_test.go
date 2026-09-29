@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -27,7 +28,7 @@ func testConfig(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.ParseConfig(b)
+	cfg, err := loadConfig(t, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func fixtureWorktrees(t *testing.T) []signals.Worktree {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wts, err := signals.ParseWorktreePorcelain(b)
+	wts, err := readWorktreesFrom(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,7 @@ func fixtureWorktrees(t *testing.T) []signals.Worktree {
 
 func v2Config(t *testing.T, extra string) *config.Config {
 	t.Helper()
-	c, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
+	c, err := loadConfig(t, []byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}`+extra+`}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +72,9 @@ func waitingAgent(status, waitingFor string) []signals.Agent {
 
 func testLaneManager(t *testing.T) *lanes.LaneManager {
 	t.Helper()
-	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
+	cfg, err := loadConfig(t, []byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
 		"tmux_socket":"sock","lane_types":{"build":{"model":"opus","effort":"high"}}}`))
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,7 @@ func testLaneManager(t *testing.T) *lanes.LaneManager {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &lanes.LaneManager{TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
+	return &lanes.LaneManager{Clock: clock.System, TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
 		Program: []string{"/Users/me/.local/bin/claude"}, LookupEnv: func(string) (string, bool) { return "", false }}
 }
 
@@ -117,4 +119,20 @@ func closeCode(c *websocket.Conn, within time.Duration) websocket.StatusCode {
 			return websocket.CloseStatus(err)
 		}
 	}
+}
+
+// loadConfig reads panel.json bytes the way the panel does: from a file.
+func loadConfig(t *testing.T, b []byte) (*config.Config, error) {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "panel.json")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return config.LoadConfig(p)
+}
+
+// readWorktreesFrom reads `git worktree list --porcelain` output the way the panel
+// does, through signals.ReadWorktrees.
+func readWorktreesFrom(out []byte) ([]signals.Worktree, error) {
+	return signals.ReadWorktrees(context.Background(), func(context.Context, string, []string) ([]byte, error) { return out, nil }, "/")
 }

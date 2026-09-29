@@ -42,7 +42,10 @@ type Hub struct {
 
 // NewHub wraps a model.
 func NewHub(m *state.Model, c clock.Clock) *Hub {
-	return &Hub{model: m, clock: clock.Or(c), subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
+	if c == nil {
+		panic("web: NewHub needs a clock")
+	}
+	return &Hub{model: m, clock: c, subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
 }
 
 // Update applies fn to the model under the lock and schedules a broadcast.

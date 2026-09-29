@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/clauductor/clauductor/internal/panel"
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/spf13/cobra"
@@ -140,7 +141,7 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			return err
 		}
 		return install.Install(install.InstallOptions{Home: home, Project: installProject, Config: installConfig,
-			Port: installPort, App: installApp, Out: cmd.OutOrStdout()})
+			Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System})
 	},
 }
 

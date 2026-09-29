@@ -21,14 +21,14 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
-// HookTag is the query parameter that marks a hook entry as the panel's own. Claude
+// hookTag is the query parameter that marks a hook entry as the panel's own. Claude
 // Code's hook schema documents no free-form key for ownership, so the tag lives in the
 // URL, which Claude Code passes through untouched.
-const HookTag = "clauductor-panel"
+const hookTag = "clauductor-panel"
 
-// HookURL is the URL the panel's hooks post to.
-func HookURL(port int) string {
-	return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, HookTag)
+// hookURL is the URL the panel's hooks post to.
+func hookURL(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag)
 }
 
 // SettingsPath is the user settings file the installer edits.
@@ -39,7 +39,7 @@ func SettingsPath(home string) string { return filepath.Join(home, ".claude", "s
 // tagged as ours, is preserved byte for byte. It returns whether the file changed.
 func InstallHooks(home string, port int) (bool, error) {
 	entry, _ := marshalRaw(map[string]any{
-		"hooks": []map[string]any{{"type": "http", "url": HookURL(port), "timeout": 1}},
+		"hooks": []map[string]any{{"type": "http", "url": hookURL(port), "timeout": 1}},
 	})
 	return rewriteHooks(home, func(h *orderedObject) error {
 		want := map[string]bool{}
@@ -216,7 +216,7 @@ func isOurs(raw json.RawMessage) bool {
 		return false
 	}
 	u, err := url.Parse(h.URL)
-	return err == nil && u.Query().Get("src") == HookTag
+	return err == nil && u.Query().Get("src") == hookTag
 }
 
 // stripOurs removes every tagged hook object from every event.

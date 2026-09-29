@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,12 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/coder/websocket"
 )
 
 func waitUntil(t *testing.T, what string, d time.Duration, cond func() bool) {
@@ -47,7 +52,7 @@ func writeLeaseRecord(t *testing.T, path string, o lease.LeaseOwner) {
 type registryFile struct {
 	Version int                `json:"version"`
 	Project string             `json:"project"`
-	Lanes   []lanes.LaneRecord `json:"lanes"`
+	Lanes   []types.LaneRecord `json:"lanes"`
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -56,8 +61,9 @@ const sid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 func testLaneManager(t *testing.T) *lanes.LaneManager {
 	t.Helper()
-	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
+	cfg, err := loadConfig(t, []byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
 		"tmux_socket":"sock","lane_types":{"build":{"model":"opus","effort":"high"}}}`))
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +71,7 @@ func testLaneManager(t *testing.T) *lanes.LaneManager {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &lanes.LaneManager{TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
+	return &lanes.LaneManager{Clock: clock.System, TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
 		Program: []string{"/Users/me/.local/bin/claude"}, LookupEnv: func(string) (string, bool) { return "", false }}
 }
 
@@ -90,7 +96,7 @@ func testConfig(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.ParseConfig(b)
+	cfg, err := loadConfig(t, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +105,7 @@ func testConfig(t *testing.T) *config.Config {
 
 func fixtureWorktrees(t *testing.T) []signals.Worktree {
 	t.Helper()
-	wts, err := signals.ParseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
+	wts, err := readWorktreesFrom(fixture(t, "worktrees-fixture.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +149,7 @@ func ourHooks(t *testing.T, home string) map[string]int {
 		for _, g := range groups.([]any) {
 			for _, h := range g.(map[string]any)["hooks"].([]any) {
 				s, _ := h.(map[string]any)["url"].(string)
-				if u, err := url.Parse(s); err == nil && s != "" && u.Query().Get("src") == install.HookTag {
+				if u, err := url.Parse(s); err == nil && s != "" && u.Query().Get("src") == hookTag {
 					out[ev]++
 				}
 			}
@@ -154,7 +160,7 @@ func ourHooks(t *testing.T, home string) map[string]int {
 
 func v2Config(t *testing.T, extra string) *config.Config {
 	t.Helper()
-	c, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
+	c, err := loadConfig(t, []byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}`+extra+`}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,3 +187,40 @@ func alertKinds(v state.View) map[string]string {
 	}
 	return out
 }
+
+// loadConfig reads panel.json bytes the way the panel does: from a file.
+func loadConfig(t *testing.T, b []byte) (*config.Config, error) {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "panel.json")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return config.LoadConfig(p)
+}
+
+// readWorktreesFrom reads `git worktree list --porcelain` output the way the panel
+// does, through signals.ReadWorktrees.
+func readWorktreesFrom(out []byte) ([]signals.Worktree, error) {
+	return signals.ReadWorktrees(context.Background(), func(context.Context, string, []string) ([]byte, error) { return out, nil }, "/")
+}
+
+// The page's terminal protocol and the hook address, as the page and Claude Code
+// see them: the tests speak the wire format, not the packages' names for it.
+const (
+	ticketPrefix                      = "ticket."
+	closeIdle    websocket.StatusCode = 4000
+	closeRotated websocket.StatusCode = 4001
+	hookTag                           = "clauductor-panel"
+)
+
+type termMsg struct {
+	Type string `json:"type"`
+	Data string `json:"data,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
+	On   bool   `json:"focused,omitempty"`
+}
+
+func hookURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag) }
+
+func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }

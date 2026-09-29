@@ -42,8 +42,8 @@ type PanelOwner struct {
 	Started int64  `json:"started"`
 }
 
-// OwnerPath is the running panel's owner record.
-func OwnerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
+// ownerPath is the running panel's owner record.
+func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
 
 // LockPath is the machine lock a running panel holds with flock(2). The file itself
 // is never removed: a new inode would let a second panel lock it too.
@@ -72,7 +72,7 @@ func LockMachine(home string) (*os.File, error) {
 			return nil, fmt.Errorf("locking %s: %w", LockPath(home), err)
 		}
 		var o PanelOwner
-		if b, rerr := os.ReadFile(OwnerPath(home)); rerr == nil {
+		if b, rerr := os.ReadFile(ownerPath(home)); rerr == nil {
 			_ = json.Unmarshal(b, &o)
 		}
 		if o.PID == 0 {
@@ -163,7 +163,7 @@ func RunningPanel(ctx context.Context, home string, self int, proc lease.ProcChe
 		return nil
 	}
 	var o PanelOwner
-	if b, err := os.ReadFile(OwnerPath(home)); err == nil && json.Unmarshal(b, &o) == nil && o.PID == pid &&
+	if b, err := os.ReadFile(ownerPath(home)); err == nil && json.Unmarshal(b, &o) == nil && o.PID == pid &&
 		o.PStart != "" && start != "" && lease.SameSource(o.PStart, start) {
 		if o.PStart != start {
 			return nil
@@ -216,7 +216,7 @@ func ClaimPanelFiles(home string, o PanelOwner) error {
 		return err
 	}
 	b, _ := json.Marshal(o)
-	if err := config.WriteAtomic(OwnerPath(home), append(b, '\n'), 0o600); err != nil {
+	if err := config.WriteAtomic(ownerPath(home), append(b, '\n'), 0o600); err != nil {
 		return err
 	}
 	if err := config.WriteAtomic(pidPath(home), []byte(strconv.Itoa(o.PID)+"\n"), 0o600); err != nil {
@@ -232,7 +232,7 @@ func ReleasePanelFiles(home string, self int) {
 		return
 	}
 	_ = os.Remove(MarkerPath(home))
-	_ = os.Remove(OwnerPath(home))
+	_ = os.Remove(ownerPath(home))
 	_ = os.Remove(pidPath(home))
 }
 
@@ -261,7 +261,7 @@ func ReadHookDrift(home string, port int) (HookDrift, error) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return HookDrift{}, fmt.Errorf("%s: %w", SettingsPath(home), err)
 	}
-	want := HookURL(port)
+	want := hookURL(port)
 	foreign := map[string]bool{}
 	var missing []string
 	for _, ev := range signals.HookEvents {

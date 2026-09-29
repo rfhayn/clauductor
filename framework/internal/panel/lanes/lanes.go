@@ -22,6 +22,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // A lane is one interactive `claude` in its own tmux session on the panel's dedicated
@@ -48,25 +49,14 @@ var parentSessionVars = []string{
 // Initial size of a detached lane; the first attached client resizes it.
 const laneCols, laneRows = 200, 50
 
-// TmuxLane is one session on the panel's socket.
-type TmuxLane struct {
-	ID         string
-	Path       string // the pane's cwd (resolved), falling back to the session's start dir
-	Type       string // the lane type the panel started it as (@clauductor_type)
-	Created    int64  // unix seconds
-	Attached   int    // attached clients
-	Dead       bool   // the lane's program exited (remain-on-exit keeps its output)
-	DeadStatus string
-}
-
 const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}"
 
-// ParseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
+// parseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
 // session whose name is not a valid lane id was not started by the panel and is
 // ignored.
-func ParseTmuxPanes(out []byte) []TmuxLane {
+func parseTmuxPanes(out []byte) []types.TmuxLane {
 	seen := map[string]bool{}
-	var lanes []TmuxLane
+	var lanes []types.TmuxLane
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		f := strings.Split(sc.Text(), "\t")
@@ -80,7 +70,7 @@ func ParseTmuxPanes(out []byte) []TmuxLane {
 		}
 		created, _ := strconv.ParseInt(f[5], 10, 64)
 		attached, _ := strconv.Atoi(f[6])
-		lanes = append(lanes, TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
+		lanes = append(lanes, types.TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
 			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]})
 	}
 	sort.Slice(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
@@ -124,7 +114,7 @@ type LaneManager struct {
 	Changed func()
 	// Stopped is called once a lane's tmux session is gone, to close its viewers.
 	Stopped func(id string)
-	// Clock is the time registry stamps and every wait use; nil is clock.System.
+	// Clock is the time registry stamps and every wait use. Required.
 	Clock clock.Clock
 	// Exec, if set, runs a tmux argv (after the tmux path) instead of tmux itself
 	// (tests count the calls).
@@ -204,14 +194,14 @@ func noServer(err error) bool {
 }
 
 // List returns the lanes on the socket. No server means no lanes, not an error.
-func (m *LaneManager) List(ctx context.Context) ([]TmuxLane, error) {
+func (m *LaneManager) List(ctx context.Context) ([]types.TmuxLane, error) {
 	lanes, _, err := m.ListServer(ctx)
 	return lanes, err
 }
 
 // ListServer is List, and whether the socket has a server at all: one `list-panes
 // -a` call covers every lane.
-func (m *LaneManager) ListServer(ctx context.Context) (lanes []TmuxLane, up bool, err error) {
+func (m *LaneManager) ListServer(ctx context.Context) (lanes []types.TmuxLane, up bool, err error) {
 	out, err := m.tmux(ctx, "list-panes", "-a", "-F", tmuxListFormat)
 	if err != nil {
 		if noServer(err) {
@@ -219,7 +209,7 @@ func (m *LaneManager) ListServer(ctx context.Context) (lanes []TmuxLane, up bool
 		}
 		return nil, false, err
 	}
-	return ParseTmuxPanes(out), true, nil
+	return parseTmuxPanes(out), true, nil
 }
 
 // Exists reports whether a lane's tmux session is running. "=" makes the match
@@ -232,14 +222,14 @@ func (m *LaneManager) Exists(ctx context.Context, id string) bool {
 	return err == nil
 }
 
-func (m *LaneManager) find(ctx context.Context, id string) (TmuxLane, bool) {
+func (m *LaneManager) find(ctx context.Context, id string) (types.TmuxLane, bool) {
 	lanes, _ := m.List(ctx)
 	for _, l := range lanes {
 		if l.ID == id {
 			return l, true
 		}
 	}
-	return TmuxLane{}, false
+	return types.TmuxLane{}, false
 }
 
 // StartBlocked returns why no lane may start now, or "". An API key in the panel's
@@ -417,7 +407,12 @@ type StartResult struct {
 	Notes     []string `json:"notes,omitempty"`
 }
 
-func (m *LaneManager) clock() clock.Clock { return clock.Or(m.Clock) }
+func (m *LaneManager) clock() clock.Clock {
+	if m.Clock == nil {
+		panic("lanes: LaneManager.Clock is not set")
+	}
+	return m.Clock
+}
 
 func (m *LaneManager) now() time.Time { return m.clock().Now() }
 
@@ -445,7 +440,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	if rec, ok := m.Registry.Get(id); ok {
 		return StartResult{}, laneErr(409, "exists", "lane %q is registered (session %s, in %s): resume or forget it first", id, rec.SessionID, rec.Path)
 	}
-	sid, err := NewSessionID()
+	sid, err := newSessionID()
 	if err != nil {
 		return StartResult{}, laneErr(500, "fault", "%v", err)
 	}
@@ -496,7 +491,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 
 	// The intent is on disk before anything is created, so a crash from here on
 	// leaves a record the next start shows as an orphan.
-	rec, err := m.Registry.Begin(req.withTemplate(LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
+	rec, err := m.Registry.Begin(req.withTemplate(types.LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
 		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli()}), "start", m.now())
 	if err != nil {
 		return res, laneErr(500, "registry", "cannot write the lane registry: %v", err)
@@ -715,7 +710,7 @@ func (m *LaneManager) pathTaken(ctx context.Context, dir, except string) string 
 // flag. `--resume` exits 1 on a session with no conversation, and `--session-id`
 // exits 1 on one that has a conversation; the panel only learns which from hooks,
 // which can be dropped. It returns the mode that stayed up.
-func (m *LaneManager) launchSession(ctx context.Context, rec LaneRecord) (resume bool, lerr *LaneError) {
+func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (resume bool, lerr *LaneError) {
 	resume = rec.Conversation
 	for attempt := 0; attempt < 2; attempt++ {
 		if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)[2:]...); err != nil {
@@ -748,7 +743,7 @@ func (m *LaneManager) launchSession(ctx context.Context, rec LaneRecord) (resume
 // session id, after checking no process holds that session: `claude --resume <id>`
 // once the session has a conversation, else `claude --session-id <id>` again
 // (--resume refuses a session with no conversation), with launchSession's fallback.
-func (m *LaneManager) resumeLocked(ctx context.Context, rec LaneRecord, action string) *LaneError {
+func (m *LaneManager) resumeLocked(ctx context.Context, rec types.LaneRecord, action string) *LaneError {
 	if rec.Corrupt != "" {
 		return laneErr(409, "corrupt", "lane %q has a corrupt registry record (%s); forget it", rec.ID, rec.Corrupt)
 	}
@@ -877,7 +872,7 @@ func (m *LaneManager) OpenInTerminalApp(ctx context.Context, id string) *LaneErr
 
 // withTemplate copies a rendered template's launch options and first prompt into the
 // record written before the lane starts, so a restart or a panel restart keeps them.
-func (req StartRequest) withTemplate(rec LaneRecord) LaneRecord {
+func (req StartRequest) withTemplate(rec types.LaneRecord) types.LaneRecord {
 	if req.tpl == nil {
 		return rec
 	}
@@ -942,7 +937,7 @@ func (m *LaneManager) StartLane(ctx context.Context, req StartRequest, g StartGa
 func (m *LaneManager) SetPromptState(id, from, to string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.Registry.Update(id, func(r *LaneRecord) bool {
+	return m.Registry.Update(id, func(r *types.LaneRecord) bool {
 		if r.PromptState != from {
 			return false
 		}
@@ -983,16 +978,16 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillRe
 	if err != nil {
 		return fmt.Errorf("not typed: cannot read claude agents: %v", err)
 	}
-	if why := AgentReady(agents, rec.SessionID); why != "" {
+	if why := agentReady(agents, rec.SessionID); why != "" {
 		return fmt.Errorf("not typed: %s", why)
 	}
 	// Re-validated at the moment of typing: a registry edited by hand must not be
 	// able to smuggle a newline or an escape sequence into the lane.
 	if err := config.TypableText(rec.FirstPrompt, config.MaxFirstPrompt); err != nil {
-		_ = m.Registry.Update(id, func(r *LaneRecord) bool { r.PromptState = "skipped"; return true })
+		_ = m.Registry.Update(id, func(r *types.LaneRecord) bool { r.PromptState = "skipped"; return true })
 		return fmt.Errorf("first prompt %v; not typed", err)
 	}
-	if err := m.Registry.Update(id, func(r *LaneRecord) bool {
+	if err := m.Registry.Update(id, func(r *types.LaneRecord) bool {
 		if r.PromptState != "pending" {
 			return false
 		}
@@ -1004,15 +999,15 @@ func (m *LaneManager) DeliverFirstPrompt(ctx context.Context, id string, stillRe
 	if err := m.sendText(ctx, id, rec.FirstPrompt); err != nil {
 		return err // stays "typing": shown in Needs you, never retyped
 	}
-	return m.Registry.Update(id, func(r *LaneRecord) bool {
+	return m.Registry.Update(id, func(r *types.LaneRecord) bool {
 		r.PromptState, r.PromptAt = "sent", m.now().UnixMilli()
 		return true
 	})
 }
 
-// AgentReady says why a session is not ready for typed text, or "" when it is:
+// agentReady says why a session is not ready for typed text, or "" when it is:
 // listed, idle, and waiting for nothing.
-func AgentReady(agents []signals.Agent, sessionID string) string {
+func agentReady(agents []signals.Agent, sessionID string) string {
 	for _, a := range agents {
 		if a.SessionID != sessionID {
 			continue
@@ -1034,13 +1029,13 @@ type RestoreSkip struct {
 	Reason string `json:"reason"`
 }
 
-// SelectRestorable picks the registered lanes to restore: those whose tmux session
+// selectRestorable picks the registered lanes to restore: those whose tmux session
 // is gone. It never picks a session twice: not one that a claude process already
 // runs (`live`), and not the same session id for two lanes. Two processes on one
 // session interleave its transcript.
-func SelectRestorable(recs []LaneRecord, running map[string]bool, live map[string]bool, dirOK func(string) bool) ([]LaneRecord, []RestoreSkip) {
+func selectRestorable(recs []types.LaneRecord, running map[string]bool, live map[string]bool, dirOK func(string) bool) ([]types.LaneRecord, []RestoreSkip) {
 	sort.Slice(recs, func(i, j int) bool { return recs[i].ID < recs[j].ID })
-	var out []LaneRecord
+	var out []types.LaneRecord
 	var skip []RestoreSkip
 	seen := map[string]string{}
 	for _, r := range recs {
@@ -1116,7 +1111,7 @@ func (m *LaneManager) RestoreAll(ctx context.Context, quotaGuard func() string, 
 	if err != nil {
 		return res, laneErr(409, "unverified", "cannot read claude agents (%v), so no session can be shown not to be running already; nothing restored", err)
 	}
-	pick, skip := SelectRestorable(m.Registry.List(), running, live, func(p string) bool {
+	pick, skip := selectRestorable(m.Registry.List(), running, live, func(p string) bool {
 		fi, err := os.Stat(p)
 		return err == nil && fi.IsDir()
 	})
@@ -1134,7 +1129,7 @@ func (m *LaneManager) RestoreAll(ctx context.Context, quotaGuard func() string, 
 
 // MarkRestored records when a lane was restored, for "Needs you".
 func (m *LaneManager) MarkRestored(id string) {
-	_ = m.Registry.Update(id, func(r *LaneRecord) bool { r.Restored = m.now().UnixMilli(); return true })
+	_ = m.Registry.Update(id, func(r *types.LaneRecord) bool { r.Restored = m.now().UnixMilli(); return true })
 }
 
 // InCopyMode reports whether the lane's pane is scrolled back in tmux's copy mode.

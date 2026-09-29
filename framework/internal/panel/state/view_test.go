@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // viewKey ignores the clock and the polls' bookkeeping, and nothing else.
@@ -65,8 +65,8 @@ func TestNeedsYouPrefersTheSpecificWaitingFor(t *testing.T) {
 // (audit P2-12). Its card, Needs you and alerts all say it.
 func TestALaneWithATerminalHasOneName(t *testing.T) {
 	m := alertModel(t, `,"alerts":{"waiting_seconds":1}`)
-	rec := lanes.LaneRecord{ID: "orchestrator", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
-	m.ApplyTmux([]lanes.TmuxLane{{ID: "orchestrator", Path: xWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
+	rec := types.LaneRecord{ID: "orchestrator", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
+	m.ApplyTmux([]types.TmuxLane{{ID: "orchestrator", Path: xWT}}, []types.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(ls)"), nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission: Bash(ls)"), nil, t0.Add(5*time.Second))
 	v := m.Snapshot(t0.Add(6 * time.Second))
@@ -116,7 +116,7 @@ func TestAViewThatOnlyAgesDoesNotChange(t *testing.T) {
 // Each banner carries its kind, so the page labels it (audit P2-9).
 func TestBannersCarryTheirKind(t *testing.T) {
 	m := alertModel(t, "")
-	m.ApplyTmux(nil, []lanes.LaneRecord{{ID: "gone", SessionID: "s9", Path: xWT, Type: "build", ActionDone: true}}, "", nil, t0)
+	m.ApplyTmux(nil, []types.LaneRecord{{ID: "gone", SessionID: "s9", Path: xWT, Type: "build", ActionDone: true}}, "", nil, t0)
 	v := m.Snapshot(t0)
 	if len(v.BannerItems) != len(v.Banners) {
 		t.Fatalf("%d banner items for %d banners", len(v.BannerItems), len(v.Banners))

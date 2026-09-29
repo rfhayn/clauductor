@@ -7,7 +7,6 @@ import (
 
 	"context"
 	"encoding/json"
-	"github.com/creack/pty"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,10 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/creack/pty"
 )
 
 // TestMain lets the test binary act as `clauductor lock-run`, so the lease is
@@ -26,7 +29,7 @@ func TestMain(m *testing.M) {
 		ttl, _ := time.ParseDuration(os.Getenv("LOCKRUN_HELPER_TTL"))
 		var argv []string
 		_ = json.Unmarshal([]byte(os.Getenv("LOCKRUN_HELPER_ARGV")), &argv)
-		code, err := LockRun(context.Background(), LockRunOptions{Lock: lock, Lane: os.Getenv("LOCKRUN_HELPER_LANE"),
+		code, err := LockRun(context.Background(), LockRunOptions{Clock: clock.System, Lock: lock, Lane: os.Getenv("LOCKRUN_HELPER_LANE"),
 			TTL: ttl, Poll: 50 * time.Millisecond, Argv: argv})
 		if err != nil {
 			os.Stderr.WriteString(err.Error() + "\n")
@@ -116,7 +119,7 @@ func deadPID(t *testing.T) int {
 		t.Fatal(err)
 	}
 	pid := c.Process.Pid
-	if PIDAlive(pid) {
+	if pidAlive(pid) {
 		t.Skip("pid reused already")
 	}
 	return pid
@@ -130,67 +133,67 @@ func TestLeaseStale(t *testing.T) {
 	}
 	now := t0
 	holder := LeaseOwner{PID: 1, PStart: "T1", Host: "h", Renewed: now.Unix() - 10, TTL: 60}
-	if s, _ := LeaseStale(holder, "h", now, proc); s {
+	if s, _ := leaseStale(holder, "h", now, proc); s {
 		t.Fatal("a live, renewed holder is stale")
 	}
 	// Silent for an hour (SIGSTOP, a sleeping laptop) but alive with its own start
 	// time: still the holder. The TTL never expires a holder that can be checked.
 	silent := holder
 	silent.Renewed = now.Unix() - 3600
-	if s, why := LeaseStale(silent, "h", now, proc); s {
+	if s, why := leaseStale(silent, "h", now, proc); s {
 		t.Fatalf("expired a live, verified holder: %s", why)
 	}
 	gone := holder
 	gone.PID = 2
-	if s, why := LeaseStale(gone, "h", now, proc); !s || !strings.Contains(why, "gone") {
+	if s, why := leaseStale(gone, "h", now, proc); !s || !strings.Contains(why, "gone") {
 		t.Fatal("a dead pid is not stale")
 	}
 	reused := holder
 	reused.PID = 3
-	if s, why := LeaseStale(reused, "h", now, proc); !s || !strings.Contains(why, "reused") {
+	if s, why := leaseStale(reused, "h", now, proc); !s || !strings.Contains(why, "reused") {
 		t.Fatalf("a reused pid is not stale: %v %s", s, why)
 	}
 	// Round 2: an alive pid whose start time cannot be verified (none recorded, none
 	// readable, or from another source) is LIVE. Missing data never deletes a lease.
 	noStart := silent
 	noStart.PStart = ""
-	if s, why := LeaseStale(noStart, "h", now, proc); s {
+	if s, why := leaseStale(noStart, "h", now, proc); s {
 		t.Fatalf("an alive, unverifiable holder was expired: %s", why)
 	}
 	unreadable := silent
 	unreadable.PID = 4
-	if s, _ := LeaseStale(unreadable, "h", now, proc); s {
+	if s, _ := leaseStale(unreadable, "h", now, proc); s {
 		t.Fatal("an unreadable start time expired an alive holder")
 	}
 	otherSource := silent
 	otherSource.PStart = "proc:12345"
-	if s, _ := LeaseStale(otherSource, "h", now, proc); s {
+	if s, _ := leaseStale(otherSource, "h", now, proc); s {
 		t.Fatal("a /proc start time was compared with a ps one")
 	}
 	// The command keeps the record live after the holder dies (lock-run SIGKILLed).
 	orphaned := gone
 	orphaned.ChildPID, orphaned.ChildPStart = 1, "T1"
-	if s, why := LeaseStale(orphaned, "h", now, proc); s {
+	if s, why := leaseStale(orphaned, "h", now, proc); s {
 		t.Fatalf("a record whose command still runs was judged stale: %s", why)
 	}
 	orphaned.ChildPID = 2
-	if s, _ := LeaseStale(orphaned, "h", now, proc); !s {
+	if s, _ := leaseStale(orphaned, "h", now, proc); !s {
 		t.Fatal("holder and command both gone must be stale")
 	}
 	// Another host: its pid means nothing here; only the TTL counts.
 	other := silent
 	other.Host = "elsewhere"
 	other.PID = 2
-	if s, _ := LeaseStale(other, "h", now, proc); !s {
+	if s, _ := leaseStale(other, "h", now, proc); !s {
 		t.Fatal("another host's expired lease is not stale")
 	}
 	other.Renewed = now.Unix()
-	if s, _ := LeaseStale(other, "h", now, proc); s {
+	if s, _ := leaseStale(other, "h", now, proc); s {
 		t.Fatal("judged another host's pid")
 	}
 	noTTL := other
 	noTTL.Renewed, noTTL.TTL = now.Unix()-3600, 0
-	if s, _ := LeaseStale(noTTL, "h", now, proc); s {
+	if s, _ := leaseStale(noTTL, "h", now, proc); s {
 		t.Fatal("ttl 0 means no expiry")
 	}
 }
@@ -208,10 +211,10 @@ func TestLockRunTwoProcessesQueue(t *testing.T) {
 	c := startLockRun(t, lock, "lane-c", time.Minute, body("C")...)
 	// B and C are both queued while A holds, in arrival order, and the panel sees it.
 	waitUntil(t, "two waiters", 5*time.Second, func() bool {
-		v := ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+		v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 		return v.Held && len(v.Waiters) == 2
 	})
-	v := ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+	v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 	if v.Holder == nil || v.Holder.Lane != "lane-a" || v.Waiters[0].Lane != "lane-b" || v.Waiters[1].Lane != "lane-c" {
 		t.Fatalf("queue view %+v", v)
 	}
@@ -239,7 +242,7 @@ func TestLockRunReclaimsDeadHolder(t *testing.T) {
 	now := time.Now().Unix()
 	writeLeaseFile(filepath.Join(lock, ownerFileName), LeaseOwner{V: 1, Nonce: "00000000000000aa", PID: deadPID(t),
 		Host: hostName(), Lane: "crashed", Started: now, Renewed: now, TTL: 3600})
-	v := ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+	v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 	if v.Holder == nil || v.Holder.Alive || !strings.Contains(v.HolderNote, "stale") {
 		t.Fatalf("the panel must show the dead holder as stale: %+v", v)
 	}
@@ -412,9 +415,9 @@ func TestLockRunCancelWait(t *testing.T) {
 	holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "echo held >> "+log+"; sleep 1.5; echo done >> "+log)
 	waitUntil(t, "held", 5*time.Second, func() bool { return len(readLog(t, log)) > 0 })
 	waiter := startLockRun(t, lock, "b", time.Minute, "/bin/sh", "-c", "echo WAITER-RAN >> "+log)
-	var v QueueView
+	var v types.QueueView
 	waitUntil(t, "a waiter", 5*time.Second, func() bool {
-		v = ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+		v = ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 		return len(v.Waiters) == 1
 	})
 	if err := CancelWait(lock, v.Holder.Nonce); err == nil || !strings.Contains(err.Error(), "never stops the holder") {
@@ -457,7 +460,7 @@ func TestLockRunReentry(t *testing.T) {
 	abs, _ := filepath.Abs(lock)
 	t.Setenv("CLAUDUCTOR_LOCK_HELD", abs)
 	var out bytes.Buffer
-	code, err := LockRun(context.Background(), LockRunOptions{Lock: lock, Argv: []string{"/bin/sh", "-c", "echo $CLAUDUCTOR_LOCK_HELD"}, Stdout: &out})
+	code, err := LockRun(context.Background(), LockRunOptions{Clock: clock.System, Lock: lock, Argv: []string{"/bin/sh", "-c", "echo $CLAUDUCTOR_LOCK_HELD"}, Stdout: &out})
 	if err != nil || code != 0 || strings.TrimSpace(out.String()) != abs {
 		t.Fatalf("re-entry: %d %v %q", code, err, out.String())
 	}
@@ -505,7 +508,7 @@ func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
 	if held, _, stale, _ := holderState(lock, hostName(), time.Now(), LiveProc); !held || !stale {
 		t.Fatal("a flock kept a dead holder's record live")
 	}
-	if v := ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc); !strings.Contains(v.HolderNote, "flock") {
+	if v := ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc); !strings.Contains(v.HolderNote, "flock") {
 		t.Fatalf("the panel does not mention the orphaned flock: %q", v.HolderNote)
 	}
 }

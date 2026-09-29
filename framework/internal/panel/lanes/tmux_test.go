@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/clock"
 )
 
 // Typed text that starts with "-" must reach the lane as text, not as a send-keys
@@ -21,7 +23,7 @@ func TestSendTextTypesALeadingDashLiterally(t *testing.T) {
 	if err := exec.Command(tmux, "-L", sock, "new-session", "-d", "-s", "t", "cat > "+out).Run(); err != nil {
 		t.Fatal(err)
 	}
-	m := &LaneManager{TmuxPath: tmux, Socket: sock, EnterDelay: 100 * time.Millisecond}
+	m := &LaneManager{Clock: clock.System, TmuxPath: tmux, Socket: sock, EnterDelay: 100 * time.Millisecond}
 	for _, text := range []string{"-N 3 --help", "--", "-l"} {
 		if err := m.sendText(context.Background(), "t", text); err != nil {
 			t.Fatalf("%q: %v", text, err)

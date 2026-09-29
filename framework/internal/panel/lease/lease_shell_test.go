@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // The plain-shell protocol in docs/panel.md is what a project without clauductor
@@ -138,9 +140,9 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c", body(log, "G"))
 		waitUntil(t, "held", 5*time.Second, func() bool { return lineCount(log) == 1 })
 		sh := startShellLease(t, leaseSh, lock, "shell", "echo SHELL-RAN >> "+log)
-		var v QueueView
+		var v types.QueueView
 		waitUntil(t, "the shell waiter is listed", 5*time.Second, func() bool {
-			v = ReadQueue(QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
+			v = ReadQueue(types.QueueConfig{ID: "g"}, lock, time.Now(), LiveProc)
 			return len(v.Waiters) == 1 && v.Waiters[0].Lane == "shell"
 		})
 		if err := CancelWait(lock, v.Waiters[0].Nonce); err != nil {

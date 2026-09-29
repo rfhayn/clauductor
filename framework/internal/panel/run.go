@@ -146,7 +146,10 @@ func Run(ctx context.Context, o Options) error {
 	if o.Home == "" {
 		return errors.New("cannot determine the home directory")
 	}
-	clk := clock.Or(o.Clock)
+	clk := o.Clock
+	if clk == nil {
+		clk = clock.System // the one default: Run is where the clock is chosen
+	}
 	ticks := o.Ticks.withDefaults()
 	root := signals.ResolvePath(o.Project)
 	cfgPath := o.ConfigPath

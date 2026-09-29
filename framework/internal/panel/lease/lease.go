@@ -1,6 +1,6 @@
 // Package lease is the on-disk queue lease (the gate on port 3100) that `clauductor
-// lock-run` holds and the panel only reads. It depends on nothing else in the panel,
-// so lock-run links it alone.
+// lock-run` holds and the panel only reads. Of the panel it imports only clock and
+// types, which have no dependencies, so lock-run links nothing else of the panel.
 package lease
 
 import (
@@ -26,6 +26,7 @@ import (
 	"unsafe"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // The lease protocol serialises a shared resource (the full gate on port 3100)
@@ -149,7 +150,7 @@ func SameSource(a, b string) bool {
 
 // LiveProc is the real ProcCheck.
 func LiveProc(pid int) (bool, string) {
-	if !PIDAlive(pid) {
+	if !pidAlive(pid) {
 		return false, ""
 	}
 	return true, ProcStart(pid)
@@ -184,7 +185,7 @@ type procCacheItem struct {
 func (c *ProcCache) Check(pid int) (bool, string) {
 	alive, start, now, ttl, recheck := c.Alive, c.Start, c.Now, c.TTL, c.Recheck
 	if alive == nil {
-		alive = PIDAlive
+		alive = pidAlive
 	}
 	if start == nil {
 		start = ProcStart
@@ -233,9 +234,9 @@ func newNonce() string {
 	return hex.EncodeToString(b)
 }
 
-// PIDAlive reports whether a process exists: kill(pid, 0) succeeds, or fails with
+// pidAlive reports whether a process exists: kill(pid, 0) succeeds, or fails with
 // EPERM (it exists but belongs to someone else).
-func PIDAlive(pid int) bool {
+func pidAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
@@ -263,11 +264,11 @@ func procDead(pid int, recorded string, proc ProcCheck) (bool, string) {
 	return false, ""
 }
 
-// LeaseStale reports whether a holder (or waiter) may be removed, and why. On this
+// leaseStale reports whether a holder (or waiter) may be removed, and why. On this
 // host it is judged by its processes, never by the clock: stale only when the holder
 // AND its recorded command are both dead (or reused pids). The TTL applies only to a
 // record from another host, whose pids mean nothing here.
-func LeaseStale(o LeaseOwner, host string, now time.Time, proc ProcCheck) (bool, string) {
+func leaseStale(o LeaseOwner, host string, now time.Time, proc ProcCheck) (bool, string) {
 	if o.Host == host && o.PID > 0 {
 		dead, why := procDead(o.PID, o.PStart, proc)
 		if !dead {
@@ -333,7 +334,7 @@ func holderState(lock, host string, now time.Time, proc ProcCheck) (held bool, o
 		}
 		return true, o, false, "its holder is starting"
 	}
-	stale, why = LeaseStale(o, host, now, proc)
+	stale, why = leaseStale(o, host, now, proc)
 	return true, o, stale, why
 }
 
@@ -396,7 +397,7 @@ func listWaiters(lock, host string, now time.Time, proc ProcCheck) (live, dead [
 		w := waiterEntry{LeaseOwner: o, file: p, cancelled: cancels[o.Nonce]}
 		wo := o
 		wo.TTL = int64(waiterTTL / time.Second)
-		if stale, _ := LeaseStale(wo, host, now, proc); stale {
+		if stale, _ := leaseStale(wo, host, now, proc); stale {
 			dead = append(dead, w)
 			continue
 		}
@@ -465,7 +466,7 @@ type LockRunOptions struct {
 	Stdin  io.Reader
 	// Proc overrides the process check (tests).
 	Proc ProcCheck
-	// Clock is the time lock-run waits, renews and stamps by; default clock.System.
+	// Clock is the time lock-run waits, renews and stamps by. Required.
 	Clock clock.Clock
 }
 
@@ -489,7 +490,9 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	if o.Proc == nil {
 		o.Proc = LiveProc
 	}
-	o.Clock = clock.Or(o.Clock)
+	if o.Clock == nil {
+		return 2, errors.New("lock-run: no clock")
+	}
 	if o.Lane == "" {
 		o.Lane = os.Getenv("CLAUDUCTOR_LANE")
 	}
@@ -751,50 +754,21 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 
 // ---- the panel's read-only view of a queue ----
 
-// LeaseView is a holder or a waiter as the page shows it.
-type LeaseView struct {
-	Nonce      string `json:"nonce"`
-	PID        int    `json:"pid"`
-	Lane       string `json:"lane,omitempty"`
-	Cmd        string `json:"cmd,omitempty"`
-	Started    int64  `json:"started"` // unix ms
-	Renewed    int64  `json:"renewed"` // unix ms
-	TTL        int64  `json:"ttl"`
-	Alive      bool   `json:"alive"`
-	Stale      bool   `json:"stale"`
-	StaleWhy   string `json:"staleWhy,omitempty"`
-	Cancelling bool   `json:"cancelling,omitempty"`
-}
-
-// QueueView is one queue.
-type QueueView struct {
-	ID         string      `json:"id"`
-	Title      string      `json:"title"`
-	Lock       string      `json:"lock"`
-	HasCommand bool        `json:"hasCommand"`
-	Held       bool        `json:"held"`
-	Holder     *LeaseView  `json:"holder,omitempty"`
-	HolderNote string      `json:"holderNote,omitempty"`
-	Waiters    []LeaseView `json:"waiters"`
-	Error      string      `json:"error,omitempty"`
-	Run        *QueueRun   `json:"run,omitempty"` // the last RUN the panel started
-}
-
-func leaseView(o LeaseOwner, host string, now time.Time, proc ProcCheck) LeaseView {
-	stale, why := LeaseStale(o, host, now, proc)
+func leaseView(o LeaseOwner, host string, now time.Time, proc ProcCheck) types.LeaseView {
+	stale, why := leaseStale(o, host, now, proc)
 	alive := o.Host != host
 	if !alive {
 		alive, _ = proc(o.PID)
 	}
-	return LeaseView{Nonce: o.Nonce, PID: o.PID, Lane: o.Lane, Cmd: o.Cmd, Started: o.Started * 1000, Renewed: o.Renewed * 1000,
+	return types.LeaseView{Nonce: o.Nonce, PID: o.PID, Lane: o.Lane, Cmd: o.Cmd, Started: o.Started * 1000, Renewed: o.Renewed * 1000,
 		TTL: o.TTL, Alive: alive, Stale: stale, StaleWhy: why}
 }
 
 // ReadQueue reads one queue's lease and waiters. It only reads: removing stale
 // entries is the waiters' job, and the panel never touches a holder.
-func ReadQueue(q QueueConfig, lock string, now time.Time, proc ProcCheck) QueueView {
+func ReadQueue(q types.QueueConfig, lock string, now time.Time, proc ProcCheck) types.QueueView {
 	host := hostName()
-	v := QueueView{ID: q.ID, Title: q.Title, Lock: lock, HasCommand: len(q.Command) > 0, Waiters: []LeaseView{}}
+	v := types.QueueView{ID: q.ID, Title: q.Title, Lock: lock, HasCommand: len(q.Command) > 0, Waiters: []types.LeaseView{}}
 	held, o, stale, why := holderState(lock, host, now, proc)
 	v.Held = held
 	if held {

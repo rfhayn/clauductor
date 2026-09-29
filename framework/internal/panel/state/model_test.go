@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 var t0 = time.Date(2026, 9, 28, 14, 0, 0, 0, time.UTC)
@@ -33,7 +33,7 @@ func testConfig(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.ParseConfig(b)
+	cfg, err := loadConfig(t, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func spikeHooks(t *testing.T) []signals.HookEvent {
 
 func fixtureWorktrees(t *testing.T) []signals.Worktree {
 	t.Helper()
-	wts, err := signals.ParseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
+	wts, err := readWorktreesFrom(fixture(t, "worktrees-fixture.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestReducerRealAgentsCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wts, err := signals.ParseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))
+	wts, err := readWorktreesFrom(fixture(t, "worktrees-real.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,8 +693,8 @@ func TestSessionBindingByID(t *testing.T) {
 	}
 	// A panel-launched session is bound by its registry session id, even when its
 	// first event comes from elsewhere (it ran `cd /tmp` before the first hook).
-	rec := lanes.LaneRecord{ID: "fixer", SessionID: "launched", Path: "/repo/.claude/worktrees/fix-thing", Type: "fix", ActionDone: true}
-	m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, t0)
+	rec := types.LaneRecord{ID: "fixer", SessionID: "launched", Path: "/repo/.claude/worktrees/fix-thing", Type: "fix", ActionDone: true}
+	m.ApplyTmux(nil, []types.LaneRecord{rec}, "", nil, t0)
 	if !m.ApplyHook(signals.HookEvent{SessionID: "launched", Cwd: "/tmp", Event: "UserPromptSubmit"}, t0) {
 		t.Fatal("a registry-bound session's event was dropped for its cwd")
 	}
@@ -725,10 +725,10 @@ func TestQuotaExpiresAtResetsAt(t *testing.T) {
 		t.Fatalf("at reset the 5-hour window must drop and the 7-day stay: %+v", q)
 	}
 	// And a guard reads the expired window as unknown, never as 80%.
-	if why := QuotaGuardBlock(q, 50); why != "" {
+	if why := quotaGuardBlock(q, 50); why != "" {
 		t.Fatalf("guard on an expired window: %q", why)
 	}
-	if why := QuotaGuardBlock(m.Snapshot(t0).Quota, 50); why == "" {
+	if why := quotaGuardBlock(m.Snapshot(t0).Quota, 50); why == "" {
 		t.Fatal("guard ignores a live 80% window at 50%")
 	}
 }

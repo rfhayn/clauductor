@@ -13,6 +13,7 @@ import (
 	"time"
 
 	pclock "github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/types"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
@@ -71,7 +72,7 @@ func tmuxPollerFor(t *testing.T, f *fakeTmux, clock *time.Time) *tmuxPoller {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lm := &lanes.LaneManager{TmuxPath: "tmux", Socket: "test", Registry: reg, Exec: f.exec,
+	lm := &lanes.LaneManager{Clock: pclock.System, TmuxPath: "tmux", Socket: "test", Registry: reg, Exec: f.exec,
 		LookupEnv: func(string) (string, bool) { return "", false }}
 	return newTmuxPoller(lm, "", pclock.Func(func() time.Time { return *clock }), Ticks{})
 }
@@ -199,10 +200,10 @@ func TestQueueViewReadsStartTimesOnceWhileTheGateIsHeld(t *testing.T) {
 	reads := map[int]int{}
 	start := func(pid int) string { reads[pid]++; return fmt.Sprintf("S%d", pid) }
 	isAlive := func(pid int) bool { return pid >= 4001 && pid <= 4003 }
-	q := lease.QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
+	q := types.QueueConfig{ID: "gate", Title: "Gate", Lock: "gate.lock"}
 	// queueLoop's read, with fake processes: pids 4001-4003 are alive only to the
 	// injected kill(0), so a reader that bypassed the cache would find them gone.
-	x := &Runtime{cfg: &config.Config{Queues: []lease.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*lease.QueueRun{},
+	x := &Runtime{cfg: &config.Config{Queues: []types.QueueConfig{q}}, gitDir: gitDir, runs: map[string]*types.QueueRun{},
 		procs: lease.ProcCache{Alive: isAlive, Start: start, Now: func() time.Time { return t0 }}}
 	for i := 0; i < 60; i++ { // once a second for a minute
 		qs, err := x.readQueues(context.Background(), t0)
@@ -274,7 +275,7 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 	if x.hasLanes() {
 		t.Fatal("no lane yet")
 	}
-	if _, err := reg.Begin(lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", Path: "/p", Type: "build", Mode: "root"}, "start", t0); err != nil {
+	if _, err := reg.Begin(types.LaneRecord{ID: "lane-a", SessionID: "s-a", Path: "/p", Type: "build", Mode: "root"}, "start", t0); err != nil {
 		t.Fatal(err)
 	}
 	if !x.hasLanes() {
@@ -287,15 +288,15 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 
 // ---- the first-prompt loop ----
 
-func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*Runtime, *web.Hub) {
+func promptRuntime(t *testing.T, clock *time.Time, rec types.LaneRecord, running bool) (*Runtime, *web.Hub) {
 	t.Helper()
 	m := state.NewModel(v2Config(t, ""), "/p", *clock)
 	hub := web.NewHub(m, pclock.Func(func() time.Time { return *clock }))
-	var tl []lanes.TmuxLane
+	var tl []types.TmuxLane
 	if running {
-		tl = []lanes.TmuxLane{{ID: rec.ID, Path: "/p"}}
+		tl = []types.TmuxLane{{ID: rec.ID, Path: "/p"}}
 	}
-	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(tl, []lanes.LaneRecord{rec}, "", nil, now) })
+	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(tl, []types.LaneRecord{rec}, "", nil, now) })
 	return &Runtime{hub: hub, kickAgents: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1), o: Options{Out: &strings.Builder{}}}, hub
 }
 
@@ -310,7 +311,7 @@ func drained(ch chan struct{}) bool {
 
 func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 	clock := t0
-	rec := lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "pending", ActionAt: t0.Add(-time.Hour).UnixMilli(), ActionDone: true}
+	rec := types.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "pending", ActionAt: t0.Add(-time.Hour).UnixMilli(), ActionDone: true}
 	x, hub := promptRuntime(t, &clock, rec, false)
 	kicks := 0
 	for i := 0; i < 60; i++ {
@@ -319,7 +320,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 			kicks++
 		}
 		clock = clock.Add(time.Second)
-		hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, now) })
+		hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(nil, []types.LaneRecord{rec}, "", nil, now) })
 	}
 	if kicks != 0 {
 		t.Fatalf("a pending lane whose tmux session is gone kicked %d claude agents polls in a minute; want 0", kicks)
@@ -341,7 +342,7 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
 	clock := t0
 	// Typed, not yet confirmed: waits on `claude agents` for confirmGrace.
-	rec := lanes.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "sent", PromptAt: t0.UnixMilli(), ActionAt: t0.UnixMilli(), ActionDone: true}
+	rec := types.LaneRecord{ID: "lane-a", SessionID: "s-a", PromptState: "sent", PromptAt: t0.UnixMilli(), ActionAt: t0.UnixMilli(), ActionDone: true}
 	x, _ := promptRuntime(t, &clock, rec, true)
 	var at []time.Time
 	for i := 0; i < 20; i++ { // promptLoop ticks once a second

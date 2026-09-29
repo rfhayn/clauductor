@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
@@ -60,7 +62,7 @@ func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
 
 func TestPlistContent(t *testing.T) {
 	home := "/Users/me"
-	path := PathForAgent(home, func(tool string) (string, error) {
+	path := pathForAgent(home, func(tool string) (string, error) {
 		switch tool {
 		case "claude":
 			return "/Users/me/.claude/local/claude", nil
@@ -74,7 +76,7 @@ func TestPlistContent(t *testing.T) {
 			t.Fatalf("PATH %q lacks %s", path, want)
 		}
 	}
-	p := string(RenderPlist(PlistSpec{Home: home, Binary: "/Users/me/.clauductor/panel/bin/clauductor",
+	p := string(renderPlist(plistSpec{Home: home, Binary: "/Users/me/.clauductor/panel/bin/clauductor",
 		Project: "/Users/me/dev/a&b", Config: "/Users/me/cfg.json", Port: 4393, Path: path}))
 	for _, want := range []string{
 		"<key>Label</key>\n\t<string>com.clauductor.panel</string>",
@@ -119,7 +121,7 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	}
 	var out bytes.Buffer
 	old, _ := LoadOrCreateToken(home)
-	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, App: true, Out: &out, Exec: fake, Self: self}); err != nil {
+	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, App: true, Out: &out, Exec: fake, Self: self}); err != nil {
 		t.Fatal(err)
 	}
 	if tok, _ := LoadOrCreateToken(home); tok == old || !tokenRe.MatchString(tok) {
@@ -140,13 +142,13 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	}
 	joined := strings.Join(calls, "\n")
 	for _, want := range []string{"/usr/bin/plutil -lint " + PlistPath(home), "/bin/launchctl bootstrap " + guiDomain() + " " + PlistPath(home),
-		"/usr/bin/osacompile -o " + AppPath(home) + " -e " + AppScript(InstalledBinary(home))} {
+		"/usr/bin/osacompile -o " + AppPath(home) + " -e " + appScript(InstalledBinary(home))} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("install did not run %q; ran:\n%s", want, joined)
 		}
 	}
-	if AppScript("/a b/clauductor") != `do shell script "'/a b/clauductor' panel open"` {
-		t.Fatalf("AppScript: %s", AppScript("/a b/clauductor"))
+	if appScript("/a b/clauductor") != `do shell script "'/a b/clauductor' panel open"` {
+		t.Fatalf("AppScript: %s", appScript("/a b/clauductor"))
 	}
 
 	calls = nil
@@ -167,7 +169,7 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
 	fake := func(argv ...string) ([]byte, error) { t.Fatalf("ran %v", argv); return nil, nil }
-	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, Exec: fake, Self: "/bin/sh"}); err == nil {
+	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, Exec: fake, Self: "/bin/sh"}); err == nil {
 		t.Fatal("installed an agent that would crash-loop on a missing config")
 	}
 	if _, err := os.Stat(PlistPath(home)); err == nil {
@@ -176,7 +178,7 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	os.MkdirAll(filepath.Join(AppPath(home), "Contents"), 0o755) // someone else's app
 	ok := func(argv ...string) ([]byte, error) { return nil, nil }
-	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"}); err == nil ||
+	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"}); err == nil ||
 		!strings.Contains(err.Error(), "not made by clauductor") {
 		t.Fatalf("replaced a foreign app: %v", err)
 	}
@@ -234,7 +236,7 @@ func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := Install(InstallOptions{Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond}); err != nil {
+	if err := Install(InstallOptions{Clock: clock.System, Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond}); err != nil {
 		t.Fatalf("install: %v (calls %v)", err, calls)
 	}
 	got := strings.Join(calls, ",")
@@ -254,10 +256,10 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)
 	}
 	empty, _ := lanes.OpenRegistry(home, "/empty")
-	empty.Put(lanes.LaneRecord{ID: "a", SessionID: sid, Path: "/empty", Mode: "root", Action: "start"})
+	empty.Put(types.LaneRecord{ID: "a", SessionID: sid, Path: "/empty", Mode: "root", Action: "start"})
 	empty.Delete("a")
 	live, _ := lanes.OpenRegistry(home, "/live")
-	live.Put(lanes.LaneRecord{ID: "b", SessionID: sid, Path: "/live", Mode: "root", Action: "start"})
+	live.Put(types.LaneRecord{ID: "b", SessionID: sid, Path: "/live", Mode: "root", Action: "start"})
 	var out strings.Builder
 	if err := Uninstall(home, &out, func(...string) ([]byte, error) { return nil, nil }); err != nil {
 		t.Fatal(err)

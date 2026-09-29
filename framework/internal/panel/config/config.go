@@ -17,7 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // DefaultConfigRel is where a project keeps its panel config, relative to the project root.
@@ -55,7 +55,7 @@ type Config struct {
 	// Templates are lane recipes offered in the Start dialog.
 	Templates []TemplateConfig `json:"templates"`
 	// Queues are shared resources held as an on-disk lease (the gate on port 3100).
-	Queues []lease.QueueConfig `json:"queues"`
+	Queues []types.QueueConfig `json:"queues"`
 	// Alerts sets the alert thresholds and the OS notifications.
 	Alerts *AlertConfig `json:"alerts"`
 	// QuotaGuard refuses to start a lane above a 5-hour quota threshold.
@@ -214,13 +214,13 @@ func LoadConfigRaw(path string) (*Config, []byte, error) {
 		}
 		return nil, nil, err
 	}
-	c, err := ParseConfig(raw)
+	c, err := parseConfig(raw)
 	return c, raw, err
 }
 
-// ParseConfig parses and validates panel config bytes. Unknown keys are refused so a
+// parseConfig parses and validates panel config bytes. Unknown keys are refused so a
 // misspelt key fails loudly instead of being silently ignored.
-func ParseConfig(raw []byte) (*Config, error) {
+func parseConfig(raw []byte) (*Config, error) {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
 	var c Config

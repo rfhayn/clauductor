@@ -51,7 +51,7 @@ func writePanelFiles(t *testing.T, home string, pid, port int, owner *install.Pa
 	writeFile(t, install.MarkerPath(home), strconv.Itoa(port)+"\n")
 	if owner != nil {
 		b, _ := json.Marshal(owner)
-		writeFile(t, install.OwnerPath(home), string(b))
+		writeFile(t, ownerPath(home), string(b))
 	}
 }
 
@@ -164,7 +164,7 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 				t.Fatalf("the new panel did not claim the pid file: %q", b)
 			}
 			var o install.PanelOwner
-			if b, err := os.ReadFile(install.OwnerPath(home)); err != nil || json.Unmarshal(b, &o) != nil || o.PID != os.Getpid() || o.Project != root || o.PStart == "" {
+			if b, err := os.ReadFile(ownerPath(home)); err != nil || json.Unmarshal(b, &o) != nil || o.PID != os.Getpid() || o.Project != root || o.PStart == "" {
 				t.Fatalf("owner.json not claimed: %+v %v", o, err)
 			}
 			cancel()
@@ -219,14 +219,14 @@ func TestExitLeavesAnotherPanelsMarker(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(config.PanelDir(home), "pid")); err != nil || strings.TrimSpace(string(b)) != strconv.Itoa(pid) {
 		t.Fatalf("exit removed another panel's pid file: %q %v", b, err)
 	}
-	if _, err := os.Stat(install.OwnerPath(home)); err != nil {
+	if _, err := os.Stat(ownerPath(home)); err != nil {
 		t.Fatalf("exit removed another panel's owner.json: %v", err)
 	}
 	// Its own files it does remove (the premise).
 	root2, home2 := setupProject(t)
 	_, _, stop2 := runPanel(t, Options{Project: root2, Port: 0, NoOpen: true, Home: home2, Runner: fakeRunner(root2)})
 	stop2()
-	for _, p := range []string{install.MarkerPath(home2), filepath.Join(config.PanelDir(home2), "pid"), install.OwnerPath(home2)} {
+	for _, p := range []string{install.MarkerPath(home2), filepath.Join(config.PanelDir(home2), "pid"), ownerPath(home2)} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Fatalf("%s left behind after a clean stop", p)
 		}
@@ -253,7 +253,7 @@ func TestHookDriftIsRepaired(t *testing.T) {
 				warned = true
 			}
 		}
-		return strings.Contains(string(s), install.HookURL(port)) && !strings.Contains(string(s), install.HookURL(port+1)) && warned
+		return strings.Contains(string(s), hookURL(port)) && !strings.Contains(string(s), hookURL(port+1)) && warned
 	})
 	// Removed outright (a hand edit): put back too.
 	if _, err := install.UninstallHooks(home); err != nil {
@@ -452,13 +452,13 @@ func TestHooksOfAnotherLivePanelAreNotStolen(t *testing.T) {
 		return false
 	})
 	time.Sleep(500 * time.Millisecond) // several checks
-	if s, _ := os.ReadFile(install.SettingsPath(home)); !strings.Contains(string(s), install.HookURL(otherPort)) || strings.Contains(string(s), install.HookURL(port)) {
+	if s, _ := os.ReadFile(install.SettingsPath(home)); !strings.Contains(string(s), hookURL(otherPort)) || strings.Contains(string(s), hookURL(port)) {
 		t.Fatal("the panel re-pointed the hooks of another live panel")
 	}
 	srv.Close()
 	waitFor(t, "hooks repaired once the other panel is gone", func() bool {
 		s, _ := os.ReadFile(install.SettingsPath(home))
-		return strings.Contains(string(s), install.HookURL(port))
+		return strings.Contains(string(s), hookURL(port))
 	})
 }
 

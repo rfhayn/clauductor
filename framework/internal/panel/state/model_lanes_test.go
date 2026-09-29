@@ -4,16 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // The reducer reconciles the lane registry with tmux, the worktree list and the
 // sessions (hooks and claude agents), binding a lane to its session by session id.
 // Anything that does not add up is shown as an orphan, never dropped.
 func TestReducerReconcilesLanes(t *testing.T) {
-	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"}}`))
+	cfg, err := loadConfig(t, []byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,13 +22,13 @@ func TestReducerReconcilesLanes(t *testing.T) {
 	// Lane a's session reports from a subdirectory of the ROOT worktree (it ran cd):
 	// its lane is still the one the registry binds its session id to.
 	m.ApplyHook(signals.HookEvent{SessionID: sidA, Cwd: "/repo/sub", Event: "UserPromptSubmit", Prompt: "go"}, t0)
-	recs := []lanes.LaneRecord{
+	recs := []types.LaneRecord{
 		{ID: "a", SessionID: sidA, Path: "/repo/.wt/x", Type: "fix", ActionDone: true},
 		{ID: "b", SessionID: sidB, Path: "/repo", Type: "orchestrator", ActionDone: true},
 		{ID: "c", SessionID: "33333333-3333-4333-8333-333333333333", Path: "/repo", Type: "orchestrator", Action: "start"},
 		{ID: "e", SessionID: "44444444-4444-4444-8444-444444444444", Path: "/gone/wt", Type: "fix", ActionDone: true},
 	}
-	tmux := []lanes.TmuxLane{
+	tmux := []types.TmuxLane{
 		{ID: "a", Path: "/repo/.wt/x", Type: "fix"},
 		{ID: "d", Path: "/repo", Attached: 1},
 		{ID: "e", Path: "/gone/wt", Dead: true, DeadStatus: "1"},

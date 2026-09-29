@@ -2,7 +2,8 @@
 // poll results in, the View out. It holds the one "blocked on you" predicate,
 // alerts, the first-prompt decisions, reading freshness and the notifier's choice of
 // what interrupts. It does no I/O and never reads the clock: every method takes
-// `now`. It imports lanes only for the lane types it reconciles.
+// `now`. It takes lanes and queues as plain records (package types), never the
+// packages that make them.
 package state
 
 import (
@@ -12,9 +13,8 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // This file is the pure reducer: events and poll results in, state out. It does no
@@ -126,8 +126,8 @@ type Model struct {
 	hooks       hookHealth // PANEL-5: the hook install's health (hookhealth.go)
 
 	// v1 lanes on the panel's tmux socket.
-	tmuxLanes    []lanes.TmuxLane
-	laneRecords  []lanes.LaneRecord
+	tmuxLanes    []types.TmuxLane
+	laneRecords  []types.LaneRecord
 	regProblems  []string
 	tmuxSrc      SourceStatus
 	startBlocked string
@@ -620,8 +620,8 @@ type View struct {
 	TmuxSocket   string                `json:"tmuxSocket"`
 	LaneBase     string                `json:"laneBase"`
 	WorktreeRoot string                `json:"worktreeRoot"`
-	// v2 (ViewV2, below).
-	ViewV2
+	// v2 (ViewOrchestration, below).
+	ViewOrchestration
 }
 
 // LaneView is one lane (a worktree) as rendered.
@@ -878,7 +878,7 @@ func (m *Model) ApplyRegistryProblems(p []string) { m.regProblems = p }
 
 // ApplyTmux records a reconciliation input: the panel's tmux socket, the lane
 // registry, and whether lanes may start.
-func (m *Model) ApplyTmux(lanes []lanes.TmuxLane, recs []lanes.LaneRecord, blocked string, err error, now time.Time) {
+func (m *Model) ApplyTmux(lanes []types.TmuxLane, recs []types.LaneRecord, blocked string, err error, now time.Time) {
 	m.tmuxSrc = SourceStatus{OK: err == nil, At: ms(now)}
 	m.startBlocked = blocked
 	if err != nil {
@@ -904,7 +904,7 @@ func (m *Model) ApplyTmux(lanes []lanes.TmuxLane, recs []lanes.LaneRecord, block
 }
 
 func (m *Model) TerminalViews(now time.Time) []TermLaneView {
-	tmux := map[string]lanes.TmuxLane{}
+	tmux := map[string]types.TmuxLane{}
 	for _, tl := range m.tmuxLanes {
 		tmux[tl.ID] = tl
 	}
@@ -1022,7 +1022,7 @@ type modelV2 struct {
 	claudeVersion  string
 	versionSrc     SourceStatus
 	obs            Obs
-	queues         []lease.QueueView
+	queues         []types.QueueView
 	queuesSrc      SourceStatus
 	notifier       NotifierStats
 	trust          config.TrustView
@@ -1066,13 +1066,14 @@ func (v *View) banner(kind, text string) {
 	v.BannerItems = append(v.BannerItems, BannerView{Kind: kind, Text: text})
 }
 
-// ViewV2 is the v2 part of the View.
-type ViewV2 struct {
+// ViewOrchestration is the View's orchestration part: what is done, alerts,
+// templates, queues, restores, the footer and the trust state.
+type ViewOrchestration struct {
 	// Done holds finished turns and completed agents: your move, but not blocked.
 	Done       []NeedView            `json:"done"`
 	Alerts     []AlertView           `json:"alerts"`
 	Templates  []config.TemplateInfo `json:"templates"`
-	Queues     []lease.QueueView     `json:"queues"`
+	Queues     []types.QueueView     `json:"queues"`
 	QueuesSrc  SourceStatus          `json:"queuesSource"`
 	Thresholds config.Thresholds     `json:"thresholds"`
 	// QuotaGuard is set when the 5-hour quota is at or above the guard: a new lane
@@ -1105,7 +1106,7 @@ func (m *Model) ApplyNotifier(n NotifierStats) { m.v2.notifier = n }
 func (m *Model) ApplyTrust(t config.TrustView) { m.v2.trust = t }
 
 // ApplyQueues records a read of the queues' leases.
-func (m *Model) ApplyQueues(qs []lease.QueueView, err error, now time.Time) {
+func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 	if err != nil {
 		m.v2.queuesSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
@@ -1135,9 +1136,9 @@ func (m *Model) quotaAt(now time.Time) *Quota {
 	return &q
 }
 
-// QuotaGuardBlock says why a new lane is refused at this quota, or "". An unknown or
+// quotaGuardBlock says why a new lane is refused at this quota, or "". An unknown or
 // expired window never blocks: the guard acts on a number it has.
-func QuotaGuardBlock(q *Quota, guardPct float64) string {
+func quotaGuardBlock(q *Quota, guardPct float64) string {
 	if guardPct <= 0 || q == nil || q.FiveHour == nil {
 		return ""
 	}
@@ -1149,7 +1150,7 @@ func QuotaGuardBlock(q *Quota, guardPct float64) string {
 
 // QuotaGuard returns the reason a new lane would be refused now, or "".
 func (m *Model) QuotaGuard(now time.Time) string {
-	return QuotaGuardBlock(m.quotaAt(now), m.cfg.AlertThresholds().GuardPct)
+	return quotaGuardBlock(m.quotaAt(now), m.cfg.AlertThresholds().GuardPct)
 }
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.
@@ -1205,12 +1206,12 @@ func promptWait(why string, poll bool) PromptDecision {
 	return PromptDecision{Action: "wait", Why: why, Poll: poll}
 }
 
-// DecideFirstPrompt decides, from structured signals only, whether a template lane
+// decideFirstPrompt decides, from structured signals only, whether a template lane
 // is ready for its first prompt. It never looks at the screen: claude is ready when
 // `claude agents` lists the session as idle. A session held at the workspace-trust
 // dialog is not listed at all (verified on 2.1.284), so the prompt can never be typed
 // into that dialog.
-func DecideFirstPrompt(in PromptInput, now time.Time) PromptDecision {
+func decideFirstPrompt(in PromptInput, now time.Time) PromptDecision {
 	switch in.State {
 	case "pending":
 		if in.Conversation || !in.Prompted.IsZero() {
@@ -1261,7 +1262,7 @@ func decide(action, why string) PromptDecision { return PromptDecision{Action: a
 // flight, keyed by lane id.
 func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 	out := map[string]PromptDecision{}
-	tmux := map[string]lanes.TmuxLane{}
+	tmux := map[string]types.TmuxLane{}
 	for _, tl := range m.tmuxLanes {
 		tmux[tl.ID] = tl
 	}
@@ -1284,7 +1285,7 @@ func (m *Model) PromptDecisions(now time.Time) map[string]PromptDecision {
 				in.Listed, in.Status, in.WaitingFor = true, s.Agent.Status, s.Agent.WaitingFor
 			}
 		}
-		out[rec.ID] = DecideFirstPrompt(in, now)
+		out[rec.ID] = decideFirstPrompt(in, now)
 	}
 	return out
 }
@@ -1311,7 +1312,7 @@ func (m *Model) agentsFresh(now time.Time) bool {
 
 // restoredPending reports whether a restored lane still waits for you: it was
 // resumed on a conversation and nothing has happened in it since.
-func (m *Model) restoredPending(rec lanes.LaneRecord) bool {
+func (m *Model) restoredPending(rec types.LaneRecord) bool {
 	if rec.Restored == 0 || !rec.Conversation {
 		return false
 	}
@@ -1329,12 +1330,12 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	th := m.cfg.AlertThresholds()
 	v.Templates = m.cfg.TemplateList()
 	v.Thresholds = th
-	v.Queues = append([]lease.QueueView{}, m.v2.queues...)
+	v.Queues = append([]types.QueueView{}, m.v2.queues...)
 	v.QueuesSrc = m.v2.queuesSrc
 	if len(m.cfg.Queues) == 0 {
 		v.QueuesSrc = SourceStatus{OK: true}
 	}
-	v.QuotaGuard = QuotaGuardBlock(v.Quota, th.GuardPct)
+	v.QuotaGuard = quotaGuardBlock(v.Quota, th.GuardPct)
 	v.Trust = m.v2.trust
 	v.Restorable = []string{}
 	v.Warnings = []string{}
@@ -1343,7 +1344,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 		v.Done = []NeedView{}
 	}
 
-	recs := map[string]lanes.LaneRecord{}
+	recs := map[string]types.LaneRecord{}
 	for _, r := range m.laneRecords {
 		recs[r.ID] = r
 	}

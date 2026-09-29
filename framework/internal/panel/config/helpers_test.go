@@ -12,7 +12,7 @@ func testConfig(t *testing.T) *Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := ParseConfig(b)
+	cfg, err := parseConfig(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func testConfig(t *testing.T) *Config {
 
 func v2Config(t *testing.T, extra string) *Config {
 	t.Helper()
-	c, err := ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
+	c, err := parseConfig([]byte(`{"name":"T","lanes":{"change/":"build","fix/":"fix","main":"orchestrator"}` + extra + `}`))
 	if err != nil {
 		t.Fatal(err)
 	}

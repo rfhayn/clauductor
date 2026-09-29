@@ -6,18 +6,18 @@ import (
 )
 
 func TestParseWorktreePorcelain(t *testing.T) {
-	wts, err := ParseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
+	wts, err := parseWorktreePorcelain(fixture(t, "worktrees-fixture.porcelain"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(wts) != 4 || wts[1].Branch != "change/add-feature" || wts[3].Branch != "" {
 		t.Fatalf("%+v", wts)
 	}
-	real, err := ParseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))
+	real, err := parseWorktreePorcelain(fixture(t, "worktrees-real.porcelain"))
 	if err != nil || len(real) < 2 || real[0].Branch == "" {
 		t.Fatalf("real capture: %+v %v", real, err)
 	}
-	if _, err := ParseWorktreePorcelain([]byte("")); err == nil {
+	if _, err := parseWorktreePorcelain([]byte("")); err == nil {
 		t.Fatal("empty output accepted as a worktree list")
 	}
 }

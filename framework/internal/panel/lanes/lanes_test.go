@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 func TestValidLaneID(t *testing.T) {
@@ -32,8 +34,9 @@ func TestValidLaneID(t *testing.T) {
 
 func testLaneManager(t *testing.T) *LaneManager {
 	t.Helper()
-	cfg, err := config.ParseConfig([]byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
+	cfg, err := loadConfig(t, []byte(`{"name":"T","lanes":{"main":"orchestrator","fix/":"fix","change/":"build","change/propose-*":"propose"},
 		"tmux_socket":"sock","lane_types":{"build":{"model":"opus","effort":"high"}}}`))
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +44,7 @@ func testLaneManager(t *testing.T) *LaneManager {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &LaneManager{TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
+	return &LaneManager{Clock: clock.System, TmuxPath: "/opt/homebrew/bin/tmux", Socket: cfg.Socket(), Root: "/repo", Cfg: cfg, Registry: reg,
 		Program: []string{"/Users/me/.local/bin/claude"}, LookupEnv: func(string) (string, bool) { return "", false }}
 }
 
@@ -201,35 +204,13 @@ func TestBranchPrefixAndLaneTypes(t *testing.T) {
 	}
 }
 
-func TestConfigRejectsBadLaneKeys(t *testing.T) {
-	for _, body := range []string{
-		`{"name":"x","tmux_socket":"a b"}`,
-		`{"name":"x","tmux_socket":"../x"}`,
-		`{"name":"x","base":"-x"}`,
-		`{"name":"x","base":"a b"}`,
-		`{"name":"x","worktree_dir":"../outside"}`,
-		`{"name":"x","worktree_dir":"."}`,
-		`{"name":"x","lane_types":{"build":{"model":"opus; rm -rf /"}}}`,
-		`{"name":"x","lane_types":{"build":{"effort":"--dangerously-skip-permissions"}}}`,
-		`{"name":"x","lane_types":{"build":{"modle":"opus"}}}`,
-	} {
-		if _, err := config.ParseConfig([]byte(body)); err == nil {
-			t.Errorf("accepted %s", body)
-		}
-	}
-	if _, err := config.ParseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
-		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestParseTmuxPanes(t *testing.T) {
 	out := "orchestrator\t/tmp\t/tmp\t0\t\t1790000000\t1\torchestrator\n" +
 		"orchestrator\t/tmp\t/tmp\t0\t\t1790000000\t1\torchestrator\n" + // second pane of the same session
 		"fix-a\t\t/nonexistent/wt\t1\t3\t1790000001\t0\tfix\n" +
 		"User Session\t/tmp\t/tmp\t0\t\t1\t0\t\n" + // not a lane id: not the panel's
 		"short\tline\n"
-	got := ParseTmuxPanes([]byte(out))
+	got := parseTmuxPanes([]byte(out))
 	if len(got) != 2 {
 		t.Fatalf("got %d lanes: %+v", len(got), got)
 	}
@@ -279,7 +260,7 @@ func TestRegistryFileIsPrivateAndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := LaneRecord{ID: "a", SessionID: sid, Path: "/repo", Type: "orchestrator", Mode: "root", Created: 1}
+	rec := types.LaneRecord{ID: "a", SessionID: sid, Path: "/repo", Type: "orchestrator", Mode: "root", Created: 1}
 	if _, err := r.Begin(rec, "start", time.Unix(5, 0)); err != nil {
 		t.Fatal(err)
 	}
@@ -314,8 +295,8 @@ func TestRegistryFileIsPrivateAndRoundTrips(t *testing.T) {
 }
 
 func TestNewSessionID(t *testing.T) {
-	a, _ := NewSessionID()
-	b, _ := NewSessionID()
+	a, _ := newSessionID()
+	b, _ := newSessionID()
 	if !uuidRe.MatchString(a) || a == b {
 		t.Fatalf("%q %q", a, b)
 	}
@@ -330,7 +311,7 @@ func TestRegistryReloadNeverResurrectsADeletedLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Begin(LaneRecord{ID: "a", SessionID: sid, Path: "/repo"}, "stop", time.Now()); err != nil {
+	if _, err := r.Begin(types.LaneRecord{ID: "a", SessionID: sid, Path: "/repo"}, "stop", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	read, release := make(chan struct{}), make(chan struct{})
@@ -365,7 +346,7 @@ func TestAgentReadyUnderTheLock(t *testing.T) {
 		{[]signals.Agent{{SessionID: "other", Status: "idle"}}, false},
 		{nil, false},
 	} {
-		if got := AgentReady(c.agents, sid) == ""; got != c.ready {
+		if got := agentReady(c.agents, sid) == ""; got != c.ready {
 			t.Errorf("%+v: ready %v, want %v", c.agents, got, c.ready)
 		}
 	}
@@ -373,7 +354,7 @@ func TestAgentReadyUnderTheLock(t *testing.T) {
 
 func TestSelectRestorable(t *testing.T) {
 	sid := func(n byte) string { return "11111111-1111-4111-8111-11111111111" + string(n) }
-	recs := []LaneRecord{
+	recs := []types.LaneRecord{
 		{ID: "a", SessionID: sid('a'), Path: "/ok"},
 		{ID: "b", SessionID: sid('b'), Path: "/ok"},   // running: not lost
 		{ID: "c", SessionID: sid('c'), Path: "/ok"},   // live in another process
@@ -381,7 +362,7 @@ func TestSelectRestorable(t *testing.T) {
 		{ID: "e", SessionID: sid('e'), Path: "/gone"}, // worktree removed
 		{ID: "f", SessionID: "not-a-uuid", Path: "/ok"},
 	}
-	pick, skip := SelectRestorable(recs, map[string]bool{"b": true}, map[string]bool{sid('c'): true},
+	pick, skip := selectRestorable(recs, map[string]bool{"b": true}, map[string]bool{sid('c'): true},
 		func(p string) bool { return p == "/ok" })
 	if len(pick) != 1 || pick[0].ID != "a" {
 		t.Fatalf("pick %+v", pick)

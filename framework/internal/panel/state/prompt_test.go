@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 func TestFirstPromptDecision(t *testing.T) {
@@ -41,7 +41,7 @@ func TestFirstPromptDecision(t *testing.T) {
 		{"done", PromptInput{State: "delivered"}, 0, "none"},
 	}
 	for _, tc := range tests {
-		if got := DecideFirstPrompt(tc.in, start.Add(tc.at)); got.Action != tc.want {
+		if got := decideFirstPrompt(tc.in, start.Add(tc.at)); got.Action != tc.want {
 			t.Errorf("%s: got %s (%s), want %s", tc.name, got.Action, got.Why, tc.want)
 		}
 	}
@@ -49,8 +49,8 @@ func TestFirstPromptDecision(t *testing.T) {
 
 func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	m := v2Model(t)
-	rec := lanes.LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
-	m.ApplyTmux([]lanes.TmuxLane{{ID: "tpl", Path: buildWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
+	rec := types.LaneRecord{ID: "tpl", SessionID: "s1", Path: buildWT, Type: "build", PromptState: "pending", ActionAt: t0.UnixMilli(), ActionDone: true}
+	m.ApplyTmux([]types.TmuxLane{{ID: "tpl", Path: buildWT}}, []types.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m.PromptDecisions(t0.Add(time.Second))["tpl"]; d.Action != "send" {
 		t.Fatalf("fresh idle: %+v", d)
@@ -62,7 +62,7 @@ func TestPromptWaitsForAFreshPoll(t *testing.T) {
 	}
 	// Or it simply stops arriving for longer than two intervals.
 	m2 := v2Model(t)
-	m2.ApplyTmux([]lanes.TmuxLane{{ID: "tpl", Path: buildWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
+	m2.ApplyTmux([]types.TmuxLane{{ID: "tpl", Path: buildWT}}, []types.LaneRecord{rec}, "", nil, t0)
 	m2.ApplyAgents([]signals.Agent{{SessionID: "s1", Cwd: buildWT, Status: "idle"}}, nil, t0)
 	if d := m2.PromptDecisions(t0.Add(11 * time.Second))["tpl"]; d.Action == "send" {
 		t.Fatalf("typed on a stale poll: %+v", d)

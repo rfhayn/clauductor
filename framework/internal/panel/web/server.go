@@ -34,9 +34,9 @@ const LoopbackHost = "127.0.0.1"
 // MaxIngestBody caps a hook or status-line body.
 const MaxIngestBody = 256 << 10
 
-// Listen binds 127.0.0.1:port and nothing else. A taken port is an error, never a
+// listen binds 127.0.0.1:port and nothing else. A taken port is an error, never a
 // reason to try another: the hooks in ~/.claude/settings.json post to a fixed URL.
-func Listen(port int) (net.Listener, error) {
+func listen(port int) (net.Listener, error) {
 	ln, err := net.Listen("tcp4", net.JoinHostPort(LoopbackHost, strconv.Itoa(port)))
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
@@ -80,7 +80,7 @@ type Server struct {
 
 	// Heartbeat is how often an open /events stream beats. Zero means HeartbeatEvery.
 	Heartbeat time.Duration
-	// Clock stamps terminal tickets and times their idle close; nil is clock.System.
+	// Clock stamps terminal tickets and times their idle close. Required.
 	Clock clock.Clock
 
 	// TermIdleTimeout closes a terminal whose page has sent nothing (not even its
@@ -362,4 +362,9 @@ func (s *Server) FocusedLanes() map[string]bool {
 	return out
 }
 
-func (s *Server) clock() clock.Clock { return clock.Or(s.Clock) }
+func (s *Server) clock() clock.Clock {
+	if s.Clock == nil {
+		panic("web: Server.Clock is not set")
+	}
+	return s.Clock
+}

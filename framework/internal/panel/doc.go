@@ -9,7 +9,9 @@
 //
 // This package wires the others together and runs them:
 //
-//	lease    the on-disk queue lease lock-run holds (no other panel package)
+//	clock    the one clock every package reads through
+//	types    plain records the packages hand each other (no code, no imports)
+//	lease    the on-disk queue lease lock-run holds (imports only clock and types)
 //	signals  parsers of what the panel reads: hooks, status line, claude agents, git, gh
 //	config   panel.json, and where the panel keeps its files
 //	lanes    tmux lanes, the lane registry, restore

@@ -59,7 +59,7 @@ func (s *Server) originMatches(origin, host string) bool {
 // 127.0.0.1. A [::1] port held by another process is an error, never skipped: the
 // browser would send clauductor.localhost, and the token, to it.
 func ListenLoopback(port int) (ln4, ln6 net.Listener, v6why string, err error) {
-	ln4, err = Listen(port)
+	ln4, err = listen(port)
 	if err != nil {
 		return nil, nil, "", err
 	}

@@ -44,9 +44,9 @@ type Notifier struct {
 	stats    NotifierStats
 }
 
-// Interrupts reports whether an alert may raise an OS notification.
+// interrupts reports whether an alert may raise an OS notification.
 // An approximate alert never does: it rests on data that is not current (PANEL-5).
-func Interrupts(a AlertView) bool {
+func interrupts(a AlertView) bool {
 	if a.Approx {
 		return false
 	}
@@ -115,7 +115,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		// An approximate alert keeps the mark of a stretch already notified (so the
 		// poll flickering stale and back never re-notifies), but never sends.
 		active[a.Key] = true
-		if !Interrupts(a) {
+		if !interrupts(a) {
 			continue
 		}
 		if since, ok := n.notified[a.Key]; ok && since == a.Since {

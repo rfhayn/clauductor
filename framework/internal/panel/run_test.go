@@ -125,7 +125,7 @@ func TestRunEndToEnd(t *testing.T) {
 		}
 	}
 	settings, _ := os.ReadFile(install.SettingsPath(home))
-	if !strings.Contains(string(settings), install.HookURL(port)) {
+	if !strings.Contains(string(settings), hookURL(port)) {
 		t.Fatal("installed hook does not point at the bound port")
 	}
 

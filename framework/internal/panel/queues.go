@@ -16,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -56,7 +57,7 @@ func (r *Runtime) gitCommonDir(ctx context.Context) (string, error) {
 	return d, nil
 }
 
-func (r *Runtime) queueLock(ctx context.Context, id string) (lease.QueueConfig, string, error) {
+func (r *Runtime) queueLock(ctx context.Context, id string) (types.QueueConfig, string, error) {
 	for _, q := range r.cfg.Queues {
 		if q.ID == id {
 			d, err := r.gitCommonDir(ctx)
@@ -66,7 +67,7 @@ func (r *Runtime) queueLock(ctx context.Context, id string) (lease.QueueConfig, 
 			return q, filepath.Join(d, filepath.Clean(q.Lock)), nil
 		}
 	}
-	return lease.QueueConfig{}, "", fmt.Errorf("no queue %q", id)
+	return types.QueueConfig{}, "", fmt.Errorf("no queue %q", id)
 }
 
 // pollQueues reads every queue's lease. It only reads, and updates the model only
@@ -87,8 +88,8 @@ func (r *Runtime) pollQueues(ctx context.Context, now time.Time) (update, time.D
 
 // readQueues reads every queue once. Liveness goes through the pid cache: kill(pid,
 // 0) every time, ps once per process (PANEL-7).
-func (r *Runtime) readQueues(ctx context.Context, now time.Time) ([]lease.QueueView, error) {
-	var qs []lease.QueueView
+func (r *Runtime) readQueues(ctx context.Context, now time.Time) ([]types.QueueView, error) {
+	var qs []types.QueueView
 	for _, q := range r.cfg.Queues {
 		_, lock, err := r.queueLock(ctx, q.ID)
 		if err != nil {
@@ -117,7 +118,7 @@ func (r *Runtime) cancelWait(queue, nonce string) error {
 // runQueue starts the queue's command through lock-run in one of the project's
 // worktrees, detached, with its output in a log file. It waits its turn like any
 // other gate run; the panel never skips the queue.
-func (r *Runtime) runQueue(ctx context.Context, queue, worktree string) (*lease.QueueRun, error) {
+func (r *Runtime) runQueue(ctx context.Context, queue, worktree string) (*types.QueueRun, error) {
 	if !r.trusted() {
 		return nil, errUntrusted
 	}
@@ -183,7 +184,7 @@ func (r *Runtime) runQueue(ctx context.Context, queue, worktree string) (*lease.
 		logf.Close()
 		return nil, err
 	}
-	run := &lease.QueueRun{PID: cmd.Process.Pid, Worktree: dir, Log: logPath, Started: r.clock.Now().UnixMilli()}
+	run := &types.QueueRun{PID: cmd.Process.Pid, Worktree: dir, Log: logPath, Started: r.clock.Now().UnixMilli()}
 	r.mu.Lock()
 	r.runs[queue] = run
 	r.mu.Unlock()

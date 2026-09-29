@@ -24,7 +24,7 @@ func newTestServer(t *testing.T) (*Server, chan []byte) {
 	hooks := make(chan []byte, 8)
 	m := state.NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
-	return &Server{Port: testPort, Token: "secret-token", Hub: NewHub(m, clock.Func(time.Now)), Hooks: hooks, Status: make(chan []byte, 8)}, hooks
+	return &Server{Clock: clock.System, Port: testPort, Token: "secret-token", Hub: NewHub(m, clock.Func(time.Now)), Hooks: hooks, Status: make(chan []byte, 8)}, hooks
 }
 
 type reqOpt func(*http.Request)
@@ -53,7 +53,7 @@ func do(s *Server, method, target, body string, opts ...reqOpt) *httptest.Respon
 }
 
 func TestListenBindsLoopbackOnly(t *testing.T) {
-	ln, err := Listen(0)
+	ln, err := listen(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestListenRefusesATakenPort(t *testing.T) {
 	}
 	defer busy.Close()
 	port := busy.Addr().(*net.TCPAddr).Port
-	ln, err := Listen(port)
+	ln, err := listen(port)
 	if err == nil {
 		ln.Close()
 		t.Fatalf("bound a taken port (got %v)", ln.Addr())

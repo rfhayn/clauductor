@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // The lane registry is the panel's durable memory of the lanes it started: which
@@ -26,40 +27,6 @@ import (
 // worktree list on every poll, and a record with nothing behind it is shown as an
 // orphan, never hidden (see Model.terminalViews).
 
-// LaneRecord is one registered lane.
-type LaneRecord struct {
-	ID        string `json:"id"`
-	SessionID string `json:"sessionId"` // the id the panel passed to claude --session-id
-	Path      string `json:"path"`
-	Type      string `json:"type"`
-	Branch    string `json:"branch,omitempty"`
-	Mode      string `json:"mode"`
-	Created   int64  `json:"created"` // unix ms
-	// Action is the last action begun on the lane: start | restart | resume | stop.
-	Action     string `json:"action"`
-	ActionAt   int64  `json:"actionAt"`
-	ActionDone bool   `json:"actionDone"`
-	// Conversation is set once a hook reports a prompt submitted in this session:
-	// only then does `claude --resume <id>` have a conversation to resume. Until
-	// then a restart reuses --session-id <id>.
-	Conversation bool `json:"conversation,omitempty"`
-	// Corrupt, when set, says why this record failed validation on load. A corrupt
-	// record is shown, can be stopped or forgotten, and is never launched.
-	Corrupt string `json:"-"`
-
-	// v2: a template lane's launch options and first prompt, and restores.
-	Template    string `json:"template,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Effort      string `json:"effort,omitempty"`
-	FirstPrompt string `json:"firstPrompt,omitempty"`
-	// PromptState is pending → typing → sent → delivered, or skipped. "typing" is
-	// written before the first keystroke, so a panel that dies mid-typing never
-	// types the prompt a second time.
-	PromptState string `json:"promptState,omitempty"`
-	PromptAt    int64  `json:"promptAt,omitempty"` // unix ms the prompt was typed
-	Restored    int64  `json:"restored,omitempty"` // unix ms of the last restore
-}
-
 var (
 	laneTypeRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{0,64}$`)
 	laneModes   = map[string]bool{"root": true, "existing": true, "new": true}
@@ -68,8 +35,8 @@ var (
 	promptStates = map[string]bool{"": true, "pending": true, "typing": true, "sent": true, "delivered": true, "skipped": true}
 )
 
-// validate checks a record read from disk before any field of it can become argv.
-func (l LaneRecord) validate() string {
+// validateRecord checks a record read from disk before any field of it can become argv.
+func validateRecord(l types.LaneRecord) string {
 	switch {
 	case !uuidRe.MatchString(l.SessionID):
 		return "session id is not a UUID"
@@ -94,9 +61,9 @@ func (l LaneRecord) validate() string {
 }
 
 type registryFile struct {
-	Version int          `json:"version"`
-	Project string       `json:"project"`
-	Lanes   []LaneRecord `json:"lanes"`
+	Version int                `json:"version"`
+	Project string             `json:"project"`
+	Lanes   []types.LaneRecord `json:"lanes"`
 }
 
 // Registry is the lane registry of one project.
@@ -104,7 +71,7 @@ type Registry struct {
 	path     string
 	project  string
 	mu       sync.Mutex
-	lanes    map[string]LaneRecord
+	lanes    map[string]types.LaneRecord
 	problems []string // records dropped on load, for a banner
 	// afterRead, if set, runs in Reload between reading the file and applying it.
 	// Tests use it to force the interleaving of a reload with a concurrent write.
@@ -118,7 +85,7 @@ func RegistryPath(home, project string) string {
 
 // OpenRegistry loads (or starts) a project's registry.
 func OpenRegistry(home, project string) (*Registry, error) {
-	r := &Registry{path: RegistryPath(home, project), project: project, lanes: map[string]LaneRecord{}}
+	r := &Registry{path: RegistryPath(home, project), project: project, lanes: map[string]types.LaneRecord{}}
 	return r, r.Reload()
 }
 
@@ -130,7 +97,7 @@ func (r *Registry) Reload() error {
 	defer r.mu.Unlock()
 	b, err := os.ReadFile(r.path)
 	if os.IsNotExist(err) {
-		r.lanes = map[string]LaneRecord{}
+		r.lanes = map[string]types.LaneRecord{}
 		return nil
 	}
 	if err != nil {
@@ -143,14 +110,14 @@ func (r *Registry) Reload() error {
 	if err := json.Unmarshal(b, &f); err != nil {
 		return fmt.Errorf("lane registry %s is not valid JSON: %w", r.path, err)
 	}
-	lanes := map[string]LaneRecord{}
+	lanes := map[string]types.LaneRecord{}
 	r.problems = nil
 	for i, l := range f.Lanes {
 		if !config.ValidLaneID(l.ID) {
 			r.problems = append(r.problems, fmt.Sprintf("lane registry %s: record %d has an invalid lane id and is ignored", r.path, i))
 			continue
 		}
-		l.Corrupt = l.validate()
+		l.Corrupt = validateRecord(l)
 		lanes[l.ID] = l
 	}
 	r.lanes = lanes
@@ -165,10 +132,10 @@ func (r *Registry) Problems() []string {
 }
 
 // List returns the records, sorted by id.
-func (r *Registry) List() []LaneRecord {
+func (r *Registry) List() []types.LaneRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]LaneRecord, 0, len(r.lanes))
+	out := make([]types.LaneRecord, 0, len(r.lanes))
 	for _, l := range r.lanes {
 		out = append(out, l)
 	}
@@ -177,7 +144,7 @@ func (r *Registry) List() []LaneRecord {
 }
 
 // Get returns one record.
-func (r *Registry) Get(id string) (LaneRecord, bool) {
+func (r *Registry) Get(id string) (types.LaneRecord, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	l, ok := r.lanes[id]
@@ -185,7 +152,7 @@ func (r *Registry) Get(id string) (LaneRecord, bool) {
 }
 
 // Put stores a record and writes the file before returning.
-func (r *Registry) Put(l LaneRecord) error {
+func (r *Registry) Put(l types.LaneRecord) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	prev, had := r.lanes[l.ID]
@@ -202,13 +169,13 @@ func (r *Registry) Put(l LaneRecord) error {
 }
 
 // Begin records that an action is starting on a lane.
-func (r *Registry) Begin(l LaneRecord, action string, now time.Time) (LaneRecord, error) {
+func (r *Registry) Begin(l types.LaneRecord, action string, now time.Time) (types.LaneRecord, error) {
 	l.Action, l.ActionAt, l.ActionDone = action, now.UnixMilli(), false
 	return l, r.Put(l)
 }
 
 // Done marks a lane's last action finished.
-func (r *Registry) Done(l LaneRecord) error {
+func (r *Registry) Done(l types.LaneRecord) error {
 	l.ActionDone = true
 	return r.Put(l)
 }
@@ -259,7 +226,7 @@ func (r *Registry) writeLocked() error {
 	if err := config.EnsurePrivateDir(filepath.Dir(r.path)); err != nil {
 		return err
 	}
-	f := registryFile{Version: 1, Project: r.project, Lanes: []LaneRecord{}}
+	f := registryFile{Version: 1, Project: r.project, Lanes: []types.LaneRecord{}}
 	for _, l := range r.lanes {
 		f.Lanes = append(f.Lanes, l)
 	}
@@ -289,8 +256,8 @@ func (r *Registry) writeLocked() error {
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-// NewSessionID returns a random (version 4) UUID for claude --session-id.
-func NewSessionID() (string, error) {
+// newSessionID returns a random (version 4) UUID for claude --session-id.
+func newSessionID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -309,7 +276,7 @@ var errNoRecord = errors.New("no registered lane")
 // the record in place and returns false to leave it unchanged. Unlike Get then Put,
 // it cannot resurrect a lane that was deleted between the two, or overwrite a field
 // another action changed meanwhile.
-func (r *Registry) Update(id string, fn func(*LaneRecord) bool) error {
+func (r *Registry) Update(id string, fn func(*types.LaneRecord) bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	l, ok := r.lanes[id]

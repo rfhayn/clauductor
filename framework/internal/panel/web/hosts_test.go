@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
@@ -84,17 +83,6 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 	}
 }
 
-func TestHostNamesConfig(t *testing.T) {
-	for _, bad := range []string{"*.localhost", "evil.com", "a.b.localhost", "UPPER.localhost", "localhost", ".localhost", "-a.localhost", "a_b.localhost"} {
-		if _, err := config.ParseConfig([]byte(`{"name":"T","host_names":["` + bad + `"]}`)); err == nil {
-			t.Errorf("accepted host name %q", bad)
-		}
-	}
-	if _, err := config.ParseConfig([]byte(`{"name":"T","host_names":["myproject.localhost","a1-b2.localhost"]}`)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Both listeners serve one server, and clauductor.localhost reaches it.
 func TestListenLoopbackServesBothAddresses(t *testing.T) {
 	ln4, ln6, why, err := ListenLoopback(0)
@@ -110,7 +98,7 @@ func TestListenLoopbackServesBothAddresses(t *testing.T) {
 	if ln6.Addr().(*net.TCPAddr).Port != port || !ln6.Addr().(*net.TCPAddr).IP.IsLoopback() {
 		t.Fatalf("v6 listener %v", ln6.Addr())
 	}
-	s := &Server{Port: port, Token: "t", Hub: NewHub(state.NewModel(testConfig(t), "/repo", t0), clock.Func(time.Now))}
+	s := &Server{Clock: clock.System, Port: port, Token: "t", Hub: NewHub(state.NewModel(testConfig(t), "/repo", t0), clock.Func(time.Now))}
 	srv := &http.Server{Handler: s.Handler()}
 	go srv.Serve(ln4)
 	go srv.Serve(ln6)

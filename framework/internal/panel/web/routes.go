@@ -9,7 +9,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the
@@ -193,7 +193,7 @@ type Orchestration struct {
 	Trusted    func() bool
 	QuotaGuard func() string
 	CancelWait func(queue, nonce string) error
-	RunQueue   func(ctx context.Context, queue, worktree string) (*lease.QueueRun, error)
+	RunQueue   func(ctx context.Context, queue, worktree string) (*types.QueueRun, error)
 }
 
 func (o *Orchestration) startGate() lanes.StartGate {

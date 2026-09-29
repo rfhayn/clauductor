@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/creack/pty"
 )
@@ -27,7 +28,7 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 		"/bin/sh", "-c", prog).CombinedOutput(); err != nil {
 		t.Fatalf("new-session: %v %s", err, out)
 	}
-	m := &lanes.LaneManager{TmuxPath: tmux, Socket: sock}
+	m := &lanes.LaneManager{Clock: clock.System, TmuxPath: tmux, Socket: sock}
 	if err := m.Harden(context.Background()); err != nil {
 		t.Fatal(err)
 	}

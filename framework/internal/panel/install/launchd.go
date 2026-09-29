@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -127,8 +128,8 @@ func ShouldOpenAtLogin(home string, now time.Time) bool {
 	return true
 }
 
-// PlistSpec is what the login agent runs.
-type PlistSpec struct {
+// plistSpec is what the login agent runs.
+type plistSpec struct {
 	Home    string
 	Binary  string // absolute
 	Project string // absolute
@@ -137,10 +138,10 @@ type PlistSpec struct {
 	Path    string // PATH for the agent
 }
 
-// PathForAgent builds the agent's PATH: Homebrew, ~/.local/bin, the directories of
+// pathForAgent builds the agent's PATH: Homebrew, ~/.local/bin, the directories of
 // the tools the panel and its lanes run (as found on the installing user's PATH),
 // then the system directories. launchd's own default PATH has none of these.
-func PathForAgent(home string, lookPath func(string) (string, error)) string {
+func pathForAgent(home string, lookPath func(string) (string, error)) string {
 	var dirs []string
 	seen := map[string]bool{}
 	add := func(d string) {
@@ -168,9 +169,9 @@ func xmlText(s string) string {
 	return b.String()
 }
 
-// RenderPlist renders the login agent. KeepAlive restarts it only after an unclean
+// renderPlist renders the login agent. KeepAlive restarts it only after an unclean
 // exit, so `launchctl bootout` (SIGTERM, clean exit) stops it for good.
-func RenderPlist(s PlistSpec) []byte {
+func renderPlist(s plistSpec) []byte {
 	args := []string{s.Binary, "panel", "--project", s.Project}
 	if s.Config != "" {
 		args = append(args, "--config", s.Config)
@@ -236,11 +237,9 @@ type InstallOptions struct {
 	Self string
 	// PollDelay spaces launchctl polls (default 100 ms; tests use less).
 	PollDelay time.Duration
-	// Clock waits between those polls; nil is clock.System.
+	// Clock waits between those polls. Required.
 	Clock clock.Clock
 }
-
-func (o InstallOptions) clock() clock.Clock { return clock.Or(o.Clock) }
 
 func (o InstallOptions) pollDelay() time.Duration {
 	if o.PollDelay > 0 {
@@ -283,6 +282,9 @@ func copyFileAtomic(src, dst string) error {
 
 // Install writes and loads the login agent (and optionally the launcher app).
 func Install(o InstallOptions) error {
+	if o.Clock == nil {
+		return errors.New("install: no clock")
+	}
 	if o.Exec == nil {
 		o.Exec = execCombined
 	}
@@ -328,9 +330,9 @@ func Install(o InstallOptions) error {
 	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
 		return err
 	}
-	spec := PlistSpec{Home: o.Home, Binary: bin, Project: project, Config: cfg, Port: o.Port,
-		Path: PathForAgent(o.Home, exec.LookPath)}
-	if err := os.WriteFile(plist, RenderPlist(spec), 0o644); err != nil {
+	spec := plistSpec{Home: o.Home, Binary: bin, Project: project, Config: cfg, Port: o.Port,
+		Path: pathForAgent(o.Home, exec.LookPath)}
+	if err := os.WriteFile(plist, renderPlist(spec), 0o644); err != nil {
 		return err
 	}
 	if out, err := o.Exec("/usr/bin/plutil", "-lint", plist); err != nil {
@@ -345,12 +347,12 @@ func Install(o InstallOptions) error {
 			if _, err := o.Exec("/bin/launchctl", "print", service); err != nil {
 				break
 			}
-			o.clock().Sleep(o.pollDelay())
+			o.Clock.Sleep(o.pollDelay())
 		}
 	}
 	out, err := o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
 	if err != nil { // one retry: the teardown can outlast print's view of it
-		o.clock().Sleep(20 * o.pollDelay())
+		o.Clock.Sleep(20 * o.pollDelay())
 		out, err = o.Exec("/bin/launchctl", "bootstrap", guiDomain(), plist)
 	}
 	if err != nil {
@@ -375,8 +377,8 @@ func appleScriptString(s string) string {
 // shq single-quotes s for a POSIX shell.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// AppScript is the launcher's AppleScript source.
-func AppScript(bin string) string {
+// appScript is the launcher's AppleScript source.
+func appScript(bin string) string {
 	return "do shell script " + appleScriptString(shq(bin)+" panel open")
 }
 
@@ -393,7 +395,7 @@ func installApp(o InstallOptions, bin string) error {
 	if err := os.MkdirAll(filepath.Dir(app), 0o755); err != nil {
 		return err
 	}
-	if out, err := o.Exec("/usr/bin/osacompile", "-o", app, "-e", AppScript(bin)); err != nil {
+	if out, err := o.Exec("/usr/bin/osacompile", "-o", app, "-e", appScript(bin)); err != nil {
 		return fmt.Errorf("osacompile: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return os.WriteFile(filepath.Join(app, "Contents", "Resources", appMarker), []byte("made by clauductor panel install --app\n"), 0o644)
@@ -416,7 +418,7 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 	// Everything the agent owns goes. port, pid and owner.json belong to a running
 	// panel, which bootout has just stopped.
 	for _, p := range []string{PlistPath(home), TokenPath(home), filepath.Join(dir, "browser-opened"),
-		filepath.Join(dir, "pid"), OwnerPath(home), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
+		filepath.Join(dir, "pid"), ownerPath(home), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
 		if err := os.RemoveAll(p); err != nil {
 			return err
 		}

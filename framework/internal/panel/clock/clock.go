@@ -71,11 +71,3 @@ func (Func) NewTimer(d time.Duration) Timer { return System.NewTimer(d) }
 
 // NewTicker makes a real ticker.
 func (Func) NewTicker(d time.Duration) Ticker { return System.NewTicker(d) }
-
-// Or returns c, or System when c is nil.
-func Or(c Clock) Clock {
-	if c == nil {
-		return System
-	}
-	return c
-}

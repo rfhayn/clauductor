@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 
-	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // FullKey identifies everything in a view but the clock it was taken at.
@@ -39,14 +39,14 @@ func ViewKey(v View) [sha256.Size]byte {
 		cards[i] = c
 	}
 	v.Cards = cards
-	qs := make([]lease.QueueView, len(v.Queues))
+	qs := make([]types.QueueView, len(v.Queues))
 	for i, q := range v.Queues {
 		if q.Holder != nil {
 			h := *q.Holder
 			h.Renewed = 0
 			q.Holder = &h
 		}
-		ws := make([]lease.LeaseView, len(q.Waiters))
+		ws := make([]types.LeaseView, len(q.Waiters))
 		for j, w := range q.Waiters {
 			w.Renewed = 0
 			ws[j] = w

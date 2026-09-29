@@ -19,8 +19,8 @@ type Worktree struct {
 	Bare   bool   `json:"bare,omitempty"`
 }
 
-// ParseWorktreePorcelain parses `git worktree list --porcelain` output.
-func ParseWorktreePorcelain(out []byte) ([]Worktree, error) {
+// parseWorktreePorcelain parses `git worktree list --porcelain` output.
+func parseWorktreePorcelain(out []byte) ([]Worktree, error) {
 	var wts []Worktree
 	var cur *Worktree
 	for _, line := range strings.Split(string(out), "\n") {

@@ -30,7 +30,7 @@ func TestConfigRejects(t *testing.T) {
 	}
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ParseConfig([]byte(raw)); err == nil {
+			if _, err := parseConfig([]byte(raw)); err == nil {
 				t.Fatal("accepted")
 			}
 		})
@@ -124,7 +124,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"future version":        `,"version":3`,
 	}
 	for why, extra := range bad {
-		if _, err := ParseConfig([]byte(`{"name":"T","lanes":{"change/":"build","main":"orchestrator"}` + extra + `}`)); err == nil {
+		if _, err := parseConfig([]byte(`{"name":"T","lanes":{"change/":"build","main":"orchestrator"}` + extra + `}`)); err == nil {
 			t.Errorf("accepted: %s", why)
 		}
 	}
@@ -140,11 +140,44 @@ func TestTemplateConfigValidation(t *testing.T) {
 func TestConfigNameIsPlainText(t *testing.T) {
 	for _, bad := range []string{`-eproperty p : 1`, " -x", "a\nb", "a‮b", "\x1b[31m"} {
 		b, _ := json.Marshal(map[string]any{"name": bad})
-		if _, err := ParseConfig(b); err == nil {
+		if _, err := parseConfig(b); err == nil {
 			t.Errorf("accepted name %q", bad)
 		}
 	}
-	if _, err := ParseConfig([]byte(`{"name":"My Project · panel"}`)); err != nil {
+	if _, err := parseConfig([]byte(`{"name":"My Project · panel"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHostNamesConfig(t *testing.T) {
+	for _, bad := range []string{"*.localhost", "evil.com", "a.b.localhost", "UPPER.localhost", "localhost", ".localhost", "-a.localhost", "a_b.localhost"} {
+		if _, err := parseConfig([]byte(`{"name":"T","host_names":["` + bad + `"]}`)); err == nil {
+			t.Errorf("accepted host name %q", bad)
+		}
+	}
+	if _, err := parseConfig([]byte(`{"name":"T","host_names":["myproject.localhost","a1-b2.localhost"]}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfigRejectsBadLaneKeys(t *testing.T) {
+	for _, body := range []string{
+		`{"name":"x","tmux_socket":"a b"}`,
+		`{"name":"x","tmux_socket":"../x"}`,
+		`{"name":"x","base":"-x"}`,
+		`{"name":"x","base":"a b"}`,
+		`{"name":"x","worktree_dir":"../outside"}`,
+		`{"name":"x","worktree_dir":"."}`,
+		`{"name":"x","lane_types":{"build":{"model":"opus; rm -rf /"}}}`,
+		`{"name":"x","lane_types":{"build":{"effort":"--dangerously-skip-permissions"}}}`,
+		`{"name":"x","lane_types":{"build":{"modle":"opus"}}}`,
+	} {
+		if _, err := parseConfig([]byte(body)); err == nil {
+			t.Errorf("accepted %s", body)
+		}
+	}
+	if _, err := parseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
+		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 }

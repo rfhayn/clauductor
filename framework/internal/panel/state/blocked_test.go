@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // PANEL-5 (state correctness). A `claude agents` reading is a snapshot of one poll.
@@ -204,7 +204,7 @@ func TestNotifierNeverInterruptsOnApproximateData(t *testing.T) {
 	exact := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: signals.SevBlock, Terminal: "a", Text: "w", Since: t0.UnixMilli()}
 	approx := exact
 	approx.Approx = true
-	if Interrupts(approx) {
+	if interrupts(approx) {
 		t.Fatal("an approximate alert interrupts")
 	}
 	n := &Notifier{MinInterval: time.Minute}
@@ -280,8 +280,8 @@ func TestSlowPollIsNotStale(t *testing.T) {
 // lane card and summary chip, the sessions table, and the terminal tab.
 func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 	m := alertModel(t, "")
-	rec := lanes.LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
-	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-x", Path: xWT}}, []lanes.LaneRecord{rec}, "", nil, t0)
+	rec := types.LaneRecord{ID: "lane-x", SessionID: "s1", Path: xWT, Type: "build", ActionDone: true}
+	m.ApplyTmux([]types.TmuxLane{{ID: "lane-x", Path: xWT}}, []types.LaneRecord{rec}, "", nil, t0)
 	m.ApplyAgents(waitingAgent("waiting", "permission prompt"), nil, t0)
 	check := func(at time.Duration, want bool) {
 		t.Helper()
@@ -339,10 +339,10 @@ func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
 	// Its lane's pane is dead: dropped at once.
 	for _, tc := range []struct {
 		name string
-		tl   []lanes.TmuxLane
-	}{{"pane dead", []lanes.TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
+		tl   []types.TmuxLane
+	}{{"pane dead", []types.TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
 		m := withNote(t)
-		m.ApplyTmux(tc.tl, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+		m.ApplyTmux(tc.tl, []types.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
 		m.ApplyAgents(nil, boom, t0.Add(time.Minute))
 		if m.sessions["s-a"] != nil {
 			t.Fatalf("%s: a waiting note kept while polls fail", tc.name)
@@ -350,7 +350,7 @@ func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
 	}
 	// A live pane, or a tmux poll that failed, keeps it.
 	m = withNote(t)
-	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-a"}}, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+	m.ApplyTmux([]types.TmuxLane{{ID: "lane-a"}}, []types.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
 	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
 	if m.sessions["s-a"] == nil {
 		t.Fatal("dropped while its pane is alive")

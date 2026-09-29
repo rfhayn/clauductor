@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,7 @@ cancelled from the panel; 130 if interrupted while waiting. See docs/panel.md.`,
 		}
 		code, err := lease.LockRun(context.Background(), lease.LockRunOptions{
 			Lock: args[0], Lane: lockRunLane, TTL: lockRunTTL, Argv: args[1:],
-			Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
+			Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(), Clock: clock.System,
 		})
 		if err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), err)

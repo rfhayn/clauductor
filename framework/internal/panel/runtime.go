@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -169,7 +170,7 @@ type Runtime struct {
 	pollSum  int64
 	notifier state.Notifier
 	notified state.NotifierStats // the notifier's counters last put in the model
-	runs     map[string]*lease.QueueRun
+	runs     map[string]*types.QueueRun
 	// notifyPath persists the notifier's state, so a restart never re-notifies.
 	notifyPath string
 	savedState string
@@ -181,7 +182,7 @@ type Runtime struct {
 func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *web.Hub,
 	lm *lanes.LaneManager, lanesWhy string, clk clock.Clock, ticks Ticks) *Runtime {
 	r := &Runtime{o: o, cfg: cfg, root: root, cfgPath: cfgPath, clock: clk, ticks: ticks, run: o.Runner, hub: hub, lanes: lm,
-		trustView: tv, runs: map[string]*lease.QueueRun{},
+		trustView: tv, runs: map[string]*types.QueueRun{},
 		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
 	if lm != nil {
 		r.registry = lm.Registry // set before the ingest starts reading it
@@ -768,7 +769,7 @@ func newTmuxPoller(lm *lanes.LaneManager, why string, clk clock.Clock, ticks Tic
 }
 
 // laneSetSig names the lane set: whether the socket has a server, and each lane.
-func laneSetSig(up bool, ls []lanes.TmuxLane) string {
+func laneSetSig(up bool, ls []types.TmuxLane) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%t", up)
 	for _, l := range ls {

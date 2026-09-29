@@ -278,7 +278,7 @@ func TestInstallFollowsASymlinkedSettingsFile(t *testing.T) {
 		t.Fatal("the symlink was replaced by a regular file")
 	}
 	b, _ := os.ReadFile(target)
-	if !strings.Contains(string(b), HookURL(4393)) || !strings.Contains(string(b), `"model": "opus"`) {
+	if !strings.Contains(string(b), hookURL(4393)) || !strings.Contains(string(b), `"model": "opus"`) {
 		t.Fatalf("target not updated:\n%s", b)
 	}
 	if _, err := os.Stat(target + ".clauductor-panel.bak"); err != nil {
@@ -325,7 +325,7 @@ func TestInstallIsIdempotentWhenAUserHookFollowsOurs(t *testing.T) {
 	}
 	stop = readSettings(t, home)["hooks"].(map[string]any)["Stop"].([]any)
 	first, _ := json.Marshal(stop[0])
-	if len(stop) != 2 || !strings.Contains(string(first), HookTag) {
+	if len(stop) != 2 || !strings.Contains(string(first), hookTag) {
 		t.Fatalf("our entry moved or duplicated: %s", after)
 	}
 }

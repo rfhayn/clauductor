@@ -75,7 +75,7 @@ func ReadWorktrees(ctx context.Context, run Runner, root string) ([]Worktree, er
 	if err != nil {
 		return nil, err
 	}
-	wts, err := ParseWorktreePorcelain(out)
+	wts, err := parseWorktreePorcelain(out)
 	if err != nil {
 		return nil, err
 	}
