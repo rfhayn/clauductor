@@ -121,12 +121,14 @@ with a leading markdown bullet (`-`, `*`, `1.`) removed. A failing command shows
 
 - **Top bar.** LIVE / DISCONNECTED (the page reconnects on its own; if the panel was restarted
   it says so, because the new launch has a new token). The 5-hour and 7-day quota gauges are the
-  real subscription budget. **est. $ · tracked sessions (list price)** is the sum of the status
+  real subscription budget (labelled **5 h** and **7 d**). **est. $ (list price)** (with
+  "· tracked sessions" on wide screens) is the sum of the status
   line's `total_cost_usd` over the sessions the panel tracks now: live ones, and ones heard from
   in the last 30 minutes. A session forgotten after that drops out of the sum. It is a
   list-price estimate, not a bill.
   `hooks` counts hook events accepted, status-line posts, and events dropped as outside the
-  project. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
+  project; below 1440 px it is left to the footer, which has the same counters, so the bar
+  stays on one row from 1280 px. **+ LANE** opens the Start dialog; it is disabled, with the reason on hover, while
   lanes cannot start (see *Subscription only*).
 - **Lanes (left).** One per worktree with a live session or recent activity. The stripe is green
   for busy, amber for waiting, grey for idle, and red when the lane is busy but no hook has
@@ -162,7 +164,8 @@ returns focus to the button. Each theme shows a swatch drawn from its own tokens
 kept per browser in `localStorage`. Without storage the page shows Console and the picker still
 works for the visit. A small script, `static/theme.js`, loads first and sets the theme before
 the first paint, so a stored theme never flashes the default. Changing theme re-colours the
-open terminals at once.
+open terminals at once. Every theme's terminal is dark, in light mode too: only a dark
+background lets each ANSI colour read as text and also carry a label in another ANSI colour.
 
 | Theme | Idea | Faces |
 |---|---|---|
@@ -176,7 +179,7 @@ open terminals at once.
 A lane's state is never shown by colour alone. Busy is a filled circle, waiting a diamond,
 idle a hollow circle, and blocked or stale a square, and each also has its word ("busy",
 "waiting: …", "no hooks", "blocking"). Lane cards and terminal tabs take keyboard focus, and
-Enter opens them.
+Enter opens them. A long lane name wraps to two lines; hovering the card shows it whole.
 
 ### Adding a theme: the token contract
 
@@ -207,6 +210,9 @@ It also checks contrast, measured on `--surface`, `--panel` and `--panel-2`:
   theme), and so must text on each `-soft` tint and on the primary button;
 - the focus ring and the idle marker must reach 3:1;
 - the terminal foreground must reach 7:1 on its background, and each ANSI colour 3:1;
+- the label pairs a TUI draws (black on green, yellow and cyan; white on red, blue and magenta;
+  and the bright variants) must reach 4.5:1. Black on red is not required: with red also at
+  3:1 on the background, no red carries both black and white text at 4.5:1;
 - busy, waiting, blocked and idle must differ by at least ΔE 20.
 
 It fails, too, on a font file that no theme loads or that has no licence, and on more than 700

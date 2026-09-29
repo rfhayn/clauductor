@@ -278,6 +278,16 @@ func TestThemesDefineEveryToken(t *testing.T) {
 	}
 }
 
+// ansiLabelPairs are {foreground, background} ANSI indices: black on green, yellow and
+// cyan, white on red, blue and magenta, and their bright variants. Black on red is
+// not here: with every colour also held to 3:1 on a dark terminal background, no red
+// can carry both black and white text at 4.5:1, so red, blue and magenta take white.
+var ansiLabelPairs = [][2]int{
+	{0, 2}, {0, 3}, {0, 6}, {0, 10}, {0, 11}, {0, 14},
+	{7, 1}, {7, 4}, {7, 5},
+	{15, 1}, {15, 4}, {15, 5}, {15, 9}, {15, 12}, {15, 13},
+}
+
 func TestThemeContrast(t *testing.T) {
 	tb := parseThemes(t, readWeb(t, "themes.css"))
 	var report []string
@@ -339,6 +349,15 @@ func TestThemeContrast(t *testing.T) {
 			for i := 0; i < 16; i++ {
 				check("ANSI colour", col("ansi-"+strconv.Itoa(i)), term, 3)
 			}
+			// Labels a TUI draws as one ANSI colour on another: test runners' PASS/FAIL
+			// badges, diff and status chips.
+			for _, p := range ansiLabelPairs {
+				fg, bg := "ansi-"+strconv.Itoa(p[0]), "ansi-"+strconv.Itoa(p[1])
+				check("ANSI label pair", col(fg), col(bg), 4.5)
+				if r := contrast(col(fg), col(bg)); r < 4.5 {
+					t.Logf("%s: --%s on --%s is %.2f:1", name, fg, bg, r)
+				}
+			}
 			// The four lane states stay apart in colour (they also differ in shape and label).
 			states := []string{"go", "hold", "stop", "idle"}
 			minDE := math.Inf(1)
@@ -351,8 +370,8 @@ func TestThemeContrast(t *testing.T) {
 					}
 				}
 			}
-			report = append(report, fmt.Sprintf("%-18s text %5.2f  dim %5.2f  accent %5.2f  focus %5.2f  term %5.2f  ansi %5.2f  stateΔE %4.1f",
-				name, worst["text"], worst["dim text"], worst["accent as text"], worst["focus ring"], worst["terminal foreground"], worst["ANSI colour"], minDE))
+			report = append(report, fmt.Sprintf("%-18s text %5.2f  dim %5.2f  accent %5.2f  focus %5.2f  term %5.2f  ansi %5.2f  pairs %5.2f  stateΔE %4.1f",
+				name, worst["text"], worst["dim text"], worst["accent as text"], worst["focus ring"], worst["terminal foreground"], worst["ANSI colour"], worst["ANSI label pair"], minDE))
 		}
 	}
 	t.Log("worst ratio per theme × mode, over surface, panel and panel-2:\n" + strings.Join(report, "\n"))

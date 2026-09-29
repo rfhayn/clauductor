@@ -100,6 +100,7 @@ function laneCard(l, quiet) {
     if (l.terminal) selectTerm(l.terminal); else render();
   });
   pressable(c, l.name + ", " + laneStatusText(l));
+  c.title = l.name + " · " + (l.branch || "(detached)");
   c.dataset.fk = "lane:" + l.id;
   return c;
 }

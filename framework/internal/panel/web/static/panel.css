@@ -5,8 +5,7 @@
 html { font-size: var(--fs-root); }
 html, body { height: 100%; }
 body { margin: 0; background: var(--surface); color: var(--text); font: .875rem/1.5 var(--font-body);
-  background-image: var(--backdrop); background-size: var(--backdrop-size); display: flex; flex-direction: column;
-  font-variation-settings: var(--font-vars); }
+  background-image: var(--backdrop); background-size: var(--backdrop-size); display: flex; flex-direction: column; }
 code, .mono { font-family: var(--font-mono); font-size: .84em; }
 :focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .mbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; background: var(--panel); }
@@ -16,7 +15,8 @@ code, .mono { font-family: var(--font-mono); font-size: .84em; }
 .brand span { color: var(--accent); font-variant-caps: var(--caps); }
 .sp { flex: 1; }
 .gauge { display: flex; align-items: center; gap: 6px; font: 500 .72rem/1 var(--font-mono); color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.gauge .track { width: 70px; height: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; }
+.gauges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+.gauge .track { width: 56px; height: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; }
 .gauge .fill { display: block; height: 100%; width: 0; background: var(--go); }
 .gauge .fill.h { background: var(--hold); } .gauge .fill.s { background: var(--stop); }
 .gauge b { color: var(--text); font-weight: 600; }
@@ -51,7 +51,10 @@ code, .mono { font-family: var(--font-mono); font-size: .84em; }
 .lane.sel:focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
 .lane.quiet { opacity: var(--quiet); padding: 6px 10px; }
 .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; min-width: 0; }
-.nm { font: 600 .8rem/1.2 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A long lane name wraps to two lines, then clips; the card's title has it whole. */
+.nm { font: 600 .8rem/1.2 var(--font-mono); overflow: hidden; overflow-wrap: anywhere; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.kind { flex: none; }
 .kind { font: 600 .6rem/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 5px; border-radius: var(--r-btn); background: var(--panel-2); color: var(--text-dim); white-space: nowrap; }
 .sub { color: var(--text-dim); font-size: .75rem; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ctx { height: 4px; background: var(--panel-2); border-radius: var(--r-chip); overflow: hidden; }
@@ -169,7 +172,10 @@ th { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: 
 .sw i:nth-of-type(2) { background: var(--go); } .sw i:nth-of-type(3) { background: var(--hold); } .sw i:nth-of-type(4) { background: var(--stop); }
 .pickbtn .sw { height: 1.5em; min-width: 0; }
 .pickbtn .sw b { display: none; }
-@media (max-width: 1599px) { .pickbtn #themename { display: none; } }
+/* The bar fits one row from 1280 px: the long labels go first, then the hooks count
+   (the footer carries it in full). */
+@media (max-width: 1599px) { .pickbtn #themename, .gauge .wide { display: none; } }
+@media (max-width: 1439px) { .gauge.hooks { display: none; } }
 @media (max-width: 600px) {
   .gauge { font-size: .68rem; }
   .gauge .track { width: 48px; }
