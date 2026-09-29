@@ -486,15 +486,16 @@ const COLS = [
 ];
 function busyRatio(m) { return m.durationMs >= 60000 && m.apiDurationMs != null ? Math.min(1, (m.apiDurationMs || 0) / m.durationMs) : null; }
 function rateCell(v, dp) { return num(v == null ? "—" : v.toFixed(dp == null ? 0 : dp)); }
+// The cache column: its hit ratio while warm; its countdown, in amber, in the last two
+// minutes before it goes cold; "cold" once it has.
 function cacheCell(x) {
   const m = laneM(x);
-  const kids = [num(m.cacheHitRatio == null ? "—" : Math.round(m.cacheHitRatio * 100) + "%")];
   if (m.cacheExpiresAt) {
     const left = m.cacheExpiresAt - now();
-    if (left <= 0) kids.push(el("span", "dim", " cold"));
-    else if (left < 120000) kids.push(document.createTextNode(" "), until(m.cacheExpiresAt, "cold in ", 120000));
+    if (left <= 0) { const c = el("span", "dim", "cold"); c.title = "The prompt cache has gone cold; the next request rebuilds it" + (m.recacheTokens ? " (" + kilo(m.recacheTokens) + " tokens)" : "") + "."; return c; }
+    if (left < 120000) return until(m.cacheExpiresAt, "", 120000);
   }
-  return el("span", null, null, kids);
+  return num(m.cacheHitRatio == null ? "—" : Math.round(m.cacheHitRatio * 100) + "%");
 }
 function gitCell(x) {
   const g = x.lv && x.lv.git;
