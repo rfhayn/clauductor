@@ -792,7 +792,10 @@ path through a symlink (macOS's `/tmp` is one, and a git common dir can be) a re
 matches, so the script would queue behind itself. `symlinked-lock` checks it.
 
 Each case checks only what every implementation must do: whether and when the command runs, its
-exit status, and the files left behind.
+exit status, and the files left behind. Run it on a host whose clock is steady: the protocol judges
+a lock's age by its mtime against the wall clock, so a clock step of seconds during a run (a
+freshly booted CI VM being corrected) turns a young lock old. `TestLeaseConformance` measures
+that (wall-clock against monotonic elapsed time) and runs such a case again.
 
 | Case | The implementation must |
 |---|---|

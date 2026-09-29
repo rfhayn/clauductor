@@ -1,11 +1,13 @@
 package lease
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The lease protocol has more than one implementation: lock-run, the plain-shell
@@ -67,7 +69,7 @@ func startConformance(driver string, env []string, cases []string, impl ...strin
 	go func() {
 		conformanceSlots <- struct{}{}
 		defer func() { <-conformanceSlots }()
-		out, err := runConformance(driver, env, cases, impl...)
+		out, err := runConformanceSteady(driver, env, cases, impl...)
 		done <- result{out, err}
 	}()
 	var r *result
@@ -77,6 +79,29 @@ func startConformance(driver string, env []string, cases []string, impl ...strin
 			r = &v
 		}
 		return r.out, r.err
+	}
+}
+
+// runConformanceSteady is runConformance, run again (at most twice more) when the
+// wall clock stepped during the run. The protocol judges a lock's age by its mtime
+// against the wall clock, so a step of seconds (a CI VM's clock being corrected)
+// makes a young lock old, or an old one young, and the run's verdict meaningless
+// either way: a pass as much as a failure. A step is measured, not guessed: the
+// wall-clock and monotonic elapsed times of the run disagree.
+func runConformanceSteady(driver string, env []string, cases []string, impl ...string) (string, error) {
+	var notes string
+	for attempt := 1; ; attempt++ {
+		t0 := time.Now()
+		out, err := runConformance(driver, env, cases, impl...)
+		t1 := time.Now()
+		step := t1.Round(0).Sub(t0.Round(0)) - t1.Sub(t0)
+		if step < 0 {
+			step = -step
+		}
+		if step < 2*time.Second || attempt == 3 {
+			return notes + out, err
+		}
+		notes += fmt.Sprintf("# the wall clock stepped %v during this run; running it again\n", step.Round(time.Second))
 	}
 }
 
