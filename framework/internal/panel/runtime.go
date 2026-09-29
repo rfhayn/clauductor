@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
 // Options configures one panel run.
@@ -135,7 +136,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 
-	ln, ln6, v6why, err := ListenLoopback(o.Port)
+	ln, ln6, v6why, err := web.ListenLoopback(o.Port)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func Run(ctx context.Context, o Options) error {
 	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
 	lm, lanesWhy := newLaneManager(o, cfg, root)
 	model := state.NewModel(cfg, root, time.Now())
-	hub := NewHub(model, time.Now)
+	hub := web.NewHub(model, time.Now)
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 
 	// Install hooks only once the port is ours, so a refused second launch never
@@ -222,13 +223,13 @@ func Run(ctx context.Context, o Options) error {
 	}
 	p.x.start(ctx, start)
 
-	srv := &Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lm}
+	srv := &web.Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: p.refreshAll, Lanes: lm}
 	srv.Orch = p.x.orchestration()
 	srv.HostNames = cfg.HostNames
 	p.x.srv.Store(srv)
 	srv.TermIdleTimeout = o.TermIdleTimeout
 	if lm != nil {
-		lm.Stopped = srv.closeTerminals
+		lm.Stopped = srv.CloseTerminals
 	}
 	if o.Launchd {
 		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
@@ -241,7 +242,7 @@ func Run(ctx context.Context, o Options) error {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					if tok := install.ReadToken(o.Home); tok != "" && tok != srv.currentToken() {
+					if tok := install.ReadToken(o.Home); tok != "" && tok != srv.CurrentToken() {
 						srv.Rotate(tok)
 						fmt.Fprintln(o.Out, "token rotated: old cookies, terminals and event streams are closed")
 					}
@@ -264,11 +265,11 @@ func Run(ctx context.Context, o Options) error {
 		go func() { serveErr <- httpSrv.Serve(ln6) }()
 	}
 
-	url := fmt.Sprintf("http://%s:%d/?t=%s", PanelHost(ln6 != nil), port, token)
+	url := fmt.Sprintf("http://%s:%d/?t=%s", web.PanelHost(ln6 != nil), port, token)
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
-			cfg.Name, root, PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
+			cfg.Name, root, web.PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
 	} else {
 		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
 	}
@@ -304,7 +305,7 @@ func Run(ctx context.Context, o Options) error {
 }
 
 type pollers struct {
-	hub        *Hub
+	hub        *web.Hub
 	run        signals.Runner
 	root       string
 	cfg        *config.Config

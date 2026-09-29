@@ -1,13 +1,20 @@
-package panel
+package web
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // The terminal endpoint is a shell into a lane. Each guard is checked on its own,
@@ -24,14 +31,14 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return withHeader("Sec-WebSocket-Protocol", TermSubprotocol+", "+ticketPrefix+tk)
+		return withHeader("Sec-WebSocket-Protocol", TermSubprotocol+", "+TicketPrefix+tk)
 	}
 	ws := func(r reqOptList) reqOptList {
 		return append(r, withHeader("Connection", "Upgrade"), withHeader("Upgrade", "websocket"),
 			withHeader("Sec-WebSocket-Version", "13"), withHeader("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
 	}
 	used, _ := s.issueTicket("a")
-	s.takeTicket(httptestWithProtocol(ticketPrefix+used), "a")
+	s.takeTicket(httptestWithProtocol(TicketPrefix+used), "a")
 	cases := []struct {
 		name   string
 		opts   reqOptList
@@ -50,8 +57,8 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 		{"foreign host", ws(reqOptList{withCookie(s), ticket("a"), origin, withHost("evil.example:4393")}), "/ws/term?lane=a", 403, "forbidden host"},
 		{"cookie and origin but no ticket", ws(reqOptList{withCookie(s), origin}), "/ws/term?lane=a", 401, "ticket"},
 		{"ticket for another lane", ws(reqOptList{withCookie(s), origin, ticket("b")}), "/ws/term?lane=a", 401, "ticket"},
-		{"ticket used twice", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", ticketPrefix+used)}), "/ws/term?lane=a", 401, "ticket"},
-		{"made-up ticket", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", ticketPrefix+strings.Repeat("0", 64))}), "/ws/term?lane=a", 401, "ticket"},
+		{"ticket used twice", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", TicketPrefix+used)}), "/ws/term?lane=a", 401, "ticket"},
+		{"made-up ticket", ws(reqOptList{withCookie(s), origin, withHeader("Sec-WebSocket-Protocol", TicketPrefix+strings.Repeat("0", 64))}), "/ws/term?lane=a", 401, "ticket"},
 		{"bad lane id", ws(reqOptList{withCookie(s), origin, ticket("a")}), "/ws/term?lane=../etc", 400, "invalid lane id"},
 		{"lane id as a tmux target", ws(reqOptList{withCookie(s), origin, ticket("a")}), "/ws/term?lane=a:0", 400, "invalid lane id"},
 		{"all guards pass, no such lane", ws(reqOptList{withCookie(s), origin, ticket("a")}), "/ws/term?lane=a", 404, "no such lane"},
@@ -70,7 +77,7 @@ func TestTerminalUpgradeGuards(t *testing.T) {
 	s.tickets[expired] = termTicket{lane: "a", exp: time.Now().Add(-time.Second)}
 	s.termMu.Unlock()
 	if w := do(s, "GET", "/ws/term?lane=a", "", ws(reqOptList{withCookie(s), origin,
-		withHeader("Sec-WebSocket-Protocol", ticketPrefix+expired)})...); w.Code != 401 {
+		withHeader("Sec-WebSocket-Protocol", TicketPrefix+expired)})...); w.Code != 401 {
 		t.Errorf("expired ticket: got %d %q, want 401", w.Code, w.Body.String())
 	}
 	// A page on :3100 cannot get a ticket either: the ticket POST checks Origin.
@@ -183,5 +190,49 @@ func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
 	w = do(s, "GET", "/?t="+s.Token, "")
 	if c := w.Header().Get("Set-Cookie"); !strings.Contains(c, "Max-Age=2592000") || !strings.Contains(c, "HttpOnly") || !strings.Contains(c, "SameSite=Strict") {
 		t.Fatalf("launchd cookie: %s", c)
+	}
+}
+
+// F4: a terminal that passed auth just before a token rotation is closed as soon as
+// it registers, and tickets issued under the old token die with it.
+func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	if err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "a", "/bin/sh").Run(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := newTestServer(t)
+	s.Lanes = testLaneManager(t)
+	s.Lanes.TmuxPath, s.Lanes.Socket = tmux, sock
+	ts := httptest.NewUnstartedServer(nil)
+	s.Port = ts.Listener.Addr().(*net.TCPAddr).Port
+	ts.Config.Handler = s.Handler()
+	ts.Start()
+	defer ts.Close()
+	origin := "http://127.0.0.1:" + strconv.Itoa(s.Port)
+
+	dial := func(ticket, token string) (*websocket.Conn, error) {
+		h := http.Header{}
+		h.Set("Origin", origin)
+		h.Set("Cookie", s.cookieName()+"="+token)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, _, err := websocket.Dial(ctx, "ws://127.0.0.1:"+strconv.Itoa(s.Port)+"/ws/term?lane=a",
+			&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{TermSubprotocol, TicketPrefix + ticket}})
+		return c, err
+	}
+	old := s.Token
+	tk, _ := s.issueTicket("a")
+	s.beforeAddViewer = func() { s.beforeAddViewer = nil; s.Rotate(strings.Repeat("b", 64)) }
+	c, err := dial(tk, old)
+	if err != nil {
+		t.Fatalf("the upgrade passed auth before the rotation, so it should connect: %v", err)
+	}
+	if got := closeCode(c, 3*time.Second); got != CloseRotated {
+		t.Fatalf("terminal registered after a rotation closed with %v, want %v", got, CloseRotated)
+	}
+	stale, _ := s.issueTicket("a")
+	s.Rotate(strings.Repeat("c", 64))
+	if _, err := dial(stale, strings.Repeat("c", 64)); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("a ticket issued before a rotation still works: %v", err)
 	}
 }

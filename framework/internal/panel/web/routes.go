@@ -1,15 +1,16 @@
-package panel
+package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/panel/lease"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the
@@ -23,8 +24,7 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 		// one in ~/.clauductor/panel/pid) before it sends the token anywhere.
 		fmt.Fprintf(w, "ok pid=%d\n", os.Getpid())
 	})
-	web, _ := fs.Sub(webFS, "web")
-	files := http.FileServerFS(web)
+	files := http.FileServerFS(webFS)
 	mux.HandleFunc("GET /vendor/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("GET /static/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("POST /api/lanes/{id}/ticket", s.requireAuth(s.issueTicketHandler))
@@ -110,4 +110,96 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "at": time.Now().UnixMilli()})
+}
+
+// orchRoutes adds the v2 routes. All need the cookie and, as POSTs, pass the global
+// Origin check. Each is a fixed verb on a validated id; none takes a command.
+func (s *Server) orchRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/lanes/restore-all", s.requireAuth(s.restoreAll))
+	mux.HandleFunc("POST /api/queues/{id}/cancel", s.requireAuth(s.queueCancel))
+	mux.HandleFunc("POST /api/queues/{id}/run", s.requireAuth(s.queueRun))
+}
+
+func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		writeLaneErr(w, laneErr(http.StatusBadRequest, "malformed-request", "bad body: %v", err))
+		return false
+	}
+	return true
+}
+
+func (s *Server) restoreAll(w http.ResponseWriter, r *http.Request) {
+	if s.noLanes(w) {
+		return
+	}
+	var req struct {
+		OverrideQuota bool `json:"overrideQuota"`
+	}
+	if !decodeStrict(w, r, &req) {
+		return
+	}
+	var guard func() string
+	if s.Orch != nil {
+		guard = s.Orch.QuotaGuard
+	}
+	res, lerr := s.Lanes.RestoreAll(r.Context(), guard, req.OverrideQuota)
+	if lerr != nil {
+		writeLaneErr(w, lerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
+}
+
+func (s *Server) queueCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Waiter string `json:"waiter"`
+	}
+	if !decodeStrict(w, r, &req) {
+		return
+	}
+	if s.Orch == nil || s.Orch.CancelWait == nil {
+		writeLaneErr(w, laneErr(http.StatusNotFound, "not-found", "no queues"))
+		return
+	}
+	if err := s.Orch.CancelWait(r.PathValue("id"), req.Waiter); err != nil {
+		writeLaneErr(w, laneErr(http.StatusConflict, "cancel", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) queueRun(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Worktree string `json:"worktree"`
+	}
+	if !decodeStrict(w, r, &req) {
+		return
+	}
+	if s.Orch == nil || s.Orch.RunQueue == nil {
+		writeLaneErr(w, laneErr(http.StatusNotFound, "not-found", "no queues"))
+		return
+	}
+	run, err := s.Orch.RunQueue(r.Context(), r.PathValue("id"), req.Worktree)
+	if err != nil {
+		writeLaneErr(w, laneErr(http.StatusConflict, "run", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "run": run})
+}
+
+// Orchestration is what the HTTP layer needs from the v2 runtime.
+type Orchestration struct {
+	Trusted    func() bool
+	QuotaGuard func() string
+	CancelWait func(queue, nonce string) error
+	RunQueue   func(ctx context.Context, queue, worktree string) (*lease.QueueRun, error)
+}
+
+func (o *Orchestration) startGate() lanes.StartGate {
+	if o == nil {
+		return lanes.StartGate{}
+	}
+	return lanes.StartGate{Trusted: o.Trusted, QuotaGuard: o.QuotaGuard}
 }

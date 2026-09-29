@@ -17,6 +17,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
 // PANEL-7: what the panel spawns while it idles. Each cadence rule is pinned with an
@@ -167,7 +168,7 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 	}
 	count := func() int { mu.Lock(); defer mu.Unlock(); return polls }
 	m := state.NewModel(v2Config(t, ""), "/p", time.Now())
-	hub := NewHub(m, time.Now)
+	hub := web.NewHub(m, time.Now)
 	x := &runtimeV2{hub: hub, root: "/p", p: &pollers{hub: hub, run: run, kickAgents: make(chan struct{}, 1)}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -267,7 +268,7 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := state.NewModel(v2Config(t, ""), "/p", t0)
-	x := &runtimeV2{hub: NewHub(m, func() time.Time { return t0 }), p: &pollers{registry: reg}}
+	x := &runtimeV2{hub: web.NewHub(m, func() time.Time { return t0 }), p: &pollers{registry: reg}}
 	if x.hasLanes() {
 		t.Fatal("no lane yet")
 	}
@@ -284,10 +285,10 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 
 // ---- the first-prompt loop ----
 
-func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*runtimeV2, *Hub) {
+func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*runtimeV2, *web.Hub) {
 	t.Helper()
 	m := state.NewModel(v2Config(t, ""), "/p", *clock)
-	hub := NewHub(m, func() time.Time { return *clock })
+	hub := web.NewHub(m, func() time.Time { return *clock })
 	var tl []lanes.TmuxLane
 	if running {
 		tl = []lanes.TmuxLane{{ID: rec.ID, Path: "/p"}}

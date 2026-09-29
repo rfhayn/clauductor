@@ -23,6 +23,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 	"github.com/coder/websocket"
 )
 
@@ -161,17 +162,17 @@ func (p *panelRun) dial(t *testing.T, lane string) *websocket.Conn {
 	h.Set("Cookie", p.cookie)
 	h.Set("Origin", p.origin)
 	c, _, err := websocket.Dial(ctx, strings.Replace(p.base, "http", "ws", 1)+"/ws/term?lane="+lane+"&cols=100&rows=30",
-		&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{TermSubprotocol, ticketPrefix + fmt.Sprint(body["ticket"])}})
+		&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{web.TermSubprotocol, web.TicketPrefix + fmt.Sprint(body["ticket"])}})
 	if err != nil {
 		t.Fatalf("dial %s: %v", lane, err)
 	}
-	if c.Subprotocol() != TermSubprotocol {
+	if c.Subprotocol() != web.TermSubprotocol {
 		t.Fatalf("negotiated %q", c.Subprotocol())
 	}
 	return c
 }
 
-func send(t *testing.T, c *websocket.Conn, m termMsg) {
+func send(t *testing.T, c *websocket.Conn, m web.TermMsg) {
 	t.Helper()
 	b, _ := json.Marshal(m)
 	if err := c.Write(context.Background(), websocket.MessageText, b); err != nil {
@@ -237,10 +238,10 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 	// Type into it over the WebSocket, and read its output back. The quotes make the
 	// echoed command line differ from the output, so only execution produces it.
 	c := p.dial(t, "orch")
-	send(t, c, termMsg{Type: "resize", Cols: 120, Rows: 40})
-	send(t, c, termMsg{Type: "input", Data: "echo pa''nel-ok-$((6*7))"})
+	send(t, c, web.TermMsg{Type: "resize", Cols: 120, Rows: 40})
+	send(t, c, web.TermMsg{Type: "input", Data: "echo pa''nel-ok-$((6*7))"})
 	time.Sleep(300 * time.Millisecond)
-	send(t, c, termMsg{Type: "input", Data: "\r"})
+	send(t, c, web.TermMsg{Type: "input", Data: "\r"})
 	readUntil(t, c, "panel-ok-42")
 	out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{window_width}x#{window_height}").Output()
 	if strings.TrimSpace(string(out)) != "120x40" { // the status line is off (PANEL-6)
@@ -257,7 +258,7 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 		t.Fatalf("lane started as %s", startCmd)
 	}
 	// Anything but {input|resize} closes the connection; a command string is refused.
-	send(t, c, termMsg{Type: "exec", Data: "rm -rf /"})
+	send(t, c, web.TermMsg{Type: "exec", Data: "rm -rf /"})
 	var rerr error
 	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	for rerr == nil { // drain output still in flight, up to the close
@@ -305,9 +306,9 @@ func TestLanesEndToEndOnAThrowawaySocket(t *testing.T) {
 		return findTerm(v, "orch") != nil && findTerm(v, "fx") != nil
 	})
 	c2 := p2.dial(t, "fx")
-	send(t, c2, termMsg{Type: "input", Data: "pwd"})
+	send(t, c2, web.TermMsg{Type: "input", Data: "pwd"})
 	time.Sleep(300 * time.Millisecond)
-	send(t, c2, termMsg{Type: "input", Data: "\r"})
+	send(t, c2, web.TermMsg{Type: "input", Data: "\r"})
 	readUntil(t, c2, ".wt/fx")
 	c2.Close(websocket.StatusNormalClosure, "")
 
@@ -448,8 +449,8 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 		t.Fatalf("start: %d %v", code, body)
 	}
 	quiet := p.dial(t, "orch")
-	if got := closeCode(quiet, 5*time.Second); got != closeIdle {
-		t.Fatalf("quiet terminal closed with %v, want %v (idle)", got, closeIdle)
+	if got := closeCode(quiet, 5*time.Second); got != web.CloseIdle {
+		t.Fatalf("quiet terminal closed with %v, want %v (idle)", got, web.CloseIdle)
 	}
 	busy := p.dial(t, "orch")
 	stop := time.After(2500 * time.Millisecond)
@@ -458,7 +459,7 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 		case <-stop:
 			alive = false
 		case <-time.After(200 * time.Millisecond):
-			send(t, busy, termMsg{Type: "alive"})
+			send(t, busy, web.TermMsg{Type: "alive"})
 		}
 	}
 	if got := closeCode(busy, 100*time.Millisecond); got != -1 {
@@ -482,8 +483,8 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := closeCode(c, 6*time.Second); got != closeRotated {
-		t.Fatalf("terminal closed with %v after rotation, want %v", got, closeRotated)
+	if got := closeCode(c, 6*time.Second); got != web.CloseRotated {
+		t.Fatalf("terminal closed with %v after rotation, want %v", got, web.CloseRotated)
 	}
 	req, _ := http.NewRequest("GET", p.base+"/api/state", nil)
 	req.Header.Set("Cookie", p.cookie)
@@ -498,5 +499,71 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	}
 	if code, _ := p.post(t, "/api/lanes/orch/ticket", nil); code != 401 {
 		t.Fatalf("ticket with the old cookie: %d, want 401", code)
+	}
+}
+
+// Typing while scrolled back reaches claude (re-audit P2-2): the first key that is
+// not a scroll key leaves copy mode, then goes to the lane. The page is told when
+// the lane is scrolled back, and when it is not any more. Real tmux, real panel.
+func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
+	tmux, sock := throwawaySocket(t)
+	root, home := rootLaneProject(t)
+	p := startPanel(t, root, home, sock)
+	if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Type: "orchestrator", Mode: "root", Name: "orch"}); code != 200 {
+		t.Fatalf("start: %d %v", code, body)
+	}
+	c := p.dial(t, "orch")
+	send(t, c, web.TermMsg{Type: "input", Data: "seq 1 300\r"})
+	readUntil(t, c, "300")
+	scroll := make(chan string, 8)
+	go func() {
+		for {
+			typ, b, err := c.Read(context.Background())
+			if err != nil {
+				return
+			}
+			if typ == websocket.MessageText && strings.Contains(string(b), `"scroll"`) {
+				scroll <- string(b)
+			}
+		}
+	}()
+	expect := func(want string) {
+		t.Helper()
+		select {
+		case got := <-scroll:
+			if got != want {
+				t.Fatalf("page told %s, want %s", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("page never told %s", want)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		send(t, c, web.TermMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	inMode := func() string {
+		out, _ := exec.Command(tmux, "-L", sock, "display-message", "-p", "-t", "=orch:", "#{pane_in_mode}").Output()
+		return strings.TrimSpace(string(out))
+	}
+	if inMode() != "1" {
+		t.Fatal("premise: the wheel did not put the pane in copy mode")
+	}
+	marker := filepath.Join(t.TempDir(), "typed")
+	send(t, c, web.TermMsg{Type: "input", Data: "touch " + shq(marker) + "\r"})
+	expect(`{"type":"scroll","back":false}`)
+	waitFor(t, "the typed command to run in the lane", func() bool { _, err := os.Stat(marker); return err == nil })
+	if inMode() != "0" {
+		t.Fatal("the pane is still in copy mode")
+	}
+	// Escape while scrolled back only returns: claude would read it as an interrupt.
+	for i := 0; i < 3; i++ {
+		send(t, c, web.TermMsg{Type: "input", Data: "\x1b[<64;10;5M"})
+	}
+	expect(`{"type":"scroll","back":true}`)
+	send(t, c, web.TermMsg{Type: "input", Data: "\x1b"})
+	expect(`{"type":"scroll","back":false}`)
+	if inMode() != "0" {
+		t.Fatal("Escape did not leave copy mode")
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
 // hookKeeper keeps this panel's hooks installed: at start, then every interval.
@@ -17,7 +18,7 @@ import (
 type hookKeeper struct {
 	home       string
 	port       int
-	hub        *Hub
+	hub        *web.Hub
 	out        io.Writer
 	interval   time.Duration
 	retryBase  time.Duration

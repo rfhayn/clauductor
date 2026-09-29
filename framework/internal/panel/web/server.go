@@ -1,12 +1,12 @@
-package panel
+// Package web is the panel's HTTP surface: the loopback server and its guards (Host
+// allow-list, Origin, cookie, terminal tickets), the hub that pushes the View to
+// every page, the terminal WebSocket into a lane, and the embedded page itself.
+package web
 
 import (
 	"bytes"
-	"context"
-	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,10 +20,11 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
-//go:embed web
+// webFS is the page: index.html, its static files and the vendored xterm.js.
+//
+//go:embed index.html static vendor
 var webFS embed.FS
 
 // LoopbackHost is the only address the panel ever binds.
@@ -56,127 +57,6 @@ func ensureLoopback(a net.Addr) error {
 		return fmt.Errorf("refusing to serve on %v: the panel binds loopback only", a)
 	}
 	return nil
-}
-
-// Hub owns the model and fans snapshots out to SSE subscribers.
-//
-// It pushes a snapshot at once only when what the view says changed (viewKey).
-// Every age on the page is computed in the browser from a timestamp, and the
-// bookkeeping of the polls (when each source was last read, the footer's counters,
-// a lease's renewal) moves every 2 s while nothing happens: none of that is news.
-// It still reaches the page, on the 5 s tick, if it is all that changed. The SSE
-// handler sends its own heartbeat (HeartbeatEvery) so the page can still tell a
-// quiet panel from a dead one.
-type Hub struct {
-	mu    sync.Mutex
-	model *state.Model
-	now   func() time.Time
-	subs  map[chan []byte]struct{}
-	dirty chan struct{}
-	// last is the key (viewKey) of the last snapshot broadcast, and lastFull the
-	// key of all of it (fullKey).
-	last, lastFull [sha256.Size]byte
-	sent           bool
-	// Coalesce is how long an update waits for more before the push. Zero means 150 ms.
-	Coalesce time.Duration
-	// TickEvery is how often derived state (stale hooks, approximate readings) is
-	// re-derived when nothing arrives. Zero means 5 s.
-	TickEvery time.Duration
-	// pushes counts broadcasts, for tests and the footer.
-	pushes atomic.Int64
-}
-
-// NewHub wraps a model.
-func NewHub(m *state.Model, now func() time.Time) *Hub {
-	return &Hub{model: m, now: now, subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
-}
-
-// Update applies fn to the model under the lock and schedules a broadcast.
-func (h *Hub) Update(fn func(m *state.Model, now time.Time)) {
-	h.mu.Lock()
-	fn(h.model, h.now())
-	h.mu.Unlock()
-	select {
-	case h.dirty <- struct{}{}:
-	default:
-	}
-}
-
-// Snapshot returns the current view as JSON.
-func (h *Hub) Snapshot() []byte {
-	b, _, _ := h.snapshotKeyed()
-	return b
-}
-
-// snapshotKeyed returns the current view as JSON, its key and its full key.
-func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte) {
-	h.mu.Lock()
-	v := h.model.Snapshot(h.now())
-	h.mu.Unlock()
-	b, _ := json.Marshal(v)
-	return b, state.ViewKey(v), state.FullKey(v)
-}
-
-// Pushes is how many snapshots the hub has broadcast.
-func (h *Hub) Pushes() int64 { return h.pushes.Load() }
-
-func (h *Hub) subscribe() (chan []byte, func()) {
-	ch := make(chan []byte, 1)
-	h.mu.Lock()
-	h.subs[ch] = struct{}{}
-	h.mu.Unlock()
-	return ch, func() {
-		h.mu.Lock()
-		delete(h.subs, ch)
-		h.mu.Unlock()
-	}
-}
-
-// Run broadcasts coalesced updates, plus a periodic re-derivation so state that
-// moves with time alone (the stale-hook banner, an approximate reading) still
-// reaches the page. Either way a view equal to the last one pushed is not pushed.
-func (h *Hub) Run(ctx context.Context) {
-	every := h.TickEvery
-	if every <= 0 {
-		every = 5 * time.Second
-	}
-	tick := time.NewTicker(every)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-h.dirty:
-			wait := h.Coalesce
-			if wait <= 0 {
-				wait = 150 * time.Millisecond
-			}
-			time.Sleep(wait) // coalesce bursts
-			h.broadcast(false)
-		case <-tick.C:
-			h.broadcast(true)
-		}
-	}
-}
-
-// broadcast pushes the current view to every subscriber if what it says changed,
-// or, on a tick, if anything in it changed.
-func (h *Hub) broadcast(tick bool) {
-	snap, key, full := h.snapshotKeyed()
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.sent && key == h.last && (!tick || full == h.lastFull) {
-		return
-	}
-	h.last, h.lastFull, h.sent = key, full, true
-	h.pushes.Add(1)
-	for ch := range h.subs {
-		select { // keep only the latest snapshot per slow subscriber
-		case <-ch:
-		default:
-		}
-		ch <- snap
-	}
 }
 
 // HeartbeatEvery is how often an open /events stream says it is alive, with the
@@ -241,7 +121,7 @@ func remoteIsLoopback(r *http.Request) bool {
 
 func (s *Server) authed(r *http.Request) bool {
 	c, err := r.Cookie(s.cookieName())
-	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.currentToken())) == 1
+	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.CurrentToken())) == 1
 }
 
 // Handler returns the full HTTP handler with every guard applied.
@@ -338,7 +218,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if t := r.URL.Query().Get("t"); t != "" {
-		token := s.currentToken()
+		token := s.CurrentToken()
 		if subtle.ConstantTimeCompare([]byte(t), []byte(token)) != 1 {
 			http.Error(w, "unauthorized: stale or wrong token", http.StatusUnauthorized)
 			return
@@ -353,7 +233,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized: open the URL `clauductor panel` printed", http.StatusUnauthorized)
 		return
 	}
-	page, _ := webFS.ReadFile("web/index.html")
+	page, _ := webFS.ReadFile("index.html")
 	// No inline script or style is allowed, and nothing outside this origin. The one
 	// exception is a per-response nonce for the <style> elements xterm.js creates at
 	// run time; panel.js stamps it on them.
@@ -415,7 +295,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) currentToken() string {
+func (s *Server) CurrentToken() string {
 	s.tokenMu.RLock()
 	defer s.tokenMu.RUnlock()
 	return s.Token
@@ -450,4 +330,24 @@ func (s *Server) Rotate(token string) {
 	s.tickets = nil // a ticket issued under the old token dies with it
 	s.termMu.Unlock()
 	s.closeAllTerminals(4001, "token rotated")
+}
+
+// Overflow returns how many ingest bodies were dropped because the processor was
+// behind.
+func (s *Server) Overflow() int64 { return s.overflow.Load() }
+
+// FocusedLanes returns the lanes whose terminal has keyboard focus in a page now.
+// The notifier sends no OS notification for them: you are looking at the lane.
+func (s *Server) FocusedLanes() map[string]bool {
+	s.termMu.Lock()
+	defer s.termMu.Unlock()
+	out := map[string]bool{}
+	for lane, vs := range s.viewers {
+		for v := range vs {
+			if v.focused.Load() {
+				out[lane] = true
+			}
+		}
+	}
+	return out
 }

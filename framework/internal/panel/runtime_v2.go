@@ -20,6 +20,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
 // errUntrusted is what a card shows while the config is untrusted.
@@ -54,30 +55,15 @@ func AgentsInterval(lastHook, now time.Time, lanes bool) time.Duration {
 	return agentsFast
 }
 
-// Orchestration is what the HTTP layer needs from the v2 runtime.
-type Orchestration struct {
-	Trusted    func() bool
-	QuotaGuard func() string
-	CancelWait func(queue, nonce string) error
-	RunQueue   func(ctx context.Context, queue, worktree string) (*lease.QueueRun, error)
-}
-
-func (o *Orchestration) startGate() lanes.StartGate {
-	if o == nil {
-		return lanes.StartGate{}
-	}
-	return lanes.StartGate{Trusted: o.Trusted, QuotaGuard: o.QuotaGuard}
-}
-
 type runtimeV2 struct {
 	o       Options
 	cfg     *config.Config
 	root    string
 	cfgPath string
-	hub     *Hub
+	hub     *web.Hub
 	p       *pollers
 	lanes   *lanes.LaneManager
-	srv     atomic.Pointer[Server]
+	srv     atomic.Pointer[web.Server]
 
 	trust     atomic.Bool
 	trustView config.TrustView
@@ -122,7 +108,7 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustV
 	return tv
 }
 
-func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *Hub, p *pollers, lm *lanes.LaneManager) *runtimeV2 {
+func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *web.Hub, p *pollers, lm *lanes.LaneManager) *runtimeV2 {
 	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lm, trustView: tv,
 		runs: map[string]*lease.QueueRun{}}
 	x.trust.Store(tv.Trusted)
@@ -149,8 +135,8 @@ func (x *runtimeV2) hookSeen(ev signals.HookEvent) {
 	}
 }
 
-func (x *runtimeV2) orchestration() *Orchestration {
-	return &Orchestration{
+func (x *runtimeV2) orchestration() *web.Orchestration {
+	return &web.Orchestration{
 		Trusted: x.trusted,
 		QuotaGuard: func() string {
 			why := ""

@@ -1,4 +1,4 @@
-package panel
+package web
 
 import (
 	"context"
@@ -41,8 +41,8 @@ import (
 // TermSubprotocol is the WebSocket subprotocol the page and server speak.
 const TermSubprotocol = "clauductor.term.v1"
 
-// ticketPrefix marks the ticket among the offered subprotocols.
-const ticketPrefix = "ticket."
+// TicketPrefix marks the ticket among the offered subprotocols.
+const TicketPrefix = "ticket."
 
 // TicketTTL is how long a terminal ticket may wait before it is used.
 const TicketTTL = 30 * time.Second
@@ -84,8 +84,8 @@ func (s *Server) takeTicket(r *http.Request, lane string) bool {
 	var offered string
 	for _, h := range r.Header.Values("Sec-WebSocket-Protocol") {
 		for _, p := range strings.Split(h, ",") {
-			if p = strings.TrimSpace(p); strings.HasPrefix(p, ticketPrefix) {
-				offered = strings.TrimPrefix(p, ticketPrefix)
+			if p = strings.TrimSpace(p); strings.HasPrefix(p, TicketPrefix) {
+				offered = strings.TrimPrefix(p, TicketPrefix)
 			}
 		}
 	}
@@ -133,12 +133,12 @@ func (s *Server) closeAllTerminals(code websocket.StatusCode, reason string) {
 // Close codes the page acts on: an idle close reopens when the page is back in
 // view; a rotation does not reopen (the cookie is dead too).
 const (
-	closeIdle    websocket.StatusCode = 4000
-	closeRotated websocket.StatusCode = 4001
+	CloseIdle    websocket.StatusCode = 4000
+	CloseRotated websocket.StatusCode = 4001
 )
 
-// closeTerminals closes every viewer of a lane (it stopped).
-func (s *Server) closeTerminals(lane string) {
+// CloseTerminals closes every viewer of a lane (it stopped).
+func (s *Server) CloseTerminals(lane string) {
 	s.termMu.Lock()
 	vs := s.viewers[lane]
 	delete(s.viewers, lane)
@@ -167,8 +167,8 @@ func (s *Server) issueTicketHandler(w http.ResponseWriter, r *http.Request) {
 // maxTermMessage caps one browser message (a large paste).
 const maxTermMessage = 1 << 20
 
-// termMsg is the only shape the browser may send.
-type termMsg struct {
+// TermMsg is the only shape the browser may send.
+type TermMsg struct {
 	Type string `json:"type"` // "input" | "resize" | "alive" | "focus"
 	Data string `json:"data,omitempty"`
 	Cols int    `json:"cols,omitempty"`
@@ -252,7 +252,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	defer s.removeViewer(id, viewer)
 	select {
 	case <-gen: // rotated while this upgrade was in flight
-		c.Close(closeRotated, "token rotated")
+		c.Close(CloseRotated, "token rotated")
 		return
 	default:
 	}
@@ -318,7 +318,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-t.C:
 				if time.Since(time.Unix(0, lastMsg.Load())) >= idle {
-					c.Close(closeIdle, "idle")
+					c.Close(CloseIdle, "idle")
 					cancel()
 					return
 				}
@@ -333,7 +333,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		var m termMsg
+		var m TermMsg
 		dec := json.NewDecoder(strings.NewReader(string(data)))
 		dec.DisallowUnknownFields()
 		if typ != websocket.MessageText || dec.Decode(&m) != nil {

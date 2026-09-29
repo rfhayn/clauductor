@@ -1,4 +1,4 @@
-package panel
+package web
 
 import (
 	"encoding/json"

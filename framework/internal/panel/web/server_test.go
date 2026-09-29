@@ -1,4 +1,4 @@
-package panel
+package web
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -257,4 +258,88 @@ func TestEventsStreamsFullStateOnConnect(t *testing.T) {
 		t.Fatal("no state event")
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 0))
+}
+
+// C3: a body dropped because the processor is behind is counted, apart from
+// foreign-cwd drops, and raises a banner.
+func TestIngestOverflowIsCounted(t *testing.T) {
+	s, hooks := newTestServer(t)
+	for i := 0; i < cap(hooks)+3; i++ {
+		if w := do(s, "POST", "/hook", `{"hook_event_name":"Stop","session_id":"x","cwd":"/repo"}`); w.Code != 204 {
+			t.Fatalf("hook answered %d", w.Code)
+		}
+	}
+	if s.Overflow() != 3 {
+		t.Fatalf("overflow %d, want 3", s.Overflow())
+	}
+	m := state.NewModel(testConfig(t), "/repo", t0)
+	m.ApplyObs(state.Obs{OverflowDrops: s.Overflow()})
+	v := m.Snapshot(t0)
+	if v.Dropped != 0 || v.Observe.OverflowDrops != 3 {
+		t.Fatalf("overflow must be its own counter: %+v", v.Observe)
+	}
+	found := false
+	for _, b := range v.Banners {
+		found = found || strings.Contains(b, "fell behind")
+	}
+	if !found {
+		t.Fatalf("no overflow banner: %v", v.Banners)
+	}
+}
+
+// The panel only OBSERVES PermissionRequest (and PreCompact, which could block):
+// /hook answers 204 with an empty body, which Claude Code reads as "no decision".
+// Any body could be read as a decision, and /hook takes no token.
+func TestHookNeverAnswersAPermissionRequest(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, ev := range []string{"PermissionRequest", "PreCompact", "StopFailure"} {
+		w := do(s, "POST", "/hook", `{"hook_event_name":"`+ev+`","session_id":"x","cwd":"/repo","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`)
+		if w.Code != 204 || w.Body.Len() != 0 || w.Header().Get("Content-Type") != "" {
+			t.Fatalf("%s: %d %q; must be 204 with no body", ev, w.Code, w.Body.String())
+		}
+	}
+}
+
+// The stream beats even when nothing changes, so the page can tell a quiet panel
+// from a dead one (audit P1-4), and carries the server's clock for the ages.
+func TestEventsStreamHasAHeartbeat(t *testing.T) {
+	old := HeartbeatEvery
+	HeartbeatEvery = 50 * time.Millisecond
+	defer func() { HeartbeatEvery = old }()
+	s, _ := newTestServer(t)
+	w := do(s, "GET", "/events", "", withCookie(s)) // do's context ends the stream after 1 s
+	body := w.Body.String()
+	if n := strings.Count(body, "event: state\n"); n != 1 {
+		t.Fatalf("%d state events in a stream where nothing changed, want 1:\n%s", n, body)
+	}
+	if n := strings.Count(body, "event: hb\ndata: {\"now\":"); n < 5 {
+		t.Fatalf("%d heartbeats in 1 s at 50 ms, want at least 5:\n%s", n, body)
+	}
+}
+
+// The terminal is entered only on purpose (audit P1-1): panel.js focuses an xterm in
+// exactly one place, enterTerm (Enter or a click on the terminal); the xterm is out
+// of the Tab order; Ctrl+] leaves; nothing redraws the page on a timer (P1-3).
+func TestPageEntersTheTerminalOnlyOnPurpose(t *testing.T) {
+	js := readWeb(t, "panel.js")
+	if n := strings.Count(js, ".term.focus("); n != 1 {
+		t.Fatalf("panel.js focuses a terminal in %d places, want 1 (enterTerm)", n)
+	}
+	i := strings.Index(js, "function enterTerm(")
+	j := strings.Index(js, ".term.focus(")
+	if i < 0 || j < i || j-i > 200 {
+		t.Fatal("the one terminal focus is not in enterTerm")
+	}
+	for _, want := range []string{"textarea.tabIndex = -1", `ev.code === "BracketRight"`, "attachCustomKeyEventHandler"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("panel.js lacks %q", want)
+		}
+	}
+	if strings.Contains(js, "setInterval(render") {
+		t.Error("panel.js re-renders on a timer; only ages tick (tickAges)")
+	}
+	rebuild := regexp.MustCompile(`\$\("(left|right|detail|tabs|termbar|banners|restorebar|obs|connbar)"\)\.(replaceChildren|innerHTML)`)
+	if m := rebuild.FindString(js); m != "" {
+		t.Errorf("panel.js rebuilds a live region (%s); patch it in place", m)
+	}
 }

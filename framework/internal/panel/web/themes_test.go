@@ -1,4 +1,4 @@
-package panel
+package web
 
 import (
 	"fmt"
@@ -30,7 +30,7 @@ var (
 
 func readWeb(t *testing.T, name string) string {
 	t.Helper()
-	b, err := webFS.ReadFile("web/static/" + name)
+	b, err := webFS.ReadFile("static/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,11 +452,11 @@ func TestThemeFontsAreEmbeddedAndLicensed(t *testing.T) {
 	used := map[string]bool{}
 	for _, m := range regexp.MustCompile(`url\("fonts/([^"]+)"\)`).FindAllStringSubmatch(css, -1) {
 		used[m[1]] = true
-		if _, err := webFS.ReadFile("web/static/fonts/" + m[1]); err != nil {
+		if _, err := webFS.ReadFile("static/fonts/" + m[1]); err != nil {
 			t.Errorf("themes.css loads fonts/%s, which is not embedded", m[1])
 		}
 	}
-	entries, err := webFS.ReadDir("web/static/fonts")
+	entries, err := webFS.ReadDir("static/fonts")
 	if err != nil {
 		t.Fatal(err)
 	}

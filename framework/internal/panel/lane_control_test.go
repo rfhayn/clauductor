@@ -4,13 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,7 +15,6 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/coder/websocket"
 )
 
 // fakeAgents stands in for `claude agents --json`, so a test can say what state a
@@ -193,50 +188,6 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 	}
 	if out, _ := exec.Command(tmux, "-L", sock, "list-keys", "-T", "prefix").CombinedOutput(); strings.Contains(string(out), "bind-key") {
 		t.Fatalf("prefix table still bound:\n%s", out)
-	}
-}
-
-// F4: a terminal that passed auth just before a token rotation is closed as soon as
-// it registers, and tickets issued under the old token die with it.
-func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
-	tmux, sock := throwawaySocket(t)
-	if err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "a", "/bin/sh").Run(); err != nil {
-		t.Fatal(err)
-	}
-	s, _ := newTestServer(t)
-	s.Lanes = testLaneManager(t)
-	s.Lanes.TmuxPath, s.Lanes.Socket = tmux, sock
-	ts := httptest.NewUnstartedServer(nil)
-	s.Port = ts.Listener.Addr().(*net.TCPAddr).Port
-	ts.Config.Handler = s.Handler()
-	ts.Start()
-	defer ts.Close()
-	origin := "http://127.0.0.1:" + strconv.Itoa(s.Port)
-
-	dial := func(ticket, token string) (*websocket.Conn, error) {
-		h := http.Header{}
-		h.Set("Origin", origin)
-		h.Set("Cookie", s.cookieName()+"="+token)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		c, _, err := websocket.Dial(ctx, "ws://127.0.0.1:"+strconv.Itoa(s.Port)+"/ws/term?lane=a",
-			&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{TermSubprotocol, ticketPrefix + ticket}})
-		return c, err
-	}
-	old := s.Token
-	tk, _ := s.issueTicket("a")
-	s.beforeAddViewer = func() { s.beforeAddViewer = nil; s.Rotate(strings.Repeat("b", 64)) }
-	c, err := dial(tk, old)
-	if err != nil {
-		t.Fatalf("the upgrade passed auth before the rotation, so it should connect: %v", err)
-	}
-	if got := closeCode(c, 3*time.Second); got != closeRotated {
-		t.Fatalf("terminal registered after a rotation closed with %v, want %v", got, closeRotated)
-	}
-	stale, _ := s.issueTicket("a")
-	s.Rotate(strings.Repeat("c", 64))
-	if _, err := dial(stale, strings.Repeat("c", 64)); err == nil || !strings.Contains(err.Error(), "401") {
-		t.Fatalf("a ticket issued before a rotation still works: %v", err)
 	}
 }
 
