@@ -569,7 +569,6 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 		t.Fatalf("the launchd panel: %v", err)
 	}
 
-
 	// Stopped by launchd while it waits: exit 0, and the lock is not left held.
 	_, _, stopHand2 := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
 	ctx2, cancel2 := context.WithCancel(context.Background())

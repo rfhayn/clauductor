@@ -6,8 +6,8 @@ import (
 
 // Lock represents a row in the locks table.
 type Lock struct {
-	FilePath string `json:"file_path"`
-	WorkerID string `json:"worker_id"`
+	FilePath  string `json:"file_path"`
+	WorkerID  string `json:"worker_id"`
 	Milestone string `json:"milestone"`
 	LockedAt  string `json:"locked_at"`
 }
@@ -100,8 +100,8 @@ func (db *DB) ListLocks() ([]Lock, error) {
 
 // AutoLockResult describes the outcome of an auto-lock attempt.
 type AutoLockResult struct {
-	Blocked  bool         `json:"blocked"`
-	Action   string       `json:"action,omitempty"`   // "locked" or "already_held"
+	Blocked  bool          `json:"blocked"`
+	Action   string        `json:"action,omitempty"`   // "locked" or "already_held"
 	Conflict *LockConflict `json:"conflict,omitempty"` // set when blocked
 }
 
@@ -128,7 +128,7 @@ func (db *DB) AutoLock(workerID, milestone, filePath string) (*AutoLockResult, e
 		}
 		// Different worker — conflict
 		return &AutoLockResult{
-			Blocked: true,
+			Blocked:  true,
 			Conflict: &LockConflict{FilePath: filePath, Owner: existingWorker},
 		}, nil
 	}

@@ -93,10 +93,10 @@ Use --dry-run to preview changes without modifying anything.`,
 			return fmt.Errorf("failed to list template files: %w", err)
 		}
 
-		var frameworkFiles []string  // Always install
-		var docSkipped []string      // Skip if exists
-		var configFiles []string     // Merge
-		var newFiles []string        // Don't exist yet, install regardless of tier
+		var frameworkFiles []string // Always install
+		var docSkipped []string     // Skip if exists
+		var configFiles []string    // Merge
+		var newFiles []string       // Don't exist yet, install regardless of tier
 
 		for _, relPath := range allFiles {
 			destPath := filepath.Join(targetDir, relPath)
