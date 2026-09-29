@@ -489,10 +489,10 @@ function rateCell(v, dp) { return num(v == null ? "—" : v.toFixed(dp == null ?
 function cacheCell(x) {
   const m = laneM(x);
   const kids = [num(m.cacheHitRatio == null ? "—" : Math.round(m.cacheHitRatio * 100) + "%")];
-  if (m.cacheExpires) {
-    const left = m.cacheExpires - now();
+  if (m.cacheExpiresAt) {
+    const left = m.cacheExpiresAt - now();
     if (left <= 0) kids.push(el("span", "dim", " cold"));
-    else if (left < 120000) kids.push(document.createTextNode(" "), until(m.cacheExpires, "cold in ", 120000));
+    else if (left < 120000) kids.push(document.createTextNode(" "), until(m.cacheExpiresAt, "cold in ", 120000));
   }
   return el("span", null, null, kids);
 }
@@ -932,7 +932,7 @@ function sideAgents(x) {
 function sideFigures(x) {
   const m = laneM(x), lv = x.lv || {};
   const hitSp = spark(lv.hitSpark, { lo: 0, hi: 1 }), costSp = spark(lv.costSpark);
-  const cold = m.cacheExpires ? (m.cacheExpires - now() > 0 ? until(m.cacheExpires, "cold in ", 120000) : el("span", null, "cold")) : null;
+  const cold = m.cacheExpiresAt ? (m.cacheExpiresAt - now() > 0 ? until(m.cacheExpiresAt, "cold in ", 120000) : el("span", null, "cold")) : null;
   const rows = [
     ["State", [stateMark(x), m.stateSince ? el("span", "num dim", null, [age(m.stateSince, "for ")]) : null]],
     ["Context", [bullet(m.ctxPct, { tick: S.trends.autocompactPct, cls: m.ctxPct >= 85 ? "w" : "" }), num(pct(m.ctxPct)), m.inputTokens != null ? num(kilo(m.inputTokens), "in") : null,
