@@ -89,6 +89,12 @@ func throwawaySocket(t *testing.T) (string, string) {
 	return leakcheck.TmuxSocket(t)
 }
 
+// securitySocket is throwawaySocket for a SECURITY test: it runs under -short too.
+func securitySocket(t *testing.T) (string, string) {
+	t.Helper()
+	return leakcheck.SecurityTmuxSocket(t)
+}
+
 // shq single-quotes s for a POSIX shell.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 

@@ -202,7 +202,7 @@ func TestPersistentCookieOnlyWhenAsked(t *testing.T) {
 // it registers, and tickets issued under the old token die with it.
 func TestRotationDuringAnUpgradeStillClosesTheTerminal(t *testing.T) {
 	t.Parallel()
-	tmux, sock := throwawaySocket(t)
+	tmux, sock := securitySocket(t) // security: runs under -short
 	if err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "a", "/bin/sh").Run(); err != nil {
 		t.Fatal(err)
 	}

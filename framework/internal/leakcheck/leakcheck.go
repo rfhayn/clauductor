@@ -54,6 +54,13 @@ func TmuxSocket(t testing.TB) (tmux, sock string) {
 	if testing.Short() {
 		t.Skip("-short: drives a real tmux server")
 	}
+	return SecurityTmuxSocket(t)
+}
+
+// SecurityTmuxSocket is TmuxSocket for a SECURITY test (a token rotation, an idle
+// or untrusted close): it runs under -short too, and skips only without tmux.
+func SecurityTmuxSocket(t testing.TB) (tmux, sock string) {
+	t.Helper()
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
 		t.Skip("tmux not installed")

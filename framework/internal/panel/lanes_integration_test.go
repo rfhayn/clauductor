@@ -36,6 +36,12 @@ func throwawaySocket(t *testing.T) (string, string) {
 	return leakcheck.TmuxSocket(t)
 }
 
+// securitySocket is throwawaySocket for a SECURITY test: it runs under -short too.
+func securitySocket(t *testing.T) (string, string) {
+	t.Helper()
+	return leakcheck.SecurityTmuxSocket(t)
+}
+
 func gitRun(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -485,7 +491,7 @@ func (t *countedTicker) Stop()               { t.once.Do(func() { t.inner.Stop()
 // and a page that keeps saying "alive" keeps its terminal.
 func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 	t.Parallel()
-	_, sock := throwawaySocket(t)
+	_, sock := securitySocket(t) // security: runs under -short
 	root, home := rootLaneProject(t)
 	// The terminal checks for silence every idle/4 (110 ms here, a period no other
 	// ticker of the panel has): those checks are counted.
@@ -521,7 +527,7 @@ func TestTerminalClosesWhenThePageIsIdle(t *testing.T) {
 // panel: its terminals close with 4001 and its cookie gets 401.
 func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	t.Parallel()
-	_, sock := throwawaySocket(t)
+	_, sock := securitySocket(t) // security: runs under -short
 	root, home := rootLaneProject(t)
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.Launchd, o.NoOpen, o.OpenBrowser = true, true, func(string) {}

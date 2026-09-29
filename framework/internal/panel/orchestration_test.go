@@ -235,7 +235,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 
 func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	t.Parallel()
-	tmux, sock := throwawaySocket(t)
+	tmux, sock := securitySocket(t) // security: runs under -short
 	cfg := `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},"base":"main","worktree_dir":".wt",
 		"cards":[{"id":"c","command":["echo","card-ran"],"refresh":"interval:60"}],
 		"templates":[{"id":"fix","lane_type":"fix","first_prompt":"hello"}]}`

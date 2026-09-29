@@ -608,11 +608,10 @@ func TestFlockNeverKeepsADeadRecordLive(t *testing.T) {
 
 // startLockRunPTY runs the lock-run helper on a real pty as a session leader in
 // the terminal's foreground, the way an interactive `bash run-local.sh` runs it.
+// Its two tests are about the terminal a gate runs on (SECURITY: a stuck gate, a
+// doubled Ctrl-C), so they run under -short too.
 func startLockRunPTY(t *testing.T, lock string, extraEnv []string, argv ...string) (*exec.Cmd, *os.File, chan int) {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("-short: runs lock-run or lease.sh as real processes")
-	}
 	b, _ := json.Marshal(argv)
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(append(os.Environ(), quickExit(), "LOCKRUN_HELPER_LOCK="+lock, "LOCKRUN_HELPER_TTL=1m",
