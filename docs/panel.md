@@ -543,20 +543,25 @@ Only a stale holder may be removed.
 - **The command counts too.** `lock-run` records its command as `child_pid` / `child_pstart`.
   On the same host a record is stale only when the holder **and** the command are both dead. A
   `lock-run` killed with `SIGKILL` leaves its gate running, and the gate still holds the lease.
-- **Another host:** its pids mean nothing here, so the TTL applies: stale once `renewed + ttl`
-  has passed. `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A shell holder
-  writes `ttl: 0` (no expiry).
+- **Another host, or no `pid`:** its processes mean nothing here, so the TTL applies: stale once
+  `renewed + ttl` has passed. `lock-run` renews `renewed` every ttl/3 (default ttl 10 min). A
+  shell holder writes `ttl: 0` (no expiry), and `ttl: 0` never expires.
 - **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
   start time is `proc:` + field 22 of `/proc/<pid>/stat`.
-- A directory with no readable `owner.json` for 10 s is stale (its holder died between `mkdir`
-  and the write). Never write `owner.json` in place; write a temp file and `mv` it.
+- **A record is valid** when it is a complete JSON object whose `nonce` is 16 lower-case hex
+  digits (the shell checks for that nonce and a last non-space character of `}`). A lock
+  directory whose `owner.json` is missing or invalid is stale once the directory is 10 s old
+  (its holder died between `mkdir` and a complete write); until then its holder is starting,
+  and waiters wait. Never write `owner.json` in place; write a temp file and `mv` it.
 
 **Removing a stale holder.** Only the first live waiter does it, under the reclaim mutex, after
 re-reading `owner.json` and checking it is still the same stale holder (same nonce). **Nothing
 ever signals or removes a live holder**, including the panel.
 
 **FIFO.** Only the first live waiter tries `mkdir`. A waiter is dead, and its file removed, by
-the same rule as a holder, except that its TTL is 60 s.
+the same rule as a holder, except that its TTL is 60 s whatever its file says. A waiter file
+that is not a valid record is not a waiter: it holds no place in the queue, and nothing removes
+it.
 
 ### `lock-run`
 
@@ -669,6 +674,13 @@ lease_proc_dead() {
 }
 lease_get() { sed -n "s/.*\"$2\":\"\{0,1\}\([^\",}]*\).*/\1/p" "$1" 2>/dev/null | head -n 1 || true; }
 lease_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# lease_valid FILE: 0 (true) for a record with a 16-hex nonce whose last non-space
+# character is "}" (so not truncated). An invalid owner.json counts as missing; an
+# invalid waiter file holds no place in the queue and is never removed.
+lease_valid() {
+  lease_get "$1" nonce | grep -Eq '^[0-9a-f]{16}$' || return 1
+  [ "$(awk '{ s = s $0 } END { gsub(/[ \t\r]/, "", s); print substr(s, length(s)) }' "$1" 2>/dev/null)" = "}" ]
+}
 # lease_dead FILE WAITER_TTL: 0 (true) when the record can be removed: on this host
 # only when the holder AND its command (child_pid, written by lock-run) are dead.
 lease_dead() {
@@ -680,10 +692,10 @@ lease_dead() {
     if [ -n "$_cp" ] && ! lease_proc_dead "$_cp" "$_cs"; then return 1; fi
     return 0
   fi
-  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host: TTL
+  [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host, or no pid: TTL
 }
 lease_holder_stale() {
-  if [ ! -f "$1/owner.json" ]; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
+  if ! lease_valid "$1/owner.json"; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
   lease_dead "$1/owner.json" ""
 }
 lease_run() {
@@ -701,6 +713,7 @@ lease_run() {
     if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
     _first=""
     for _f in $(ls "$_w" 2>/dev/null | grep '\.json$' | sort -t- -k1,1n -k2); do
+      lease_valid "$_w/$_f" || continue
       if lease_dead "$_w/$_f" 60; then rm -f "$_w/$_f"; continue; fi
       _first=$_f; break
     done
@@ -735,17 +748,33 @@ lease_run() {
 The protocol has more than one implementation: `lock-run`, the `lease.sh` above, and whatever a
 project writes for itself. `framework/internal/panel/lease/testdata/lease-conformance/` holds the
 suite they must all pass: golden `owner.json` and waiter records (`cases/<case>/`, with
-`{{PLACEHOLDERS}}` filled in from real processes) and a driver:
+`{{PLACEHOLDERS}}` filled in from real processes; one left unfilled fails its case) and a
+driver, `conformance.sh`, which prints TAP and exits 1 on a failure.
+
+**The interface.** An implementation waits its turn for a lease, runs a command holding it,
+releases it, and exits with the command's status (75 if its wait was cancelled). The driver hands
+it the lock one of two ways:
 
 ```bash
-conformance.sh <impl> [impl-args...]     # TAP output; exit 1 on a failure
-CASES="dead-pid cancel" conformance.sh …  # some cases;  conformance.sh --list  names them all
+conformance.sh <impl> [impl-args...]
+#   runs  <impl> [impl-args...] <lockdir> <lane> <command> [args...]
+conformance.sh --lock-env VAR <impl> [impl-args...]
+#   runs  VAR=<lockdir> CLAUDUCTOR_LANE=<lane> <impl> [impl-args...] <command> [args...]
+CASES="dead-pid cancel" conformance.sh …     # some cases;  conformance.sh --list  names them all
+CONFORMANCE_WAIT=3 CONFORMANCE_TIMEOUT=20    # how long a waiter must wait, and a runnable one may take
 ```
 
-`<impl>` is run as `<impl> <lockdir> <lane> <command> [args...]`, so each implementation needs a
-two-line adapter (the driver's header has both reference ones). Each case checks only what every
-implementation must do: whether and when the command runs, its exit status, and the files left
-behind.
+The first form needs a two-line adapter (the driver's header has the ones for `lock-run` and
+`lease.sh`). The second needs none: a project's own gate wrapper, whose lock is normally
+`<git common dir>/…`, runs the suite as it is once that path can be overridden by `VAR`.
+
+The command must see `CLAUDUCTOR_LOCK_HELD` equal to the lock path **exactly as it was given**:
+cleaned, never symlink-resolved. A gate script compares the two to detect re-entry, and on a
+path through a symlink (macOS's `/tmp` is one, and a git common dir can be) a resolved value never
+matches, so the script would queue behind itself. `symlinked-lock` checks it.
+
+Each case checks only what every implementation must do: whether and when the command runs, its
+exit status, and the files left behind.
 
 | Case | The implementation must |
 |---|---|
@@ -754,16 +783,30 @@ behind.
 | `pid-reuse` | reclaim a holder whose pid is alive with another start time |
 | `proc-format` | treat a `proc:` start time as unverifiable against `ps`: wait |
 | `no-ps` | with no `ps` on PATH and no recorded start time, judge by `kill -0`: wait while alive, reclaim once gone |
+| `pstart-no-ps` | with no `ps` on PATH, never read a recorded `ps` start time as a reused pid: wait while alive |
+| `no-ps-foreign-pid` | with no `ps`, read `kill -0`'s `EPERM` (another user's process) as alive (skipped as root) |
 | `other-host-expired`, `other-host-live`, `other-host-no-ttl` | judge another host's holder by `renewed + ttl` only; `ttl: 0` never expires |
-| `child-alive`, `child-dead` | keep a lease whose holder died while its command (`child_pid`) runs; reclaim when both are gone |
-| `ownerless-old` | reclaim a lock directory with no `owner.json` older than 10 s |
+| `missing-pid`, `missing-pid-expired` | judge a record with no `pid` by its TTL alone |
+| `missing-host` | judge a record with no `host` as another host's: its dead pid means nothing |
+| `child-alive`, `child-dead`, `child-reused` | keep a lease whose holder died while its command (`child_pid`) runs; reclaim when both are gone, a reused `child_pid` included |
+| `ownerless-old`, `ownerless-young` | reclaim a lock directory with no `owner.json` once it is 10 s old, and wait until then |
+| `truncated-owner-old`, `truncated-owner-young`, `bad-nonce-owner-old` | treat an invalid `owner.json` (truncated, or no 16-hex nonce) as missing, even with a live pid in it |
 | `live-waiter-ahead`, `dead-waiter-ahead` | never jump a live waiter that arrived first; skip and remove a dead one |
+| `other-host-waiter-stale`, `other-host-waiter-fresh` | judge another host's waiter by a 60 s TTL, whatever `ttl` its file names |
+| `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
 | `cancel` | give up on `<nonce>.cancel`: exit 75, run nothing, remove its files, leave the holder |
 | `reclaim-race` | with three waiters meeting one dead holder, run each command exactly once, never two at a time |
 | `owner-record` | write every field of `owner.json` while it holds, with `pstart` as `ps` prints it; set `CLAUDUCTOR_LOCK_HELD`; exit with the command's status and release |
+| `symlinked-lock` | set `CLAUDUCTOR_LOCK_HELD` to a lock path through a symlink exactly as given |
 
 `TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
-this page.
+this page. The suite is falsified in the same run: two controls, one that ignores the lease and
+one that always takes it, must fail every case that depends on the rule they break, and each of
+13 mutants of `lease.sh` (`leaseShMutants`: EPERM read as dead, start times compared across
+sources, an unverifiable pid read as dead, pid reuse ignored, the command ignored, a waiter's own
+`ttl` used, `ttl: 0` expiring, no grace for a starting holder, a truncated `owner.json` read as a
+record, invalid waiter files removed or queued, LIFO order, cancel ignored) must fail at least one
+case. `TestLeaseConformanceLockEnvMode` runs the adapter-free form.
 
 ## Alerts
 
