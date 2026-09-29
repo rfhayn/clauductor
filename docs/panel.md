@@ -1101,6 +1101,49 @@ worst `claude agents` poll latency and its current interval, the filter in use a
 Claude Code version against the one the heuristics were verified on, and notifications sent or
 failed.
 
+## Testing
+
+```sh
+cd framework
+go test -short ./...    # the fast suite: about 2 s once built
+go test -race ./...     # everything, under the race detector: about 15 s once built
+```
+
+`-short` skips every test that drives something real and slow: a tmux server on a
+throwaway socket, `lock-run` and `lease.sh` as separate processes, panel processes started
+side by side, `node` (the xterm style guard), `osascript` and `plutil`. Run it while you
+work; run the full suite before you push. Both must pass with `gofmt -l .` and `go vet ./...`
+clean, and the clock check (`TestOnlyPackageClockReadsTheTime`) passing.
+
+The rules the suite keeps, and a new test must too:
+
+- **Never sleep to show that nothing happened.** Drive the loop and assert after N
+  iterations of it. A sleep proves only that the machine was fast that day.
+  - Code on the panel's clock takes a `clock.Fake`: it moves only when the test calls
+    `Advance`, and `BlockUntil(n)` returns once n waits are pending on it, so a loop that makes
+    a new timer each iteration has finished that iteration (`framework/internal/panel/clock/fake.go`).
+  - A running panel reports each source's polls through `Options.OnPoll`. The integration
+    tests count them (`pollCounter`) and run at `fastTicks()`, a tenth of a second or less.
+  - `lock-run` helper processes append one line per waiter-loop iteration to
+    `LOCKRUN_HELPER_TRACE`, and the shell tests put a counting `sleep` first on `lease.sh`'s
+    `PATH`. A waiter that must keep waiting is checked after N of its own looks, and
+    `LOCKRUN_HELPER_SKEW` puts its clock an hour ahead instead of waiting out a TTL.
+- **Order by events, not by timing.** A test that needs B queued before C starts C once B's
+  waiter file exists. A test that rewrites `owner.json` waits for lock-run's own last write to
+  it.
+- **Run in parallel.** Every test that has its own temp `HOME`, tmux socket and port (`:0`)
+  calls `t.Parallel()`. A test that sets the environment (`t.Setenv`) or a package hook
+  cannot, and runs first, alone. A panel that runs no lane gets a socket no server runs on,
+  never the machine's own panel socket.
+- A helper process the test binary starts gets `GORACE=atexit_sleep_ms=0`. A `-race` binary
+  otherwise sleeps a second at exit.
+
+To show that a fix for a flaky test holds, run it 200 times under the race detector:
+
+```sh
+go test -race -run '^TestLockRunTwoProcessesQueue$' -count=200 ./internal/panel/lease/
+```
+
 ## Not yet
 
 - No removing a worktree from the page.

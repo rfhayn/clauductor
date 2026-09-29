@@ -26,8 +26,9 @@ clauductor/
 # Build the clauductor binary
 cd framework && go build -o clauductor ./cmd/clauductor
 
-# Run tests
-cd framework && go test ./...
+# Run tests: -short in seconds, the full suite before a push (docs/panel.md, Testing)
+cd framework && go test -short ./...
+cd framework && go test -race ./...
 
 # Install globally
 ./install.sh
