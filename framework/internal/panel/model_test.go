@@ -174,6 +174,15 @@ func TestReducerStatusLine(t *testing.T) {
 	if l := v.Lanes; len(l) != 1 || l[0].CtxPct == nil || *l[0].CtxPct != 18 {
 		t.Fatalf("ctx not recorded: %+v", l)
 	}
+	// A later post carrying only one window keeps the other window's last value.
+	partial := sp
+	seven := 71.0
+	partial.RateLimits.FiveHour = nil
+	partial.RateLimits.SevenDay = &RateLimit{UsedPercentage: &seven}
+	m.ApplyStatus(partial, t0.Add(time.Second))
+	if q := m.Snapshot(t0).Quota; q.FiveHour == nil || *q.FiveHour != 12 || *q.SevenDay != 71 {
+		t.Fatalf("partial quota post: %+v", q)
+	}
 	// A status post from another project must not move the quota or the cost.
 	foreign := sp
 	foreign.Cwd = "/elsewhere"

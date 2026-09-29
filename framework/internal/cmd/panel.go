@@ -34,6 +34,9 @@ quota, open PRs and project cards. It reads only Claude Code's own signals
 On start it installs tagged HTTP hooks into ~/.claude/settings.json (idempotent;
 other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
 	Args: cobra.NoArgs,
+	// A refused start (port taken, no config) is not a usage mistake; print the reason once.
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {

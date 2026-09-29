@@ -339,12 +339,18 @@ func (m *Model) ApplyStatus(p StatusPayload, now time.Time) bool {
 		}
 	}
 	rl := p.RateLimits
+	// Merge per window: a live payload was seen carrying seven_day without five_hour,
+	// and a missing window must not blank the last value the panel knew.
 	if rl.FiveHour != nil || rl.SevenDay != nil {
-		q := &Quota{At: ms(now), FromSession: p.SessionID}
-		if rl.FiveHour != nil {
+		q := &Quota{}
+		if m.quota != nil {
+			*q = *m.quota
+		}
+		q.At, q.FromSession = ms(now), p.SessionID
+		if rl.FiveHour != nil && rl.FiveHour.UsedPercentage != nil {
 			q.FiveHour, q.FiveHourResets = rl.FiveHour.UsedPercentage, rl.FiveHour.ResetsAt
 		}
-		if rl.SevenDay != nil {
+		if rl.SevenDay != nil && rl.SevenDay.UsedPercentage != nil {
 			q.SevenDay, q.SevenDayResets = rl.SevenDay.UsedPercentage, rl.SevenDay.ResetsAt
 		}
 		m.quota = q
