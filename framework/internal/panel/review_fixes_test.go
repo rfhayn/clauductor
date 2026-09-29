@@ -19,6 +19,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/coder/websocket"
 )
 
@@ -327,7 +328,7 @@ func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 	if lerr := m.Resume(context.Background(), "bad"); lerr == nil || lerr.Code != "corrupt" {
 		t.Fatalf("resume of a corrupt record: %v", lerr)
 	}
-	model := NewModel(m.Cfg, "/repo", t0)
+	model := state.NewModel(m.Cfg, "/repo", t0)
 	model.ApplyWorktrees([]signals.Worktree{{Path: "/repo", Branch: "main"}}, nil, t0)
 	model.ApplyTmux(nil, reg.List(), "", nil, t0)
 	model.ApplyRegistryProblems(reg.Problems())

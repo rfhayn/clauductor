@@ -18,6 +18,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // PANEL-5: one panel per machine, enforced.
@@ -345,7 +346,7 @@ func (k *hookKeeper) check() bool {
 	d, _ := readHookDrift(k.home, k.port)
 	for _, p := range d.Ports {
 		if pid := livePanelAt(context.Background(), p); pid > 0 && pid != os.Getpid() {
-			k.hub.Update(func(m *Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
+			k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
 			if !k.conflicted {
 				fmt.Fprintf(k.out, "the hooks point at another live panel (pid %d, port %d); leaving them alone until it stops\n", pid, p)
 			}
@@ -360,7 +361,7 @@ func (k *hookKeeper) check() bool {
 	}
 	changed, err := InstallHooks(k.home, k.port)
 	if err != nil {
-		k.hub.Update(func(m *Model, now time.Time) { m.ApplyHookHealth(err, "", now) })
+		k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookHealth(err, "", now) })
 		fmt.Fprintf(k.out, "installing hooks failed (the panel keeps running and retries): %v\n", err)
 		return false
 	}
@@ -380,7 +381,7 @@ func (k *hookKeeper) check() bool {
 		repaired = drift
 	}
 	k.installed = true
-	k.hub.Update(func(m *Model, now time.Time) { m.ApplyHookHealth(nil, repaired, now) })
+	k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookHealth(nil, repaired, now) })
 	return true
 }
 
@@ -404,57 +405,5 @@ func (k *hookKeeper) loop(ctx context.Context, ok bool) {
 		case <-time.After(wait):
 		}
 		ok = k.check()
-	}
-}
-
-// hookRepairShown is how long the page keeps saying the hooks were repaired.
-const hookRepairShown = 10 * time.Minute
-
-// hookHealth is the hook install's state, as the model holds it.
-type hookHealth struct {
-	err        string
-	repairedAt time.Time
-	drift      string
-	otherPID   int // the hooks point at this other live panel, and are left to it
-	otherPort  int
-}
-
-// ApplyHookConflict records that the hooks point at another live panel.
-func (m *Model) ApplyHookConflict(pid, port int, now time.Time) {
-	m.hooks.otherPID, m.hooks.otherPort = pid, port
-}
-
-// ApplyHookHealth records one hook check: an install error, or success (with what
-// had drifted, when the check had to repair it).
-func (m *Model) ApplyHookHealth(err error, repaired string, now time.Time) {
-	if err != nil {
-		m.hooks.err = err.Error()
-		return
-	}
-	m.hooks.err = ""
-	m.hooks.otherPID, m.hooks.otherPort = 0, 0
-	if repaired != "" {
-		m.hooks.repairedAt, m.hooks.drift = now, repaired
-	}
-}
-
-// hookBanners adds the hook install's banner (it failed, so lanes are blind) or its
-// warning (it drifted and was repaired).
-func (m *Model) hookBanners(v *View, now time.Time) {
-	if m.hooks.otherPID > 0 {
-		v.banner(BannerHooks, fmt.Sprintf("The hooks in ~/.claude/settings.json point at another live panel (pid %d, port %d), "+
-			"so this panel gets no hook events. It leaves them alone rather than fight over them: there is one panel per machine. "+
-			"Stop one of the two; this panel takes the hooks back within 30 s of the other stopping.", m.hooks.otherPID, m.hooks.otherPort))
-		return
-	}
-	if m.hooks.err != "" {
-		v.banner(BannerHooks, "The panel's hooks could not be installed in ~/.claude/settings.json ("+m.hooks.err+
-			"). The panel keeps retrying; until it succeeds, lanes update only from `claude agents` polls.")
-		return
-	}
-	if !m.hooks.repairedAt.IsZero() && now.Sub(m.hooks.repairedAt) < hookRepairShown {
-		v.Warnings = append(v.Warnings, "The panel's hooks in ~/.claude/settings.json had drifted ("+m.hooks.drift+
-			") and were reinstalled at "+m.hooks.repairedAt.Local().Format("15:04:05")+
-			". If another clauductor panel keeps re-pointing them, stop it: there is one panel per machine.")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 func TestHostAllowListIsExact(t *testing.T) {
@@ -111,7 +112,7 @@ func TestListenLoopbackServesBothAddresses(t *testing.T) {
 	if ln6.Addr().(*net.TCPAddr).Port != port || !ln6.Addr().(*net.TCPAddr).IP.IsLoopback() {
 		t.Fatalf("v6 listener %v", ln6.Addr())
 	}
-	s := &Server{Port: port, Token: "t", Hub: NewHub(NewModel(testConfig(t), "/repo", t0), time.Now)}
+	s := &Server{Port: port, Token: "t", Hub: NewHub(state.NewModel(testConfig(t), "/repo", t0), time.Now)}
 	srv := &http.Server{Handler: s.Handler()}
 	go srv.Serve(ln4)
 	go srv.Serve(ln6)

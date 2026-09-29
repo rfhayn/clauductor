@@ -19,6 +19,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
@@ -53,7 +54,7 @@ type liveClient struct {
 	base, cookie string
 }
 
-func (c liveClient) state(t *testing.T) View {
+func (c liveClient) state(t *testing.T) state.View {
 	t.Helper()
 	req, _ := http.NewRequest("GET", c.base+"/api/state", nil)
 	req.Header.Set("Cookie", c.cookie)
@@ -62,7 +63,7 @@ func (c liveClient) state(t *testing.T) View {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var v View
+	var v state.View
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // PANEL-7: what the panel spawns while it idles. Each cadence rule is pinned with an
@@ -140,10 +142,10 @@ func TestTmuxEnvBlockStillReported(t *testing.T) {
 	p := tmuxPollerFor(t, f, &clock)
 	for i := 0; i < 5; i++ { // cached between checks, not forgotten
 		update, _ := p.tick(context.Background())
-		m := NewModel(v2Config(t, ""), "/p", clock)
+		m := state.NewModel(v2Config(t, ""), "/p", clock)
 		update(m, clock)
-		if !strings.Contains(m.startBlocked, "ANTHROPIC_API_KEY") {
-			t.Fatalf("tick %d: start not blocked by the key in tmux's environment: %q", i, m.startBlocked)
+		if startBlocked := m.Snapshot(clock).StartBlocked; !strings.Contains(startBlocked, "ANTHROPIC_API_KEY") {
+			t.Fatalf("tick %d: start not blocked by the key in tmux's environment: %q", i, startBlocked)
 		}
 		clock = clock.Add(tmuxFast)
 	}
@@ -164,7 +166,7 @@ func TestHookEndsTheQuietAgentsInterval(t *testing.T) {
 		return []byte("[]"), nil
 	}
 	count := func() int { mu.Lock(); defer mu.Unlock(); return polls }
-	m := NewModel(v2Config(t, ""), "/p", time.Now())
+	m := state.NewModel(v2Config(t, ""), "/p", time.Now())
 	hub := NewHub(m, time.Now)
 	x := &runtimeV2{hub: hub, root: "/p", p: &pollers{hub: hub, run: run, kickAgents: make(chan struct{}, 1)}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -264,7 +266,7 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewModel(v2Config(t, ""), "/p", t0)
+	m := state.NewModel(v2Config(t, ""), "/p", t0)
 	x := &runtimeV2{hub: NewHub(m, func() time.Time { return t0 }), p: &pollers{registry: reg}}
 	if x.hasLanes() {
 		t.Fatal("no lane yet")
@@ -280,30 +282,17 @@ func TestAgentsLoopCountsARegisteredLaneBeforeTheModelDoes(t *testing.T) {
 	}
 }
 
-// A 15 s interval must not make every reading look stale between polls.
-func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
-	m := NewModel(v2Config(t, ""), "/p", t0)
-	m.agentsNext = agentsQuiet
-	m.ApplyAgentsTimed(nil, nil, 100*time.Millisecond, t0)
-	if !m.agentsFresh(t0.Add(agentsQuiet + time.Second)) {
-		t.Fatal("a reading one quiet interval old counts as stale")
-	}
-	if m.agentsFresh(t0.Add(2*agentsQuiet + time.Second)) {
-		t.Fatal("a reading two quiet intervals old counts as fresh")
-	}
-}
-
 // ---- the first-prompt loop ----
 
 func promptRuntime(t *testing.T, clock *time.Time, rec lanes.LaneRecord, running bool) (*runtimeV2, *Hub) {
 	t.Helper()
-	m := NewModel(v2Config(t, ""), "/p", *clock)
+	m := state.NewModel(v2Config(t, ""), "/p", *clock)
 	hub := NewHub(m, func() time.Time { return *clock })
 	var tl []lanes.TmuxLane
 	if running {
 		tl = []lanes.TmuxLane{{ID: rec.ID, Path: "/p"}}
 	}
-	hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(tl, []lanes.LaneRecord{rec}, "", nil, now) })
+	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(tl, []lanes.LaneRecord{rec}, "", nil, now) })
 	p := &pollers{hub: hub, kickAgents: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
 	return &runtimeV2{hub: hub, p: p, o: Options{Out: &strings.Builder{}}}, hub
 }
@@ -328,20 +317,20 @@ func TestPromptLoopStopsPollingForAGoneLane(t *testing.T) {
 			kicks++
 		}
 		clock = clock.Add(time.Second)
-		hub.Update(func(m *Model, now time.Time) { m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, now) })
+		hub.Update(func(m *state.Model, now time.Time) { m.ApplyTmux(nil, []lanes.LaneRecord{rec}, "", nil, now) })
 	}
 	if kicks != 0 {
 		t.Fatalf("a pending lane whose tmux session is gone kicked %d claude agents polls in a minute; want 0", kicks)
 	}
-	var d PromptDecision
-	hub.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now)["lane-a"] })
+	var d state.PromptDecision
+	hub.Read(func(m *state.Model, now time.Time) { d = m.PromptDecisions(now)["lane-a"] })
 	if d.Action != "restore" || !strings.Contains(d.Why, "RESTORE") {
 		t.Fatalf("a minute after its session went, the lane is %q (%s); want restore", d.Action, d.Why)
 	}
 	// Within the grace (a start still coming up) it waits, without polling.
 	clock = t0
 	_, hub2 := promptRuntime(t, &clock, rec, false)
-	hub2.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now.Add(goneGrace - time.Second))["lane-a"] })
+	hub2.Read(func(m *state.Model, now time.Time) { d = m.PromptDecisions(now.Add(goneGrace - time.Second))["lane-a"] })
 	if d.Action != "wait" || d.Poll {
 		t.Fatalf("inside the grace: %+v", d)
 	}
@@ -372,46 +361,29 @@ func TestPromptLoopKicksNoFasterThanTheFastInterval(t *testing.T) {
 
 // ---- PANEL-5 carry-over: a waiting note is not kept without bound ----
 
-func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
-	boom := errors.New("claude agents: boom")
-	withNote := func(t *testing.T) *Model {
-		m := NewModel(v2Config(t, ""), "/p", t0)
-		m.sessions["s-a"] = &session{ID: "s-a", LastHookAt: t0, Note: &note{Type: "permission_prompt", At: t0}}
-		return m
+func TestAgentsFilterAndBackoff(t *testing.T) {
+	wts := []signals.Worktree{{Path: "/p/app"}, {Path: "/p/app/.claude/worktrees/x"}}
+	if d := signals.AgentsFilterDir("/p/app", wts); d != "/p/app" {
+		t.Fatalf("inside root: %q", d)
 	}
-	// Polls failing: kept for a day, not past it.
-	m := withNote(t)
-	m.ApplyAgents(nil, boom, t0.Add(23*time.Hour))
-	if m.sessions["s-a"] == nil {
-		t.Fatal("dropped before a day")
+	wts = append(wts, signals.Worktree{Path: "/p/app-worktrees/y"})
+	if d := signals.AgentsFilterDir("/p/app", wts); d != "/p" {
+		t.Fatalf("a worktree outside the root widens the filter: %q", d)
 	}
-	m.ApplyAgents(nil, boom, t0.Add(25*time.Hour))
-	if m.sessions["s-a"] != nil {
-		t.Fatal("a waiting note kept past a day while polls fail")
+	if d := signals.AgentsFilterDir("/p/app", append(wts, signals.Worktree{Path: "/q/z"})); d != "" {
+		t.Fatalf("nothing in common must mean no filter: %q", d)
 	}
-	// Its lane's pane is dead: dropped at once.
-	for _, tc := range []struct {
-		name string
-		tl   []lanes.TmuxLane
-	}{{"pane dead", []lanes.TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
-		m := withNote(t)
-		m.ApplyTmux(tc.tl, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
-		m.ApplyAgents(nil, boom, t0.Add(time.Minute))
-		if m.sessions["s-a"] != nil {
-			t.Fatalf("%s: a waiting note kept while polls fail", tc.name)
-		}
+	all := []signals.Agent{{SessionID: "a", Cwd: "/p/app"}, {SessionID: "b", Cwd: "/p/app-worktrees/y"}, {SessionID: "c", Cwd: "/other"}}
+	in := func(a signals.Agent) bool { return signals.MatchWorktree(wts, a.Cwd) >= 0 }
+	if got := signals.MissedByFilter(all, all[:1], in); !reflect.DeepEqual(got, []string{"b"}) {
+		t.Fatalf("missed %v", got)
 	}
-	// A live pane, or a tmux poll that failed, keeps it.
-	m = withNote(t)
-	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-a"}}, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
-	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
-	if m.sessions["s-a"] == nil {
-		t.Fatal("dropped while its pane is alive")
+	if got := signals.MissedByFilter(all, all[:2], in); len(got) != 0 {
+		t.Fatalf("a foreign session missing from the filter is fine: %v", got)
 	}
-	m = withNote(t)
-	m.ApplyTmux(nil, nil, "", errors.New("tmux: boom"), t0)
-	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
-	if m.sessions["s-a"] == nil {
-		t.Fatal("dropped on a failed tmux poll")
+	// With a lane (PANEL-7 adds the quiet interval without one: cost_test.go).
+	if AgentsInterval(time.Time{}, t0, true) != 2*time.Second || AgentsInterval(t0.Add(-10*time.Second), t0, true) != 5*time.Second ||
+		AgentsInterval(t0.Add(-31*time.Second), t0, true) != 2*time.Second {
+		t.Fatal("backoff wrong")
 	}
 }

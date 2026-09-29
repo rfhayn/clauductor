@@ -20,6 +20,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // PANEL-5: one panel per machine is enforced, not assumed. The hook URL in
@@ -271,7 +272,7 @@ func TestFailedHookInstallIsABannerNotAnExit(t *testing.T) {
 	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
 		HookRetryBase: 50 * time.Millisecond})
 	defer stop()
-	hasBanner := func(v View) bool {
+	hasBanner := func(v state.View) bool {
 		for _, b := range v.Banners {
 			if strings.Contains(b, "hooks could not be installed") {
 				return true

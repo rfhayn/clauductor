@@ -1,9 +1,6 @@
-package panel
+package state
 
 import (
-	"context"
-	"fmt"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -202,16 +199,4 @@ const maxNoticeText = 240
 // NotifyArgv is the argv that shows one notification.
 func NotifyArgv(title, body string) []string {
 	return osascriptArgv(notifyScript, signals.Clip(title, 80), signals.Clip(body, maxNoticeText))
-}
-
-// SendNotice shows a notification with osascript.
-func SendNotice(ctx context.Context, nt Notice) error {
-	argv := NotifyArgv(nt.Title, nt.Body)
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("osascript: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }

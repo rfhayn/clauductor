@@ -16,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // v2Runner runs git and plain commands for real and fakes claude and gh. `claude
@@ -75,7 +76,7 @@ func lineCount(p string) int {
 	return len(strings.Fields(string(b)))
 }
 
-func termByID(v View, id string) *TermLaneView {
+func termByID(v state.View, id string) *state.TermLaneView {
 	for i := range v.Terminals {
 		if v.Terminals[i].ID == id {
 			return &v.Terminals[i]
@@ -95,10 +96,10 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	var hidden, waiting atomic.Bool
 	hidden.Store(true) // claude "is at the trust dialog": not in claude agents yet
 	var mu sync.Mutex
-	var notices []Notice
+	var notices []state.Notice
 	tweak := func(o *Options) {
 		o.Runner = v2Runner(tmux, sock, home, root, &hidden, &waiting)
-		o.Notify = func(n Notice) error { mu.Lock(); notices = append(notices, n); mu.Unlock(); return nil }
+		o.Notify = func(n state.Notice) error { mu.Lock(); notices = append(notices, n); mu.Unlock(); return nil }
 	}
 	p := startPanelWith(t, root, home, sock, tweak)
 
@@ -135,7 +136,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	// The idle alert (threshold 1.2 s) shows on the page but never interrupts.
 	waitFor(t, "the idle alert", func() bool {
 		for _, a := range p.state(t).Alerts {
-			if a.Kind == AlertIdle {
+			if a.Kind == state.AlertIdle {
 				return true
 			}
 		}
@@ -164,7 +165,7 @@ func TestTemplateLaneGetsItsFirstPromptOnceWhenReady(t *testing.T) {
 	p = startPanelWith(t, root, home, sock, tweak)
 	waitFor(t, "the alert after the restart", func() bool {
 		for _, a := range p.state(t).Alerts {
-			if a.Kind == AlertWaiting {
+			if a.Kind == state.AlertWaiting {
 				return true
 			}
 		}

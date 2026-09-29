@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 const testPort = 4393
@@ -18,7 +20,7 @@ const testPort = 4393
 func newTestServer(t *testing.T) (*Server, chan []byte) {
 	t.Helper()
 	hooks := make(chan []byte, 8)
-	m := NewModel(testConfig(t), "/repo", t0)
+	m := state.NewModel(testConfig(t), "/repo", t0)
 	m.ApplyWorktrees(fixtureWorktrees(t), nil, t0)
 	return &Server{Port: testPort, Token: "secret-token", Hub: NewHub(m, time.Now), Hooks: hooks, Status: make(chan []byte, 8)}, hooks
 }

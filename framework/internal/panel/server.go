@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 //go:embed web
@@ -79,7 +79,7 @@ func NewToken() (string, error) {
 // quiet panel from a dead one.
 type Hub struct {
 	mu    sync.Mutex
-	model *Model
+	model *state.Model
 	now   func() time.Time
 	subs  map[chan []byte]struct{}
 	dirty chan struct{}
@@ -97,12 +97,12 @@ type Hub struct {
 }
 
 // NewHub wraps a model.
-func NewHub(m *Model, now func() time.Time) *Hub {
+func NewHub(m *state.Model, now func() time.Time) *Hub {
 	return &Hub{model: m, now: now, subs: map[chan []byte]struct{}{}, dirty: make(chan struct{}, 1)}
 }
 
 // Update applies fn to the model under the lock and schedules a broadcast.
-func (h *Hub) Update(fn func(m *Model, now time.Time)) {
+func (h *Hub) Update(fn func(m *state.Model, now time.Time)) {
 	h.mu.Lock()
 	fn(h.model, h.now())
 	h.mu.Unlock()
@@ -124,58 +124,7 @@ func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte) {
 	v := h.model.Snapshot(h.now())
 	h.mu.Unlock()
 	b, _ := json.Marshal(v)
-	return b, viewKey(v), fullKey(v)
-}
-
-// fullKey identifies everything in a view but the clock it was taken at.
-func fullKey(v View) [sha256.Size]byte {
-	v.Now = 0
-	b, _ := json.Marshal(v)
-	return sha256.Sum256(b)
-}
-
-// viewKey identifies what a view says: fullKey without the polls' bookkeeping.
-// Left out: when each source was last read (not whether it can be), when
-// `claude agents` last answered, the footer's counters and the top bar's hook
-// count, a card's run time, the quota's arrival time, and a lease's renewal.
-func viewKey(v View) [sha256.Size]byte {
-	v.Now, v.AgentsReadAt, v.HookEvents, v.StatusPosts, v.Dropped = 0, 0, 0, 0, 0
-	v.Observe = ObsView{}
-	src := make(map[string]SourceStatus, len(v.Sources))
-	for k, s := range v.Sources {
-		s.At = 0
-		src[k] = s
-	}
-	v.Sources = src
-	v.QueuesSrc.At = 0
-	if v.Quota != nil {
-		q := *v.Quota
-		q.At = 0
-		v.Quota = &q
-	}
-	cards := make([]CardState, len(v.Cards))
-	for i, c := range v.Cards {
-		c.Source.At = 0
-		cards[i] = c
-	}
-	v.Cards = cards
-	qs := make([]lease.QueueView, len(v.Queues))
-	for i, q := range v.Queues {
-		if q.Holder != nil {
-			h := *q.Holder
-			h.Renewed = 0
-			q.Holder = &h
-		}
-		ws := make([]lease.LeaseView, len(q.Waiters))
-		for j, w := range q.Waiters {
-			w.Renewed = 0
-			ws[j] = w
-		}
-		q.Waiters = ws
-		qs[i] = q
-	}
-	v.Queues = qs
-	return fullKey(v)
+	return b, state.ViewKey(v), state.FullKey(v)
 }
 
 // Pushes is how many snapshots the hub has broadcast.

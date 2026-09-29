@@ -18,6 +18,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // errUntrusted is what a card shows while the config is untrusted.
@@ -25,11 +26,7 @@ var errUntrusted = errors.New("not run: panel.json changed since you trusted it;
 
 // Poll tunables.
 const (
-	agentsFast = 2 * time.Second
-	// agentsSlow is the `claude agents` interval while hooks are flowing: the hooks
-	// already carry the state, and each poll spawns a ~100 ms, ~150 MB process
-	// (measured on 2.1.284: p50 98 ms wall, ~105 ms CPU).
-	agentsSlow   = 5 * time.Second
+	agentsFast   = 2 * time.Second
 	hooksFlowing = 30 * time.Second
 	// agentsQuiet is the interval while the panel has no lane and has heard no hook
 	// for hooksQuiet (PANEL-7): nothing is happening that a hook would not announce.
@@ -49,7 +46,7 @@ func AgentsInterval(lastHook, now time.Time, lanes bool) time.Duration {
 	heard := !lastHook.IsZero()
 	switch {
 	case heard && now.Sub(lastHook) < hooksFlowing:
-		return agentsSlow
+		return state.AgentsSlow
 	case !lanes && (!heard || now.Sub(lastHook) >= hooksQuiet):
 		return agentsQuiet
 	}
@@ -95,10 +92,10 @@ type runtimeV2 struct {
 	lastPromptKick time.Time
 
 	mu       sync.Mutex
-	obs      Obs
-	lastObs  Obs
+	obs      state.Obs
+	lastObs  state.Obs
 	pollSum  int64
-	notifier Notifier
+	notifier state.Notifier
 	runs     map[string]*lease.QueueRun
 	// notifyPath persists the notifier's state, so a restart never re-notifies.
 	notifyPath string
@@ -113,14 +110,14 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustV
 	if err != nil {
 		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
-	state := "trusted"
+	trustState := "trusted"
 	if !tv.Trusted {
-		state = "UNTRUSTED: it changed since you trusted " + short(tv.Prev) + "; its commands and templates are off until `clauductor panel trust`"
+		trustState = "UNTRUSTED: it changed since you trusted " + config.ShortHash(tv.Prev) + "; its commands and templates are off until `clauductor panel trust`"
 	}
 	if tv.Note != "" {
-		state += " (" + tv.Note + ")"
+		trustState += " (" + tv.Note + ")"
 	}
-	fmt.Fprintf(o.Out, "config %s sha256 %s: %s\n", tv.Path, short(hash), state)
+	fmt.Fprintf(o.Out, "config %s sha256 %s: %s\n", tv.Path, config.ShortHash(hash), trustState)
 	return tv
 }
 
@@ -128,15 +125,15 @@ func newRuntimeV2(o Options, cfg *config.Config, root, cfgPath string, tv config
 	x := &runtimeV2{o: o, cfg: cfg, root: root, cfgPath: cfgPath, hub: hub, p: p, lanes: lm, trustView: tv,
 		runs: map[string]*lease.QueueRun{}}
 	x.trust.Store(tv.Trusted)
-	x.notifier = Notifier{MinInterval: cfg.AlertThresholds().MinInterval, Project: cfg.Name}
+	x.notifier = state.Notifier{MinInterval: cfg.AlertThresholds().MinInterval, Project: cfg.Name}
 	x.notifyPath = filepath.Join(filepath.Dir(lanes.RegistryPath(o.Home, root)), "notifier.json")
 	if b, err := os.ReadFile(x.notifyPath); err == nil {
-		var st NotifierState
+		var st state.NotifierState
 		if json.Unmarshal(b, &st) == nil {
 			x.notifier.Restore(st)
 		}
 	}
-	hub.Update(func(m *Model, now time.Time) { m.ApplyTrust(tv) })
+	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTrust(tv) })
 	return x
 }
 
@@ -156,7 +153,7 @@ func (x *runtimeV2) orchestration() *Orchestration {
 		Trusted: x.trusted,
 		QuotaGuard: func() string {
 			why := ""
-			x.hub.Read(func(m *Model, now time.Time) { why = m.QuotaGuard(now) })
+			x.hub.Read(func(m *state.Model, now time.Time) { why = m.QuotaGuard(now) })
 			return why
 		},
 		CancelWait: x.cancelWait,
@@ -193,7 +190,7 @@ func (x *runtimeV2) trustLoop(ctx context.Context) {
 				x.trust.Store(true)
 				tv := x.trustView
 				tv.Trusted, tv.Note = true, "trusted by `clauductor panel trust`"
-				x.hub.Update(func(m *Model, now time.Time) { m.ApplyTrust(tv) })
+				x.hub.Update(func(m *state.Model, now time.Time) { m.ApplyTrust(tv) })
 				fmt.Fprintln(x.o.Out, "config trusted: cards, queue commands and templates are on")
 				for _, k := range x.p.cardKicks {
 					kick(k)
@@ -204,7 +201,7 @@ func (x *runtimeV2) trustLoop(ctx context.Context) {
 	}
 }
 
-func (x *runtimeV2) setObs(f func(o *Obs)) {
+func (x *runtimeV2) setObs(f func(o *state.Obs)) {
 	x.mu.Lock()
 	f(&x.obs)
 	x.mu.Unlock()
@@ -226,7 +223,7 @@ func (x *runtimeV2) hasLanes() bool {
 		return true
 	}
 	n := 0
-	x.hub.Read(func(m *Model, _ time.Time) { n = len(m.laneRecords) + len(m.tmuxLanes) })
+	x.hub.Read(func(m *state.Model, _ time.Time) { n = m.LaneCount() })
 	return n > 0
 }
 
@@ -240,7 +237,7 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 		now := time.Now()
 		iterStart := now
 		var wts []signals.Worktree
-		x.hub.Read(func(m *Model, _ time.Time) { wts = m.Worktrees() })
+		x.hub.Read(func(m *state.Model, _ time.Time) { wts = m.Worktrees() })
 		if lastCheck.IsZero() || now.Sub(lastCheck) >= filterRecheck {
 			lastCheck = now
 			filter = x.checkFilter(ctx, wts)
@@ -268,8 +265,8 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 		iter := time.Since(iterStart) // the filter cross-check included: agentsFresh allows for it
 		interval := AgentsInterval(x.lastHookAt(), time.Now(), x.hasLanes())
 		x.agentsQuietNow.Store(interval == agentsQuiet)
-		x.hub.Update(func(m *Model, now time.Time) {
-			m.agentsNext = interval // agentsFresh allows for the wait until the next poll
+		x.hub.Update(func(m *state.Model, now time.Time) {
+			m.SetAgentsNext(interval) // agentsFresh allows for the wait until the next poll
 			m.ApplyAgentsTimed(agents, err, iter, now)
 		})
 		x.mu.Lock()
@@ -295,7 +292,7 @@ func (x *runtimeV2) agentsLoop(ctx context.Context) {
 // holds every in-project session the unfiltered one does.
 func (x *runtimeV2) checkFilter(ctx context.Context, wts []signals.Worktree) []string {
 	dir := signals.AgentsFilterDir(x.root, wts)
-	set := func(desc string) { x.setObs(func(o *Obs) { o.AgentsFilter = desc }) }
+	set := func(desc string) { x.setObs(func(o *state.Obs) { o.AgentsFilter = desc }) }
 	if dir == "" {
 		set("unfiltered: the worktrees share no directory but /")
 		return nil
@@ -320,12 +317,7 @@ func (x *runtimeV2) checkFilter(ctx context.Context, wts []signals.Worktree) []s
 		return nil
 	}
 	var recs map[string]bool
-	x.hub.Read(func(m *Model, _ time.Time) {
-		recs = map[string]bool{}
-		for _, r := range m.laneRecords {
-			recs[r.SessionID] = true
-		}
-	})
+	x.hub.Read(func(m *state.Model, _ time.Time) { recs = m.LaneSessions() })
 	missed := signals.MissedByFilter(all, filtered, func(a signals.Agent) bool {
 		return recs[a.SessionID] || signals.MatchWorktree(wts, signals.ResolvePath(a.Cwd)) >= 0
 	})
@@ -349,9 +341,9 @@ func (x *runtimeV2) versionLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		x.hub.Update(func(m *Model, now time.Time) { m.ApplyClaudeVersion(v, err, now) })
-		if err == nil && v != HeuristicsVerifiedOn {
-			fmt.Fprintf(x.o.Out, "warning: Claude Code %s differs from %s, which the subagent heuristics and fixtures were verified on; subagent lists are approximate\n", v, HeuristicsVerifiedOn)
+		x.hub.Update(func(m *state.Model, now time.Time) { m.ApplyClaudeVersion(v, err, now) })
+		if err == nil && v != state.HeuristicsVerifiedOn {
+			fmt.Fprintf(x.o.Out, "warning: Claude Code %s differs from %s, which the subagent heuristics and fixtures were verified on; subagent lists are approximate\n", v, state.HeuristicsVerifiedOn)
 		}
 		select {
 		case <-ctx.Done():
@@ -382,7 +374,7 @@ func (x *runtimeV2) obsLoop(ctx context.Context) {
 		x.lastObs = x.obs
 		x.mu.Unlock()
 		if changed {
-			x.hub.Update(func(m *Model, now time.Time) { m.ApplyObs(o) })
+			x.hub.Update(func(m *state.Model, now time.Time) { m.ApplyObs(o) })
 		}
 	}
 }
@@ -392,11 +384,11 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 	th := x.cfg.AlertThresholds()
 	send := x.o.Notify
 	if send == nil {
-		send = func(n Notice) error { return SendNotice(ctx, n) }
+		send = func(n state.Notice) error { return SendNotice(ctx, n) }
 	}
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
-	var last NotifierStats
+	var last state.NotifierStats
 	for {
 		select {
 		case <-ctx.Done():
@@ -431,7 +423,7 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 				continue
 			}
 			err := send(n)
-			x.setObs(func(o *Obs) {
+			x.setObs(func(o *state.Obs) {
 				if err != nil {
 					o.NotifyFailed++
 					o.NotifyError = signals.Clip(err.Error(), 160)
@@ -445,7 +437,7 @@ func (x *runtimeV2) notifyLoop(ctx context.Context) {
 		}
 		if stats != last {
 			last = stats
-			x.hub.Update(func(m *Model, now time.Time) { m.ApplyNotifier(stats) })
+			x.hub.Update(func(m *state.Model, now time.Time) { m.ApplyNotifier(stats) })
 		}
 	}
 }
@@ -469,15 +461,15 @@ func (x *runtimeV2) promptLoop(ctx context.Context) {
 // waits on a `claude agents` reading kicks a poll, at most every promptKickEvery; a
 // lane that waits on anything else (its tmux session is gone) kicks nothing.
 func (x *runtimeV2) promptTick(ctx context.Context, clock time.Time) {
-	var ds map[string]PromptDecision
-	x.hub.Read(func(m *Model, now time.Time) { ds = m.PromptDecisions(now) })
+	var ds map[string]state.PromptDecision
+	x.hub.Read(func(m *state.Model, now time.Time) { ds = m.PromptDecisions(now) })
 	changed, poll := false, false
 	for id, d := range ds {
 		switch d.Action {
 		case "send":
 			stillReady := func() string {
-				var d PromptDecision
-				x.hub.Read(func(m *Model, now time.Time) { d = m.PromptDecisions(now)[id] })
+				var d state.PromptDecision
+				x.hub.Read(func(m *state.Model, now time.Time) { d = m.PromptDecisions(now)[id] })
 				if d.Action != "send" {
 					return "no longer ready (" + d.Why + ")"
 				}
@@ -560,7 +552,7 @@ func (x *runtimeV2) queueLoop(ctx context.Context) {
 		}
 		if sig != x.lastQ {
 			x.lastQ = sig
-			x.hub.Update(func(m *Model, now time.Time) { m.ApplyQueues(qs, err, now) })
+			x.hub.Update(func(m *state.Model, now time.Time) { m.ApplyQueues(qs, err, now) })
 		}
 		select {
 		case <-ctx.Done():
@@ -633,8 +625,8 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*leas
 	}
 	x.mu.Unlock()
 	lane := "panel"
-	var terms []TermLaneView
-	x.hub.Read(func(m *Model, now time.Time) { terms = m.terminalViews(now) })
+	var terms []state.TermLaneView
+	x.hub.Read(func(m *state.Model, now time.Time) { terms = m.TerminalViews(now) })
 	for _, t := range terms {
 		if t.Running && t.Worktree == dir {
 			lane = t.ID
@@ -690,4 +682,16 @@ func (x *runtimeV2) runQueue(ctx context.Context, queue, worktree string) (*leas
 	rc := *run
 	x.mu.Unlock()
 	return &rc, nil
+}
+
+// SendNotice shows a notification with osascript.
+func SendNotice(ctx context.Context, nt state.Notice) error {
+	argv := state.NotifyArgv(nt.Title, nt.Body)
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("osascript: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // Options configures one panel run.
@@ -55,7 +56,7 @@ type Options struct {
 	// TrustConfig trusts the config as it is now, even if it changed (--trust-config).
 	TrustConfig bool
 	// Notify overrides how an OS notification is shown (tests record it instead).
-	Notify func(Notice) error
+	Notify func(state.Notice) error
 	// LockRunArgv overrides the lock-run command a queue RUN starts (default: this
 	// binary's `lock-run`).
 	LockRunArgv []string
@@ -177,9 +178,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
 	lm, lanesWhy := newLaneManager(o, cfg, root)
-	model := NewModel(cfg, root, time.Now())
+	model := state.NewModel(cfg, root, time.Now())
 	hub := NewHub(model, time.Now)
-	hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
+	hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 
 	// Install hooks only once the port is ours, so a refused second launch never
 	// rewrites settings.json. A failed install is a banner and a retry, not a fatal
@@ -393,7 +394,7 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				_, _ = p.registry.MarkConversation(ev.SessionID)
 			}
 			kept := true
-			p.hub.Update(func(m *Model, now time.Time) { kept = m.ApplyHook(ev, now) })
+			p.hub.Update(func(m *state.Model, now time.Time) { kept = m.ApplyHook(ev, now) })
 			if !kept {
 				p.kickWorktrees()
 			}
@@ -404,7 +405,7 @@ func (p *pollers) ingest(ctx context.Context, hooks, status <-chan []byte) {
 				continue
 			}
 			st.Cwd = signals.ResolvePath(st.Cwd)
-			p.hub.Update(func(m *Model, now time.Time) { m.ApplyStatus(st, now) })
+			p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyStatus(st, now) })
 		}
 	}
 }
@@ -441,7 +442,7 @@ func (p *pollers) worktreeLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		p.hub.Update(func(m *Model, now time.Time) { m.ApplyWorktrees(wts, err, now) })
+		p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, err, now) })
 	})
 }
 
@@ -469,7 +470,7 @@ func (p *pollers) agentsLoop(ctx context.Context) {
 				_, _ = p.registry.MarkConversation(agents[i].SessionID)
 			}
 		}
-		p.hub.Update(func(m *Model, now time.Time) { m.ApplyAgents(agents, err, now) })
+		p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyAgents(agents, err, now) })
 	})
 }
 
@@ -485,7 +486,7 @@ func (p *pollers) prLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		p.hub.Update(func(m *Model, now time.Time) { m.ApplyPRs(prs, err, now) })
+		p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyPRs(prs, err, now) })
 	})
 }
 
@@ -493,7 +494,7 @@ func (p *pollers) cardLoop(ctx context.Context, c config.CardConfig, kickCh chan
 	rule, _ := config.ParseRefresh(c.Refresh) // validated at load
 	runCard := func() {
 		if !p.x.trusted() {
-			p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, nil, errUntrusted, now) })
+			p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyCard(c.ID, nil, errUntrusted, now) })
 			return
 		}
 		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -507,7 +508,7 @@ func (p *pollers) cardLoop(ctx context.Context, c config.CardConfig, kickCh chan
 			parsed := signals.ParseCardOutput(out)
 			co = &parsed
 		}
-		p.hub.Update(func(m *Model, now time.Time) { m.ApplyCard(c.ID, co, err, now) })
+		p.hub.Update(func(m *state.Model, now time.Time) { m.ApplyCard(c.ID, co, err, now) })
 	}
 	if rule.Interval > 0 {
 		loop(ctx, rule.Interval, kickCh, runCard)
@@ -636,17 +637,17 @@ func laneSetSig(up bool, ls []lanes.TmuxLane) string {
 // next tick. list-panes (one call covers every lane) runs every tick;
 // show-environment and Harden only when the lane set changed or tmuxRecheck
 // passed, and never without a server: no server has no environment to check.
-func (t *tmuxPoller) tick(ctx context.Context) (func(m *Model, now time.Time), time.Duration) {
+func (t *tmuxPoller) tick(ctx context.Context) (func(m *state.Model, now time.Time), time.Duration) {
 	if t.lanes == nil {
 		why := t.why
-		return func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, errors.New(why), now) }, tmuxIdle
+		return func(m *state.Model, now time.Time) { m.ApplyTmux(nil, nil, why, errors.New(why), now) }, tmuxIdle
 	}
 	now := t.now()
 	if now.Sub(t.lastReload) >= registryReload {
 		t.lastReload = now
 		if err := t.lanes.Registry.Reload(); err != nil {
 			why := t.why
-			return func(m *Model, now time.Time) { m.ApplyTmux(nil, nil, why, err, now) }, tmuxFast
+			return func(m *state.Model, now time.Time) { m.ApplyTmux(nil, nil, why, err, now) }, tmuxFast
 		}
 	}
 	ls, up, err := t.lanes.ListServer(ctx)
@@ -674,7 +675,7 @@ func (t *tmuxPoller) tick(ctx context.Context) (func(m *Model, now time.Time), t
 		next = tmuxFast
 	}
 	recs, problems := t.lanes.Registry.List(), t.lanes.Registry.Problems()
-	return func(m *Model, now time.Time) {
+	return func(m *state.Model, now time.Time) {
 		m.ApplyTmux(ls, recs, blocked, err, now)
 		m.ApplyRegistryProblems(problems)
 	}, next

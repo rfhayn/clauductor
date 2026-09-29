@@ -681,3 +681,13 @@ var localhostNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.l
 
 // ValidHostName reports whether a configured extra host name is allowed.
 func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
+
+func ShortHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	if h == "" {
+		return "none"
+	}
+	return h
+}

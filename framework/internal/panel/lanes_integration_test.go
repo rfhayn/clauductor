@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/coder/websocket"
 )
 
@@ -140,7 +141,7 @@ func (p *panelRun) post(t *testing.T, path string, body any) (int, map[string]an
 	return resp.StatusCode, out
 }
 
-func (p *panelRun) state(t *testing.T) View {
+func (p *panelRun) state(t *testing.T) state.View {
 	t.Helper()
 	return liveClient{base: p.base, cookie: p.cookie}.state(t)
 }
@@ -199,7 +200,7 @@ func hasSession(tmux, sock, id string) bool {
 	return exec.Command(tmux, "-L", sock, "has-session", "-t", "="+id).Run() == nil
 }
 
-func findTerm(v View, id string) *TermLaneView {
+func findTerm(v state.View, id string) *state.TermLaneView {
 	for i := range v.Terminals {
 		if v.Terminals[i].ID == id {
 			return &v.Terminals[i]

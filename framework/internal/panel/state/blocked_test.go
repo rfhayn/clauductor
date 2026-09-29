@@ -1,4 +1,4 @@
-package panel
+package state
 
 import (
 	"errors"
@@ -303,5 +303,62 @@ func TestApproxReachesLaneSessionAndTerminal(t *testing.T) {
 		if !strings.Contains(js, use) {
 			t.Errorf("panel.js never reads %s: an approximate status would render as current", use)
 		}
+	}
+}
+
+// A 15 s interval must not make every reading look stale between polls.
+func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
+	m := NewModel(v2Config(t, ""), "/p", t0)
+	m.agentsNext = agentsQuiet
+	m.ApplyAgentsTimed(nil, nil, 100*time.Millisecond, t0)
+	if !m.agentsFresh(t0.Add(agentsQuiet + time.Second)) {
+		t.Fatal("a reading one quiet interval old counts as stale")
+	}
+	if m.agentsFresh(t0.Add(2*agentsQuiet + time.Second)) {
+		t.Fatal("a reading two quiet intervals old counts as fresh")
+	}
+}
+
+func TestWaitingNoteIsDroppedWhenItsPaneIsDeadOrAfterADay(t *testing.T) {
+	boom := errors.New("claude agents: boom")
+	withNote := func(t *testing.T) *Model {
+		m := NewModel(v2Config(t, ""), "/p", t0)
+		m.sessions["s-a"] = &session{ID: "s-a", LastHookAt: t0, Note: &note{Type: "permission_prompt", At: t0}}
+		return m
+	}
+	// Polls failing: kept for a day, not past it.
+	m := withNote(t)
+	m.ApplyAgents(nil, boom, t0.Add(23*time.Hour))
+	if m.sessions["s-a"] == nil {
+		t.Fatal("dropped before a day")
+	}
+	m.ApplyAgents(nil, boom, t0.Add(25*time.Hour))
+	if m.sessions["s-a"] != nil {
+		t.Fatal("a waiting note kept past a day while polls fail")
+	}
+	// Its lane's pane is dead: dropped at once.
+	for _, tc := range []struct {
+		name string
+		tl   []lanes.TmuxLane
+	}{{"pane dead", []lanes.TmuxLane{{ID: "lane-a", Dead: true}}}, {"session gone", nil}} {
+		m := withNote(t)
+		m.ApplyTmux(tc.tl, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+		m.ApplyAgents(nil, boom, t0.Add(time.Minute))
+		if m.sessions["s-a"] != nil {
+			t.Fatalf("%s: a waiting note kept while polls fail", tc.name)
+		}
+	}
+	// A live pane, or a tmux poll that failed, keeps it.
+	m = withNote(t)
+	m.ApplyTmux([]lanes.TmuxLane{{ID: "lane-a"}}, []lanes.LaneRecord{{ID: "lane-a", SessionID: "s-a"}}, "", nil, t0)
+	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
+	if m.sessions["s-a"] == nil {
+		t.Fatal("dropped while its pane is alive")
+	}
+	m = withNote(t)
+	m.ApplyTmux(nil, nil, "", errors.New("tmux: boom"), t0)
+	m.ApplyAgents(nil, boom, t0.Add(time.Hour))
+	if m.sessions["s-a"] == nil {
+		t.Fatal("dropped on a failed tmux poll")
 	}
 }

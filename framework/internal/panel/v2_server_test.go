@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // C3: a body dropped because the processor is behind is counted, apart from
@@ -22,8 +23,8 @@ func TestIngestOverflowIsCounted(t *testing.T) {
 	if s.Overflow() != 3 {
 		t.Fatalf("overflow %d, want 3", s.Overflow())
 	}
-	m := NewModel(testConfig(t), "/repo", t0)
-	m.ApplyObs(Obs{OverflowDrops: s.Overflow()})
+	m := state.NewModel(testConfig(t), "/repo", t0)
+	m.ApplyObs(state.Obs{OverflowDrops: s.Overflow()})
 	v := m.Snapshot(t0)
 	if v.Dropped != 0 || v.Observe.OverflowDrops != 3 {
 		t.Fatalf("overflow must be its own counter: %+v", v.Observe)
