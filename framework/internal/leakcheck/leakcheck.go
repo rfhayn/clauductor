@@ -178,16 +178,20 @@ func settle(list func() []string) []string {
 	}
 }
 
-// processes lists, as "pid command", the processes other than this one that are
-// its children (started and never reaped), or whose command line contains any of
-// marks: the test binary run again as a helper, or a command naming a path in this
-// run's temp directory, however far it was reparented.
-func processes(parent int, marks ...string) []string {
+// processes lists, as "pid command", the processes other than this one and its
+// ancestors that are its children (started and never reaped), that run this test
+// binary (a helper), or whose command line names a path in this run's temp
+// directory (mark), however far they were reparented.
+func processes(self int, bin, mark string) []string {
 	out, err := exec.Command("ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "command=").Output()
 	if err != nil {
 		return nil
 	}
-	var found []string
+	type proc struct {
+		ppid int
+		cmd  string
+	}
+	all := map[int]proc{}
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 {
@@ -195,19 +199,24 @@ func processes(parent int, marks ...string) []string {
 		}
 		pid, err1 := strconv.Atoi(f[0])
 		ppid, err2 := strconv.Atoi(f[1])
-		if err1 != nil || err2 != nil || pid == parent {
+		if err1 == nil && err2 == nil {
+			all[pid] = proc{ppid, strings.Join(f[2:], " ")}
+		}
+	}
+	// Whatever started this run (go test, a shell that named the binary) is not a
+	// leak, whatever its command line says.
+	skip := map[int]bool{}
+	for p := self; p > 1 && !skip[p]; p = all[p].ppid {
+		skip[p] = true
+	}
+	var found []string
+	for pid, p := range all {
+		if skip[pid] || strings.HasPrefix(p.cmd, "ps -A -ww") {
 			continue
 		}
-		cmd := strings.Join(f[2:], " ")
-		if strings.HasPrefix(cmd, "ps -A -ww") { // this listing itself
-			continue
-		}
-		hit := ppid == parent
-		for _, m := range marks {
-			hit = hit || (m != "" && strings.Contains(cmd, m))
-		}
-		if hit {
-			found = append(found, strconv.Itoa(pid)+" "+cmd)
+		argv0 := strings.Fields(p.cmd)[0]
+		if p.ppid == self || argv0 == bin || (mark != "" && strings.Contains(p.cmd, mark)) {
+			found = append(found, strconv.Itoa(pid)+" "+p.cmd)
 		}
 	}
 	sort.Strings(found)
