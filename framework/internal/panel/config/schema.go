@@ -28,14 +28,15 @@ func jsonSchema() ([]byte, error) {
 		out[k] = v
 	}
 	// The version gate: a file that declares version v may not set a key from a
-	// later version. Only top-level keys carry a version of their own (version_test
-	// holds nested keys to their parent's).
+	// later version. A nested key newer than its parent (templates[].suggest) is
+	// banned where it sits, inside its parent's items or properties; its own
+	// children go with it.
 	var gates []any
 	for v := MinVersion; v < LatestVersion; v++ {
 		banned := map[string]any{}
 		for _, f := range Fields {
-			if !strings.ContainsAny(f.Path, ".[") && f.Version > v {
-				banned[f.Path] = false
+			if f.Version > v && parentVersion(fields, f.Path) <= v {
+				mergeSchema(banned, banAt(f.Path))
 			}
 		}
 		if len(banned) == 0 {
@@ -43,7 +44,7 @@ func jsonSchema() ([]byte, error) {
 		}
 		gates = append(gates, map[string]any{
 			"if":   map[string]any{"properties": map[string]any{"version": map[string]any{"const": v}}, "required": []string{"version"}},
-			"then": map[string]any{"properties": banned},
+			"then": banned,
 		})
 	}
 	if len(gates) > 0 {
@@ -57,6 +58,44 @@ func jsonSchema() ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// parentPath is the key a nested key sits in ("templates" for "templates[].suggest",
+// "lane_types" for "lane_types.*.model"); "" for a top-level key.
+func parentPath(p string) string {
+	i := strings.LastIndexAny(p, ".[")
+	if i <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(p[:i], ".*"), "[]")
+}
+
+// parentVersion is the version of the key p sits in (0 at the top level).
+func parentVersion(fields map[string]Field, p string) int {
+	if f, ok := fields[parentPath(p)]; ok {
+		return f.Version
+	}
+	return 0
+}
+
+// banAt is a schema fragment refusing the key at path p: "templates[].suggest"
+// becomes {"properties": {"templates": {"items": {"properties": {"suggest": false}}}}}.
+func banAt(p string) map[string]any {
+	var cur any = false
+	segs := strings.Split(p, ".")
+	for i := len(segs) - 1; i >= 0; i-- {
+		if segs[i] == "*" {
+			cur = map[string]any{"additionalProperties": cur}
+			continue
+		}
+		name := segs[i]
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			cur = map[string]any{"items": cur}
+		}
+		cur = map[string]any{"properties": map[string]any{name: cur}}
+	}
+	return cur.(map[string]any)
 }
 
 func schemaFor(t reflect.Type, path string, fields map[string]Field) (map[string]any, error) {

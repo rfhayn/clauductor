@@ -17,10 +17,47 @@
       "then": {
         "properties": {
           "alerts": false,
+          "cards": {
+            "items": {
+              "properties": {
+                "pin": false
+              }
+            }
+          },
           "host_names": false,
           "queues": false,
           "quota_guard": false,
           "templates": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cards": {
+            "items": {
+              "properties": {
+                "pin": false
+              }
+            }
+          },
+          "templates": {
+            "items": {
+              "properties": {
+                "suggest": false
+              }
+            }
+          }
         }
       }
     }
@@ -96,6 +133,11 @@
             "description": "Unique among the cards.",
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
             "type": "string"
+          },
+          "pin": {
+            "default": false,
+            "description": "Also show the card in the side panel, as a tab of the pinned cards' box: below the selected lane's details, or alone while no lane is selected. Each output line is a title that opens to the rest of the line (see *Pinned cards*).",
+            "type": "boolean"
           },
           "refresh": {
             "description": "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
@@ -255,6 +297,30 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
             "type": "string"
           },
+          "suggest": {
+            "additionalProperties": false,
+            "description": "What this template could start next: a command whose output **New lane** lists under the template, each row filling in the lane name (see *Suggestions*).",
+            "properties": {
+              "command": {
+                "description": "argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout.",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "refresh": {
+                "description": "When to re-run it, as a card's `refresh`: `\"watch:<relpath>\"` or `\"interval:<seconds>\"`.",
+                "pattern": "^(watch:.+|interval:0*[1-9][0-9]*)$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "command",
+              "refresh"
+            ],
+            "type": "object"
+          },
           "title": {
             "description": "Shown in the dialog.",
             "type": "string"
@@ -279,7 +345,8 @@
       "description": "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
       "enum": [
         1,
-        2
+        2,
+        3
       ],
       "type": "integer"
     },

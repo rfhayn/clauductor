@@ -15,12 +15,13 @@ import (
 //	1  name, lanes, cards, and the keys of lanes the panel starts itself
 //	   (tmux_socket, worktree_dir, base, lane_types)
 //	2  orchestration: templates, queues, alerts, quota_guard, host_names
+//	3  what's next: templates[].suggest, cards[].pin
 //
 // A config with no "version" is read as LatestVersion, and the panel says once that
 // it should declare one.
 const (
 	MinVersion    = 1
-	LatestVersion = 2
+	LatestVersion = 3
 )
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
@@ -60,9 +61,9 @@ func pattern(re *regexp.Regexp) map[string]any { return map[string]any{"pattern"
 var Fields = []Field{
 	{Path: "$schema", Version: 1, Type: "string",
 		Doc: "The JSON Schema the file follows, for editors: `" + SchemaURL + "`. The panel ignores it. `clauductor panel init` writes it."},
-	{Path: "version", Version: 1, Type: "integer: 1 or 2",
+	{Path: "version", Version: 1, Type: "integer: 1, 2 or 3",
 		Doc:    "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
-		Schema: map[string]any{"enum": []int{1, 2}}},
+		Schema: map[string]any{"enum": []int{1, 2, 3}}},
 	{Path: "name", Version: 1, Type: "string", Required: true,
 		Doc:   "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
 		Match: nameRe, Schema: map[string]any{"minLength": 1, "maxLength": 80}},
@@ -81,6 +82,8 @@ var Fields = []Field{
 	{Path: "cards[].refresh", Version: 1, Type: "string", Required: true,
 		Doc:   "`\"watch:<relpath>\"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `\"interval:<seconds>\"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH.",
 		Match: refreshRe},
+	{Path: "cards[].pin", Version: 3, Type: "boolean", Default: false,
+		Doc: "Also show the card in the side panel, as a tab of the pinned cards' box: below the selected lane's details, or alone while no lane is selected. Each output line is a title that opens to the rest of the line (see *Pinned cards*)."},
 	{Path: "tmux_socket", Version: 1, Type: "string", Default: DefaultTmuxSocket,
 		Doc: "The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions.", Match: SocketNameRe},
 	{Path: "worktree_dir", Version: 1, Type: "string", Default: DefaultWorktreeDir,
@@ -111,6 +114,14 @@ var Fields = []Field{
 		Doc: "Overrides the lane type's model.", Match: LaunchOptRe},
 	{Path: "templates[].effort", Version: 2, Type: "string",
 		Doc: "Overrides the lane type's effort.", Match: LaunchOptRe},
+	{Path: "templates[].suggest", Version: 3, Type: "object",
+		Doc: "What this template could start next: a command whose output **New lane** lists under the template, each row filling in the lane name (see *Suggestions*)."},
+	{Path: "templates[].suggest.command", Version: 3, Type: "array of strings", Required: true,
+		Doc:    "argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout.",
+		Schema: map[string]any{"minItems": 1}},
+	{Path: "templates[].suggest.refresh", Version: 3, Type: "string", Required: true,
+		Doc:   "When to re-run it, as a card's `refresh`: `\"watch:<relpath>\"` or `\"interval:<seconds>\"`.",
+		Match: refreshRe},
 	{Path: "queues", Version: 2, Type: "array",
 		Doc: "Shared resources held as a lease on disk (see *Queue and the gate lock protocol*)."},
 	{Path: "queues[].id", Version: 2, Type: "string", Required: true,

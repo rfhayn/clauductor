@@ -115,6 +115,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .big .f { display: flex; align-items: baseline; gap: .4rem; }
 .big .f .v, .big .f .v .num { font-size: .8125rem; }
 .big .f .v .more, .big #f-intr, .big #f-proc, .big .f.hooks, .big .f .spark { display: none; }
+/* fitFields: figures that would wrap the bar lose their secondary parts first. */
+.fields.tight .f .v .more:not(.stale), .fields.tight .f .spark, .fields.tight .f.hooks { display: none; }
 .big .status { gap: .2rem; padding-block: .3rem; }
 
 /* ---- Lost the panel ---------------------------------------------------------------- */
@@ -149,7 +151,7 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .pane { background: var(--pane); padding: var(--pane-p); border: calc(var(--tui) * 1px) solid var(--rule); min-width: 0; display: grid; gap: .4rem; align-content: start; }
 .pane:focus-within { border-color: var(--rule-strong); }
 .pane-h { display: flex; align-items: center; gap: .5rem; min-width: 0; margin-top: calc(var(--tui) * -1 * (var(--pane-p) + .7em)); }
-.pane-h h2, .pane-h h3 { font-size: .9375rem; text-transform: var(--title-case); background: var(--pane); padding-inline: calc(var(--tui) * .3rem); }
+.pane-h h2, .pane-h h3 { white-space: nowrap; font-size: .9375rem; text-transform: var(--title-case); background: var(--pane); padding-inline: calc(var(--tui) * .3rem); }
 .pane-h .cnt { color: var(--text-2); font-weight: 400; }
 .pane-h .sp + .btn, .pane-h .btn { flex: none; }
 
@@ -181,8 +183,10 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .rail .tbl .lane-nm { max-width: 6.5rem; }
 .tblwrap { overflow-x: auto; min-width: 0; }
 .colpick { position: relative; }
-.colmenu { position: absolute; right: 0; top: calc(100% + .2rem); z-index: 20; background: var(--pane); border: 1px solid var(--rule-strong); padding: .35rem .5rem;
-  box-shadow: 0 .5rem 1.5rem -.5rem var(--scrim); display: grid; gap: .15rem; min-width: 12rem; }
+/* Fixed to the window, placed under its button by colPicker: inside the rail (which
+   clips sideways) an absolute menu was cut off, and ran off the window's left edge. */
+.colmenu { position: fixed; z-index: 20; background: var(--pane); border: 1px solid var(--rule-strong); padding: .35rem .5rem;
+  box-shadow: 0 .5rem 1.5rem -.5rem var(--scrim); display: grid; gap: .15rem; min-width: 12rem; max-width: calc(100vw - 1rem); overflow-y: auto; }
 .colmenu label { display: flex; gap: .4rem; align-items: center; white-space: nowrap; }
 
 /* ---- The lane-state timeline, 2 h ------------------------------------------------------------ */
@@ -220,7 +224,7 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
    terminal and the page scrolls down to it rather than squeezing it. */
 .shell { flex: 1 1 0; min-height: 22rem; display: grid; grid-template-columns: min(var(--rail-w), 38vw) 5px minmax(0, 1fr); }
 .shell.norail { grid-template-columns: minmax(0, 1fr); }
-.shell.norail .rail, .shell.norail .splitter { display: none; }
+.shell.norail .rail, .shell.norail > .splitter { display: none; }
 .rail { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--rail); display: grid; align-content: start; gap: calc(var(--tui) * .75rem);
   padding: calc(var(--tui) * .75rem) calc(var(--tui) * .25rem) 0; }
 .rail > #tree { padding-bottom: 2rem; }
@@ -237,10 +241,12 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; -webkit-user-select: none; }
 .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--ground); }
 .wsbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.wsgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) min(var(--side-w), 32vw); }
+.wsgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 5px min(var(--side-w), 32vw); }
+@media (min-width: 1800px) { .wsgrid { grid-template-columns: minmax(0, 1fr) 5px min(calc(var(--side-w) * 1.25), 32vw); } }
+/* Its edge dragged (PANEL-12): the width you chose, up to half the window (panel.js). */
+.wsgrid.sized { grid-template-columns: minmax(0, 1fr) 5px var(--side-w); }
 .wsgrid.noside { grid-template-columns: minmax(0, 1fr); }
-.wsgrid.noside .side { display: none; }
-@media (min-width: 1800px) { .wsgrid { grid-template-columns: minmax(0, 1fr) min(calc(var(--side-w) * 1.25), 32vw); } }
+.wsgrid.noside .side, .wsgrid.noside .sidesplit { display: none; }
 .termcol { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .25rem .5rem .4rem; }
 
 /* ---- Terminal tabs ---------------------------------------------------------------------------- */
@@ -274,8 +280,25 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .termbar .note { color: var(--text-2); }
 
 /* ---- The lane's side panel: tabs between metric families ------------------------------------- */
-.side { min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--rule); border-top: 0; align-content: start; }
-.sidetabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; gap: 0; border-bottom: 1px solid var(--rule); margin: calc(var(--pane-p) * -1) calc(var(--pane-p) * -1) 0; }
+/* Pinned cards (PANEL-12): titles that open, the rest under them. */
+/* The project box: its own tabs (one per pinned card) under the lane's, and a fold. */
+.sidepins { display: grid; gap: .4rem; align-content: start; }
+.projhead { display: flex; align-items: stretch; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); margin: .6rem calc(var(--pane-p) * -1) 0; }
+.sidepins:first-child .projhead { margin-top: calc(var(--pane-p) * -1); border-top: 0; }
+.projhead .sidetabs { flex: 1; min-width: 0; border: 0; margin: 0; }
+.projfold { border: 0; background: none; color: var(--text-2); padding: 0 .55rem; font-size: .75rem; }
+.projfold:hover { color: var(--act); }
+.pinage { font-size: .75rem; }
+.pinrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; font-size: .8125rem; }
+.pinrows li.cap { color: var(--text-2); padding: .15rem 0; }
+.pinrows summary { cursor: pointer; padding: .2rem .1rem; line-height: 1.3; }
+.pinrows summary:hover { background: var(--pane-2); }
+.pinrows details[open] > summary { font-weight: 700; }
+.pinbody { display: grid; gap: .3rem; padding: .15rem 0 .45rem 1rem; color: var(--text-2); line-height: 1.35; overflow-wrap: anywhere; }
+.pinrows code { font-family: var(--font-data); font-size: .95em; }
+.side { min-width: 0; min-height: 0; overflow-y: auto; border-left: 0; border-top: 0; align-content: start; }
+/* The tabs wrap rather than scroll: scrolled, the last one (Activity) sat out of sight at 16rem. */
+.sidetabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--rule); margin: calc(var(--pane-p) * -1) calc(var(--pane-p) * -1) 0; }
 .sidetabs [role=tab] { flex: none; white-space: nowrap; font-size: .75rem; padding: .35rem .45rem; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); cursor: pointer; }
 .sidetabs [role=tab]:hover { color: var(--act); }
 .sidetabs [role=tab][aria-selected="true"] { color: var(--text-1); font-weight: 700; border-bottom-color: var(--rule-strong); }
@@ -331,6 +354,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   display: grid; gap: .6rem; grid-template-columns: minmax(0, 1fr); box-shadow: 0 1rem 2rem -1rem var(--scrim); }
 .dlg h3 { font-size: .9375rem; }
 .dlg .sub { color: var(--text-2); }
+/* A field's help sits under its field, closer to it than to the next one. */
+.dlg #st-tpl-help, .dlg #st-type-help { margin-top: -.4rem; font-size: .8125rem; }
 .dlg label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; min-width: 0; color: var(--text-2); }
 .dlg select, .dlg input[type=text] { width: 100%; max-width: 100%; min-width: 0; text-overflow: ellipsis; padding: .3rem .4rem; background: var(--ground); color: var(--text-1);
   border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); font-family: var(--font-data); }
@@ -339,6 +364,19 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .dlg legend { color: var(--text-2); padding: 0 .25rem; }
 .dlg .actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .dlg .stop { color: var(--crit); }
+/* Up next (PANEL-12): what each suggesting template could start, a row a line. */
+.dlg .next { display: grid; align-content: start; border: 1px solid var(--rule); max-height: 15rem; overflow-y: auto; padding-bottom: .2rem; }
+.next .mh { margin: 0; padding: .35rem .5rem .1rem; font-weight: 700; color: var(--text-1); }
+.next .nh { position: sticky; top: 0; background: var(--pane); padding: .3rem .5rem .1rem; color: var(--text-2); font-size: .75rem; font-weight: 700; }
+.next .empty, .next .srcerr, .next .dim { padding: .1rem .5rem; font-size: .8125rem; }
+.nextrow { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); gap: 0 .6rem; text-align: left; font: inherit; color: var(--text-1); background: none; border: 0; padding: .2rem .5rem; cursor: pointer; }
+.nextrow:hover { background: var(--pane-2); }
+.nextrow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.nextrow[aria-pressed="true"] { background: var(--sel); color: var(--sel-text); }
+.nextrow .nm { font-family: var(--font-data); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nextrow .tt, .nextrow .dt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nextrow .dt { grid-column: 2; font-size: .75rem; color: var(--text-3); }
+.nextrow[aria-pressed="true"] .dt { color: inherit; }
 
 /* ---- Footer and key hints -------------------------------------------------------------------- */
 .obs { border-top: 1px solid var(--rule); background: var(--pane); padding: .2rem .75rem; font-size: .75rem; color: var(--text-2);
@@ -368,7 +406,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; }
 .modes .mi { grid-template-columns: minmax(0, 1fr); justify-items: center; }
 .modes .mi[aria-checked="true"] { background: var(--sel); color: var(--sel-text); font-weight: 700; }
-.sizerow { display: grid; grid-template-columns: 6.5rem auto minmax(4rem, 1fr) auto 3.5rem; gap: .35rem; align-items: center; padding: .1rem .4rem; }
+/* The label takes its own line: beside the controls, the row needed ~20rem, more than a
+   15rem menu column, and the menu scrolled sideways to show the value. */
+.sizerow { display: grid; grid-template-columns: auto minmax(4rem, 1fr) auto 3.5rem; gap: .2rem .35rem; align-items: center; padding: .1rem .4rem; }
+.sizerow > :first-child { grid-column: 1 / -1; }
 .sizerow input[type=range] { width: 100%; min-width: 0; accent-color: var(--act); }
 .sizerow .mi { border: 1px solid var(--rule); padding: .15rem .45rem; grid-template-columns: auto; color: var(--act); }
 .sizerow .val { text-align: center; color: var(--text-2); }
@@ -387,7 +428,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 @media (max-width: 1180px) {
   .workspace { overflow-y: auto; }
   .wsbody { flex: none; }
-  .wsgrid, .wsgrid.noside { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .wsgrid, .wsgrid.noside, .wsgrid.sized { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .sidesplit { display: none; }
   .wsgrid.noside .side { display: grid; }
   .termhost { flex: none; height: 62vh; }
   .side { overflow: visible; border-left: 0; border-top: 1px solid var(--rule); }

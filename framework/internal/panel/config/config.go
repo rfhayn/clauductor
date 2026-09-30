@@ -201,6 +201,16 @@ type CardConfig struct {
 	// Refresh is "watch:<relpath>" (re-run when that file or directory changes) or
 	// "interval:<seconds>".
 	Refresh string `json:"refresh"`
+	// Pin also shows the card in the side panel (version 3): the project's own
+	// "where things stand", beside the lanes rather than in the drawer.
+	Pin bool `json:"pin"`
+}
+
+// SuggestConfig is a template's list of what to start next (version 3): a command,
+// run like a card, whose output the Start dialog offers as lane names.
+type SuggestConfig struct {
+	Command []string `json:"command"`
+	Refresh string   `json:"refresh"`
 }
 
 // RefreshRule is a parsed CardConfig.Refresh.
@@ -392,6 +402,8 @@ type TemplateConfig struct {
 	// Model and Effort override the lane type's launch options.
 	Model  string `json:"model"`
 	Effort string `json:"effort"`
+	// Suggest lists what this template could start next (signals.ParseSuggestions).
+	Suggest *SuggestConfig `json:"suggest"`
 }
 
 // AlertConfig sets alert thresholds. A missing key takes the default; 0 turns that
@@ -521,6 +533,14 @@ func (c *Config) validateV2() error {
 		for key, v := range map[string]string{"model": t.Model, "effort": t.Effort} {
 			if v != "" && !LaunchOptRe.MatchString(v) {
 				return fmt.Errorf("panel config: template %q: %s %q must match %s", t.ID, key, v, LaunchOptRe)
+			}
+		}
+		if sg := t.Suggest; sg != nil {
+			if len(sg.Command) == 0 || strings.TrimSpace(sg.Command[0]) == "" {
+				return fmt.Errorf("panel config: template %q: suggest needs a command (argv list)", t.ID)
+			}
+			if _, err := ParseRefresh(sg.Refresh); err != nil {
+				return fmt.Errorf("panel config: template %q: suggest: %w", t.ID, err)
 			}
 		}
 	}
@@ -664,6 +684,8 @@ type TemplateInfo struct {
 	NeedsIssue  bool   `json:"needsIssue"`
 	Model       string `json:"model,omitempty"`
 	Effort      string `json:"effort,omitempty"`
+	// Suggests: the template has a suggest command, so the dialog shows its list.
+	Suggests bool `json:"suggests,omitempty"`
 }
 
 // TemplateList returns the templates for the Start dialog.
@@ -675,7 +697,8 @@ func (c *Config) TemplateList() []TemplateInfo {
 			b = c.BranchPrefix(t.LaneType) + "{name}"
 		}
 		out = append(out, TemplateInfo{ID: t.ID, Title: t.Title, LaneType: t.LaneType, Branch: b,
-			FirstPrompt: t.FirstPrompt, NeedsIssue: t.usesPlaceholder("issue"), Model: t.Model, Effort: t.Effort})
+			FirstPrompt: t.FirstPrompt, NeedsIssue: t.usesPlaceholder("issue"), Model: t.Model, Effort: t.Effort,
+			Suggests: t.Suggest != nil})
 	}
 	return out
 }
@@ -711,9 +734,10 @@ var localhostNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.l
 func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
 
 // RunList describes, one line each, everything the config makes the panel run or
-// type: each card's argv (run on its refresh), each queue's argv (run on RUN), and
-// each template's first prompt (typed into a new lane). Trusting a config trusts
-// exactly these, so trust and install print them.
+// type: each card's argv (run on its refresh), each queue's argv (run on RUN), each
+// template's first prompt (typed into a new lane) and each template's suggest argv
+// (run on its refresh). Trusting a config trusts exactly these, so trust and install
+// print them.
 func (c *Config) RunList() []string {
 	var out []string
 	for _, card := range c.Cards {
@@ -726,6 +750,9 @@ func (c *Config) RunList() []string {
 	}
 	for _, t := range c.Templates {
 		out = append(out, fmt.Sprintf("template %s types %q", t.ID, t.FirstPrompt))
+		if t.Suggest != nil {
+			out = append(out, fmt.Sprintf("template %s suggests from %q (%s)", t.ID, t.Suggest.Command, t.Suggest.Refresh))
+		}
 	}
 	return out
 }

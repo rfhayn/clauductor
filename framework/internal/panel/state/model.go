@@ -121,6 +121,16 @@ type CardState struct {
 	Title  string              `json:"title"`
 	Source SourceStatus        `json:"source"`
 	Output *signals.CardOutput `json:"output,omitempty"`
+	// Pin: the page also shows the card where no lane is selected.
+	Pin bool `json:"pin,omitempty"`
+}
+
+// SuggestView is the last result of one template's suggest command: what the
+// Start dialog offers to start next.
+type SuggestView struct {
+	Source  SourceStatus         `json:"source"`
+	Items   []signals.Suggestion `json:"items"`
+	Skipped int                  `json:"skipped,omitempty"`
 }
 
 // Model is the panel's whole in-memory state.
@@ -197,7 +207,13 @@ func NewModel(cfg *config.Config, root string, now time.Time) *Model {
 	m.v2.versionSrc = SourceStatus{Pending: true}
 	m.v2.queuesSrc = SourceStatus{Pending: true}
 	for _, c := range cfg.Cards {
-		m.cards = append(m.cards, &CardState{ID: c.ID, Title: c.Title, Source: SourceStatus{Pending: true}})
+		m.cards = append(m.cards, &CardState{ID: c.ID, Title: c.Title, Source: SourceStatus{Pending: true}, Pin: c.Pin})
+	}
+	m.v2.suggest = map[string]*SuggestView{}
+	for _, t := range cfg.Templates {
+		if t.Suggest != nil {
+			m.v2.suggest[t.ID] = &SuggestView{Source: SourceStatus{Pending: true}, Items: []signals.Suggestion{}}
+		}
 	}
 	return m
 }
@@ -522,6 +538,12 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		}
 		s.Stats.fold(p, now)
 	}
+	m.foldQuota(p, now)
+	return true
+}
+
+// foldQuota merges a status post's rate limits into the quota.
+func (m *Model) foldQuota(p signals.StatusPayload, now time.Time) {
 	rl := p.RateLimits
 	// Merge per window: a live payload was seen carrying seven_day without five_hour,
 	// and a missing window must not blank the last value the panel knew.
@@ -539,7 +561,25 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		}
 		m.quota = q
 	}
-	return true
+}
+
+// QuotaReading is the last quota the panel knows (a copy), or nil.
+func (m *Model) QuotaReading() *Quota {
+	if m.quota == nil {
+		return nil
+	}
+	q := *m.quota
+	return &q
+}
+
+// RestoreQuota puts back the reading a previous panel saved, until a post says more.
+// It is the account's, so it holds across a restart; its age (At) shows on the page,
+// and a window whose reset has passed shows as reset, as a live one would.
+func (m *Model) RestoreQuota(q Quota) {
+	if m.quota == nil && q.At > 0 {
+		q.FiveHourExpired, q.SevenDayExpired = false, false
+		m.quota = &q
+	}
 }
 
 // ApplyAgents folds a `claude agents --json` poll. Entries outside the project are
@@ -654,6 +694,21 @@ func (m *Model) ApplyCard(id string, out *signals.CardOutput, err error, now tim
 		c.Source = SourceStatus{OK: true, At: ms(now)}
 		c.Output = out
 	}
+}
+
+// ApplySuggestions records a template's suggest run. A failed run keeps the last
+// list, as a card keeps its last output, and says why beside it.
+func (m *Model) ApplySuggestions(id string, out *signals.Suggestions, err error, now time.Time) {
+	sg := m.v2.suggest[id]
+	if sg == nil {
+		return
+	}
+	if err != nil {
+		sg.Source = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
+		return
+	}
+	sg.Source = SourceStatus{OK: true, At: ms(now)}
+	sg.Items, sg.Skipped = append([]signals.Suggestion{}, out.Items...), out.Skipped
 }
 
 // ---- snapshot ----
@@ -1328,6 +1383,7 @@ type modelV2 struct {
 	notifier       NotifierStats
 	trust          config.TrustView
 	versionSet     bool
+	suggest        map[string]*SuggestView // template id → its suggestions
 }
 
 // ObsView is the observability footer.
@@ -1371,12 +1427,14 @@ func (v *View) banner(kind, text string) {
 // templates, queues, restores, the footer and the trust state.
 type ViewOrchestration struct {
 	// Done holds finished turns and completed agents: your move, but not blocked.
-	Done       []NeedView            `json:"done"`
-	Alerts     []AlertView           `json:"alerts"`
-	Templates  []config.TemplateInfo `json:"templates"`
-	Queues     []types.QueueView     `json:"queues"`
-	QueuesSrc  SourceStatus          `json:"queuesSource"`
-	Thresholds config.Thresholds     `json:"thresholds"`
+	Done      []NeedView            `json:"done"`
+	Alerts    []AlertView           `json:"alerts"`
+	Templates []config.TemplateInfo `json:"templates"`
+	// Suggestions are each suggesting template's list, by template id (PANEL-12).
+	Suggestions map[string]SuggestView `json:"suggestions"`
+	Queues      []types.QueueView      `json:"queues"`
+	QueuesSrc   SourceStatus           `json:"queuesSource"`
+	Thresholds  config.Thresholds      `json:"thresholds"`
 	// QuotaGuard is set when the 5-hour quota is at or above the guard: a new lane
 	// needs the override.
 	QuotaGuard string           `json:"quotaGuard,omitempty"`
@@ -1630,6 +1688,10 @@ func (m *Model) restoredPending(rec types.LaneRecord) bool {
 func (m *Model) snapshotV2(v *View, now time.Time) {
 	th := m.cfg.AlertThresholds()
 	v.Templates = m.cfg.TemplateList()
+	v.Suggestions = make(map[string]SuggestView, len(m.v2.suggest))
+	for id, sg := range m.v2.suggest {
+		v.Suggestions[id] = SuggestView{Source: sg.Source, Items: append([]signals.Suggestion{}, sg.Items...), Skipped: sg.Skipped}
+	}
 	v.Thresholds = th
 	v.Queues = append([]types.QueueView{}, m.v2.queues...)
 	v.QueuesSrc = m.v2.queuesSrc

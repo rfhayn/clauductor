@@ -17,7 +17,7 @@ func FullKey(v View) [sha256.Size]byte {
 // ViewKey identifies what a view says: fullKey without the polls' bookkeeping.
 // Left out: when each source was last read (not whether it can be), when
 // `claude agents` last answered, the footer's counters and the top bar's hook
-// count, a card's run time, the quota's arrival time, and a lease's renewal.
+// count, a card's or a suggest list's run time, the quota's arrival time, and a lease's renewal.
 func ViewKey(v View) [sha256.Size]byte {
 	v.Now, v.AgentsReadAt, v.HookEvents, v.StatusPosts, v.Dropped = 0, 0, 0, 0, 0
 	v.Observe = ObsView{}
@@ -39,6 +39,12 @@ func ViewKey(v View) [sha256.Size]byte {
 		cards[i] = c
 	}
 	v.Cards = cards
+	sgs := make(map[string]SuggestView, len(v.Suggestions))
+	for id, sg := range v.Suggestions {
+		sg.Source.At = 0
+		sgs[id] = sg
+	}
+	v.Suggestions = sgs
 	qs := make([]types.QueueView, len(v.Queues))
 	for i, q := range v.Queues {
 		if q.Holder != nil {

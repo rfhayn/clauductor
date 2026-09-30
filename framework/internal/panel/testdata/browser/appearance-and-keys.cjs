@@ -7,7 +7,10 @@
 // - the terminal tabs: the arrow keys move and select, and never enter a terminal;
 // - Enter on the terminal's frame enters it, Ctrl+] leaves to the lane's tab;
 // - Ctrl+Alt+= and Ctrl+Alt+- change the page's text size, and not from inside a terminal;
-// - at the largest size (175%) the page does not scroll sideways and its controls are on screen.
+// - at the largest size (175%) the page does not scroll sideways and its controls are on screen;
+// - PANEL-12: the Appearance menu never scrolls sideways (its size rows once did at 110%), and
+//   a burst of window sizes reaches the pty as one or two resizes, not one per frame (each was
+//   a SIGWINCH claude redrew for, which left pieces of old boxes behind).
 // Usage: node appearance-and-keys.cjs <base URL> <token>
 const pw = require(process.env.PLAYWRIGHT || "playwright");
 const [base, token, typedLog] = process.argv.slice(2);
@@ -21,6 +24,8 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
     const errors = [];
     p.on("pageerror", (e) => errors.push(e.message));
+    const resizes = [];
+    p.on("websocket", (ws) => ws.on("framesent", (f) => { const t = String(f.payload); if (t.includes('"resize"')) resizes.push(JSON.parse(t)); }));
     await p.goto(base + "/?t=" + token);
     await p.waitForSelector('#tabs [role="tab"]:nth-child(2)', { timeout: 15000 });
     await p.waitForSelector(".xterm-rows", { timeout: 15000 });
@@ -118,6 +123,27 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     if (!(s2 > parseFloat(s0) && s3 < s2)) fail("Ctrl+Alt+= / - did not change the page's size: " + [s0, s2, s3]);
     const stillOut = await p.evaluate(() => !document.activeElement.classList.contains("xterm-helper-textarea"));
     if (!stillOut) fail("a size key moved focus into a terminal");
+    // The Appearance menu fits its column at every size: nothing scrolls sideways.
+    for (const pct of [100, 110, 130]) {
+      await p.evaluate((v) => window.PanelScale.set(v), pct);
+      await p.click("#themebtn");
+      const m = await p.evaluate(() => { const e = document.getElementById("thememenu"); return { sw: e.scrollWidth, cw: e.clientWidth, open: !e.hidden }; });
+      if (!m.open || m.sw > m.cw + 1) fail("at " + pct + "% the Appearance menu scrolls sideways: " + m.sw + " > " + m.cw);
+      await p.keyboard.press("Escape");
+    }
+    await p.evaluate(() => window.PanelScale.reset());
+    // A drag of the window: 24 sizes, a frame apart. The terminal refits once it settles.
+    await p.waitForTimeout(500);
+    const rsBefore = resizes.length;
+    for (let i = 0; i < 24; i++) { await p.setViewportSize({ width: 1440 - i * 12, height: 900 }); await p.waitForTimeout(16); }
+    await p.waitForTimeout(600);
+    const burst = resizes.slice(rsBefore);
+    const grid = await p.evaluate(() => { const t = terms[selTerm]; return t ? { cols: t.term.cols, rows: t.term.rows } : null; });
+    if (burst.length < 1 || burst.length > 2) fail("a burst of 24 window sizes sent " + burst.length + " resizes to the pty (want 1 or 2): " + JSON.stringify(burst));
+    const last = burst[burst.length - 1];
+    if (!grid || !last || last.cols !== grid.cols || last.rows !== grid.rows) fail("the pty's last size " + JSON.stringify(last) + " is not the terminal's " + JSON.stringify(grid));
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.waitForTimeout(400);
     // The largest page text (175%) at 1440 px: no page-level horizontal scroll, and
     // every main control reachable (on screen once scrolled to, and not covered). The layout folds the side panel
     // (and the rail if it must) to leave the terminal room.

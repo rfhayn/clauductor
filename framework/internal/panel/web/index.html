@@ -49,7 +49,7 @@
     <button class="f fbtn" id="tm-gate" type="button"><span class="k">Gate</span><span class="v" id="gatestate">—</span></button>
     <div class="f" id="f-proc" title="CPU and memory of the lanes' claude processes, read while this page is in view"><span class="k">Claude processes</span><span class="v" id="procs">—</span></div>
     <div class="f" id="f-intr" title="OS notifications the panel sent today"><span class="k">Interruptions today</span><span class="v"><span class="num" id="intr">0</span></span></div>
-    <div class="f hooks" title="Hook events accepted, status-line posts, events dropped (cwd outside the project). The footer has every counter."><span class="k">Hooks</span><span class="v num" id="hookn">0</span></div>
+    <div class="f hooks" title="Hook events accepted, status-line posts, and events from sessions in other projects (set aside). The footer has every counter."><span class="k">Hooks</span><span class="v num" id="hookn">0</span></div>
   </div>
 </header>
 <!-- Shown only while the page has lost the panel: everything below is then as of the
@@ -83,6 +83,7 @@
           <div class="termhost" id="termhost"><div class="empty" id="termempty"></div><div class="empty" id="termorphan" hidden></div></div>
           <div class="termbar" id="termbar"></div>
         </div>
+        <div class="splitter sidesplit" id="sidesplit" role="separator" aria-orientation="vertical" aria-controls="side" aria-label="Width of the side panel" tabindex="0"></div>
         <aside class="side pane" id="side" aria-label="This lane: agents, figures, git, gate, alerts and activity"></aside>
       </div>
     </div>
@@ -98,8 +99,11 @@
   <form class="dlg" id="startform" autocomplete="off" role="dialog" aria-modal="true" aria-labelledby="st-title">
     <h3 id="st-title">Start a lane</h3>
     <div class="sub">An interactive claude in its own tmux session. It keeps running when you close this page.</div>
-    <label>Template <select id="st-tpl"></select></label>
-    <label>Lane type <select id="st-type"></select></label>
+    <div class="next" id="st-next" role="group" aria-labelledby="st-next-h" hidden></div>
+    <label>Template <select id="st-tpl" aria-describedby="st-tpl-help"></select></label>
+    <div class="sub" id="st-tpl-help"></div>
+    <label>Lane type <select id="st-type" aria-describedby="st-type-help"></select></label>
+    <div class="sub" id="st-type-help"></div>
     <fieldset>
       <legend>Where it runs</legend>
       <label class="inline"><input type="radio" name="st-mode" value="new" checked> New branch and worktree</label>

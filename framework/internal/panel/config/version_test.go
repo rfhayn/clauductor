@@ -29,6 +29,16 @@ func TestVersionGatesKeys(t *testing.T) {
 			t.Errorf("the error must name %s and the version it needs: %v", r.key, err)
 		}
 	}
+	// Version 3's keys sit inside older ones, and are refused where they sit.
+	for _, r := range []struct{ body, key string }{
+		{`{"name":"T","version":2,` + lanes + `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x","suggest":{"command":["true"],"refresh":"interval:60"}}]}`, `"templates[].suggest"`},
+		{`{"name":"T","version":2,"cards":[{"id":"a","command":["true"],"refresh":"interval:60","pin":true}]}`, `"cards[].pin"`},
+	} {
+		_, err := parseConfig([]byte(r.body))
+		if err == nil || !strings.Contains(err.Error(), r.key) || !strings.Contains(err.Error(), `"version": 3`) {
+			t.Errorf("version 2 and %s: %v", r.key, err)
+		}
+	}
 	// Every version 1 key is accepted at version 1.
 	c, err := parseConfig([]byte(`{"$schema":"x","name":"T","version":1,` + lanes + `,"tmux_socket":"s","worktree_dir":"wt","base":"origin/main",
 		"lane_types":{"build":{"model":"opus","effort":"high"}},"cards":[{"id":"a","title":"A","command":["true"],"refresh":"interval:60"}]}`))
@@ -36,7 +46,7 @@ func TestVersionGatesKeys(t *testing.T) {
 		t.Fatalf("a full version 1 config: %v %v", err, c)
 	}
 	// An explicit version outside the supported range is refused, 0 included.
-	for _, v := range []string{"0", "3", "-1"} {
+	for _, v := range []string{"0", "4", "-1"} {
 		if _, err := parseConfig([]byte(`{"name":"T","version":` + v + `}`)); err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("version %s: %v", v, err)
 		}
@@ -50,7 +60,7 @@ func TestMissingVersionReadsAsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 2`) || !strings.Contains(c.Notices[0], `Add "version": 2`) {
+	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 3`) || !strings.Contains(c.Notices[0], `Add "version": 3`) {
 		t.Fatalf("notices %q", c.Notices)
 	}
 	c, err = parseConfig([]byte(`{"name":"T","version":2,"templates":[]}`))
@@ -89,12 +99,11 @@ func TestFieldsCoverEveryConfigKey(t *testing.T) {
 		if !seen[f.Path] {
 			t.Errorf("Fields[%q] names no config key", f.Path)
 		}
-		// The schema's version gate covers top-level keys: a nested key newer than
-		// its parent would pass the schema while the panel refuses it.
-		if i := strings.LastIndexAny(f.Path, ".["); i > 0 {
-			parent := strings.TrimSuffix(strings.TrimSuffix(f.Path[:i], ".*"), "[]")
-			if p, ok := fields[parent]; ok && p.Version != f.Version {
-				t.Errorf("Fields[%q] is version %d inside %q (version %d); teach jsonSchema nested gates first", f.Path, f.Version, parent, p.Version)
+		// A key can be newer than the key it sits in (jsonSchema bans it in place),
+		// never older: a version 1 key inside a version 2 one means nothing.
+		if parent := parentPath(f.Path); parent != "" {
+			if p, ok := fields[parent]; !ok || f.Version < p.Version {
+				t.Errorf("Fields[%q] is version %d inside %q (version %d, known %v); a key is never older than its parent", f.Path, f.Version, parent, p.Version, ok)
 			}
 		}
 	}

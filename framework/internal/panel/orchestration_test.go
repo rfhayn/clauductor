@@ -242,7 +242,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	tmux, sock := securitySocket(t) // security: runs under -short
 	cfg := `{"name":"T","lanes":{"main":"orchestrator","fix/":"fix"},"base":"main","worktree_dir":".wt",
 		"cards":[{"id":"c","command":["echo","card-ran"],"refresh":"interval:60"}],
-		"templates":[{"id":"fix","lane_type":"fix","first_prompt":"hello"}]}`
+		"templates":[{"id":"fix","lane_type":"fix","first_prompt":"hello","suggest":{"command":["echo","fix-one  the first fix"],"refresh":"interval:60"}}]}`
 	root, home := v2Project(t, cfg)
 	os.Remove(install.TrustPath(home, root)) // a fresh clone on this machine: nobody has trusted it
 	var hidden atomic.Bool
@@ -263,6 +263,10 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 		if code, body := p.post(t, "/api/lanes", lanes.StartRequest{Template: "fix", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
 			t.Fatalf("template under an untrusted config: %d %v", code, body)
 		}
+		// A template's suggest command is a command like a card's: it does not run either.
+		if sg := p.state(t).Suggestions["fix"]; !strings.Contains(sg.Source.Error, "not run") || len(sg.Items) != 0 {
+			t.Fatalf("untrusted suggestions: %+v", sg)
+		}
 	}
 	trust := func(p *panelRun) {
 		t.Helper()
@@ -274,6 +278,10 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 		if !p.state(t).Trust.Trusted {
 			t.Fatal("still untrusted")
 		}
+		waitUntil(t, "the suggestions after trust", 10*time.Second, func() bool {
+			sg := p.state(t).Suggestions["fix"]
+			return sg.Source.OK && len(sg.Items) == 1 && sg.Items[0].Name == "fix-one" && sg.Items[0].Title == "the first fix"
+		})
 	}
 	// A config the panel has never seen runs nothing until it is trusted.
 	p := run()

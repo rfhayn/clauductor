@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"os"
@@ -77,7 +78,7 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 				} `json:"properties"`
 			} `json:"if"`
 			Then struct {
-				Properties map[string]bool `json:"properties"`
+				Properties map[string]json.RawMessage `json:"properties"`
 			} `json:"then"`
 		} `json:"allOf"`
 	}
@@ -95,17 +96,38 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 	if !strings.Contains(string(s.Properties["cards"]), `"pattern": "`+jsonQuote(refreshRe.String())+`"`) {
 		t.Errorf("cards[].refresh does not carry the validator's pattern %s", refreshRe)
 	}
-	if len(s.AllOf) != 1 || s.AllOf[0].If.Properties.Version.Const != 1 {
+	if len(s.AllOf) != 2 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 {
 		t.Fatalf("version gate %+v", s.AllOf)
 	}
+	v1, v2 := s.AllOf[0].Then.Properties, s.AllOf[1].Then.Properties
 	for _, k := range []string{"templates", "queues", "alerts", "quota_guard", "host_names"} {
-		if v, ok := s.AllOf[0].Then.Properties[k]; !ok || v {
+		if v, ok := v1[k]; !ok || string(v) != "false" {
 			t.Errorf("version 1 does not ban %s", k)
 		}
+		if string(v2[k]) == "false" {
+			t.Errorf("version 2 bans %s", k)
+		}
 	}
-	if _, ok := s.AllOf[0].Then.Properties["cards"]; ok {
-		t.Error("version 1 bans cards")
+	// cards is version 1, and only its newer key is banned, inside its items.
+	const pin = `{"items":{"properties":{"pin":false}}}`
+	for v, props := range []map[string]json.RawMessage{v1, v2} {
+		if got := compact(t, props["cards"]); got != pin {
+			t.Errorf("version %d: cards gate %s, want %s", v+1, got, pin)
+		}
 	}
+	const suggest = `{"items":{"properties":{"suggest":false}}}`
+	if got := compact(t, v2["templates"]); got != suggest {
+		t.Errorf("version 2: templates gate %s, want %s", got, suggest)
+	}
+}
+
+func compact(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var b bytes.Buffer
+	if err := json.Compact(&b, raw); err != nil {
+		return "(" + err.Error() + ")"
+	}
+	return b.String()
 }
 
 func jsonQuote(s string) string {
