@@ -168,6 +168,18 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     });
     if (!eco || !/^Economyeconomyscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
 
+    // PANEL-19 part 6: remote control in lanes mode (synthetic: install writes the mode).
+    const rc = await p.evaluate(() => {
+      S.remoteControl = "lanes"; render();
+      const head = (document.querySelector('#lanehead [data-k="remote"]') || {}).textContent || "";
+      const t = lanesOf().find((x) => x.key === "t:second");
+      const acts = rowActs(t.t).map((a) => a[1]);
+      S.remoteControl = ""; render();
+      return { head, acts, off: rowActs(t.t).map((a) => a[1]) };
+    });
+    if (rc.head !== "Remoteon, the panel's lanes" || !rc.acts.includes("Remote control") || rc.off.includes("Remote control"))
+      fail("remote control in the page " + JSON.stringify(rc));
+
     if (errors.length) fail("page errors: " + errors.join("; "));
     if (!process.exitCode) console.log("ok metrics-view");
   } finally {

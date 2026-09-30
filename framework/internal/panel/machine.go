@@ -96,6 +96,12 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
 		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
+		// Where Remote Control is on (PANEL-19): settings.json and the install's
+		// choice, re-read on the account's cadence (install restarts the agent anyway).
+		{name: "remote", every: t.Version, poll: func(context.Context, time.Time) (update, time.Duration) {
+			mode := install.RemoteControlSummary(o.Home)
+			return func(md *state.Model, _ time.Time) { md.ApplyRemoteControl(mode) }, 0
+		}},
 	}
 	m.economy = newEconomy(o.Home, def.cfg)
 	if o.Launchd {

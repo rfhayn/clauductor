@@ -156,6 +156,25 @@ If the repository runs Clauductor's operating model (it has `.claude/owner-queue
 each. Otherwise it writes none, and says they come with `clauductor install` or can be added by
 hand. See [`panel init`](panel.md#panel-init).
 
+## Drive a lane from your phone
+
+Claude Code's Remote Control lets you continue a session from claude.ai/code or the Claude app.
+`clauductor panel install` asks once where it should be on (only if you have not set
+`remoteControlAtStartup` yourself):
+
+- **Every Claude session on this Mac**: it sets `remoteControlAtStartup` in
+  `~/.claude/settings.json`, and prints how to undo it.
+- **Only the panel's lanes**: each lane starts with `claude --remote-control`. A lane started
+  before that connects from its **⋯** menu, **Remote control**, which asks first and types
+  `/remote-control` only while claude is idle.
+- **Not now.**
+
+To choose without the question, or change your mind: `clauductor panel install
+--remote-control=all`, `lanes` or `off`. `clauductor panel list` and the lane's header show which.
+Anyone signed in to your account on another device can then drive that session and approve its
+permission prompts, so keep that account's devices locked. The first time, claude asks you to
+confirm Remote Control in the terminal. See [Remote control](panel.md#remote-control).
+
 ## Where things are kept
 
 - The project's settings: `.clauductor/panel.json` in the repository.

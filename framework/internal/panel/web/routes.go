@@ -146,6 +146,8 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request, p *Project) 
 		lerr = p.Lanes.Forget(r.Context(), id)
 	case "terminal-app":
 		lerr = p.Lanes.OpenInTerminalApp(r.Context(), id)
+	case "remote-control":
+		lerr = p.Lanes.ConnectRemote(r.Context(), id) // PANEL-19: only in lanes mode, only into an idle claude
 	default:
 		lerr = laneErr(http.StatusNotFound, "not-found", "unknown lane action")
 	}

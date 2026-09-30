@@ -190,6 +190,7 @@ type Model struct {
 	changes       []signals.Change
 	spentByBranch map[string]float64
 	economy       *EconomyView
+	remoteControl string
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -756,6 +757,8 @@ type View struct {
 	Flow *metrics.Card `json:"flow,omitempty"`
 	// Economy is economy mode while it is on (PANEL-19): the badge by the quota.
 	Economy *EconomyView `json:"economy,omitempty"`
+	// RemoteControl is where Remote Control is on, "all" or "lanes"; absent when off.
+	RemoteControl string `json:"remoteControl,omitempty"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -1213,6 +1216,9 @@ func (m *Model) Snapshot(now time.Time) View {
 		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
 	}
 	v.Economy = m.economyView()
+	if m.remoteControl != "off" {
+		v.RemoteControl = m.remoteControl
+	}
 	return v
 }
 

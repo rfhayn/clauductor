@@ -150,6 +150,7 @@ var fileReadSites = map[string]int{
 	"install/singleton.go": 5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
 	"metrics/ledger.go":    1, // the project's spend ledger (spend.json)
 	"economy.go":           2, // economy.json (the panel's own, at start); the project's .claude/model-roles.json
+	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
 	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
 }
 

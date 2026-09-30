@@ -224,6 +224,10 @@ func (m *Model) economyView() *EconomyView {
 	return &c
 }
 
+// ApplyRemoteControl records where Remote Control is on: "all", "lanes" or "off"
+// (the machine's choice at `panel install`, PANEL-19).
+func (m *Model) ApplyRemoteControl(mode string) { m.remoteControl = mode }
+
 // trendGit is a worktree's last git read, or nil.
 func (m *Model) trendGit(path string) *GitView {
 	if m.trend == nil {

@@ -849,7 +849,10 @@ function renderTree(ls, cur) {
 let rowMenu = null; // {lane: the lane's key, btn: the data-k of the button that opened it}
 function rowActs(t) {
   if (!t.running) return [["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]];
-  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null, ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
+  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null,
+    // PANEL-19: in lanes mode, connect (or show) a running lane's Remote Control.
+    S.remoteControl === "lanes" && t.registered && !t.dead ? ["remote-control", "Remote control"] : null,
+    ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
 }
 function actsButton(x, k) {
   if (!x.t) return null; // started outside the panel: nothing here can stop it
@@ -989,6 +992,13 @@ function renderLaneHead(x) {
     const m = laneModel(x), lm = laneM(x), since = laneSince(x), ctx = laneCtx(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
+    // PANEL-19: where Remote Control is on (the machine's choice at panel install).
+    if (S.remoteControl && x.t) {
+      const rc = kv1("Remote", el("span", null, S.remoteControl === "all" ? "on, every session" : "on, the panel's lanes"));
+      rc.title = S.remoteControl === "all" ? "remoteControlAtStartup is true in ~/.claude/settings.json: every Claude session connects to Remote Control"
+        : "The panel's lanes start with claude --remote-control; a lane started before connects with Remote control in its ⋯ menu";
+      kids.push(key(rc, "remote"));
+    }
     if (since) kids.push(key(kv1("Up", el("span", "num", null, [age(since)])), "up"));
     kids.push(key(kv1("Context", el("span", null, null, [bullet(ctx, { tick: S.trends.autocompactPct, cls: ctx >= 85 ? "w" : "" }), document.createTextNode(" "), num(pct(ctx))])), "ctx"));
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
@@ -2619,6 +2629,15 @@ function renderTermBar(t) {
           button("Close lane", "danger", () => askClose(t),
             "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
+    } else if (confirmAct && confirmAct.id === t.id && confirmAct.action === "remote-control") {
+      // PANEL-19: typed only into an idle claude; the panel checks again before the Enter.
+      const idle = t.status === "idle" && !t.approx;
+      kids.push(
+        key(el("span", "confirm", idle ? "Type /remote-control and Enter into " + t.id + ": claude connects it to Remote Control, so any device signed in to your account can " +
+          "drive it and answer its permission prompts. The first time, claude asks to confirm in the terminal."
+          : "claude in " + t.id + " is not idle (claude agents), so nothing will be typed. Try again when it is."), "confirm"),
+        idle ? button("Confirm remote control", "primary", () => { confirmAct = null; laneAction(t.id, "remote-control"); }, null, null, true) : null,
+        button("Cancel", "", () => { confirmAct = null; render(); }, null, "b:cancel"));
     } else if (confirmAct && confirmAct.id === t.id) {
       const a = confirmAct.action;
       const back = a === "stop" ? "b:Stop lane" : a === "interrupt" ? "b:Interrupt (Esc)" : "b:Restart";

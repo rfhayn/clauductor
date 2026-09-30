@@ -131,7 +131,56 @@ type LaneManager struct {
 	// (tests count the calls).
 	Exec func(ctx context.Context, argv []string) ([]byte, error)
 
+	// RemoteControl reports whether lanes start with `claude --remote-control`, read
+	// at each start (PANEL-19: the machine's choice at `panel install`). Nil is no.
+	RemoteControl func() bool
+
 	mu sync.Mutex // serialises lane actions
+}
+
+// ConnectRemote types /remote-control and Enter into a lane (PANEL-19), which
+// connects a lane started before remote control was chosen, or shows the connected
+// one's status. As Stop's /exit, only into a claude that `claude agents` reports idle,
+// read twice, before the text and before the Enter: an Enter typed into a dialog
+// would confirm whatever it has focused.
+func (m *LaneManager) ConnectRemote(ctx context.Context, id string) *LaneError {
+	if !config.ValidLaneID(id) {
+		return laneErr(400, "invalid", "invalid lane id")
+	}
+	if m.RemoteControl == nil || !m.RemoteControl() {
+		return laneErr(409, "remote-off", "remote control is not on for the panel's lanes (clauductor panel install --remote-control=lanes)")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.Registry.Get(id)
+	if !ok || rec.SessionID == "" {
+		return laneErr(404, "not-found", "no registered lane %q", id)
+	}
+	lane, ok := m.find(ctx, id)
+	if !ok || lane.Dead {
+		return laneErr(409, "not-running", "lane %q is not running", id)
+	}
+	idle := func() bool {
+		st, found, err := m.agentStatus(ctx, rec.SessionID)
+		return err == nil && found && st == "idle"
+	}
+	if !idle() {
+		return laneErr(409, "not-idle", "claude in %s is not idle (claude agents), so nothing is typed; try again when it is", id)
+	}
+	target := "=" + id + ":"
+	_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+	if _, err := m.tmux(ctx, "send-keys", "-t", target, "-l", "--", "/remote-control"); err != nil {
+		return laneErr(500, "tmux", "%v", err)
+	}
+	m.clock().Sleep(m.EnterDelay)
+	if !idle() {
+		_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+		return laneErr(409, "not-idle", "claude in %s stopped being idle; the text was cleared, nothing was sent", id)
+	}
+	if _, err := m.tmux(ctx, "send-keys", "-t", target, "Enter"); err != nil {
+		return laneErr(500, "tmux", "%v", err)
+	}
+	return nil
 }
 
 func (m *LaneManager) lookupEnv(k string) (string, bool) {
@@ -353,6 +402,11 @@ func (m *LaneManager) LaneCommand(id, laneType, sessionID string, resume bool) [
 	}
 	if lt.Effort != "" {
 		argv = append(argv, "--effort", lt.Effort)
+	}
+	if m.RemoteControl != nil && m.RemoteControl() {
+		// PANEL-19: remote control for the panel's lanes only (`panel install`). Its
+		// optional name argument is never given: -n names the session.
+		argv = append(argv, "--remote-control")
 	}
 	argv = append(argv, "-n", id)
 	if resume {

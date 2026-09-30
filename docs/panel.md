@@ -79,7 +79,7 @@ clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep r
 clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
-clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app]
+clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app] [--remote-control=all|lanes|off]
 clauductor panel open [--project id]          # open the installed panel in the browser (on that project)
 clauductor panel rotate-token                 # replace the installed panel's token
 clauductor panel uninstall                    # stop and remove the login agent
@@ -1894,6 +1894,7 @@ send requests to `127.0.0.1`.
   in-page confirmation that shows its real address, since its text can say anything. The
   plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
   lane may print, other schemes and look-alike link text. Title escapes are ignored.
+- **Remote control** (PANEL-19) reaches past this page's guards: see [Remote control](#remote-control).
 - **A dropped image** (`POST /api/p/<project>/lanes/<id>/image`, PANEL-15b) is a lane action like the
   others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
   the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
@@ -1907,7 +1908,7 @@ send requests to `127.0.0.1`.
   are removed when it is stopped or forgotten, and any image older than 24 hours when the next
   one is dropped and when the panel starts. The panel never reads an image back.
 - **Lane control is fixed verbs on validated ids.** start, stop, close, interrupt, restart, resume,
-  forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
+  forget, terminal-app, remote-control (PANEL-19), restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
   names a lane type (checked against the config), a mode, a lane name, and for "existing" a path,
   which must be one of `git worktree list`'s. Unknown JSON fields are refused.
@@ -1982,6 +1983,33 @@ record and everything it trusts: each card's command, each queue's RUN command, 
 template's first prompt, and the metrics command. There is no trust button in the page:
 trusting is a command you run after reading the file.
 
+### Remote control
+
+PANEL-19. Remote Control is Claude Code's own feature, and it reaches past everything above: a
+session connected to it can be driven from claude.ai/code or the Claude app on **any device
+signed in to your account**, which can send it prompts and answer its permission prompts. So
+whoever holds your account's session on a phone holds a shell on this Mac through that lane.
+Traffic goes out over TLS through Anthropic's API (no port is opened here), and while connected
+the transcript is kept on Anthropic's servers. It needs a claude.ai subscription login, and an
+organisation can turn it off (`disableRemoteControl`).
+
+The panel only chooses where it is on, once, at `panel install` (see *The launchd agent*):
+
+- **all** sets `remoteControlAtStartup` to `true` in your user `~/.claude/settings.json` (a
+  project's `.claude/settings.json` cannot turn it on, only off), so every interactive session
+  on the Mac connects;
+- **lanes** adds `--remote-control` to each lane's argv, before `-n` (never with its optional
+  name argument; `-n` names the session), read at every start and restart;
+- **off**, or an explicit `remoteControlAtStartup` of your own, leaves Claude Code as it is.
+
+The lane's header says **Remote: on, the panel's lanes** (or **every session**), and `panel list`
+names the mode. In lanes mode a running lane's **⋯** has **Remote control**: after an in-page
+confirmation, and only while `claude agents` reports the lane idle (read again just before the
+Enter, as Stop's `/exit` is), `POST /api/p/<project>/lanes/<id>/remote-control` types
+`/remote-control` and Enter. That connects a lane started before the choice, or shows a connected
+one's status. It passes the same guards as the other lane actions and takes no body. The first
+time on a machine claude asks, in the terminal, to confirm Remote Control.
+
 ## Operations
 
 ### One panel per machine
@@ -2034,6 +2062,27 @@ clauductor panel install                                      # once projects.js
      `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
      directories. launchd's default PATH has none of these.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
+
+Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
+where Claude Code's Remote Control is on. It asks once, on a terminal, and only when
+`~/.claude/settings.json` has no `remoteControlAtStartup` (an explicit `true` or `false` is
+your own choice, and is never asked about):
+
+```text
+  1) Every Claude session on this Mac (sets remoteControlAtStartup in ~/.claude/settings.json)
+  2) Only the panel's lanes (lanes start with --remote-control)
+  3) Not now
+Choose 1, 2 or 3 [3]:
+```
+
+`--remote-control=all|lanes|off` answers without asking; with no terminal and no flag it is
+off, unasked. The answer is kept in `~/.clauductor/panel/remote-control.json` (0600), so a
+later `install` does not ask again (the flag changes it). **all** merges that one key into
+`settings.json` through the same read-merge-atomic-write the hooks use (every other key keeps
+its value and place; a backup from before the panel's first change is
+`settings.json.clauductor-panel.bak`), and prints the change and how to undo it. **lanes** leaves
+`settings.json` alone: every lane the panel starts or restarts runs `claude --remote-control`.
+`panel list` names the mode.
 
 Since PANEL-16 the plist runs `clauductor panel --port <port> --launchd`, from your home
 directory: the agent serves `projects.json` as it is. A plist written before names `--project

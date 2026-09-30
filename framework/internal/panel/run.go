@@ -473,6 +473,7 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 	m := &lanes.LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
 		UploadDir: filepath.Join(config.ProjectDir(o.Home, root), "uploads"),
 		Program:   o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit, Clock: clk}
+	m.RemoteControl = func() bool { return install.LanesRemoteControl(o.Home) }
 	if m.FastExit == 0 {
 		m.FastExit = 3 * time.Second
 	}
