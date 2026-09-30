@@ -30,6 +30,12 @@ to prevent overwriting project-specific customizations.`,
 			return fmt.Errorf("could not get working directory: %w", err)
 		}
 
+		if !forceUpdate {
+			if err := refusePluginModel("update", targetDir); err != nil {
+				return err
+			}
+		}
+
 		// Verify this looks like a Clauductor project
 		if _, err := os.Stat(filepath.Join(targetDir, ".claude", "skills")); os.IsNotExist(err) {
 			return fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")

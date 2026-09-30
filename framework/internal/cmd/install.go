@@ -137,6 +137,12 @@ Use --dry-run to preview changes without modifying anything.`,
 			return fmt.Errorf("failed to list template files: %w", err)
 		}
 
+		if !forceInstall {
+			if err := refusePluginModel("install", targetDir); err != nil {
+				return err
+			}
+		}
+
 		// A repository running its own operating model is left alone (ownguard.go).
 		if !forceInstall && !ownedByClauductor(targetDir) {
 			tmplDir, err := template.TemplatePath()
