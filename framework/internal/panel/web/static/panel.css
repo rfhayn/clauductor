@@ -167,6 +167,13 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .warnx:focus-visible { outline: 2px solid var(--focus); }
 .restore { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .restore label { display: flex; gap: .25rem; align-items: center; }
+/* Close lane (PANEL-17): its confirmation under the terminal, and its result above the lanes. */
+.closed { display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: baseline; padding: .3rem .75rem; border-bottom: 1px solid var(--rule); background: var(--pane); color: var(--text-1); overflow-wrap: anywhere; }
+.closed > b { font-weight: 700; }
+.termbar .closeask { flex: 1 1 100%; display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
+.closelist { display: grid; gap: .1rem; min-width: 0; }
+.closelist b { font-weight: 700; color: var(--text-2); }
+.closelist ul { margin: 0; padding-left: 1.1rem; }
 
 /* ---- Panes ------------------------------------------------------------------------------- */
 /* A pane is a region split from the next by a rule. In TUI (--tui 1) it is boxed, with

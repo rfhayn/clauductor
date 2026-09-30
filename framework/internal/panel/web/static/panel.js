@@ -479,7 +479,7 @@ function relPath(p) {
 function selectLane(k, how) {
   selKey = k;
   saveSel(k);
-  confirmAct = null;
+  confirmAct = null; closeAsk = null;
   render();
   if (how === "tab") focusKey("tab:" + k);
 }
@@ -1983,7 +1983,7 @@ function renderTerminals(cur) {
   const orphan = $("termorphan");
   orphan.hidden = !(t && !t.running);
   if (t && !t.running) setText(orphan, "Lane " + t.id + " is orphaned: " + (t.orphan || "no tmux session") +
-    ". RESUME restarts claude --resume " + t.sessionId + " in " + t.path + "; FORGET drops the record.");
+    ". RESUME restarts claude --resume " + t.sessionId + " in " + t.path + "; FORGET drops the record; CLOSE LANE also removes its worktree and branch when that loses nothing.");
   const host = $("termhost");
   host.setAttribute("aria-label", t && t.running ? "Terminal of lane " + t.id + ". Enter types into it; Ctrl+] leaves." : "Terminal");
   if (selTerm !== shownTerm) {
@@ -1998,6 +1998,10 @@ function renderTerminals(cur) {
 // What STOP or RESTART will do to this lane, from its state now: the server sends
 // /exit only to a lane `claude agents` says is idle, and Escape to any other.
 function stopWords(t, restart) {
+  return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + stopHow(t) +
+    (restart ? " Then claude resumes its own session " + t.sessionId + " in the same directory." : " The worktree stays.");
+}
+function stopHow(t) {
   const lane = S.lanes.find((l) => l.terminal === t.id);
   const subs = lane ? lane.subagents.length : 0;
   const subTxt = subs ? subs + " subagent" + (subs > 1 ? "s" : "") : "";
@@ -2016,8 +2020,64 @@ function stopWords(t, restart) {
       (x.waiters.length ? ", with " + x.waiters.length + " waiting behind it" : "") + ".";
     else if (x.waiters.some((w) => w.lane === t.id)) q += " It is waiting in the " + (x.title || x.id) + " queue.";
   }
-  return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + how + q +
-    (restart ? " Then claude resumes its own session " + t.sessionId + " in the same directory." : " The worktree stays.");
+  return how + q;
+}
+
+// ---- Close lane (PANEL-17) ----------------------------------------------------------
+// Stop, then the lane's worktree and branch when that loses nothing. The confirmation
+// lists what the panel found, before asking: the server's plan, from git's own state.
+// Confirming sends back exactly what it offered to remove, and the server removes no
+// more than that, after checking again.
+let closeAsk = null;   // {id, plan} or {id, loading} or {id, err}
+let closeMsg = null;   // {id, removed, kept} or {id, err, text}: the result, above the lanes
+async function askClose(t) {
+  closeAsk = { id: t.id, loading: true }; confirmAct = null; render();
+  try {
+    const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/close"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!closeAsk || closeAsk.id !== t.id) return;
+    closeAsk = r.ok && j.plan ? { id: t.id, plan: j.plan } : { id: t.id, err: j.error || "HTTP " + r.status };
+  } catch (e) { if (closeAsk && closeAsk.id === t.id) closeAsk = { id: t.id, err: String(e) }; }
+  render();
+  focusKey("b:close-cancel");
+}
+async function doClose(id, plan) {
+  closeAsk = null; busyAct = id + ":close"; actMsg = null; render();
+  try {
+    const r = await fetch(api("/lanes/" + encodeURIComponent(id) + "/close"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree: !!plan.worktree, branch: !!plan.deleteBranch }) });
+    const j = await r.json().catch(() => ({}));
+    closeMsg = r.ok && j.result ? { id, removed: j.result.removed || [], kept: j.result.kept || [] } : { id, err: true, text: j.error || "HTTP " + r.status };
+  } catch (e) { closeMsg = { id, err: true, text: String(e) }; }
+  busyAct = null;
+  render();
+}
+function lineList(title, lines, k) {
+  if (!lines || !lines.length) return null;
+  return key(el("div", "closelist", null, [el("b", null, title), el("ul", null, null, lines.map((x) => el("li", null, x)))]), k);
+}
+function closeWords(t) {
+  const a = closeAsk;
+  const cancel = button("Cancel", "", () => { closeAsk = null; render(); focusKey("b:Close lane"); }, null, "b:close-cancel");
+  if (a.loading) return [key(el("span", "sub", "Checking lane " + t.id + "'s worktree and branch…"), "closeask"), cancel];
+  if (a.err) return [key(el("span", "stop sub", "Cannot close lane " + t.id + ": " + a.err), "closeask"), cancel];
+  const p = a.plan;
+  const kids = [el("span", "confirm", "Close lane " + t.id + "?" + (t.running ? " " + stopHow(t) : " It is not running, so it is only forgotten."))];
+  kids.push(lineList("Removes", p.remove, "rm"), lineList("Keeps", p.keep, "kp"));
+  for (const n of p.notes || []) kids.push(el("div", "sub", n));
+  return [key(el("div", "closeask", null, kids), "closeask"),
+    button("Confirm close", "danger", () => doClose(t.id, p), null, null, true), cancel];
+}
+function renderClosed() {
+  const bar = $("closebar");
+  bar.hidden = !closeMsg;
+  if (!closeMsg) { patch(bar, []); return; }
+  const m = closeMsg;
+  const kids = [el("b", null, m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id)];
+  if (m.err) kids.push(el("span", null, m.text));
+  else kids.push(lineList("Removed", m.removed, "rm"), lineList("Kept", m.kept, "kp"));
+  kids.push(button("Dismiss", "", () => { closeMsg = null; render(); }, null, "b:close-dismiss"));
+  patch(bar, [key(el("div", "closed", null, kids), "closed:" + m.id)]);
 }
 
 function renderTermBar(t) {
@@ -2029,6 +2089,8 @@ function renderTermBar(t) {
       kids.push(key(el("span", "confirm", "The lane printed a link whose text is not its whole address. Open " + href + " in a new tab?"), "linkask"),
         button("Open link", "", () => { linkAsk = null; openLink(href); render(); }),
         button("Cancel", "", () => { linkAsk = null; render(); }, null, "b:link-cancel"));
+    } else if (closeAsk && closeAsk.id === t.id) {
+      kids.push(...closeWords(t));
     } else if (!t.running) {
       if (confirmAct && confirmAct.id === t.id) {
         kids.push(key(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."), "confirm"),
@@ -2038,7 +2100,9 @@ function renderTermBar(t) {
         kids.push(
           button("Resume", "primary", () => laneAction(t.id, "resume"), "claude --resume " + (t.sessionId || "") + " in " + t.path, null, true),
           button("Forget", "danger", () => { confirmAct = { id: t.id, action: "forget" }; render(); focusKey("b:cancel"); },
-            "Remove it from the lane registry. The worktree and the conversation stay.", null, true));
+            "Remove it from the lane registry. The worktree and the conversation stay.", null, true),
+          button("Close lane", "danger", () => askClose(t),
+            "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
     } else if (confirmAct && confirmAct.id === t.id) {
       const stop = confirmAct.action === "stop";
@@ -2053,6 +2117,8 @@ function renderTermBar(t) {
         button("Interrupt (Esc)", "", () => laneAction(t.id, "interrupt"), "Press Escape in the lane", null, true),
         t.registered ? button("Restart", "", () => { confirmAct = { id: t.id, action: "restart" }; render(); focusKey("b:cancel"); }, null, null, true) : null,
         button("Stop lane", "danger", () => { confirmAct = { id: t.id, action: "stop" }; render(); focusKey("b:cancel"); }, null, null, true),
+        button("Close lane", "danger", () => askClose(t),
+          "Stop the lane, then remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true),
       ].filter(Boolean);
       for (const x of b) { if (busy) x.disabled = true; kids.push(x); }
     }
@@ -2436,6 +2502,7 @@ function render() {
   renderConn();
   renderBanners();
   renderRestore();
+  renderClosed();
   renderObs();
   renderFavicon();
   if (!off) announceNeeds();
@@ -2738,7 +2805,7 @@ function switchProject(id) {
   // Nothing of the old project carries over: its terminals close (their lanes run
   // on in tmux), its state and choices go, and the new project's stream starts.
   for (const k of Object.keys(terms)) disposeTerm(k);
-  S = null; selKey = null; seenNeeds = null; confirmAct = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
+  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();
   render();

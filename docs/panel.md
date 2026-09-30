@@ -434,10 +434,12 @@ value just changed.
   context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
   documented), and cost with cost per hour. **Hide details** folds the side panel; kept.
 - **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
-  Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart** and **Stop lane**. Stop
+  Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart**, **Stop lane** and **Close lane**. Stop
   and restart ask in the page, in words built from the lane's state: idle gets `/exit`, busy or
   waiting gets Escape (and what that interrupts: its subagents, an open question), and whether it
-  holds or waits in a queue. An orphaned lane has **Resume** and **Forget** instead of a terminal.
+  holds or waits in a queue. **Close lane** also removes the lane's worktree and branch when that
+  loses nothing; its confirmation lists what goes and what stays ([Close lane](#close-lane)). An
+  orphaned lane has **Resume**, **Forget** and **Close lane** instead of a terminal.
   A lane started outside the panel says it has no terminal here.
 - **The side panel: a tab per family of figures.** The choice of tab is kept.
   - **Agents**: the lane's sessions (pid, state and for how long, compaction, last failure), then a
@@ -736,7 +738,7 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 
 | What | Shown as | What you can do |
 |---|---|---|
-| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, or **Forget** |
+| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, **Forget**, or **Close lane** |
 | registered, the panel stopped during an action | orphaned, with the action | **Resume**, or **Forget** |
 | a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **Stop lane** only; without a session id it cannot be restarted |
 | registered, its directory no longer a worktree | the reason is added | **Forget** |
@@ -748,14 +750,50 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | Button | What it does |
 |---|---|
 | **Interrupt (Esc)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry, and its dropped images go. **The worktree is never removed**; **Close lane** is the control that removes it. |
 | **Restart** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
 | **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
+| **Close lane** (running lanes and orphans) | **Stop lane** exactly as above (for an orphan, **Forget**), then removes the lane's worktree and branch **when that loses nothing**. See [Close lane](#close-lane). |
 | **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
 Sent together, a long line can sit in claude's input box unsubmitted.
+
+### Close lane
+
+**Close lane** (PANEL-17) is for a lane whose work is done: it stops the lane, then cleans up
+after it. Before it asks, the panel reads git's own state and the confirmation lists exactly what
+will be removed and what will be kept, and why. Confirming sends back what the confirmation
+offered to remove; the panel checks everything again once claude has exited (exiting can write
+files) and removes no more than that. The result (removed, kept, and why) shows above the lanes.
+
+In order:
+
+1. **The lane stops** exactly as **Stop lane** stops it (idle gets `/exit`, anything else Escape,
+   then `kill-session`), and leaves the registry. An orphan is forgotten instead. Its dropped
+   images go.
+2. **The worktree** is removed with `git worktree remove` (never `--force`), and only if every
+   one of these holds. Otherwise it stays, and the page says which failed:
+   - it is in `git worktree list`, and it is **not the main worktree**;
+   - it is **inside the project's `worktree_dir`**: the panel removes only what it would create;
+   - it is **not locked** (`git worktree lock`);
+   - no other lane runs in it;
+   - it is **clean**: `git status --porcelain --untracked-files=all` prints nothing. An untracked
+     file counts; an ignored one does not.
+3. **The local branch** is deleted only after its worktree is gone, and only if nothing is lost:
+   - its tip is in the configured `base` (`git for-each-ref --merged=<base>`); the confirmation
+     runs `git fetch` first, and a failed fetch is shown and only makes the panel keep more; or
+   - `gh pr list --head <branch> --state merged` has a pull request whose head is the branch's
+     tip now. A squash merge puts none of the branch's commits in the base, so git alone would
+     keep it; a merged pull request with commits on the branch since then keeps it.
+
+   It is deleted with `git update-ref -d refs/heads/<branch> <the tip it checked>`, which does
+   nothing if the branch moved in the meantime; its `branch.<name>` settings go with it. A
+   branch that is not merged stays, and the page says so.
+
+The conversation is never removed: `claude --resume <session id>` still opens it.
+
 
 ### Window size: the latest client wins
 
@@ -1579,18 +1617,24 @@ send requests to `127.0.0.1`.
   `paste-buffer -p` (bracketed when claude asked for it), then a space; no Enter. A lane's images
   are removed when it is stopped or forgotten, and any image older than 24 hours when the next
   one is dropped and when the panel starts. The panel never reads an image back.
-- **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
+- **Lane control is fixed verbs on validated ids.** start, stop, close, interrupt, restart, resume,
   forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
   names a lane type (checked against the config), a mode, a lane name, and for "existing" a path,
   which must be one of `git worktree list`'s. Unknown JSON fields are refused.
+- **Close lane** (`POST /api/p/<project>/lanes/<id>/close`, PANEL-17) passes the same guards as
+  stop: the cookie, this page's `Origin`, a valid lane id. Its body is `{"dryRun": true}` (the
+  plan the confirmation lists) or two flags, `worktree` and `branch`: what the confirmation
+  offered to remove. It carries no path, no branch name and no command; the worktree and branch
+  are the lane's own, from the registry and `git worktree list`, and each is removed only if a
+  check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
   answer `204` before processing, and never execute anything. The worst a local process can do
   is post fake lane events.
 - **Every route is a project's** (PANEL-16). The actions are served under
-  `/api/p/<project>/…` (lanes, a lane's actions and ticket, restore-all, the queues, refresh), and
+  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh), and
   the streams take `?project=<id>` (`/events`, `/api/state`, `/ws/term`). Each passes the same
   guards as before: the Host check, the cookie, and for a POST this page's `Origin`; a test checks
   every one of them. A project the panel does not serve is 404. The paths before PANEL-16
@@ -1881,7 +1925,8 @@ go test -race -run '^TestLockRunTwoProcessesQueue$' -count=200 ./internal/panel/
 
 ## Not yet
 
-- No removing a worktree from the page.
+- **Close lane** removes only a clean worktree and a merged branch; there is no way to force it
+  from the page, by design. Discard or commit the work first, or remove it with git.
 - Adding or removing a project needs a panel restart; so does fixing a project that could not
   load. The Needs-you rows show the project on view only (the menu and the tab title count the
   others). One `claude agents` poll runs per project. Quota thresholds are the 5-hour window's,

@@ -17,6 +17,9 @@ type Worktree struct {
 	Branch string `json:"branch"` // "" when detached
 	Head   string `json:"head"`
 	Bare   bool   `json:"bare,omitempty"`
+	// Locked: `git worktree lock` protects it from removal and pruning. Close lane
+	// (PANEL-17) never removes a locked worktree.
+	Locked bool `json:"locked,omitempty"`
 }
 
 // parseWorktreePorcelain parses `git worktree list --porcelain` output.
@@ -37,6 +40,8 @@ func parseWorktreePorcelain(out []byte) ([]Worktree, error) {
 			cur.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
 		case line == "bare":
 			cur.Bare = true
+		case line == "locked" || strings.HasPrefix(line, "locked "):
+			cur.Locked = true
 		}
 	}
 	if len(wts) == 0 {

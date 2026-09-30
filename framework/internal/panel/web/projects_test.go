@@ -41,7 +41,7 @@ func TestProjectRoutesAreGuarded(t *testing.T) {
 	t.Parallel()
 	s, refreshed := twoProjects(t)
 	origin := withHeader("Origin", "http://127.0.0.1:4393")
-	posts := []string{"/lanes", "/lanes/lane-x/ticket", "/lanes/lane-x/stop", "/lanes/lane-x/image", "/lanes/restore-all",
+	posts := []string{"/lanes", "/lanes/lane-x/ticket", "/lanes/lane-x/stop", "/lanes/lane-x/close", "/lanes/lane-x/image", "/lanes/restore-all",
 		"/queues/gate/cancel", "/queues/gate/run", "/refresh"}
 	for _, p := range posts {
 		for _, pre := range []string{"/api/p/b", "/api"} {
