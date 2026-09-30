@@ -75,6 +75,27 @@ The full survey, with sources, is in the session record (market research, 2026-0
   approves again. The wording is borrowed from Superpowers.
 - **D9 Kept as they are:** ADRs in `docs/adr/` for decisions that outlive a change, the root
   `AGENTS.md`, and the owner-queue and change-queue cards.
+- **D10 A repository works without clauductor installed** (an invariant, decided 2026-09-30).
+  - Everything a contributor needs lives in the repo and runs in Claude Code alone: the skills,
+    hooks, checks, the gate and its queue lock, the merge guard, and the records.
+  - The panel, the `clauductor` binary and the plugin are conveniences on top, never dependencies.
+  - Anything that talks to the panel treats a missing panel as a normal state, not an error:
+    - the status line's post to the panel;
+    - session-start's panel line;
+    - the economy file;
+    - project cards.
+  - **Enforced by `checks/no-clauductor.sh`** (OPS-12), which runs:
+    - the template's gate;
+    - the process checks;
+    - a representative skill context script, and
+    - the status line,
+
+    all with `clauductor` absent from `PATH` and no panel running. It fails if anything errors,
+    or asks for the binary or the panel. It is falsified by adding a hard `clauductor` call to a
+    gate step.
+  - The playbook and `AGENTS.md`'s "what executes" table name it.
+  - At convergence, StandingT gets the same check, beside its existing gate-lock conformance test.
+    This matters there because its designer works without clauductor, and possibly on Windows.
 - **Not adopted:**
   - executable Gherkin as a default; it stays an opt-in module, and its tags reuse the D3 IDs;
   - Spec Kit's layout;
@@ -336,6 +357,16 @@ through `/merge-pr`.
     the skill stays StandingT's own.
   - **Existing records are never reformatted.** StandingT's roadmap, specs, archive, ADRs, journal,
     insights, owner queue and registries stay exactly where they are.
+  - **List the designer onboarding sections each change touches.** The files are
+    `docs/onboarding-designer.md` and `docs/designer-welcome.html`. Both are written for a second
+    contributor, and neither mentions the panel or clauductor today.
+    - The sections expected to change are:
+      - §5.6, Claude Code setup: the deny list and sandbox, a plugin install if adopted, and
+        gitleaks;
+      - §9, the operating model: the session steps, including compound; the new guards; and the
+        skill names;
+      - §10, branch, PR, merge: the merge evidence and the provenance trailers.
+    - The designer's lane, the tokens, the app setup, the tools and the first task are unaffected.
 - **Phase 1: extension points in clauductor.**
   - Install and update merge `settings.json` instead of overwriting it.
   - Optional modules for StandingT's extras:
@@ -354,6 +385,22 @@ through `/merge-pr`.
   - Existing scenarios need no IDs. D4 applies only to scenarios that a change adds or modifies,
     and a backfill can come later.
   - StandingT's vitest meta-tests stay alongside the template's shell checks.
+  - Add the D10 check (`no-clauductor`) to StandingT's gate.
+  - **Each PR that changes something the designer meets updates the matching onboarding section in
+    the same PR,** using the Phase 0 list. The whole revision reaches the designer as one change,
+    not a series.
+  - **The panel is suggested to the designer, never required.** This comes after REL-1, so the
+    install is a released download or Homebrew, not a source build.
+    - Add an optional §5.9, "The panel (recommended on a Mac)": why it helps design work (dropping
+      images into a lane, session status and notifications, lanes that survive, remote control),
+      the install, and `panel init`, `trust` and `add` for StandingT. It also says to skip the
+      panel on Windows, and that nothing else depends on it.
+    - The welcome page gains one optional checklist item.
+    - Open: whether the designer uses a Mac or Windows. That decides between "recommended" and
+      "optional, Mac only".
+    - Optional: the welcome checklist could save its ticks to the artifact's database, as the
+      walkthroughs do, so session-start can report the designer's progress. Today it uses
+      localStorage only.
 - **Phase 4: hand-over.**
   - Write `.claude/clauductor-template`.
   - From then on, `clauductor update` keeps StandingT current, and StandingT-specific parts live in
