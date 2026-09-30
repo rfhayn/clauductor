@@ -1,0 +1,91 @@
+{
+  "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
+  "name": "My Project",
+  "version": 3,
+  "lanes": {
+    "change/": "build",
+    "fix/": "fix",
+    "ops/": "ops",
+    "main": "orchestrator"
+  },
+  "lane_types": {
+    "build": { "model": "opus", "effort": "high" },
+    "fix": { "model": "opus", "effort": "high" },
+    "ops": { "model": "opus", "effort": "high" },
+    "orchestrator": { "model": "opus", "effort": "high" }
+  },
+  "tmux_socket": "myproject",
+  "worktree_dir": ".claude/worktrees",
+  "base": "origin/main",
+  "templates": [
+    {
+      "id": "build",
+      "title": "Build an approved change (its proposal is on main)",
+      "lane_type": "build",
+      "branch_pattern": "change/{name}",
+      "first_prompt": "/build-change {\"change\": \"{name}\"}",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "build"], "refresh": "watch:changes" }
+    },
+    {
+      "id": "propose",
+      "title": "Propose the next roadmap row",
+      "lane_type": "build",
+      "branch_pattern": "change/{name}",
+      "first_prompt": "/propose {name}: its row of the change queue (sh .claude/roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "propose"], "refresh": "watch:docs/roadmap.md" }
+    },
+    {
+      "id": "fix",
+      "title": "Fix an issue",
+      "lane_type": "fix",
+      "branch_pattern": "fix/{name}",
+      "first_prompt": "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "fix"], "refresh": "interval:300" }
+    },
+    {
+      "id": "ops",
+      "title": "Ops task (tooling, docs or process; no change proposal)",
+      "lane_type": "ops",
+      "branch_pattern": "ops/{name}",
+      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "ops"], "refresh": "watch:docs/roadmap.md" }
+    }
+  ],
+  "queues": [
+    {
+      "id": "gate",
+      "title": "Full gate (scripts/ci/run-local.sh)",
+      "lock": "clauductor/gate.lock",
+      "command": ["scripts/ci/run-local.sh"]
+    }
+  ],
+  "alerts": {
+    "idle_minutes": 20,
+    "context_pct": 80,
+    "five_hour_pct": 90,
+    "waiting_seconds": 120
+  },
+  "quota_guard": { "five_hour_pct": 95 },
+  "cards": [
+    {
+      "id": "owner-queue",
+      "title": "Owner queue",
+      "command": ["sh", "-c", "sh .claude/owner-queue.sh 2>&1"],
+      "refresh": "watch:docs/owner-queue.md",
+      "pin": true
+    },
+    {
+      "id": "change-queue",
+      "title": "Change queue",
+      "command": ["sh", "-c", "sh .claude/roadmap-queue.sh --text 2>&1"],
+      "refresh": "watch:docs/roadmap.md",
+      "pin": true
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "command": ["sh", "-c", "for h in .claude/health/*.sh; do printf '%s: ' \"$(basename \"$h\" .sh)\"; sh \"$h\" 2>&1 | head -5 | tr '\\n' ' '; echo; done"],
+      "refresh": "interval:600"
+    }
+  ]
+}

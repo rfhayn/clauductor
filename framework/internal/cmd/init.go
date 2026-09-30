@@ -41,6 +41,9 @@ orchestration infrastructure. If path doesn't exist, it will be created.`,
 		if err := template.CopyTemplate(targetDir); err != nil {
 			return fmt.Errorf("failed to copy template: %w", err)
 		}
+		if err := writeInstallMarker(targetDir); err != nil {
+			return fmt.Errorf("could not mark the install: %w", err)
+		}
 
 		// Initialize orchestration directory and config
 		if err := initOrchestration(targetDir); err != nil {

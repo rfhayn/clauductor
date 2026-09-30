@@ -1,5 +1,12 @@
 # Clauductor Onboarding Guide
 
+> **This guide describes the retiring lock-and-supervisor model** (SQLite worker registry, file
+> locks, `/spawn`, `/assign`, the HUD). The project template no longer ships it: new and updated
+> projects get the panel operating model (lanes in worktrees, a roadmap queue, approved proposals,
+> per-task-group review, a merge guard). Start from **`docs/QUICKSTART.md`** and the template's
+> **`docs/playbook.md`**. The CLI commands below still exist until their code is removed in a later
+> phase.
+
 ## What is Clauductor?
 
 Clauductor is a multi-worker orchestration framework for Claude Code. It coordinates multiple AI agents and human developers working simultaneously on the same codebase — with file locking, real-time HUD, session management, and orchestration logging.

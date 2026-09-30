@@ -11,6 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var forceUpdate bool
+
+func init() {
+	updateCmd.Flags().BoolVar(&forceUpdate, "force", false, "Update even a repository that runs its own operating model")
+}
+
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update project's Clauductor skills, hooks, and templates",
@@ -27,6 +33,25 @@ to prevent overwriting project-specific customizations.`,
 		// Verify this looks like a Clauductor project
 		if _, err := os.Stat(filepath.Join(targetDir, ".claude", "skills")); os.IsNotExist(err) {
 			return fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")
+		}
+
+		// A repository running its own operating model is left alone (ownguard.go).
+		if !forceUpdate && !ownedByClauductor(targetDir) {
+			files, err := template.ListTemplateFiles()
+			if err != nil {
+				return err
+			}
+			tmplDir, err := template.TemplatePath()
+			if err != nil {
+				return err
+			}
+			overwrite, add, err := foreignModel(targetDir, tmplDir, files)
+			if err != nil {
+				return err
+			}
+			if len(overwrite)+len(add) > 0 {
+				return refuseForeign("update", targetDir, overwrite, add)
+			}
 		}
 
 		fmt.Printf("Checking for updates in %s\n\n", targetDir)

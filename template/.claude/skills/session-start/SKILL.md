@@ -1,67 +1,48 @@
 ---
 name: session-start
-description: "Run the mandatory session startup checklist. Reads context docs, checks git status, registers worker, reports current milestone and branch. TRIGGER when the user says \"start session\", \"begin session\", \"let's get started\", \"starting work\", \"resume session\", \"pick up where I left off\", \"what should I work on\", or at the start of every Claude Code session."
+model: opus
+effort: low
+description: "Orient at the start of a working session: the owner queue, the panel, git and PR state, the change queue, the latest journal entry, insights, ADRs and health lines, all computed; then set the status-line focus and run hands-off to session-close. TRIGGER at the start of a session or when the user says 'session start', 'where were we', 'get oriented', 'catch up'."
 ---
 
-# Session Startup Checklist
+# Session start: orient, then run the lanes
 
-Run this checklist at the start of every session. No exceptions.
+## Context: the state, computed
+!`sh .claude/skills/session-start/context.sh`
 
-## Step 1: Check Setup
+If the line above shows as literal text instead of output, this harness does not pre-execute it:
+run `sh .claude/skills/session-start/context.sh` yourself and read the result before step 1.
 
-Read `CLAUDE.md` and check if the Setup Checklist has uncompleted items. If so, remind the user.
+## Steps
+1. **Summarize in 3–5 lines**: what the last session did (the journal), what is in flight (open
+   PRs, lane worktrees, uncommitted changes), and the next step (the queue's NEXT row, the
+   journal's "What's next"). **Then list every owner-queue item**, one line each with what it needs
+   first. `CANNOT CHECK` there is not an empty queue.
+2. **Say every line that is not healthy**: each health line that is not `OK` (a `CANNOT CHECK` is
+   not a pass), a queue `ERROR` (the queue is then UNKNOWN: stop treating it as known), the main
+   checkout not on `main`, the panel down. One sentence each, even when the session is about
+   something else.
+3. **Other people's work.** Name every `★` PR in one line. An `OVERLAP` line means their open PR
+   changes a file your branch changes: read their diff before touching that file, and do not build
+   on anything it removes. Never merge another person's PR.
+4. **Set the focus**: `sh .claude/status-write.sh "[<branch>] <short focus>"`. The panel shows it
+   on the lane's card.
+5. **Flag what needs attention before new work**: uncommitted changes, a `Raw` insight that should
+   be promoted, a `Proposed` ADR awaiting the owner, a "What's next" that is now stale, two changes
+   proposed at once.
 
-## Step 2: Load Context Documents
-
-Read these files in order:
-1. `docs/project-naming-standards.md`
-2. `docs/current-story.md`
-3. `docs/next-prompt.md` (the hub/index)
-
-Then check for branch-specific next-prompt files:
-- Get current branch: !`git branch --show-current`
-- Extract milestone from branch name (e.g., `feature/AUTH-1.3-description` → `AUTH-1`)
-- Also supports legacy format: `feature/M1.2.3-description` → `M1.2`
-- If `docs/next-prompt-[milestone].md` exists for that milestone, read it too
-- If on `main`, check `docs/next-prompt.md` for active milestone pointers and read the relevant files
-
-## Step 3: Check Git State
-
-Current branch and status:
-- Branch: !`git branch --show-current`
-- Status: !`git status --short`
-- Recent commits: !`git log --oneline -5`
-
-## Step 4: Register Worker
-
-Register this session with orchestration:
-```bash
-clauductor register --name [worker-name] --type [session-type] --milestone [PREFIX-#.#] --owner [user]
-```
-
-Update the session status file:
-```bash
-echo "PREFIX-#.#|[type]|[worker-name]|[description]" > orchestration/.session-status
-```
-
-If the `clauductor` binary is not available, warn the user — do not skip silently.
-
-## Step 5: Report
-
-After reading all documents, provide a concise status report:
-
-1. **Current milestone**: What PREFIX-#.# is active, what status
-2. **Branch check**: Are we on the correct feature branch? Flag if on `main`
-3. **Uncommitted work**: Any staged/unstaged changes?
-4. **Setup status**: Any unconfigured items in CLAUDE.md Setup Checklist?
-5. **Next action**: What should we work on based on current-story.md and the branch-specific next-prompt
-
-## Step 6: Red Flag Check
-
-Verify:
-- [ ] Not on `main` (should be on feature branch for any code work)
-- [ ] Using correct PREFIX-#.# naming convention
-- [ ] Current work is documented in current-story.md
-- [ ] Branch-specific next-prompt file exists for the active milestone
-
-If any red flags are found, report them before proceeding.
+## Rules
+- **From here the session runs hands-off to `session-close`**: build, review, merge through
+  `merge-pr`, close. It interrupts the owner only through `PushNotification`, when an owner
+  decision or a block stops it (`session-close`, *Hands-off*).
+- **The main checkout stays on `main`.** Hooks run from it; a feature branch there makes
+  `worktree-hook-drift.sh` refuse every worktree agent.
+- **Run as an orchestrator of lanes** (`docs/playbook.md`, *Lanes*): one build lane at a time in its
+  OWN worktree (a panel lane, or `git worktree add .claude/worktrees/<lane> -b change/<id>
+  origin/main` then `EnterWorktree` there before starting `/build-change`, and stay there until it
+  returns: a workflow agent takes the session's cwd when it starts); at most one proposal ahead;
+  `fix/` and `ops/` lanes in their own worktrees when they share no files. Take summaries from
+  lanes rather than reading their files. When a lane frees up, offer the next queue row.
+- **Research-only work goes to the `researcher` agent**, not a fork (a fork inherits every tool).
+- Read, don't assume: the repo's records are the source of truth for "where we were". Keep the
+  orientation short; this is a launchpad, not a report.

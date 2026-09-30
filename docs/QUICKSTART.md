@@ -1,174 +1,116 @@
 # Clauductor Quickstart Guide
 
+Clauductor gives a project an **operating model** for Claude Code (the files in `template/`) and
+a **local panel** over the sessions that run it (`clauductor panel`, `docs/panel.md`). This guide
+takes a project from nothing to its first change. The model itself is explained, lane by lane, in
+the project's own `docs/playbook.md` (`template/docs/playbook.md` here).
+
 ## Prerequisites
 
-- **macOS or Linux** (macOS recommended for v1)
-- **Git** installed
-- **Claude Code** installed ([claude.ai/code](https://claude.ai/code))
-- **Go** and **tmux** (installed automatically by the installer)
+- **macOS or Linux**, **git** 2.31+, **Claude Code**
+- **jq** (the hooks and checks read JSON with it), **gh** (PRs, merges, issues), **tmux** (the
+  panel's lanes), **Go** (to build clauductor; `install.sh` installs Go and tmux if missing)
+- Optional: **python3** (machine-quiet's live-session check; without it, it removes no worktree)
 
-## Installation
+## Install clauductor
 
 ```bash
-# Clone the framework
 git clone https://github.com/rfhayn/clauductor.git ~/clauductor
-cd ~/clauductor
-
-# Install (builds binary, installs Go + tmux if needed)
-./install.sh
-
-# Restart your shell to pick up PATH changes
-source ~/.zshrc  # or ~/.bashrc for bash
+cd ~/clauductor && ./install.sh
+source ~/.zshrc   # or ~/.bashrc
 ```
 
-## Create a New Project
+## Adopt the operating model
+
+**A new project:**
 
 ```bash
 clauductor init ~/Development/my-app
 cd ~/Development/my-app
-claude
 ```
 
-Once in Claude Code:
-```
-/start-project
-```
-
-This walks you through setup: prefix registry, build command, architecture, first milestone.
-
-## Install Into an Existing Project
+**An existing repository:**
 
 ```bash
 cd ~/Development/existing-project
-
-# Preview what will change
-clauductor install --dry-run
-
-# Install for real
+clauductor install --dry-run   # preview
 clauductor install
 ```
 
-The installer handles files in three tiers:
-- **Framework files** (skills, settings, statusline) — always installed
-- **Project files** (agents, docs, README) — created only if missing, never overwrites
-- **Config files** (CLAUDE.md, .gitignore) — merged with existing
+**A repository that already runs its own operating model** (its own skills, hooks or
+`AGENTS.md`, grown in place) is refused: `install` and `update` list the files they would
+overwrite or add, and change nothing. Such a repository needs none of the template to use the
+panel. Run `clauductor panel init`, `trust` and `add` there instead, and copy any single piece
+of the template by hand. `--force` installs anyway, overwriting. `install` and `init` leave
+`.claude/clauductor-template` behind, and that marker lets later installs and updates act.
 
-## Your First Milestone
+`install` sorts the template's files into three tiers:
 
-```
-/new-milestone AUTH-1 Build user authentication
-```
+- **Framework** (skills, hooks, checks, the workflow, the model's scripts such as
+  `scripts/ci/run-local.sh`, `settings.json`): always installed, so re-running `install` brings
+  them up to date.
+- **Project-owned** (`AGENTS.md`, `.claude/project.conf`, `.claude/model-roles.json`,
+  `.clauductor/panel.json`, `scripts/ci/steps.sh`, agents, docs, the configure-first skills):
+  created only when missing, never overwritten.
+- **Merged**: `CLAUDE.md` gains an `@AGENTS.md` import line; `.gitignore` gains
+  `.claude/worktrees/`.
 
-This:
-1. Creates branch `feature/AUTH-1-build-user-auth`
-2. Updates `docs/current-story.md` with ACTIVE status
-3. Creates `docs/next-prompt-AUTH-1.md` with implementation guidance
-4. Adds a pointer in `docs/next-prompt.md`
-
-## Daily Workflow
-
-```
-# Pick up a milestone (registers, claims files, loads context)
-/start-work AUTH-1
-
-# Work... build... test...
-/build
-/commit
-
-# Milestone done? This chains: review → journal → commit → PR → release
-/done
-```
-
-## Multi-Worker Orchestration
-
-Start a full team workspace:
+## Configure it (once)
 
 ```bash
-clauductor start           # HUD + supervisor + 3 workers
-clauductor start -n 5      # Override to 5 workers
+claude
+/start-project
 ```
 
-This creates:
-- **Window 0**: HUD dashboard (`clauductor watch`)
-- **Window 1**: Supervisor (auto-dispatches work)
-- **Windows 2-N**: Worker terminals (auto-launch claude)
+`/start-project` walks through, and skips what is done:
 
-From any session:
+1. `.claude/project.conf`: the project's name and slug, its status-line mark, **who decides**
+   (`OWNER_ROLE`, `OWNER_NAME`), the main branch, the insight areas.
+2. `.clauductor/panel.json`: the name and tmux socket to match. Then **you** run
+   `clauductor panel trust` (a config's commands run only once you trust it).
+3. `scripts/ci/steps.sh`: your lint, typecheck and test commands; the gate runs them.
+4. The formatter hook, AGENTS.md's *Essentials*, the commit trailer in `model-roles.json`.
+5. The first real rows of `docs/roadmap.md`.
+6. The optional modules: OpenSpec, and the claude.ai review page.
+
+Then `sh .claude/checks/run.sh` must pass; it is also the gate's first step.
+
+## Daily use
+
+```bash
+clauductor panel        # the local panel: lanes, the gate queue, the owner queue
+claude                  # in the main checkout (it stays on main)
+/session-start          # orient; the session then runs hands-off
 ```
-# Spawn additional workers
-/spawn build API-1 API routes
-/spawn research CACHE-1 Caching strategies
 
-# Check status
-/status
-```
+From the panel's **New lane**, the templates offer what the roadmap allows next:
 
-## Session Types
+| Template | Branch | First prompt |
+|---|---|---|
+| Propose the next roadmap row | `change/<id>` | `/propose <id>`: drafts the change and stops for your approval |
+| Build an approved change | `change/<id>` | `/build-change {"change": "<id>"}`: per task group, build, gate, independent review, commit |
+| Fix an issue | `fix/<n>-<slug>` | fix from the code as built, gate, `/merge-pr` |
+| Ops task | `ops/<name>` | waits for the task |
 
-| Type | Purpose | File Access |
-|------|---------|-------------|
-| **research** | Learning, investigation | Read anything, write docs only |
-| **spike** | Architecture exploration | Read anything, write docs only |
-| **build** | Feature implementation | Full access, locks claimed files |
-| **test** | Writing/running tests | Full access, locks claimed files |
-
-## Key Commands
-
-| Command | What it does |
-|---------|-------------|
-| `clauductor init <path>` | Create new project |
-| `clauductor install` | Add to existing project |
-| `clauductor install --dry-run` | Preview install changes |
-| `clauductor update` | Upgrade skills to latest |
-| `clauductor start [-n N]` | Full team workspace (HUD + supervisor + workers) |
-| `clauductor watch` | HUD dashboard only |
-| `clauductor status` | Quick terminal status |
-| `clauductor context [--json]` | Orchestration snapshot |
-| `clauductor check-lock --file <path>` | Check file lock status |
-| `clauductor query <type>` | Query state (JSON): workers, locks, events, milestones |
-| `clauductor export <type>` | Export data (JSON/markdown) |
-
-## File Structure
-
-After `clauductor init`, your project looks like:
-
-```
-my-project/
-├── CLAUDE.md              ← Claude Code instructions (edit for your project)
-├── .claude/
-│   ├── skills/            ← Orchestration skills
-│   ├── agents/            ← Composite agents
-│   ├── hooks/             ← Automated safety checks
-│   ├── settings.json      ← Permissions + hooks + status line
-│   └── statusline.sh      ← Dynamic status display
-├── docs/
-│   ├── current-story.md   ← Source of truth for milestones
-│   ├── next-prompt.md     ← Hub/index for implementation guidance
-│   └── prds/              ← Product requirement documents
-└── orchestration/         ← Runtime state (gitignored)
-    ├── config.json        ← Team settings (workers, auto-claude)
-    └── framework.db       ← SQLite: workers, locks, events
-```
+Sessions merge their own PRs through `/merge-pr` once the gate has a receipt for the head commit
+and review has converged; `pr-merge-guard` blocks anything else. You are asked only for decisions
+that are yours (proposals, designs, ADRs, deploys) by notification, and what needs you at the
+computer waits in the owner queue. End with `/session-close`.
 
 ## Updating
 
-When the framework gets new skills or improvements:
-
 ```bash
-cd ~/clauductor && git pull
-./install.sh
-
-# Then in your project:
-cd ~/Development/my-project
-clauductor update
+cd ~/clauductor && git pull && ./install.sh
+cd ~/Development/my-app && clauductor install   # refreshes the framework tier only
 ```
 
 ## Troubleshooting
 
-**`clauductor: command not found`** — Run `source ~/.zshrc  # or ~/.bashrc for bash` or add `~/.local/bin` to your PATH.
-
-**`CLAUDUCTOR_FRAMEWORK not set`** — Run `./install.sh` again, or set manually: `export CLAUDUCTOR_FRAMEWORK=~/clauductor`
-
-**Status line shows wrong milestone** — Run `/session-start` to update `orchestration/.session-status`.
-
-**`clauductor install` shows conflicts** — Use `--dry-run` first. Framework files are safe to overwrite. Doc files with existing content are preserved.
+- **A hook blocks everything with "jq is not installed"**: install jq; the hooks fail closed
+  without it for the commands they police.
+- **The merge guard says there is no evidence**: run `scripts/ci/gate.sh` with no flags on the
+  committed head; `--quick` and a dirty tree write no receipt it accepts.
+- **A worktree agent is refused by worktree-hook-drift**: put the main checkout back on `main`
+  and pull.
+- **The panel's cards and suggestions show nothing**: `clauductor panel trust`, and see
+  `docs/panel.md`, *Troubleshooting*.

@@ -1,5 +1,7 @@
 ---
 name: architecture-audit
+model: opus
+effort: high
 description: "Check codebase for architectural violations. ⚠️ CONFIGURE FIRST: Define your project's architectural rules below. TRIGGER when the user says \"check architecture\", \"audit architecture\", \"run architecture check\", \"check for violations\", \"architecture review\", or any request to verify architectural patterns."
 user_invocable: true
 ---
@@ -43,7 +45,8 @@ Expected: Zero matches.
 
 ## When to Run
 
-- Before starting any milestone that creates new modules/services
-- During code review / PR creation
-- After completing changes to core architectural layers
-- As a quality gate before marking milestone complete
+- Before proposing a change that creates new modules or services (`/propose` step 0)
+- During review of a task group that touches a core layer
+- **Better:** once a rule is stable, turn its grep into a check (`.claude/checks/<name>.sh`) or a
+  gate step, and give it a row in AGENTS.md's *What executes each rule* table. A rule this skill
+  holds is executed only when someone remembers to run it (AGENTS.md rule 4).

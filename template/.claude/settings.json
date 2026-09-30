@@ -1,55 +1,73 @@
 {
+  "model": "opus",
+  "effortLevel": "high",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
+  },
+  "skillOverrides": {
+    "anthropic-skills:brand-guidelines": "user-invocable-only",
+    "anthropic-skills:built-in-browser": "user-invocable-only",
+    "anthropic-skills:computer-use": "user-invocable-only",
+    "anthropic-skills:deep-research": "user-invocable-only",
+    "anthropic-skills:docs": "user-invocable-only",
+    "anthropic-skills:docx": "user-invocable-only",
+    "anthropic-skills:import-memory": "user-invocable-only",
+    "anthropic-skills:morning": "user-invocable-only",
+    "anthropic-skills:pdf": "user-invocable-only",
+    "anthropic-skills:pptx": "user-invocable-only",
+    "anthropic-skills:skill-creator": "user-invocable-only",
+    "anthropic-skills:xlsx": "user-invocable-only",
+    "deep-research": "user-invocable-only",
+    "fewer-permission-prompts": "user-invocable-only",
+    "init": "user-invocable-only",
+    "keybindings-help": "user-invocable-only"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "sh .claude/statusline.sh"
+  },
   "hooks": {
-    "SessionStart": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/session-register.sh",
-            "async": true
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/focus-staleness.sh"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/lock-guard.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pr-merge-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-blind-source-rewrite.sh"
           }
         ]
       },
       {
-        "matcher": "Bash",
-        "if": "Bash(git commit *)",
+        "matcher": "Agent|Task",
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/doc-freshness.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook-drift.sh"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/heartbeat.sh",
-            "async": true
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/status-sync.sh",
-            "async": true
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh"
           }
         ]
       }
@@ -57,24 +75,14 @@
   },
   "permissions": {
     "allow": [
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git push*)",
-      "Bash(git status*)",
-      "Bash(git diff*)",
-      "Bash(git log*)",
-      "Bash(git branch*)",
-      "Bash(git checkout *)",
-      "Bash(git switch *)",
-      "Bash(gh *)",
-      "Bash(ls *)",
-      "Bash(echo *)",
-      "Bash(grep *)",
-      "Bash(clauductor *)"
+      "Bash(sh .claude/checks/run.sh)",
+      "Bash(sh .claude/checks/run.sh *)",
+      "Bash(sh .claude/owner-queue.sh)",
+      "Bash(sh .claude/roadmap-queue.sh)",
+      "Bash(sh .claude/roadmap-queue.sh *)",
+      "Bash(scripts/ci/gate.sh)",
+      "Bash(scripts/ci/gate.sh *)",
+      "Bash(sh .claude/status-write.sh *)"
     ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "bash .claude/statusline.sh"
   }
 }
