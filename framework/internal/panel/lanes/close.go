@@ -233,6 +233,9 @@ func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *La
 	} else {
 		p.Worktree = true
 		p.Remove = append(p.Remove, "the worktree "+w.Path+" (clean: no changes, no untracked files)")
+		if h := m.Cfg.WorktreeTeardown; h != nil {
+			p.Notes = append(p.Notes, fmt.Sprintf("worktree_teardown (%s) runs in it first; if it fails or leaves files, the worktree stays", strings.Join(h.Command, " ")))
+		}
 	}
 	switch {
 	case w.Branch == "":
@@ -336,6 +339,23 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 			res.Kept = append(res.Kept, "the branch "+w.Branch+": its worktree stays")
 		}
 		return res, nil
+	}
+	// PANEL-20: the worktree's teardown, then the check again (teardown may leave files).
+	if ran, err := m.runHook(ctx, "worktree_teardown", m.Cfg.WorktreeTeardown, w.Path, id); err != nil {
+		res.Kept = append(res.Kept, "the worktree "+w.Path+": "+err.Error())
+		if w.Branch != "" {
+			res.Kept = append(res.Kept, "the branch "+w.Branch+": its worktree stays")
+		}
+		return res, nil
+	} else if ran {
+		res.Removed = append(res.Removed, "worktree_teardown ran in "+w.Path)
+		if _, why := m.worktreeVerdict(ctx, w.Path, id); why != "" {
+			res.Kept = append(res.Kept, "the worktree "+w.Path+": after worktree_teardown, "+why)
+			if w.Branch != "" {
+				res.Kept = append(res.Kept, "the branch "+w.Branch+": its worktree stays")
+			}
+			return res, nil
+		}
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()

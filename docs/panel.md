@@ -224,11 +224,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
 | 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
+| 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–4 (0 included) is refused.
+- A `version` outside 1–5 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -286,7 +287,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1, 2, 3 or 4 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 5 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -301,6 +302,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
+| `lane_types.<key>.auto_close` | string: "off" or "on_merge" |  | 5 | Overrides `lanes_auto_close` for this lane type. |
 | `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
@@ -331,6 +333,16 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
 | `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
+| `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
+| `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
+| `worktree_setup` | object |  | 5 | A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*). |
+| `worktree_setup.command` | array of strings, **required** |  | 5 | argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout. |
+| `worktree_teardown` | object |  | 5 | A command run in a lane's worktree before **Close lane** removes it. |
+| `worktree_teardown.command` | array of strings, **required** |  | 5 | argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays. |
+| `ports` | object |  | 5 | Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header. |
+| `ports.base` | integer, **required** |  | 5 | The first lane's port, 1024 to 65000. |
+| `ports.per_lane` | integer, **required** |  | 5 | The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one). |
 | `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
 | `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
 | `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
@@ -744,6 +756,33 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
 **A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
 to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
 exits and the lane shows a dead pane; STOP it and start it again.
+
+### Worktree setup, teardown and ports
+
+PANEL-20 (config version 5). A worktree is a fresh checkout, so a new lane may need its
+gitignored files, its dependencies and a port of its own before claude starts in it.
+
+- **`.worktreeinclude`** in the project root, as Claude Code reads it: `.gitignore` syntax, and a
+  file is copied from the project root into a lane's **new** worktree only when it matches a
+  pattern **and** is ignored, so a tracked file is never copied. git applies both sets of
+  patterns (two `git ls-files --others --ignored` lists, one with `--exclude-standard`, one
+  with `--exclude-from=.worktreeinclude`; the copy is what both list). Only regular files are
+  copied (never a symlink), nothing already in the worktree is overwritten, and at most 2,000
+  files or 200 MB; the start says how many it copied.
+- **`worktree_setup.command`** runs in the new worktree after that and before claude starts;
+  **`worktree_teardown.command`** runs in a lane's worktree when **Close lane** is about to
+  remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
+  (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
+  and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
+  A failed teardown, or one that leaves the worktree changed (the clean check runs again after
+  it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
+  A lane on an existing worktree or the project root runs neither. The lane lock is held
+  while they run, so a slow setup delays the other lanes' actions.
+- **`ports: {base, per_lane}`** gives each lane a port of its own: `base`, `base + per_lane`,
+  and so on, the lowest one no other registered lane holds. It is kept in the lane's registry
+  record (so a restart or a restore keeps it, and Forget frees it), exported to the lane's tmux
+  session as `CLAUDUCTOR_PORT`, and shown as **Port** in the lane's header. The panel does not
+  check that nothing else listens there.
 
 ### Lane templates
 

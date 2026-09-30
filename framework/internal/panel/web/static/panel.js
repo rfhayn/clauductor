@@ -992,6 +992,12 @@ function renderLaneHead(x) {
     const m = laneModel(x), lm = laneM(x), since = laneSince(x), ctx = laneCtx(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
+    // PANEL-20: the lane's own port, exported to it as CLAUDUCTOR_PORT.
+    if (x.t && x.t.port) {
+      const pk = kv1("Port", num(String(x.t.port)));
+      pk.title = "This lane's own port (ports in panel.json), exported to it as CLAUDUCTOR_PORT";
+      kids.push(key(pk, "port"));
+    }
     // PANEL-19: where Remote Control is on (the machine's choice at panel install).
     if (S.remoteControl && x.t) {
       const rc = kv1("Remote", el("span", null, S.remoteControl === "all" ? "on, every session" : "on, the panel's lanes"));

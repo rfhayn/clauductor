@@ -96,7 +96,7 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 	if !strings.Contains(string(s.Properties["cards"]), `"pattern": "`+jsonQuote(refreshRe.String())+`"`) {
 		t.Errorf("cards[].refresh does not carry the validator's pattern %s", refreshRe)
 	}
-	if len(s.AllOf) != 3 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
+	if len(s.AllOf) != 4 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
 		s.AllOf[2].If.Properties.Version.Const != 3 || string(s.AllOf[2].Then.Properties["metrics"]) != "false" {
 		t.Fatalf("version gate %+v", s.AllOf)
 	}

@@ -1241,6 +1241,8 @@ type TermLaneView struct {
 	Dead       bool     `json:"dead"`    // the tmux session exists, the program exited
 	DeadStatus string   `json:"deadStatus,omitempty"`
 	Registered bool     `json:"registered"`
+	// Port is the lane's own port (PANEL-20), when panel.json allocates them.
+	Port int `json:"port,omitempty"`
 	// Orphan says what does not add up, e.g. a registered lane whose tmux session is
 	// gone (a reboot), or a tmux session the registry does not know. "" when sound.
 	Orphan string `json:"orphan,omitempty"`
@@ -1303,7 +1305,7 @@ func (m *Model) TerminalViews(now time.Time) []TermLaneView {
 	for _, rec := range m.laneRecords {
 		seen[rec.ID] = true
 		tv := TermLaneView{ID: rec.ID, SessionID: rec.SessionID, Path: rec.Path, Type: rec.Type, Branch: rec.Branch,
-			Created: rec.Created / 1000, Registered: true, Status: "running"}
+			Created: rec.Created / 1000, Registered: true, Status: "running", Port: rec.Port}
 		if !rec.ActionDone {
 			tv.Action = rec.Action
 		}

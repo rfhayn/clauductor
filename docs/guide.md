@@ -56,6 +56,20 @@ These buttons sit under the selected lane's terminal. To act on a lane without o
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.
 
+## Prepare each new worktree
+
+A new lane's worktree is a fresh checkout. Three settings fill it in (config version 5):
+
+- A `.worktreeinclude` file in the project root lists gitignored files to copy into every new
+  worktree, such as `.env`, in `.gitignore` syntax.
+- `"worktree_setup": { "command": ["make", "setup"] }` runs there before claude starts, and
+  `"worktree_teardown": { "command": ["make", "down"] }` before **Close lane** removes it.
+- `"ports": { "base": 4400, "per_lane": 10 }` gives each lane a port of its own, shown as
+  **Port** in its header and set as `CLAUDUCTOR_PORT` for the lane, its setup and its teardown.
+
+Run `clauductor panel trust` after adding them. See
+[Worktree setup, teardown and ports](panel.md#worktree-setup-teardown-and-ports).
+
 ## Clean up a worktree with no lane
 
 A session that ended can leave its worktree behind. In **Worktrees**, a worktree with no lane has
