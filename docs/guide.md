@@ -125,6 +125,11 @@ than a day for its **Approved:** line, a change that has spent more than its pro
 commit for three days. Change the times with `alerts.approval_wait_hours` and `alerts.stale_days`
 (0 turns one off). See [Needs you from the metrics](panel.md#needs-you-from-the-metrics).
 
+To spend less as the 5-hour quota runs low, set `"quota_economy": { "five_hour_pct": 85 }`. At
+that point an **Economy** field appears by the quota, naming the roles that move to a cheaper
+model (from `.claude/model-roles.json`), and Clauductor's `build-change` picks it up. It turns off
+once the quota is 3 points lower. See [Economy mode](panel.md#economy-mode).
+
 ## Queues and the gate
 
 If two lanes' gate scripts would collide (one port, one test database), a queue runs them one

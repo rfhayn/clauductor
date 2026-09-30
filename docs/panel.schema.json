@@ -27,6 +27,7 @@
           "host_names": false,
           "metrics": false,
           "queues": false,
+          "quota_economy": false,
           "quota_guard": false,
           "templates": false
         }
@@ -59,6 +60,7 @@
             }
           },
           "metrics": false,
+          "quota_economy": false,
           "templates": {
             "items": {
               "properties": {
@@ -88,7 +90,8 @@
               "stale_days": false
             }
           },
-          "metrics": false
+          "metrics": false,
+          "quota_economy": false
         }
       }
     }
@@ -317,6 +320,19 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "quota_economy": {
+      "additionalProperties": false,
+      "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
+      "properties": {
+        "five_hour_pct": {
+          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
     },
     "quota_guard": {
       "additionalProperties": false,

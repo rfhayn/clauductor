@@ -189,6 +189,7 @@ type Model struct {
 	flow          *metrics.Card
 	changes       []signals.Change
 	spentByBranch map[string]float64
+	economy       *EconomyView
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -753,6 +754,8 @@ type View struct {
 	CardsStale *CardsStale `json:"cardsStale,omitempty"`
 	// Flow is the side panel's Flow card (PANEL-19), absent while there is nothing to show.
 	Flow *metrics.Card `json:"flow,omitempty"`
+	// Economy is economy mode while it is on (PANEL-19): the badge by the quota.
+	Economy *EconomyView `json:"economy,omitempty"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -1209,6 +1212,7 @@ func (m *Model) Snapshot(now time.Time) View {
 	for i := range v.Lanes {
 		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
 	}
+	v.Economy = m.economyView()
 	return v
 }
 

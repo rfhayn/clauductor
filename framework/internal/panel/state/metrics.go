@@ -172,6 +172,58 @@ func (m *Model) metricsAlerts(v *View, th config.Thresholds, now time.Time) []Al
 	return out
 }
 
+// EconomyRole is one role economy mode moves to a cheaper tier, as the project's
+// .claude/model-roles.json maps it ("economy").
+type EconomyRole struct {
+	Role string `json:"role"`
+	To   string `json:"to,omitempty"` // "sonnet, low"; "" when the mapping does not say
+}
+
+// EconomyView is economy mode (PANEL-19): on while the 5-hour quota is at or above
+// quota_economy.five_hour_pct. The page shows a badge by the quota while Active.
+type EconomyView struct {
+	Active    bool          `json:"active"`
+	Since     int64         `json:"since,omitempty"` // unix ms of the last switch
+	Reason    string        `json:"reason,omitempty"`
+	Threshold float64       `json:"threshold"`
+	Roles     []EconomyRole `json:"roles"`
+	// RolesNote says why no role is named (no model-roles.json, or no economy mapping).
+	RolesNote string `json:"rolesNote,omitempty"`
+}
+
+// ApplyEconomy records economy mode's state (the machine's); nil: not configured.
+func (m *Model) ApplyEconomy(e *EconomyView) {
+	if e == nil {
+		m.economy = nil
+		return
+	}
+	c := *e
+	if m.economy != nil {
+		c.Roles, c.RolesNote = m.economy.Roles, m.economy.RolesNote
+	}
+	m.economy = &c
+}
+
+// ApplyEconomyRoles records the project's economy mapping.
+func (m *Model) ApplyEconomyRoles(roles []EconomyRole, note string) {
+	if m.economy == nil {
+		m.economy = &EconomyView{}
+	}
+	m.economy.Roles, m.economy.RolesNote = roles, note
+}
+
+// economyView is the badge's data, while economy mode is on.
+func (m *Model) economyView() *EconomyView {
+	if m.economy == nil || !m.economy.Active {
+		return nil
+	}
+	c := *m.economy
+	if c.Roles == nil {
+		c.Roles = []EconomyRole{}
+	}
+	return &c
+}
+
 // trendGit is a worktree's last git read, or nil.
 func (m *Model) trendGit(path string) *GitView {
 	if m.trend == nil {

@@ -156,6 +156,18 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     if (!/^Budget.*of \$5\.00$/.test(bud)) fail("the budget bar in the lane header: " + JSON.stringify(bud));
     if (shots) await p.screenshot({ path: path.join(shots, "needs-and-budget.png") });
 
+    // PANEL-19 part 5: the economy badge by the quota, naming the roles (a synthetic view:
+    // the Go test drives the real switch in a temp HOME).
+    const eco = await p.evaluate(() => {
+      S.economy = { active: true, since: Date.now(), reason: "5-hour quota 87% ≥ 85%", threshold: 85, roles: [{ role: "scribe", to: "sonnet, low" }] };
+      render();
+      const f = document.querySelector('#quotas [data-k="q:eco"]');
+      const out = f ? { text: f.textContent, title: f.title, afterQuota: !!f.previousElementSibling } : null;
+      S.economy = null; render();
+      return out;
+    });
+    if (!eco || !/^Economyeconomyscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
+
     if (errors.length) fail("page errors: " + errors.join("; "));
     if (!process.exitCode) console.log("ok metrics-view");
   } finally {

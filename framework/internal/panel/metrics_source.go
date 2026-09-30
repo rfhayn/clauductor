@@ -123,7 +123,8 @@ func (r *Runtime) pollChanges(_ context.Context, now time.Time) (update, time.Du
 	r.mstore.mu.Lock()
 	r.mstore.waiting, r.mstore.budgets, r.mstore.haveChanges = waiting, budgets, len(cs) > 0
 	r.mstore.mu.Unlock()
-	return func(m *state.Model, _ time.Time) { m.ApplyChanges(cs, spent) }, 0
+	roles, note := economyRoles(r.root)
+	return func(m *state.Model, _ time.Time) { m.ApplyChanges(cs, spent); m.ApplyEconomyRoles(roles, note) }, 0
 }
 
 // pollMerged reads merged pull requests at most every Ticks.Merged, and only while a

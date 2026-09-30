@@ -1486,10 +1486,22 @@ function quotaFields(q, acct, tr) {
     return quotaField(w, i === 0 ? plan : "", proj, mode === "windows" ? q.at : 0);
   });
 }
+// PANEL-19: economy mode, by the quota while it is on: the roles the project's
+// model-roles.json moves to a cheaper tier, and why it is on (on hover).
+function economyField() {
+  const e = S.economy;
+  if (!e || !e.active) return [];
+  const roles = (e.roles || []).map((r) => r.role + (r.to ? " to " + r.to : "")).join(", ");
+  const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "economy"),
+    el("span", "more", roles || "no role named")])]), "q:eco");
+  f.title = (e.reason || "") + (e.since ? ", since " + hm(e.since) : "") + ". " + (roles ? "Roles on a cheaper tier: " + roles + "." : e.rolesNote || "") +
+    " The panel writes ~/.clauductor/panel/economy.json; the operating model's build-change reads it.";
+  return [f];
+}
 function renderStatus(ls) {
   const q = S.quota || {}, tr = S.trends || {}, acct = S.account || {};
   const spend = acct.quotaMode === "spend";
-  patch($("quotas"), quotaFields(q, acct, tr));
+  patch($("quotas"), quotaFields(q, acct, tr).concat(economyField()));
   // An API key or a cloud provider is billed per token: its spend comes first, and
   // the burn is dollars an hour. The estimate is still list price, not the bill.
   const fields = $("fields"), fc = $("f-cost"), fb = $("f-burn");

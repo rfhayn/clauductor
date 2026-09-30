@@ -74,6 +74,10 @@ type Config struct {
 	// Metrics names the project's metrics command, whose JSON the Metrics view draws
 	// beside what the panel computes itself (package metrics).
 	Metrics *MetricsConfig `json:"metrics"`
+	// QuotaEconomy turns on economy mode above a 5-hour quota (off unless set): the
+	// panel writes ~/.clauductor/panel/economy.json for the operating model's
+	// build-change to read, and shows an economy badge by the quota.
+	QuotaEconomy *QuotaEconomyConfig `json:"quota_economy"`
 
 	// Notices are what loading the file has to say once (no version declared). The
 	// panel prints them at start.
@@ -222,6 +226,19 @@ type MetricsConfig struct {
 	// Card shows the Flow card in the side panel while there are metrics to show
 	// (default true).
 	Card *bool `json:"card"`
+}
+
+// QuotaEconomyConfig is economy mode's threshold (version 4).
+type QuotaEconomyConfig struct {
+	FiveHourPct *float64 `json:"five_hour_pct"`
+}
+
+// EconomyPct is the 5-hour quota economy mode starts at; 0 is off (the default).
+func (c *Config) EconomyPct() float64 {
+	if c.QuotaEconomy == nil || c.QuotaEconomy.FiveHourPct == nil {
+		return 0
+	}
+	return *c.QuotaEconomy.FiveHourPct
 }
 
 // DefaultMetricsRefresh is how often a metrics command runs when its config says
@@ -634,6 +651,9 @@ func (c *Config) validateV2() error {
 	}
 	if g := c.QuotaGuard; g != nil && g.FiveHourPct != nil && (*g.FiveHourPct < 0 || *g.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_guard.five_hour_pct must be 0 (off) to 100")
+	}
+	if e := c.QuotaEconomy; e != nil && e.FiveHourPct != nil && (*e.FiveHourPct < 0 || *e.FiveHourPct > 100) {
+		return fmt.Errorf("panel config: quota_economy.five_hour_pct must be 0 (off) to 100")
 	}
 	if mt := c.Metrics; mt != nil {
 		if mt.Command != nil && (len(mt.Command) == 0 || strings.TrimSpace(mt.Command[0]) == "") {

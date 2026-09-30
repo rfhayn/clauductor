@@ -50,6 +50,9 @@ type Machine struct {
 	notifier   state.Notifier
 	notifyPath string
 	savedState string
+
+	// economy is economy mode (PANEL-19; economy.go).
+	economy *economy
 }
 
 // maxBound caps the dispatcher's session table; past it the table starts over, and
@@ -92,7 +95,9 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 		{name: "account", every: t.Version, poll: m.pollAccount()},
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
+		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
 	}
+	m.economy = newEconomy(o.Home, def.cfg)
 	if o.Launchd {
 		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
 		// follow it so the old token dies in the running panel too.

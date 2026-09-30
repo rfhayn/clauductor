@@ -223,7 +223,7 @@ earlier one. The **Since** column of the key table says which is which:
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
-| 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours` and `alerts.stale_days` |
+| 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
@@ -329,6 +329,8 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
 | `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
 | `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
 | `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
@@ -1499,6 +1501,36 @@ the repository, else `changes`; and `openspec/changes/<id>/`. `archive/` is not 
 reading gives the built-in **Approval wait** (the proposals waiting now) and the budgets beside
 **By change**.
 
+### Economy mode
+
+Off unless `quota_economy.five_hour_pct` is set (config version 4; the default project's, since
+the quota is the machine's). While the account's 5-hour quota is at or above it, the panel is in
+economy mode, and it leaves only once the quota is **3 points below** (so a quota hovering at the
+line does not flap). A reset window, or no reading, keeps the mode as it is.
+
+**The contract: `~/.clauductor/panel/economy.json`** (0600, written atomically, and only when
+the mode switches):
+
+```json
+{ "economy": true, "since": 1790000000, "reason": "5-hour quota 87% ≥ 85%" }
+```
+
+`since` is the unix time of the switch; `reason` the reading that switched it (off reads
+`"5-hour quota 81% < 82% (on at 85%)"`). A missing file means off. With `quota_economy` unset
+the panel writes nothing, except to turn a file an earlier run left on to off. Clauductor's
+operating model's `build-change` reads it and moves the roles that are not critical down one
+tier; which roles, and to what, is the project's `.claude/model-roles.json`:
+
+```
+"economy": { "_why": "…", "scribe": { "model": "sonnet", "effort": "low" }, "mechanic": "haiku/low" }
+```
+
+Each key not starting with `_` is a role; its value is the tier it drops to, as
+`{model, effort}` or `"model/effort"` (the same object may sit under `economy.roles`). The
+reviewer and planner are simply not listed. While economy mode is on, an **Economy** field by
+the quota says **economy** and names those roles ("scribe to sonnet, low"); hovering says why it
+is on and since when. The panel only reads that file, every minute, and runs nothing.
+
 `GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
 route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
 projects, merges, spend and escaped defects add up; a median cannot, so it is the projects'
@@ -1924,6 +1956,7 @@ send requests to `127.0.0.1`.
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
   - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
     started on a project it does not list) or removed; a refused start writes nothing;
+  - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
