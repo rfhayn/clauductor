@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/metrics"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
@@ -182,6 +183,10 @@ type Model struct {
 
 	// projectID is the project's id in the panel's registry (PANEL-16).
 	projectID string
+
+	// PANEL-19 (metrics.go): spend for the ledger, and the Flow card.
+	spendObs map[string]metrics.Observation
+	flow     *metrics.Card
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -564,6 +569,7 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		if p.Cost.TotalCostUSD != nil {
 			m.costByID[p.SessionID] = *p.Cost.TotalCostUSD
 			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
+			m.observeSpend(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
 		s.Stats.fold(p, now)
 	}
@@ -743,6 +749,8 @@ type View struct {
 	// CardsStale is set while the checkout the cards run in is behind its upstream
 	// (PANEL-18): the page says the cards may be stale.
 	CardsStale *CardsStale `json:"cardsStale,omitempty"`
+	// Flow is the side panel's Flow card (PANEL-19), absent while there is nothing to show.
+	Flow *metrics.Card `json:"flow,omitempty"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -1190,6 +1198,9 @@ func (m *Model) Snapshot(now time.Time) View {
 	m.snapshotV2(&v, now)
 	m.trendsView(&v, now)
 	v.CardsStale = m.cardsStale()
+	if m.flow != nil && m.flow.Any && m.cfg.FlowCard() {
+		v.Flow = m.flow
+	}
 	return v
 }
 

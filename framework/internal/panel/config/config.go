@@ -69,6 +69,12 @@ type Config struct {
 	// (clauductor.localhost always works). No wildcards.
 	HostNames []string `json:"host_names"`
 
+	// Metrics: version 4 (PANEL-19).
+
+	// Metrics names the project's metrics command, whose JSON the Metrics view draws
+	// beside what the panel computes itself (package metrics).
+	Metrics *MetricsConfig `json:"metrics"`
+
 	// Notices are what loading the file has to say once (no version declared). The
 	// panel prints them at start.
 	Notices []string `json:"-"`
@@ -204,6 +210,43 @@ type CardConfig struct {
 	// Pin also shows the card in the side panel (version 3): the project's own
 	// "where things stand", beside the lanes rather than in the drawer.
 	Pin bool `json:"pin"`
+}
+
+// MetricsConfig is the project's metrics command (version 4): run like a card, only
+// while the config is trusted, its stdout the JSON contract in docs/panel.md
+// ("Metrics"). Without a command the panel shows only the metrics it computes itself.
+type MetricsConfig struct {
+	Command []string `json:"command"`
+	// Refresh is a card's refresh rule; DefaultMetricsRefresh when empty.
+	Refresh string `json:"refresh"`
+	// Card shows the Flow card in the side panel while there are metrics to show
+	// (default true).
+	Card *bool `json:"card"`
+}
+
+// DefaultMetricsRefresh is how often a metrics command runs when its config says
+// nothing: its figures move by the day, so every 15 minutes is plenty.
+const DefaultMetricsRefresh = "interval:900"
+
+// MetricsRefresh returns the metrics command's refresh rule, defaulted.
+func (c *Config) MetricsRefresh() string {
+	if c.Metrics == nil || c.Metrics.Refresh == "" {
+		return DefaultMetricsRefresh
+	}
+	return c.Metrics.Refresh
+}
+
+// MetricsCommand returns the project's metrics argv, or nil when it names none.
+func (c *Config) MetricsCommand() []string {
+	if c.Metrics == nil {
+		return nil
+	}
+	return c.Metrics.Command
+}
+
+// FlowCard reports whether the side panel may show the Flow card.
+func (c *Config) FlowCard() bool {
+	return c.Metrics == nil || c.Metrics.Card == nil || *c.Metrics.Card
 }
 
 // SuggestConfig is a template's list of what to start next (version 3): a command,
@@ -578,6 +621,19 @@ func (c *Config) validateV2() error {
 	if g := c.QuotaGuard; g != nil && g.FiveHourPct != nil && (*g.FiveHourPct < 0 || *g.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_guard.five_hour_pct must be 0 (off) to 100")
 	}
+	if mt := c.Metrics; mt != nil {
+		if mt.Command != nil && (len(mt.Command) == 0 || strings.TrimSpace(mt.Command[0]) == "") {
+			return fmt.Errorf("panel config: metrics.command must be a non-empty argv list")
+		}
+		if mt.Refresh != "" {
+			if len(mt.Command) == 0 {
+				return fmt.Errorf("panel config: metrics.refresh needs a metrics.command to refresh")
+			}
+			if _, err := ParseRefresh(mt.Refresh); err != nil {
+				return fmt.Errorf("panel config: metrics: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -736,7 +792,7 @@ func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
 // RunList describes, one line each, everything the config makes the panel run or
 // type: each card's argv (run on its refresh), each queue's argv (run on RUN), each
 // template's first prompt (typed into a new lane) and each template's suggest argv
-// (run on its refresh). Trusting a config trusts exactly these, so trust and install
+// (run on its refresh) and the metrics command (run on its refresh). Trusting a config trusts exactly these, so trust and install
 // print them.
 func (c *Config) RunList() []string {
 	var out []string
@@ -753,6 +809,9 @@ func (c *Config) RunList() []string {
 		if t.Suggest != nil {
 			out = append(out, fmt.Sprintf("template %s suggests from %q (%s)", t.ID, t.Suggest.Command, t.Suggest.Refresh))
 		}
+	}
+	if cmd := c.MetricsCommand(); len(cmd) > 0 {
+		out = append(out, fmt.Sprintf("metrics runs %q (%s)", cmd, c.MetricsRefresh()))
 	}
 	return out
 }

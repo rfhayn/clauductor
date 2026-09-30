@@ -11,6 +11,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/panel/metrics"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
@@ -48,6 +49,34 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 	}
 	// PANEL-18, after PANEL-16: under /api/p/{project} only; no page predates it.
 	mux.HandleFunc("POST /api/p/{project}/worktrees/remove", s.requireAuth(s.withProject(s.removeWorktree)))
+	// PANEL-19: the Metrics view, read only. ?scope=all combines every project's.
+	mux.HandleFunc("GET /api/p/{project}/metrics", s.requireAuth(s.withProject(s.metricsView)))
+}
+
+// metricsView serves GET /api/p/{project}/metrics (PANEL-19): the project's Metrics
+// view, or with ?scope=all every served project's, combined. It runs nothing: the
+// figures are what the metrics sources last read.
+func (s *Server) metricsView(w http.ResponseWriter, r *http.Request, p *Project) {
+	scope := r.URL.Query().Get("scope")
+	if scope != "" && scope != "project" && scope != "all" {
+		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "scope must be project or all"))
+		return
+	}
+	if scope != "all" {
+		if p.Metrics == nil {
+			writeLaneErr(w, laneErr(http.StatusNotFound, "no-metrics", "no metrics for this project"))
+			return
+		}
+		writeJSON(w, http.StatusOK, p.Metrics())
+		return
+	}
+	var reps []metrics.Report
+	for _, q := range s.projects() {
+		if q.Metrics != nil {
+			reps = append(reps, q.Metrics())
+		}
+	}
+	writeJSON(w, http.StatusOK, metrics.Combine(reps, s.clock().Now()))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

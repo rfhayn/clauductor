@@ -26,6 +26,8 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
+| the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
+| `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -38,7 +40,7 @@ the keyboard shortcuts.
 
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
-[Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
+[Alerts](#alerts) · [Metrics](#metrics) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
 [Security model](#security-model) · [Operations](#operations) · [Troubleshooting](#troubleshooting) ·
 [Not yet](#not-yet)
 
@@ -221,11 +223,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
+| 4 | metrics (PANEL-19): `metrics` (see *Metrics*) |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–3 (0 included) is refused.
+- A `version` outside 1–4 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -283,7 +286,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1, 2 or 3 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1, 2, 3 or 4 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -324,6 +327,10 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
+| `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
+| `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
+| `metrics.card` | boolean | `true` | 4 | Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone. |
 <!-- config-reference end -->
 
 ### Card output
@@ -1343,6 +1350,110 @@ the config's `name` only while the config is trusted; `name` must be one line of
 does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
 
+## Metrics
+
+PANEL-19. How the work flows, what it costs, how good it is, and whether it did what it meant
+to. The figures come from two places, and the page marks every one with which:
+
+- **The project's metrics command** (`metrics.command`, config version 4): a project command,
+  like a card's, whose stdout is the JSON below. Clauductor's operating model ships one
+  (`.claude/metrics.sh`, OPS-9); any project can write its own.
+- **The panel's own** (built in), for any repository, with or without the command: merge
+  frequency and PR cycle time from merged pull requests (`gh`), spend from the status line's
+  posts, and the work in flight from the lanes. It costs no model token and runs nothing new but
+  one `gh pr list --state merged`, at most every 10 minutes while a page is in view.
+
+Where both have a figure, the project's is shown. A figure neither has shows "—" and why ("Only
+a project's metrics command reports this", "No pull request was merged in the last 7d", "The
+metrics command failed: …"), never a zero.
+
+### The metrics JSON (contract version 1)
+
+```json
+{
+  "version": 1,
+  "generated_at": 1790000000,
+  "windows": {
+    "30d": {
+      "flow": {
+        "lead_time":        { "value": 44,  "series": [50, 40, 46, 38, 42, 44, 45, 41, 43, 44], "n": 12 },
+        "cycle_time":       { "value": 7.5, "n": 12 },
+        "approval_wait":    { "value": 5.5, "n": 12, "note": "proposal written to Approved line" },
+        "merge_frequency":  { "value": 2.8, "series": [2.3, 4.7, 2.3, 0, 2.3, 4.7, 2.3, 2.3, 4.7, 2.3] },
+        "change_fail_rate": { "value": 8.3, "n": 12 },
+        "aging_wip": [ { "id": "add-score-photo", "title": "Photograph a scorecard", "age_days": 4.5, "stage": "build" } ]
+      },
+      "cost": {
+        "total_usd": 162.4,
+        "per_week":   { "value": 37.9, "series": [30, 35, 41, 38, 40, 36, 39, 37, 42, 38] },
+        "by_role":    [ { "name": "builder", "usd": 90.1 } ],
+        "by_model":   [ { "name": "opus", "usd": 140.4 } ],
+        "by_change":  [ { "name": "add-score-photo", "usd": 61.5, "budget_usd": 50 } ],
+        "by_project": [ { "name": "My Project", "usd": 162.4 } ]
+      },
+      "quality": {
+        "review_rounds":   { "value": 1.5, "n": 12 },
+        "reviewer_recall": [ { "model": "opus", "pct": 92, "n": 40 } ],
+        "escaped_defects": { "value": 1 }
+      },
+      "outcomes": {
+        "hypotheses": [ { "change": "add-score-photo", "hypothesis": "Half of new cards start from a photo",
+                          "due": "2026-10-20", "checked": false, "result": "" } ]
+      }
+    }
+  }
+}
+```
+
+- `windows` has any of `7d`, `30d` and `90d`; every section and every figure is optional.
+- A figure is `{value, series?, n?, note?}`. `value` may be `null` (with a `note` saying why);
+  `series` is the same figure over equal buckets of the window, oldest first, at most 120
+  points, a `null` point being a bucket with no data; `n` is how many items it summarises.
+- The units are fixed, so a payload carries numbers only: `lead_time`, `cycle_time` and
+  `approval_wait` are median **hours**; `merge_frequency` is **per week**; `change_fail_rate`
+  and `pct` are **percent** (0–100); money is **US dollars**; `age_days` is days;
+  `review_rounds` is a median count per change; `escaped_defects` a count.
+- `due` is `YYYY-MM-DD`. `generated_at` is unix seconds; the view shows its age.
+- It is read strictly, and drawn whole or not at all: an unknown key, another `version`, a window
+  other than those three, a negative or non-finite number, a percent over 100, text with a
+  control character or over 300 characters, a list over 500 entries, or output of 1 MB or more is
+  refused, and the view shows the error with the path of what is wrong
+  (`windows.30d.flow.change_fail_rate.value: must be at most 100`). A failed run shows its error,
+  not the last good payload's figures. The panel's own figures still draw.
+- `framework/internal/panel/metrics/testdata/metrics.sh` is a fixture command that prints a
+  valid payload (`metrics.json` beside it), or with `METRICS_FIXTURE=bad` one that breaks it.
+
+### The panel's own figures
+
+| Figure | From | How |
+|---|---|---|
+| Merge frequency | `gh pr list --state merged --search merged:>=<90 days ago> --limit 300` | merges in the window, per week; the series per bucket |
+| Cycle time | the same | median hours from a pull request's creation to its merge |
+| Cost: total, per week, by lane type, by model, by branch, by project | the spend ledger | the status line's `total_cost_usd`, per session, added up a day at a time |
+| Aging work in progress | the lanes | each registered lane on a branch of its own, by how long it has run |
+| Approval wait | the change directory (see *Needs you from the metrics*) | how long each proposal waiting for approval has waited so far |
+
+Buckets: 7 of a day for 7d, 10 of 3 days for 30d, 15 of 6 days for 90d. At gh's limit of 300 the
+figures say the oldest part of the window may lack merges. The ledger (see *Security model*,
+what the panel writes) counts a session the first time it sees it in full, and after that only
+what it added, so a panel restart counts nothing twice; spend from before the panel kept a
+ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
+By lane type, because the panel knows a lane's type, not the role a skill switched to: a
+project's command can report by role.
+
+### The command runs as a card does
+
+The metrics command is config like any other project command (see *Config trust*): it runs
+only while `panel.json` is trusted as it is, in the project's main checkout, without a shell, with
+a 30-second timeout and 1 MB of output; `trust` and `install` print it among what they trust.
+Untrusted, it does not run and the view says so. The JSON is data: every string reaches the page
+through `textContent`, never markup.
+
+`GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
+route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
+projects, merges, spend and escaped defects add up; a median cannot, so it is the projects'
+values weighted by how many each summarises, and says so; lists name their project.
+
 ## Appearance
 
 **Appearance**, at the right of the status bar, holds three independent choices, each kept per
@@ -1758,6 +1869,8 @@ send requests to `127.0.0.1`.
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
+  - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
+    a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
   - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
     started on a project it does not list) or removed; a refused start writes nothing;
@@ -1771,18 +1884,19 @@ send requests to `127.0.0.1`.
 
 ### Config trust
 
-`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN) and
+`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN, the
+metrics command) and
 prompts it types (templates). Anyone who can change the repository can change them, so the panel
 runs them only for the exact bytes you trusted. Trusting records the file's SHA-256 under
 `~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
-starts, but its cards, queue RUN and templates stay **off**, under a red **Config untrusted**
+starts, but its cards, queue RUN, metrics command and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
-record and everything it trusts: each card's command, each queue's RUN command, and each
-template's first prompt. There is no trust button in the page:
+record and everything it trusts: each card's command, each queue's RUN command, each
+template's first prompt, and the metrics command. There is no trust button in the page:
 trusting is a command you run after reading the file.
 
 ## Operations

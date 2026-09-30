@@ -148,6 +148,7 @@ var fileReadSites = map[string]int{
 	"install/init.go":      2, // the project's package.json and Makefile (`panel init`'s gate detection)
 	"lease/lease.go":       4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
 	"install/singleton.go": 5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
+	"metrics/ledger.go":    1, // the project's spend ledger (spend.json)
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative
