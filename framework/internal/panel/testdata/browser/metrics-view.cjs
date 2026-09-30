@@ -129,6 +129,21 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     await p.keyboard.press("Escape");
     await p.setViewportSize({ width: 1440, height: 900 });
 
+    // The Flow card: four figures of the last 30 days under the project's box; a click
+    // opens Metrics on Flow at 30d.
+    await p.evaluate(() => { mv.tab = "cost"; mv.range = "7d"; saveMv(); });
+    await p.waitForSelector("#side .flowcard", { timeout: 15000 });
+    const card = await p.$eval("#side .flowcard", (c) => ({ head: c.querySelector(".fh").textContent, rows: Array.from(c.querySelectorAll(".frow .fl")).map((x) => x.textContent),
+      vals: Array.from(c.querySelectorAll(".frow .fv")).map((x) => x.textContent), label: c.getAttribute("aria-label"),
+      after: !!c.closest(".sideflow").previousElementSibling }));
+    if (card.head !== "Flow (30d)" || JSON.stringify(card.rows) !== JSON.stringify(["Cycle time", "Merges", "Change-fail", "Spend"]) || card.vals[0] !== "7.5 h" || !/Opens Metrics/.test(card.label))
+      fail("the Flow card " + JSON.stringify(card));
+    if (shots) await p.screenshot({ path: path.join(shots, "flow-card.png") });
+    await p.click("#side .flowcard");
+    const opened = await p.evaluate(() => ({ hidden: document.getElementById("mview").hidden, tab: mv.tab, range: mv.range }));
+    if (opened.hidden || opened.tab !== "flow" || opened.range !== "30d") fail("the Flow card did not open Flow at 30d: " + JSON.stringify(opened));
+    await p.keyboard.press("Escape");
+
     if (errors.length) fail("page errors: " + errors.join("; "));
     if (!process.exitCode) console.log("ok metrics-view");
   } finally {

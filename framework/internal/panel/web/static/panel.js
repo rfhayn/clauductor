@@ -1022,12 +1022,34 @@ function kvRows(rows) {
   }
   return box;
 }
+// PANEL-19: the Flow card, under the project's box: four figures of the last 30 days,
+// each with its sparkline, while there are metrics to show (metrics.card turns it off).
+// The whole card is one button that opens Metrics on Flow at 30d.
+const FLOW_LABEL = { "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merges", "wk"], "flow.change_fail_rate": ["Change-fail", "%"], "cost.per_week": ["Spend", "$wk"] };
+function flowCard() {
+  const f = S.flow;
+  if (!f || !f.any) return null;
+  const rows = f.items.map((it) => {
+    const [label, unit] = FLOW_LABEL[it.key] || [it.key, ""];
+    const pts = (it.series || []).filter((v) => v != null);
+    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mValue(it.value, unit)),
+      it.value == null ? el("span") : spark({ v: pts }, { lo: 0 }) || el("span")]);
+    row.title = it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command");
+    return key(row, "fr:" + it.key);
+  });
+  const b = el("button", "flowcard", null, [el("span", "fh", "Flow (" + f.window + ")"), ...rows]);
+  b.type = "button";
+  b.setAttribute("aria-label", "Flow, last " + f.window + ": " + f.items.map((it) => (FLOW_LABEL[it.key] || [it.key])[0] + " " +
+    (it.value == null ? "none" : mValue(it.value, (FLOW_LABEL[it.key] || [])[1]))).join(", ") + ". Opens Metrics.");
+  on(b, "click", () => { mv.tab = "flow"; mv.range = f.window; saveMv(); if ($("mview").hidden) openMetrics(); else renderMetrics(); });
+  return key(el("div", "sideflow", null, [b]), "side:flow");
+}
 function renderSide(x) {
   // The pinned cards (where the project stands) always follow, in a box of their own
   // under the lane's: the lane first, and the project never off the dashboard.
-  const project = projectBox();
+  const project = projectBox(), flow = flowCard();
   if (!x) {
-    patchInto("side", [pinnedCards().length ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    patchInto("side", [pinnedCards().length || flow ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project, flow]);
     return;
   }
   const tabs = SIDE_TABS;
@@ -1065,7 +1087,7 @@ function renderSide(x) {
   else body.push(feedList(laneFeed(x).slice(0, 60), false, "lanefeed"));
   const panel = el("div", "sidebody", null, body);
   panel.setAttribute("role", "tabpanel");
-  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project]);
+  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project, flow]);
 }
 // ---- Pinned cards (PANEL-12): where the project stands, in the side panel -------------------
 // A pinned card is a list of titles that open. A row's title is its bold lead

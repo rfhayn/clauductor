@@ -516,7 +516,11 @@ value just changed.
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
   The tabs wrap onto a second line rather than scroll. Below them, the pinned cards' own box
-  (*Pinned cards*); with no lane selected, it is the side panel. **Hide details** folds both.
+  (*Pinned cards*); with no lane selected, it is the side panel. Under that, the **Flow (30d)**
+  card (PANEL-19): median cycle time, merges a week, change-fail rate and spend a week, each with
+  its sparkline, "—" (and why, on hover) where there is none. It shows once any of the four has a
+  value, whether the project's command or the panel gave it, unless `metrics.card` is `false`;
+  the whole card is one button that opens **Metrics** on Flow at 30d. **Hide details** folds all of them.
   The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
   and End go to the limits, Escape or a double-click restores the theme's width), up to half
   the window; the width is kept per browser.
