@@ -16,6 +16,15 @@
 #      slice (`Slice: …`). A presence check: it makes the question be answered out loud.
 #   4. Advisory: more than one change is proposed at once (propose just in time).
 #   7. A PR is blocked if its journal claims a `## Session N` another merged session already uses.
+#   9. A build PR on a change branch is blocked until every task of the change it touches is ticked.
+#  10. A merge is blocked while an enforced scenario is cited by no test at the head
+#      (.claude/scenario-trace.sh --rev; D4 of the change process).
+#  11. A PR that archives a change is blocked if the change has an open task, no spec delta and no
+#      `skip_specs: true`, no recorded actual cost, or (when it says how we'll know) no queued
+#      outcome-check row in the roadmap.
+#  12. While model-roles.json `provenance.enabled` is true, a merge is blocked unless its squash body
+#      (--body or --body-file) ends in Change:, Agent-Role:, Model: and Session: trailers.
+#   Rules 9–12 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
 #
 # A MERGE IN ANOTHER REPOSITORY is not policed beyond rule 1, but it passes only when the whole
@@ -624,6 +633,39 @@ if git cat-file -e "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null; then
     block "PR #$pr's journal claims Session $clash, which another merged session already uses (rule 7).
 Renumber this PR's entry to one past the top '## Session N' on origin/$MAIN_BRANCH, keep BOTH entries, re-run the gate ($GATE_RUN), then merge."
   fi
+fi
+
+
+# Rules 9–12 — the change process, read at the head (lib/change-guard.sh). BLOCKING. The libraries
+# are tested for, not sourced blind: a `.` of a missing file exits non-2, which reads as "allow".
+cg_lib="$(dirname "$0")/lib/change-guard.sh"
+ch_lib="$ROOT_HOOK/.claude/lib/change.sh"
+{ [ -f "$cg_lib" ] && [ -f "$ch_lib" ]; } || block "cannot find $cg_lib or $ch_lib, so rules 9–12 (the change process) cannot be checked. Restore them."
+# A library that does not parse may define some functions and not others, and an undefined
+# function's empty output would read as "no reason to block": parse first, then prove each is there.
+for f in "$ch_lib" "$cg_lib"; do sh -n "$f" 2>/dev/null || block "$f does not parse, so rules 9–12 cannot be checked. Run: sh -n $f"; done
+. "$ch_lib"
+. "$cg_lib"
+for f in open_tasks cg_build_tasks cg_trace cg_archives cg_trailers; do
+  command -v "$f" >/dev/null 2>&1 || block "$cg_lib or $ch_lib did not define $f (a syntax error?), so rules 9–12 cannot be checked. Run: sh -n $cg_lib"
+done
+[ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rules 9–12 cannot be evaluated. Run: git fetch origin pull/$pr/head"
+base9=$(git merge-base "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null) || base9="origin/$MAIN_BRANCH"
+case "$branch" in
+  "$BRANCH_CHANGE"*)
+    why=$(cg_build_tasks "$base9" "$head_sha" "${ids:-}")
+    [ -z "$why" ] || block "rule 9: $why"
+    ;;
+esac
+why=$(cg_trace "$head_sha")
+[ -z "$why" ] || block "rule 10: $why"
+why=$(cg_archives "$base9" "$head_sha")
+[ -z "$why" ] || block "rule 11: $why"
+roles_json="$ROOT_HOOK/.claude/model-roles.json"
+if jq -e '.provenance.enabled == true' "$roles_json" >/dev/null 2>&1; then
+  why=$(cg_trailers "$cmd" "$(printf '%s' "$payload" | jq -r '.cwd // empty')" "$(printf '%s' "$payload" | jq -r '.session_id // empty')" "$roles_json")
+  [ -z "$why" ] || block "rule 12: $why"
+  say "rule 12: the squash body carries its provenance trailers."
 fi
 
 allow

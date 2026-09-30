@@ -11,7 +11,8 @@ R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/hooks/lib" "$R/.claude/lib" "$R/docs" "$d/bin"
 cp "$ROOT/.claude/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
 cp "$ROOT/.claude/hooks/lib/"* "$R/.claude/hooks/lib/"
-cp "$ROOT/.claude/lib/conf.sh" "$R/.claude/lib/"
+cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$R/.claude/lib/"
+cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 cat > "$R/.claude/project.conf" <<'EOF'
 GATE_DISPLAY_CONTEXTS="ci/local"
 EOF
@@ -108,6 +109,95 @@ git -C "$R" commit -qam "their close: session 2"
 printf '%s\tfull\tclean\tall\n' "$MINE" > "$R/.git/ci-receipt"
 guard 2 "a journal session number another merged session took" "gh pr merge 5 --squash" GH_HEAD="$MINE" GH_BRANCH=ops/close
 receipt "$MAINSHA"
+
+# Rules 9–12: the change process, read at the head (lib/change-guard.sh).
+# head_of BRANCH: commit what the caller staged on BRANCH (made from main), echo the sha, back to main.
+on() { git -C "$R" checkout -q -B "$1" main; }
+head_of() { git -C "$R" add -A && git -C "$R" commit -qm "$1" && h=$(git -C "$R" rev-parse HEAD) && git -C "$R" checkout -q main && printf '%s\n' "$h" > "$d/head"; }
+at() { printf '%s\tfull\tclean\tall\n' "$(cat "$d/head")" > "$R/.git/ci-receipt"; }
+H() { cat "$d/head"; }
+
+on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
+printf '## 1. Do it\n- [x] 1.1 thing\n- [ ] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+echo 'code' > "$R/src/y.txt"; head_of "build with an open task"; at
+guard 2 "rule 9: a build PR whose change still has an open task" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+on change/add-y; mkdir -p "$R/changes/add-y"
+printf '## 1. Do it\n- [ ] 1.1 thing\n- [ ] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+printf '# Roadmap\n' > "$R/docs/roadmap.md"
+head_of "the proposal, and its roadmap note"; at
+guard 0 "rule 9: a proposal PR (the change's own files and the roadmap, every task open)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+on change/add-y; mkdir -p "$R/changes/add-y"
+printf '## 1. Do it\n- [ ] 1.1 thing\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+printf '# Guide\n' > "$R/docs/guide.md"
+head_of "a docs-only build"; at
+guard 2 "rule 9: a build that only edits docs (not the roadmap) is still a build" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
+printf '## 1. Do it\n- [x] 1.1 thing\n- [x] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+echo 'code' > "$R/src/y.txt"; head_of "build, every task done"; at
+guard 0 "rule 9: a build PR whose every task is ticked" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+
+on ops/spec; mkdir -p "$R/specs/cap" "$R/tests"
+printf '# Cap\n\n## Purpose\nx\n\n## Requirements\n\n### Requirement: R\nThe system SHALL r.\n\n#### Scenario: [CAP-1-S1] r\n- **THEN** r\n' > "$R/specs/cap/spec.md"
+head_of "a living scenario no test cites"; at
+guard 2 "rule 10: a living scenario no test cites at the head" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/spec
+on ops/spec; mkdir -p "$R/specs/cap" "$R/tests"
+printf '# Cap\n\n## Purpose\nx\n\n## Requirements\n\n### Requirement: R\nThe system SHALL r.\n\n#### Scenario: [CAP-1-S1] r\n- **THEN** r\n' > "$R/specs/cap/spec.md"
+echo '# CAP-1-S1' > "$R/tests/cap.sh"; head_of "a living scenario a test cites"; at
+guard 0 "rule 10: a living scenario a test cites at the head" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/spec
+
+A=changes/archive/2026-01-05-add-z
+archive() {  # archive TASKS [SPEC|skip|none] [KNOW] [ROW]
+  on ops/archive; mkdir -p "$R/$A"
+  printf '%b' "$1" > "$R/$A/tasks.md"
+  printf '# p\n' > "$R/$A/proposal.md"
+  case "$2" in spec) mkdir -p "$R/$A/specs/z"; printf '## ADDED Requirements\n' > "$R/$A/specs/z/spec.md" ;; skip) printf 'skip_specs: true\n' > "$R/$A/.openspec.yaml" ;; esac
+  [ -n "${3:-}" ] && printf "## How we'll know\n- **Signal:** s\n" >> "$R/$A/proposal.md"
+  [ -n "${4:-}" ] && printf '| o.1 | `ops/check-outcome-add-z` — check the outcome of add-z (due 2026-02-05) | s | — | ⬜ queued |\n' > "$R/docs/roadmap.md"
+  head_of "archive add-z"; at
+}
+DONE='- [x] 1.1 a\n\n## Progress\n- 2026-01-05 archived: actual cost $3.10 of budget $15\n'
+archive "$DONE" spec
+guard 0 "rule 11: archiving a finished change (tasks ticked, a delta, its cost recorded)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive '- [ ] 1.1 a\n- actual cost unknown (built on another machine)\n' spec
+guard 2 "rule 11: archiving a change with an open task" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive '- [x] 1.1 a\n' spec
+guard 2 "rule 11: archiving a change with no recorded actual cost" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive "$DONE" none
+guard 2 "rule 11: archiving a change with no spec delta and no skip_specs" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive "$DONE" skip
+guard 0 "rule 11: archiving a no-delta change that declares skip_specs: true" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive "$DONE" spec know
+guard 2 "rule 11: archiving a change that says how we'll know, with no outcome check queued" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive "$DONE" spec know row
+guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+git -C "$R" checkout -q main; receipt "$MAINSHA"
+
+# Rule 12: provenance trailers, while model-roles.json enables them.
+cp "$ROOT/.claude/model-roles.json" "$R/.claude/model-roles.json"
+jq -e '.provenance.enabled == true' "$R/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"
+sguard() {  # sguard WANT LABEL COMMAND — with a session id in the payload, as Claude Code sends
+  rc=0
+  jq -cn --arg c "$3" --arg d "$R" '{tool_name:"Bash", cwd:$d, session_id:"sess-1", tool_input:{command:$c}}' \
+    | (cd "$R" && env PATH="$d/bin:$PATH" GH_HEAD="$MAINSHA" sh "$R/.claude/hooks/pr-merge-guard.sh" 2>"$d/err") >/dev/null || rc=$?
+  expect_rc "$1" "$rc" "merge-guard $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+  [ "$rc" = "$1" ] || sed 's/^/       /' "$d/err" | head -4
+}
+trail() { printf 'Adds x.\n\nChange: %s\nAgent-Role: %s\nModel: opus\nSession: %s\n' "${1:-add-x}" "${2:-builder}" "${3:-sess-1}"; }
+trail > "$R/body.txt"
+sguard 0 "rule 12: a --body-file ending in all four trailers" "gh pr merge 5 --squash --delete-branch --body-file body.txt"
+sguard 2 "rule 12: a squash with no --body at all" "gh pr merge 5 --squash --delete-branch"
+grep -q 'Session: sess-1' "$d/err" && ok "...and the block names the trailers to add, this session's id included" || fail "block message: $(cat "$d/err")"
+sguard 0 "rule 12: a quoted --body with the four trailers" "gh pr merge 5 --squash --body \"$(trail)\""
+sguard 2 "rule 12: a body missing the Session trailer" "gh pr merge 5 --squash --body \"$(trail | grep -v '^Session')\""
+sguard 2 "rule 12: a Session trailer naming another session" "gh pr merge 5 --squash --body \"$(trail add-x builder sess-9)\""
+sguard 2 "rule 12: an Agent-Role that is not a role" "gh pr merge 5 --squash --body \"$(trail add-x wizard)\""
+sguard 2 "rule 12: a body built by a substitution (unreadable)" 'gh pr merge 5 --squash --body "$(cat body.txt)"'
+jq '.provenance.enabled = false' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
+sguard 0 "rule 12 is off when provenance.enabled is false" "gh pr merge 5 --squash --delete-branch"
+rm -f "$R/.claude/model-roles.json" "$R/body.txt"
+cp "$R/.claude/hooks/lib/change-guard.sh" "$d/cg.bak"; printf 'broken() { "\n' >> "$R/.claude/hooks/lib/change-guard.sh"
+guard 2 "a change-guard library that does not parse (fails closed, not open)" "gh pr merge 5 --squash"
+cp "$d/cg.bak" "$R/.claude/hooks/lib/change-guard.sh"
 
 # Reading the command.
 guard 0 "a commit message that mentions a merge (prose)" 'git commit -m "then gh pr merge 5 --auto"'

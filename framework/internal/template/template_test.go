@@ -64,7 +64,7 @@ func TestTemplatePanelConfigLoads(t *testing.T) {
 // template change that breaks one fails this repo's CI, not the first project that adopts it.
 func TestTemplateChecks(t *testing.T) {
 	if testing.Short() {
-		t.Skip("runs every template check (~20 s)")
+		t.Skip("runs every template check (~50 s)")
 	}
 	for _, tool := range []string{"sh", "bash", "git", "jq"} {
 		if _, err := exec.LookPath(tool); err != nil {

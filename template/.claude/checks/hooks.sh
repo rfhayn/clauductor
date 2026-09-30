@@ -12,7 +12,7 @@ d=$(scratch)
 
 # ── syntax first: a hook that does not parse exits non-zero, which READS AS "blocked" and so
 #    satisfies every BLOCK row below while blocking every Bash call in real use.
-for h in "$H"/*.sh; do
+for h in "$H"/*.sh "$H"/lib/*.sh; do
   if sh -n "$h" 2>/dev/null; then ok "parses: $(basename "$h")"; else fail "does not parse: $h"; fi
 done
 # (A stray apostrophe inside one of no-blind-source-rewrite.sh's single-quoted awk programs

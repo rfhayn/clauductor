@@ -69,6 +69,28 @@ printf '## Phase 1 — x\n| # | Change | Scope | Deps | State |\n|---|---|---|--
 sh "$P" --check "$d/near.md" >/dev/null 2>&1 && fail "accepted a near-miss queue header" || ok "refuses a near-miss queue header"
 sh "$P" --check "$d/absent.md" >/dev/null 2>&1 && fail "a missing roadmap passed" || ok "a missing roadmap is an ERROR, not an empty queue"
 
+# Budgets and dated rows (the change process, items 12 and 13).
+cat > "$d/dated.md" <<'EOF'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-a` — a | s · Budget: $40 | — | ⬜ queued |
+| 1.2 | `add-b` — b | s | — | ⬜ queued |
+## Outcome checks
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| o.1 | `ops/check-outcome-add-z` — check the outcome of add-z (due 2026-01-10) | the signal | — | ⬜ queued |
+| o.2 | `ops/check-outcome-add-y` — check the outcome of add-y (due 2026-03-01) | the signal | — | ⬜ queued |
+EOF
+tsv=$(sh "$P" --tsv "$d/dated.md")
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print $11}')" = 40 ] && ok "reads 'Budget: \$40' as the row's budget (tsv column 11)" || fail "budget not read: $(printf '%s\n' "$tsv" | grep '	1.1	')"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="o.1"{print $12}')" = 2026-01-10 ] && ok "reads '(due YYYY-MM-DD)' as the row's date (tsv column 12)" || fail "due date not read"
+text=$(ROADMAP_TODAY=2026-02-01 sh "$P" --text "$d/dated.md")
+case "$text" in *"DUE    o.1"*) ok "--text lists an outcome check that is due, outside every phase" ;; *) fail "--text did not list the due outcome check: $text" ;; esac
+case "$text" in *o.2*) fail "--text listed an outcome check that is not due yet" ;; *) ok "--text leaves out an outcome check not yet due" ;; esac
+bad "a budget that is not in dollars" '| 1.1 | `add-a` — a | s · Budget: 40 | — | ⬜ queued |'
+bad "a malformed due date" '| 1.1 | `add-a` — a (due soon) | s | — | ⬜ queued |'
+
 out=$(sh "$P" --check "$ROOT/$ROADMAP"); rc=$?
 expect_rc 0 "$rc" "the project's roadmap ($ROADMAP) parses: $(printf '%s' "$out" | head -1)"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" | sed 's/^/     /'

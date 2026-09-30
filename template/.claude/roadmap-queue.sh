@@ -7,6 +7,7 @@
 #   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
 #   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner summary
+#                                             budget due  (budget: dollars or empty; due: YYYY-MM-DD or empty)
 #   sh .claude/roadmap-queue.sh --queued [kind]   change ids of queued rows (kind: change|fix|ops)
 #   ... [file]                                any mode takes an explicit roadmap path last
 #
@@ -20,6 +21,10 @@
 #   Status leads with a symbol:  ⬜ queued · ⬜ in flight (#N) · ✅ merged (#N) · ❌ cancelled …
 #   The Change cell's first `backticked` token is the change id; `fix/…` and `ops/…` ids are those
 #   lanes, anything else is a capability change (branch change/<id>).
+#   `Budget: $N` anywhere in a row is the change's cost budget (item 12 of the change process);
+#   `(due YYYY-MM-DD)` in the Change cell dates a row, as archive-change dates the "check the
+#   outcome of <id>" row it queues. --text lists every queued dated row that is due, whatever its
+#   phase: an outcome check sits in `## Outcome checks`, outside every phase.
 #
 # IT IS A PARSER, so it FAILS LOUDLY on a shape it cannot classify (*A check that reads source is a
 # parser*): a queue row with the wrong number of cells, no change id, an unknown status, a
@@ -40,7 +45,7 @@ if [ ! -f "$file" ]; then
   exit 1
 fi
 
-awk -v mode="$mode" -v kindf="$kindf" -v file="$file" '
+awk -v mode="$mode" -v kindf="$kindf" -v file="$file" -v today="${ROADMAP_TODAY:-$(date +%Y-%m-%d)}" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function err(msg) { errs = errs file ":" NR ": " msg "\n"; nerr++ }
 BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec = 0; intable = 0; n = 0 }
@@ -90,10 +95,20 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   else if (index(st, "❌ cancelled") == 1) state = "cancelled"
   else { err("row " id ": status must lead with ⬜ queued, ⬜ in flight (#N), ✅ merged (#N) or ❌ cancelled, not \"" substr(st, 1, 30) "\""); next }
   owner = sowner != "" ? sowner : powner
+  budget = ""
+  if (index(line, "Budget:")) {
+    if (match(line, /Budget: \$[0-9]+(\.[0-9][0-9]?)?([^0-9.]|$)/)) { budget = substr(line, RSTART + 9, RLENGTH - 9); sub(/[^0-9.]$/, "", budget) }
+    else { err("row " id ": a budget must read \"Budget: $<dollars>\""); next }
+  }
+  due = ""
+  if (index(chg, "(due")) {
+    if (match(chg, /\(due [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)/)) due = substr(chg, RSTART + 5, 10)
+    else { err("row " id ": a date must read \"(due YYYY-MM-DD)\""); next }
+  }
   n++; R_line[n] = NR; R_phase[n] = phase; R_sec[n] = section; R_id[n] = id; R_cid[n] = cid
   R_kind[n] = kind; R_state[n] = state; R_pr[n] = pr; R_owner[n] = owner
   R_scope[n] = trim(c[4])
-  R_sum[n] = sm
+  R_sum[n] = sm; R_budget[n] = budget; R_due[n] = due
   if ((state == "queued" || state == "inflight") && phase != "-" && !(phase in openphase)) openphase[phase] = 1
   next
 }
@@ -107,14 +122,16 @@ END {
     exit 0
   }
   if (mode == "--tsv") {
-    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i]
+    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i], R_budget[i], R_due[i]
     exit 0
   }
   if (mode == "--queued") {
     for (i = 1; i <= n; i++) if (R_state[i] == "queued" && (kindf == "" || R_kind[i] == kindf)) print R_cid[i]
     exit 0
   }
-  if (cur == "") { print "queue: empty (every row is merged or cancelled); add rows to the roadmap"; exit 0 }
+  dues = ""
+  for (i = 1; i <= n; i++) if (R_state[i] == "queued" && R_due[i] != "" && R_due[i] <= today && R_phase[i] != cur) dues = dues sprintf("  DUE    %-6s %-24s %s\n", R_id[i], R_cid[i], R_sum[i])
+  if (cur == "") { print "queue: empty (every row is merged or cancelled); add rows to the roadmap"; printf "%s", dues; exit 0 }
   k = 0; for (i = 1; i <= n; i++) if (R_phase[i] == cur && (R_state[i] == "queued" || R_state[i] == "inflight")) k++
   printf "Phase %s%s: %d open row(s), in table order\n", cur, (ptitles[cur] == "" ? "" : " — " ptitles[cur]), k
   nx = 0
@@ -123,5 +140,6 @@ END {
     tag = R_state[i] == "inflight" ? "in flight #" R_pr[i] : (nx++ == 0 ? "NEXT" : "queued")
     printf "  %-6s %-24s [%s]%s%s\n", R_id[i], R_cid[i], tag, (R_owner[i] == "" ? "" : " owner " R_owner[i]), (R_sec[i] == "" ? "" : " · " R_sec[i])
   }
+  printf "%s", dues
 }
 ' "$file"
