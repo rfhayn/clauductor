@@ -92,6 +92,11 @@ clauductor panel add     # register it with the panel
 Then restart the panel (`add` prints the command). The project's name at the top of the page
 switches between projects. See [Projects](panel.md#projects).
 
+If the repository runs Clauductor's operating model (it has `.claude/owner-queue.sh` or
+`.claude/roadmap-queue.sh`), `init` also adds its cards, lane templates and gate, and prints
+each. Otherwise it writes none, and says they come with `clauductor install` or can be added by
+hand. See [`panel init`](panel.md#panel-init).
+
 ## Where things are kept
 
 - The project's settings: `.clauductor/panel.json` in the repository.

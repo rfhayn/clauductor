@@ -153,10 +153,28 @@ writes, it reads from the repository:
 | `worktree_dir` | the directory every linked worktree already shares; else the default |
 | `queues` | one `gate` queue, only if the project itself names a gate: a `package.json` script (run with the package manager its lockfile names) or a `Makefile` target called `gate`, `ci`, `check`, `verify` or `test`, best name first |
 
-It writes **no card** (a card's command runs by itself on every refresh) and no template. The
-only command it may write is the gate queue's, which runs only when you press **RUN**, and it
-prints it. JSON has no comments, so `init` prints the reason for each value instead. For a
-repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
+It invents **no card** (a card's command runs by itself on every refresh) and no template. The
+only command it writes of its own is the gate queue's, which runs only when you press **RUN**, and
+it prints it. JSON has no comments, so `init` prints the reason for each value instead.
+
+**A repository that runs Clauductor's operating model** (PANEL-18: the template `clauductor
+install` copies, recognised by `.claude/owner-queue.sh` or `.claude/roadmap-queue.sh`) also gets
+that model's own panel setup, the same as the template's preset, for the files it has:
+
+| File | Adds |
+|---|---|
+| `.claude/owner-queue.sh` | the pinned card **Owner queue**: `sh -c "sh .claude/owner-queue.sh 2>&1"`, refreshed on `watch:docs/owner-queue.md` |
+| `.claude/roadmap-queue.sh` | the pinned card **Change queue**: `sh -c "sh .claude/roadmap-queue.sh --text 2>&1"`, refreshed on `watch:docs/roadmap.md` |
+| either of those | the four lane templates **build**, **propose**, **fix** and **ops**, and the lanes they use (`change/` → `build`, `fix/` → `fix`, `ops/` → `ops`; a detected prefix mapped otherwise is changed, and said so) |
+| `.claude/panel-suggest.sh` | each template's **Up next** (`sh .claude/panel-suggest.sh <template>`); without it, the templates have none |
+| `scripts/ci/run-local.sh` | the `gate` queue on it, instead of a gate found in `package.json` or a `Makefile` (those are printed as "also found") |
+
+Each addition is printed with its reason, like every other value, and none of them runs before
+`clauductor panel trust`. Without those files, `init` prints one line more: cards and lane
+templates come with `clauductor install` (the operating model), or can be added by hand (see
+[Keys](#keys), [Pinned cards](#pinned-cards) and [Lane templates](#lane-templates)).
+
+For a repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
 
 ```text
 Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
@@ -190,6 +208,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
   queues        gate runs `make ci` (Makefile target "ci"), and only when you press RUN on the page; also found `pnpm run check`, `pnpm run test`
+  cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, "Keys": cards, templates)
 ```
 
 ### Versions
