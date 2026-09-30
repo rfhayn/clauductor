@@ -37,6 +37,9 @@ GATE_CLEAN_ROOM="none"
 GATE_REMOTE_WORKFLOW=""
 GATE_DISPLAY_CONTEXTS=""
 GATE_FAIL_PATTERN=""
+MQ_ORPHAN_SHAPES="*@WT@/*/.claude/hooks/*"
+MQ_DOCKER="0"
+MQ_COLIMA="0"
 FORMAT_CMD=""
 FORMAT_EXT=""
 
@@ -56,6 +59,12 @@ focus_file() {
 fetch_main() {
   [ "${CONTEXT_OFFLINE:-}" = 1 ] || git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || return 1
   git rev-parse -q --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1
+}
+
+# count_rows ERE FILE: how many lines match, or CANNOT CHECK when the file is missing. (`grep -c`
+# prints 0 AND exits 1 on no match, so `$(grep -c … || echo 0)` prints "0" twice.)
+count_rows() {
+  if [ -f "$2" ]; then grep -cE "$1" "$2"; else echo "CANNOT CHECK ($2 is missing)"; fi
 }
 
 # hook_note EVENT TEXT: allow, and tell Claude. On exit 0 a hook's plain stdout and stderr

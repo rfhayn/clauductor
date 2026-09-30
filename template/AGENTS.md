@@ -58,6 +58,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | The status-line focus says what this lane is doing | **`.claude/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`.claude/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |
+| A scheduled or post-merge failure reaches a reader | **`.claude/health/*.sh`** via `session-start` (the directory is the list) |
+| Orphans and clean lane worktrees do not outlive a session; tmux lanes are never killed | **`.claude/machine-quiet.sh`** via `session-close`; **`checks/machine-quiet.sh`** |
 | Work that needs the owner at the computer is seen | **`.claude/owner-queue.sh`** via `session-start` and the panel card |
 | The change queue is read ONE way, and a malformed row is an error, not a shorter queue | **`.claude/roadmap-queue.sh`** (the only parser); **`checks/roadmap.sh`** |
 | An ADR number is never taken twice; every ADR is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
