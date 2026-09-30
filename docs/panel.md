@@ -33,6 +33,9 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 Keeping the panel current costs **no model tokens**. It never reads transcripts or screens; the
 only text it types into a lane on its own is a template's first prompt, once.
 
+New to the panel? [guide.md](guide.md) is a short how-to for the page; **?** in its header shows
+the keyboard shortcuts.
+
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
 [Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
@@ -376,7 +379,10 @@ value just changed.
   - **Claude processes**: CPU and memory of the lanes' claude processes, with a sparkline (see
     *What the panel reads, and when*).
   - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
-  - At the right: **New lane**, **Activity** (the drawer), **Refresh** and **Appearance**. **New
+  - At the right: **New lane**, **Activity** (the drawer), **Refresh**, **Appearance** and **?**
+    (Help, PANEL-17): a dialog with the page's keyboard shortcuts, a few one-line how-tos and a
+    link to [the guide](guide.md), which opens in a new tab. The `?` key opens it too, except in
+    the terminal (where `?` is claude's) and in a text field; Escape or **Close** returns focus. **New
     lane** is disabled, with the reason on hover, while lanes cannot start (*Subscription only*).
   - The bar keeps to one line above 1180 px: when its figures would wrap, the secondary ones
     (resets, cost today and per hour, sparklines, the Hooks counts) go first, as they do from 140%.

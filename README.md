@@ -137,6 +137,7 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 
 - **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
 - **[Onboarding Guide](docs/onboarding.md)** — Complete tutorial from install to multi-worker orchestration
+- **[Using the web panel](docs/guide.md)** — a short how-to for the panel's page: lanes, the terminal, stop vs close, restore, a second repository
 - **[Web panel](docs/panel.md)** — `clauductor panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
 - **[PRD](docs/prds/active/PRD-orchestration-framework.md)** — Full product requirements and architecture
 

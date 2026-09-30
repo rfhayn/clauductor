@@ -2527,6 +2527,47 @@ function render() {
   if (!$("startdlg").hidden) stUpdate();
 }
 
+// ---- Help (PANEL-17): the ? in the header, or the ? key outside the terminal and fields --
+const GUIDE_URL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md";
+$("helplink").href = GUIDE_URL;
+let helpReturn = null;
+function openHelp() {
+  if (!$("helpdlg").hidden) return;
+  helpReturn = document.activeElement;
+  $("helpdlg").hidden = false;
+  $("helpbtn").setAttribute("aria-expanded", "true");
+  $("helpclose").focus();
+}
+function closeHelp() {
+  $("helpdlg").hidden = true;
+  $("helpbtn").setAttribute("aria-expanded", "false");
+  const r = helpReturn; helpReturn = null;
+  if (r && r.isConnected && r.focus) r.focus(); else $("helpbtn").focus();
+}
+// Typing "?" is text wherever text goes: in the terminal (claude's), and in a field.
+function typingTarget(t) {
+  return !!(t && t.closest && (t.closest(".xterm") || t.closest("input, select, textarea, [contenteditable]")));
+}
+$("helpbtn").addEventListener("click", openHelp);
+$("helpclose").addEventListener("click", closeHelp);
+$("helpdlg").addEventListener("click", (e) => { if (e.target === $("helpdlg")) closeHelp(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "?" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+  if (typingTarget(ev.target) || !$("startdlg").hidden) return;
+  ev.preventDefault();
+  openHelp();
+});
+// A modal dialog: Escape closes it, and Tab stays inside.
+$("helpdlg").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeHelp(); return; }
+  if (e.key !== "Tab") return;
+  const f = Array.from($("helpbox").querySelectorAll("a[href], button")).filter((x) => !x.disabled && x.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 $("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh"), { method: "POST" }).catch(() => {}); });
 
 // ---- The page's text size: Ctrl+Alt+= / − / 0, and the Size group of Appearance ------
