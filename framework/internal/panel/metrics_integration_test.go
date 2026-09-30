@@ -130,7 +130,7 @@ func TestMetricsEndToEnd(t *testing.T) {
 	if code := mp.c.post(t, "/status", fmt.Sprintf(`{"session_id":"s1","cwd":%q,"cost":{"total_cost_usd":1.25}}`, mp.root)); code != 204 {
 		t.Fatalf("status post: %d", code)
 	}
-	waitFor(t, "spend in the ledger", func() bool {
+	waitUntil(t, "spend in the ledger", 15*time.Second, func() bool {
 		d := metrics.OpenLedger(metrics.LedgerPath(mp.home, mp.root)).Days()
 		return len(d) == 1
 	})

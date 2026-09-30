@@ -68,11 +68,11 @@ func TestAutoCloseOnMerge(t *testing.T) {
 			return gitOnlyRunner(ctx, dir, argv)
 		}
 	})
-	waitFor(t, "the orphaned lane closed, its worktree and merged branch removed", func() bool {
+	waitUntil(t, "the orphaned lane closed, its worktree and merged branch removed", 20*time.Second, func() bool {
 		_, err := os.Stat(filepath.Join(root, ".wt", "done"))
 		return os.IsNotExist(err) && exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/fix/done").Run() != nil
 	})
-	waitFor(t, "the busy lane asks", func() bool {
+	waitUntil(t, "the busy lane asks", 20*time.Second, func() bool {
 		for _, n := range p.state(t).NeedsYou {
 			if n.Kind == "merged" && n.Terminal == "busy" && strings.Contains(n.Text, "#3 merged") && strings.Contains(n.Text, "claude is") {
 				return true

@@ -17,7 +17,10 @@
 #   stale while the checkout they run in is behind its upstream (this adds one);
 # - metrics-view.cjs (PANEL-19): the Metrics view's tabs, ranges and scope, a figure the
 #   project's fixture command lacks ("—" and why), every theme, and a narrow window. The
-#   project runs metrics/testdata/metrics.sh; SHOTS=<dir> keeps its screenshots.
+#   project runs metrics/testdata/metrics.sh; SHOTS=<dir> keeps its screenshots;
+# - lane-readiness.cjs (PANEL-20): the Checks tab's merge readiness for lane "second"
+#   (its fake gh gives it an open pull request with a failing check and an unresolved
+#   thread; this writes its tasks.md and a gate receipt for another commit).
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
