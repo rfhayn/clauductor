@@ -126,6 +126,11 @@ printf '## 1. Do it\n- [ ] 1.1 thing\n- [ ] 1.2 other\n\n- [ ] Slice: a user can
 printf '# Roadmap\n' > "$R/docs/roadmap.md"
 head_of "the proposal, and its roadmap note"; at
 guard 0 "rule 9: a proposal PR (the change's own files and the roadmap, every task open)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+on change/add-y; mkdir -p "$R/changes/add-y"
+printf '## 1. Do it\n- [ ] 1.1 thing\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+printf '# Guide\n' > "$R/docs/guide.md"
+head_of "a docs-only build"; at
+guard 2 "rule 9: a build that only edits docs (not the roadmap) is still a build" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
 on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
 printf '## 1. Do it\n- [x] 1.1 thing\n- [x] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
 echo 'code' > "$R/src/y.txt"; head_of "build, every task done"; at

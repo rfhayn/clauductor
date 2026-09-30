@@ -8,7 +8,9 @@
 # Fails when: the deny list or the sandbox is missing; a rule from the required set below is gone;
 # a deny rule is not `Tool(...)` with a tool Claude Code knows (a misspelt rule denies nothing);
 # the sandbox is not enabled, or has no network allowlist. Add your own rules freely; remove one of
-# the required set only by editing this list in a PR that says why. The keys are Claude Code's
+# the required set only by editing this list in a PR that says why. A tool that fails in the
+# sandbox is loosened per machine in .claude/settings.local.json (sandbox.excludedCommands,
+# sandbox.network.allowedDomains merge across scopes), never by turning the sandbox off here. The keys are Claude Code's
 # (code.claude.com/docs/en/permissions, /docs/en/sandboxing; checked 2026-09-30).
 . "$(dirname "$0")/lib.sh"
 need jq
@@ -43,7 +45,7 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
   if ! jq -e '.sandbox | type == "object"' "$f" >/dev/null 2>&1; then
     echo "FAIL settings.json has no sandbox settings"
   else
-    jq -e '.sandbox.enabled == true' "$f" >/dev/null && echo "ok   the Bash sandbox is enabled" || echo "FAIL sandbox.enabled is not true"
+    jq -e '.sandbox.enabled == true' "$f" >/dev/null && echo "ok   the Bash sandbox is enabled" || echo "FAIL sandbox.enabled is not true (loosen a tool in .claude/settings.local.json instead: sandbox.excludedCommands)"
     jq -e '(.sandbox.network.allowedDomains | type == "array" and length > 0)' "$f" >/dev/null \
       && echo "ok   the sandbox's network allowlist names $(jq '.sandbox.network.allowedDomains | length' "$f") domain(s)" \
       || echo "FAIL sandbox.network.allowedDomains is missing or empty: a sandboxed command's network would be unbounded or prompt every time"

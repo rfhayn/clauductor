@@ -195,7 +195,7 @@ Everything else restates it and `checks/model-roles.sh` fails on a disagreement.
 | `focus-staleness.sh` | every prompt | nudges when the status-line focus is stale |
 | `format.sh` | every Write/Edit | runs the project's formatter, when configured |
 | `run-local.sh` | every gate | takes the gate lease; runs the scenario trace and the secret scan (gitleaks) before your steps; writes the receipt only for a complete, clean run |
-| `settings.json` | every tool call | denies reads of `.env` files and keys and a few commands (force-push, `tmux kill-server`); runs Bash in the sandbox with a network allowlist |
+| `settings.json` | every tool call | denies reads of `.env` files and keys and a few commands (force-push, `tmux kill-server`); runs Bash in the sandbox with a network allowlist. Loosen per machine in `.claude/settings.local.json` (`sandbox.excludedCommands`, `sandbox.network.allowedDomains`) |
 | `.claude/checks/run.sh` | every gate (a step) | the process checks: hook tables, the roadmap parser, ADR numbering, model roles, the budget |
 
 AGENTS.md's *What executes each rule* table is the full list, including the honest last row: what

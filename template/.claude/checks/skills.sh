@@ -26,6 +26,8 @@ done
 # Paths to scripts under .claude/ named in skills, agents, AGENTS.md and settings.json.
 for p in $(cat "$ROOT"/.claude/skills/*/SKILL.md "$ROOT"/.claude/agents/*.md "$ROOT/AGENTS.md" "$ROOT/.claude/settings.json" 2>/dev/null \
   | grep -oE '\.claude/[A-Za-z0-9_./-]+\.(sh|js|awk|json)' | sort -u); do
+  # settings.local.json is per machine and gitignored: named as the place to loosen, never shipped.
+  [ "$p" = .claude/settings.local.json ] && continue
   [ -e "$ROOT/$p" ] || fail "named but missing: $p"
 done
 [ "$_fails" -eq 0 ] && ok "every .claude/ script path named in skills, agents, AGENTS.md and settings exists"
