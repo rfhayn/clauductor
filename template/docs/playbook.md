@@ -123,6 +123,12 @@ is an earlier group lifts the group boundary for exactly that fix.
   tier; the reviewer and the planner never do.
 - **The budget**: after each committed group it reads `.claude/change-cost.sh` and stops once the
   change's spend passes the proposal's `**Budget:**`.
+- **Each round is graded**: `pass` (gate green, nothing medium or worse), `concern` (the worst
+  finding is medium) or `fail` (the gate red, or a high or critical finding); the grades go into the
+  group's Progress line. **The stuck-loop breaker** stops the group, as `STUCK`, at the first sign
+  the loop cannot converge rather than at the round cap: a finding fixed last round is back
+  unchanged (and was not disputed), the peak and the count of findings both did not fall, or the
+  reviewed diff is one already reviewed (the fix changed nothing, or reverted).
 - **The log**: the builder writes each decision `design.md` does not settle into `tasks.md`'s
   `## Decision log`, and each committed group adds a `## Progress` line, so a resumed run (or
   lane) continues from the file.
@@ -137,6 +143,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | gate still red | two fix attempts failed | read the failure; fix or split the group |
 | severity rose | fixes introduced worse defects than they removed | read the rounds; usually the group is too big: split it |
 | not converged | three rounds without a clean one | rule on the builder's disputes, or split the group |
+| stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
 | budget | the change's spend passed its budget | raise the budget (row and proposal) or cut scope, then re-run |

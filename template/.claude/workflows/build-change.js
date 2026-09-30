@@ -65,7 +65,47 @@ const ATTRIBUTION_DEFAULT = 'Co-Authored-By: Claude <noreply@anthropic.com>'
 const ATTRIBUTION = args.attribution == null ? ATTRIBUTION_DEFAULT : String(args.attribution)
 const SESSION = args.session ? String(args.session) : 'build-change'
 
+// ── pure: begin ── (no agent, no state: .claude/checks/build-change.sh loads this block into node
+// and falsifies it, so keep everything the loop decides with here, and nothing that calls out).
 const RANK = { none: 0, low: 1, medium: 2, high: 3, critical: 4 }
+// THE GRADE of one review round, from the gate and the reviewer (borrowed from Kimchi Ferment's
+// per-step judge, in a coarser scale than its A–F: three grades, each with a consequence):
+//   pass     the quick gate is green and the review found nothing medium or worse: commit.
+//   concern  the gate is green; the worst finding is medium: fix and review again.
+//   fail     the gate is red, or a finding is high or critical: fix and review again.
+const gradeRound = (gatePassed, findings) => {
+  if (!gatePassed) return 'fail'
+  const peak = findings.reduce((p, f) => Math.max(p, RANK[f.severity] || 0), 0)
+  return peak >= RANK.high ? 'fail' : peak === RANK.medium ? 'concern' : 'pass'
+}
+// A finding's identity across rounds: its file and the first words of its summary, normalised.
+// Line numbers move under a fix, and a reworded summary still starts the same way.
+const findingKey = (f) => `${f.file}|${String(f.summary || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).slice(0, 6).join(' ')}`
+// THE STUCK-LOOP BREAKER (Ferment stops after three failures; this stops at the first sign the loop
+// cannot converge, instead of burning rounds to MAX_ROUNDS). `rounds` holds each round so far:
+// {peak, actionable, keys (actionable findings), disputedKeys (those the builder disputed after it),
+// diffHash (the reviewed tree)}. Returns the reason the latest round shows a stuck loop, or null.
+//   recurring    a finding the builder was asked to fix, and did not dispute, is back unchanged;
+//   not falling  the peak severity did not fall and the count of actionable findings did not either;
+//   oscillating  the reviewed diff is one already reviewed: the fix changed nothing, or reverted.
+// (A peak that ROSE is its own stop, checked before this.)
+const stuckReason = (rounds) => {
+  const n = rounds.length
+  if (n < 2) return null
+  const cur = rounds[n - 1], prev = rounds[n - 2]
+  const disputed = new Set(prev.disputedKeys || [])
+  const back = (cur.keys || []).filter((k) => (prev.keys || []).includes(k) && !disputed.has(k))
+  if (back.length) return `recurring: ${back.length} finding(s) fixed in round ${n - 1} are back unchanged (${back[0].replace('|', ': ')})`
+  if (cur.diffHash && rounds.slice(0, -1).some((r) => r.diffHash === cur.diffHash)) {
+    const k = rounds.findIndex((r) => r.diffHash === cur.diffHash) + 1
+    return `oscillating: round ${n} reviewed the same diff as round ${k} (the fix changed nothing, or reverted to it)`
+  }
+  if (cur.actionable > 0 && RANK[cur.peak] >= RANK[prev.peak] && cur.actionable >= prev.actionable) {
+    return `not falling: peak ${prev.peak} → ${cur.peak}, actionable ${prev.actionable} → ${cur.actionable}`
+  }
+  return null
+}
+// ── pure: end ──
 // `git diff` omits untracked files and a clean-room gate archives tracked files only, so a new file
 // would be invisible to BOTH the gate and the reviewer, and a deleted-unstaged one breaks an
 // archive. Registering them makes all three see one set.
@@ -106,6 +146,7 @@ const BUILD = {
     tasksTicked: { type: 'array', items: { type: 'string' } },
     designIssue: { type: 'string' },
     disputed: { type: 'array', items: { type: 'string' } },
+    disputedItems: { type: 'array', items: { type: 'number' }, description: 'the numbers, in the list you were given, of the findings you dispute' },
     notes: { type: 'string' },
   },
   required: ['status', 'summary'],
@@ -117,6 +158,7 @@ const GATE = {
     evidence: { type: 'string', description: 'the output line(s) that show the verdict' },
     failures: { type: 'string', description: 'failing checks and first relevant error lines, <=60 lines' },
     environmentFault: { type: 'boolean', description: 'true if the tool could not run (a service or VM down), not a code failure' },
+    diffHash: { type: 'string', description: 'verbatim output of: git diff HEAD | git hash-object --stdin' },
   },
   required: ['passed', 'evidence'],
 }
@@ -158,13 +200,17 @@ const VERIFY = {
   required: ['passed', 'output'],
 }
 
-const report = { change, stoppedAt: null, reason: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, costUsd: null, notify: null, warnings: [] }
+const grades = (entry) => entry.rounds.map((r) => `R${r.round} ${r.grade}`).join(', ') || 'none'
+const report = { change, stoppedAt: null, reason: null, stopKind: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, costUsd: null, notify: null, warnings: [] }
 let ROOT = null
 
-const stop = (where, reason) => {
+// kind: 'stop' (an owner decision, an environment fault, a red gate, a limit) or 'stuck' (the
+// stuck-loop breaker: the review loop shows it cannot converge). The notify line names it.
+const stop = (where, reason, kind = 'stop') => {
   report.stoppedAt = where
   report.reason = reason
-  report.notify = `build-change ${change} STOPPED at ${where}: ${String(reason).slice(0, 160)}`
+  report.stopKind = kind
+  report.notify = `build-change ${change} ${kind === 'stuck' ? 'STUCK' : 'STOPPED'} at ${where}: ${String(reason).slice(0, 160)}`
   log(`STOP at ${where}: ${reason}; the session must send report.notify via PushNotification`)
   return report
 }
@@ -246,11 +292,11 @@ const LOG = `Keep ${CHANGES}/${change}/tasks.md's log current, so a resumed run 
 async function gateUntilGreen(g, entry) {
   for (let attempt = 0; ; attempt++) {
     const gate = await spawn(
-      `${REGISTER} Then run \`${GATE_CMD} ${QUICK}\` from the repo root in the foreground (allow up to 15 minutes). ${GATE_OUTPUT} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true.`,
+      `${REGISTER} Then run \`${GATE_CMD} ${QUICK}\` from the repo root in the foreground (allow up to 15 minutes). ${GATE_OUTPUT} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
       { label: `gate:${g.n}#${attempt + 1}`, phase: 'Gate', schema: GATE, ...CHEAP },
     )
     if (!gate) return 'gate agent returned nothing'
-    entry.gates.push({ passed: gate.passed, evidence: gate.evidence })
+    entry.gates.push({ passed: gate.passed, evidence: gate.evidence, diffHash: gate.diffHash || '' })
     if (gate.passed) return null
     if (gate.environmentFault) return `environment fault: ${gate.evidence}`
     if (attempt >= MAX_GATE_FIXES) return `gate still red after ${MAX_GATE_FIXES} fix attempts: ${gate.failures || gate.evidence}`
@@ -304,8 +350,10 @@ for (const g of todo) {
     // checks it. A LATER group's finding keeps the boundary: building its tasks early is the creep
     // the boundary prevents.
     const outside = actionable.filter((f) => typeof f.group === 'number' && f.group < g.n)
-    entry.rounds.push({ round, peak, count: rev.findings.length, actionable: actionable.length, outside: outside.length })
-    log(`Group ${g.n} review round ${round}: peak ${peak}, ${actionable.length} actionable of ${rev.findings.length}`)
+    const grade = gradeRound(true, rev.findings)
+    const last = entry.gates[entry.gates.length - 1] || {}
+    entry.rounds.push({ round, grade, peak, count: rev.findings.length, actionable: actionable.length, outside: outside.length, keys: actionable.map(findingKey), disputedKeys: [], diffHash: last.diffHash || '' })
+    log(`Group ${g.n} review round ${round}: ${grade}, peak ${peak}, ${actionable.length} actionable of ${rev.findings.length}`)
     if (!actionable.length) {
       entry.residual = rev.findings
       break
@@ -313,6 +361,12 @@ for (const g of todo) {
     if (prevPeak && RANK[peak] > RANK[prevPeak]) {
       entry.residual = rev.findings
       return stop(`group ${g.n} review`, `severity ROSE ${prevPeak} → ${peak}: fixes are introducing worse defects than they remove`)
+    }
+    const stuck = stuckReason(entry.rounds)
+    if (stuck) {
+      entry.residual = rev.findings
+      const disputes = entry.disputed.length ? `; builder disputes, which you may need to rule on: ${entry.disputed.join(' | ')}` : ''
+      return stop(`group ${g.n} review`, `${stuck}; grades ${grades(entry)}${disputes}`, 'stuck')
     }
     if (round >= MAX_ROUNDS) {
       entry.residual = rev.findings
@@ -325,11 +379,12 @@ for (const g of todo) {
       ? `Findings marked with a source live in code group ${g.n} did not write: fix those at that source anyway, in this uncommitted diff, where this group's review will check the fix; the group boundary does not apply to them. For everything else, stay inside group ${g.n}.`
       : `Stay inside group ${g.n}.`
     const fix = await spawn(
-      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason. ${scope} Leave the work uncommitted.`,
+      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. ${scope} Leave the work uncommitted.`,
       { label: `review-fix:${g.n}#${round}`, phase: 'Review', schema: BUILD, ...BUILDER },
     )
     if (!fix) return stop(`group ${g.n} review`, 'builder returned nothing while fixing findings')
     entry.disputed.push(...(fix.disputed || []))
+    entry.rounds[entry.rounds.length - 1].disputedKeys = (fix.disputedItems || []).map((i) => actionable[i - 1]).filter(Boolean).map(findingKey)
     if (fix.status !== 'done') return stop(`group ${g.n} review`, `${fix.status}: ${fix.designIssue || fix.summary}`)
     why = await gateUntilGreen(g, entry)
     if (why) return stop(`group ${g.n} gate after review fixes`, why)
@@ -338,7 +393,7 @@ for (const g of todo) {
 
   // ── Commit (local only, never push) ──────────────────────────────────────────────────────────
   const c = await spawn(
-    `Commit the uncommitted work for task group ${g.n} of change "${change}". First: independent review of this group converged in ${entry.rounds.length} round(s), so if ${CHANGES}/${change}/tasks.md has a task UNDER GROUP ${g.n}'s OWN HEADING asking for a review of the group, tick it (never tick a task under another group's heading). Then append ONE line under "## Progress" in that tasks.md: "- ${pre.today} group ${g.n} (${g.title}) built and reviewed: converged in ${entry.rounds.length} round(s), peak ${(entry.rounds[entry.rounds.length - 1] || {}).peak || 'none'}". Then: ${REGISTER} Now every path the group touched is tracked, so \`git diff HEAD --name-status\` is the complete list of what will be committed: refuse and report if any path looks like a secret (.env*, *credentials*, *.pem, *.key). Stage with \`git add -u\` (tracked paths only, deletions included; never \`git add -A\` or \`.\`, never by name: a staged deletion's path no longer exists). If \`git diff HEAD\` is empty the group produced no file change: do not commit, and return committed=true with the current sha and problem="no changes". Commit message, imperative, via heredoc:\n\n${change}: task group ${g.n} — ${g.title}${trailers('builder')}\n\nDo NOT push. Report the new short sha from \`git rev-parse --short HEAD\`. Last, run \`sh .claude/change-cost.sh ${change} --json\` and report its costUsd (null if it is null or the script fails).`,
+    `Commit the uncommitted work for task group ${g.n} of change "${change}". First: independent review of this group converged in ${entry.rounds.length} round(s), so if ${CHANGES}/${change}/tasks.md has a task UNDER GROUP ${g.n}'s OWN HEADING asking for a review of the group, tick it (never tick a task under another group's heading). Then append ONE line under "## Progress" in that tasks.md: "- ${pre.today} group ${g.n} (${g.title}) built and reviewed: converged in ${entry.rounds.length} round(s), peak ${(entry.rounds[entry.rounds.length - 1] || {}).peak || 'none'}; grades ${grades(entry)}". Then: ${REGISTER} Now every path the group touched is tracked, so \`git diff HEAD --name-status\` is the complete list of what will be committed: refuse and report if any path looks like a secret (.env*, *credentials*, *.pem, *.key). Stage with \`git add -u\` (tracked paths only, deletions included; never \`git add -A\` or \`.\`, never by name: a staged deletion's path no longer exists). If \`git diff HEAD\` is empty the group produced no file change: do not commit, and return committed=true with the current sha and problem="no changes". Commit message, imperative, via heredoc:\n\n${change}: task group ${g.n} — ${g.title}${trailers('builder')}\n\nDo NOT push. Report the new short sha from \`git rev-parse --short HEAD\`. Last, run \`sh .claude/change-cost.sh ${change} --json\` and report its costUsd (null if it is null or the script fails).`,
     { label: `commit:${g.n}`, phase: 'Commit', schema: COMMIT, ...CHEAP },
   )
   if (!c || !c.committed) return stop(`group ${g.n} commit`, (c && c.problem) || 'commit agent returned nothing')
