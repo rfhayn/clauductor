@@ -10,7 +10,7 @@ func TestParseGitStatusV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.Head != "1234abcd" || !g.HasUpstream || g.Ahead != 3 || g.Behind != 1 || g.Changed != 2 || g.Conflicts != 1 || g.Untracked != 2 || g.Dirty() != 5 {
+	if g.Head != "1234abcd" || g.Branch != "change/x" || !g.HasUpstream || g.Ahead != 3 || g.Behind != 1 || g.Changed != 2 || g.Conflicts != 1 || g.Untracked != 2 || g.Dirty() != 5 {
 		t.Fatalf("%+v", g)
 	}
 	g, err = ParseGitStatusV2([]byte("# branch.oid (initial)\n# branch.head main\n"))

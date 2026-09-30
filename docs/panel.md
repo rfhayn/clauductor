@@ -333,6 +333,23 @@ a title that opens to the rest of it.
 So a card that prints one item per line, with a short lead, reads best. A JSON card is drawn as
 in the drawer.
 
+### When the cards may be stale
+
+Every card runs its command in the project's main checkout and watches its file there, so it
+shows what that checkout's branch has. When the branch is behind its upstream (someone merged,
+you have not pulled), the cards show old data without anything looking wrong. So while it is,
+one line above the cards, in the side panel's pinned box and in **Activity**, says so (PANEL-18):
+
+> main is 3 commits behind origin/main (as of last fetch) — cards may be stale
+
+It comes from the dashboard's own `git status --porcelain=v2 --branch` of the main checkout (see
+*What the panel reads, and when*), read like a lane's worktree while a page is in view, and only
+for a project with cards. The panel adds no `git fetch` for it: behind is counted against the
+local remote-tracking branch, as of the last fetch (yours, or the panel's when a lane starts or
+Close lane or Remove plans), hence "as of last fetch". There is no line when the branch is up to
+date or only ahead, when it has no upstream or HEAD is detached, or when git cannot be read.
+Pull in the main checkout, then **Refresh** (it re-reads git and every card at once).
+
 ## The page
 
 The page is built around lanes (PANEL-11). From the top: the status bar, the Needs-you rows (only
@@ -567,9 +584,10 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 
 - **ps**, every 10 s: one `ps -o pid=,pcpu=,rss=` for the claude processes `claude agents` names.
   CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
-- **git**, every 30 s, for each worktree a lane runs in: one `git status --porcelain=v2 --branch`,
+- **git**, every 30 s (and on **Refresh**), for each worktree a lane runs in and, for a project
+  with cards, the main checkout the cards run in: one `git status --porcelain=v2 --branch`,
   plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
-  HEAD moved.
+  HEAD moved. No `git fetch`: ahead and behind are as of the last fetch.
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither

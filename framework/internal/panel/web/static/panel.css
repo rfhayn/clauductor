@@ -31,6 +31,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .num.s, .s .num { font-size: calc(.71875rem + var(--data-bump)); }
 .unit { color: var(--text-3); margin-left: .15em; }
 .warn { color: var(--warn); font-weight: 700; }
+/* The cards may be stale (PANEL-18): one line above them. */
+.warn.stale { font-weight: 400; font-size: .75rem; padding: .2rem .5rem; overflow-wrap: anywhere; }
 .crit { color: var(--crit); font-weight: 700; }
 .info { color: var(--info); }
 .ok { color: var(--ok); }

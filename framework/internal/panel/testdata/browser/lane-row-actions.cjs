@@ -9,6 +9,8 @@
 // - a click on the row itself still selects it;
 // - Remove on a worktree with no lane (a detached one added here, as a closed session
 //   leaves behind) lists its plan first, and removes it only on Confirm remove.
+// - while the cards' checkout is behind its upstream (a bare remote added here), one
+//   line above them says so, and it goes once the checkout is up to date.
 // Usage: node lane-row-actions.cjs <base URL> <token> <project dir>
 const pw = require(process.env.PLAYWRIGHT || "playwright");
 const { execFileSync } = require("child_process");
@@ -123,6 +125,25 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     if (!/Removed worktree/.test(done) || fs.existsSync(left)) fail("after Confirm remove: " + done + ", exists " + fs.existsSync(left));
     if (removes.length !== 2 || !removes[0].dryRun || removes[1].dryRun || !removes[1].remove || removes[1].worktree !== real) fail("remove requests " + JSON.stringify(removes));
     await p.click('#closebar [data-k="b:close-dismiss"]');
+
+    // The cards' checkout falls 3 commits behind its upstream: one line says so.
+    const tmp = path.dirname(proj), bare = path.join(tmp, "origin.git"), other = path.join(tmp, "other");
+    const git = (...a) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...a], { stdio: "pipe" });
+    git("clone", "-q", "--bare", proj, bare);
+    git("-C", proj, "remote", "add", "origin", bare);
+    git("-C", proj, "fetch", "-q", "origin");
+    git("-C", proj, "branch", "-q", "-u", "origin/main", "main");
+    git("clone", "-q", bare, other);
+    for (const n of [1, 2, 3]) git("-C", other, "commit", "-q", "--allow-empty", "-m", "upstream " + n);
+    git("-C", other, "push", "-q", "origin", "main");
+    git("-C", proj, "fetch", "-q", "origin");
+    await p.click("#refresh");
+    await p.waitForSelector('#side [data-k="pstale"]', { timeout: 40000 });
+    const note = await p.$eval('#side [data-k="pstale"]', (e) => e.textContent);
+    if (note !== "main is 3 commits behind origin/main (as of last fetch) — cards may be stale") fail("stale note: " + note);
+    git("-C", proj, "merge", "-q", "--ff-only", "origin/main");
+    await p.click("#refresh");
+    await p.waitForFunction(() => !document.querySelector('#side [data-k="pstale"]'), null, { timeout: 15000 }).catch(() => fail("the note stayed once up to date"));
     if (errors.length) fail("page errors: " + errors.join("; "));
   } finally {
     await b.close();

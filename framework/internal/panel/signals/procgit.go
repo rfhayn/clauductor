@@ -37,7 +37,10 @@ func ParsePS(out []byte) map[int]Proc {
 // GitStat is a worktree's state from `git status --porcelain=v2 --branch`, and,
 // when it is dirty, `git diff HEAD --shortstat`.
 type GitStat struct {
-	Head        string `json:"head,omitempty"`
+	Head string `json:"head,omitempty"`
+	// Branch is the checked-out branch ("(detached)" when HEAD is detached), from
+	// branch.head (PANEL-18: the cards' stale note names it).
+	Branch      string `json:"branch,omitempty"`
 	Upstream    string `json:"upstream,omitempty"`
 	Ahead       int    `json:"ahead"`
 	Behind      int    `json:"behind"`
@@ -63,6 +66,8 @@ func ParseGitStatusV2(out []byte) (GitStat, error) {
 		switch {
 		case strings.HasPrefix(line, "# branch.oid "):
 			g.Head, sawBranch = strings.TrimPrefix(line, "# branch.oid "), true
+		case strings.HasPrefix(line, "# branch.head "):
+			g.Branch = strings.TrimPrefix(line, "# branch.head ")
 		case strings.HasPrefix(line, "# branch.upstream "):
 			g.Upstream, g.HasUpstream = strings.TrimPrefix(line, "# branch.upstream "), true
 		case strings.HasPrefix(line, "# branch.ab "):

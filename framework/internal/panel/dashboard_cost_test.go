@@ -14,7 +14,8 @@ import (
 
 // PANEL-11: the dashboard's two reads (ps, git) spawn nothing while no page is in
 // view, and at their cadence while one is: ps every 10 s, one `git status` per lane
-// worktree every 30 s, a second git call only for a dirty tree or a moved HEAD.
+// worktree every 30 s, a second git call only for a dirty tree or a moved HEAD. Since
+// PANEL-18 the checkout the cards run in (the root here) is read too: two worktrees.
 func TestDashboardReadsSpawnOnlyWhileAPageIsInView(t *testing.T) {
 	t.Parallel()
 	wt := "/repo/.claude/worktrees/build-add-feature"
@@ -80,11 +81,11 @@ func TestDashboardReadsSpawnOnlyWhileAPageIsInView(t *testing.T) {
 	}
 	srv.MarkVisible(t0)
 	got := minute()
-	if got["ps"] != 6 || got["git status"] != 2 || got["git log"] != 1 || got["git diff"] != 0 {
-		t.Fatalf("a clean tree in view for a minute spawned %v; want ps 6, git status 2, git log once (HEAD is new)", got)
+	if got["ps"] != 6 || got["git status"] != 4 || got["git log"] != 2 || got["git diff"] != 0 {
+		t.Fatalf("a clean tree in view for a minute spawned %v; want ps 6, git status 4, git log once a worktree (HEAD is new)", got)
 	}
 	dirty = true
-	if got := minute(); got["git status"] != 2 || got["git diff"] != 2 || got["git log"] != 0 {
+	if got := minute(); got["git status"] != 4 || got["git diff"] != 4 || got["git log"] != 0 {
 		t.Fatalf("a dirty tree spawned %v; want a diff stat with each status, and no log (HEAD unmoved)", got)
 	}
 	v := r.hub.View()

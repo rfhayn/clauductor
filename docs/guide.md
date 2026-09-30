@@ -112,3 +112,7 @@ switches between projects. See [Projects](panel.md#projects).
    [Cards, RUN and templates do nothing](panel.md#cards-run-and-templates-do-nothing).
 5. **No context % or quota.** The panel needs a copy of your status line. See
    [The page shows no context % or quota](panel.md#the-page-shows-no-context--or-quota).
+6. **The cards show old data.** They run in the project's main checkout. When its branch is
+   behind its upstream, a line above them says "main is N commits behind origin/main (as of last
+   fetch) — cards may be stale": pull there, then **Refresh**. See
+   [When the cards may be stale](panel.md#when-the-cards-may-be-stale).

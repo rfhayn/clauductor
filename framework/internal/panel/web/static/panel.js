@@ -209,6 +209,9 @@ function goLive() {
   conn.state = "live"; conn.attempt = 0; conn.expired = false; frozenAt = 0;
   clearTimeout(conn.timer);
   if (was !== "connecting") render();
+  // Say at once that a page is in view (not a minute from now): the dashboard's git read,
+  // and with it the cards' stale note (PANEL-18), starts on its next tick.
+  setTimeout(seen, 1000);
 }
 function lost(expired) {
   if (es) { es.close(); es = null; }
@@ -1099,6 +1102,17 @@ try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = loc
 function saveProj() {
   try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
 }
+// PANEL-18: the cards run in the project's main checkout and watch files there, so while
+// its branch is behind its upstream they read old files. git counts against the last
+// fetch (the panel fetches only when a lane starts and when a close or remove plans),
+// so the note says so. It shows once above the cards, in the side panel and Activity.
+function staleNote(k) {
+  const c = S.cardsStale;
+  if (!c) return null;
+  const e = el("div", "warn stale", c.branch + " is " + c.behind + " commit" + (c.behind === 1 ? "" : "s") + " behind " + c.upstream + " (as of last fetch) — cards may be stale");
+  e.title = "The cards run in " + c.dir + ". Pull there, then Refresh, to update them.";
+  return key(e, k);
+}
 function projectBox() {
   const pins = pinnedCards();
   if (!pins.length) return null;
@@ -1127,6 +1141,7 @@ function projectBox() {
     projOpen ? "Fold the project box" : "Show the project box", "projfold");
   fold.setAttribute("aria-expanded", String(projOpen));
   const kids = [key(el("div", "projhead", null, [key(tl, "projtabs"), fold]), "projhead")];
+  kids.push(staleNote("pstale"));
   if (projOpen) {
     const body = el("div", "sidebody projbody", null, pinnedRows(cur));
     body.setAttribute("role", "tabpanel");
@@ -1576,6 +1591,7 @@ function renderDrawer() {
     prs.push(key(el("div", "tblwrap", null, [el("table", "tbl", null, [tb])]), "d:prtbl"));
   }
   kids.push(key(el("section", "pane", null, prs), "d:prs"));
+  if (S.cards.length) kids.push(staleNote("d:stale"));
   for (const c of S.cards) kids.push(projectCard(c));
   // Every lane's events, grouped by lane, the lane with the newest event first.
   const groups = new Map();

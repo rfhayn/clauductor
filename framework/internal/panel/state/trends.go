@@ -325,6 +325,42 @@ func (m *Model) LaneWorktrees(now time.Time) []string {
 	return out
 }
 
+// CardsCheckout is the checkout the project's cards run their commands in and watch
+// their files in: the project root, or "" when the project has no card (PANEL-18).
+// The git read covers it too, so the page can say when it is behind its upstream.
+func (m *Model) CardsCheckout() string {
+	if len(m.cards) == 0 {
+		return ""
+	}
+	return m.root
+}
+
+// CardsStale says the cards' checkout is behind its upstream (PANEL-18): its branch
+// then lacks commits the upstream has, and every card reads the older files. Behind is
+// git's count against the local remote-tracking ref, so it is as of the last fetch
+// (the panel fetches only when a lane starts and when Close lane or Remove plans).
+type CardsStale struct {
+	Dir      string `json:"dir"`
+	Branch   string `json:"branch"`
+	Upstream string `json:"upstream"`
+	Behind   int    `json:"behind"`
+	At       int64  `json:"at"` // when git was read, unix ms
+}
+
+// cardsStale is the note for the view, or nil: no card, no read yet, a failed read,
+// no upstream, or not behind.
+func (m *Model) cardsStale() *CardsStale {
+	dir := m.CardsCheckout()
+	if dir == "" || m.trend == nil {
+		return nil
+	}
+	g := m.trend.git[dir]
+	if g == nil || g.Error != "" || !g.HasUpstream || g.Behind <= 0 {
+		return nil
+	}
+	return &CardsStale{Dir: dir, Branch: g.Branch, Upstream: g.Upstream, Behind: g.Behind, At: g.At}
+}
+
 // GitHead returns the last HEAD and commit time recorded for a worktree, so the
 // runtime reads a commit's time only when HEAD moves.
 func (m *Model) GitHead(path string) (string, int64) {

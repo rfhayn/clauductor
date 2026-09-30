@@ -13,7 +13,8 @@
 #   under a lane that asks for every motion, and links open on ⌘-click;
 # - lane-row-actions.cjs (PANEL-18): the "⋯" actions menu on a lane row and a tree
 #   node opens without selecting, moves by keys, and every item only asks; Remove on a
-#   lane-less worktree asks with its plan, then removes it.
+#   lane-less worktree asks with its plan, then removes it; the cards say they may be
+#   stale while the checkout they run in is behind its upstream (this adds one).
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
