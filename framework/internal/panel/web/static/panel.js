@@ -1031,7 +1031,9 @@ function sideAgents(x) {
     ].filter((r) => r[0])), "sess:" + s.id));
   }
   if (!lv.sessions.length) out.push(key(el("div", "empty", x.t ? "No claude session reported yet." : "No session."), "ag:nosess"));
-  if (lv.subagentsApprox) out.push(key(el("div", "approx", "Approximate: agent pairing was verified on Claude Code " + S.observe.verifiedOn + ", and " + (S.observe.claudeVersion || "an unknown version") + " is running."), "ag:approx"));
+  const vf = S.verification || {};
+  if (lv.subagentsApprox) out.push(key(el("div", "approx", "Approximate: agent pairing was verified on Claude Code " + S.observe.verifiedOn + ", and " + (S.observe.claudeVersion || "an unknown version") + " is running." +
+    (vf.broken ? " It changed on this version: " + vf.broken + "." : vf.version ? " Checking it against this project's hooks: " + vf.confirmed + " of " + vf.needed + " subagent launches confirmed." : "")), "ag:approx"));
   const all = lv.subagents.concat(lv.finishedSubagents || []);
   if (!all.length) { out.push(key(el("div", "empty", "No subagent has run in this lane yet."), "ag:none")); return out; }
   out.push(key(el("h3", null, lv.subagents.length + " running, " + (lv.finishedSubagents || []).length + " finished"), "ag:h"));
@@ -2143,8 +2145,24 @@ function renderBanners() {
   for (const [k, src] of Object.entries(S.sources)) {
     if (k !== "prs" && !src.pending && !src.ok) kids.push(key(el("div", "banner", null, [el("b", null, "Cannot read"), document.createTextNode((SOURCE_NAME[k] || k) + ": " + src.error)]), "banner:src:" + k));
   }
-  (S.warnings || []).forEach((w, i) => kids.push(key(el("div", "warnbar", w), "warn:" + i)));
+  const warns = S.warningItems || (S.warnings || []).map((w, i) => ({ key: "w" + i, text: w }));
+  for (const w of warns) {
+    if (warnClosed[w.key]) continue;
+    const x = button("×", "warnx", () => closeWarning(w.key), "Close this warning. It comes back if it changes (a new Claude Code version, say).", "wx");
+    x.setAttribute("aria-label", "Close this warning");
+    kids.push(key(el("div", "warnbar", null, [el("span", null, w.text), x]), "warn:" + w.key));
+  }
   patchInto("banners", kids);
+}
+// Closed warnings, by key, kept per browser (PANEL-13). A key names what the warning is
+// about ("version:2.1.285"), so the same warning stays closed while its text moves on
+// ("2 of 3 confirmed"), and a new version, or a break, shows again.
+let warnClosed = {};
+try { warnClosed = JSON.parse(localStorage.getItem("clauductor-panel-warn-closed") || "{}") || {}; } catch (e) {}
+function closeWarning(k) {
+  warnClosed[k] = 1;
+  try { localStorage.setItem("clauductor-panel-warn-closed", JSON.stringify(warnClosed)); } catch (e) {}
+  render();
 }
 
 // The footer: one line of the counters that matter, the rest one click away.
@@ -2175,7 +2193,9 @@ function renderObs() {
     kv("claude agents", (o.agentsPolls ? o.agentsPollMs + " ms (avg " + o.agentsPollAvgMs + ", max " + o.agentsPollMaxMs + ")" : "—") +
       " every " + (o.agentsIntervalMs ? o.agentsIntervalMs / 1000 + " s" : "—")),
     kv("filter", o.agentsFilter || "—", "wrap"),
-    kv("Claude Code", (o.claudeVersion || "?") + (o.claudeVersion && o.claudeVersion !== o.verifiedOn ? " (verified on " + o.verifiedOn + ")" : "")));
+    kv("Claude Code", (o.claudeVersion || "?") + (!o.claudeVersion || o.claudeVersion === o.verifiedOn ? ""
+      : S.verification && S.verification.auto === o.claudeVersion ? " (verified from this project's hooks)"
+      : " (verified on " + o.verifiedOn + (S.verification && S.verification.version ? "; checking: " + S.verification.confirmed + " of " + S.verification.needed : "") + ")")));
   const f = $("obs");
   f.classList.toggle("open", obsOpen);
   patch(f, kids.map((x, i) => (x.dataset.k ? x : key(x, "o:" + i))));

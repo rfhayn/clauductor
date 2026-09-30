@@ -414,6 +414,9 @@ value just changed.
   panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
   here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
   Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
+- **Warnings** (the amber bars: an unverified Claude Code, ignored events) close with their **×**.
+  A closed warning stays closed in this browser while it is about the same thing, even as its
+  text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
 - **Footer.** One line: hook events, status posts, **other projects** (events from sessions
   outside the project: the hooks are the machine's, so these are expected and set aside), what
   was really **dropped** (overflow, malformed, unknown event; amber when any), and notifications.
@@ -1315,6 +1318,19 @@ sessions are found through `claude agents --json`.
 - **Version pinning.** The subagent pairing, the missing `SessionStart` HTTP hook and the recorded
   fixtures were verified on Claude Code **2.1.284**. The panel reads `claude --version`; on any
   other version the subagent list says "approximate" and a warning bar says why.
+- **Re-verifying a new version, by itself (PANEL-13).** On a version it has not verified, the
+  panel checks the pairing against the hooks the project's own sessions send: no model token, no
+  session of its own. Each Agent call's `PostToolUse` names the agent it started
+  (`tool_response.agentId`); when a `SubagentStart` announced that same agent (`agent_id`),
+  before or up to 10 s after, it is a confirmation. Three confirmations verify the version: the
+  warning goes, the lists stop saying "approximate", the panel logs it, and
+  `~/.clauductor/panel/verified.json` keeps it across restarts. Until then the warning says how
+  many of three it has. Two agents a `PostToolUse` names but no `SubagentStart` announces, or
+  three `PostToolUse` that name no agent and no confirmation, mean the shape changed: the warning
+  says what broke and the lists stay approximate until the panel is updated. It checks the
+  pairing only; the recorded fixtures and the other 2.1.284 observations (the missing
+  `SessionStart` HTTP hook, the trust dialog's absence from `claude agents`) are re-recorded by
+  hand when one of them breaks.
 
 ## Security model
 

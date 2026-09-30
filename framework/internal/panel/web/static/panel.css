@@ -142,6 +142,12 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .banner, .restore, .warnbar { padding: .3rem .75rem; border-bottom: 1px solid var(--rule); background: var(--crit-bg); color: var(--crit-ink); overflow-wrap: anywhere; }
 .banner b, .restore > b { font-weight: 700; margin-right: .5rem; }
 .banner.warn, .warnbar, .restore { background: var(--warn-bg); color: var(--warn-ink); }
+/* A warning closes (PANEL-13): its text, then the × at the end of the line. */
+.warnbar { display: flex; gap: .75rem; align-items: baseline; }
+.warnbar > span { flex: 1; min-width: 0; }
+.warnx { flex: none; border: 0; background: none; color: inherit; font-size: 1.05rem; line-height: 1; padding: 0 .25rem; cursor: pointer; }
+.warnx:hover { color: var(--text-1); }
+.warnx:focus-visible { outline: 2px solid var(--focus); }
 .restore { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .restore label { display: flex; gap: .25rem; align-items: center; }
 

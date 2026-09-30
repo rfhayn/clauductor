@@ -378,9 +378,11 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	case "PreToolUse":
 		detail = s.nest.pre(ev, now)
 	case "PostToolUse":
+		m.observePost(s, ev, now) // before post applies it (verify.go)
 		detail = s.post(ev, now)
 	case "SubagentStart":
 		s.Subagents[ev.AgentID] = subagent{Type: ev.AgentType, Since: now, link: s.nest.link(ev, now)}
+		m.observeStart(ev, now)
 		detail = agentLabel(ev.AgentType, ev.AgentID)
 	case "SubagentStop":
 		s.stopSubagent(ev.AgentID, ev.AgentType, now)
@@ -1384,6 +1386,8 @@ type modelV2 struct {
 	trust          config.TrustView
 	versionSet     bool
 	suggest        map[string]*SuggestView // template id → its suggestions
+	autoVerified   string                  // a version verified from live hooks (verify.go)
+	verify         verifier
 }
 
 // ObsView is the observability footer.
@@ -1417,6 +1421,18 @@ type BannerView struct {
 	Text string `json:"text"`
 }
 
+// WarningView is one soft banner and its key.
+type WarningView struct {
+	Key  string `json:"key"`
+	Text string `json:"text"`
+}
+
+// warn adds a warning to both lists.
+func (v *View) warn(key, text string) {
+	v.Warnings = append(v.Warnings, text)
+	v.WarningItems = append(v.WarningItems, WarningView{Key: key, Text: text})
+}
+
 // banner adds a banner to both lists.
 func (v *View) banner(kind, text string) {
 	v.Banners = append(v.Banners, text)
@@ -1443,6 +1459,11 @@ type ViewOrchestration struct {
 	Trust      config.TrustView `json:"trust"`
 	// Warnings are soft banners: nothing is lost, but something is approximate.
 	Warnings []string `json:"warnings"`
+	// WarningItems are the same warnings with a stable key, so the page can close one
+	// for good while its text changes (PANEL-13: "1 of 3 confirmed").
+	WarningItems []WarningView `json:"warningItems"`
+	// Verification is the live re-verification of the subagent pairing (verify.go).
+	Verification Verification `json:"verification"`
 }
 
 // ApplyClaudeVersion records `claude --version`.
@@ -1474,10 +1495,11 @@ func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 	m.v2.queuesSrc = SourceStatus{OK: true, At: ms(now)}
 }
 
-// heuristicsApprox: the running Claude Code is not the one the heuristics were
-// verified on. Unknown (not read yet, or unreadable) counts as approximate too.
+// heuristicsApprox: the running Claude Code is not one the heuristics were verified
+// on, in the source or from live hooks (verify.go). Unknown (not read yet, or
+// unreadable) counts as approximate too.
 func (m *Model) heuristicsApprox() bool {
-	return !m.v2.versionSet || m.v2.claudeVersion != HeuristicsVerifiedOn
+	return !m.v2.versionSet || m.checking()
 }
 
 // quotaAt returns the quota with every window whose resets_at has passed dropped.
@@ -1701,7 +1723,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	v.QuotaGuard = quotaGuardBlock(v.Quota, th.GuardPct)
 	v.Trust = m.v2.trust
 	v.Restorable = []string{}
-	v.Warnings = []string{}
+	v.Warnings, v.WarningItems = []string{}, []WarningView{}
 	m.hookBanners(v, now)
 	if v.Done == nil {
 		v.Done = []NeedView{}
@@ -1768,15 +1790,21 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 		v.banner(BannerUntrusted, what+". Its commands (cards, queue RUN) and templates are off until you review it and run "+
 			"`clauductor panel trust` (or restart with --trust-config).")
 	}
-	switch {
-	case m.v2.versionSet && m.v2.claudeVersion != HeuristicsVerifiedOn:
-		v.Warnings = append(v.Warnings, "Claude Code "+m.v2.claudeVersion+" is running; the subagent pairing and the recorded hook "+
-			"fixtures were verified on "+HeuristicsVerifiedOn+". Subagent lists are approximate until they are re-verified.")
+	v.Verification = m.verification()
+	switch vf := v.Verification; {
+	case vf.Broken != "":
+		// Keyed apart from the check in progress: a break shows again if it was closed.
+		v.warn("version:"+vf.Version+":broken", "Claude Code "+vf.Version+" changed what the subagent pairing relies on: "+vf.Broken+
+			". Subagent lists stay approximate until the panel is updated for it (docs/panel.md, Version pinning).")
+	case vf.Version != "":
+		v.warn("version:"+vf.Version, fmt.Sprintf("Claude Code %s is running; the subagent pairing was verified on %s. The panel is checking it "+
+			"against this project's own hooks (%d of %d subagent launches confirmed); subagent lists are approximate until then.",
+			vf.Version, HeuristicsVerifiedOn, vf.Confirmed, vf.Needed))
 	case !m.v2.versionSrc.Pending && !m.v2.versionSrc.OK && m.v2.versionSrc.Error != "":
-		v.Warnings = append(v.Warnings, "cannot read `claude --version` ("+m.v2.versionSrc.Error+"); subagent lists are approximate.")
+		v.warn("version:unread", "cannot read `claude --version` ("+m.v2.versionSrc.Error+"); subagent lists are approximate.")
 	}
 	if m.v2.droppedUnknown > 0 {
-		v.Warnings = append(v.Warnings, fmt.Sprintf("%d hook event(s) with an event name the panel does not subscribe to were ignored.", m.v2.droppedUnknown))
+		v.warn("unknown-events", fmt.Sprintf("%d hook event(s) with an event name the panel does not subscribe to were ignored.", m.v2.droppedUnknown))
 	}
 }
 
