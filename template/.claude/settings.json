@@ -43,6 +43,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pr-merge-guard.sh"
+          },
+          {
+            "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-blind-source-rewrite.sh"
           }
         ]
@@ -74,6 +78,10 @@
       "Bash(sh .claude/checks/run.sh)",
       "Bash(sh .claude/checks/run.sh *)",
       "Bash(sh .claude/owner-queue.sh)",
+      "Bash(sh .claude/roadmap-queue.sh)",
+      "Bash(sh .claude/roadmap-queue.sh *)",
+      "Bash(scripts/ci/gate.sh)",
+      "Bash(scripts/ci/gate.sh *)",
       "Bash(sh .claude/status-write.sh *)"
     ]
   }

@@ -48,6 +48,11 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 
 | Rule / convention | What executes it |
 |---|---|
+| No `--auto`, no `--admin`; a merge has gate evidence for its exact head commit | **`.claude/hooks/pr-merge-guard.sh`** rules 1–2 (blocking); **`checks/merge-guard.sh`** |
+| Only a complete run of a clean tree is evidence; two gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
+| Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
+| A journal `## Session N` is not claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** |
+| Claude merges only once review has CONVERGED | **`merge-pr`** step 3: a skill step, **no hook checks it** |
 | No scripted find-replace against tracked source | **`.claude/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |
 | The status-line focus says what this lane is doing | **`.claude/hooks/focus-staleness.sh`** (a nudge, not a block) |
