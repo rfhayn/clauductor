@@ -1,5 +1,7 @@
 ---
 name: start-project
+model: opus
+effort: high
 description: "Guided first-time setup wizard for a Clauductor project. Walks through each configuration step, skipping items already completed. TRIGGER when the user says \"start project\", \"set up project\", \"configure project\", \"first time setup\", \"initialize project\", \"onboard\", or at initial project setup."
 ---
 

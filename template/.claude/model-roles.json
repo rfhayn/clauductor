@@ -1,0 +1,40 @@
+{
+  "_why": "The ONE place a model or an effort is chosen. Skill and agent frontmatter, .claude/settings.json, .claude/workflows/build-change.js and the panel's lane_types (.clauductor/panel.json) cannot read this file, so each restates what it needs, and .claude/checks/model-roles.sh fails when any of them disagrees with it. Before a single file held the choice, it lived in five places and drifted: a workflow's commit trailer named a retired model while the playbook described a different session model. Change a role here, then run the check and fix what it names.",
+  "roles": {
+    "session": { "model": "opus", "effort": "high", "does": "the conversation with the owner; orchestrates lanes" },
+    "planner": { "model": "opus", "effort": "xhigh", "does": "proposals, designs, ADRs" },
+    "thinker": { "model": "opus", "effort": "high", "does": "hand-built changes, exploration, setup" },
+    "builder": { "model": "opus", "effort": "high", "does": "implements one task group; applies fixes" },
+    "reviewer": { "model": "opus", "effort": "high", "does": "reviews one task group; never edits" },
+    "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },
+    "scribe": { "model": "opus", "effort": "medium", "does": "journal, insights, merge, archive, close" },
+    "orient": { "model": "opus", "effort": "low", "does": "session-start" },
+    "mechanic": { "model": "sonnet", "effort": "low", "does": "build-change preflight, gate, commit, receipt: run a script and quote it" },
+    "researcher": { "model": "opus", "effort": "medium", "does": "read-only research: no Bash, Edit or Write" },
+    "helper": { "model": "opus", "does": "any other subagent (Explore, general-purpose), via CLAUDE_CODE_SUBAGENT_MODEL" }
+  },
+  "skills": {
+    "architecture-audit": "thinker",
+    "release-prep": "thinker",
+    "start-project": "thinker"
+  },
+  "agents": {
+    "builder": "builder",
+    "researcher": "researcher",
+    "reviewer": "reviewer",
+    "reviewer-docs": "reviewer-docs"
+  },
+  "read_only_agents": ["researcher", "reviewer", "reviewer-docs"],
+  "lanes": {
+    "_why": "Each lane type of the local panel (.clauductor/panel.json `lanes`) and the role its interactive session starts on, restated there as `lane_types` because the panel cannot read this file. Every lane is a session the owner can talk to; the skills it runs switch to their own role.",
+    "build": "session",
+    "fix": "session",
+    "ops": "session",
+    "orchestrator": "session"
+  },
+  "attribution": {
+    "_why": "The trailer every commit Claude writes ends with, when enabled: build-change's commits, merge-pr's squash body, session-close's PR. Name the model you actually run so the history says which one wrote what; set enabled to false if your project keeps commits unattributed.",
+    "enabled": true,
+    "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>"
+  }
+}

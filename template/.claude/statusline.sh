@@ -1,93 +1,79 @@
 #!/bin/sh
-# Clauductor status line for Claude Code
-# Reads current session state and displays milestone, session type, and context usage.
-# Updated dynamically by /session-start, /claim, and other framework skills.
+# Status line for Claude Code.
+#
+# Renders:  "<mark> <focus> · <branch> <●|✓> <↑a↓b> · <N>% ctx"
+#   - <mark> is STATUS_MARK from .claude/project.conf, so parallel repos are unmistakable.
+#   - <focus> comes from a per-project, per-branch file written by status-write.sh; it falls back
+#     to "[<branch>]" when no focus has been set.
+#   - The git segment (branch, ● dirty / ✓ clean, ↑ahead ↓behind upstream) comes from git, so it
+#     stays accurate even when the focus text is stale.
+#   - <N>% ctx is the context-window use from Claude Code's stdin JSON.
+#
+# Reads a JSON blob on stdin (piped by Claude Code). Dependencies: jq; curl for the panel post.
 
 input=$(cat)
 
-# Extract context usage percentage
-used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
-
-# Get current working directory and branch
-cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
-branch=""
-if [ -n "$cwd" ]; then
-  branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
+# THE PANEL SNIPPET (clauductor docs/panel.md, "The status line"). The local panel reads a copy
+# of this stdin: it carries the 5-hour and 7-day quota and the context %, which no hook payload
+# does. It posts ONLY while ~/.clauductor/panel/pid names a live process: a panel killed with
+# SIGKILL leaves `port` behind, and another program may hold that port by now. The pid must be
+# digits and not start with 0, because `kill -0 -1` and `kill -0 0` succeed whatever runs. The
+# port must be digits too, since it goes into a URL. Backgrounded with its output discarded, so
+# it never delays or changes the line below; on a machine that never ran the panel it makes no
+# call at all. Checked by .claude/checks/statusline.sh.
+panel="$HOME/.clauductor/panel"
+panel_port=$(cat "$panel/port" 2>/dev/null)
+panel_pid=$(cat "$panel/pid" 2>/dev/null)
+case "$panel_port" in '' | *[!0-9]*) panel_port="" ;; esac
+case "$panel_pid" in '' | *[!0-9]* | 0*) panel_pid="" ;; esac
+if [ -n "$panel_port" ] && [ -n "$panel_pid" ] && kill -0 "$panel_pid" 2>/dev/null; then
+  { printf '%s' "$input" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
+    --data-binary @- "http://127.0.0.1:${panel_port}/status"; } >/dev/null 2>&1 &
 fi
 
-# --- Read Clauductor session state ---
+used=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // empty' 2>/dev/null)
+cwd=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/dev/null)
+[ -n "$cwd" ] || cwd=$(pwd)
 
-label=""
-session_type=""
+# This script's own checkout supplies the config (the mark, the slug), whatever the cwd.
+ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+# shellcheck disable=SC1091
+. "$ROOT/.claude/lib/conf.sh"
 
-# Option 1: Read from orchestration status file (lightweight, no SQLite dependency)
-status_file=""
-if [ -n "$cwd" ]; then
-  status_file="$cwd/orchestration/.session-status"
+branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
+
+focus=""
+if [ -n "$branch" ]; then
+  file=$(focus_file "$branch")
+  [ -f "$file" ] && focus=$(cat "$file")
+  [ -z "$focus" ] && focus="[$branch]"
 fi
 
-if [ -n "$status_file" ] && [ -f "$status_file" ]; then
-  # Format: MILESTONE|SESSION_TYPE|WORKER_NAME|DESCRIPTION
-  milestone=$(cut -d'|' -f1 "$status_file")
-  session_type=$(cut -d'|' -f2 "$status_file")
-  worker=$(cut -d'|' -f3 "$status_file")
-  desc=$(cut -d'|' -f4 "$status_file")
-
-  if [ -n "$milestone" ]; then
-    type_badge=""
-    case "$session_type" in
-      build)    type_badge="BUILD" ;;
-      test)     type_badge="TEST" ;;
-      research) type_badge="RESEARCH" ;;
-      spike)    type_badge="SPIKE" ;;
-    esac
-
-    if [ -n "$type_badge" ] && [ -n "$desc" ]; then
-      label="[${milestone}] ${type_badge} ${desc}"
-    elif [ -n "$type_badge" ]; then
-      label="[${milestone}] ${type_badge}"
-    elif [ -n "$desc" ]; then
-      label="[${milestone}] ${desc}"
-    else
-      label="[${milestone}]"
-    fi
-  fi
-fi
-
-# Option 2: Fallback — parse milestone from git branch name
-# Supports both PREFIX-#.# (e.g., AUTH-1.3) and legacy M#.#.# (e.g., M1.2.3)
-if [ -z "$label" ] && [ -n "$branch" ]; then
-  # Try PREFIX-#.# format first (e.g., feature/AUTH-1.3-description)
-  milestone=$(echo "$branch" | grep -oE '[A-Z]{2,5}-[0-9]+(\.[0-9]+)?' | head -1)
-  # Fall back to M#.#.# format
-  if [ -z "$milestone" ]; then
-    milestone=$(echo "$branch" | grep -oE 'M[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
-  fi
-  if [ -n "$milestone" ]; then
-    desc=$(echo "$branch" | sed "s|.*${milestone}-||" | tr '-' ' ')
-    [ "$desc" = "$branch" ] && desc=""
-    if [ -n "$desc" ]; then
-      label="[${milestone}] ${desc}"
-    else
-      label="[${milestone}]"
-    fi
+git=""
+if [ -n "$branch" ]; then
+  git="$branch"
+  if [ -n "$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)" ]; then
+    git="$git ●"
   else
-    # Not on a milestone branch — show branch name
-    label="$branch"
+    git="$git ✓"
+  fi
+  counts=$(git -C "$cwd" --no-optional-locks rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null)
+  if [ -n "$counts" ]; then
+    behind=$(echo "$counts" | awk '{print $1}')
+    ahead=$(echo "$counts" | awk '{print $2}')
+    track=""
+    [ "$ahead" -gt 0 ] 2>/dev/null && track="↑$ahead"
+    [ "$behind" -gt 0 ] 2>/dev/null && track="${track}↓$behind"
+    [ -n "$track" ] && git="$git $track"
   fi
 fi
 
-# Build context part
 ctx=""
-if [ -n "$used" ]; then
-  ctx="$(printf '%.0f' "$used")% ctx"
-fi
+[ -n "$used" ] && ctx="$(printf '%.0f' "$used")% ctx"
 
-# Output
-if [ -n "$label" ] && [ -n "$ctx" ]; then
-  echo "${label} | ${ctx}"
-elif [ -n "$label" ]; then
-  echo "$label"
-elif [ -n "$ctx" ]; then
-  echo "$ctx"
-fi
+out="$STATUS_MARK"
+[ -n "$focus" ] && out="$out ${focus}"
+[ -n "$git" ] && out="$out · ${git}"
+[ -n "$ctx" ] && out="$out · ${ctx}"
+[ "$out" = "$STATUS_MARK" ] && out="$STATUS_MARK $PROJECT_NAME"
+echo "$out"
