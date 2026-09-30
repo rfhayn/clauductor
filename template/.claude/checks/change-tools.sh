@@ -91,6 +91,8 @@ B=change/add-greeting-name
 msg m3 claude-haiku-4-5-20251001 "$B" "$main" 1000000 0 > "$P/$slug/s1/subagents/agent-a.jsonl"      # $1.00
 msg m4 claude-opus-5-5 "change/other" "$main" 1000000 0 > "$P/$slug--claude-worktrees-lane/s2.jsonl"  # another branch
 msg m5 claude-opus-5-5 "$B" "/somewhere/else" 1000000 0 > "$P/-elsewhere/s3.jsonl"                     # another repo
+# The same two inside a file that DOES hold the branch, so the per-message filters are what excludes them.
+{ msg m8 claude-opus-5-5 "change/other" "$main" 1000000 0; msg m9 claude-opus-5-5 "$B" "${main}-fork" 1000000 0; } >> "$P/$slug/s1.jsonl"
 cost() { (cd "$R" && CLAUDE_PROJECTS_DIR="$P" sh .claude/change-cost.sh add-greeting-name "$@") > "$d/out" 2>&1; }
 cost --json; rc=$?
 expect_rc 0 "$rc" "change-cost reads the branch's transcripts"
