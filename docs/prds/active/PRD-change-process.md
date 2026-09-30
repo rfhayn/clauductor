@@ -1,6 +1,6 @@
 # PRD: The change process (OPS-7), and adopting it in an existing project
 
-**Status:** decided 2026-09-30. OPS-7 items 1–15 and the economy-mode mapping are built (branch
+**Status:** decided 2026-09-30. OPS-7 items 1–17 and the economy-mode mapping are built (branch
 `feature/OPS-7-change-process`, on OPS-1 #19); see *OPS-7: what was built*. StandingT adopts it
 after everything below has shipped.
 
@@ -229,7 +229,8 @@ on-call, SPACE surveys, a formal betting table, and the full NIST AI RMF.
 
 ### OPS-7: what was built (2026-09-30)
 
-Every item is done. Each row names what enforces it; each check was falsified (the rule broken, the
+Every item is done, 16 and 17 included (from the competitive survey, below). Each row names what
+enforces it; each check was falsified (the rule broken, the
 check seen to fail, the rule restored).
 
 | # | Built | Enforced by |
@@ -249,11 +250,41 @@ check seen to fail, the rule restored).
 | 13 | `## How we'll know`; the dated `ops/check-outcome-<id>` row; `roadmap-queue.sh --text` lists it DUE | `checks/changes.sh`; `checks/roadmap.sh`; rule 11 |
 | 14 | `provenance` in `model-roles.json` (on); trailers in `build-change` commits and the `merge-pr` squash | `pr-merge-guard` rule 12; `checks/model-roles.sh` |
 | 15 | `**Risk:**` tiers; `roles.<role>.tiers`; `build-change` TIERS; economy mapping and `ECONOMY` | `checks/model-roles.sh` (variants, strictly cheaper economy, reviewer and planner never drop) |
+| 16 | Round grades (pass / concern / fail) in each group's Progress line; the stuck-loop breaker (a fixed finding back unchanged, peak and count not falling, a diff already reviewed) stops as `STUCK` | `checks/build-change.sh` (the loop's pure block, in node) |
+| 17 | The compound step: `.claude/compound.sh`, `session-close` step 3b, `Not promoted — <why>` in the vocabulary | `checks/compound.sh` (no Raw row older than `COMPOUND_MAX_SESSIONS`) |
 
 The cost's source: Claude Code's transcripts on the machine (`~/.claude/projects`, subagents
 included), every assistant message on the change's branch in this repository or its worktrees,
 once per message id, at the list prices in `model-roles.json`. The panel's Cost figure is not used:
 it is per session, held in memory, and never sees a workflow's agents.
+
+### Borrowed from the competitive survey (2026-09-30)
+
+The survey of parallel-session panels and operating models (session record, "competitors")
+found seven things worth taking. Where each is built:
+
+| # | Borrowed | From | Built in |
+|---|---|---|---|
+| 1 | Auto-archive a lane when its PR merges | Claude Code Desktop, Conductor | PANEL-20 |
+| 2 | A merge-readiness panel per lane (CI, review threads, todos) | Claude Code Desktop, Conductor | PANEL-20 |
+| 3 | Auto-resume lanes when the 5-hour window resets | Codeman | PANEL-20 |
+| 4 | Per-lane ports, setup and teardown scripts, `.worktreeinclude` parity | Webmux, Superset, uzi | PANEL-20 |
+| 5 | Per-step grading and a stuck-loop breaker in the build → review loop | Kimchi Ferment | OPS-7 item 16 |
+| 6 | An explicit "compound" step feeding insights back into rules | Compound Engineering | OPS-7 item 17 |
+| 7 | Distribution of the operating model as a Claude Code plugin | Superpowers | OPS-11 (its own branch; packaging only) |
+
+16. **Per-round grading and a stuck-loop breaker in `build-change`.** Each review round is graded
+    `pass` (gate green, nothing medium or worse), `concern` (worst finding medium) or `fail` (gate
+    red, or a high or critical finding), and the grades go into the group's Progress line. The loop
+    stops, as `STUCK` with its own notify line, when a finding the builder fixed and did not dispute
+    comes back unchanged, when the peak severity and the count of findings both stop falling, or
+    when a round reviews a diff already reviewed. It no longer burns rounds to `maxRounds`.
+    Three grades rather than Ferment's A–F, because each grade has a consequence and A–F's middle
+    grades would not.
+17. **The compound step.** `session-close` step 3b walks every insight still `Raw` (with its age in
+    journal sessions) and decides each: promote it (an ADR, a rule or a check), mark it an instance
+    of an existing rule, or record `Not promoted — <why>`. `archive-change` may do it early. A row
+    still `Raw` after `COMPOUND_MAX_SESSIONS` sessions (default 3) fails `checks/compound.sh`.
 
 ## OPS-8: clauductor runs its own operating model
 
