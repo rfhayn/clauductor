@@ -133,6 +133,13 @@ through `/merge-pr`.
     - take the template's version;
     - move StandingT's additions into config, a module or the local layer;
     - upstream to the template first.
+  - List every record format where StandingT and the template differ. Examples: the journal heading
+    (`## Session N — date — author — focus`), the insight row (with Area and Topic, and StandingT's
+    full status vocabulary), and the roadmap's Phase/Gate grammar with owner and started lines.
+  - For each one, decide one of: the template parser accepts both, the format becomes a setting, or
+    the skill stays StandingT's own.
+  - **Existing records are never reformatted.** StandingT's roadmap, specs, archive, ADRs, journal,
+    insights, owner queue and registries stay exactly where they are.
 - **Phase 1: extension points in clauductor.**
   - Install and update merge `settings.json` instead of overwriting it.
   - Optional modules for StandingT's extras:
