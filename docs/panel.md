@@ -1031,6 +1031,28 @@ At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse
 offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
 blocks: the guard acts only on a number it has.
 
+### Resume after the 5-hour reset
+
+PANEL-20, opt-in: `"quota_auto_resume": true` (config version 5). A lane the usage limit
+stopped (a `StopFailure` with `error_type: rate_limit`, or Claude Code's
+`quota_auto_resume_stale` / `_disabled` notification: it will not continue by itself) is typed
+`quota_resume_line` (default `continue`) and Enter, **once**, after the 5-hour window that stopped
+it resets:
+
+- the reset is the 5-hour window's `resets_at` as the status line reported it when the lane
+  stopped (a later window's reset is never taken for it), plus 30 seconds;
+- only into a lane the panel started, running, whose claude `claude agents` reports **idle** by a
+  current reading, and that waits on nothing: never into a permission prompt, a question or a
+  dialog. The same is checked again right before the Enter; if it changed, the typed text is
+  cleared (Ctrl-U) and nothing is sent;
+- one attempt per stop, kept until the lane's next prompt clears the stop; the attempt, typed
+  or not and why, goes in the lane's **Activity** ("Auto-resume: typed "continue" after the
+  5-hour window reset at 14:00").
+
+The line is config (one line of plain text, at most 200 characters), so it is typed only while
+the config is trusted; `trust` prints it. A lane that is not idle at the reset (it waits on a
+permission, say) is left alone: the **Needs you** row that already shows it stays.
+
 ### Restore after a reboot
 
 tmux lanes do not survive a reboot. When the panel starts, every registered lane whose tmux

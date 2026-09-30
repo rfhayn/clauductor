@@ -245,6 +245,9 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 			r.sources = append(r.sources, r.suggestSource(t.ID, *t.Suggest))
 		}
 	}
+	if cfg.QuotaAutoResume && lm != nil {
+		r.sources = append(r.sources, &source{name: "autoresume", every: t.Notify, fixedRate: true, waitFirst: true, poll: r.pollAutoResume})
+	}
 	if cfg.AnyAutoClose() && lm != nil {
 		r.sources = append(r.sources, &source{name: "autoclose", every: t.PRs, fixedRate: true, waitFirst: true, poll: r.pollAutoClose})
 	}

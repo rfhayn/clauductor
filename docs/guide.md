@@ -62,6 +62,13 @@ These buttons sit under the selected lane's terminal. To act on a lane without o
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.
 
+## Carry on after the usage limit
+
+When a lane stops at the usage limit, the panel can continue it for you once the 5-hour window
+resets: set `"quota_auto_resume": true` (and, if you like, `"quota_resume_line": "continue"`). It
+types the line once per stop, only while claude is idle and not asking you anything, and notes
+it in the lane's **Activity**. See [Resume after the 5-hour reset](panel.md#resume-after-the-5-hour-reset).
+
 ## Is it ready to merge?
 
 Select the lane, then **Checks** in its side panel. One line says **Ready to merge**, or **Not

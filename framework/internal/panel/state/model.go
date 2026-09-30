@@ -194,7 +194,8 @@ type Model struct {
 	// PANEL-20 (readiness.go): the runtime's per-worktree reads for merge readiness.
 	laneExtras   map[string]LaneExtra
 	gateReceipts bool
-	mergeAsks    map[string]MergeAsk // lifecycle.go
+	mergeAsks    map[string]MergeAsk   // lifecycle.go
+	limits       map[string]*limitMark // resume.go, by session id
 }
 
 // SetProjectID names the project the model is of; the view carries it.

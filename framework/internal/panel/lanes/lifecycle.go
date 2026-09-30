@@ -163,6 +163,36 @@ func (m *LaneManager) copyWorktreeInclude(ctx context.Context, dst string) (int,
 	return n, note
 }
 
+// TypeLine types one line and Enter into a running lane (PANEL-20: the auto-resume
+// line). still is asked right before the Enter and returns why not to press it ("":
+// press); on a why, the typed text is cleared and nothing is sent.
+func (m *LaneManager) TypeLine(ctx context.Context, id, text string, still func() string) error {
+	if !config.ValidLaneID(id) {
+		return fmt.Errorf("invalid lane id")
+	}
+	if err := config.TypableText(text, 200); err != nil {
+		return fmt.Errorf("the line %v", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lane, ok := m.find(ctx, id)
+	if !ok || lane.Dead {
+		return fmt.Errorf("lane %s is not running", id)
+	}
+	target := "=" + id + ":"
+	_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+	if _, err := m.tmux(ctx, "send-keys", "-t", target, "-l", "--", text); err != nil {
+		return err
+	}
+	m.clock().Sleep(m.EnterDelay)
+	if why := still(); why != "" {
+		_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+		return fmt.Errorf("%s; the text was cleared, nothing was sent", why)
+	}
+	_, err := m.tmux(ctx, "send-keys", "-t", target, "Enter")
+	return err
+}
+
 func copyRegular(src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
