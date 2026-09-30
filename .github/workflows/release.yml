@@ -1,0 +1,128 @@
+# Release: on a tag v*, build the four binaries, checksum them, and attach them to a DRAFT GitHub
+# Release whose notes are the tag's CHANGELOG section. A person reviews and publishes the draft;
+# publishing is what makes the assets downloadable, and what release-homebrew.yml waits for.
+# docs/release.md has the steps.
+#
+# A plain workflow rather than GoReleaser: the binary needs cgo (mattn/go-sqlite3), and
+# GoReleaser OSS cannot split a cgo build across native runners. Each platform builds on its
+# own runner through scripts/release/build.sh, which also runs locally.
+#
+# Pull requests that touch the release path run the builds only (no release), so a broken build
+# shows on the PR rather than on the tag. Actions are pinned to commit SHAs; the only token is
+# the job's own GITHUB_TOKEN, with contents: write only in the job that creates the release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/**
+      - scripts/release-check.sh
+      - CHANGELOG.md
+      - framework/internal/cmd/root.go
+      - install.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # On a tag: the tag must equal v<Version> and its CHANGELOG section must be dated.
+      # Otherwise the build gets a -dev version so a test archive is never mistaken for a release.
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(scripts/release-check.sh "$GITHUB_REF_NAME")
+          else
+            version="$(scripts/release-check.sh)-dev+${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+      - name: install.sh parses
+        run: bash -n install.sh && sh -n scripts/release/build.sh && sh -n scripts/changelog.sh
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64, runner: macos-latest }
+          - { goos: darwin, goarch: amd64, runner: macos-latest } # cross-built with clang -arch x86_64
+          # 22.04: the oldest glibc still hosted, so the binaries run on older distributions too.
+          - { goos: linux, goarch: amd64, runner: ubuntu-22.04 }
+          - { goos: linux, goarch: arm64, runner: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: framework/go.mod
+          cache-dependency-path: framework/go.sum
+      - name: Build
+        run: scripts/release/build.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" "${{ needs.check.outputs.version }}" dist
+      - name: Smoke test
+        run: |
+          name="clauductor-${{ matrix.goos }}-${{ matrix.goarch }}"
+          tar -C dist -xzf "dist/$name.tar.gz"
+          test -f "dist/$name/template/CLAUDE.md"
+          file "dist/$name/clauductor"
+          # darwin/amd64 is built on arm64 and cannot run here; every other binary is native.
+          if [ "${{ matrix.goarch }}" != amd64 ] || [ "${{ matrix.goos }}" = linux ]; then
+            out=$("dist/$name/clauductor" version)
+            echo "$out"
+            [ "$out" = "clauductor v${{ needs.check.outputs.version }}" ]
+          fi
+          rm -rf "dist/$name"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: clauductor-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/clauductor-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [check, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum clauductor-*.tar.gz | tee checksums.txt
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${{ needs.check.outputs.version }}"
+          awk -v h="## [$v]" 'index($0, h) == 1 { on = 1; next } on && /^## \[/ { exit } on' CHANGELOG.md > notes.md
+          test -s notes.md
+          printf '\nInstall: see [docs/install.md](https://github.com/%s/blob/%s/docs/install.md). Verify with `sha256sum -c checksums.txt`.\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> notes.md
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "clauductor $GITHUB_REF_NAME" --notes-file notes.md \
+            dist/clauductor-*.tar.gz dist/checksums.txt

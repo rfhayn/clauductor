@@ -20,6 +20,10 @@ cd ~/clauductor && ./install.sh
 source ~/.zshrc   # or ~/.bashrc
 ```
 
+Once a release is published, `curl -fsSL https://raw.githubusercontent.com/rfhayn/clauductor/main/install.sh | bash`
+installs a release binary with no clone and no Go. [install.md](install.md) has every way in,
+including the plugin, which needs no binary. On Windows, use WSL.
+
 ## Adopt the operating model
 
 **A new project:**
@@ -111,7 +115,7 @@ computer waits in the owner queue. End with `/session-close`.
 ## Updating
 
 ```bash
-cd ~/clauductor && git pull && ./install.sh
+cd ~/clauductor && git pull && ./install.sh     # a release install: run install.sh again
 cd ~/Development/my-app && clauductor install   # refreshes the framework tier only
 ```
 

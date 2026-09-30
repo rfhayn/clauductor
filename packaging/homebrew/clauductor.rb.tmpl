@@ -1,0 +1,57 @@
+# Homebrew formula for clauductor, rendered by scripts/release/formula.sh from a published
+# release's checksums.txt and pushed to the tap by .github/workflows/release-homebrew.yml.
+# Do not edit the rendered copy in the tap: edit this template.
+class Clauductor < Formula
+  desc "Local panel and operating model for running many Claude Code sessions"
+  homepage "https://github.com/rfhayn/clauductor"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/rfhayn/clauductor/releases/download/v@VERSION@/clauductor-darwin-arm64.tar.gz"
+      sha256 "@SHA_DARWIN_ARM64@"
+    end
+    on_intel do
+      url "https://github.com/rfhayn/clauductor/releases/download/v@VERSION@/clauductor-darwin-amd64.tar.gz"
+      sha256 "@SHA_DARWIN_AMD64@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/rfhayn/clauductor/releases/download/v@VERSION@/clauductor-linux-arm64.tar.gz"
+      sha256 "@SHA_LINUX_ARM64@"
+    end
+    on_intel do
+      url "https://github.com/rfhayn/clauductor/releases/download/v@VERSION@/clauductor-linux-amd64.tar.gz"
+      sha256 "@SHA_LINUX_AMD64@"
+    end
+  end
+
+  depends_on "gh"
+  depends_on "jq"
+  depends_on "tmux"
+
+  def install
+    # init, install and update copy from template/, found through CLAUDUCTOR_FRAMEWORK
+    # (framework/internal/template); the wrapper points it at this keg's copy.
+    libexec.install "clauductor"
+    pkgshare.install "template"
+    (bin/"clauductor").write_env_script libexec/"clauductor", CLAUDUCTOR_FRAMEWORK: pkgshare
+    doc.install "README.md", "CHANGELOG.md"
+  end
+
+  def caveats
+    <<~EOS
+      clauductor drives Claude Code, which Homebrew does not install:
+        https://claude.ai/code
+      After an upgrade, re-run `clauductor panel install` if you use the login agent: it runs
+      its own copy of the binary.
+    EOS
+  end
+
+  test do
+    assert_match "clauductor v#{version}", shell_output("#{bin}/clauductor version")
+  end
+end
