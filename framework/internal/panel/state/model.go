@@ -185,8 +185,10 @@ type Model struct {
 	projectID string
 
 	// PANEL-19 (metrics.go): spend for the ledger, and the Flow card.
-	spendObs map[string]metrics.Observation
-	flow     *metrics.Card
+	spendObs      map[string]metrics.Observation
+	flow          *metrics.Card
+	changes       []signals.Change
+	spentByBranch map[string]float64
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -780,6 +782,9 @@ type LaneView struct {
 	CostPerH  *float64  `json:"costPerH,omitempty"`
 	// Git is the worktree's last git read, taken only while a page is open.
 	Git *GitView `json:"git,omitempty"`
+	// Budget is the budget of the change this lane's branch builds (PANEL-19), when
+	// its proposal has one, and what the change's branches have spent.
+	Budget *BudgetView `json:"budget,omitempty"`
 	// Head is the worktree's HEAD commit, from `git worktree list`.
 	Head        string        `json:"head,omitempty"`
 	LastEvent   string        `json:"lastEvent,omitempty"`
@@ -1200,6 +1205,9 @@ func (m *Model) Snapshot(now time.Time) View {
 	v.CardsStale = m.cardsStale()
 	if m.flow != nil && m.flow.Any && m.cfg.FlowCard() {
 		v.Flow = m.flow
+	}
+	for i := range v.Lanes {
+		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
 	}
 	return v
 }
@@ -1742,7 +1750,8 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			"RESTORE ALL resumes each on its own session id.", len(v.Restorable), strings.Join(v.Restorable, ", ")))
 	}
 
-	v.Alerts = m.computeAlerts(v, th, now)
+	v.Alerts = append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...)
+	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,
 		DroppedUnknownEvent: m.v2.droppedUnknown, UnknownNotifications: m.v2.unknownNotifs,

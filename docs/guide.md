@@ -119,6 +119,12 @@ this" or "No pull request was merged in the last 7d". A command that prints some
 cannot read shows its error at the top, with the part that is wrong. See
 [Metrics](panel.md#metrics) for the JSON and every figure.
 
+Three things show under **Needs you** without opening the view: a proposal that has waited more
+than a day for its **Approved:** line, a change that has spent more than its proposal's
+**Budget:** (the lane's header also shows a **Budget** bar next to **Cost**), and a lane with no
+commit for three days. Change the times with `alerts.approval_wait_hours` and `alerts.stale_days`
+(0 turns one off). See [Needs you from the metrics](panel.md#needs-you-from-the-metrics).
+
 ## Queues and the gate
 
 If two lanes' gate scripts would collide (one port, one test database), a queue runs them one

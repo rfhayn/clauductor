@@ -37,6 +37,29 @@ func TestParseTheFixture(t *testing.T) {
 	}
 }
 
+// The contract's example in docs/panel.md is a valid payload.
+func TestDocsExampleParses(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, block := range strings.Split(string(b), "```json\n")[1:] {
+		body, _, _ := strings.Cut(block, "```")
+		if !strings.Contains(body, `"windows"`) {
+			continue
+		}
+		n++
+		if _, err := Parse([]byte(body)); err != nil {
+			t.Errorf("the docs' metrics example: %v", err)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("found %d metrics examples in docs/panel.md, want 1", n)
+	}
+}
+
 // The fixture script prints the fixture, and a payload that breaks the contract
 // when asked: what a test of the panel runs as a project's metrics command.
 func TestFixtureScript(t *testing.T) {

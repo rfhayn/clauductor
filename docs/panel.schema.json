@@ -45,6 +45,12 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
           "cards": {
             "items": {
               "properties": {
@@ -76,6 +82,12 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
           "metrics": false
         }
       }
@@ -91,6 +103,12 @@
       "additionalProperties": false,
       "description": "Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off.",
       "properties": {
+        "approval_wait_hours": {
+          "default": 24,
+          "description": "A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*).",
+          "minimum": 0,
+          "type": "number"
+        },
         "context_pct": {
           "default": 85,
           "description": "A context window at or above this percentage raises a context alert.",
@@ -119,6 +137,12 @@
           "default": true,
           "description": "Send macOS notifications for the alerts that interrupt.",
           "type": "boolean"
+        },
+        "stale_days": {
+          "default": 3,
+          "description": "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.",
+          "minimum": 0,
+          "type": "number"
         },
         "waiting_seconds": {
           "default": 120,

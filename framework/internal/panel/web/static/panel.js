@@ -992,6 +992,15 @@ function renderLaneHead(x) {
     if (since) kids.push(key(kv1("Up", el("span", "num", null, [age(since)])), "up"));
     kids.push(key(kv1("Context", el("span", null, null, [bullet(ctx, { tick: S.trends.autocompactPct, cls: ctx >= 85 ? "w" : "" }), document.createTextNode(" "), num(pct(ctx))])), "ctx"));
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
+    // PANEL-19: the budget of the change this lane builds, from its proposal; every branch
+    // of the change counts toward it. Amber from 80%, red past it.
+    const bg = x.lv && x.lv.budget;
+    if (bg) {
+      const p = bg.usd > 0 ? (bg.spent / bg.usd) * 100 : 100;
+      const k = kv1("Budget", el("span", null, null, [bullet(p, { cls: p > 100 ? "c" : p >= 80 ? "w" : "" }), num(money(bg.spent) + " of " + money(bg.usd), null, p > 100 ? "crit" : "")]));
+      k.title = "Change " + bg.change + ": its proposal's budget, and what its lanes have spent (list price)";
+      kids.push(key(k, "budget"));
+    }
     if (laneApprox(x)) kids.push(key(el("span", "dim", null, [staleTag(true)]), "stale"));
   } else kids.push(key(el("h2", null, "No lane selected"), "name"));
   const fit = fitLayout(), shown = fit.side;
@@ -1393,9 +1402,12 @@ function asOf() { return offline() && frozenAt ? ", as of " + hm(frozenAt) : "";
 const AGED = { waiting: true, idle: true };
 // Alerts shown in the strip: every alert that belongs to no lane, and blocking ones of
 // any lane (a waiting alert already in Needs you is not repeated).
+// PANEL-19: an approval waiting too long, a change over its budget and a lane with no
+// commit for days need you whether or not a lane has them, so they always show here.
+const NEEDS_KINDS = { approval_wait: true, budget: true, stale: true };
 function stripAlerts() {
   const asked = new Set(S.needsYou.map((n) => n.session));
-  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block"));
+  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block" || NEEDS_KINDS[a.kind]));
 }
 function needRow(n, cls, k, done) {
   const sev = done ? "" : n.severity === "block" ? "crit" : "warn";

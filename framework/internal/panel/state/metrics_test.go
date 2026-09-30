@@ -53,6 +53,79 @@ func TestWIP(t *testing.T) {
 	}
 }
 
+// PANEL-19: the Needs-you signals. A proposal with no Approved line waiting past the
+// threshold, a change over its budget (every branch of it counts), and a lane with no
+// commit for stale_days; each carries its lane when one builds it, and 0 turns it off.
+func TestMetricsAlerts(t *testing.T) {
+	budget := 10.0
+	changes := []signals.Change{
+		{ID: "x", Written: t0.Add(-30 * time.Hour), BudgetUSD: &budget},
+		{ID: "y", Written: t0.Add(-30 * time.Hour), Approved: true},
+		{ID: "z", Written: t0.Add(-2 * time.Hour)},
+	}
+	setup := func(extra string) *Model {
+		m := alertModel(t, extra)
+		created := t0.Add(-5 * 24 * time.Hour)
+		m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{{ID: "x", Path: "/repo/w/x", Type: "build", Created: created.UnixMilli()}}, "", nil, t0)
+		m.ApplyGit("/repo/w/x", signals.GitStat{Branch: "change/x", Head: "abc", LastCommitAt: t0.Add(-4 * 24 * time.Hour).UnixMilli()}, nil, t0)
+		m.ApplyChanges(changes, map[string]float64{"change/x": 7, "fix/x": 4.5, "change/other": 100})
+		return m
+	}
+	v := setup("").Snapshot(t0)
+	byKey := map[string]AlertView{}
+	for _, a := range v.Alerts {
+		byKey[a.Key] = a
+	}
+	ap, ok := byKey["approval_wait:x"]
+	if !ok || ap.Severity != signals.SevWarn || ap.Terminal != "x" || ap.Since != t0.Add(-30*time.Hour).UnixMilli() ||
+		ap.Text != "change x has waited 1d 6h for approval (no Approved line; alert at 1d)" {
+		t.Fatalf("approval %+v", ap)
+	}
+	if _, ok := byKey["approval_wait:y"]; ok {
+		t.Error("an approved proposal raised an approval alert")
+	}
+	if _, ok := byKey["approval_wait:z"]; ok {
+		t.Error("a proposal under the threshold raised an approval alert")
+	}
+	if b, ok := byKey["budget:x"]; !ok || b.Text != "change x has spent $11.50 of its $10.00 budget" || b.Terminal != "x" {
+		t.Fatalf("budget %+v", b)
+	}
+	if s, ok := byKey["stale:x"]; !ok || s.Text != "no commit on change/x for 4d (alert at 3d)" {
+		t.Fatalf("stale %+v", s)
+	}
+	// The lane's header gets the budget bar.
+	var lb *BudgetView
+	for _, l := range v.Lanes {
+		if l.Branch == "change/x" {
+			lb = l.Budget
+		}
+	}
+	if lb == nil || lb.USD != 10 || lb.Spent != 11.5 || lb.Change != "x" {
+		t.Fatalf("budget bar %+v", lb)
+	}
+	// None of them interrupts.
+	for _, a := range v.Alerts {
+		if interrupts(a) {
+			t.Errorf("%s interrupts", a.Key)
+		}
+	}
+	// 0 turns the approval and stale alerts off.
+	v = setup(`,"version":4,"alerts":{"approval_wait_hours":0,"stale_days":0}`).Snapshot(t0)
+	for _, a := range v.Alerts {
+		if a.Kind == AlertApproval || a.Kind == AlertStale {
+			t.Errorf("an alert turned off still shows: %+v", a)
+		}
+	}
+	// A lane whose git has not been read is not stale.
+	m := alertModel(t, "")
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{{ID: "x", Path: "/repo/w/x", Type: "build", Created: t0.Add(-9 * 24 * time.Hour).UnixMilli()}}, "", nil, t0)
+	for _, a := range m.Snapshot(t0).Alerts {
+		if a.Kind == AlertStale {
+			t.Errorf("stale with no git read: %+v", a)
+		}
+	}
+}
+
 // The Flow card shows while it has a value, unless metrics.card is false.
 func TestFlowCardInTheView(t *testing.T) {
 	v5 := 5.0

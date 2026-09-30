@@ -131,8 +131,8 @@ func TestDocsExamplesParse(t *testing.T) {
 	n := 0
 	for _, block := range strings.Split(string(b), "```json\n")[1:] {
 		body, _, _ := strings.Cut(block, "```")
-		if !strings.Contains(body, `"name"`) {
-			continue // a fragment, such as a hook entry
+		if !strings.Contains(body, `"name"`) || strings.Contains(body, `"windows"`) {
+			continue // a fragment, such as a hook entry; or the metrics JSON (package metrics checks it)
 		}
 		n++
 		if _, err := parseConfig([]byte(body)); err != nil {

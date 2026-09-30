@@ -144,6 +144,18 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     if (opened.hidden || opened.tab !== "flow" || opened.range !== "30d") fail("the Flow card did not open Flow at 30d: " + JSON.stringify(opened));
     await p.keyboard.press("Escape");
 
+    // PANEL-19 part 4: run.sh gave lane "second" a change whose proposal waits for
+    // approval and has a budget. Refresh re-reads the change directory.
+    await p.evaluate(() => fetch("/api/refresh", { method: "POST" }));
+    await p.waitForFunction(() => (S.alerts || []).some((a) => a.kind === "approval_wait"), null, { timeout: 15000 }).catch(() => {});
+    const strip = await p.$$eval("#needs tr", (rs) => rs.map((r) => r.textContent));
+    if (!strip.some((t) => /approval wait/.test(t) && /change second has waited 2d/.test(t))) fail("the approval alert is not in Needs you: " + JSON.stringify(strip));
+    await p.evaluate(() => selectLane("t:second"));
+    await p.waitForSelector('#lanehead [data-k="budget"]', { timeout: 5000 }).catch(() => {});
+    const bud = await p.$eval('#lanehead [data-k="budget"]', (e) => e.textContent).catch(() => "");
+    if (!/^Budget.*of \$5\.00$/.test(bud)) fail("the budget bar in the lane header: " + JSON.stringify(bud));
+    if (shots) await p.screenshot({ path: path.join(shots, "needs-and-budget.png") });
+
     if (errors.length) fail("page errors: " + errors.join("; "));
     if (!process.exitCode) console.log("ok metrics-view");
   } finally {

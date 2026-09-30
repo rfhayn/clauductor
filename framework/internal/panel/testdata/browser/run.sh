@@ -92,6 +92,11 @@ for body in '{"type":"orchestrator","mode":"root","name":"main"}' '{"type":"buil
   curl -sf -b "$tmp/cj" -H "Origin: $base" -H 'Content-Type: application/json' -d "$body" "$base/api/lanes" > /dev/null \
     || { cat "$tmp/panel.log"; echo "could not start a lane: $body"; exit 1; }
 done
+# PANEL-19: lane "second" builds change "second", whose proposal has a budget and no
+# Approved line, written two days ago: an approval alert, and a budget bar in its header.
+mkdir -p "$proj/.claude/worktrees/second/changes/second"
+printf '# Second\n\n**Budget:** $5\n' > "$proj/.claude/worktrees/second/changes/second/proposal.md"
+touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null || date -d '2 days ago' +%Y%m%d%H%M)" "$proj/.claude/worktrees/second/changes/second/proposal.md"
 status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1

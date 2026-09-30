@@ -32,6 +32,11 @@ type metricsStore struct {
 	ledger    *metrics.Ledger
 	lastCard  string
 	mergedDue atomic.Bool // Refresh asks for a read at the next poll
+	// From the change directory: how long each unapproved proposal has waited (hours),
+	// each change branch's budget, and whether the project has changes at all.
+	waiting     []float64
+	budgets     map[string]float64
+	haveChanges bool
 }
 
 func newMetricsStore(o Options, root string, cfg *config.Config, trusted bool) *metricsStore {
@@ -79,8 +84,46 @@ func (r *Runtime) metricsSources() []*source {
 	out = append(out,
 		&source{name: "merged", every: r.ticks.PRs, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollMerged},
 		&source{name: "spend", every: r.ticks.Spend, fixedRate: true, waitFirst: true, poll: r.pollSpend},
+		&source{name: "changes", every: r.ticks.Spend, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollChanges},
 	)
 	return out
+}
+
+// pollChanges reads the changes' proposals in every worktree (files only, no
+// command) for the approval, budget and budget-bar signals, with what each branch
+// has spent.
+func (r *Runtime) pollChanges(_ context.Context, now time.Time) (update, time.Duration) {
+	var paths []string
+	r.hub.Read(func(m *state.Model, _ time.Time) {
+		for _, wt := range m.Worktrees() {
+			if !wt.Bare && wt.Path != "" {
+				paths = append(paths, wt.Path)
+			}
+		}
+	})
+	if len(paths) == 0 {
+		paths = []string{r.root}
+	}
+	cs := signals.ReadChanges(paths, signals.ChangesDirs(r.root))
+	spent := metrics.ByBranch(r.mstore.ledger.Days())
+	var waiting []float64
+	budgets := map[string]float64{}
+	for _, c := range cs {
+		if !c.Approved && !c.Written.IsZero() {
+			waiting = append(waiting, now.Sub(c.Written).Hours())
+		}
+		if c.BudgetUSD != nil {
+			for b := range spent {
+				if signals.BranchOfChange(b, c.ID) {
+					budgets[b] = *c.BudgetUSD
+				}
+			}
+		}
+	}
+	r.mstore.mu.Lock()
+	r.mstore.waiting, r.mstore.budgets, r.mstore.haveChanges = waiting, budgets, len(cs) > 0
+	r.mstore.mu.Unlock()
+	return func(m *state.Model, _ time.Time) { m.ApplyChanges(cs, spent) }, 0
 }
 
 // pollMerged reads merged pull requests at most every Ticks.Merged, and only while a
@@ -139,6 +182,10 @@ func (r *Runtime) metricsInputs(now time.Time) metrics.Inputs {
 	st := r.mstore
 	st.mu.Lock()
 	in.Merged, in.MergedStatus = st.merged, st.mergedSt
+	in.Budgets = st.budgets
+	if st.haveChanges {
+		in.Waiting = append([]float64{}, st.waiting...)
+	}
 	st.mu.Unlock()
 	in.Days = st.ledger.Days()
 	return in

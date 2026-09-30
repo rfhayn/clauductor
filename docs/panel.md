@@ -223,7 +223,7 @@ earlier one. The **Since** column of the key table says which is which:
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
-| 4 | metrics (PANEL-19): `metrics` (see *Metrics*) |
+| 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours` and `alerts.stale_days` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
@@ -324,6 +324,8 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.waiting_seconds` | number | `120` | 2 | A permission prompt, MCP elicitation or input request older than this raises a waiting alert. |
 | `alerts.notify` | boolean | `true` | 2 | Send macOS notifications for the alerts that interrupt. |
 | `alerts.min_interval_seconds` | number | `300` | 2 | At most one notification per lane per interval. |
+| `alerts.approval_wait_hours` | number | `24` | 4 | A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*). |
+| `alerts.stale_days` | number | `3` | 4 | A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
@@ -490,7 +492,9 @@ value just changed.
 - **The lane's header.** Its name and state, branch and worktree, model (as the status line
   reports it) with effort (its template's, else its lane type's), thinking and fast mode, uptime,
   context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
-  documented), and cost with cost per hour. **Hide details** folds the side panel; kept.
+  documented), and cost with cost per hour; when the lane builds a change whose proposal has a
+  budget, a **Budget** bar beside it (PANEL-19, see *Needs you from the metrics*). **Hide
+  details** folds the side panel; kept.
 - **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
   Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart**, **Stop lane** and **Close lane**. Stop
   and restart ask in the page, in words built from the lane's state: idle gets `/exit`, busy or
@@ -1316,6 +1320,9 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | context | `context_window.used_percentage` ≥ `context_pct` | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
+| approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
+| budget | a change whose branches have spent more than its proposal's `**Budget:** $N` (PANEL-19) | warn |
+| stale | a lane on a branch of its own with no commit for `stale_days` (PANEL-19) | warn |
 
 ### Current or stale
 
@@ -1464,6 +1471,33 @@ only while `panel.json` is trusted as it is, in the project's main checkout, wit
 a 30-second timeout and 1 MB of output; `trust` and `install` print it among what they trust.
 Untrusted, it does not run and the view says so. The JSON is data: every string reaches the page
 through `textContent`, never markup.
+
+### Needs you from the metrics
+
+Three signals act where you already look: the **Alerts** rows under **Needs you** (they show
+there whether or not a lane has them), and the lane's own **Alerts** tab. They are warnings, so,
+as every alert that does not block (see *Notifications*), they never raise an OS notification.
+
+- **An approval waiting too long.** A change's `proposal.md` with no `**Approved:** <date> by
+  <owner>` line (OPS-7's D8), last written (it or its `design.md`) more than
+  `alerts.approval_wait_hours` ago (default 24; 0 turns it off).
+- **A change over its budget.** A proposal's `**Budget:** $N` line (OPS-7, a cost budget per
+  change), against what every lane on the change's branches has spent, from the spend ledger. A
+  branch is the change's when its last path segment is the change's id (`change/add-x` builds
+  `add-x`). The lane's header shows a **Budget** bar next to **Cost**: what the change has spent
+  of its budget, amber from 80%, red past it.
+- **Work in flight gone quiet.** A registered lane on a branch of its own with no commit for
+  `alerts.stale_days` (default 3; 0 turns it off), counted from the lane's start while it has no
+  commit of its own. The commit time is the git read the dashboard takes while a page is in view,
+  so a lane not read yet is never called stale.
+
+The panel reads the changes from files alone, every minute and on **Refresh**, and runs no
+command for them: `<worktree>/<CHANGES_DIR>/<id>/proposal.md` in the main checkout and in every
+worktree (a proposal is drafted on a lane's branch before it lands; the copy written last
+counts), where `CHANGES_DIR` comes from `.claude/project.conf` when it names a directory inside
+the repository, else `changes`; and `openspec/changes/<id>/`. `archive/` is not read. The same
+reading gives the built-in **Approval wait** (the proposals waiting now) and the budgets beside
+**By change**.
 
 `GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
 route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
