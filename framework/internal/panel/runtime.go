@@ -239,6 +239,7 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		{name: "prs", every: t.PRs, fixedRate: true, kick: r.kickPRs, poll: polled(prs, (*state.Model).ApplyPRs)},
 		{name: "tmux", every: t.TmuxIdle, kick: r.kickTmux, poll: newTmuxPoller(lm, lanesWhy, clk, t).poll},
 		{name: "version", every: t.Version, poll: r.pollVersion()},
+		{name: "account", every: t.Version, poll: r.pollAccount()},
 		{name: "obs", every: t.Obs, fixedRate: true, waitFirst: true, poll: r.pollObs},
 		{name: "notify", every: t.Notify, fixedRate: true, waitFirst: true, poll: r.pollNotify()},
 		{name: "trends", every: t.Trends, fixedRate: true, poll: func(context.Context, time.Time) (update, time.Duration) {
@@ -523,6 +524,18 @@ func (r *Runtime) pollVersion() func(context.Context, time.Time) (update, time.D
 			fmt.Fprintf(r.o.Out, "warning: Claude Code %s differs from %s, which the subagent heuristics and fixtures were verified on; subagent lists are approximate\n", v, state.HeuristicsVerifiedOn)
 		}
 		return func(m *state.Model, now time.Time) { m.ApplyClaudeVersion(v, err, now) }, 0
+	}
+}
+
+// pollAccount reads `claude auth status --json` on the version's cadence (PANEL-15):
+// how the account signs in and its plan, which decide what the quota's place shows.
+// It runs with a lane's environment (no API key), so it names the login lanes use.
+// It costs no token; nothing personal it prints is kept (signals.ParseAuthStatus).
+func (r *Runtime) pollAccount() func(context.Context, time.Time) (update, time.Duration) {
+	read := commandFetch(r, 10*time.Second, lanes.ScrubbedArgv("claude", "auth", "status", "--json"), signals.ParseAuthStatus)
+	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
+		a, err := read(ctx)
+		return func(m *state.Model, now time.Time) { m.ApplyAccount(a, err, now) }, 0
 	}
 }
 

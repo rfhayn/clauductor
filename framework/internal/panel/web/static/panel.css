@@ -70,6 +70,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .live.dead .sq { background: var(--crit-ink); }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 .fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .35rem 1.5rem; min-width: 0; }
+/* The quota's fields are the bar's own flex items; the wrapper only groups them. */
+.quotas { display: contents; }
+.f[hidden] { display: none; }
 .f { display: grid; gap: .1rem; min-width: 0; color: inherit; background: none; border: 0; padding: 0; text-align: left; }
 .f .k { font-size: .75rem; color: var(--bar-text-2); white-space: nowrap; }
 .f .v { display: flex; align-items: center; gap: .45rem; white-space: nowrap; font-size: .9375rem; }

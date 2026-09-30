@@ -1253,29 +1253,58 @@ function renderNeeds() {
 // (PANEL-12), so a reading can be old: past 10 minutes it says how old. With none,
 // the field says where one comes from rather than showing a bare dash.
 const QUOTA_OLD_MS = 10 * 60e3;
-function quotaField(id, v, expired, resets, proj, at) {
-  const g = $(id).querySelector(".v");
-  const kids = [bullet(expired ? 0 : v, { proj }), num(expired ? "reset" : pct(v))];
-  if (resets && !expired) kids.push(el("span", "more", null, [until(resets * 1000, "resets in ")]));
+// One field per window the account's plan reports (PANEL-15): the windows are
+// whatever the status line sends, labelled by the panel ("5-hour", or a label made
+// from a key it has never seen). The plan names itself on the first field.
+function quotaField(w, plan, proj, at) {
+  const kids = [bullet(w.expired ? 0 : w.pct, { proj }), num(w.expired ? "reset" : pct(w.pct))];
+  if (w.resetsAt && !w.expired) kids.push(el("span", "more", null, [until(w.resetsAt * 1000, "resets in ")]));
   if (at && now() - at > QUOTA_OLD_MS) kids.push(el("span", "more stale", null, [age(at, "as of ", " ago")]));
-  patch(g, kids);
-  $(id).title = at ? "Last status-line post: " + hm(at) + "."
-    : "No reading yet. The quota comes with a status-line post from a session in this project (docs/panel.md, The status line).";
+  const f = key(el("div", "f", null, [el("span", "k", w.label + " quota" + (plan ? " (" + plan + ")" : "")), el("span", "v", null, kids)]), "q:" + w.key);
+  f.title = at ? "Last status-line post: " + hm(at) + ". The quota is the account's: any session's status line moves it."
+    : "No reading yet. The quota comes with a status-line post from any session (docs/panel.md, The status line).";
+  return f;
+}
+// What stands in the quota's place, by the account's mode: the windows; a line saying
+// the plan reports none; nothing, for an API key or a cloud provider (spend comes
+// first instead); or, with no reading, the two usual windows and where one comes from.
+function quotaFields(q, acct, tr) {
+  const mode = acct.quotaMode || "unknown", plan = acct.plan || "";
+  if (mode === "spend") return [];
+  if (mode === "none") {
+    const f = key(el("div", "f", null, [el("span", "k", "Quota" + (plan ? " (" + plan + ")" : "")), el("span", "v", null, [el("span", "more", "none reported")])]), "q:none");
+    f.title = "This plan reports no usage windows in its status line, so there is no quota to show.";
+    return [f];
+  }
+  const ws = mode === "windows" && q.windows && q.windows.length ? q.windows
+    : [{ key: "five_hour", label: "5-hour" }, { key: "seven_day", label: "7-day" }];
+  return ws.map((w, i) => {
+    // The burn window: where it lands at its reset at the current burn, in --info.
+    let proj = null;
+    if (w.key === tr.burnWindow && tr.burnPerH > 0 && w.resetsAt && w.pct != null) proj = w.pct + tr.burnPerH * Math.max(0, (w.resetsAt * 1000 - now()) / 3.6e6);
+    return quotaField(w, i === 0 ? plan : "", proj, mode === "windows" ? q.at : 0);
+  });
 }
 function renderStatus(ls) {
-  const q = S.quota || {}, tr = S.trends || {};
-  // The 5-hour window: where it lands at the reset at the current burn, in --info.
-  let proj = null;
-  if (tr.burnPerH > 0 && q.fiveHourResetsAt && q.fiveHour != null) proj = q.fiveHour + tr.burnPerH * Math.max(0, (q.fiveHourResetsAt * 1000 - now()) / 3.6e6);
-  quotaField("g5", q.fiveHour, q.fiveHourExpired, q.fiveHourResetsAt, proj, q.at);
-  quotaField("g7", q.sevenDay, q.sevenDayExpired, q.sevenDayResetsAt, null, q.at);
-  // A falling 5-hour quota means its window reset: say so rather than a negative rate.
-  patch($("f-burn").querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
+  const q = S.quota || {}, tr = S.trends || {}, acct = S.account || {};
+  const spend = acct.quotaMode === "spend";
+  patch($("quotas"), quotaFields(q, acct, tr));
+  // An API key or a cloud provider is billed per token: its spend comes first, and
+  // the burn is dollars an hour. The estimate is still list price, not the bill.
+  const fields = $("fields"), fc = $("f-cost"), fb = $("f-burn");
+  if (spend && fields.firstElementChild !== fc) fields.insertBefore(fc, fields.firstElementChild);
+  if (!spend && fc.previousElementSibling !== fb) fields.insertBefore(fc, fb.nextSibling);
+  setText(fc.querySelector(".k"), spend ? "API spend (est.)" : "est. $ (list price)");
+  setText(fb.querySelector(".k"), spend ? "Spend rate" : "Burn rate");
+  fb.hidden = acct.quotaMode === "none";
+  if (spend) patch(fb.querySelector(".v"), tr.costPerH == null ? [el("span", "num", "—")] : [num(money(tr.costPerH), "/h"), spark(tr.cost)].filter(Boolean));
+  // A falling quota means its window reset: say so rather than a negative rate.
+  else patch(fb.querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
     num("+" + tr.burnPerH.toFixed(1), "%/h"),
     tr.exhaustAt ? el("span", tr.beforeReset ? "warn" : "more", "full at " + hm(tr.exhaustAt) + (tr.beforeReset ? ", before the reset" : "")) : null,
     spark(tr.quota5, { lo: 0, hi: 100 }),
   ].filter(Boolean));
-  patch($("costmore"), [tr.costToday != null ? num(money(tr.costToday), "today") : null, tr.costPerH != null ? num(money(tr.costPerH), "/h") : null, spark(tr.cost)].filter(Boolean));
+  patch($("costmore"), [tr.costToday != null ? num(money(tr.costToday), "today") : null, !spend && tr.costPerH != null ? num(money(tr.costPerH), "/h") : null, spark(tr.cost)].filter(Boolean));
   const n = { busy: 0, waiting: 0, idle: 0 };
   for (const x of ls) {
     const s = laneState(x);
