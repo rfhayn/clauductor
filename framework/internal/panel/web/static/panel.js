@@ -592,6 +592,9 @@ function laneTable(ls, cur) {
   };
   const head = el("tr", null, null, [th("state", "State"), th("lane", "Lane"), ...shown.filter((c) => c.id !== "state").map((c) => th(c.id, c.label, c.num))]);
   if (!cols.includes("state")) head.removeChild(head.firstChild);
+  const ah = el("th", "acts", null, [el("span", "sr", "Actions")]);
+  ah.scope = "col";
+  head.appendChild(key(ah, "th:acts"));
   const body = el("tbody");
   for (const x of rows) {
     const ab = abnormal(x), sel = cur && x.key === cur.key;
@@ -601,6 +604,7 @@ function laneTable(ls, cur) {
     nm.title = x.name + ", " + (x.branch || "detached") + ", " + x.path;
     tr.appendChild(nm);
     for (const c of shown) if (c.id !== "state") tr.appendChild(el("td", c.num ? "num" : null, null, [c.cell(x)]));
+    tr.appendChild(el("td", "acts", null, [actsButton(x, "ra:" + x.key)]));
     on(tr, "click", () => selectLane(x.key));
     pressable(tr, x.name + ", " + laneStatusText(x));
     if (sel) tr.setAttribute("aria-selected", "true");
@@ -686,7 +690,7 @@ function moreBelow() {
   const r = $("rail");
   $("morebelow").hidden = r.scrollTop + r.clientHeight >= r.scrollHeight - 4 || getComputedStyle(r).display === "none";
 }
-$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } }, { passive: true });
+$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } if (rowMenu) closeRowMenu(false); }, { passive: true });
 window.addEventListener("resize", moreBelow);
 
 // The worktree tree, as the old control room's topology had it: the project, each
@@ -793,7 +797,10 @@ function renderTree(ls, cur) {
       node = nodeEl("span", "wt", first, ["no lane"].concat(second));
       node.title = w.path;
     }
-    const li = el("li", null, null, [key(node, "wtn")]);
+    // A lane's actions sit beside its worktree's node, never inside it: a button in a
+    // button is not operable.
+    const acts = mine.map((x) => actsButton(x, "rt:" + x.key)).filter(Boolean);
+    const li = el("li", null, null, [acts.length ? key(el("div", "wtrow", null, [key(node, "wtn"), ...acts]), "wtrow") : key(node, "wtn")]);
     if (!mine.length) {
       const b = button("Start lane here", "small", () => openStart({ worktree: w.path }), "Start a lane in " + w.path, "wt:start", true);
       if (S.startBlocked) b.disabled = true;
@@ -815,11 +822,109 @@ function renderTree(ls, cur) {
     const node = nodeEl("button", "wt" + (cur && cur.key === x.key ? " sel" : ""), [el("span", "tag", x.type || "lane"), el("span", "nn", x.name)], ["outside the worktrees"]);
     node.type = "button";
     on(node, "click", () => selectLane(x.key));
-    top.appendChild(key(el("li", null, null, [key(node, "wtn"), el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
+    const acts = actsButton(x, "rt:" + x.key);
+    top.appendChild(key(el("li", null, null, [acts ? key(el("div", "wtrow", null, [key(node, "wtn"), acts]), "wtrow") : key(node, "wtn"),
+      el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
   }
   kids.push(key(el("div", "tree", null, [el("div", null, null, [root]), top]), "treebody"));
   return kids;
 }
+
+// ---- A lane's actions, from the lists (PANEL-18) ----------------------------------------
+// Each lane the panel started has a "⋯" button in the Lanes table and the Worktrees tree:
+// a menu button (WAI-ARIA APG, as the project and Appearance menus are). Enter, Space or
+// Down opens it on its first item, Up on its last; Up/Down/Home/End move; Enter or Space
+// picks; Escape closes it back to its button; Tab and a click elsewhere close it. The
+// button is its own control: a click on it neither selects the row nor bubbles to it.
+// Picking an item selects the lane and opens the same in-page confirmation its button
+// under the terminal opens, built from the lane's state then. Nothing acts on one click.
+let rowMenu = null; // {lane: the lane's key, btn: the data-k of the button that opened it}
+function rowActs(t) {
+  if (!t.running) return [["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]];
+  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null, ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
+}
+function actsButton(x, k) {
+  if (!x.t) return null; // started outside the panel: nothing here can stop it
+  const b = el("button", "btn small rowact", "⋯");
+  b.type = "button";
+  b.setAttribute("aria-haspopup", "menu");
+  b.setAttribute("aria-controls", "rowmenu");
+  b.setAttribute("aria-expanded", String(!!rowMenu && rowMenu.btn === k));
+  b.setAttribute("aria-label", "Actions for lane " + x.name);
+  b.title = "Lane " + x.name + ": " + rowActs(x.t).map((a) => a[1]).join(", ");
+  on(b, "click", (ev) => {
+    ev.stopPropagation();
+    if (rowMenu && rowMenu.btn === k) closeRowMenu(true); else openRowMenu(x.key, k, "first");
+  });
+  on(b, "keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); ev.stopPropagation(); openRowMenu(x.key, k, ev.key === "ArrowUp" ? "last" : "first"); }
+  });
+  if (offline()) { b.disabled = true; b.title = "Disconnected from the panel"; }
+  return key(b, k);
+}
+function rowMenuItems() { return Array.from($("rowmenu").querySelectorAll('[role="menuitem"]')); }
+function renderRowMenu() {
+  const menu = $("rowmenu");
+  const x = rowMenu && S ? lanesOf().find((l) => l.key === rowMenu.lane) : null;
+  const live = rowMenu && document.querySelector('[data-k="' + CSS.escape(rowMenu.btn) + '"]');
+  if (!x || !x.t || !live || offline()) { if (rowMenu) closeRowMenu(false); return; }
+  const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.act : null;
+  menu.setAttribute("aria-label", "Lane " + x.name);
+  menu.replaceChildren(...rowActs(x.t).map(([act, label]) => {
+    const e = el("div", "mi" + (act === "stop" || act === "close" || act === "forget" ? " crit" : ""), label);
+    e.setAttribute("role", "menuitem");
+    e.tabIndex = -1;
+    e.dataset.act = act;
+    e.addEventListener("click", () => pickRowAct(x.key, act));
+    return e;
+  }));
+  // Fixed to the window, under its button: the rail clips sideways.
+  const r = live.getBoundingClientRect();
+  menu.hidden = false;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  menu.style.top = Math.round(r.bottom + h + 12 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + "px";
+  if (focused) { const f = menu.querySelector('[data-act="' + focused + '"]'); if (f) f.focus(); }
+}
+function openRowMenu(lane, btn, which) {
+  rowMenu = { lane, btn };
+  renderRowMenu();
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", String(b.dataset.k === btn));
+  const items = rowMenuItems();
+  if (items.length) (which === "last" ? items[items.length - 1] : items[0]).focus();
+}
+function closeRowMenu(refocus) {
+  const m = rowMenu;
+  rowMenu = null;
+  $("rowmenu").hidden = true;
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", "false");
+  if (refocus && m) focusKey(m.btn);
+}
+function pickRowAct(laneKey, act) {
+  closeRowMenu(false);
+  const x = lanesOf().find((l) => l.key === laneKey);
+  if (!x || !x.t || offline()) return;
+  selectLane(x.key);
+  if (act === "close") { askClose(x.t); return; }
+  confirmAct = { id: x.t.id, action: act };
+  render();
+  focusKey("b:cancel");
+}
+$("rowmenu").addEventListener("keydown", (e) => {
+  const items = rowMenuItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closeRowMenu(true); }
+  else if (e.key === "Tab") closeRowMenu(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (rowMenu && !e.target.closest("#rowmenu, .rowact")) closeRowMenu(false);
+});
+window.addEventListener("resize", () => { if (rowMenu) closeRowMenu(false); });
 
 // ---- Terminal tabs: one per lane, then "+" -------------------------------------------------
 // A tablist with a roving tabindex: Tab reaches the selected tab only; Left/Right,
@@ -2023,6 +2128,22 @@ function stopHow(t) {
   return how + q;
 }
 
+// Interrupt and Resume ask only when picked from a lane's actions menu (PANEL-18),
+// where one stray click must never act; their buttons under the terminal act at once.
+function interruptWords(t) {
+  const ap = t.approx ? " (≈ not a current reading)" : "";
+  let how;
+  if (t.dead) how = "claude has already exited, so Escape reaches nothing.";
+  else if (t.status === "busy") how = "claude is busy" + ap + ": Escape interrupts its turn; the lane stays up.";
+  else if (t.status === "waiting") how = "claude is waiting on you" + (t.waitingFor ? " (" + t.waitingFor + ")" : "") + ap + ": Escape dismisses the question unanswered.";
+  else if (t.status === "idle") how = "claude is idle" + ap + ": Escape has nothing to interrupt.";
+  else how = "its state is not known yet: it gets Escape.";
+  return "Interrupt lane " + t.id + "? " + how;
+}
+function resumeWords(t) {
+  return "Resume lane " + t.id + "? claude --resume " + (t.sessionId || "") + " starts in " + t.path + ", in a new tmux session.";
+}
+
 // ---- Close lane (PANEL-17) ----------------------------------------------------------
 // Stop, then the lane's worktree and branch when that loses nothing. The confirmation
 // lists what the panel found, before asking: the server's plan, from git's own state.
@@ -2092,7 +2213,12 @@ function renderTermBar(t) {
     } else if (closeAsk && closeAsk.id === t.id) {
       kids.push(...closeWords(t));
     } else if (!t.running) {
-      if (confirmAct && confirmAct.id === t.id) {
+      if (confirmAct && confirmAct.id === t.id && confirmAct.action === "resume") {
+        // Asked only from a lane's actions menu (PANEL-18); the Resume button acts at once.
+        kids.push(key(el("span", "confirm", resumeWords(t)), "confirm"),
+          button("Confirm resume", "primary", () => { confirmAct = null; laneAction(t.id, "resume"); }, null, null, true),
+          button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Resume"); }, null, "b:cancel"));
+      } else if (confirmAct && confirmAct.id === t.id) {
         kids.push(key(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."), "confirm"),
           button("Confirm forget", "danger", () => { confirmAct = null; laneAction(t.id, "forget"); }, null, null, true),
           button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Forget"); }, null, "b:cancel"));
@@ -2105,11 +2231,12 @@ function renderTermBar(t) {
             "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
     } else if (confirmAct && confirmAct.id === t.id) {
-      const stop = confirmAct.action === "stop";
-      const back = stop ? "b:Stop lane" : "b:Restart";
+      const a = confirmAct.action;
+      const back = a === "stop" ? "b:Stop lane" : a === "interrupt" ? "b:Interrupt (Esc)" : "b:Restart";
       kids.push(
-        key(el("span", "confirm", stopWords(t, !stop)), "confirm"),
-        button(stop ? "Confirm stop" : "Confirm restart", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }, null, null, true),
+        key(el("span", "confirm", a === "interrupt" ? interruptWords(t) : stopWords(t, a !== "stop")), "confirm"),
+        button(a === "stop" ? "Confirm stop" : a === "interrupt" ? "Confirm interrupt" : "Confirm restart", "danger",
+          () => { const c = confirmAct; confirmAct = null; laneAction(t.id, c.action); }, null, null, true),
         button("Cancel", "", () => { confirmAct = null; render(); focusKey(back); }, null, "b:cancel"));
     } else {
       const b = [
@@ -2517,6 +2644,7 @@ function render() {
   renderStatus(ls);
   renderNeeds();
   renderRail(ls, cur);
+  renderRowMenu();
   renderTabs(ls, cur);
   renderLaneHead(cur);
   renderTerminals(cur);
@@ -2846,6 +2974,7 @@ function switchProject(id) {
   // Nothing of the old project carries over: its terminals close (their lanes run
   // on in tmux), its state and choices go, and the new project's stream starts.
   for (const k of Object.keys(terms)) disposeTerm(k);
+  closeRowMenu(false);
   S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();

@@ -49,6 +49,10 @@ with no Enter, so you finish the prompt around it. PNG, JPEG, GIF and WebP, up t
   (or its pull request merged). The confirmation lists what goes and what stays before anything
   happens. See [Close lane](panel.md#close-lane).
 
+These buttons sit under the selected lane's terminal. To act on a lane without opening it, use
+the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
+and each one still asks in the page before anything happens.
+
 ## After a crash or a reboot
 
 A reboot ends every tmux session, but the panel remembers each lane. When you open the page, a

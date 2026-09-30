@@ -423,7 +423,8 @@ value just changed.
   reads "92%" (its hit ratio) while the cache is warm, "cold in 1:52" in amber in the last two
   minutes, and "cold" once it has gone cold. A table wider than the rail scrolls inside it,
   never the page, and while the rail runs past its foot a line there says "More below". A lane has one name
-  everywhere: a lane with a terminal is called what you named it when you started it.
+  everywhere: a lane with a terminal is called what you named it when you started it. Each lane the
+  panel started ends its row with **⋯**, its actions (see [From the lists](#from-the-lists)).
 - **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
   changed), each lane's claude session (state, uptime, context), and its agents, nested by which
@@ -765,6 +766,24 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
 Sent together, a long line can sit in claude's input box unsubmitted.
+
+#### From the lists
+
+Every lane the panel started (a lane with a terminal, running or orphaned) also has a **⋯**
+button (PANEL-18) at the end of its row in the **Lanes** table and beside its node in the
+**Worktrees** tree, so a lane can be stopped without selecting it first. Its menu has **Interrupt
+(Esc)**, **Restart** (registered lanes), **Stop lane** and **Close lane** for a running lane, and
+**Resume**, **Forget** and **Close lane** for an orphan. Picking one selects the lane and opens the
+same confirmation under its terminal that the button there opens, in words built from the lane's
+state at that moment; nothing is sent to the panel until **Confirm …** is pressed, and **Cancel**
+sends nothing. From the menu, **Interrupt** and **Resume** ask too, although their buttons under
+the terminal act at once: one stray click in a list must never act. A lane started outside the
+panel has no **⋯**: the panel has no terminal on it to stop.
+
+The **⋯** is a menu button in the WAI-ARIA pattern the project and Appearance menus follow:
+Enter, Space or ↓ opens it on its first item and ↑ on its last; ↑/↓/Home/End move; Enter or Space
+picks; Escape closes it back to its button; Tab or a click elsewhere closes it. A click on it
+neither selects its row nor reaches the row: the row still selects on its own click, Enter or Space.
 
 ### Close lane
 
