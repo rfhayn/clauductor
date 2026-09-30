@@ -1,0 +1,34 @@
+#!/bin/bash
+# A fake `gh` for the UX harness. It answers the two lists the panel asks for, per
+# project (by the basename of the repository it runs in), from files up.sh writes:
+#   $HOME/fake/gh/<repo>.open.json   `gh pr list --json …`: the open PRs, with checks
+#   $HOME/fake/gh/<repo>.merged      branch names whose PR is merged; `gh pr list --head
+#                                    <b> --state merged` answers one whose headRefOid is
+#                                    the branch's tip now (so Close lane may delete it)
+# Anything else prints nothing and succeeds.
+set -u
+top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# A worktree's toplevel is the worktree; the project is its common dir's parent.
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+[ -n "$common" ] && top=$(dirname "$common")
+repo=$(basename "$top")
+d="$HOME/fake/gh"
+case "${1:-} ${2:-}" in
+  "--version "*) echo "gh version 2.99.0 (ux harness fake)"; exit 0 ;;
+  "auth status") echo "Logged in to github.com (fake)"; exit 0 ;;
+  "pr list") ;;
+  *) exit 0 ;;
+esac
+head="" state=open
+while [ $# -gt 0 ]; do
+  case "$1" in --head) head=$2; shift ;; --state) state=$2; shift ;; esac
+  shift
+done
+if [ "$state" = merged ]; then
+  if [ -n "$head" ] && grep -qx -- "$head" "$d/$repo.merged" 2>/dev/null; then
+    oid=$(git -C "$top" rev-parse --verify -q "refs/heads/$head" 2>/dev/null || true)
+    [ -n "$oid" ] && { printf '[{"number":77,"headRefOid":"%s"}]\n' "$oid"; exit 0; }
+  fi
+  echo "[]"; exit 0
+fi
+cat "$d/$repo.open.json" 2>/dev/null || echo "[]"
