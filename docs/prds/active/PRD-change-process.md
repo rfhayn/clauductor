@@ -172,6 +172,53 @@ Separate milestones, also adopted:
 - **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
   from Slice lines and PR titles, and `release-prep` cuts semver tags.
 
+### Model selection (decided 2026-09-30)
+
+Models are already chosen per role in one file, `.claude/model-roles.json`. Skill and agent
+frontmatter, `settings.json`, `build-change` and the panel's `lane_types` restate each choice, and
+`checks/model-roles.sh` fails when any restatement disagrees. What is missing is evidence and
+adaptation. The owner adopted all four of the following.
+
+15. **Risk tiers** (OPS-7).
+    - `proposal.md` declares `**Risk:** low | normal | high`, and the owner approves the tier along
+      with the design.
+    - `model-roles.json` gives roles tiered variants. For example, the builder is sonnet/high for
+      low risk and opus/xhigh for high.
+    - `build-change` picks the variant for the declared tier.
+    - `checks/model-roles.sh` covers the variants.
+- **Cost per role** (in OPS-9). StandingT's `usage-report.mjs` (cost per role and model, from
+  transcripts) is upstreamed as a portable script. Its output feeds the Metrics view's Cost tab.
+- **Evals across models** (in OPS-10).
+  - The reviewer's seeded-defect suite runs on each model and effort combination. Roles are chosen
+    by catch rate per dollar.
+  - Changing a role's model in `model-roles.json` requires a passing eval receipt for the new
+    choice.
+  - Haiku is a candidate for the mechanic role.
+- **Quota economy mode** (in PANEL-19, with its mapping kept in `model-roles.json`).
+  - Above a set 5-hour quota threshold, roles that are not critical (scribe, orient, mechanic) drop
+    one tier. Reviewer and planner never drop.
+  - The panel shows an "economy" badge by the quota and names the roles affected.
+
+### Metrics in the panel (decided 2026-09-30): PANEL-19
+
+Metrics appear at three depths:
+
+- **Act now, where the owner already looks:**
+  - Needs you shows an approval waiting longer than a set time, a change over its budget, and
+    in-flight work with no commits for N days.
+  - The lane header shows a budget bar next to Cost.
+  - The economy badge sits by the quota.
+- **At a glance:** an optional **Flow** card in the side panel shows median cycle time, merges per
+  week, change-fail % and spend per week, each with a sparkline. Clicking it opens the view.
+- **To explore:** a **Metrics** header button, next to Activity, opens a view with tabs **Flow**
+  (DORA), **Cost** (by role, model, change and project), **Quality** (review rounds, the
+  reviewer's eval recall by model, escaped defects) and **Outcomes** (each hypothesis, when it is
+  due, whether it was checked). It has ranges of 7d, 30d and 90d, and shows this project or all
+  projects.
+- **Where the data comes from:** the project's `metrics.sh` (OPS-9) outputs JSON that the panel
+  draws. The panel stays standalone. A repo without the template still gets merge frequency, PR
+  cycle time and spend, which the panel computes itself from git, `gh` and status posts.
+
 Later, at StandingT's go-live, and otherwise as needed: feature flags, SLOs, postmortems,
 runbooks, the risk register, flaky-test quarantine, contract tests, SBOM/SLSA, retros, mutation and
 property testing, a STRIDE section for changes that cross a trust boundary, and a cap on lanes.
