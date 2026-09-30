@@ -955,6 +955,27 @@ In order:
 
 The conversation is never removed: `claude --resume <session id>` still opens it.
 
+### Close a lane when its PR merges
+
+PANEL-20, opt-in: `"lanes_auto_close": "on_merge"` (config version 5), or per lane type
+`lane_types.<type>.auto_close`. The panel then closes a registered lane on a branch of its own
+once the branch's pull request merges, **exactly as Close lane would**: it asks Close for its
+plan (with the fetch the page's confirmation does), and acts only when that plan removes both
+the worktree (clean: no change, no untracked file) and the branch (merged: every commit in the
+base, or a merged pull request whose head is the branch's tip), and claude is idle, exited or
+gone (a current `claude agents` reading; an approximate one does not count). Nothing is forced.
+The close goes in the lane's **Activity** ("Lane closed: PR #12 merged; …").
+
+Otherwise the lane stays and **Needs you** asks **PR merged: close lane?**, with why (claude is
+working; the worktree has 2 uncommitted files; the branch has commits since the merge): **Close
+lane** in its **⋯** menu shows the plan and asks first. While it asks, the panel looks again
+every 5 minutes and closes it once nothing holds it back. Each close and each ask raises one OS
+notification (once per lane and pull request for the panel's run, when `alerts.notify` is on).
+
+When it looks: when the panel first sees the lane, when the branch's pull request leaves the
+open list the panel already polls, and while the lane asks; each look is one `gh pr list --head
+<branch> --state merged`. The mode is the config's, so an untrusted config closes nothing.
+
 ### Remove a worktree
 
 A worktree with no lane, such as a clean detached worktree a closed session left behind, has

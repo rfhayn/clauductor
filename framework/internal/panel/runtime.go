@@ -185,6 +185,9 @@ type Runtime struct {
 	mstore *metricsStore
 	// ready caches merge readiness's reads (PANEL-20; readiness_source.go).
 	ready readinessCache
+	// autoClose is lanes_auto_close's state (PANEL-20; autoclose.go); its source's
+	// goroutine only.
+	autoClose autoCloser
 }
 
 // newRuntime builds a project's runtime and its table of sources.
@@ -241,6 +244,9 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 		if t.Suggest != nil {
 			r.sources = append(r.sources, r.suggestSource(t.ID, *t.Suggest))
 		}
+	}
+	if cfg.AnyAutoClose() && lm != nil {
+		r.sources = append(r.sources, &source{name: "autoclose", every: t.PRs, fixedRate: true, waitFirst: true, poll: r.pollAutoClose})
 	}
 	r.mstore = newMetricsStore(o, root, cfg, tv.Trusted)
 	r.sources = append(r.sources, r.metricsSources()...)

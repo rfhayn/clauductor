@@ -52,6 +52,12 @@ with no Enter, so you finish the prompt around it. PNG, JPEG, GIF and WebP, up t
   (or its pull request merged). The confirmation lists what goes and what stays before anything
   happens. See [Close lane](panel.md#close-lane).
 
+To have the panel close a lane by itself once its pull request merges, set
+`"lanes_auto_close": "on_merge"` in `.clauductor/panel.json` (config version 5). It closes only
+what Close lane would close without asking twice (claude idle or gone, the worktree clean, the
+branch merged at its tip); otherwise **Needs you** says "PR merged: close lane?" and why. See
+[Close a lane when its PR merges](panel.md#close-a-lane-when-its-pr-merges).
+
 These buttons sit under the selected lane's terminal. To act on a lane without opening it, use
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.

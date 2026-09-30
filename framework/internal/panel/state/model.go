@@ -194,6 +194,7 @@ type Model struct {
 	// PANEL-20 (readiness.go): the runtime's per-worktree reads for merge readiness.
 	laneExtras   map[string]LaneExtra
 	gateReceipts bool
+	mergeAsks    map[string]MergeAsk // lifecycle.go
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -1763,6 +1764,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 					"types nothing into a restored lane, so continue it yourself."})
 		}
 	}
+	m.mergeNeeds(v) // PANEL-20
 	sort.SliceStable(v.NeedsYou, func(i, j int) bool {
 		return sevRank(v.NeedsYou[i].Severity) > sevRank(v.NeedsYou[j].Severity)
 	})
