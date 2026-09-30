@@ -17,10 +17,29 @@ let S = null, offset = 0, es = null;
 // The selected lane, by key: "t:<lane id>" for a lane with a terminal, "w:<worktree>"
 // for a session started outside the panel (PANEL-11). Kept per browser.
 let selKey = null;
-try {
-  selKey = localStorage.getItem("clauductor-panel-sel");
-  if (!selKey && localStorage.getItem("clauductor-panel-term")) selKey = "t:" + localStorage.getItem("clauductor-panel-term");
-} catch (e) {}
+// The project this page shows (PANEL-16): ?p=<id>, else the panel's default, whose id
+// the first state names. P is the menu of every project the panel serves.
+const PID_RE = /^[a-z0-9][a-z0-9-]{0,40}$/;
+let PID = (() => { const p = new URLSearchParams(location.search).get("p"); return p && PID_RE.test(p) ? p : ""; })();
+let P = null;
+function pid() { return PID || (S && S.projectId) || ""; }
+// An action on this project: /api/p/<id>/…; before the first state names the default
+// project, the route without one, which reaches it.
+function api(path) { return pid() ? "/api/p/" + encodeURIComponent(pid()) + path : "/api" + path; }
+function projQuery(sep) { return pid() ? sep + "project=" + encodeURIComponent(pid()) : ""; }
+// The selected lane is kept per project. The key from before PANEL-16 (one project)
+// is the first project's until it chooses a lane of its own.
+function loadSel() {
+  selKey = null;
+  try {
+    selKey = localStorage.getItem("clauductor-panel-sel:" + pid());
+    if (!selKey) selKey = localStorage.getItem("clauductor-panel-sel");
+    if (!selKey && localStorage.getItem("clauductor-panel-term")) selKey = "t:" + localStorage.getItem("clauductor-panel-term");
+  } catch (e) {}
+}
+function saveSel(k) {
+  try { localStorage.setItem("clauductor-panel-sel:" + pid(), k); localStorage.removeItem("clauductor-panel-sel"); } catch (e) {}
+}
 
 function el(tag, cls, text, kids) {
   const e = document.createElement(tag);
@@ -163,14 +182,20 @@ function heard(serverNow) {
 }
 function connect() {
   if (es) es.close();
-  es = new EventSource("/events");
+  es = new EventSource("/events" + projQuery("?"));
   es.addEventListener("state", (e) => {
     const first = !S;
     S = JSON.parse(e.data);
     heard(S.now);
-    if (first) setTimeout(seen, 0);
+    if (first) { loadSel(); setTimeout(seen, 0); }
     goLive();
     render();
+  });
+  // Every stream also carries the menu of projects, with what needs you in each.
+  es.addEventListener("projects", (e) => {
+    try { P = JSON.parse(e.data); } catch (x) { return; }
+    renderProjects();
+    if (S) render();
   });
   es.addEventListener("hb", (e) => {
     try { heard(JSON.parse(e.data).now); } catch (x) { heard(0); }
@@ -208,8 +233,15 @@ async function probe() {
   const ac = new AbortController();
   const limit = setTimeout(() => ac.abort(), PROBE_MS);
   try {
-    const r = await fetch("/api/state", { cache: "no-store", signal: ac.signal });
+    const r = await fetch("/api/state" + projQuery("?"), { cache: "no-store", signal: ac.signal });
     if (r.status === 401) { lost(true); return; }
+    // A project the panel no longer serves (?p= of an old link): the default instead.
+    if (r.status === 404 && PID) {
+      PID = "";
+      try { history.replaceState(null, "", location.pathname); } catch (e) {}
+      connect();
+      return;
+    }
     if (!r.ok) throw new Error(r.status);
   } catch (e) { lost(conn.expired); return; } finally { clearTimeout(limit); }
   connect();
@@ -446,7 +478,7 @@ function relPath(p) {
 
 function selectLane(k, how) {
   selKey = k;
-  try { localStorage.setItem("clauductor-panel-sel", k); } catch (e) {}
+  saveSel(k);
   confirmAct = null;
   render();
   if (how === "tab") focusKey("tab:" + k);
@@ -1143,7 +1175,7 @@ let queueMsg = null;
 async function queuePost(q, verb, body) {
   queueMsg = { q, text: verb + "…" }; render();
   try {
-    const r = await fetch("/api/queues/" + encodeURIComponent(q) + "/" + verb, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(api("/queues/" + encodeURIComponent(q) + "/" + verb), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     queueMsg = { q, text: r.ok ? verb + ": done" + (j.run ? ", log " + j.run.log : "") : (j.error || "HTTP " + r.status), err: !r.ok };
   } catch (e) { queueMsg = { q, text: String(e), err: true }; }
@@ -1738,7 +1770,7 @@ async function dropImages(t, files) {
     else if (f.size > DROP_MAX) actMsg = { id: t.id, err: true, text: "Not dropped: " + name + " is over 20 MB" };
     else {
       try {
-        const r = await fetch("/api/lanes/" + encodeURIComponent(t.id) + "/image", { method: "POST",
+        const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/image"), { method: "POST",
           headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(name) }, body: f });
         const j = await r.json().catch(() => ({}));
         actMsg = r.ok ? { id: t.id, text: "Dropped " + name + ": its path is typed into the lane" }
@@ -1755,7 +1787,7 @@ async function connectTerm(t) {
   if (t.gone) return;
   let ticket;
   try {
-    const r = await fetch("/api/lanes/" + encodeURIComponent(t.id) + "/ticket", { method: "POST" });
+    const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/ticket"), { method: "POST" });
     if (!r.ok) throw new Error("ticket: HTTP " + r.status);
     ticket = (await r.json()).ticket;
   } catch (e) {
@@ -1765,7 +1797,7 @@ async function connectTerm(t) {
     return;
   }
   if (t.gone) return;
-  const q = "lane=" + encodeURIComponent(t.id) + "&cols=" + t.term.cols + "&rows=" + t.term.rows;
+  const q = "lane=" + encodeURIComponent(t.id) + projQuery("&") + "&cols=" + t.term.cols + "&rows=" + t.term.rows;
   const ws = new WebSocket("ws://" + location.host + "/ws/term?" + q, ["clauductor.term.v1", "ticket." + ticket]);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { t.delay = 1000; fitTerm(t); termSend(t, { type: "resize", cols: t.term.cols, rows: t.term.rows }); sendFocus(t); };
@@ -1895,7 +1927,7 @@ function askOpenLink(uri) {
 async function laneAction(id, action) {
   busyAct = id + ":" + action; actMsg = null; render();
   try {
-    const r = await fetch("/api/lanes/" + encodeURIComponent(id) + "/" + action, { method: "POST" });
+    const r = await fetch(api("/lanes/" + encodeURIComponent(id) + "/" + action), { method: "POST" });
     const j = await r.json().catch(() => ({}));
     actMsg = r.ok ? { id, text: action + ": done" } : { id, text: j.error || "HTTP " + r.status, err: true };
   } catch (e) { actMsg = { id, text: String(e), err: true }; }
@@ -2227,14 +2259,14 @@ $("startform").addEventListener("submit", async (e) => {
   $("st-go").disabled = true;
   $("st-err").textContent = "starting…";
   try {
-    const r = await fetch("/api/lanes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(api("/lanes"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { $("st-err").textContent = j.error || "HTTP " + r.status; return; }
     closeStart();
     $("st-name").value = ""; $("st-issue").value = "";
     if (j.lane && j.lane.notes) actMsg = { id: j.lane.id, text: j.lane.notes.join(" ") };
     pendingTerm = j.lane.id;
-    fetch("/api/refresh", { method: "POST" }).catch(() => {});
+    fetch(api("/refresh"), { method: "POST" }).catch(() => {});
   } catch (err) { $("st-err").textContent = String(err); }
   finally { $("st-go").disabled = !!(S && S.startBlocked) || offline(); }
 });
@@ -2262,7 +2294,7 @@ function renderRestore() {
       restoreBusy = true; restoreMsg = null; render();
       const over = $("restore-over");
       try {
-        const r = await fetch("/api/lanes/restore-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrideQuota: !!(over && over.checked) }) });
+        const r = await fetch(api("/lanes/restore-all"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrideQuota: !!(over && over.checked) }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) restoreMsg = { text: j.error || "HTTP " + r.status, err: true };
         else {
@@ -2391,8 +2423,10 @@ function render() {
   selHeld = heldBySelection();
   const off = offline();
   const n = S.needsYou.length;
-  document.title = (off ? "⚠ Disconnected: " : "") + (n ? "(" + n + ") " : "") + S.name + " panel";
+  const away = elsewhere();
+  document.title = (off ? "⚠ Disconnected: " : "") + (n ? "(" + n + ") " : "") + S.name + " panel" + (away.n ? ", +" + away.n + " elsewhere" : "");
   setText($("pname"), S.name);
+  renderProjects();
   setText($("cost"), S.estCostUsd == null ? "—" : money(S.estCostUsd));
   setText($("hookn"), S.hookEvents + " / " + S.statusPosts + (S.dropped ? " / " + S.dropped + " elsewhere" : ""));
   const add = $("addlane");
@@ -2410,7 +2444,7 @@ function render() {
   // A lane just started is selected as soon as a poll shows it.
   if (pendingTerm && ls.find((x) => x.key === "t:" + pendingTerm)) {
     selKey = "t:" + pendingTerm; pendingTerm = null;
-    try { localStorage.setItem("clauductor-panel-sel", selKey); } catch (e) {}
+    saveSel(selKey);
   }
   const cur = ls.find((x) => x.key === selKey) || ls[0] || null;
   renderStatus(ls);
@@ -2426,7 +2460,7 @@ function render() {
   if (!$("startdlg").hidden) stUpdate();
 }
 
-$("refresh").addEventListener("click", () => { if (!offline()) fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
+$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh"), { method: "POST" }).catch(() => {}); });
 
 // ---- The page's text size: Ctrl+Alt+= / − / 0, and the Size group of Appearance ------
 // theme.js owns the value (PanelScale); every size in panel.css is in rem. The keys need
@@ -2632,6 +2666,102 @@ applyRail();
 // can be pressed again.
 const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" };
 function menuItems() { return Array.from($("thememenu").querySelectorAll('[role="menuitemradio"], [role="menuitem"], input[type="range"]')); }
+// ---- Projects (PANEL-16) -----------------------------------------------------------------
+// The project's name is a button: its menu lists every project the panel serves, each
+// with its lanes and what needs you there, amber for waiting and red for blocking.
+// Picking one switches the whole page: its stream, its lanes, its selected lane (kept
+// per project) and ?p= in the address. Terminals close on a switch; their lanes run on.
+function elsewhere() {
+  const out = { n: 0, block: 0 };
+  for (const p of P || []) {
+    if (p.id === pid()) continue;
+    out.n += p.needsYou || 0;
+    out.block += p.blocking || 0;
+  }
+  return out;
+}
+function projectLine(p) {
+  if (!p.ok) return "cannot load: " + (p.error || "unknown");
+  const parts = [];
+  if (p.working) parts.push(p.working + " working");
+  if (p.waiting) parts.push(p.waiting + " waiting");
+  if (p.idle) parts.push(p.idle + " idle");
+  if (!parts.length) parts.push("no lanes");
+  if (p.restorable) parts.push(p.restorable + " to restore");
+  if (!p.trusted) parts.push("config untrusted");
+  return parts.join(", ");
+}
+function renderProjects() {
+  const btn = $("projbtn"), away = elsewhere();
+  setText($("projelse"), away.n ? away.n + " need" + (away.n === 1 ? "s" : "") + " you elsewhere" : "");
+  $("projelse").classList.toggle("crit", away.block > 0);
+  btn.setAttribute("aria-label", "Project " + (S ? S.name : "") + (away.n ? ", " + away.n + " need you in other projects" : "") + ". Switch project");
+  const menu = $("projmenu");
+  if (menu.hidden) return;
+  const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  const items = (P || []).map((p) => {
+    const need = p.needsYou ? el("span", "badge" + (p.blocking ? " crit" : ""), p.needsYou + " need" + (p.needsYou === 1 ? "s" : "") + " you") : el("span");
+    const e = el("div", "mi", null, [el("span", null, p.name || p.id, [el("small", p.ok ? null : "err", projectLine(p))]), need]);
+    e.setAttribute("role", "option");
+    e.setAttribute("aria-selected", String(p.id === pid()));
+    if (!p.ok) e.setAttribute("aria-disabled", "true");
+    e.id = "proj-" + p.id;
+    e.tabIndex = -1;
+    e.dataset.key = p.id;
+    e.addEventListener("click", () => { if (p.ok) switchProject(p.id); else closeProjects(true); });
+    return e;
+  });
+  menu.replaceChildren(...(items.length ? items : [el("div", "mi", "No other project is registered: clauductor panel add")]));
+  if (focused) { const f = menu.querySelector('[data-key="' + CSS.escape(focused) + '"]'); if (f) f.focus(); }
+}
+function projItems() { return Array.from($("projmenu").querySelectorAll('[role="option"]')); }
+function openProjects(which) {
+  const menu = $("projmenu");
+  menu.hidden = false;
+  $("projbtn").setAttribute("aria-expanded", "true");
+  renderProjects();
+  const items = projItems();
+  if (!items.length) return;
+  const cur = items.find((x) => x.getAttribute("aria-selected") === "true") || items[0];
+  (which === "last" ? items[items.length - 1] : cur).focus();
+}
+function closeProjects(refocus) {
+  $("projmenu").hidden = true;
+  $("projbtn").setAttribute("aria-expanded", "false");
+  if (refocus) $("projbtn").focus();
+}
+function switchProject(id) {
+  closeProjects(true);
+  if (id === pid()) return;
+  PID = id;
+  try { history.replaceState(null, "", location.pathname + "?p=" + encodeURIComponent(id)); } catch (e) {}
+  // Nothing of the old project carries over: its terminals close (their lanes run
+  // on in tmux), its state and choices go, and the new project's stream starts.
+  for (const k of Object.keys(terms)) disposeTerm(k);
+  S = null; selKey = null; seenNeeds = null; confirmAct = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
+  conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
+  connect();
+  render();
+}
+$("projbtn").addEventListener("click", () => { if ($("projmenu").hidden) openProjects(); else closeProjects(false); });
+$("projbtn").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openProjects(e.key === "ArrowUp" ? "last" : "current"); }
+});
+$("projmenu").addEventListener("keydown", (e) => {
+  const items = projItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closeProjects(true); }
+  else if (e.key === "Tab") closeProjects(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!$("projmenu").hidden && !e.target.closest(".projpick")) closeProjects(false);
+});
+
 function renderPicker() {
   const P = window.PanelTheme, cur = P.get(), menu = $("thememenu");
   const th = P.themes.find((x) => x.id === cur.theme), ty = P.types.find((x) => x.id === cur.type);

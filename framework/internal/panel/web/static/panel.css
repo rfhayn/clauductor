@@ -64,6 +64,20 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .status .btn.primary { background: var(--act); color: var(--act-ink); border-color: var(--act); }
 .brandrow { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; min-width: 0; }
 .brandrow h1 { font-size: 1.125rem; line-height: 1.2; overflow-wrap: anywhere; }
+/* The project's name is the project menu's button (PANEL-16). */
+.projbtn { font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: var(--r-ctl); padding: .05rem .3rem; margin-left: -.3rem;
+  cursor: pointer; text-align: left; display: inline-flex; gap: .5rem; align-items: baseline; }
+.projbtn:hover, .projbtn[aria-expanded="true"] { border-color: var(--rule-strong); }
+.projbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.projelse { font-size: .75rem; font-weight: 400; color: var(--warn); }
+.projelse.crit { color: var(--crit); }
+.projmenu { right: auto; left: 0; width: 26rem; grid-template-columns: minmax(0, 1fr); }
+.projmenu .mi { grid-template-columns: minmax(0, 1fr) auto; }
+.projmenu .mi[aria-selected="true"] { background: var(--sel); color: var(--sel-text); }
+.projmenu .mi[aria-selected="true"] small { color: inherit; }
+.projmenu .badge { font-weight: 700; color: var(--warn); }
+.projmenu .badge.crit { color: var(--crit); }
+.projmenu .err { color: var(--crit); }
 .live { display: inline-flex; align-items: center; font-size: .9375rem; font-weight: 700; white-space: nowrap; }
 .live .sq { width: 8px; height: 8px; background: var(--bar-text-2); }
 .live.dead { background: var(--crit-bg); color: var(--crit-ink); padding: 0 .35rem; }

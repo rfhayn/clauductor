@@ -171,8 +171,16 @@ func xmlText(s string) string {
 
 // renderPlist renders the login agent. KeepAlive restarts it only after an unclean
 // exit, so `launchctl bootout` (SIGTERM, clean exit) stops it for good.
+//
+// Without a project (PANEL-16) the agent serves projects.json as it is, from the
+// home directory; a plist from before names one project, which the panel then
+// registers (if it is not) and makes the default, so it keeps working.
 func renderPlist(s plistSpec) []byte {
-	args := []string{s.Binary, "panel", "--project", s.Project}
+	args := []string{s.Binary, "panel"}
+	wd := s.Home
+	if s.Project != "" {
+		args, wd = append(args, "--project", s.Project), s.Project
+	}
 	if s.Config != "" {
 		args = append(args, "--config", s.Config)
 	}
@@ -192,7 +200,7 @@ func renderPlist(s plistSpec) []byte {
 	}
 	b.WriteString(`	</array>
 	<key>WorkingDirectory</key>
-	<string>` + xmlText(s.Project) + `</string>
+	<string>` + xmlText(wd) + `</string>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
@@ -298,22 +306,38 @@ func Install(o InstallOptions) error {
 		}
 		o.Self, _ = filepath.EvalSymlinks(self)
 	}
-	project := signals.ResolvePath(o.Project)
-	if fi, err := os.Stat(project); err != nil || !fi.IsDir() {
-		return fmt.Errorf("--project %s is not a directory", o.Project)
-	}
-	cfg := ""
-	if o.Config != "" {
-		cfg = signals.ResolvePath(o.Config)
+	project, cfg := "", ""
+	if o.Project == "" {
+		// The agent serves the registry (PANEL-16): it must hold a project whose
+		// config loads, or the agent would crash-loop.
+		reg, err := config.LoadProjects(o.Home)
+		if err != nil {
+			return err
+		}
+		d := reg.DefaultEntry()
+		if d == nil {
+			return fmt.Errorf("no project registered: `clauductor panel add --project <path>` first, or pass --project")
+		}
+		if _, err := config.LoadConfig(d.ConfigPath()); err != nil {
+			return err
+		}
 	} else {
-		cfg = filepath.Join(project, config.DefaultConfigRel)
-	}
-	// Fail now rather than in a crash loop under launchd.
-	if _, err := config.LoadConfig(cfg); err != nil {
-		return err
-	}
-	if o.Config == "" {
-		cfg = "" // let the agent follow the project's default path
+		project = signals.ResolvePath(o.Project)
+		if fi, err := os.Stat(project); err != nil || !fi.IsDir() {
+			return fmt.Errorf("--project %s is not a directory", o.Project)
+		}
+		if o.Config != "" {
+			cfg = signals.ResolvePath(o.Config)
+		} else {
+			cfg = filepath.Join(project, config.DefaultConfigRel)
+		}
+		// Fail now rather than in a crash loop under launchd.
+		if _, err := config.LoadConfig(cfg); err != nil {
+			return err
+		}
+		if o.Config == "" {
+			cfg = "" // let the agent follow the project's default path
+		}
 	}
 	bin := InstalledBinary(o.Home)
 	if err := copyFileAtomic(o.Self, bin); err != nil {
@@ -358,8 +382,12 @@ func Install(o InstallOptions) error {
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap %s %s: %v: %s", guiDomain(), plist, err, strings.TrimSpace(string(out)))
 	}
-	fmt.Fprintf(o.Out, "Installed login agent %s (%s)\n  runs %s panel --project %s on 127.0.0.1:%d\n  logs: %s\n",
-		LaunchdLabel, plist, bin, project, o.Port, LogDir(o.Home))
+	serves := "every project in " + config.ProjectsPath(o.Home)
+	if project != "" {
+		serves = "--project " + project
+	}
+	fmt.Fprintf(o.Out, "Installed login agent %s (%s)\n  runs %s panel (%s) on 127.0.0.1:%d\n  logs: %s\n",
+		LaunchdLabel, plist, bin, serves, o.Port, LogDir(o.Home))
 	if o.App {
 		if err := installApp(o, bin); err != nil {
 			return err

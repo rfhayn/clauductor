@@ -188,6 +188,10 @@ func (m *Model) foldQuota(p signals.StatusPayload, now time.Time) {
 	m.quota = q
 }
 
+// FoldQuota takes only the quota from a status post: what every project's model does
+// with a post the dispatcher routed to another project (PANEL-16).
+func (m *Model) FoldQuota(p signals.StatusPayload, now time.Time) { m.foldQuota(p, now) }
+
 // QuotaReading is the last quota the panel knows (a copy), or nil.
 func (m *Model) QuotaReading() *Quota {
 	if m.quota == nil {
