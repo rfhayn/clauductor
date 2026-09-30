@@ -6,6 +6,7 @@ package signals
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -136,16 +137,41 @@ type StatusPayload struct {
 	OutputStyle struct {
 		Name string `json:"name"`
 	} `json:"output_style"`
-	RateLimits struct {
-		FiveHour *RateLimit `json:"five_hour"`
-		SevenDay *RateLimit `json:"seven_day"`
-	} `json:"rate_limits"`
+	RateLimits RateLimits `json:"rate_limits"`
 }
 
 // RateLimit is one quota window from the status line.
 type RateLimit struct {
 	UsedPercentage *float64 `json:"used_percentage"`
 	ResetsAt       *int64   `json:"resets_at"`
+}
+
+// RateLimits are the status line's quota windows by key ("five_hour", "seven_day",
+// and whatever a plan adds). The keys are not a closed set: a window the panel has
+// never seen still shows, under a label made from its key (PANEL-15).
+type RateLimits map[string]*RateLimit
+
+// windowKeyRe bounds a window key: it becomes a label and a JSON key on the page.
+var windowKeyRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+
+// UnmarshalJSON keeps every window that decodes with a percentage and skips any
+// other, so a new shape for one window never costs the post its other windows, or
+// its context %.
+func (r *RateLimits) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(b, &raw) != nil || raw == nil {
+		*r = nil
+		return nil
+	}
+	out := RateLimits{}
+	for k, v := range raw {
+		var w RateLimit
+		if windowKeyRe.MatchString(k) && json.Unmarshal(v, &w) == nil && w.UsedPercentage != nil {
+			out[k] = &w
+		}
+	}
+	*r = out
+	return nil
 }
 
 // ParseStatus decodes a status-line body.

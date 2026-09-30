@@ -102,6 +102,54 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 	}
 }
 
+// PANEL-14: what a viewer's client gets from a pane that behaves like claude's
+// fullscreen TUI. The OSC 8 link it prints must reach the client, or the page has no
+// link to open (tmux strips it without the hyperlinks feature). Its request for every
+// mouse motion (1003) is relayed too: that is what panel.js declines, because each
+// reported motion cleared xterm's selection.
+func TestViewerGetsLinksAndTheMotionRequest(t *testing.T) {
+	t.Parallel()
+	tmux, sock := throwawaySocket(t)
+	prog := `printf '\033[?1000h\033[?1002h\033[?1003h\033[?1006h\033]8;;https://example.com/pr/12\033\\PR 12\033]8;;\033\\\n'; exec sleep 60`
+	if out, err := exec.Command(tmux, "-L", sock, "-f", "/dev/null", "new-session", "-d", "-s", "w", "-x", "80", "-y", "24",
+		"/bin/sh", "-c", prog).CombinedOutput(); err != nil {
+		t.Fatalf("new-session: %v %s", err, out)
+	}
+	m := &lanes.LaneManager{Clock: clock.System, TmuxPath: tmux, Socket: sock}
+	if err := m.Harden(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(tmux, m.AttachArgv("w")...)
+	cmd.Env = attachEnv()
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { ptmx.Close(); cmd.Process.Kill(); cmd.Wait() }()
+	var mu sync.Mutex
+	var screen strings.Builder
+	go func() {
+		b := make([]byte, 4096)
+		for {
+			n, err := ptmx.Read(b)
+			mu.Lock()
+			screen.Write(b[:n])
+			mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	has := func(s string) bool { mu.Lock(); defer mu.Unlock(); return strings.Contains(screen.String(), s) }
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if has("PR 12") && has("\x1b[?1003h") && has("https://example.com/pr/12") {
+			return
+		}
+	}
+	t.Fatalf("the client got: link text %v, OSC 8 target %v, motion request %v",
+		has("PR 12"), has("https://example.com/pr/12"), has("\x1b[?1003h"))
+}
+
 func TestInputKind(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{

@@ -58,6 +58,7 @@ type TmuxLane struct {
 	ID         string
 	Path       string // the pane's cwd (resolved), falling back to the session's start dir
 	Type       string // the lane type the panel started it as (@clauductor_type)
+	Project    string // the project id it was started for (@clauductor_project; "" before PANEL-16)
 	Created    int64  // unix seconds
 	Attached   int    // attached clients
 	Dead       bool   // the lane's program exited (remain-on-exit keeps its output)
@@ -96,4 +97,7 @@ type LaneRecord struct {
 	PromptState string `json:"promptState,omitempty"`
 	PromptAt    int64  `json:"promptAt,omitempty"` // unix ms the prompt was typed
 	Restored    int64  `json:"restored,omitempty"` // unix ms of the last restore
+	// Port is the lane's own port (PANEL-20, ports in panel.json), exported to it as
+	// CLAUDUCTOR_PORT; 0 without one.
+	Port int `json:"port,omitempty"`
 }

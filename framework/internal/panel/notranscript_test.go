@@ -139,13 +139,20 @@ var fileReadSites = map[string]int{
 	"config/config.go":     1, // the panel config
 	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
 	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime.go":           3, // the notifier's saved state (notifier.json); the last quota (quota.json); the live-verified version (verified.json)
+	"runtime.go":           1, // a project's notifier state (notifier.json)
+	"machine.go":           3, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state
+	"config/projects.go":   1, // the projects registry (projects.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
 	"install/trust.go":     1, // the trusted-config record
 	"install/init.go":      2, // the project's package.json and Makefile (`panel init`'s gate detection)
 	"lease/lease.go":       4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
 	"install/singleton.go": 5, // the pid file, owner.json (2) and port marker; settings.json (hook drift)
+	"metrics/ledger.go":    1, // the project's spend ledger (spend.json)
+	"economy.go":           2, // economy.json (the panel's own, at start); the project's .claude/model-roles.json
+	"lanes/lifecycle.go":   1, // a .worktreeinclude file copied from the project root into a new worktree
+	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
+	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative

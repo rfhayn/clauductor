@@ -16,12 +16,15 @@ import (
 //	   (tmux_socket, worktree_dir, base, lane_types)
 //	2  orchestration: templates, queues, alerts, quota_guard, host_names
 //	3  what's next: templates[].suggest, cards[].pin
+//	4  metrics (PANEL-19): metrics, alerts.approval_wait_hours, alerts.stale_days, quota_economy
+//	5  the lane lifecycle (PANEL-20): lanes_auto_close, lane_types.*.auto_close,
+//	   quota_auto_resume, quota_resume_line, worktree_setup, worktree_teardown, ports
 //
 // A config with no "version" is read as LatestVersion, and the panel says once that
 // it should declare one.
 const (
 	MinVersion    = 1
-	LatestVersion = 3
+	LatestVersion = 5
 )
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
@@ -61,9 +64,9 @@ func pattern(re *regexp.Regexp) map[string]any { return map[string]any{"pattern"
 var Fields = []Field{
 	{Path: "$schema", Version: 1, Type: "string",
 		Doc: "The JSON Schema the file follows, for editors: `" + SchemaURL + "`. The panel ignores it. `clauductor panel init` writes it."},
-	{Path: "version", Version: 1, Type: "integer: 1, 2 or 3",
+	{Path: "version", Version: 1, Type: "integer: 1 to 5",
 		Doc:    "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
-		Schema: map[string]any{"enum": []int{1, 2, 3}}},
+		Schema: map[string]any{"enum": []int{1, 2, 3, 4, 5}}},
 	{Path: "name", Version: 1, Type: "string", Required: true,
 		Doc:   "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
 		Match: nameRe, Schema: map[string]any{"minLength": 1, "maxLength": 80}},
@@ -97,6 +100,8 @@ var Fields = []Field{
 		Doc: "One argv element: `--model <value>`.", Match: LaunchOptRe},
 	{Path: "lane_types.*.effort", Version: 1, Type: "string",
 		Doc: "One argv element: `--effort <value>`.", Match: LaunchOptRe},
+	{Path: "lane_types.*.auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"",
+		Doc: "Overrides `lanes_auto_close` for this lane type.", Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},
 	{Path: "templates", Version: 2, Type: "array",
 		Doc: "Lane recipes offered by **New lane** (see *Lane templates*)."},
 	{Path: "templates[].id", Version: 2, Type: "string", Required: true,
@@ -148,6 +153,10 @@ var Fields = []Field{
 		Doc: "Send macOS notifications for the alerts that interrupt."},
 	{Path: "alerts.min_interval_seconds", Version: 2, Type: "number", Default: DefaultNotifyInterval,
 		Doc: "At most one notification per lane per interval.", Schema: map[string]any{"minimum": 0}},
+	{Path: "alerts.approval_wait_hours", Version: 4, Type: "number", Default: DefaultApprovalWaitHours,
+		Doc: "A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*).", Schema: map[string]any{"minimum": 0}},
+	{Path: "alerts.stale_days", Version: 4, Type: "number", Default: DefaultStaleDays,
+		Doc: "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.", Schema: map[string]any{"minimum": 0}},
 	{Path: "quota_guard", Version: 2, Type: "object",
 		Doc: "Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*)."},
 	{Path: "quota_guard.five_hour_pct", Version: 2, Type: "number", Default: DefaultQuotaGuardPct,
@@ -155,6 +164,41 @@ var Fields = []Field{
 	{Path: "host_names", Version: 2, Type: "array of strings",
 		Doc:    "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `clauductor.localhost` always works. No wildcards.",
 		Schema: map[string]any{"items": pattern(localhostNameRe)}},
+	{Path: "quota_economy", Version: 4, Type: "object",
+		Doc: "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's."},
+	{Path: "quota_economy.five_hour_pct", Version: 4, Type: "number",
+		Doc: "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
+	{Path: "lanes_auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"", Default: AutoCloseOff,
+		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+		Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},
+	{Path: "quota_auto_resume", Version: 5, Type: "boolean", Default: false,
+		Doc: "Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*)."},
+	{Path: "quota_resume_line", Version: 5, Type: "string", Default: DefaultResumeLine,
+		Doc: "The line `quota_auto_resume` types. One line of plain text, at most 200 characters.", Schema: map[string]any{"maxLength": 200}},
+	{Path: "worktree_setup", Version: 5, Type: "object",
+		Doc: "A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*)."},
+	{Path: "worktree_setup.command", Version: 5, Type: "array of strings", Required: true,
+		Doc: "argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout.", Schema: map[string]any{"minItems": 1}},
+	{Path: "worktree_teardown", Version: 5, Type: "object",
+		Doc: "A command run in a lane's worktree before **Close lane** removes it."},
+	{Path: "worktree_teardown.command", Version: 5, Type: "array of strings", Required: true,
+		Doc: "argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays.", Schema: map[string]any{"minItems": 1}},
+	{Path: "ports", Version: 5, Type: "object",
+		Doc: "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header."},
+	{Path: "ports.base", Version: 5, Type: "integer", Required: true,
+		Doc: "The first lane's port, 1024 to 65000.", Schema: map[string]any{"minimum": 1024, "maximum": 65000}},
+	{Path: "ports.per_lane", Version: 5, Type: "integer", Required: true,
+		Doc: "The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one).", Schema: map[string]any{"minimum": 1, "maximum": 100}},
+	{Path: "metrics", Version: 4, Type: "object",
+		Doc: "The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line."},
+	{Path: "metrics.command", Version: 4, Type: "array of strings",
+		Doc:    "argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view.",
+		Schema: map[string]any{"minItems": 1}},
+	{Path: "metrics.refresh", Version: 4, Type: "string", Default: DefaultMetricsRefresh,
+		Doc:   "When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`.",
+		Match: refreshRe},
+	{Path: "metrics.card", Version: 4, Type: "boolean", Default: true,
+		Doc: "Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone."},
 }
 
 // fieldByPath indexes Fields.

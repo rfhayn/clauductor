@@ -1,9 +1,10 @@
 # `clauductor panel` — a local web panel over your Claude sessions
 
-`clauductor panel` serves a live dashboard of every Claude Code session working in one project:
+`clauductor panel` serves a live dashboard of every Claude Code session working in your projects:
 which lanes (worktrees) have a session, whether each is busy, waiting or idle, its context %,
 its running subagents, what needs you, the account quota, open PRs, and any cards the project
-defines.
+defines. One panel serves every project you register (PANEL-16); the project's name at the top
+of the page switches between them.
 
 It also **runs lanes**: each lane is an interactive `claude` in its own tmux session, with a
 terminal embedded in the page. You start, stop, interrupt, restart and resume lanes from the
@@ -17,13 +18,17 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | Source | How | Gives |
 |---|---|---|
 | HTTP hooks | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
-| Status line | the project's status-line script copies its stdin to `POST /status` | context %, 5-hour and 7-day quota, est. cost |
+| Status line | the status-line script copies its stdin to `POST /status` | context %, est. cost, and the account's quota windows (from any session, in any project) |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
+| `claude auth status --json` | at start, then every 10 min, with a lane's environment (no API key) | how the account signs in and its plan: what the quota's place shows (see *The account and its quota*) |
 | queue leases | read every 1 s from the git common dir; `ps` once per process (and every 30 s), else `kill -0` | who holds the gate, who waits |
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
+| the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
+| `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
+| `gh api graphql` (review threads) | per lane with an open pull request, at most every 2 min, only while a page is in view | a lane's unresolved review threads (merge readiness, PANEL-20) |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -31,9 +36,12 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 Keeping the panel current costs **no model tokens**. It never reads transcripts or screens; the
 only text it types into a lane on its own is a template's first prompt, once.
 
+New to the panel? [guide.md](guide.md) is a short how-to for the page; **?** in its header shows
+the keyboard shortcuts.
+
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
-[Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
+[Alerts](#alerts) · [Metrics](#metrics) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
 [Security model](#security-model) · [Operations](#operations) · [Troubleshooting](#troubleshooting) ·
 [Not yet](#not-yet)
 
@@ -49,7 +57,9 @@ only text it types into a lane on its own is a template's first prompt, once.
 4. **Open** it: `clauductor panel` starts the panel and opens the browser. To keep it running
    with no terminal, `clauductor panel install --project <path> --app` installs a login agent;
    then `clauductor panel open` (or the app) opens the page.
-5. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
+5. **More projects**: in each other repository, `clauductor panel init`, review, `clauductor
+   panel trust`, then `clauductor panel add`, and restart the panel. See [Projects](#projects).
+6. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
    context % and quota, and put your gate script through the queue
    ([In a project's gate script](#in-a-projects-gate-script)).
 
@@ -57,23 +67,74 @@ Every command:
 
 ```bash
 clauductor panel init [--project p]           # write a starter .clauductor/panel.json (never overwrites)
-clauductor panel                              # project = git toplevel of the current directory
+clauductor panel                              # serve every project; this repository is added if it is not, and opened on
 clauductor panel --project ~/Development/app  # or name it
+clauductor panel --project p --only           # serve that one project alone
 clauductor panel --config /tmp/panel.json     # use a config outside the repo
 clauductor panel --port 4393 --no-open        # print the URL instead of opening a browser
 clauductor panel --uninstall-hooks            # remove the panel's hooks and exit
 clauductor panel --trust-config               # trust panel.json as it is now, then run
 clauductor panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
+clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`)
+clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running
+clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
-clauductor panel install --project ~/Development/app [--config <file>] [--port 4393] [--app]
-clauductor panel open                         # open the installed panel in the browser
+clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app] [--remote-control=all|lanes|off]
+clauductor panel open [--project id]          # open the installed panel in the browser (on that project)
 clauductor panel rotate-token                 # replace the installed panel's token
 clauductor panel uninstall                    # stop and remove the login agent
 ```
 
-The panel watches one project per run. Stop a hand-started panel with Ctrl-C. Stopping the
+One panel serves every registered project. Stop a hand-started panel with Ctrl-C. Stopping the
 panel never stops a lane: lanes belong to tmux.
+
+### Projects
+
+The projects a panel serves are listed in `~/.clauductor/panel/projects.json` (0600, written
+atomically). It is the machine's file, not a repository's: nothing in a repository can add a
+project, choose its socket, or make it the default.
+
+```json
+{ "version": 1, "default": "standingt",
+  "projects": [ { "id": "standingt", "root": "/Users/me/Development/StandingT",
+                  "config": "", "tmux_socket": "clauductor", "added": 1790000000 } ] }
+```
+
+- **A project is one repository**, named by its main worktree. `panel add` refuses a linked
+  worktree (add its main one) and a path already registered, through a symlink too. Its `id`
+  (`[a-z0-9][a-z0-9-]{0,40}`) comes from the config's `name` (`StandingT` is `standingt`), or
+  `--id`; it names the project in routes and in the page. The files of a project stay where they
+  were, keyed by a hash of its path (the lane registry, trust, notifications).
+- **Adding is not trusting.** `panel add` loads and checks the config, and prints whether it is
+  trusted; its cards, queue commands and templates stay off until `clauductor panel trust`.
+- **Each project has its own tmux server.** A project's socket is its config's `tmux_socket`,
+  else the one recorded when it was added: the first project gets the historical `clauductor`,
+  so lanes started before PANEL-16 carry on, and each project after it gets `clauductor-<id>`.
+  Two projects on one socket are refused at `add`, and a project whose socket another has is not
+  loaded. `panel list` names each project's socket. Each lane is tagged with its project
+  (`@clauductor_project`); a session tagged for another project is never shown as a stray, and one
+  with no tag (started before PANEL-16) belongs to the socket's project.
+- **The default project** is the one a page with no `?p=` opens on, and the one the routes before
+  PANEL-16 reach. `panel --project p` (the login agent's plist from before PANEL-16 does this) and
+  a bare `panel` inside a repository register it if needed and make it the default. `panel add
+  --default` does too; removing the default makes the first remaining project the default.
+- **`remove`** never stops a lane and keeps the lane registry, so adding the project again brings
+  its lanes back; while lanes are registered it needs `--force`.
+- **Restart the panel after `add` or `remove`**: it reads `projects.json` at start (the commands
+  print the `launchctl kickstart` line).
+- **A project that cannot load** (its config, its worktree list, its socket) is shown in the
+  project menu with the reason, and the others serve. The project named on the command line must
+  load, as before.
+
+The hooks and the status line are the machine's: every session posts to the one panel. The panel
+places each post in its project by its session id first (a lane's own session, or a session it
+has placed before, which stays with its project after a `cd`), then by the deepest worktree of
+any project that holds its `cwd` (one repository can sit inside another's checkout). A post that
+is no project's is counted as **other projects** in each project's footer. The quota, Claude
+Code's version and the account are the machine's too: every status post moves every project's
+quota, and the quota alert notifies once, not once per project (against the default project's
+`alerts`).
 
 ## Configuration reference
 
@@ -95,10 +156,28 @@ writes, it reads from the repository:
 | `worktree_dir` | the directory every linked worktree already shares; else the default |
 | `queues` | one `gate` queue, only if the project itself names a gate: a `package.json` script (run with the package manager its lockfile names) or a `Makefile` target called `gate`, `ci`, `check`, `verify` or `test`, best name first |
 
-It writes **no card** (a card's command runs by itself on every refresh) and no template. The
-only command it may write is the gate queue's, which runs only when you press **RUN**, and it
-prints it. JSON has no comments, so `init` prints the reason for each value instead. For a
-repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
+It invents **no card** (a card's command runs by itself on every refresh) and no template. The
+only command it writes of its own is the gate queue's, which runs only when you press **RUN**, and
+it prints it. JSON has no comments, so `init` prints the reason for each value instead.
+
+**A repository that runs Clauductor's operating model** (PANEL-18: the template `clauductor
+install` copies, recognised by `.claude/owner-queue.sh` or `.claude/roadmap-queue.sh`) also gets
+that model's own panel setup, the same as the template's preset, for the files it has:
+
+| File | Adds |
+|---|---|
+| `.claude/owner-queue.sh` | the pinned card **Owner queue**: `sh -c "sh .claude/owner-queue.sh 2>&1"`, refreshed on `watch:docs/owner-queue.md` |
+| `.claude/roadmap-queue.sh` | the pinned card **Change queue**: `sh -c "sh .claude/roadmap-queue.sh --text 2>&1"`, refreshed on `watch:docs/roadmap.md` |
+| either of those | the four lane templates **build**, **propose**, **fix** and **ops**, and the lanes they use (`change/` → `build`, `fix/` → `fix`, `ops/` → `ops`; a detected prefix mapped otherwise is changed, and said so) |
+| `.claude/panel-suggest.sh` | each template's **Up next** (`sh .claude/panel-suggest.sh <template>`); without it, the templates have none |
+| `scripts/ci/run-local.sh` | the `gate` queue on it, instead of a gate found in `package.json` or a `Makefile` (those are printed as "also found") |
+
+Each addition is printed with its reason, like every other value, and none of them runs before
+`clauductor panel trust`. Without those files, `init` prints one line more: cards and lane
+templates come with `clauductor install` (the operating model), or can be added by hand (see
+[Keys](#keys), [Pinned cards](#pinned-cards) and [Lane templates](#lane-templates)).
+
+For a repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
 
 ```text
 Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
@@ -132,6 +211,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
   queues        gate runs `make ci` (Makefile target "ci"), and only when you press RUN on the page; also found `pnpm run check`, `pnpm run test`
+  cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, "Keys": cards, templates)
 ```
 
 ### Versions
@@ -144,11 +224,13 @@ earlier one. The **Since** column of the key table says which is which:
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
+| 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
+| 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–3 (0 included) is refused.
+- A `version` outside 1–5 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -206,7 +288,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1, 2 or 3 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 5 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -221,6 +303,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
+| `lane_types.<key>.auto_close` | string: "off" or "on_merge" |  | 5 | Overrides `lanes_auto_close` for this lane type. |
 | `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
@@ -244,9 +327,27 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.waiting_seconds` | number | `120` | 2 | A permission prompt, MCP elicitation or input request older than this raises a waiting alert. |
 | `alerts.notify` | boolean | `true` | 2 | Send macOS notifications for the alerts that interrupt. |
 | `alerts.min_interval_seconds` | number | `300` | 2 | At most one notification per lane per interval. |
+| `alerts.approval_wait_hours` | number | `24` | 4 | A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*). |
+| `alerts.stale_days` | number | `3` | 4 | A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
+| `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
+| `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
+| `worktree_setup` | object |  | 5 | A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*). |
+| `worktree_setup.command` | array of strings, **required** |  | 5 | argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout. |
+| `worktree_teardown` | object |  | 5 | A command run in a lane's worktree before **Close lane** removes it. |
+| `worktree_teardown.command` | array of strings, **required** |  | 5 | argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays. |
+| `ports` | object |  | 5 | Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header. |
+| `ports.base` | integer, **required** |  | 5 | The first lane's port, 1024 to 65000. |
+| `ports.per_lane` | integer, **required** |  | 5 | The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one). |
+| `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
+| `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
+| `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
+| `metrics.card` | boolean | `true` | 4 | Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone. |
 <!-- config-reference end -->
 
 ### Card output
@@ -275,6 +376,29 @@ a title that opens to the rest of it.
 So a card that prints one item per line, with a short lead, reads best. A JSON card is drawn as
 in the drawer.
 
+A project with **no card at all** shows one line in the box's place instead of nothing (PANEL-18):
+"No cards yet. Add them in .clauductor/panel.json.", with **How cards work**, a link to the
+guide's [Cards](guide.md#cards) section (opened in a new tab, from the same address as the Help
+dialog's guide link). A project whose cards are all unpinned shows nothing there: its cards are in
+**Activity**.
+
+### When the cards may be stale
+
+Every card runs its command in the project's main checkout and watches its file there, so it
+shows what that checkout's branch has. When the branch is behind its upstream (someone merged,
+you have not pulled), the cards show old data without anything looking wrong. So while it is,
+one line above the cards, in the side panel's pinned box and in **Activity**, says so (PANEL-18):
+
+> main is 3 commits behind origin/main (as of last fetch) — cards may be stale
+
+It comes from the dashboard's own `git status --porcelain=v2 --branch` of the main checkout (see
+*What the panel reads, and when*), read like a lane's worktree while a page is in view, and only
+for a project with cards. The panel adds no `git fetch` for it: behind is counted against the
+local remote-tracking branch, as of the last fetch (yours, or the panel's when a lane starts or
+Close lane or Remove plans), hence "as of last fetch". There is no line when the branch is up to
+date or only ahead, when it has no upstream or HEAD is detached, or when git cannot be read.
+Pull in the main checkout, then **Refresh** (it re-reads git and every card at once).
+
 ## The page
 
 The page is built around lanes (PANEL-11). From the top: the status bar, the Needs-you rows (only
@@ -291,14 +415,25 @@ value just changed.
 
 - **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
   lane. Totals live here and nowhere else.
-  - The **5-hour** and **7-day quota**, each a bar with its reset countdown. On the 5-hour bar a
-    magenta mark shows where the window lands at its reset at the current burn rate. The quota
-    comes only with a status-line post, and the panel keeps the last one across a restart
-    (`~/.clauductor/panel/quota.json`), so a reading older than 10 minutes says "as of … ago";
-    with none, hovering says where one comes from.
-  - **Burn rate**: the 5-hour quota's change per hour over the last 30 minutes, when there are at
-    least 5 minutes of it, and when it runs out at that rate. That time turns amber when it comes
-    before the reset.
+  - **The project's name is the project menu** (PANEL-16). It lists every project the panel
+    serves, each with its lanes (working, waiting, idle), how many need you there (amber, red when
+    one blocks), how many lanes it has to restore, and whether its config is untrusted; a project
+    that could not load says why. Beside the name, "N need you elsewhere" counts the other
+    projects'. The keyboard works as in **Appearance** (Down or Enter opens it, the arrows move,
+    Enter picks, Escape closes). Picking one switches the whole page: its lanes, its selected
+    lane (kept per project), and `?p=<id>` in the address, so a bookmark opens on that project.
+    Open terminals close on a switch; their lanes run on in tmux. The tab title adds ", +N
+    elsewhere" while other projects need you.
+  - **The quota**: one bar per window the account's plan reports (usually the **5-hour** and
+    **7-day**), each with its reset countdown, and the plan named on the first ("5-hour quota
+    (Max)"). On the burn window's bar a magenta mark shows where it lands at its reset at the
+    current burn rate. The quota comes only with a status-line post, from any session on the
+    machine, and the panel keeps the last one across a restart (`~/.clauductor/panel/quota.json`),
+    so a reading older than 10 minutes says "as of … ago"; with none, hovering says where one
+    comes from. What stands here depends on the account: see *The account and its quota*.
+  - **Burn rate**: the shortest window's change per hour over the last 30 minutes, when there are
+    at least 5 minutes of it, and when it runs out at that rate. That time turns amber when it
+    comes before the reset.
   - **est. $ (list price)**: the sum of the status line's `total_cost_usd` over the sessions the
     panel tracks now (live ones, and ones heard from in the last 30 minutes), then today's cost and
     the cost per hour over the last hour, with a sparkline. It is a list-price estimate, not a bill.
@@ -310,7 +445,10 @@ value just changed.
   - **Claude processes**: CPU and memory of the lanes' claude processes, with a sparkline (see
     *What the panel reads, and when*).
   - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
-  - At the right: **New lane**, **Activity** (the drawer), **Refresh** and **Appearance**. **New
+  - At the right: **New lane**, **Activity** (the drawer), **Metrics**, **Refresh**, **Appearance** and **?**
+    (Help, PANEL-17): a dialog with the page's keyboard shortcuts, a few one-line how-tos and a
+    link to [the guide](guide.md), which opens in a new tab. The `?` key opens it too, except in
+    the terminal (where `?` is claude's) and in a text field; Escape or **Close** returns focus. **New
     lane** is disabled, with the reason on hover, while lanes cannot start (*Subscription only*).
   - The bar keeps to one line above 1180 px: when its figures would wrap, the secondary ones
     (resets, cost today and per hour, sparklines, the Hooks counts) go first, as they do from 140%.
@@ -351,12 +489,15 @@ value just changed.
   reads "92%" (its hit ratio) while the cache is warm, "cold in 1:52" in amber in the last two
   minutes, and "cold" once it has gone cold. A table wider than the rail scrolls inside it,
   never the page, and while the rail runs past its foot a line there says "More below". A lane has one name
-  everywhere: a lane with a terminal is called what you named it when you started it.
+  everywhere: a lane with a terminal is called what you named it when you started it. Each lane the
+  panel started ends its row with **⋯**, its actions (see [From the lists](#from-the-lists)).
 - **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
   changed), each lane's claude session (state, uptime, context), and its agents, nested by which
   agent started which, with finished ones folded under "N finished". A worktree with no lane has
-  **Start lane here**, which opens the Start dialog on it. The rail's edge drags (or, focused,
+  **New lane here**, which opens the Start dialog on that worktree, to start a new claude session
+  there, and (except the main checkout) **Remove** ([Remove a worktree](#remove-a-worktree)); a
+  lane has **⋯**, its actions. The rail's edge drags (or, focused,
   moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
   width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
   and whether it shows are kept per browser; below 900 px it starts hidden.
@@ -366,12 +507,16 @@ value just changed.
 - **The lane's header.** Its name and state, branch and worktree, model (as the status line
   reports it) with effort (its template's, else its lane type's), thinking and fast mode, uptime,
   context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
-  documented), and cost with cost per hour. **Hide details** folds the side panel; kept.
+  documented), and cost with cost per hour; when the lane builds a change whose proposal has a
+  budget, a **Budget** bar beside it (PANEL-19, see *Needs you from the metrics*). **Hide
+  details** folds the side panel; kept.
 - **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
-  Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart** and **Stop lane**. Stop
+  Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart**, **Stop lane** and **Close lane**. Stop
   and restart ask in the page, in words built from the lane's state: idle gets `/exit`, busy or
   waiting gets Escape (and what that interrupts: its subagents, an open question), and whether it
-  holds or waits in a queue. An orphaned lane has **Resume** and **Forget** instead of a terminal.
+  holds or waits in a queue. **Close lane** also removes the lane's worktree and branch when that
+  loses nothing; its confirmation lists what goes and what stays ([Close lane](#close-lane)). An
+  orphaned lane has **Resume**, **Forget** and **Close lane** instead of a terminal.
   A lane started outside the panel says it has no terminal here.
 - **The side panel: a tab per family of figures.** The choice of tab is kept.
   - **Agents**: the lane's sessions (pid, state and for how long, compaction, last failure), then a
@@ -386,11 +531,16 @@ value just changed.
   - **Git**: branch, HEAD, path, upstream with ahead and behind, changed and untracked files, the
     diff stat against HEAD, the last commit's age, and the template's first-prompt state; then the
     branch's pull request, its checks and review decision.
+  - **Checks** (PANEL-20): the lane's merge readiness, see *Merge readiness*.
   - **Gate**: for each queue, whether this lane holds it, waits in it and where, or is not in it;
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
   The tabs wrap onto a second line rather than scroll. Below them, the pinned cards' own box
-  (*Pinned cards*); with no lane selected, it is the side panel. **Hide details** folds both.
+  (*Pinned cards*); with no lane selected, it is the side panel. Under that, the **Flow (30d)**
+  card (PANEL-19): median cycle time, merges a week, change-fail rate and spend a week, each with
+  its sparkline, "—" (and why, on hover) where there is none. It shows once any of the four has a
+  value, whether the project's command or the panel gave it, unless `metrics.card` is `false`;
+  the whole card is one button that opens **Metrics** on Flow at 30d. **Hide details** folds all of them.
   The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
   and End go to the limits, Escape or a double-click restores the theme's width), up to half
   the window; the width is kept per browser.
@@ -398,6 +548,18 @@ value just changed.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
   lane. Escape or Close closes it and returns focus.
+- **Metrics (PANEL-19).** A wider drawer with four tabs, **Flow** (DORA and flow: cycle, lead
+  and approval time, merge frequency, change-fail rate, aging work in progress), **Cost** (spend,
+  per week, and by role, model, change and project), **Quality** (review rounds, the reviewer's
+  eval recall by model, escaped defects) and **Outcomes** (each change's hypothesis, when it is
+  due, whether it was checked; an unchecked one past its date is amber). **7d**, **30d** and
+  **90d** pick the range; **This project** or **All projects** the scope. The tabs are a tablist
+  (←, →, Home, End), the range and scope are pressed buttons, and the choices are kept per
+  browser. Each figure is its value with its unit, its series as columns drawn in the page (no
+  chart library; an empty bucket is a mark on the baseline, and the series is read out to a
+  screen reader), how many items it summarises, and **project** or **built in**; a figure with
+  none is "—" and the reason under it. A change over its budget is amber in **By change**. The
+  view is fetched when it opens and every minute while it stays open; see [Metrics](#metrics).
 - **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
   the page, not picking a lane, not **Open terminal** (which takes focus to the terminal's frame).
   The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every
@@ -411,14 +573,42 @@ value just changed.
   "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
   scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude,
   so nothing you type is lost. Escape only leaves, since claude would read it as an interrupt. The
-  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
-  here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
-  Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
+  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux binds no clicks
+  here, and an unbound click would go to claude if it asked for the mouse (its fullscreen TUI,
+  `"tui": "fullscreen"`, does), so the page keeps presses for itself: a plain drag selects text
+  in the browser (the page turns a plain press into xterm's Option-press), and the selection
+  stays until you copy it with ⌘C or start another. It used to vanish as soon as the pointer
+  moved: claude's fullscreen TUI asks for every mouse motion (mode 1003), tmux relays that to
+  the page, and xterm.js clears its selection whenever it sends a mouse report, as it does for
+  a key. The page declines that one request; the wheel and the other modes still work, and
+  claude gets no hover reports (nothing here used them). tmux's status bar is off; the tab
+  names the lane.
+- **Links in the terminal.** ⌘-click a URL (Ctrl-click off a Mac) to open it in a new tab, as in
+  Ghostty and iTerm2. A plain click stays a selection, so a drag or a double-click on a URL
+  selects it and never opens it by accident. Hovering over a link underlines it and names its
+  target. Both kinds are links: plain-text `http(s)` URLs, which the page finds itself (a URL
+  that wraps onto the next row is one link), and OSC 8 hyperlinks, whose visible text can be
+  anything. claude prints URLs as OSC 8 inside tmux 3.4 or later, and its fullscreen TUI breaks
+  long ones across rows itself, so OSC 8 is what keeps those whole. A link whose text is its
+  own address opens directly. One whose text says something else (a link reading "PR 12", or
+  one row of a URL broken across rows) shows its real address above the terminal with **Open
+  link** and **Cancel** first. Only `http` and `https` ever open; the tab opens with
+  `noopener` and no referrer. A ⌘-press never reaches claude as a click. The browser test
+  `testdata/browser/terminal-links-selection.cjs` checks the links and the selection through a
+  real panel and tmux, with a lane that asks for the mouse as claude's fullscreen TUI does.
+- **Images in the terminal.** Drop an image file on a lane's terminal, or paste one (⌘V with an
+  image on the clipboard), and claude gets it as it would from a native terminal: its path is
+  typed at the cursor, as a bracketed paste followed by a space, and never Enter, so you go on
+  typing the prompt around it. A browser never tells a page where a file lives, so the page
+  sends the image to the panel, which keeps it in its own state directory (see [Security
+  model](#security-model)) and types that path. The terminal is outlined while an image is
+  dragged over it. PNG, JPEG, GIF and WebP only, up to 20 MB; what is refused says why under
+  the terminal.
 - **Warnings** (the amber bars: an unverified Claude Code, ignored events) close with their **×**.
   A closed warning stays closed in this browser while it is about the same thing, even as its
   text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
 - **Footer.** One line: hook events, status posts, **other projects** (events from sessions
-  outside the project: the hooks are the machine's, so these are expected and set aside), what
+  in no registered project: the hooks are the machine's, so these are expected and set aside), what
   was really **dropped** (overflow, malformed, unknown event; amber when any), and notifications.
   **All counters** opens the rest (the choice is remembered): drops by cause (overflow, malformed,
   unknown event name), unknown notification types, the last, mean and worst `claude agents` poll
@@ -462,18 +652,57 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 
 - **ps**, every 10 s: one `ps -o pid=,pcpu=,rss=` for the claude processes `claude agents` names.
   CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
-- **git**, every 30 s, for each worktree a lane runs in: one `git status --porcelain=v2 --branch`,
+- **git**, every 30 s (and on **Refresh**), for each worktree a lane runs in and, for a project
+  with cards, the main checkout the cards run in: one `git status --porcelain=v2 --branch`,
   plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
-  HEAD moved.
+  HEAD moved. No `git fetch`: ahead and behind are as of the last fetch.
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
 spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
 
+### The account and its quota
+
+The quota is the account's, not the project's: any session's status-line post moves it, whatever
+project it runs in (PANEL-15; before, a post from another project was set aside with the quota in
+it). Nothing in it is specific to a plan. The status line's `rate_limits` holds whatever windows
+the account's plan has, each a percentage of the plan's own limit, and the panel shows each one it
+receives:
+
+- `five_hour`, `seven_day`, `seven_day_opus` and `seven_day_sonnet` are labelled "5-hour",
+  "7-day", "7-day Opus" and "7-day Sonnet". A key shaped like them reads the same way
+  (`two_hour` is "2-hour"); any other is labelled from its words (`nimbus_quill` is "Nimbus
+  quill"). The bars go shortest window first, and a window whose span cannot be read goes last.
+- The burn rate and its projection follow the shortest window that has a number. When the
+  shortest window changes, the rate starts again.
+- A post carrying some windows keeps the others' last values.
+- `/api/state` carries `quota.windows` (`key`, `label`, `pct`, `resetsAt`, `expired`). The fields
+  before PANEL-15 (`fiveHour`, `sevenDay` and their resets) stay for one release, so a page left
+  open across an upgrade still draws.
+- The quota alert and the quota guard still read the 5-hour window, as their `five_hour_pct`
+  keys say. A plan with no 5-hour window never trips either.
+
+To know what kind of account it is, the panel runs `claude auth status --json` at start and
+every 10 minutes (it costs no token), through `/usr/bin/env -u ANTHROPIC_API_KEY -u
+ANTHROPIC_AUTH_TOKEN …`, the environment a lane gets, so it names the login lanes use. It keeps
+only `loggedIn`, `authMethod`, `apiProvider` and `subscriptionType`. The command also prints your
+email, your organisation's name and its id: the first two are never decoded, and the id is kept
+only as a short one-way hash, stored with the quota in `quota.json` so a reading saved for one
+account is dropped once the panel reads another. What stands in the quota's place:
+
+| Account | `claude auth status` | Shows |
+|---|---|---|
+| A subscription (Pro, Max, Team, Enterprise) whose status line has windows | `authMethod` `claude.ai` (or `oauth_token`) | the bars, the plan on the first ("(Max)") |
+| A subscription that reports no windows | the same, and 3 status posts in a row with no `rate_limits` | "Quota: none reported", and no burn rate |
+| An API key, or a cloud provider (Bedrock, Vertex, Foundry, a gateway) | `authMethod` `api_key` or `api_key_helper`, or an `apiProvider` other than `firstParty` | no quota: **API spend (est.)** comes first, and **Spend rate** is its dollars per hour |
+| Not read yet, not logged in, or a method the panel does not know | | the 5-hour and 7-day fields with no reading, and where one comes from |
+
+Lanes still start only on a subscription login (*Subscription only*).
+
 ## Lanes
 
 A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
-(`tmux -L clauductor`, or `tmux_socket`). tmux owns the process, not the panel, so:
+(`tmux -L clauductor`, `clauductor-<id>`, or `tmux_socket`: one per project, see [Projects](#projects)). tmux owns the process, not the panel, so:
 
 - closing the browser, or restarting or upgrading the panel, leaves every lane running;
 - several viewers can share a lane: browser tabs, and a Terminal.app window.
@@ -486,7 +715,7 @@ pauses, while a workflow in a background session fails.
 **New lane** asks for a template (or none), a lane type (from `lanes` and `lane_types`), a lane
 name, and where it runs. Under each choice a line says what it is: a **template** is a recipe for
 one kind of work (it sets the lane type, names the branch and types a first prompt); a **lane
-type** is only how claude runs (its branch prefix, model and effort). **Start lane here** on a
+type** is only how claude runs (its branch prefix, model and effort). **New lane here** on a
 worktree picks that worktree's own lane type (`main` → `orchestrator`). When a template has a
 `suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
 
@@ -508,6 +737,11 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
      /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
 ```
 
+- First, `tmux -L <socket> -f /dev/null start-server ; set-option -g exit-empty off`, run in
+  your home directory, so the server (which keeps its starting command line for life) names no
+  worktree; `exit-empty` goes back `on` right after the `new-session`, so the server still ends
+  with its last lane (see [Never kill the panel's tmux server from a
+  script](#never-kill-the-panels-tmux-server-from-a-script)).
 - The lane name is the tmux session name and the worktree directory name. It must match
   `[a-z0-9][a-z0-9-]{0,40}`, so it is safe in a tmux target and in a shell command.
 - The session id is a UUID that the panel generates, so the lane is bound to its Claude session
@@ -524,6 +758,52 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
 **A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
 to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
 exits and the lane shows a dead pane; STOP it and start it again.
+
+### Merge readiness
+
+PANEL-20. A lane's **Checks** tab says in one line whether its branch is ready to merge, and
+every reason it is not ("Not ready: 1 check(s) failed; 1 unresolved review thread(s); no gate
+receipt for HEAD"), then a line per check. It is read-only: the panel never merges.
+
+| Check | From | Not ready when |
+|---|---|---|
+| Pull request | `gh pr list` (already polled) | none is open for the branch, or it is a draft |
+| Checks | its status checks | one failed or is pending |
+| Review | its review decision | changes requested, or a review required |
+| Review threads | `gh api graphql` (`reviewThreads`, the first 100), at most every 2 min per pull request | one is unresolved |
+| Tasks | the change's `tasks.md` in the lane's own worktree (the branch's last segment names the change) | a `- [ ]` box is unticked |
+| Gate receipt | `<the worktree's git dir>/ci-receipt` (OPS-7's `run-local.sh`: `<sha> TAB full TAB clean\|dirty TAB all`) | it is for another commit than HEAD, or for a dirty tree; with none, only when the project keeps receipts (it has `scripts/ci/run-local.sh` or a queue) |
+
+A check the panel cannot make yet (nothing read, or gh failed) is shown as such, in the dim tier,
+and counts as not ready. The reads run with the dashboard's, only while a page is in view. A lane
+on the project root or the base branch has nothing to merge, and says so.
+
+### Worktree setup, teardown and ports
+
+PANEL-20 (config version 5). A worktree is a fresh checkout, so a new lane may need its
+gitignored files, its dependencies and a port of its own before claude starts in it.
+
+- **`.worktreeinclude`** in the project root, as Claude Code reads it: `.gitignore` syntax, and a
+  file is copied from the project root into a lane's **new** worktree only when it matches a
+  pattern **and** is ignored, so a tracked file is never copied. git applies both sets of
+  patterns (two `git ls-files --others --ignored` lists, one with `--exclude-standard`, one
+  with `--exclude-from=.worktreeinclude`; the copy is what both list). Only regular files are
+  copied (never a symlink), nothing already in the worktree is overwritten, and at most 2,000
+  files or 200 MB; the start says how many it copied.
+- **`worktree_setup.command`** runs in the new worktree after that and before claude starts;
+  **`worktree_teardown.command`** runs in a lane's worktree when **Close lane** is about to
+  remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
+  (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
+  and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
+  A failed teardown, or one that leaves the worktree changed (the clean check runs again after
+  it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
+  A lane on an existing worktree or the project root runs neither. The lane lock is held
+  while they run, so a slow setup delays the other lanes' actions.
+- **`ports: {base, per_lane}`** gives each lane a port of its own: `base`, `base + per_lane`,
+  and so on, the lowest one no other registered lane holds. It is kept in the lane's registry
+  record (so a restart or a restore keeps it, and Forget frees it), exported to the lane's tmux
+  session as `CLAUDUCTOR_PORT`, and shown as **Port** in the lane's header. The panel does not
+  check that nothing else listens there.
 
 ### Lane templates
 
@@ -599,7 +879,7 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 
 | What | Shown as | What you can do |
 |---|---|---|
-| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, or **Forget** |
+| registered, tmux session gone (a reboot, or tmux ended) | orphaned | **Resume**, **Forget**, or **Close lane** |
 | registered, the panel stopped during an action | orphaned, with the action | **Resume**, or **Forget** |
 | a tmux session on the socket that the registry does not know | running, "not in the lane registry" | terminal and **Stop lane** only; without a session id it cannot be restarted |
 | registered, its directory no longer a worktree | the reason is added | **Forget** |
@@ -611,14 +891,115 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | Button | What it does |
 |---|---|
 | **Interrupt (Esc)** | `tmux send-keys Escape`, which is claude's interrupt. |
-| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry. **The worktree is never removed**; the panel offers no way to remove one. |
+| **Stop lane** | If `claude agents` reports the lane's session **idle**, sends `C-u` (clearing any unsent text), types `/exit`, checks that the session is **still** idle, then presses Enter as a separate write and waits up to 10 s. If it stopped being idle, it presses Escape instead. In any other case (busy, waiting on a permission or dialog, or unknown), it presses **Escape only**, never Enter: an Enter would confirm whatever default the dialog has focused. Then `kill-session`. The lane leaves the registry, and its dropped images go. **The worktree is never removed**; **Close lane** is the control that removes it. |
 | **Restart** | Stops the lane, then starts its **own** session again in the same directory: `claude --resume <session id>`. If the session never had a prompt, it uses `--session-id <same id>` instead, because `--resume` refuses an empty session. The panel marks a session as having a conversation when a `UserPromptSubmit` or `Stop` hook arrives from it, or when `claude agents` shows it busy. Hooks can be dropped, so the mark can be wrong. If claude then exits non-zero within 3 s, the panel retries once with the other flag. It judges by the exit status alone and never reads the screen. In Claude Code 2.1.284, both wrong flags exit 1 at once. If both attempts fail, the dead pane shows claude's message. It **never** uses `--continue`, which picks the directory's most recent conversation, whoever's it is. |
 | **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
+| **Close lane** (running lanes and orphans) | **Stop lane** exactly as above (for an orphan, **Forget**), then removes the lane's worktree and branch **when that loses nothing**. See [Close lane](#close-lane). |
+| **Remove** (a worktree with no lane, in the tree) | Close lane's cleanup without a lane: removes the worktree, and its branch when merged, **when that loses nothing** and no lane or claude session is in it. See [Remove a worktree](#remove-a-worktree). |
+| **New lane here** (a worktree with no lane, in the tree) | Opens the Start dialog on that worktree: a new lane, a new claude session there. |
 | **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
 Sent together, a long line can sit in claude's input box unsubmitted.
+
+#### From the lists
+
+Every lane the panel started (a lane with a terminal, running or orphaned) also has a **⋯**
+button (PANEL-18) at the end of its row in the **Lanes** table and beside its node in the
+**Worktrees** tree, so a lane can be stopped without selecting it first. Its menu has **Interrupt
+(Esc)**, **Restart** (registered lanes), **Stop lane** and **Close lane** for a running lane, and
+**Resume**, **Forget** and **Close lane** for an orphan. Picking one selects the lane and opens the
+same confirmation under its terminal that the button there opens, in words built from the lane's
+state at that moment; nothing is sent to the panel until **Confirm …** is pressed, and **Cancel**
+sends nothing. From the menu, **Interrupt** and **Resume** ask too, although their buttons under
+the terminal act at once: one stray click in a list must never act. A lane started outside the
+panel has no **⋯**: the panel has no terminal on it to stop.
+
+The **⋯** is a menu button in the WAI-ARIA pattern the project and Appearance menus follow:
+Enter, Space or ↓ opens it on its first item and ↑ on its last; ↑/↓/Home/End move; Enter or Space
+picks; Escape closes it back to its button; Tab or a click elsewhere closes it. A click on it
+neither selects its row nor reaches the row: the row still selects on its own click, Enter or Space.
+
+### Close lane
+
+**Close lane** (PANEL-17) is for a lane whose work is done: it stops the lane, then cleans up
+after it. Before it asks, the panel reads git's own state and the confirmation lists exactly what
+will be removed and what will be kept, and why. Confirming sends back what the confirmation
+offered to remove; the panel checks everything again once claude has exited (exiting can write
+files) and removes no more than that. The result (removed, kept, and why) shows above the lanes.
+
+In order:
+
+1. **The lane stops** exactly as **Stop lane** stops it (idle gets `/exit`, anything else Escape,
+   then `kill-session`), and leaves the registry. An orphan is forgotten instead. Its dropped
+   images go.
+2. **The worktree** is removed with `git worktree remove` (never `--force`), and only if every
+   one of these holds. Otherwise it stays, and the page says which failed:
+   - it is in `git worktree list`, and it is **not the main worktree**;
+   - it is **inside the project's `worktree_dir`**: the panel removes only what it would create;
+   - it is **not locked** (`git worktree lock`);
+   - no other lane runs in it;
+   - it is **clean**: `git status --porcelain --untracked-files=all` prints nothing. An untracked
+     file counts; an ignored one does not.
+3. **The local branch** is deleted only after its worktree is gone, and only if nothing is lost:
+   - its tip is in the configured `base` (`git for-each-ref --merged=<base>`); the confirmation
+     runs `git fetch` first, and a failed fetch is shown and only makes the panel keep more; or
+   - `gh pr list --head <branch> --state merged` has a pull request whose head is the branch's
+     tip now. A squash merge puts none of the branch's commits in the base, so git alone would
+     keep it; a merged pull request with commits on the branch since then keeps it.
+
+   It is deleted with `git update-ref -d refs/heads/<branch> <the tip it checked>`, which does
+   nothing if the branch moved in the meantime; its `branch.<name>` settings go with it. A
+   branch that is not merged stays, and the page says so.
+
+The conversation is never removed: `claude --resume <session id>` still opens it.
+
+### Close a lane when its PR merges
+
+PANEL-20, opt-in: `"lanes_auto_close": "on_merge"` (config version 5), or per lane type
+`lane_types.<type>.auto_close`. The panel then closes a registered lane on a branch of its own
+once the branch's pull request merges, **exactly as Close lane would**: it asks Close for its
+plan (with the fetch the page's confirmation does), and acts only when that plan removes both
+the worktree (clean: no change, no untracked file) and the branch (merged: every commit in the
+base, or a merged pull request whose head is the branch's tip), and claude is idle, exited or
+gone (a current `claude agents` reading; an approximate one does not count). Nothing is forced.
+The close goes in the lane's **Activity** ("Lane closed: PR #12 merged; …").
+
+Otherwise the lane stays and **Needs you** asks **PR merged: close lane?**, with why (claude is
+working; the worktree has 2 uncommitted files; the branch has commits since the merge): **Close
+lane** in its **⋯** menu shows the plan and asks first. While it asks, the panel looks again
+every 5 minutes and closes it once nothing holds it back. Each close and each ask raises one OS
+notification (once per lane and pull request for the panel's run, when `alerts.notify` is on).
+
+When it looks: when the panel first sees the lane, when the branch's pull request leaves the
+open list the panel already polls, and while the lane asks; each look is one `gh pr list --head
+<branch> --state merged`. The mode is the config's, so an untrusted config closes nothing.
+
+### Remove a worktree
+
+A worktree with no lane, such as a clean detached worktree a closed session left behind, has
+**Remove** under it in the **Worktrees** tree, beside **New lane here** (PANEL-18). It is Close
+lane's cleanup without a lane to stop, with the same rules, the same plan first and the same
+check again when it acts: the confirmation, under the worktree, lists what **Removes** and what
+**Keeps**, and why, after a `git fetch`; **Confirm remove** sends back only what it offered, and
+the result shows above the lanes. The main checkout has no **Remove**.
+
+The worktree is removed with `git worktree remove` (never `--force`) only if everything Close
+lane checks holds (listed in `git worktree list`, not the main worktree, inside `worktree_dir`,
+not locked, clean with untracked files counted), and also:
+
+- **no lane is registered in it**, running or orphaned: that lane's **Close lane** is the control
+  for it;
+- **no claude session runs in it**: no entry of `claude agents --json` has its `cwd` in this
+  worktree (the deepest worktree containing the `cwd`, as the panel matches sessions everywhere),
+  which covers a session started in a terminal of your own. If `claude agents` cannot be read, it
+  stays: such a session could not be ruled out.
+
+Its local branch then goes only under Close lane's rules (merged into `base`, or the head of a
+merged pull request, deleted at the tip checked). A detached worktree has no branch, and the plan
+says so: "no branch: the worktree is detached (HEAD at …), so there is no branch to delete".
+
 
 ### Window size: the latest client wins
 
@@ -649,6 +1030,28 @@ layer, the lane command unsets both variables.
 At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse, and the dialog
 offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
 blocks: the guard acts only on a number it has.
+
+### Resume after the 5-hour reset
+
+PANEL-20, opt-in: `"quota_auto_resume": true` (config version 5). A lane the usage limit
+stopped (a `StopFailure` with `error_type: rate_limit`, or Claude Code's
+`quota_auto_resume_stale` / `_disabled` notification: it will not continue by itself) is typed
+`quota_resume_line` (default `continue`) and Enter, **once**, after the 5-hour window that stopped
+it resets:
+
+- the reset is the 5-hour window's `resets_at` as the status line reported it when the lane
+  stopped (a later window's reset is never taken for it), plus 30 seconds;
+- only into a lane the panel started, running, whose claude `claude agents` reports **idle** by a
+  current reading, and that waits on nothing: never into a permission prompt, a question or a
+  dialog. The same is checked again right before the Enter; if it changed, the typed text is
+  cleared (Ctrl-U) and nothing is sent;
+- one attempt per stop, kept until the lane's next prompt clears the stop; the attempt, typed
+  or not and why, goes in the lane's **Activity** ("Auto-resume: typed "continue" after the
+  5-hour window reset at 14:00").
+
+The line is config (one line of plain text, at most 200 characters), so it is typed only while
+the config is trusted; `trust` prints it. A lane that is not idle at the reset (it waits on a
+permission, say) is left alone: the **Needs you** row that already shows it stays.
 
 ### Restore after a reboot
 
@@ -1021,7 +1424,10 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
 | context | `context_window.used_percentage` ≥ `context_pct` | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
-| quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
+| quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
+| approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
+| budget | a change whose branches have spent more than its proposal's `**Budget:** $N` (PANEL-19) | warn |
+| stale | a lane on a branch of its own with no commit for `stale_days` (PANEL-19) | warn |
 
 ### Current or stale
 
@@ -1071,6 +1477,167 @@ arguments, so without it a title starting with `-e` would be read as more script
 the config's `name` only while the config is trusted; `name` must be one line of plain text that
 does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
+
+## Metrics
+
+PANEL-19. How the work flows, what it costs, how good it is, and whether it did what it meant
+to. The figures come from two places, and the page marks every one with which:
+
+- **The project's metrics command** (`metrics.command`, config version 4): a project command,
+  like a card's, whose stdout is the JSON below. Clauductor's operating model ships one
+  (`.claude/metrics.sh`, OPS-9); any project can write its own.
+- **The panel's own** (built in), for any repository, with or without the command: merge
+  frequency and PR cycle time from merged pull requests (`gh`), spend from the status line's
+  posts, and the work in flight from the lanes. It costs no model token and runs nothing new but
+  one `gh pr list --state merged`, at most every 10 minutes while a page is in view.
+
+Where both have a figure, the project's is shown. A figure neither has shows "—" and why ("Only
+a project's metrics command reports this", "No pull request was merged in the last 7d", "The
+metrics command failed: …"), never a zero.
+
+### The metrics JSON (contract version 1)
+
+```json
+{
+  "version": 1,
+  "generated_at": 1790000000,
+  "windows": {
+    "30d": {
+      "flow": {
+        "lead_time":        { "value": 44,  "series": [50, 40, 46, 38, 42, 44, 45, 41, 43, 44], "n": 12 },
+        "cycle_time":       { "value": 7.5, "n": 12 },
+        "approval_wait":    { "value": 5.5, "n": 12, "note": "proposal written to Approved line" },
+        "merge_frequency":  { "value": 2.8, "series": [2.3, 4.7, 2.3, 0, 2.3, 4.7, 2.3, 2.3, 4.7, 2.3] },
+        "change_fail_rate": { "value": 8.3, "n": 12 },
+        "aging_wip": [ { "id": "add-score-photo", "title": "Photograph a scorecard", "age_days": 4.5, "stage": "build" } ]
+      },
+      "cost": {
+        "total_usd": 162.4,
+        "per_week":   { "value": 37.9, "series": [30, 35, 41, 38, 40, 36, 39, 37, 42, 38] },
+        "by_role":    [ { "name": "builder", "usd": 90.1 } ],
+        "by_model":   [ { "name": "opus", "usd": 140.4 } ],
+        "by_change":  [ { "name": "add-score-photo", "usd": 61.5, "budget_usd": 50 } ],
+        "by_project": [ { "name": "My Project", "usd": 162.4 } ]
+      },
+      "quality": {
+        "review_rounds":   { "value": 1.5, "n": 12 },
+        "reviewer_recall": [ { "model": "opus", "pct": 92, "n": 40 } ],
+        "escaped_defects": { "value": 1 }
+      },
+      "outcomes": {
+        "hypotheses": [ { "change": "add-score-photo", "hypothesis": "Half of new cards start from a photo",
+                          "due": "2026-10-20", "checked": false, "result": "" } ]
+      }
+    }
+  }
+}
+```
+
+- `windows` has any of `7d`, `30d` and `90d`; every section and every figure is optional.
+- A figure is `{value, series?, n?, note?}`. `value` may be `null` (with a `note` saying why);
+  `series` is the same figure over equal buckets of the window, oldest first, at most 120
+  points, a `null` point being a bucket with no data; `n` is how many items it summarises.
+- The units are fixed, so a payload carries numbers only: `lead_time`, `cycle_time` and
+  `approval_wait` are median **hours**; `merge_frequency` is **per week**; `change_fail_rate`
+  and `pct` are **percent** (0–100); money is **US dollars**; `age_days` is days;
+  `review_rounds` is a median count per change; `escaped_defects` a count.
+- `due` is `YYYY-MM-DD`. `generated_at` is unix seconds; the view shows its age.
+- It is read strictly, and drawn whole or not at all: an unknown key, another `version`, a window
+  other than those three, a negative or non-finite number, a percent over 100, text with a
+  control character or over 300 characters, a list over 500 entries, or output of 1 MB or more is
+  refused, and the view shows the error with the path of what is wrong
+  (`windows.30d.flow.change_fail_rate.value: must be at most 100`). A failed run shows its error,
+  not the last good payload's figures. The panel's own figures still draw.
+- `framework/internal/panel/metrics/testdata/metrics.sh` is a fixture command that prints a
+  valid payload (`metrics.json` beside it), or with `METRICS_FIXTURE=bad` one that breaks it.
+
+### The panel's own figures
+
+| Figure | From | How |
+|---|---|---|
+| Merge frequency | `gh pr list --state merged --search merged:>=<90 days ago> --limit 300` | merges in the window, per week; the series per bucket |
+| Cycle time | the same | median hours from a pull request's creation to its merge |
+| Cost: total, per week, by lane type, by model, by branch, by project | the spend ledger | the status line's `total_cost_usd`, per session, added up a day at a time |
+| Aging work in progress | the lanes | each registered lane on a branch of its own, by how long it has run |
+| Approval wait | the change directory (see *Needs you from the metrics*) | how long each proposal waiting for approval has waited so far |
+
+Buckets: 7 of a day for 7d, 10 of 3 days for 30d, 15 of 6 days for 90d. At gh's limit of 300 the
+figures say the oldest part of the window may lack merges. The ledger (see *Security model*,
+what the panel writes) counts a session the first time it sees it in full, and after that only
+what it added, so a panel restart counts nothing twice; spend from before the panel kept a
+ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
+By lane type, because the panel knows a lane's type, not the role a skill switched to: a
+project's command can report by role.
+
+### The command runs as a card does
+
+The metrics command is config like any other project command (see *Config trust*): it runs
+only while `panel.json` is trusted as it is, in the project's main checkout, without a shell, with
+a 30-second timeout and 1 MB of output; `trust` and `install` print it among what they trust.
+Untrusted, it does not run and the view says so. The JSON is data: every string reaches the page
+through `textContent`, never markup.
+
+### Needs you from the metrics
+
+Three signals act where you already look: the **Alerts** rows under **Needs you** (they show
+there whether or not a lane has them), and the lane's own **Alerts** tab. They are warnings, so,
+as every alert that does not block (see *Notifications*), they never raise an OS notification.
+
+- **An approval waiting too long.** A change's `proposal.md` with no `**Approved:** <date> by
+  <owner>` line (OPS-7's D8), last written (it or its `design.md`) more than
+  `alerts.approval_wait_hours` ago (default 24; 0 turns it off).
+- **A change over its budget.** A proposal's `**Budget:** $N` line (OPS-7, a cost budget per
+  change), against what every lane on the change's branches has spent, from the spend ledger. A
+  branch is the change's when its last path segment is the change's id (`change/add-x` builds
+  `add-x`). The lane's header shows a **Budget** bar next to **Cost**: what the change has spent
+  of its budget, amber from 80%, red past it.
+- **Work in flight gone quiet.** A registered lane on a branch of its own with no commit for
+  `alerts.stale_days` (default 3; 0 turns it off), counted from the lane's start while it has no
+  commit of its own. The commit time is the git read the dashboard takes while a page is in view,
+  so a lane not read yet is never called stale.
+
+The panel reads the changes from files alone, every minute and on **Refresh**, and runs no
+command for them: `<worktree>/<CHANGES_DIR>/<id>/proposal.md` in the main checkout and in every
+worktree (a proposal is drafted on a lane's branch before it lands; the copy written last
+counts), where `CHANGES_DIR` comes from `.claude/project.conf` when it names a directory inside
+the repository, else `changes`; and `openspec/changes/<id>/`. `archive/` is not read. The same
+reading gives the built-in **Approval wait** (the proposals waiting now) and the budgets beside
+**By change**.
+
+### Economy mode
+
+Off unless `quota_economy.five_hour_pct` is set (config version 4; the default project's, since
+the quota is the machine's). While the account's 5-hour quota is at or above it, the panel is in
+economy mode, and it leaves only once the quota is **3 points below** (so a quota hovering at the
+line does not flap). A reset window, or no reading, keeps the mode as it is.
+
+**The contract: `~/.clauductor/panel/economy.json`** (0600, written atomically, and only when
+the mode switches):
+
+```json
+{ "economy": true, "since": 1790000000, "reason": "5-hour quota 87% ≥ 85%" }
+```
+
+`since` is the unix time of the switch; `reason` the reading that switched it (off reads
+`"5-hour quota 81% < 82% (on at 85%)"`). A missing file means off. With `quota_economy` unset
+the panel writes nothing, except to turn a file an earlier run left on to off. Clauductor's
+operating model's `build-change` reads it and moves the roles that are not critical down one
+tier; which roles, and to what, is the project's `.claude/model-roles.json`:
+
+```
+"economy": { "_why": "…", "scribe": { "model": "sonnet", "effort": "low" }, "mechanic": "haiku/low" }
+```
+
+Each key not starting with `_` is a role; its value is the tier it drops to, as
+`{model, effort}` or `"model/effort"` (the same object may sit under `economy.roles`). The
+reviewer and planner are simply not listed. While economy mode is on, an **Economy** field by
+the quota says **economy** and names those roles ("scribe to sonnet, low"); hovering says why it
+is on and since when. The panel only reads that file, every minute, and runs nothing.
+
+`GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
+route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
+projects, merges, spend and escaped defects add up; a median cannot, so it is the projects'
+values weighted by how many each summarises, and says so; lists name their project.
 
 ## Appearance
 
@@ -1303,7 +1870,9 @@ sessions are found through `claude agents --json`.
 - **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
   session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
   by its `cwd` at first sight, and a later `cd` does not move it.
-- **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset".
+- **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset". Every
+  status post updates it, whatever project it comes from; a window that does not decode is
+  skipped without costing the post anything else (see *The account and its quota*).
 - **`claude agents`.** `id`, `state` and the `waitingFor` enum (permission prompt, input needed,
   sandbox request, worker request, dialog open) are decoded. The poll passes `--cwd <the
   deepest directory holding every worktree>`, but only after a cross-check: every 5 minutes it
@@ -1375,13 +1944,13 @@ send requests to `127.0.0.1`.
   inside `.xterm`, and only for a value made of `color` / `background-color` declarations with a
   hex or `rgb()` value. Any other style attribute still meets the CSP.
   `TestXtermStyleRouteIsNarrow` runs it in node (skipped where node is absent).
-- **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
+- **The terminal endpoint** (`GET /ws/term?project=<id>&lane=<id>`) is a shell into a lane, and it is the most
   guarded route. It needs all of the following:
   - the Host check;
   - the cookie;
   - an `Origin` exactly equal to `http://<the Host>`, meaning scheme, host and port;
-  - **a single-use ticket**. The page gets one from `POST /api/lanes/<id>/ticket`, which checks
-    `Origin`. A ticket is valid for 30 s, for that one lane, and is sent in the
+  - **a single-use ticket**. The page gets one from `POST /api/p/<project>/lanes/<id>/ticket`, which checks
+    `Origin`. A ticket is valid for 30 s, for that one lane of that one project (a ticket for a/x never opens b/x), and is sent in the
     `Sec-WebSocket-Protocol` header, never in the URL. The cookie alone is not enough, because
     cookies are not isolated by port (RFC 6265 §8.5). A page on another loopback port, such as a
     dev server on `:3000`, is same-site, and the browser sends it the panel's cookie. So is a page
@@ -1396,8 +1965,11 @@ send requests to `127.0.0.1`.
   and root tables. One root binding comes back: `WheelUpPane`, as tmux ships it (into copy
   mode, or to the program if it asked for the mouse), so the wheel scrolls history. Clicks and
   the right-click menu (which offers kill-pane and respawn-pane) stay unbound. The same pass sets
-  `mouse on` and `status off`. `-f` only applies when the panel starts the server, so the same
-  settings are applied again whenever the panel finds its socket's lane set changed, every 30 s
+  `mouse on`, `status off` and `terminal-features[99]` to `xterm-256color:hyperlinks`: tmux
+  strips OSC 8 hyperlinks unless the client's terminal has that feature, and no default entry
+  gives it to the viewers' `xterm-256color`. It lets links through, never a command; the page
+  decides what a link may do (see [The page](#the-page), links in the terminal). `-f` only
+  applies when the panel starts the server, so the same settings are applied again whenever the panel finds its socket's lane set changed, every 30 s
   while lanes run, and before every viewer attaches. A server someone else started there, with
   their `~/.tmux.conf` bindings, is stripped too. A lane's viewer therefore cannot use tmux keys
   to switch to another lane or reach tmux's command prompt and `run-shell`.
@@ -1419,28 +1991,78 @@ send requests to `127.0.0.1`.
     rotation is closed the moment it registers. Then `clauductor panel open` opens the page with
     the new token.
 - **Terminal output is untrusted.** xterm.js renders it to its own DOM, and the page never passes
-  it to `innerHTML`. A link that a lane prints (OSC 8) opens only after an in-page confirmation,
-  and only for `http`/`https`. Title escapes are ignored. There is no automatic linkifier.
-- **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
-  forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
+  it to `innerHTML`. A link that a lane prints opens only on ⌘-click (Ctrl-click off a Mac), and
+  only for `http`/`https`. A plain-text URL, or an OSC 8 link whose text is its own address,
+  opens directly: what you clicked is where it goes. Any other OSC 8 link opens only after an
+  in-page confirmation that shows its real address, since its text can say anything. The
+  plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
+  lane may print, other schemes and look-alike link text. Title escapes are ignored.
+- **Remote control** (PANEL-19) reaches past this page's guards: see [Remote control](#remote-control).
+- **A dropped image** (`POST /api/p/<project>/lanes/<id>/image`, PANEL-15b) is a lane action like the
+  others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
+  the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
+  body needs a CORS preflight, which the panel never answers. The bytes decide what it is (PNG,
+  JPEG, GIF or WebP by their magic numbers; the name and `Content-Type` are ignored), and it is
+  refused over 20 MB. The name the page sends only names the file: letters, digits, `_` and `-`,
+  60 characters at most, with the extension the bytes are. The file is written 0600 to
+  `~/.clauductor/panel/<project hash>/uploads/<lane>/<ms>-<name>` (directories 0700), **never
+  into the worktree**, where it would dirty git. Its path is typed with `tmux set-buffer` and
+  `paste-buffer -p` (bracketed when claude asked for it), then a space; no Enter. A lane's images
+  are removed when it is stopped or forgotten, and any image older than 24 hours when the next
+  one is dropped and when the panel starts. The panel never reads an image back.
+- **Lane control is fixed verbs on validated ids.** start, stop, close, interrupt, restart, resume,
+  forget, terminal-app, remote-control (PANEL-19), restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
   names a lane type (checked against the config), a mode, a lane name, and for "existing" a path,
   which must be one of `git worktree list`'s. Unknown JSON fields are refused.
+- **Close lane** (`POST /api/p/<project>/lanes/<id>/close`, PANEL-17) passes the same guards as
+  stop: the cookie, this page's `Origin`, a valid lane id. Its body is `{"dryRun": true}` (the
+  plan the confirmation lists) or two flags, `worktree` and `branch`: what the confirmation
+  offered to remove. It carries no path, no branch name and no command; the worktree and branch
+  are the lane's own, from the registry and `git worktree list`, and each is removed only if a
+  check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
+- **Remove a worktree** (`POST /api/p/<project>/worktrees/remove`, PANEL-18) passes the same
+  guards: the cookie, this page's `Origin`, a strict body (unknown fields are refused). It is
+  served under `/api/p/<project>/` only. The body is `{"worktree": <key>, "dryRun": true}` for the
+  plan, or `{"worktree": <key>, "remove": …, "branch": …}` with what the confirmation offered.
+  The key is the one the page's state gave the worktree (its resolved path), and it must be an
+  **exact** entry of that project's `git worktree list` at that moment: anything else (a relative
+  path, a path inside a worktree, the same path spelled otherwise, a path the list lacks) is
+  refused before any command runs in it. It carries no branch name and no command; see
+  [Remove a worktree](#remove-a-worktree) for what is checked.
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
   answer `204` before processing, and never execute anything. The worst a local process can do
   is post fake lane events.
-- **Events from other projects are dropped.** An event counts only if its `cwd` is inside one
-  of the project's worktrees, as `git worktree list --porcelain` reports them. That list is the
-  authority, never a hand-kept list. It is re-read every 10 s, and early when a worktree is
-  added or removed or when an event arrives from an unknown `cwd`.
+- **Every route is a project's** (PANEL-16). The actions are served under
+  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh,
+  and since PANEL-18 worktrees/remove, which has no path without the project), and
+  the streams take `?project=<id>` (`/events`, `/api/state`, `/ws/term`). Each passes the same
+  guards as before: the Host check, the cookie, and for a POST this page's `Origin`; a test checks
+  every one of them. A project the panel does not serve is 404. The paths before PANEL-16
+  (`/api/lanes/…`, `/api/queues/…`, `/api/refresh`) reach the default project for one release, so
+  a page left open across the upgrade keeps working. `host_names` is the union of the default
+  project's and every trusted project's, so an untrusted config cannot add a name.
+- **Events of no project are set aside.** An event counts only if its session is one of a
+  project's, or its `cwd` is inside one of the project's worktrees, as `git worktree list
+  --porcelain` reports them. That list is the authority, never a hand-kept list. It is re-read
+  every 10 s, and early when a worktree is added or removed or when an event arrives from an
+  unknown `cwd`.
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
+  - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
+    a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
+  - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
+  - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
+    started on a project it does not list) or removed; a refused start writes nothing;
+  - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
+  - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
+    the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
 
   Hook bodies include prompt text. The panel keeps only a short one-line summary per event, in a
@@ -1449,19 +2071,47 @@ send requests to `127.0.0.1`.
 
 ### Config trust
 
-`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN) and
+`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN, the
+metrics command) and
 prompts it types (templates). Anyone who can change the repository can change them, so the panel
 runs them only for the exact bytes you trusted. Trusting records the file's SHA-256 under
 `~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
-starts, but its cards, queue RUN and templates stay **off**, under a red **Config untrusted**
+starts, but its cards, queue RUN, metrics command and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
-record and everything it trusts: each card's command, each queue's RUN command, and each
-template's first prompt. There is no trust button in the page:
+record and everything it trusts: each card's command, each queue's RUN command, each
+template's first prompt, and the metrics command. There is no trust button in the page:
 trusting is a command you run after reading the file.
+
+### Remote control
+
+PANEL-19. Remote Control is Claude Code's own feature, and it reaches past everything above: a
+session connected to it can be driven from claude.ai/code or the Claude app on **any device
+signed in to your account**, which can send it prompts and answer its permission prompts. So
+whoever holds your account's session on a phone holds a shell on this Mac through that lane.
+Traffic goes out over TLS through Anthropic's API (no port is opened here), and while connected
+the transcript is kept on Anthropic's servers. It needs a claude.ai subscription login, and an
+organisation can turn it off (`disableRemoteControl`).
+
+The panel only chooses where it is on, once, at `panel install` (see *The launchd agent*):
+
+- **all** sets `remoteControlAtStartup` to `true` in your user `~/.claude/settings.json` (a
+  project's `.claude/settings.json` cannot turn it on, only off), so every interactive session
+  on the Mac connects;
+- **lanes** adds `--remote-control` to each lane's argv, before `-n` (never with its optional
+  name argument; `-n` names the session), read at every start and restart;
+- **off**, or an explicit `remoteControlAtStartup` of your own, leaves Claude Code as it is.
+
+The lane's header says **Remote: on, the panel's lanes** (or **every session**), and `panel list`
+names the mode. In lanes mode a running lane's **⋯** has **Remote control**: after an in-page
+confirmation, and only while `claude agents` reports the lane idle (read again just before the
+Enter, as Stop's `/exit` is), `POST /api/p/<project>/lanes/<id>/remote-control` types
+`/remote-control` and Enter. That connects a lane started before the choice, or shows a connected
+one's status. It passes the same guards as the other lane actions and takes no body. The first
+time on a machine claude asks, in the terminal, to confirm Remote Control.
 
 ## Operations
 
@@ -1483,18 +2133,21 @@ the machine, it logs "waiting for the running panel to exit" once, blocks on the
 over as soon as that panel stops. (Only a live panel from before the lock, which it cannot wait
 on, makes it log why and exit 0; start it again with `launchctl kickstart
 gui/<uid>/com.clauductor.panel` once that panel has stopped.) A panel started by hand is still
-refused at once. Watching several projects from one panel, a multi-project daemon, is future
-work; until it lands, run one project's panel at a time.
+refused at once. One panel serves every project (see [Projects](#projects)), so there is no
+reason for a second.
 
 ### The launchd agent
 
 ```bash
 clauductor panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
+clauductor panel install                                      # once projects.json holds a project
 ```
 
 `install`:
 
-1. Loads the config and refuses if it is missing or invalid, rather than crash-looping later.
+1. With `--project`, adds the project (if it is not) as the default, and trusts its config as it
+   is now. Without it, `projects.json` must hold a project. Either way it loads the default
+   project's config and refuses if it is missing or invalid, rather than crash-looping later.
 2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
    a build directory or a worktree that may disappear. Re-run `install` after upgrading
    clauductor.
@@ -1512,6 +2165,32 @@ clauductor panel install --project ~/Development/app          # add --app for a 
      `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
      directories. launchd's default PATH has none of these.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
+
+Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
+where Claude Code's Remote Control is on. It asks once, on a terminal, and only when
+`~/.claude/settings.json` has no `remoteControlAtStartup` (an explicit `true` or `false` is
+your own choice, and is never asked about):
+
+```text
+  1) Every Claude session on this Mac (sets remoteControlAtStartup in ~/.claude/settings.json)
+  2) Only the panel's lanes (lanes start with --remote-control)
+  3) Not now
+Choose 1, 2 or 3 [3]:
+```
+
+`--remote-control=all|lanes|off` answers without asking; with no terminal and no flag it is
+off, unasked. The answer is kept in `~/.clauductor/panel/remote-control.json` (0600), so a
+later `install` does not ask again (the flag changes it). **all** merges that one key into
+`settings.json` through the same read-merge-atomic-write the hooks use (every other key keeps
+its value and place; a backup from before the panel's first change is
+`settings.json.clauductor-panel.bak`), and prints the change and how to undo it. **lanes** leaves
+`settings.json` alone: every lane the panel starts or restarts runs `claude --remote-control`.
+`panel list` names the mode.
+
+Since PANEL-16 the plist runs `clauductor panel --port <port> --launchd`, from your home
+directory: the agent serves `projects.json` as it is. A plist written before names `--project
+<path>`; it keeps working, and at its first start the panel adds that project (if it is not) and
+makes it the default. Re-run `install` to write the new form.
 
 Under launchd, the panel runs with `--launchd`:
 
@@ -1572,8 +2251,9 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
    `launchctl print gui/$(id -u)/com.clauductor.panel`.
 3. Read `~/.clauductor/panel/logs/panel.err.log`. The usual causes are a port another process
    holds, or a config that moved. In both cases the log says which.
-4. To reach a lane with no panel, run `tmux -L clauductor ls`, then
-   `tmux -L clauductor attach -t '=<lane>'`. Quote the target, because zsh expands a bare
+4. To reach a lane with no panel, run `tmux -L <socket> ls` (the project's socket: `clauductor
+   panel list` names it; `clauductor` for the first project), then
+   `tmux -L <socket> attach -t '=<lane>'`. Quote the target, because zsh expands a bare
    `=word`. The panel's socket has no prefix key (see [Security model](#security-model)), so close
    the window to detach; the lane keeps running.
 5. If the config file moved (for example, `--config` pointed into a worktree that was removed),
@@ -1613,9 +2293,25 @@ loaded the hooks. Restart it.
 ### The page shows no context % or quota
 
 Only the status line carries them: add the [status-line snippet](#the-status-line). It posts
-nothing while `~/.clauductor/panel/pid` names no live process, and only while a session in the
-project draws its status line: with none running since the panel started, the quota is the last
-one saved (with its age), or none on a first start.
+nothing while `~/.clauductor/panel/pid` names no live process. Context % comes only from a
+session in the project; the quota from any session on the machine. With none running since the
+panel started, the quota is the last one saved (with its age), or none on a first start. An API
+key or cloud account has no quota: the page shows its spend instead (see *The account and its
+quota*).
+
+### Never kill the panel's tmux server from a script
+
+Every lane lives in one tmux server per socket (`tmux -L clauductor`). The server outlives the
+panel on purpose, as an orphan (its parent is pid 1), and killing it kills every lane at once.
+A cleanup script that kills orphaned processes by what their command line names did exactly
+that: until PANEL-15 the server was started by the first lane's `new-session`, and a tmux server
+keeps, for life, the command line of the command that started it, which named that lane's
+`.claude/worktrees/<lane>`. Since PANEL-15 the panel starts the server on its own with `tmux -L
+<socket> -f /dev/null start-server`, in your home directory, so its command line names no
+worktree (a test checks it). A server started by an older panel keeps its old command line until
+it next starts. Still: never kill tmux servers, or any process whose command line names `tmux`,
+from a script; stop a lane from the page (**Stop lane**), or with `tmux -L clauductor
+kill-session -t '=<lane>'` for that lane alone.
 
 ### A lease never frees
 
@@ -1635,10 +2331,10 @@ go test -race ./...     # everything, under the race detector: about 15 s once b
 
 `-short` skips the tests that drive something real and slow: a tmux server on a
 throwaway socket, `lock-run` and `lease.sh` as separate processes, panel processes started
-side by side, `node` (the xterm style guard), `osascript` and `plutil`. It still runs the
-security tests, tmux or not: a token rotation closes terminals and cookies (twice, once
-during an upgrade), an idle terminal closes, an untrusted config runs no command, and a
-gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
+side by side, `node` (the xterm style guard and the terminal's URL matcher), `osascript` and
+`plutil`. It still runs the security tests, tmux or not: a token rotation closes terminals
+and cookies (twice, once during an upgrade), an idle terminal closes, an untrusted config runs
+no command, and a gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
 
 **CI enforces the full suite.** `.github/workflows/test.yml` runs `gofmt -l`, `go vet
 ./...` and `go test -race ./...` on macOS and Ubuntu, with tmux, on every push to `main` and
@@ -1684,8 +2380,12 @@ go test -race -run '^TestLockRunTwoProcessesQueue$' -count=200 ./internal/panel/
 
 ## Not yet
 
-- No removing a worktree from the page.
-- One project per panel.
+- **Close lane** removes only a clean worktree and a merged branch; there is no way to force it
+  from the page, by design. Discard or commit the work first, or remove it with git.
+- Adding or removing a project needs a panel restart; so does fixing a project that could not
+  load. The Needs-you rows show the project on view only (the menu and the tab title count the
+  others). One `claude agents` poll runs per project. Quota thresholds are the 5-hour window's,
+  and lanes start only on a subscription login.
 - No remote access; the panel is loopback only.
 - The panel never answers a permission request. Doing it from the browser would need a
   token-carrying HTTP hook (`headers` plus `allowedEnvVars`), and is not planned.

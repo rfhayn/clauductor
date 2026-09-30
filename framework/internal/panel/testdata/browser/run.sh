@@ -8,7 +8,19 @@
 #   the terminal, and the tabs, Enter, Ctrl+] and the size keys behave. It needs two
 #   lanes, which this starts through the page's own API;
 # - project-and-side.cjs (PANEL-12): the pinned cards' tab box, rows that stay open,
-#   the side panel's edge, and Up next in the Start dialog.
+#   the side panel's edge, and Up next in the Start dialog;
+# - terminal-links-selection.cjs (PANEL-14): a selection survives the pointer moving on
+#   under a lane that asks for every motion, and links open on ⌘-click;
+# - lane-row-actions.cjs (PANEL-18): the "⋯" actions menu on a lane row and a tree
+#   node opens without selecting, moves by keys, and every item only asks; Remove on a
+#   lane-less worktree asks with its plan, then removes it; the cards say they may be
+#   stale while the checkout they run in is behind its upstream (this adds one);
+# - metrics-view.cjs (PANEL-19): the Metrics view's tabs, ranges and scope, a figure the
+#   project's fixture command lacks ("—" and why), every theme, and a narrow window. The
+#   project runs metrics/testdata/metrics.sh; SHOTS=<dir> keeps its screenshots;
+# - lane-readiness.cjs (PANEL-20): the Checks tab's merge readiness for lane "second"
+#   (its fake gh gives it an open pull request with a failing check and an unresolved
+#   thread; this writes its tasks.md and a gate receipt for another commit).
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -36,17 +48,36 @@ case "$1" in
   --version) echo "2.1.284 (Claude Code)" ;;
   agents) echo "[]" ;;
   # A lane's claude records the bytes typed into it (raw, unechoed), so the browser
-  # test can check which keys reach claude.
-  *) stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
+  # test can check which keys reach claude. Lane "second" also behaves as claude's
+  # fullscreen TUI does for terminal-links-selection.cjs: it asks for every mouse
+  # motion, and prints a URL and two OSC 8 links.
+  *) if [ "$CLAUDUCTOR_LANE" = second ]; then
+       printf '\033[?1000h\033[?1002h\033[?1003h\033[?1006h'
+       printf 'Selectable words on this row\n'
+       printf 'PR: https://github.com/o/r/pull/12 is open.\n'
+       printf '\033]8;;https://example.com/elsewhere\033\\Docs here\033]8;;\033\\ and \033]8;;https://example.com/same\033\\https://example.com/same\033]8;;\033\\\n'
+     fi
+     stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
 esac
 SH
-printf '#!/bin/sh\necho "[]"\n' > "$tmp/bin/gh"
+# gh: no merged pull request anywhere; one open pull request, #7 for change/second, with
+# one check failing and one of two review threads unresolved (PANEL-20's readiness box).
+cat > "$tmp/bin/gh" <<'SH'
+#!/bin/sh
+case "$*" in
+  "pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision")
+    echo '[{"number":7,"title":"Second","headRefName":"change/second","author":{"login":"t"},"isDraft":false,"reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"FAILURE"}]}]' ;;
+  "api graphql"*) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":true},{"isResolved":false}]}}}}}' ;;
+  *) echo "[]" ;;
+esac
+SH
 chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 
 proj="$tmp/project"
 git -C "$proj" init -q -b main
 cat > "$proj/.clauductor/panel.json" <<JSON
-{ "name": "Focus test", "version": 3, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
+{ "name": "Focus test", "version": 4, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
+  "metrics": { "command": ["sh", "$fw/internal/panel/metrics/testdata/metrics.sh"], "refresh": "interval:3600" },
   "cards": [
     { "id": "founder", "title": "Founder queue", "pin": true, "refresh": "interval:3600",
       "command": ["printf", "2 item(s) need the founder:\\n- **Box cleanup** (queued 2026-09-27). On the box, prune images\\n- **Ideas page** open it once, then invite a designer\\n"] },
@@ -74,8 +105,21 @@ for body in '{"type":"orchestrator","mode":"root","name":"main"}' '{"type":"buil
   curl -sf -b "$tmp/cj" -H "Origin: $base" -H 'Content-Type: application/json' -d "$body" "$base/api/lanes" > /dev/null \
     || { cat "$tmp/panel.log"; echo "could not start a lane: $body"; exit 1; }
 done
+# PANEL-19: lane "second" builds change "second", whose proposal has a budget and no
+# Approved line, written two days ago: an approval alert, and a budget bar in its header.
+mkdir -p "$proj/.claude/worktrees/second/changes/second"
+printf '# Second\n\n**Budget:** $5\n' > "$proj/.claude/worktrees/second/changes/second/proposal.md"
+touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null || date -d '2 days ago' +%Y%m%d%H%M)" "$proj/.claude/worktrees/second/changes/second/proposal.md"
+# PANEL-20: its tasks.md has one of two tasks ticked, and its gate receipt is for
+# another commit.
+printf '## Tasks\n- [x] one\n- [ ] two\n' > "$proj/.claude/worktrees/second/changes/second/tasks.md"
+printf '0123456789abcdef0123456789abcdef01234567\tfull\tclean\tall\n' > "$(git -C "$proj/.claude/worktrees/second" rev-parse --absolute-git-dir)/ci-receipt"
 status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 node "$here/project-and-side.cjs" "$base" "$tok" || status=1
+node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
+node "$here/lane-row-actions.cjs" "$base" "$tok" "$proj" || status=1
+node "$here/metrics-view.cjs" "$base" "$tok" || status=1
+node "$here/lane-readiness.cjs" "$base" "$tok" || status=1
 exit $status

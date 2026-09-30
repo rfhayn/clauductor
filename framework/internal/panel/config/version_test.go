@@ -39,6 +39,38 @@ func TestVersionGatesKeys(t *testing.T) {
 			t.Errorf("version 2 and %s: %v", r.key, err)
 		}
 	}
+	// PANEL-19: metrics is version 4.
+	if _, err := parseConfig([]byte(`{"name":"T","version":3,"metrics":{"command":["true"]}}`)); err == nil ||
+		!strings.Contains(err.Error(), `"metrics"`) || !strings.Contains(err.Error(), `"version": 4`) {
+		t.Errorf("version 3 and metrics: %v", err)
+	}
+	if c, err := parseConfig([]byte(`{"name":"T","version":4,"metrics":{"command":["sh","m.sh"],"refresh":"watch:changes","card":false}}`)); err != nil ||
+		c.MetricsRefresh() != "watch:changes" || c.FlowCard() || len(c.MetricsCommand()) != 2 {
+		t.Errorf("a version 4 metrics config: %v %+v", err, c)
+	}
+	if c, err := parseConfig([]byte(`{"name":"T","version":4,"metrics":{"command":["sh","m.sh"]}}`)); err != nil ||
+		c.MetricsRefresh() != DefaultMetricsRefresh || !c.FlowCard() || !strings.Contains(strings.Join(c.RunList(), "\n"), `metrics runs ["sh" "m.sh"]`) {
+		t.Errorf("metrics defaults and the trust list: %v %v", err, c.RunList())
+	}
+	// PANEL-20: the lane lifecycle is version 5.
+	for _, k := range []string{`"lanes_auto_close":"on_merge"`, `"quota_auto_resume":true`, `"worktree_setup":{"command":["make","setup"]}`, `"ports":{"base":4400,"per_lane":10}`} {
+		if _, err := parseConfig([]byte(`{"name":"T","version":4,` + k + `}`)); err == nil || !strings.Contains(err.Error(), `"version": 5`) {
+			t.Errorf("version 4 and %s: %v", k, err)
+		}
+	}
+	c5, err := parseConfig([]byte(`{"name":"T","version":5,"lanes":{"change/":"build","fix/":"fix"},"lanes_auto_close":"on_merge",
+		"lane_types":{"fix":{"auto_close":"off"}},"quota_auto_resume":true,"worktree_setup":{"command":["make","setup"]},
+		"worktree_teardown":{"command":["make","down"]},"ports":{"base":4400,"per_lane":10}}`))
+	if err != nil || c5.AutoCloseOf("build") != AutoCloseOnMerge || c5.AutoCloseOf("fix") != AutoCloseOff || !c5.AnyAutoClose() ||
+		c5.ResumeLine() != "continue" || !strings.Contains(strings.Join(c5.RunList(), "\n"), "worktree_setup runs") {
+		t.Errorf("a version 5 config: %v %+v", err, c5)
+	}
+	for _, bad := range []string{`"lanes_auto_close":"always"`, `"lane_types":{"x":{"auto_close":"yes"}}`, `"quota_resume_line":"a\nb"`,
+		`"worktree_setup":{"command":[]}`, `"ports":{"base":80,"per_lane":1}`, `"ports":{"base":4400,"per_lane":0}`} {
+		if _, err := parseConfig([]byte(`{"name":"T","version":5,` + bad + `}`)); err == nil {
+			t.Errorf("accepted %s", bad)
+		}
+	}
 	// Every version 1 key is accepted at version 1.
 	c, err := parseConfig([]byte(`{"$schema":"x","name":"T","version":1,` + lanes + `,"tmux_socket":"s","worktree_dir":"wt","base":"origin/main",
 		"lane_types":{"build":{"model":"opus","effort":"high"}},"cards":[{"id":"a","title":"A","command":["true"],"refresh":"interval:60"}]}`))
@@ -46,7 +78,7 @@ func TestVersionGatesKeys(t *testing.T) {
 		t.Fatalf("a full version 1 config: %v %v", err, c)
 	}
 	// An explicit version outside the supported range is refused, 0 included.
-	for _, v := range []string{"0", "4", "-1"} {
+	for _, v := range []string{"0", "6", "-1"} {
 		if _, err := parseConfig([]byte(`{"name":"T","version":` + v + `}`)); err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("version %s: %v", v, err)
 		}
@@ -60,7 +92,7 @@ func TestMissingVersionReadsAsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 3`) || !strings.Contains(c.Notices[0], `Add "version": 3`) {
+	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 5`) || !strings.Contains(c.Notices[0], `Add "version": 5`) {
 		t.Fatalf("notices %q", c.Notices)
 	}
 	c, err = parseConfig([]byte(`{"name":"T","version":2,"templates":[]}`))
@@ -118,8 +150,8 @@ func TestDocsExamplesParse(t *testing.T) {
 	n := 0
 	for _, block := range strings.Split(string(b), "```json\n")[1:] {
 		body, _, _ := strings.Cut(block, "```")
-		if !strings.Contains(body, `"name"`) {
-			continue // a fragment, such as a hook entry
+		if !strings.Contains(body, `"name"`) || strings.Contains(body, `"windows"`) {
+			continue // a fragment, such as a hook entry; or the metrics JSON (package metrics checks it)
 		}
 		n++
 		if _, err := parseConfig([]byte(body)); err != nil {

@@ -25,9 +25,24 @@
             }
           },
           "host_names": false,
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
+          "metrics": false,
+          "ports": false,
           "queues": false,
+          "quota_auto_resume": false,
+          "quota_economy": false,
           "quota_guard": false,
-          "templates": false
+          "quota_resume_line": false,
+          "templates": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
         }
       }
     },
@@ -44,6 +59,12 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
           "cards": {
             "items": {
               "properties": {
@@ -51,13 +72,94 @@
               }
             }
           },
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
+          "metrics": false,
+          "ports": false,
+          "quota_auto_resume": false,
+          "quota_economy": false,
+          "quota_resume_line": false,
           "templates": {
             "items": {
               "properties": {
                 "suggest": false
               }
             }
+          },
+          "worktree_setup": false,
+          "worktree_teardown": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 3
           }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
+          "metrics": false,
+          "ports": false,
+          "quota_auto_resume": false,
+          "quota_economy": false,
+          "quota_resume_line": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 4
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
+          "ports": false,
+          "quota_auto_resume": false,
+          "quota_resume_line": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
         }
       }
     }
@@ -72,6 +174,12 @@
       "additionalProperties": false,
       "description": "Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off.",
       "properties": {
+        "approval_wait_hours": {
+          "default": 24,
+          "description": "A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*).",
+          "minimum": 0,
+          "type": "number"
+        },
         "context_pct": {
           "default": 85,
           "description": "A context window at or above this percentage raises a context alert.",
@@ -100,6 +208,12 @@
           "default": true,
           "description": "Send macOS notifications for the alerts that interrupt.",
           "type": "boolean"
+        },
+        "stale_days": {
+          "default": 3,
+          "description": "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.",
+          "minimum": 0,
+          "type": "number"
         },
         "waiting_seconds": {
           "default": 120,
@@ -170,6 +284,14 @@
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "auto_close": {
+            "description": "Overrides `lanes_auto_close` for this lane type.",
+            "enum": [
+              "off",
+              "on_merge"
+            ],
+            "type": "string"
+          },
           "effort": {
             "description": "One argv element: `--effort <value>`.",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
@@ -203,12 +325,70 @@
       },
       "type": "object"
     },
+    "lanes_auto_close": {
+      "default": "off",
+      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+      "enum": [
+        "off",
+        "on_merge"
+      ],
+      "type": "string"
+    },
+    "metrics": {
+      "additionalProperties": false,
+      "description": "The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line.",
+      "properties": {
+        "card": {
+          "default": true,
+          "description": "Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone.",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "refresh": {
+          "default": "interval:900",
+          "description": "When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`.",
+          "pattern": "^(watch:.+|interval:0*[1-9][0-9]*)$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "name": {
       "description": "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
       "maxLength": 80,
       "minLength": 1,
       "pattern": "^ *[^ \\t\\n\\f\\r\\v-]",
       "type": "string"
+    },
+    "ports": {
+      "additionalProperties": false,
+      "description": "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header.",
+      "properties": {
+        "base": {
+          "description": "The first lane's port, 1024 to 65000.",
+          "maximum": 65000,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        "per_lane": {
+          "description": "The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one).",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "base",
+        "per_lane"
+      ],
+      "type": "object"
     },
     "queues": {
       "description": "Shared resources held as a lease on disk (see *Queue and the gate lock protocol*).",
@@ -249,6 +429,24 @@
       },
       "type": "array"
     },
+    "quota_auto_resume": {
+      "default": false,
+      "description": "Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*).",
+      "type": "boolean"
+    },
+    "quota_economy": {
+      "additionalProperties": false,
+      "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
+      "properties": {
+        "five_hour_pct": {
+          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
     "quota_guard": {
       "additionalProperties": false,
       "description": "Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*).",
@@ -262,6 +460,12 @@
         }
       },
       "type": "object"
+    },
+    "quota_resume_line": {
+      "default": "continue",
+      "description": "The line `quota_auto_resume` types. One line of plain text, at most 200 characters.",
+      "maxLength": 200,
+      "type": "string"
     },
     "templates": {
       "description": "Lane recipes offered by **New lane** (see *Lane templates*).",
@@ -346,7 +550,9 @@
       "enum": [
         1,
         2,
-        3
+        3,
+        4,
+        5
       ],
       "type": "integer"
     },
@@ -354,6 +560,42 @@
       "default": ".claude/worktrees",
       "description": "Where a new lane's worktree is created: relative to the project root and inside it, or absolute.",
       "type": "string"
+    },
+    "worktree_setup": {
+      "additionalProperties": false,
+      "description": "A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*).",
+      "properties": {
+        "command": {
+          "description": "argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "worktree_teardown": {
+      "additionalProperties": false,
+      "description": "A command run in a lane's worktree before **Close lane** removes it.",
+      "properties": {
+        "command": {
+          "description": "argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
     }
   },
   "required": [

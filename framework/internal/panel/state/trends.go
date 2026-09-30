@@ -118,7 +118,8 @@ type laneTrend struct {
 
 type trends struct {
 	lastSample time.Time
-	quota5     series
+	burn       series // the shortest quota window's %, keyed by burnKey
+	burnKey    string
 	cost       series
 	cpu        series
 	mem        series
@@ -216,8 +217,13 @@ func (m *Model) Sample(now time.Time) {
 		return
 	}
 	t.lastSample = now
-	if q := m.quotaAt(now); q != nil && q.FiveHour != nil {
-		t.quota5.add(now, *q.FiveHour)
+	// The burn is the shortest window's (PANEL-15): on a plan whose shortest window
+	// changes, the old series means nothing for the new one, so it starts again.
+	if w := m.quotaAt(now).Shortest(); w != nil {
+		if w.Key != t.burnKey {
+			t.burn, t.burnKey = series{}, w.Key
+		}
+		t.burn.add(now, *w.Pct)
 	}
 	total := 0.0
 	for _, c := range m.costByID {
@@ -319,6 +325,42 @@ func (m *Model) LaneWorktrees(now time.Time) []string {
 	return out
 }
 
+// CardsCheckout is the checkout the project's cards run their commands in and watch
+// their files in: the project root, or "" when the project has no card (PANEL-18).
+// The git read covers it too, so the page can say when it is behind its upstream.
+func (m *Model) CardsCheckout() string {
+	if len(m.cards) == 0 {
+		return ""
+	}
+	return m.root
+}
+
+// CardsStale says the cards' checkout is behind its upstream (PANEL-18): its branch
+// then lacks commits the upstream has, and every card reads the older files. Behind is
+// git's count against the local remote-tracking ref, so it is as of the last fetch
+// (the panel fetches only when a lane starts and when Close lane or Remove plans).
+type CardsStale struct {
+	Dir      string `json:"dir"`
+	Branch   string `json:"branch"`
+	Upstream string `json:"upstream"`
+	Behind   int    `json:"behind"`
+	At       int64  `json:"at"` // when git was read, unix ms
+}
+
+// cardsStale is the note for the view, or nil: no card, no read yet, a failed read,
+// no upstream, or not behind.
+func (m *Model) cardsStale() *CardsStale {
+	dir := m.CardsCheckout()
+	if dir == "" || m.trend == nil {
+		return nil
+	}
+	g := m.trend.git[dir]
+	if g == nil || g.Error != "" || !g.HasUpstream || g.Behind <= 0 {
+		return nil
+	}
+	return &CardsStale{Dir: dir, Branch: g.Branch, Upstream: g.Upstream, Behind: g.Behind, At: g.At}
+}
+
 // GitHead returns the last HEAD and commit time recorded for a worktree, so the
 // runtime reads a commit's time only when HEAD moves.
 func (m *Model) GitHead(path string) (string, int64) {
@@ -346,11 +388,14 @@ func (m *Model) ApplyGit(path string, g signals.GitStat, err error, now time.Tim
 
 // Trends is the view's global trends and the figures derived from them.
 type Trends struct {
-	Quota5 *Spark `json:"quota5,omitempty"`
-	Cost   *Spark `json:"cost,omitempty"`
-	CPU    *Spark `json:"cpuSpark,omitempty"`
-	Mem    *Spark `json:"memSpark,omitempty"`
-	// BurnPerH is the 5-hour quota's change per hour over the last 30 min (%/h);
+	// Quota5 is the burn window's spark: the 5-hour quota's until PANEL-15, now the
+	// shortest window's, named by BurnWindow. The JSON name stays for open pages.
+	Quota5     *Spark `json:"quota5,omitempty"`
+	BurnWindow string `json:"burnWindow,omitempty"`
+	Cost       *Spark `json:"cost,omitempty"`
+	CPU        *Spark `json:"cpuSpark,omitempty"`
+	Mem        *Spark `json:"memSpark,omitempty"`
+	// BurnPerH is the burn window's change per hour over the last 30 min (%/h);
 	// ExhaustAt is when it reaches 100% at that rate, and BeforeReset whether that
 	// comes before the window resets. Absent with under 5 min of data.
 	BurnPerH    *float64 `json:"burnPerH,omitempty"`
@@ -368,14 +413,14 @@ type Trends struct {
 // trendsView fills the view's trends and each lane's timeline, sparks and git.
 func (m *Model) trendsView(v *View, now time.Time) {
 	t := m.tr()
-	tr := Trends{Quota5: t.quota5.spark(), Cost: t.cost.spark(), CPU: t.cpu.spark(), Mem: t.mem.spark(), ProcsError: t.procsErr, AutocompactPct: AutocompactPct}
-	if r, ok := t.quota5.rate(now, 30*time.Minute, 5*time.Minute); ok {
+	tr := Trends{Quota5: t.burn.spark(), BurnWindow: t.burnKey, Cost: t.cost.spark(), CPU: t.cpu.spark(), Mem: t.mem.spark(), ProcsError: t.procsErr, AutocompactPct: AutocompactPct}
+	if r, ok := t.burn.rate(now, 30*time.Minute, 5*time.Minute); ok {
 		tr.BurnPerH = &r
-		if last, _ := t.quota5.last(); r > 0 && last < 100 {
+		if last, _ := t.burn.last(); r > 0 && last < 100 {
 			at := now.Add(time.Duration((100 - last) / r * float64(time.Hour)))
 			tr.ExhaustAt = ms(at)
-			if q := v.Quota; q != nil && q.FiveHourResets != nil {
-				tr.BeforeReset = ms(at) < *q.FiveHourResets*1000
+			if w := v.Quota.Window(t.burnKey); w != nil && w.ResetsAt != nil {
+				tr.BeforeReset = ms(at) < *w.ResetsAt*1000
 			}
 		}
 	}

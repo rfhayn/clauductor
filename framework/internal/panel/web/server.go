@@ -7,18 +7,21 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 )
@@ -100,6 +103,17 @@ type Server struct {
 	// Orch carries the v2 orchestration (templates, quota guard, queues, restore).
 	Orch *Orchestration
 
+	// Projects are the projects served (PANEL-16), and Default the id a request that
+	// names none goes to. Without Projects the server serves the one project Hub,
+	// Lanes, Orch and Refresh describe.
+	Projects []*Project
+	Default  string
+	// Summaries, when set, is the projects' menu: every event stream carries it.
+	Summaries *Summaries
+
+	legacyOnce sync.Once
+	legacy     *Project
+
 	// overflow counts ingest bodies dropped because the processor was behind; it is
 	// shown apart from events dropped for a foreign cwd.
 	overflow atomic.Int64
@@ -140,26 +154,33 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/hook", s.ingest(s.Hooks))
 	mux.HandleFunc("/status", s.ingest(s.Status))
 	mux.HandleFunc("/", s.index)
-	mux.HandleFunc("/events", s.requireAuth(s.events))
-	mux.HandleFunc("/api/state", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+	// The streams take ?project=<id> (PANEL-16); without it, the default project.
+	mux.HandleFunc("/events", s.requireAuth(s.withProject(s.events)))
+	mux.HandleFunc("/api/state", s.requireAuth(s.withProject(func(w http.ResponseWriter, r *http.Request, p *Project) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(s.Hub.Snapshot())
+		w.Write(p.Hub.Snapshot())
+	})))
+	mux.HandleFunc("GET /api/projects", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(s.summaryJSON())
 	}))
 	// A page in view says so once a minute; nothing else changes (PANEL-11).
 	mux.HandleFunc("POST /api/seen", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		s.MarkVisible(s.clock().Now())
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	mux.HandleFunc("/api/refresh", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+	refresh := func(w http.ResponseWriter, r *http.Request, p *Project) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if s.Refresh != nil {
-			s.Refresh()
+		if p.Refresh != nil {
+			p.Refresh()
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	}
+	mux.HandleFunc("/api/refresh", s.requireAuth(s.withProject(refresh)))
+	mux.HandleFunc("POST /api/p/{project}/refresh", s.requireAuth(s.withProject(refresh)))
 	s.laneRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -240,8 +261,12 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: token, Path: "/",
 			HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: s.CookieMaxAge})
-		// Drop the token from the address bar and history.
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		// Drop the token from the address bar and history; keep the project it opens on.
+		to := "/"
+		if p := r.URL.Query().Get("p"); config.ProjectIDRe.MatchString(p) {
+			to += "?p=" + p
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
 		return
 	}
 	if !s.authed(r) {
@@ -266,7 +291,22 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	w.Write(page)
 }
 
-func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+// summaryJSON is the projects' menu, or the one project's entry without one.
+func (s *Server) summaryJSON() []byte {
+	if s.Summaries != nil {
+		return s.Summaries.JSON()
+	}
+	var list []ProjectSummary
+	for _, p := range s.projects() {
+		sum := Summarize(p.ID, p.Hub.View())
+		sum.Default = p == s.project("")
+		list = append(list, sum)
+	}
+	b, _ := json.Marshal(list)
+	return b
+}
+
+func (s *Server) events(w http.ResponseWriter, r *http.Request, p *Project) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -275,23 +315,34 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Connection", "keep-alive")
-	ch, cancel := s.Hub.subscribe()
+	ch, cancel := p.Hub.subscribe()
 	defer cancel()
+	// Every stream also carries the projects' menu, so a page sees what needs you
+	// in the projects it is not showing (PANEL-16).
+	var menu chan []byte
+	if s.Summaries != nil {
+		var stop func()
+		menu, stop = s.Summaries.subscribe()
+		defer stop()
+	}
 	rotated := s.rotation() // a token rotation ends this stream; the page's reconnect then gets 401
-	send := func(b []byte) error {
-		_, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b)
+	send := func(event string, b []byte) error {
+		_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 		fl.Flush()
 		return err
 	}
 	fmt.Fprint(w, "retry: 2000\n\n")
-	if send(s.Hub.Snapshot()) != nil {
+	if send("state", p.Hub.Snapshot()) != nil {
+		return
+	}
+	if menu != nil && send("projects", s.Summaries.JSON()) != nil {
 		return
 	}
 	every := s.Heartbeat
 	if every <= 0 {
 		every = HeartbeatEvery
 	}
-	ping := s.Hub.clock.NewTicker(every)
+	ping := p.Hub.clock.NewTicker(every)
 	defer ping.Stop()
 	for {
 		select {
@@ -300,13 +351,17 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-rotated:
 			return
 		case b := <-ch:
-			if send(b) != nil {
+			if send("state", b) != nil {
+				return
+			}
+		case b := <-menu: // a nil menu never fires
+			if send("projects", b) != nil {
 				return
 			}
 		case <-ping.C():
 			// A named event, not a comment: EventSource hides comments from the page,
 			// and the page needs the beat (and the server's clock) to know it is live.
-			if _, err := fmt.Fprintf(w, "event: hb\ndata: {\"now\":%d}\n\n", s.Hub.clock.Now().UnixMilli()); err != nil {
+			if _, err := fmt.Fprintf(w, "event: hb\ndata: {\"now\":%d}\n\n", p.Hub.clock.Now().UnixMilli()); err != nil {
 				return
 			}
 			fl.Flush()
@@ -357,11 +412,19 @@ func (s *Server) Overflow() int64 { return s.overflow.Load() }
 
 // FocusedLanes returns the lanes whose terminal has keyboard focus in a page now.
 // The notifier sends no OS notification for them: you are looking at the lane.
-func (s *Server) FocusedLanes() map[string]bool {
+func (s *Server) FocusedLanes() map[string]bool { return s.FocusedLanesIn(s.project("").ID) }
+
+// FocusedLanesIn is FocusedLanes for one project, by lane id.
+func (s *Server) FocusedLanesIn(project string) map[string]bool {
 	s.termMu.Lock()
 	defer s.termMu.Unlock()
 	out := map[string]bool{}
-	for lane, vs := range s.viewers {
+	prefix := termKey(project, "")
+	for k, vs := range s.viewers {
+		lane, ok := strings.CutPrefix(k, prefix)
+		if !ok || (project == "" && strings.Contains(k, "/")) {
+			continue
+		}
 		for v := range vs {
 			if v.focused.Load() {
 				out[lane] = true

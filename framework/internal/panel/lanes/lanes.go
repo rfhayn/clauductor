@@ -49,7 +49,7 @@ var parentSessionVars = []string{
 // Initial size of a detached lane; the first attached client resizes it.
 const laneCols, laneRows = 200, 50
 
-const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}"
+const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}\t#{@clauductor_project}"
 
 // parseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
 // session whose name is not a valid lane id was not started by the panel and is
@@ -70,8 +70,12 @@ func parseTmuxPanes(out []byte) []types.TmuxLane {
 		}
 		created, _ := strconv.ParseInt(f[5], 10, 64)
 		attached, _ := strconv.Atoi(f[6])
-		lanes = append(lanes, types.TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
-			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]})
+		l := types.TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
+			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]}
+		if len(f) > 8 {
+			l.Project = f[8]
+		}
+		lanes = append(lanes, l)
 	}
 	sort.Slice(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
 	return lanes
@@ -100,6 +104,13 @@ type LaneManager struct {
 	Registry *Registry      // durable lane ↔ session binding
 	Run      signals.Runner // runs git and `claude agents` (injectable for tests)
 	Program  []string       // the lane program; default the absolute path of `claude`
+	// UploadDir keeps images dropped on a lane's terminal, one directory per lane
+	// (images.go): in the panel's state directory, never a worktree. "" refuses them.
+	UploadDir string
+	// Project is the project id each lane is tagged with (@clauductor_project,
+	// PANEL-16). A session tagged for another project is not this manager's: each
+	// project has its own socket, and the tag guards against two sharing one.
+	Project string
 	// LookupEnv reads the panel's own environment (injectable for tests).
 	LookupEnv func(string) (string, bool)
 	// StopTimeout is how long Stop waits for /exit before killing the session.
@@ -120,7 +131,59 @@ type LaneManager struct {
 	// (tests count the calls).
 	Exec func(ctx context.Context, argv []string) ([]byte, error)
 
+	// RemoteControl reports whether lanes start with `claude --remote-control`, read
+	// at each start (PANEL-19: the machine's choice at `panel install`). Nil is no.
+	RemoteControl func() bool
+	// Trusted reports whether panel.json's commands may run (PANEL-20: worktree_setup
+	// and worktree_teardown). Nil is trusted (tests).
+	Trusted func() bool
+
 	mu sync.Mutex // serialises lane actions
+}
+
+// ConnectRemote types /remote-control and Enter into a lane (PANEL-19), which
+// connects a lane started before remote control was chosen, or shows the connected
+// one's status. As Stop's /exit, only into a claude that `claude agents` reports idle,
+// read twice, before the text and before the Enter: an Enter typed into a dialog
+// would confirm whatever it has focused.
+func (m *LaneManager) ConnectRemote(ctx context.Context, id string) *LaneError {
+	if !config.ValidLaneID(id) {
+		return laneErr(400, "invalid", "invalid lane id")
+	}
+	if m.RemoteControl == nil || !m.RemoteControl() {
+		return laneErr(409, "remote-off", "remote control is not on for the panel's lanes (clauductor panel install --remote-control=lanes)")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.Registry.Get(id)
+	if !ok || rec.SessionID == "" {
+		return laneErr(404, "not-found", "no registered lane %q", id)
+	}
+	lane, ok := m.find(ctx, id)
+	if !ok || lane.Dead {
+		return laneErr(409, "not-running", "lane %q is not running", id)
+	}
+	idle := func() bool {
+		st, found, err := m.agentStatus(ctx, rec.SessionID)
+		return err == nil && found && st == "idle"
+	}
+	if !idle() {
+		return laneErr(409, "not-idle", "claude in %s is not idle (claude agents), so nothing is typed; try again when it is", id)
+	}
+	target := "=" + id + ":"
+	_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+	if _, err := m.tmux(ctx, "send-keys", "-t", target, "-l", "--", "/remote-control"); err != nil {
+		return laneErr(500, "tmux", "%v", err)
+	}
+	m.clock().Sleep(m.EnterDelay)
+	if !idle() {
+		_, _ = m.tmux(ctx, "send-keys", "-t", target, "C-u")
+		return laneErr(409, "not-idle", "claude in %s stopped being idle; the text was cleared, nothing was sent", id)
+	}
+	if _, err := m.tmux(ctx, "send-keys", "-t", target, "Enter"); err != nil {
+		return laneErr(500, "tmux", "%v", err)
+	}
+	return nil
 }
 
 func (m *LaneManager) lookupEnv(k string) (string, bool) {
@@ -168,6 +231,11 @@ func (m *LaneManager) TmuxArgv(args ...string) []string {
 }
 
 func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) {
+	return m.tmuxIn(ctx, "", args...)
+}
+
+// tmuxIn is tmux run in dir ("" is the panel's own directory).
+func (m *LaneManager) tmuxIn(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if m.Exec != nil {
@@ -175,6 +243,7 @@ func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) 
 	}
 	cmd := exec.CommandContext(cctx, m.TmuxPath, m.TmuxArgv(args...)...)
 	cmd.Env = TmuxEnv()
+	cmd.Dir = dir
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -185,6 +254,34 @@ func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) 
 		return out.Bytes(), errors.New("tmux: " + msg)
 	}
 	return out.Bytes(), nil
+}
+
+// ServerArgv is the command that starts the socket's server when it has none. A
+// tmux server is the fork of the client that started it: it keeps that client's
+// argv and cwd for life, and runs as an orphan (ppid 1). Started by a lane's
+// new-session, it would carry `-c <worktree>` and the lane's claude command line,
+// and a cleanup script hunting orphans that name `.claude/worktrees/` killed one,
+// and every lane with it. So the server is started by a command that names no
+// worktree, in the home directory, and exit-empty is off only until the lane's own
+// session exists (newSession turns it back on).
+func (m *LaneManager) ServerArgv() []string {
+	return m.TmuxArgv("start-server", ";", "set-option", "-g", "exit-empty", "off")
+}
+
+// newSession runs a lane's new-session on a server started by ServerArgv.
+func (m *LaneManager) newSession(ctx context.Context, argv []string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/"
+	}
+	if _, err := m.tmuxIn(ctx, home, m.ServerArgv()[4:]...); err != nil {
+		return err
+	}
+	_, err = m.tmux(ctx, argv[4:]...)
+	// Back to tmux's default either way: the server ends with its last session, as
+	// before, and a failed start leaves no empty server behind.
+	_, _ = m.tmux(ctx, "set-option", "-g", "exit-empty", "on")
+	return err
 }
 
 // noServer reports whether a tmux error only means the socket has no server yet.
@@ -209,7 +306,16 @@ func (m *LaneManager) ListServer(ctx context.Context) (lanes []types.TmuxLane, u
 		}
 		return nil, false, err
 	}
-	return parseTmuxPanes(out), true, nil
+	all := parseTmuxPanes(out)
+	// A session tagged for another project is that project's, never an orphan here;
+	// an untagged one (started before PANEL-16) belongs to the socket's owner.
+	lanes = all[:0]
+	for _, l := range all {
+		if l.Project == "" || m.Project == "" || l.Project == m.Project {
+			lanes = append(lanes, l)
+		}
+	}
+	return lanes, true, nil
 }
 
 // Exists reports whether a lane's tmux session is running. "=" makes the match
@@ -273,6 +379,17 @@ func (m *LaneManager) TmuxEnvBlocked(ctx context.Context) string {
 	return ""
 }
 
+// ScrubbedArgv runs argv through /usr/bin/env with the API-key and parent-session
+// variables unset: the environment a lane's claude sees. `claude auth status` runs
+// this way too (PANEL-15), so it reports the login lanes will use.
+func ScrubbedArgv(argv ...string) []string {
+	out := []string{"/usr/bin/env"}
+	for _, k := range append(append([]string{}, apiKeyVars...), parentSessionVars...) {
+		out = append(out, "-u", k)
+	}
+	return append(out, argv...)
+}
+
 // LaneCommand is the argv tmux runs for a lane. /usr/bin/env unsets the variables a
 // parent Claude session would leak; with two or more arguments tmux execs the
 // command directly instead of passing it to a shell.
@@ -281,17 +398,18 @@ func (m *LaneManager) TmuxEnvBlocked(ctx context.Context) string {
 // <uuid>, and a restart or restore gets --resume <uuid>. --continue is never used,
 // because it picks the directory's most recent conversation, whoever's it is.
 func (m *LaneManager) LaneCommand(id, laneType, sessionID string, resume bool) []string {
-	argv := []string{"/usr/bin/env"}
-	for _, k := range append(append([]string{}, apiKeyVars...), parentSessionVars...) {
-		argv = append(argv, "-u", k)
-	}
-	argv = append(argv, m.Program...)
+	argv := ScrubbedArgv(m.Program...)
 	lt := m.launchOptions(id, laneType)
 	if lt.Model != "" {
 		argv = append(argv, "--model", lt.Model)
 	}
 	if lt.Effort != "" {
 		argv = append(argv, "--effort", lt.Effort)
+	}
+	if m.RemoteControl != nil && m.RemoteControl() {
+		// PANEL-19: remote control for the panel's lanes only (`panel install`). Its
+		// optional name argument is never given: -n names the session.
+		argv = append(argv, "--remote-control")
 	}
 	argv = append(argv, "-n", id)
 	if resume {
@@ -346,12 +464,18 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	}
 	// A gate script run inside the lane names its lane in the queue (lock-run).
 	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
+	if port := m.LanePort(id); port > 0 {
+		args = append(args, "-e", "CLAUDUCTOR_PORT="+strconv.Itoa(port)) // PANEL-20
+	}
 	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
 		";", "set-option", "-t", "="+id+":", "@clauductor_type", laneType,
 		";", "set-option", "-t", "="+id+":", "window-size", "latest",
 		";")
+	if m.Project != "" {
+		args = append(args, "set-option", "-t", "="+id+":", "@clauductor_project", m.Project, ";")
+	}
 	args = append(args, hardenArgs...)
 	return m.TmuxArgv(args...)
 }
@@ -492,7 +616,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	// The intent is on disk before anything is created, so a crash from here on
 	// leaves a record the next start shows as an orphan.
 	rec, err := m.Registry.Begin(req.withTemplate(types.LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
-		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli()}), "start", m.now())
+		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli(), Port: m.allocatePort(id)}), "start", m.now())
 	if err != nil {
 		return res, laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
@@ -515,8 +639,22 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		}
 		res.Path = signals.ResolvePath(res.Path)
 		rec.Path = res.Path
+		// PANEL-20: the new worktree's gitignored files, then its setup, before claude.
+		if n, note := m.copyWorktreeInclude(ctx, res.Path); note != "" || n > 0 {
+			if n > 0 {
+				res.Notes = append(res.Notes, fmt.Sprintf(".worktreeinclude: copied %d file(s) from the project root", n))
+			}
+			if note != "" {
+				res.Notes = append(res.Notes, note)
+			}
+		}
+		if ran, err := m.runHook(ctx, "worktree_setup", m.Cfg.WorktreeSetup, res.Path, id); err != nil {
+			res.Notes = append(res.Notes, err.Error()+"; the lane starts anyway")
+		} else if ran {
+			res.Notes = append(res.Notes, "worktree_setup ran")
+		}
 	}
-	if _, err := m.tmux(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)[2:]...); err != nil {
+	if err := m.newSession(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)); err != nil {
 		return fail(laneErr(500, "tmux", "starting the lane failed: %v", err))
 	}
 	if err := m.Registry.Done(rec); err != nil {
@@ -543,6 +681,12 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 // The status bar is off: the tab already names the lane. The condition nests `||`
 // two at a time: tmux before 3.5 reads only the first two arguments of one, and
 // passed every wheel to the program (seen on Ubuntu 24.04's tmux 3.4).
+//
+// PANEL-14: tmux strips OSC 8 hyperlinks unless the client's terminal has the
+// `hyperlinks` feature, which no default entry gives xterm-256color (the viewers'
+// TERM). claude emits them inside tmux 3.4+, so without it no link it prints reached
+// the page. A fixed index keeps the per-poll re-run from growing the array; -q keeps
+// a tmux without the option (before 3.2) hardening.
 var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "prefix2", "None",
 	";", "unbind-key", "-q", "-a", "-T", "prefix",
@@ -550,7 +694,8 @@ var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "status", "off",
 	";", "set-option", "-g", "mouse", "on",
 	";", "bind-key", "-T", "root", "WheelUpPane",
-	"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e"}
+	"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e",
+	";", "set-option", "-sq", "terminal-features[99]", "xterm-256color:hyperlinks"}
 
 // Harden applies hardenArgs if the socket has a server. The panel runs it whenever
 // it finds the server (every tmux poll) and before every viewer attaches.
@@ -583,7 +728,8 @@ func (m *LaneManager) Interrupt(ctx context.Context, id string) *LaneError {
 	return nil
 }
 
-// Stop ends a lane and forgets it; the worktree is never removed. Only a lane that
+// Stop ends a lane and forgets it; the worktree is never removed (Close, in
+// close.go, is Stop and then the worktree and branch when that is safe). Only a lane that
 // `claude agents` reports idle is asked to /exit. Anything else (busy, waiting on a
 // permission or a dialog, or unknown) gets Escape and then kill-session, never a
 // typed Enter: an Enter would confirm whatever default the dialog has focused.
@@ -593,6 +739,12 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.stopAndForgetLocked(ctx, id)
+}
+
+// stopAndForgetLocked is Stop under the lane lock; Close (PANEL-17) runs it too, so
+// the two end a lane in exactly the same way.
+func (m *LaneManager) stopAndForgetLocked(ctx context.Context, id string) *LaneError {
 	rec, registered := m.Registry.Get(id)
 	if registered {
 		var err error
@@ -606,6 +758,7 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 		}
 		// Registered but already gone from tmux: stopping it means forgetting it.
 	}
+	m.dropImages(id)
 	if registered {
 		if err := m.Registry.Delete(id); err != nil {
 			return laneErr(500, "registry", "the lane stopped, but the registry could not forget it: %v", err)
@@ -715,7 +868,7 @@ func (m *LaneManager) pathTaken(ctx context.Context, dir, except string) string 
 func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (resume bool, lerr *LaneError) {
 	resume = rec.Conversation
 	for attempt := 0; attempt < 2; attempt++ {
-		if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)[2:]...); err != nil {
+		if err := m.newSession(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)); err != nil {
 			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
 		}
 		failed := ""
@@ -852,6 +1005,7 @@ func (m *LaneManager) Forget(ctx context.Context, id string) *LaneError {
 	if err := m.Registry.Delete(id); err != nil {
 		return laneErr(500, "registry", "%v", err)
 	}
+	m.dropImages(id)
 	m.changed()
 	return nil
 }

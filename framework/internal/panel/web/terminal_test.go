@@ -125,7 +125,7 @@ func TestPageCSPIsSelfOnly(t *testing.T) {
 			t.Errorf("page contains %q", bad)
 		}
 	}
-	for _, path := range []string{"/static/panel.js", "/static/panel.css", "/static/theme.js", "/static/themes.css", "/static/types.css", "/static/xterm-style.js", "/static/tuned.js", "/static/fonts/overpass-latin-400-normal.woff2", "/static/fonts/OFL-overpass.txt"} {
+	for _, path := range []string{"/static/panel.js", "/static/panel.css", "/static/theme.js", "/static/themes.css", "/static/types.css", "/static/xterm-style.js", "/static/term-links.js", "/static/tuned.js", "/static/fonts/overpass-latin-400-normal.woff2", "/static/fonts/OFL-overpass.txt"} {
 		if w := do(s, "GET", path, "", withCookie(s)); w.Code != 200 {
 			t.Errorf("%s: %d", path, w.Code)
 		}
@@ -155,6 +155,16 @@ func TestLaneAPIGuards(t *testing.T) {
 		{"unknown action", "POST", "/api/lanes/a/exec", ``, reqOptList{withCookie(s), origin}, 404},
 		{"bad lane id", "POST", "/api/lanes/A_B/stop", ``, reqOptList{withCookie(s), origin}, 400},
 		{"missing lane", "POST", "/api/lanes/a/stop", ``, reqOptList{withCookie(s), origin}, 404},
+		// PANEL-17: close is a lane action like stop, with a strict body.
+		{"close without cookie", "POST", "/api/lanes/a/close", `{"dryRun":true}`, reqOptList{origin}, 401},
+		{"close cross-site", "POST", "/api/lanes/a/close", `{"dryRun":true}`, reqOptList{withCookie(s), withHeader("Origin", "http://evil.example")}, 403},
+		{"close without an Origin", "POST", "/api/p/x/lanes/a/close", `{}`, reqOptList{withCookie(s)}, 403},
+		{"close by GET", "GET", "/api/lanes/a/close", ``, reqOptList{withCookie(s)}, 404},
+		{"close bad lane id", "POST", "/api/lanes/A_B/close", `{"dryRun":true}`, reqOptList{withCookie(s), origin}, 400},
+		{"close with a path", "POST", "/api/lanes/a/close", `{"worktree":true,"path":"/"}`, reqOptList{withCookie(s), origin}, 400},
+		{"close without a body", "POST", "/api/lanes/a/close", ``, reqOptList{withCookie(s), origin}, 400},
+		{"close missing lane", "POST", "/api/lanes/a/close", `{"dryRun":true}`, reqOptList{withCookie(s), origin}, 404},
+		{"close missing lane for real", "POST", "/api/lanes/a/close", `{"worktree":true,"branch":true}`, reqOptList{withCookie(s), origin}, 404},
 	} {
 		if w := do(s, c.method, c.target, c.body, c.opts...); w.Code != c.status {
 			t.Errorf("%s: got %d %q, want %d", c.name, w.Code, strings.TrimSpace(w.Body.String()), c.status)

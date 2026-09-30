@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/metrics"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
@@ -173,21 +174,32 @@ type Model struct {
 	laneGone map[string]time.Time
 	// trend holds the trends, the lane timelines, ps and git (PANEL-11; trends.go).
 	trend *trends
+
+	// The account (PANEL-15; quota.go): `claude auth status`, and how many status
+	// posts in a row carried no quota window.
+	account       *signals.AuthStatus
+	accountSrc    SourceStatus
+	noWindowPosts int
+
+	// projectID is the project's id in the panel's registry (PANEL-16).
+	projectID string
+
+	// PANEL-19 (metrics.go): spend for the ledger, and the Flow card.
+	spendObs      map[string]metrics.Observation
+	flow          *metrics.Card
+	changes       []signals.Change
+	spentByBranch map[string]float64
+	economy       *EconomyView
+	remoteControl string
+	// PANEL-20 (readiness.go): the runtime's per-worktree reads for merge readiness.
+	laneExtras   map[string]LaneExtra
+	gateReceipts bool
+	mergeAsks    map[string]MergeAsk   // lifecycle.go
+	limits       map[string]*limitMark // resume.go, by session id
 }
 
-// Quota is the latest account quota the status line reported.
-type Quota struct {
-	FiveHour       *float64 `json:"fiveHour"`
-	SevenDay       *float64 `json:"sevenDay"`
-	FiveHourResets *int64   `json:"fiveHourResetsAt,omitempty"`
-	SevenDayResets *int64   `json:"sevenDayResetsAt,omitempty"`
-	At             int64    `json:"at"`
-	FromSession    string   `json:"fromSession,omitempty"`
-	// A window whose resets_at has passed is dropped (its value is from before the
-	// reset) and flagged, so the gauge shows "reset" rather than a stale number.
-	FiveHourExpired bool `json:"fiveHourExpired,omitempty"`
-	SevenDayExpired bool `json:"sevenDayExpired,omitempty"`
-}
+// SetProjectID names the project the model is of; the view carries it.
+func (m *Model) SetProjectID(id string) { m.projectID = id }
 
 // NewModel returns an empty model. Every source starts Pending.
 func NewModel(cfg *config.Config, root string, now time.Time) *Model {
@@ -286,6 +298,32 @@ func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
 		return wt.Path, true
 	}
 	return "", false
+}
+
+// OwnsSession: a lane record of this project carries the session id, or the session
+// is already bound here. The dispatcher (PANEL-16) asks this before any cwd, so a
+// session stays with its project after a `cd` elsewhere.
+func (m *Model) OwnsSession(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, rec := range m.laneRecords {
+		if rec.SessionID == id {
+			return true
+		}
+	}
+	s := m.sessions[id]
+	return s != nil && s.Lane != ""
+}
+
+// WorktreeDepth is the length of the deepest worktree path of this project that
+// holds cwd, or -1: across projects the deepest wins, since one repository's
+// worktrees can sit inside another's checkout.
+func (m *Model) WorktreeDepth(cwd string) int {
+	if i := signals.MatchWorktree(m.worktrees, cwd); i >= 0 {
+		return len(m.worktrees[i].Path)
+	}
+	return -1
 }
 
 func (m *Model) worktreeByPath(p string) signals.Worktree {
@@ -514,6 +552,9 @@ func agentLabel(typ, id string) string {
 
 // ApplyStatus folds one status-line payload into the state. Returns false when dropped.
 func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
+	// The quota is the account's: a post from any session, in this project or not,
+	// moves it (PANEL-15; before, one from another project was dropped first).
+	m.foldQuota(p, now)
 	lanePath, ok := m.bindLane(p.SessionID, p.Cwd)
 	if !ok {
 		m.dropped++
@@ -537,51 +578,11 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		if p.Cost.TotalCostUSD != nil {
 			m.costByID[p.SessionID] = *p.Cost.TotalCostUSD
 			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
+			m.observeSpend(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
 		s.Stats.fold(p, now)
 	}
-	m.foldQuota(p, now)
 	return true
-}
-
-// foldQuota merges a status post's rate limits into the quota.
-func (m *Model) foldQuota(p signals.StatusPayload, now time.Time) {
-	rl := p.RateLimits
-	// Merge per window: a live payload was seen carrying seven_day without five_hour,
-	// and a missing window must not blank the last value the panel knew.
-	if rl.FiveHour != nil || rl.SevenDay != nil {
-		q := &Quota{}
-		if m.quota != nil {
-			*q = *m.quota
-		}
-		q.At, q.FromSession = ms(now), p.SessionID
-		if rl.FiveHour != nil && rl.FiveHour.UsedPercentage != nil {
-			q.FiveHour, q.FiveHourResets = rl.FiveHour.UsedPercentage, rl.FiveHour.ResetsAt
-		}
-		if rl.SevenDay != nil && rl.SevenDay.UsedPercentage != nil {
-			q.SevenDay, q.SevenDayResets = rl.SevenDay.UsedPercentage, rl.SevenDay.ResetsAt
-		}
-		m.quota = q
-	}
-}
-
-// QuotaReading is the last quota the panel knows (a copy), or nil.
-func (m *Model) QuotaReading() *Quota {
-	if m.quota == nil {
-		return nil
-	}
-	q := *m.quota
-	return &q
-}
-
-// RestoreQuota puts back the reading a previous panel saved, until a post says more.
-// It is the account's, so it holds across a restart; its age (At) shows on the page,
-// and a window whose reset has passed shows as reset, as a live one would.
-func (m *Model) RestoreQuota(q Quota) {
-	if m.quota == nil && q.At > 0 {
-		q.FiveHourExpired, q.SevenDayExpired = false, false
-		m.quota = &q
-	}
 }
 
 // ApplyAgents folds a `claude agents --json` poll. Entries outside the project are
@@ -718,12 +719,15 @@ func (m *Model) ApplySuggestions(id string, out *signals.Suggestions, err error,
 // View is the JSON the browser renders. It is derived, never stored.
 type View struct {
 	Name           string     `json:"name"`
+	ProjectID      string     `json:"projectId"` // its id in the panel's registry (PANEL-16)
 	Root           string     `json:"root"`
 	Now            int64      `json:"now"`
 	StartedAt      int64      `json:"startedAt"`
 	Lanes          []LaneView `json:"lanes"`
 	QuietWorktrees []LaneView `json:"quietWorktrees"`
 	Quota          *Quota     `json:"quota"`
+	// Account is how the account signs in and what the quota's place shows (PANEL-15).
+	Account AccountView `json:"account"`
 	// EstCostUSD sums the status line's list-price total_cost_usd over the sessions
 	// the panel currently tracks: live ones, and ones heard from in the last 30 min.
 	EstCostUSD *float64     `json:"estCostUsd"`
@@ -751,6 +755,15 @@ type View struct {
 	WorktreeRoot string                `json:"worktreeRoot"`
 	// Trends are the global trends and what they imply (PANEL-11).
 	Trends Trends `json:"trends"`
+	// CardsStale is set while the checkout the cards run in is behind its upstream
+	// (PANEL-18): the page says the cards may be stale.
+	CardsStale *CardsStale `json:"cardsStale,omitempty"`
+	// Flow is the side panel's Flow card (PANEL-19), absent while there is nothing to show.
+	Flow *metrics.Card `json:"flow,omitempty"`
+	// Economy is economy mode while it is on (PANEL-19): the badge by the quota.
+	Economy *EconomyView `json:"economy,omitempty"`
+	// RemoteControl is where Remote Control is on, "all" or "lanes"; absent when off.
+	RemoteControl string `json:"remoteControl,omitempty"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -780,6 +793,11 @@ type LaneView struct {
 	CostPerH  *float64  `json:"costPerH,omitempty"`
 	// Git is the worktree's last git read, taken only while a page is open.
 	Git *GitView `json:"git,omitempty"`
+	// Budget is the budget of the change this lane's branch builds (PANEL-19), when
+	// its proposal has one, and what the change's branches have spent.
+	Budget *BudgetView `json:"budget,omitempty"`
+	// Readiness is whether the lane's branch is ready to merge, and why not (PANEL-20).
+	Readiness *Readiness `json:"readiness,omitempty"`
 	// Head is the worktree's HEAD commit, from `git worktree list`.
 	Head        string        `json:"head,omitempty"`
 	LastEvent   string        `json:"lastEvent,omitempty"`
@@ -1058,7 +1076,7 @@ func (m *Model) stale(s *session, now time.Time) bool {
 // Snapshot derives the View at `now`.
 func (m *Model) Snapshot(now time.Time) View {
 	v := View{
-		Name: m.cfg.Name, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
+		Name: m.cfg.Name, ProjectID: m.projectID, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
 		Cards: []CardState{}, PRs: append([]signals.PR{}, m.prs...), Banners: []string{}, BannerItems: []BannerView{},
 		Quota: m.quotaAt(now), HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,
@@ -1194,8 +1212,24 @@ func (m *Model) Snapshot(now time.Time) View {
 		}
 		v.Feed = append(v.Feed, ev)
 	}
+	v.Account = m.accountView(v.Quota)
 	m.snapshotV2(&v, now)
 	m.trendsView(&v, now)
+	v.CardsStale = m.cardsStale()
+	if m.flow != nil && m.flow.Any && m.cfg.FlowCard() {
+		v.Flow = m.flow
+	}
+	for i := range v.Lanes {
+		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
+		v.Lanes[i].Readiness = m.readiness(v.Lanes[i])
+	}
+	for i := range v.QuietWorktrees {
+		v.QuietWorktrees[i].Readiness = m.readiness(v.QuietWorktrees[i])
+	}
+	v.Economy = m.economyView()
+	if m.remoteControl != "off" {
+		v.RemoteControl = m.remoteControl
+	}
 	return v
 }
 
@@ -1218,6 +1252,8 @@ type TermLaneView struct {
 	Dead       bool     `json:"dead"`    // the tmux session exists, the program exited
 	DeadStatus string   `json:"deadStatus,omitempty"`
 	Registered bool     `json:"registered"`
+	// Port is the lane's own port (PANEL-20), when panel.json allocates them.
+	Port int `json:"port,omitempty"`
 	// Orphan says what does not add up, e.g. a registered lane whose tmux session is
 	// gone (a reboot), or a tmux session the registry does not know. "" when sound.
 	Orphan string `json:"orphan,omitempty"`
@@ -1280,7 +1316,7 @@ func (m *Model) TerminalViews(now time.Time) []TermLaneView {
 	for _, rec := range m.laneRecords {
 		seen[rec.ID] = true
 		tv := TermLaneView{ID: rec.ID, SessionID: rec.SessionID, Path: rec.Path, Type: rec.Type, Branch: rec.Branch,
-			Created: rec.Created / 1000, Registered: true, Status: "running"}
+			Created: rec.Created / 1000, Registered: true, Status: "running", Port: rec.Port}
 		if !rec.ActionDone {
 			tv.Action = rec.Action
 		}
@@ -1500,38 +1536,6 @@ func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 // unreadable) counts as approximate too.
 func (m *Model) heuristicsApprox() bool {
 	return !m.v2.versionSet || m.checking()
-}
-
-// quotaAt returns the quota with every window whose resets_at has passed dropped.
-func (m *Model) quotaAt(now time.Time) *Quota {
-	if m.quota == nil {
-		return nil
-	}
-	q := *m.quota
-	if q.FiveHourResets != nil && *q.FiveHourResets <= now.Unix() {
-		q.FiveHour, q.FiveHourExpired = nil, true
-	}
-	if q.SevenDayResets != nil && *q.SevenDayResets <= now.Unix() {
-		q.SevenDay, q.SevenDayExpired = nil, true
-	}
-	return &q
-}
-
-// quotaGuardBlock says why a new lane is refused at this quota, or "". An unknown or
-// expired window never blocks: the guard acts on a number it has.
-func quotaGuardBlock(q *Quota, guardPct float64) string {
-	if guardPct <= 0 || q == nil || q.FiveHour == nil {
-		return ""
-	}
-	if *q.FiveHour >= guardPct {
-		return fmt.Sprintf("the 5-hour quota is at %.0f%%, at or above the quota guard (%.0f%%)", *q.FiveHour, guardPct)
-	}
-	return ""
-}
-
-// QuotaGuard returns the reason a new lane would be refused now, or "".
-func (m *Model) QuotaGuard(now time.Time) string {
-	return quotaGuardBlock(m.quotaAt(now), m.cfg.AlertThresholds().GuardPct)
 }
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.
@@ -1761,6 +1765,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 					"types nothing into a restored lane, so continue it yourself."})
 		}
 	}
+	m.mergeNeeds(v) // PANEL-20
 	sort.SliceStable(v.NeedsYou, func(i, j int) bool {
 		return sevRank(v.NeedsYou[i].Severity) > sevRank(v.NeedsYou[j].Severity)
 	})
@@ -1769,7 +1774,8 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			"RESTORE ALL resumes each on its own session id.", len(v.Restorable), strings.Join(v.Restorable, ", ")))
 	}
 
-	v.Alerts = m.computeAlerts(v, th, now)
+	v.Alerts = append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...)
+	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,
 		DroppedUnknownEvent: m.v2.droppedUnknown, UnknownNotifications: m.v2.unknownNotifs,

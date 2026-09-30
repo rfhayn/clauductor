@@ -105,7 +105,8 @@ func TestLaneArgvConstruction(t *testing.T) {
 		";", "set-option", "-g", "status", "off",
 		";", "set-option", "-g", "mouse", "on",
 		";", "bind-key", "-T", "root", "WheelUpPane",
-		"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e"}
+		"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e",
+		";", "set-option", "-sq", "terminal-features[99]", "xterm-256color:hyperlinks"}
 	if !reflect.DeepEqual(ns[len(ns)-len(tail):], tail) {
 		t.Fatalf("NewSessionArgv tail:\n got %q", ns[len(ns)-len(tail):])
 	}
@@ -226,6 +227,30 @@ func TestParseTmuxPanes(t *testing.T) {
 	tmp, _ := filepath.EvalSymlinks("/tmp") // /private/tmp on macOS
 	if got[1].ID != "orchestrator" || got[1].Attached != 1 || got[1].Path != tmp {
 		t.Fatalf("live lane parsed as %+v", got[1])
+	}
+}
+
+// PANEL-16: each lane is tagged with its project, and a session tagged for another
+// project is not listed as this manager's (untagged ones, from before, are).
+func TestLanesAreTaggedWithTheirProject(t *testing.T) {
+	t.Parallel()
+	m := testLaneManager(t)
+	m.Project = "app"
+	ns := strings.Join(m.NewSessionArgv("add-x", "/repo/w", "fix", sid, false), "\x00")
+	if !strings.Contains(ns, strings.Join([]string{"set-option", "-t", "=add-x:", "@clauductor_project", "app", ";"}, "\x00")) {
+		t.Fatal("the lane is not tagged with its project")
+	}
+	out := "mine\t/tmp\t/tmp\t0\t\t1\t0\tfix\tapp\n" +
+		"theirs\t/tmp\t/tmp\t0\t\t1\t0\tfix\tweb\n" +
+		"old\t/tmp\t/tmp\t0\t\t1\t0\tfix\t\n"
+	m.Exec = func(_ context.Context, argv []string) ([]byte, error) { return []byte(out), nil }
+	ls, up, err := m.ListServer(context.Background())
+	var ids []string
+	for _, l := range ls {
+		ids = append(ids, l.ID+"="+l.Project)
+	}
+	if err != nil || !up || strings.Join(ids, ",") != "mine=app,old=" {
+		t.Fatalf("listed %v (%v)", ids, err)
 	}
 }
 

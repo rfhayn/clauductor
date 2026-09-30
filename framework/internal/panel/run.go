@@ -25,13 +25,17 @@ import (
 
 // Options configures one panel run.
 type Options struct {
-	Project    string // project root (already resolved by the caller)
+	// Project is a project to serve and make the default, registered in
+	// projects.json first if it is not (PANEL-16). "" serves the registry as it is.
+	Project    string
 	ConfigPath string // "" → <Project>/.clauductor/panel.json
-	Port       int
-	NoOpen     bool
-	Home       string // the user's home; injectable for tests
-	Out        io.Writer
-	Runner     signals.Runner
+	// Only serves Project alone, not the rest of the registry (--only; tests).
+	Only   bool
+	Port   int
+	NoOpen bool
+	Home   string // the user's home; injectable for tests
+	Out    io.Writer
+	Runner signals.Runner
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
 	// OnPoll, if set, is called with a source's name each time one of its polls has
@@ -110,6 +114,9 @@ type Ticks struct {
 	Trends time.Duration // the trends and the lane-state timelines (no spawn)
 	Procs  time.Duration // one `ps` of the claude processes
 	Git    time.Duration // one `git status` per worktree with a lane (a second only when dirty)
+	// PANEL-19: the Metrics view.
+	Spend  time.Duration // the spend the model observed, into the ledger (no spawn)
+	Merged time.Duration // the least time between two reads of merged pull requests (gh, while in view)
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -123,6 +130,7 @@ func DefaultTicks() Ticks {
 		Obs: time.Second, Notify: 2 * time.Second, Trust: 5 * time.Second, Token: 2 * time.Second,
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
+		Spend: time.Minute, Merged: 10 * time.Minute,
 	}
 }
 
@@ -137,7 +145,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.CardWatch, &d.CardWatch}, {&t.Queues, &d.Queues}, {&t.Prompt, &d.Prompt}, {&t.PromptKick, &d.PromptKick},
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
-		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git},
+		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def
@@ -162,20 +170,29 @@ func Run(ctx context.Context, o Options) error {
 		clk = clock.System // the one default: Run is where the clock is chosen
 	}
 	ticks := o.Ticks.withDefaults()
-	root := signals.ResolvePath(o.Project)
-	cfgPath := o.ConfigPath
-	if cfgPath == "" {
-		cfgPath = filepath.Join(root, config.DefaultConfigRel)
+	if o.Project != "" {
+		// The project named on the command line must load: fail before touching
+		// anything, as a single-project panel always has.
+		root := signals.ResolvePath(o.Project)
+		cfgPath := o.ConfigPath
+		if cfgPath == "" {
+			cfgPath = filepath.Join(root, config.DefaultConfigRel)
+		}
+		if _, err := config.LoadConfig(cfgPath); err != nil {
+			return err
+		}
+		if _, err := signals.ReadWorktrees(ctx, o.Runner, root); err != nil {
+			return fmt.Errorf("%s: %w", root, err)
+		}
+	} else if o.Only {
+		return errors.New("--only needs --project")
 	}
-	cfg, rawCfg, err := config.LoadConfigRaw(cfgPath)
+	reg, err := config.LoadProjects(o.Home)
 	if err != nil {
 		return err
 	}
-	// The worktree list is the event filter's authority; without it every event
-	// would be dropped, so a failure here is fatal rather than a quiet empty panel.
-	wts, err := signals.ReadWorktrees(ctx, o.Runner, root)
-	if err != nil {
-		return fmt.Errorf("%s: %w", root, err)
+	if o.Project == "" && len(reg.Projects) == 0 {
+		return errors.New("no project to serve: run it inside a repository, pass --project <path>, or `clauductor panel add --project <path>`")
 	}
 
 	// One panel per machine (install/singleton.go): refuse before touching the port,
@@ -229,16 +246,28 @@ func Run(ctx context.Context, o Options) error {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	marker := install.MarkerPath(o.Home)
-	// The PID and owner record sit beside the marker, not in it: status-line scripts
-	// read `port` as digits only. A PID that is not running (or runs with another
-	// start time) marks the files stale; SIGKILL skips the removal at exit, which
-	// takes them only while they are still this panel's.
-	if err := install.ClaimPanelFiles(o.Home, install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: root,
-		Name: cfg.Name, Port: port, Started: clk.Now().Unix()}); err != nil {
+	// The port is ours: now the named project may be registered (a refused start
+	// changes nothing, projects.json included).
+	primary := ""
+	if o.Project != "" {
+		res, err := install.AddProject(ctx, install.AddOptions{Home: o.Home, Project: o.Project, Config: o.ConfigPath,
+			Run: o.Runner, Now: clk.Now(), MakeDefault: true})
+		if err != nil {
+			return err
+		}
+		if res.Added {
+			fmt.Fprintf(o.Out, "registered %s as project %q in %s (its config stays untrusted until `clauductor panel trust`)\n",
+				res.Entry.Root, res.Entry.ID, config.ProjectsPath(o.Home))
+		}
+		primary = res.Entry.ID
+		if reg, err = config.LoadProjects(o.Home); err != nil {
+			return err
+		}
+	}
+	projects, failed, err := loadProjects(ctx, o, reg, primary)
+	if err != nil {
 		return err
 	}
-	defer install.ReleasePanelFiles(o.Home, os.Getpid())
 
 	var token string
 	if o.Launchd {
@@ -249,26 +278,63 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	if o.TmuxSocket != "" {
-		if !config.SocketNameRe.MatchString(o.TmuxSocket) {
-			return fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, config.SocketNameRe)
-		}
-		cfg.TmuxSocket = o.TmuxSocket
-	}
-	trust := checkConfigTrust(o, root, cfgPath, rawCfg)
-	for _, n := range cfg.Notices {
-		fmt.Fprintln(o.Out, n)
-	}
-	lm, lanesWhy := newLaneManager(o, cfg, root, clk)
-	model := state.NewModel(cfg, root, clk.Now())
-	hub := web.NewHub(model, clk)
-	hub.TickEvery, hub.Coalesce = ticks.Hub, ticks.HubCoalesce
-	hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 
+	// One runtime per project, each with its own model, hub, lanes and socket.
+	var runtimes []*Runtime
+	var def *Runtime
+	hostNames := []string{}
+	for _, p := range projects {
+		trust := checkConfigTrust(o, p.entry.Root, p.cfgPath, p.raw, o.TrustConfig && p.entry.ID == primary)
+		for _, n := range p.cfg.Notices {
+			fmt.Fprintf(o.Out, "%s: %s\n", p.entry.ID, n)
+		}
+		lm, lanesWhy := newLaneManager(o, p.cfg, p.entry.Root, clk)
+		if lm != nil {
+			lm.Project = p.entry.ID
+		}
+		model := state.NewModel(p.cfg, p.entry.Root, clk.Now())
+		hub := web.NewHub(model, clk)
+		hub.TickEvery, hub.Coalesce = ticks.Hub, ticks.HubCoalesce
+		wts := p.wts
+		hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
+		r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
+		if lm != nil {
+			lm.Trusted = r.trusted // PANEL-20: worktree_setup and worktree_teardown are the config's commands
+		}
+		runtimes = append(runtimes, r)
+		if p.entry.ID == primary || (primary == "" && p.entry.ID == reg.Default) {
+			def = r
+		}
+		// A repository's config adds Host names only while it is trusted, except the
+		// default project's, which always could (before PANEL-16 it was the only one).
+		if trust.Trusted || r == def {
+			hostNames = append(hostNames, p.cfg.HostNames...)
+		}
+	}
+	if def == nil {
+		def = runtimes[0]
+	}
+	var roots []string
+	for _, r := range runtimes {
+		roots = append(roots, r.root)
+	}
+
+	marker := install.MarkerPath(o.Home)
+	// The PID and owner record sit beside the marker, not in it: status-line scripts
+	// read `port` as digits only. A PID that is not running (or runs with another
+	// start time) marks the files stale; SIGKILL skips the removal at exit, which
+	// takes them only while they are still this panel's.
+	if err := install.ClaimPanelFiles(o.Home, install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: def.root,
+		Name: def.cfg.Name, Port: port, Started: clk.Now().Unix(), Projects: roots}); err != nil {
+		return err
+	}
+	defer install.ReleasePanelFiles(o.Home, os.Getpid())
+
+	m := newMachine(o, clk, ticks, runtimes, def)
 	// Install hooks only once the port is ours, so a refused second launch never
 	// rewrites settings.json. A failed install is a banner and a retry, not a fatal
 	// error; after that, every interval re-checks that they still point here.
-	keeper := &hookKeeper{home: o.Home, port: port, hub: hub, out: o.Out, interval: o.HookCheckInterval, retryBase: o.HookRetryBase}
+	keeper := &hookKeeper{home: o.Home, port: port, apply: m.each, out: o.Out, interval: o.HookCheckInterval, retryBase: o.HookRetryBase}
 	if keeper.interval <= 0 {
 		keeper.interval = 30 * time.Second
 	}
@@ -279,27 +345,64 @@ func Run(ctx context.Context, o Options) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	r := newRuntime(o, cfg, root, cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
-	r.addHookKeeper(keeper, hooksOK)
+	m.addHookKeeper(keeper, hooksOK)
 	hooks := make(chan []byte, 256)
 	status := make(chan []byte, 64)
 
-	srv := &web.Server{Port: port, Token: token, Hub: hub, Hooks: hooks, Status: status, Refresh: r.refreshAll, Lanes: lm,
-		Orch: r.orchestration(), HostNames: cfg.HostNames, TermIdleTimeout: o.TermIdleTimeout, Clock: clk, Heartbeat: ticks.Heartbeat}
+	// The projects' menu: every project in the registry's order, the ones that did
+	// not load with the reason.
+	byID := map[string]web.ProjectSummary{}
+	for _, r := range runtimes {
+		s := web.Summarize(r.id, r.hub.View())
+		s.Default = r == def
+		byID[r.id] = s
+	}
+	for _, f := range failed {
+		byID[f.ID] = f
+	}
+	var menu []web.ProjectSummary
+	for _, e := range reg.Projects {
+		if s, ok := byID[e.ID]; ok {
+			menu = append(menu, s)
+		}
+	}
+	sums := web.NewSummaries(menu)
+
+	defOrch := def.orchestration()
+	srv := &web.Server{Port: port, Token: token, Hub: def.hub, Hooks: hooks, Status: status, Refresh: def.refreshAll, Lanes: def.lanes,
+		Orch: defOrch, HostNames: hostNames, TermIdleTimeout: o.TermIdleTimeout, Clock: clk, Heartbeat: ticks.Heartbeat,
+		Default: def.id, Summaries: sums}
 	if o.Launchd {
 		srv.CookieMaxAge = int((30 * 24 * time.Hour).Seconds())
 	}
-	r.srv.Store(srv)
-	if lm != nil {
-		lm.Changed = func() { kick(r.kickTmux); r.kickWorktrees(); kick(r.kickAgents) }
-		lm.Stopped = srv.CloseTerminals
+	m.srv.Store(srv)
+	for _, r := range runtimes {
+		r := r
+		orch := defOrch
+		if r != def {
+			orch = r.orchestration()
+		}
+		srv.Projects = append(srv.Projects, &web.Project{ID: r.id, Name: r.cfg.Name, Hub: r.hub, Lanes: r.lanes, Orch: orch, Refresh: r.refreshAll,
+			Metrics: r.metricsReport})
+		r.srv.Store(srv)
+		r.hub.OnPush = func(v state.View) { sums.Set(web.Summarize(r.id, v)) }
+		if r.lanes != nil {
+			r.lanes.Changed = func() { kick(r.kickTmux); r.kickWorktrees(); kick(r.kickAgents) }
+			r.lanes.Stopped = func(lane string) { srv.CloseTerminalsIn(r.id, lane) }
+		}
 	}
 
 	var wg sync.WaitGroup
 	start := func(f func()) { wg.Add(1); go func() { defer wg.Done(); f() }() }
-	start(func() { hub.Run(ctx) })
-	start(func() { r.ingest(ctx, hooks, status) })
-	r.start(ctx, start)
+	for _, r := range runtimes {
+		hub := r.hub
+		start(func() { hub.Run(ctx) })
+	}
+	start(func() { m.ingest(ctx, hooks, status) })
+	m.start(ctx, start)
+	for _, r := range runtimes {
+		r.start(ctx, start)
+	}
 
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(),
@@ -314,12 +417,19 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%d/?t=%s", web.PanelHost(ln6 != nil), port, token)
+	served := fmt.Sprintf("%s (%s)", def.cfg.Name, def.root)
+	if n := len(runtimes) - 1; n > 0 {
+		served += fmt.Sprintf(" and %d other project(s)", n)
+	}
+	if len(failed) > 0 {
+		served += fmt.Sprintf("; %d project(s) not loaded (the menu says why)", len(failed))
+	}
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
-		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
-			cfg.Name, root, web.PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
+		fmt.Fprintf(o.Out, "clauductor panel: %s\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
+			served, web.PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
 	} else {
-		fmt.Fprintf(o.Out, "clauductor panel: %s (%s)\n  %s\n  marker: %s · Ctrl-C to stop\n", cfg.Name, root, url, marker)
+		fmt.Fprintf(o.Out, "clauductor panel: %s\n  %s\n  marker: %s · Ctrl-C to stop\n", served, url, marker)
 	}
 	if o.OnReady != nil {
 		o.OnReady(url)
@@ -364,7 +474,9 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 		return nil, "the lane registry cannot be read, so lanes are not managed: " + err.Error()
 	}
 	m := &lanes.LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
-		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit, Clock: clk}
+		UploadDir: filepath.Join(config.ProjectDir(o.Home, root), "uploads"),
+		Program:   o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit, Clock: clk}
+	m.RemoteControl = func() bool { return install.LanesRemoteControl(o.Home) }
 	if m.FastExit == 0 {
 		m.FastExit = 3 * time.Second
 	}
@@ -380,14 +492,15 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 			why = "claude was not found on the panel's PATH"
 		}
 	}
+	m.PruneImages() // images dropped more than a day ago, while the panel was down
 	return m, why
 }
 
 // checkConfigTrust decides whether panel.json's commands and templates may run,
 // and says so once.
-func checkConfigTrust(o Options, root, cfgPath string, raw []byte) config.TrustView {
+func checkConfigTrust(o Options, root, cfgPath string, raw []byte, trustNow bool) config.TrustView {
 	hash := install.ConfigHash(raw)
-	tv, err := install.CheckTrust(o.Home, root, cfgPath, hash, o.TrustConfig)
+	tv, err := install.CheckTrust(o.Home, root, cfgPath, hash, trustNow)
 	if err != nil {
 		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}

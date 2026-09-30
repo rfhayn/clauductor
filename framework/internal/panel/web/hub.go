@@ -36,6 +36,9 @@ type Hub struct {
 	// TickEvery is how often derived state (stale hooks, approximate readings) is
 	// re-derived when nothing arrives. Zero means 5 s.
 	TickEvery time.Duration
+	// OnPush, if set, sees each view the hub pushes, after the push (PANEL-16: the
+	// projects' menu is derived from it). It must not call back into the hub.
+	OnPush func(v state.View)
 	// pushes counts broadcasts, for tests and the footer.
 	pushes atomic.Int64
 	// rounds counts the times the hub decided whether to push, pushed or not: a test
@@ -64,17 +67,17 @@ func (h *Hub) Update(fn func(m *state.Model, now time.Time)) {
 
 // Snapshot returns the current view as JSON.
 func (h *Hub) Snapshot() []byte {
-	b, _, _ := h.snapshotKeyed()
+	b, _, _, _ := h.snapshotKeyed()
 	return b
 }
 
-// snapshotKeyed returns the current view as JSON, its key and its full key.
-func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte) {
+// snapshotKeyed returns the current view, as JSON, its key and its full key.
+func (h *Hub) snapshotKeyed() ([]byte, [sha256.Size]byte, [sha256.Size]byte, state.View) {
 	h.mu.Lock()
 	v := h.model.Snapshot(h.clock.Now())
 	h.mu.Unlock()
 	b, _ := json.Marshal(v)
-	return b, state.ViewKey(v), state.FullKey(v)
+	return b, state.ViewKey(v), state.FullKey(v), v
 }
 
 // Pushes is how many snapshots the hub has broadcast.
@@ -123,10 +126,10 @@ func (h *Hub) Run(ctx context.Context) {
 // or, on a tick, if anything in it changed.
 func (h *Hub) broadcast(tick bool) {
 	defer h.rounds.Add(1)
-	snap, key, full := h.snapshotKeyed()
+	snap, key, full, v := h.snapshotKeyed()
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.sent && key == h.last && (!tick || full == h.lastFull) {
+		h.mu.Unlock()
 		return
 	}
 	h.last, h.lastFull, h.sent = key, full, true
@@ -137,6 +140,10 @@ func (h *Hub) broadcast(tick bool) {
 		default:
 		}
 		ch <- snap
+	}
+	h.mu.Unlock()
+	if h.OnPush != nil {
+		h.OnPush(v)
 	}
 }
 

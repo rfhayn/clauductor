@@ -17,10 +17,29 @@ let S = null, offset = 0, es = null;
 // The selected lane, by key: "t:<lane id>" for a lane with a terminal, "w:<worktree>"
 // for a session started outside the panel (PANEL-11). Kept per browser.
 let selKey = null;
-try {
-  selKey = localStorage.getItem("clauductor-panel-sel");
-  if (!selKey && localStorage.getItem("clauductor-panel-term")) selKey = "t:" + localStorage.getItem("clauductor-panel-term");
-} catch (e) {}
+// The project this page shows (PANEL-16): ?p=<id>, else the panel's default, whose id
+// the first state names. P is the menu of every project the panel serves.
+const PID_RE = /^[a-z0-9][a-z0-9-]{0,40}$/;
+let PID = (() => { const p = new URLSearchParams(location.search).get("p"); return p && PID_RE.test(p) ? p : ""; })();
+let P = null;
+function pid() { return PID || (S && S.projectId) || ""; }
+// An action on this project: /api/p/<id>/…; before the first state names the default
+// project, the route without one, which reaches it.
+function api(path) { return pid() ? "/api/p/" + encodeURIComponent(pid()) + path : "/api" + path; }
+function projQuery(sep) { return pid() ? sep + "project=" + encodeURIComponent(pid()) : ""; }
+// The selected lane is kept per project. The key from before PANEL-16 (one project)
+// is the first project's until it chooses a lane of its own.
+function loadSel() {
+  selKey = null;
+  try {
+    selKey = localStorage.getItem("clauductor-panel-sel:" + pid());
+    if (!selKey) selKey = localStorage.getItem("clauductor-panel-sel");
+    if (!selKey && localStorage.getItem("clauductor-panel-term")) selKey = "t:" + localStorage.getItem("clauductor-panel-term");
+  } catch (e) {}
+}
+function saveSel(k) {
+  try { localStorage.setItem("clauductor-panel-sel:" + pid(), k); localStorage.removeItem("clauductor-panel-sel"); } catch (e) {}
+}
 
 function el(tag, cls, text, kids) {
   const e = document.createElement(tag);
@@ -163,14 +182,20 @@ function heard(serverNow) {
 }
 function connect() {
   if (es) es.close();
-  es = new EventSource("/events");
+  es = new EventSource("/events" + projQuery("?"));
   es.addEventListener("state", (e) => {
     const first = !S;
     S = JSON.parse(e.data);
     heard(S.now);
-    if (first) setTimeout(seen, 0);
+    if (first) { loadSel(); setTimeout(seen, 0); }
     goLive();
     render();
+  });
+  // Every stream also carries the menu of projects, with what needs you in each.
+  es.addEventListener("projects", (e) => {
+    try { P = JSON.parse(e.data); } catch (x) { return; }
+    renderProjects();
+    if (S) render();
   });
   es.addEventListener("hb", (e) => {
     try { heard(JSON.parse(e.data).now); } catch (x) { heard(0); }
@@ -184,6 +209,9 @@ function goLive() {
   conn.state = "live"; conn.attempt = 0; conn.expired = false; frozenAt = 0;
   clearTimeout(conn.timer);
   if (was !== "connecting") render();
+  // Say at once that a page is in view (not a minute from now): the dashboard's git read,
+  // and with it the cards' stale note (PANEL-18), starts on its next tick.
+  setTimeout(seen, 1000);
 }
 function lost(expired) {
   if (es) { es.close(); es = null; }
@@ -208,8 +236,15 @@ async function probe() {
   const ac = new AbortController();
   const limit = setTimeout(() => ac.abort(), PROBE_MS);
   try {
-    const r = await fetch("/api/state", { cache: "no-store", signal: ac.signal });
+    const r = await fetch("/api/state" + projQuery("?"), { cache: "no-store", signal: ac.signal });
     if (r.status === 401) { lost(true); return; }
+    // A project the panel no longer serves (?p= of an old link): the default instead.
+    if (r.status === 404 && PID) {
+      PID = "";
+      try { history.replaceState(null, "", location.pathname); } catch (e) {}
+      connect();
+      return;
+    }
     if (!r.ok) throw new Error(r.status);
   } catch (e) { lost(conn.expired); return; } finally { clearTimeout(limit); }
   connect();
@@ -446,8 +481,8 @@ function relPath(p) {
 
 function selectLane(k, how) {
   selKey = k;
-  try { localStorage.setItem("clauductor-panel-sel", k); } catch (e) {}
-  confirmAct = null;
+  saveSel(k);
+  confirmAct = null; closeAsk = null;
   render();
   if (how === "tab") focusKey("tab:" + k);
 }
@@ -560,6 +595,9 @@ function laneTable(ls, cur) {
   };
   const head = el("tr", null, null, [th("state", "State"), th("lane", "Lane"), ...shown.filter((c) => c.id !== "state").map((c) => th(c.id, c.label, c.num))]);
   if (!cols.includes("state")) head.removeChild(head.firstChild);
+  const ah = el("th", "acts", null, [el("span", "sr", "Actions")]);
+  ah.scope = "col";
+  head.appendChild(key(ah, "th:acts"));
   const body = el("tbody");
   for (const x of rows) {
     const ab = abnormal(x), sel = cur && x.key === cur.key;
@@ -569,6 +607,7 @@ function laneTable(ls, cur) {
     nm.title = x.name + ", " + (x.branch || "detached") + ", " + x.path;
     tr.appendChild(nm);
     for (const c of shown) if (c.id !== "state") tr.appendChild(el("td", c.num ? "num" : null, null, [c.cell(x)]));
+    tr.appendChild(el("td", "acts", null, [actsButton(x, "ra:" + x.key)]));
     on(tr, "click", () => selectLane(x.key));
     pressable(tr, x.name + ", " + laneStatusText(x));
     if (sel) tr.setAttribute("aria-selected", "true");
@@ -654,7 +693,7 @@ function moreBelow() {
   const r = $("rail");
   $("morebelow").hidden = r.scrollTop + r.clientHeight >= r.scrollHeight - 4 || getComputedStyle(r).display === "none";
 }
-$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } }, { passive: true });
+$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } if (rowMenu) closeRowMenu(false); }, { passive: true });
 window.addEventListener("resize", moreBelow);
 
 // The worktree tree, as the old control room's topology had it: the project, each
@@ -761,11 +800,19 @@ function renderTree(ls, cur) {
       node = nodeEl("span", "wt", first, ["no lane"].concat(second));
       node.title = w.path;
     }
-    const li = el("li", null, null, [key(node, "wtn")]);
+    // A lane's actions sit beside its worktree's node, never inside it: a button in a
+    // button is not operable.
+    const acts = mine.map((x) => actsButton(x, "rt:" + x.key)).filter(Boolean);
+    const li = el("li", null, null, [acts.length ? key(el("div", "wtrow", null, [key(node, "wtn"), ...acts]), "wtrow") : key(node, "wtn")]);
     if (!mine.length) {
-      const b = button("Start lane here", "small", () => openStart({ worktree: w.path }), "Start a lane in " + w.path, "wt:start", true);
+      const b = button("New lane here", "small", () => openStart({ worktree: w.path }), "Start a new lane (a new claude session) in " + w.path, "wt:start", true);
       if (S.startBlocked) b.disabled = true;
       li.appendChild(b);
+      // The main checkout is never removed, so it is never offered.
+      if (w.path !== S.root) {
+        if (removeAsk && removeAsk.path === w.path) li.appendChild(key(el("div", "wtask", null, removeWords(removeAsk)), "wtask"));
+        else li.appendChild(button("Remove", "small danger", () => askRemove(w.path), "Remove this worktree when that loses nothing. Asks first, listing what goes and what stays.", "wtrm:" + w.path, true));
+      }
     } else {
       const ul = el("ul");
       for (const x of mine) {
@@ -783,11 +830,112 @@ function renderTree(ls, cur) {
     const node = nodeEl("button", "wt" + (cur && cur.key === x.key ? " sel" : ""), [el("span", "tag", x.type || "lane"), el("span", "nn", x.name)], ["outside the worktrees"]);
     node.type = "button";
     on(node, "click", () => selectLane(x.key));
-    top.appendChild(key(el("li", null, null, [key(node, "wtn"), el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
+    const acts = actsButton(x, "rt:" + x.key);
+    top.appendChild(key(el("li", null, null, [acts ? key(el("div", "wtrow", null, [key(node, "wtn"), acts]), "wtrow") : key(node, "wtn"),
+      el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
   }
   kids.push(key(el("div", "tree", null, [el("div", null, null, [root]), top]), "treebody"));
   return kids;
 }
+
+// ---- A lane's actions, from the lists (PANEL-18) ----------------------------------------
+// Each lane the panel started has a "⋯" button in the Lanes table and the Worktrees tree:
+// a menu button (WAI-ARIA APG, as the project and Appearance menus are). Enter, Space or
+// Down opens it on its first item, Up on its last; Up/Down/Home/End move; Enter or Space
+// picks; Escape closes it back to its button; Tab and a click elsewhere close it. The
+// button is its own control: a click on it neither selects the row nor bubbles to it.
+// Picking an item selects the lane and opens the same in-page confirmation its button
+// under the terminal opens, built from the lane's state then. Nothing acts on one click.
+let rowMenu = null; // {lane: the lane's key, btn: the data-k of the button that opened it}
+function rowActs(t) {
+  if (!t.running) return [["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]];
+  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null,
+    // PANEL-19: in lanes mode, connect (or show) a running lane's Remote Control.
+    S.remoteControl === "lanes" && t.registered && !t.dead ? ["remote-control", "Remote control"] : null,
+    ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
+}
+function actsButton(x, k) {
+  if (!x.t) return null; // started outside the panel: nothing here can stop it
+  const b = el("button", "btn small rowact", "⋯");
+  b.type = "button";
+  b.setAttribute("aria-haspopup", "menu");
+  b.setAttribute("aria-controls", "rowmenu");
+  b.setAttribute("aria-expanded", String(!!rowMenu && rowMenu.btn === k));
+  b.setAttribute("aria-label", "Actions for lane " + x.name);
+  b.title = "Lane " + x.name + ": " + rowActs(x.t).map((a) => a[1]).join(", ");
+  on(b, "click", (ev) => {
+    ev.stopPropagation();
+    if (rowMenu && rowMenu.btn === k) closeRowMenu(true); else openRowMenu(x.key, k, "first");
+  });
+  on(b, "keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); ev.stopPropagation(); openRowMenu(x.key, k, ev.key === "ArrowUp" ? "last" : "first"); }
+  });
+  if (offline()) { b.disabled = true; b.title = "Disconnected from the panel"; }
+  return key(b, k);
+}
+function rowMenuItems() { return Array.from($("rowmenu").querySelectorAll('[role="menuitem"]')); }
+function renderRowMenu() {
+  const menu = $("rowmenu");
+  const x = rowMenu && S ? lanesOf().find((l) => l.key === rowMenu.lane) : null;
+  const live = rowMenu && document.querySelector('[data-k="' + CSS.escape(rowMenu.btn) + '"]');
+  if (!x || !x.t || !live || offline()) { if (rowMenu) closeRowMenu(false); return; }
+  const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.act : null;
+  menu.setAttribute("aria-label", "Lane " + x.name);
+  menu.replaceChildren(...rowActs(x.t).map(([act, label]) => {
+    const e = el("div", "mi" + (act === "stop" || act === "close" || act === "forget" ? " crit" : ""), label);
+    e.setAttribute("role", "menuitem");
+    e.tabIndex = -1;
+    e.dataset.act = act;
+    e.addEventListener("click", () => pickRowAct(x.key, act));
+    return e;
+  }));
+  // Fixed to the window, under its button: the rail clips sideways.
+  const r = live.getBoundingClientRect();
+  menu.hidden = false;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  menu.style.top = Math.round(r.bottom + h + 12 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + "px";
+  if (focused) { const f = menu.querySelector('[data-act="' + focused + '"]'); if (f) f.focus(); }
+}
+function openRowMenu(lane, btn, which) {
+  rowMenu = { lane, btn };
+  renderRowMenu();
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", String(b.dataset.k === btn));
+  const items = rowMenuItems();
+  if (items.length) (which === "last" ? items[items.length - 1] : items[0]).focus();
+}
+function closeRowMenu(refocus) {
+  const m = rowMenu;
+  rowMenu = null;
+  $("rowmenu").hidden = true;
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", "false");
+  if (refocus && m) focusKey(m.btn);
+}
+function pickRowAct(laneKey, act) {
+  closeRowMenu(false);
+  const x = lanesOf().find((l) => l.key === laneKey);
+  if (!x || !x.t || offline()) return;
+  selectLane(x.key);
+  if (act === "close") { askClose(x.t); return; }
+  confirmAct = { id: x.t.id, action: act };
+  render();
+  focusKey("b:cancel");
+}
+$("rowmenu").addEventListener("keydown", (e) => {
+  const items = rowMenuItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closeRowMenu(true); }
+  else if (e.key === "Tab") closeRowMenu(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (rowMenu && !e.target.closest("#rowmenu, .rowact")) closeRowMenu(false);
+});
+window.addEventListener("resize", () => { if (rowMenu) closeRowMenu(false); });
 
 // ---- Terminal tabs: one per lane, then "+" -------------------------------------------------
 // A tablist with a roving tabindex: Tab reaches the selected tab only; Left/Right,
@@ -844,9 +992,31 @@ function renderLaneHead(x) {
     const m = laneModel(x), lm = laneM(x), since = laneSince(x), ctx = laneCtx(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
+    // PANEL-20: the lane's own port, exported to it as CLAUDUCTOR_PORT.
+    if (x.t && x.t.port) {
+      const pk = kv1("Port", num(String(x.t.port)));
+      pk.title = "This lane's own port (ports in panel.json), exported to it as CLAUDUCTOR_PORT";
+      kids.push(key(pk, "port"));
+    }
+    // PANEL-19: where Remote Control is on (the machine's choice at panel install).
+    if (S.remoteControl && x.t) {
+      const rc = kv1("Remote", el("span", null, S.remoteControl === "all" ? "on, every session" : "on, the panel's lanes"));
+      rc.title = S.remoteControl === "all" ? "remoteControlAtStartup is true in ~/.claude/settings.json: every Claude session connects to Remote Control"
+        : "The panel's lanes start with claude --remote-control; a lane started before connects with Remote control in its ⋯ menu";
+      kids.push(key(rc, "remote"));
+    }
     if (since) kids.push(key(kv1("Up", el("span", "num", null, [age(since)])), "up"));
     kids.push(key(kv1("Context", el("span", null, null, [bullet(ctx, { tick: S.trends.autocompactPct, cls: ctx >= 85 ? "w" : "" }), document.createTextNode(" "), num(pct(ctx))])), "ctx"));
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
+    // PANEL-19: the budget of the change this lane builds, from its proposal; every branch
+    // of the change counts toward it. Amber from 80%, red past it.
+    const bg = x.lv && x.lv.budget;
+    if (bg) {
+      const p = bg.usd > 0 ? (bg.spent / bg.usd) * 100 : 100;
+      const k = kv1("Budget", el("span", null, null, [bullet(p, { cls: p > 100 ? "c" : p >= 80 ? "w" : "" }), num(money(bg.spent) + " of " + money(bg.usd), null, p > 100 ? "crit" : "")]));
+      k.title = "Change " + bg.change + ": its proposal's budget, and what its lanes have spent (list price)";
+      kids.push(key(k, "budget"));
+    }
     if (laneApprox(x)) kids.push(key(el("span", "dim", null, [staleTag(true)]), "stale"));
   } else kids.push(key(el("h2", null, "No lane selected"), "name"));
   const fit = fitLayout(), shown = fit.side;
@@ -865,7 +1035,7 @@ function renderLaneHead(x) {
 }
 
 // ---- The lane's side panel: tabs between metric families ------------------------------------
-const SIDE_TABS = [["agents", "Agents"], ["figures", "Figures"], ["git", "Git"], ["gate", "Gate"], ["alerts", "Alerts"], ["activity", "Activity"]];
+const SIDE_TABS = [["agents", "Agents"], ["figures", "Figures"], ["git", "Git"], ["checks", "Checks"], ["gate", "Gate"], ["alerts", "Alerts"], ["activity", "Activity"]];
 let sideTab = "agents";
 try { const t = localStorage.getItem("clauductor-panel-sidetab"); if (SIDE_TABS.some((x) => x[0] === t)) sideTab = t; } catch (e) {}
 function kvRows(rows) {
@@ -877,12 +1047,34 @@ function kvRows(rows) {
   }
   return box;
 }
+// PANEL-19: the Flow card, under the project's box: four figures of the last 30 days,
+// each with its sparkline, while there are metrics to show (metrics.card turns it off).
+// The whole card is one button that opens Metrics on Flow at 30d.
+const FLOW_LABEL = { "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merges", "wk"], "flow.change_fail_rate": ["Change-fail", "%"], "cost.per_week": ["Spend", "$wk"] };
+function flowCard() {
+  const f = S.flow;
+  if (!f || !f.any) return null;
+  const rows = f.items.map((it) => {
+    const [label, unit] = FLOW_LABEL[it.key] || [it.key, ""];
+    const pts = (it.series || []).filter((v) => v != null);
+    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mValue(it.value, unit)),
+      it.value == null ? el("span") : spark({ v: pts }, { lo: 0 }) || el("span")]);
+    row.title = it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command");
+    return key(row, "fr:" + it.key);
+  });
+  const b = el("button", "flowcard", null, [el("span", "fh", "Flow (" + f.window + ")"), ...rows]);
+  b.type = "button";
+  b.setAttribute("aria-label", "Flow, last " + f.window + ": " + f.items.map((it) => (FLOW_LABEL[it.key] || [it.key])[0] + " " +
+    (it.value == null ? "none" : mValue(it.value, (FLOW_LABEL[it.key] || [])[1]))).join(", ") + ". Opens Metrics.");
+  on(b, "click", () => { mv.tab = "flow"; mv.range = f.window; saveMv(); if ($("mview").hidden) openMetrics(); else renderMetrics(); });
+  return key(el("div", "sideflow", null, [b]), "side:flow");
+}
 function renderSide(x) {
   // The pinned cards (where the project stands) always follow, in a box of their own
   // under the lane's: the lane first, and the project never off the dashboard.
-  const project = projectBox();
+  const project = projectBox(), flow = flowCard();
   if (!x) {
-    patchInto("side", [project ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    patchInto("side", [pinnedCards().length || flow ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project, flow]);
     return;
   }
   const tabs = SIDE_TABS;
@@ -915,12 +1107,13 @@ function renderSide(x) {
   if (sideTab === "agents") body.push(...sideAgents(x));
   else if (sideTab === "figures") body.push(sideFigures(x));
   else if (sideTab === "git") body.push(...sideGit(x));
+  else if (sideTab === "checks") body.push(...sideChecks(x));
   else if (sideTab === "gate") body.push(...sideGate(x));
   else if (sideTab === "alerts") body.push(...sideAlerts(x, needs, als));
   else body.push(feedList(laneFeed(x).slice(0, 60), false, "lanefeed"));
   const panel = el("div", "sidebody", null, body);
   panel.setAttribute("role", "tabpanel");
-  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project]);
+  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project, flow]);
 }
 // ---- Pinned cards (PANEL-12): where the project stands, in the side panel -------------------
 // A pinned card is a list of titles that open. A row's title is its bold lead
@@ -957,9 +1150,30 @@ try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = loc
 function saveProj() {
   try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
 }
+// PANEL-18: a project with no card says where cards come from, in one line where its
+// pinned cards would be, rather than nothing. (Cards that exist but are not pinned are
+// in Activity, so they say nothing here.) The guide is the Help dialog's address.
+function noCards() {
+  const a = el("a", "link", "How cards work");
+  a.href = GUIDE_URL + "#cards";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return key(el("div", "sidepins nocards", null, [el("span", "dim", "No cards yet. Add them in .clauductor/panel.json. "), a]), "side:nocards");
+}
+// PANEL-18: the cards run in the project's main checkout and watch files there, so while
+// its branch is behind its upstream they read old files. git counts against the last
+// fetch (the panel fetches only when a lane starts and when a close or remove plans),
+// so the note says so. It shows once above the cards, in the side panel and Activity.
+function staleNote(k) {
+  const c = S.cardsStale;
+  if (!c) return null;
+  const e = el("div", "warn stale", c.branch + " is " + c.behind + " commit" + (c.behind === 1 ? "" : "s") + " behind " + c.upstream + " (as of last fetch) — cards may be stale");
+  e.title = "The cards run in " + c.dir + ". Pull there, then Refresh, to update them.";
+  return key(e, k);
+}
 function projectBox() {
   const pins = pinnedCards();
-  if (!pins.length) return null;
+  if (!pins.length) return (S.cards || []).length ? null : noCards();
   const cur = pins.find((c) => c.id === projTab) || pins[0];
   const tl = el("div", "sidetabs");
   tl.setAttribute("role", "tablist");
@@ -985,6 +1199,7 @@ function projectBox() {
     projOpen ? "Fold the project box" : "Show the project box", "projfold");
   fold.setAttribute("aria-expanded", String(projOpen));
   const kids = [key(el("div", "projhead", null, [key(tl, "projtabs"), fold]), "projhead")];
+  kids.push(staleNote("pstale"));
   if (projOpen) {
     const body = el("div", "sidebody projbody", null, pinnedRows(cur));
     body.setAttribute("role", "tabpanel");
@@ -1120,6 +1335,22 @@ function sideGit(x) {
   else out.push(key(el("div", "empty", x.branch ? "No open pull request for this branch." : "No branch."), "git:nopr"));
   return out;
 }
+// PANEL-20: merge readiness, read-only: the pull request, its checks, review and
+// unresolved threads, the change's tasks and the gate receipt for HEAD, and a verdict
+// that names every reason. The panel never merges.
+function sideChecks(x) {
+  const rd = x.lv && x.lv.readiness;
+  if (!rd) return [key(el("div", "empty", x.lv ? "This lane has no branch of its own, so nothing to merge." : "No worktree is matched to this lane."), "ck:none")];
+  const out = [key(el("div", "ckverdict " + (rd.ready ? "ok" : "warn"), rd.ready ? "Ready to merge" : "Not ready: " + rd.reasons.join("; ")), "ck:v")];
+  const box = el("div", "kv ckrows");
+  for (const r of rd.rows) {
+    box.appendChild(el("span", "k", r.name));
+    box.appendChild(el("span", "v" + (r.unknown ? " dim" : r.ok ? "" : " crit"), r.text));
+  }
+  out.push(key(box, "ck:rows"));
+  out.push(key(el("div", "dim ckfoot", "Read while this page is in view: checks and review from gh pr list, review threads from gh at most every 2 minutes, tasks.md in this worktree, the gate receipt in its git dir. The panel never merges."), "ck:foot"));
+  return out;
+}
 function sideGate(x) {
   const qs = S.queues || [];
   if (!qs.length && S.queuesSource.ok) return [key(el("div", "empty", "No queue is configured."), "q:none")];
@@ -1143,7 +1374,7 @@ let queueMsg = null;
 async function queuePost(q, verb, body) {
   queueMsg = { q, text: verb + "…" }; render();
   try {
-    const r = await fetch("/api/queues/" + encodeURIComponent(q) + "/" + verb, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(api("/queues/" + encodeURIComponent(q) + "/" + verb), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     queueMsg = { q, text: r.ok ? verb + ": done" + (j.run ? ", log " + j.run.log : "") : (j.error || "HTTP " + r.status), err: !r.ok };
   } catch (e) { queueMsg = { q, text: String(e), err: true }; }
@@ -1204,9 +1435,12 @@ function asOf() { return offline() && frozenAt ? ", as of " + hm(frozenAt) : "";
 const AGED = { waiting: true, idle: true };
 // Alerts shown in the strip: every alert that belongs to no lane, and blocking ones of
 // any lane (a waiting alert already in Needs you is not repeated).
+// PANEL-19: an approval waiting too long, a change over its budget and a lane with no
+// commit for days need you whether or not a lane has them, so they always show here.
+const NEEDS_KINDS = { approval_wait: true, budget: true, stale: true };
 function stripAlerts() {
   const asked = new Set(S.needsYou.map((n) => n.session));
-  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block"));
+  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block" || NEEDS_KINDS[a.kind]));
 }
 function needRow(n, cls, k, done) {
   const sev = done ? "" : n.severity === "block" ? "crit" : "warn";
@@ -1253,29 +1487,70 @@ function renderNeeds() {
 // (PANEL-12), so a reading can be old: past 10 minutes it says how old. With none,
 // the field says where one comes from rather than showing a bare dash.
 const QUOTA_OLD_MS = 10 * 60e3;
-function quotaField(id, v, expired, resets, proj, at) {
-  const g = $(id).querySelector(".v");
-  const kids = [bullet(expired ? 0 : v, { proj }), num(expired ? "reset" : pct(v))];
-  if (resets && !expired) kids.push(el("span", "more", null, [until(resets * 1000, "resets in ")]));
+// One field per window the account's plan reports (PANEL-15): the windows are
+// whatever the status line sends, labelled by the panel ("5-hour", or a label made
+// from a key it has never seen). The plan names itself on the first field.
+function quotaField(w, plan, proj, at) {
+  const kids = [bullet(w.expired ? 0 : w.pct, { proj }), num(w.expired ? "reset" : pct(w.pct))];
+  if (w.resetsAt && !w.expired) kids.push(el("span", "more", null, [until(w.resetsAt * 1000, "resets in ")]));
   if (at && now() - at > QUOTA_OLD_MS) kids.push(el("span", "more stale", null, [age(at, "as of ", " ago")]));
-  patch(g, kids);
-  $(id).title = at ? "Last status-line post: " + hm(at) + "."
-    : "No reading yet. The quota comes with a status-line post from a session in this project (docs/panel.md, The status line).";
+  const f = key(el("div", "f", null, [el("span", "k", w.label + " quota" + (plan ? " (" + plan + ")" : "")), el("span", "v", null, kids)]), "q:" + w.key);
+  f.title = at ? "Last status-line post: " + hm(at) + ". The quota is the account's: any session's status line moves it."
+    : "No reading yet. The quota comes with a status-line post from any session (docs/panel.md, The status line).";
+  return f;
+}
+// What stands in the quota's place, by the account's mode: the windows; a line saying
+// the plan reports none; nothing, for an API key or a cloud provider (spend comes
+// first instead); or, with no reading, the two usual windows and where one comes from.
+function quotaFields(q, acct, tr) {
+  const mode = acct.quotaMode || "unknown", plan = acct.plan || "";
+  if (mode === "spend") return [];
+  if (mode === "none") {
+    const f = key(el("div", "f", null, [el("span", "k", "Quota" + (plan ? " (" + plan + ")" : "")), el("span", "v", null, [el("span", "more", "none reported")])]), "q:none");
+    f.title = "This plan reports no usage windows in its status line, so there is no quota to show.";
+    return [f];
+  }
+  const ws = mode === "windows" && q.windows && q.windows.length ? q.windows
+    : [{ key: "five_hour", label: "5-hour" }, { key: "seven_day", label: "7-day" }];
+  return ws.map((w, i) => {
+    // The burn window: where it lands at its reset at the current burn, in --info.
+    let proj = null;
+    if (w.key === tr.burnWindow && tr.burnPerH > 0 && w.resetsAt && w.pct != null) proj = w.pct + tr.burnPerH * Math.max(0, (w.resetsAt * 1000 - now()) / 3.6e6);
+    return quotaField(w, i === 0 ? plan : "", proj, mode === "windows" ? q.at : 0);
+  });
+}
+// PANEL-19: economy mode, by the quota while it is on: the roles the project's
+// model-roles.json moves to a cheaper tier, and why it is on (on hover).
+function economyField() {
+  const e = S.economy;
+  if (!e || !e.active) return [];
+  const roles = (e.roles || []).map((r) => r.role + (r.to ? " to " + r.to : "")).join(", ");
+  const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "economy"),
+    el("span", "more", roles || "no role named")])]), "q:eco");
+  f.title = (e.reason || "") + (e.since ? ", since " + hm(e.since) : "") + ". " + (roles ? "Roles on a cheaper tier: " + roles + "." : e.rolesNote || "") +
+    " The panel writes ~/.clauductor/panel/economy.json; the operating model's build-change reads it.";
+  return [f];
 }
 function renderStatus(ls) {
-  const q = S.quota || {}, tr = S.trends || {};
-  // The 5-hour window: where it lands at the reset at the current burn, in --info.
-  let proj = null;
-  if (tr.burnPerH > 0 && q.fiveHourResetsAt && q.fiveHour != null) proj = q.fiveHour + tr.burnPerH * Math.max(0, (q.fiveHourResetsAt * 1000 - now()) / 3.6e6);
-  quotaField("g5", q.fiveHour, q.fiveHourExpired, q.fiveHourResetsAt, proj, q.at);
-  quotaField("g7", q.sevenDay, q.sevenDayExpired, q.sevenDayResetsAt, null, q.at);
-  // A falling 5-hour quota means its window reset: say so rather than a negative rate.
-  patch($("f-burn").querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
+  const q = S.quota || {}, tr = S.trends || {}, acct = S.account || {};
+  const spend = acct.quotaMode === "spend";
+  patch($("quotas"), quotaFields(q, acct, tr).concat(economyField()));
+  // An API key or a cloud provider is billed per token: its spend comes first, and
+  // the burn is dollars an hour. The estimate is still list price, not the bill.
+  const fields = $("fields"), fc = $("f-cost"), fb = $("f-burn");
+  if (spend && fields.firstElementChild !== fc) fields.insertBefore(fc, fields.firstElementChild);
+  if (!spend && fc.previousElementSibling !== fb) fields.insertBefore(fc, fb.nextSibling);
+  setText(fc.querySelector(".k"), spend ? "API spend (est.)" : "est. $ (list price)");
+  setText(fb.querySelector(".k"), spend ? "Spend rate" : "Burn rate");
+  fb.hidden = acct.quotaMode === "none";
+  if (spend) patch(fb.querySelector(".v"), tr.costPerH == null ? [el("span", "num", "—")] : [num(money(tr.costPerH), "/h"), spark(tr.cost)].filter(Boolean));
+  // A falling quota means its window reset: say so rather than a negative rate.
+  else patch(fb.querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
     num("+" + tr.burnPerH.toFixed(1), "%/h"),
     tr.exhaustAt ? el("span", tr.beforeReset ? "warn" : "more", "full at " + hm(tr.exhaustAt) + (tr.beforeReset ? ", before the reset" : "")) : null,
     spark(tr.quota5, { lo: 0, hi: 100 }),
   ].filter(Boolean));
-  patch($("costmore"), [tr.costToday != null ? num(money(tr.costToday), "today") : null, tr.costPerH != null ? num(money(tr.costPerH), "/h") : null, spark(tr.cost)].filter(Boolean));
+  patch($("costmore"), [tr.costToday != null ? num(money(tr.costToday), "today") : null, !spend && tr.costPerH != null ? num(money(tr.costPerH), "/h") : null, spark(tr.cost)].filter(Boolean));
   const n = { busy: 0, waiting: 0, idle: 0 };
   for (const x of ls) {
     const s = laneState(x);
@@ -1405,6 +1680,7 @@ function renderDrawer() {
     prs.push(key(el("div", "tblwrap", null, [el("table", "tbl", null, [tb])]), "d:prtbl"));
   }
   kids.push(key(el("section", "pane", null, prs), "d:prs"));
+  if (S.cards.length) kids.push(staleNote("d:stale"));
   for (const c of S.cards) kids.push(projectCard(c));
   // Every lane's events, grouped by lane, the lane with the newest event first.
   const groups = new Map();
@@ -1422,6 +1698,7 @@ function renderDrawer() {
 }
 let drawerReturn = null;
 function openDrawer() {
+  if (!$("mview").hidden) closeMetrics();
   drawerReturn = document.activeElement;
   $("drawer").hidden = false;
   $("activitybtn").setAttribute("aria-expanded", "true");
@@ -1437,6 +1714,271 @@ function closeDrawer() {
 $("activitybtn").addEventListener("click", () => ($("drawer").hidden ? openDrawer() : closeDrawer()));
 $("drawerclose").addEventListener("click", closeDrawer);
 $("drawer").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDrawer(); } });
+
+// ---- Metrics (PANEL-19): flow, cost, quality and outcomes -----------------------------------
+// The view is fetched while it is open (GET /api/p/<id>/metrics, every minute), never
+// pushed: its figures move by the day. Each figure says where it came from, the
+// project's metrics command or the panel's own reading, and a figure neither has is
+// "—" with the reason the panel gave. Every string is the project's data: textContent only.
+const M_TABS = [["flow", "Flow"], ["cost", "Cost"], ["quality", "Quality"], ["outcomes", "Outcomes"]];
+const M_RANGES = ["7d", "30d", "90d"];
+let mv = { tab: "flow", range: "30d", scope: "project", data: null, err: "", loading: false, at: 0, timer: 0, returnTo: null, seq: 0 };
+try {
+  const t = JSON.parse(localStorage.getItem("clauductor-panel-metrics") || "{}");
+  if (M_TABS.some((x) => x[0] === t.tab)) mv.tab = t.tab;
+  if (M_RANGES.includes(t.range)) mv.range = t.range;
+  if (t.scope === "all") mv.scope = "all";
+} catch (e) {}
+function saveMv() { try { localStorage.setItem("clauductor-panel-metrics", JSON.stringify({ tab: mv.tab, range: mv.range, scope: mv.scope })); } catch (e) {} }
+// Each figure's name and unit. The units are the contract's: hours, per week, percent, dollars.
+const M_FIG = {
+  "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merge frequency", "wk"], "flow.lead_time": ["Lead time", "h"],
+  "flow.approval_wait": ["Approval wait", "h"], "flow.change_fail_rate": ["Change-fail rate", "%"], "flow.aging_wip": ["Aging work in progress"],
+  "cost.total": ["Spend", "$"], "cost.per_week": ["Spend per week", "$wk"], "cost.by_role": ["By role"], "cost.by_model": ["By model"],
+  "cost.by_change": ["By change"], "cost.by_project": ["By project"],
+  "quality.review_rounds": ["Review rounds per change", "n"], "quality.reviewer_recall": ["Reviewer recall by model"], "quality.escaped_defects": ["Escaped defects", "n"],
+  "outcomes.hypotheses": ["Hypotheses"],
+};
+function mValue(v, unit) {
+  if (v == null) return "—";
+  const r = (x, dp) => (Math.abs(x - Math.round(x)) < 0.05 ? String(Math.round(x)) : x.toFixed(dp));
+  switch (unit) {
+    case "h": return v >= 48 ? r(v / 24, 1) + " d" : r(v, 1) + " h";
+    case "wk": return r(v, 1) + " a week";
+    case "%": return r(v, 1) + "%";
+    case "$": return money(v);
+    case "$wk": return money(v) + " a week";
+    default: return r(v, 1);
+  }
+}
+const M_SRC = { project: "project", builtin: "built in", mixed: "project and built in" };
+function mSource(src) {
+  if (!src) return null;
+  const e = el("span", "msrc", M_SRC[src] || src);
+  e.title = src === "builtin" ? "Computed by the panel from what it already reads" : src === "project" ? "From the project's metrics command" : "From more than one source";
+  return e;
+}
+// A series as columns, oldest first; a bucket with no data is a mark on the baseline.
+function mBars(series, unit) {
+  if (!series || series.length < 2) return null;
+  const vals = series.filter((v) => v != null);
+  const hi = Math.max(1e-9, ...vals);
+  const n = series.length, w = 100 / n;
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "mbars");
+  svg.setAttribute("viewBox", "0 0 100 24");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Over the range, oldest first: " + series.map((v) => (v == null ? "no data" : mValue(v, unit))).join(", "));
+  series.forEach((v, i) => {
+    const r = document.createElementNS(SVGNS, "rect");
+    const h = v == null ? 0 : Math.max(0.8, (v / hi) * 22);
+    r.setAttribute("x", (i * w + w * 0.15).toFixed(2));
+    r.setAttribute("width", (w * 0.7).toFixed(2));
+    r.setAttribute("y", (24 - h).toFixed(2));
+    r.setAttribute("height", h.toFixed(2));
+    if (v == null) r.setAttribute("class", "nil");
+    svg.appendChild(r);
+    if (v == null) {
+      const m = document.createElementNS(SVGNS, "rect");
+      m.setAttribute("class", "gap");
+      m.setAttribute("x", (i * w + w * 0.15).toFixed(2)); m.setAttribute("width", (w * 0.7).toFixed(2));
+      m.setAttribute("y", "23"); m.setAttribute("height", "1");
+      svg.appendChild(m);
+    }
+  });
+  return svg;
+}
+// A bar proportional to v out of max, for a line of a breakdown.
+function hbar(v, max, cls) {
+  const b = el("span", "hbar" + (cls ? " " + cls : ""), null, [el("i")]);
+  b.firstChild.style.width = (max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0).toFixed(1) + "%";
+  b.setAttribute("aria-hidden", "true");
+  return b;
+}
+// One figure: its name, value, series and source; its note or why it has none under it.
+function mFigure(k, m) {
+  const [label, unit] = M_FIG[k];
+  const has = !!m && m.value != null;
+  const row = el("div", "mrow" + (has ? "" : " miss"), null, [
+    el("span", "ml", label),
+    el("span", "mv num", has ? mValue(m.value, unit) : "—"),
+    el("span", "mspark", null, [has ? mBars(m.series, unit) : null]),
+    el("span", "mn", null, [has && m.n ? el("span", "dim", "of " + m.n) : null, has ? mSource(m.source) : null]),
+  ]);
+  const note = has ? m.note : (m && m.missing) || "No value.";
+  if (note) row.appendChild(el("div", "mnote" + (has ? "" : " why"), note));
+  return key(row, "mf:" + k);
+}
+// A list figure: the table its items make, or why there are none.
+function mList(k, m, head, rowOf) {
+  const [label] = M_FIG[k];
+  const kids = [el("div", "mlh", null, [el("h3", null, label), el("span", "sp"), m && m.items ? mSource(m.source) : null])];
+  if (!m || !m.items) kids.push(el("div", "mnote why", (m && m.missing) || "No data."));
+  else if (!m.items.length) kids.push(el("div", "empty", "None in this range."));
+  else {
+    const scope = mv.data && mv.data.projects && mv.data.projects.length && m.items[0] && m.items[0].project != null;
+    const cols = scope ? [["Project"]].concat(head) : head;
+    const thead = el("thead", null, null, [el("tr", null, null, cols.map(([h, cls]) => { const th = el("th", cls || null, h); th.scope = "col"; return th; }))]);
+    const tb = el("tbody");
+    const max = Math.max(0, ...m.items.map((it) => it.usd != null ? it.usd : it.age_days != null ? it.age_days : it.pct != null ? it.pct : 0));
+    m.items.forEach((it, i) => {
+      const cells = rowOf(it, max);
+      tb.appendChild(el("tr", cells.warn ? "abn-warn" : null, null, (scope ? [el("td", null, it.project)] : []).concat(cells.tds)));
+    });
+    kids.push(el("div", "tblwrap", null, [el("table", "tbl mtbl", null, [thead, tb])]));
+    if (m.note) kids.push(el("div", "mnote", m.note));
+  }
+  return key(el("div", "mlist", null, kids), "ml:" + k);
+}
+const td = (t, cls) => el("td", cls || null, t);
+const tdn = (kids) => el("td", "mbarcell", null, kids);
+function amountRow(it, max) {
+  const over = it.budget_usd != null && it.usd > it.budget_usd;
+  return { warn: over, tds: [td(it.name), td(money(it.usd), "num"), tdn([hbar(it.usd, max)]),
+    td(it.budget_usd == null ? "" : money(it.budget_usd) + (over ? ", over" : ""), "num")] };
+}
+const AMOUNT_HEAD = [["Name"], ["Spend", "num"], [""], ["Budget", "num"]];
+function renderMetricsBody() {
+  const d = mv.data, kids = [];
+  if (!d) {
+    kids.push(key(el("div", mv.err ? "srcerr" : "empty", mv.err ? "Cannot read the metrics: " + mv.err : "Reading the metrics…"), "mv:load"));
+    return kids;
+  }
+  if (mv.err) kids.push(key(el("div", "srcerr", "Cannot read the metrics now: " + mv.err + ". What shows is from " + hm(mv.at) + "."), "mv:err"));
+  // Where the figures come from, once, above them.
+  const src = [];
+  const c = d.command || {};
+  if (mv.scope === "all") {
+    src.push(el("div", null, "All projects: " + (d.projects || []).join(", ") + ". Merges and spend add up; a median is the projects' own, weighted."));
+    for (const e of d.errors || []) src.push(el("div", "srcerr", "The metrics command failed in " + e));
+  } else if (!c.configured) src.push(el("div", null, "No metrics command: what shows is the panel's own (built in). metrics.command in panel.json adds the rest."));
+  else if (!c.trusted) src.push(el("div", "warn", "The metrics command is off until panel.json is trusted (clauductor panel trust)."));
+  else if (c.pending) src.push(el("div", "dim", "The metrics command has not reported yet."));
+  else if (!c.ok) src.push(el("div", "srcerr", "The metrics command failed: " + c.error));
+  else src.push(el("div", null, null, [document.createTextNode("From the metrics command"), c.generatedAt || c.at ? age(c.generatedAt || c.at, ", computed ", " ago") : null, document.createTextNode(", and the panel's own where it has none.")]));
+  const mg = d.merged || {};
+  if (mv.scope !== "all") {
+    if (mg.error) src.push(el("div", "dim", "Merged pull requests: cannot read (" + mg.error + ")."));
+    else if (mg.at) src.push(el("div", "dim", null, [age(mg.at, "Merged pull requests read from gh ", " ago, every 10 minutes while this page is in view.")]));
+  }
+  if (d.spendSince) src.push(el("div", "dim", "Spend kept since " + d.spendSince + "."));
+  kids.push(key(el("div", "mvsrc", null, src), "mv:src"));
+  const w = (d.windows || {})[mv.range] || {};
+  const f = (k) => mFigure(k, w[k]);
+  const sect = (k, title, body) => key(el("section", "pane msect", null, [el("div", "pane-h", null, [el("h2", null, title)]), ...body]), k);
+  if (mv.tab === "flow") {
+    kids.push(sect("ms:flow", "Delivery", [f("flow.cycle_time"), f("flow.merge_frequency"), f("flow.lead_time"), f("flow.approval_wait"), f("flow.change_fail_rate")]));
+    kids.push(sect("ms:wip", "In flight", [mList("flow.aging_wip", w["flow.aging_wip"], [["Work"], ["Title"], ["Stage"], ["Age", "num"], [""]],
+      (it, max) => ({ warn: false, tds: [td(it.id), td(it.title || ""), td(it.stage || ""), td(mValue(it.age_days) + " d", "num"), tdn([hbar(it.age_days, max)])] }))]));
+  } else if (mv.tab === "cost") {
+    kids.push(sect("ms:spend", "Spend", [f("cost.total"), f("cost.per_week")]));
+    kids.push(sect("ms:by", "Where it went", [mList("cost.by_role", w["cost.by_role"], AMOUNT_HEAD, amountRow), mList("cost.by_model", w["cost.by_model"], AMOUNT_HEAD, amountRow),
+      mList("cost.by_change", w["cost.by_change"], AMOUNT_HEAD, amountRow), mList("cost.by_project", w["cost.by_project"], AMOUNT_HEAD, amountRow)]));
+  } else if (mv.tab === "quality") {
+    kids.push(sect("ms:q", "Review", [f("quality.review_rounds"), f("quality.escaped_defects")]));
+    kids.push(sect("ms:recall", "Evals", [mList("quality.reviewer_recall", w["quality.reviewer_recall"], [["Model"], ["Recall", "num"], [""], ["Seeded defects", "num"]],
+      (it) => ({ warn: false, tds: [td(it.model), td(mValue(it.pct, "%"), "num"), tdn([hbar(it.pct, 100)]), td(it.n ? String(it.n) : "", "num")] }))]));
+  } else {
+    const today = new Date(now()).toISOString().slice(0, 10);
+    kids.push(sect("ms:out", "Did it do what it meant to", [mList("outcomes.hypotheses", w["outcomes.hypotheses"], [["Change"], ["Hypothesis"], ["Due", "num"], ["Checked"], ["Result"]],
+      (it) => {
+        const late = !it.checked && it.due && it.due < today;
+        return { warn: late, tds: [td(it.change), el("td", "wrap", it.hypothesis), td(it.due || "", "num"), td(it.checked ? "yes" : late ? "no, overdue" : "not yet"), el("td", "wrap", it.result || "")] };
+      })]));
+  }
+  return kids;
+}
+function renderMetrics() {
+  if ($("mview").hidden) return;
+  const off = offline();
+  const tl = el("div", "sidetabs mtabs");
+  tl.setAttribute("role", "tablist");
+  tl.setAttribute("aria-label", "Metrics");
+  M_TABS.forEach(([id, label], i) => {
+    const b = el("button", null, label);
+    b.type = "button";
+    b.id = "mtab-" + id;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(id === mv.tab));
+    b.setAttribute("aria-controls", "mvbody");
+    b.tabIndex = id === mv.tab ? 0 : -1;
+    on(b, "click", () => { mv.tab = id; saveMv(); renderMetrics(); });
+    on(b, "keydown", (ev) => {
+      let j = -1;
+      if (ev.key === "ArrowRight") j = (i + 1) % M_TABS.length; else if (ev.key === "ArrowLeft") j = (i - 1 + M_TABS.length) % M_TABS.length;
+      else if (ev.key === "Home") j = 0; else if (ev.key === "End") j = M_TABS.length - 1;
+      if (j < 0) return;
+      ev.preventDefault();
+      mv.tab = M_TABS[j][0]; saveMv(); renderMetrics();
+      $("mtab-" + mv.tab).focus();
+    });
+    tl.appendChild(key(b, "mtab:" + id));
+  });
+  const group = (label, k, opts, cur, pick) => {
+    const g = el("div", "mgroup", null, [el("span", "k", label)]);
+    g.setAttribute("role", "group");
+    g.setAttribute("aria-label", label);
+    for (const [v, text] of opts) {
+      const b = el("button", "btn small", text);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(v === cur));
+      if (off) b.disabled = true;
+      on(b, "click", () => pick(v));
+      g.appendChild(key(b, k + ":" + v));
+    }
+    return key(g, k);
+  };
+  const ranges = group("Range", "mrange", M_RANGES.map((r) => [r, r]), mv.range, (v) => { mv.range = v; saveMv(); renderMetrics(); });
+  const scope = group("Scope", "mscope", [["project", "This project"], ["all", "All projects"]], mv.scope, (v) => {
+    if (v === mv.scope) return;
+    mv.scope = v; mv.data = null; saveMv(); renderMetrics(); loadMetrics();
+  });
+  patchInto("mvbar", [key(tl, "mtabs"), key(el("div", "mctl", null, [ranges, scope]), "mctl")]);
+  const body = $("mvbody");
+  body.setAttribute("role", "tabpanel");
+  body.setAttribute("aria-labelledby", "mtab-" + mv.tab);
+  patchInto("mvbody", renderMetricsBody());
+}
+async function loadMetrics() {
+  if ($("mview").hidden || offline() || !pid()) return;
+  const seq = ++mv.seq, scope = mv.scope;
+  mv.loading = true;
+  try {
+    const r = await fetch(api("/metrics") + (scope === "all" ? "?scope=all" : ""));
+    if (!r.ok) throw new Error((await r.text()).trim().slice(0, 200) || "HTTP " + r.status);
+    const d = await r.json();
+    if (seq !== mv.seq) return;
+    mv.data = d; mv.err = ""; mv.at = now();
+  } catch (e) {
+    if (seq !== mv.seq) return;
+    mv.err = String(e.message || e);
+  }
+  mv.loading = false;
+  renderMetrics();
+}
+function openMetrics() {
+  mv.returnTo = document.activeElement;
+  $("mview").hidden = false;
+  $("metricsbtn").setAttribute("aria-expanded", "true");
+  if (!$("drawer").hidden) closeDrawer();
+  renderMetrics();
+  loadMetrics();
+  clearInterval(mv.timer);
+  mv.timer = setInterval(loadMetrics, 60000);
+  const t = $("mtab-" + mv.tab);
+  (t || $("mviewclose")).focus();
+}
+function closeMetrics() {
+  $("mview").hidden = true;
+  $("metricsbtn").setAttribute("aria-expanded", "false");
+  clearInterval(mv.timer);
+  const r = mv.returnTo; mv.returnTo = null;
+  if (r && r.isConnected && r.focus) r.focus(); else $("metricsbtn").focus();
+}
+$("metricsbtn").addEventListener("click", () => ($("mview").hidden ? openMetrics() : closeMetrics()));
+$("mviewclose").addEventListener("click", closeMetrics);
+$("mview").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeMetrics(); } });
 
 // ---- v1: lane terminals -------------------------------------------------------
 // Each tab is one lane (PANEL-11: a lane started outside the panel has a tab too, and
@@ -1471,7 +2013,7 @@ let overTerm = false;
 function renderHint() {
   const host = $("termhost"), a = document.activeElement, t = terms[selTerm];
   const inTerm = a && a.classList && a.classList.contains("xterm-helper-textarea") && host.contains(a);
-  const copy = IS_MAC ? "⌘C copies" : "Ctrl+Shift+C copies";
+  const copy = IS_MAC ? "⌘C copies, ⌘-click opens a link" : "Ctrl+Shift+C copies, Ctrl-click opens a link";
   const hint = $("termhint");
   // The line is always there, so entering the terminal never resizes it.
   if (t && t.scrolled) setText(hint, "Scrolled back in history. Any key returns to the live screen and is typed; Esc only returns.");
@@ -1589,20 +2131,69 @@ function ensureTerm(id) {
     // An Option-click would otherwise move claude's cursor by sending it arrow keys.
     altClickMovesCursor: false,
     theme: termTheme(), minimumContrastRatio: termMinContrast(),
-    // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
-    // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
-    // to onTitleChange, so they never reach the DOM.
-    linkHandler: { activate: (ev, uri) => askOpenLink(uri), allowNonHttpProtocols: false },
+    // Terminal output is untrusted: a link opens only on ⌘-click, only http(s), and
+    // one whose text is not its target (OSC 8) only after an in-page confirmation
+    // (followLink). Title escapes are ignored: nothing subscribes to onTitleChange, so
+    // they never reach the DOM.
+    linkHandler: {
+      activate: (ev, uri, range) => followLink(ev, uri, rangeText(term, range)),
+      hover: (ev, uri) => linkTip(host, uri), leave: () => linkTip(host, null),
+      allowNonHttpProtocols: false,
+    },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  // xterm links only OSC 8 by itself; this links the plain-text URLs a lane prints.
+  term.registerLinkProvider({ provideLinks: (y, cb) => cb(urlLinks(term, y).map((l) => ({
+    ...l, activate: (ev, uri) => followLink(ev, uri, uri),
+    hover: (ev, uri) => linkTip(host, uri), leave: () => linkTip(host, null),
+  }))) });
+  // xterm clears its selection whenever it sends a mouse report (as it does for a
+  // key), and a program that asks for every motion (1003: claude's fullscreen TUI,
+  // relayed by tmux) gets one per cell the pointer crosses: a selection vanished as
+  // the hand left the mouse for ⌘C. Nothing here uses motion without a button (tmux
+  // binds only the wheel, and presses are selections), so the request is declined;
+  // tmux also sends 1002, which keeps the wheel. tmux resets 1003 before any change.
+  term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (p) => {
+    if (!p.includes(1003)) return false;
+    const rest = p.filter((x) => x !== 1003 && typeof x === "number");
+    if (rest.length) term.write("\x1b[?" + rest.join(";") + "h");
+    return true;
+  });
   const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false, scrolled: false };
-  // tmux has the mouse, so that the wheel scrolls its history, and it takes no
-  // clicks. A plain press would reach tmux and do nothing, so it becomes a text
-  // selection instead, exactly as an Option-press (Shift off a Mac) would: drag
-  // selects, and ⌘C copies through xterm. Nothing is taken from claude, which never
-  // saw clicks here.
+  // An image dropped on the terminal, or pasted into it, reaches claude as a native
+  // terminal's drop does: the panel keeps the file and types its path (PANEL-15b).
+  // A browser never gives a page a local path, so the bytes go to the panel.
+  const hasFiles = (dt) => !!dt && Array.from(dt.types || []).includes("Files");
+  host.addEventListener("dragover", (ev) => {
+    if (!hasFiles(ev.dataTransfer)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    host.classList.add("drop");
+  });
+  host.addEventListener("dragleave", (ev) => { if (!host.contains(ev.relatedTarget)) host.classList.remove("drop"); });
+  host.addEventListener("drop", (ev) => {
+    host.classList.remove("drop");
+    if (!hasFiles(ev.dataTransfer)) return;
+    ev.preventDefault();
+    dropImages(t, Array.from(ev.dataTransfer.files));
+  });
+  // Capture: the image never reaches xterm's own paste, which would type nothing.
+  host.addEventListener("paste", (ev) => {
+    const items = Array.from((ev.clipboardData && ev.clipboardData.items) || []);
+    const files = items.filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    dropImages(t, files);
+  }, true);
+  // tmux has the mouse, so that the wheel scrolls its history, and binds no clicks:
+  // an unbound click goes to the program if it asked for the mouse, as claude's
+  // fullscreen TUI does. A plain press becomes a text selection instead, exactly as
+  // an Option-press (Shift off a Mac) would: drag selects, and ⌘C copies through
+  // xterm. So does a ⌘-press (Ctrl off a Mac): its release follows a link under it
+  // (followLink), and it never reaches claude as a click either.
   host.addEventListener("mousedown", (ev) => {
     if (ev.panelForced || ev.button !== 0) return;
     // The frame around the terminal (#termhost) is focusable, and a press would
@@ -1610,7 +2201,7 @@ function ensureTerm(id) {
     // reaches xterm's copy and typing reaches claude.
     ev.preventDefault();
     setTimeout(() => term.focus(), 0);
-    if (ev.altKey || ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
+    if (ev.altKey || ev.shiftKey || (IS_MAC ? ev.ctrlKey : ev.metaKey)) return;
     ev.stopImmediatePropagation();
     if (!IS_MAC) term.clearSelection(); // Shift extends a selection; start a fresh one
     const e2 = new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true, view: window, detail: ev.detail,
@@ -1647,13 +2238,37 @@ function ensureTerm(id) {
   return t;
 }
 
+// dropImages sends each image to the panel, which keeps it and types its path into
+// the lane, then a space: the prompt goes on around it, and nothing presses Enter.
+// What the panel refuses (not an image, too large, the lane gone) says why under the
+// terminal.
+const DROP_TYPES = /^image\/(png|jpeg|gif|webp)$/, DROP_MAX = 20 * 1024 * 1024;
+async function dropImages(t, files) {
+  for (const f of files) {
+    const name = f.name || "image";
+    if (offline()) actMsg = { id: t.id, err: true, text: "Not dropped: disconnected from the panel" };
+    else if (!DROP_TYPES.test(f.type)) actMsg = { id: t.id, err: true, text: "Not dropped: " + name + " is not a PNG, JPEG, GIF or WebP image" };
+    else if (f.size > DROP_MAX) actMsg = { id: t.id, err: true, text: "Not dropped: " + name + " is over 20 MB" };
+    else {
+      try {
+        const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/image"), { method: "POST",
+          headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(name) }, body: f });
+        const j = await r.json().catch(() => ({}));
+        actMsg = r.ok ? { id: t.id, text: "Dropped " + name + ": its path is typed into the lane" }
+          : { id: t.id, err: true, text: "Not dropped: " + (j.error || "HTTP " + r.status) };
+      } catch (e) { actMsg = { id: t.id, err: true, text: "Not dropped: " + e.message }; }
+    }
+    render();
+  }
+}
+
 // A terminal WebSocket needs a single-use ticket, fetched by a POST the server checks
 // for this page's Origin. The cookie alone would not do: other loopback ports share it.
 async function connectTerm(t) {
   if (t.gone) return;
   let ticket;
   try {
-    const r = await fetch("/api/lanes/" + encodeURIComponent(t.id) + "/ticket", { method: "POST" });
+    const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/ticket"), { method: "POST" });
     if (!r.ok) throw new Error("ticket: HTTP " + r.status);
     ticket = (await r.json()).ticket;
   } catch (e) {
@@ -1663,7 +2278,7 @@ async function connectTerm(t) {
     return;
   }
   if (t.gone) return;
-  const q = "lane=" + encodeURIComponent(t.id) + "&cols=" + t.term.cols + "&rows=" + t.term.rows;
+  const q = "lane=" + encodeURIComponent(t.id) + projQuery("&") + "&cols=" + t.term.cols + "&rows=" + t.term.rows;
   const ws = new WebSocket("ws://" + location.host + "/ws/term?" + q, ["clauductor.term.v1", "ticket." + ticket]);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { t.delay = 1000; fitTerm(t); termSend(t, { type: "resize", cols: t.term.cols, rows: t.term.rows }); sendFocus(t); };
@@ -1731,19 +2346,69 @@ let sizeTimer = 0;
 function sizeTerm() { clearTimeout(sizeTimer); fitTerm(terms[selTerm]); }
 new ResizeObserver(() => { clearTimeout(sizeTimer); sizeTimer = setTimeout(sizeTerm, SETTLE_MS); }).observe($("termhost"));
 
+// The plain-text URLs on buffer row y (1-based), as xterm link ranges. A URL wrapped
+// onto the next row is one link while xterm holds the rows as one line (isWrapped);
+// a program that breaks its own lines (claude's fullscreen TUI) links with OSC 8.
+function urlLinks(term, y) {
+  const buf = term.buffer.active, cell = buf.getNullCell();
+  let top = y - 1, bot = y - 1;
+  while (top > 0 && y - 1 - top < 50 && buf.getLine(top)?.isWrapped) top--;
+  while (bot - top < 50 && buf.getLine(bot + 1)?.isWrapped) bot++;
+  // The line's text, and the cell each UTF-16 unit of it starts in: a wide character
+  // takes two cells for one unit, an emoji one or two cells for two.
+  let text = "";
+  const at = [];
+  for (let r = top; r <= bot; r++) {
+    const line = buf.getLine(r);
+    if (!line) break;
+    for (let x = 0; x < term.cols; x++) {
+      if (!line.getCell(x, cell) || cell.getWidth() === 0) continue;
+      const ch = cell.getChars() || " ";
+      for (let k = 0; k < ch.length; k++) at.push({ x: x + 1, y: r + 1 });
+      text += ch;
+    }
+  }
+  return TermLinks.findURLs(text)
+    .map((m) => ({ text: m.url, range: { start: at[m.start], end: at[m.end - 1] } }))
+    .filter((l) => l.range.start.y <= y && l.range.end.y >= y);
+}
+// The text on screen over an xterm link range (1-based, end inclusive).
+function rangeText(term, r) {
+  const buf = term.buffer.active;
+  let s = "";
+  for (let y = r.start.y; y <= r.end.y; y++) {
+    const line = buf.getLine(y - 1);
+    if (line) s += line.translateToString(true, y === r.start.y ? r.start.x - 1 : 0, y === r.end.y ? r.end.x : term.cols);
+  }
+  return s;
+}
+// ⌘-click (Ctrl-click off a Mac) follows a link, as in Ghostty and iTerm2: a plain
+// press is a text selection here, and a double-click on a URL selects a word of it.
+// A link whose text is its target opens at once; one whose text says something else
+// (OSC 8 prints any words over any URL) names its target in a confirmation first.
+function followLink(ev, uri, shown) {
+  if (!(IS_MAC ? ev.metaKey : ev.ctrlKey)) return;
+  const href = TermLinks.webURL(uri);
+  if (!href) return;
+  if (TermLinks.showsTarget(shown, href)) openLink(href);
+  else askOpenLink(href);
+}
+function openLink(href) { window.open(href, "_blank", "noopener,noreferrer"); }
+// The pointer over a link says where it goes and how to follow it.
+function linkTip(host, uri) { host.title = uri ? (IS_MAC ? "⌘" : "Ctrl") + "-click to open " + uri : ""; }
+
 let linkAsk = null;
 function askOpenLink(uri) {
-  let u;
-  try { u = new URL(uri); } catch (e) { return; }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return;
-  linkAsk = u.href;
+  const href = TermLinks.webURL(uri);
+  if (!href) return;
+  linkAsk = href;
   render();
 }
 
 async function laneAction(id, action) {
   busyAct = id + ":" + action; actMsg = null; render();
   try {
-    const r = await fetch("/api/lanes/" + encodeURIComponent(id) + "/" + action, { method: "POST" });
+    const r = await fetch(api("/lanes/" + encodeURIComponent(id) + "/" + action), { method: "POST" });
     const j = await r.json().catch(() => ({}));
     actMsg = r.ok ? { id, text: action + ": done" } : { id, text: j.error || "HTTP " + r.status, err: true };
   } catch (e) { actMsg = { id, text: String(e), err: true }; }
@@ -1799,7 +2464,7 @@ function renderTerminals(cur) {
   const orphan = $("termorphan");
   orphan.hidden = !(t && !t.running);
   if (t && !t.running) setText(orphan, "Lane " + t.id + " is orphaned: " + (t.orphan || "no tmux session") +
-    ". RESUME restarts claude --resume " + t.sessionId + " in " + t.path + "; FORGET drops the record.");
+    ". RESUME restarts claude --resume " + t.sessionId + " in " + t.path + "; FORGET drops the record; CLOSE LANE also removes its worktree and branch when that loses nothing.");
   const host = $("termhost");
   host.setAttribute("aria-label", t && t.running ? "Terminal of lane " + t.id + ". Enter types into it; Ctrl+] leaves." : "Terminal");
   if (selTerm !== shownTerm) {
@@ -1814,6 +2479,10 @@ function renderTerminals(cur) {
 // What STOP or RESTART will do to this lane, from its state now: the server sends
 // /exit only to a lane `claude agents` says is idle, and Escape to any other.
 function stopWords(t, restart) {
+  return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + stopHow(t) +
+    (restart ? " Then claude resumes its own session " + t.sessionId + " in the same directory." : " The worktree stays.");
+}
+function stopHow(t) {
   const lane = S.lanes.find((l) => l.terminal === t.id);
   const subs = lane ? lane.subagents.length : 0;
   const subTxt = subs ? subs + " subagent" + (subs > 1 ? "s" : "") : "";
@@ -1832,8 +2501,126 @@ function stopWords(t, restart) {
       (x.waiters.length ? ", with " + x.waiters.length + " waiting behind it" : "") + ".";
     else if (x.waiters.some((w) => w.lane === t.id)) q += " It is waiting in the " + (x.title || x.id) + " queue.";
   }
-  return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + how + q +
-    (restart ? " Then claude resumes its own session " + t.sessionId + " in the same directory." : " The worktree stays.");
+  return how + q;
+}
+
+// Interrupt and Resume ask only when picked from a lane's actions menu (PANEL-18),
+// where one stray click must never act; their buttons under the terminal act at once.
+function interruptWords(t) {
+  const ap = t.approx ? " (≈ not a current reading)" : "";
+  let how;
+  if (t.dead) how = "claude has already exited, so Escape reaches nothing.";
+  else if (t.status === "busy") how = "claude is busy" + ap + ": Escape interrupts its turn; the lane stays up.";
+  else if (t.status === "waiting") how = "claude is waiting on you" + (t.waitingFor ? " (" + t.waitingFor + ")" : "") + ap + ": Escape dismisses the question unanswered.";
+  else if (t.status === "idle") how = "claude is idle" + ap + ": Escape has nothing to interrupt.";
+  else how = "its state is not known yet: it gets Escape.";
+  return "Interrupt lane " + t.id + "? " + how;
+}
+function resumeWords(t) {
+  return "Resume lane " + t.id + "? claude --resume " + (t.sessionId || "") + " starts in " + t.path + ", in a new tmux session.";
+}
+
+// ---- Close lane (PANEL-17) ----------------------------------------------------------
+// Stop, then the lane's worktree and branch when that loses nothing. The confirmation
+// lists what the panel found, before asking: the server's plan, from git's own state.
+// Confirming sends back exactly what it offered to remove, and the server removes no
+// more than that, after checking again.
+let closeAsk = null;   // {id, plan} or {id, loading} or {id, err}
+let closeMsg = null;   // {id, removed, kept} or {id, err, text}: the result, above the lanes
+async function askClose(t) {
+  closeAsk = { id: t.id, loading: true }; confirmAct = null; render();
+  try {
+    const r = await fetch(api("/lanes/" + encodeURIComponent(t.id) + "/close"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!closeAsk || closeAsk.id !== t.id) return;
+    closeAsk = r.ok && j.plan ? { id: t.id, plan: j.plan } : { id: t.id, err: j.error || "HTTP " + r.status };
+  } catch (e) { if (closeAsk && closeAsk.id === t.id) closeAsk = { id: t.id, err: String(e) }; }
+  render();
+  focusKey("b:close-cancel");
+}
+async function doClose(id, plan) {
+  closeAsk = null; busyAct = id + ":close"; actMsg = null; render();
+  try {
+    const r = await fetch(api("/lanes/" + encodeURIComponent(id) + "/close"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree: !!plan.worktree, branch: !!plan.deleteBranch }) });
+    const j = await r.json().catch(() => ({}));
+    closeMsg = r.ok && j.result ? { id, removed: j.result.removed || [], kept: j.result.kept || [] } : { id, err: true, text: j.error || "HTTP " + r.status };
+  } catch (e) { closeMsg = { id, err: true, text: String(e) }; }
+  busyAct = null;
+  render();
+}
+function lineList(title, lines, k) {
+  if (!lines || !lines.length) return null;
+  return key(el("div", "closelist", null, [el("b", null, title), el("ul", null, null, lines.map((x) => el("li", null, x)))]), k);
+}
+function closeWords(t) {
+  const a = closeAsk;
+  const cancel = button("Cancel", "", () => { closeAsk = null; render(); focusKey("b:Close lane"); }, null, "b:close-cancel");
+  if (a.loading) return [key(el("span", "sub", "Checking lane " + t.id + "'s worktree and branch…"), "closeask"), cancel];
+  if (a.err) return [key(el("span", "stop sub", "Cannot close lane " + t.id + ": " + a.err), "closeask"), cancel];
+  const p = a.plan;
+  const kids = [el("span", "confirm", "Close lane " + t.id + "?" + (t.running ? " " + stopHow(t) : " It is not running, so it is only forgotten."))];
+  kids.push(lineList("Removes", p.remove, "rm"), lineList("Keeps", p.keep, "kp"));
+  for (const n of p.notes || []) kids.push(el("div", "sub", n));
+  return [key(el("div", "closeask", null, kids), "closeask"),
+    button("Confirm close", "danger", () => doClose(t.id, p), null, null, true), cancel];
+}
+function renderClosed() {
+  const bar = $("closebar");
+  bar.hidden = !closeMsg;
+  if (!closeMsg) { patch(bar, []); return; }
+  const m = closeMsg;
+  const kids = [el("b", null, m.title || (m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id))];
+  if (m.err) kids.push(el("span", null, m.text));
+  else kids.push(lineList("Removed", m.removed, "rm"), lineList("Kept", m.kept, "kp"));
+  for (const n of m.notes || []) kids.push(el("span", "sub", n));
+  kids.push(button("Dismiss", "", () => { closeMsg = null; render(); }, null, "b:close-dismiss"));
+  patch(bar, [key(el("div", "closed", null, kids), "closed:" + (m.id || m.title))]);
+}
+
+// ---- Remove a worktree (PANEL-18) ---------------------------------------------------
+// A worktree with no lane (a clean one a closed session left behind) has Remove: Close
+// lane's cleanup without a lane to stop. The confirmation, in the tree under it, is the
+// server's plan from git's own state; confirming sends back exactly what it offered,
+// and the server removes no more than that, after checking again. The worktree is
+// named by the key the state gave it, and the server acts only on that exact entry of
+// `git worktree list`.
+let removeAsk = null; // {path, loading} or {path, plan} or {path, err}
+async function askRemove(path) {
+  removeAsk = { path, loading: true }; render();
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ worktree: path, dryRun: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!removeAsk || removeAsk.path !== path) return;
+    removeAsk = r.ok && j.plan ? { path, plan: j.plan } : { path, err: j.error || "HTTP " + r.status };
+  } catch (e) { if (removeAsk && removeAsk.path === path) removeAsk = { path, err: String(e) }; }
+  render();
+  focusKey("wtno:" + path);
+}
+async function doRemove(path, plan) {
+  removeAsk = null; render();
+  const name = relPath(path);
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree: path, remove: !!plan.worktree, branch: !!plan.deleteBranch }) });
+    const j = await r.json().catch(() => ({}));
+    closeMsg = r.ok && j.result
+      ? { title: (j.result.removed || []).length ? "Removed worktree " + name : "Kept worktree " + name, removed: j.result.removed || [], kept: j.result.kept || [], notes: j.result.notes || [] }
+      : { title: "Remove worktree " + name + " failed", err: true, text: j.error || "HTTP " + r.status };
+  } catch (e) { closeMsg = { title: "Remove worktree " + name + " failed", err: true, text: String(e) }; }
+  render();
+}
+function removeWords(a) {
+  const cancel = button("Cancel", "small", () => { removeAsk = null; render(); focusKey("wtrm:" + a.path); }, null, "wtno:" + a.path);
+  if (a.loading) return [el("div", "sub", "Checking the worktree…"), cancel];
+  if (a.err) return [el("div", "stop sub", "Cannot remove it: " + a.err), cancel];
+  const p = a.plan;
+  const kids = [el("div", "confirm", p.worktree ? "Remove the worktree " + relPath(a.path) + "?" : "Nothing can be removed from " + relPath(a.path) + ".")];
+  kids.push(lineList("Removes", p.remove, "rm"), lineList("Keeps", p.keep, "kp"));
+  for (const n of p.notes || []) kids.push(el("div", "sub", n));
+  const btns = [p.worktree ? button("Confirm remove", "danger", () => doRemove(a.path, p), null, "wt:confirm", true) : null, cancel];
+  kids.push(el("div", "wtbtns", null, btns.filter(Boolean)));
+  return kids;
 }
 
 function renderTermBar(t) {
@@ -1842,11 +2629,18 @@ function renderTermBar(t) {
     const busy = busyAct && busyAct.startsWith(t.id + ":");
     if (linkAsk) {
       const href = linkAsk;
-      kids.push(key(el("span", "confirm", "The lane printed a link. Open " + href + " in a new tab?"), "linkask"),
-        button("Open link", "", () => { linkAsk = null; window.open(href, "_blank", "noopener,noreferrer"); render(); }),
+      kids.push(key(el("span", "confirm", "The lane printed a link whose text is not its whole address. Open " + href + " in a new tab?"), "linkask"),
+        button("Open link", "", () => { linkAsk = null; openLink(href); render(); }),
         button("Cancel", "", () => { linkAsk = null; render(); }, null, "b:link-cancel"));
+    } else if (closeAsk && closeAsk.id === t.id) {
+      kids.push(...closeWords(t));
     } else if (!t.running) {
-      if (confirmAct && confirmAct.id === t.id) {
+      if (confirmAct && confirmAct.id === t.id && confirmAct.action === "resume") {
+        // Asked only from a lane's actions menu (PANEL-18); the Resume button acts at once.
+        kids.push(key(el("span", "confirm", resumeWords(t)), "confirm"),
+          button("Confirm resume", "primary", () => { confirmAct = null; laneAction(t.id, "resume"); }, null, null, true),
+          button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Resume"); }, null, "b:cancel"));
+      } else if (confirmAct && confirmAct.id === t.id) {
         kids.push(key(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."), "confirm"),
           button("Confirm forget", "danger", () => { confirmAct = null; laneAction(t.id, "forget"); }, null, null, true),
           button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Forget"); }, null, "b:cancel"));
@@ -1854,14 +2648,26 @@ function renderTermBar(t) {
         kids.push(
           button("Resume", "primary", () => laneAction(t.id, "resume"), "claude --resume " + (t.sessionId || "") + " in " + t.path, null, true),
           button("Forget", "danger", () => { confirmAct = { id: t.id, action: "forget" }; render(); focusKey("b:cancel"); },
-            "Remove it from the lane registry. The worktree and the conversation stay.", null, true));
+            "Remove it from the lane registry. The worktree and the conversation stay.", null, true),
+          button("Close lane", "danger", () => askClose(t),
+            "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
-    } else if (confirmAct && confirmAct.id === t.id) {
-      const stop = confirmAct.action === "stop";
-      const back = stop ? "b:Stop lane" : "b:Restart";
+    } else if (confirmAct && confirmAct.id === t.id && confirmAct.action === "remote-control") {
+      // PANEL-19: typed only into an idle claude; the panel checks again before the Enter.
+      const idle = t.status === "idle" && !t.approx;
       kids.push(
-        key(el("span", "confirm", stopWords(t, !stop)), "confirm"),
-        button(stop ? "Confirm stop" : "Confirm restart", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }, null, null, true),
+        key(el("span", "confirm", idle ? "Type /remote-control and Enter into " + t.id + ": claude connects it to Remote Control, so any device signed in to your account can " +
+          "drive it and answer its permission prompts. The first time, claude asks to confirm in the terminal."
+          : "claude in " + t.id + " is not idle (claude agents), so nothing will be typed. Try again when it is."), "confirm"),
+        idle ? button("Confirm remote control", "primary", () => { confirmAct = null; laneAction(t.id, "remote-control"); }, null, null, true) : null,
+        button("Cancel", "", () => { confirmAct = null; render(); }, null, "b:cancel"));
+    } else if (confirmAct && confirmAct.id === t.id) {
+      const a = confirmAct.action;
+      const back = a === "stop" ? "b:Stop lane" : a === "interrupt" ? "b:Interrupt (Esc)" : "b:Restart";
+      kids.push(
+        key(el("span", "confirm", a === "interrupt" ? interruptWords(t) : stopWords(t, a !== "stop")), "confirm"),
+        button(a === "stop" ? "Confirm stop" : a === "interrupt" ? "Confirm interrupt" : "Confirm restart", "danger",
+          () => { const c = confirmAct; confirmAct = null; laneAction(t.id, c.action); }, null, null, true),
         button("Cancel", "", () => { confirmAct = null; render(); focusKey(back); }, null, "b:cancel"));
     } else {
       const b = [
@@ -1869,6 +2675,8 @@ function renderTermBar(t) {
         button("Interrupt (Esc)", "", () => laneAction(t.id, "interrupt"), "Press Escape in the lane", null, true),
         t.registered ? button("Restart", "", () => { confirmAct = { id: t.id, action: "restart" }; render(); focusKey("b:cancel"); }, null, null, true) : null,
         button("Stop lane", "danger", () => { confirmAct = { id: t.id, action: "stop" }; render(); focusKey("b:cancel"); }, null, null, true),
+        button("Close lane", "danger", () => askClose(t),
+          "Stop the lane, then remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true),
       ].filter(Boolean);
       for (const x of b) { if (busy) x.disabled = true; kids.push(x); }
     }
@@ -1989,7 +2797,7 @@ function pickNext(x, it) {
   $("st-name").focus();
 }
 
-// opts.worktree: "Start lane here" on a worktree in the tree picks that worktree.
+// opts.worktree: "New lane here" on a worktree in the tree picks that worktree.
 let startReturn = null;
 function openStart(opts) {
   if (!S || offline()) return;
@@ -2075,14 +2883,14 @@ $("startform").addEventListener("submit", async (e) => {
   $("st-go").disabled = true;
   $("st-err").textContent = "starting…";
   try {
-    const r = await fetch("/api/lanes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch(api("/lanes"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { $("st-err").textContent = j.error || "HTTP " + r.status; return; }
     closeStart();
     $("st-name").value = ""; $("st-issue").value = "";
     if (j.lane && j.lane.notes) actMsg = { id: j.lane.id, text: j.lane.notes.join(" ") };
     pendingTerm = j.lane.id;
-    fetch("/api/refresh", { method: "POST" }).catch(() => {});
+    fetch(api("/refresh"), { method: "POST" }).catch(() => {});
   } catch (err) { $("st-err").textContent = String(err); }
   finally { $("st-go").disabled = !!(S && S.startBlocked) || offline(); }
 });
@@ -2110,7 +2918,7 @@ function renderRestore() {
       restoreBusy = true; restoreMsg = null; render();
       const over = $("restore-over");
       try {
-        const r = await fetch("/api/lanes/restore-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrideQuota: !!(over && over.checked) }) });
+        const r = await fetch(api("/lanes/restore-all"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrideQuota: !!(over && over.checked) }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) restoreMsg = { text: j.error || "HTTP " + r.status, err: true };
         else {
@@ -2239,8 +3047,10 @@ function render() {
   selHeld = heldBySelection();
   const off = offline();
   const n = S.needsYou.length;
-  document.title = (off ? "⚠ Disconnected: " : "") + (n ? "(" + n + ") " : "") + S.name + " panel";
+  const away = elsewhere();
+  document.title = (off ? "⚠ Disconnected: " : "") + (n ? "(" + n + ") " : "") + S.name + " panel" + (away.n ? ", +" + away.n + " elsewhere" : "");
   setText($("pname"), S.name);
+  renderProjects();
   setText($("cost"), S.estCostUsd == null ? "—" : money(S.estCostUsd));
   setText($("hookn"), S.hookEvents + " / " + S.statusPosts + (S.dropped ? " / " + S.dropped + " elsewhere" : ""));
   const add = $("addlane");
@@ -2250,6 +3060,7 @@ function render() {
   renderConn();
   renderBanners();
   renderRestore();
+  renderClosed();
   renderObs();
   renderFavicon();
   if (!off) announceNeeds();
@@ -2258,23 +3069,66 @@ function render() {
   // A lane just started is selected as soon as a poll shows it.
   if (pendingTerm && ls.find((x) => x.key === "t:" + pendingTerm)) {
     selKey = "t:" + pendingTerm; pendingTerm = null;
-    try { localStorage.setItem("clauductor-panel-sel", selKey); } catch (e) {}
+    saveSel(selKey);
   }
   const cur = ls.find((x) => x.key === selKey) || ls[0] || null;
   renderStatus(ls);
   renderNeeds();
   renderRail(ls, cur);
+  renderRowMenu();
   renderTabs(ls, cur);
   renderLaneHead(cur);
   renderTerminals(cur);
   renderSide(cur);
   renderDrawer();
+  renderMetrics();
   renderHint();
   // A suggest list read while the dialog is open shows at once.
   if (!$("startdlg").hidden) stUpdate();
 }
 
-$("refresh").addEventListener("click", () => { if (!offline()) fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
+// ---- Help (PANEL-17): the ? in the header, or the ? key outside the terminal and fields --
+const GUIDE_URL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md";
+$("helplink").href = GUIDE_URL;
+let helpReturn = null;
+function openHelp() {
+  if (!$("helpdlg").hidden) return;
+  helpReturn = document.activeElement;
+  $("helpdlg").hidden = false;
+  $("helpbtn").setAttribute("aria-expanded", "true");
+  $("helpclose").focus();
+}
+function closeHelp() {
+  $("helpdlg").hidden = true;
+  $("helpbtn").setAttribute("aria-expanded", "false");
+  const r = helpReturn; helpReturn = null;
+  if (r && r.isConnected && r.focus) r.focus(); else $("helpbtn").focus();
+}
+// Typing "?" is text wherever text goes: in the terminal (claude's), and in a field.
+function typingTarget(t) {
+  return !!(t && t.closest && (t.closest(".xterm") || t.closest("input, select, textarea, [contenteditable]")));
+}
+$("helpbtn").addEventListener("click", openHelp);
+$("helpclose").addEventListener("click", closeHelp);
+$("helpdlg").addEventListener("click", (e) => { if (e.target === $("helpdlg")) closeHelp(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "?" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+  if (typingTarget(ev.target) || !$("startdlg").hidden) return;
+  ev.preventDefault();
+  openHelp();
+});
+// A modal dialog: Escape closes it, and Tab stays inside.
+$("helpdlg").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeHelp(); return; }
+  if (e.key !== "Tab") return;
+  const f = Array.from($("helpbox").querySelectorAll("a[href], button")).filter((x) => !x.disabled && x.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh"), { method: "POST" }).catch(() => {}); });
 
 // ---- The page's text size: Ctrl+Alt+= / − / 0, and the Size group of Appearance ------
 // theme.js owns the value (PanelScale); every size in panel.css is in rem. The keys need
@@ -2480,6 +3334,104 @@ applyRail();
 // can be pressed again.
 const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" };
 function menuItems() { return Array.from($("thememenu").querySelectorAll('[role="menuitemradio"], [role="menuitem"], input[type="range"]')); }
+// ---- Projects (PANEL-16) -----------------------------------------------------------------
+// The project's name is a button: its menu lists every project the panel serves, each
+// with its lanes and what needs you there, amber for waiting and red for blocking.
+// Picking one switches the whole page: its stream, its lanes, its selected lane (kept
+// per project) and ?p= in the address. Terminals close on a switch; their lanes run on.
+function elsewhere() {
+  const out = { n: 0, block: 0 };
+  for (const p of P || []) {
+    if (p.id === pid()) continue;
+    out.n += p.needsYou || 0;
+    out.block += p.blocking || 0;
+  }
+  return out;
+}
+function projectLine(p) {
+  if (!p.ok) return "cannot load: " + (p.error || "unknown");
+  const parts = [];
+  if (p.working) parts.push(p.working + " working");
+  if (p.waiting) parts.push(p.waiting + " waiting");
+  if (p.idle) parts.push(p.idle + " idle");
+  if (!parts.length) parts.push("no lanes");
+  if (p.restorable) parts.push(p.restorable + " to restore");
+  if (!p.trusted) parts.push("config untrusted");
+  return parts.join(", ");
+}
+function renderProjects() {
+  const btn = $("projbtn"), away = elsewhere();
+  setText($("projelse"), away.n ? away.n + " need" + (away.n === 1 ? "s" : "") + " you elsewhere" : "");
+  $("projelse").classList.toggle("crit", away.block > 0);
+  btn.setAttribute("aria-label", "Project " + (S ? S.name : "") + (away.n ? ", " + away.n + " need you in other projects" : "") + ". Switch project");
+  const menu = $("projmenu");
+  if (menu.hidden) return;
+  const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  const items = (P || []).map((p) => {
+    const need = p.needsYou ? el("span", "badge" + (p.blocking ? " crit" : ""), p.needsYou + " need" + (p.needsYou === 1 ? "s" : "") + " you") : el("span");
+    const e = el("div", "mi", null, [el("span", null, p.name || p.id, [el("small", p.ok ? null : "err", projectLine(p))]), need]);
+    e.setAttribute("role", "option");
+    e.setAttribute("aria-selected", String(p.id === pid()));
+    if (!p.ok) e.setAttribute("aria-disabled", "true");
+    e.id = "proj-" + p.id;
+    e.tabIndex = -1;
+    e.dataset.key = p.id;
+    e.addEventListener("click", () => { if (p.ok) switchProject(p.id); else closeProjects(true); });
+    return e;
+  });
+  menu.replaceChildren(...(items.length ? items : [el("div", "mi", "No other project is registered: clauductor panel add")]));
+  if (focused) { const f = menu.querySelector('[data-key="' + CSS.escape(focused) + '"]'); if (f) f.focus(); }
+}
+function projItems() { return Array.from($("projmenu").querySelectorAll('[role="option"]')); }
+function openProjects(which) {
+  const menu = $("projmenu");
+  menu.hidden = false;
+  $("projbtn").setAttribute("aria-expanded", "true");
+  renderProjects();
+  const items = projItems();
+  if (!items.length) return;
+  const cur = items.find((x) => x.getAttribute("aria-selected") === "true") || items[0];
+  (which === "last" ? items[items.length - 1] : cur).focus();
+}
+function closeProjects(refocus) {
+  $("projmenu").hidden = true;
+  $("projbtn").setAttribute("aria-expanded", "false");
+  if (refocus) $("projbtn").focus();
+}
+function switchProject(id) {
+  closeProjects(true);
+  if (id === pid()) return;
+  PID = id;
+  try { history.replaceState(null, "", location.pathname + "?p=" + encodeURIComponent(id)); } catch (e) {}
+  // Nothing of the old project carries over: its terminals close (their lanes run
+  // on in tmux), its state and choices go, and the new project's stream starts.
+  for (const k of Object.keys(terms)) disposeTerm(k);
+  closeRowMenu(false);
+  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
+  conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
+  connect();
+  if (!$("mview").hidden) { mv.data = null; loadMetrics(); }
+  render();
+}
+$("projbtn").addEventListener("click", () => { if ($("projmenu").hidden) openProjects(); else closeProjects(false); });
+$("projbtn").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openProjects(e.key === "ArrowUp" ? "last" : "current"); }
+});
+$("projmenu").addEventListener("keydown", (e) => {
+  const items = projItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closeProjects(true); }
+  else if (e.key === "Tab") closeProjects(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!$("projmenu").hidden && !e.target.closest(".projpick")) closeProjects(false);
+});
+
 function renderPicker() {
   const P = window.PanelTheme, cur = P.get(), menu = $("thememenu");
   const th = P.themes.find((x) => x.id === cur.theme), ty = P.types.find((x) => x.id === cur.type);

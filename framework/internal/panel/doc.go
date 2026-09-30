@@ -15,6 +15,8 @@
 //	signals  parsers of what the panel reads: hooks, status line, claude agents, git, gh
 //	config   panel.json, and where the panel keeps its files
 //	lanes    tmux lanes, the lane registry, restore
+//	metrics  the Metrics view: the project command's JSON contract, the panel's own
+//	         figures, the spend ledger (PANEL-19)
 //	state    the pure reducer: the Model, its View, blocked, alerts, notifier decisions
 //	install  hooks installer, launchd agent, token, config trust, the machine lock
 //	web      the HTTP server, the hub, terminals, the embedded page
