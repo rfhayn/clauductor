@@ -543,6 +543,12 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 // The status bar is off: the tab already names the lane. The condition nests `||`
 // two at a time: tmux before 3.5 reads only the first two arguments of one, and
 // passed every wheel to the program (seen on Ubuntu 24.04's tmux 3.4).
+//
+// PANEL-14: tmux strips OSC 8 hyperlinks unless the client's terminal has the
+// `hyperlinks` feature, which no default entry gives xterm-256color (the viewers'
+// TERM). claude emits them inside tmux 3.4+, so without it no link it prints reached
+// the page. A fixed index keeps the per-poll re-run from growing the array; -q keeps
+// a tmux without the option (before 3.2) hardening.
 var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "prefix2", "None",
 	";", "unbind-key", "-q", "-a", "-T", "prefix",
@@ -550,7 +556,8 @@ var hardenArgs = []string{"set-option", "-g", "prefix", "None",
 	";", "set-option", "-g", "status", "off",
 	";", "set-option", "-g", "mouse", "on",
 	";", "bind-key", "-T", "root", "WheelUpPane",
-	"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e"}
+	"if-shell", "-F", "#{||:#{alternate_on},#{||:#{pane_in_mode},#{mouse_any_flag}}}", "send-keys -M", "copy-mode -e",
+	";", "set-option", "-sq", "terminal-features[99]", "xterm-256color:hyperlinks"}
 
 // Harden applies hardenArgs if the socket has a server. The panel runs it whenever
 // it finds the server (every tmux poll) and before every viewer attaches.
