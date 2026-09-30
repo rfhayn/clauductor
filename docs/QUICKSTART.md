@@ -37,6 +37,13 @@ clauductor install --dry-run   # preview
 clauductor install
 ```
 
+**A repository that already runs its own operating model** (its own skills, hooks or
+`AGENTS.md`, grown in place) is refused: `install` and `update` list the files they would
+overwrite or add, and change nothing. Such a repository needs none of the template to use the
+panel. Run `clauductor panel init`, `trust` and `add` there instead, and copy any single piece
+of the template by hand. `--force` installs anyway, overwriting. `install` and `init` leave
+`.claude/clauductor-template` behind, and that marker lets later installs and updates act.
+
 `install` sorts the template's files into three tiers:
 
 - **Framework** (skills, hooks, checks, the workflow, the model's scripts such as

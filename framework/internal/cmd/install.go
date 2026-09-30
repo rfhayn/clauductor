@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dryRun bool
+var (
+	dryRun       bool
+	forceInstall bool // install over a model the project runs itself (ownguard.go)
+)
 
 // File tiers for install behavior
 type fileTier int
@@ -101,6 +104,10 @@ File handling by tier:
     model-roles.json, panel.json, docs, steps.sh)  → created only if missing
   CONFIG (CLAUDE.md, .gitignore)                    → merged with existing
 
+A repository that runs an operating model of its own (skills, hooks or
+AGENTS.md that clauductor did not install) is refused, with the files an
+install would overwrite or add, unless --force.
+
 Use --dry-run to preview changes without modifying anything.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := os.Getwd()
@@ -122,6 +129,27 @@ Use --dry-run to preview changes without modifying anything.`,
 		allFiles, err := template.ListTemplateFiles()
 		if err != nil {
 			return fmt.Errorf("failed to list template files: %w", err)
+		}
+
+		// A repository running its own operating model is left alone (ownguard.go).
+		if !forceInstall && !ownedByClauductor(targetDir) {
+			tmplDir, err := template.TemplatePath()
+			if err != nil {
+				return err
+			}
+			overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
+			if err != nil {
+				return err
+			}
+			if len(overwrite)+len(add) > 0 {
+				refusal := refuseForeign("install", targetDir, overwrite, add)
+				if dryRun {
+					fmt.Println(refusal)
+					fmt.Println("\n--dry-run: no changes made.")
+					return nil
+				}
+				return refusal
+			}
 		}
 
 		var frameworkFiles []string // Always install
@@ -202,6 +230,10 @@ Use --dry-run to preview changes without modifying anything.`,
 			return fmt.Errorf("failed to copy template: %w", err)
 		}
 
+		if err := writeInstallMarker(targetDir); err != nil {
+			return fmt.Errorf("could not mark the install: %w", err)
+		}
+
 		// Handle config file merges
 		for _, f := range configFiles {
 			if err := mergeConfigFile(targetDir, f); err != nil {
@@ -232,6 +264,7 @@ Use --dry-run to preview changes without modifying anything.`,
 
 func init() {
 	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without modifying anything")
+	installCmd.Flags().BoolVar(&forceInstall, "force", false, "Install even over an operating model the repository runs itself (overwrites its files)")
 }
 
 func fileExists(path string) bool {
