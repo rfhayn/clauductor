@@ -33,7 +33,17 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = macOS ]; then brew install tmux; else sudo apt-get update && sudo apt-get install -y tmux; fi
           tmux -V
+      # The template's OpenSpec check validates its example change through the module's symlinks
+      # (template/.claude/checks/openspec.sh); OPENSPEC_REQUIRED makes a missing CLI a failure
+      # here, where it is installed. Pinned: the version the module was tested against.
+      - name: Install the OpenSpec CLI
+        run: npm install -g @fission-ai/openspec@1.13.2 && openspec --version
+        env:
+          DO_NOT_TRACK: "1"
+          OPENSPEC_TELEMETRY: "0"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
       - run: go test -race ./...
+        env:
+          OPENSPEC_REQUIRED: "1"
