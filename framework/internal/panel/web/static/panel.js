@@ -1027,7 +1027,7 @@ function renderSide(x) {
   // under the lane's: the lane first, and the project never off the dashboard.
   const project = projectBox();
   if (!x) {
-    patchInto("side", [project ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    patchInto("side", [pinnedCards().length ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
     return;
   }
   const tabs = SIDE_TABS;
@@ -1102,6 +1102,16 @@ try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = loc
 function saveProj() {
   try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
 }
+// PANEL-18: a project with no card says where cards come from, in one line where its
+// pinned cards would be, rather than nothing. (Cards that exist but are not pinned are
+// in Activity, so they say nothing here.) The guide is the Help dialog's address.
+function noCards() {
+  const a = el("a", "link", "How cards work");
+  a.href = GUIDE_URL + "#cards";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return key(el("div", "sidepins nocards", null, [el("span", "dim", "No cards yet. Add them in .clauductor/panel.json. "), a]), "side:nocards");
+}
 // PANEL-18: the cards run in the project's main checkout and watch files there, so while
 // its branch is behind its upstream they read old files. git counts against the last
 // fetch (the panel fetches only when a lane starts and when a close or remove plans),
@@ -1115,7 +1125,7 @@ function staleNote(k) {
 }
 function projectBox() {
   const pins = pinnedCards();
-  if (!pins.length) return null;
+  if (!pins.length) return (S.cards || []).length ? null : noCards();
   const cur = pins.find((c) => c.id === projTab) || pins[0];
   const tl = el("div", "sidetabs");
   tl.setAttribute("role", "tablist");

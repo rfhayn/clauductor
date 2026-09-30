@@ -352,6 +352,12 @@ a title that opens to the rest of it.
 So a card that prints one item per line, with a short lead, reads best. A JSON card is drawn as
 in the drawer.
 
+A project with **no card at all** shows one line in the box's place instead of nothing (PANEL-18):
+"No cards yet. Add them in .clauductor/panel.json.", with **How cards work**, a link to the
+guide's [Cards](guide.md#cards) section (opened in a new tab, from the same address as the Help
+dialog's guide link). A project whose cards are all unpinned shows nothing there: its cards are in
+**Activity**.
+
 ### When the cards may be stale
 
 Every card runs its command in the project's main checkout and watches its file there, so it

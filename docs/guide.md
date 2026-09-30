@@ -71,6 +71,27 @@ A reboot ends every tmux session, but the panel remembers each lane. When you op
 conversation. A single lost lane shows **Resume**, **Forget** (drop it from the list) and
 **Close lane** instead of a terminal. See [Restore after a reboot](panel.md#restore-after-a-reboot).
 
+## Cards
+
+A card is a command the panel runs in the project's main checkout and shows on the page: where
+the project stands, such as a work queue or a to-do list. Each output line is a row. The panel
+runs it again when a file you name changes (`watch:<path>`), or every so many seconds
+(`interval:<seconds>`). With `"pin": true` it shows beside the lanes; every card also shows in
+**Activity**. A project with no card says "No cards yet" there instead.
+
+Add cards to `.clauductor/panel.json`, then run `clauductor panel trust`: the panel runs no
+command from the file until you trust it. A minimal one:
+
+```json
+"cards": [
+  { "id": "todo", "title": "To do", "command": ["cat", "docs/todo.md"],
+    "refresh": "watch:docs/todo.md", "pin": true }
+]
+```
+
+A repository with Clauductor's operating model gets its cards from `clauductor panel init`. See
+[Card output](panel.md#card-output) and [Pinned cards](panel.md#pinned-cards).
+
 ## Queues and the gate
 
 If two lanes' gate scripts would collide (one port, one test database), a queue runs them one

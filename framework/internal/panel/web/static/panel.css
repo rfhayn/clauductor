@@ -332,6 +332,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 /* Pinned cards (PANEL-12): titles that open, the rest under them. */
 /* The project box: its own tabs (one per pinned card) under the lane's, and a fold. */
 .sidepins { display: grid; gap: .4rem; align-content: start; }
+/* A project with no card (PANEL-18): one line where the pinned cards would be. */
+.sidepins.nocards { display: block; font-size: .75rem; padding: .3rem 0; border-top: 1px solid var(--rule); }
 .projhead { display: flex; align-items: stretch; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); margin: .6rem calc(var(--pane-p) * -1) 0; }
 .sidepins:first-child .projhead { margin-top: calc(var(--pane-p) * -1); border-top: 0; }
 .projhead .sidetabs { flex: 1; min-width: 0; border: 0; margin: 0; }
