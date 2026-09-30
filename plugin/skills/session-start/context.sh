@@ -4,7 +4,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 # cannot run says CANNOT CHECK (or "learned NOTHING") instead of printing nothing or "none": an
 # absent answer must never read as a healthy one. No `set -e`: one failing section must not hide
 # the ones after it.
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 cd "$ROOT" || exit 0

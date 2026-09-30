@@ -10,8 +10,8 @@ Start with **`docs/playbook.md`**: it explains the whole model, lane by lane.
 
 ```bash
 claude
-/start-project      # fills .claude/project.conf, the gate steps and AGENTS.md's essentials
-/session-start      # every session
+/clauductor:start-project      # fills .claude/project.conf, the gate steps and AGENTS.md's essentials
+/clauductor:session-start      # every session
 ```
 
 Then `clauductor panel` for the local panel (see the clauductor repo's `docs/panel.md`).

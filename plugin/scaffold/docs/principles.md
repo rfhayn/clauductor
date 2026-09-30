@@ -4,7 +4,7 @@ The skills, hooks and agents in `.claude/` cite these by name (*in italics*). Ea
 the expensive way in the project this model was extracted from; the incident is summarised in a
 line so you can judge whether it applies to you. They are not rules on their own: `AGENTS.md`
 holds the four rules, and its *What executes each rule* table says what, if anything, enforces
-each. When your project decides something of this kind, record it as an ADR (`/new-adr`) and cite
+each. When your project decides something of this kind, record it as an ADR (`/clauductor:new-adr`) and cite
 the ADR instead.
 
 ## Propose just in time, at most one ahead
@@ -21,6 +21,31 @@ A change's `tasks.md` ends with `Slice: a <role> can <action> at <where>`, or `S
 <reason>` for pure substrate. It is a presence check, not a correctness check: it makes the
 question "what can someone now do that they could not?" be answered out loud on every change. An
 exemption written just to clear the check reproduces the defect the rule exists to catch.
+
+## A diff that fits in one sentence gets no proposal
+
+A proposal costs the owner a review, so it has to buy one. A typo, a bump or a one-line fix goes
+straight to a `fix/` or `ops/` lane; a change to what a user can do gets a proposal. This is the
+threshold Anthropic gives for when a plan is worth writing, and Kiro's "quick spec".
+
+## An approval covers the design as written
+
+The owner approves a design, not a directory. The Approved line carries a hash of `design.md` (and
+the risk tier), so an edit after approval is visibly a new design awaiting a new approval, rather
+than an old approval silently stretched over it.
+
+## A scenario is proven by a test that names it
+
+Every scenario has an ID that never changes, and the test that proves it cites the ID. A check
+can then find an uncited scenario, and a deleted test that leaves one uncited, in any language
+with one grep. The citation proves only that a test NAMES the scenario; a reviewer still checks
+that it asserts the THEN. A scenario no test can reach says why, in the change's `tasks.md`.
+
+## Set an appetite, and say how you will know
+
+A change carries a cost budget (Shape Up's appetite, not an estimate) and a signal to look for
+after it ships. The budget stops a build that is running away; the signal, queued as a dated
+roadmap row, stops "merged" from being mistaken for "worked".
 
 ## Never write down that the system does something until a production process does it
 

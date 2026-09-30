@@ -2,7 +2,7 @@
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
 # Context for dev-journal: the next session number (from origin/<main>, never this branch), the
 # author, and what this session changed. Prints CANNOT CHECK rather than a guess.
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 cd "$ROOT" || exit 0

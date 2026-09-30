@@ -2,7 +2,7 @@
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
 # Context for session-close: what is still unlanded, unarchived, unrecorded or untriaged. Every
 # section that cannot run says so; a check that could not run learned NOTHING. No `set -e`.
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 cd "$ROOT" || exit 0
@@ -54,6 +54,8 @@ echo "- Today: $(date +%F); insight rows dated today: $(count_rows "^\| $(date +
 echo "- Raw insights outstanding: $(count_rows '\| (\*\*)?Raw\b[^|]*\|[[:space:]]*$' "$INSIGHTS")"
 echo "- Topics at the 3+ promotion trigger, Raw rows only:"
 grep -E '\| (\*\*)?Raw\b[^|]*\|[[:space:]]*$' "$INSIGHTS" 2>/dev/null | cut -d'|' -f4 | cut -d/ -f1 | tr -d ' ' | sort | uniq -c | awk '$1 >= 3' | ind
+echo "## Compound: the insights waiting for a decision (step 3b)"
+sh "$CLAUDUCTOR_FW"/compound.sh 2>&1 | ind
 echo "- ADRs not yet Accepted:"
 ( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" 2>/dev/null || echo "none" ) | ind
 echo "- Owner queue:"

@@ -15,7 +15,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # a new check runs the moment its file exists.
 
 dir=$(cd "$(dirname "$0")" && pwd)
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 export ROOT
 
 if [ $# -gt 0 ]; then

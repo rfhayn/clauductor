@@ -26,6 +26,7 @@ type rewriter struct {
 	panelArg *regexp.Regexp // "sh", ".claude/<fw> in panel.json command arrays
 	initRole *regexp.Regexp // "start-project": "<role>" in model-roles.json
 	pbStart  *regexp.Regexp // the playbook's start-project row
+	skillRef *regexp.Regexp // /session-start: a plugin skill named as a command
 }
 
 func newRewriter(tmpl string) (*rewriter, error) {
@@ -45,6 +46,14 @@ func newRewriter(tmpl string) (*rewriter, error) {
 			heads = append(heads, "skills/"+regexp.QuoteMeta(s.Name())+"/")
 		}
 	}
+	names := []string{"init"}
+	for _, s := range skills {
+		if s.IsDir() && !projectSkills[s.Name()] {
+			names = append(names, regexp.QuoteMeta(s.Name()))
+		}
+	}
+	sort.SliceStable(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+	skillRef := regexp.MustCompile("(^|[\\s(`|\"'\\[])/(" + strings.Join(names, "|") + ")([^A-Za-z0-9_/:-]|$)")
 	heads = append(heads, `skills/\*`) // "sh .claude/skills/*/SKILL.md"-style globs in checks
 	scripts, err := filepath.Glob(filepath.Join(tmpl, ".claude", "*.sh"))
 	if err != nil {
@@ -77,6 +86,7 @@ func newRewriter(tmpl string) (*rewriter, error) {
 		shBare:   regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
 		mdSh:     regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
 		panelArg: regexp.MustCompile(`"sh", "\.claude/(` + fw + `)`),
+		skillRef: skillRef,
 		pbStart:  regexp.MustCompile("(?m)^\\| `/start-project` \\|[^|\n]*\\| ([a-z-]+) \\|$"),
 		initRole: regexp.MustCompile(`(?m)^(\s*)"start-project": "([a-z-]+)"`),
 		mdCtx:    regexp.MustCompile("!`sh \\.claude/(" + fw + ")"),
@@ -103,6 +113,8 @@ func (r *rewriter) pluginFile(dest string, data []byte) ([]byte, error) {
 	case strings.HasSuffix(dest, ".md") && (strings.HasPrefix(dest, "skills/") || strings.HasPrefix(dest, "agents/")):
 		return []byte(r.componentMarkdown(dest, s)), nil
 	case strings.HasSuffix(dest, ".js"):
+		// The workflow's prompts tell agents to run the model's scripts: through clauductor-model.
+		s = r.mdSh.ReplaceAllString(s, "clauductor-model $1")
 		return []byte(r.jsAgent.ReplaceAllString(s, "agentType: '"+Name+":$1'")), nil
 	}
 	return data, nil // READMEs, config.yaml, merge-reader.awk: read by people or by path
@@ -118,7 +130,11 @@ func (r *rewriter) shell(dest, s string) string {
 		if strings.HasPrefix(strings.TrimSpace(l), "#") {
 			continue // comments keep the template's wording
 		}
-		l = r.shRoot.ReplaceAllString(l, `$1=$$(git rev-parse --show-toplevel 2>/dev/null || pwd)`)
+		// A copy that sits in a project's .claude/ (a check's scratch repository copies scripts
+		// there) keeps the template's meaning: the project is the directory above. The plugin's own
+		// copy is under no .claude/: it takes the project its caller names in ROOT (a check pointing
+		// it at a scratch project), else the repository the command runs in.
+		l = r.shRoot.ReplaceAllString(l, `${1}=$$(case $$`+FWVar+` in (*/.claude) dirname "$$`+FWVar+`" ;; (*) [ -n "$${${1}:-}" ] && echo "$$${1}" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)`)
 		l = r.shVarFW.ReplaceAllStringFunc(l, func(m string) string {
 			sm := r.shVarFW.FindStringSubmatch(m)
 			if sm[1] == `"` { // "$ROOT"/.claude/x
@@ -126,7 +142,11 @@ func (r *rewriter) shell(dest, s string) string {
 			}
 			return `"$` + FWVar + `/` + sm[2]
 		})
-		l = r.shBare.ReplaceAllString(l, `$1 "$$`+FWVar+`"/$2`)
+		// In a check, a bare `sh .claude/x` runs inside a scratch repository the check built, on the
+		// copy it put there: left as it is.
+		if !strings.HasPrefix(dest, "checks/") {
+			l = r.shBare.ReplaceAllString(l, `$1 "$$`+FWVar+`"/$2`)
+		}
 		lines[i] = l
 	}
 	out := strings.Join(lines, "\n")
@@ -153,15 +173,28 @@ var shellPatches = map[string][]struct{ old, new string }{
     case $script in '${CLAUDE_PLUGIN_ROOT}'/*) script="$` + FWVar + `/${script#'${CLAUDE_PLUGIN_ROOT}'/}" ;; *) script="$ROOT/$script" ;; esac`},
 		{`if [ -f "$ROOT/$script" ]; then`, `if [ -f "$script" ]; then`},
 	},
-	// Skills are the plugin's AND the project's (its CONFIGURE FIRST skills): both are mapped.
+	// Skills are the plugin's AND the project's (its CONFIGURE FIRST skills): both are mapped. The
+	// playbook names the plugin's as /clauductor:<skill>.
 	"checks/model-roles.sh": {
+		{"sed -nE 's/^\\| `\\/([a-z0-9-]+)` \\|.*\\| ([a-z-]+) \\|$/\\1 \\2/p'", "sed -nE 's/^\\| `\\/(" + Name + ":)?([a-z0-9-]+)` \\|.*\\| ([a-z-]+) \\|$/\\2 \\3/p'"},
 		{`for d in "$` + FWVar + `"/skills/*/; do`, `for d in "$` + FWVar + `"/skills/*/ "$ROOT"/.claude/skills/*/; do`},
 		{`[ -f "$ROOT/.claude/skills/$s/SKILL.md" ] ||`, `[ -f "$` + FWVar + `/skills/$s/SKILL.md" ] || [ -f "$ROOT/.claude/skills/$s/SKILL.md" ] ||`},
+	},
+	// The check reads the model's own files at their template paths; in the plugin they are at the
+	// plugin root, and the workflow runs its scripts through clauductor-model.
+	"checks/change-process.sh": {
+		{`if grep -qF -- "$2" "$ROOT/$1" 2>/dev/null; then`, `_f="$ROOT/$1"; case $1 in .claude/*) [ -e "$_f" ] || _f="$` + FWVar + `/${1#.claude/}" ;; esac
+  if grep -qF -- "$2" "$_f" 2>/dev/null; then`},
+		{`'sh .claude/verify-change.sh'`, `'clauductor-model verify-change.sh'`},
+	},
+	// session-close's context runs the compound step from the plugin root.
+	"checks/compound.sh": {
+		{`grep -q 'sh .claude/compound.sh'`, `grep -qF 'sh "$` + FWVar + `"/compound.sh'`},
 	},
 	// The template's status line reads the config of its own checkout; the plugin's copy has no
 	// checkout, so the config is the one of the repository the session is in.
 	"statusline.sh": {
-		{`ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)`, `ROOT=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd)`},
+		{`|| git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)`, `|| git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)`},
 	},
 }
 
@@ -181,6 +214,7 @@ func (r *rewriter) componentMarkdown(dest, s string) string {
 	body = r.mdSh.ReplaceAllString(body, "clauductor-model $1")
 	body = r.mdFW.ReplaceAllString(body, rootRef+"/$1")
 	body = r.mdAgent.ReplaceAllString(body, "`"+Name+":$1`$2")
+	body = r.skills(body)
 	if dest == "skills/start-project/SKILL.md" {
 		body = startProjectNote + body
 	}
@@ -222,10 +256,15 @@ func (r *rewriter) scaffoldFile(rel string, data []byte) []byte {
 		front, body := splitFrontmatter(s)
 		body = r.mdSh.ReplaceAllString(body, "clauductor-model $1")
 		body = r.mdFW.ReplaceAllString(body, rootRef+"/$1")
+		body = r.skills(body)
+		if rel == "AGENTS.md" || rel == "docs/playbook.md" {
+			body = dropDroppedHookRows(body)
+		}
 		return []byte(front + body)
 	case rel == ".clauductor/panel.json":
 		// The panel runs these outside any Claude Code session: through the resolver.
 		s = r.panelArg.ReplaceAllString(s, `"sh", "scripts/ci/clauductor-model.sh", "$1`)
+		s = r.skills(s)
 		return []byte(r.scaffSh.ReplaceAllString(s, "sh scripts/ci/clauductor-model.sh $1"))
 	case rel == ".claude/model-roles.json":
 		// The plugin's init skill is a skill like any other: mapped to start-project's role.
@@ -241,4 +280,34 @@ func (r *rewriter) scaffoldFile(rel string, data []byte) []byte {
 		return []byte(strings.Join(lines, "\n"))
 	}
 	return data
+}
+
+// skills names each plugin skill by its command in the plugin: /session-start becomes
+// /clauductor:session-start. The project's own skills keep their names.
+func (r *rewriter) skills(s string) string {
+	for i := 0; i < 2; i++ { // adjacent names share a delimiter: a second pass takes the rest
+		s = r.skillRef.ReplaceAllString(s, "$1/"+Name+":$2$3")
+	}
+	return s
+}
+
+// dropDroppedHookRows removes the table rows for hooks the plugin does not register
+// (droppedHooks): a rule that nothing executes must not read as one that something does.
+func dropDroppedHookRows(s string) string {
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		drop := false
+		if strings.HasPrefix(l, "|") {
+			for h := range droppedHooks {
+				if strings.Contains(l, strings.TrimSuffix(h, ".sh")) {
+					drop = true
+				}
+			}
+		}
+		if !drop {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
 }

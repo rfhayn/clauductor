@@ -36,7 +36,63 @@
       "Bash(scripts/ci/gate.sh)",
       "Bash(scripts/ci/gate.sh *)",
       "Bash(clauductor-model status-write.sh *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(!./.env.example)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(sudo *)",
+      "Bash(tmux *kill-server*)",
+      "Bash(gh repo delete *)",
+      "Bash(gh release delete *)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "excludedCommands": [
+      "git *",
+      "gh *",
+      "tmux *",
+      "clauductor *",
+      "docker *",
+      "scripts/ci/run-local.sh *",
+      "scripts/ci/gate.sh *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "registry.npmjs.org",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pypi.org",
+        "files.pythonhosted.org"
+      ]
+    },
+    "credentials": {
+      "files": [
+        {
+          "path": "~/.ssh",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.aws",
+          "mode": "deny"
+        }
+      ]
+    }
   },
   "extraKnownMarketplaces": {
     "clauductor": {

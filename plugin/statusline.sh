@@ -37,7 +37,7 @@ cwd=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/
 [ -n "$cwd" ] || cwd=$(pwd)
 
 # This script's own checkout supplies the config (the mark, the slug), whatever the cwd.
-ROOT=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 

@@ -25,7 +25,7 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 2.4 | `ops/tidy-up` — tidy | s | — | ⬜ queued |
 | 2.5 | `Add_Bad` — not a lane name | s | — | ⬜ queued |
 EOF
-sug() { (cd "$F" && sh "$CLAUDUCTOR_FW"/panel-suggest.sh "$1"); }
+sug() { (cd "$F" && sh .claude/panel-suggest.sh "$1"); }
 names() { sug "$1" | jq -r '[.[].name] | join(" ")'; }
 
 [ "$(names propose)" = "add-next" ] && ok "propose offers only the first queued change row" || fail "propose offered: $(names propose)"
@@ -36,9 +36,9 @@ mkdir -p "$F/changes/add-next"
 [ "$(names propose)" = "" ] && ok "propose offers nothing while one change is proposed ahead" || fail "propose offered with one ahead: $(names propose)"
 sug propose | jq -e 'type == "array"' >/dev/null && ok "output is a JSON array" || fail "output is not a JSON array"
 case "$(sug build)" in *'"title":"the next one"'*) ok "a row's title is its summary" ;; *) fail "title: $(sug build)" ;; esac
-(cd "$F" && sh "$CLAUDUCTOR_FW"/panel-suggest.sh nonsense >/dev/null 2>&1) && fail "an unknown kind exited 0" || ok "an unknown kind exits non-zero"
+(cd "$F" && sh .claude/panel-suggest.sh nonsense >/dev/null 2>&1) && fail "an unknown kind exited 0" || ok "an unknown kind exits non-zero"
 printf 'not a roadmap | x |\n| # | Change | Scope | Deps | State |\n' > "$F/docs/roadmap.md"
-(cd "$F" && sh "$CLAUDUCTOR_FW"/panel-suggest.sh build >/dev/null 2>&1) && fail "a malformed roadmap gave a list" || ok "a malformed roadmap exits non-zero (the panel keeps the last list)"
+(cd "$F" && sh .claude/panel-suggest.sh build >/dev/null 2>&1) && fail "a malformed roadmap gave a list" || ok "a malformed roadmap exits non-zero (the panel keeps the last list)"
 
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"

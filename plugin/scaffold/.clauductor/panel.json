@@ -28,26 +28,26 @@
     },
     {
       "id": "propose",
-      "title": "Propose the next roadmap row",
+      "title": "Propose the next roadmap row (a change to what a user can do; a one-sentence diff takes Fix or Ops instead)",
       "lane_type": "build",
       "branch_pattern": "change/{name}",
-      "first_prompt": "/propose {name}: its row of the change queue (sh scripts/ci/clauductor-model.sh roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
+      "first_prompt": "/clauductor:propose {name}: its row of the change queue (sh scripts/ci/clauductor-model.sh roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
       "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "propose"], "refresh": "watch:docs/roadmap.md" }
     },
     {
       "id": "fix",
-      "title": "Fix an issue",
+      "title": "Fix an issue (fast path: a diff that fits in one sentence needs no proposal)",
       "lane_type": "fix",
       "branch_pattern": "fix/{name}",
-      "first_prompt": "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "first_prompt": "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. This is the fast path, with no proposal: if the fix turns out to change what a user can do, or will not fit in one sentence, stop and say it needs /clauductor:propose. Gate with scripts/ci/gate.sh, then land it with /clauductor:merge-pr.",
       "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "fix"], "refresh": "interval:300" }
     },
     {
       "id": "ops",
-      "title": "Ops task (tooling, docs or process; no change proposal)",
+      "title": "Ops task (fast path: tooling, docs or process; no change proposal)",
       "lane_type": "ops",
       "branch_pattern": "ops/{name}",
-      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /clauductor:merge-pr.",
       "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "ops"], "refresh": "watch:docs/roadmap.md" }
     }
   ],

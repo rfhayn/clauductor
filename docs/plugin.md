@@ -77,7 +77,7 @@ Built from `template/` by `clauductor plugin build` (`scripts/build-plugin.sh`),
 | `hooks/*.sh`, `hooks/lib/` | `.claude/hooks/` | paths rewritten |
 | `hooks/hooks.json` | the `hooks` of `.claude/settings.json` | each handler runs through `hooks/if-project.sh`; `worktree-hook-drift` is not registered (below); a `SessionStart` hook added |
 | `workflows/build-change.js` | `.claude/workflows/` | `agentType` names namespaced (`clauductor:builder`) |
-| `checks/`, `lib/`, `modules/`, `*.sh` | `.claude/checks/`, `lib/`, `modules/`, the model's scripts | paths rewritten |
+| `checks/`, `lib/`, `modules/`, `examples/`, `*.sh` | `.claude/checks/`, `lib/`, `modules/`, `examples/` (the example change the checks hold correct), the model's scripts | paths rewritten |
 | `bin/clauductor-model` | new | on the Bash tool's PATH: `clauductor-model checks/run.sh`, `clauductor-model status-write.sh "<focus>"` |
 | `scaffold/` | everything the project owns (next section) | not a plugin component; `/clauductor:init` copies it |
 
@@ -93,8 +93,15 @@ The path rewrites, all mechanical and all in `framework/internal/plugin`:
   and finds the model's files through it; the project root comes from git
   (`git rev-parse --show-toplevel`), because the script's own location is now the plugin cache,
   not the repository. Sourced files (`lib/conf.sh`, `checks/lib.sh`, `hooks/lib/*`) use their
-  caller's. Three scripts need a specific edit, listed in `shellPatches` with the reason; the
+  caller's. A copy a check puts in a scratch repository's `.claude/` takes that repository as its
+  root, as in the template; the plugin's own copy takes the `ROOT` its caller names, else the
+  repository the command runs in. Inside a check, a bare `sh .claude/x` runs the scratch copy and
+  is left alone. A few scripts need a specific edit, listed in `shellPatches` with the reason; the
   build fails when a patch's anchor leaves the template.
+- **Skill names**: every plugin skill named as a command (`/session-start`) in skills, agents,
+  the scaffolded docs, AGENTS.md and the panel's lane prompts becomes `/clauductor:session-start`;
+  the project's own skills (`/architecture-audit`, `/release-prep`) keep their names. The
+  scaffolded AGENTS.md and playbook lose the table rows for hooks the plugin does not register.
 - **Project paths are never rewritten**: `.claude/project.conf`, `model-roles.json`,
   `settings.json`, `.claude/worktrees/`, `.claude/health/`, and the project's own skills.
 
@@ -118,7 +125,7 @@ what exists:
 - `.claude/skills/architecture-audit/`, `.claude/skills/release-prep/`: CONFIGURE FIRST skills
   the project edits, so they are the project's, as with `clauductor install`
 - `.claude/health/`: the project's health lines, as with `clauductor install`
-- `docs/`, `changes/`, `specs/`, with framework paths in prose named as the plugin's
+- `docs/`, `changes/`, `specs/`, `.github/`, with framework paths in prose named as the plugin's
 - `scripts/ci/`: the gate (`steps.sh`, `run-local.sh`, `gate.sh`, `lease.sh`) and
   `clauductor-model.sh`, and `.claude/lib/conf.sh`: the gate runs in CI where no plugin is
   installed, and sources this one library
@@ -129,16 +136,26 @@ what exists:
 `scripts/ci/steps.sh`'s process-checks step runs the plugin's checks through
 `scripts/ci/clauductor-model.sh`, which finds the plugin at `$CLAUDUCTOR_PLUGIN_ROOT`, else
 `clauductor-model` on the PATH (inside a session), else the root the plugin recorded at its last
-session start (`${CLAUDE_PLUGIN_DATA}/root`). Finding none fails the step: a check that did not
-run must not read as one that passed. In CI, clone this repository at the release you use and set
-`CLAUDUCTOR_PLUGIN_ROOT=<clone>/plugin`.
+session start (`${CLAUDE_PLUGIN_DATA}/root`), else, in CI (`$CI` set) or with
+`CLAUDUCTOR_FETCH=1`, a shallow clone of this repository at the plugin's pinned version:
+
+| Variable | Default | |
+|---|---|---|
+| `CLAUDUCTOR_REF` | `v<Version>`, the version `/clauductor:init` scaffolded from | the tag or branch cloned; bump it when the project updates the plugin |
+| `CLAUDUCTOR_REPO_URL` | `https://github.com/rfhayn/clauductor.git` | |
+| `CLAUDUCTOR_CACHE` | `~/.cache/clauductor` | one directory per ref; cache it between CI runs to skip the clone |
+
+Finding none fails the step: a check that did not run must not read as one that passed. The
+default ref is a release tag, so a project scaffolded from a version that has no tag yet sets
+`CLAUDUCTOR_REF` (a branch or another tag) until one exists.
 
 ## What does not carry over, and why
 
 - **`worktree-hook-drift`** is not registered. It blocks a worktree agent when the main
   checkout's `.claude/hooks/` lag `origin/main`, because hooks are read from the main checkout.
   A plugin's hooks are read from the plugin cache, one version for every worktree, so that drift
-  cannot happen. The script still ships (the `hooks` check exercises it). AGENTS.md still lists it.
+  cannot happen. The script still ships (the `hooks` check exercises it); the scaffolded AGENTS.md
+  and playbook drop its rows.
 - **The status line** cannot come from a plugin (a plugin's `settings.json` applies only `agent`
   and `subagentStatusLine`) and cannot name `${CLAUDE_PLUGIN_ROOT}`. The plugin's SessionStart
   hook writes a shim to its data directory, which is stable across versions, and the project's
@@ -154,12 +171,20 @@ run must not read as one that passed. In CI, clone this repository at the releas
   start-project's step for it applies to `clauductor install` only. Pass `attribution` to the
   workflow instead.
 
+- **Workflows from a plugin are not yet verified in a session.** `workflows/build-change.js` is in
+  the plugin's default `workflows/` directory, which the docs say a plugin can carry, but
+  `claude plugin details` does not list workflows, so whether it loads (and under which name:
+  `/build-change` or namespaced) is to be checked in a real session. The panel's build lane and
+  the docs still say `/build-change`. Until then, `/clauductor:apply-change` is the same loop by
+  hand.
+
 ## Versions
 
-The plugin's version is the framework's `Version` (`framework/internal/cmd/root.go`), written
-into `plugin/.claude-plugin/plugin.json`; the marketplace entry carries none. Claude Code keeps an
+Decided: the plugin's version tracks clauductor's semver `Version`
+(`framework/internal/cmd/root.go`), bumped at release (REL-1), written into
+`plugin/.claude-plugin/plugin.json`; the marketplace entry carries none. Claude Code keeps an
 installed user on a version until the string changes, so a template change reaches plugin users
-only with a `Version` bump.
+with the next release, and a scaffolded project's CI clones the same version's tag.
 
 ## Maintaining it
 
@@ -176,9 +201,10 @@ Tests (`framework/internal/plugin`, `framework/internal/cmd`):
 - Layout, manifest, hooks, rewritten paths, the scaffold's settings and panel config, the scaffold
   guards, and the hooks standing aside outside a plugin project.
 - `TestPluginChecksPassInScaffoldedProject` (skipped with `-short`): scaffolds a repository and
-  runs every process check from the plugin against it. macOS only for now: on Linux the
-  template's `focus-staleness.sh` tries BSD `stat -f %m` first, which GNU stat misreads, and the
-  template's own `hooks` check fails with or without the plugin.
+  runs every process check from the plugin against it.
+- `TestResolverFetchesPinnedPluginInCI`: in CI the gate's resolver clones the pinned tag (from a
+  local repository in the test), serves the second run from its cache, and fails on a ref it
+  cannot clone.
 - `TestClaudePluginValidate`: `claude plugin validate --strict` on the plugin and the
   marketplace; skipped where the `claude` CLI is absent (CI runners).
 - `TestClaudePluginInstall` (opt-in, `CLAUDUCTOR_PLUGIN_INSTALL_TEST=1`): adds the marketplace

@@ -2,7 +2,7 @@
 
 Raw, non-obvious technical observations captured **during** the work: platform quirks, gotchas,
 trade-offs, debugging wins, guards that failed silently. Newest at the top. This is the intake
-tier; durable decisions get **promoted** from here (`/log-insight` runs the check).
+tier; durable decisions get **promoted** from here (`/clauductor:log-insight` runs the check).
 
 ## Promotion rules
 Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
@@ -11,6 +11,9 @@ Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
   `Promoted → ADR-NNNN`, not only the one that prompted it.
 - **Already covered by an existing check** → `Instance of ADR-NNNN (check N)`, or the sentence
   form. Nothing is written in the ADR.
+- **The compound step** (`session-close` step 3b, `clauductor-model compound.sh`): every Raw row gets a
+  decision (promote, mark an instance, or `Not promoted — <why>`). `checks/compound.sh` fails a row
+  still Raw after `COMPOUND_MAX_SESSIONS` sessions (default 3).
 - **3+ rows of one shape** → a promotion candidate. Topic tags are typed by hand, so a real group
   can be spread across several tags.
 - **A recurring gotcha or convention** → **not `AGENTS.md`**, which changes only to add a
@@ -30,6 +33,7 @@ Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
 | `Fixed → <where>` / `Shipped → <where>` | Closed by named code, checked by existence (`grep`, `ls`, `git log`), not by re-reading the row. |
 | `Closed — <what closed it>` / `Partly closed — <what remains>` | Resolved otherwise; say what remains, and who owns it. |
 | `Superseded → <what>` | A later row or decision replaced it. |
+| `Not promoted — <why>` | The compound step looked, and decided against promoting it: say why (a one-off, no mechanism would have caught it, not worth a rule). |
 | `Technique — no mechanism` | Triaged, retained for the pattern, and nobody owes anything. Not a place to park work. |
 | `Archived` | No longer relevant. |
 

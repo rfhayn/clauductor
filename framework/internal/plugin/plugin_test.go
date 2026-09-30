@@ -6,12 +6,46 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 )
+
+// In CI, where no plugin is installed, the gate's resolver clones the plugin at the version the
+// repository was scaffolded from, once, into a cache, and runs the script from there.
+func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
+	need(t, "git", "sh")
+	plug, _ := build(t) // Version 9.9.9-test: the resolver's default ref is v9.9.9-test
+	home := t.TempDir()
+	e := env(t, home)
+
+	origin := filepath.Join(t.TempDir(), "clauductor")
+	os.MkdirAll(filepath.Join(origin, "plugin", ".claude-plugin"), 0o755)
+	os.WriteFile(filepath.Join(origin, "plugin", ".claude-plugin", "plugin.json"), []byte("{}\n"), 0o644)
+	os.WriteFile(filepath.Join(origin, "plugin", "hello.sh"), []byte("echo \"hello $1\"\n"), 0o644)
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"commit", "-qm", "plugin"}, {"tag", "v9.9.9-test"}} {
+		if out, code := run(t, origin, e, "", "git", args...); code != 0 {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	p := newProject(t, e)
+	if out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh")); code != 0 {
+		t.Fatal(out)
+	}
+	ce := append(e, "CI=true", "CLAUDUCTOR_REPO_URL=file://"+origin, "CLAUDUCTOR_CACHE="+filepath.Join(home, "cache"))
+	if out, code := run(t, p, ce, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh", "ci"); code != 0 || !strings.Contains(out, "hello ci") {
+		t.Fatalf("CI fetch: exit %d\n%s", code, out)
+	}
+	os.RemoveAll(origin) // the second run is served from the cache
+	if out, code := run(t, p, ce, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh", "again"); code != 0 || !strings.Contains(out, "hello again") {
+		t.Fatalf("cached run: exit %d\n%s", code, out)
+	}
+	bad := append(append([]string{}, ce...), "CLAUDUCTOR_REF=v0-no-such-tag")
+	if out, code := run(t, p, bad, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh"); code == 0 || !strings.Contains(out, "FAIL") {
+		t.Fatalf("a ref that cannot be cloned must fail (exit %d)\n%s", code, out)
+	}
+}
 
 // The scaffold's panel.json runs the model's scripts through the resolver; it must still be a
 // config the panel accepts.
@@ -191,7 +225,7 @@ var fwLeft = regexp.MustCompile(`(?:"\$ROOT"?/|\bsh |^|[\s(])\.claude/(?:skills/
 // diff-path pattern, and the orphan shapes, which describe paths inside lane worktrees.
 func TestNoProjectPathsLeft(t *testing.T) {
 	out, _ := build(t)
-	allowed := regexp.MustCompile(`note "|echo "|\$(R|F|A|B|WT|d)\b[^ ]*/\.claude/|"\$[RFAB]/|\.claude/\* \||MQ_ORPHAN_SHAPES|@WT@|\$WT/lane/\.claude`)
+	allowed := regexp.MustCompile(`cd "\$[A-Za-z]+" &&|note "|echo "|fail "|ok "|^has \.claude/|for f in changes/README\.md|\$(R|F|A|B|WT|d)\b[^ ]*/\.claude/|"\$[RFAB]/|\.claude/\* \||MQ_ORPHAN_SHAPES|@WT@|\$WT/lane/\.claude`)
 	filepath.WalkDir(out, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -294,7 +328,7 @@ func env(t *testing.T, home string) []string {
 	var e []string
 	for _, kv := range os.Environ() {
 		k := strings.SplitN(kv, "=", 2)[0]
-		if strings.HasPrefix(k, "CLAUDE") || strings.HasPrefix(k, "GIT_") || k == "HOME" || k == "CLAUDUCTOR_FW" {
+		if strings.HasPrefix(k, "CLAUDE") || strings.HasPrefix(k, "GIT_") || k == "HOME" || k == "CI" || k == "ROOT" || k == "XDG_CACHE_HOME" || strings.HasPrefix(k, "CLAUDUCTOR") {
 			continue
 		}
 		e = append(e, kv)
@@ -404,12 +438,6 @@ func TestHooksOnlyActInPluginProjects(t *testing.T) {
 func TestPluginChecksPassInScaffoldedProject(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs every process check (about 20 s)")
-	}
-	// TODO (OPS-11): drop this skip once template/.claude/hooks/focus-staleness.sh tries GNU stat
-	// first, as scripts/ci/lease.sh does. On Linux `stat -f %m FILE` prints file-system status and
-	// the template's own hooks check fails, with or without the plugin.
-	if runtime.GOOS != "darwin" {
-		t.Skip("the template's focus-staleness hook reads mtime BSD-first, which misreads on GNU stat")
 	}
 	need(t, "git", "sh", "jq", "awk")
 	plug, _ := build(t)

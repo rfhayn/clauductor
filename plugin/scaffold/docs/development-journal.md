@@ -1,7 +1,7 @@
 # Development journal
 
 The narrative record: WHY decisions were made, what surprised us, what is next. Most recent
-session first. Written by `/dev-journal`, which `session-close` runs.
+session first. Written by `/clauductor:dev-journal`, which `session-close` runs.
 
 Each entry starts with a heading of exactly this shape, because scripts read it:
 

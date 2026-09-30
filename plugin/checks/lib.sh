@@ -9,7 +9,7 @@
 # like a passing one (*A control needs a named addressee*: a green result names its subject).
 
 if [ -z "${ROOT:-}" ]; then
-  ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+  ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 fi
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 # Context scripts run by a check must not fetch or call gh (fetch_main in conf.sh).

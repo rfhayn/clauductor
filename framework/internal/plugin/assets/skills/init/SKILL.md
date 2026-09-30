@@ -29,7 +29,8 @@ yourself and read the result before step 1.
 3. **Configure**: run `/clauductor:start-project`. It fills `.claude/project.conf`, the gate's
    steps and AGENTS.md's essentials.
 4. **CI**: the gate's process-checks step (`scripts/ci/steps.sh`) runs the plugin's checks
-   through `scripts/ci/clauductor-model.sh`. In CI, where no plugin is installed, clone
-   `github.com/rfhayn/clauductor` at the release you use and set
-   `CLAUDUCTOR_PLUGIN_ROOT=<clone>/plugin`, or the step fails, on purpose.
+   through `scripts/ci/clauductor-model.sh`. In CI (`$CI` set), where no plugin is installed, it
+   clones `github.com/rfhayn/clauductor` at tag `v@VERSION@` (override with `CLAUDUCTOR_REF`) into
+   `~/.cache/clauductor` once; cache that directory between runs. If it cannot, the step fails, on
+   purpose.
 5. **Commit** the scaffold on a branch, with the owner's go.

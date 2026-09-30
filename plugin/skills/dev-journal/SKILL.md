@@ -29,7 +29,7 @@ run `clauductor-model skills/dev-journal/context.sh` yourself and read the resul
 
    **What happened.** 1–3 sentences, then bullets naming PRs by number.
    **Key decisions.** Bullets with the reason; whose decision it was if it was the owner's.
-   **Learning.** Non-obvious things found (each also logged with /log-insight).
+   **Learning.** Non-obvious things found (each also logged with /clauductor:log-insight).
    **What's next.** Where the next session picks up, naming the change or row that owns it.
    ```
 

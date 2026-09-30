@@ -54,7 +54,7 @@ close to merge conflicts, deliberately (it forces step 6's merge of `origin/main
 - Then `git fetch --prune`, and confirm the remote branch list against GitHub, not local refs.
 
 ### 2. Archive what finished, check what is proposed
-- A change whose tasks are all `[x]` and whose PR merged: **`/archive-change`**. Archiving promotes
+- A change whose tasks are all `[x]` and whose PR merged: **`/clauductor:archive-change`**. Archiving promotes
   its spec deltas into the living specs; skipping it leaves the spec tier one change behind.
 - **At most ONE change may remain proposed.** Two in the Context block is the finding.
 
@@ -62,13 +62,26 @@ close to merge conflicts, deliberately (it forces step 6's merge of `origin/main
 - **The roadmap** (`ROADMAP`), statuses first, because session-start reads the queue off it: a
   merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)`, a dropped one
   `❌ cancelled — <why>`. Nothing else parses. Then `clauductor-model roadmap-queue.sh --check`.
-- **`/log-insight`** for anything non-obvious found today. If the Context block counts `0` rows
+- **`/clauductor:log-insight`** for anything non-obvious found today. If the Context block counts `0` rows
   today after a substantive session, that is the finding. Then the promotion check: a topic at 3+
-  Raw rows is the trigger for `/new-adr`.
+  Raw rows is the trigger for `/clauductor:new-adr`.
 - **The owner queue**: anything left that needs the owner at the computer, as a `- [ ]` line with
   the date and what it needs first; tick what this session did.
-- **`/dev-journal`** last, once the facts are settled: number and author from the Context block's
+- **`/clauductor:dev-journal`** last, once the facts are settled: number and author from the Context block's
   `Journal:` line.
+
+### 3b. Compound: feed the lessons back into the rules
+The Context block's **Compound** section lists every insight still `Raw`, oldest first, with the
+number of sessions it has waited (`NEW` = logged since the last close). A lesson that is only
+logged teaches nothing; this step decides each one, deliberately:
+- **Promote** it: a new ADR or an amendment (`/clauductor:new-adr`), or a check or hook that now executes it
+  (AGENTS.md rule 4). Status `Promoted → ADR-NNNN` (or `→ checks/<name>.sh`).
+- **Mark it an instance** of a rule or ADR that already covers it: find the covering sentence
+  first. Status `Instance of ADR-NNNN (…)`.
+- **Record why not**: `Not promoted — <why>` (a one-off; no mechanism would have caught it).
+
+Leaving a row Raw is allowed while it is young, but `checks/compound.sh` fails the gate once a row
+has waited `COMPOUND_MAX_SESSIONS` sessions. Say in the journal entry which rows you promoted.
 
 ### 4. Set the forward-looking status line
 `clauductor-model status-write.sh "[main] <what just landed>; next: <the actual next action>"`: written

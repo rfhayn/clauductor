@@ -30,7 +30,7 @@ promote your own versions of them here as your project confirms or amends them.
 
 ## Process
 1. Capture raw observations in the insights log during the work.
-2. When one is a real decision or a lesson with a mechanism, promote it with `/new-adr`: copy
+2. When one is a real decision or a lesson with a mechanism, promote it with `/clauductor:new-adr`: copy
    [`TEMPLATE.md`](TEMPLATE.md) to `NNNN-<kebab-title>.md`, or amend the ADR that owns the
    principle. Then retag **every** insights row it cites.
 3. Reference the ADR where it is enforced (a hook, a check, `AGENTS.md`'s table) so the decision

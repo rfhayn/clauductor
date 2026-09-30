@@ -39,6 +39,10 @@ A phase is several changes. Decompose as you go, phase by phase.
   `❌ cancelled — <why>`. Text may follow. `session-close` moves a row to in flight when its PR
   opens and to merged when it merges.
 - The current phase is derived: the first phase with a queued or in-flight row.
+- **A budget**: `Budget: $N` anywhere in a row (the Scope cell, say) is the change's cost
+  appetite. Its `proposal.md` repeats it, `build-change` stops past it, archive records the actual.
+- **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
+  check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
 
 ## Phase 1 — First slice
 **Owner:** <owner name>
@@ -47,5 +51,13 @@ Exit criteria: <what is true when this phase is done, observably>.
 
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
-| 1.1 | `add-first-capability` — <a user can now …> | <the write surfaces, the screen or entry point> | — | ⬜ queued |
+| 1.1 | `add-first-capability` — <a user can now …> | <the write surfaces, the screen or entry point> · Budget: $20 | — | ⬜ queued |
 | 1.2 | `ops/gate` — the gate runs the project's real lint and tests | `scripts/ci/steps.sh` | — | ⬜ queued |
+
+## Outcome checks
+
+Each archived change's "How we'll know", queued for the day to look (`archive-change` step 3). A
+row is outside every phase, so it never becomes the current phase; the queue lists it as DUE.
+
+| # | Change | Scope | Deps | Status |
+|---|--------|-------|------|--------|

@@ -4,7 +4,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # read that file restates it, and this check fails when any restatement disagrees:
 #   - every skill's and every agent's frontmatter `model:` and `effort:`;
 #   - .claude/settings.json `model`, `effortLevel` and CLAUDE_CODE_SUBAGENT_MODEL;
-#   - .claude/workflows/build-change.js's ROLES table, when the workflow exists;
+#   - .claude/workflows/build-change.js's ROLES, TIERS and ECONOMY tables, its ECONOMY_FILE and its
+#     PROVENANCE flag, when the workflow exists;
 #   - .clauductor/panel.json `lane_types`, when the panel config exists.
 # The sets are enumerated from the filesystem, not from the JSON (*Enumerate the authority*):
 # a skill directory the JSON forgot is a failure, and so is a JSON entry naming nothing.
@@ -108,6 +109,71 @@ if [ -f "$wf" ]; then
   else fail "build-change.js ATTRIBUTION_DEFAULT is '$g', model-roles.json attribution says '${w:-(disabled: empty)}'"; fi
 fi
 
+# ── Risk tiers, economy mode, provenance and prices ─────────────────────────────────────────────
+# A role's tier variants (item 15) and its economy drop are model choices too, so they live in the
+# JSON and build-change restates them. Both directions: a variant the table forgot, and a table row
+# the JSON does not have.
+models=" opus sonnet haiku fable "; efforts=" low medium high xhigh max "
+rank_m() { case "$1" in haiku) echo 1 ;; sonnet) echo 2 ;; opus) echo 3 ;; fable) echo 4 ;; *) echo 0 ;; esac; }
+rank_e() { case "$1" in low) echo 1 ;; medium) echo 2 ;; high) echo 3 ;; xhigh) echo 4 ;; max) echo 5 ;; *) echo 0 ;; esac; }
+valid_pair() {  # valid_pair WHAT MODEL EFFORT
+  case "$models" in *" $2 "*) ;; *) case "$2" in claude-*) ;; *) fail "$1: model '$2' is not opus, sonnet, haiku, fable or a claude-* id"; return 1 ;; esac ;; esac
+  case "$efforts" in *" $3 "*) return 0 ;; esac
+  fail "$1: effort '$3' is not one of$efforts"; return 1
+}
+levels=$(jq -r '(.tiers.levels // []) | join(" ")' "$roles")
+[ "$levels" = "low normal high" ] && ok "risk tiers are low, normal, high" || fail "model-roles.json .tiers.levels must be [\"low\", \"normal\", \"high\"] (proposal.md's **Risk:** line), got '$levels'"
+want_tiers=$(jq -r '.roles | to_entries[] | .key as $r | (.value.tiers // {}) | to_entries[] | "\($r).\(.key) \(.value.model // "") \(.value.effort // "")"' "$roles")
+printf '%s\n' "$want_tiers" | while read -r rt m e; do
+  [ -n "$rt" ] || continue
+  t=${rt#*.}
+  case " low high " in *" $t "*) ;; *) echo "FAIL role ${rt%%.*}: tier '$t' is not low or high (normal is the role itself)"; continue ;; esac
+  (valid_pair "tier $rt" "$m" "$e") | sed 's/^FAIL/FAIL/' | grep . || echo "ok   tier $rt: $m/$e"
+done > "$(scratch)/tiers"
+cat "$(scratch)/tiers"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/tiers")))
+
+eco_never=$(jq -r '(.economy.never // []) | sort | join(" ")' "$roles")
+[ "$eco_never" = "planner reviewer" ] && ok "economy mode never drops the reviewer or the planner" || fail "model-roles.json .economy.never must be [\"reviewer\", \"planner\"], got '$eco_never'"
+jq -r '(.economy.roles // {}) | to_entries[] | "\(.key) \(.value.model // "") \(.value.effort // "")"' "$roles" | while read -r r m e; do
+  [ -n "$r" ] || continue
+  case " reviewer planner " in *" $r "*) echo "FAIL economy mode drops role $r, which must never drop"; continue ;; esac
+  bm=$(want "$r" model); be=$(want "$r" effort)
+  [ -n "$bm" ] || { echo "FAIL economy names role $r, which .roles does not define"; continue; }
+  (valid_pair "economy $r" "$m" "$e") | grep . && continue
+  if [ "$(rank_m "$m")" -lt "$(rank_m "$bm")" ] || { [ "$m" = "$bm" ] && [ "$(rank_e "$e")" -lt "$(rank_e "$be")" ]; }; then
+    echo "ok   economy $r: $bm/$be drops to $m/$e"
+  else
+    echo "FAIL economy $r: $m/$e is not a tier below the role's $bm/$be"
+  fi
+done > "$(scratch)/eco"
+cat "$(scratch)/eco"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/eco")))
+
+if jq -e '(.provenance.enabled | type == "boolean") and (.provenance.trailers == ["Change", "Agent-Role", "Model", "Session"])' "$roles" >/dev/null; then
+  ok "provenance trailers Change, Agent-Role, Model, Session; enabled is $(jq -r .provenance.enabled "$roles")"
+else
+  fail "model-roles.json needs provenance.enabled (true or false) and provenance.trailers [\"Change\", \"Agent-Role\", \"Model\", \"Session\"]"
+fi
+if jq -e '(.prices | type == "object") and ([.prices | to_entries[] | select(.key != "_why") | .value | (.input | type) == "number" and (.output | type) == "number" and (.cache_read | type) == "number"] | length > 0 and all)' "$roles" >/dev/null; then
+  ok "prices: $(jq -r '[.prices | keys[] | select(. != "_why")] | length' "$roles") model prefixes, each with input, output and cache_read"
+else
+  fail "model-roles.json .prices needs '<model prefix>': {input, output, cache_read} in dollars per million tokens (change-cost.sh reads it)"
+fi
+
+if [ -f "$wf" ]; then
+  # TIERS rows:   "<role>.<tier>": { model: "<m>", effort: "<e>" },   and ECONOMY rows the same by role.
+  table() { sed -n "/^const $1 = {/,/^};/p" "$wf" | sed -nE 's/^[[:space:]]*"?([a-z.-]+)"?:[[:space:]]*\{[[:space:]]*model:[[:space:]]*"([^"]*)",[[:space:]]*effort:[[:space:]]*"([^"]*)".*/\1 \2 \3/p' | sort; }
+  got=$(table TIERS); want=$(printf '%s\n' "$want_tiers" | grep . | sort)
+  if grep -q '^const TIERS = {' "$wf" && [ "$got" = "$want" ]; then ok "build-change.js TIERS matches every role's tier variants"
+  else fail "build-change.js TIERS disagrees with model-roles.json's tier variants: has [$(printf '%s' "$got" | tr '\n' ';')], want [$(printf '%s' "$want" | tr '\n' ';')]"; fi
+  got=$(table ECONOMY); want=$(jq -r '(.economy.roles // {}) | to_entries[] | "\(.key) \(.value.model) \(.value.effort)"' "$roles" | sort)
+  if grep -q '^const ECONOMY = {' "$wf" && [ "$got" = "$want" ]; then ok "build-change.js ECONOMY matches .economy.roles"
+  else fail "build-change.js ECONOMY disagrees with .economy.roles: has [$(printf '%s' "$got" | tr '\n' ';')], want [$(printf '%s' "$want" | tr '\n' ';')]"; fi
+  g=$(sed -n "s/^const ECONOMY_FILE = '\\(.*\\)'\$/\\1/p" "$wf"); w=$(jq -r '.economy.file // empty' "$roles")
+  [ -n "$w" ] && [ "$g" = "$w" ] && ok "build-change.js ECONOMY_FILE is $w" || fail "build-change.js ECONOMY_FILE is '$g', .economy.file says '$w'"
+  g=$(sed -nE 's/^const PROVENANCE = (true|false)$/\1/p' "$wf"); w=$(jq -r '.provenance.enabled' "$roles")
+  [ "$g" = "$w" ] && ok "build-change.js PROVENANCE is $w" || fail "build-change.js PROVENANCE is '${g:-unset}', .provenance.enabled says '$w'"
+fi
+
 # ── The panel's lane types ─────────────────────────────────────────────────────────────
 pj="$ROOT/.clauductor/panel.json"
 if [ -f "$pj" ]; then
@@ -125,7 +191,7 @@ fi
 # table forgot, a row naming a skill that does not exist, and a role that disagrees.
 pb="$ROOT/docs/playbook.md"
 if [ -f "$pb" ]; then
-  tbl=$(sed -n '/<!-- skills-table begin -->/,/<!-- skills-table end -->/p' "$pb" | sed -nE 's/^\| `\/([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\1 \2/p')
+  tbl=$(sed -n '/<!-- skills-table begin -->/,/<!-- skills-table end -->/p' "$pb" | sed -nE 's/^\| `\/(clauductor:)?([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\2 \3/p')
   [ -n "$tbl" ] || fail "docs/playbook.md has no skills table between its markers"
   printf '%s\n' "$tbl" | while read -r s r; do
     [ -n "$s" ] || continue

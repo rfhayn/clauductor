@@ -16,10 +16,17 @@ do one group alone. The loop is the same, and so are its stops.
 - The change is approved: `changes/<id>/proposal.md` has its `**Approved:**` line, on `main`.
 - You are on `change/<id>` in its OWN worktree, never the main checkout (hooks run from there), with
   a clean tree.
+- **The models follow the proposal's `**Risk:**` tier**: a role with a variant for that tier in
+  `.claude/model-roles.json` (`roles.<role>.tiers`) runs on it; pass its `model` and `effort` when
+  you spawn the agent. In economy mode (`~/.clauductor/panel/economy.json` says `"economy": true`)
+  the roles in `.economy.roles` drop a tier; the reviewer never does.
+- **The budget**: if `proposal.md` has `**Budget:** $N`, check `clauductor-model change-cost.sh <id>`
+  before each group; OVER BUDGET is a stop for the owner (raise it or cut scope).
 
 ## For each task group with open tasks, in order
 1. **Build.** Spawn the `clauductor:builder` agent: "Implement task group N (<title>) of change <id>
-   (changes/<id>/). Only group N. Leave the work uncommitted." A `design-issue` or `blocked` reply
+   (changes/<id>/). Only group N. Record in tasks.md's Decision log each decision design.md does
+   not settle. Leave the work uncommitted." A `design-issue` or `blocked` reply
    is a STOP: notify the owner (`PushNotification`, one line) and stop.
 2. **Register new and deleted files**, so the gate and the reviewer see them: for each path from
    `git ls-files --others --exclude-standard`, `git add -N -- <path>` (intent-to-add); for each
@@ -31,12 +38,15 @@ do one group alone. The loop is the same, and so are its stops.
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
    if peak severity RISES between rounds, or after 3 rounds without converging, and name the
    builder's disputes for the owner to rule on.
-5. **Commit** the group once a round finds nothing medium or worse: check `git diff HEAD
-   --name-status` for anything secret-looking, `git add -u`, and commit
-   `<id>: task group N — <title>`, ending with the attribution trailer when
-   `.claude/model-roles.json` enables it. Do not push yet.
+5. **Commit** the group once a round finds nothing medium or worse: add one line under
+   `## Progress` in `tasks.md` (`- <date> group N (<title>) built and reviewed: converged in <n>
+   round(s), peak <sev>`), check `git diff HEAD --name-status` for anything secret-looking,
+   `git add -u`, and commit `<id>: task group N — <title>`, ending with the provenance trailers
+   (`Change:`, `Agent-Role: builder`, `Model:`, `Session:`) and the attribution trailer when
+   `.claude/model-roles.json` enables them. Do not push yet.
 
 ## Then
 - The full gate on the committed HEAD: `scripts/ci/gate.sh` (no flags). It writes the receipt.
+- `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
   `merge-pr`, recording `Review: converged in <n> round(s), peak <sev>, at <sha>` per group.

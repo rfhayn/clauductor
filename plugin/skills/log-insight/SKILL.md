@@ -40,7 +40,7 @@ Routing follows *What this tier holds* in `docs/adr/README.md`.
   `Instance of ADR-NNNN (check N)` (or `Instance of AGENTS.md rule N`), or quote the covering
   sentence: `Instance of ADR-NNNN ("…")`. Find that sentence first; if you cannot, it is not
   covered.
-- **A decision with trade-offs, or a lesson with a mechanism**: offer `/new-adr`, which writes a
+- **A decision with trade-offs, or a lesson with a mechanism**: offer `/clauductor:new-adr`, which writes a
   new ADR or an amendment inside the ADR that already owns the principle.
 - **3+ rows share a Topic**: suggest a promotion. Topic tags are typed by hand, so look for rows of
   the same SHAPE under other tags too.

@@ -60,7 +60,7 @@ var projectSkills = map[string]bool{"architecture-audit": true, "release-prep": 
 // frameworkDirs are the template's `.claude/` directories that become plugin directories of the
 // same name. `.claude/health/` is not one: `clauductor install` treats it as the project's (a
 // project deletes the GitHub lines it does not use), so it is scaffolded.
-var frameworkDirs = []string{"skills", "agents", "hooks", "checks", "lib", "modules", "workflows"}
+var frameworkDirs = []string{"skills", "agents", "hooks", "checks", "lib", "modules", "workflows", "examples"}
 
 // droppedHooks are template hooks the plugin does not register, each with the reason. The script
 // itself still ships (the checks exercise it).
@@ -112,6 +112,17 @@ func Build(o Options) (*Result, error) {
 	defaultOut := filepath.Join(o.RepoRoot, PluginDir)
 	if o.OutDir == "" {
 		o.OutDir = defaultOut
+	}
+	// Place every file before touching the output: a template file nobody has classified fails
+	// the build without leaving a half-cleared plugin/ behind.
+	all, err := listFiles(tmpl)
+	if err != nil {
+		return nil, err
+	}
+	for _, rel := range all {
+		if _, _, err := place(rel); err != nil {
+			return nil, err
+		}
 	}
 	if err := resetOut(o.OutDir); err != nil {
 		return nil, err

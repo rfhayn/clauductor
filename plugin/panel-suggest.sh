@@ -14,7 +14,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # [a-z0-9][a-z0-9-]{0,40}; a row that cannot be one is left out, not mangled. A failure exits
 # non-zero, so the panel says "cannot read" and keeps the last list rather than showing none.
 set -u
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 cd "$ROOT" || exit 1

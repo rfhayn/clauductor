@@ -45,7 +45,7 @@ Expected: Zero matches.
 
 ## When to Run
 
-- Before proposing a change that creates new modules or services (`/propose` step 0)
+- Before proposing a change that creates new modules or services (`/clauductor:propose` step 0)
 - During review of a task group that touches a core layer
 - **Better:** once a rule is stable, turn its grep into a check (`${CLAUDE_PLUGIN_ROOT}/checks/<name>.sh`) or a
   gate step, and give it a row in AGENTS.md's *What executes each rule* table. A rule this skill

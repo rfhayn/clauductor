@@ -51,6 +51,14 @@ fi
 #
 # A failed FULL run deletes any receipt (a stale pass must not outlive a fail); a --quick run never
 # spoke for the whole gate, so it neither writes nor deletes.
+#
+# Two steps are the operating model's own and run before GATE_STEPS in every gate, whatever the
+# project's steps.sh says (it is the project's to edit; these are not):
+#   scenario trace  every enforced scenario is cited by a test (.claude/scenario-trace.sh --check;
+#                   in the clean room, at the tested commit);
+#   secrets         gitleaks over the tracked files and the branch's commits. Without gitleaks the
+#                   step says SKIPPED and why; with CI set (CI=true, as every hosted CI sets it) a
+#                   missing gitleaks FAILS, so a remote gate cannot pass without the scan.
 
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
@@ -79,6 +87,40 @@ START_DIRTY=$([ -n "$(porcelain)" ] && echo 1 || echo 0)
 . "$ROOT/$GATE_STEPS"
 
 FAILED=""
+# The secret scan. Tracked files only (an ignored .env on this machine is not a leak), as they are in
+# the tree under test, plus the commits this branch adds (a secret committed and then deleted is
+# still in the history a push publishes).
+secret_scan() {
+  if ! command -v gitleaks >/dev/null 2>&1; then
+    case "${CI:-}" in
+      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (brew install gitleaks, or see github.com/gitleaks/gitleaks). Under CI this fails."; return 0 ;;
+      *) echo "secrets: FAIL — gitleaks is not installed, and CI=$CI requires the scan"; return 1 ;;
+    esac
+  fi
+  local src=. tmpd=""
+  if [ -d .git ] || [ -f .git ]; then
+    tmpd=$(mktemp -d "${TMPDIR:-/tmp}/secrets.XXXXXX")
+    git ls-files -z | xargs -0 tar -cf - 2>/dev/null | tar -xf - -C "$tmpd" 2>/dev/null
+    src=$tmpd
+  fi
+  local rc=0
+  if gitleaks dir --help >/dev/null 2>&1; then gitleaks dir --no-banner --redact "$src" || rc=$?
+  else gitleaks detect --no-git --no-banner --redact --source "$src" || rc=$?; fi
+  [ -n "$tmpd" ] && rm -rf "$tmpd"
+  if [ "$rc" -eq 0 ] && { [ -d .git ] || [ -f .git ]; } && git rev-parse -q --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
+    local range; range="$(git merge-base "origin/$MAIN_BRANCH" HEAD 2>/dev/null)..HEAD"
+    if gitleaks git --help >/dev/null 2>&1; then gitleaks git --no-banner --redact --log-opts="$range" . || rc=$?
+    else gitleaks detect --no-banner --redact --log-opts="$range" --source . || rc=$?; fi
+  fi
+  return "$rc"
+}
+model_steps() {
+  local rev=""
+  [ "${GATE_CLEAN_ROOM:-none}" = archive ] && [ "$DIRTY" -eq 0 ] && rev="--rev $TESTED_SHA"
+  # shellcheck disable=SC2086
+  step "scenario trace" sh "$ROOT/.claude/scenario-trace.sh" --check $rev || return 1
+  step "secrets" secret_scan || return 1
+}
 step() {  # step NAME COMMAND [ARGS...]: one gate step, marked for the agent-facing filter.
   local name=$1; shift
   echo "==> $name"
@@ -97,7 +139,7 @@ fi
 
 echo "==> gate $MODE on $(printf %.9s "$TESTED_SHA") ($(git branch --show-current 2>/dev/null || echo detached))"
 code=0
-( cd "$workdir" && gate_steps "$MODE" ) || code=$?
+( cd "$workdir" && model_steps && gate_steps "$MODE" ) || code=$?
 
 state=clean
 if [ "$DIRTY" -eq 1 ]; then state=dirty
