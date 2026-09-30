@@ -11,11 +11,13 @@ cg_show() {
   if git show "$1:$2" > "$_f" 2>/dev/null; then printf '%s' "$_f"; else rm -f "$_f"; fi
 }
 
-# Rule 9: a BUILD PR finishes its change. A change branch whose diff touches files outside
-# CHANGES_DIR and SPECS_DIR is a build, not a proposal: every task of each change it touches must be
-# ticked (D7). A proposal PR (only the change's own files) passes with every task open.
+# Rule 9: a BUILD PR finishes its change. A change branch whose diff touches files other than the
+# change records (CHANGES_DIR, SPECS_DIR) and the shared records a proposal also edits (the roadmap,
+# journal, insights log, owner queue) is a build, not a proposal: every task of each change it
+# touches must be ticked (D7). A proposal PR passes with every task open.
 cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
-  _other=$(git diff --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' | head -1)
+  _other=$(git diff --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' \
+    | grep -vxF -e "$ROADMAP" -e "$JOURNAL" -e "$INSIGHTS" -e "$OWNER_QUEUE" | head -1)
   [ -n "$_other" ] || return 0
   for _d in $3; do
     _t=$(cg_show "$2" "$_d/tasks.md"); [ -n "$_t" ] || continue
