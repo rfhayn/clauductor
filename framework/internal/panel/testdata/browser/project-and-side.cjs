@@ -8,7 +8,8 @@
 // - the side panel's edge drags wider, but never so wide that the terminal loses its 85
 //   columns (past that, the layout used to fold the side panel away under the drag);
 // - the Columns menu opens inside the window, not clipped by the rail;
-// - New lane lists Up next, and a row picks its template and fills in the name.
+// - New lane lists Up next, and a row picks its template and fills in the name;
+// - PANEL-13: a warning closes, and stays closed by its key while its text changes.
 // Usage: node project-and-side.cjs <base URL> <token>
 const pw = require(process.env.PLAYWRIGHT || "playwright");
 const [base, token] = process.argv.slice(2);
@@ -105,6 +106,25 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
       pressed: document.querySelector("#st-next .nextrow").getAttribute("aria-pressed") }));
     if (picked.tpl !== "propose" || picked.name !== "add-group-card" || picked.pressed !== "true") fail("Up next pick: " + JSON.stringify(picked));
     await p.keyboard.press("Escape");
+
+    // PANEL-13: a warning closes with its ×, stays closed while its text changes, and a
+    // warning with another key (a new version, a break) still shows.
+    const warn = await p.evaluate(async () => {
+      const w = (key, text) => ({ key, text });
+      S.warningItems = [w("version:9.9.9", "Claude Code 9.9.9: 0 of 3 confirmed")];
+      render();
+      document.querySelector('#banners [data-k="warn:version:9.9.9"] .warnx').click();
+      const closed = !document.querySelector('#banners [data-k="warn:version:9.9.9"]');
+      S.warningItems = [w("version:9.9.9", "Claude Code 9.9.9: 2 of 3 confirmed"), w("version:9.9.9:broken", "it broke")];
+      render();
+      const out = { closed, stillClosed: !document.querySelector('#banners [data-k="warn:version:9.9.9"]'),
+        otherShows: !!document.querySelector('#banners [data-k="warn:version:9.9.9:broken"]'),
+        kept: JSON.parse(localStorage.getItem("clauductor-panel-warn-closed") || "{}")["version:9.9.9"] === 1 };
+      S.warningItems = [];
+      render();
+      return out;
+    });
+    if (!warn.closed || !warn.stillClosed || !warn.otherShows || !warn.kept) fail("closing a warning: " + JSON.stringify(warn));
 
     if (errors.length) fail("page errors: " + errors.join(" | "));
     if (!process.exitCode) console.log("ok: the project box tabs, folds and keeps rows open; the side edge drags without folding; Up next fills the dialog");

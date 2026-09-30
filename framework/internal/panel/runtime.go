@@ -179,8 +179,11 @@ type Runtime struct {
 	// a restarted panel showed none until a session in the project redrew its status line.
 	quotaPath  string
 	savedQuota int64
-	gitDir     string
-	lastQ      string
+	// verifiedPath keeps the Claude Code version verified from live hooks (PANEL-13).
+	verifiedPath  string
+	savedVerified string
+	gitDir        string
+	lastQ         string
 }
 
 // newRuntime builds the runtime and its table of sources.
@@ -210,6 +213,14 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 			hub.Update(func(m *state.Model, now time.Time) { m.RestoreQuota(q) })
 		}
 	}
+	r.verifiedPath = filepath.Join(config.PanelDir(o.Home), "verified.json")
+	if b, err := os.ReadFile(r.verifiedPath); err == nil {
+		var vf savedVerification
+		if json.Unmarshal(b, &vf) == nil && vf.Version != "" {
+			r.savedVerified = vf.Version
+			hub.Update(func(m *state.Model, now time.Time) { m.RestoreAutoVerified(vf.Version) })
+		}
+	}
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTrust(tv) })
 
 	t := ticks
@@ -233,7 +244,7 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		{name: "trends", every: t.Trends, fixedRate: true, poll: func(context.Context, time.Time) (update, time.Duration) {
 			return func(m *state.Model, now time.Time) { m.Sample(now) }, 0
 		}},
-		{name: "quota", every: t.Trends, fixedRate: true, waitFirst: true, poll: r.saveQuota},
+		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: r.saveReadings},
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		{name: "git", every: t.Git, fixedRate: true, poll: r.pollGit},
 	}
@@ -438,19 +449,40 @@ func (r *Runtime) cardSource(c config.CardConfig) *source {
 	return s
 }
 
-// saveQuota writes the quota when a post has changed it. One panel runs per machine,
-// so the file has one writer.
-func (r *Runtime) saveQuota(context.Context, time.Time) (update, time.Duration) {
+// savedVerification is verified.json: the Claude Code version the subagent pairing was
+// verified on from live hooks, and when.
+type savedVerification struct {
+	Version string `json:"version"`
+	At      int64  `json:"at"`
+}
+
+// saveReadings writes what the panel keeps across a restart, when it changed: the
+// quota, and a version verified from live hooks. One panel runs per machine, so each
+// file has one writer.
+func (r *Runtime) saveReadings(_ context.Context, now time.Time) (update, time.Duration) {
 	var q *state.Quota
-	r.hub.Read(func(m *state.Model, _ time.Time) { q = m.QuotaReading() })
-	if q == nil || q.At == r.savedQuota {
-		return nil, 0
+	var verified string
+	r.hub.Read(func(m *state.Model, _ time.Time) { q, verified = m.QuotaReading(), m.AutoVerified() })
+	if q != nil && q.At != r.savedQuota {
+		if b, err := json.Marshal(q); err == nil && r.writePrivate(r.quotaPath, b) == nil {
+			r.savedQuota = q.At
+		}
 	}
-	b, err := json.Marshal(q)
-	if err == nil && config.EnsurePrivateDir(filepath.Dir(r.quotaPath)) == nil && config.WriteAtomic(r.quotaPath, b, 0o600) == nil {
-		r.savedQuota = q.At
+	if verified != "" && verified != r.savedVerified {
+		b, _ := json.Marshal(savedVerification{Version: verified, At: now.UnixMilli()})
+		if r.writePrivate(r.verifiedPath, b) == nil {
+			r.savedVerified = verified
+			fmt.Fprintf(r.o.Out, "Claude Code %s: the subagent pairing held on this project's own hooks; recorded as verified\n", verified)
+		}
 	}
 	return nil, 0
+}
+
+func (r *Runtime) writePrivate(path string, b []byte) error {
+	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return config.WriteAtomic(path, b, 0o600)
 }
 
 // suggestSource runs a template's suggest command on its refresh rule, exactly as a
