@@ -13,8 +13,9 @@ themselves are in `AGENTS.md`; the reasons behind them in `docs/principles.md`.
    status-line focus.
 2. The session then **runs hands-off**: it starts lanes, builds, reviews, fixes, and merges
    through `/merge-pr`, without asking, until something only the owner can decide comes up.
-3. **`/session-close`** lands what is open, archives finished changes, updates the roadmap,
-   insights, owner queue and journal, lands its own `ops/session-<N>-close` PR, quiets the machine
+3. **`/session-close`** lands what is open, archives finished changes, **compounds** the
+   insights (each Raw one promoted to a rule, marked an instance, or recorded as not promoted),
+   updates the roadmap, insights, owner queue and journal, lands its own `ops/session-<N>-close` PR, quiets the machine
    (`machine-quiet.sh`), and sends one **Done** notification.
 
 A check that could not run says `CANNOT CHECK`, never "none": absence must not read as health.

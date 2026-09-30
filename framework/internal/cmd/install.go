@@ -38,6 +38,7 @@ var frameworkScripts = map[string]bool{
 	".claude/change-approval.sh": true,
 	".claude/change-cost.sh":     true,
 	".claude/verify-change.sh":   true,
+	".claude/compound.sh":        true,
 	"scripts/ci/run-local.sh":    true,
 	"scripts/ci/gate.sh":         true,
 	"scripts/ci/lease.sh":        true,

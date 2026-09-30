@@ -70,6 +70,19 @@ close to merge conflicts, deliberately (it forces step 6's merge of `origin/main
 - **`/dev-journal`** last, once the facts are settled: number and author from the Context block's
   `Journal:` line.
 
+### 3b. Compound: feed the lessons back into the rules
+The Context block's **Compound** section lists every insight still `Raw`, oldest first, with the
+number of sessions it has waited (`NEW` = logged since the last close). A lesson that is only
+logged teaches nothing; this step decides each one, deliberately:
+- **Promote** it: a new ADR or an amendment (`/new-adr`), or a check or hook that now executes it
+  (AGENTS.md rule 4). Status `Promoted → ADR-NNNN` (or `→ checks/<name>.sh`).
+- **Mark it an instance** of a rule or ADR that already covers it: find the covering sentence
+  first. Status `Instance of ADR-NNNN (…)`.
+- **Record why not**: `Not promoted — <why>` (a one-off; no mechanism would have caught it).
+
+Leaving a row Raw is allowed while it is young, but `checks/compound.sh` fails the gate once a row
+has waited `COMPOUND_MAX_SESSIONS` sessions. Say in the journal entry which rows you promoted.
+
 ### 4. Set the forward-looking status line
 `sh .claude/status-write.sh "[main] <what just landed>; next: <the actual next action>"`: written
 for the person opening the next session.
