@@ -121,6 +121,64 @@ Every item gets a check that fails when it is broken, per AGENTS.md rule 4.
      archive writes "TBD", which fails strict validation.
    - **The OpenSpec module requires CLI 1.13 or later** and says so when it finds an older version.
 
+### Practices adopted from the industry gap analysis (2026-09-30)
+
+The model already meets or beats the norm on Definition of Ready/Done, small batches,
+human-in-the-loop checkpoints, traceability and controls that execute. The gaps it has are in
+measurement, security hygiene and outcomes. The owner chose the following.
+
+10. **Agent least privilege** (OWASP LLM01/LLM06).
+    - The template's `settings.json` gains a `permissions.deny` list and the sandbox settings.
+    - `checks/settings.sh` fails if the deny list or the sandbox is missing.
+11. **Secrets and dependency hygiene.**
+    - A secret-scanning step (gitleaks) goes in `scripts/ci/run-local.sh`, and a receipt is
+      written only if it is clean.
+    - A Dependabot or Renovate config with a minimum release age.
+    - A scheduled dependency-audit workflow, upstreamed from StandingT's `audit.yml`, with an
+      advisories health line.
+12. **A cost budget per change** (Shape Up's appetite).
+    - A roadmap row can carry `Budget: $N`, and `proposal.md` repeats it.
+    - `build-change` stops, with a notification, when the change's lanes exceed it.
+    - Archive records the actual cost in the change's log, read from the panel's cost figures or
+      the transcripts.
+13. **An outcome hypothesis per change.**
+    - `proposal.md` gains a `## How we'll know` section: the observable signal, and when to look.
+    - `checks/changes.sh` requires it.
+    - Archive queues a follow-up roadmap row ("check the outcome of <id>") dated to that time.
+14. **AI provenance trailers.**
+    - Squash commits carry `Change:`, `Agent-Role:`, `Model:` and `Session:` trailers.
+    - `pr-merge-guard` requires them when `model-roles.json` turns provenance on.
+    - The template default is on. Clauductor's own repo turns it off, keeping its "no
+      Co-Authored-By" rule.
+
+Separate milestones, also adopted:
+
+- **OPS-9: flow and DORA metrics.** Everything is computed from data that already exists: git,
+  PRs, change records and receipts. It measures:
+  - lead time and cycle time;
+  - how long a change waits for the owner's approval;
+  - review rounds;
+  - aging work in progress;
+  - deploy and merge frequency;
+  - change-fail rate, meaning reverts and fix PRs linked to a change.
+
+  It ships as `.claude/metrics.sh`, a health line and a panel card. DORA 2025 found that AI
+  raises both throughput and instability, and this makes both visible.
+- **OPS-10: evals for the model's own agents.**
+  - A seeded-defect suite measures the reviewer agent's recall, in the same way as mutation
+    testing.
+  - `pr-merge-guard` requires an eval receipt for any PR that changes `.claude/agents/`,
+    `.claude/workflows/` or `model-roles.json`.
+- **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
+  from Slice lines and PR titles, and `release-prep` cuts semver tags.
+
+Later, at StandingT's go-live, and otherwise as needed: feature flags, SLOs, postmortems,
+runbooks, the risk register, flaky-test quarantine, contract tests, SBOM/SLSA, retros, mutation and
+property testing, a STRIDE section for changes that cross a trust boundary, and a cap on lanes.
+
+Skipped, because they assume a human team: sprints and velocity, review SLAs, coverage percentages,
+on-call, SPACE surveys, a formal betting table, and the full NIST AI RMF.
+
 ## OPS-8: clauductor runs its own operating model
 
 This comes after OPS-7 and before StandingT converges, as the rehearsal. Clauductor's own repo still
