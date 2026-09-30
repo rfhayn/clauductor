@@ -135,6 +135,7 @@ and `checks/model-roles.sh` fails on a disagreement.
 | `/propose` | the next roadmap row, just in time | planner |
 | `/apply-change` | build a change by hand, group by group | thinker |
 | `/archive-change` | after a change's PR merges | scribe |
+| `/verify-change` | before a change merges: tasks, scenarios, diff | mechanic |
 | `/merge-pr` | land a PR: evidence, converged review, squash | scribe |
 | `/dev-journal` | the session's narrative (session-close runs it) | scribe |
 | `/log-insight` | a non-obvious lesson, now | scribe |

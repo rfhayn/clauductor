@@ -28,15 +28,19 @@ const (
 // frameworkScripts are the operating model's own scripts outside the framework directories: a
 // project runs them but does not edit them, so an install brings them up to date.
 var frameworkScripts = map[string]bool{
-	".claude/statusline.sh":    true,
-	".claude/status-write.sh":  true,
-	".claude/owner-queue.sh":   true,
-	".claude/roadmap-queue.sh": true,
-	".claude/panel-suggest.sh": true,
-	".claude/machine-quiet.sh": true,
-	"scripts/ci/run-local.sh":  true,
-	"scripts/ci/gate.sh":       true,
-	"scripts/ci/lease.sh":      true,
+	".claude/statusline.sh":      true,
+	".claude/status-write.sh":    true,
+	".claude/owner-queue.sh":     true,
+	".claude/roadmap-queue.sh":   true,
+	".claude/panel-suggest.sh":   true,
+	".claude/machine-quiet.sh":   true,
+	".claude/scenario-trace.sh":  true,
+	".claude/change-approval.sh": true,
+	".claude/change-cost.sh":     true,
+	".claude/verify-change.sh":   true,
+	"scripts/ci/run-local.sh":    true,
+	"scripts/ci/gate.sh":         true,
+	"scripts/ci/lease.sh":        true,
 }
 
 // projectSkills are template skills a project configures (CONFIGURE FIRST stubs): created when
@@ -59,6 +63,7 @@ func classifyFile(relPath string) fileTier {
 		strings.HasPrefix(relPath, ".claude/lib/") ||
 		strings.HasPrefix(relPath, ".claude/workflows/") ||
 		strings.HasPrefix(relPath, ".claude/modules/") ||
+		strings.HasPrefix(relPath, ".claude/examples/") ||
 		relPath == ".claude/settings.json" ||
 		frameworkScripts[relPath] {
 		return tierFramework
