@@ -25,9 +25,10 @@ nudge() {
 
 [ -f "$file" ] || nudge
 
-# BSD/macOS stat, then GNU.
-mtime=$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null)
-[ -z "$mtime" ] && exit 0   # cannot read the mtime: stay quiet rather than nag
+# GNU stat first, then BSD/macOS: GNU reads `-f` as "filesystem status", so `stat -f %m` there
+# exits 0 with garbage instead of failing over. BSD stat rejects `-c` outright.
+mtime=$(stat -c %Y "$file" 2>/dev/null) || mtime=$(stat -f %m "$file" 2>/dev/null) || mtime=""
+case "$mtime" in ''|*[!0-9]*) exit 0 ;; esac   # cannot read the mtime: stay quiet rather than nag
 
 commit=$(git --no-optional-locks log -1 --format=%ct 2>/dev/null)
 [ -n "$commit" ] && [ "$mtime" -lt "$commit" ] && nudge

@@ -114,11 +114,14 @@ drift() {  # drift WANT LABEL PAYLOAD
 }
 drift 0 "hooks match origin/main: allowed" "$spawn"
 
-B="$d/other"; git clone -q "$d/origin.git" "$B" 2>/dev/null
+# -b: the bare origin's HEAD follows the runner's init.defaultBranch (master on CI), not main, so a
+# plain clone checks out nothing and the commit below silently never reaches origin.
+B="$d/other"; git clone -q -b main "$d/origin.git" "$B" 2>/dev/null
 git -C "$B" config user.email c@example.com; git -C "$B" config user.name c
 echo '# a fix merged elsewhere' >> "$B/.claude/hooks/worktree-hook-drift.sh"
 git -C "$B" commit -qam "fix a hook" && git -C "$B" push -q origin HEAD:main 2>/dev/null
 git -C "$A" fetch -q origin
+[ "$(git -C "$A" rev-parse HEAD)" != "$(git -C "$A" rev-parse origin/main)" ] && ok "fixture: origin/main has a hook commit the main checkout lacks" || fail "fixture: the hook fix never reached origin/main; the drift case below learns nothing"
 drift 2 "main checkout lacks a merged hook commit: blocked" "$spawn"
 drift 0 "a spawn without worktree isolation: allowed" "$plain"
 

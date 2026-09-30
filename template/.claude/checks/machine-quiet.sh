@@ -17,13 +17,25 @@ git -C "$R" add -A && git -C "$R" commit -qm init
 git -C "$R" worktree add -q "$R/.claude/worktrees/lane" 2>/dev/null
 WT="$R/.claude/worktrees"
 
-# PATH without claude, clauductor, docker or colima.
-np=""; IFS_OLD=$IFS; IFS=:
+# PATH without claude, clauductor, docker or colima. A directory holding one of them is not
+# dropped but mirrored minus those names: on Linux that directory is /usr/bin (docker sits beside
+# sh, and /bin links to it), so dropping it leaves no sh at all.
+np=""; n=0; IFS_OLD=$IFS; IFS=:
 for p in $PATH; do
-  [ -x "$p/claude" ] || [ -x "$p/clauductor" ] || [ -x "$p/docker" ] || [ -x "$p/colima" ] && continue
+  if [ -x "$p/claude" ] || [ -x "$p/clauductor" ] || [ -x "$p/docker" ] || [ -x "$p/colima" ]; then
+    n=$((n + 1)); m="$d/path$n"; mkdir -p "$m"
+    for f in "$p"/*; do
+      case "${f##*/}" in claude|clauductor|docker|colima) continue ;; esac
+      [ -e "$m/${f##*/}" ] || ln -s "$f" "$m/${f##*/}" 2>/dev/null
+    done
+    p=$m
+  fi
   np="$np${np:+:}$p"
 done
 IFS=$IFS_OLD
+for c in claude clauductor docker colima; do
+  (PATH="$np"; command -v "$c" >/dev/null 2>&1) && fail "fixture: $c is still on the stripped PATH"
+done
 
 # Two orphans (parent pid 1: started from a subshell that exits at once), both naming a hook in a
 # worktree: one whose argv[0] is tmux, shaped like the panel's server; one a plain hook process.
