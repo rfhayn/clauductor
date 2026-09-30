@@ -271,7 +271,7 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 /* While the rail has more below its fold, a line at its foot says so. */
 .morebelow { position: sticky; bottom: 0; margin-top: -1.5rem; padding: .3rem var(--pane-p); background: var(--rail); border-top: 1px solid var(--rule);
   color: var(--text-2); font-size: .75rem; text-align: center; pointer-events: none; }
-/* "Start lane here" sits on its own line under the worktree, whole, never cut by the
+/* "New lane here" sits on its own line under the worktree, whole, never cut by the
    tree's connectors or the rail's edge. */
 .tree li > .btn { display: inline-block; margin: .2rem 0 .25rem .25rem; position: relative; z-index: 1; }
 .rail > .pane { background: var(--rail); border-bottom: 1px solid var(--rule); }

@@ -429,7 +429,7 @@ value just changed.
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
   changed), each lane's claude session (state, uptime, context), and its agents, nested by which
   agent started which, with finished ones folded under "N finished". A worktree with no lane has
-  **Start lane here**, which opens the Start dialog on it. The rail's edge drags (or, focused,
+  **New lane here**, which opens the Start dialog on that worktree, to start a new claude session there. The rail's edge drags (or, focused,
   moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
   width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
   and whether it shows are kept per browser; below 900 px it starts hidden.
@@ -627,7 +627,7 @@ pauses, while a workflow in a background session fails.
 **New lane** asks for a template (or none), a lane type (from `lanes` and `lane_types`), a lane
 name, and where it runs. Under each choice a line says what it is: a **template** is a recipe for
 one kind of work (it sets the lane type, names the branch and types a first prompt); a **lane
-type** is only how claude runs (its branch prefix, model and effort). **Start lane here** on a
+type** is only how claude runs (its branch prefix, model and effort). **New lane here** on a
 worktree picks that worktree's own lane type (`main` → `orchestrator`). When a template has a
 `suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
 

@@ -45,3 +45,16 @@ func TestRowActionsAreWired(t *testing.T) {
 		t.Error("index.html lacks the lane actions menu")
 	}
 }
+
+// PANEL-18: a worktree with no lane offers "New lane here" (it opens the Start dialog on
+// that worktree, for a new claude session there), no longer "Start lane here".
+func TestNewLaneHereIsWired(t *testing.T) {
+	t.Parallel()
+	js := readWeb(t, "panel.js")
+	if !strings.Contains(js, `button("New lane here", "small", () => openStart({ worktree: w.path }),`) {
+		t.Error(`panel.js lacks "New lane here" on a lane-less worktree`)
+	}
+	if strings.Contains(js, "Start lane here") {
+		t.Error(`panel.js still says "Start lane here"`)
+	}
+}

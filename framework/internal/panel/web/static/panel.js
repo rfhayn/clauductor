@@ -802,7 +802,7 @@ function renderTree(ls, cur) {
     const acts = mine.map((x) => actsButton(x, "rt:" + x.key)).filter(Boolean);
     const li = el("li", null, null, [acts.length ? key(el("div", "wtrow", null, [key(node, "wtn"), ...acts]), "wtrow") : key(node, "wtn")]);
     if (!mine.length) {
-      const b = button("Start lane here", "small", () => openStart({ worktree: w.path }), "Start a lane in " + w.path, "wt:start", true);
+      const b = button("New lane here", "small", () => openStart({ worktree: w.path }), "Start a new lane (a new claude session) in " + w.path, "wt:start", true);
       if (S.startBlocked) b.disabled = true;
       li.appendChild(b);
     } else {
@@ -2366,7 +2366,7 @@ function pickNext(x, it) {
   $("st-name").focus();
 }
 
-// opts.worktree: "Start lane here" on a worktree in the tree picks that worktree.
+// opts.worktree: "New lane here" on a worktree in the tree picks that worktree.
 let startReturn = null;
 function openStart(opts) {
   if (!S || offline()) return;

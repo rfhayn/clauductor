@@ -18,6 +18,9 @@ panel or open it in Terminal.app. Each lane has a tab, a row in the rail and a t
    and worktree, an existing worktree, or the project root.
 3. Give it a name (lower case, digits and dashes) and click **Start lane**.
 
+To start one in a worktree that has no lane, click **New lane here** under it in **Worktrees**:
+the Start dialog opens on that worktree, and the lane is a new claude session there.
+
 In a new directory claude first asks whether to trust it, and the default is **No, exit**. Press
 ↓, then Enter, in the lane's terminal. See [Lane templates](panel.md#lane-templates).
 
