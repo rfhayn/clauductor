@@ -92,6 +92,33 @@ command from the file until you trust it. A minimal one:
 A repository with Clauductor's operating model gets its cards from `clauductor panel init`. See
 [Card output](panel.md#card-output) and [Pinned cards](panel.md#pinned-cards).
 
+## Metrics
+
+**Metrics**, next to **Activity**, shows how the work flows and what it costs. Pick a tab
+(**Flow**, **Cost**, **Quality**, **Outcomes**; ←/→ move between them), a range (**7d**, **30d**,
+**90d**) and a scope (**This project** or **All projects**). The choices are kept per browser.
+
+Every figure says where it came from:
+
+- **built in**: the panel's own, for any repository. Merge frequency and pull-request cycle time
+  come from `gh` (read every 10 minutes while the page is open); spend comes from your status
+  line's cost, kept a day at a time from the first day the panel ran PANEL-19.
+- **project**: the project's metrics command. Clauductor's operating model has one
+  (`.claude/metrics.sh`); for another project, add a command that prints the metrics JSON:
+
+  ```json
+  "version": 4,
+  "metrics": { "command": ["sh", ".claude/metrics.sh"], "refresh": "interval:900" }
+  ```
+
+  then run `clauductor panel trust`. Until you trust it, the view says so and shows only the
+  built-in figures.
+
+A figure nobody has shows **—** and says why, such as "Only a project's metrics command reports
+this" or "No pull request was merged in the last 7d". A command that prints something the panel
+cannot read shows its error at the top, with the part that is wrong. See
+[Metrics](panel.md#metrics) for the JSON and every figure.
+
 ## Queues and the gate
 
 If two lanes' gate scripts would collide (one port, one test database), a queue runs them one

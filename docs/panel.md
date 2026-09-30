@@ -428,7 +428,7 @@ value just changed.
   - **Claude processes**: CPU and memory of the lanes' claude processes, with a sparkline (see
     *What the panel reads, and when*).
   - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
-  - At the right: **New lane**, **Activity** (the drawer), **Refresh**, **Appearance** and **?**
+  - At the right: **New lane**, **Activity** (the drawer), **Metrics**, **Refresh**, **Appearance** and **?**
     (Help, PANEL-17): a dialog with the page's keyboard shortcuts, a few one-line how-tos and a
     link to [the guide](guide.md), which opens in a new tab. The `?` key opens it too, except in
     the terminal (where `?` is claude's) and in a text field; Escape or **Close** returns focus. **New
@@ -524,6 +524,18 @@ value just changed.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
   lane. Escape or Close closes it and returns focus.
+- **Metrics (PANEL-19).** A wider drawer with four tabs, **Flow** (DORA and flow: cycle, lead
+  and approval time, merge frequency, change-fail rate, aging work in progress), **Cost** (spend,
+  per week, and by role, model, change and project), **Quality** (review rounds, the reviewer's
+  eval recall by model, escaped defects) and **Outcomes** (each change's hypothesis, when it is
+  due, whether it was checked; an unchecked one past its date is amber). **7d**, **30d** and
+  **90d** pick the range; **This project** or **All projects** the scope. The tabs are a tablist
+  (←, →, Home, End), the range and scope are pressed buttons, and the choices are kept per
+  browser. Each figure is its value with its unit, its series as columns drawn in the page (no
+  chart library; an empty bucket is a mark on the baseline, and the series is read out to a
+  screen reader), how many items it summarises, and **project** or **built in**; a figure with
+  none is "—" and the reason under it. A change over its budget is amber in **By change**. The
+  view is fetched when it opens and every minute while it stays open; see [Metrics](#metrics).
 - **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
   the page, not picking a lane, not **Open terminal** (which takes focus to the terminal's frame).
   The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every

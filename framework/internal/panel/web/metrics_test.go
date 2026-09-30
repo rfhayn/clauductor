@@ -60,3 +60,41 @@ func TestMetricsRoute(t *testing.T) {
 		t.Errorf("a project without metrics: %d", w.Code)
 	}
 }
+
+// PANEL-19: the page wires the view: a Metrics button right after Activity that
+// controls the view, the view's tablist of four, the fetch of this project's route,
+// every figure the report has named in the page, and only textContent for its data.
+func TestMetricsViewWiring(t *testing.T) {
+	t.Parallel()
+	b, err := webFS.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	act, mb := strings.Index(page, `id="activitybtn"`), strings.Index(page, `id="metricsbtn"`)
+	if act < 0 || mb < act || strings.Count(page[act:mb], "<button") != 1 {
+		t.Error("the Metrics button is not right after Activity")
+	}
+	for _, want := range []string{`aria-controls="mview"`, `id="mview"`, `id="mvbar"`, `id="mvbody"`, `id="mviewclose"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("index.html lacks %s", want)
+		}
+	}
+	js := readWeb(t, "panel.js")
+	for _, want := range []string{`api("/metrics")`, `"?scope=all"`, `setAttribute("role", "tablist")`, `"aria-pressed"`,
+		`["flow", "Flow"], ["cost", "Cost"], ["quality", "Quality"], ["outcomes", "Outcomes"]`, `const M_RANGES = ["7d", "30d", "90d"]`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("panel.js lacks %s", want)
+		}
+	}
+	for _, k := range metrics.Keys {
+		if !strings.Contains(js, `"`+k+`": [`) {
+			t.Errorf("panel.js does not name the figure %s", k)
+		}
+	}
+	// The view's code puts no data through innerHTML.
+	start, end := strings.Index(js, "// ---- Metrics (PANEL-19)"), strings.Index(js, `$("mview").addEventListener("keydown"`)
+	if start < 0 || end < start || strings.Contains(js[start:end], "innerHTML") {
+		t.Error("the Metrics view's code must build nodes with textContent only")
+	}
+}

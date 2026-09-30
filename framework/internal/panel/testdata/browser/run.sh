@@ -14,7 +14,10 @@
 # - lane-row-actions.cjs (PANEL-18): the "⋯" actions menu on a lane row and a tree
 #   node opens without selecting, moves by keys, and every item only asks; Remove on a
 #   lane-less worktree asks with its plan, then removes it; the cards say they may be
-#   stale while the checkout they run in is behind its upstream (this adds one).
+#   stale while the checkout they run in is behind its upstream (this adds one);
+# - metrics-view.cjs (PANEL-19): the Metrics view's tabs, ranges and scope, a figure the
+#   project's fixture command lacks ("—" and why), every theme, and a narrow window. The
+#   project runs metrics/testdata/metrics.sh; SHOTS=<dir> keeps its screenshots.
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -60,7 +63,8 @@ chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 proj="$tmp/project"
 git -C "$proj" init -q -b main
 cat > "$proj/.clauductor/panel.json" <<JSON
-{ "name": "Focus test", "version": 3, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
+{ "name": "Focus test", "version": 4, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
+  "metrics": { "command": ["sh", "$fw/internal/panel/metrics/testdata/metrics.sh"], "refresh": "interval:3600" },
   "cards": [
     { "id": "founder", "title": "Founder queue", "pin": true, "refresh": "interval:3600",
       "command": ["printf", "2 item(s) need the founder:\\n- **Box cleanup** (queued 2026-09-27). On the box, prune images\\n- **Ideas page** open it once, then invite a designer\\n"] },
@@ -94,4 +98,5 @@ node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || sta
 node "$here/project-and-side.cjs" "$base" "$tok" || status=1
 node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 node "$here/lane-row-actions.cjs" "$base" "$tok" "$proj" || status=1
+node "$here/metrics-view.cjs" "$base" "$tok" || status=1
 exit $status

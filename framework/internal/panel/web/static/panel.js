@@ -1619,6 +1619,7 @@ function renderDrawer() {
 }
 let drawerReturn = null;
 function openDrawer() {
+  if (!$("mview").hidden) closeMetrics();
   drawerReturn = document.activeElement;
   $("drawer").hidden = false;
   $("activitybtn").setAttribute("aria-expanded", "true");
@@ -1634,6 +1635,271 @@ function closeDrawer() {
 $("activitybtn").addEventListener("click", () => ($("drawer").hidden ? openDrawer() : closeDrawer()));
 $("drawerclose").addEventListener("click", closeDrawer);
 $("drawer").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDrawer(); } });
+
+// ---- Metrics (PANEL-19): flow, cost, quality and outcomes -----------------------------------
+// The view is fetched while it is open (GET /api/p/<id>/metrics, every minute), never
+// pushed: its figures move by the day. Each figure says where it came from, the
+// project's metrics command or the panel's own reading, and a figure neither has is
+// "—" with the reason the panel gave. Every string is the project's data: textContent only.
+const M_TABS = [["flow", "Flow"], ["cost", "Cost"], ["quality", "Quality"], ["outcomes", "Outcomes"]];
+const M_RANGES = ["7d", "30d", "90d"];
+let mv = { tab: "flow", range: "30d", scope: "project", data: null, err: "", loading: false, at: 0, timer: 0, returnTo: null, seq: 0 };
+try {
+  const t = JSON.parse(localStorage.getItem("clauductor-panel-metrics") || "{}");
+  if (M_TABS.some((x) => x[0] === t.tab)) mv.tab = t.tab;
+  if (M_RANGES.includes(t.range)) mv.range = t.range;
+  if (t.scope === "all") mv.scope = "all";
+} catch (e) {}
+function saveMv() { try { localStorage.setItem("clauductor-panel-metrics", JSON.stringify({ tab: mv.tab, range: mv.range, scope: mv.scope })); } catch (e) {} }
+// Each figure's name and unit. The units are the contract's: hours, per week, percent, dollars.
+const M_FIG = {
+  "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merge frequency", "wk"], "flow.lead_time": ["Lead time", "h"],
+  "flow.approval_wait": ["Approval wait", "h"], "flow.change_fail_rate": ["Change-fail rate", "%"], "flow.aging_wip": ["Aging work in progress"],
+  "cost.total": ["Spend", "$"], "cost.per_week": ["Spend per week", "$wk"], "cost.by_role": ["By role"], "cost.by_model": ["By model"],
+  "cost.by_change": ["By change"], "cost.by_project": ["By project"],
+  "quality.review_rounds": ["Review rounds per change", "n"], "quality.reviewer_recall": ["Reviewer recall by model"], "quality.escaped_defects": ["Escaped defects", "n"],
+  "outcomes.hypotheses": ["Hypotheses"],
+};
+function mValue(v, unit) {
+  if (v == null) return "—";
+  const r = (x, dp) => (Math.abs(x - Math.round(x)) < 0.05 ? String(Math.round(x)) : x.toFixed(dp));
+  switch (unit) {
+    case "h": return v >= 48 ? r(v / 24, 1) + " d" : r(v, 1) + " h";
+    case "wk": return r(v, 1) + " a week";
+    case "%": return r(v, 1) + "%";
+    case "$": return money(v);
+    case "$wk": return money(v) + " a week";
+    default: return r(v, 1);
+  }
+}
+const M_SRC = { project: "project", builtin: "built in", mixed: "project and built in" };
+function mSource(src) {
+  if (!src) return null;
+  const e = el("span", "msrc", M_SRC[src] || src);
+  e.title = src === "builtin" ? "Computed by the panel from what it already reads" : src === "project" ? "From the project's metrics command" : "From more than one source";
+  return e;
+}
+// A series as columns, oldest first; a bucket with no data is a mark on the baseline.
+function mBars(series, unit) {
+  if (!series || series.length < 2) return null;
+  const vals = series.filter((v) => v != null);
+  const hi = Math.max(1e-9, ...vals);
+  const n = series.length, w = 100 / n;
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "mbars");
+  svg.setAttribute("viewBox", "0 0 100 24");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Over the range, oldest first: " + series.map((v) => (v == null ? "no data" : mValue(v, unit))).join(", "));
+  series.forEach((v, i) => {
+    const r = document.createElementNS(SVGNS, "rect");
+    const h = v == null ? 0 : Math.max(0.8, (v / hi) * 22);
+    r.setAttribute("x", (i * w + w * 0.15).toFixed(2));
+    r.setAttribute("width", (w * 0.7).toFixed(2));
+    r.setAttribute("y", (24 - h).toFixed(2));
+    r.setAttribute("height", h.toFixed(2));
+    if (v == null) r.setAttribute("class", "nil");
+    svg.appendChild(r);
+    if (v == null) {
+      const m = document.createElementNS(SVGNS, "rect");
+      m.setAttribute("class", "gap");
+      m.setAttribute("x", (i * w + w * 0.15).toFixed(2)); m.setAttribute("width", (w * 0.7).toFixed(2));
+      m.setAttribute("y", "23"); m.setAttribute("height", "1");
+      svg.appendChild(m);
+    }
+  });
+  return svg;
+}
+// A bar proportional to v out of max, for a line of a breakdown.
+function hbar(v, max, cls) {
+  const b = el("span", "hbar" + (cls ? " " + cls : ""), null, [el("i")]);
+  b.firstChild.style.width = (max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0).toFixed(1) + "%";
+  b.setAttribute("aria-hidden", "true");
+  return b;
+}
+// One figure: its name, value, series and source; its note or why it has none under it.
+function mFigure(k, m) {
+  const [label, unit] = M_FIG[k];
+  const has = !!m && m.value != null;
+  const row = el("div", "mrow" + (has ? "" : " miss"), null, [
+    el("span", "ml", label),
+    el("span", "mv num", has ? mValue(m.value, unit) : "—"),
+    el("span", "mspark", null, [has ? mBars(m.series, unit) : null]),
+    el("span", "mn", null, [has && m.n ? el("span", "dim", "of " + m.n) : null, has ? mSource(m.source) : null]),
+  ]);
+  const note = has ? m.note : (m && m.missing) || "No value.";
+  if (note) row.appendChild(el("div", "mnote" + (has ? "" : " why"), note));
+  return key(row, "mf:" + k);
+}
+// A list figure: the table its items make, or why there are none.
+function mList(k, m, head, rowOf) {
+  const [label] = M_FIG[k];
+  const kids = [el("div", "mlh", null, [el("h3", null, label), el("span", "sp"), m && m.items ? mSource(m.source) : null])];
+  if (!m || !m.items) kids.push(el("div", "mnote why", (m && m.missing) || "No data."));
+  else if (!m.items.length) kids.push(el("div", "empty", "None in this range."));
+  else {
+    const scope = mv.data && mv.data.projects && mv.data.projects.length && m.items[0] && m.items[0].project != null;
+    const cols = scope ? [["Project"]].concat(head) : head;
+    const thead = el("thead", null, null, [el("tr", null, null, cols.map(([h, cls]) => { const th = el("th", cls || null, h); th.scope = "col"; return th; }))]);
+    const tb = el("tbody");
+    const max = Math.max(0, ...m.items.map((it) => it.usd != null ? it.usd : it.age_days != null ? it.age_days : it.pct != null ? it.pct : 0));
+    m.items.forEach((it, i) => {
+      const cells = rowOf(it, max);
+      tb.appendChild(el("tr", cells.warn ? "abn-warn" : null, null, (scope ? [el("td", null, it.project)] : []).concat(cells.tds)));
+    });
+    kids.push(el("div", "tblwrap", null, [el("table", "tbl mtbl", null, [thead, tb])]));
+    if (m.note) kids.push(el("div", "mnote", m.note));
+  }
+  return key(el("div", "mlist", null, kids), "ml:" + k);
+}
+const td = (t, cls) => el("td", cls || null, t);
+const tdn = (kids) => el("td", "mbarcell", null, kids);
+function amountRow(it, max) {
+  const over = it.budget_usd != null && it.usd > it.budget_usd;
+  return { warn: over, tds: [td(it.name), td(money(it.usd), "num"), tdn([hbar(it.usd, max)]),
+    td(it.budget_usd == null ? "" : money(it.budget_usd) + (over ? ", over" : ""), "num")] };
+}
+const AMOUNT_HEAD = [["Name"], ["Spend", "num"], [""], ["Budget", "num"]];
+function renderMetricsBody() {
+  const d = mv.data, kids = [];
+  if (!d) {
+    kids.push(key(el("div", mv.err ? "srcerr" : "empty", mv.err ? "Cannot read the metrics: " + mv.err : "Reading the metrics…"), "mv:load"));
+    return kids;
+  }
+  if (mv.err) kids.push(key(el("div", "srcerr", "Cannot read the metrics now: " + mv.err + ". What shows is from " + hm(mv.at) + "."), "mv:err"));
+  // Where the figures come from, once, above them.
+  const src = [];
+  const c = d.command || {};
+  if (mv.scope === "all") {
+    src.push(el("div", null, "All projects: " + (d.projects || []).join(", ") + ". Merges and spend add up; a median is the projects' own, weighted."));
+    for (const e of d.errors || []) src.push(el("div", "srcerr", "The metrics command failed in " + e));
+  } else if (!c.configured) src.push(el("div", null, "No metrics command: what shows is the panel's own (built in). metrics.command in panel.json adds the rest."));
+  else if (!c.trusted) src.push(el("div", "warn", "The metrics command is off until panel.json is trusted (clauductor panel trust)."));
+  else if (c.pending) src.push(el("div", "dim", "The metrics command has not reported yet."));
+  else if (!c.ok) src.push(el("div", "srcerr", "The metrics command failed: " + c.error));
+  else src.push(el("div", null, null, [document.createTextNode("From the metrics command"), c.generatedAt || c.at ? age(c.generatedAt || c.at, ", computed ", " ago") : null, document.createTextNode(", and the panel's own where it has none.")]));
+  const mg = d.merged || {};
+  if (mv.scope !== "all") {
+    if (mg.error) src.push(el("div", "dim", "Merged pull requests: cannot read (" + mg.error + ")."));
+    else if (mg.at) src.push(el("div", "dim", null, [age(mg.at, "Merged pull requests read from gh ", " ago, every 10 minutes while this page is in view.")]));
+  }
+  if (d.spendSince) src.push(el("div", "dim", "Spend kept since " + d.spendSince + "."));
+  kids.push(key(el("div", "mvsrc", null, src), "mv:src"));
+  const w = (d.windows || {})[mv.range] || {};
+  const f = (k) => mFigure(k, w[k]);
+  const sect = (k, title, body) => key(el("section", "pane msect", null, [el("div", "pane-h", null, [el("h2", null, title)]), ...body]), k);
+  if (mv.tab === "flow") {
+    kids.push(sect("ms:flow", "Delivery", [f("flow.cycle_time"), f("flow.merge_frequency"), f("flow.lead_time"), f("flow.approval_wait"), f("flow.change_fail_rate")]));
+    kids.push(sect("ms:wip", "In flight", [mList("flow.aging_wip", w["flow.aging_wip"], [["Work"], ["Title"], ["Stage"], ["Age", "num"], [""]],
+      (it, max) => ({ warn: false, tds: [td(it.id), td(it.title || ""), td(it.stage || ""), td(mValue(it.age_days) + " d", "num"), tdn([hbar(it.age_days, max)])] }))]));
+  } else if (mv.tab === "cost") {
+    kids.push(sect("ms:spend", "Spend", [f("cost.total"), f("cost.per_week")]));
+    kids.push(sect("ms:by", "Where it went", [mList("cost.by_role", w["cost.by_role"], AMOUNT_HEAD, amountRow), mList("cost.by_model", w["cost.by_model"], AMOUNT_HEAD, amountRow),
+      mList("cost.by_change", w["cost.by_change"], AMOUNT_HEAD, amountRow), mList("cost.by_project", w["cost.by_project"], AMOUNT_HEAD, amountRow)]));
+  } else if (mv.tab === "quality") {
+    kids.push(sect("ms:q", "Review", [f("quality.review_rounds"), f("quality.escaped_defects")]));
+    kids.push(sect("ms:recall", "Evals", [mList("quality.reviewer_recall", w["quality.reviewer_recall"], [["Model"], ["Recall", "num"], [""], ["Seeded defects", "num"]],
+      (it) => ({ warn: false, tds: [td(it.model), td(mValue(it.pct, "%"), "num"), tdn([hbar(it.pct, 100)]), td(it.n ? String(it.n) : "", "num")] }))]));
+  } else {
+    const today = new Date(now()).toISOString().slice(0, 10);
+    kids.push(sect("ms:out", "Did it do what it meant to", [mList("outcomes.hypotheses", w["outcomes.hypotheses"], [["Change"], ["Hypothesis"], ["Due", "num"], ["Checked"], ["Result"]],
+      (it) => {
+        const late = !it.checked && it.due && it.due < today;
+        return { warn: late, tds: [td(it.change), el("td", "wrap", it.hypothesis), td(it.due || "", "num"), td(it.checked ? "yes" : late ? "no, overdue" : "not yet"), el("td", "wrap", it.result || "")] };
+      })]));
+  }
+  return kids;
+}
+function renderMetrics() {
+  if ($("mview").hidden) return;
+  const off = offline();
+  const tl = el("div", "sidetabs mtabs");
+  tl.setAttribute("role", "tablist");
+  tl.setAttribute("aria-label", "Metrics");
+  M_TABS.forEach(([id, label], i) => {
+    const b = el("button", null, label);
+    b.type = "button";
+    b.id = "mtab-" + id;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(id === mv.tab));
+    b.setAttribute("aria-controls", "mvbody");
+    b.tabIndex = id === mv.tab ? 0 : -1;
+    on(b, "click", () => { mv.tab = id; saveMv(); renderMetrics(); });
+    on(b, "keydown", (ev) => {
+      let j = -1;
+      if (ev.key === "ArrowRight") j = (i + 1) % M_TABS.length; else if (ev.key === "ArrowLeft") j = (i - 1 + M_TABS.length) % M_TABS.length;
+      else if (ev.key === "Home") j = 0; else if (ev.key === "End") j = M_TABS.length - 1;
+      if (j < 0) return;
+      ev.preventDefault();
+      mv.tab = M_TABS[j][0]; saveMv(); renderMetrics();
+      $("mtab-" + mv.tab).focus();
+    });
+    tl.appendChild(key(b, "mtab:" + id));
+  });
+  const group = (label, k, opts, cur, pick) => {
+    const g = el("div", "mgroup", null, [el("span", "k", label)]);
+    g.setAttribute("role", "group");
+    g.setAttribute("aria-label", label);
+    for (const [v, text] of opts) {
+      const b = el("button", "btn small", text);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(v === cur));
+      if (off) b.disabled = true;
+      on(b, "click", () => pick(v));
+      g.appendChild(key(b, k + ":" + v));
+    }
+    return key(g, k);
+  };
+  const ranges = group("Range", "mrange", M_RANGES.map((r) => [r, r]), mv.range, (v) => { mv.range = v; saveMv(); renderMetrics(); });
+  const scope = group("Scope", "mscope", [["project", "This project"], ["all", "All projects"]], mv.scope, (v) => {
+    if (v === mv.scope) return;
+    mv.scope = v; mv.data = null; saveMv(); renderMetrics(); loadMetrics();
+  });
+  patchInto("mvbar", [key(tl, "mtabs"), key(el("div", "mctl", null, [ranges, scope]), "mctl")]);
+  const body = $("mvbody");
+  body.setAttribute("role", "tabpanel");
+  body.setAttribute("aria-labelledby", "mtab-" + mv.tab);
+  patchInto("mvbody", renderMetricsBody());
+}
+async function loadMetrics() {
+  if ($("mview").hidden || offline() || !pid()) return;
+  const seq = ++mv.seq, scope = mv.scope;
+  mv.loading = true;
+  try {
+    const r = await fetch(api("/metrics") + (scope === "all" ? "?scope=all" : ""));
+    if (!r.ok) throw new Error((await r.text()).trim().slice(0, 200) || "HTTP " + r.status);
+    const d = await r.json();
+    if (seq !== mv.seq) return;
+    mv.data = d; mv.err = ""; mv.at = now();
+  } catch (e) {
+    if (seq !== mv.seq) return;
+    mv.err = String(e.message || e);
+  }
+  mv.loading = false;
+  renderMetrics();
+}
+function openMetrics() {
+  mv.returnTo = document.activeElement;
+  $("mview").hidden = false;
+  $("metricsbtn").setAttribute("aria-expanded", "true");
+  if (!$("drawer").hidden) closeDrawer();
+  renderMetrics();
+  loadMetrics();
+  clearInterval(mv.timer);
+  mv.timer = setInterval(loadMetrics, 60000);
+  const t = $("mtab-" + mv.tab);
+  (t || $("mviewclose")).focus();
+}
+function closeMetrics() {
+  $("mview").hidden = true;
+  $("metricsbtn").setAttribute("aria-expanded", "false");
+  clearInterval(mv.timer);
+  const r = mv.returnTo; mv.returnTo = null;
+  if (r && r.isConnected && r.focus) r.focus(); else $("metricsbtn").focus();
+}
+$("metricsbtn").addEventListener("click", () => ($("mview").hidden ? openMetrics() : closeMetrics()));
+$("mviewclose").addEventListener("click", closeMetrics);
+$("mview").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeMetrics(); } });
 
 // ---- v1: lane terminals -------------------------------------------------------
 // Each tab is one lane (PANEL-11: a lane started outside the panel has a tab too, and
@@ -2727,6 +2993,7 @@ function render() {
   renderTerminals(cur);
   renderSide(cur);
   renderDrawer();
+  renderMetrics();
   renderHint();
   // A suggest list read while the dialog is open shows at once.
   if (!$("startdlg").hidden) stUpdate();
@@ -3055,6 +3322,7 @@ function switchProject(id) {
   S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();
+  if (!$("mview").hidden) { mv.data = null; loadMetrics(); }
   render();
 }
 $("projbtn").addEventListener("click", () => { if ($("projmenu").hidden) openProjects(); else closeProjects(false); });
