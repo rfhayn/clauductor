@@ -1566,6 +1566,20 @@ figures say the oldest part of the window may lack merges. The ledger (see *Secu
 what the panel writes) counts a session the first time it sees it in full, and after that only
 what it added, so a panel restart counts nothing twice; spend from before the panel kept a
 ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
+Spend per week (PANEL-21) is a rate over the days the ledger has kept in the window, the smaller
+of the window and the days since its first day, never over days before it began (one day's $11.70
+is not "$2.73 a week" at 30d); a bucket before the ledger began is no data, not zero. With less
+than a week kept it is no rate at all: the view and the Flow card show the spend so far, "$11.70
+(since 2026-09-30, 1 day)", and the report marks it with `span: {since, days}`. For all projects,
+spends so far add up only with each other; beside rates, the rates add up and the note names the
+projects left out.
+
+The first read of merged pull requests is made as soon as a page comes into view (PANEL-21;
+before, it waited for the source's next minute), and the Metrics view asks again every 3 s while
+it is pending. A failed read says what to do where gh's message is a known one: gh not installed,
+not authenticated (`gh auth login`), no GitHub remote, or no answer in 30 s. A window with no
+merge shows merge frequency 0 with "No pull request was merged in the last 30d", and cycle time
+"—" with the same reason.
 By lane type, because the panel knows a lane's type, not the role a skill switched to: a
 project's command can report by role.
 

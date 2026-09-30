@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -70,7 +72,7 @@ func mergedFigures(in Inputs, w string, m map[string]*Metric) {
 	if !st.OK {
 		why := needsGH
 		if st.Error != "" {
-			why = "gh pr list --state merged failed: " + st.Error
+			why = GHReason(st.Error)
 		} else if st.Pending {
 			why = "Reading merged pull requests from gh. " + needsGH
 		}
@@ -107,6 +109,10 @@ func mergedFigures(in Inputs, w string, m map[string]*Metric) {
 		note = "Only the newest merges gh returned; the oldest part of the window may be missing some."
 	}
 	freq := &Metric{Value: ptr(round(float64(n)*7/float64(days), 2)), N: n, Source: FromBuiltin, Note: note}
+	if n == 0 && note == "" {
+		// A true zero, read from gh; the note tells it from a figure not read.
+		freq.Note = "No pull request was merged in the last " + w + "."
+	}
 	for _, c := range counts {
 		freq.Series = append(freq.Series, ptr(round(c*7/float64(b.days), 2)))
 	}
@@ -130,6 +136,23 @@ func mergedFigures(in Inputs, w string, m map[string]*Metric) {
 	m["flow.cycle_time"] = cyc
 }
 
+// GHReason says why a read of merged pull requests failed, in terms of what to do
+// about it where gh's own message is a known one; else gh's message as it is.
+func GHReason(err string) string {
+	e := strings.ToLower(err)
+	switch {
+	case strings.Contains(e, "executable file not found") || strings.Contains(e, "no such file or directory"):
+		return "gh is not installed, or not on the panel's PATH: merges and cycle time come from gh (https://cli.github.com)."
+	case strings.Contains(e, "gh auth login") || strings.Contains(e, "not logged in") || strings.Contains(e, "authentication") || strings.Contains(e, "http 401"):
+		return "gh is not authenticated: run gh auth login. (" + err + ")"
+	case strings.Contains(e, "no git remotes") || strings.Contains(e, "known github host") || strings.Contains(e, "not a git repository"):
+		return "This repository has no GitHub remote gh can read merged pull requests from. (" + err + ")"
+	case strings.Contains(e, "deadline exceeded") || strings.Contains(e, "signal: killed"):
+		return "gh did not answer within 30 s; the panel tries again in 10 minutes."
+	}
+	return "gh pr list --state merged failed: " + err
+}
+
 func spendFigures(in Inputs, w string, m map[string]*Metric) {
 	first := FirstDay(in.Days)
 	if first == "" {
@@ -143,11 +166,15 @@ func spendFigures(in Inputs, w string, m map[string]*Metric) {
 	b := bucketing[w]
 	byType, byModel, byBranch := map[string]float64{}, map[string]float64{}, map[string]float64{}
 	buckets := make([]float64, b.n)
+	kept := make([]int, b.n) // days of each bucket on or after the ledger's first
 	total := 0.0
 	// The window's days: the last `days` local days, today included, oldest first.
 	span := b.n * b.days
 	for i := 0; i < span; i++ {
 		day := in.Now.AddDate(0, 0, -(span - 1 - i)).Format("2006-01-02")
+		if day >= first {
+			kept[i/b.days]++
+		}
 		for _, s := range in.Days[day] {
 			buckets[i/b.days] += s.USD
 			if i >= span-days {
@@ -158,15 +185,36 @@ func spendFigures(in Inputs, w string, m map[string]*Metric) {
 			}
 		}
 	}
+	// A rate over the days the ledger has kept, never over days before it began:
+	// spread over the whole window, one day's spend would read as a small weekly one.
+	keptDays := days
+	if d := daysSince(first, in.Now); d < keptDays {
+		keptDays = d
+	}
 	note := ""
 	start := in.Now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
 	if first > start {
 		note = "Since " + first + ", when the panel began keeping spend."
 	}
 	m["cost.total"] = &Metric{Value: ptr(round(total, 2)), Source: FromBuiltin, Note: note}
-	pw := &Metric{Value: ptr(round(total*7/float64(days), 2)), Source: FromBuiltin, Note: note}
-	for _, v := range buckets {
-		pw.Series = append(pw.Series, ptr(round(v*7/float64(b.days), 2)))
+	pw := &Metric{Source: FromBuiltin}
+	if keptDays < 7 {
+		// Under a week kept, a weekly rate is a guess: the actual spend, and over what.
+		pw.Value = ptr(round(total, 2))
+		pw.Span = &Span{Since: first, Days: keptDays}
+		pw.Note = "Less than a week of spend kept: the spend so far, not a weekly rate."
+	} else {
+		pw.Value = ptr(round(total*7/float64(keptDays), 2))
+		if keptDays < days {
+			pw.Note = "Over the " + plural(keptDays, "day", "days") + " kept since " + first + ", when the panel began keeping spend."
+		}
+		for i, v := range buckets {
+			if kept[i] == 0 {
+				pw.Series = append(pw.Series, nil) // before the ledger began: no data, not zero
+				continue
+			}
+			pw.Series = append(pw.Series, ptr(round(v*7/float64(kept[i]), 2)))
+		}
 	}
 	m["cost.per_week"] = pw
 	m["cost.by_role"] = amounts(byType, nil, "By lane type: the panel knows a lane's type, not the role a skill switched to.")
@@ -177,6 +225,22 @@ func spendFigures(in Inputs, w string, m map[string]*Metric) {
 		proj = "this project"
 	}
 	m["cost.by_project"] = amounts(map[string]float64{proj: total}, nil, "")
+}
+
+// daysSince is how many local days from first (2006-01-02) to now, both included.
+func daysSince(first string, now time.Time) int {
+	f, err := time.ParseInLocation("2006-01-02", first, now.Location())
+	if err != nil {
+		return 0
+	}
+	y, mo, d := now.Date()
+	today := time.Date(y, mo, d, 0, 0, 0, 0, now.Location())
+	// Round, as a day across a DST change is 23 or 25 hours.
+	n := int(math.Round(today.Sub(f).Hours()/24)) + 1
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 func orNone(s, none string) string {
@@ -211,6 +275,7 @@ type CardItem struct {
 	Series  []*float64 `json:"series,omitempty"`
 	Source  string     `json:"source,omitempty"`
 	Missing string     `json:"missing,omitempty"`
+	Span    *Span      `json:"span,omitempty"`
 }
 
 // Card is the side panel's Flow card: four figures of the 30-day window.
@@ -233,7 +298,7 @@ func FlowCard(r Report) *Card {
 		if m == nil {
 			continue
 		}
-		it := CardItem{Key: k, Value: m.Value, Series: m.Series, Source: m.Source, Missing: m.Missing}
+		it := CardItem{Key: k, Value: m.Value, Series: m.Series, Source: m.Source, Missing: m.Missing, Span: m.Span}
 		f.Any = f.Any || m.Value != nil
 		f.Items = append(f.Items, it)
 	}

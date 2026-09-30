@@ -1057,7 +1057,7 @@ function flowCard() {
   const rows = f.items.map((it) => {
     const [label, unit] = FLOW_LABEL[it.key] || [it.key, ""];
     const pts = (it.series || []).filter((v) => v != null);
-    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mValue(it.value, unit)),
+    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mShown(it, unit)),
       it.value == null ? el("span") : spark({ v: pts }, { lo: 0 }) || el("span")]);
     row.title = it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command");
     return key(row, "fr:" + it.key);
@@ -1065,7 +1065,7 @@ function flowCard() {
   const b = el("button", "flowcard", null, [el("span", "fh", "Flow (" + f.window + ")"), ...rows]);
   b.type = "button";
   b.setAttribute("aria-label", "Flow, last " + f.window + ": " + f.items.map((it) => (FLOW_LABEL[it.key] || [it.key])[0] + " " +
-    (it.value == null ? "none" : mValue(it.value, (FLOW_LABEL[it.key] || [])[1]))).join(", ") + ". Opens Metrics.");
+    (it.value == null ? "none" : mShown(it, (FLOW_LABEL[it.key] || [])[1]))).join(", ") + ". Opens Metrics.");
   on(b, "click", () => { mv.tab = "flow"; mv.range = f.window; saveMv(); if ($("mview").hidden) openMetrics(); else renderMetrics(); });
   return key(el("div", "sideflow", null, [b]), "side:flow");
 }
@@ -1751,6 +1751,15 @@ function mValue(v, unit) {
     default: return r(v, 1);
   }
 }
+// A figure's value as shown. With a span (PANEL-21: spend per week with under a week
+// kept), the value is the amount so far, not a rate: it says since when, never "a week".
+function mShown(m, unit) {
+  if (m && m.span && m.value != null) {
+    const d = m.span.days;
+    return money(m.value) + " (since " + m.span.since + ", " + d + (d === 1 ? " day" : " days") + ")";
+  }
+  return mValue(m ? m.value : null, unit);
+}
 const M_SRC = { project: "project", builtin: "built in", mixed: "project and built in" };
 function mSource(src) {
   if (!src) return null;
@@ -1802,7 +1811,7 @@ function mFigure(k, m) {
   const has = !!m && m.value != null;
   const row = el("div", "mrow" + (has ? "" : " miss"), null, [
     el("span", "ml", label),
-    el("span", "mv num", has ? mValue(m.value, unit) : "—"),
+    el("span", "mv num", has ? mShown(m, unit) : "—"),
     el("span", "mspark", null, [has ? mBars(m.series, unit) : null]),
     el("span", "mn", null, [has && m.n ? el("span", "dim", "of " + m.n) : null, has ? mSource(m.source) : null]),
   ]);
@@ -1950,6 +1959,11 @@ async function loadMetrics() {
     const d = await r.json();
     if (seq !== mv.seq) return;
     mv.data = d; mv.err = ""; mv.at = now();
+    // Merged pull requests not read yet: the panel reads them as soon as a page is in
+    // view, so ask again shortly rather than at the minute (PANEL-21), a few times.
+    clearTimeout(mv.soon);
+    if (d.merged && d.merged.pending && scope !== "all" && (mv.soonN = (mv.soonN || 0) + 1) <= 10) mv.soon = setTimeout(loadMetrics, 3000);
+    else if (!(d.merged && d.merged.pending)) mv.soonN = 0;
   } catch (e) {
     if (seq !== mv.seq) return;
     mv.err = String(e.message || e);
@@ -1972,7 +1986,7 @@ function openMetrics() {
 function closeMetrics() {
   $("mview").hidden = true;
   $("metricsbtn").setAttribute("aria-expanded", "false");
-  clearInterval(mv.timer);
+  clearInterval(mv.timer); clearTimeout(mv.soon); mv.soonN = 0;
   const r = mv.returnTo; mv.returnTo = null;
   if (r && r.isConnected && r.focus) r.focus(); else $("metricsbtn").focus();
 }

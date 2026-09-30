@@ -29,7 +29,7 @@ type metricsPanel struct {
 	polls   *pollCounter
 }
 
-func startMetricsPanel(t *testing.T, trust bool, payload func() []byte) *metricsPanel {
+func startMetricsPanel(t *testing.T, trust bool, payload func() []byte, tune ...func(*Ticks)) *metricsPanel {
 	t.Helper()
 	root, home := setupProject(t)
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Metrics","version":4,"lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
@@ -54,6 +54,9 @@ func startMetricsPanel(t *testing.T, trust bool, payload func() []byte) *metrics
 	ready, done := make(chan string, 1), make(chan error, 1)
 	ticks := fastTicks()
 	ticks.Spend, ticks.PRs = 50*time.Millisecond, 50*time.Millisecond
+	for _, f := range tune {
+		f(&ticks)
+	}
 	go func() {
 		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, TrustConfig: trust, Runner: run, Ticks: ticks,
 			OnPoll: mp.polls.hook, OnReady: func(u string) { ready <- u }})
@@ -152,6 +155,25 @@ func TestMetricsEndToEnd(t *testing.T) {
 	v := mp.c.state(t)
 	if v.Flow == nil || !v.Flow.Any || len(v.Flow.Items) != 4 {
 		t.Fatalf("flow card %+v", v.Flow)
+	}
+}
+
+// PANEL-21: merged pull requests are read as soon as a page comes into view, not at
+// the source's next tick (a minute by default, an hour here): the Metrics view's
+// cycle time and merges said "Reading merged pull requests from gh" until then.
+func TestMetricsMergedReadWhenAPageComesIntoView(t *testing.T) {
+	t.Parallel()
+	mp := startMetricsPanel(t, false, func() []byte { return nil }, func(tk *Ticks) { tk.PRs = time.Hour })
+	mp.polls.until(t, "merged", 1) // the first poll, at start, with no page in view
+	if r := mp.report(t, ""); !r.Merged.Pending || !strings.Contains(r.Windows["30d"]["flow.cycle_time"].Missing, "Reading merged pull requests") {
+		t.Fatalf("before a page: %+v %+v", r.Merged, r.Windows["30d"]["flow.cycle_time"])
+	}
+	mp.do(t, "POST", "/api/seen").Body.Close()
+	waitUntil(t, "merged pull requests read", 5*time.Second, func() bool { return mp.merged.Load() == 1 })
+	var r metrics.Report
+	waitUntil(t, "the figures", 5*time.Second, func() bool { r = mp.report(t, ""); return r.Merged.OK })
+	if c := r.Windows["30d"]["flow.cycle_time"]; c.Value == nil || *c.Value != 10 || c.Source != metrics.FromBuiltin {
+		t.Fatalf("cycle time %+v", c)
 	}
 }
 
