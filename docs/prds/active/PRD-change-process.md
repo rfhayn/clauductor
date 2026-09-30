@@ -121,7 +121,38 @@ Every item gets a check that fails when it is broken, per AGENTS.md rule 4.
      archive writes "TBD", which fails strict validation.
    - **The OpenSpec module requires CLI 1.13 or later** and says so when it finds an older version.
 
-## Adopting it in StandingT (after OPS-7 and the panel work ship)
+## OPS-8: clauductor runs its own operating model
+
+This comes after OPS-7 and before StandingT converges, as the rehearsal. Clauductor's own repo still
+runs the old lock-based skills, has no ADRs, and does not use the model it ships.
+
+- **Install the model into this repo**, and replace the old skills (claim, spawn, supervisor and the
+  rest).
+  - `AGENTS.md`, `project.conf` and `model-roles.json`, with the owner named. The commit trailer is
+    **off**, to keep this repo's rule.
+  - The roadmap rows carry the milestone ids (PANEL-n, OPS-n, REL-n).
+- **Session start and session close run here as in StandingT:**
+  - the context scripts;
+  - merging own PRs through `merge-pr`, with evidence and a converged review;
+  - archiving;
+  - the roadmap, journal and insights updates;
+  - the status line;
+  - `machine-quiet`.
+- **The gate:** `scripts/ci/run-local.sh` runs these and writes the receipt:
+  - `go test -short` and `go test -race`;
+  - gofmt and vet;
+  - the template checks;
+  - the browser suite.
+- **The records:**
+  - The journal and the insights log keep their history.
+  - ADRs start at 0001 with this cycle's decisions: the change format, scenario traceability, the
+    multi-repo panel, the install guard, and never killing a tmux server from a script.
+- **The panel:** clauductor becomes the second project in the owner's panel, the first real
+  multi-repo use.
+- **Everything OPS-8 surfaces** (friction in install, update, the guard or the skills) is fixed in
+  the template before StandingT's Phase 0.
+
+## Adopting it in StandingT (after OPS-8)
 
 StandingT keeps working as it is throughout. Every step below is an ordinary StandingT `ops/` PR
 through `/merge-pr`.
