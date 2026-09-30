@@ -387,7 +387,11 @@ func Run(ctx context.Context, o Options) error {
 		r.srv.Store(srv)
 		r.hub.OnPush = func(v state.View) { sums.Set(web.Summarize(r.id, v)) }
 		if r.lanes != nil {
-			r.lanes.Changed = func() { kick(r.kickTmux); r.kickWorktrees(); kick(r.kickAgents) }
+			// A lane action re-reads the worktrees at once, not through kickWorktrees'
+			// throttle: lanes started together each add a worktree, and one read skipped
+			// leaves their sessions' first events with no worktree to bind to (PANEL-21).
+			// The kick channel coalesces, so a burst costs at most one extra read.
+			r.lanes.Changed = func() { kick(r.kickTmux); kick(r.kickWT); kick(r.kickAgents) }
 			r.lanes.Stopped = func(lane string) { srv.CloseTerminalsIn(r.id, lane) }
 		}
 	}

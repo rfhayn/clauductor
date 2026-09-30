@@ -113,11 +113,18 @@ The harness surfaced these. None is fixed here.
    kicked right after a start. A real claude that registers within about 2 s of its lane
    starting (likely when several lanes start together) could hit this. The fake waits 4 s by
    default, as claude takes seconds to start.
+   **Fixed in PANEL-21**: a binding made before the inputs caught up moves to the lane's own
+   worktree once the list has it (from the registry record, or from the session's first `cwd`),
+   and a lane action re-reads the worktrees without the throttle. With `UX_FAKE_EARLY=1` every
+   lane now shows its own session (`docs/panel.md`, *How signals are read*, Binding).
 4. **Without a `SessionEnd`, a stopped or closed lane lingers** (seen before the fake sent
    `SessionEnd`). A lane stopped or closed through the panel went on showing as a "≈" row, with
    no ⋯, and as a tab, while status posts or hooks from its session kept coming in the seconds
    after it ended. Real claude sends `SessionEnd` on `/exit`, but a crash or `SIGKILL` does not.
    A closed lane whose worktree is gone showed as a row too.
+   **Fixed in PANEL-21**: once a running lane is gone from the tmux poll (stopped, closed,
+   forgotten, killed, its pane dead), its session ends and whatever else arrives from it is set
+   aside (`observe.droppedEnded`); it is never bound again by its `cwd`.
 5. **Copy**: the orphan message says "RESUME … FORGET … CLOSE LANE" in capitals, but its buttons
    read Resume, Forget and Close lane.
 6. **The tab strip at 175%** (from reading the screenshots): at 1280 px the last tab is cut
