@@ -106,6 +106,20 @@ Every item gets a check that fails when it is broken, per AGENTS.md rule 4.
      tested in CI, and skipped with a stated reason where `openspec` is absent.
 8. **Docs:** the playbook, principles and QUICKSTART are updated. The README change waits for
    REL-1.
+9. **Guard what the OpenSpec CLI does not.** This was tested on 1.2.0 and 1.13.2.
+   - **Refuse to archive in clauductor's own archive step and merge guard** a change that has:
+     - no spec deltas, unless it declares `skip_specs: true` in `.openspec.yaml`, which clauductor
+       also writes;
+     - an unchecked task.
+
+     `openspec archive -y` archives both, with only a warning.
+   - **MODIFIED requirements copy the current block word for word first**, every scenario header
+     included. OpenSpec matches scenarios by the whole header, not by the ID, and 1.2.0 silently
+     deletes a scenario that a MODIFIED block leaves out. A check compares the living spec's
+     scenario headers against the delta.
+   - **A new capability's delta includes a `## Purpose`** of at least 50 characters. Otherwise
+     archive writes "TBD", which fails strict validation.
+   - **The OpenSpec module requires CLI 1.13 or later** and says so when it finds an older version.
 
 ## Adopting it in StandingT (after OPS-7 and the panel work ship)
 
