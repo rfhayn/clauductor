@@ -175,6 +175,10 @@ type Runtime struct {
 	// notifyPath persists the notifier's state, so a restart never re-notifies.
 	notifyPath string
 	savedState string
+	// quotaPath keeps the account's last quota across restarts (PANEL-12): before it,
+	// a restarted panel showed none until a session in the project redrew its status line.
+	quotaPath  string
+	savedQuota int64
 	gitDir     string
 	lastQ      string
 }
@@ -196,6 +200,14 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		var st state.NotifierState
 		if json.Unmarshal(b, &st) == nil {
 			r.notifier.Restore(st)
+		}
+	}
+	r.quotaPath = filepath.Join(config.PanelDir(o.Home), "quota.json")
+	if b, err := os.ReadFile(r.quotaPath); err == nil {
+		var q state.Quota
+		if json.Unmarshal(b, &q) == nil {
+			r.savedQuota = q.At
+			hub.Update(func(m *state.Model, now time.Time) { m.RestoreQuota(q) })
 		}
 	}
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTrust(tv) })
@@ -221,11 +233,17 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		{name: "trends", every: t.Trends, fixedRate: true, poll: func(context.Context, time.Time) (update, time.Duration) {
 			return func(m *state.Model, now time.Time) { m.Sample(now) }, 0
 		}},
+		{name: "quota", every: t.Trends, fixedRate: true, waitFirst: true, poll: r.saveQuota},
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		{name: "git", every: t.Git, fixedRate: true, poll: r.pollGit},
 	}
 	for _, c := range cfg.Cards {
 		r.sources = append(r.sources, r.cardSource(c))
+	}
+	for _, t := range cfg.Templates {
+		if t.Suggest != nil {
+			r.sources = append(r.sources, r.suggestSource(t.ID, *t.Suggest))
+		}
 	}
 	if len(cfg.Queues) > 0 {
 		r.sources = append(r.sources, &source{name: "queues", every: t.Queues, fixedRate: true, poll: r.pollQueues})
@@ -407,6 +425,49 @@ func (r *Runtime) cardSource(c config.CardConfig) *source {
 		poll: func(ctx context.Context, now time.Time) (update, time.Duration) {
 			if !r.trusted() {
 				return func(m *state.Model, now time.Time) { m.ApplyCard(c.ID, nil, errUntrusted, now) }, 0
+			}
+			return run(ctx, now)
+		}}
+	r.cardKicks = append(r.cardKicks, s.kick)
+	if rule.Interval > 0 {
+		s.every, s.fixedRate = rule.Interval, true
+	} else {
+		s.watch = func(context.Context) string { return filepath.Join(r.root, rule.WatchRel) }
+		s.watchEvery = r.ticks.CardWatch
+	}
+	return s
+}
+
+// saveQuota writes the quota when a post has changed it. One panel runs per machine,
+// so the file has one writer.
+func (r *Runtime) saveQuota(context.Context, time.Time) (update, time.Duration) {
+	var q *state.Quota
+	r.hub.Read(func(m *state.Model, _ time.Time) { q = m.QuotaReading() })
+	if q == nil || q.At == r.savedQuota {
+		return nil, 0
+	}
+	b, err := json.Marshal(q)
+	if err == nil && config.EnsurePrivateDir(filepath.Dir(r.quotaPath)) == nil && config.WriteAtomic(r.quotaPath, b, 0o600) == nil {
+		r.savedQuota = q.At
+	}
+	return nil, 0
+}
+
+// suggestSource runs a template's suggest command on its refresh rule, exactly as a
+// card runs (same timeout, same trust gate, kicked by REFRESH too), and hands the
+// dialog what it prints.
+func (r *Runtime) suggestSource(id string, sg config.SuggestConfig) *source {
+	rule, _ := config.ParseRefresh(sg.Refresh) // validated at load
+	run := polled(commandFetch(r, 30*time.Second, sg.Command, func(out []byte) (*signals.Suggestions, error) {
+		s, err := signals.ParseSuggestions(out)
+		return &s, err
+	}), func(m *state.Model, s *signals.Suggestions, err error, now time.Time) {
+		m.ApplySuggestions(id, s, err, now)
+	})
+	s := &source{name: "suggest " + id, kick: make(chan struct{}, 1),
+		poll: func(ctx context.Context, now time.Time) (update, time.Duration) {
+			if !r.trusted() {
+				return func(m *state.Model, now time.Time) { m.ApplySuggestions(id, nil, errUntrusted, now) }, 0
 			}
 			return run(ctx, now)
 		}}

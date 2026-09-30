@@ -143,11 +143,14 @@ earlier one. The **Since** column of the key table says which is which:
 |---|---|
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
+| 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–2 (0 included) is refused.
+- A `version` outside 1–3 (0 included) is refused.
+- A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
+  `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
   panel says so once at start and suggests adding it: a later panel will read an undeclared config
   as its own latest version.
@@ -203,7 +206,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1 or 2 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1, 2 or 3 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -211,6 +214,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `cards[].title` | string |  | 1 | The card's heading. |
 | `cards[].command` | array of strings, **required** |  | 1 | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
 | `cards[].refresh` | string, **required** |  | 1 | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
+| `cards[].pin` | boolean | `false` | 3 | Also show the card in the side panel, as a tab of the pinned cards' box: below the selected lane's details, or alone while no lane is selected. Each output line is a title that opens to the rest of the line (see *Pinned cards*). |
 | `tmux_socket` | string | `"clauductor"` | 1 | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. Matches `^[A-Za-z0-9_-]{1,64}$`. |
 | `worktree_dir` | string | `".claude/worktrees"` | 1 | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
 | `base` | string | `"origin/main"` | 1 | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. Matches `^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`. |
@@ -225,6 +229,9 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `templates[].first_prompt` | string, **required** |  | 2 | ONE line typed into claude once it is ready. `{name}` and `{issue}` only; no newline or control character; at most 4000 characters. |
 | `templates[].model` | string |  | 2 | Overrides the lane type's model. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `templates[].effort` | string |  | 2 | Overrides the lane type's effort. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
+| `templates[].suggest` | object |  | 3 | What this template could start next: a command whose output **New lane** lists under the template, each row filling in the lane name (see *Suggestions*). |
+| `templates[].suggest.command` | array of strings, **required** |  | 3 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout. |
+| `templates[].suggest.refresh` | string, **required** |  | 3 | When to re-run it, as a card's `refresh`: `"watch:<relpath>"` or `"interval:<seconds>"`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
 | `queues` | array |  | 2 | Shared resources held as a lease on disk (see *Queue and the gate lock protocol*). |
 | `queues[].id` | string, **required** |  | 2 | Unique among the queues. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `queues[].title` | string |  | 2 | Shown on the queue card. |
@@ -250,6 +257,24 @@ and an object becomes key/value rows. Otherwise each non-empty line is a list it
 markdown bullet (`-`, `*`, `1.`) removed. A failing command shows "cannot read: …", never an empty
 card.
 
+### Pinned cards
+
+A card with `"pin": true` (version 3) also shows in the side panel, so where the project stands
+stays on the dashboard rather than in the drawer. The pinned cards share a box of their own, a
+tab per card (a tablist, as the lane's is), below the selected lane's tabs, or alone while no lane
+is selected; **▾** folds the box. Each card is drawn for reading at a glance: each output line is
+a title that opens to the rest of it.
+
+- A line's title is its bold lead (`**Box cleanup** (queued …)`), else what comes before its
+  first ` — ` (`2C.10 add-score-photo — …`), else its first sentence. The rest opens under it,
+  one line per ` — ` part.
+- A line ending in `:`, or wrapped in parentheses, is a caption, not a row.
+- `**bold**` and `` `code` `` are drawn; nothing else is read as markup.
+- The card shown, whether the box is folded, and which rows are open are kept per browser.
+
+So a card that prints one item per line, with a short lead, reads best. A JSON card is drawn as
+in the drawer.
+
 ## The page
 
 The page is built around lanes (PANEL-11). From the top: the status bar, the Needs-you rows (only
@@ -267,7 +292,10 @@ value just changed.
 - **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
   lane. Totals live here and nowhere else.
   - The **5-hour** and **7-day quota**, each a bar with its reset countdown. On the 5-hour bar a
-    magenta mark shows where the window lands at its reset at the current burn rate.
+    magenta mark shows where the window lands at its reset at the current burn rate. The quota
+    comes only with a status-line post, and the panel keeps the last one across a restart
+    (`~/.clauductor/panel/quota.json`), so a reading older than 10 minutes says "as of … ago";
+    with none, hovering says where one comes from.
   - **Burn rate**: the 5-hour quota's change per hour over the last 30 minutes, when there are at
     least 5 minutes of it, and when it runs out at that rate. That time turns amber when it comes
     before the reset.
@@ -284,6 +312,9 @@ value just changed.
   - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
   - At the right: **New lane**, **Activity** (the drawer), **Refresh** and **Appearance**. **New
     lane** is disabled, with the reason on hover, while lanes cannot start (*Subscription only*).
+  - The bar keeps to one line above 1180 px: when its figures would wrap, the secondary ones
+    (resets, cost today and per hour, sparklines, the Hooks counts) go first, as they do from 140%.
+    A quota's age stays.
 - **Lost the panel.** The page hears from the panel at once when what the view says changes; the
   polls' own bookkeeping arrives with the next 5 s tick, and a heartbeat comes every 5 s. After
   three missed beats, or a dropped stream, it says so everywhere: **Disconnected** in the status
@@ -358,6 +389,11 @@ value just changed.
   - **Gate**: for each queue, whether this lane holds it, waits in it and where, or is not in it;
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
+  The tabs wrap onto a second line rather than scroll. Below them, the pinned cards' own box
+  (*Pinned cards*); with no lane selected, it is the side panel. **Hide details** folds both.
+  The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
+  and End go to the limits, Escape or a double-click restores the theme's width), up to half
+  the window; the width is kept per browser.
   Below 1180 px the side panel moves under the terminal.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
@@ -378,8 +414,10 @@ value just changed.
   panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
   here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
   Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
-- **Footer.** One line: hook events, status posts, drops and notifications. **All counters**
-  opens the rest (the choice is remembered): drops by cause (foreign `cwd`, overflow, malformed,
+- **Footer.** One line: hook events, status posts, **other projects** (events from sessions
+  outside the project: the hooks are the machine's, so these are expected and set aside), what
+  was really **dropped** (overflow, malformed, unknown event; amber when any), and notifications.
+  **All counters** opens the rest (the choice is remembered): drops by cause (overflow, malformed,
   unknown event name), unknown notification types, the last, mean and worst `claude agents` poll
   latency and its current interval, the filter in use and why, the Claude Code version against
   the one the heuristics were verified on, and notifications sent or failed.
@@ -442,7 +480,12 @@ pauses, while a workflow in a background session fails.
 
 ### Starting a lane
 
-**New lane** asks for a lane type (from `lanes` and `lane_types`), a lane name, and where it runs:
+**New lane** asks for a template (or none), a lane type (from `lanes` and `lane_types`), a lane
+name, and where it runs. Under each choice a line says what it is: a **template** is a recipe for
+one kind of work (it sets the lane type, names the branch and types a first prompt); a **lane
+type** is only how claude runs (its branch prefix, model and effort). **Start lane here** on a
+worktree picks that worktree's own lane type (`main` → `orchestrator`). When a template has a
+`suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
 
 - **New branch and worktree.** The server runs `git fetch`, then
   `git worktree add -b <prefix><name> <worktree_dir>/<name> <base>`. The prefix is the type's
@@ -510,6 +553,34 @@ submitted after 30 s. If you type into the lane first, the prompt is skipped. Wh
 claude, the panel asks `claude agents` for a fresh reading at most every 2 s. A pending lane whose
 tmux session is gone (a reboot, a killed tmux server) waits 30 s, then shows "RESTORE the lane"
 and stops asking: no poll can bring it back. Once restored, the prompt is typed as usual.
+
+### Suggestions
+
+A template's `suggest` (version 3) is a command that says what the template could start next:
+the project's roadmap, its issue list, whatever it keeps. **New lane** lists every suggesting
+template's rows under **Up next**; picking one selects the template and fills in the lane name
+(and the issue), so the next piece of work is a click away rather than a trip to the roadmap.
+
+```json
+{ "id": "propose", "title": "Propose a roadmap row", "lane_type": "build",
+  "branch_pattern": "change/{name}", "first_prompt": "/openspec-propose {name}",
+  "suggest": { "command": ["node", "scripts/next.mjs", "propose"], "refresh": "watch:docs/roadmap.md" } }
+```
+
+- It runs like a card: argv with no shell, in the project root, 30 s timeout, on its `refresh`
+  rule, at start and on **Refresh**, and only while the config is trusted (`panel trust` lists
+  it). A failed run keeps the last list and says why.
+- Its stdout is JSON, an array of `{"name", "title", "detail", "issue"}` objects (only `name` is
+  required) or of names; or text, one row a line, the first word the name and the rest its title
+  (`#` starts a comment). A row's `name` must be a lane name (`[a-z0-9][a-z0-9-]{0,40}`); a row
+  without one is skipped, and the dialog says how many were. At most 50 rows; every text is one
+  line of plain text, cut to length.
+- The rows are the command's word, and are only offered: nothing starts until you press **Start
+  lane**.
+- A template that takes `{issue}` can list the open issues: a row's `issue` (`"#412"`) fills in
+  the dialog's Issue, and its name can carry the number (`412-fix-the-week-row`). A script around
+  `gh issue list --json number,title,labels` does it; exit non-zero when `gh` fails, so the dialog
+  says "cannot read" and keeps the last list rather than showing none.
 
 ### The lane registry
 
@@ -1526,7 +1597,9 @@ loaded the hooks. Restart it.
 ### The page shows no context % or quota
 
 Only the status line carries them: add the [status-line snippet](#the-status-line). It posts
-nothing while `~/.clauductor/panel/pid` names no live process.
+nothing while `~/.clauductor/panel/pid` names no live process, and only while a session in the
+project draws its status line: with none running since the panel started, the quota is the last
+one saved (with its age), or none on a first start.
 
 ### A lease never frees
 

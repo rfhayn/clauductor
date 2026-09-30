@@ -590,13 +590,23 @@ function colPicker() {
       const cb = el("input");
       cb.type = "checkbox";
       cb.checked = cols.includes(c.id);
-      on(cb, "change", () => {
-        cols = cb.checked ? COLS.filter((x) => x.id === c.id || cols.includes(x.id)).map((x) => x.id) : cols.filter((id) => id !== c.id);
+      // `this`: after a poll the live box keeps this handler, and cb is then stale.
+      on(cb, "change", function () {
+        cols = this.checked ? COLS.filter((x) => x.id === c.id || cols.includes(x.id)).map((x) => x.id) : cols.filter((id) => id !== c.id);
         saveCols(); render();
       });
       m.appendChild(key(el("label", null, null, [key(cb, "cb"), document.createTextNode(c.label)]), "col:" + c.id));
     }
     on(m, "keydown", (ev) => { if (ev.key === "Escape") { colMenu = false; render(); focusKey("cols"); } });
+    // Under the live button, and inside the window whatever the rail's width: the menu
+    // is fixed (panel.css), so it is placed here, in the description a patch copies.
+    const live = document.querySelector('[data-k="cols"]');
+    if (live) {
+      const r = live.getBoundingClientRect(), menuW = 14 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+      m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8)) + "px";
+      m.style.top = Math.round(r.bottom + 4) + "px";
+      m.style.maxHeight = Math.max(160, window.innerHeight - r.bottom - 16) + "px";
+    }
     kids.push(key(m, "colmenu"));
   }
   return key(el("div", "colpick", null, kids), "colpick");
@@ -644,7 +654,7 @@ function moreBelow() {
   const r = $("rail");
   $("morebelow").hidden = r.scrollTop + r.clientHeight >= r.scrollHeight - 4 || getComputedStyle(r).display === "none";
 }
-$("rail").addEventListener("scroll", moreBelow, { passive: true });
+$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } }, { passive: true });
 window.addEventListener("resize", moreBelow);
 
 // The worktree tree, as the old control room's topology had it: the project, each
@@ -657,8 +667,10 @@ try { treeOpen = JSON.parse(localStorage.getItem("clauductor-panel-tree") || "{}
 function foldable(k, summaryText, kids) {
   const d = el("details", null, null, [el("summary", null, summaryText), ...kids]);
   if (treeOpen[k]) d.open = true;
-  on(d, "toggle", () => {
-    if (d.open) treeOpen[k] = 1; else delete treeOpen[k];
+  // `this`, not d: after a patch the live element keeps this handler, and d is then
+  // the discarded description, always closed, so an opened fold shut on the next poll.
+  on(d, "toggle", function () {
+    if (this.open) treeOpen[k] = 1; else delete treeOpen[k];
     try { localStorage.setItem("clauductor-panel-tree", JSON.stringify(treeOpen)); } catch (e) {}
   });
   return key(d, k);
@@ -866,14 +878,21 @@ function kvRows(rows) {
   return box;
 }
 function renderSide(x) {
-  if (!x) { patchInto("side", [key(el("div", "empty", "Select a lane, or start one."), "side:none")]); return; }
+  // The pinned cards (where the project stands) always follow, in a box of their own
+  // under the lane's: the lane first, and the project never off the dashboard.
+  const project = projectBox();
+  if (!x) {
+    patchInto("side", [project ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    return;
+  }
+  const tabs = SIDE_TABS;
   const needs = laneNeeds(x), als = laneAlerts(x);
   const nAl = needs.length + als.length;
   const counts = { agents: laneM(x).subagentsRunning || 0, alerts: nAl };
   const tl = el("div", "sidetabs");
   tl.setAttribute("role", "tablist");
   tl.setAttribute("aria-label", "This lane");
-  SIDE_TABS.forEach(([id, label], i) => {
+  tabs.forEach(([id, label], i) => {
     const b = el("button", null, label);
     b.type = "button";
     b.setAttribute("role", "tab");
@@ -883,10 +902,10 @@ function renderSide(x) {
     on(b, "click", () => { sideTab = id; try { localStorage.setItem("clauductor-panel-sidetab", id); } catch (e) {} render(); });
     on(b, "keydown", (ev) => {
       let j = -1;
-      if (ev.key === "ArrowRight") j = (i + 1) % SIDE_TABS.length; else if (ev.key === "ArrowLeft") j = (i - 1 + SIDE_TABS.length) % SIDE_TABS.length;
+      if (ev.key === "ArrowRight") j = (i + 1) % tabs.length; else if (ev.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
       if (j < 0) return;
       ev.preventDefault();
-      sideTab = SIDE_TABS[j][0];
+      sideTab = tabs[j][0];
       render();
       focusKey("stab:" + sideTab);
     });
@@ -901,8 +920,99 @@ function renderSide(x) {
   else body.push(feedList(laneFeed(x).slice(0, 60), false, "lanefeed"));
   const panel = el("div", "sidebody", null, body);
   panel.setAttribute("role", "tabpanel");
-  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab)]);
+  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project]);
 }
+// ---- Pinned cards (PANEL-12): where the project stands, in the side panel -------------------
+// A pinned card is a list of titles that open. A row's title is its bold lead
+// ("**Box cleanup** (queued …)"), else what comes before its first " — " ("2C.10
+// add-score-photo — …"), else its first sentence; the rest opens under it, a line per
+// " — " part. A row ending in ":" or wrapped in parentheses is a caption. The text is
+// the project's command's: **bold** and `code` are drawn, and nothing is parsed as markup.
+function pinnedCards() { return (S.cards || []).filter((c) => c.pin); }
+function inlineMd(s) {
+  const out = [], re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+  let i = 0, m;
+  while ((m = re.exec(s))) {
+    if (m.index > i) out.push(document.createTextNode(s.slice(i, m.index)));
+    out.push(m[1] != null ? el("b", null, m[1]) : el("code", null, m[2]));
+    i = re.lastIndex;
+  }
+  if (i < s.length) out.push(document.createTextNode(s.slice(i)));
+  return out;
+}
+const plainMd = (s) => s.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+function splitRow(s) {
+  let m = /^\*\*(.+?)\*\*[\s:.—-]*(.*)$/.exec(s);
+  if (m) return [m[1], m[2]];
+  const d = s.indexOf(" — ");
+  if (d > 0 && d <= 90) return [s.slice(0, d), s.slice(d + 3)];
+  if (s.length <= 90) return [s, ""];
+  m = /^(.{20,90}?[.;:])\s+(.*)$/.exec(s);
+  return m ? [m[1], m[2]] : [s.slice(0, 80) + "…", s];
+}
+// The project box: a tab per pinned card, and a fold for the whole box. The tab and
+// whether it is folded are kept per browser.
+let projTab = null, projOpen = true;
+try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = localStorage.getItem("clauductor-panel-proj") !== "closed"; } catch (e) {}
+function saveProj() {
+  try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
+}
+function projectBox() {
+  const pins = pinnedCards();
+  if (!pins.length) return null;
+  const cur = pins.find((c) => c.id === projTab) || pins[0];
+  const tl = el("div", "sidetabs");
+  tl.setAttribute("role", "tablist");
+  tl.setAttribute("aria-label", "Project");
+  pins.forEach((c, i) => {
+    const b = el("button", null, c.title || c.id);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(c === cur));
+    b.tabIndex = c === cur ? 0 : -1;
+    on(b, "click", () => { projTab = c.id; projOpen = true; saveProj(); render(); });
+    on(b, "keydown", (ev) => {
+      let j = -1;
+      if (ev.key === "ArrowRight") j = (i + 1) % pins.length; else if (ev.key === "ArrowLeft") j = (i - 1 + pins.length) % pins.length;
+      if (j < 0) return;
+      ev.preventDefault();
+      projTab = pins[j].id; saveProj(); render();
+      focusKey("ptab:" + projTab);
+    });
+    tl.appendChild(key(b, "ptab:" + c.id));
+  });
+  const fold = button(projOpen ? "▾" : "▸", "projfold", () => { projOpen = !projOpen; saveProj(); render(); },
+    projOpen ? "Fold the project box" : "Show the project box", "projfold");
+  fold.setAttribute("aria-expanded", String(projOpen));
+  const kids = [key(el("div", "projhead", null, [key(tl, "projtabs"), fold]), "projhead")];
+  if (projOpen) {
+    const body = el("div", "sidebody projbody", null, pinnedRows(cur));
+    body.setAttribute("role", "tabpanel");
+    kids.push(key(body, "projbody:" + cur.id));
+  }
+  return key(el("div", "sidepins", null, kids), "side:pins");
+}
+function pinnedRows(c) {
+  const kids = [];
+  if (c.source.at) kids.push(key(el("div", "dim pinage", null, [age(c.source.at, "read ", " ago")]), "age"));
+  if (c.source.pending) kids.push(key(el("div", "empty", "running…"), "pend"));
+  else if (!c.source.ok) kids.push(key(el("div", "srcerr", "cannot read: " + c.source.error), "err"));
+  else if (c.output.kind === "json") kids.push(key(renderJSON(c.output.json), "json"));
+  else if (!c.output.lines || !c.output.lines.length) kids.push(key(el("div", "empty", "(no output)"), "none"));
+  else {
+    const ul = el("ul", "pinrows");
+    for (const line of c.output.lines) {
+      const row = line.replace(/^\s*(?:[-*+•]|\d+\.)\s+/, "").trim();
+      const [title, rest] = splitRow(row);
+      if (!rest || /:$/.test(row) || /^\(.*\)$/.test(row)) { ul.appendChild(key(el("li", "cap", null, inlineMd(row)), "pc:" + row)); continue; }
+      const body = rest.split(" — ").filter((x) => x.trim()).map((x) => el("div", null, null, inlineMd(x.trim())));
+      ul.appendChild(key(el("li", null, null, [foldable("pin:" + c.id + ":" + plainMd(title), plainMd(title), [el("div", "pinbody", null, body)])]), "pr:" + title));
+    }
+    kids.push(key(ul, "rows"));
+  }
+  return kids;
+}
+
 // Agents: the sessions, then a Gantt of the agents over the lane's window, nested by
 // which agent started which.
 function sideAgents(x) {
@@ -1137,19 +1247,26 @@ function renderNeeds() {
 }
 
 // ---- The status bar ------------------------------------------------------------------------
-function quotaField(id, v, expired, resets, proj) {
+// The quota comes only with a status-line post, and is kept across a restart
+// (PANEL-12), so a reading can be old: past 10 minutes it says how old. With none,
+// the field says where one comes from rather than showing a bare dash.
+const QUOTA_OLD_MS = 10 * 60e3;
+function quotaField(id, v, expired, resets, proj, at) {
   const g = $(id).querySelector(".v");
   const kids = [bullet(expired ? 0 : v, { proj }), num(expired ? "reset" : pct(v))];
   if (resets && !expired) kids.push(el("span", "more", null, [until(resets * 1000, "resets in ")]));
+  if (at && now() - at > QUOTA_OLD_MS) kids.push(el("span", "more stale", null, [age(at, "as of ", " ago")]));
   patch(g, kids);
+  $(id).title = at ? "Last status-line post: " + hm(at) + "."
+    : "No reading yet. The quota comes with a status-line post from a session in this project (docs/panel.md, The status line).";
 }
 function renderStatus(ls) {
   const q = S.quota || {}, tr = S.trends || {};
   // The 5-hour window: where it lands at the reset at the current burn, in --info.
   let proj = null;
   if (tr.burnPerH > 0 && q.fiveHourResetsAt && q.fiveHour != null) proj = q.fiveHour + tr.burnPerH * Math.max(0, (q.fiveHourResetsAt * 1000 - now()) / 3.6e6);
-  quotaField("g5", q.fiveHour, q.fiveHourExpired, q.fiveHourResetsAt, proj);
-  quotaField("g7", q.sevenDay, q.sevenDayExpired, q.sevenDayResetsAt, null);
+  quotaField("g5", q.fiveHour, q.fiveHourExpired, q.fiveHourResetsAt, proj, q.at);
+  quotaField("g7", q.sevenDay, q.sevenDayExpired, q.sevenDayResetsAt, null, q.at);
   // A falling 5-hour quota means its window reset: say so rather than a negative rate.
   patch($("f-burn").querySelector(".v"), tr.burnPerH == null ? [el("span", "num", "—")] : tr.burnPerH < 0 ? [el("span", null, "reset")] : [
     num("+" + tr.burnPerH.toFixed(1), "%/h"),
@@ -1187,6 +1304,20 @@ function renderStatus(ls) {
   patch($("procs"), tr.cpu == null ? [el("span", "more", tr.procsError ? "cannot read" : "read while in view")] :
     [num(Math.round(tr.cpu) + "%", "CPU"), num(Math.round(tr.memMb || 0), "MB"), spark(tr.cpuSpark, { lo: 0 })].filter(Boolean));
   setText($("intr"), String((S.observe.notifier || {}).interrupts || 0));
+  fitFields();
+}
+// The status bar keeps to one line on a desktop window: when its figures would wrap
+// (the CPU figure and a busy lane count arriving at 110%, say), the secondary ones go,
+// as they do from 140% (.big), rather than the whole page jumping down a line. It is
+// measured with them shown, in one pass, so nothing flickers.
+function fitFields() {
+  const f = $("fields");
+  f.classList.remove("tight");
+  if (window.innerWidth <= 1180) return; // narrower, the bar wraps by design
+  // Fields sit on the line's foot (align-items: flex-end), so a wrap shows in their bottoms.
+  const foot = (x) => x.offsetTop + x.offsetHeight;
+  const kids = Array.from(f.children).filter((x) => x.offsetParent);
+  if (kids.some((x) => Math.abs(foot(x) - foot(kids[0])) > 4)) f.classList.add("tight");
 }
 $("tm-gate").addEventListener("click", () => {
   const q = S && (S.queues || [])[0];
@@ -1589,9 +1720,14 @@ function fitTerm(t) {
 
 // The terminal's frame takes the space the workspace leaves (a flex item, panel.css),
 // so the controls under it stay on screen whatever banners show; below 1180 px it is
-// a fixed share of the window. xterm is refitted whenever the frame changes size.
-function sizeTerm() { fitTerm(terms[selTerm]); }
-new ResizeObserver(() => sizeTerm()).observe($("termhost"));
+// a fixed share of the window. xterm is refitted once the frame has held a new size
+// for a moment: dragging the window or the rail changes it every frame, and each size
+// that reached the pty was a SIGWINCH claude redrew its whole screen for. A burst of
+// them left pieces of earlier boxes behind, drawn for a width the pane no longer had.
+const SETTLE_MS = 120;
+let sizeTimer = 0;
+function sizeTerm() { clearTimeout(sizeTimer); fitTerm(terms[selTerm]); }
+new ResizeObserver(() => { clearTimeout(sizeTimer); sizeTimer = setTimeout(sizeTerm, SETTLE_MS); }).observe($("termhost"));
 
 let linkAsk = null;
 function askOpenLink(uri) {
@@ -1798,9 +1934,57 @@ function stUpdate() {
     if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off until panel.json is trusted as it is now (clauductor panel trust)."));
   } else if (type && (type.model || type.effort)) p += ", then claude" + (type.model ? " --model " + type.model : "") + (type.effort ? " --effort " + type.effort : "");
   $("st-preview").textContent = p;
+  // What a template is and what a lane type is, said where you choose them: a template
+  // is a recipe that picks a lane type, and a type is only how claude runs.
+  const how = (x) => (x.prefix ? "new branches start " + x.prefix : "no branch of its own: an existing worktree or the project root") +
+    (x.model || x.effort ? "; claude" + (x.model ? " --model " + x.model : "") + (x.effort ? " --effort " + x.effort : "") : "");
+  setText($("st-tpl-help"), tpl
+    ? "A recipe: it sets the lane type (" + tpl.laneType + "), names the branch " + (tpl.branchPattern || "<type prefix><name>") + " and types its first prompt once claude is ready."
+    : "A template is a recipe for one kind of work: it picks the lane type, names the branch and types a first prompt. With none, claude starts with nothing typed.");
+  setText($("st-type-help"), (tpl ? "Set by the template. " : "How claude runs, whatever the work. ") + (type ? type.name + ": " + how(type) + "." : ""));
   $("st-block").hidden = !S.startBlocked;
   $("st-block").textContent = S.startBlocked || "";
   $("st-go").disabled = !!S.startBlocked || offline();
+  renderNext();
+}
+
+// Up next (PANEL-12): each template with a suggest command lists what it could start
+// next, as the project itself says (its roadmap, its issues). A row picks its template
+// and fills in the lane name, so the next piece of work is a click away rather than a
+// trip to the roadmap. The rows are the command's output: text only, never markup.
+function renderNext() {
+  const box = $("st-next");
+  const tpls = (S.templates || []).filter((x) => x.suggests);
+  box.hidden = !tpls.length;
+  if (!tpls.length) return;
+  const tpl = stTpl(), name = $("st-name").value;
+  const h = el("div", "mh", "Up next");
+  h.id = "st-next-h";
+  const kids = [key(h, "nx:h")];
+  for (const x of tpls) {
+    const sg = (S.suggestions || {})[x.id] || { source: { pending: true }, items: [] };
+    kids.push(key(el("div", "nh", x.title || x.id), "nx:t:" + x.id));
+    if (sg.source.pending) kids.push(key(el("div", "empty", "reading…"), "nx:p:" + x.id));
+    else if (!sg.source.ok) kids.push(key(el("div", "srcerr", "cannot read: " + sg.source.error), "nx:e:" + x.id));
+    else if (!sg.items.length) kids.push(key(el("div", "empty", "Nothing queued."), "nx:0:" + x.id));
+    for (const it of sg.items || []) {
+      const b = el("button", "nextrow", null, [el("span", "nm", it.name), el("span", "tt", it.title || ""), it.detail ? el("span", "dt", it.detail) : null]);
+      b.type = "button";
+      b.title = [it.name, it.title, it.detail].filter(Boolean).join("\n");
+      b.setAttribute("aria-pressed", String(!!(tpl && tpl.id === x.id && name === it.name)));
+      on(b, "click", () => pickNext(x, it));
+      kids.push(key(b, "nx:r:" + x.id + ":" + it.name));
+    }
+    if (sg.skipped) kids.push(key(el("div", "dim", sg.skipped + " more had no usable lane name (lower case, digits and -)."), "nx:s:" + x.id));
+  }
+  patch(box, kids);
+}
+function pickNext(x, it) {
+  $("st-tpl").value = x.id;
+  $("st-name").value = it.name;
+  if (it.issue) $("st-issue").value = it.issue;
+  stUpdate();
+  $("st-name").focus();
 }
 
 // opts.worktree: "Start lane here" on a worktree in the tree picks that worktree.
@@ -1826,6 +2010,9 @@ function openStart(opts) {
   stTypeChanged();
   if (opts && opts.worktree) {
     $("st-tpl").value = "";
+    // The worktree's own type (main → orchestrator), not whatever the list shows first.
+    const own = S.lanes.concat(S.quietWorktrees).find((l) => l.path === opts.worktree);
+    if (own && (S.laneTypes || []).some((x) => x.name === own.type)) sel.value = own.type;
     wt.value = opts.worktree;
     wt.title = opts.worktree;
     document.querySelector('input[name="st-mode"][value="existing"]').checked = true;
@@ -1973,11 +2160,17 @@ function renderObs() {
   }, obsOpen ? "Show the main counters only" : "Show every counter the panel keeps", "obstoggle");
   toggle.setAttribute("aria-expanded", String(obsOpen));
   toggle.setAttribute("aria-controls", "obs");
-  const drops = o.droppedForeign + o.overflowDrops + o.malformedDrops + o.droppedUnknownEvent;
-  const kids = [toggle, kv("events", o.hookEvents), kv("status posts", o.statusPosts), kv("dropped", drops),
+  // Hooks are the machine's, so every other project's sessions post here too: those
+  // are set aside, as they should be, and counted apart from what was really lost.
+  const drops = o.overflowDrops + o.malformedDrops + o.droppedUnknownEvent;
+  const other = kv("other projects", o.droppedForeign, "dim");
+  other.title = "Hook and status-line events from sessions outside this project, set aside. Every session on the machine posts to the panel; nothing is wrong.";
+  const lost = kv("dropped", drops, drops ? "warn" : null);
+  lost.title = "Events the panel could not use: it fell behind, or the post was malformed or of an unknown kind.";
+  const kids = [toggle, kv("events", o.hookEvents), kv("status posts", o.statusPosts), other, lost,
     kv("notifications", o.notifySent + (o.notifyFailed ? ", failed " + o.notifyFailed : ""))];
   if (obsOpen) kids.push(
-    kv("dropped: foreign cwd", o.droppedForeign), kv("overflow", o.overflowDrops), kv("malformed", o.malformedDrops),
+    kv("overflow", o.overflowDrops), kv("malformed", o.malformedDrops),
     kv("unknown event", o.droppedUnknownEvent), kv("unknown notification", o.unknownNotifications),
     kv("claude agents", (o.agentsPolls ? o.agentsPollMs + " ms (avg " + o.agentsPollAvgMs + ", max " + o.agentsPollMaxMs + ")" : "—") +
       " every " + (o.agentsIntervalMs ? o.agentsIntervalMs / 1000 + " s" : "—")),
@@ -2029,7 +2222,7 @@ function render() {
   document.title = (off ? "⚠ Disconnected: " : "") + (n ? "(" + n + ") " : "") + S.name + " panel";
   setText($("pname"), S.name);
   setText($("cost"), S.estCostUsd == null ? "—" : money(S.estCostUsd));
-  setText($("hookn"), S.hookEvents + " / " + S.statusPosts + (S.dropped ? " / " + S.dropped + " dropped" : ""));
+  setText($("hookn"), S.hookEvents + " / " + S.statusPosts + (S.dropped ? " / " + S.dropped + " elsewhere" : ""));
   const add = $("addlane");
   add.disabled = !!S.startBlocked || off;
   add.title = off ? "Disconnected from the panel" : S.startBlocked || "Start a lane: an interactive claude in its own tmux session";
@@ -2057,6 +2250,8 @@ function render() {
   renderSide(cur);
   renderDrawer();
   renderHint();
+  // A suggest list read while the dialog is open shows at once.
+  if (!$("startdlg").hidden) stUpdate();
 }
 
 $("refresh").addEventListener("click", () => { if (!offline()) fetch("/api/refresh", { method: "POST" }).catch(() => {}); });
@@ -2106,6 +2301,20 @@ function termCellWidth() {
   return cellW;
 }
 let sideForced = false, railForced = false;
+// The side panel's own width (its edge, below); 0 is the theme's.
+const SIDE_W_KEY = "clauductor-panel-side-w";
+let sideW = 0;
+try { sideW = parseInt(localStorage.getItem(SIDE_W_KEY), 10) || 0; } catch (e) {}
+// Up to half the window, and never so wide that the terminal would lose its TERM_COLS
+// columns: past that, fitLayout would fold the side panel away under the drag.
+function sideMax() {
+  const W = window.innerWidth, shell = $("shell");
+  const railW = shell && !shell.classList.contains("norail") ? $("rail").getBoundingClientRect().width : 0;
+  // Two columns in hand: xterm's own cell and the frame's padding run a little wider
+  // than the canvas measure, and the drag must stop short of the fold, not on it.
+  return Math.max(240, Math.min(Math.round(W * 0.5), Math.floor(W - 40 - railW - (TERM_COLS + 2) * termCellWidth())));
+}
+
 function fitLayout() {
   const W = window.innerWidth;
   const out = { side: sideOpen, rail: rail.open, sideAuto: false, railAuto: false };
@@ -2113,9 +2322,9 @@ function fitLayout() {
   const TERM_MIN = Math.round(TERM_COLS * termCellWidth());
   const root = getComputedStyle(document.documentElement), rem = parseFloat(root.fontSize) || 16;
   const railW = Math.min(rail.w || (parseFloat(root.getPropertyValue("--rail-w")) || 21) * rem, 0.38 * W);
-  const sideW = Math.min((parseFloat(root.getPropertyValue("--side-w")) || 16) * rem, 0.32 * W);
-  if (out.side && !sideForced && W - 30 - (out.rail ? railW : 0) - sideW < TERM_MIN) { out.side = false; out.sideAuto = true; }
-  if (out.rail && !railForced && W - 30 - railW - (out.side ? sideW : 0) < TERM_MIN) { out.rail = false; out.railAuto = true; }
+  const sideWd = sideW ? Math.min(sideW, sideMax()) : Math.min((parseFloat(root.getPropertyValue("--side-w")) || 16) * rem, 0.32 * W);
+  if (out.side && !sideForced && W - 30 - (out.rail ? railW : 0) - sideWd < TERM_MIN) { out.side = false; out.sideAuto = true; }
+  if (out.rail && !railForced && W - 30 - railW - (out.side ? sideWd : 0) < TERM_MIN) { out.rail = false; out.railAuto = true; }
   return out;
 }
 function applyRail() {
@@ -2144,7 +2353,8 @@ $("railbtn").addEventListener("click", () => {
 NARROW.addEventListener("change", applyRail);
 // A new window size or text size refits the layout.
 let fitTimer = 0;
-function refit() { clearTimeout(fitTimer); fitTimer = setTimeout(() => { applyRail(); if (S) render(); }, 60); }
+function refit() { clearTimeout(fitTimer); fitTimer = setTimeout(() => { applyRail(); applySideW(); if (S) render(); }, 60); }
+// render() refits the status bar too (fitFields, via renderStatus).
 window.addEventListener("resize", refit);
 document.addEventListener("panel-scale", refit);
 {
@@ -2182,6 +2392,63 @@ document.addEventListener("panel-scale", refit);
     ev.preventDefault();
   });
   sp.addEventListener("dblclick", () => { rail.w = 0; saveRail(); applyRail(); });
+}
+
+// ---- The side panel's edge: drag (or arrow-key) it, as the rail's (PANEL-12) -----------------
+// Its width is kept per browser; 0 is the theme's. It goes with the side panel: hidden
+// with it, and under 1180 px, where the side panel sits under the terminal.
+function applySideW() {
+  const g = $("wsgrid");
+  g.classList.toggle("sized", !!sideW);
+  // As the rail does with --rail-w: the theme's token, set in px on the grid alone.
+  if (sideW) g.style.setProperty("--side-w", Math.min(sideW, sideMax()) + "px"); else g.style.removeProperty("--side-w");
+  const sp = $("sidesplit"), w = Math.round($("side").getBoundingClientRect().width);
+  sp.setAttribute("aria-valuenow", String(w));
+  sp.setAttribute("aria-valuemin", "200");
+  sp.setAttribute("aria-valuemax", String(sideMax()));
+  sp.setAttribute("aria-valuetext", w + " pixels");
+}
+function setSideW(px) {
+  sideW = px ? Math.max(200, Math.min(sideMax(), Math.round(px))) : 0;
+  try { if (sideW) localStorage.setItem(SIDE_W_KEY, String(sideW)); else localStorage.removeItem(SIDE_W_KEY); } catch (e) {}
+  applySideW();
+}
+{
+  const sp = $("sidesplit");
+  sp.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    sp.setPointerCapture(ev.pointerId);
+    sp.classList.add("drag");
+    document.body.classList.add("resizing");
+    const right = $("wsgrid").getBoundingClientRect().right;
+    const move = (e) => setSideW(right - e.clientX);
+    const up = () => {
+      sp.classList.remove("drag");
+      document.body.classList.remove("resizing");
+      sp.removeEventListener("pointermove", move);
+      sp.removeEventListener("pointerup", up);
+      sp.removeEventListener("pointercancel", up);
+      if (S) render(); // the layout may fold or unfold at the new width
+    };
+    sp.addEventListener("pointermove", move);
+    sp.addEventListener("pointerup", up);
+    sp.addEventListener("pointercancel", up);
+  });
+  // Left widens (the edge moves left), Right narrows; Home and End go to the limits.
+  // A double-click, or Escape, returns to the theme's width.
+  sp.addEventListener("keydown", (ev) => {
+    const w = $("side").getBoundingClientRect().width;
+    if (ev.key === "ArrowLeft") setSideW(w + 16);
+    else if (ev.key === "ArrowRight") setSideW(w - 16);
+    else if (ev.key === "Home") setSideW(sideMax());
+    else if (ev.key === "End") setSideW(200);
+    else if (ev.key === "Escape") setSideW(0);
+    else return;
+    ev.preventDefault();
+  });
+  sp.addEventListener("dblclick", () => setSideW(0));
+  applySideW();
 }
 applyRail();
 

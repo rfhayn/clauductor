@@ -29,6 +29,9 @@ func TestConfigRejects(t *testing.T) {
 		"watch absolute path": `{"name":"x","cards":[{"id":"a","command":["true"],"refresh":"watch:/etc/passwd"}]}`,
 		"zero interval":       `{"name":"x","cards":[{"id":"a","command":["true"],"refresh":"interval:0"}]}`,
 		"empty lane type":     `{"name":"x","lanes":{"fix/":""}}`,
+		"suggest no command":  `{"name":"x","lanes":{"f/":"b"},"templates":[{"id":"a","lane_type":"b","first_prompt":"p","suggest":{"command":[],"refresh":"interval:60"}}]}`,
+		"suggest bad refresh": `{"name":"x","lanes":{"f/":"b"},"templates":[{"id":"a","lane_type":"b","first_prompt":"p","suggest":{"command":["true"],"refresh":"watch:../x"}}]}`,
+		"suggest unknown key": `{"name":"x","lanes":{"f/":"b"},"templates":[{"id":"a","lane_type":"b","first_prompt":"p","suggest":{"command":["true"],"refresh":"interval:60","shell":true}}]}`,
 	}
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -127,7 +130,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":3`,
+		"future version":        `,"version":4`,
 	}
 	for why, extra := range bad {
 		if _, err := parseConfig([]byte(`{"name":"T","lanes":{"change/":"build","main":"orchestrator"}` + extra + `}`)); err == nil {
@@ -188,5 +191,26 @@ func TestConfigRejectsBadLaneKeys(t *testing.T) {
 	if _, err := parseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
 		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A template's suggest command is trusted like a card's: RunList names it, and the
+// dialog is told the template has a list.
+func TestTemplateSuggest(t *testing.T) {
+	t.Parallel()
+	c, err := parseConfig([]byte(`{"name":"x","version":3,"lanes":{"f/":"b"},"cards":[{"id":"c","command":["true"],"refresh":"interval:60","pin":true}],
+		"templates":[{"id":"a","lane_type":"b","first_prompt":"p","suggest":{"command":["next","--suggest"],"refresh":"watch:docs"}},{"id":"z","lane_type":"b","first_prompt":"p"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Cards[0].Pin {
+		t.Error("pin not read")
+	}
+	tl := c.TemplateList()
+	if !tl[0].Suggests || tl[1].Suggests {
+		t.Errorf("suggests %v %v", tl[0].Suggests, tl[1].Suggests)
+	}
+	if !strings.Contains(strings.Join(c.RunList(), "\n"), `template a suggests from ["next" "--suggest"] (watch:docs)`) {
+		t.Errorf("RunList %q", c.RunList())
 	}
 }

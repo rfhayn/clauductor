@@ -6,7 +6,9 @@
 #   updates, fed by status posts that change what the page shows;
 # - appearance-and-keys.cjs (PANEL-11): every type system loads, a type change refits
 #   the terminal, and the tabs, Enter, Ctrl+] and the size keys behave. It needs two
-#   lanes, which this starts through the page's own API.
+#   lanes, which this starts through the page's own API;
+# - project-and-side.cjs (PANEL-12): the pinned cards' tab box, rows that stay open,
+#   the side panel's edge, and Up next in the Start dialog.
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -44,7 +46,17 @@ chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 proj="$tmp/project"
 git -C "$proj" init -q -b main
 cat > "$proj/.clauductor/panel.json" <<JSON
-{ "name": "Focus test", "version": 2, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock" }
+{ "name": "Focus test", "version": 3, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
+  "cards": [
+    { "id": "founder", "title": "Founder queue", "pin": true, "refresh": "interval:3600",
+      "command": ["printf", "2 item(s) need the founder:\\n- **Box cleanup** (queued 2026-09-27). On the box, prune images\\n- **Ideas page** open it once, then invite a designer\\n"] },
+    { "id": "queue", "title": "Change queue", "pin": true, "refresh": "interval:3600",
+      "command": ["printf", "2C.10 add-score-photo — photograph a scorecard — in flight\\n2C.27 add-group-card — one golfer enters the card — queued\\n"] }
+  ],
+  "templates": [
+    { "id": "propose", "title": "Propose a roadmap row", "lane_type": "build", "branch_pattern": "change/{name}", "first_prompt": "propose {name}",
+      "suggest": { "command": ["printf", "[{\\"name\\":\\"add-group-card\\",\\"title\\":\\"one golfer enters the card\\",\\"detail\\":\\"2C.27\\"}]"], "refresh": "interval:3600" } }
+  ] }
 JSON
 git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
 proj=$(cd "$proj" && pwd -P)
@@ -65,4 +77,5 @@ done
 status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
+node "$here/project-and-side.cjs" "$base" "$tok" || status=1
 exit $status

@@ -803,3 +803,31 @@ func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
 		t.Fatal("garbage parsed")
 	}
 }
+
+// A quota saved by an earlier panel shows until a post says more; a live reading is
+// never replaced by the saved one (PANEL-12).
+func TestRestoreQuota(t *testing.T) {
+	t.Parallel()
+	t0 := time.Unix(1_700_000_000, 0)
+	m := NewModel(testConfig(t), "/proj", t0)
+	five, reset := 40.0, t0.Add(time.Hour).Unix()
+	m.RestoreQuota(Quota{FiveHour: &five, FiveHourResets: &reset, At: t0.Add(-time.Hour).UnixMilli()})
+	q := m.Snapshot(t0).Quota
+	if q == nil || *q.FiveHour != 40 || q.At != t0.Add(-time.Hour).UnixMilli() {
+		t.Fatalf("restored quota: %+v", q)
+	}
+	// Past its reset, a restored window shows as reset, as a live one does.
+	if q := m.Snapshot(t0.Add(2 * time.Hour)).Quota; q.FiveHour != nil || !q.FiveHourExpired {
+		t.Fatalf("restored quota after its reset: %+v", q)
+	}
+	other := 90.0
+	m.RestoreQuota(Quota{FiveHour: &other, At: t0.UnixMilli()})
+	if *m.QuotaReading().FiveHour != 40 {
+		t.Fatal("a second restore replaced the reading")
+	}
+	m2 := NewModel(testConfig(t), "/proj", t0)
+	m2.RestoreQuota(Quota{})
+	if m2.QuotaReading() != nil {
+		t.Fatal("an empty saved quota was restored")
+	}
+}
