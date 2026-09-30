@@ -1035,7 +1035,7 @@ function renderLaneHead(x) {
 }
 
 // ---- The lane's side panel: tabs between metric families ------------------------------------
-const SIDE_TABS = [["agents", "Agents"], ["figures", "Figures"], ["git", "Git"], ["gate", "Gate"], ["alerts", "Alerts"], ["activity", "Activity"]];
+const SIDE_TABS = [["agents", "Agents"], ["figures", "Figures"], ["git", "Git"], ["checks", "Checks"], ["gate", "Gate"], ["alerts", "Alerts"], ["activity", "Activity"]];
 let sideTab = "agents";
 try { const t = localStorage.getItem("clauductor-panel-sidetab"); if (SIDE_TABS.some((x) => x[0] === t)) sideTab = t; } catch (e) {}
 function kvRows(rows) {
@@ -1107,6 +1107,7 @@ function renderSide(x) {
   if (sideTab === "agents") body.push(...sideAgents(x));
   else if (sideTab === "figures") body.push(sideFigures(x));
   else if (sideTab === "git") body.push(...sideGit(x));
+  else if (sideTab === "checks") body.push(...sideChecks(x));
   else if (sideTab === "gate") body.push(...sideGate(x));
   else if (sideTab === "alerts") body.push(...sideAlerts(x, needs, als));
   else body.push(feedList(laneFeed(x).slice(0, 60), false, "lanefeed"));
@@ -1332,6 +1333,22 @@ function sideGit(x) {
   if (!S.sources.prs.ok && !S.sources.prs.pending) out.push(sourceNote(S.sources.prs, "gh pr list", "wt:prsrc"));
   else if (pr) out.push(key(kvRows([["Number", prCell(pr)], ["Title", pr.title], ["Author", pr.author]]), "git:pr"));
   else out.push(key(el("div", "empty", x.branch ? "No open pull request for this branch." : "No branch."), "git:nopr"));
+  return out;
+}
+// PANEL-20: merge readiness, read-only: the pull request, its checks, review and
+// unresolved threads, the change's tasks and the gate receipt for HEAD, and a verdict
+// that names every reason. The panel never merges.
+function sideChecks(x) {
+  const rd = x.lv && x.lv.readiness;
+  if (!rd) return [key(el("div", "empty", x.lv ? "This lane has no branch of its own, so nothing to merge." : "No worktree is matched to this lane."), "ck:none")];
+  const out = [key(el("div", "ckverdict " + (rd.ready ? "ok" : "warn"), rd.ready ? "Ready to merge" : "Not ready: " + rd.reasons.join("; ")), "ck:v")];
+  const box = el("div", "kv ckrows");
+  for (const r of rd.rows) {
+    box.appendChild(el("span", "k", r.name));
+    box.appendChild(el("span", "v" + (r.unknown ? " dim" : r.ok ? "" : " crit"), r.text));
+  }
+  out.push(key(box, "ck:rows"));
+  out.push(key(el("div", "dim ckfoot", "Read while this page is in view: checks and review from gh pr list, review threads from gh at most every 2 minutes, tasks.md in this worktree, the gate receipt in its git dir. The panel never merges."), "ck:foot"));
   return out;
 }
 function sideGate(x) {

@@ -57,7 +57,17 @@ case "$1" in
      stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
 esac
 SH
-printf '#!/bin/sh\necho "[]"\n' > "$tmp/bin/gh"
+# gh: no merged pull request anywhere; one open pull request, #7 for change/second, with
+# one check failing and one of two review threads unresolved (PANEL-20's readiness box).
+cat > "$tmp/bin/gh" <<'SH'
+#!/bin/sh
+case "$*" in
+  "pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision")
+    echo '[{"number":7,"title":"Second","headRefName":"change/second","author":{"login":"t"},"isDraft":false,"reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"FAILURE"}]}]' ;;
+  "api graphql"*) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":true},{"isResolved":false}]}}}}}' ;;
+  *) echo "[]" ;;
+esac
+SH
 chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 
 proj="$tmp/project"
@@ -97,6 +107,10 @@ done
 mkdir -p "$proj/.claude/worktrees/second/changes/second"
 printf '# Second\n\n**Budget:** $5\n' > "$proj/.claude/worktrees/second/changes/second/proposal.md"
 touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null || date -d '2 days ago' +%Y%m%d%H%M)" "$proj/.claude/worktrees/second/changes/second/proposal.md"
+# PANEL-20: its tasks.md has one of two tasks ticked, and its gate receipt is for
+# another commit.
+printf '## Tasks\n- [x] one\n- [ ] two\n' > "$proj/.claude/worktrees/second/changes/second/tasks.md"
+printf '0123456789abcdef0123456789abcdef01234567\tfull\tclean\tall\n' > "$(git -C "$proj/.claude/worktrees/second" rev-parse --absolute-git-dir)/ci-receipt"
 status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
@@ -104,4 +118,5 @@ node "$here/project-and-side.cjs" "$base" "$tok" || status=1
 node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 node "$here/lane-row-actions.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/metrics-view.cjs" "$base" "$tok" || status=1
+node "$here/lane-readiness.cjs" "$base" "$tok" || status=1
 exit $status

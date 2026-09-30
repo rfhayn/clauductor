@@ -56,6 +56,14 @@ These buttons sit under the selected lane's terminal. To act on a lane without o
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.
 
+## Is it ready to merge?
+
+Select the lane, then **Checks** in its side panel. One line says **Ready to merge**, or **Not
+ready** with every reason: no open pull request, a failing or pending check, a review required,
+an unresolved review thread, an unticked task in the change's `tasks.md`, or no gate receipt for
+the branch's latest commit. The lines under it show each check. The panel only reports; merge as
+you always do. See [Merge readiness](panel.md#merge-readiness).
+
 ## Prepare each new worktree
 
 A new lane's worktree is a fresh checkout. Three settings fill it in (config version 5):

@@ -28,6 +28,7 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | project cards | per card: on a file change or an interval | anything the project prints |
 | the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
 | `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
+| `gh api graphql` (review threads) | per lane with an open pull request, at most every 2 min, only while a page is in view | a lane's unresolved review threads (merge readiness, PANEL-20) |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -530,6 +531,7 @@ value just changed.
   - **Git**: branch, HEAD, path, upstream with ahead and behind, changed and untracked files, the
     diff stat against HEAD, the last commit's age, and the template's first-prompt state; then the
     branch's pull request, its checks and review decision.
+  - **Checks** (PANEL-20): the lane's merge readiness, see *Merge readiness*.
   - **Gate**: for each queue, whether this lane holds it, waits in it and where, or is not in it;
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
@@ -756,6 +758,25 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
 **A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
 to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
 exits and the lane shows a dead pane; STOP it and start it again.
+
+### Merge readiness
+
+PANEL-20. A lane's **Checks** tab says in one line whether its branch is ready to merge, and
+every reason it is not ("Not ready: 1 check(s) failed; 1 unresolved review thread(s); no gate
+receipt for HEAD"), then a line per check. It is read-only: the panel never merges.
+
+| Check | From | Not ready when |
+|---|---|---|
+| Pull request | `gh pr list` (already polled) | none is open for the branch, or it is a draft |
+| Checks | its status checks | one failed or is pending |
+| Review | its review decision | changes requested, or a review required |
+| Review threads | `gh api graphql` (`reviewThreads`, the first 100), at most every 2 min per pull request | one is unresolved |
+| Tasks | the change's `tasks.md` in the lane's own worktree (the branch's last segment names the change) | a `- [ ]` box is unticked |
+| Gate receipt | `<the worktree's git dir>/ci-receipt` (OPS-7's `run-local.sh`: `<sha> TAB full TAB clean\|dirty TAB all`) | it is for another commit than HEAD, or for a dirty tree; with none, only when the project keeps receipts (it has `scripts/ci/run-local.sh` or a queue) |
+
+A check the panel cannot make yet (nothing read, or gh failed) is shown as such, in the dim tier,
+and counts as not ready. The reads run with the dashboard's, only while a page is in view. A lane
+on the project root or the base branch has nothing to merge, and says so.
 
 ### Worktree setup, teardown and ports
 

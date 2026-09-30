@@ -191,6 +191,9 @@ type Model struct {
 	spentByBranch map[string]float64
 	economy       *EconomyView
 	remoteControl string
+	// PANEL-20 (readiness.go): the runtime's per-worktree reads for merge readiness.
+	laneExtras   map[string]LaneExtra
+	gateReceipts bool
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -791,6 +794,8 @@ type LaneView struct {
 	// Budget is the budget of the change this lane's branch builds (PANEL-19), when
 	// its proposal has one, and what the change's branches have spent.
 	Budget *BudgetView `json:"budget,omitempty"`
+	// Readiness is whether the lane's branch is ready to merge, and why not (PANEL-20).
+	Readiness *Readiness `json:"readiness,omitempty"`
 	// Head is the worktree's HEAD commit, from `git worktree list`.
 	Head        string        `json:"head,omitempty"`
 	LastEvent   string        `json:"lastEvent,omitempty"`
@@ -1214,6 +1219,10 @@ func (m *Model) Snapshot(now time.Time) View {
 	}
 	for i := range v.Lanes {
 		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
+		v.Lanes[i].Readiness = m.readiness(v.Lanes[i])
+	}
+	for i := range v.QuietWorktrees {
+		v.QuietWorktrees[i].Readiness = m.readiness(v.QuietWorktrees[i])
 	}
 	v.Economy = m.economyView()
 	if m.remoteControl != "off" {

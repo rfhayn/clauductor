@@ -183,6 +183,8 @@ type Runtime struct {
 
 	// mstore is the Metrics view's data (PANEL-19; metrics_source.go).
 	mstore *metricsStore
+	// ready caches merge readiness's reads (PANEL-20; readiness_source.go).
+	ready readinessCache
 }
 
 // newRuntime builds a project's runtime and its table of sources.
@@ -229,6 +231,8 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		// Refresh re-reads git too (PANEL-18): after a pull, the cards' stale note goes at once.
 		{name: "git", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollGit},
+		// PANEL-20: merge readiness, on git's cadence and while a page is in view.
+		{name: "readiness", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollReadiness},
 	}
 	for _, c := range cfg.Cards {
 		r.sources = append(r.sources, r.cardSource(c))
