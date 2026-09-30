@@ -1649,6 +1649,32 @@ function ensureTerm(id) {
     return true;
   });
   const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false, scrolled: false };
+  // An image dropped on the terminal, or pasted into it, reaches claude as a native
+  // terminal's drop does: the panel keeps the file and types its path (PANEL-15b).
+  // A browser never gives a page a local path, so the bytes go to the panel.
+  const hasFiles = (dt) => !!dt && Array.from(dt.types || []).includes("Files");
+  host.addEventListener("dragover", (ev) => {
+    if (!hasFiles(ev.dataTransfer)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    host.classList.add("drop");
+  });
+  host.addEventListener("dragleave", (ev) => { if (!host.contains(ev.relatedTarget)) host.classList.remove("drop"); });
+  host.addEventListener("drop", (ev) => {
+    host.classList.remove("drop");
+    if (!hasFiles(ev.dataTransfer)) return;
+    ev.preventDefault();
+    dropImages(t, Array.from(ev.dataTransfer.files));
+  });
+  // Capture: the image never reaches xterm's own paste, which would type nothing.
+  host.addEventListener("paste", (ev) => {
+    const items = Array.from((ev.clipboardData && ev.clipboardData.items) || []);
+    const files = items.filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    dropImages(t, files);
+  }, true);
   // tmux has the mouse, so that the wheel scrolls its history, and binds no clicks:
   // an unbound click goes to the program if it asked for the mouse, as claude's
   // fullscreen TUI does. A plain press becomes a text selection instead, exactly as
@@ -1697,6 +1723,30 @@ function ensureTerm(id) {
   terms[id] = t;
   connectTerm(t);
   return t;
+}
+
+// dropImages sends each image to the panel, which keeps it and types its path into
+// the lane, then a space: the prompt goes on around it, and nothing presses Enter.
+// What the panel refuses (not an image, too large, the lane gone) says why under the
+// terminal.
+const DROP_TYPES = /^image\/(png|jpeg|gif|webp)$/, DROP_MAX = 20 * 1024 * 1024;
+async function dropImages(t, files) {
+  for (const f of files) {
+    const name = f.name || "image";
+    if (offline()) actMsg = { id: t.id, err: true, text: "Not dropped: disconnected from the panel" };
+    else if (!DROP_TYPES.test(f.type)) actMsg = { id: t.id, err: true, text: "Not dropped: " + name + " is not a PNG, JPEG, GIF or WebP image" };
+    else if (f.size > DROP_MAX) actMsg = { id: t.id, err: true, text: "Not dropped: " + name + " is over 20 MB" };
+    else {
+      try {
+        const r = await fetch("/api/lanes/" + encodeURIComponent(t.id) + "/image", { method: "POST",
+          headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(name) }, body: f });
+        const j = await r.json().catch(() => ({}));
+        actMsg = r.ok ? { id: t.id, text: "Dropped " + name + ": its path is typed into the lane" }
+          : { id: t.id, err: true, text: "Not dropped: " + (j.error || "HTTP " + r.status) };
+      } catch (e) { actMsg = { id: t.id, err: true, text: "Not dropped: " + e.message }; }
+    }
+    render();
+  }
 }
 
 // A terminal WebSocket needs a single-use ticket, fetched by a POST the server checks

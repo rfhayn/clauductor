@@ -100,6 +100,9 @@ type LaneManager struct {
 	Registry *Registry      // durable lane ↔ session binding
 	Run      signals.Runner // runs git and `claude agents` (injectable for tests)
 	Program  []string       // the lane program; default the absolute path of `claude`
+	// UploadDir keeps images dropped on a lane's terminal, one directory per lane
+	// (images.go): in the panel's state directory, never a worktree. "" refuses them.
+	UploadDir string
 	// LookupEnv reads the panel's own environment (injectable for tests).
 	LookupEnv func(string) (string, bool)
 	// StopTimeout is how long Stop waits for /exit before killing the session.
@@ -654,6 +657,7 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 		}
 		// Registered but already gone from tmux: stopping it means forgetting it.
 	}
+	m.dropImages(id)
 	if registered {
 		if err := m.Registry.Delete(id); err != nil {
 			return laneErr(500, "registry", "the lane stopped, but the registry could not forget it: %v", err)
@@ -900,6 +904,7 @@ func (m *LaneManager) Forget(ctx context.Context, id string) *LaneError {
 	if err := m.Registry.Delete(id); err != nil {
 		return laneErr(500, "registry", "%v", err)
 	}
+	m.dropImages(id)
 	m.changed()
 	return nil
 }

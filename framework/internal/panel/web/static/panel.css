@@ -283,6 +283,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .termhint.on { color: var(--text-1); }
 .termhost .term { width: 100%; height: 100%; }
 .termhost .term[hidden] { display: none; }
+/* An image dragged over a lane's terminal: dropping it types its path (PANEL-15b). */
+.termhost .term.drop { outline: 2px dashed var(--act); outline-offset: -2px; }
 .termhost .empty { color: var(--term-fg); padding: .75rem; display: grid; gap: .5rem; justify-items: start; }
 .termbar { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-height: 1.7rem; flex: none; }
 .termbar .confirm { color: var(--warn); font-weight: 700; flex: 1 1 20rem; }

@@ -437,6 +437,14 @@ value just changed.
   `noopener` and no referrer. A ⌘-press never reaches claude as a click. The browser test
   `testdata/browser/terminal-links-selection.cjs` checks the links and the selection through a
   real panel and tmux, with a lane that asks for the mouse as claude's fullscreen TUI does.
+- **Images in the terminal.** Drop an image file on a lane's terminal, or paste one (⌘V with an
+  image on the clipboard), and claude gets it as it would from a native terminal: its path is
+  typed at the cursor, as a bracketed paste followed by a space, and never Enter, so you go on
+  typing the prompt around it. A browser never tells a page where a file lives, so the page
+  sends the image to the panel, which keeps it in its own state directory (see [Security
+  model](#security-model)) and types that path. The terminal is outlined while an image is
+  dragged over it. PNG, JPEG, GIF and WebP only, up to 20 MB; what is refused says why under
+  the terminal.
 - **Warnings** (the amber bars: an unverified Claude Code, ignored events) close with their **×**.
   A closed warning stays closed in this browser while it is about the same thing, even as its
   text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
@@ -1496,6 +1504,18 @@ send requests to `127.0.0.1`.
   in-page confirmation that shows its real address, since its text can say anything. The
   plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
   lane may print, other schemes and look-alike link text. Title escapes are ignored.
+- **A dropped image** (`POST /api/lanes/<id>/image`, PANEL-15b) is a lane action like the
+  others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
+  the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
+  body needs a CORS preflight, which the panel never answers. The bytes decide what it is (PNG,
+  JPEG, GIF or WebP by their magic numbers; the name and `Content-Type` are ignored), and it is
+  refused over 20 MB. The name the page sends only names the file: letters, digits, `_` and `-`,
+  60 characters at most, with the extension the bytes are. The file is written 0600 to
+  `~/.clauductor/panel/<project hash>/uploads/<lane>/<ms>-<name>` (directories 0700), **never
+  into the worktree**, where it would dirty git. Its path is typed with `tmux set-buffer` and
+  `paste-buffer -p` (bracketed when claude asked for it), then a space; no Enter. A lane's images
+  are removed when it is stopped or forgotten, and any image older than 24 hours when the next
+  one is dropped and when the panel starts. The panel never reads an image back.
 - **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
   forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
@@ -1516,6 +1536,7 @@ send requests to `127.0.0.1`.
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
+  - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
