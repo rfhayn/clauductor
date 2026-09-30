@@ -25,6 +25,7 @@ INSIGHTS="docs/insights-log.md"
 ROADMAP="docs/roadmap.md"
 OWNER_QUEUE="docs/owner-queue.md"
 ADR_DIR="docs/adr"
+INSIGHT_AREAS=""
 PROPOSALS="markdown"
 CHANGES_DIR="changes"
 SPECS_DIR="specs"
@@ -43,6 +44,14 @@ FORMAT_EXT=""
 # other's focus.
 focus_file() {
   printf '%s/.claude/%s-status-%s.txt' "$HOME" "$PROJECT_SLUG" "$(printf '%s' "$1" | tr '/' '-')"
+}
+
+# fetch_main: bring origin/<main> up to date for a context script; 0 when origin/<main> is then
+# readable. With CONTEXT_OFFLINE=1 (the checks set it) it fetches nothing and reports only
+# whether a ref is already there, so a check never touches the network or the remote refs.
+fetch_main() {
+  [ "${CONTEXT_OFFLINE:-}" = 1 ] || git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || return 1
+  git rev-parse -q --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1
 }
 
 # hook_note EVENT TEXT: allow, and tell Claude. On exit 0 a hook's plain stdout and stderr

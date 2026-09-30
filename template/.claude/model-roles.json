@@ -15,6 +15,9 @@
   },
   "skills": {
     "architecture-audit": "thinker",
+    "dev-journal": "scribe",
+    "log-insight": "scribe",
+    "new-adr": "planner",
     "release-prep": "thinker",
     "start-project": "thinker"
   },

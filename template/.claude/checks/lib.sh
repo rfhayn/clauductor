@@ -12,6 +12,8 @@ if [ -z "${ROOT:-}" ]; then
   ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 fi
 . "$ROOT/.claude/lib/conf.sh"
+# Context scripts run by a check must not fetch or call gh (fetch_main in conf.sh).
+CONTEXT_OFFLINE=1; export CONTEXT_OFFLINE
 
 _fails=0
 ok() { echo "ok   $*"; }
