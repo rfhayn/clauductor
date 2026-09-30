@@ -11,8 +11,10 @@ argument-hint: (optional) PR number; defaults to the current branch's PR
 Land a PR on `main` without tripping `.claude/hooks/pr-merge-guard.sh`. This skill is the happy
 path; the hook is the gate that blocks a merge that skips these steps. The hook's header is the
 authority on its rules; in short: no `--auto`/`--admin`; gate evidence for the head SHA; a `Slice:`
-line on a change PR; no journal session number claimed twice; an advisory when more than one
-change is proposed or the branch is behind `main`.
+line on a change PR; no journal session number claimed twice; a build PR only with every task of
+its change ticked; every enforced scenario cited by a test at the head; an archive only of a
+finished change; the provenance trailers on the squash body; an advisory when more than one change
+is proposed or the branch is behind `main`.
 
 ## Claude merges without waiting
 
@@ -68,6 +70,13 @@ Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD
 <reason>`. Missing: add it, commit, re-run the gate. Do not write an exempt line just to clear the
 gate. A PR that touches no change directory is a continuation branch; the rule does not apply.
 
+### 2c. Verify (change PRs that build a change)
+If the PR builds a change (it touches a change directory AND code), run `/verify-change <id>`
+(`sh .claude/verify-change.sh <id>`): every task ticked, every scenario it adds or modifies cited by
+a test or escaped, the approval still covering the design, and the diff touching what `tasks.md`
+claims. `build-change` ran it already; run it again if anything was committed since. A FAIL is a
+stop until fixed; `pr-merge-guard` rules 9 and 10 block the same things at the merge.
+
 ### 3. Review CONVERGED (blocking, and yours to check)
 Converged means **the last review round found nothing medium or worse.** By how the PR was built:
 - **`/build-change` or `/apply-change`**: their report shows each group's last round clean. Commits
@@ -82,11 +91,23 @@ Write the result into the PR body as one line: `Review: converged in <n> round(s
 <short sha>`. Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
 
 ### 4. Squash-merge and prune
-```bash
-gh pr merge <n> --squash --delete-branch
+Write the squash body to a file: the PR's summary, then ONE trailer block. While
+`provenance.enabled` in `.claude/model-roles.json` is true (the template's default), the block has
+the provenance trailers, and `pr-merge-guard` rule 12 refuses a merge without them:
+
+```text
+Change: <change id, or none for a fix/ or ops/ PR>
+Agent-Role: <the role that wrote most of it: builder for build-change, thinker by hand, …>
+Model: <that role's model, from model-roles.json>
+Session: <this session's id: $CLAUDE_CODE_SESSION_ID>
 ```
-If `attribution.enabled` in `.claude/model-roles.json` is true and the squash body lacks the
-trailer, pass `--body` with the PR summary ending in `attribution.trailer`.
+
+and, if `attribution.enabled` is true, `attribution.trailer` as its last line. Then:
+```bash
+gh pr merge <n> --squash --delete-branch --body-file <file>
+```
+The guard reads the file; a `--body "$(…)"` it cannot read is refused. If it names a different
+`Session:` value, use the one it names: it is the session the hook sees.
 
 ### 5. Sync
 From the main checkout: `git -C <main checkout> pull --ff-only origin main`, then confirm the

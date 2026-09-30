@@ -16,6 +16,14 @@ change.
   numbered group you were given. Do not start the next group, and do not tidy code outside it.
 - Tick each task you finish in `tasks.md` (`- [ ]` → `- [x]`). Never tick one you did not do.
 - Leave everything UNCOMMITTED. The reviewer reviews the working-tree diff; a commit would hide it.
+- **Name the scenario in its test.** Each test that proves a spec scenario carries its ID
+  (`AUTH-2-S1`) in its name, a comment or a tag, and asserts the scenario's THEN, not something
+  near it. `.claude/scenario-trace.sh` finds tests by that ID; an uncited scenario fails the gate
+  once the change's tasks are all ticked.
+- **Keep the log.** In `tasks.md`, add a line under `## Decision log` (date, group, the choice, the
+  alternative, why) for each decision you take that `design.md` does not settle; if you stop before
+  the group is done, say under `## Progress` what is finished and what is left. The next builder
+  resumes from that file, not from your summary.
 
 **Stop instead of guessing.** Return `design-issue` when implementing would change a decision in
 `design.md` or a spec scenario, or when two artifacts disagree: those decisions belong to the

@@ -29,3 +29,12 @@ echo "- Change queue:"
 sh .claude/roadmap-queue.sh --text 2>&1 | ind
 echo "- Living specs ($SPECS_DIR/):"
 ls "$SPECS_DIR" 2>/dev/null | grep -v README.md | ind
+echo "- Budgets on queued rows (repeat the row's in proposal.md):"
+sh .claude/roadmap-queue.sh --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
+echo "- Scenario IDs already taken (living specs and archived changes; never reuse one):"
+. "$ROOT/.claude/lib/change.sh"
+for s in "$SPECS_DIR"/*/spec.md "$CHANGES_DIR"/archive/*/specs/*/spec.md; do
+  [ -f "$s" ] && spec_scenarios "$s" | awk -F'\t' '$3 != "-" { print $3 }'
+done | awk '{ id = $0; sub(/-S[0-9]+$/, "", id); cap = id; sub(/-[0-9]+$/, "", cap); req = id; sub(/^.*-/, "", req)
+             if (req + 0 > max[cap]) max[cap] = req + 0; n[cap]++ }
+             END { for (c in n) printf "    %s: %d ID(s), highest requirement %d (a new requirement is %s-%d)\n", c, n[c], max[c], c, max[c] + 1 }' | sort | grep . || echo "    none"

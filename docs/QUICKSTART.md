@@ -68,8 +68,12 @@ claude
    (`OWNER_ROLE`, `OWNER_NAME`), the main branch, the insight areas.
 2. `.clauductor/panel.json`: the name and tmux socket to match. Then **you** run
    `clauductor panel trust` (a config's commands run only once you trust it).
-3. `scripts/ci/steps.sh`: your lint, typecheck and test commands; the gate runs them.
-4. The formatter hook, AGENTS.md's *Essentials*, the commit trailer in `model-roles.json`.
+3. `scripts/ci/steps.sh`: your lint, typecheck and test commands; the gate runs them, after its
+   own two steps: the scenario trace (`TEST_GLOBS` in `project.conf` says where your tests are)
+   and a secret scan (install `gitleaks`; locally the step says SKIPPED without it, under CI it
+   fails).
+4. The formatter hook, AGENTS.md's *Essentials*, the commit and provenance trailers in
+   `model-roles.json`, and the ecosystems in `.github/dependabot.yml`.
 5. The first real rows of `docs/roadmap.md`.
 6. The optional modules: OpenSpec, and the claude.ai review page.
 
@@ -89,8 +93,15 @@ From the panel's **New lane**, the templates offer what the roadmap allows next:
 |---|---|---|
 | Propose the next roadmap row | `change/<id>` | `/propose <id>`: drafts the change and stops for your approval |
 | Build an approved change | `change/<id>` | `/build-change {"change": "<id>"}`: per task group, build, gate, independent review, commit |
-| Fix an issue | `fix/<n>-<slug>` | fix from the code as built, gate, `/merge-pr` |
-| Ops task | `ops/<name>` | waits for the task |
+| Fix an issue | `fix/<n>-<slug>` | fix from the code as built, gate, `/merge-pr` (the fast path: no proposal) |
+| Ops task | `ops/<name>` | waits for the task (the fast path too) |
+
+A diff that fits in one sentence takes the fast path, with no proposal. A change to what a user can
+do is proposed: with a risk tier (it picks the build's models), a budget if its roadmap row has
+one, how you will know it worked, and scenarios whose IDs (`[AUTH-2-S1]`) its tests cite. You
+approve it; `build-change` builds it; `/verify-change` and the merge guard hold it to all of that;
+`/archive-change` records its cost and queues the check of its outcome. `changes/README.md` has the
+format, and `.claude/examples/` a complete example.
 
 Sessions merge their own PRs through `/merge-pr` once the gate has a receipt for the head commit
 and review has converged; `pr-merge-guard` blocks anything else. You are asked only for decisions
@@ -110,6 +121,14 @@ cd ~/Development/my-app && clauductor install   # refreshes the framework tier o
   without it for the commands they police.
 - **The merge guard says there is no evidence**: run `scripts/ci/gate.sh` with no flags on the
   committed head; `--quick` and a dirty tree write no receipt it accepts.
+- **The merge guard wants provenance trailers**: write the squash body to a file ending in
+  `Change:`, `Agent-Role:`, `Model:` and `Session:` lines and merge with `--body-file`
+  (`merge-pr` step 4), or set `provenance.enabled` to false in `model-roles.json`.
+- **The gate fails at "scenario trace"**: a scenario is cited by no test. Name its ID in the test
+  that asserts it, or add a `(manual: <reason>)` line naming it to the change's `tasks.md`.
+- **A command fails inside the Bash sandbox**: add the host to `sandbox.network.allowedDomains`,
+  or the command to `sandbox.excludedCommands`, in `.claude/settings.local.json`: these lists
+  merge with the project's, and an install never overwrites the local file.
 - **A worktree agent is refused by worktree-hook-drift**: put the main checkout back on `main`
   and pull.
 - **The panel's cards and suggestions show nothing**: `clauductor panel trust`, and see

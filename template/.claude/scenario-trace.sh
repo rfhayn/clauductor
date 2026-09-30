@@ -5,6 +5,8 @@
 #   sh .claude/scenario-trace.sh --change <id>   one open change's added and modified scenarios
 #   sh .claude/scenario-trace.sh --specs         the living specs only
 #   sh .claude/scenario-trace.sh --check ...     exit 1 when an enforced scenario is MISSING
+#   sh .claude/scenario-trace.sh --now ...       trace a change still being built as if it were
+#                                                finished (the reviewer's view, mid-build)
 #   sh .claude/scenario-trace.sh --rev <sha> ... read the tree at a commit, not the working tree
 #                                                (pr-merge-guard reads the PR's head this way)
 #
@@ -36,10 +38,11 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 . "$ROOT/.claude/lib/conf.sh"
 . "$ROOT/.claude/lib/change.sh"
 
-check=""; rev=""; only_specs=""; changes=""; any_change=""
+check=""; now=""; rev=""; only_specs=""; changes=""; any_change=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) check=1 ;;
+    --now) now=1 ;;
     --rev) shift; rev=$1 ;;
     --specs) only_specs=1 ;;
     --change) shift; changes="$changes $1"; any_change=1 ;;
@@ -105,7 +108,7 @@ if [ -z "$only_specs" ]; then
     [ -n "$files" ] || { echo "MISSING  change $c: no such open change in $CHANGES_DIR"; echo x >> "$tmp/bad"; continue; }
     tasks=$(fetch "$base/tasks.md")
     open=$(open_tasks "$tasks")
-    if [ "$open" -gt 0 ]; then
+    if [ "$open" -gt 0 ] && [ -z "$now" ]; then
       echo "PENDING  change $c: $open task(s) open; its scenarios are enforced once every task is ticked" >> "$tmp/pending"
       continue
     fi

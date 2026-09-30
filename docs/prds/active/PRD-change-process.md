@@ -1,7 +1,8 @@
 # PRD: The change process (OPS-7), and adopting it in an existing project
 
-**Status:** decided 2026-09-30. OPS-7 builds it on top of OPS-1 (#19). StandingT adopts it after
-everything below has shipped.
+**Status:** decided 2026-09-30. OPS-7 items 1–15 and the economy-mode mapping are built (branch
+`feature/OPS-7-change-process`, on OPS-1 #19); see *OPS-7: what was built*. StandingT adopts it
+after everything below has shipped.
 
 ## Why
 
@@ -226,6 +227,34 @@ property testing, a STRIDE section for changes that cross a trust boundary, and 
 Skipped, because they assume a human team: sprints and velocity, review SLAs, coverage percentages,
 on-call, SPACE surveys, a formal betting table, and the full NIST AI RMF.
 
+### OPS-7: what was built (2026-09-30)
+
+Every item is done. Each row names what enforces it; each check was falsified (the rule broken, the
+check seen to fail, the rule restored).
+
+| # | Built | Enforced by |
+|---|---|---|
+| 1 | `[CAP-n-Sn]` grammar in `specs/README.md`, `changes/README.md`, `propose`, OpenSpec `config.yaml`; `.claude/lib/change.sh` reads it | `checks/changes.sh`: missing, malformed, duplicate, reused (living specs + archived deltas), mixed `CAP-n` |
+| 2 | `.claude/scenario-trace.sh` (`--check`, `--change`, `--specs`, `--rev`, `--now`); `TEST_GLOBS` with defaults | `checks/scenarios.sh`; a `run-local.sh` step; `pr-merge-guard` rule 10 |
+| 3 | Fast path in `propose`, the playbook, the principles and the fix/ops/propose lane templates | `checks/change-process.sh` |
+| 4 | `## Progress` and `## Decision log` in `tasks.md`; the builder and `build-change` keep them | `checks/changes.sh`; `checks/change-process.sh` |
+| 5 | `.claude/verify-change.sh` and `/verify-change`; last step of `build-change`, step 2c of `merge-pr` | `checks/change-tools.sh`; `pr-merge-guard` rules 9–10 |
+| 6 | `**Approved:** … · design <hash>` over `design.md` and the Risk line; `.claude/change-approval.sh` | `checks/changes.sh`; `checks/change-tools.sh` |
+| 7 | `.claude/modules/openspec/enable.sh` (symlinks, 1.13 floor); the example in `.claude/examples` | `checks/openspec.sh` (skips with a reason without the CLI; CI installs 1.13.2 and sets `OPENSPEC_REQUIRED=1`) |
+| 8 | Playbook, principles, QUICKSTART, `changes/README.md`, `specs/README.md`, AGENTS.md rows | `checks/change-process.sh` for the wiring |
+| 9 | No-delta and open-task refusal, `skip_specs`, MODIFIED verbatim copy, Purpose ≥ 50 | `checks/changes.sh`; `archive-change`; `pr-merge-guard` rule 11 |
+| 10 | `permissions.deny` and `sandbox` in `settings.json` (keys checked against the Claude Code docs) | `checks/settings.sh` |
+| 11 | gitleaks step (skips locally with a reason, fails under CI), Dependabot `cooldown`, `dependency-audit.yml`, `health/dependency-audit.sh` | `checks/gate.sh`; `checks/supply-chain.sh` |
+| 12 | `Budget: $N` in rows and proposals; `.claude/change-cost.sh` (transcripts, list prices in `model-roles.json`); `build-change` stops; archive records the actual | `checks/roadmap.sh`, `checks/changes.sh`, `checks/change-tools.sh`; rule 11 |
+| 13 | `## How we'll know`; the dated `ops/check-outcome-<id>` row; `roadmap-queue.sh --text` lists it DUE | `checks/changes.sh`; `checks/roadmap.sh`; rule 11 |
+| 14 | `provenance` in `model-roles.json` (on); trailers in `build-change` commits and the `merge-pr` squash | `pr-merge-guard` rule 12; `checks/model-roles.sh` |
+| 15 | `**Risk:**` tiers; `roles.<role>.tiers`; `build-change` TIERS; economy mapping and `ECONOMY` | `checks/model-roles.sh` (variants, strictly cheaper economy, reviewer and planner never drop) |
+
+The cost's source: Claude Code's transcripts on the machine (`~/.claude/projects`, subagents
+included), every assistant message on the change's branch in this repository or its worktrees,
+once per message id, at the list prices in `model-roles.json`. The panel's Cost figure is not used:
+it is per session, held in memory, and never sees a workflow's agents.
+
 ## OPS-8: clauductor runs its own operating model
 
 This comes after OPS-7 and before StandingT converges, as the rehearsal. Clauductor's own repo still
@@ -301,7 +330,8 @@ through `/merge-pr`.
 
 ## Open
 
-- **`TEST_GLOBS` defaults** for projects whose tests sit next to source, such as Go's `_test.go` and
-  JS/TS's `*.test.ts`. Decide during OPS-7.
+- ~~**`TEST_GLOBS` defaults**~~ Decided in OPS-7: `*_test.go *.test.* *.spec.* test_*.py
+  *_test.py tests/ test/ __tests__/ spec/`, over the files git knows, CHANGES_DIR and SPECS_DIR
+  excluded.
 - **A backfill tool** that proposes IDs for existing scenarios, for StandingT's living specs.
   Optional, and Phase 3 or later.

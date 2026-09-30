@@ -82,6 +82,7 @@ mkdir -p "$R/tests"; printf '# GREETING-1-S1\n' > "$R/tests/living.sh"
 sed -i.bak 's/- \[x\] 2.1/- [ ] 2.1/' "$R/changes/add-greeting-name/tasks.md" && rm -f "$R/changes/add-greeting-name/tasks.md.bak"
 expect 0 "does not enforce a change with open tasks (a proposal, or a build in progress)"
 grep -q '^PENDING  change add-greeting-name: 1 task' "$d/out" && ok "...and says it is PENDING" || fail "no PENDING line: $(cat "$d/out")"
+expect 1 "--now traces a change still being built as if finished (the reviewer's view)" --now
 
 mkrepo living
 mkdir -p "$R/tests"; cp "$EX/test/greeting.sh" "$R/tests/"

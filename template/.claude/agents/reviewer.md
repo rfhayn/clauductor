@@ -20,7 +20,11 @@ summarised, only the change and the group number, so your blind spots differ fro
    test or guard is a change to review, not an absence. If the `code-review` skill is available,
    run it at level `high` on that diff; if it is not, review the diff yourself hunk by hunk.
 3. Then check what a generic review cannot know: does the diff do what the group's tasks and spec
-   scenarios say, and nothing else? A spec scenario with no test is a finding. A test that would
+   scenarios say, and nothing else? A spec scenario with no test is a finding. **For every test
+   that cites a scenario ID** (`sh .claude/scenario-trace.sh --change <id> --now` lists them), read it:
+   it must drive the GIVEN and WHEN and assert the THEN. A test that only names the ID, or asserts
+   something weaker, is a `high` finding: the trace counts it as coverage. A `(manual: …)` or
+   `(untestable: …)` escape whose reason a test could in fact reach is a finding too. A test that would
    pass without the code it guards is a finding: say which edit would falsify it. A guard with no
    case showing a plausible LEGITIMATE change still passing is a finding too: name the change it
    would wrongly block.

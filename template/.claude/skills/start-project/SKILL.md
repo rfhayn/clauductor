@@ -31,20 +31,27 @@ If those lines show as literal text, run the commands yourself.
    slow suite for the full gate only; write each as a `step`. Keep the "process checks" step.
    Ask whether to use the clean room (`GATE_CLEAN_ROOM="archive"`: stronger, but the steps must
    install dependencies) and whether a remote CI workflow counts as evidence
-   (`GATE_REMOTE_WORKFLOW`). Then run `scripts/ci/gate.sh --quick` and show the result.
+   (`GATE_REMOTE_WORKFLOW`). Set `TEST_GLOBS` in `.claude/project.conf` if the tests are not
+   in one of the default layouts (it tells the scenario trace where tests live), and suggest
+   installing `gitleaks` (the gate's secret scan skips without it locally, and fails under CI).
+   Then run `scripts/ci/gate.sh --quick` and show the result.
 4. **The formatter** (`FORMAT_CMD`, `FORMAT_EXT`), if the project has one.
 5. **AGENTS.md "Essentials"**: replace the examples with this project's few load-bearing rules
    (two lines each), and fill the *(yours)* sections of `docs/conventions.md`. Keep AGENTS.md under
    its byte budget (`sh .claude/checks/run.sh agents-md-budget`).
-6. **The commit trailer** (`.claude/model-roles.json` `attribution`): name the model you run in
-   `trailer`, or set `enabled` to false if this project keeps commits unattributed. Mirror it in
-   `.claude/workflows/build-change.js` `ATTRIBUTION_DEFAULT` (the check compares them). Change a
+6. **The commit trailers** (`.claude/model-roles.json`): `attribution` names the model you run in
+   `trailer`, or set `enabled` to false if this project keeps commits unattributed; `provenance`
+   (the `Change:`, `Agent-Role:`, `Model:`, `Session:` trailers `pr-merge-guard` requires on a
+   squash) is on by default, off with `enabled: false`. Mirror both in
+   `.claude/workflows/build-change.js` (`ATTRIBUTION_DEFAULT`, `PROVENANCE`; the check compares
+   them). Update `.prices` if the list prices have changed. Change a
    role's model or effort only in `model-roles.json`, then fix what `checks/model-roles.sh` names.
 7. **The first roadmap rows** (`docs/roadmap.md`): replace the example Phase 1 with the real first
    phase: its exit criterion, its owner, and 2–5 rows, each a change id and what a user can then
    do. Then `sh .claude/roadmap-queue.sh --check`.
 8. **Health lines** (`.claude/health/`): delete the GitHub ones if the project does not use
-   GitHub Actions; add any the project needs (a dependency audit, a backup's age).
+   GitHub Actions; add any the project needs (a migration ledger, a backup's age). Uncomment the
+   ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
 9. **Optional modules**: OpenSpec (`.claude/modules/openspec/README.md`) and the claude.ai review
    page (`.claude/modules/review-page/README.md`). Both are off by default.
 10. **Verify**: `sh .claude/checks/run.sh` must pass. Then commit, open the PR, and land it with

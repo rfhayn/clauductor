@@ -53,6 +53,13 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
 | A journal `## Session N` is not claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** |
 | An open change has the shape build-change reads and records the owner's approval | **`checks/changes.sh`**; `/propose` stops for the owner |
+| An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `.claude/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
+| Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`.claude/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
+| A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/verify-change`; **`checks/merge-guard.sh`** |
+| A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
+| A change stays within its budget | **`build-change.js`** stops (`.claude/change-cost.sh`); by hand, **Nothing. You.** |
+| No secret is committed, and agents cannot read the project's | **`run-local.sh`** secrets step (gitleaks; fails under CI without it); **`settings.json`** deny list and sandbox; **`checks/settings.sh`**, **`checks/gate.sh`** |
+| A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |
 | Review a change PER TASK GROUP, not per PR | **`.claude/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/apply-change`) |
 | The panel offers only what the roadmap allows next | **`.claude/panel-suggest.sh`** over the one parser; **`checks/panel-suggest.sh`** |
 | Claude merges only once review has CONVERGED | **`merge-pr`** step 3: a skill step, **no hook checks it** |
