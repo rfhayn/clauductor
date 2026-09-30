@@ -56,6 +56,14 @@ These buttons sit under the selected lane's terminal. To act on a lane without o
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.
 
+## Clean up a worktree with no lane
+
+A session that ended can leave its worktree behind. In **Worktrees**, a worktree with no lane has
+**Remove**. It checks first and lists what it would remove and what it would keep, and why: it
+removes only a clean worktree (no changes, no untracked files) that no lane and no claude session
+uses, and its branch only if it is merged. A detached worktree has no branch to remove. Nothing
+happens until you click **Confirm remove**. See [Remove a worktree](panel.md#remove-a-worktree).
+
 ## After a crash or a reboot
 
 A reboot ends every tmux session, but the panel remembers each lane. When you open the page, a

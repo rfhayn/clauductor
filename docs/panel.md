@@ -429,7 +429,9 @@ value just changed.
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
   changed), each lane's claude session (state, uptime, context), and its agents, nested by which
   agent started which, with finished ones folded under "N finished". A worktree with no lane has
-  **New lane here**, which opens the Start dialog on that worktree, to start a new claude session there. The rail's edge drags (or, focused,
+  **New lane here**, which opens the Start dialog on that worktree, to start a new claude session
+  there, and (except the main checkout) **Remove** ([Remove a worktree](#remove-a-worktree)); a
+  lane has **⋯**, its actions. The rail's edge drags (or, focused,
   moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
   width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
   and whether it shows are kept per browser; below 900 px it starts hidden.
@@ -762,6 +764,8 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
 | **Close lane** (running lanes and orphans) | **Stop lane** exactly as above (for an orphan, **Forget**), then removes the lane's worktree and branch **when that loses nothing**. See [Close lane](#close-lane). |
+| **Remove** (a worktree with no lane, in the tree) | Close lane's cleanup without a lane: removes the worktree, and its branch when merged, **when that loses nothing** and no lane or claude session is in it. See [Remove a worktree](#remove-a-worktree). |
+| **New lane here** (a worktree with no lane, in the tree) | Opens the Start dialog on that worktree: a new lane, a new claude session there. |
 | **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
@@ -818,6 +822,30 @@ In order:
    branch that is not merged stays, and the page says so.
 
 The conversation is never removed: `claude --resume <session id>` still opens it.
+
+### Remove a worktree
+
+A worktree with no lane, such as a clean detached worktree a closed session left behind, has
+**Remove** under it in the **Worktrees** tree, beside **New lane here** (PANEL-18). It is Close
+lane's cleanup without a lane to stop, with the same rules, the same plan first and the same
+check again when it acts: the confirmation, under the worktree, lists what **Removes** and what
+**Keeps**, and why, after a `git fetch`; **Confirm remove** sends back only what it offered, and
+the result shows above the lanes. The main checkout has no **Remove**.
+
+The worktree is removed with `git worktree remove` (never `--force`) only if everything Close
+lane checks holds (listed in `git worktree list`, not the main worktree, inside `worktree_dir`,
+not locked, clean with untracked files counted), and also:
+
+- **no lane is registered in it**, running or orphaned: that lane's **Close lane** is the control
+  for it;
+- **no claude session runs in it**: no entry of `claude agents --json` has its `cwd` in this
+  worktree (the deepest worktree containing the `cwd`, as the panel matches sessions everywhere),
+  which covers a session started in a terminal of your own. If `claude agents` cannot be read, it
+  stays: such a session could not be ruled out.
+
+Its local branch then goes only under Close lane's rules (merged into `base`, or the head of a
+merged pull request, deleted at the tip checked). A detached worktree has no branch, and the plan
+says so: "no branch: the worktree is detached (HEAD at …), so there is no branch to delete".
 
 
 ### Window size: the latest client wins
@@ -1653,13 +1681,23 @@ send requests to `127.0.0.1`.
   offered to remove. It carries no path, no branch name and no command; the worktree and branch
   are the lane's own, from the registry and `git worktree list`, and each is removed only if a
   check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
+- **Remove a worktree** (`POST /api/p/<project>/worktrees/remove`, PANEL-18) passes the same
+  guards: the cookie, this page's `Origin`, a strict body (unknown fields are refused). It is
+  served under `/api/p/<project>/` only. The body is `{"worktree": <key>, "dryRun": true}` for the
+  plan, or `{"worktree": <key>, "remove": …, "branch": …}` with what the confirmation offered.
+  The key is the one the page's state gave the worktree (its resolved path), and it must be an
+  **exact** entry of that project's `git worktree list` at that moment: anything else (a relative
+  path, a path inside a worktree, the same path spelled otherwise, a path the list lacks) is
+  refused before any command runs in it. It carries no branch name and no command; see
+  [Remove a worktree](#remove-a-worktree) for what is checked.
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
   answer `204` before processing, and never execute anything. The worst a local process can do
   is post fake lane events.
 - **Every route is a project's** (PANEL-16). The actions are served under
-  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh), and
+  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh,
+  and since PANEL-18 worktrees/remove, which has no path without the project), and
   the streams take `?project=<id>` (`/events`, `/api/state`, `/ws/term`). Each passes the same
   guards as before: the Host check, the cookie, and for a POST this page's `Origin`; a test checks
   every one of them. A project the panel does not serve is 404. The paths before PANEL-16

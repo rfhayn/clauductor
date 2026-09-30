@@ -26,12 +26,14 @@ type closeRepo struct {
 	m    *LaneManager
 	mu   sync.Mutex
 	gh   string // `gh pr list --state merged` output
+	// agents is `claude agents --json` output ("" fails the read).
+	agents string
 }
 
 func newCloseRepo(t *testing.T) *closeRepo {
 	t.Helper()
 	root := signals.ResolvePath(t.TempDir())
-	r := &closeRepo{t: t, root: root, gh: "[]"}
+	r := &closeRepo{t: t, root: root, gh: "[]", agents: "[]"}
 	r.git(root, "init", "-q", "-b", "main")
 	cfgPath := filepath.Join(root, config.DefaultConfigRel)
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
@@ -73,7 +75,12 @@ func (r *closeRepo) run(ctx context.Context, dir string, argv []string) ([]byte,
 		defer r.mu.Unlock()
 		return []byte(r.gh), nil
 	case "claude":
-		return []byte("[]"), nil
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.agents == "" {
+			return nil, errors.New("claude agents: exit status 1")
+		}
+		return []byte(r.agents), nil
 	}
 	return nil, fmt.Errorf("unexpected command %v", argv)
 }

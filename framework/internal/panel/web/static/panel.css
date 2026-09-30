@@ -228,6 +228,11 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .tree .wtrow { display: flex; align-items: flex-start; gap: .25rem; min-width: 0; }
 .tree .wtrow > .node { flex: 1 1 auto; min-width: 0; }
 .tree .wtrow > .rowact { margin-top: .1rem; }
+/* Remove's confirmation (PANEL-18), under the worktree in the tree. */
+.tree .wtask { display: grid; gap: .2rem; margin: .2rem 0 .3rem .25rem; padding: .3rem .4rem; border: 1px solid var(--rule-strong);
+  background: var(--pane); min-width: 0; overflow-wrap: anywhere; position: relative; z-index: 1; }
+.tree .wtask .confirm { font-weight: 700; }
+.tree .wtask .wtbtns { display: flex; flex-wrap: wrap; gap: .3rem; }
 
 /* ---- The lane-state timeline, 2 h ------------------------------------------------------------ */
 .timeline { display: grid; gap: 2px; }

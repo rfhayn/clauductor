@@ -805,6 +805,11 @@ function renderTree(ls, cur) {
       const b = button("New lane here", "small", () => openStart({ worktree: w.path }), "Start a new lane (a new claude session) in " + w.path, "wt:start", true);
       if (S.startBlocked) b.disabled = true;
       li.appendChild(b);
+      // The main checkout is never removed, so it is never offered.
+      if (w.path !== S.root) {
+        if (removeAsk && removeAsk.path === w.path) li.appendChild(key(el("div", "wtask", null, removeWords(removeAsk)), "wtask"));
+        else li.appendChild(button("Remove", "small danger", () => askRemove(w.path), "Remove this worktree when that loses nothing. Asks first, listing what goes and what stays.", "wtrm:" + w.path, true));
+      }
     } else {
       const ul = el("ul");
       for (const x of mine) {
@@ -2194,11 +2199,57 @@ function renderClosed() {
   bar.hidden = !closeMsg;
   if (!closeMsg) { patch(bar, []); return; }
   const m = closeMsg;
-  const kids = [el("b", null, m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id)];
+  const kids = [el("b", null, m.title || (m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id))];
   if (m.err) kids.push(el("span", null, m.text));
   else kids.push(lineList("Removed", m.removed, "rm"), lineList("Kept", m.kept, "kp"));
+  for (const n of m.notes || []) kids.push(el("span", "sub", n));
   kids.push(button("Dismiss", "", () => { closeMsg = null; render(); }, null, "b:close-dismiss"));
-  patch(bar, [key(el("div", "closed", null, kids), "closed:" + m.id)]);
+  patch(bar, [key(el("div", "closed", null, kids), "closed:" + (m.id || m.title))]);
+}
+
+// ---- Remove a worktree (PANEL-18) ---------------------------------------------------
+// A worktree with no lane (a clean one a closed session left behind) has Remove: Close
+// lane's cleanup without a lane to stop. The confirmation, in the tree under it, is the
+// server's plan from git's own state; confirming sends back exactly what it offered,
+// and the server removes no more than that, after checking again. The worktree is
+// named by the key the state gave it, and the server acts only on that exact entry of
+// `git worktree list`.
+let removeAsk = null; // {path, loading} or {path, plan} or {path, err}
+async function askRemove(path) {
+  removeAsk = { path, loading: true }; render();
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ worktree: path, dryRun: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!removeAsk || removeAsk.path !== path) return;
+    removeAsk = r.ok && j.plan ? { path, plan: j.plan } : { path, err: j.error || "HTTP " + r.status };
+  } catch (e) { if (removeAsk && removeAsk.path === path) removeAsk = { path, err: String(e) }; }
+  render();
+  focusKey("wtno:" + path);
+}
+async function doRemove(path, plan) {
+  removeAsk = null; render();
+  const name = relPath(path);
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree: path, remove: !!plan.worktree, branch: !!plan.deleteBranch }) });
+    const j = await r.json().catch(() => ({}));
+    closeMsg = r.ok && j.result
+      ? { title: (j.result.removed || []).length ? "Removed worktree " + name : "Kept worktree " + name, removed: j.result.removed || [], kept: j.result.kept || [], notes: j.result.notes || [] }
+      : { title: "Remove worktree " + name + " failed", err: true, text: j.error || "HTTP " + r.status };
+  } catch (e) { closeMsg = { title: "Remove worktree " + name + " failed", err: true, text: String(e) }; }
+  render();
+}
+function removeWords(a) {
+  const cancel = button("Cancel", "small", () => { removeAsk = null; render(); focusKey("wtrm:" + a.path); }, null, "wtno:" + a.path);
+  if (a.loading) return [el("div", "sub", "Checking the worktree…"), cancel];
+  if (a.err) return [el("div", "stop sub", "Cannot remove it: " + a.err), cancel];
+  const p = a.plan;
+  const kids = [el("div", "confirm", p.worktree ? "Remove the worktree " + relPath(a.path) + "?" : "Nothing can be removed from " + relPath(a.path) + ".")];
+  kids.push(lineList("Removes", p.remove, "rm"), lineList("Keeps", p.keep, "kp"));
+  for (const n of p.notes || []) kids.push(el("div", "sub", n));
+  const btns = [p.worktree ? button("Confirm remove", "danger", () => doRemove(a.path, p), null, "wt:confirm", true) : null, cancel];
+  kids.push(el("div", "wtbtns", null, btns.filter(Boolean)));
+  return kids;
 }
 
 function renderTermBar(t) {
@@ -2975,7 +3026,7 @@ function switchProject(id) {
   // on in tmux), its state and choices go, and the new project's stream starts.
   for (const k of Object.keys(terms)) disposeTerm(k);
   closeRowMenu(false);
-  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
+  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();
   render();

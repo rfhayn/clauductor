@@ -46,6 +46,8 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("POST "+pre+"/queues/{id}/cancel", s.requireAuth(s.withProject(s.queueCancel)))
 		mux.HandleFunc("POST "+pre+"/queues/{id}/run", s.requireAuth(s.withProject(s.queueRun)))
 	}
+	// PANEL-18, after PANEL-16: under /api/p/{project} only; no page predates it.
+	mux.HandleFunc("POST /api/p/{project}/worktrees/remove", s.requireAuth(s.withProject(s.removeWorktree)))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -153,6 +155,36 @@ func (s *Server) closeLane(w http.ResponseWriter, r *http.Request, p *Project) {
 		return
 	}
 	res, lerr := p.Lanes.Close(r.Context(), id, req)
+	if lerr != nil {
+		writeLaneErr(w, lerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
+}
+
+// removeWorktree serves POST /api/p/{project}/worktrees/remove (PANEL-18): Remove on a
+// worktree with no lane. The body names the worktree by the key the page's state gave
+// it, and the lane manager acts only on an exact entry of `git worktree list`; like
+// Close lane, {"dryRun": true} answers the plan the confirmation lists, and otherwise
+// the body carries what that confirmation offered to remove.
+func (s *Server) removeWorktree(w http.ResponseWriter, r *http.Request, p *Project) {
+	if noLanes(w, p) {
+		return
+	}
+	var req lanes.RemoveWorktreeRequest
+	if !decodeStrict(w, r, &req) {
+		return
+	}
+	if req.DryRun {
+		plan, lerr := p.Lanes.RemoveWorktreePlan(r.Context(), req.Worktree)
+		if lerr != nil {
+			writeLaneErr(w, lerr)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "plan": plan})
+		return
+	}
+	res, lerr := p.Lanes.RemoveWorktree(r.Context(), req.Worktree, req)
 	if lerr != nil {
 		writeLaneErr(w, lerr)
 		return

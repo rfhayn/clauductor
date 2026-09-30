@@ -6,10 +6,15 @@
 //   Escape closes it back to its button;
 // - picking an item selects the lane and opens the in-page confirmation (never acts):
 //   no lane request is sent until a Confirm button is pressed, and Cancel sends none;
-// - a click on the row itself still selects it.
-// Usage: node lane-row-actions.cjs <base URL> <token>
+// - a click on the row itself still selects it;
+// - Remove on a worktree with no lane (a detached one added here, as a closed session
+//   leaves behind) lists its plan first, and removes it only on Confirm remove.
+// Usage: node lane-row-actions.cjs <base URL> <token> <project dir>
 const pw = require(process.env.PLAYWRIGHT || "playwright");
-const [base, token] = process.argv.slice(2);
+const { execFileSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const [base, token, proj] = process.argv.slice(2);
 const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
 
 (async () => {
@@ -97,6 +102,27 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
 
     await p.waitForTimeout(300);
     if (posts.length) fail("lane actions were sent without a confirmation: " + JSON.stringify(posts));
+
+    // Remove on a lane-less worktree: its plan, then Confirm remove.
+    const left = path.join(proj, ".claude", "worktrees", "left-behind");
+    execFileSync("git", ["-C", proj, "worktree", "add", "-q", "--detach", left, "main"]);
+    const real = fs.realpathSync(left);
+    const rm = '[data-k="wtrm:' + real + '"]';
+    await p.click("#refresh");
+    await p.waitForSelector(rm, { timeout: 15000 });
+    const removes = [];
+    p.on("request", (r) => { if (/\/worktrees\/remove$/.test(r.url())) removes.push(JSON.parse(r.postData() || "{}")); });
+    await p.click(rm);
+    await p.waitForSelector(".tree .wtask .closelist", { timeout: 15000 });
+    const plan = await p.$eval(".tree .wtask", (e) => e.textContent);
+    if (!/Remove the worktree/.test(plan) || !/detached/.test(plan) || !/no branch to delete/.test(plan)) fail("remove plan: " + plan);
+    if (!fs.existsSync(left)) fail("the dry run removed the worktree");
+    await p.click('.tree .wtask [data-k="wt:confirm"]');
+    await p.waitForSelector("#closebar:not([hidden]) .closed", { timeout: 15000 });
+    const done = await p.$eval("#closebar", (e) => e.textContent);
+    if (!/Removed worktree/.test(done) || fs.existsSync(left)) fail("after Confirm remove: " + done + ", exists " + fs.existsSync(left));
+    if (removes.length !== 2 || !removes[0].dryRun || removes[1].dryRun || !removes[1].remove || removes[1].worktree !== real) fail("remove requests " + JSON.stringify(removes));
+    await p.click('#closebar [data-k="b:close-dismiss"]');
     if (errors.length) fail("page errors: " + errors.join("; "));
   } finally {
     await b.close();
