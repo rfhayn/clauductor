@@ -1,0 +1,15 @@
+{
+  "description": "Clauductor's operating model for Claude Code, as a plugin.",
+  "name": "clauductor",
+  "owner": {
+    "name": "Rich Hayn"
+  },
+  "plugins": [
+    {
+      "category": "development",
+      "description": "The operating model: skills, agents, hooks, the build-change workflow and the process checks. /clauductor:init scaffolds a repository's own files.",
+      "name": "clauductor",
+      "source": "./plugin"
+    }
+  ]
+}

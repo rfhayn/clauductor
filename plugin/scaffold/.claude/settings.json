@@ -1,0 +1,108 @@
+{
+  "model": "opus",
+  "effortLevel": "high",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "opus"
+  },
+  "skillOverrides": {
+    "anthropic-skills:brand-guidelines": "user-invocable-only",
+    "anthropic-skills:built-in-browser": "user-invocable-only",
+    "anthropic-skills:computer-use": "user-invocable-only",
+    "anthropic-skills:deep-research": "user-invocable-only",
+    "anthropic-skills:docs": "user-invocable-only",
+    "anthropic-skills:docx": "user-invocable-only",
+    "anthropic-skills:import-memory": "user-invocable-only",
+    "anthropic-skills:morning": "user-invocable-only",
+    "anthropic-skills:pdf": "user-invocable-only",
+    "anthropic-skills:pptx": "user-invocable-only",
+    "anthropic-skills:skill-creator": "user-invocable-only",
+    "anthropic-skills:xlsx": "user-invocable-only",
+    "deep-research": "user-invocable-only",
+    "fewer-permission-prompts": "user-invocable-only",
+    "init": "user-invocable-only",
+    "keybindings-help": "user-invocable-only"
+  },
+  "statusLine": {
+    "command": "f=\"${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins}/data/clauductor-clauductor/statusline.sh\"; [ -f \"$f\" ] && sh \"$f\"",
+    "type": "command"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(clauductor-model checks/run.sh)",
+      "Bash(clauductor-model checks/run.sh *)",
+      "Bash(clauductor-model owner-queue.sh)",
+      "Bash(clauductor-model roadmap-queue.sh)",
+      "Bash(clauductor-model roadmap-queue.sh *)",
+      "Bash(scripts/ci/gate.sh)",
+      "Bash(scripts/ci/gate.sh *)",
+      "Bash(clauductor-model status-write.sh *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(!./.env.example)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(sudo *)",
+      "Bash(tmux *kill-server*)",
+      "Bash(gh repo delete *)",
+      "Bash(gh release delete *)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "excludedCommands": [
+      "git *",
+      "gh *",
+      "tmux *",
+      "clauductor *",
+      "docker *",
+      "scripts/ci/run-local.sh *",
+      "scripts/ci/gate.sh *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "registry.npmjs.org",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pypi.org",
+        "files.pythonhosted.org"
+      ]
+    },
+    "credentials": {
+      "files": [
+        {
+          "path": "~/.ssh",
+          "mode": "deny"
+        },
+        {
+          "path": "~/.aws",
+          "mode": "deny"
+        }
+      ]
+    }
+  },
+  "extraKnownMarketplaces": {
+    "clauductor": {
+      "source": {
+        "repo": "rfhayn/clauductor",
+        "source": "github"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "clauductor@clauductor": true
+  }
+}

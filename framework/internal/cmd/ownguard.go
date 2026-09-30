@@ -103,3 +103,20 @@ func refuseForeign(verb, targetDir string, overwrite, add []string) error {
 		"with the template's anyway, run again with --force (commit first: it overwrites).")
 	return fmt.Errorf("%s", b.String())
 }
+
+// pluginMarker is what the clauductor plugin's /clauductor:init writes: the repository runs the
+// model from the plugin (docs/plugin.md).
+const pluginMarker = ".claude/clauductor-plugin"
+
+// refusePluginModel refuses install and update in a repository that runs the model from the
+// plugin. Installing the framework files too would register every hook twice and give each
+// skill two copies that drift apart.
+func refusePluginModel(verb, targetDir string) error {
+	if !fileExists(filepath.Join(targetDir, pluginMarker)) {
+		return nil
+	}
+	return fmt.Errorf("%s refused: %s runs the operating model from the clauductor Claude Code plugin (%s).\n"+
+		"Run one or the other, not both (docs/plugin.md, Running both). To switch this repository to\n"+
+		"`clauductor install`, uninstall or disable the plugin here and delete %s, then run again;\n"+
+		"--force installs anyway", verb, targetDir, pluginMarker, pluginMarker)
+}

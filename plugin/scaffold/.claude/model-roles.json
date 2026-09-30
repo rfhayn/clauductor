@@ -1,0 +1,91 @@
+{
+  "_why": "The ONE place a model or an effort is chosen. Skill and agent frontmatter, .claude/settings.json, .claude/workflows/build-change.js and the panel's lane_types (.clauductor/panel.json) cannot read this file, so each restates what it needs, and .claude/checks/model-roles.sh fails when any of them disagrees with it. Before a single file held the choice, it lived in five places and drifted: a workflow's commit trailer named a retired model while the playbook described a different session model. Change a role here, then run the check and fix what it names.",
+  "roles": {
+    "session": { "model": "opus", "effort": "high", "does": "the conversation with the owner; orchestrates lanes" },
+    "planner": { "model": "opus", "effort": "xhigh", "does": "proposals, designs, ADRs" },
+    "thinker": { "model": "opus", "effort": "high", "does": "hand-built changes, exploration, setup" },
+    "builder": {
+      "model": "opus",
+      "effort": "high",
+      "does": "implements one task group; applies fixes",
+      "tiers": {
+        "low": { "model": "sonnet", "effort": "high" },
+        "high": { "model": "opus", "effort": "xhigh" }
+      }
+    },
+    "reviewer": {
+      "model": "opus",
+      "effort": "high",
+      "does": "reviews one task group; never edits",
+      "tiers": {
+        "high": { "model": "opus", "effort": "xhigh" }
+      }
+    },
+    "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },
+    "scribe": { "model": "opus", "effort": "medium", "does": "journal, insights, merge, archive, close" },
+    "orient": { "model": "opus", "effort": "low", "does": "session-start" },
+    "mechanic": { "model": "sonnet", "effort": "low", "does": "build-change preflight, gate, commit, receipt: run a script and quote it" },
+    "researcher": { "model": "opus", "effort": "medium", "does": "read-only research: no Bash, Edit or Write" },
+    "helper": { "model": "opus", "does": "any other subagent (Explore, general-purpose), via CLAUDE_CODE_SUBAGENT_MODEL" }
+  },
+  "tiers": {
+    "_why": "A change's proposal.md declares **Risk:** low | normal | high, and the owner approves the tier with the design. build-change runs a role that has a `tiers` entry for the declared tier on that variant instead of the role's own model and effort; normal, and any tier a role does not list, is the role itself. .claude/checks/model-roles.sh holds build-change.js's TIERS table to these variants.",
+    "levels": ["low", "normal", "high"]
+  },
+  "economy": {
+    "_why": "Quota economy mode. When the panel's quota is past its threshold it writes the file below as {\"economy\": true, \"since\": <unix>, \"reason\": \"...\"}; build-change reads it at run time and runs each role listed here one tier down. Only roles that are not critical drop: the reviewer and the planner never do (a cheaper review is a weaker gate, a cheaper design a worse decision), and .claude/checks/model-roles.sh fails if either is listed, or if an entry is not strictly cheaper than its role.",
+    "file": "~/.clauductor/panel/economy.json",
+    "never": ["reviewer", "planner"],
+    "roles": {
+      "scribe": { "model": "sonnet", "effort": "medium" },
+      "orient": { "model": "sonnet", "effort": "low" },
+      "mechanic": { "model": "haiku", "effort": "low" }
+    }
+  },
+  "skills": {
+    "apply-change": "thinker",
+    "archive-change": "scribe",
+    "architecture-audit": "thinker",
+    "dev-journal": "scribe",
+    "log-insight": "scribe",
+    "merge-pr": "scribe",
+    "propose": "planner",
+    "new-adr": "planner",
+    "release-prep": "thinker",
+    "session-close": "scribe",
+    "session-start": "orient",
+    "init": "thinker",
+    "start-project": "thinker",
+    "verify-change": "mechanic"
+  },
+  "agents": { "builder": "builder", "researcher": "researcher", "reviewer": "reviewer", "reviewer-docs": "reviewer-docs" },
+  "read_only_agents": ["researcher", "reviewer", "reviewer-docs"],
+  "lanes": {
+    "_why": "Each lane type of the local panel (.clauductor/panel.json `lanes`) and the role its interactive session starts on, restated there as `lane_types` because the panel cannot read this file. Every lane is a session the owner can talk to; the skills it runs switch to their own role.",
+    "build": "session",
+    "fix": "session",
+    "ops": "session",
+    "orchestrator": "session"
+  },
+  "attribution": {
+    "_why": "The trailer every commit Claude writes ends with, when enabled: build-change's commits, merge-pr's squash body, session-close's PR. Name the model you actually run so the history says which one wrote what; set enabled to false if your project keeps commits unattributed.",
+    "enabled": true,
+    "trailer": "Co-Authored-By: Claude <noreply@anthropic.com>"
+  },
+  "provenance": {
+    "_why": "AI provenance trailers (item 14 of the change process): every squash commit merge-pr lands carries Change:, Agent-Role:, Model: and Session: trailers, so the history says which change, which role, which model and which session wrote it. pr-merge-guard refuses a merge whose --body lacks them while enabled is true. Set it to false to keep commits unattributed.",
+    "enabled": true,
+    "trailers": ["Change", "Agent-Role", "Model", "Session"]
+  },
+  "prices": {
+    "_why": "List prices in US dollars per million tokens, for .claude/change-cost.sh (a change's cost against its budget). The key is a model id PREFIX, the longest match wins. A cache write costs 1.25x input for 5 minutes and 2x for an hour. An estimate at list price, not a bill; update it when prices change (claude-api skill, Current Models).",
+    "claude-fable-5-1": { "input": 10, "output": 50, "cache_read": 0.25 },
+    "claude-fable-5": { "input": 10, "output": 50, "cache_read": 1 },
+    "claude-opus-5-5": { "input": 4, "output": 20, "cache_read": 0.2 },
+    "claude-opus-5": { "input": 5, "output": 25, "cache_read": 0.5 },
+    "claude-opus-4": { "input": 5, "output": 25, "cache_read": 0.5 },
+    "claude-sonnet-5": { "input": 2, "output": 10, "cache_read": 0.2 },
+    "claude-sonnet-4": { "input": 3, "output": 15, "cache_read": 0.3 },
+    "claude-haiku-4-5": { "input": 1, "output": 5, "cache_read": 0.1 }
+  }
+}

@@ -35,6 +35,14 @@ cd ~/Development/existing-project
 clauductor install
 ```
 
+Or, with Claude Code alone, as a plugin (one way per repository; see [docs/plugin.md](docs/plugin.md)):
+
+```
+/plugin marketplace add rfhayn/clauductor
+/plugin install clauductor@clauductor
+/clauductor:init
+```
+
 ## Architecture
 
 ```
@@ -138,6 +146,7 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 - **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
 - **[Onboarding Guide](docs/onboarding.md)** — Complete tutorial from install to multi-worker orchestration
 - **[Web panel](docs/panel.md)** — `clauductor panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
+- **[Claude Code plugin](docs/plugin.md)** — the operating model as a plugin: install, what it carries, what stays in the repository, running it beside `clauductor install`
 - **[PRD](docs/prds/active/PRD-orchestration-framework.md)** — Full product requirements and architecture
 
 ## Origin
