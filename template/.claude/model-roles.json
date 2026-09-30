@@ -14,10 +14,13 @@
     "helper": { "model": "opus", "does": "any other subagent (Explore, general-purpose), via CLAUDE_CODE_SUBAGENT_MODEL" }
   },
   "skills": {
+    "apply-change": "thinker",
+    "archive-change": "scribe",
     "architecture-audit": "thinker",
     "dev-journal": "scribe",
     "log-insight": "scribe",
     "merge-pr": "scribe",
+    "propose": "planner",
     "new-adr": "planner",
     "release-prep": "thinker",
     "session-close": "scribe",

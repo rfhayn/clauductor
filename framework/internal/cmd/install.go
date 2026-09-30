@@ -18,17 +18,46 @@ type fileTier int
 
 const (
 	tierFramework fileTier = iota // Skills, agents, settings, statusline → always install
-	tierDoc                       // current-story, journal, etc. → create only if missing
+	tierDoc                       // project-owned config, agents and docs → create only if missing
 	tierConfig                    // CLAUDE.md, .gitignore → merge
 )
 
+// frameworkScripts are the operating model's own scripts outside the framework directories: a
+// project runs them but does not edit them, so an install brings them up to date.
+var frameworkScripts = map[string]bool{
+	".claude/statusline.sh":    true,
+	".claude/status-write.sh":  true,
+	".claude/owner-queue.sh":   true,
+	".claude/roadmap-queue.sh": true,
+	".claude/panel-suggest.sh": true,
+	".claude/machine-quiet.sh": true,
+	"scripts/ci/run-local.sh":  true,
+	"scripts/ci/gate.sh":       true,
+	"scripts/ci/lease.sh":      true,
+}
+
+// projectSkills are template skills a project configures (CONFIGURE FIRST stubs): created when
+// missing, never overwritten, like docs.
+var projectSkills = []string{".claude/skills/architecture-audit/", ".claude/skills/release-prep/"}
+
 // classifyFile determines how to handle a template file during install.
 func classifyFile(relPath string) fileTier {
-	// Framework files — always install/overwrite
+	for _, p := range projectSkills {
+		if strings.HasPrefix(relPath, p) {
+			return tierDoc
+		}
+	}
+	// Framework files — always install/overwrite. The project's own values live elsewhere
+	// (.claude/project.conf, model-roles.json, .clauductor/panel.json, scripts/ci/steps.sh,
+	// AGENTS.md, docs/), which fall through to the doc tier and are never overwritten.
 	if strings.HasPrefix(relPath, ".claude/skills/") ||
 		strings.HasPrefix(relPath, ".claude/hooks/") ||
+		strings.HasPrefix(relPath, ".claude/checks/") ||
+		strings.HasPrefix(relPath, ".claude/lib/") ||
+		strings.HasPrefix(relPath, ".claude/workflows/") ||
+		strings.HasPrefix(relPath, ".claude/modules/") ||
 		relPath == ".claude/settings.json" ||
-		relPath == ".claude/statusline.sh" {
+		frameworkScripts[relPath] {
 		return tierFramework
 	}
 
@@ -66,8 +95,10 @@ var installCmd = &cobra.Command{
 an existing project repository.
 
 File handling by tier:
-  FRAMEWORK (skills, agents, settings, statusline) → always installed
-  DOC TEMPLATES (current-story, journal, etc.)      → created only if missing
+  FRAMEWORK (skills, hooks, checks, workflows, the
+    operating model's scripts, settings)           → always installed
+  DOC TEMPLATES (agents, AGENTS.md, project.conf,
+    model-roles.json, panel.json, docs, steps.sh)  → created only if missing
   CONFIG (CLAUDE.md, .gitignore)                    → merged with existing
 
 Use --dry-run to preview changes without modifying anything.`,
@@ -247,28 +278,33 @@ func mergeConfigFile(targetDir, relPath string) error {
 
 	switch relPath {
 	case ".gitignore":
-		// Just ensure orchestration/ is in gitignore
-		if !strings.Contains(existing, "orchestration/") {
-			return ensureGitignore(targetDir, "orchestration/")
+		// Ensure the runtime state and the lane worktrees stay out of git.
+		for _, entry := range []string{"orchestration/", ".claude/worktrees/"} {
+			if err := ensureGitignore(targetDir, entry); err != nil {
+				return err
+			}
 		}
 		return nil
 
 	case "CLAUDE.md":
-		// If the existing CLAUDE.md doesn't reference Clauductor, append a section
-		if !strings.Contains(existing, "Clauductor") && !strings.Contains(existing, "clauductor") {
-			marker := "\n\n## Clauductor Framework\n\n"
-			marker += "This project uses [Clauductor](https://github.com/rfhayn/clauductor) for orchestration.\n\n"
-			marker += "See `template/CLAUDE.md` in the framework repo for the full reference, or run `clauductor update` to sync skills.\n"
-
-			f, err := os.OpenFile(destPath, os.O_APPEND|os.O_WRONLY, 0644)
-			if err != nil {
-				return err
+		// The operating model's rules live in AGENTS.md, which CLAUDE.md imports. An existing
+		// CLAUDE.md keeps its content and gains the import line.
+		for _, line := range strings.Split(existing, "\n") {
+			if strings.TrimSpace(line) == "@AGENTS.md" {
+				return nil
 			}
-			defer f.Close()
-			_, err = f.WriteString(marker)
+		}
+		f, err := os.OpenFile(destPath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
 			return err
 		}
-		return nil
+		defer f.Close()
+		sep := "\n"
+		if existing != "" && !strings.HasSuffix(existing, "\n") {
+			sep = "\n\n"
+		}
+		_, err = f.WriteString(sep + "@AGENTS.md\n")
+		return err
 
 	default:
 		// Unknown config file — just use the template version

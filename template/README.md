@@ -25,6 +25,10 @@ Then `clauductor panel` for the local panel (see the clauductor repo's `docs/pan
 | `.claude/model-roles.json` | The one place a model or effort is chosen; the commit trailer |
 | `.claude/skills/`, `.claude/agents/`, `.claude/hooks/` | The operating model |
 | `.claude/checks/run.sh` | Plain-shell checks that hold the model to what AGENTS.md says |
+| `.claude/workflows/build-change.js` | The per-task-group build loop (the Workflow tool) |
+| `.claude/modules/` | Optional modules, off by default: OpenSpec, the claude.ai review page |
+| `.clauductor/panel.json` | The local panel's preset: lanes, lane templates, the gate queue, cards |
+| `scripts/ci/` | The gate: `steps.sh` (yours), `run-local.sh`, `gate.sh`, `lease.sh` |
 | `docs/roadmap.md` | Phases and the change queue |
 | `changes/<id>/` | A proposed or in-flight change: proposal, design, tasks |
 | `specs/` | What the system does, per capability |

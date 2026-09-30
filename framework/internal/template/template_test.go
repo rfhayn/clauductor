@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
 // repoRoot is the clauductor repository root, from this package's directory.
@@ -41,6 +43,19 @@ func TestVendoredLeaseMatchesPanelDoc(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(vendored), block) {
 		t.Fatal("template/scripts/ci/lease.sh has drifted from the lease.sh block in docs/panel.md: re-vendor it (keep the header comment, then the block verbatim)")
+	}
+}
+
+// The template ships a preset panel config for its operating model (lanes, lane types, templates
+// with suggestions, the gate queue, pinned cards). It must be a config this panel accepts, at the
+// version it declares: a preset that fails to load would be every adopting project's first error.
+func TestTemplatePanelConfigLoads(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "template", ".clauductor", "panel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.ParseConfig(raw); err != nil {
+		t.Fatalf("template/.clauductor/panel.json is not a valid panel config: %v", err)
 	}
 }
 

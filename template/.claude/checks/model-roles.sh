@@ -100,6 +100,11 @@ if [ -f "$wf" ]; then
   done > "$(scratch)/wf"
   cat "$(scratch)/wf"
   n=$(grep -c '^FAIL' "$(scratch)/wf"); _fails=$((_fails + n))
+  # Its default commit trailer restates attribution (empty when attribution is disabled).
+  g=$(sed -n "s/^const ATTRIBUTION_DEFAULT = '\\(.*\\)'\$/\\1/p" "$wf")
+  w=$(jq -r 'if .attribution.enabled then .attribution.trailer else "" end' "$roles")
+  if grep -q '^const ATTRIBUTION_DEFAULT = ' "$wf" && [ "$g" = "$w" ]; then ok "build-change.js ATTRIBUTION_DEFAULT matches attribution ('${w:-disabled}')"
+  else fail "build-change.js ATTRIBUTION_DEFAULT is '$g', model-roles.json attribution says '${w:-(disabled: empty)}'"; fi
 fi
 
 # ── The panel's lane types ─────────────────────────────────────────────────────────────
@@ -112,6 +117,26 @@ if [ -f "$pj" ]; then
       if [ "$g" = "$w" ]; then ok "panel lane_type $lane: $key $g (role $r)"; else fail "panel.json lane_types.$lane.$key is '${g:-unset}', role $r says '$w'"; fi
     done
   done
+fi
+
+# ── The playbook's skill table ─────────────────────────────────────────────────────────
+# docs/playbook.md lists every skill with its role, between markers. Both directions: a skill the
+# table forgot, a row naming a skill that does not exist, and a role that disagrees.
+pb="$ROOT/docs/playbook.md"
+if [ -f "$pb" ]; then
+  tbl=$(sed -n '/<!-- skills-table begin -->/,/<!-- skills-table end -->/p' "$pb" | sed -nE 's/^\| `\/([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\1 \2/p')
+  [ -n "$tbl" ] || fail "docs/playbook.md has no skills table between its markers"
+  printf '%s\n' "$tbl" | while read -r s r; do
+    [ -n "$s" ] || continue
+    w=$(role_of skills "$s")
+    if [ -z "$w" ]; then echo "FAIL playbook lists /$s, which is not a skill in model-roles.json"
+    elif [ "$w" = "$r" ]; then echo "ok   playbook /$s role $r"
+    else echo "FAIL playbook says /$s runs as $r, model-roles.json says $w"; fi
+  done > "$(scratch)/pb"
+  for s in $(jq -r '.skills | keys[]' "$roles"); do
+    printf '%s\n' "$tbl" | grep -q "^$s " || echo "FAIL skill $s is missing from docs/playbook.md's skills table" >> "$(scratch)/pb"
+  done
+  cat "$(scratch)/pb"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/pb")))
 fi
 
 # ── Attribution ────────────────────────────────────────────────────────────────────────

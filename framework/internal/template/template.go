@@ -146,8 +146,20 @@ func FindDiffs(targetDir string) ([]FileDiff, error) {
 		".claude/skills",
 		".claude/agents",
 		".claude/hooks",
+		".claude/checks",
+		".claude/lib",
+		".claude/workflows",
+		".claude/modules",
 		".claude/settings.json",
 		".claude/statusline.sh",
+		".claude/status-write.sh",
+		".claude/owner-queue.sh",
+		".claude/roadmap-queue.sh",
+		".claude/panel-suggest.sh",
+		".claude/machine-quiet.sh",
+		"scripts/ci/run-local.sh",
+		"scripts/ci/gate.sh",
+		"scripts/ci/lease.sh",
 	}
 
 	for _, cp := range comparePaths {

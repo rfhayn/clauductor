@@ -52,6 +52,9 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Only a complete run of a clean tree is evidence; two gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
 | A journal `## Session N` is not claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** |
+| An open change has the shape build-change reads and records the owner's approval | **`checks/changes.sh`**; `/propose` stops for the owner |
+| Review a change PER TASK GROUP, not per PR | **`.claude/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/apply-change`) |
+| The panel offers only what the roadmap allows next | **`.claude/panel-suggest.sh`** over the one parser; **`checks/panel-suggest.sh`** |
 | Claude merges only once review has CONVERGED | **`merge-pr`** step 3: a skill step, **no hook checks it** |
 | No scripted find-replace against tracked source | **`.claude/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |

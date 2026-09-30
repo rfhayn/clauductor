@@ -1,0 +1,28 @@
+# openspec/config.yaml for the operating model (copy to openspec/config.yaml when you switch the
+# OpenSpec module on; .claude/modules/openspec/README.md). Rules must be LISTS, and keys must be
+# valid artifact ids: either mistake is accepted and silently ignored.
+schema: spec-driven
+
+context: |
+  Changes are proposed just in time from a row of docs/roadmap.md, at most one ahead of the change
+  being built. The owner approves every proposal and design decision before anything is built.
+  One change = one change/<id> branch = one squash PR.
+
+rules:
+  proposal:
+    - Open with "**Status:** awaiting approval" (replaced by "**Approved:** YYYY-MM-DD by <owner>"
+      when the owner approves), then "**Roadmap row:** <row id>".
+    - Say what the existing specs already guarantee, and which requirements this adds to,
+      modifies or contradicts.
+    - One PR. If the change names more than about three write surfaces or more than one screen,
+      split the roadmap row instead.
+  design:
+    - Record every decision as the owner decided it, with the alternative it beat.
+    - Include a refusals table - each situation where the change does not do its thing, and what
+      happens instead.
+  specs:
+    - Every requirement has at least one scenario, and every scenario is testable.
+  tasks:
+    - Group tasks as "## <n>. <title>", each group one builder's and one reviewer's worth.
+    - Name the test in the task that needs it.
+    - End with "- [ ] Slice: a <role> can <action> at <where>" or "- [ ] Slice: exempt — <reason>".

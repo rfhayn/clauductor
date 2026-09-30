@@ -6,7 +6,7 @@
 #
 #   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
-#   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner
+#   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner summary
 #   sh .claude/roadmap-queue.sh --queued [kind]   change ids of queued rows (kind: change|fix|ops)
 #   ... [file]                                any mode takes an explicit roadmap path last
 #
@@ -80,6 +80,8 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   seenid[id] = NR
   if (!match(chg, /`[^`]+`/)) { err("row " id ": the Change cell has no `change-id`"); next }
   cid = substr(chg, RSTART + 1, RLENGTH - 2)
+  # The summary: what follows the id (RSTART is read here, before any later match() moves it).
+  sm = substr(chg, RSTART + RLENGTH); gsub(/\001/, "|", sm); gsub(/\*\*|~~/, "", sm); sm = trim(sm); sub(/^[—–-]+[ \t]*/, "", sm)
   kind = "change"; if (cid ~ /^fix\//) kind = "fix"; else if (cid ~ /^ops\//) kind = "ops"
   pr = ""; if (match(st, /\(#[0-9]+\)/)) pr = substr(st, RSTART + 2, RLENGTH - 3)
   if (index(st, "⬜ queued") == 1) state = "queued"
@@ -91,6 +93,7 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   n++; R_line[n] = NR; R_phase[n] = phase; R_sec[n] = section; R_id[n] = id; R_cid[n] = cid
   R_kind[n] = kind; R_state[n] = state; R_pr[n] = pr; R_owner[n] = owner
   R_scope[n] = trim(c[4])
+  R_sum[n] = sm
   if ((state == "queued" || state == "inflight") && phase != "-" && !(phase in openphase)) openphase[phase] = 1
   next
 }
@@ -104,7 +107,7 @@ END {
     exit 0
   }
   if (mode == "--tsv") {
-    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i]
+    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i]
     exit 0
   }
   if (mode == "--queued") {
