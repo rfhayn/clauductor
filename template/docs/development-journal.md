@@ -10,6 +10,7 @@ Each entry starts with a heading of exactly this shape, because scripts read it:
 ```
 
 N comes from `origin/main`, never from a branch; `pr-merge-guard` blocks a PR that would put two
-entries with one number on `main`.
+entries with one number on `main`. `checks/journal.sh` holds each heading to `JOURNAL_HEADING`
+(`.claude/project.conf`); headings from before `RECORDS_BASELINE` stay as they were written.
 
 <!-- Newest session goes below this line. -->

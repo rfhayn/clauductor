@@ -41,7 +41,9 @@ Zero-padded and monotonic (`0001`, `0002`, …). Never renumber an ADR on `main`
 ADR `Accepted`, old one `Superseded by ADR-NNNN`). The next number comes from `origin/main` and the
 open PRs, never from your branch (`new-adr` prints it). `.claude/checks/adr-numbering.sh` fails on
 two files with one number and on an ADR missing from the index below. On a collision, the branch
-that merges second takes the next free number.
+that merges second takes the next free number. Each ADR opens `# ADR NNNN: <title>` and has an
+`## Enforcement` section; a project that adopted this with ADRs of its own sets `RECORDS_BASELINE`
+(`.claude/project.conf`), and the ADRs from before it keep their headings as written.
 
 ## Index
 | ADR | Title | Status |
