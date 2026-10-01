@@ -3,6 +3,8 @@ package signals
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,6 +33,90 @@ type Change struct {
 	Written time.Time
 	// BudgetUSD is `**Budget:** $N`, when the proposal has one.
 	BudgetUSD *float64
+	// Tasks: tasks.md beside the proposal has them (PANEL-20); how many are ticked.
+	Tasks     bool
+	TasksOpen int
+	TasksDone int
+}
+
+var (
+	taskOpenRe = regexp.MustCompile(`(?m)^\s*[-*]\s+\[ \]\s`)
+	taskDoneRe = regexp.MustCompile(`(?m)^\s*[-*]\s+\[[xX]\]\s`)
+)
+
+// ReadTasks reads a change's tasks.md (its first 256 KB).
+func ReadTasks(path string) ([]byte, error) { return readHead(path, maxProposal) }
+
+// CountTasks counts a tasks.md's Markdown checkboxes: open and ticked.
+func CountTasks(b []byte) (open, done int) {
+	return len(taskOpenRe.FindAll(b, -1)), len(taskDoneRe.FindAll(b, -1))
+}
+
+// Receipt is the gate's receipt, `<git dir>/ci-receipt` (OPS-7's run-local.sh):
+// `<sha> TAB full TAB clean|dirty TAB all`, written only after a complete run.
+type Receipt struct {
+	SHA   string `json:"sha"`
+	Kind  string `json:"kind"`
+	Clean bool   `json:"clean"`
+}
+
+// ParseReceipt reads a receipt's first line; ok is false for anything else.
+func ParseReceipt(b []byte) (Receipt, bool) {
+	line, _, _ := strings.Cut(string(b), "\n")
+	f := strings.Split(strings.TrimSpace(line), "\t")
+	if len(f) < 3 || len(f[0]) < 7 {
+		return Receipt{}, false
+	}
+	for _, c := range f[0] {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return Receipt{}, false
+		}
+	}
+	return Receipt{SHA: f[0], Kind: f[1], Clean: f[2] == "clean"}, true
+}
+
+// ReadReceipt reads a worktree's receipt from its git dir; ok false when there is none.
+func ReadReceipt(gitDir string) (Receipt, bool) {
+	b, err := readHead(filepath.Join(gitDir, "ci-receipt"), 4096)
+	if err != nil {
+		return Receipt{}, false
+	}
+	return ParseReceipt(b)
+}
+
+// ReviewThreadsArgv asks GitHub for a pull request's review threads (gh fills in
+// {owner} and {repo} from the checkout's remote).
+func ReviewThreadsArgv(number int) []string {
+	return []string{"gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}", "-F", "n=" + strconv.Itoa(number), "-f",
+		"query=query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}"}
+}
+
+// ParseReviewThreads counts a pull request's unresolved review threads (of the first 100).
+func ParseReviewThreads(out []byte) (unresolved, total int, err error) {
+	var r struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						TotalCount int `json:"totalCount"`
+						Nodes      []struct {
+							IsResolved bool `json:"isResolved"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out), &r); err != nil {
+		return 0, 0, fmt.Errorf("gh api graphql: %w", err)
+	}
+	t := r.Data.Repository.PullRequest.ReviewThreads
+	for _, n := range t.Nodes {
+		if !n.IsResolved {
+			unresolved++
+		}
+	}
+	return unresolved, t.TotalCount, nil
 }
 
 // maxProposal caps what is read of one proposal: its header lines are near the top.
@@ -108,6 +194,10 @@ func ReadChanges(worktrees []string, dirs []string) []Change {
 					c.Written = di.ModTime()
 				}
 				c.Approved, c.BudgetUSD = ParseProposal(b)
+				if tb, err := readHead(filepath.Join(base, id, "tasks.md"), maxProposal); err == nil {
+					c.Tasks = true
+					c.TasksOpen, c.TasksDone = CountTasks(tb)
+				}
 				if old, ok := byID[id]; !ok || c.Written.After(old.Written) {
 					byID[id] = c
 				}

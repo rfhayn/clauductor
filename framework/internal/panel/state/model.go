@@ -191,6 +191,11 @@ type Model struct {
 	spentByBranch map[string]float64
 	economy       *EconomyView
 	remoteControl string
+	// PANEL-20 (readiness.go): the runtime's per-worktree reads for merge readiness.
+	laneExtras   map[string]LaneExtra
+	gateReceipts bool
+	mergeAsks    map[string]MergeAsk   // lifecycle.go
+	limits       map[string]*limitMark // resume.go, by session id
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -791,6 +796,8 @@ type LaneView struct {
 	// Budget is the budget of the change this lane's branch builds (PANEL-19), when
 	// its proposal has one, and what the change's branches have spent.
 	Budget *BudgetView `json:"budget,omitempty"`
+	// Readiness is whether the lane's branch is ready to merge, and why not (PANEL-20).
+	Readiness *Readiness `json:"readiness,omitempty"`
 	// Head is the worktree's HEAD commit, from `git worktree list`.
 	Head        string        `json:"head,omitempty"`
 	LastEvent   string        `json:"lastEvent,omitempty"`
@@ -1214,6 +1221,10 @@ func (m *Model) Snapshot(now time.Time) View {
 	}
 	for i := range v.Lanes {
 		v.Lanes[i].Budget = m.budgetOf(v.Lanes[i].Branch)
+		v.Lanes[i].Readiness = m.readiness(v.Lanes[i])
+	}
+	for i := range v.QuietWorktrees {
+		v.QuietWorktrees[i].Readiness = m.readiness(v.QuietWorktrees[i])
 	}
 	v.Economy = m.economyView()
 	if m.remoteControl != "off" {
@@ -1241,6 +1252,8 @@ type TermLaneView struct {
 	Dead       bool     `json:"dead"`    // the tmux session exists, the program exited
 	DeadStatus string   `json:"deadStatus,omitempty"`
 	Registered bool     `json:"registered"`
+	// Port is the lane's own port (PANEL-20), when panel.json allocates them.
+	Port int `json:"port,omitempty"`
 	// Orphan says what does not add up, e.g. a registered lane whose tmux session is
 	// gone (a reboot), or a tmux session the registry does not know. "" when sound.
 	Orphan string `json:"orphan,omitempty"`
@@ -1303,7 +1316,7 @@ func (m *Model) TerminalViews(now time.Time) []TermLaneView {
 	for _, rec := range m.laneRecords {
 		seen[rec.ID] = true
 		tv := TermLaneView{ID: rec.ID, SessionID: rec.SessionID, Path: rec.Path, Type: rec.Type, Branch: rec.Branch,
-			Created: rec.Created / 1000, Registered: true, Status: "running"}
+			Created: rec.Created / 1000, Registered: true, Status: "running", Port: rec.Port}
 		if !rec.ActionDone {
 			tv.Action = rec.Action
 		}
@@ -1752,6 +1765,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 					"types nothing into a restored lane, so continue it yourself."})
 		}
 	}
+	m.mergeNeeds(v) // PANEL-20
 	sort.SliceStable(v.NeedsYou, func(i, j int) bool {
 		return sevRank(v.NeedsYou[i].Severity) > sevRank(v.NeedsYou[j].Severity)
 	})

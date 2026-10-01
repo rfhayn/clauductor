@@ -183,6 +183,11 @@ type Runtime struct {
 
 	// mstore is the Metrics view's data (PANEL-19; metrics_source.go).
 	mstore *metricsStore
+	// ready caches merge readiness's reads (PANEL-20; readiness_source.go).
+	ready readinessCache
+	// autoClose is lanes_auto_close's state (PANEL-20; autoclose.go); its source's
+	// goroutine only.
+	autoClose autoCloser
 }
 
 // newRuntime builds a project's runtime and its table of sources.
@@ -229,6 +234,8 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		// Refresh re-reads git too (PANEL-18): after a pull, the cards' stale note goes at once.
 		{name: "git", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollGit},
+		// PANEL-20: merge readiness, on git's cadence and while a page is in view.
+		{name: "readiness", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollReadiness},
 	}
 	for _, c := range cfg.Cards {
 		r.sources = append(r.sources, r.cardSource(c))
@@ -237,6 +244,12 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 		if t.Suggest != nil {
 			r.sources = append(r.sources, r.suggestSource(t.ID, *t.Suggest))
 		}
+	}
+	if cfg.QuotaAutoResume && lm != nil {
+		r.sources = append(r.sources, &source{name: "autoresume", every: t.Notify, fixedRate: true, waitFirst: true, poll: r.pollAutoResume})
+	}
+	if cfg.AnyAutoClose() && lm != nil {
+		r.sources = append(r.sources, &source{name: "autoclose", every: t.PRs, fixedRate: true, waitFirst: true, poll: r.pollAutoClose})
 	}
 	r.mstore = newMetricsStore(o, root, cfg, tv.Trusted)
 	r.sources = append(r.sources, r.metricsSources()...)

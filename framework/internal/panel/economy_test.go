@@ -123,18 +123,18 @@ func TestEconomyEndToEnd(t *testing.T) {
 		}
 	}
 	post(87)
-	waitFor(t, "economy on", func() bool { return read().Economy })
+	waitUntil(t, "economy on", 15*time.Second, func() bool { return read().Economy })
 	if f := read(); f.Reason != "5-hour quota 87% ≥ 85%" || f.Since == 0 {
 		t.Fatalf("economy.json %+v", f)
 	}
 	if fi, err := os.Stat(EconomyPath(home)); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("economy.json mode %v %v", fi, err)
 	}
-	waitFor(t, "the badge", func() bool {
+	waitUntil(t, "the badge", 15*time.Second, func() bool {
 		v := c.state(t)
 		return v.Economy != nil && v.Economy.Active && len(v.Economy.Roles) == 1 && v.Economy.Roles[0].Role == "scribe"
 	})
 	post(80)
-	waitFor(t, "economy off", func() bool { return !read().Economy })
-	waitFor(t, "no badge", func() bool { return c.state(t).Economy == nil })
+	waitUntil(t, "economy off", 15*time.Second, func() bool { return !read().Economy })
+	waitUntil(t, "no badge", 15*time.Second, func() bool { return c.state(t).Economy == nil })
 }

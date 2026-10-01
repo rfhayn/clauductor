@@ -90,6 +90,43 @@ func TestReadChanges(t *testing.T) {
 	}
 }
 
+// PANEL-20: tasks.md checkboxes, the gate's receipt and GitHub's review threads.
+func TestReadinessParsers(t *testing.T) {
+	t.Parallel()
+	if o, d := CountTasks([]byte("## Tasks\n- [x] a\n  - [ ] b\n* [X] c\n- [] not a box\ntext [ ] no\n")); o != 1 || d != 2 {
+		t.Errorf("tasks %d open %d done", o, d)
+	}
+	if r, ok := ParseReceipt([]byte("0581df54c2aa\tfull\tclean\tall\n")); !ok || r.SHA != "0581df54c2aa" || !r.Clean || r.Kind != "full" {
+		t.Errorf("receipt %+v %v", r, ok)
+	}
+	if r, ok := ParseReceipt([]byte("0581df54c2aa\tfull\tdirty\tall")); !ok || r.Clean {
+		t.Errorf("a dirty receipt %+v", r)
+	}
+	for _, bad := range []string{"", "not-a-sha\tfull\tclean", "abc\tfull"} {
+		if _, ok := ParseReceipt([]byte(bad)); ok {
+			t.Errorf("accepted receipt %q", bad)
+		}
+	}
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"ci-receipt": "0581df54c2aa\tfull\tclean\tall\n"})
+	if r, ok := ReadReceipt(dir); !ok || r.SHA != "0581df54c2aa" {
+		t.Errorf("read receipt %+v", r)
+	}
+	if _, ok := ReadReceipt(t.TempDir()); ok {
+		t.Error("a receipt from nowhere")
+	}
+	u, n, err := ParseReviewThreads([]byte(`{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":3,"nodes":[{"isResolved":true},{"isResolved":false},{"isResolved":false}]}}}}}`))
+	if err != nil || u != 2 || n != 3 {
+		t.Errorf("threads %d of %d %v", u, n, err)
+	}
+	if _, _, err := ParseReviewThreads([]byte("oops")); err == nil {
+		t.Error("bad graphql accepted")
+	}
+	if a := ReviewThreadsArgv(7); a[0] != "gh" || a[len(a)-1][:6] != "query=" {
+		t.Errorf("argv %q", a)
+	}
+}
+
 func TestBranchOfChange(t *testing.T) {
 	t.Parallel()
 	for branch, want := range map[string]bool{"change/add-x": true, "feature/team/add-x": true, "add-x": true, "change/add-xy": false, "change/x-add-x": false, "": false} {
