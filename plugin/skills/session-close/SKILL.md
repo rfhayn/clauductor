@@ -15,6 +15,7 @@ document reads exactly like a current one. So the checks below **run** rather th
 
 ## Context: the state, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/session-close/context.sh`
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
 `clauductor-model skills/session-close/context.sh` yourself and read the result before step 1.
@@ -103,7 +104,7 @@ pointing forward. Then state what is still outstanding **and the change that own
 rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of closing.
 
 ### 6. Land the close itself, quiet the machine, notify
-1. The records from steps 2–4 are a PR like any other: branch `ops/session-<N>-close`, commit,
+1. The records from steps 2–4 are a PR like any other: branch `<BRANCH_OPS>session-<N>-close`, commit,
    push, `gh pr create`.
 2. `git fetch origin main && git merge origin/main`, **every time**, even with no conflict shown:
    someone may have closed while you wrote. Resolve per the table above.

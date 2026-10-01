@@ -27,6 +27,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/template"
 )
 
 // Name is the plugin's name, which namespaces every component (`/clauductor:session-start`), and
@@ -326,6 +328,9 @@ func listFiles(root string) ([]string, error) {
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
+		}
+		if rel == template.VersionFile {
+			return nil // the template's version marker, which no project receives
 		}
 		files = append(files, filepath.ToSlash(rel))
 		return nil

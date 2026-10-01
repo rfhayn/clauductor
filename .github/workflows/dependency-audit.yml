@@ -1,7 +1,12 @@
 # The scheduled dependency audit: every week, the production dependencies of each ecosystem this
 # repository has, against the public advisory databases. It FAILS on an advisory of high severity or
 # worse. A scheduled run reaches no PR, so its reader is session-start's health block
-# (.claude/health/dependency-audit.sh). Each step runs only when its manifest exists.
+# (.claude/health/dependency-audit.sh).
+#
+# It audits every manifest git tracks, at any depth (a Go module in framework/, a package in
+# web/, ...), not only the root's: a root-only audit reported nothing for a repository whose
+# module lives in a subdirectory (OPS-8 rehearsal). .claude/checks/supply-chain.sh runs the block
+# between the audit markers against a repository with nested manifests (AUDIT_DRY_RUN=1).
 name: dependency-audit
 
 on:
@@ -18,23 +23,24 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: npm
-        if: hashFiles('package-lock.json') != ''
-        run: npm audit --omit=dev --audit-level=high
-      - name: pnpm
-        if: hashFiles('pnpm-lock.yaml') != ''
-        run: corepack enable && pnpm audit --prod --audit-level high
-      - name: Go
-        if: hashFiles('go.mod') != ''
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      # This repository's module is in framework/ (the template's steps look only at the root).
-      - name: Go (framework/)
-        if: hashFiles('framework/go.mod') != ''
-        working-directory: framework
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: Python
-        if: hashFiles('requirements.txt') != ''
-        run: pipx run pip-audit -r requirements.txt
-      - name: nothing to audit
-        if: hashFiles('package-lock.json', 'pnpm-lock.yaml', 'go.mod', 'framework/go.mod', 'requirements.txt') == ''
-        run: echo "no dependency manifest (package-lock.json, pnpm-lock.yaml, go.mod, requirements.txt) in this repository"
+      - name: audit every tracked manifest
+        run: |
+          # audit: begin
+          # One line per audit: "<tool> <dir>". AUDIT_DRY_RUN=1 prints the lines and runs nothing.
+          # Not audited: test fixtures (testdata/, the reviewer evals' cases), vendored code.
+          run() { echo "$*"; [ "${AUDIT_DRY_RUN:-}" = 1 ] || ( cd "$2" && shift 2 && "$@" ) || failed=1; }
+          failed=0; n=0
+          for m in $(git ls-files -- 'go.mod' '*/go.mod' 'package-lock.json' '*/package-lock.json' 'pnpm-lock.yaml' '*/pnpm-lock.yaml' \
+                       'requirements*.txt' '*/requirements*.txt' 'pyproject.toml' '*/pyproject.toml' | grep -Ev '(^|/)(testdata|vendor|node_modules)/|(^|/)\.claude/evals/'); do
+            dir=$(dirname "$m"); n=$((n + 1))
+            case $(basename "$m") in
+              go.mod) run govulncheck "$dir" go run golang.org/x/vuln/cmd/govulncheck@latest ./... ;;
+              package-lock.json) run npm "$dir" npm audit --omit=dev --audit-level=high ;;
+              pnpm-lock.yaml) run pnpm "$dir" sh -c 'corepack enable && pnpm audit --prod --audit-level high' ;;
+              requirements*.txt) run pip-audit "$dir" pipx run pip-audit -r "$(basename "$m")" ;;
+              pyproject.toml) run pip-audit "$dir" pipx run pip-audit . ;;
+            esac
+          done
+          [ "$n" -gt 0 ] || echo "no dependency manifest (go.mod, package-lock.json, pnpm-lock.yaml, requirements*.txt, pyproject.toml) is tracked in this repository"
+          exit "$failed"
+          # audit: end

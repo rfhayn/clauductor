@@ -48,6 +48,12 @@ started from the panel's **New lane** (or by hand), on one branch:
 | ops | `ops/<name>` | any that share no files | a tooling, docs or process task |
 | orchestrator | `main` (the main checkout) | one | `/session-start` |
 
+- **The prefixes are settings.** `change/`, `fix/` and `ops/` are the defaults of `BRANCH_CHANGE`,
+  `BRANCH_FIX` and `BRANCH_OPS` in `.claude/project.conf`; a project changes them there and nowhere
+  else. The skills name branches by these keys (`sh .claude/project-config.sh` prints them),
+  build-change reads its branch at run time, and `clauductor install` writes the panel preset
+  with them. `checks/branch-prefixes.sh` fails on a literal prefix in the model's files and on a
+  `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
 - **One gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a lane's
@@ -353,7 +359,7 @@ data that already exists. Nothing new is recorded to feed them.
 | change-fail rate, escaped defects | a merged PR later reverted, or fixed by a `fix/` PR that names it (its `#number`, its change id, its title) |
 | approval wait | the proposal's first commit to its `**Approved:**` line (to the day where one squash carries both) |
 | review rounds | `tasks.md` `## Progress`: "converged in N round(s)" per group |
-| aging work in progress | open changes, and `change/`, `fix/`, `ops/` branches not merged |
+| aging work in progress | open changes, and `BRANCH_CHANGE`, `BRANCH_FIX`, `BRANCH_OPS` branches not merged |
 | outcomes | each proposal's `## How we'll know`, due and checked from its outcome-check roadmap row |
 | cost by role, model, change and project | this machine's Claude Code transcripts at the list prices in `model-roles.json` |
 
@@ -367,6 +373,18 @@ data that already exists. Nothing new is recorded to feed them.
   this session's) or a window (`--days 30`). An agent's spend goes to the role at the root of its
   spawn chain. A model with no price is listed as UNPRICED, never costed at zero. These are list
   prices, so on a subscription they show how fast the quota drains, not a bill.
+
+## Keeping the model current
+
+`clauductor update` (or `install` again) brings the framework files up to date and merges
+`.claude/settings.json`; the template it reads is printed first, and must be the binary's version.
+It never overwrites a project-owned file, but it offers what the template added to them: new files
+(created only if missing), new `model-roles.json` keys (no value changes), and the AGENTS.md table
+rows the template gained (printed as a suggestion, never applied). Nothing a project configures
+lives in a framework file: branch prefixes and paths are `project.conf`'s, attribution and
+provenance are `model-roles.json`'s, so an edited framework file in `clauductor diff` is a real
+divergence. A repository that ran clauductor's old model gets its replaced files listed, and
+removed with `--prune`.
 
 ## The record
 

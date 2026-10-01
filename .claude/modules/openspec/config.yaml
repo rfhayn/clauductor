@@ -7,7 +7,7 @@ schema: spec-driven
 context: |
   Changes are proposed just in time from a row of docs/roadmap.md, at most one ahead of the change
   being built. The owner approves every proposal and design decision before anything is built.
-  One change = one change/<id> branch = one squash PR.
+  One change = one change branch (BRANCH_CHANGE + id, .claude/project.conf) = one squash PR.
 
 rules:
   proposal:

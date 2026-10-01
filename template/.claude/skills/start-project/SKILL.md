@@ -8,11 +8,12 @@ description: "First-time setup of this project's operating model: fill .claude/p
 # Start a project: configure the operating model
 
 Walk through each step with the user, skipping what is already done. Read `docs/playbook.md` first
-if you have not: it explains what each piece is for. Work on an `ops/setup` branch; land it with
+if you have not: it explains what each piece is for. Work on an ops branch (`<BRANCH_OPS>setup`); land it with
 `merge-pr` at the end.
 
 ## Context
 - Config: !`grep -E '^[A-Z_]+=' .claude/project.conf`
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh .claude/project-config.sh prefixes`
 - Gate steps configured: !`grep -cE '^[[:space:]]*step ' scripts/ci/steps.sh`
 - Roadmap: !`sh .claude/roadmap-queue.sh --check 2>&1 | head -3`
 
@@ -24,8 +25,10 @@ If those lines show as literal text, run the commands yourself.
    others), `OWNER_ROLE` (the word for whoever approves designs: "owner", "founder", "lead") and
    `OWNER_NAME`, `MAIN_BRANCH`, `INSIGHT_AREAS` (5–10 coarse buckets for the insights log).
 2. **The panel config** (`.clauductor/panel.json`): set `name` to `PROJECT_NAME` and
-   `tmux_socket` to `PROJECT_SLUG`; make `lanes` use the `BRANCH_*` prefixes and `MAIN_BRANCH`, and
-   `base` `origin/<MAIN_BRANCH>`. Then tell the user to run `clauductor panel trust` themselves
+   `tmux_socket` to `PROJECT_SLUG`; make `lanes` and each template's `branch_pattern` use the
+   `BRANCH_*` prefixes and `MAIN_BRANCH` (`clauductor install` writes them so when it creates the
+   file; `sh .claude/checks/run.sh branch-prefixes` names any that disagree), and `base`
+   `origin/<MAIN_BRANCH>`. Then tell the user to run `clauductor panel trust` themselves
    (a config's commands run only once its owner has trusted it; never trust on their behalf).
 3. **The gate** (`scripts/ci/steps.sh`): ask for the lint, typecheck and test commands, and any
    slow suite for the full gate only; write each as a `step`. Keep the "process checks" step.
@@ -56,9 +59,9 @@ If those lines show as literal text, run the commands yourself.
 6. **The commit trailers** (`.claude/model-roles.json`): `attribution` names the model you run in
    `trailer`, or set `enabled` to false if this project keeps commits unattributed; `provenance`
    (the `Change:`, `Agent-Role:`, `Model:`, `Session:` trailers `pr-merge-guard` requires on a
-   squash) is on by default, off with `enabled: false`. Mirror both in
-   `.claude/workflows/build-change.js` (`ATTRIBUTION_DEFAULT`, `PROVENANCE`; the check compares
-   them). Update `.prices` if the list prices have changed. Change a
+   squash) is on by default, off with `enabled: false`. Nothing else to edit: build-change reads
+   both at run time (`.claude/project-config.sh --json`). Update `.prices` if the list prices have
+   changed. Change a
    role's model or effort only in `model-roles.json`, then fix what `checks/model-roles.sh` names.
 7. **The first roadmap rows** (`docs/roadmap.md`): replace the example Phase 1 with the real first
    phase: its exit criterion, its owner, and 2–5 rows, each a change id and what a user can then

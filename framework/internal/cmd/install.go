@@ -57,7 +57,17 @@ queue, ADRs, changes and specs where their keys say.
 
 A repository that runs an operating model of its own (skills, hooks or
 AGENTS.md that clauductor did not install) is refused, with the files an
-install would overwrite or add, unless --force.
+install would overwrite or add, unless --force. One that runs clauductor's
+old model (recognised from tracked files: its skills, hooks and settings) is
+clauductor's, and is installed over; the old model's files the current one
+replaced are listed and offered for removal (--prune removes them without
+asking; a project-owned or unknown file is never touched), and settings.json
+loses the hook registrations that run a script that will not exist.
+
+The template comes from --template-dir, CLAUDUCTOR_FRAMEWORK, next to the
+binary (a release ships its template), or the checkout the binary was built
+from, in that order; its version must match the binary's. The first line
+printed says which.
 
 Use --dry-run to preview changes, including the settings.json diff, without
 modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
@@ -76,15 +86,16 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 			}
 		}
 
-		fmt.Fprintf(out, "Installing Clauductor framework into %s\n\n", targetDir)
+		fmt.Fprintf(out, "Installing Clauductor framework into %s\n", targetDir)
+		src, err := announceTemplate(out)
+		if err != nil {
+			return err
+		}
+		tmplDir := src.Dir
 
 		allFiles, err := template.ListTemplateFiles()
 		if err != nil {
 			return fmt.Errorf("failed to list template files: %w", err)
-		}
-		tmplDir, err := template.TemplatePath()
-		if err != nil {
-			return err
 		}
 
 		if !forceInstall {
@@ -94,6 +105,7 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 		}
 
 		// A repository running its own operating model is left alone (ownguard.go).
+		announceOldModel(out, targetDir)
 		if !forceInstall && !ownedByClauductor(targetDir) {
 			overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
 			if err != nil {
@@ -114,7 +126,13 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 		if err != nil {
 			return fmt.Errorf("install refused: %w", err)
 		}
+		x, err := planExtras(targetDir, tmplDir, allFiles)
+		if err != nil {
+			return fmt.Errorf("install refused: %w", err)
+		}
+		x.oldStubs = nil // planInstall already replaces them (its FRAMEWORK list)
 		plan.print(out, dryRun)
+		x.print(out, false)
 		for _, w := range template.SkillCollisions(targetDir, allFiles) {
 			fmt.Fprintf(out, "  WARNING: %s\n\n", w)
 		}
@@ -124,6 +142,12 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 			return nil
 		}
 		if err := plan.apply(targetDir); err != nil {
+			return err
+		}
+		if err := x.applyAdditive(out, targetDir); err != nil {
+			return err
+		}
+		if err := x.offerPrune(out, targetDir); err != nil {
 			return err
 		}
 
@@ -138,6 +162,8 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 func init() {
 	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes (and the settings.json diff) without modifying anything")
 	installCmd.Flags().BoolVar(&forceInstall, "force", false, "Install even over an operating model the repository runs itself (overwrites its framework files)")
+	installCmd.Flags().BoolVar(&pruneOld, "prune", false, "Remove the old model's files that the current model replaced, without asking (never a project-owned or unknown file)")
+	addTemplateFlag(installCmd)
 }
 
 // placed is one template file and where it goes.
@@ -161,6 +187,8 @@ type installPlan struct {
 	merge     []placed          // CLAUDE.md, .gitignore: merged
 	skipped   map[string]string // template path → why the project's config leaves it out
 	settings  *template.SettingsPlan
+	tmplDir   string
+	conf      *template.Conf
 }
 
 func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error) {
@@ -172,7 +200,7 @@ func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error
 	if err != nil {
 		return nil, err
 	}
-	p := &installPlan{skipped: map[string]string{}}
+	p := &installPlan{skipped: map[string]string{}, tmplDir: tmplDir, conf: conf}
 	for _, rel := range files {
 		tier := classifyFile(rel)
 		if tier == tierSettings {
@@ -197,7 +225,11 @@ func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error
 				p.update = append(p.update, pl)
 			}
 		case tierDoc:
-			p.keep = append(p.keep, pl)
+			if template.OldModelUnchanged(targetDir, dest) {
+				p.update = append(p.update, pl) // the old model's unedited stub (release-prep, ...)
+			} else {
+				p.keep = append(p.keep, pl)
+			}
 		case tierConfig:
 			p.merge = append(p.merge, pl)
 		}
@@ -207,7 +239,7 @@ func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error
 		return nil, err
 	}
 	cur, readErr := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath)))
-	p.settings, err = template.PlanSettings(cur, readErr == nil, tmplSettings, conf)
+	p.settings, err = template.PlanSettings(cur, readErr == nil, tmplSettings, conf, template.TemplateHookPrune(targetDir, tmplDir))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w (fix it, or move it aside and install again)", template.SettingsPath, err)
 	}
@@ -299,7 +331,7 @@ func indent(s, pre string) string {
 func (p *installPlan) apply(targetDir string) error {
 	for _, list := range [][]placed{p.create, p.update} {
 		for _, f := range list {
-			if err := template.CopyFile(targetDir, f.rel, f.dest); err != nil {
+			if err := writeDocFile(targetDir, p.tmplDir, f, p.conf); err != nil {
 				return fmt.Errorf("failed to install %s: %w", f.dest, err)
 			}
 		}

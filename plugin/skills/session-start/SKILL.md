@@ -9,6 +9,7 @@ description: "Orient at the start of a working session: the owner queue, the pan
 
 ## Context: the state, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/session-start/context.sh`
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, this harness does not pre-execute it:
 run `clauductor-model skills/session-start/context.sh` yourself and read the result before step 1.
@@ -40,10 +41,10 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
 - **The main checkout stays on `main`.** Hooks run from it; a feature branch there makes
   `worktree-hook-drift.sh` refuse every worktree agent.
 - **Run as an orchestrator of lanes** (`docs/playbook.md`, *Lanes*): one build lane at a time in its
-  OWN worktree (a panel lane, or `git worktree add .claude/worktrees/<lane> -b change/<id>
+  OWN worktree (a panel lane, or `git worktree add .claude/worktrees/<lane> -b <BRANCH_CHANGE><id>
   origin/main` then `EnterWorktree` there before starting `/build-change`, and stay there until it
   returns: a workflow agent takes the session's cwd when it starts); at most one proposal ahead;
-  `fix/` and `ops/` lanes in their own worktrees when they share no files. Take summaries from
+  fix and ops lanes (`BRANCH_FIX`, `BRANCH_OPS`) in their own worktrees when they share no files. Take summaries from
   lanes rather than reading their files. When a lane frees up, offer the next queue row.
 - **Research-only work goes to the `clauductor:researcher` agent**, not a fork (a fork inherits every tool).
 - Read, don't assume: the repo's records are the source of truth for "where we were". Keep the

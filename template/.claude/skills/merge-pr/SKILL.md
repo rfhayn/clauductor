@@ -34,6 +34,7 @@ ever worked around: no `--admin`, no `--auto`, no merge clicked on the website.
 
 ## Context: the state, computed
 !`sh .claude/skills/merge-pr/context.sh`
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh .claude/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
 `sh .claude/skills/merge-pr/context.sh` yourself and read the result before step 1.
@@ -81,7 +82,7 @@ stop until fixed; `pr-merge-guard` rules 9 and 10 block the same things at the m
 Converged means **the last review round found nothing medium or worse.** By how the PR was built:
 - **`/build-change` or `/apply-change`**: their report shows each group's last round clean. Commits
   made after the report (a merge of `origin/main`, a doc fix) are unreviewed: review that delta.
-- **Built by hand** (`fix/`, `ops/`, a session close): run `/code-review` (or the `reviewer` agent)
+- **Built by hand** (a fix or ops branch, a session close): run `/code-review` (or the `reviewer` agent)
   on `git diff origin/main...HEAD`, fix what is medium or worse, and re-run until a round comes back
   clean. Stop and notify if peak severity rises between rounds, or after 3 rounds.
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `reviewer-docs` agent
@@ -96,7 +97,7 @@ Write the squash body to a file: the PR's summary, then ONE trailer block. While
 the provenance trailers, and `pr-merge-guard` rule 12 refuses a merge without them:
 
 ```text
-Change: <change id, or none for a fix/ or ops/ PR>
+Change: <change id, or none for a fix or ops PR>
 Agent-Role: <the role that wrote most of it: builder for build-change, thinker by hand, …>
 Model: <that role's model, from model-roles.json>
 Session: <this session's id: $CLAUDE_CODE_SESSION_ID>

@@ -13,8 +13,9 @@ this loop for you and stops cleanly. Use this skill when the Workflow tool is no
 do one group alone. The loop is the same, and so are its stops.
 
 ## Preconditions
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh .claude/project-config.sh prefixes`
 - The change is approved: `changes/<id>/proposal.md` has its `**Approved:**` line, on `main`.
-- You are on `change/<id>` in its OWN worktree, never the main checkout (hooks run from there), with
+- You are on `<BRANCH_CHANGE><id>` in its OWN worktree, never the main checkout (hooks run from there), with
   a clean tree.
 - **The models follow the proposal's `**Risk:**` tier**: a role with a variant for that tier in
   `.claude/model-roles.json` (`roles.<role>.tiers`) runs on it; pass its `model` and `effort` when

@@ -52,6 +52,24 @@ wf="$ROOT/.github/workflows/dependency-audit.yml"
 if [ -f "$wf" ]; then
   grep -qE '^[[:space:]]*schedule:' "$wf" && grep -qE '^[[:space:]]*workflow_dispatch:' "$wf" \
     && ok "dependency-audit.yml runs on a schedule and on demand" || fail "dependency-audit.yml needs both schedule: and workflow_dispatch: triggers"
+  # It audits every tracked manifest at any depth, not only the root's (OPS-8 rehearsal: a Go
+  # module in framework/ was never audited). The block between its markers runs, dry, in a repo
+  # whose manifests are nested.
+  sed -n '/# audit: begin/,/# audit: end/p' "$wf" | sed 's/^          //' > "$d/audit.sh"
+  if [ -s "$d/audit.sh" ]; then
+    new_repo "$d/m"
+    mkdir -p "$d/m/framework" "$d/m/web" "$d/m/svc/api" "$d/m/framework/x/testdata" "$d/m/.claude/evals/r/before"
+    : > "$d/m/framework/go.mod"; : > "$d/m/web/package-lock.json"; : > "$d/m/svc/api/requirements.txt"; : > "$d/m/framework/x/testdata/go.mod"; : > "$d/m/.claude/evals/r/before/go.mod"
+    git -C "$d/m" add -A && git -C "$d/m" commit -qm m
+    out=$(cd "$d/m" && AUDIT_DRY_RUN=1 sh "$d/audit.sh" 2>&1)
+    case "$out" in *"govulncheck framework "*"npm web "*|*"npm web "*"govulncheck framework "*) ok "the audit finds manifests below the root (framework/go.mod, web/package-lock.json)" ;; *) fail "the audit missed nested manifests: $out" ;; esac
+    case "$out" in *"pip-audit svc/api "*) ok "the audit finds a nested requirements.txt" ;; *) fail "the audit missed svc/api/requirements.txt: $out" ;; esac
+    case "$out" in *testdata* | *evals*) fail "the audit ran on a test fixture's manifest: $out" ;; *) ok "the audit skips test fixtures (testdata/, the evals' cases)" ;; esac
+    new_repo "$d/empty"; out=$(cd "$d/empty" && AUDIT_DRY_RUN=1 sh "$d/audit.sh" 2>&1)
+    case "$out" in "no dependency manifest"*) ok "a repo with no manifest says so" ;; *) fail "a repo with no manifest printed: $out" ;; esac
+  else
+    fail "dependency-audit.yml has no '# audit: begin' … '# audit: end' block (the audit this check runs)"
+  fi
 else
   fail "no .github/workflows/dependency-audit.yml (the scheduled dependency audit)"
 fi

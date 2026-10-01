@@ -2,6 +2,8 @@ package template
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -87,6 +89,50 @@ func RenderSettings(tmpl []byte, c *Conf) (rendered []byte, stale map[string][]s
 // is RenderSettings' list of entries to drop. The result keeps the project's key order, with the
 // template's new keys after.
 func MergeSettings(have, want []byte, stale map[string][]string) (merged []byte, changes []SettingsChange, err error) {
+	return mergeSettings(have, want, stale, nil)
+}
+
+// HookPrune says which of the project's own hook registrations a merge drops: those that run a
+// script under .claude/hooks/ that will not exist after the install (not in the project, not in
+// the template), and every registration of the old model's hooks (session-register.sh,
+// heartbeat.sh, ...). A merge that kept them left every session start and tool call running a
+// deleted script (OPS-8 rehearsal, finding 7).
+type HookPrune struct {
+	ProjectDir    string          // the project; a script there counts as existing
+	TemplateHooks map[string]bool // hook scripts the template ships (installed with the merge)
+}
+
+// why returns the reason to drop a registration of script, or "".
+func (p *HookPrune) why(script string) string {
+	if p == nil || script == "" {
+		return ""
+	}
+	if OldModelHook(script) {
+		return "the old model's hook (" + script + "), which the current model replaced"
+	}
+	if p.TemplateHooks[script] {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(p.ProjectDir, ".claude", "hooks", script)); err == nil {
+		return ""
+	}
+	return "it runs .claude/hooks/" + script + ", which does not exist"
+}
+
+// TemplateHookPrune is the HookPrune for installing tmplDir's template into projectDir.
+func TemplateHookPrune(projectDir, tmplDir string) *HookPrune {
+	p := &HookPrune{ProjectDir: projectDir, TemplateHooks: map[string]bool{}}
+	if es, err := os.ReadDir(filepath.Join(tmplDir, ".claude", "hooks")); err == nil {
+		for _, e := range es {
+			if !e.IsDir() {
+				p.TemplateHooks[e.Name()] = true
+			}
+		}
+	}
+	return p
+}
+
+func mergeSettings(have, want []byte, stale map[string][]string, prune *HookPrune) (merged []byte, changes []SettingsChange, err error) {
 	h, err := parseNode(have)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the project's settings.json is not valid JSON: %w", err)
@@ -98,7 +144,7 @@ func MergeSettings(have, want []byte, stale map[string][]string) (merged []byte,
 	if !h.obj {
 		return nil, nil, fmt.Errorf("the project's settings.json is not a JSON object")
 	}
-	m := &merger{stale: map[string]map[string]bool{}}
+	m := &merger{stale: map[string]map[string]bool{}, prune: prune}
 	for p, items := range stale {
 		m.stale[p] = map[string]bool{}
 		for _, it := range items {
@@ -122,6 +168,7 @@ func MergeSettings(have, want []byte, stale map[string][]string) (merged []byte,
 
 type merger struct {
 	stale   map[string]map[string]bool
+	prune   *HookPrune
 	changes []SettingsChange
 }
 
@@ -251,6 +298,13 @@ func (m *merger) hooks(have, want *node) *node {
 			for _, hk := range hs.items {
 				s := scriptOf(hk)
 				if s == "" {
+					cmd, _ := hk.get("command").str()
+					if sm := hookScriptRe.FindStringSubmatch(cmd); sm != nil {
+						if why := m.prune.why(sm[1]); why != "" {
+							m.note(SettingsChange{Path: "hooks." + ev + matcherLabel(mt), Action: "remove", Have: hk.compact(), Note: why})
+							continue
+						}
+					}
 					kept = append(kept, hk) // the project's own hook
 					continue
 				}
@@ -354,7 +408,7 @@ func (p *SettingsPlan) Conflicts() int {
 
 // PlanSettings works out the settings.json a project gets: the rendered template when it has
 // none, else the merge.
-func PlanSettings(current []byte, exists bool, tmpl []byte, c *Conf) (*SettingsPlan, error) {
+func PlanSettings(current []byte, exists bool, tmpl []byte, c *Conf, prune *HookPrune) (*SettingsPlan, error) {
 	rendered, stale, err := RenderSettings(tmpl, c)
 	if err != nil {
 		return nil, err
@@ -365,7 +419,7 @@ func PlanSettings(current []byte, exists bool, tmpl []byte, c *Conf) (*SettingsP
 		return p, nil
 	}
 	p.Current = current
-	merged, changes, err := MergeSettings(current, rendered, stale)
+	merged, changes, err := mergeSettings(current, rendered, stale, prune)
 	if err != nil {
 		return nil, err
 	}
