@@ -39,7 +39,7 @@ git -C "$R" checkout -q main
 cat > "$d/bin/gh" <<'EOF'
 #!/bin/sh
 case "$1 $2" in
-  "pr checks") echo "${GH_CHECKS:-[]}" ;;
+  "pr checks") green='[{"name":"test","state":"SUCCESS","bucket":"pass"}]'; echo "${GH_CHECKS:-$green}" ;;
   "pr view")
     case "$*" in
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
@@ -88,6 +88,22 @@ printf '%s\tfull\tclean\tall\n' "$MAINSHA" > "$(git -C "$d/lane" rev-parse --abs
 guard 0 "a receipt in a linked worktree's git dir" "gh pr merge 5 --squash"
 guard 2 "a red check" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]'
 guard 0 "a red DISPLAY context (GATE_DISPLAY_CONTEXTS)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"}]'
+
+# Rule 2(a): where the project has CI, nothing reported yet (CI not registered) is not a pass.
+guard 2 "no reported checks while GATE_DISPLAY_CONTEXTS names CI" "gh pr merge 5 --squash" GH_CHECKS='[]'
+cp "$R/.claude/project.conf" "$d/conf.ci"
+printf 'GATE_DISPLAY_CONTEXTS=""\nGATE_REMOTE_WORKFLOW=""\n' > "$R/.claude/project.conf"
+guard 0 "no reported checks in a project with no CI at all (the receipt alone)" "gh pr merge 5 --squash" GH_CHECKS='[]'
+mkdir -p "$R/.github/workflows"
+printf 'on:\n  pull_request:\n    branches: [main]\n' > "$R/.github/workflows/test.yml"
+guard 2 "no reported checks while a workflow runs on pull_request" "gh pr merge 5 --squash" GH_CHECKS='[]'
+guard 0 "...and a reported green check satisfies it" "gh pr merge 5 --squash"
+printf 'on:\n  pull_request:\n    paths: ["src/**"]\n' > "$R/.github/workflows/test.yml"
+guard 0 "a path-filtered pull_request workflow is not a requirement (it may rightly skip the PR)" "gh pr merge 5 --squash" GH_CHECKS='[]'
+printf 'on:\n  schedule:\n    - cron: "0 0 * * 1"\n' > "$R/.github/workflows/test.yml"
+guard 0 "a scheduled-only workflow is not a requirement" "gh pr merge 5 --squash" GH_CHECKS='[]'
+rm -rf "$R/.github"
+cp "$d/conf.ci" "$R/.claude/project.conf"
 
 # Rule 3: the slice line, read at the head from the PR's own change directory.
 printf '%s\tfull\tclean\tall\n' "$NOSLICE" > "$R/.git/ci-receipt"
