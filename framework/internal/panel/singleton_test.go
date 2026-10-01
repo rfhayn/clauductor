@@ -305,6 +305,21 @@ func TestOldHTTPHooksAreUpgradedInPlace(t *testing.T) {
 		return warned && !strings.Contains(string(s), `"type": "http"`) &&
 			strings.Contains(string(s), `"say done"`) && strings.Contains(string(s), `"model": "opus"`)
 	})
+	// In place: Stop is still [the panel's hook, the user's], not [the user's, the panel's].
+	var got struct {
+		Hooks map[string][]struct {
+			Hooks []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	b, _ = os.ReadFile(install.SettingsPath(home))
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	groups := got.Hooks["Stop"]
+	if len(groups) != 2 || groups[0].Hooks[0]["type"] != "command" || groups[0].Hooks[0]["async"] != true ||
+		groups[1].Hooks[0]["command"] != "say done" {
+		t.Fatalf("the upgrade moved the panel's Stop hook: %s", b)
+	}
 }
 
 // A hook install that fails (settings.json unreadable as JSON) is not fatal: under

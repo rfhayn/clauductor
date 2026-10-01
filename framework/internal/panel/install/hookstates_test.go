@@ -208,6 +208,111 @@ func TestOldHTTPHooksAreReplaced(t *testing.T) {
 	if d, _ := ReadHookDrift(home, 4393); d.Text != "" {
 		t.Fatalf("drift after the upgrade: %q", d.Text)
 	}
+	assertStopOrder(t, home)
+}
+
+// assertStopOrder fails unless Stop is still [the panel's hook, the user's "say done"]:
+// the upgrade replaces the old entry where it was rather than moving it to the end.
+func assertStopOrder(t *testing.T, home string) {
+	t.Helper()
+	stop := readSettings(t, home)["hooks"].(map[string]any)["Stop"].([]any)
+	first, _ := json.Marshal(stop[0].(map[string]any)["hooks"].([]any)[0])
+	last, _ := json.Marshal(stop[len(stop)-1])
+	if len(stop) != 2 || !isOurs(first) || !strings.Contains(string(last), "say done") {
+		t.Fatalf("Stop was reordered by the upgrade: %v", stop)
+	}
+}
+
+// A panel hook that shares a group with a user hook keeps its relative place too: an
+// old entry AFTER the user's hook is replaced by one after it, and one BEFORE by one
+// before it.
+func TestUpgradeKeepsPlaceAroundAMixedGroup(t *testing.T) {
+	t.Parallel()
+	user := map[string]any{"type": "command", "command": "say done"}
+	for name, c := range map[string]struct {
+		hooks     []any
+		oursFirst bool
+	}{
+		"panel after":  {[]any{user, oldHTTPEntry(4393)}, false},
+		"panel before": {[]any{oldHTTPEntry(4393), user}, true},
+	} {
+		home := t.TempDir()
+		b, _ := json.Marshal(map[string]any{"hooks": map[string]any{"Stop": []any{
+			map[string]any{"matcher": "", "hooks": c.hooks}}}})
+		writeFile(t, SettingsPath(home), string(b))
+		if _, err := InstallHooks(home, 4393); err != nil {
+			t.Fatal(err)
+		}
+		stop := readSettings(t, home)["hooks"].(map[string]any)["Stop"].([]any)
+		first, _ := json.Marshal(stop[0].(map[string]any)["hooks"].([]any)[0])
+		if len(stop) != 2 || isOurs(first) != c.oursFirst {
+			t.Errorf("%s: %v", name, stop)
+		}
+	}
+}
+
+// lookalikes are the user's own command hooks that merely CONTAIN the panel's URL, or
+// one like it. Install (every 30 s) and uninstall edit the user's global settings, so
+// claiming one of these would silently delete a user's hook.
+var lookalikes = []string{
+	"echo http://127.0.0.1:4393/hook?src=clauductor-panel-mine",
+	"my-logger.sh; curl -d @- http://127.0.0.1:4393/hook?src=clauductor-panel",
+	"echo see http://127.0.0.1:4393/hook?src=clauductor-panel-ish",
+	hookCommand(4393) + " # mine",
+}
+
+func lookalikeHooks() []any {
+	out := []any{map[string]any{"type": "http", "url": "http://127.0.0.1:9000/hook?src=someone-else"}}
+	for _, c := range lookalikes {
+		out = append(out, map[string]any{"type": "command", "command": c})
+	}
+	return out
+}
+
+// assertLookalikesKept fails unless every lookalike hook is still in settings.json.
+func assertLookalikesKept(t *testing.T, home, what string) {
+	t.Helper()
+	hooks := readSettings(t, home)["hooks"].(map[string]any)
+	got := map[string]bool{}
+	for _, g := range hooks["PreToolUse"].([]any) {
+		for _, h := range g.(map[string]any)["hooks"].([]any) {
+			if c, ok := h.(map[string]any)["command"].(string); ok {
+				got[c] = true
+			}
+		}
+	}
+	for _, c := range lookalikes {
+		if !got[c] {
+			t.Errorf("%s deleted the user's hook %q", what, c)
+		}
+	}
+}
+
+func TestLookalikesAreNotOurs(t *testing.T) {
+	t.Parallel()
+	for _, c := range lookalikes {
+		raw, _ := json.Marshal(map[string]any{"type": "command", "command": c})
+		if isOurs(raw) {
+			t.Errorf("claimed as the panel's: %q", c)
+		}
+	}
+	for _, h := range []map[string]any{hookEntry(4393), hookEntry(1), oldHTTPEntry(4393)} {
+		raw, _ := json.Marshal(h)
+		if !isOurs(raw) {
+			t.Errorf("not recognised as the panel's: %s", raw)
+		}
+	}
+}
+
+func TestInstallKeepsLookalikeHooks(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	b, _ := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{map[string]any{"hooks": lookalikeHooks()}}}})
+	writeFile(t, SettingsPath(home), string(b))
+	if _, err := InstallHooks(home, 4393); err != nil {
+		t.Fatal(err)
+	}
+	assertLookalikesKept(t, home, "install")
 }
 
 // Uninstall removes the panel's hooks in both forms and nothing else.
@@ -218,11 +323,8 @@ func TestUninstallRemovesBothForms(t *testing.T) {
 		"Stop":             []any{map[string]any{"hooks": []any{oldHTTPEntry(4393), map[string]any{"type": "command", "command": "say done"}}}},
 		"UserPromptSubmit": []any{map[string]any{"hooks": []any{hookEntry(4393)}}},
 		"Notification":     []any{map[string]any{"hooks": []any{oldHTTPEntry(5000)}}, map[string]any{"hooks": []any{hookEntry(5001)}}},
-		// Not ours: another tool's URL, and a command that merely mentions a lookalike.
-		"PreToolUse": []any{map[string]any{"hooks": []any{
-			map[string]any{"type": "http", "url": "http://127.0.0.1:9000/hook?src=someone-else"},
-			map[string]any{"type": "command", "command": "echo see http://127.0.0.1:4393/hook?src=clauductor-panelish"},
-		}}},
+		// Not ours: another tool's URL, and user commands that merely contain the URL.
+		"PreToolUse": []any{map[string]any{"hooks": lookalikeHooks()}},
 	}}
 	b, _ := json.Marshal(settings)
 	writeFile(t, SettingsPath(home), string(b))
@@ -231,14 +333,20 @@ func TestUninstallRemovesBothForms(t *testing.T) {
 	}
 	after, _ := os.ReadFile(SettingsPath(home))
 	s := string(after)
-	if strings.Contains(s, "src=clauductor-panel'") || strings.Contains(s, `src=clauductor-panel"`) {
-		t.Fatalf("a panel hook survived uninstall:\n%s", s)
+	if n := ourHooks(t, home); len(n) != 0 {
+		t.Fatalf("panel hooks survived uninstall (%v):\n%s", n, s)
 	}
-	for _, want := range []string{`"say done"`, "src=someone-else", "clauductor-panelish"} {
+	for _, url := range []string{"127.0.0.1:5000", "127.0.0.1:5001"} {
+		if strings.Contains(s, url) {
+			t.Fatalf("another panel's hook (%s) survived uninstall:\n%s", url, s)
+		}
+	}
+	for _, want := range []string{`"say done"`, "src=someone-else"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("uninstall removed a foreign hook (%s):\n%s", want, s)
 		}
 	}
+	assertLookalikesKept(t, home, "uninstall")
 	hooks := readSettings(t, home)["hooks"].(map[string]any)
 	for _, ev := range []string{"UserPromptSubmit", "Notification"} {
 		if _, ok := hooks[ev]; ok {

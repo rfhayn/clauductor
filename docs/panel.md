@@ -1930,9 +1930,11 @@ agent started which](#which-agent-started-which)); it answers them 204, no decis
 `SessionStart` is left out because HTTP hooks do not fire for it (Claude Code 2.1.284); new
 sessions are found through `claude agents --json`.
 
-- The panel's entries are recognised by the `src=clauductor-panel` query parameter of the URL
-  they post to (in the command, or in `url` for the older HTTP form), because Claude Code
-  documents no free-form key for ownership. Only tagged entries are replaced or removed;
+- The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
+  Code documents no free-form key for ownership. A command hook is the panel's only when its
+  command is exactly the panel's command for the port in it, so a user's own hook that merely
+  contains the URL is never claimed or deleted. The older HTTP form is recognised by its `url`.
+  An older entry is replaced where it stood. Only tagged entries are replaced or removed;
   every other key and hook is kept, in order. The panel's current entry stays where it is, even if
   a user hook follows it.
 - The install is idempotent: a start that would change nothing does not rewrite the file.
