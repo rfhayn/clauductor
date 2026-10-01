@@ -31,8 +31,7 @@ var (
 	panelOnly      bool
 )
 
-// panelCmd is standalone by design: unlike the rest of the CLI it never opens the
-// SQLite state, and needs no `clauductor install` in the project.
+// panelCmd is standalone by design: it needs no `clauductor install` in the project.
 var panelCmd = &cobra.Command{
 	Use:   "panel",
 	Short: "Serve a local, read-only web dashboard of the Claude sessions in a project",
