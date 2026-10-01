@@ -26,7 +26,8 @@ who matters is a human deciding from a browser.
 |---|---|
 | full, passed, clean tree | `ci/local` = success |
 | full, passed, tree changed or HEAD moved during the run | none: the receipt says `dirty`, and a status has no such field |
-| full, failed (including a lost gate lease) | `ci/local` = failure: evidence and picture are retracted together |
+| full, failed (including a lost gate lease), having run exactly the commit | `ci/local` = failure: evidence and picture are retracted together |
+| full, failed over uncommitted changes or while HEAD moved (no clean room) | none: it did not run the commit, so it has nothing to say about it |
 | `--dirty` or `--quick` | none: neither speaks for the commit |
 
 The model's runner calls it through `model_publish_status` in `scripts/ci/lib/steps.sh`, a no-op
@@ -34,10 +35,25 @@ while the module is off. A project with its own runner calls that function, or t
 `sh .claude/modules/ci-status/scripts/publish-status.sh local pass|fail` with `SHA` set to the
 commit it tested.
 
-A remote workflow's report job may post `ci/github` the same way, with each job's result:
-`sh .claude/modules/ci-status/scripts/publish-status.sh github verify=${{ needs.verify.result }} e2e=${{ needs.e2e.result }}`
-(it needs `statuses: write`). Success only when every job's result is `success`: `skipped` and
-`cancelled` are not.
+A remote workflow's report job may post `ci/github` the same way, with each job's result. Name
+the commit and the token explicitly: in a `pull_request` run HEAD is GitHub's synthetic merge
+commit, which the PR never shows, and gh posts nothing without `GH_TOKEN`:
+
+```yaml
+  report:
+    needs: [verify, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: { statuses: write }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh .claude/modules/ci-status/scripts/publish-status.sh github verify=${{ needs.verify.result }} e2e=${{ needs.e2e.result }}
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+```
+
+Success only when every job's result is `success`: `skipped` and `cancelled` are not.
 
 **It never fails its caller and never goes quiet**: no gh, no auth, a commit not yet pushed, a
 context missing from `GATE_DISPLAY_CONTEXTS` or a failed POST each print one `publish-status:` line

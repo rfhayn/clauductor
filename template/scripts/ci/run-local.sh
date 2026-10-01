@@ -122,6 +122,14 @@ if [ "$DIRTY" -eq 1 ]; then state=dirty
 elif [ "${GATE_CLEAN_ROOM:-none}" != archive ]; then
   { [ "$START_DIRTY" -eq 1 ] || [ -n "$(porcelain)" ] || [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; } && state=dirty
 fi
+# Did the steps run exactly TESTED_SHA's tree? A failure says something about that commit only then:
+# a clean room of it, or this checkout unchanged at the start and HEAD unmoved (files a failing
+# step leaves behind do not change what it ran). Otherwise a red would land on a commit never run.
+tested_commit=0
+if [ "$DIRTY" -eq 0 ]; then
+  if [ "${GATE_CLEAN_ROOM:-none}" = archive ]; then tested_commit=1
+  elif [ "$START_DIRTY" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$TESTED_SHA" ]; then tested_commit=1; fi
+fi
 
 # Still the lease's holder? A gate that lost its lease mid-run may have run beside another gate (two
 # gates binding one port fail each other falsely, or pass falsely), so its result cannot count:
@@ -154,8 +162,8 @@ else
   echo "==> FAIL ($MODE):$FAILED"
   if [ "$MODE" = full ] && [ -f "$RECEIPT" ]; then rm -f "$RECEIPT"; echo "    removed $RECEIPT: a stale pass must not outlive a fail"; fi
   # Evidence and picture are retracted together: a failed full run of the committed tree also turns
-  # an earlier green status on the tested commit red. A --dirty run tested the working tree, so it
-  # has nothing to say about the commit either way.
-  if [ "$MODE" = full ] && [ "$DIRTY" -eq 0 ]; then model_publish_status fail "$TESTED_SHA"; fi
+  # an earlier green status on that commit red. A run over anything else (--dirty, uncommitted
+  # changes, HEAD moved) did not run the commit, so it posts nothing either way.
+  if [ "$MODE" = full ] && [ "$tested_commit" -eq 1 ]; then model_publish_status fail "$TESTED_SHA"; fi
 fi
 exit "$code"

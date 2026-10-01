@@ -129,11 +129,12 @@ printf 'MODULES="ci-status"\nGATE_RUN="%s"\nGATE_STEPS="ci-steps.sh"\n' "$RUN_RE
 # the lease away (another holder's nonce) on STEAL_LEASE.
 cat > "$R/ci-steps.sh" <<'EOF'
 gate_steps() {
-  if [ -f COMMIT_MID_RUN ]; then
-    echo "later $$" >> later.txt; git add later.txt; git commit -qm "committed while the gate ran"
+  # The markers are read in ROOT, the checkout: under the archive clean room the steps run elsewhere.
+  if [ -f "$ROOT/COMMIT_MID_RUN" ]; then
+    echo "later $$" >> "$ROOT/later.txt"; git -C "$ROOT" add later.txt; git -C "$ROOT" commit -qm "committed while the gate ran"
   fi
-  step "unit" sh -c '[ ! -f FAIL_UNIT ]' || return 1
-  if [ -f STEAL_LEASE ]; then
+  step "unit" sh -c "[ ! -f '$ROOT/FAIL_UNIT' ]" || return 1
+  if [ -f "$ROOT/STEAL_LEASE" ]; then
     sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
     mv "$CLAUDUCTOR_LOCK_HELD/x" "$CLAUDUCTOR_LOCK_HELD/owner.json"
   fi
@@ -165,19 +166,52 @@ is "" "$(st)" "a failing --dirty run posts nothing (it tested the working tree, 
 rm -f "$R/FAIL_UNIT"
 gate --dirty
 is "" "$(st)" "a passing --dirty run posts nothing"
-echo "x" >> "$R/ci-steps.sh"; gate; git -C "$R" checkout -q -- ci-steps.sh
+echo "# an edit" >> "$R/ci-steps.sh"; gate; git -C "$R" checkout -q -- ci-steps.sh
 is "" "$(st)" "a pass over an uncommitted change posts nothing (its receipt says dirty)"
+gate
+is "$T success" "$(st)" "(a green on the commit first)"
+echo "# an edit" >> "$R/ci-steps.sh"; touch "$R/FAIL_UNIT"; gate; rc=$?; git -C "$R" checkout -q -- ci-steps.sh; rm -f "$R/FAIL_UNIT"
+expect_rc 1 "$rc" "a full run over an uncommitted change that fails, fails"
+is "" "$(st)" "...and posts no red on the commit, which it did not run"
 touch "$R/COMMIT_MID_RUN"; gate; rc=$?; rm -f "$R/COMMIT_MID_RUN"
 [ "$(git -C "$R" rev-parse HEAD)" != "$T" ] && ok "(the step really moved HEAD)" || fail "the mid-run commit did not happen"
 is "" "$(st)" "a pass during which HEAD moved posts no green, to either commit"
 T=$(git -C "$R" rev-parse HEAD)
 touch "$R/COMMIT_MID_RUN" "$R/FAIL_UNIT"; gate; rm -f "$R/COMMIT_MID_RUN" "$R/FAIL_UNIT"
 [ "$(git -C "$R" rev-parse HEAD)" != "$T" ] && ok "(the failing run's step really moved HEAD too)" || fail "the failing run's mid-run commit did not happen"
-is "$T failure" "$(st)" "a failing run during which a commit lands posts its red to the TESTED commit, not the new one"
+is "" "$(st)" "a failing run during which HEAD moved posts no red, to either commit (no clean room)"
+git -C "$R" reset -q --hard "$T"
+# Under the archive clean room the steps ran exactly the commit, whatever the checkout did meanwhile.
+echo 'GATE_CLEAN_ROOM="archive"' >> "$R/.claude/project.conf"
+git -C "$R" commit -qam "archive clean room"; T=$(git -C "$R" rev-parse HEAD)
+touch "$R/COMMIT_MID_RUN" "$R/FAIL_UNIT"; gate; rm -f "$R/COMMIT_MID_RUN" "$R/FAIL_UNIT"
+[ "$(git -C "$R" rev-parse HEAD)" != "$T" ] && ok "(the archive run's step really moved HEAD)" || fail "the archive run's mid-run commit did not happen"
+is "$T failure" "$(st)" "archive clean room: a failing run during which a commit lands posts its red to the TESTED commit, not the new one"
 git -C "$R" reset -q --hard "$T"
 touch "$R/STEAL_LEASE"; gate; rc=$?; rm -f "$R/STEAL_LEASE"
 expect_rc 70 "$rc" "a run that lost its gate lease fails"
 is "$T failure" "$(st)" "...and posts failure, never the green its steps earned"
+# ── The module's own check (ci-status:display), as checks/run.sh runs it while the module is on ──
+mkdir -p "$R/.claude/checks"; cp "$ROOT/.claude/checks/run.sh" "$ROOT/.claude/checks/lib.sh" "$R/.claude/checks/"
+cp "$R/.claude/project.conf" "$d/conf.on"
+disp() { (cd "$R" && sh .claude/checks/run.sh ci-status:display) > "$d/disp" 2>&1; }
+disp; expect_rc 0 $? "ci-status:display passes with the module's defaults and the model's runner"
+echo 'CI_STATUS_REMOTE_CONTEXT="ci/elsewhere"' >> "$R/.claude/project.conf"
+disp; rc=$?; [ "$rc" -ne 0 ] && grep -q 'ci/elsewhere is not in GATE_DISPLAY_CONTEXTS' "$d/disp" && ok "ci-status:display fails a posted context missing from GATE_DISPLAY_CONTEXTS" || fail "display with ci/elsewhere: rc $rc, $(cat "$d/disp")"
+cp "$d/conf.on" "$R/.claude/project.conf"
+printf '#!/bin/sh\n# after a full run this would call publish-status.sh and model_publish_status\nexit 0\n' > "$R/own-runner.sh"
+echo 'GATE_RUN="own-runner.sh"' >> "$R/.claude/project.conf"
+disp; rc=$?; [ "$rc" -ne 0 ] && grep -q 'never calls the publisher' "$d/disp" && ok "ci-status:display fails a GATE_RUN that names the publisher only in a comment" || fail "display with a comment-only runner: rc $rc, $(cat "$d/disp")"
+cp "$d/conf.on" "$R/.claude/project.conf"; echo 'GATE_RUN="no-such-runner.sh"' >> "$R/.claude/project.conf"
+disp; rc=$?; [ "$rc" -ne 0 ] && grep -q 'GATE_RUN=no-such-runner.sh does not exist' "$d/disp" && ok "ci-status:display fails a GATE_RUN that does not exist" || fail "display with a missing runner: rc $rc, $(cat "$d/disp")"
+cp "$d/conf.on" "$R/.claude/project.conf"; rm -f "$R/own-runner.sh"
+
+# The README's remote recipe names the PR's head commit and the token: in a pull_request run HEAD is
+# the synthetic merge commit, and gh posts nothing without GH_TOKEN.
+RD="$ROOT/.claude/modules/ci-status/README.md"
+grep -qF 'SHA: ${{ github.event.pull_request.head.sha || github.sha }}' "$RD" && ok "the README's remote recipe sets SHA to the PR's head (github.sha on push)" || fail "$RD: the remote recipe does not set SHA to github.event.pull_request.head.sha"
+grep -qF 'GH_TOKEN: ${{ github.token }}' "$RD" && ok "the README's remote recipe sets GH_TOKEN" || fail "$RD: the remote recipe does not set GH_TOKEN"
+
 printf 'MODULES=""\nGATE_RUN="%s"\nGATE_STEPS="ci-steps.sh"\n' "$RUN_REL" > "$R/.claude/project.conf"
 git -C "$R" commit -qam "module off"
 gate; rc=$?
