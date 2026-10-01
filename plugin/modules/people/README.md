@@ -35,8 +35,9 @@ with your branch (`OVERLAP`); this module adds who those people are and what eac
 A row names a person through the roadmap's `**Owner:**` line over it (the phase's, or its `###`
 section's). A PR or branch is tied to a row by the row's change id in the branch name or title,
 else by its row id as a whole word (an all-digit row id is not matched that way: a bare number in a
-title is more often a count). A project with its own roadmap parser (`ROADMAP_PARSER`) may emit a
-13th `--tsv` column with the row's raw status; a status that reads `⬜ deferred` is then never
+title is more often a count). A project with its own roadmap parser (`ROADMAP_PARSER`) may emit
+the optional 14th `--tsv` column, the row's raw status (`docs/roadmap.md`, the `--tsv` contract);
+a status that reads `⬜ deferred` is then never
 anyone's **Next**, since a deferred row waits on an event, not a person.
 
 ## Keys

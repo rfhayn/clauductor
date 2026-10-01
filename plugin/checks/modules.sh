@@ -133,7 +133,27 @@ sed -i.bak 's/Ana/Mallory/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.ba
 conf 'MODULES=""'
 mkdir -p "$R/.claude/local/roadmap.d"; cp "$R/.claude/modules/demo/roadmap.d/no-mallory.sh" "$R/.claude/local/roadmap.d/"
 v=$(inr 'roadmap_queue --check; echo rc=$?'); has yes "local roadmap.d/no-mallory.sh" "$v" "roadmap.d: the local layer's rule runs with no module on"
+# A rule's listing that FAILS is not "no rules": with the loader gone and a local rule present,
+# the queue is UNKNOWN rather than read unchecked.
+mv "$R/.claude/lib/modules.sh" "$R/.claude/lib/modules.sh.off"
+v=$(inr 'roadmap_queue --check; echo rc=$?')
+has yes "the roadmap rules (roadmap.d) could not be listed" "$v" "roadmap.d: a rule listing that fails makes the queue UNKNOWN, never ruleless"
+mv "$R/.claude/lib/modules.sh.off" "$R/.claude/lib/modules.sh"
 rm -rf "$R/.claude/local/roadmap.d"
+# A rule that reads the queue itself is refused, not recursed into (each read would run the rule
+# again: hundreds of levels, then a fork failure that could read as "no rules" and ACCEPT). The
+# rule ignores its inner read's failure, so the outer read completes; it must do so promptly, and
+# the inner read must have been refused by name.
+mkdir -p "$R/.claude/local/roadmap.d"
+door=.claude/roadmap-queue
+printf '#!/bin/sh\ncat >/dev/null\nsh %s.sh --tsv > "$ROOT/inner.out" 2>&1\nexit 0\n' "$door" > "$R/.claude/local/roadmap.d/reads-queue.sh"
+sed -i.bak 's/Mallory/Ana/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
+. "$CLAUDUCTOR_FW/lib/modules.sh"
+v=$(cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
+has yes "rc=0" "$v" "roadmap.d: a rule that reads the queue does not recurse (the outer read finishes)"
+has yes "a rule reads its rows on stdin, never the queue" "$(cat "$R/inner.out" 2>/dev/null)" "roadmap.d: ...its own read of the queue is refused by name"
+rm -rf "$R/.claude/local/roadmap.d" "$R/inner.out"
+sed -i.bak 's/Ana/Mallory/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
 
 # CANNOT CHECK discipline: a section that fails, or says nothing, is never shown as nothing.
 conf 'MODULES=""'

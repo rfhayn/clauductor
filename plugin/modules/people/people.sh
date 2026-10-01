@@ -25,9 +25,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 #                        GitHub's account for the last commit, `?` when the lookup failed
 #   merged-<login>.json  gh pr list --state merged --author <login> --search "sort:updated-desc"
 #                        --json number,title,headRefName,mergedAt, one file per person
-# --rows takes the roadmap's rows as a --tsv file (12 contract columns; a 13th, when a project's
-# parser emits one, is the row's raw status, and a status reading "⬜ deferred" is never anyone's
-# Next: a deferred row waits on an event, not a person).
+# --rows takes the roadmap's rows as a --tsv file (12 contract columns; the optional 14th, when a
+# project's parser emits one, is the row's raw status, and a status reading "⬜ deferred" is never
+# anyone's Next: a deferred row waits on an event, not a person. Column 13 is not read here).
 #
 # THE REGISTRY FAILS LOUDLY rather than reading as a shorter list: a person dropped here would
 # vanish from who-is-on-what and every row they own would refuse as an unknown owner, so the loud
@@ -162,7 +162,7 @@ jq -nr --slurpfile pp "$people" --slurpfile mm "$merged" --slurpfile oo "$openf"
         | {name: .[0], login: (.[1] // ""), date: (.[2] // "")})) else null end) as $branches
   | ($rr | split("\n") | map(select(. != "") | split("\t")
       | {line: .[0], phase: .[1], section: .[2], id: .[3], change: .[4], state: .[6], owner: .[8],
-         summary: (.[9] // ""), status: (.[12] // "")})) as $rows
+         summary: (.[9] // ""), status: (.[13] // "")})) as $rows
   # A row id is matched as a whole token of a branch name or title; an all-digit id ("3") is not,
   # since "3" in a title is far more often a count than a row. The change id still matches it.
   | (reduce ($rows[] | select(.id | test("^[0-9]+$") | not)) as $r ({}; .[$r.id] = $r)) as $ids

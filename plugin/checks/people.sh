@@ -150,11 +150,26 @@ has yes "CANNOT CHECK" "$o6" "...saying CANNOT CHECK"
 has yes "a queue row needs exactly 5 cells, this has 4" "$o6" "...with the parser's own error"
 roadmap
 
-# Deferred: a parser's 13th --tsv column, a status reading deferred, is never anyone's Next.
+# Deferred: a plugged parser (ROADMAP_PARSER) emitting 14 columns, the 14th the raw status, keeps a
+# deferred row from anyone's Next. Column 13 is another field (the builtin parser's own): a status
+# there is NOT read as one.
 inr 'roadmap_queue --tsv' > "$d/rows.tsv"
-awk -F'\t' -v OFS='\t' '{ s = ($4 == "2C.9") ? "⬜ deferred — trigger: a league asks" : "⬜ queued"; print $0, s }' "$d/rows.tsv" > "$d/rows13.tsv"
-has yes "Next: 2C.10 add-gamma" "$(act "$W" --rows "$d/rows13.tsv" | blk Alice)" "a row whose status reads deferred is skipped for Next"
-has yes "Next: 2C.9 add-beta" "$(act "$W" --rows "$d/rows.tsv" | blk Alice)" "...and is Next again without that status (12 columns)"
+cut -f1-12 "$d/rows.tsv" > "$d/rows12.tsv"
+door=.claude/roadmap-queue
+cat > "$R/.claude/parser14.sh" <<EOF
+#!/bin/sh
+# A project's own parser: the builtin's rows, then column 13 empty and column 14 the raw status.
+case "\${1:-}" in
+  --tsv) shift; ROADMAP_BUILTIN=1 sh $door.sh --tsv "\$@" | cut -f1-12 | awk -F'\t' -v OFS='\t' -v c="\${COL:-14}" '{ s = (\$4 == "2C.9") ? "⬜ deferred — trigger: a league asks" : "⬜ queued"; if (c == 13) print \$0, s; else print \$0, "", s }' ;;
+  *) ROADMAP_BUILTIN=1 sh $door.sh "\$@" ;;
+esac
+EOF
+printf 'MODULES="people"\nROADMAP_PARSER="sh .claude/parser14.sh"\n' > "$R/.claude/project.conf"
+[ "$(inr 'roadmap_queue --tsv' | awk -F'\t' '$4 == "2C.9" { print NF }')" = 14 ] && ok "fixture: the plugged parser emits 14 columns" || fail "fixture: the plugged parser's rows: $(inr 'roadmap_queue --tsv' | head -3)"
+has yes "Next: 2C.10 add-gamma" "$(act "$W" | blk Alice)" "a 14-column parser's deferred row (column 14) is skipped for Next"
+has yes "Next: 2C.9 add-beta" "$(cd "$R" && COL=13 sh "$PS" --activity --state "$W" 2>&1 | blk Alice)" "...but a status in column 13 is not read as the row's status"
+printf 'MODULES="people"\n' > "$R/.claude/project.conf"
+has yes "Next: 2C.9 add-beta" "$(act "$W" --rows "$d/rows12.tsv" | blk Alice)" "...and a 12-column row has no status: Next as before"
 
 # --logins, the registry and the flags.
 [ "$(cd "$R" && sh "$PS" --logins | tr '\n' ' ')" = "alice-gh bob-gh " ] && ok "--logins prints the registry's logins, which who.sh loops over" || fail "--logins: $(cd "$R" && sh "$PS" --logins 2>&1)"
@@ -211,10 +226,16 @@ expect_rc 0 "$rc" "people:registry passes on a sound registry and roadmap"
 printf '%s\n' "$OPEN" > "$d/fix/open.json"; printf '%s\n' "$MERGED_ALICE" > "$d/fix/merged-alice.json"
 cat > "$d/bin/gh" <<EOF
 #!/bin/sh
+# GH_FAIL names one read to fail (prs | branches); GH_SLOW sleeps on design/one's lookup; GH_FULL
+# answers the open-PR list with a full page of 100.
+case "\${GH_FAIL:-}:\$*" in
+  "prs:pr list --state open "*) exit 1 ;;
+  "branches:api --paginate "*) exit 1 ;;
+esac
 case "\$*" in
-  "pr list --state open "*) cat "$d/fix/open.json" ;;
+  "pr list --state open "*) if [ -n "\${GH_FULL:-}" ]; then jq -n '[range(100) | {number: (. + 1000), title: "t", headRefName: "ops/n\(.)", author: {login: "alice-gh", is_bot: false}}]'; else cat "$d/fix/open.json"; fi ;;
   "api --paginate repos/{owner}/{repo}/branches"*) printf 'main\nchange/add-alpha\ndesign/one\nops/nobody\n' ;;
-  "api repos/{owner}/{repo}/commits/design/one "*) printf 'bob-gh\t2026-09-26\n' ;;
+  "api repos/{owner}/{repo}/commits/design/one "*) [ -z "\${GH_SLOW:-}" ] || sleep 8 >/dev/null; printf 'bob-gh\t2026-09-26\n' ;;
   "api repos/{owner}/{repo}/commits/ops/nobody "*) printf '\t2026-09-20\n' ;;
   "pr list --state merged --author alice-gh --search sort:updated-desc "*) cat "$d/fix/merged-alice.json" ;;
   *) exit 1 ;;
@@ -228,6 +249,26 @@ has yes "branch design/one (no PR, last commit 2026-09-26) → 2U.1" "$c" "...wi
 has no "branch change/add-alpha" "$c" "...and a branch with an open PR is not listed as PR-less"
 has yes "Last: CANNOT CHECK" "$c" "...and Bob's failed merged read (the stub has none) says CANNOT CHECK"
 has yes "- lanes (module people):" "$c" "session-start's context prints the lanes section"
+has no "hit its limit" "$c" "a short open-PR list says nothing about the limit"
+# A read that FAILS writes no file, so it says CANNOT CHECK; it never becomes an empty list.
+ctx() { (cd "$R" && CONTEXT_OFFLINE= PATH="$d/bin:$PATH" env "$@" sh .claude/extensions.sh context session-start 2>&1); }
+c=$(ctx GH_FAIL=prs)
+has yes "CANNOT CHECK — the open-PR list could not be read" "$c" "who.sh: a failed open-PR read says CANNOT CHECK, never nothing open"
+has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and skips the branches (each would look PR-less)"
+c=$(ctx GH_FAIL=branches)
+has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: a failed branch read says CANNOT CHECK, never no branches"
+has no "branch design/one" "$c" "who.sh: ...and lists no branch"
+has yes "#10 change/add-alpha" "$c" "who.sh: ...while the open PRs that were read still show"
+# L1: a full page of open PRs is named, not silently truncated.
+c=$(ctx GH_FULL=1)
+has yes "CANNOT CHECK — the open-PR list hit its limit of 100" "$c" "who.sh: a full page of open PRs says the rest are unread"
+# L2: each gh call is bounded; a slow lookup is a named timeout, not a stalled session-start.
+c=$(ctx GH_SLOW=1 PEOPLE_GH_TIMEOUT=1)
+has yes "CANNOT CHECK — gh timed out after 1s reading branch design/one's last commit" "$c" "who.sh: a gh call past PEOPLE_GH_TIMEOUT is cut off and named"
+has yes "branch design/one (account lookup failed)" "$c" "who.sh: ...and that branch reads as a failed lookup"
+c=$(ctx PEOPLE_WHO_BUDGET=0)
+has yes "CANNOT CHECK — the branch lookups ran past 0s" "$c" "who.sh: the branch lookups stop at PEOPLE_WHO_BUDGET..."
+has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and the partial branch list is not handed over"
 c=$(cd "$R" && sh .claude/extensions.sh context session-start 2>&1)
 has yes "CANNOT CHECK — offline" "$c" "who.sh honours CONTEXT_OFFLINE: no network, says so"
 f=$(cd "$R" && sh .claude/extensions.sh fragments session-start 2>&1)
@@ -240,7 +281,7 @@ has no "who (module people)" "$c" "with the module off, session-start prints no 
 
 # who.sh's own wiring, comments stripped (a claim in a comment satisfies nothing).
 code=$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$M/context.d/session-start/who.sh")
-has yes 'gh pr list --state merged --author "$login" --search "sort:updated-desc"' "$code" "who.sh reads merged PRs by most recent update, so an old PR merged today is found"
+has yes 'pr list --state merged --author "$login" --search "sort:updated-desc"' "$code" "who.sh reads merged PRs by most recent update, so an old PR merged today is found"
 has yes 'state=$(mktemp ' "$code" "who.sh makes its state directory with mktemp..."
 case "$code" in *'state=$(mktemp '*') || state='*) ok "...and survives a failed mktemp instead of ending the briefing" ;; *) fail "who.sh: a bare mktemp ends the briefing on failure" ;; esac
 has yes 'CANNOT CHECK — mktemp failed' "$code" "...saying CANNOT CHECK when it fails"
