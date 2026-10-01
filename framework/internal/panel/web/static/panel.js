@@ -241,6 +241,8 @@ async function probe() {
     if (r.status === 401) { lost(true); return; }
     // A project the panel no longer serves (?p= of an old link, or one removed while this
     // page showed it, PANEL-22): the default instead, with nothing of the old one kept.
+    // A project the last menu still lists is restarting (a trust reload): try again.
+    if (r.status === 404 && pid() && S && (P || []).some((p) => p.id === pid() && p.ok)) throw new Error("restarting");
     if (r.status === 404 && pid()) {
       PID = "";
       try { history.replaceState(null, "", location.pathname); } catch (e) {}
@@ -3908,7 +3910,7 @@ $("pd-go").addEventListener("click", async () => {
 // page moves to the default.
 function followMenu() {
   if (!P || !P.length || !pid()) return;
-  if (P.some((p) => p.id === pid())) return;
+  if (P.some((p) => p.id === pid() && p.ok)) return; // served (a restart that failed reads !ok)
   const def = (P.find((p) => p.default && p.ok) || P.find((p) => p.ok) || {}).id;
   if (def && def !== pid()) {
     setText($("announce"), "That project is no longer served; showing " + ((P.find((p) => p.id === def) || {}).name || def) + ".");

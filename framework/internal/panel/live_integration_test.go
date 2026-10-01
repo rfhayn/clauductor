@@ -330,9 +330,17 @@ func TestTrustAnEditedConfigReloadsTheProject(t *testing.T) {
 	if code != 200 || !rep.Reloaded {
 		t.Fatalf("trust: %d %v", code, body)
 	}
+	// The reload ends the old runtime's stream, after its last menu: read to that end
+	// (closing early could drop the menu this test is about).
+	done := time.AfterFunc(5*time.Second, func() { resp.Body.Close() })
+	defer done.Stop()
+	var got []string
+	for m := range menus {
+		got = append(got, m)
+	}
 	resp.Body.Close()
 	n := 0
-	for m := range menus {
+	for _, m := range got {
 		n++
 		if !strings.Contains(m, `"id":"beta"`) {
 			t.Fatalf("a page on beta was sent a menu without beta during its reload: %s", m)

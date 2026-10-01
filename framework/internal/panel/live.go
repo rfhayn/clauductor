@@ -156,6 +156,22 @@ func (ls *liveSet) stopAll() {
 	}
 }
 
+// canStart says whether a registered entry would load now, its socket free of every
+// other served project's, without starting anything. A restart checks it first, so
+// it never stops a runtime for one that cannot start. ls.mu is held.
+func (ls *liveSet) canStart(e config.ProjectEntry) error {
+	p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary)
+	if err != nil {
+		return err
+	}
+	for other, olr := range ls.rts {
+		if other != e.ID && olr.r.cfg.Socket() == p.cfg.Socket() {
+			return fmt.Errorf("its tmux socket %q is %s's", p.cfg.Socket(), other)
+		}
+	}
+	return nil
+}
+
 // startEntry loads a registered project and serves it, or records why it cannot be.
 // ls.mu is held.
 func (ls *liveSet) startEntry(e config.ProjectEntry, isDefault bool) error {
@@ -233,6 +249,11 @@ func (ls *liveSet) reconcile() error {
 			continue
 		}
 		if ok { // the same id, another root or config: started again below
+			if err := ls.canStart(e); err != nil && len(ls.rts) == 1 {
+				// Never trade the last served project for one that will not load.
+				fmt.Fprintf(ls.o.Out, "projects.json moves %s to %s, which does not load (%v); the panel keeps serving it as it was until it restarts\n", id, e.Root, err)
+				continue
+			}
 			ls.restartStop(id)
 			continue
 		}
@@ -656,14 +677,8 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 	// First check that it loads, so a config that would not (its socket is another
 	// project's, git fails) never stops the runtime that serves now.
 	e := lr.entry
-	if p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary); err != nil {
+	if err := ls.canStart(e); err != nil {
 		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", err)
-	} else {
-		for other, olr := range ls.rts {
-			if other != id && olr.r.cfg.Socket() == p.cfg.Socket() {
-				return nil, lerr(http.StatusConflict, "socket-taken", "trusted, but its tmux socket %q is %s's, so the panel keeps serving the config it loaded", p.cfg.Socket(), other)
-			}
-		}
 	}
 	wasDefault := ls.m.defRT() == lr.r
 	ls.restartStop(id)
