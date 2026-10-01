@@ -153,14 +153,9 @@ printf 'local edit\n' >> "$R/.claude/skills/ideas/SKILL.md"
 grep -q '^effort: medium$' "$R/.claude/skills/ideas/SKILL.md" && ! grep -q '^local edit$' "$R/.claude/skills/ideas/SKILL.md" \
   && ok "enable: a refresh restores the body and keeps the project's effort: line" || fail "enable: refresh"
 
-# From the plugin (CLAUDUCTOR_FW names the plugin root, not a .claude/), the installed skill runs the
-# tool through clauductor-model, and still compares equal. Falsified by comparing raw bodies: red.
-mv "$R/.claude/skills/ideas" "$d/skill.keep"
-(cd "$R" && CLAUDUCTOR_FW="$d/plugin-root" sh .claude/modules/ideas/enable.sh >/dev/null 2>&1)
-grep -q 'clauductor-model modules/ideas/bin/render.sh --url' "$R/.claude/skills/ideas/SKILL.md" && ! grep -q 'sh .claude/modules' "$R/.claude/skills/ideas/SKILL.md" \
-  && ok "enable from the plugin: the skill runs the tool through clauductor-model" || fail "enable from the plugin: $(grep -m2 'render.sh' "$R/.claude/skills/ideas/SKILL.md")"
-(cd "$R" && sh .claude/modules/ideas/enable.sh --check >/dev/null 2>&1); expect_rc 0 $? "enable --check: ...and that copy is the module's skill"
-rm -rf "$R/.claude/skills/ideas"; mv "$d/skill.keep" "$R/.claude/skills/ideas"
+# From the plugin, the installed skill runs the tool through clauductor-model: held by the plugin's
+# own TestPluginChecksPassInScaffoldedProject, which runs the plugin's enable.sh in a scaffolded
+# project (a copy in a project's .claude/, as here, is never the plugin's).
 git -C "$R" add -A >/dev/null && git -C "$R" commit -qm start
 r=$(cd "$R" && sh .claude/checks/run.sh ideas:queue 2>&1)
 has yes "PASS ideas:queue" "$r" "ideas:queue: passes on a project with the file, the url, the page and the skill"
