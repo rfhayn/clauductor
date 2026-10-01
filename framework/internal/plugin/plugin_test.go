@@ -10,7 +10,34 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/template"
 )
+
+// The plugin and `clauductor install`/`update` must agree on what is the framework's: a file the
+// plugin ships as a component but install treats as the project's is never updated by update
+// (what happened to metrics.sh and usage-report.sh), and the reverse would overwrite a project's
+// file. Two differences are deliberate: install keeps a project's edited agents, and the plugin
+// scaffolds the gate scripts into the repository.
+func TestPluginAndInstallAgreeOnTiers(t *testing.T) {
+	files, err := listFiles(filepath.Join(repoRoot(t), "template"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range files {
+		_, kind, err := place(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inPlugin := kind == kindPlugin
+		fw := template.Classify(rel) == template.TierFramework
+		if strings.HasPrefix(rel, ".claude/agents/") || template.FrameworkScripts[rel] {
+			continue // the gate scripts are scaffolded: CI runs them where no plugin is installed
+		}
+		if inPlugin != fw {
+			t.Errorf("%s: the plugin ships it as a component = %v, install treats it as framework = %v", rel, inPlugin, fw)
+		}
+	}
+}
 
 // In CI, where no plugin is installed, the gate's resolver clones the plugin at the version the
 // repository was scaffolded from, once, into a cache, and runs the script from there.

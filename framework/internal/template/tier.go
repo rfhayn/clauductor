@@ -17,23 +17,21 @@ const (
 // SettingsPath is the one settings file the template ships.
 const SettingsPath = ".claude/settings.json"
 
-// FrameworkScripts are the operating model's own scripts outside the framework directories: a
-// project runs them but does not edit them, so an install brings them up to date.
+// FrameworkScripts are the operating model's own scripts outside .claude/: a project runs them
+// but does not edit them, so an install brings them up to date. Every script directly under
+// .claude/ (statusline.sh, roadmap-queue.sh, metrics.sh, ...) is the model's too, by rule rather
+// than by list (isModelScript): a list here missed each new one (B3, and again metrics.sh and
+// usage-report.sh), where the plugin's packager, placing by the same rule, did not.
 var FrameworkScripts = map[string]bool{
-	".claude/statusline.sh":      true,
-	".claude/status-write.sh":    true,
-	".claude/owner-queue.sh":     true,
-	".claude/roadmap-queue.sh":   true,
-	".claude/panel-suggest.sh":   true,
-	".claude/machine-quiet.sh":   true,
-	".claude/scenario-trace.sh":  true,
-	".claude/change-approval.sh": true,
-	".claude/change-cost.sh":     true,
-	".claude/verify-change.sh":   true,
-	".claude/compound.sh":        true,
-	"scripts/ci/run-local.sh":    true,
-	"scripts/ci/gate.sh":         true,
-	"scripts/ci/lease.sh":        true,
+	"scripts/ci/run-local.sh": true,
+	"scripts/ci/gate.sh":      true,
+	"scripts/ci/lease.sh":     true,
+}
+
+// isModelScript: a shell script directly under .claude/.
+func isModelScript(rel string) bool {
+	rest, ok := strings.CutPrefix(rel, ".claude/")
+	return ok && !strings.Contains(rest, "/") && strings.HasSuffix(rest, ".sh")
 }
 
 // FrameworkDirs are the template directories whose every file is the model's code. A file a
@@ -70,7 +68,7 @@ func Classify(relPath string) Tier {
 			return TierFramework
 		}
 	}
-	if FrameworkScripts[relPath] {
+	if FrameworkScripts[relPath] || isModelScript(relPath) {
 		return TierFramework
 	}
 	if relPath == "CLAUDE.md" || relPath == ".gitignore" {
