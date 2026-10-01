@@ -14,9 +14,14 @@ def verify(secret: bytes, token: str, now: int) -> str | None:
         user_id, expires_at, mac = token.rsplit(".", 2)
     except ValueError:
         return None
-    if not expires_at.isdigit():
+    # isdigit() alone admits Unicode digits ("²") that int() rejects, and compare_digest raises on
+    # a non-ASCII str: an attacker's token must be rejected, never crash the caller.
+    if not (expires_at.isascii() and expires_at.isdigit() and len(expires_at) <= 19 and mac.isascii()):
         return None
-    good = sign(secret, user_id, int(expires_at)).rsplit(".", 1)[1]
+    try:
+        good = sign(secret, user_id, int(expires_at)).rsplit(".", 1)[1]
+    except UnicodeEncodeError:  # a user id sign() could never have issued (a lone surrogate)
+        return None
     if not hmac.compare_digest(mac, good):
         return None
     if int(expires_at) <= now:

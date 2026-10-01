@@ -17,7 +17,7 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 
 | Source | How | Gives |
 |---|---|---|
-| HTTP hooks | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
+| Hooks (async command hooks that curl) | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
 | Status line | the status-line script copies its stdin to `POST /status` | context %, est. cost, and the account's quota windows (from any session, in any project) |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
@@ -1900,12 +1900,27 @@ sends the token (see [The launchd agent](#the-launchd-agent)).
 
 ### Hooks
 
-On every start, and again every 30 s while it runs, the panel merges one `type: "http"` hook per
+On every start, and again every 30 s while it runs, the panel merges one **async command** hook per
 event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 
 ```json
-{ "type": "http", "url": "http://127.0.0.1:4393/hook?src=clauductor-panel", "timeout": 1 }
+{ "type": "command", "async": true, "timeout": 10,
+  "command": "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- 'http://127.0.0.1:4393/hook?src=clauductor-panel' >/dev/null 2>&1; exit 0" }
 ```
+
+Why a command hook and not an HTTP hook (PANEL-23): these hooks run in **every** Claude Code
+session on the machine, so they must never show anything or slow a prompt, whatever is on the
+port. Claude Code runs an HTTP hook synchronously (it ignores `async` on one), so until PANEL-23
+the `type: "http"` hook with a 1 s timeout printed "UserPromptSubmit hook ... timed out after 1s"
+whenever Claude Code was slow, "Stop hook error" when the panel was down, held each prompt for its
+timeout when the panel hung, and let anything else on the port answer a blocking decision. An
+`async: true` command hook runs in the background, and Claude Code ignores its exit code and
+output (code.claude.com/docs/en/hooks, *Run hooks in the background*). Claude Code does not
+enforce the timeout of an async hook, so curl's own limits bound it. The command posts the same
+JSON body an HTTP hook would, so `/hook` is unchanged. Measured with `claude -p` 2.1.286 against
+a hung port, a closed port, and a port answering `{"decision":"block"}`: no hook output, no
+added delay; with the panel up, every event arrives. An older install's HTTP entries are replaced
+on the panel's next hook check (drift: "an older form"); uninstall removes both forms.
 
 for `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`, `SessionEnd`,
 `StopFailure`, `PermissionRequest` (observed only, never answered), `PreCompact`, `PostCompact`,
@@ -1916,7 +1931,10 @@ agent started which](#which-agent-started-which)); it answers them 204, no decis
 sessions are found through `claude agents --json`.
 
 - The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
-  Code documents no free-form key for ownership. Only tagged entries are replaced or removed;
+  Code documents no free-form key for ownership. A command hook is the panel's only when its
+  command is exactly the panel's command for the port in it, so a user's own hook that merely
+  contains the URL is never claimed or deleted. The older HTTP form is recognised by its `url`.
+  An older entry is replaced where it stood. Only tagged entries are replaced or removed;
   every other key and hook is kept, in order. The panel's current entry stays where it is, even if
   a user hook follows it.
 - The install is idempotent: a start that would change nothing does not rewrite the file.

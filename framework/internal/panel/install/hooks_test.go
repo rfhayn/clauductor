@@ -117,8 +117,13 @@ func TestInstallOnFreshHome(t *testing.T) {
 		t.Fatal("SessionStart installed; HTTP hooks do not fire for it")
 	}
 	b, _ := os.ReadFile(SettingsPath(home))
-	if !strings.Contains(string(b), `"url": "http://127.0.0.1:4393/hook?src=clauductor-panel"`) || !strings.Contains(string(b), `"timeout": 1`) {
-		t.Fatalf("unexpected hook shape:\n%s", b)
+	for _, want := range []string{`"type": "command"`, `"async": true`, `'http://127.0.0.1:4393/hook?src=clauductor-panel'`, `; exit 0"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("hook shape lacks %s:\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), `"type": "http"`) {
+		t.Fatalf("an HTTP hook was installed; it runs synchronously in every session:\n%s", b)
 	}
 }
 

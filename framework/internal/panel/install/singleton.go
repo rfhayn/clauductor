@@ -305,27 +305,30 @@ func ReadHookDrift(home string, port int) (HookDrift, error) {
 		return HookDrift{}, fmt.Errorf("%s: %w", SettingsPath(home), err)
 	}
 	want := hookURL(port)
+	current, _ := marshalRaw(hookEntry(port))
 	foreign := map[string]bool{}
-	var missing []string
+	var missing, outdated []string
 	for _, ev := range signals.HookEvents {
-		found := false
+		found, stale := false, false
 		for _, g := range doc.Hooks[ev] {
 			for _, h := range g.Hooks {
-				if !isOurs(h) {
-					continue
-				}
-				var u struct {
-					URL string `json:"url"`
-				}
-				_ = json.Unmarshal(h, &u)
-				if u.URL == want {
+				target := hookTarget(h)
+				switch {
+				case target == "":
+				case target != want:
+					foreign[target] = true
+				case sameJSON(h, current):
 					found = true
-				} else {
-					foreign[u.URL] = true
+				default: // this panel's address in an older form (the HTTP hook before PANEL-23)
+					stale = true
 				}
 			}
 		}
-		if !found {
+		switch {
+		case found:
+		case stale:
+			outdated = append(outdated, ev)
+		default:
 			missing = append(missing, ev)
 		}
 	}
@@ -348,6 +351,8 @@ func ReadHookDrift(home string, port int) (HookDrift, error) {
 		d.Text = "they had been removed"
 	case len(missing) > 0:
 		d.Text = "missing for " + strings.Join(missing, ", ")
+	case len(outdated) > 0:
+		d.Text = "they were an older form (a synchronous HTTP hook)"
 	}
 	return d, nil
 }

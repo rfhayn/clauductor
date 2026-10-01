@@ -1,8 +1,14 @@
 #!/bin/sh
 # Fails the build when total coverage drops below the floor in .coverage-floor, and when it
-# cannot read the total at all: a gate that cannot measure fails.
+# cannot read the total or the floor: a gate that cannot measure fails.
 floor=$(cat .coverage-floor) || exit 1
-pct=$(covsum --json coverage.out | jq -r '.total.percent | floor')
+case "$floor" in
+  '' | *[!0-9]*) echo "coverage: the floor in .coverage-floor is not a whole number ('$floor')" >&2; exit 1 ;;
+esac
+# covsum runs on its own, not in a pipe, so its exit status counts: a failing covsum fails the gate
+# even when it printed a report first.
+report=$(covsum --json coverage.out) || { echo "coverage: covsum failed" >&2; exit 1; }
+pct=$(printf '%s\n' "$report" | jq -r '.total.percent | floor')
 case "$pct" in
   '' | *[!0-9]*) echo "coverage: no total in covsum's output ('$pct')" >&2; exit 1 ;;
 esac

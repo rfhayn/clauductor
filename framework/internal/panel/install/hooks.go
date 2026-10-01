@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
@@ -31,6 +33,70 @@ func hookURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag)
 }
 
+// hookCommand is the shell command the panel's hooks run: it posts the hook's stdin
+// (the same JSON an HTTP hook would send) to the panel and always succeeds silently.
+// curl's own limits bound it, because Claude Code does not enforce "timeout" on an
+// async hook.
+func hookCommand(port int) string {
+	return "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- '" +
+		hookURL(port) + "' >/dev/null 2>&1; exit 0"
+}
+
+// hookEntry is the panel's hook object for one event.
+//
+// It is an ASYNC COMMAND hook, not an HTTP hook (PANEL-23). An HTTP hook always runs
+// synchronously (Claude Code ignores "async" on it), so a slow or hung panel delayed
+// every prompt in every session on the machine by its timeout and printed "hook timed
+// out"; a stopped panel printed "hook error"; and anything else on the port could
+// answer with a decision and block the prompt. An async command hook runs in the
+// background, and Claude Code ignores its exit code and output: no delay, no message,
+// no decision, whatever answers the port. Signals still arrive whenever the panel is up.
+func hookEntry(port int) map[string]any {
+	return map[string]any{"type": "command", "command": hookCommand(port), "async": true, "timeout": 10}
+}
+
+// commandPort finds the port a panel command hook posts to.
+var commandPort = regexp.MustCompile(`'http://127\.0\.0\.1:(\d+)/hook\?src=` + hookTag + `'`)
+
+// hookTarget returns the panel URL a hook object posts to, or "" when it is not the
+// panel's. It recognises both forms: the current async command hook and the HTTP hook
+// earlier panels installed, so an older entry is still found, replaced and uninstalled.
+//
+// A command hook is the panel's only when its command is EXACTLY hookCommand for the
+// port in it. Install (every 30 s) and uninstall edit the user's global settings, so
+// a user's own command that merely contains the panel's URL must never be claimed:
+// claiming it would silently delete it. The cost: if hookCommand ever changes, the
+// previous command must be recognised here too, or old entries stay behind.
+func hookTarget(raw json.RawMessage) string {
+	var h struct {
+		Type    string `json:"type"`
+		URL     string `json:"url"`
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(raw, &h) != nil {
+		return ""
+	}
+	if h.Type == "command" {
+		m := commandPort.FindStringSubmatch(h.Command)
+		if m == nil {
+			return ""
+		}
+		port, err := strconv.Atoi(m[1])
+		if err != nil || h.Command != hookCommand(port) {
+			return ""
+		}
+		return hookURL(port)
+	}
+	if h.URL == "" {
+		return ""
+	}
+	u, err := url.Parse(h.URL)
+	if err != nil || u.Query().Get("src") != hookTag {
+		return ""
+	}
+	return h.URL
+}
+
 // SettingsPath is the user settings file the installer edits.
 func SettingsPath(home string) string { return filepath.Join(home, ".claude", "settings.json") }
 
@@ -41,7 +107,7 @@ func InstallHooks(home string, port int) (bool, error) {
 	// One entry per event; an event in HookMatchers carries its matcher, so the panel
 	// hears PreToolUse and PostToolUse only for the tools that start agents.
 	entryFor := func(ev string) json.RawMessage {
-		e := map[string]any{"hooks": []map[string]any{{"type": "http", "url": hookURL(port), "timeout": 1}}}
+		e := map[string]any{"hooks": []map[string]any{hookEntry(port)}}
 		if m := signals.HookMatchers[ev]; m != "" {
 			e["matcher"] = m
 		}
@@ -67,13 +133,18 @@ func InstallHooks(home string, port int) (bool, error) {
 		for _, ev := range signals.HookEvents {
 			// Our current entry stays where it is (a user hook may follow it), so a
 			// repeat install is a no-op; anything else tagged as ours goes.
+			// An older entry (another port, or the HTTP form) is replaced where it
+			// stood; a new one goes at the end.
 			entry := entryFor(ev)
-			if !stripEvent(h, ev, entry) {
+			if kept, at := stripEvent(h, ev, entry); !kept {
 				var groups []json.RawMessage
 				if raw, ok := h.get(ev); ok {
 					_ = json.Unmarshal(raw, &groups)
 				}
-				groups = append(groups, entry)
+				if at < 0 || at > len(groups) {
+					at = len(groups)
+				}
+				groups = append(groups[:at], append([]json.RawMessage{entry}, groups[at:]...)...)
 				b, _ := marshalRaw(groups)
 				h.set(ev, b)
 			}
@@ -238,17 +309,8 @@ func jsonEqual(a, b []byte) bool {
 	return bytes.Equal(ca.Bytes(), cb.Bytes())
 }
 
-// isOurs reports whether one hook object is tagged as the panel's.
-func isOurs(raw json.RawMessage) bool {
-	var h struct {
-		URL string `json:"url"`
-	}
-	if json.Unmarshal(raw, &h) != nil || h.URL == "" {
-		return false
-	}
-	u, err := url.Parse(h.URL)
-	return err == nil && u.Query().Get("src") == hookTag
-}
+// isOurs reports whether one hook object is tagged as the panel's, in either form.
+func isOurs(raw json.RawMessage) bool { return hookTarget(raw) != "" }
 
 // stripOurs removes every tagged hook object from every event.
 func stripOurs(h *orderedObject) error {
@@ -262,13 +324,17 @@ func stripOurs(h *orderedObject) error {
 // first group equal to keep is left untouched and in place, and stripEvent reports
 // whether it found one. A matcher group or event array is dropped only when OUR
 // removal emptied it; anything already empty is left as the user wrote it.
-func stripEvent(h *orderedObject, ev string, keep json.RawMessage) bool {
+//
+// at is where, among the groups that remain, the first removed panel hook stood
+// (-1 if none was removed), so a replacement goes back in the same place: before
+// its group's surviving hooks if it came before them, after them if it came after.
+func stripEvent(h *orderedObject, ev string, keep json.RawMessage) (kept bool, at int) {
+	at = -1
 	raw, _ := h.get(ev)
 	var groups []json.RawMessage
 	if err := json.Unmarshal(raw, &groups); err != nil {
-		return false // not an array: not ours to judge
+		return false, -1 // not an array: not ours to judge
 	}
-	kept := false
 	changed := false
 	out := make([]json.RawMessage, 0, len(groups))
 	for _, g := range groups {
@@ -289,8 +355,12 @@ func stripEvent(h *orderedObject, ev string, keep json.RawMessage) bool {
 			continue
 		}
 		var keepHooks []json.RawMessage
+		afterUser := false // the first panel hook here follows one of the user's
 		for _, one := range hs {
 			if isOurs(one) {
+				if !changed {
+					afterUser = len(keepHooks) > 0
+				}
 				changed = true
 				continue
 			}
@@ -300,24 +370,29 @@ func stripEvent(h *orderedObject, ev string, keep json.RawMessage) bool {
 			out = append(out, g)
 			continue
 		}
-		if len(keepHooks) == 0 {
-			continue
+		if at < 0 && !afterUser {
+			at = len(out)
 		}
-		b, _ := marshalRaw(keepHooks)
-		grp.set("hooks", b)
-		gb, _ := grp.MarshalJSON()
-		out = append(out, gb)
+		if len(keepHooks) > 0 {
+			b, _ := marshalRaw(keepHooks)
+			grp.set("hooks", b)
+			gb, _ := grp.MarshalJSON()
+			out = append(out, gb)
+		}
+		if at < 0 && afterUser {
+			at = len(out)
+		}
 	}
 	if !changed {
-		return kept
+		return kept, -1
 	}
 	if len(out) == 0 {
 		h.del(ev)
-		return kept
+		return kept, at
 	}
 	b, _ := marshalRaw(out)
 	h.set(ev, b)
-	return kept
+	return kept, at
 }
 
 // marshalRaw encodes without HTML escaping. encoding/json's default would rewrite a

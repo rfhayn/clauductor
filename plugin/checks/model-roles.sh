@@ -224,6 +224,55 @@ else
     fail "model-roles.json needs .evals.thresholds with a numeric recall and fp_rate (and optionally severity_accuracy)"
   fi
   suites=$(evals_suite_roles "$ROOT")
+  # The trigger inputs rule 13 holds a receipt to (OPS-16): each declared role is a role, each
+  # input is a string, and each marked section present in this tree is readable. A marked file
+  # this project does not have (a plugin project's workflows live in the plugin) hashes as "none"
+  # at both ends of a PR, so it is reported, not failed.
+  if ! jq -e '(.evals.triggers // {}) | type == "object"' "$roles" >/dev/null; then
+    fail "model-roles.json .evals.triggers must be an object of role -> [inputs]"
+  else
+    for r in $(jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' "$roles"); do
+      if ! jq -e --arg r "$r" '.roles | has($r)' "$roles" >/dev/null; then fail "evals.triggers.$r: '$r' is not a role in .roles"; continue; fi
+      if ! jq -e --arg r "$r" '.evals.triggers[$r] | type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' "$roles" >/dev/null; then
+        fail "evals.triggers.$r must be a non-empty list of inputs (path, dir/ or path#MARKER)"; continue
+      fi
+      for i in $(evals_triggers "$r" "$roles"); do
+        h=$(evals_input_hash "$ROOT" "$i")
+        case "$h" in
+          markers-missing) fail "evals.triggers.$r: ${i%%#*} has no '// <${i#*#}>' ... '// </${i#*#}>' section (each marker once, in order, on lines of their own), so rule 13 cannot tell an edit inside it from one outside. Restore the markers" ;;
+          none) ok "evals.triggers.$r: $i is not in this tree (it hashes as none at both ends of a PR)" ;;
+          *) ok "evals.triggers.$r: $i is readable ($h)" ;;
+        esac
+      done
+    done
+  fi
+  # The markers only protect what is between them. The review must not be reachable from outside:
+  # a second reviewer spawn, the REVIEW schema or reviewSpawn used elsewhere in build-change.js would
+  # change what the reviewer is in lines rule 13 does not hash.
+  wfr="$CLAUDUCTOR_FW/workflows/build-change.js"
+  if [ -f "$wfr" ]; then
+    outside=$(awk '
+      { t = $0; sub(/^[ \t]+/, "", t) }
+      t == "// <review-prompt>" || t == "// <review-call>" { in_s = 1; next }
+      t == "// </review-prompt>" || t == "// </review-call>" { in_s = 0; next }
+      t ~ /^\/\// { next }
+      !in_s && /agentType: *.reviewer.|schema: *REVIEW[^_A-Za-z]|schema: *REVIEW$|reviewSpawn\(|reviewPrompt\(|REVIEW_PROMPT|[^.A-Za-z_]rev *= *[^=]|rev\.findings *= *[^=]|rev\.findings\.(push|pop|shift|unshift|splice|length *= *[^=])|Object\.assign\(rev[,)]/ { print NR ": " t }' "$wfr")
+    if [ -z "$outside" ]; then ok "build-change.js spawns the reviewer only inside its marked review-prompt and review-call sections"
+    else fail "build-change.js reaches the reviewer outside the marked sections rule 13 hashes, so an edit there would change the review with no eval: $(printf '%s' "$outside" | tr '\n' ';')"; fi
+    # The model tables are restated literals (above) and must stay what was read: nothing in the
+    # script may assign into, delete from or Object.assign onto ROLES, TIERS or ECONOMY. (They are
+    # not frozen in the workflow itself: editing build-change.js would void the reviewer's receipt
+    # under guards that hash the whole workflows tree. checks/build-change.sh also runs the script's
+    # whole prefix and asks pick('reviewer') afterwards.)
+    mut=$(awk '
+      { t = $0; sub(/^[ \t]+/, "", t) }
+      t ~ /^\/\// { next }
+      /(^|[^A-Za-z0-9_$.])(ROLES|TIERS|ECONOMY)((\.[A-Za-z_$][A-Za-z0-9_$]*)|(\[[^]]*\]))+[ \t]*([-+*\/]?=)([^=]|$)/ \
+        || /delete[ \t]+(ROLES|TIERS|ECONOMY)[.[]/ \
+        || /Object\.(assign|defineProperty|defineProperties|setPrototypeOf)\([ \t]*(ROLES|TIERS|ECONOMY)([.[,)]|[ \t])/ { print NR ": " t }' "$wfr")
+    if [ -z "$mut" ]; then ok "build-change.js never mutates its ROLES, TIERS or ECONOMY tables"
+    else fail "build-change.js mutates a model table at run time, so pick() would not return what model-roles.json says: $(printf '%s' "$mut" | tr '\n' ';')"; fi
+  fi
   for r in $suites; do
     m=$(want "$r" model); e=$(want "$r" effort)
     if [ -z "$m" ]; then fail "eval suite .claude/evals/$r/ is for role '$r', which .roles does not define"; continue; fi

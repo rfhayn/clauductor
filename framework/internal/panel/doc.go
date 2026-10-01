@@ -3,7 +3,7 @@
 //
 // It is deliberately independent of the rest of Clauductor. It needs no `clauductor
 // install`, no template, no skills and no file locks. Its only
-// inputs are Claude Code's own signals (HTTP hooks, the status line's stdin,
+// inputs are Claude Code's own signals (hooks posting to /hook, the status line's stdin,
 // `claude agents --json`), git, gh, and the commands a project names in its
 // .clauductor/panel.json.
 //

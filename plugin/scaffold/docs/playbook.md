@@ -300,11 +300,63 @@ Multiply by 2 to 4 if the agent fans out through the `code-review` skill.
 3. Commit the receipt.
 4. Copy the line the run prints into the role's `eval` field.
 
-The check fails while the role's model differs from its evidence. `pr-merge-guard` rule 13 refuses
-any PR that changes the role's model, its agent or the workflows unless it carries a passing
-receipt at the head's hashes. Re-run the suite when any of those three changes. A role that has
-not yet been measured records `{"baseline": "<model>/<effort>"}`: it can stay as it is, but it
-cannot change without a receipt.
+The check fails while the role's model differs from its evidence. A role that has not yet been
+measured records `{"baseline": "<model>/<effort>"}`: it can stay as it is, but it cannot change
+without a receipt.
+
+**What needs a new receipt.** `pr-merge-guard` rule 13 refuses a PR that changes what a role with
+a suite *is*, unless the head holds a passing receipt at the head's hashes of exactly those inputs:
+
+- the role's model, effort or tier variants in `model-roles.json` (another role's do not count);
+- each trigger input that `model-roles.json` `.evals.triggers.<role>` declares. For the reviewer
+  these are:
+  - `${CLAUDE_PLUGIN_ROOT}/agents/reviewer.md`;
+  - the `// <review-prompt>` section of `${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js`, which holds the
+    prompt, the findings schema, the agent type and the spawn;
+  - the `// <review-call>` section, the one line in the review loop that takes a round's review.
+
+Each input is compared by content hash between the PR's base and head. An edit to build-change.js
+outside the markers, or to another agent, needs no eval.
+
+**Keep everything that shapes the review inside the markers.** `checks/model-roles.sh` fails if a
+reviewer spawn, the `REVIEW` schema or `reviewSpawn` appears outside them. The runner does not
+restate the prompt or the schema: it reads `REVIEW_PROMPT` and `REVIEW` from the section. So a
+receipt's section hash is a hash of what its eval sent.
+
+**The runner refuses to run** when:
+- the agent it would evaluate is not one of the role's triggers;
+- the section's markers are missing.
+
+The guard also checks a receipt's `hashes.agent_file` and `hashes.agent` against the head.
+
+A role with a suite that declares no triggers falls back to its agent file and all of
+`${CLAUDE_PLUGIN_ROOT}/workflows/`. When you add a suite for another role, declare its triggers in the same PR.
+
+**Weakening rule 13 itself is the owner's decision.** No receipt excuses it. `pr-merge-guard`
+blocks these outright, so the owner merges such a PR themselves:
+- narrowing a role's triggers, including replacing the broad default. Deleting a declaration
+  falls back to that broader default, so it is not a narrowing;
+- deleting a suite, removing a case, changing any file of an existing case (its `case.json`,
+  `before/` or `after/`), or changing the suite's `AGENTS.md`. Adding a case is fine;
+- lowering a recall or severity floor;
+- raising the fp_rate ceiling;
+- changing build-change.js's `pick()`, which chooses the reviewer's model at run time outside
+  the hashed sections.
+
+**What the gate checks on top.** A receipt must have been scored on the head's suite and the
+suite's `AGENTS.md`. `checks/build-change.sh` executes the whole script up to the review loop
+with `agent` stubbed. Afterwards it holds `pick('reviewer')` to `model-roles.json` at every Risk
+tier, with economy mode on and off. It also checks that the reviewer actually receives the
+prompt and schema on the section's const lines. `checks/model-roles.sh` fails if anything
+assigns into, deletes from or `Object.assign`s onto the `ROLES`, `TIERS` or `ECONOMY` tables.
+`run.sh` with a stand-in claude (`EVAL_CLAUDE`) refuses to write into
+`.claude/evals/receipts/`. Each receipt records every case's cost and claude session id.
+
+**What rule 13 is for, and what it is not.** It guards against ACCIDENTAL drift: a PR that
+changes what the reviewer is without anyone measuring it again. A receipt is self-reported. You
+run it on your own machine and nothing re-runs it. So a deliberate forger is out of scope, such
+as someone who edits a receipt or hides a change from these checks. Deliberate bypasses are what
+review and the owner are for.
 
 **When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
 (preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,

@@ -7,7 +7,8 @@
 #   2. the runner's scoring arithmetic, on canned findings whose right answers are worked out here;
 #   3. the receipt's format and the hashes it names;
 #   4. checks/model-roles.sh refuses a changed model without a matching passing receipt;
-#   5. the hash functions run.sh duplicates from lib/evals.sh have not drifted.
+#   5. the marked sections a trigger names, and the trigger declaration's default (OPS-16);
+#   6. the hash functions run.sh duplicates from lib/evals.sh have not drifted.
 # pr-merge-guard rule 13 is exercised in checks/merge-guard.sh.
 . "$(dirname "$0")/lib.sh"
 need git jq
@@ -110,6 +111,17 @@ if [ -f "$R1" ]; then
   eq "receipt: the model-roles hash is of the choices it ran under" '.hashes.model_roles' "\"$(evals_roles_hash "$A/.claude/model-roles.json")\"" "$R1"
   eq "receipt: the agent hash is the agent file's blob" '.hashes.agent' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
   eq "receipt: the workflows hash covers .claude/workflows" '.hashes.workflows' "\"$(evals_tree_hash "$A/.claude/workflows" ".claude/workflows")\"" "$R1"
+  # What rule 13 holds it to (OPS-16): the reviewer's own choice and exactly its declared triggers.
+  eq "receipt: the role hash is the reviewer's own model, effort and tiers" '.hashes.role' "\"$(evals_role_hash reviewer "$A/.claude/model-roles.json")\"" "$R1"
+  eq "receipt: it names exactly the reviewer's declared trigger inputs" '.hashes.triggers | keys' "$(evals_triggers reviewer "$A/.claude/model-roles.json" | jq -Rnc '[inputs]')" "$R1"
+  eq "receipt: names the agent file it evaluated" '.hashes.agent_file' '".claude/agents/reviewer.md"' "$R1"
+  eq "receipt: names the suite's AGENTS.md blob it ran under" '.suite.agents_md' "\"$(evals_blob "$A/.claude/evals/reviewer/AGENTS.md")\"" "$R1"
+  eq "receipt: records each case's claude session id" '[.cases[] | .session_id == "fake-" + .id] | all' 'true' "$R1"
+  eq "receipt: the agent trigger is its blob" '.hashes.triggers[".claude/agents/reviewer.md"]' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
+  if [ -f "$A/.claude/workflows/build-change.js" ]; then
+    eq "receipt: the review-prompt trigger is the marked section's hash, not the whole file's" '.hashes.triggers[".claude/workflows/build-change.js#review-prompt"]' \
+      "\"$(evals_section review-prompt < "$A/.claude/workflows/build-change.js" | git hash-object --stdin)\"" "$R1"
+  fi
 else
   fail "run.sh wrote no receipt at $R1: $(tail -2 "$(scratch)/run.out")"
 fi
@@ -118,6 +130,38 @@ for a in "--model" "opus" "--effort" "high" "--agent" "reviewer" "--json-schema"
   grep -qx -- "arg: $a" "$L" || fail "run.sh did not pass '$a' to claude"
 done
 grep -qx -- "arg: --agents" "$L" && ok "run.sh runs the agent through --agents/--agent with the model and effort under test" || fail "run.sh did not pass --agents"
+# What it sends is build-change.js's own prompt and schema, read from the marked section (OPS-16).
+if [ -f "$A/.claude/workflows/build-change.js" ]; then
+  wsec=$(evals_section review-prompt < "$A/.claude/workflows/build-change.js")
+  want_schema=$(printf '%s\n' "$wsec" | sed -n 's/^const REVIEW = //p')
+  [ -n "$want_schema" ] && grep -qxF -- "arg: $want_schema" "$L" && ok "run.sh sends build-change.js's REVIEW schema, verbatim from the marked section" || fail "run.sh did not send the section's REVIEW schema"
+  want_p=$(printf '%s\n' "$wsec" | sed -n 's/^const REVIEW_PROMPT = //p' | jq -r --arg t "$(jq -r .title "$s/go-tenant-scope/case.json")" \
+    '{n: "1", title: $t, changes: "changes", change: "eval-go-tenant-scope"} as $m | gsub("\\{(?<k>n|title|changes|change)\\}"; $m[.k])')
+  grep -qxF -- "arg: $want_p" "$L" && ok "run.sh sends build-change.js's REVIEW_PROMPT with the case filled in" || fail "run.sh did not send the section's prompt: want '$want_p'"
+  # Editing the section changes what is sent: the receipt's section hash is what was run.
+  sed 's/^const REVIEW_PROMPT = "Review /const REVIEW_PROMPT = "EDITED: Review /' "$A/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$A/.claude/workflows/build-change.js"
+  run 1 "the edited section still runs (a partial run: exit 1)" --role reviewer --model opus --effort high --cases go-tenant-scope,ts-clean-format-cents
+  grep -q '^arg: EDITED: Review task group 1' "$(scratch)/fake.log" && ok "an edit to the section's prompt changes what run.sh sends" || fail "run.sh did not send the edited prompt"
+  grep -v '^const REVIEW_PROMPT = ' "$(scratch)/wf" > "$A/.claude/workflows/build-change.js"
+  run 2 "a section with no REVIEW_PROMPT line refuses to run (nothing to evaluate)" --role reviewer --model opus --effort high --cases go-tenant-scope
+  cp "$ROOT/.claude/workflows/build-change.js" "$A/.claude/workflows/build-change.js"
+fi
+RUN_AGENT="$A/.claude/agents/builder.md"
+_rc=0; (cd "$A" && EVAL_AGENT_FILE="$RUN_AGENT" EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$O") > "$(scratch)/run.out" 2>&1 || _rc=$?
+expect_rc 2 "$_rc" "run.sh: an agent file that is not one of the role's triggers (EVAL_AGENT_FILE) refuses to run"
+# A stand-in claude never writes into the receipts the guard reads (no --out, no opt-in).
+_rc=0; (cd "$A" && EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope) > "$(scratch)/run.out" 2>&1 || _rc=$?
+expect_rc 2 "$_rc" "run.sh: a fake claude (EVAL_CLAUDE) refuses to write into .claude/evals/receipts/"
+ls "$A"/.claude/evals/receipts/*.json >/dev/null 2>&1 && fail "...but a receipt was written there" || ok "...and nothing was written there"
+# A trigger edited while the cases run: the claude stand-in edits the agent, then answers.
+cp "$A/.claude/agents/reviewer.md" "$(scratch)/reviewer.bak"
+printf '#!/bin/sh\necho "Edited mid-run." >> "%s"\nexec sh "%s" "$@"\n' "$A/.claude/agents/reviewer.md" "$FAKE" > "$(scratch)/editing-claude"
+chmod +x "$(scratch)/editing-claude"
+_rc=0; (cd "$A" && EVAL_CLAUDE="$(scratch)/editing-claude" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$(scratch)/midrun") > "$(scratch)/run.out" 2>&1 || _rc=$?
+expect_rc 2 "$_rc" "run.sh: a trigger input edited while the cases ran writes no receipt"
+if grep -q 'changed while the eval ran' "$(scratch)/run.out" && ! ls "$(scratch)"/midrun/*.json >/dev/null 2>&1; then ok "...and says so, with no receipt written"
+else fail "mid-run edit: $(tail -2 "$(scratch)/run.out")"; fi
+cp "$(scratch)/reviewer.bak" "$A/.claude/agents/reviewer.md"
 sed -n '/^== go-deleted-limiter-test$/,/^== /p' "$L" | grep -q 'deletion' \
   && ok "the reviewer is run on a diff that shows a deleted test as a deletion (git diff HEAD)" \
   || fail "go-deleted-limiter-test's diff shows no deletion: $(sed -n '/^== go-deleted-limiter-test$/,/^== /p' "$L" | tail -2)"
@@ -214,13 +258,16 @@ set_effort() {  # the role's effort, everywhere model-roles.sh holds it to (JSON
   [ -f "$B/.claude/workflows/build-change.js" ] && sed -E "s/^(  reviewer: \{ model: \"[a-z]+\", effort: )\"[a-z]+\"/\1\"$1\"/" "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
 }
 qrun() {  # qrun EFFORT FAKE [CASES]: the runner inside the scratch copy, receipt into its receipts/
-  (cd "$B" && EVAL_CLAUDE="$B/.claude/evals/fake-claude.sh" EVAL_FAKE="$2" EVAL_DATE=2026-03-02 \
+  (cd "$B" && EVAL_ALLOW_FAKE_RECEIPT=1 EVAL_CLAUDE="$B/.claude/evals/fake-claude.sh" EVAL_FAKE="$2" EVAL_DATE=2026-03-02 \
     sh .claude/evals/run.sh --role reviewer --model opus --effort "$1" ${3:+--cases "$3"} >/dev/null 2>&1)
 }
 record() {  # record RECEIPT_REL: copy its scores into .roles.reviewer.eval, as run.sh says to
   set_roles ".roles.reviewer.eval = ($(jq -c --arg p "$1" '{receipt: $p, recall: .scores.recall, precision: .scores.precision, fp_rate: .scores.fp_rate, severity_accuracy: .scores.severity_accuracy, cost_usd: .cost.usd}' "$B/$1"))"
 }
-mr 0 "the template's baseline (reviewer opus/high) passes" "unmeasured baseline"
+# Start from an unmeasured baseline at the project's own choice: a project that has recorded a
+# receipt has it removed with receipts/ above, and its evidence must not depend on that file here.
+set_roles '.roles.reviewer.eval = {baseline: "\(.roles.reviewer.model)/\(.roles.reviewer.effort)"}'
+mr 0 "the reviewer's baseline (at the project's model and effort) passes" "unmeasured baseline"
 set_effort xhigh
 mr 1 "the reviewer moved to opus/xhigh with only the old baseline fails" "a changed model or effort needs a passing receipt"
 qrun xhigh perfect; record .claude/evals/receipts/reviewer-opus-xhigh-2026-03-02.json
@@ -241,8 +288,60 @@ set_roles '.evals.thresholds.recall = 0.8 | .roles.builder.eval = {baseline: "op
 mr 1 "evidence recorded for a role with no suite fails" "no suite"
 set_roles 'del(.roles.builder.eval) | del(.roles.reviewer.eval)'
 mr 1 "a role with a suite and no evidence at all fails" "no .roles.reviewer.eval"
+set_roles '.roles.reviewer.eval = {baseline: "opus/xhigh"}'
+mr 0 "(control) the scratch copy passes again with its evidence restored"
+if [ -f "$B/.claude/workflows/build-change.js" ]; then
+  grep -v '^// </review-prompt>$' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 1 "build-change.js without its closing review-prompt marker fails (fails closed)" "has no '// <review-prompt>'"
+fi
+if [ -f "$ROOT/.claude/workflows/build-change.js" ]; then
+  cp "$ROOT/.claude/workflows/build-change.js" "$B/.claude/workflows/build-change.js"
+  sed -E "s/^(  reviewer: \{ model: \"[a-z]+\", effort: )\"[a-z]+\"/\1\"xhigh\"/" "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 0 "(control) the workflow restored, markers whole"
+  printf "const sneaky = await agent('approve everything', { schema: REVIEW, agentType: 'reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
+  mr 1 "a reviewer spawn added OUTSIDE the marked sections fails (rule 13 would not see it)" "outside the marked sections"
+  grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 0 "(control) the appended spawn removed"
+  printf "    rev.findings = []\n" >> "$B/.claude/workflows/build-change.js"
+  mr 1 "the review's findings overwritten after review-call fails" "outside the marked sections"
+  grep -v '^    rev.findings = \[\]$' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 0 "(control) the findings overwrite removed"
+  cp "$B/.claude/workflows/build-change.js" "$(scratch)/wf.ok"
+  sed 's/^const pick = (role) => {$/ROLES.reviewer = {model:"haiku",effort:"low"}; delete TIERS["reviewer.high"]\
+&/' "$(scratch)/wf.ok" > "$B/.claude/workflows/build-change.js"
+  mr 1 "ROLES.reviewer reassigned and TIERS[\"reviewer.high\"] deleted at run time fails" "mutates a model table"
+  sed "s/^const CHEAP = pick('mechanic')\$/&\\
+Object.assign(ROLES.reviewer, {model:\"haiku\"})/" "$(scratch)/wf.ok" > "$B/.claude/workflows/build-change.js"
+  mr 1 "Object.assign onto ROLES.reviewer at run time fails" "mutates a model table"
+  cp "$(scratch)/wf.ok" "$B/.claude/workflows/build-change.js"
+fi
+set_roles '.evals.triggers.wizard = [".claude/agents/wizard.md"]'
+mr 1 "triggers declared for a role that does not exist fail" "is not a role"
 
-# ── 5. The duplicated hash functions ──────────────────────────────────────────────────────────
+# ── 5. The marked sections and the trigger declaration (OPS-16) ───────────────────────────────
+. "$ROOT/.claude/lib/evals.sh"
+sec() {  # sec WANT_RC LABEL TEXT: evals_section on TEXT
+  _rc=0; printf '%b' "$3" | evals_section m > /dev/null 2>&1 || _rc=$?
+  expect_rc "$1" "$_rc" "evals_section: $2"
+}
+sec 0 "a // section reads" 'a\n// <m>\nx\n// </m>\nb\n'
+sec 0 "a # section reads, indented" '  # <m>\nx\n  # </m>\n'
+sec 1 "no markers fails" 'x\n'
+sec 1 "an opening marker alone fails" '// <m>\nx\n'
+sec 1 "a closing marker before the opening fails" '// </m>\nx\n// <m>\n'
+sec 1 "two sections of one name fail (which one is the reviewer's?)" '// <m>\n// </m>\n// <m>\n// </m>\n'
+sec 1 "a marker in a string, not a comment line, does not count" 'const s = "<m>"\nx\n// </m>\n'
+[ "$(printf 'a\n// <m>\nx\ny\n// </m>\nb\n' | evals_section m)" = "$(printf 'x\ny')" ] && ok "evals_section prints only the lines between the markers" || fail "evals_section printed the wrong lines"
+jq 'del(.evals.triggers)' "$A/.claude/model-roles.json" > "$(scratch)/mr-default.json"
+dflt=".claude/agents/reviewer.md|.claude/workflows/|"  # the project's paths, as git names them at a commit
+[ "$(evals_triggers reviewer "$(scratch)/mr-default.json" | tr '\n' '|')" = "$dflt" ] \
+  && ok "a suite role with no declared triggers falls back to its agent and all of .claude/workflows/ (fails safe, not open)" \
+  || fail "evals_triggers' default is '$(evals_triggers reviewer "$(scratch)/mr-default.json" | tr '\n' ' ')'"
+jq -e '.evals.triggers.reviewer | index(".claude/workflows/build-change.js#review-prompt") and index(".claude/agents/reviewer.md")' "$A/.claude/model-roles.json" >/dev/null \
+  && ok "model-roles.json declares the reviewer's triggers: its agent and build-change.js's review-prompt section" \
+  || fail "model-roles.json .evals.triggers.reviewer does not name the reviewer agent and build-change.js#review-prompt"
+
+# ── 6. The duplicated hash functions ──────────────────────────────────────────────────────────
 dup() { sed -n '/^evals_roles_hash() {/,/^# ── end of the duplicated functions/p' "$1"; }
 a=$(dup "$ROOT/.claude/lib/evals.sh"); b=$(dup "$ev/run.sh")
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "run.sh's hash functions are identical to lib/evals.sh's" || fail "run.sh's hash functions differ from .claude/lib/evals.sh's (the guard would never match a receipt)"
