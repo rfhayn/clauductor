@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -300,10 +301,45 @@ func TestTrustAnEditedConfigReloadsTheProject(t *testing.T) {
 	if len(rep.Runs) != 1 || !strings.Contains(rep.Runs[0], "new-card") {
 		t.Fatalf("the report is not the file's: %+v", rep)
 	}
+	// A page on beta: every menu its stream carries through the reload still lists beta,
+	// so the page reconnects to the new runtime rather than moving to the default.
+	req, _ := http.NewRequest("GET", p.base+"/events?project=beta", nil)
+	req.Header.Set("Cookie", p.cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	menus := make(chan string, 64)
+	go func() {
+		defer close(menus)
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 1<<20), 1<<22)
+		next := false
+		for sc.Scan() {
+			line := sc.Text()
+			if line == "event: projects" {
+				next = true
+			} else if next && strings.HasPrefix(line, "data: ") {
+				menus <- line
+				next = false
+			}
+		}
+	}()
 	code, body := p.post(t, "/api/projects/beta/trust", map[string]any{"hash": rep.Hash})
 	result(t, body, &rep)
 	if code != 200 || !rep.Reloaded {
 		t.Fatalf("trust: %d %v", code, body)
+	}
+	resp.Body.Close()
+	n := 0
+	for m := range menus {
+		n++
+		if !strings.Contains(m, `"id":"beta"`) {
+			t.Fatalf("a page on beta was sent a menu without beta during its reload: %s", m)
+		}
+	}
+	if n == 0 {
+		t.Fatal("the stream carried no menu")
 	}
 	waitFor(t, "the new card to run", func() bool { return cr.count("new-card") > 0 })
 	if m := menu(t, p); !m["beta"].Trusted || !m["alpha"].Default {

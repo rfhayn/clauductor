@@ -117,7 +117,15 @@ func (ls *liveSet) launch(r *Runtime, e config.ProjectEntry) *liveRT {
 
 // stop stops serving a project: the ingest, the routes and the menu forget it, then
 // its goroutines are cancelled and waited for. ls.mu is held.
-func (ls *liveSet) stop(id string) {
+func (ls *liveSet) stop(id string) { ls.halt(id, false) }
+
+// restartStop stops a project that is started again at once under the same id (a
+// trust reload, a changed root or config path): its menu entry stays, so a page on it
+// reconnects to the new runtime instead of moving to the default; startEntry replaces
+// the entry.
+func (ls *liveSet) restartStop(id string) { ls.halt(id, true) }
+
+func (ls *liveSet) halt(id string, keepMenu bool) {
 	lr := ls.rts[id]
 	if lr == nil {
 		return
@@ -127,7 +135,9 @@ func (ls *liveSet) stop(id string) {
 	ls.m.removeProject(lr.r)
 	// The menu first, so the project's own open streams carry the menu without it
 	// (the page then moves to the default) before they end.
-	ls.sums.Remove(id)
+	if !keepMenu {
+		ls.sums.Remove(id)
+	}
 	ls.srv.RemoveProject(id)
 	lr.cancel()
 	lr.wg.Wait()
@@ -220,6 +230,10 @@ func (ls *liveSet) reconcile() error {
 	for id, lr := range ls.rts {
 		e, ok := listed[id]
 		if ok && e.Root == lr.entry.Root && e.ConfigPath() == lr.entry.ConfigPath() {
+			continue
+		}
+		if ok { // the same id, another root or config: started again below
+			ls.restartStop(id)
 			continue
 		}
 		if len(ls.rts) == 1 {
@@ -652,7 +666,7 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 		}
 	}
 	wasDefault := ls.m.defRT() == lr.r
-	ls.stop(id)
+	ls.restartStop(id)
 	err = ls.startEntry(e, wasDefault)
 	ls.sums.Reorder(ls.order)
 	ls.settle()
