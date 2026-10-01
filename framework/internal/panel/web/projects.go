@@ -9,6 +9,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/panel/metrics"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
@@ -25,6 +26,8 @@ type Project struct {
 	Lanes   *lanes.LaneManager // nil when lanes are unavailable
 	Orch    *Orchestration
 	Refresh func() // re-poll every source of the project now
+	// Metrics is the project's Metrics view now (PANEL-19); nil serves none.
+	Metrics func() metrics.Report
 }
 
 // projects is the server's project table. With none configured it is the one

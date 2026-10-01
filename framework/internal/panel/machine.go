@@ -50,6 +50,9 @@ type Machine struct {
 	notifier   state.Notifier
 	notifyPath string
 	savedState string
+
+	// economy is economy mode (PANEL-19; economy.go).
+	economy *economy
 }
 
 // maxBound caps the dispatcher's session table; past it the table starts over, and
@@ -92,7 +95,15 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 		{name: "account", every: t.Version, poll: m.pollAccount()},
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
+		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
+		// Where Remote Control is on (PANEL-19): settings.json and the install's
+		// choice, re-read on the account's cadence (install restarts the agent anyway).
+		{name: "remote", every: t.Version, poll: func(context.Context, time.Time) (update, time.Duration) {
+			mode := install.RemoteControlSummary(o.Home)
+			return func(md *state.Model, _ time.Time) { md.ApplyRemoteControl(mode) }, 0
+		}},
 	}
+	m.economy = newEconomy(o.Home, def.cfg)
 	if o.Launchd {
 		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
 		// follow it so the old token dies in the running panel too.

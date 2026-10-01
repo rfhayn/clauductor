@@ -20,7 +20,11 @@ func TestRowActionsAreWired(t *testing.T) {
 		"ev.stopPropagation();\n    if (rowMenu && rowMenu.btn === k)",
 		`b.setAttribute("aria-haspopup", "menu");`,
 		// The items, running and orphaned.
-		`[["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null, ["stop", "Stop lane"], ["close", "Close lane"]]`,
+		`[["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null,`,
+		`S.remoteControl === "lanes" && t.registered && !t.dead ? ["remote-control", "Remote control"] : null,`,
+		`["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);`,
+		// PANEL-19: Remote control types only after its confirmation, and only offers it for an idle claude.
+		`idle ? button("Confirm remote control", "primary", () => { confirmAct = null; laneAction(t.id, "remote-control"); }`,
 		`[["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]]`,
 		// Keyboard: the APG menu keys, and Escape back to the button.
 		`else if (e.key === "Escape") { e.preventDefault(); closeRowMenu(true); }`,

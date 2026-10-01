@@ -849,7 +849,10 @@ function renderTree(ls, cur) {
 let rowMenu = null; // {lane: the lane's key, btn: the data-k of the button that opened it}
 function rowActs(t) {
   if (!t.running) return [["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]];
-  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null, ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
+  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null,
+    // PANEL-19: in lanes mode, connect (or show) a running lane's Remote Control.
+    S.remoteControl === "lanes" && t.registered && !t.dead ? ["remote-control", "Remote control"] : null,
+    ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
 }
 function actsButton(x, k) {
   if (!x.t) return null; // started outside the panel: nothing here can stop it
@@ -989,9 +992,25 @@ function renderLaneHead(x) {
     const m = laneModel(x), lm = laneM(x), since = laneSince(x), ctx = laneCtx(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
+    // PANEL-19: where Remote Control is on (the machine's choice at panel install).
+    if (S.remoteControl && x.t) {
+      const rc = kv1("Remote", el("span", null, S.remoteControl === "all" ? "on, every session" : "on, the panel's lanes"));
+      rc.title = S.remoteControl === "all" ? "remoteControlAtStartup is true in ~/.claude/settings.json: every Claude session connects to Remote Control"
+        : "The panel's lanes start with claude --remote-control; a lane started before connects with Remote control in its ⋯ menu";
+      kids.push(key(rc, "remote"));
+    }
     if (since) kids.push(key(kv1("Up", el("span", "num", null, [age(since)])), "up"));
     kids.push(key(kv1("Context", el("span", null, null, [bullet(ctx, { tick: S.trends.autocompactPct, cls: ctx >= 85 ? "w" : "" }), document.createTextNode(" "), num(pct(ctx))])), "ctx"));
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
+    // PANEL-19: the budget of the change this lane builds, from its proposal; every branch
+    // of the change counts toward it. Amber from 80%, red past it.
+    const bg = x.lv && x.lv.budget;
+    if (bg) {
+      const p = bg.usd > 0 ? (bg.spent / bg.usd) * 100 : 100;
+      const k = kv1("Budget", el("span", null, null, [bullet(p, { cls: p > 100 ? "c" : p >= 80 ? "w" : "" }), num(money(bg.spent) + " of " + money(bg.usd), null, p > 100 ? "crit" : "")]));
+      k.title = "Change " + bg.change + ": its proposal's budget, and what its lanes have spent (list price)";
+      kids.push(key(k, "budget"));
+    }
     if (laneApprox(x)) kids.push(key(el("span", "dim", null, [staleTag(true)]), "stale"));
   } else kids.push(key(el("h2", null, "No lane selected"), "name"));
   const fit = fitLayout(), shown = fit.side;
@@ -1022,12 +1041,34 @@ function kvRows(rows) {
   }
   return box;
 }
+// PANEL-19: the Flow card, under the project's box: four figures of the last 30 days,
+// each with its sparkline, while there are metrics to show (metrics.card turns it off).
+// The whole card is one button that opens Metrics on Flow at 30d.
+const FLOW_LABEL = { "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merges", "wk"], "flow.change_fail_rate": ["Change-fail", "%"], "cost.per_week": ["Spend", "$wk"] };
+function flowCard() {
+  const f = S.flow;
+  if (!f || !f.any) return null;
+  const rows = f.items.map((it) => {
+    const [label, unit] = FLOW_LABEL[it.key] || [it.key, ""];
+    const pts = (it.series || []).filter((v) => v != null);
+    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mValue(it.value, unit)),
+      it.value == null ? el("span") : spark({ v: pts }, { lo: 0 }) || el("span")]);
+    row.title = it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command");
+    return key(row, "fr:" + it.key);
+  });
+  const b = el("button", "flowcard", null, [el("span", "fh", "Flow (" + f.window + ")"), ...rows]);
+  b.type = "button";
+  b.setAttribute("aria-label", "Flow, last " + f.window + ": " + f.items.map((it) => (FLOW_LABEL[it.key] || [it.key])[0] + " " +
+    (it.value == null ? "none" : mValue(it.value, (FLOW_LABEL[it.key] || [])[1]))).join(", ") + ". Opens Metrics.");
+  on(b, "click", () => { mv.tab = "flow"; mv.range = f.window; saveMv(); if ($("mview").hidden) openMetrics(); else renderMetrics(); });
+  return key(el("div", "sideflow", null, [b]), "side:flow");
+}
 function renderSide(x) {
   // The pinned cards (where the project stands) always follow, in a box of their own
   // under the lane's: the lane first, and the project never off the dashboard.
-  const project = projectBox();
+  const project = projectBox(), flow = flowCard();
   if (!x) {
-    patchInto("side", [pinnedCards().length ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    patchInto("side", [pinnedCards().length || flow ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project, flow]);
     return;
   }
   const tabs = SIDE_TABS;
@@ -1065,7 +1106,7 @@ function renderSide(x) {
   else body.push(feedList(laneFeed(x).slice(0, 60), false, "lanefeed"));
   const panel = el("div", "sidebody", null, body);
   panel.setAttribute("role", "tabpanel");
-  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project]);
+  patchInto("side", [key(tl, "sidetabs"), key(panel, "sidebody:" + sideTab), project, flow]);
 }
 // ---- Pinned cards (PANEL-12): where the project stands, in the side panel -------------------
 // A pinned card is a list of titles that open. A row's title is its bold lead
@@ -1371,9 +1412,12 @@ function asOf() { return offline() && frozenAt ? ", as of " + hm(frozenAt) : "";
 const AGED = { waiting: true, idle: true };
 // Alerts shown in the strip: every alert that belongs to no lane, and blocking ones of
 // any lane (a waiting alert already in Needs you is not repeated).
+// PANEL-19: an approval waiting too long, a change over its budget and a lane with no
+// commit for days need you whether or not a lane has them, so they always show here.
+const NEEDS_KINDS = { approval_wait: true, budget: true, stale: true };
 function stripAlerts() {
   const asked = new Set(S.needsYou.map((n) => n.session));
-  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block"));
+  return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block" || NEEDS_KINDS[a.kind]));
 }
 function needRow(n, cls, k, done) {
   const sev = done ? "" : n.severity === "block" ? "crit" : "warn";
@@ -1452,10 +1496,22 @@ function quotaFields(q, acct, tr) {
     return quotaField(w, i === 0 ? plan : "", proj, mode === "windows" ? q.at : 0);
   });
 }
+// PANEL-19: economy mode, by the quota while it is on: the roles the project's
+// model-roles.json moves to a cheaper tier, and why it is on (on hover).
+function economyField() {
+  const e = S.economy;
+  if (!e || !e.active) return [];
+  const roles = (e.roles || []).map((r) => r.role + (r.to ? " to " + r.to : "")).join(", ");
+  const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "economy"),
+    el("span", "more", roles || "no role named")])]), "q:eco");
+  f.title = (e.reason || "") + (e.since ? ", since " + hm(e.since) : "") + ". " + (roles ? "Roles on a cheaper tier: " + roles + "." : e.rolesNote || "") +
+    " The panel writes ~/.clauductor/panel/economy.json; the operating model's build-change reads it.";
+  return [f];
+}
 function renderStatus(ls) {
   const q = S.quota || {}, tr = S.trends || {}, acct = S.account || {};
   const spend = acct.quotaMode === "spend";
-  patch($("quotas"), quotaFields(q, acct, tr));
+  patch($("quotas"), quotaFields(q, acct, tr).concat(economyField()));
   // An API key or a cloud provider is billed per token: its spend comes first, and
   // the burn is dollars an hour. The estimate is still list price, not the bill.
   const fields = $("fields"), fc = $("f-cost"), fb = $("f-burn");
@@ -1619,6 +1675,7 @@ function renderDrawer() {
 }
 let drawerReturn = null;
 function openDrawer() {
+  if (!$("mview").hidden) closeMetrics();
   drawerReturn = document.activeElement;
   $("drawer").hidden = false;
   $("activitybtn").setAttribute("aria-expanded", "true");
@@ -1634,6 +1691,271 @@ function closeDrawer() {
 $("activitybtn").addEventListener("click", () => ($("drawer").hidden ? openDrawer() : closeDrawer()));
 $("drawerclose").addEventListener("click", closeDrawer);
 $("drawer").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeDrawer(); } });
+
+// ---- Metrics (PANEL-19): flow, cost, quality and outcomes -----------------------------------
+// The view is fetched while it is open (GET /api/p/<id>/metrics, every minute), never
+// pushed: its figures move by the day. Each figure says where it came from, the
+// project's metrics command or the panel's own reading, and a figure neither has is
+// "—" with the reason the panel gave. Every string is the project's data: textContent only.
+const M_TABS = [["flow", "Flow"], ["cost", "Cost"], ["quality", "Quality"], ["outcomes", "Outcomes"]];
+const M_RANGES = ["7d", "30d", "90d"];
+let mv = { tab: "flow", range: "30d", scope: "project", data: null, err: "", loading: false, at: 0, timer: 0, returnTo: null, seq: 0 };
+try {
+  const t = JSON.parse(localStorage.getItem("clauductor-panel-metrics") || "{}");
+  if (M_TABS.some((x) => x[0] === t.tab)) mv.tab = t.tab;
+  if (M_RANGES.includes(t.range)) mv.range = t.range;
+  if (t.scope === "all") mv.scope = "all";
+} catch (e) {}
+function saveMv() { try { localStorage.setItem("clauductor-panel-metrics", JSON.stringify({ tab: mv.tab, range: mv.range, scope: mv.scope })); } catch (e) {} }
+// Each figure's name and unit. The units are the contract's: hours, per week, percent, dollars.
+const M_FIG = {
+  "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merge frequency", "wk"], "flow.lead_time": ["Lead time", "h"],
+  "flow.approval_wait": ["Approval wait", "h"], "flow.change_fail_rate": ["Change-fail rate", "%"], "flow.aging_wip": ["Aging work in progress"],
+  "cost.total": ["Spend", "$"], "cost.per_week": ["Spend per week", "$wk"], "cost.by_role": ["By role"], "cost.by_model": ["By model"],
+  "cost.by_change": ["By change"], "cost.by_project": ["By project"],
+  "quality.review_rounds": ["Review rounds per change", "n"], "quality.reviewer_recall": ["Reviewer recall by model"], "quality.escaped_defects": ["Escaped defects", "n"],
+  "outcomes.hypotheses": ["Hypotheses"],
+};
+function mValue(v, unit) {
+  if (v == null) return "—";
+  const r = (x, dp) => (Math.abs(x - Math.round(x)) < 0.05 ? String(Math.round(x)) : x.toFixed(dp));
+  switch (unit) {
+    case "h": return v >= 48 ? r(v / 24, 1) + " d" : r(v, 1) + " h";
+    case "wk": return r(v, 1) + " a week";
+    case "%": return r(v, 1) + "%";
+    case "$": return money(v);
+    case "$wk": return money(v) + " a week";
+    default: return r(v, 1);
+  }
+}
+const M_SRC = { project: "project", builtin: "built in", mixed: "project and built in" };
+function mSource(src) {
+  if (!src) return null;
+  const e = el("span", "msrc", M_SRC[src] || src);
+  e.title = src === "builtin" ? "Computed by the panel from what it already reads" : src === "project" ? "From the project's metrics command" : "From more than one source";
+  return e;
+}
+// A series as columns, oldest first; a bucket with no data is a mark on the baseline.
+function mBars(series, unit) {
+  if (!series || series.length < 2) return null;
+  const vals = series.filter((v) => v != null);
+  const hi = Math.max(1e-9, ...vals);
+  const n = series.length, w = 100 / n;
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "mbars");
+  svg.setAttribute("viewBox", "0 0 100 24");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Over the range, oldest first: " + series.map((v) => (v == null ? "no data" : mValue(v, unit))).join(", "));
+  series.forEach((v, i) => {
+    const r = document.createElementNS(SVGNS, "rect");
+    const h = v == null ? 0 : Math.max(0.8, (v / hi) * 22);
+    r.setAttribute("x", (i * w + w * 0.15).toFixed(2));
+    r.setAttribute("width", (w * 0.7).toFixed(2));
+    r.setAttribute("y", (24 - h).toFixed(2));
+    r.setAttribute("height", h.toFixed(2));
+    if (v == null) r.setAttribute("class", "nil");
+    svg.appendChild(r);
+    if (v == null) {
+      const m = document.createElementNS(SVGNS, "rect");
+      m.setAttribute("class", "gap");
+      m.setAttribute("x", (i * w + w * 0.15).toFixed(2)); m.setAttribute("width", (w * 0.7).toFixed(2));
+      m.setAttribute("y", "23"); m.setAttribute("height", "1");
+      svg.appendChild(m);
+    }
+  });
+  return svg;
+}
+// A bar proportional to v out of max, for a line of a breakdown.
+function hbar(v, max, cls) {
+  const b = el("span", "hbar" + (cls ? " " + cls : ""), null, [el("i")]);
+  b.firstChild.style.width = (max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0).toFixed(1) + "%";
+  b.setAttribute("aria-hidden", "true");
+  return b;
+}
+// One figure: its name, value, series and source; its note or why it has none under it.
+function mFigure(k, m) {
+  const [label, unit] = M_FIG[k];
+  const has = !!m && m.value != null;
+  const row = el("div", "mrow" + (has ? "" : " miss"), null, [
+    el("span", "ml", label),
+    el("span", "mv num", has ? mValue(m.value, unit) : "—"),
+    el("span", "mspark", null, [has ? mBars(m.series, unit) : null]),
+    el("span", "mn", null, [has && m.n ? el("span", "dim", "of " + m.n) : null, has ? mSource(m.source) : null]),
+  ]);
+  const note = has ? m.note : (m && m.missing) || "No value.";
+  if (note) row.appendChild(el("div", "mnote" + (has ? "" : " why"), note));
+  return key(row, "mf:" + k);
+}
+// A list figure: the table its items make, or why there are none.
+function mList(k, m, head, rowOf) {
+  const [label] = M_FIG[k];
+  const kids = [el("div", "mlh", null, [el("h3", null, label), el("span", "sp"), m && m.items ? mSource(m.source) : null])];
+  if (!m || !m.items) kids.push(el("div", "mnote why", (m && m.missing) || "No data."));
+  else if (!m.items.length) kids.push(el("div", "empty", "None in this range."));
+  else {
+    const scope = mv.data && mv.data.projects && mv.data.projects.length && m.items[0] && m.items[0].project != null;
+    const cols = scope ? [["Project"]].concat(head) : head;
+    const thead = el("thead", null, null, [el("tr", null, null, cols.map(([h, cls]) => { const th = el("th", cls || null, h); th.scope = "col"; return th; }))]);
+    const tb = el("tbody");
+    const max = Math.max(0, ...m.items.map((it) => it.usd != null ? it.usd : it.age_days != null ? it.age_days : it.pct != null ? it.pct : 0));
+    m.items.forEach((it, i) => {
+      const cells = rowOf(it, max);
+      tb.appendChild(el("tr", cells.warn ? "abn-warn" : null, null, (scope ? [el("td", null, it.project)] : []).concat(cells.tds)));
+    });
+    kids.push(el("div", "tblwrap", null, [el("table", "tbl mtbl", null, [thead, tb])]));
+    if (m.note) kids.push(el("div", "mnote", m.note));
+  }
+  return key(el("div", "mlist", null, kids), "ml:" + k);
+}
+const td = (t, cls) => el("td", cls || null, t);
+const tdn = (kids) => el("td", "mbarcell", null, kids);
+function amountRow(it, max) {
+  const over = it.budget_usd != null && it.usd > it.budget_usd;
+  return { warn: over, tds: [td(it.name), td(money(it.usd), "num"), tdn([hbar(it.usd, max)]),
+    td(it.budget_usd == null ? "" : money(it.budget_usd) + (over ? ", over" : ""), "num")] };
+}
+const AMOUNT_HEAD = [["Name"], ["Spend", "num"], [""], ["Budget", "num"]];
+function renderMetricsBody() {
+  const d = mv.data, kids = [];
+  if (!d) {
+    kids.push(key(el("div", mv.err ? "srcerr" : "empty", mv.err ? "Cannot read the metrics: " + mv.err : "Reading the metrics…"), "mv:load"));
+    return kids;
+  }
+  if (mv.err) kids.push(key(el("div", "srcerr", "Cannot read the metrics now: " + mv.err + ". What shows is from " + hm(mv.at) + "."), "mv:err"));
+  // Where the figures come from, once, above them.
+  const src = [];
+  const c = d.command || {};
+  if (mv.scope === "all") {
+    src.push(el("div", null, "All projects: " + (d.projects || []).join(", ") + ". Merges and spend add up; a median is the projects' own, weighted."));
+    for (const e of d.errors || []) src.push(el("div", "srcerr", "The metrics command failed in " + e));
+  } else if (!c.configured) src.push(el("div", null, "No metrics command: what shows is the panel's own (built in). metrics.command in panel.json adds the rest."));
+  else if (!c.trusted) src.push(el("div", "warn", "The metrics command is off until panel.json is trusted (clauductor panel trust)."));
+  else if (c.pending) src.push(el("div", "dim", "The metrics command has not reported yet."));
+  else if (!c.ok) src.push(el("div", "srcerr", "The metrics command failed: " + c.error));
+  else src.push(el("div", null, null, [document.createTextNode("From the metrics command"), c.generatedAt || c.at ? age(c.generatedAt || c.at, ", computed ", " ago") : null, document.createTextNode(", and the panel's own where it has none.")]));
+  const mg = d.merged || {};
+  if (mv.scope !== "all") {
+    if (mg.error) src.push(el("div", "dim", "Merged pull requests: cannot read (" + mg.error + ")."));
+    else if (mg.at) src.push(el("div", "dim", null, [age(mg.at, "Merged pull requests read from gh ", " ago, every 10 minutes while this page is in view.")]));
+  }
+  if (d.spendSince) src.push(el("div", "dim", "Spend kept since " + d.spendSince + "."));
+  kids.push(key(el("div", "mvsrc", null, src), "mv:src"));
+  const w = (d.windows || {})[mv.range] || {};
+  const f = (k) => mFigure(k, w[k]);
+  const sect = (k, title, body) => key(el("section", "pane msect", null, [el("div", "pane-h", null, [el("h2", null, title)]), ...body]), k);
+  if (mv.tab === "flow") {
+    kids.push(sect("ms:flow", "Delivery", [f("flow.cycle_time"), f("flow.merge_frequency"), f("flow.lead_time"), f("flow.approval_wait"), f("flow.change_fail_rate")]));
+    kids.push(sect("ms:wip", "In flight", [mList("flow.aging_wip", w["flow.aging_wip"], [["Work"], ["Title"], ["Stage"], ["Age", "num"], [""]],
+      (it, max) => ({ warn: false, tds: [td(it.id), td(it.title || ""), td(it.stage || ""), td(mValue(it.age_days) + " d", "num"), tdn([hbar(it.age_days, max)])] }))]));
+  } else if (mv.tab === "cost") {
+    kids.push(sect("ms:spend", "Spend", [f("cost.total"), f("cost.per_week")]));
+    kids.push(sect("ms:by", "Where it went", [mList("cost.by_role", w["cost.by_role"], AMOUNT_HEAD, amountRow), mList("cost.by_model", w["cost.by_model"], AMOUNT_HEAD, amountRow),
+      mList("cost.by_change", w["cost.by_change"], AMOUNT_HEAD, amountRow), mList("cost.by_project", w["cost.by_project"], AMOUNT_HEAD, amountRow)]));
+  } else if (mv.tab === "quality") {
+    kids.push(sect("ms:q", "Review", [f("quality.review_rounds"), f("quality.escaped_defects")]));
+    kids.push(sect("ms:recall", "Evals", [mList("quality.reviewer_recall", w["quality.reviewer_recall"], [["Model"], ["Recall", "num"], [""], ["Seeded defects", "num"]],
+      (it) => ({ warn: false, tds: [td(it.model), td(mValue(it.pct, "%"), "num"), tdn([hbar(it.pct, 100)]), td(it.n ? String(it.n) : "", "num")] }))]));
+  } else {
+    const today = new Date(now()).toISOString().slice(0, 10);
+    kids.push(sect("ms:out", "Did it do what it meant to", [mList("outcomes.hypotheses", w["outcomes.hypotheses"], [["Change"], ["Hypothesis"], ["Due", "num"], ["Checked"], ["Result"]],
+      (it) => {
+        const late = !it.checked && it.due && it.due < today;
+        return { warn: late, tds: [td(it.change), el("td", "wrap", it.hypothesis), td(it.due || "", "num"), td(it.checked ? "yes" : late ? "no, overdue" : "not yet"), el("td", "wrap", it.result || "")] };
+      })]));
+  }
+  return kids;
+}
+function renderMetrics() {
+  if ($("mview").hidden) return;
+  const off = offline();
+  const tl = el("div", "sidetabs mtabs");
+  tl.setAttribute("role", "tablist");
+  tl.setAttribute("aria-label", "Metrics");
+  M_TABS.forEach(([id, label], i) => {
+    const b = el("button", null, label);
+    b.type = "button";
+    b.id = "mtab-" + id;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(id === mv.tab));
+    b.setAttribute("aria-controls", "mvbody");
+    b.tabIndex = id === mv.tab ? 0 : -1;
+    on(b, "click", () => { mv.tab = id; saveMv(); renderMetrics(); });
+    on(b, "keydown", (ev) => {
+      let j = -1;
+      if (ev.key === "ArrowRight") j = (i + 1) % M_TABS.length; else if (ev.key === "ArrowLeft") j = (i - 1 + M_TABS.length) % M_TABS.length;
+      else if (ev.key === "Home") j = 0; else if (ev.key === "End") j = M_TABS.length - 1;
+      if (j < 0) return;
+      ev.preventDefault();
+      mv.tab = M_TABS[j][0]; saveMv(); renderMetrics();
+      $("mtab-" + mv.tab).focus();
+    });
+    tl.appendChild(key(b, "mtab:" + id));
+  });
+  const group = (label, k, opts, cur, pick) => {
+    const g = el("div", "mgroup", null, [el("span", "k", label)]);
+    g.setAttribute("role", "group");
+    g.setAttribute("aria-label", label);
+    for (const [v, text] of opts) {
+      const b = el("button", "btn small", text);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(v === cur));
+      if (off) b.disabled = true;
+      on(b, "click", () => pick(v));
+      g.appendChild(key(b, k + ":" + v));
+    }
+    return key(g, k);
+  };
+  const ranges = group("Range", "mrange", M_RANGES.map((r) => [r, r]), mv.range, (v) => { mv.range = v; saveMv(); renderMetrics(); });
+  const scope = group("Scope", "mscope", [["project", "This project"], ["all", "All projects"]], mv.scope, (v) => {
+    if (v === mv.scope) return;
+    mv.scope = v; mv.data = null; saveMv(); renderMetrics(); loadMetrics();
+  });
+  patchInto("mvbar", [key(tl, "mtabs"), key(el("div", "mctl", null, [ranges, scope]), "mctl")]);
+  const body = $("mvbody");
+  body.setAttribute("role", "tabpanel");
+  body.setAttribute("aria-labelledby", "mtab-" + mv.tab);
+  patchInto("mvbody", renderMetricsBody());
+}
+async function loadMetrics() {
+  if ($("mview").hidden || offline() || !pid()) return;
+  const seq = ++mv.seq, scope = mv.scope;
+  mv.loading = true;
+  try {
+    const r = await fetch(api("/metrics") + (scope === "all" ? "?scope=all" : ""));
+    if (!r.ok) throw new Error((await r.text()).trim().slice(0, 200) || "HTTP " + r.status);
+    const d = await r.json();
+    if (seq !== mv.seq) return;
+    mv.data = d; mv.err = ""; mv.at = now();
+  } catch (e) {
+    if (seq !== mv.seq) return;
+    mv.err = String(e.message || e);
+  }
+  mv.loading = false;
+  renderMetrics();
+}
+function openMetrics() {
+  mv.returnTo = document.activeElement;
+  $("mview").hidden = false;
+  $("metricsbtn").setAttribute("aria-expanded", "true");
+  if (!$("drawer").hidden) closeDrawer();
+  renderMetrics();
+  loadMetrics();
+  clearInterval(mv.timer);
+  mv.timer = setInterval(loadMetrics, 60000);
+  const t = $("mtab-" + mv.tab);
+  (t || $("mviewclose")).focus();
+}
+function closeMetrics() {
+  $("mview").hidden = true;
+  $("metricsbtn").setAttribute("aria-expanded", "false");
+  clearInterval(mv.timer);
+  const r = mv.returnTo; mv.returnTo = null;
+  if (r && r.isConnected && r.focus) r.focus(); else $("metricsbtn").focus();
+}
+$("metricsbtn").addEventListener("click", () => ($("mview").hidden ? openMetrics() : closeMetrics()));
+$("mviewclose").addEventListener("click", closeMetrics);
+$("mview").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeMetrics(); } });
 
 // ---- v1: lane terminals -------------------------------------------------------
 // Each tab is one lane (PANEL-11: a lane started outside the panel has a tab too, and
@@ -2307,6 +2629,15 @@ function renderTermBar(t) {
           button("Close lane", "danger", () => askClose(t),
             "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
+    } else if (confirmAct && confirmAct.id === t.id && confirmAct.action === "remote-control") {
+      // PANEL-19: typed only into an idle claude; the panel checks again before the Enter.
+      const idle = t.status === "idle" && !t.approx;
+      kids.push(
+        key(el("span", "confirm", idle ? "Type /remote-control and Enter into " + t.id + ": claude connects it to Remote Control, so any device signed in to your account can " +
+          "drive it and answer its permission prompts. The first time, claude asks to confirm in the terminal."
+          : "claude in " + t.id + " is not idle (claude agents), so nothing will be typed. Try again when it is."), "confirm"),
+        idle ? button("Confirm remote control", "primary", () => { confirmAct = null; laneAction(t.id, "remote-control"); }, null, null, true) : null,
+        button("Cancel", "", () => { confirmAct = null; render(); }, null, "b:cancel"));
     } else if (confirmAct && confirmAct.id === t.id) {
       const a = confirmAct.action;
       const back = a === "stop" ? "b:Stop lane" : a === "interrupt" ? "b:Interrupt (Esc)" : "b:Restart";
@@ -2727,6 +3058,7 @@ function render() {
   renderTerminals(cur);
   renderSide(cur);
   renderDrawer();
+  renderMetrics();
   renderHint();
   // A suggest list read while the dialog is open shows at once.
   if (!$("startdlg").hidden) stUpdate();
@@ -3055,6 +3387,7 @@ function switchProject(id) {
   S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();
+  if (!$("mview").hidden) { mv.data = null; loadMetrics(); }
   render();
 }
 $("projbtn").addEventListener("click", () => { if ($("projmenu").hidden) openProjects(); else closeProjects(false); });

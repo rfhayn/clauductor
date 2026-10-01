@@ -69,6 +69,16 @@ type Config struct {
 	// (clauductor.localhost always works). No wildcards.
 	HostNames []string `json:"host_names"`
 
+	// Metrics: version 4 (PANEL-19).
+
+	// Metrics names the project's metrics command, whose JSON the Metrics view draws
+	// beside what the panel computes itself (package metrics).
+	Metrics *MetricsConfig `json:"metrics"`
+	// QuotaEconomy turns on economy mode above a 5-hour quota (off unless set): the
+	// panel writes ~/.clauductor/panel/economy.json for the operating model's
+	// build-change to read, and shows an economy badge by the quota.
+	QuotaEconomy *QuotaEconomyConfig `json:"quota_economy"`
+
 	// Notices are what loading the file has to say once (no version declared). The
 	// panel prints them at start.
 	Notices []string `json:"-"`
@@ -204,6 +214,56 @@ type CardConfig struct {
 	// Pin also shows the card in the side panel (version 3): the project's own
 	// "where things stand", beside the lanes rather than in the drawer.
 	Pin bool `json:"pin"`
+}
+
+// MetricsConfig is the project's metrics command (version 4): run like a card, only
+// while the config is trusted, its stdout the JSON contract in docs/panel.md
+// ("Metrics"). Without a command the panel shows only the metrics it computes itself.
+type MetricsConfig struct {
+	Command []string `json:"command"`
+	// Refresh is a card's refresh rule; DefaultMetricsRefresh when empty.
+	Refresh string `json:"refresh"`
+	// Card shows the Flow card in the side panel while there are metrics to show
+	// (default true).
+	Card *bool `json:"card"`
+}
+
+// QuotaEconomyConfig is economy mode's threshold (version 4).
+type QuotaEconomyConfig struct {
+	FiveHourPct *float64 `json:"five_hour_pct"`
+}
+
+// EconomyPct is the 5-hour quota economy mode starts at; 0 is off (the default).
+func (c *Config) EconomyPct() float64 {
+	if c.QuotaEconomy == nil || c.QuotaEconomy.FiveHourPct == nil {
+		return 0
+	}
+	return *c.QuotaEconomy.FiveHourPct
+}
+
+// DefaultMetricsRefresh is how often a metrics command runs when its config says
+// nothing: its figures move by the day, so every 15 minutes is plenty.
+const DefaultMetricsRefresh = "interval:900"
+
+// MetricsRefresh returns the metrics command's refresh rule, defaulted.
+func (c *Config) MetricsRefresh() string {
+	if c.Metrics == nil || c.Metrics.Refresh == "" {
+		return DefaultMetricsRefresh
+	}
+	return c.Metrics.Refresh
+}
+
+// MetricsCommand returns the project's metrics argv, or nil when it names none.
+func (c *Config) MetricsCommand() []string {
+	if c.Metrics == nil {
+		return nil
+	}
+	return c.Metrics.Command
+}
+
+// FlowCard reports whether the side panel may show the Flow card.
+func (c *Config) FlowCard() bool {
+	return c.Metrics == nil || c.Metrics.Card == nil || *c.Metrics.Card
 }
 
 // SuggestConfig is a template's list of what to start next (version 3): a command,
@@ -415,6 +475,10 @@ type AlertConfig struct {
 	WaitingSeconds     *float64 `json:"waiting_seconds"`
 	Notify             *bool    `json:"notify"`
 	MinIntervalSeconds *float64 `json:"min_interval_seconds"`
+	// PANEL-19 (version 4): a proposal waiting for approval, and a lane's branch
+	// with no commit for a while.
+	ApprovalWaitHours *float64 `json:"approval_wait_hours"`
+	StaleDays         *float64 `json:"stale_days"`
 }
 
 // QuotaGuardConfig refuses new lanes at or above a 5-hour quota percentage.
@@ -431,6 +495,9 @@ const (
 	DefaultWaitingSeconds = 120
 	DefaultNotifyInterval = 300
 	DefaultQuotaGuardPct  = 95
+	// PANEL-19.
+	DefaultApprovalWaitHours = 24
+	DefaultStaleDays         = 3
 )
 
 // Thresholds are the resolved alert settings. A zero duration or percentage is off.
@@ -444,6 +511,9 @@ type Thresholds struct {
 	Notify      bool          `json:"notify"`
 	MinInterval time.Duration `json:"-"`
 	GuardPct    float64       `json:"quotaGuardPct"`
+	// PANEL-19: approval waiting (hours) and a stale lane (days); 0 is off.
+	ApprovalWaitHours float64 `json:"approvalWaitHours"`
+	StaleDays         float64 `json:"staleDays"`
 }
 
 func orDefault(p *float64, d float64) float64 {
@@ -465,6 +535,9 @@ func (c *Config) AlertThresholds() Thresholds {
 		FiveHourPct: orDefault(a.FiveHourPct, DefaultFiveHourPct),
 		WaitingSecs: orDefault(a.WaitingSeconds, DefaultWaitingSeconds),
 		Notify:      a.Notify == nil || *a.Notify,
+
+		ApprovalWaitHours: orDefault(a.ApprovalWaitHours, DefaultApprovalWaitHours),
+		StaleDays:         orDefault(a.StaleDays, DefaultStaleDays),
 	}
 	t.Idle = time.Duration(t.IdleMinutes * float64(time.Minute))
 	t.Waiting = time.Duration(t.WaitingSecs * float64(time.Second))
@@ -564,7 +637,8 @@ func (c *Config) validateV2() error {
 	}
 	if a := c.Alerts; a != nil {
 		for key, p := range map[string]*float64{"idle_minutes": a.IdleMinutes, "context_pct": a.ContextPct,
-			"five_hour_pct": a.FiveHourPct, "waiting_seconds": a.WaitingSeconds, "min_interval_seconds": a.MinIntervalSeconds} {
+			"five_hour_pct": a.FiveHourPct, "waiting_seconds": a.WaitingSeconds, "min_interval_seconds": a.MinIntervalSeconds,
+			"approval_wait_hours": a.ApprovalWaitHours, "stale_days": a.StaleDays} {
 			if p != nil && *p < 0 {
 				return fmt.Errorf("panel config: alerts.%s must be 0 (off) or positive", key)
 			}
@@ -577,6 +651,22 @@ func (c *Config) validateV2() error {
 	}
 	if g := c.QuotaGuard; g != nil && g.FiveHourPct != nil && (*g.FiveHourPct < 0 || *g.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_guard.five_hour_pct must be 0 (off) to 100")
+	}
+	if e := c.QuotaEconomy; e != nil && e.FiveHourPct != nil && (*e.FiveHourPct < 0 || *e.FiveHourPct > 100) {
+		return fmt.Errorf("panel config: quota_economy.five_hour_pct must be 0 (off) to 100")
+	}
+	if mt := c.Metrics; mt != nil {
+		if mt.Command != nil && (len(mt.Command) == 0 || strings.TrimSpace(mt.Command[0]) == "") {
+			return fmt.Errorf("panel config: metrics.command must be a non-empty argv list")
+		}
+		if mt.Refresh != "" {
+			if len(mt.Command) == 0 {
+				return fmt.Errorf("panel config: metrics.refresh needs a metrics.command to refresh")
+			}
+			if _, err := ParseRefresh(mt.Refresh); err != nil {
+				return fmt.Errorf("panel config: metrics: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -736,7 +826,7 @@ func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
 // RunList describes, one line each, everything the config makes the panel run or
 // type: each card's argv (run on its refresh), each queue's argv (run on RUN), each
 // template's first prompt (typed into a new lane) and each template's suggest argv
-// (run on its refresh). Trusting a config trusts exactly these, so trust and install
+// (run on its refresh) and the metrics command (run on its refresh). Trusting a config trusts exactly these, so trust and install
 // print them.
 func (c *Config) RunList() []string {
 	var out []string
@@ -753,6 +843,9 @@ func (c *Config) RunList() []string {
 		if t.Suggest != nil {
 			out = append(out, fmt.Sprintf("template %s suggests from %q (%s)", t.ID, t.Suggest.Command, t.Suggest.Refresh))
 		}
+	}
+	if cmd := c.MetricsCommand(); len(cmd) > 0 {
+		out = append(out, fmt.Sprintf("metrics runs %q (%s)", cmd, c.MetricsRefresh()))
 	}
 	return out
 }

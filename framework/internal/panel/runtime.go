@@ -180,6 +180,9 @@ type Runtime struct {
 	savedState string
 	gitDir     string
 	lastQ      string
+
+	// mstore is the Metrics view's data (PANEL-19; metrics_source.go).
+	mstore *metricsStore
 }
 
 // newRuntime builds a project's runtime and its table of sources.
@@ -235,6 +238,8 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 			r.sources = append(r.sources, r.suggestSource(t.ID, *t.Suggest))
 		}
 	}
+	r.mstore = newMetricsStore(o, root, cfg, tv.Trusted)
+	r.sources = append(r.sources, r.metricsSources()...)
 	if len(cfg.Queues) > 0 {
 		r.sources = append(r.sources, &source{name: "queues", every: t.Queues, fixedRate: true, poll: r.pollQueues})
 	}
@@ -368,6 +373,9 @@ func kick(ch chan struct{}) {
 
 // refreshAll polls every kickable source now (the page's refresh).
 func (r *Runtime) refreshAll() {
+	if r.mstore != nil {
+		r.mstore.mergedDue.Store(true)
+	}
 	for _, s := range r.sources {
 		if s.kick != nil {
 			kick(s.kick)

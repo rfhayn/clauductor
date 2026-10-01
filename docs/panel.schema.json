@@ -25,7 +25,9 @@
             }
           },
           "host_names": false,
+          "metrics": false,
           "queues": false,
+          "quota_economy": false,
           "quota_guard": false,
           "templates": false
         }
@@ -44,6 +46,12 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
           "cards": {
             "items": {
               "properties": {
@@ -51,6 +59,8 @@
               }
             }
           },
+          "metrics": false,
+          "quota_economy": false,
           "templates": {
             "items": {
               "properties": {
@@ -58,6 +68,30 @@
               }
             }
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 3
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "alerts": {
+            "properties": {
+              "approval_wait_hours": false,
+              "stale_days": false
+            }
+          },
+          "metrics": false,
+          "quota_economy": false
         }
       }
     }
@@ -72,6 +106,12 @@
       "additionalProperties": false,
       "description": "Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off.",
       "properties": {
+        "approval_wait_hours": {
+          "default": 24,
+          "description": "A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*).",
+          "minimum": 0,
+          "type": "number"
+        },
         "context_pct": {
           "default": 85,
           "description": "A context window at or above this percentage raises a context alert.",
@@ -100,6 +140,12 @@
           "default": true,
           "description": "Send macOS notifications for the alerts that interrupt.",
           "type": "boolean"
+        },
+        "stale_days": {
+          "default": 3,
+          "description": "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.",
+          "minimum": 0,
+          "type": "number"
         },
         "waiting_seconds": {
           "default": 120,
@@ -203,6 +249,32 @@
       },
       "type": "object"
     },
+    "metrics": {
+      "additionalProperties": false,
+      "description": "The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line.",
+      "properties": {
+        "card": {
+          "default": true,
+          "description": "Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone.",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "refresh": {
+          "default": "interval:900",
+          "description": "When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`.",
+          "pattern": "^(watch:.+|interval:0*[1-9][0-9]*)$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "name": {
       "description": "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
       "maxLength": 80,
@@ -248,6 +320,19 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "quota_economy": {
+      "additionalProperties": false,
+      "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
+      "properties": {
+        "five_hour_pct": {
+          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
     },
     "quota_guard": {
       "additionalProperties": false,
@@ -346,7 +431,8 @@
       "enum": [
         1,
         2,
-        3
+        3,
+        4
       ],
       "type": "integer"
     },

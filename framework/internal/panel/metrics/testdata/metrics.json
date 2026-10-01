@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "generated_at": 1790000000,
+  "windows": {
+    "7d": {
+      "flow": {
+        "lead_time": { "value": 30.5, "n": 3 },
+        "cycle_time": { "value": 6.2, "series": [4, null, 8, 6, 5, 7, 6], "n": 3 },
+        "merge_frequency": { "value": 3, "series": [0, 7, 0, 7, 0, 7, 0], "n": 3 },
+        "change_fail_rate": { "value": 0, "n": 3 }
+      },
+      "cost": { "total_usd": 41.2, "per_week": { "value": 41.2 } }
+    },
+    "30d": {
+      "flow": {
+        "lead_time": { "value": 44, "series": [50, 40, 46, 38, 42, 44, 45, 41, 43, 44], "n": 12 },
+        "cycle_time": { "value": 7.5, "series": [9, 8, 7, 7, 6, 8, 7, 8, 7, 7], "n": 12 },
+        "approval_wait": { "value": 5.5, "n": 12, "note": "proposal written to Approved line" },
+        "merge_frequency": { "value": 2.8, "series": [2.3, 4.7, 2.3, 0, 2.3, 4.7, 2.3, 2.3, 4.7, 2.3], "n": 12 },
+        "change_fail_rate": { "value": 8.3, "series": [0, 0, 50, 0, 0, 0, 0, 0, 0, 0], "n": 12, "note": "reverts and fix PRs linked to a change" },
+        "aging_wip": [
+          { "id": "add-score-photo", "title": "Photograph a scorecard", "age_days": 4.5, "stage": "build" },
+          { "id": "group-card", "title": "One golfer enters the card", "age_days": 1, "stage": "review" }
+        ]
+      },
+      "cost": {
+        "total_usd": 162.4,
+        "per_week": { "value": 37.9, "series": [30, 35, 41, 38, 40, 36, 39, 37, 42, 38] },
+        "by_role": [ { "name": "builder", "usd": 90.1 }, { "name": "reviewer", "usd": 40.3 }, { "name": "planner", "usd": 32 } ],
+        "by_model": [ { "name": "opus", "usd": 140.4 }, { "name": "sonnet", "usd": 22 } ],
+        "by_change": [ { "name": "add-score-photo", "usd": 61.5, "budget_usd": 50 }, { "name": "group-card", "usd": 20 } ],
+        "by_project": [ { "name": "Fixture", "usd": 162.4 } ]
+      },
+      "quality": {
+        "review_rounds": { "value": 1.5, "n": 12 },
+        "reviewer_recall": [ { "model": "opus", "pct": 92, "n": 40 }, { "model": "sonnet", "pct": 78, "n": 40 } ],
+        "escaped_defects": { "value": 1, "n": 12 }
+      },
+      "outcomes": {
+        "hypotheses": [
+          { "change": "add-score-photo", "hypothesis": "Half of new cards start from a photo", "due": "2026-10-20", "checked": false },
+          { "change": "tee-times", "hypothesis": "Fewer no-shows", "due": "2026-09-01", "checked": true, "result": "12% to 7%" }
+        ]
+      }
+    }
+  }
+}

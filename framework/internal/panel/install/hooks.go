@@ -108,10 +108,45 @@ const settingsRetries = 5
 var beforeSettingsRename func(path string)
 
 func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
+	return rewriteSettings(home, hooksEdit(edit))
+}
+
+func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error) {
+	return rewriteSettingsOnce(home, hooksEdit(edit))
+}
+
+// hooksEdit turns an edit of the "hooks" object into an edit of the whole file.
+func hooksEdit(edit func(*orderedObject) error) func(*orderedObject) error {
+	return func(root *orderedObject) error {
+		hooks := &orderedObject{}
+		if raw, ok := root.get("hooks"); ok {
+			if err := hooks.UnmarshalJSON(raw); err != nil {
+				return fmt.Errorf("\"hooks\" is not an object: %w", err)
+			}
+		}
+		if err := edit(hooks); err != nil {
+			return err
+		}
+		if len(hooks.keys) == 0 {
+			root.del("hooks")
+		} else {
+			hb, _ := hooks.MarshalJSON()
+			root.set("hooks", hb)
+		}
+		return nil
+	}
+}
+
+// rewriteSettings is the one read-merge-write of ~/.claude/settings.json: edit changes
+// the top-level object; every other key keeps its bytes and its order; the file is
+// replaced atomically only if it still is what the edit was computed from (retried
+// on a concurrent change), and backed up once before the panel first changes it. The
+// hooks (rewriteHooks) and remote control (remote.go, PANEL-19) both go through it.
+func rewriteSettings(home string, edit func(*orderedObject) error) (bool, error) {
 	var err error
 	for i := 0; i < settingsRetries; i++ {
 		var changed bool
-		changed, err = rewriteHooksOnce(home, edit)
+		changed, err = rewriteSettingsOnce(home, edit)
 		if !errors.Is(err, errSettingsChanged) {
 			return changed, err
 		}
@@ -120,7 +155,7 @@ func rewriteHooks(home string, edit func(*orderedObject) error) (bool, error) {
 	return false, fmt.Errorf("%w %d times in a row; not touching it", err, settingsRetries)
 }
 
-func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error) {
+func rewriteSettingsOnce(home string, edit func(*orderedObject) error) (bool, error) {
 	path := SettingsPath(home)
 	// Edit the file a symlinked settings.json points at (dotfile managers do this);
 	// renaming over the link would silently replace it with a regular file.
@@ -148,20 +183,8 @@ func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error
 			return false, fmt.Errorf("%s is not a JSON object: %w", path, err)
 		}
 	}
-	hooks := &orderedObject{}
-	if raw, ok := root.get("hooks"); ok {
-		if err := hooks.UnmarshalJSON(raw); err != nil {
-			return false, fmt.Errorf("%s: \"hooks\" is not an object: %w", path, err)
-		}
-	}
-	if err := edit(hooks); err != nil {
+	if err := edit(root); err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
-	}
-	if len(hooks.keys) == 0 {
-		root.del("hooks")
-	} else {
-		hb, _ := hooks.MarshalJSON()
-		root.set("hooks", hb)
 	}
 	compact, _ := root.MarshalJSON()
 	var out bytes.Buffer
@@ -172,7 +195,7 @@ func rewriteHooksOnce(home string, edit func(*orderedObject) error) (bool, error
 	if orig != nil && jsonEqual(orig, out.Bytes()) {
 		return false, nil
 	}
-	if orig == nil && len(hooks.keys) == 0 {
+	if orig == nil && len(root.keys) == 0 {
 		return false, nil // nothing to remove from a file that does not exist
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

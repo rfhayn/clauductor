@@ -196,7 +196,19 @@ func ListProjects(w io.Writer, home string) error {
 		fmt.Fprintf(w, "%s %-16s %s\n    root %s\n    socket %s · %s · %d lane(s)\n", mark, e.ID, name, e.Root, e.Socket(cfg), trust, laneCount(home, e.Root))
 	}
 	fmt.Fprintln(w, "* the default: legacy routes and a page with no ?p= open on it.")
+	fmt.Fprintln(w, "Remote control: "+remoteLine(home))
 	return nil
+}
+
+// remoteLine says where Remote Control is on (PANEL-19).
+func remoteLine(home string) string {
+	switch RemoteControlSummary(home) {
+	case RemoteAll:
+		return "all (every Claude session: remoteControlAtStartup is true in " + SettingsPath(home) + ")"
+	case RemoteLanes:
+		return "lanes (the panel's lanes start with claude --remote-control)"
+	}
+	return "off"
 }
 
 // RestartHint is how to make a running login agent read projects.json again.
