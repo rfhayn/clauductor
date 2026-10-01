@@ -196,6 +196,11 @@ var shellPatches = map[string][]struct{ old, new string }{
 	"statusline.sh": {
 		{`|| git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)`, `|| git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)`},
 	},
+	// The plugin's workflow spawns its agents namespaced (jsAgent above), so the reviewer contract
+	// the plugin's copy holds it to is the namespaced name, exactly: never a bare or other agent.
+	"checks/build-change.sh": {
+		{`sent.opts.agentType === 'reviewer'`, `sent.opts.agentType === '` + Name + `:reviewer'`},
+	},
 }
 
 // rootRef is ${CLAUDE_PLUGIN_ROOT} as a regexp replacement (where $ starts a group reference).
