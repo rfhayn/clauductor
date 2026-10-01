@@ -52,9 +52,44 @@ with no Enter, so you finish the prompt around it. PNG, JPEG, GIF and WebP, up t
   (or its pull request merged). The confirmation lists what goes and what stays before anything
   happens. See [Close lane](panel.md#close-lane).
 
+To have the panel close a lane by itself once its pull request merges, set
+`"lanes_auto_close": "on_merge"` in `.clauductor/panel.json` (config version 5). It closes only
+what Close lane would close without asking twice (claude idle or gone, the worktree clean, the
+branch merged at its tip); otherwise **Needs you** says "PR merged: close lane?" and why. See
+[Close a lane when its PR merges](panel.md#close-a-lane-when-its-pr-merges).
+
 These buttons sit under the selected lane's terminal. To act on a lane without opening it, use
 the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
 and each one still asks in the page before anything happens.
+
+## Carry on after the usage limit
+
+When a lane stops at the usage limit, the panel can continue it for you once the 5-hour window
+resets: set `"quota_auto_resume": true` (and, if you like, `"quota_resume_line": "continue"`). It
+types the line once per stop, only while claude is idle and not asking you anything, and notes
+it in the lane's **Activity**. See [Resume after the 5-hour reset](panel.md#resume-after-the-5-hour-reset).
+
+## Is it ready to merge?
+
+Select the lane, then **Checks** in its side panel. One line says **Ready to merge**, or **Not
+ready** with every reason: no open pull request, a failing or pending check, a review required,
+an unresolved review thread, an unticked task in the change's `tasks.md`, or no gate receipt for
+the branch's latest commit. The lines under it show each check. The panel only reports; merge as
+you always do. See [Merge readiness](panel.md#merge-readiness).
+
+## Prepare each new worktree
+
+A new lane's worktree is a fresh checkout. Three settings fill it in (config version 5):
+
+- A `.worktreeinclude` file in the project root lists gitignored files to copy into every new
+  worktree, such as `.env`, in `.gitignore` syntax.
+- `"worktree_setup": { "command": ["make", "setup"] }` runs there before claude starts, and
+  `"worktree_teardown": { "command": ["make", "down"] }` before **Close lane** removes it.
+- `"ports": { "base": 4400, "per_lane": 10 }` gives each lane a port of its own, shown as
+  **Port** in its header and set as `CLAUDUCTOR_PORT` for the lane, its setup and its teardown.
+
+Run `clauductor panel trust` after adding them. See
+[Worktree setup, teardown and ports](panel.md#worktree-setup-teardown-and-ports).
 
 ## Clean up a worktree with no lane
 

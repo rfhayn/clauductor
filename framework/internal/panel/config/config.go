@@ -79,6 +79,22 @@ type Config struct {
 	// build-change to read, and shows an economy badge by the quota.
 	QuotaEconomy *QuotaEconomyConfig `json:"quota_economy"`
 
+	// The lane lifecycle: version 5 (PANEL-20).
+
+	// LanesAutoClose is "on_merge" to close a lane once its pull request merges (when
+	// Close would lose nothing), "off" (the default); lane_types.<t>.auto_close overrides.
+	LanesAutoClose string `json:"lanes_auto_close"`
+	// QuotaAutoResume types QuotaResumeLine into a lane stopped by the usage limit, once,
+	// after the 5-hour window resets.
+	QuotaAutoResume bool   `json:"quota_auto_resume"`
+	QuotaResumeLine string `json:"quota_resume_line"`
+	// WorktreeSetup runs in a new lane's new worktree before claude starts;
+	// WorktreeTeardown before Close removes one. Both are trusted-config commands.
+	WorktreeSetup    *HookCommand `json:"worktree_setup"`
+	WorktreeTeardown *HookCommand `json:"worktree_teardown"`
+	// Ports gives each lane a stable port of its own, exported as CLAUDUCTOR_PORT.
+	Ports *PortsConfig `json:"ports"`
+
 	// Notices are what loading the file has to say once (no version declared). The
 	// panel prints them at start.
 	Notices []string `json:"-"`
@@ -88,6 +104,60 @@ type Config struct {
 type LaneTypeConfig struct {
 	Model  string `json:"model"`
 	Effort string `json:"effort"`
+	// AutoClose overrides lanes_auto_close for this lane type (version 5).
+	AutoClose string `json:"auto_close"`
+}
+
+// HookCommand is a worktree setup or teardown command (version 5).
+type HookCommand struct {
+	Command []string `json:"command"`
+}
+
+// PortsConfig allocates each lane a port: Base, Base+PerLane, Base+2×PerLane, …
+type PortsConfig struct {
+	Base    int `json:"base"`
+	PerLane int `json:"per_lane"`
+}
+
+// Auto-close modes.
+const (
+	AutoCloseOff     = "off"
+	AutoCloseOnMerge = "on_merge"
+)
+
+// DefaultResumeLine is what quota_auto_resume types when quota_resume_line is empty.
+const DefaultResumeLine = "continue"
+
+// AutoCloseOf is the auto-close mode of a lane type.
+func (c *Config) AutoCloseOf(laneType string) string {
+	if lt, ok := c.LaneTypes[laneType]; ok && lt.AutoClose != "" {
+		return lt.AutoClose
+	}
+	if c.LanesAutoClose != "" {
+		return c.LanesAutoClose
+	}
+	return AutoCloseOff
+}
+
+// AnyAutoClose reports whether any lane type closes on merge.
+func (c *Config) AnyAutoClose() bool {
+	if c.LanesAutoClose == AutoCloseOnMerge {
+		return true
+	}
+	for _, lt := range c.LaneTypes {
+		if lt.AutoClose == AutoCloseOnMerge {
+			return true
+		}
+	}
+	return false
+}
+
+// ResumeLine is the line quota_auto_resume types.
+func (c *Config) ResumeLine() string {
+	if c.QuotaResumeLine == "" {
+		return DefaultResumeLine
+	}
+	return c.QuotaResumeLine
 }
 
 // Defaults for the lane keys.
@@ -652,6 +722,33 @@ func (c *Config) validateV2() error {
 	if g := c.QuotaGuard; g != nil && g.FiveHourPct != nil && (*g.FiveHourPct < 0 || *g.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_guard.five_hour_pct must be 0 (off) to 100")
 	}
+	autoOK := func(v string) bool { return v == "" || v == AutoCloseOff || v == AutoCloseOnMerge }
+	if !autoOK(c.LanesAutoClose) {
+		return fmt.Errorf("panel config: lanes_auto_close must be \"off\" or \"on_merge\"")
+	}
+	for name, lt := range c.LaneTypes {
+		if !autoOK(lt.AutoClose) {
+			return fmt.Errorf("panel config: lane_types.%s.auto_close must be \"off\" or \"on_merge\"", name)
+		}
+	}
+	if c.QuotaResumeLine != "" {
+		if err := TypableText(c.QuotaResumeLine, 200); err != nil {
+			return fmt.Errorf("panel config: quota_resume_line %w", err)
+		}
+	}
+	for key, h := range map[string]*HookCommand{"worktree_setup": c.WorktreeSetup, "worktree_teardown": c.WorktreeTeardown} {
+		if h != nil && (len(h.Command) == 0 || strings.TrimSpace(h.Command[0]) == "") {
+			return fmt.Errorf("panel config: %s.command must be a non-empty argv list", key)
+		}
+	}
+	if p := c.Ports; p != nil {
+		if p.Base < 1024 || p.Base > 65000 {
+			return fmt.Errorf("panel config: ports.base must be 1024 to 65000")
+		}
+		if p.PerLane < 1 || p.PerLane > 100 {
+			return fmt.Errorf("panel config: ports.per_lane must be 1 to 100")
+		}
+	}
 	if e := c.QuotaEconomy; e != nil && e.FiveHourPct != nil && (*e.FiveHourPct < 0 || *e.FiveHourPct > 100) {
 		return fmt.Errorf("panel config: quota_economy.five_hour_pct must be 0 (off) to 100")
 	}
@@ -846,6 +943,15 @@ func (c *Config) RunList() []string {
 	}
 	if cmd := c.MetricsCommand(); len(cmd) > 0 {
 		out = append(out, fmt.Sprintf("metrics runs %q (%s)", cmd, c.MetricsRefresh()))
+	}
+	if h := c.WorktreeSetup; h != nil {
+		out = append(out, fmt.Sprintf("worktree_setup runs %q in each new lane's new worktree", h.Command))
+	}
+	if h := c.WorktreeTeardown; h != nil {
+		out = append(out, fmt.Sprintf("worktree_teardown runs %q before Close lane removes a worktree", h.Command))
+	}
+	if c.QuotaAutoResume {
+		out = append(out, fmt.Sprintf("quota_auto_resume types %q into a lane stopped by the usage limit, after the 5-hour reset", c.ResumeLine()))
 	}
 	return out
 }

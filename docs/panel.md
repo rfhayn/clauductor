@@ -28,6 +28,7 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | project cards | per card: on a file change or an interval | anything the project prints |
 | the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
 | `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
+| `gh api graphql` (review threads) | per lane with an open pull request, at most every 2 min, only while a page is in view | a lane's unresolved review threads (merge readiness, PANEL-20) |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -224,11 +225,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
 | 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
+| 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–4 (0 included) is refused.
+- A `version` outside 1–5 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -286,7 +288,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1, 2, 3 or 4 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 5 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -301,6 +303,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
+| `lane_types.<key>.auto_close` | string: "off" or "on_merge" |  | 5 | Overrides `lanes_auto_close` for this lane type. |
 | `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
@@ -331,6 +334,16 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
 | `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
+| `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
+| `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
+| `worktree_setup` | object |  | 5 | A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*). |
+| `worktree_setup.command` | array of strings, **required** |  | 5 | argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout. |
+| `worktree_teardown` | object |  | 5 | A command run in a lane's worktree before **Close lane** removes it. |
+| `worktree_teardown.command` | array of strings, **required** |  | 5 | argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays. |
+| `ports` | object |  | 5 | Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header. |
+| `ports.base` | integer, **required** |  | 5 | The first lane's port, 1024 to 65000. |
+| `ports.per_lane` | integer, **required** |  | 5 | The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one). |
 | `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
 | `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
 | `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
@@ -518,6 +531,7 @@ value just changed.
   - **Git**: branch, HEAD, path, upstream with ahead and behind, changed and untracked files, the
     diff stat against HEAD, the last commit's age, and the template's first-prompt state; then the
     branch's pull request, its checks and review decision.
+  - **Checks** (PANEL-20): the lane's merge readiness, see *Merge readiness*.
   - **Gate**: for each queue, whether this lane holds it, waits in it and where, or is not in it;
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
@@ -745,6 +759,52 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
 to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
 exits and the lane shows a dead pane; STOP it and start it again.
 
+### Merge readiness
+
+PANEL-20. A lane's **Checks** tab says in one line whether its branch is ready to merge, and
+every reason it is not ("Not ready: 1 check(s) failed; 1 unresolved review thread(s); no gate
+receipt for HEAD"), then a line per check. It is read-only: the panel never merges.
+
+| Check | From | Not ready when |
+|---|---|---|
+| Pull request | `gh pr list` (already polled) | none is open for the branch, or it is a draft |
+| Checks | its status checks | one failed or is pending |
+| Review | its review decision | changes requested, or a review required |
+| Review threads | `gh api graphql` (`reviewThreads`, the first 100), at most every 2 min per pull request | one is unresolved |
+| Tasks | the change's `tasks.md` in the lane's own worktree (the branch's last segment names the change) | a `- [ ]` box is unticked |
+| Gate receipt | `<the worktree's git dir>/ci-receipt` (OPS-7's `run-local.sh`: `<sha> TAB full TAB clean\|dirty TAB all`) | it is for another commit than HEAD, or for a dirty tree; with none, only when the project keeps receipts (it has `scripts/ci/run-local.sh` or a queue) |
+
+A check the panel cannot make yet (nothing read, or gh failed) is shown as such, in the dim tier,
+and counts as not ready. The reads run with the dashboard's, only while a page is in view. A lane
+on the project root or the base branch has nothing to merge, and says so.
+
+### Worktree setup, teardown and ports
+
+PANEL-20 (config version 5). A worktree is a fresh checkout, so a new lane may need its
+gitignored files, its dependencies and a port of its own before claude starts in it.
+
+- **`.worktreeinclude`** in the project root, as Claude Code reads it: `.gitignore` syntax, and a
+  file is copied from the project root into a lane's **new** worktree only when it matches a
+  pattern **and** is ignored, so a tracked file is never copied. git applies both sets of
+  patterns (two `git ls-files --others --ignored` lists, one with `--exclude-standard`, one
+  with `--exclude-from=.worktreeinclude`; the copy is what both list). Only regular files are
+  copied (never a symlink), nothing already in the worktree is overwritten, and at most 2,000
+  files or 200 MB; the start says how many it copied.
+- **`worktree_setup.command`** runs in the new worktree after that and before claude starts;
+  **`worktree_teardown.command`** runs in a lane's worktree when **Close lane** is about to
+  remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
+  (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
+  and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
+  A failed teardown, or one that leaves the worktree changed (the clean check runs again after
+  it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
+  A lane on an existing worktree or the project root runs neither. The lane lock is held
+  while they run, so a slow setup delays the other lanes' actions.
+- **`ports: {base, per_lane}`** gives each lane a port of its own: `base`, `base + per_lane`,
+  and so on, the lowest one no other registered lane holds. It is kept in the lane's registry
+  record (so a restart or a restore keeps it, and Forget frees it), exported to the lane's tmux
+  session as `CLAUDUCTOR_PORT`, and shown as **Port** in the lane's header. The panel does not
+  check that nothing else listens there.
+
 ### Lane templates
 
 **New lane** offers the config's `templates`. Pick one, give the lane a name (and an issue if the
@@ -895,6 +955,27 @@ In order:
 
 The conversation is never removed: `claude --resume <session id>` still opens it.
 
+### Close a lane when its PR merges
+
+PANEL-20, opt-in: `"lanes_auto_close": "on_merge"` (config version 5), or per lane type
+`lane_types.<type>.auto_close`. The panel then closes a registered lane on a branch of its own
+once the branch's pull request merges, **exactly as Close lane would**: it asks Close for its
+plan (with the fetch the page's confirmation does), and acts only when that plan removes both
+the worktree (clean: no change, no untracked file) and the branch (merged: every commit in the
+base, or a merged pull request whose head is the branch's tip), and claude is idle, exited or
+gone (a current `claude agents` reading; an approximate one does not count). Nothing is forced.
+The close goes in the lane's **Activity** ("Lane closed: PR #12 merged; …").
+
+Otherwise the lane stays and **Needs you** asks **PR merged: close lane?**, with why (claude is
+working; the worktree has 2 uncommitted files; the branch has commits since the merge): **Close
+lane** in its **⋯** menu shows the plan and asks first. While it asks, the panel looks again
+every 5 minutes and closes it once nothing holds it back. Each close and each ask raises one OS
+notification (once per lane and pull request for the panel's run, when `alerts.notify` is on).
+
+When it looks: when the panel first sees the lane, when the branch's pull request leaves the
+open list the panel already polls, and while the lane asks; each look is one `gh pr list --head
+<branch> --state merged`. The mode is the config's, so an untrusted config closes nothing.
+
 ### Remove a worktree
 
 A worktree with no lane, such as a clean detached worktree a closed session left behind, has
@@ -949,6 +1030,28 @@ layer, the lane command unsets both variables.
 At or above `quota_guard.five_hour_pct`, **New lane** and **Restore all** refuse, and the dialog
 offers an override checkbox. An expired window (past its `resets_at`) or an unknown one never
 blocks: the guard acts only on a number it has.
+
+### Resume after the 5-hour reset
+
+PANEL-20, opt-in: `"quota_auto_resume": true` (config version 5). A lane the usage limit
+stopped (a `StopFailure` with `error_type: rate_limit`, or Claude Code's
+`quota_auto_resume_stale` / `_disabled` notification: it will not continue by itself) is typed
+`quota_resume_line` (default `continue`) and Enter, **once**, after the 5-hour window that stopped
+it resets:
+
+- the reset is the 5-hour window's `resets_at` as the status line reported it when the lane
+  stopped (a later window's reset is never taken for it), plus 30 seconds;
+- only into a lane the panel started, running, whose claude `claude agents` reports **idle** by a
+  current reading, and that waits on nothing: never into a permission prompt, a question or a
+  dialog. The same is checked again right before the Enter; if it changed, the typed text is
+  cleared (Ctrl-U) and nothing is sent;
+- one attempt per stop, kept until the lane's next prompt clears the stop; the attempt, typed
+  or not and why, goes in the lane's **Activity** ("Auto-resume: typed "continue" after the
+  5-hour window reset at 14:00").
+
+The line is config (one line of plain text, at most 200 characters), so it is typed only while
+the config is trusted; `trust` prints it. A lane that is not idle at the reset (it waits on a
+permission, say) is left alone: the **Needs you** row that already shows it stays.
 
 ### Restore after a reboot
 

@@ -25,11 +25,24 @@
             }
           },
           "host_names": false,
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
           "metrics": false,
+          "ports": false,
           "queues": false,
+          "quota_auto_resume": false,
           "quota_economy": false,
           "quota_guard": false,
-          "templates": false
+          "quota_resume_line": false,
+          "templates": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
         }
       }
     },
@@ -59,15 +72,28 @@
               }
             }
           },
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
           "metrics": false,
+          "ports": false,
+          "quota_auto_resume": false,
           "quota_economy": false,
+          "quota_resume_line": false,
           "templates": {
             "items": {
               "properties": {
                 "suggest": false
               }
             }
-          }
+          },
+          "worktree_setup": false,
+          "worktree_teardown": false
         }
       }
     },
@@ -90,8 +116,50 @@
               "stale_days": false
             }
           },
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
           "metrics": false,
-          "quota_economy": false
+          "ports": false,
+          "quota_auto_resume": false,
+          "quota_economy": false,
+          "quota_resume_line": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 4
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "auto_close": false
+              }
+            }
+          },
+          "lanes_auto_close": false,
+          "ports": false,
+          "quota_auto_resume": false,
+          "quota_resume_line": false,
+          "worktree_setup": false,
+          "worktree_teardown": false
         }
       }
     }
@@ -216,6 +284,14 @@
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "auto_close": {
+            "description": "Overrides `lanes_auto_close` for this lane type.",
+            "enum": [
+              "off",
+              "on_merge"
+            ],
+            "type": "string"
+          },
           "effort": {
             "description": "One argv element: `--effort <value>`.",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
@@ -249,6 +325,15 @@
       },
       "type": "object"
     },
+    "lanes_auto_close": {
+      "default": "off",
+      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+      "enum": [
+        "off",
+        "on_merge"
+      ],
+      "type": "string"
+    },
     "metrics": {
       "additionalProperties": false,
       "description": "The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line.",
@@ -281,6 +366,29 @@
       "minLength": 1,
       "pattern": "^ *[^ \\t\\n\\f\\r\\v-]",
       "type": "string"
+    },
+    "ports": {
+      "additionalProperties": false,
+      "description": "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header.",
+      "properties": {
+        "base": {
+          "description": "The first lane's port, 1024 to 65000.",
+          "maximum": 65000,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        "per_lane": {
+          "description": "The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one).",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "base",
+        "per_lane"
+      ],
+      "type": "object"
     },
     "queues": {
       "description": "Shared resources held as a lease on disk (see *Queue and the gate lock protocol*).",
@@ -321,6 +429,11 @@
       },
       "type": "array"
     },
+    "quota_auto_resume": {
+      "default": false,
+      "description": "Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*).",
+      "type": "boolean"
+    },
     "quota_economy": {
       "additionalProperties": false,
       "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
@@ -347,6 +460,12 @@
         }
       },
       "type": "object"
+    },
+    "quota_resume_line": {
+      "default": "continue",
+      "description": "The line `quota_auto_resume` types. One line of plain text, at most 200 characters.",
+      "maxLength": 200,
+      "type": "string"
     },
     "templates": {
       "description": "Lane recipes offered by **New lane** (see *Lane templates*).",
@@ -432,7 +551,8 @@
         1,
         2,
         3,
-        4
+        4,
+        5
       ],
       "type": "integer"
     },
@@ -440,6 +560,42 @@
       "default": ".claude/worktrees",
       "description": "Where a new lane's worktree is created: relative to the project root and inside it, or absolute.",
       "type": "string"
+    },
+    "worktree_setup": {
+      "additionalProperties": false,
+      "description": "A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*).",
+      "properties": {
+        "command": {
+          "description": "argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "worktree_teardown": {
+      "additionalProperties": false,
+      "description": "A command run in a lane's worktree before **Close lane** removes it.",
+      "properties": {
+        "command": {
+          "description": "argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
     }
   },
   "required": [

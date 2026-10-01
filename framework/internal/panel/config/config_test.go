@@ -130,7 +130,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":5`,
+		"future version":        `,"version":6`,
 		"metrics refresh alone": `,"metrics":{"refresh":"interval:60"}`,
 		"metrics empty command": `,"metrics":{"command":[]}`,
 		"metrics bad refresh":   `,"metrics":{"command":["true"],"refresh":"interval:0"}`,

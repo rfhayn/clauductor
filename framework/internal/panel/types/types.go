@@ -97,4 +97,7 @@ type LaneRecord struct {
 	PromptState string `json:"promptState,omitempty"`
 	PromptAt    int64  `json:"promptAt,omitempty"` // unix ms the prompt was typed
 	Restored    int64  `json:"restored,omitempty"` // unix ms of the last restore
+	// Port is the lane's own port (PANEL-20, ports in panel.json), exported to it as
+	// CLAUDUCTOR_PORT; 0 without one.
+	Port int `json:"port,omitempty"`
 }

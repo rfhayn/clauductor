@@ -298,6 +298,9 @@ func Run(ctx context.Context, o Options) error {
 		wts := p.wts
 		hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 		r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
+		if lm != nil {
+			lm.Trusted = r.trusted // PANEL-20: worktree_setup and worktree_teardown are the config's commands
+		}
 		runtimes = append(runtimes, r)
 		if p.entry.ID == primary || (primary == "" && p.entry.ID == reg.Default) {
 			def = r

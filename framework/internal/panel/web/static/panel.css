@@ -451,6 +451,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .flowcard .fv { font-feature-settings: var(--num); font-variant-numeric: tabular-nums lining-nums slashed-zero; white-space: nowrap; text-align: right; }
 .flowcard .spark { color: var(--text-2); }
 
+/* Merge readiness (PANEL-20): the verdict, then a line per check; words, never marks. */
+.ckverdict { font-weight: 700; overflow-wrap: anywhere; }
+.ckverdict.ok { color: var(--text-1); }
+.ckfoot { font-size: .75rem; }
+
 /* ---- The Start dialog ---------------------------------------------------------------------- */
 .modal { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: 30; padding: 1rem; }
 .modal[hidden] { display: none; }

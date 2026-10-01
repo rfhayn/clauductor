@@ -134,6 +134,9 @@ type LaneManager struct {
 	// RemoteControl reports whether lanes start with `claude --remote-control`, read
 	// at each start (PANEL-19: the machine's choice at `panel install`). Nil is no.
 	RemoteControl func() bool
+	// Trusted reports whether panel.json's commands may run (PANEL-20: worktree_setup
+	// and worktree_teardown). Nil is trusted (tests).
+	Trusted func() bool
 
 	mu sync.Mutex // serialises lane actions
 }
@@ -461,6 +464,9 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	}
 	// A gate script run inside the lane names its lane in the queue (lock-run).
 	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
+	if port := m.LanePort(id); port > 0 {
+		args = append(args, "-e", "CLAUDUCTOR_PORT="+strconv.Itoa(port)) // PANEL-20
+	}
 	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
@@ -610,7 +616,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	// The intent is on disk before anything is created, so a crash from here on
 	// leaves a record the next start shows as an orphan.
 	rec, err := m.Registry.Begin(req.withTemplate(types.LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
-		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli()}), "start", m.now())
+		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli(), Port: m.allocatePort(id)}), "start", m.now())
 	if err != nil {
 		return res, laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
@@ -633,6 +639,20 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		}
 		res.Path = signals.ResolvePath(res.Path)
 		rec.Path = res.Path
+		// PANEL-20: the new worktree's gitignored files, then its setup, before claude.
+		if n, note := m.copyWorktreeInclude(ctx, res.Path); note != "" || n > 0 {
+			if n > 0 {
+				res.Notes = append(res.Notes, fmt.Sprintf(".worktreeinclude: copied %d file(s) from the project root", n))
+			}
+			if note != "" {
+				res.Notes = append(res.Notes, note)
+			}
+		}
+		if ran, err := m.runHook(ctx, "worktree_setup", m.Cfg.WorktreeSetup, res.Path, id); err != nil {
+			res.Notes = append(res.Notes, err.Error()+"; the lane starts anyway")
+		} else if ran {
+			res.Notes = append(res.Notes, "worktree_setup ran")
+		}
 	}
 	if err := m.newSession(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)); err != nil {
 		return fail(laneErr(500, "tmux", "starting the lane failed: %v", err))
