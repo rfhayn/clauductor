@@ -1,0 +1,34 @@
+# Dependency updates, each held back until the release is a week old (`cooldown`): a hijacked
+# package is usually caught and pulled within days of publication, so a minimum release age keeps
+# a compromised version out of the PR queue. .claude/checks/supply-chain.sh fails an entry without
+# one. Uncomment the ecosystems this project uses; Dependabot errors on one with no manifest.
+# (Renovate instead: `renovate.json` with "minimumReleaseAge": "7 days"; the check accepts either.)
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+  # - package-ecosystem: "npm"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   cooldown:
+  #     default-days: 7
+  #   groups:
+  #     minor-and-patch:
+  #       update-types: ["minor", "patch"]
+  - package-ecosystem: "gomod"
+    directory: "/framework"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   cooldown:
+  #     default-days: 7

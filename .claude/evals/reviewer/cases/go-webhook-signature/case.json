@@ -1,0 +1,63 @@
+{
+  "id": "go-webhook-signature",
+  "lang": "go",
+  "kind": "defect",
+  "charter": "silent control failure",
+  "title": "Payment webhooks",
+  "brief": "Receive the payment provider's webhooks. Each is signed: X-Signature is the hex HMAC-SHA256 of the body under our shared secret. Apply a webhook only if its signature is valid; reject an unsigned or mis-signed one with 401.",
+  "tasks": [
+    "Add webhook.Handler verifying X-Signature before applying",
+    "Test a signed webhook and a mis-signed one"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "webhook/handler.go",
+      "lines": [
+        29,
+        31
+      ],
+      "keywords": [
+        "mismatch",
+        "reject",
+        "401",
+        "still appl",
+        "proceeds",
+        "forg"
+      ],
+      "why": "A signature mismatch is only logged; the handler falls through and applies the body, so anyone can post a forged payment event."
+    },
+    {
+      "id": "D2",
+      "severity": "high",
+      "file": "webhook/handler.go",
+      "lines": [
+        25,
+        25
+      ],
+      "keywords": [
+        "secret"
+      ],
+      "why": "The shared signing secret is written to the log on every request, so anyone who can read logs can forge webhooks."
+    },
+    {
+      "id": "D3",
+      "severity": "high",
+      "file": "webhook/handler_test.go",
+      "lines": [
+        13,
+        25
+      ],
+      "keywords": [
+        "mis-signed",
+        "invalid",
+        "401",
+        "reject",
+        "missing test",
+        "only the"
+      ],
+      "why": "The task names a mis-signed webhook test; only the signed path is tested, which is why D1 passes."
+    }
+  ]
+}

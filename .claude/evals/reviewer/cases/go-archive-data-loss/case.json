@@ -1,0 +1,46 @@
+{
+  "id": "go-archive-data-loss",
+  "lang": "go",
+  "kind": "defect",
+  "charter": "data loss",
+  "title": "Nightly event archiving",
+  "brief": "Events older than 90 days move from events to events_archive every night, so the hot table stays small. Nothing may be lost: the archive is the audit record. Add jobs.ArchiveBefore(ctx, db, cutoff); the scheduler wiring is a later group.",
+  "tasks": [
+    "Add jobs.ArchiveBefore moving old events into events_archive"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "jobs/archive.go",
+      "lines": [
+        11,
+        15
+      ],
+      "keywords": [
+        "before",
+        "order",
+        "lost",
+        "transaction",
+        "already deleted"
+      ],
+      "why": "It deletes the old events BEFORE copying them, so the INSERT ... SELECT finds nothing: every run empties the rows it should archive and archives none."
+    },
+    {
+      "id": "D2",
+      "severity": "high",
+      "file": "jobs/archive.go",
+      "lines": [
+        16,
+        18
+      ],
+      "keywords": [
+        "swallow",
+        "return nil",
+        "ignored",
+        "discard"
+      ],
+      "why": "A failed copy is logged and ArchiveBefore returns nil, so the caller reports success on a run that lost data."
+    }
+  ]
+}

@@ -12,3 +12,7 @@ Thumbs.db
 .idea/
 .vscode/
 framework/clauductor
+
+# Clauductor runtime state
+.claude/worktrees/
+.claude/settings.local.json

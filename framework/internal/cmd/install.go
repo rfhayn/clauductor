@@ -345,18 +345,30 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// stdin is ONE reader for every prompt: a fresh bufio.Reader per prompt buffers past the first
+// line, so piped answers ("y\ny\n") after the first were silently swallowed.
+var stdin = bufio.NewReader(os.Stdin)
+
 func confirm(prompt string) bool {
 	fmt.Printf("%s [y/N] ", prompt)
-	reader := bufio.NewReader(os.Stdin)
-	answer, _ := reader.ReadString('\n')
+	answer, _ := stdin.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	return answer == "y" || answer == "yes"
 }
 
-func readChoice() string {
-	reader := bufio.NewReader(os.Stdin)
-	answer, _ := reader.ReadString('\n')
-	return strings.TrimSpace(strings.ToLower(answer))
+// readChoice reads one answer from stdin. At end of input it returns "c" (cancel), never "":
+// update re-prompts on an empty answer, so a closed stdin (a script, CI, an agent) looped forever
+// printing the prompt (OPS-8 rehearsal: 690 MB of "[y/d/s/c] >" in two minutes).
+func readChoice() string { return readChoiceFrom(stdin) }
+
+func readChoiceFrom(r *bufio.Reader) string {
+	answer, err := r.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "" && err != nil {
+		fmt.Println("\n  (no more input: cancelling the remaining reviews)")
+		return "c"
+	}
+	return answer
 }
 
 // mergeConfigFile merges a config file (CLAUDE.md, .gitignore) into the project's copy.

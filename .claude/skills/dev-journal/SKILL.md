@@ -1,60 +1,40 @@
 ---
 name: dev-journal
-description: Write or update the narrative session entry in docs/development-journal.md. Captures decisions, learning, and AI tooling observations. MANDATORY before every commit. TRIGGER when the user says "update the journal", "write a journal entry", "log the session", or when preparing to commit (should auto-check if journal is current).
+model: opus
+effort: medium
+description: "Write or update this session's narrative entry in the development journal (JOURNAL in .claude/project.conf). Explains WHY: decisions, surprises, what is next. session-close runs it; otherwise it runs only when asked. TRIGGER when the user says 'journal this', 'update the journal', or 'write the session entry'."
 ---
 
-# Development Journal Entry
+# Development journal entry
 
-Write or update the session narrative in `docs/development-journal.md`.
+Write or update the current session's narrative in the journal (`JOURNAL` in
+`.claude/project.conf`, default `docs/development-journal.md`): newest session first, one entry
+per session.
 
-## Current Context
+## Context: the state, computed
+!`sh .claude/skills/dev-journal/context.sh`
 
-- Branch: !`git branch --show-current`
-- Recent commits: !`git log --oneline -5`
-- Changes this session: !`git diff --stat`
+If the line above shows as literal text instead of output, this harness does not pre-execute it:
+run `sh .claude/skills/dev-journal/context.sh` yourself and read the result before step 1.
 
-## Journal Entry Format
+## Steps
+1. **Take N from `origin/main`, not from this branch** (the context block prints it). A branch cut
+   before someone else's session merged reads a stale top number; `pr-merge-guard` blocks the
+   duplicate at merge, but it is cheaper not to write it. If this session already wrote an entry,
+   update it instead.
+2. Write the entry at the top, `<author>` being the first word of `git config user.name`:
 
-Entries are reverse chronological (newest at top). Each session gets one entry.
+   ```
+   ## Session N — YYYY-MM-DD — <author> — <short focus>
 
-### Template
-
-```markdown
-### Session [N] — [Date] — [Milestone]
-
-**What happened**: [1-3 sentences summarizing the session's work]
-
-**Key decisions**:
-- [Decision 1 and rationale]
-- [Decision 2 and rationale]
-
-**Learning**:
-- [Non-obvious thing discovered]
-- [Pattern or approach that worked well/poorly]
-
-**AI tooling observations**: [How Claude Code helped or hindered — what worked, what didn't]
-
-**What's next**: [What the next session should pick up]
-
-**Retro** (include when completing a milestone):
-- Estimate vs actual: [Xh estimated, Yh actual]
-- What surprised you: [unexpected complexity, discovery, or outcome]
-- Process improvement: [what would help next time]
-```
+   **What happened.** 1–3 sentences, then bullets naming PRs by number.
+   **Key decisions.** Bullets with the reason; whose decision it was if it was the owner's.
+   **Learning.** Non-obvious things found (each also logged with /log-insight).
+   **What's next.** Where the next session picks up, naming the change or row that owns it.
+   ```
 
 ## Rules
-
-1. **Read the existing journal first** — check the latest session number and continue the sequence
-2. **Be narrative, not mechanical** — explain WHY decisions were made, not just what was done
-3. **Capture learning** — the journal's value is in recording insights that prevent future mistakes
-4. **Include AI observations** — how was Claude Code used? What prompts worked well? What was frustrating?
-5. **Write DURING the session** — do not defer to end. Sessions can be interrupted or run out of context.
-6. **Every commit should have a current journal** — treat this as a hard requirement
-
-## Verification
-
-- [ ] Session number is sequential (check previous entry)
-- [ ] Date is correct
-- [ ] Milestone reference uses PREFIX-#.# format
-- [ ] Entry captures at least one decision with rationale
-- [ ] Entry captures at least one learning item
+- Narrative, not a changelog: explain WHY. The PR list is in git; the reasons are not.
+- Reference ADRs and insights rows rather than duplicating them.
+- "What's next" names owners, not hopes (AGENTS.md rule 1): a change, a roadmap row, an issue.
+- Never renumber another person's entry. On a collision at merge, yours takes the next number.

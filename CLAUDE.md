@@ -1,68 +1,73 @@
-# CLAUDE.md — Clauductor Framework Development
+# CLAUDE.md — Clauductor framework repo
 
-This is the **framework repo** for Clauductor, a multi-worker orchestration framework for Claude Code.
+This repo builds Clauductor (an operating model for Claude Code, its local panel and its plugin)
+and runs that same model on itself. The working conventions every session applies are in
+`AGENTS.md`, imported below. This file adds only what is specific to the framework repo.
 
-**Do not confuse this with project-level CLAUDE.md** — that lives in `template/CLAUDE.md` and is what end-user projects receive.
+**Two AGENTS.md files.** The root one governs work in this repo. `template/AGENTS.md` is the
+product: what every project receives. Change the template with care; it ships.
 
 ## Architecture
 
 ```
 clauductor/
-├── framework/           ← Go source (CLI + HUD binary)
-│   ├── cmd/clauductor/  ← CLI entrypoint
-│   └── internal/        ← packages: state, hud, spawn, config
-├── template/            ← Project template (copied by `clauductor init`)
-│   ├── CLAUDE.md        ← Project-level Claude Code instructions
-│   ├── .claude/skills/  ← Orchestration skills
-│   ├── .claude/agents/  ← Agent definitions
-│   └── docs/            ← Project doc templates
-├── plugin/              ← GENERATED from template/ (scripts/build-plugin.sh): the Claude Code plugin
-├── .claude-plugin/      ← marketplace.json listing plugin/ (docs/plugin.md)
-├── docs/                ← Framework's own docs & PRDs
-└── install.sh           ← Build + install script
+├── AGENTS.md, .claude/       ← this repo's own operating model (installed from template/)
+├── framework/                ← Go source: the CLI and the panel
+│   ├── cmd/clauductor/       ← CLI entrypoint
+│   └── internal/
+│       ├── cmd/              ← commands: install, update, plugin, panel, lock-run, ...
+│       ├── panel/            ← the local panel (server, lanes, web UI; docs/panel.md)
+│       ├── plugin/           ← builds plugin/ from template/ (docs/plugin.md)
+│       ├── template/         ← reads template/ for install and update
+│       └── state/, hud/      ← the retiring lock-and-supervisor model (removal: OPS-13)
+├── template/                 ← the operating model projects receive (`clauductor install`)
+│   ├── AGENTS.md, CLAUDE.md  ← project-level instructions
+│   ├── .claude/              ← skills, agents, hooks, checks, workflows, project.conf
+│   ├── scripts/ci/           ← the gate: run-local.sh, gate.sh, lease.sh, steps.sh
+│   └── docs/, changes/, specs/  ← record templates
+├── plugin/                   ← GENERATED from template/ (scripts/build-plugin.sh): the plugin
+├── .claude-plugin/           ← marketplace.json listing plugin/ (docs/plugin.md)
+├── docs/                     ← this repo's records (roadmap, journal, insights, ADRs) and PRDs
+└── install.sh                ← build + install script
 ```
 
-## Build & Run
+## Build, test, gate
 
 ```bash
-# Build the clauductor binary
 cd framework && go build -o clauductor ./cmd/clauductor
-
-# Run tests: -short in seconds while working; CI (.github/workflows/test.yml) runs the
-# full -race suite on macOS and Ubuntu for every push and PR (docs/panel.md, Testing)
-cd framework && go test -short ./...
-cd framework && go test -race ./...
-
-# Install globally
-./install.sh
+cd framework && go test -short ./...          # seconds, while working
+scripts/ci/gate.sh                             # the full gate (steps: scripts/ci/steps.sh)
+sh .claude/checks/run.sh                       # this repo's process checks
+sh template/.claude/checks/run.sh              # the template's checks
+scripts/build-plugin.sh                        # after ANY template/ change (TestCommittedPluginIsCurrent)
 ```
 
-## Tech Stack
+CI (`.github/workflows/test.yml`) runs gofmt, vet, `go test -race` and the process checks on macOS
+and Ubuntu for every PR.
 
-- **Go** — CLI, HUD (Bubble Tea), state management
-- **SQLite** — runtime state (workers, locks, events)
-- **tmux** — session management substrate
-- **Bubble Tea** — TUI framework for the HUD
+After a template change, bring this repo's own copy along: `CLAUDUCTOR_FRAMEWORK=$PWD clauductor
+update` from the repo root (the variable makes it read this checkout's template, not another one).
+`.claude/workflows/build-change.js` is deliberately different here (attribution off): skip it.
 
-## Naming Convention
+## Tech stack
 
-Same PREFIX-#.# format as projects. See `docs/project-naming-standards.md` in `template/`.
-Note: The framework's own milestones (M1-M7) use legacy M# format for historical reasons.
+- **Go**: the CLI, the panel server, the plugin builder
+- **POSIX sh + git + jq**: the operating model's hooks, checks and gate (no binary needed: ADR-0006)
+- **tmux**: the panel's lanes (never kill a tmux server from a script: ADR-0005)
+- **HTML/JS** (vendored xterm): the panel's web UI
 
-## Git Workflow
+## Git workflow
 
-- Branch: `feature/PREFIX-#.#-brief-kebab-case`
-- Commit: `PREFIX-#.#:` imperative mood. No Co-Authored-By.
+- Branches: the model's lanes, `change/<id>`, `fix/<n>-<slug>`, `ops/<name>`.
+- Commits and PR titles: `PREFIX-N:` in the imperative mood. **No Co-Authored-By.**
+- Milestone prefixes: PANEL (the panel), OPS (the operating model and this repo's process), REL
+  (releases), ST (StandingT convergence). Older history uses M1–M7 and LIFE-n.
 
-## Key Files
-
-- `docs/prds/active/PRD-orchestration-framework.md` — master PRD
-- `template/` — what projects receive (modify with care)
-- `framework/` — Go source code
-
-## Code Standards
+## Code standards
 
 ```go
 // Comments explain WHY, not WHAT
-// TODOs must include milestone context: TODO (AUTH-2): description
+// TODOs must include milestone context: TODO (PANEL-19): description
 ```
+
+@AGENTS.md

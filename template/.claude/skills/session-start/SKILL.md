@@ -21,8 +21,9 @@ run `sh .claude/skills/session-start/context.sh` yourself and read the result be
    **Flow** line (cycle time, merges per week, change-fail rate, spend per week, work in flight).
 2. **Say every line that is not healthy**: each health line that is not `OK` (a `CANNOT CHECK` is
    not a pass), a queue `ERROR` (the queue is then UNKNOWN: stop treating it as known), the main
-   checkout not on `main`, the panel down. One sentence each, even when the session is about
-   something else.
+   checkout not on `main`. One sentence each, even when the session is about something else. A
+   panel that is not running is a normal state, not an unhealthy line (the repository works
+   without clauductor: `checks/no-clauductor.sh`).
 3. **Other people's work.** Name every `★` PR in one line. An `OVERLAP` line means their open PR
    changes a file your branch changes: read their diff before touching that file, and do not build
    on anything it removes. Never merge another person's PR.
