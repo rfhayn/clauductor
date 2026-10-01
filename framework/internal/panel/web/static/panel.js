@@ -970,12 +970,110 @@ function renderTabs(ls, cur) {
     return key(tab, "tab:" + x.key);
   });
   patchInto("tabs", tabs);
+  tabLanes = ls.map((x) => ({ key: x.key, name: x.name, type: x.type && x.type !== x.name ? x.type : "", state: laneState(x), sel: !!cur && x.key === cur.key,
+    id: "tab-" + x.key.replace(/[^A-Za-z0-9_-]/g, "_") }));
+  // A tab that changes width (a new face, a new size) can push the selected one out.
+  for (const t of $("tabs").children) tabSizes.observe(t);
+  fitTabs(false);
   if (cur) $("wsbody").setAttribute("aria-labelledby", "tab-" + cur.key.replace(/[^A-Za-z0-9_-]/g, "_"));
   else $("wsbody").removeAttribute("aria-labelledby");
   const add = $("addtab");
   add.disabled = !!S.startBlocked || offline();
   add.title = offline() ? "Disconnected from the panel" : S.startBlocked || "Start a new lane";
 }
+
+// ---- More tabs than the strip shows (PANEL-21) ---------------------------------------------
+// The strip scrolls sideways, and a tab it cut gave no sign of the rest ("worki" at 175%).
+// "N more" after the strip counts the tabs out of sight, whole or in part, and opens a
+// menu of them: a menu button, as the row menu is (Enter, Space or Down opens it on its
+// first item, Up on its last; Up/Down/Home/End move; Enter picks; Escape closes it back
+// to its button). The selected tab is scrolled into the strip when the selection changes
+// or the strip resizes, never on a poll, so a strip scrolled by hand stays where it is.
+let tabLanes = [], tabSelShown = null, tabMenuOpen = false;
+const tabSizes = new ResizeObserver(() => fitTabs(true));
+function hiddenTabs() {
+  const strip = $("tabs"), r = strip.getBoundingClientRect();
+  return Array.from(strip.querySelectorAll('[role="tab"]')).filter((t) => {
+    const b = t.getBoundingClientRect();
+    return b.left < r.left - 1 || b.right > r.right + 1;
+  });
+}
+function showSelTab(force) {
+  const strip = $("tabs"), t = strip.querySelector('[role="tab"][aria-selected="true"]');
+  if (!t || (!force && tabSelShown === t.id)) return;
+  tabSelShown = t.id;
+  const r = strip.getBoundingClientRect(), b = t.getBoundingClientRect();
+  if (b.left < r.left) strip.scrollLeft -= r.left - b.left;
+  else if (b.right > r.right) strip.scrollLeft += Math.min(b.right - r.right, b.left - r.left);
+}
+function fitTabs(force) {
+  const strip = $("tabs"), mb = $("moretabs");
+  // Shown first while the strip overflows: the button itself takes some of the row.
+  mb.hidden = strip.scrollWidth <= strip.clientWidth + 1;
+  showSelTab(force);
+  const hid = hiddenTabs();
+  mb.hidden = !hid.length;
+  if (hid.length) {
+    const names = hid.map((t) => (tabLanes.find((x) => x.id === t.id) || {}).name).filter(Boolean);
+    setText(mb, hid.length + " more");
+    mb.title = "Lanes out of sight in the tabs: " + names.join(", ");
+    mb.setAttribute("aria-label", hid.length + " more lane" + (hid.length === 1 ? "" : "s") + ": " + names.join(", "));
+  }
+  if (tabMenuOpen) { if (hid.length) renderTabMenu(); else closeTabMenu(false); }
+}
+function tabMenuItems() { return Array.from($("tabmenu").querySelectorAll('[role="menuitem"]')); }
+function renderTabMenu() {
+  const m = $("tabmenu"), hid = new Set(hiddenTabs().map((t) => t.id));
+  const focused = m.contains(document.activeElement) ? document.activeElement.dataset.lane : null;
+  m.replaceChildren(...tabLanes.filter((x) => hid.has(x.id)).map((x) => {
+    const e = el("div", "mi", null, [el("span", "sq " + x.state), el("span", null, x.name), el("span", "ty", x.type)]);
+    e.setAttribute("role", "menuitem");
+    e.tabIndex = -1;
+    e.dataset.lane = x.key;
+    if (x.sel) e.setAttribute("aria-current", "true");
+    e.addEventListener("click", () => { closeTabMenu(false); selectLane(x.key, "tab"); });
+    return e;
+  }));
+  // Fixed to the window, under its button, inside the window's edges.
+  const r = $("moretabs").getBoundingClientRect();
+  m.hidden = false;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  m.style.top = Math.round(r.bottom + h + 12 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + "px";
+  if (focused) { const f = m.querySelector('[data-lane="' + CSS.escape(focused) + '"]'); if (f) f.focus(); }
+}
+function openTabMenu(which) {
+  tabMenuOpen = true;
+  $("moretabs").setAttribute("aria-expanded", "true");
+  renderTabMenu();
+  const items = tabMenuItems();
+  if (items.length) (which === "last" ? items[items.length - 1] : items[0]).focus();
+}
+function closeTabMenu(refocus) {
+  if (!tabMenuOpen) return;
+  tabMenuOpen = false;
+  $("tabmenu").hidden = true;
+  $("moretabs").setAttribute("aria-expanded", "false");
+  if (refocus) $("moretabs").focus();
+}
+$("moretabs").addEventListener("click", () => { if (tabMenuOpen) closeTabMenu(true); else openTabMenu("first"); });
+$("moretabs").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openTabMenu(e.key === "ArrowUp" ? "last" : "first"); }
+});
+$("tabmenu").addEventListener("keydown", (e) => {
+  const items = tabMenuItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTabMenu(true); }
+  else if (e.key === "Tab") closeTabMenu(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => { if (tabMenuOpen && !e.target.closest("#tabmenu, #moretabs")) closeTabMenu(false); });
+$("tabs").addEventListener("scroll", () => fitTabs(false), { passive: true });
+new ResizeObserver(() => fitTabs(true)).observe($("tabrow"));
 
 // ---- The lane's header ----------------------------------------------------------------------
 let sideOpen = true;
@@ -1359,7 +1457,7 @@ function sideGate(x) {
 function sideAlerts(x, needs, als) {
   const out = [];
   for (const n of needs) out.push(key(el("div", "alert", null, [el("span", n.severity === "block" ? "crit" : "warn", n.severity === "block" ? "Blocking" : "Needs you"),
-    el("span", null, (n.label || n.kind) + (n.text ? ": " + n.text : ""), n.at ? [el("span", "num dim", null, [age(n.at, " ", " waiting")])] : [])]), "la:n:" + needKey(n)));
+    el("span", null, needWords(n), n.at ? [el("span", "num dim", null, [age(n.at, " ", " waiting")])] : [])]), "la:n:" + needKey(n)));
   for (const a of als) {
     const text = el("span", null, a.text);
     if (AGED[a.kind] && a.since) text.appendChild(el("span", "num dim", null, [age(a.since, " ")]));
@@ -1447,7 +1545,7 @@ function needRow(n, cls, k, done) {
   const tr = el("tr", sev ? "ask abn-" + sev : "done", null, [
     el("td", null, null, [el("span", "sq " + (done ? "idle" : sev === "crit" ? "block" : "waiting")), el("span", "who-waits", done ? "Your move" : sev === "crit" ? "Blocking" : "Needs you")]),
     el("td", null, n.name),
-    el("td", "ask", (n.label || n.kind) + (n.text ? ": " + n.text : "") + (n.approx ? " (≈ not a current reading)" : "")),
+    askCell(needWords(n) + (n.approx ? " (≈ not a current reading)" : "")),
     el("td", "num", null, n.at ? [age(n.at, "", done ? " ago" : "")] : []),
     el("td", null, null, [button(n.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(n); }, null, "jump")]),
   ]);
@@ -1469,7 +1567,7 @@ function renderNeeds() {
     kids.push(key(el("table", "tbl", null, [el("tbody", null, null, al.map((a) => {
       const sev = a.severity === "block" ? "crit" : "warn";
       const tr = el("tr", "abn-" + sev, null, [el("td", null, null, [el("span", "sq " + (sev === "crit" ? "block" : "waiting")), el("span", null, a.kind.replace("_", " "))]),
-        el("td", null, a.name || "All lanes"), el("td", "ask", a.text), el("td", "num", null, AGED[a.kind] && a.since ? [age(a.since)] : []),
+        el("td", null, a.name || "All lanes"), askCell(a.text), el("td", "num", null, AGED[a.kind] && a.since ? [age(a.since)] : []),
         el("td", null, null, a.terminal || a.lane ? [button(a.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(a); }, null, "jump")] : [])]);
       if (a.terminal || a.lane) on(tr, "click", () => jumpTo(a));
       return key(tr, "alert:" + a.key);
@@ -2478,19 +2576,23 @@ function renderTerminals(cur) {
   const orphan = $("termorphan");
   orphan.hidden = !(t && !t.running);
   if (t && !t.running) setText(orphan, "Lane " + t.id + " is orphaned: " + (t.orphan || "no tmux session") +
-    ". RESUME restarts claude --resume " + t.sessionId + " in " + t.path + "; FORGET drops the record; CLOSE LANE also removes its worktree and branch when that loses nothing.");
+    ". Resume restarts claude --resume " + t.sessionId + " in " + t.path + "; Forget drops the record; Close lane also removes its worktree and branch when that loses nothing.");
   const host = $("termhost");
   host.setAttribute("aria-label", t && t.running ? "Terminal of lane " + t.id + ". Enter types into it; Ctrl+] leaves." : "Terminal");
   if (selTerm !== shownTerm) {
     shownTerm = selTerm;
     const x = terms[selTerm];
     if (x) requestAnimationFrame(() => fitTerm(x));
+    // And once it has settled (PANEL-21): a terminal shown again after the frame changed
+    // while it was hidden kept its old grid, as xterm measures its cells only once it is
+    // visible, after that first frame, and nothing refitted it then.
+    if (x) { clearTimeout(sizeTimer); sizeTimer = setTimeout(sizeTerm, SETTLE_MS); }
   }
   renderTermBar(t);
   renderHint();
 }
 
-// What STOP or RESTART will do to this lane, from its state now: the server sends
+// What Stop lane or Restart will do to this lane, from its state now: the server sends
 // /exit only to a lane `claude agents` says is idle, and Escape to any other.
 function stopWords(t, restart) {
   return (restart ? "Restart lane " + t.id + "? " : "Stop lane " + t.id + "? ") + stopHow(t) +
@@ -2696,11 +2798,23 @@ function renderTermBar(t) {
     }
     if (t.orphan && t.running) kids.push(key(el("span", "hold sub", t.orphan), "orphan"));
     if (t.template) kids.push(key(el("span", "note", "Template " + t.template + ", first prompt " + (t.promptState || "—") + (t.promptNote ? ": " + t.promptNote : "")), "tpl"));
-    if (t.dead) kids.push(key(el("span", "stop sub", "claude exited" + (t.deadStatus ? " (status " + t.deadStatus + ")" : "") + "; RESTART or STOP"), "dead"));
+    if (t.dead) kids.push(key(el("span", "stop sub", "claude exited" + (t.deadStatus ? " (status " + t.deadStatus + ")" : "") + "; Restart or Stop lane"), "dead"));
     if (busy) kids.push(key(el("span", "sub", busyAct.split(":")[1] + "…"), "busy"));
     if (actMsg && actMsg.id === t.id) kids.push(key(el("span", actMsg.err ? "stop sub" : "sub", actMsg.text), "msg"));
   }
   patchInto("termbar", kids);
+  // An inline confirmation shows whole (PANEL-21): the terminal above gives up its
+  // height first, and when that is not enough (every bar shown, Close lane's plan arrived
+  // after it opened) the lane's body scrolls the bar into view, once per change of its
+  // words, so a body scrolled back up by hand stays there between polls.
+  const ask = kids.some((k) => k && k.dataset && /^(confirm|closeask|linkask)$/.test(k.dataset.k));
+  const sig = ask ? $("termbar").textContent : "";
+  if (sig !== askSig) { askSig = sig; if (ask) requestAnimationFrame(() => showInBody($("termbar"))); }
+}
+let askSig = "";
+function showInBody(e) {
+  const w = $("wsbody"), r = e.getBoundingClientRect(), wr = w.getBoundingClientRect();
+  if (r.bottom > wr.bottom) w.scrollTop += Math.min(r.bottom - wr.bottom, r.top - wr.top);
 }
 
 // Terminals stay open only while the page is in view: while visible the page says
@@ -3018,10 +3132,13 @@ function renderObs() {
     kv("Claude Code", (o.claudeVersion || "?") + (!o.claudeVersion || o.claudeVersion === o.verifiedOn ? ""
       : S.verification && S.verification.auto === o.claudeVersion ? " (verified from this project's hooks)"
       : " (verified on " + o.verifiedOn + (S.verification && S.verification.version ? "; checking: " + S.verification.confirmed + " of " + S.verification.needed : "") + ")")));
+  // The footer wraps, and a counter too long for a line truncates: each says all of
+  // itself in its tooltip, and the footer lists them all (PANEL-21).
+  for (const x of kids.slice(1)) x.title = x.textContent + (x.title ? ". " + x.title : "");
   const f = $("obs");
   f.classList.toggle("open", obsOpen);
   patch(f, kids.map((x, i) => (x.dataset.k ? x : key(x, "o:" + i))));
-  f.title = o.notifyError || "";
+  f.title = kids.slice(1).map((x) => x.textContent).join(", ") + (o.notifyError ? "\n" + o.notifyError : "");
 }
 
 // The tab title and the favicon carry the Needs-you count, so it shows from any tab.
@@ -3045,13 +3162,26 @@ function renderFavicon() {
   $("favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
 }
 
+// A Needs-you or alert row's ask: it takes the width the row's other cells leave and
+// truncates, its whole text in its tooltip (PANEL-21: at 175% a long ask pushed the row's
+// Open terminal out of the window).
+function askCell(text) { const td = el("td", "ask", text); td.title = text; return td; }
+// A Needs-you row's words: its label, then its text. A label that asks ends its own
+// sentence ("PR merged: close lane?"), so the text is the next one, never "?: its pull
+// request…" (PANEL-21).
+function needWords(n) {
+  const l = n.label || n.kind;
+  if (!n.text) return l;
+  if (/[?!.]$/.test(l)) return l + " " + n.text.charAt(0).toUpperCase() + n.text.slice(1);
+  return l + ": " + n.text;
+}
 // New blocking items are read out once, politely.
 let seenNeeds = null;
 function announceNeeds() {
   const keys = S.needsYou.map(needKey);
   if (seenNeeds) {
     const fresh = S.needsYou.filter((n) => !seenNeeds.has(needKey(n)));
-    if (fresh.length) setText($("announce"), "Needs you: " + fresh.map((n) => n.name + ", " + (n.label || n.kind) + (n.text ? ": " + n.text : "")).join(". "));
+    if (fresh.length) setText($("announce"), "Needs you: " + fresh.map((n) => n.name + ", " + needWords(n)).join(". "));
   }
   seenNeeds = new Set(keys);
 }

@@ -193,6 +193,60 @@ async function layoutAudit(page) {
       if (I.some((o) => o !== I[i] && o.contains(top))) continue; // another control: the overlap rule's
       out.push({ rule: "covered", selector: sel(I[i]), detail: "\"" + text(I[i]) + "\" is covered at its centre by " + sel(top) + (text(top) ? " (\"" + text(top) + "\")" : "") });
     }
+    // PANEL-21: the page is the window. It never scrolls down, and the footer is on
+    // screen, whole; a counter the footer truncates says all of itself in its tooltip.
+    if (de.scrollHeight > innerHeight + 1) out.push({ rule: "vscroll", selector: "html", detail: "page scrollHeight " + de.scrollHeight + " > " + innerHeight });
+    const obs = document.getElementById("obs");
+    if (obs && vis(obs)) {
+      const r = obs.getBoundingClientRect();
+      if (r.bottom > innerHeight + 1 || r.top < -1) out.push({ rule: "footer-offscreen", selector: "footer#obs", detail: "the footer spans y " + Math.round(r.top) + "–" + Math.round(r.bottom) + " in a " + innerHeight + " px window" });
+      else if (!modalOpen) {
+        const at = document.elementFromPoint(r.left + 2, r.top + r.height / 2);
+        if (at && !obs.contains(at) && !layer(at)) out.push({ rule: "footer-covered", selector: "footer#obs", detail: "the footer is covered by " + sel(at) });
+      }
+      for (const c of obs.children) {
+        if (!vis(c) || c.scrollWidth <= c.clientWidth + 1) continue;
+        if (!(c.title || "").startsWith(text(c).replace(/…$/, "").slice(0, 20))) out.push({ rule: "truncated-untitled", selector: sel(c), detail: "\"" + text(c) + "\" is truncated and its tooltip does not hold it (" + JSON.stringify(c.title || "") + ")" });
+      }
+    }
+    // PANEL-21: an inline confirmation under the terminal shows whole, its buttons
+    // clickable (Close lane's Confirm sat under the footer with every bar shown).
+    const tb = document.getElementById("termbar");
+    if (tb && vis(tb) && tb.querySelector('[data-k="confirm"], [data-k="closeask"], [data-k="linkask"]') && !modalOpen) {
+      for (const b of tb.querySelectorAll("button")) {
+        if (!vis(b)) continue;
+        const r = b.getBoundingClientRect(), c = clipRect(b);
+        const cl = { left: Math.max(c.left, 0), top: Math.max(c.top, 0), right: Math.min(c.right, innerWidth), bottom: Math.min(c.bottom, innerHeight) };
+        let bad = cl.right - cl.left < r.width - 1 || cl.bottom - cl.top < r.height - 1 ? "shows " + Math.max(0, Math.round(cl.right - cl.left)) + "×" + Math.max(0, Math.round(cl.bottom - cl.top)) + " of " + Math.round(r.width) + "×" + Math.round(r.height) + " px" : "";
+        if (!bad) { const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); if (!at || !(at === b || b.contains(at)) && !layer(at)) bad = "is covered by " + (at ? sel(at) : "nothing"); }
+        if (bad) out.push({ rule: "confirm-hidden", selector: sel(b), detail: "\"" + text(b) + "\" " + bad });
+      }
+    }
+    // PANEL-21: copy composed from parts never doubles its punctuation ("close lane?: its").
+    for (const e of document.querySelectorAll("body *")) {
+      if (inTerm(e) || !vis(e)) continue;
+      for (const n of e.childNodes) if (n.nodeType === 3 && /[?!.]:\s/.test(n.textContent)) out.push({ rule: "copy", selector: sel(e), detail: "\"" + n.textContent.trim().slice(0, 80) + "\" doubles its punctuation" });
+    }
+    // PANEL-21: a lane's ⋯ in the rail shows whole sideways (the Lanes table ran wider
+    // than the rail with a long name, and cut it off). rowActAudit also scrolls to each.
+    // The bars over the lanes too: a long ask pushed its row's Open terminal out of sight.
+    for (const b of document.querySelectorAll("#rail .rowact, #topbars button")) {
+      if (!vis(b)) continue;
+      const r = b.getBoundingClientRect(), c = clipRect(b);
+      if (c.bottom - c.top < 1) continue; // below the rail's fold: rowActAudit's
+      if (c.right - c.left < r.width - 1) out.push({ rule: b.closest("#rail") ? "rowact-cut" : "control-cut", selector: sel(b), detail: "\"" + (b.getAttribute("aria-label") || text(b)) + "\" shows " + Math.max(0, Math.round(c.right - c.left)) + " of its " + Math.round(r.width) + " px" });
+    }
+    // PANEL-21: a tab strip with tabs out of sight says how many, with a control that
+    // reaches them ("worki" was cut with no sign of the rest).
+    const strip = document.getElementById("tabs");
+    if (strip && vis(strip)) {
+      const sr = strip.getBoundingClientRect();
+      const hid = Array.from(strip.querySelectorAll('[role="tab"]')).filter((t) => { const b = t.getBoundingClientRect(); return b.left < sr.left - 1 || b.right > sr.right + 1; });
+      const mb = document.getElementById("moretabs");
+      const shown = mb && vis(mb);
+      if (hid.length && !shown) out.push({ rule: "tab-overflow", selector: "#tabs", detail: hid.length + " tab(s) out of sight (" + hid.map(text).join(", ") + ") and no overflow control" });
+      else if (shown && !text(mb).startsWith(hid.length + " ")) out.push({ rule: "tab-overflow", selector: "#moretabs", detail: "it says \"" + text(mb) + "\" but " + hid.length + " tab(s) are out of sight" });
+    }
     // A selected tab is in view: a tab strip that scrolls must keep its selected tab
     // shown whole.
     for (const e of document.querySelectorAll('[role="tab"][aria-selected="true"]')) {
@@ -216,6 +270,42 @@ async function layoutAudit(page) {
           out.push({ rule: "xterm-fit", selector: sel(t.host), detail: "term " + t.term.cols + "×" + t.term.rows + ", fit proposes " + d.cols + "×" + d.rows });
       } catch (e) { /* no fit addon on this build */ }
     }
+    return out;
+  });
+}
+
+// rowActAudit (PANEL-21): every lane's ⋯ in the Lanes table and the Worktrees tree is
+// whole and clickable once its row is scrolled into the rail's view (vertically only: a
+// sideways scroll would hide what is being checked). The rail must be shown.
+async function rowActAudit(page) {
+  return page.evaluate(async () => {
+    const out = [];
+    const rail = document.getElementById("rail");
+    if (!rail || getComputedStyle(rail).display === "none") return [{ rule: "rowact", selector: "#rail", detail: "the rail is hidden" }];
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const saved = rail.scrollTop;
+    const lanes = rail.querySelectorAll("#lanelist .rowact"), tree = rail.querySelectorAll("#tree .rowact");
+    if (!lanes.length) out.push({ rule: "rowact-missing", selector: "#lanelist", detail: "no ⋯ in the Lanes table" });
+    if (!tree.length) out.push({ rule: "rowact-missing", selector: "#tree", detail: "no ⋯ in the Worktrees tree" });
+    for (const w of document.querySelectorAll("#rail .tblwrap")) if (w.scrollLeft) out.push({ rule: "rowact-cut", selector: "#rail .tblwrap", detail: "the Lanes table starts scrolled " + w.scrollLeft + " px sideways" });
+    for (const b of [...lanes, ...tree]) {
+      const name = b.getAttribute("aria-label") + (b.closest("#tree") ? " (tree)" : " (table)");
+      let rr = rail.getBoundingClientRect(), r = b.getBoundingClientRect();
+      if (r.top < rr.top + 8 || r.bottom > rr.bottom - 48) { rail.scrollTop += r.top - rr.top - rr.height / 2; await frame(); }
+      r = b.getBoundingClientRect();
+      let l = r.left, t = r.top, rt = r.right, bt = r.bottom;
+      for (let p = b.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+        const cs = getComputedStyle(p);
+        if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+        const pr = p.getBoundingClientRect();
+        l = Math.max(l, pr.left); t = Math.max(t, pr.top); rt = Math.min(rt, pr.right); bt = Math.min(bt, pr.bottom);
+      }
+      l = Math.max(l, 0); rt = Math.min(rt, innerWidth); t = Math.max(t, 0); bt = Math.min(bt, innerHeight);
+      if (rt - l < r.width - 1 || bt - t < r.height - 1) { out.push({ rule: "rowact-cut", selector: b.dataset.k, detail: name + " shows " + Math.max(0, Math.round(rt - l)) + "×" + Math.max(0, Math.round(bt - t)) + " of " + Math.round(r.width) + "×" + Math.round(r.height) + " px" }); continue; }
+      const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!at || !(at === b || b.contains(at))) out.push({ rule: "rowact-covered", selector: b.dataset.k, detail: name + " is covered at its centre by " + (at ? at.tagName.toLowerCase() + (at.id ? "#" + at.id : "") + "." + Array.from(at.classList).join(".") : "nothing") });
+    }
+    rail.scrollTop = saved;
     return out;
   });
 }
@@ -259,4 +349,4 @@ async function focusRingAudit(page, n = 14) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-module.exports = { loadPlaywright, run, Findings, openPage, appearanceStorage, layoutAudit, stableAudit, focusRingAudit, sleep };
+module.exports = { loadPlaywright, run, Findings, openPage, appearanceStorage, layoutAudit, stableAudit, focusRingAudit, rowActAudit, sleep };
