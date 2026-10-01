@@ -40,6 +40,10 @@ pids=$(pgrep -f "$D/" 2>/dev/null | grep -vx "$$" || true)
 if [ "${2:-}" = --keep ]; then
   echo "down[$runid]: stopped; kept $D"
 else
+  # A read-only file (a go module cache an older up.sh left in the temp HOME) would
+  # stop rm: make the run's own tree writable first.
+  chmod -R u+w "$D" 2>/dev/null
   rm -rf "$D"
+  if [ -e "$D" ]; then echo "down[$runid]: could not remove all of $D" >&2; exit 1; fi
   echo "down[$runid]: removed $D"
 fi

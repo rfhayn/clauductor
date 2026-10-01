@@ -1,11 +1,16 @@
 #!/bin/bash
-# A fake `gh` for the UX harness. It answers the two lists the panel asks for, per
-# project (by the basename of the repository it runs in), from files up.sh writes:
-#   $HOME/fake/gh/<repo>.open.json   `gh pr list --json …`: the open PRs, with checks
-#   $HOME/fake/gh/<repo>.merged      branch names whose PR is merged; `gh pr list --head
-#                                    <b> --state merged` answers one whose headRefOid is
-#                                    the branch's tip now (so Close lane may delete it)
-# Anything else prints nothing and succeeds.
+# A fake `gh` for the UX harness. It answers what the panel asks, per project (by the
+# basename of the repository it runs in), from files up.sh (and the flows) write:
+#   $HOME/fake/gh/<repo>.open.json       `gh pr list --json …`: the open PRs, with checks
+#   $HOME/fake/gh/<repo>.merged          branch names whose PR is merged; `gh pr list --head
+#                                        <b> --state merged` answers one whose headRefOid is
+#                                        the branch's tip now (so Close lane may delete it)
+#   $HOME/fake/gh/<repo>.mergedlist.json `gh pr list --state merged --search merged:>=…`
+#                                        (no --head): the merged PRs the Metrics view's
+#                                        built-in merge frequency and cycle time read
+#   $HOME/fake/gh/threads-<n>.json       `gh api graphql … -F n=<n>`: PR n's review threads
+#                                        (merge readiness); none resolved-or-not without it
+# Every call is logged to $HOME/fake/gh.log. Anything else prints nothing and succeeds.
 set -u
 top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # A worktree's toplevel is the worktree; the project is its common dir's parent.
@@ -13,9 +18,17 @@ common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || tr
 [ -n "$common" ] && top=$(dirname "$common")
 repo=$(basename "$top")
 d="$HOME/fake/gh"
+mkdir -p "$d" 2>/dev/null
+printf '%s %s: %s\n' "$(date +%H:%M:%S)" "$repo" "$*" >> "$HOME/fake/gh.log" 2>/dev/null
 case "${1:-} ${2:-}" in
   "--version "*) echo "gh version 2.99.0 (ux harness fake)"; exit 0 ;;
   "auth status") echo "Logged in to github.com (fake)"; exit 0 ;;
+  "api graphql")
+    n=""
+    for a in "$@"; do case "$a" in n=*) n=${a#n=} ;; esac; done
+    if [ -n "$n" ] && [ -f "$d/threads-$n.json" ]; then cat "$d/threads-$n.json"; else
+      echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[]}}}}}'; fi
+    exit 0 ;;
   "pr list") ;;
   *) exit 0 ;;
 esac
@@ -25,7 +38,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ "$state" = merged ]; then
-  if [ -n "$head" ] && grep -qx -- "$head" "$d/$repo.merged" 2>/dev/null; then
+  if [ -z "$head" ]; then cat "$d/$repo.mergedlist.json" 2>/dev/null || echo "[]"; exit 0; fi
+  if grep -qx -- "$head" "$d/$repo.merged" 2>/dev/null; then
     oid=$(git -C "$top" rev-parse --verify -q "refs/heads/$head" 2>/dev/null || true)
     [ -n "$oid" ] && { printf '[{"number":77,"headRefOid":"%s"}]\n' "$oid"; exit 0; }
   fi

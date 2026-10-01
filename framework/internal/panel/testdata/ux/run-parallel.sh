@@ -5,19 +5,22 @@
 #
 #   run-parallel.sh [--out dir (default $TMPDIR/clauductor-ux-out/<run>)] [--shards a,b,…] [--ports 4700-4799] [--run id] [--keep]
 #
-# Shards (default: all five):
+# Shards (default: all eight):
 #   layout-views       matrix.cjs --areas views        (6 viewports × every view)
 #   layout-appearance  matrix.cjs --areas appearance,sizes  (themes × modes, types, text sizes)
 #   flows-lanes        flows.cjs --flows lanes         (start, type, stop, close, remove, restore)
 #   flows-attachments  flows.cjs --flows attachments   (images, selection, links)
 #   flows-projects     flows.cjs --flows projects      (switching projects)
+#   layout-metrics     matrix.cjs --areas features,metrics  (UX-2: PANEL-19/20 views, Metrics tab × range × scope)
+#   flows-metrics      flows.cjs --flows metrics       (UX-2: metrics, economy, readiness, ports, setup, remote control)
+#   flows-lifecycle    flows.cjs --flows lifecycle     (UX-2, UX_LIFECYCLE=1: auto-resume, auto-close on merge)
 # Environment: CLAUDUCTOR_BIN (else the checkout is built once), PLAYWRIGHT (the
 # playwright package dir), UX_TMP (where runs live), UX_MATRIX_ARGS (extra matrix args,
 # e.g. --full). --keep leaves each run's temp dir after its panel is stopped.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 fw=$(cd "$here/../../../.." && pwd)
-out="" shards="layout-views,layout-appearance,flows-lanes,flows-attachments,flows-projects"
+out="" shards="layout-views,layout-appearance,flows-lanes,flows-attachments,flows-projects,layout-metrics,flows-metrics,flows-lifecycle"
 ports="4700-4799" run="ux$(date +%H%M%S)" keep=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -69,7 +72,9 @@ shard() { # shard <i> <name>
   mkdir -p "$dir"
   port=${portlist[$i]}
   t0=$(date +%s)
-  if ! "$here/up.sh" "$rid" "$port" > "$dir/up.json" 2> "$dir/up.log"; then
+  local life=""
+  [ "$name" = flows-lifecycle ] && life=1 # its lanes only: every other shard keeps the same set
+  if ! UX_LIFECYCLE=$life "$here/up.sh" "$rid" "$port" > "$dir/up.json" 2> "$dir/up.log"; then
     echo "up.sh failed: $(tail -3 "$dir/up.log")" > "$dir/error.txt"; return 1
   fi
   local t1; t1=$(date +%s)
@@ -80,6 +85,9 @@ shard() { # shard <i> <name>
     flows-lanes) node "$here/flows.cjs" "$dir/up.json" --out "$dir" --flows lanes ;;
     flows-attachments) node "$here/flows.cjs" "$dir/up.json" --out "$dir" --flows attachments ;;
     flows-projects) node "$here/flows.cjs" "$dir/up.json" --out "$dir" --flows projects ;;
+    layout-metrics) node "$here/matrix.cjs" "$dir/up.json" --out "$dir" --areas features,metrics ${UX_MATRIX_ARGS:-} ;;
+    flows-metrics) node "$here/flows.cjs" "$dir/up.json" --out "$dir" --flows metrics ;;
+    flows-lifecycle) node "$here/flows.cjs" "$dir/up.json" --out "$dir" --flows lifecycle ;;
     *) echo "unknown shard $name" > "$dir/error.txt"; status=1 ;;
   esac > "$dir/run.log" 2>&1 || status=$?
   local t2; t2=$(date +%s)
