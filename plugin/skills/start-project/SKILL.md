@@ -39,6 +39,10 @@ If those lines show as literal text, run the commands yourself.
    (`GATE_REMOTE_WORKFLOW`). Set `TEST_GLOBS` in `.claude/project.conf` if the tests are not
    in one of the default layouts (it tells the scenario trace where tests live), and suggest
    installing `gitleaks` (the gate's secret scan skips without it locally, and fails under CI).
+   If the project already has a gate runner of its own, set `GATE_RUN` (and `GATE`) to it instead,
+   and have it source `scripts/ci/lib/steps.sh` and call `model_steps` (the scenario trace and the
+   secret scan); set `GATE_QUICK_FLAGS` to its quick-run flags. A lease of its own is tested with
+   `sh scripts/ci/lease-conformance/run.sh <impl>`.
    Then run `scripts/ci/gate.sh --quick` and show the result.
 4. **The formatter** (`FORMAT_CMD`, `FORMAT_EXT`), if the project has one.
 4b. **Least privilege** (`.claude/settings.json`, kept current by `clauductor install`): Claude may
@@ -50,7 +54,10 @@ If those lines show as literal text, run the commands yourself.
    overwrites the local file), not in `settings.json`.
 5. **AGENTS.md "Essentials"**: replace the examples with this project's few load-bearing rules
    (two lines each), and fill the *(yours)* sections of `docs/conventions.md`. Keep AGENTS.md under
-   its byte budget (`clauductor-model checks/run.sh agents-md-budget`).
+   its byte budget (`clauductor-model checks/run.sh agents-md-budget`; the ceilings are
+   `AGENTS_MD_MAX_BYTES` and `AGENTS_MD_MAX_ROW`). If the playbook lives elsewhere (or is an HTML
+   page), set `PLAYBOOK`. If the project's change records carry sections of their own, list them in
+   `CHANGE_RECORD_EXTRA`.
 6. **The commit trailers** (`.claude/model-roles.json`): `attribution` names the model you run in
    `trailer`, or set `enabled` to false if this project keeps commits unattributed; `provenance`
    (the `Change:`, `Agent-Role:`, `Model:`, `Session:` trailers `pr-merge-guard` requires on a
@@ -64,11 +71,22 @@ If those lines show as literal text, run the commands yourself.
 8. **Health lines** (`.claude/health/`): delete the GitHub ones if the project does not use
    GitHub Actions; add any the project needs (a migration ledger, a backup's age). Uncomment the
    ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
-9. **Optional modules**: OpenSpec (`${CLAUDE_PLUGIN_ROOT}/modules/openspec/README.md`) and the claude.ai review
-   page (`${CLAUDE_PLUGIN_ROOT}/modules/review-page/README.md`). Both are off by default.
+9. **Optional modules and the local layer**: OpenSpec (`${CLAUDE_PLUGIN_ROOT}/modules/openspec/README.md`) and
+   the claude.ai review page (`${CLAUDE_PLUGIN_ROOT}/modules/review-page/README.md`) are off by default; turn one
+   on by naming it in `MODULES` (`${CLAUDE_PLUGIN_ROOT}/modules/README.md`). What the project adds of its own
+   (an extra guard rule, a context section, a health line, a skill step, a conflict row) goes in
+   `.claude/local/` (its README has each contract), never in a framework file the next
+   `clauductor update` overwrites. `clauductor-model extensions.sh list` shows what is on.
 10. **Verify**: `clauductor-model checks/run.sh` must pass. Then commit, open the PR, and land it with
     `merge-pr` (the gate must pass in full first: `scripts/ci/gate.sh`).
 
 ## Rules
 - Ask; do not invent. A placeholder left in place is better than a guessed command.
 - Never trust the panel config, grant permissions or change `~/.claude` for the user.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/start-project/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments start-project`

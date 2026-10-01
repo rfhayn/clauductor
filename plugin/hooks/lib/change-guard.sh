@@ -25,6 +25,13 @@ cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
     _t=$(cg_show "$2" "$_d/tasks.md"); [ -n "$_t" ] || continue
     _n=$(open_tasks "$_t"); rm -f "$_t"
     [ "$_n" -eq 0 ] || printf '%s has %s open task(s), and this PR builds it (it changes %s and more). A build merges only finished: tick each task done, or name the change that owns it (AGENTS.md rule 1). Check with: sh "$CLAUDUCTOR_FW"/verify-change.sh %s\n' "$_d/tasks.md" "$_n" "$_other" "${_d##*/}"
+    # The project's own required sections (CHANGE_RECORD_EXTRA), read at the head.
+    if [ -n "${CHANGE_RECORD_EXTRA:-}" ]; then
+      _x=$(mktemp -d "${TMPDIR:-/tmp}/cgx.XXXXXX") || continue
+      git archive "$2" -- "$_d" 2>/dev/null | tar -x -C "$_x" 2>/dev/null
+      change_extra_missing "$_x/$_d" | sed "s|^|$_d: |"
+      rm -rf "$_x"
+    fi
   done
 }
 

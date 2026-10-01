@@ -70,7 +70,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A model or effort is chosen in ONE place | **`.claude/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |
 | Every insight gets a decision (promote, an instance, or why not) within a few sessions | **`.claude/compound.sh`** via `session-close` step 3b; **`checks/compound.sh`** |
-| A scheduled or post-merge failure reaches a reader | **`.claude/health/*.sh`** via `session-start` (the directory is the list) |
+| A scheduled or post-merge failure reaches a reader | **`.claude/health/*.sh`** via `session-start` (the directory is the list); **`checks/health.sh`** |
+| A module adds only while `MODULES` names it; a broken extension guard rule blocks, never allows | **`lib/modules.sh`** for every host; **`pr-merge-guard.sh`** extension rules; **`checks/modules.sh`** |
 | Orphans and clean lane worktrees do not outlive a session; tmux lanes are never killed | **`.claude/machine-quiet.sh`** via `session-close`; **`checks/machine-quiet.sh`** |
 | Work that needs the owner at the computer is seen | **`.claude/owner-queue.sh`** via `session-start` and the panel card |
 | The change queue is read ONE way, and a malformed row is an error, not a shorter queue | **`roadmap_queue`** (`lib/conf.sh`) over `.claude/roadmap-queue.sh` or `ROADMAP_PARSER`; **`checks/roadmap.sh`** fails a bypass |

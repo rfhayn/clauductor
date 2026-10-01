@@ -143,4 +143,23 @@ case "$(cd "$R" && HOME="$FH" FOCUS_STALE_SECONDS=-1 sh "$H/focus-staleness.sh" 
 # ── format ─────────────────────────────────────────────────────────────────────────────
 rc=0; printf '{"tool_input":{"file_path":"%s"}}' "$R/$T" | sh "$H/format.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "format.sh is a silent no-op with FORMAT_CMD unset"
+
+# ── conf.sh missing (B13) ──────────────────────────────────────────────────────────────
+# A `.` of a missing file exits 2 under dash, which Claude Code reads as a BLOCK: every hook that
+# reads the config tests for it first. Run each hook from a checkout with no .claude/lib, under sh
+# and, where installed, under dash (Ubuntu's sh).
+N="$d/noconf"; new_repo "$N"; mkdir -p "$N/.claude/hooks"
+for h in focus-staleness format worktree-hook-drift; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
+for shell in sh dash; do
+  command -v "$shell" >/dev/null 2>&1 || continue
+  for h in focus-staleness format worktree-hook-drift; do
+    rc=0; printf '%s' "$spawn" | (cd "$N" && "$shell" "$N/.claude/hooks/$h.sh") >/dev/null 2>&1 || rc=$?
+    expect_rc 0 "$rc" "[$shell] $h.sh with conf.sh missing does not block (exit 0)"
+  done
+done
+for h in "$H"/*.sh; do
+  grep -q 'lib/conf.sh"$' "$h" || continue
+  awk '/^[[:space:]]*\. .*lib\/conf\.sh"$/ { if (!guarded) bad = 1 } /-f .*lib\/conf\.sh"/ { guarded = 1 } END { exit bad }' "$h" \
+    && ok "$(basename "$h") tests for conf.sh before sourcing it" || fail "$(basename "$h") sources conf.sh without testing it exists first (a dash exit 2 reads as a block)"
+done
 finish

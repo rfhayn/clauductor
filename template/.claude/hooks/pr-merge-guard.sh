@@ -704,4 +704,60 @@ if [ -n "$roles13" ]; then
   done
 fi
 
+# Extension rules — the enabled modules' guard.d/*.sh, then the project's .claude/local/guard.d/*.sh
+# (lib/modules.sh; .claude/local/README.md has the contract). Each runs as its own process, per its
+# #! line, with the PR's facts in GUARD_* and the hook payload on stdin:
+#   exit 0  allow; each stdout line is an advisory that reaches Claude, like `say`;
+#   exit 2  BLOCK; stderr (else stdout) is the reason.
+# Anything else blocks, FAIL CLOSED: a rule that does not parse, cannot start, crashes (exit 1),
+# or outlives GUARD_RULE_TIMEOUT seconds (default 60) never reads as "no reason to block". The
+# loader is tested for, not sourced blind; if it is missing while a guard.d exists, block.
+mod_lib="$ROOT_HOOK/.claude/lib/modules.sh"
+if [ -f "$mod_lib" ]; then
+  sh -n "$mod_lib" 2>/dev/null || block "$mod_lib does not parse, so the extension rules (guard.d) cannot be found. Run: sh -n $mod_lib"
+  . "$mod_lib"
+  for f in ext_files shebang_interp shebang_parse with_timeout modules_problems; do
+    command -v "$f" >/dev/null 2>&1 || block "$mod_lib did not define $f, so the extension rules (guard.d) cannot be run."
+  done
+  probs=$(modules_problems)
+  [ -z "$probs" ] || block "a module in MODULES (.claude/project.conf) cannot load, so its guard rules cannot run: $(printf '%s' "$probs" | head -n 1)"
+  rules=$(ext_files guard.d .sh)
+elif [ -d "$ROOT_HOOK/.claude/local/guard.d" ] || [ -n "${MODULES:-}" ]; then
+  block "cannot find $mod_lib, so the extension rules (MODULES, .claude/local/guard.d) cannot run. Restore it."
+else
+  rules=""
+fi
+if [ -n "$rules" ]; then
+  gtmp=$(mktemp -d "${TMPDIR:-/tmp}/guard.XXXXXX") || block "cannot make a temp directory for the extension rules"
+  printf '%s' "$payload" > "$gtmp/payload"
+  TAB=$(printf '\t')
+  while IFS="$TAB" read -r glabel gf; do
+    gname="${glabel} guard.d/$(basename "$gf")"
+    shebang_parse "$gf"; prc=$?
+    [ "$prc" -eq 127 ] && { rm -rf "$gtmp"; block "extension rule $gname needs $(shebang_interp "$gf" | cut -d' ' -f1) (its #! line), which is not installed: it cannot run, so this refuses."; }
+    [ "$prc" -eq 0 ] || { rm -rf "$gtmp"; block "extension rule $gname does not parse, so it cannot be checked: run $(shebang_interp "$gf" | cut -d' ' -f1) -n $gf"; }
+    # A subshell that exports, not assignments before a function call: whether those reach the
+    # function's children differs between shells.
+    (
+      GUARD_PR="$pr" GUARD_HEAD="$head_sha" GUARD_BRANCH="$branch" GUARD_BASE="$base9" GUARD_REPO="$this_repo"
+      GUARD_COMMAND="$cmd" GUARD_PAYLOAD="$gtmp/payload" ROOT="$ROOT_HOOK"
+      export GUARD_PR GUARD_HEAD GUARD_BRANCH GUARD_BASE GUARD_REPO GUARD_COMMAND GUARD_PAYLOAD ROOT MAIN_BRANCH
+      # shellcheck disable=SC2046
+      with_timeout "${GUARD_RULE_TIMEOUT:-60}" $(shebang_interp "$gf") "$gf" <"$gtmp/payload" >"$gtmp/out" 2>"$gtmp/err"
+    )
+    grc=$?
+    case $grc in
+      0) while IFS= read -r l; do [ -n "$l" ] && say "$gname: $l"; done < "$gtmp/out" ;;
+      2) why=$(cat "$gtmp/err"); [ -n "$why" ] || why=$(cat "$gtmp/out"); rm -rf "$gtmp"
+         block "$gname: ${why:-it blocked without saying why}" ;;
+      143 | 137) rm -rf "$gtmp"; block "extension rule $gname did not finish within ${GUARD_RULE_TIMEOUT:-60} s, so it learned nothing: this refuses rather than allow unchecked." ;;
+      *) why=$(tail -n 3 "$gtmp/err"); rm -rf "$gtmp"
+         block "extension rule $gname failed (exit $grc), so it learned nothing: this refuses rather than allow unchecked.${why:+ Its stderr: $why}" ;;
+    esac
+  done <<EOF
+$rules
+EOF
+  rm -rf "$gtmp"
+fi
+
 allow

@@ -45,6 +45,11 @@ close to merge conflicts, deliberately (it forces step 6's merge of `origin/main
 | `docs/adr/` | keep both index rows; take the next free number for **yours** (file, title, index, every citation) |
 | the owner queue | keep both sides' items |
 
+The enabled modules and the local layer add their own shared files (`conflicts.tsv`: the file, a
+TAB, what to do). Their rows, if any:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh conflicts`
+
 ## Steps (in order: each one's output changes what the later ones say)
 
 ### 1. Land the code
@@ -123,3 +128,10 @@ rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of
 - **Do not manufacture work to look thorough.** If the record is current, say so and stop.
 - **Never force the gate green by weakening a test.** A red gate at close is the session's real
   finding, and it goes in the journal.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/session-close/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments session-close`

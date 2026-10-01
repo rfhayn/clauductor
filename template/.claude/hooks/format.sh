@@ -12,6 +12,9 @@
 # catches a file the formatter could not handle.
 
 ROOT=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)
+# A `.` of a missing file is fatal with a shell-dependent status (dash exits 2): test first; without
+# the config there is no formatter configured.
+[ -f "$ROOT/.claude/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 [ -n "${FORMAT_CMD:-}" ] || exit 0

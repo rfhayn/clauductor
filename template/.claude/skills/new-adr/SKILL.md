@@ -42,3 +42,10 @@ If the line above shows as literal text instead of output, run
 - Never renumber an ADR that is on `main`; supersede it. Renumbering your own unmerged ADR after a
   collision is the one exception.
 - An ADR without an Enforcement mechanism is a wish: name one, or state its absence.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/new-adr/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments new-adr`

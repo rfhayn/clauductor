@@ -6,8 +6,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   - the example change (.claude/examples) passes `openspec validate --all --strict` through the
 #     module's symlinks (openspec/changes -> ../changes, openspec/specs -> ../specs), so what the
 #     skills write by hand is what OpenSpec reads;
-#   - with PROPOSALS="openspec", this project's links point where CHANGES_DIR and SPECS_DIR say, and
-#     its own changes and specs pass `openspec validate --all --strict`.
+#   - with the module on, this project's own links and records are checked by the module itself
+#     (modules/openspec/checks/project.sh, which checks/run.sh runs as openspec:project).
 #
 # The CLI is optional, so without it (or with one older than 1.13) the two validations say SKIPPED
 # and why, on an `ok` line that names the reason. OPENSPEC_REQUIRED=1 turns that into a failure: the
@@ -65,15 +65,6 @@ if [ -n "$usable" ]; then
   else ok "openspec $v fails the example once a MODIFIED block drops a scenario (it is really validating)"; fi
 fi
 
-if [ "$PROPOSALS" = openspec ]; then
-  out=$(OPENSPEC_BIN="$bin" sh "$EN" --check 2>&1); rc=$?
-  printf '%s\n' "$out" | grep -E '^(ok|FAIL)' | sed 's/^ok  /ok  /' > "$d/links"
-  cat "$d/links"; _fails=$((_fails + $(grep -c '^FAIL' "$d/links")))
-  if [ -n "$usable" ]; then
-    if osv "$ROOT"; then ok "openspec validate --all --strict passes on this project"
-    else fail "openspec validate --all --strict fails on this project:"; sed 's/^/     /' "$d/os.out" | head -20; fi
-  else
-    skip "PROPOSALS=openspec, but openspec 1.13 or later is not installed, so this project's changes are not validated by it"
-  fi
-fi
+# With the module on, this project's own links and records are the module's check
+# (modules/openspec/checks/project.sh, run by checks/run.sh as openspec:project), not this one's.
 finish

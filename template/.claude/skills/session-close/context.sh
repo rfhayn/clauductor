@@ -65,3 +65,5 @@ sh .claude/health/worktrees.sh 2>&1 | ind
 echo "- Flow: $(sh .claude/metrics.sh --line --window 30d 2>&1)"
 echo "- This session's cost (usage-report.sh: by role and model, at list price, this machine only):"
 sh .claude/usage-report.sh 2>&1 | sed -n '1p; /^| /p; /^Total/p; /^UNPRICED/p; /^CANNOT CHECK/p' | ind
+# Sections the enabled modules and the local layer add (context.d/session-close/).
+sh .claude/extensions.sh context session-close
