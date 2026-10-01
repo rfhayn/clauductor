@@ -426,3 +426,22 @@ func TestKeepHooksJudgesTheFileItWritesOver(t *testing.T) {
 		t.Fatalf("a repeat check changed the file (%v) or found drift %q", changed, d.Text)
 	}
 }
+
+// The command is pinned, byte for byte, because it is also how an installed entry is found:
+// hookTarget recognises a command hook as the panel's only when it is EXACTLY hookCommand(port).
+// Change the command and every machine's installed entries stop being the panel's: install adds
+// a second hook beside the old one, and uninstall leaves the old one behind.
+func TestHookCommandIsPinned(t *testing.T) {
+	const want = "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- " +
+		"'http://127.0.0.1:4393/hook?src=clauductor-panel' >/dev/null 2>&1; exit 0"
+	if got := hookCommand(4393); got != want {
+		t.Fatalf("hookCommand(4393) changed:\n got  %s\n want %s\n"+
+			"Entries already installed carry the old command, and hookTarget matches only the current one, "+
+			"so they would be orphaned: never replaced, never uninstalled. Add the old form to hookTarget's "+
+			"recognised forms (with a test that it is found, replaced and removed), then update this literal.", got, want)
+	}
+	raw, _ := json.Marshal(hookEntry(4393))
+	if got := hookTarget(raw); got != hookURL(4393) {
+		t.Fatalf("hookTarget does not recognise the current entry: got %q", got)
+	}
+}
