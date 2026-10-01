@@ -137,11 +137,15 @@ const (
 	closeRotated websocket.StatusCode = 4001
 )
 
-// CloseTerminals closes every viewer of a lane (it stopped).
-func (s *Server) CloseTerminals(lane string) {
+// CloseTerminals closes every viewer of a lane of the default project (it stopped).
+func (s *Server) CloseTerminals(lane string) { s.CloseTerminalsIn(s.project("").ID, lane) }
+
+// CloseTerminalsIn closes every viewer of one project's lane.
+func (s *Server) CloseTerminalsIn(project, lane string) {
+	key := termKey(project, lane)
 	s.termMu.Lock()
-	vs := s.viewers[lane]
-	delete(s.viewers, lane)
+	vs := s.viewers[key]
+	delete(s.viewers, key)
 	s.termMu.Unlock()
 	for v := range vs {
 		// Close waits for the browser's reply; never make the stop request wait on it.
@@ -149,14 +153,15 @@ func (s *Server) CloseTerminals(lane string) {
 	}
 }
 
-// issueTicketHandler serves POST /api/lanes/{id}/ticket.
-func (s *Server) issueTicketHandler(w http.ResponseWriter, r *http.Request) {
+// issueTicketHandler serves POST /api/p/{project}/lanes/{id}/ticket. The ticket is
+// for that project's lane only.
+func (s *Server) issueTicketHandler(w http.ResponseWriter, r *http.Request, p *Project) {
 	id := r.PathValue("id")
 	if !config.ValidLaneID(id) {
 		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
 		return
 	}
-	t, err := s.issueTicket(id)
+	t, err := s.issueTicket(termKey(p.ID, id))
 	if err != nil {
 		writeLaneErr(w, laneErr(http.StatusInternalServerError, "fault", "%v", err))
 		return
@@ -212,7 +217,18 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden origin", http.StatusForbidden)
 		return
 	}
-	if s.Lanes == nil {
+	pid := r.URL.Query().Get("project")
+	if pid != "" && !config.ProjectIDRe.MatchString(pid) {
+		http.Error(w, "invalid project id", http.StatusBadRequest)
+		return
+	}
+	p := s.project(pid)
+	if p == nil {
+		http.Error(w, "no such project", http.StatusNotFound)
+		return
+	}
+	lm := p.Lanes
+	if lm == nil {
 		http.Error(w, "lanes are unavailable: tmux was not found", http.StatusNotFound)
 		return
 	}
@@ -221,15 +237,16 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid lane id", http.StatusBadRequest)
 		return
 	}
-	if !s.takeTicket(r, id) {
-		http.Error(w, "unauthorized: a terminal needs a fresh ticket from POST /api/lanes/{id}/ticket", http.StatusUnauthorized)
+	key := termKey(p.ID, id)
+	if !s.takeTicket(r, key) {
+		http.Error(w, "unauthorized: a terminal needs a fresh ticket from POST /api/p/{project}/lanes/{id}/ticket", http.StatusUnauthorized)
 		return
 	}
-	if !s.Lanes.Exists(r.Context(), id) {
+	if !lm.Exists(r.Context(), id) {
 		http.Error(w, "no such lane", http.StatusNotFound)
 		return
 	}
-	if err := s.Lanes.Harden(r.Context()); err != nil {
+	if err := lm.Harden(r.Context()); err != nil {
 		http.Error(w, "cannot secure the tmux socket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -248,8 +265,8 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		s.beforeAddViewer()
 	}
 	viewer := &termViewer{conn: c}
-	s.addViewer(id, viewer)
-	defer s.removeViewer(id, viewer)
+	s.addViewer(key, viewer)
+	defer s.removeViewer(key, viewer)
 	select {
 	case <-gen: // rotated while this upgrade was in flight
 		c.Close(closeRotated, "token rotated")
@@ -260,7 +277,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	cmd := exec.Command(s.Lanes.TmuxPath, s.Lanes.AttachArgv(id)...)
+	cmd := exec.Command(lm.TmuxPath, lm.AttachArgv(id)...)
 	cmd.Env = attachEnv()
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: clampDim(cols, 80), Rows: clampDim(rows, 24)})
 	if err != nil {
@@ -327,7 +344,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Browser → PTY: keystrokes and sizes only.
-	scroll := &copyWatch{lanes: s.Lanes, id: id, conn: c, clock: s.clock()}
+	scroll := &copyWatch{lanes: lm, id: id, conn: c, clock: s.clock()}
 	for {
 		typ, data, err := c.Read(ctx)
 		if err != nil {

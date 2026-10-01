@@ -173,7 +173,7 @@ func TestPanelRefusesBadInvocations(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"install without --project", []string{"panel", "install"}, `required flag(s) "project" not set`},
+		{"install with no project registered", []string{"panel", "install"}, "no project registered"},
 		{"a stray argument", []string{"panel", "stray"}, "stray"},
 		{"a port that is not a number", []string{"panel", "--port", "http"}, `invalid argument "http"`},
 		{"an unknown command", []string{"no-such-command"}, "unknown command"},

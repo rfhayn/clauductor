@@ -98,6 +98,12 @@ func TestPlistContent(t *testing.T) {
 	if strings.Contains(p, "ANTHROPIC") {
 		t.Fatal("plist carries an API key variable")
 	}
+	// PANEL-16: with no project the agent serves projects.json, from the home.
+	p = string(renderPlist(plistSpec{Home: home, Binary: "/b/clauductor", Port: 4393, Path: path}))
+	if !strings.Contains(p, "<string>/b/clauductor</string>\n\t\t<string>panel</string>\n\t\t<string>--port</string>\n\t\t<string>4393</string>\n\t\t<string>--launchd</string>") ||
+		strings.Contains(p, "--project") || !strings.Contains(p, "<key>WorkingDirectory</key>\n\t<string>"+home+"</string>") {
+		t.Fatalf("plist without a project:\n%s", p)
+	}
 	if runtime.GOOS == "darwin" && !testing.Short() { // -short: no real plutil
 		f := filepath.Join(t.TempDir(), "a.plist")
 		os.WriteFile(f, []byte(p), 0o644)

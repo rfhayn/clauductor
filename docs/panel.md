@@ -1,9 +1,10 @@
 # `clauductor panel` — a local web panel over your Claude sessions
 
-`clauductor panel` serves a live dashboard of every Claude Code session working in one project:
+`clauductor panel` serves a live dashboard of every Claude Code session working in your projects:
 which lanes (worktrees) have a session, whether each is busy, waiting or idle, its context %,
 its running subagents, what needs you, the account quota, open PRs, and any cards the project
-defines.
+defines. One panel serves every project you register (PANEL-16); the project's name at the top
+of the page switches between them.
 
 It also **runs lanes**: each lane is an interactive `claude` in its own tmux session, with a
 terminal embedded in the page. You start, stop, interrupt, restart and resume lanes from the
@@ -50,7 +51,9 @@ only text it types into a lane on its own is a template's first prompt, once.
 4. **Open** it: `clauductor panel` starts the panel and opens the browser. To keep it running
    with no terminal, `clauductor panel install --project <path> --app` installs a login agent;
    then `clauductor panel open` (or the app) opens the page.
-5. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
+5. **More projects**: in each other repository, `clauductor panel init`, review, `clauductor
+   panel trust`, then `clauductor panel add`, and restart the panel. See [Projects](#projects).
+6. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
    context % and quota, and put your gate script through the queue
    ([In a project's gate script](#in-a-projects-gate-script)).
 
@@ -58,23 +61,74 @@ Every command:
 
 ```bash
 clauductor panel init [--project p]           # write a starter .clauductor/panel.json (never overwrites)
-clauductor panel                              # project = git toplevel of the current directory
+clauductor panel                              # serve every project; this repository is added if it is not, and opened on
 clauductor panel --project ~/Development/app  # or name it
+clauductor panel --project p --only           # serve that one project alone
 clauductor panel --config /tmp/panel.json     # use a config outside the repo
 clauductor panel --port 4393 --no-open        # print the URL instead of opening a browser
 clauductor panel --uninstall-hooks            # remove the panel's hooks and exit
 clauductor panel --trust-config               # trust panel.json as it is now, then run
 clauductor panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
+clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`)
+clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running
+clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
-clauductor panel install --project ~/Development/app [--config <file>] [--port 4393] [--app]
-clauductor panel open                         # open the installed panel in the browser
+clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app]
+clauductor panel open [--project id]          # open the installed panel in the browser (on that project)
 clauductor panel rotate-token                 # replace the installed panel's token
 clauductor panel uninstall                    # stop and remove the login agent
 ```
 
-The panel watches one project per run. Stop a hand-started panel with Ctrl-C. Stopping the
+One panel serves every registered project. Stop a hand-started panel with Ctrl-C. Stopping the
 panel never stops a lane: lanes belong to tmux.
+
+### Projects
+
+The projects a panel serves are listed in `~/.clauductor/panel/projects.json` (0600, written
+atomically). It is the machine's file, not a repository's: nothing in a repository can add a
+project, choose its socket, or make it the default.
+
+```json
+{ "version": 1, "default": "standingt",
+  "projects": [ { "id": "standingt", "root": "/Users/me/Development/StandingT",
+                  "config": "", "tmux_socket": "clauductor", "added": 1790000000 } ] }
+```
+
+- **A project is one repository**, named by its main worktree. `panel add` refuses a linked
+  worktree (add its main one) and a path already registered, through a symlink too. Its `id`
+  (`[a-z0-9][a-z0-9-]{0,40}`) comes from the config's `name` (`StandingT` is `standingt`), or
+  `--id`; it names the project in routes and in the page. The files of a project stay where they
+  were, keyed by a hash of its path (the lane registry, trust, notifications).
+- **Adding is not trusting.** `panel add` loads and checks the config, and prints whether it is
+  trusted; its cards, queue commands and templates stay off until `clauductor panel trust`.
+- **Each project has its own tmux server.** A project's socket is its config's `tmux_socket`,
+  else the one recorded when it was added: the first project gets the historical `clauductor`,
+  so lanes started before PANEL-16 carry on, and each project after it gets `clauductor-<id>`.
+  Two projects on one socket are refused at `add`, and a project whose socket another has is not
+  loaded. `panel list` names each project's socket. Each lane is tagged with its project
+  (`@clauductor_project`); a session tagged for another project is never shown as a stray, and one
+  with no tag (started before PANEL-16) belongs to the socket's project.
+- **The default project** is the one a page with no `?p=` opens on, and the one the routes before
+  PANEL-16 reach. `panel --project p` (the login agent's plist from before PANEL-16 does this) and
+  a bare `panel` inside a repository register it if needed and make it the default. `panel add
+  --default` does too; removing the default makes the first remaining project the default.
+- **`remove`** never stops a lane and keeps the lane registry, so adding the project again brings
+  its lanes back; while lanes are registered it needs `--force`.
+- **Restart the panel after `add` or `remove`**: it reads `projects.json` at start (the commands
+  print the `launchctl kickstart` line).
+- **A project that cannot load** (its config, its worktree list, its socket) is shown in the
+  project menu with the reason, and the others serve. The project named on the command line must
+  load, as before.
+
+The hooks and the status line are the machine's: every session posts to the one panel. The panel
+places each post in its project by its session id first (a lane's own session, or a session it
+has placed before, which stays with its project after a `cd`), then by the deepest worktree of
+any project that holds its `cwd` (one repository can sit inside another's checkout). A post that
+is no project's is counted as **other projects** in each project's footer. The quota, Claude
+Code's version and the account are the machine's too: every status post moves every project's
+quota, and the quota alert notifies once, not once per project (against the default project's
+`alerts`).
 
 ## Configuration reference
 
@@ -292,6 +346,15 @@ value just changed.
 
 - **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
   lane. Totals live here and nowhere else.
+  - **The project's name is the project menu** (PANEL-16). It lists every project the panel
+    serves, each with its lanes (working, waiting, idle), how many need you there (amber, red when
+    one blocks), how many lanes it has to restore, and whether its config is untrusted; a project
+    that could not load says why. Beside the name, "N need you elsewhere" counts the other
+    projects'. The keyboard works as in **Appearance** (Down or Enter opens it, the arrows move,
+    Enter picks, Escape closes). Picking one switches the whole page: its lanes, its selected
+    lane (kept per project), and `?p=<id>` in the address, so a bookmark opens on that project.
+    Open terminals close on a switch; their lanes run on in tmux. The tab title adds ", +N
+    elsewhere" while other projects need you.
   - **The quota**: one bar per window the account's plan reports (usually the **5-hour** and
     **7-day**), each with its reset countdown, and the plan named on the first ("5-hour quota
     (Max)"). On the burn window's bar a magenta mark shows where it lands at its reset at the
@@ -449,7 +512,7 @@ value just changed.
   A closed warning stays closed in this browser while it is about the same thing, even as its
   text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
 - **Footer.** One line: hook events, status posts, **other projects** (events from sessions
-  outside the project: the hooks are the machine's, so these are expected and set aside), what
+  in no registered project: the hooks are the machine's, so these are expected and set aside), what
   was really **dropped** (overflow, malformed, unknown event; amber when any), and notifications.
   **All counters** opens the rest (the choice is remembered): drops by cause (overflow, malformed,
   unknown event name), unknown notification types, the last, mean and worst `claude agents` poll
@@ -542,7 +605,7 @@ Lanes still start only on a subscription login (*Subscription only*).
 ## Lanes
 
 A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
-(`tmux -L clauductor`, or `tmux_socket`). tmux owns the process, not the panel, so:
+(`tmux -L clauductor`, `clauductor-<id>`, or `tmux_socket`: one per project, see [Projects](#projects)). tmux owns the process, not the panel, so:
 
 - closing the browser, or restarting or upgrading the panel, leaves every lane running;
 - several viewers can share a lane: browser tabs, and a Terminal.app window.
@@ -1451,13 +1514,13 @@ send requests to `127.0.0.1`.
   inside `.xterm`, and only for a value made of `color` / `background-color` declarations with a
   hex or `rgb()` value. Any other style attribute still meets the CSP.
   `TestXtermStyleRouteIsNarrow` runs it in node (skipped where node is absent).
-- **The terminal endpoint** (`GET /ws/term?lane=<id>`) is a shell into a lane, and it is the most
+- **The terminal endpoint** (`GET /ws/term?project=<id>&lane=<id>`) is a shell into a lane, and it is the most
   guarded route. It needs all of the following:
   - the Host check;
   - the cookie;
   - an `Origin` exactly equal to `http://<the Host>`, meaning scheme, host and port;
-  - **a single-use ticket**. The page gets one from `POST /api/lanes/<id>/ticket`, which checks
-    `Origin`. A ticket is valid for 30 s, for that one lane, and is sent in the
+  - **a single-use ticket**. The page gets one from `POST /api/p/<project>/lanes/<id>/ticket`, which checks
+    `Origin`. A ticket is valid for 30 s, for that one lane of that one project (a ticket for a/x never opens b/x), and is sent in the
     `Sec-WebSocket-Protocol` header, never in the URL. The cookie alone is not enough, because
     cookies are not isolated by port (RFC 6265 §8.5). A page on another loopback port, such as a
     dev server on `:3000`, is same-site, and the browser sends it the panel's cookie. So is a page
@@ -1504,7 +1567,7 @@ send requests to `127.0.0.1`.
   in-page confirmation that shows its real address, since its text can say anything. The
   plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
   lane may print, other schemes and look-alike link text. Title escapes are ignored.
-- **A dropped image** (`POST /api/lanes/<id>/image`, PANEL-15b) is a lane action like the
+- **A dropped image** (`POST /api/p/<project>/lanes/<id>/image`, PANEL-15b) is a lane action like the
   others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
   the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
   body needs a CORS preflight, which the panel never answers. The bytes decide what it is (PNG,
@@ -1526,10 +1589,19 @@ send requests to `127.0.0.1`.
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
   answer `204` before processing, and never execute anything. The worst a local process can do
   is post fake lane events.
-- **Events from other projects are dropped.** An event counts only if its `cwd` is inside one
-  of the project's worktrees, as `git worktree list --porcelain` reports them. That list is the
-  authority, never a hand-kept list. It is re-read every 10 s, and early when a worktree is
-  added or removed or when an event arrives from an unknown `cwd`.
+- **Every route is a project's** (PANEL-16). The actions are served under
+  `/api/p/<project>/…` (lanes, a lane's actions and ticket, restore-all, the queues, refresh), and
+  the streams take `?project=<id>` (`/events`, `/api/state`, `/ws/term`). Each passes the same
+  guards as before: the Host check, the cookie, and for a POST this page's `Origin`; a test checks
+  every one of them. A project the panel does not serve is 404. The paths before PANEL-16
+  (`/api/lanes/…`, `/api/queues/…`, `/api/refresh`) reach the default project for one release, so
+  a page left open across the upgrade keeps working. `host_names` is the union of the default
+  project's and every trusted project's, so an untrusted config cannot add a name.
+- **Events of no project are set aside.** An event counts only if its session is one of a
+  project's, or its `cwd` is inside one of the project's worktrees, as `git worktree list
+  --porcelain` reports them. That list is the authority, never a hand-kept list. It is re-read
+  every 10 s, and early when a worktree is added or removed or when an event arrives from an
+  unknown `cwd`.
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
@@ -1537,6 +1609,8 @@ send requests to `127.0.0.1`.
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
+  - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
+    started on a project it does not list) or removed; a refused start writes nothing;
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
@@ -1581,18 +1655,21 @@ the machine, it logs "waiting for the running panel to exit" once, blocks on the
 over as soon as that panel stops. (Only a live panel from before the lock, which it cannot wait
 on, makes it log why and exit 0; start it again with `launchctl kickstart
 gui/<uid>/com.clauductor.panel` once that panel has stopped.) A panel started by hand is still
-refused at once. Watching several projects from one panel, a multi-project daemon, is future
-work; until it lands, run one project's panel at a time.
+refused at once. One panel serves every project (see [Projects](#projects)), so there is no
+reason for a second.
 
 ### The launchd agent
 
 ```bash
 clauductor panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
+clauductor panel install                                      # once projects.json holds a project
 ```
 
 `install`:
 
-1. Loads the config and refuses if it is missing or invalid, rather than crash-looping later.
+1. With `--project`, adds the project (if it is not) as the default, and trusts its config as it
+   is now. Without it, `projects.json` must hold a project. Either way it loads the default
+   project's config and refuses if it is missing or invalid, rather than crash-looping later.
 2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
    a build directory or a worktree that may disappear. Re-run `install` after upgrading
    clauductor.
@@ -1610,6 +1687,11 @@ clauductor panel install --project ~/Development/app          # add --app for a 
      `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
      directories. launchd's default PATH has none of these.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
+
+Since PANEL-16 the plist runs `clauductor panel --port <port> --launchd`, from your home
+directory: the agent serves `projects.json` as it is. A plist written before names `--project
+<path>`; it keeps working, and at its first start the panel adds that project (if it is not) and
+makes it the default. Re-run `install` to write the new form.
 
 Under launchd, the panel runs with `--launchd`:
 
@@ -1670,8 +1752,9 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
    `launchctl print gui/$(id -u)/com.clauductor.panel`.
 3. Read `~/.clauductor/panel/logs/panel.err.log`. The usual causes are a port another process
    holds, or a config that moved. In both cases the log says which.
-4. To reach a lane with no panel, run `tmux -L clauductor ls`, then
-   `tmux -L clauductor attach -t '=<lane>'`. Quote the target, because zsh expands a bare
+4. To reach a lane with no panel, run `tmux -L <socket> ls` (the project's socket: `clauductor
+   panel list` names it; `clauductor` for the first project), then
+   `tmux -L <socket> attach -t '=<lane>'`. Quote the target, because zsh expands a bare
    `=word`. The panel's socket has no prefix key (see [Security model](#security-model)), so close
    the window to detach; the lane keeps running.
 5. If the config file moved (for example, `--config` pointed into a worktree that was removed),
@@ -1799,7 +1882,10 @@ go test -race -run '^TestLockRunTwoProcessesQueue$' -count=200 ./internal/panel/
 ## Not yet
 
 - No removing a worktree from the page.
-- One project per panel.
+- Adding or removing a project needs a panel restart; so does fixing a project that could not
+  load. The Needs-you rows show the project on view only (the menu and the tab title count the
+  others). One `claude agents` poll runs per project. Quota thresholds are the 5-hour window's,
+  and lanes start only on a subscription login.
 - No remote access; the panel is loopback only.
 - The panel never answers a permission request. Doing it from the browser would need a
   token-carrying HTTP hook (`headers` plus `allowedEnvVars`), and is not planned.

@@ -36,10 +36,12 @@ import (
 type PanelOwner struct {
 	PID     int    `json:"pid"`
 	PStart  string `json:"pstart"`
-	Project string `json:"project"`
+	Project string `json:"project"` // the default project, for readers from before PANEL-16
 	Name    string `json:"name,omitempty"`
 	Port    int    `json:"port"`
 	Started int64  `json:"started"`
+	// Projects are the roots of every project it serves (PANEL-16).
+	Projects []string `json:"projects,omitempty"`
 }
 
 // ownerPath is the running panel's owner record.
@@ -128,6 +130,9 @@ func (o PanelOwner) Describe() string {
 	}
 	if o.Project != "" {
 		s += ", " + o.Project
+	}
+	if n := len(o.Projects); n > 1 {
+		s += fmt.Sprintf(" and %d other project(s)", n-1)
 	}
 	return s
 }

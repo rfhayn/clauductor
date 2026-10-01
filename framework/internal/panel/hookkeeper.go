@@ -9,7 +9,6 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
 // hookKeeper keeps this panel's hooks installed: at start, then every interval.
@@ -18,7 +17,7 @@ import (
 type hookKeeper struct {
 	home       string
 	port       int
-	hub        *web.Hub
+	apply      func(update) // applies an update to every project's model
 	out        io.Writer
 	interval   time.Duration
 	retryBase  time.Duration
@@ -36,7 +35,7 @@ func (k *hookKeeper) check() bool {
 	d, _ := install.ReadHookDrift(k.home, k.port)
 	for _, p := range d.Ports {
 		if pid := install.LivePanelAt(context.Background(), p); pid > 0 && pid != os.Getpid() {
-			k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
+			k.apply(func(m *state.Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
 			if !k.conflicted {
 				fmt.Fprintf(k.out, "the hooks point at another live panel (pid %d, port %d); leaving them alone until it stops\n", pid, p)
 			}
@@ -51,7 +50,7 @@ func (k *hookKeeper) check() bool {
 	}
 	changed, err := install.InstallHooks(k.home, k.port)
 	if err != nil {
-		k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookHealth(err, "", now) })
+		k.apply(func(m *state.Model, now time.Time) { m.ApplyHookHealth(err, "", now) })
 		fmt.Fprintf(k.out, "installing hooks failed (the panel keeps running and retries): %v\n", err)
 		return false
 	}
@@ -71,7 +70,7 @@ func (k *hookKeeper) check() bool {
 		repaired = drift
 	}
 	k.installed = true
-	k.hub.Update(func(m *state.Model, now time.Time) { m.ApplyHookHealth(nil, repaired, now) })
+	k.apply(func(m *state.Model, now time.Time) { m.ApplyHookHealth(nil, repaired, now) })
 	return true
 }
 

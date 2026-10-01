@@ -26,7 +26,12 @@
      across every lane. Totals live here and nowhere else. -->
 <header class="status" id="status">
   <div class="brandrow">
-    <h1 id="pname">…</h1>
+    <!-- The project, and the menu of every project the panel serves (PANEL-16). -->
+    <div class="picker projpick">
+      <h1><button class="projbtn" id="projbtn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="projmenu"
+        title="Switch project"><span id="pname">…</span><span class="projelse" id="projelse"></span></button></h1>
+      <div class="menu projmenu" id="projmenu" role="listbox" aria-label="Projects" hidden></div>
+    </div>
     <span class="live dead" id="live"><span class="sq" aria-hidden="true"></span><span id="livetext">Connecting</span></span>
     <div class="sp"></div>
     <div class="tools">
