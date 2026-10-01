@@ -256,7 +256,7 @@ else
       t == "// <review-prompt>" || t == "// <review-call>" { in_s = 1; next }
       t == "// </review-prompt>" || t == "// </review-call>" { in_s = 0; next }
       t ~ /^\/\// { next }
-      !in_s && /agentType: *.reviewer.|schema: *REVIEW[^_A-Za-z]|schema: *REVIEW$|reviewSpawn\(|reviewPrompt\(|REVIEW_PROMPT/ { print NR ": " t }' "$wfr")
+      !in_s && /agentType: *.reviewer.|schema: *REVIEW[^_A-Za-z]|schema: *REVIEW$|reviewSpawn\(|reviewPrompt\(|REVIEW_PROMPT|[^.A-Za-z_]rev *= *[^=]|rev\.findings *= *[^=]|rev\.findings\.(push|pop|shift|unshift|splice|length *= *[^=])|Object\.assign\(rev[,)]/ { print NR ": " t }' "$wfr")
     if [ -z "$outside" ]; then ok "build-change.js spawns the reviewer only inside its marked review-prompt and review-call sections"
     else fail "build-change.js reaches the reviewer outside the marked sections rule 13 hashes, so an edit there would change the review with no eval: $(printf '%s' "$outside" | tr '\n' ';')"; fi
   fi

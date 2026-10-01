@@ -243,7 +243,7 @@ mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/c
 jq '.provenance.enabled = false' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 cp "$CLAUDUCTOR_FW/agents/reviewer.md" "$CLAUDUCTOR_FW/agents/builder.md" "$R/.claude/agents/"
 wf() {  # wf [PROMPT] [OUTSIDE] [CALL] [AGENT_TYPE]: a build-change.js with both marked sections
-  printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst REVIEW_PROMPT = "%s"\nconst REVIEW = {"type":"object","properties":{"findings":{"type":"array"}},"required":["findings"]}\nconst reviewSpawn = () => agent(REVIEW_PROMPT, { schema: REVIEW, agentType: %s })\n// </review-prompt>\nconst b = 2\n// <review-call>\nconst rev = await %s\n// </review-call>\n' \
+  printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst REVIEW_PROMPT = "%s"\nconst REVIEW = {"type":"object","properties":{"findings":{"type":"array"}},"required":["findings"]}\nconst reviewSpawn = () => agent(REVIEW_PROMPT, { schema: REVIEW, agentType: %s })\n// </review-prompt>\nconst b = 2\n// <review-call>\nconst rev = await %s\n// </review-call>\nconst pick = (role) => {\n  return ROLES[role]\n}\n' \
     "${2:-}" "${1:-Review group {n} of {change}.}" "${4:-'reviewer'}" "${3:-reviewSpawn()}" > "$R/.claude/workflows/build-change.js"
 }
 wf
@@ -324,7 +324,24 @@ on ops/models; roles_set '.evals.thresholds.recall = 0.7'; head_of "recall floor
 g13 2 "the recall floor lowered"
 on ops/models; ev opus high; roles_set '.evals.thresholds.recall = 0.9'; head_of "recall floor raised"; at
 g13 0 "the recall floor RAISED (stricter) is not a weakening"
-on ops/models; printf '// the workflow, markers gone\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"; head_of "markers removed"; at
+# pick() picks the reviewer's model at run time, outside every hashed section (OPS-16 round 2).
+on ops/models; sed 's/^const pick = (role) => {$/&\
+  if (role === "reviewer") return { model: "haiku", effort: "low" }/' "$R/.claude/workflows/build-change.js" > "$d/wf" && cp "$d/wf" "$R/.claude/workflows/build-change.js"; ev opus high; head_of "pick routes the reviewer to haiku"; at
+g13 2 "pick() edited to route the reviewer to haiku, even with a receipt (no receipt hashes pick)"
+grep -q "changes (or removes) build-change.js's pick()" "$d/err" && ok "...and the block names pick()" || fail "pick block: $(cat "$d/err")"
+# A suite weakened without being deleted, and a receipt scored on another suite.
+on ops/models; rm -rf "$R/.claude/evals/reviewer/cases/two"; head_of "a clean case removed"; at
+g13 2 "a base eval case removed (the suite weakened, not deleted)"
+on ops/models; jq '.expected = []' "$R/.claude/evals/reviewer/cases/one/case.json" > "$d/cj" && cp "$d/cj" "$R/.claude/evals/reviewer/cases/one/case.json"; head_of "a case's planted defect dropped"; at
+g13 2 "a base case's planted defects changed"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high; echo "echo c" > "$R/.claude/evals/reviewer/cases/one/after/one.sh"; head_of "receipt, then a case's code edited"; at
+g13 2 "a receipt scored on another suite than the head's (a case edited after it ran)"
+grep -q 'scored on another suite' "$d/err" && ok "...and the block names the suite" || fail "suite hash block: $(cat "$d/err")"
+# Deleting the declaration falls back to the BROADER default: not a narrowing (a receipt still needed).
+on ops/models; roles_set 'del(.evals.triggers.reviewer)'; ev opus high; head_of "declaration deleted, default applies"; at
+g13 0 "the reviewer's declaration deleted, with a receipt: the broader default is not a narrowing"
+grep -q 'narrows' "$d/err" && fail "a fallback to the broader default was reported as narrowing: $(grep narrows "$d/err")" || ok "...and nothing calls it narrowing"
+on ops/models; printf '// the workflow, markers gone\nconst reviewPrompt = () => "Review it."\nconst pick = (role) => {\n  return ROLES[role]\n}\n' > "$R/.claude/workflows/build-change.js"; head_of "markers removed"; at
 g13 2 "the review-prompt markers removed (fails closed: the section cannot be read)"
 grep -q 'review-prompt cannot be read at the head' "$d/err" && ok "...and the block names the missing markers" || fail "rule 13 markers block: $(cat "$d/err")"
 on ops/models; printf '// <review-prompt>\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"

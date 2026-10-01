@@ -206,6 +206,10 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
     elif [ "$_gab" != "$(evals_input_hash_at "$1" "$_gaf")" ]; then
       _why="${_why}${_why:+; }the agent file it evaluated ($_gaf, blob $_gab) is not the head's"
     fi
+    # The suite it was scored on must be the head's: an easier suite scores higher.
+    _gsh=$(jq -r '.suite.hash // "-"' "$_f" 2>/dev/null)
+    [ "$_gsh" = "$(evals_tree_hash_at "$1" ".claude/evals/$2/cases")" ] \
+      || _why="${_why}${_why:+; }it was scored on another suite than the head's .claude/evals/$2/cases (suite hash $_gsh)"
     [ "$_grole" = "$_wrole" ] || _why="${_why}${_why:+; }it ran on another model, effort or tier variant of role $2 than the head's (role hash $_grole, head $_wrole)"
     [ "$_got" = "$_want" ] || _why="${_why}${_why:+; }it ran at other trigger inputs than the head's (has [$(printf '%s' "$_got" | tr '\n' ',')], head [$(printf '%s' "$_want" | tr '\n' ',')]), so something it measured changed after it ran"
     rm -f "$_f"
@@ -223,24 +227,51 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
 # exists for an ops PR, so these BLOCK OUTRIGHT here; the owner merges such a PR themselves.
 #   - a role's trigger inputs narrowed: any input the base declares (or defaults to) that the head
 #     does not, including a declaration emptied or one replacing the broad default;
-#   - a suite at the base that the head lacks (deleting it would turn rule 13 into an advisory);
-#   - .evals.thresholds weakened: recall or severity_accuracy lowered, fp_rate raised, or removed.
+#   - a suite at the base that the head lacks (deleting it would turn rule 13 into an advisory), or
+#     a base case removed, or a base case's kind or planted defects (case.json .kind/.expected)
+#     changed: a suite can be weakened one case at a time without being deleted;
+#   - .evals.thresholds weakened: recall or severity_accuracy lowered, fp_rate raised, or removed;
+#   - build-change.js's pick() changed. It chooses the reviewer's model and effort at run time,
+#     outside every hashed section, and no receipt names it, so a receipt cannot cover a change
+#     to it. checks/build-change.sh executes it and holds pick('reviewer') to model-roles.json at
+#     every Risk tier; this makes ANY edit to it the owner's call, so a change the contract's
+#     inputs miss (one that keys on the change id, the date, an environment variable) cannot land
+#     through Claude either.
+# An input is covered (not narrowed) when the head declares it, or declares a dir/ holding it: a
+# role whose declaration is deleted falls back to the broader default, which is not a narrowing.
 cg_eval_policy() {  # cg_eval_policy BASE HEAD: why this PR weakens rule 13 itself, one per line, or nothing
   _mr=.claude/model-roles.json
   git cat-file -e "$1:$_mr" 2>/dev/null || return 0
   _hs=$(evals_suite_roles_at "$2")
   for _r in $(evals_suite_roles_at "$1"); do
-    printf '%s\n' "$_hs" | grep -qxF "$_r" || echo "it deletes role $_r's eval suite (.claude/evals/$_r/cases/), which turns rule 13 for $_r into an advisory"
+    if ! printf '%s\n' "$_hs" | grep -qxF "$_r"; then
+      echo "it deletes role $_r's eval suite (.claude/evals/$_r/cases/), which turns rule 13 for $_r into an advisory"; continue
+    fi
+    for _c in $(git ls-tree --name-only "$1" -- ".claude/evals/$_r/cases/" 2>/dev/null); do
+      _k="$_c/case.json"
+      git cat-file -e "$1:$_k" 2>/dev/null || continue
+      if ! git cat-file -e "$2:$_k" 2>/dev/null; then echo "it removes eval case ${_c##*/} from role $_r's suite"; continue; fi
+      [ "$(git show "$1:$_k" | jq -cS '{kind, expected}' 2>/dev/null)" = "$(git show "$2:$_k" | jq -cS '{kind, expected}' 2>/dev/null)" ] \
+        || echo "it changes what eval case ${_c##*/} of role $_r plants or expects (case.json .kind/.expected)"
+    done
   done
   for _r in $( { evals_suite_roles_at "$1"
                  git show "$1:$_mr" 2>/dev/null | jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' 2>/dev/null
                } | sort -u); do
     _th=$(evals_triggers_at "$2" "$_r")
     _gone=$(evals_triggers_at "$1" "$_r" | while IFS= read -r _i; do
-      printf '%s\n' "$_th" | grep -qxF "$_i" || printf '%s ' "$_i"
+      printf '%s\n' "$_th" | grep -qxF "$_i" && continue
+      _cov=""
+      for _d in $(printf '%s\n' "$_th" | grep '/$'); do case "${_i%%#*}" in ("$_d"*) _cov=1 ;; esac; done
+      [ -n "$_cov" ] || printf '%s ' "$_i"
     done)
     [ -z "$_gone" ] || echo "it narrows role $_r's eval triggers: ${_gone}would no longer need a receipt to change"
   done
+  _pk() { git show "$1:.claude/workflows/build-change.js" 2>/dev/null | awk '/^const pick = \(role\) => \{$/ { p = 1 } p { print } p && /^}$/ { exit }'; }
+  _pb=$(_pk "$1")
+  if [ -n "$_pb" ] && [ "$_pb" != "$(_pk "$2")" ]; then
+    echo "it changes (or removes) build-change.js's pick(), which chooses the reviewer's model at run time outside the hashed sections"
+  fi
   _tb=$(git show "$1:$_mr" 2>/dev/null | jq -c '.evals.thresholds // {}' 2>/dev/null); [ -n "$_tb" ] || _tb='{}'
   git show "$2:$_mr" 2>/dev/null | jq -r --argjson b "$_tb" '(.evals.thresholds // {}) as $h
     | [ ("recall", "severity_accuracy") as $k | select($b[$k] != null and (($h[$k] | type) != "number" or $h[$k] < $b[$k])) | "\($k) \($b[$k]) -> \($h[$k])" ]

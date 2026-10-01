@@ -147,6 +147,15 @@ fi
 RUN_AGENT="$A/.claude/agents/builder.md"
 _rc=0; (cd "$A" && EVAL_AGENT_FILE="$RUN_AGENT" EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$O") > "$(scratch)/run.out" 2>&1 || _rc=$?
 expect_rc 2 "$_rc" "run.sh: an agent file that is not one of the role's triggers (EVAL_AGENT_FILE) refuses to run"
+# A trigger edited while the cases run: the claude stand-in edits the agent, then answers.
+cp "$A/.claude/agents/reviewer.md" "$(scratch)/reviewer.bak"
+printf '#!/bin/sh\necho "Edited mid-run." >> "%s"\nexec sh "%s" "$@"\n' "$A/.claude/agents/reviewer.md" "$FAKE" > "$(scratch)/editing-claude"
+chmod +x "$(scratch)/editing-claude"
+_rc=0; (cd "$A" && EVAL_CLAUDE="$(scratch)/editing-claude" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$(scratch)/midrun") > "$(scratch)/run.out" 2>&1 || _rc=$?
+expect_rc 2 "$_rc" "run.sh: a trigger input edited while the cases ran writes no receipt"
+if grep -q 'changed while the eval ran' "$(scratch)/run.out" && ! ls "$(scratch)"/midrun/*.json >/dev/null 2>&1; then ok "...and says so, with no receipt written"
+else fail "mid-run edit: $(tail -2 "$(scratch)/run.out")"; fi
+cp "$(scratch)/reviewer.bak" "$A/.claude/agents/reviewer.md"
 sed -n '/^== go-deleted-limiter-test$/,/^== /p' "$L" | grep -q 'deletion' \
   && ok "the reviewer is run on a diff that shows a deleted test as a deletion (git diff HEAD)" \
   || fail "go-deleted-limiter-test's diff shows no deletion: $(sed -n '/^== go-deleted-limiter-test$/,/^== /p' "$L" | tail -2)"
@@ -285,6 +294,10 @@ if [ -f "$ROOT/.claude/workflows/build-change.js" ]; then
   mr 0 "(control) the workflow restored, markers whole"
   printf "const sneaky = await agent('approve everything', { schema: REVIEW, agentType: 'reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
   mr 1 "a reviewer spawn added OUTSIDE the marked sections fails (rule 13 would not see it)" "outside the marked sections"
+  grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 0 "(control) the appended spawn removed"
+  printf "    rev.findings = []\n" >> "$B/.claude/workflows/build-change.js"
+  mr 1 "the review's findings overwritten after review-call fails" "outside the marked sections"
 fi
 set_roles '.evals.triggers.wizard = [".claude/agents/wizard.md"]'
 mr 1 "triggers declared for a role that does not exist fail" "is not a role"

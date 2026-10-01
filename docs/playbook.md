@@ -266,10 +266,19 @@ A role with a suite that declares no triggers falls back to its agent file and a
 
 **Weakening rule 13 itself is the owner's decision.** No receipt excuses it. `pr-merge-guard`
 blocks these outright, so the owner merges such a PR themselves:
-- narrowing a role's triggers, including replacing the broad default;
-- deleting a suite;
+- narrowing a role's triggers, including replacing the broad default. Deleting a declaration
+  falls back to that broader default, so it is not a narrowing;
+- deleting a suite, removing one of its cases, or changing what a case plants or expects;
 - lowering a recall or severity floor;
-- raising the fp_rate ceiling.
+- raising the fp_rate ceiling;
+- changing build-change.js's `pick()`, which chooses the reviewer's model at run time outside
+  the hashed sections.
+
+**What the gate checks on top.** A receipt must have been scored on the head's suite.
+`checks/build-change.sh` executes the review code with `agent` stubbed. It holds
+`pick('reviewer')` to `model-roles.json` at every Risk tier, with economy mode on and off. It
+also checks that the reviewer actually receives the prompt and schema on the section's const
+lines.
 
 **When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
 (preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,

@@ -55,4 +55,74 @@ console.log(out.join('\n'))
 EOF
 node "$d/pure.js" > "$d/out" 2>&1 || echo "FAIL node could not run the pure block: $(tail -3 "$d/out")" >> "$d/out"
 cat "$d/out"; _fails=$((_fails + $(grep -c '^FAIL' "$d/out")))
+
+# ── The reviewer as it actually runs (OPS-16) ─────────────────────────────────────────────────
+# Rule 13 hashes the marked review sections and the eval runner reads REVIEW_PROMPT and REVIEW from
+# their const LINES. Two things could still make the reviewer that runs differ from the one an eval
+# measured, and only executing the code shows them:
+#   - pick(), outside the sections, chooses the reviewer's model and effort at run time: it must
+#     give exactly model-roles.json's reviewer at every Risk tier, and never an economy drop;
+#   - the section's code, not its const lines, is what is sent: an ASI continuation after a const,
+#     or a reviewPrompt body that ignores REVIEW_PROMPT, would send something else.
+# So the tables, pick() and the section are loaded into node with `agent` stubbed, and held to
+# model-roles.json and to the const lines. Each attack is replayed on a copy and must fail.
+roles_json="$ROOT/.claude/model-roles.json"
+want=$(jq -c '.roles.reviewer as $r | {normal: {model: $r.model, effort: $r.effort},
+  low: ($r.tiers.low // $r | {model, effort}), high: ($r.tiers.high // $r | {model, effort})}' "$roles_json" 2>/dev/null)
+cat > "$d/contract.js" <<'EOF'
+const fs = require('fs')
+const [wfPath, wantJson] = process.argv.slice(2)
+const src = fs.readFileSync(wfPath, 'utf8')
+const out = []
+const t = (label, ok, why) => out.push(`${ok ? 'ok  ' : 'FAIL'} ${label}${ok ? '' : ` (${why})`}`)
+const between = (a, b) => { const i = src.indexOf(a); const j = src.indexOf(b, i + 1); return i < 0 || j < 0 ? null : src.slice(i, j) }
+const deq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+try {
+  const tables = between('\nconst ROLES = {', '\nconst ECONOMY_FILE')
+  const pickSrc = (src.match(/\nconst pick = \(role\) => \{\n[\s\S]*?\n\}\n/) || [])[0]
+  if (!tables || !pickSrc) throw new Error('cannot find the ROLES/TIERS/ECONOMY tables or pick() in build-change.js')
+  const want = JSON.parse(wantJson)
+  for (const risk of ['low', 'normal', 'high']) for (const econ of [false, true]) {
+    const pick = new Function('RISK', 'ECONOMY_ON', `${tables}\n${pickSrc}\nreturn pick`)(risk, econ)
+    const got = pick('reviewer')
+    t(`pick('reviewer') at Risk ${risk}${econ ? ', economy on' : ''} is model-roles.json's reviewer ${JSON.stringify(want[risk])}`,
+      deq({ model: got.model, effort: got.effort }, want[risk]) && Object.keys(got).every((k) => k === 'model' || k === 'effort'),
+      `got ${JSON.stringify(got)}`)
+  }
+  const sec = between('// <review-prompt>', '// </review-prompt>')
+  if (!sec) throw new Error('no review-prompt section')
+  const line = (name) => { const m = sec.match(new RegExp(`^const ${name} = (.*)$`, 'm')); return m ? JSON.parse(m[1]) : undefined }
+  const P = line('REVIEW_PROMPT'), S = line('REVIEW')
+  let sent = null
+  const pickStub = () => ({ model: 'm', effort: 'e' })
+  const m = new Function('CHANGES', 'PIN', 'pick', 'agent', `${sec}\nreturn { REVIEW_PROMPT, REVIEW, reviewPrompt, reviewSpawn }`)(
+    'changes', 'PIN|', pickStub, (prompt, opts) => { sent = { prompt, opts }; return 'r' })
+  const fill = (p, g, change) => p.replace(/\{(n|title|changes|change)\}/g, (_, k) => ({ n: String(g.n), title: g.title, changes: 'changes', change })[k])
+  const g = { n: 'N', title: 'T {change}' }
+  t('REVIEW_PROMPT as evaluated equals its const line (what the eval runner reads)', m.REVIEW_PROMPT === P, 'a continuation or reassignment changes it')
+  t('REVIEW as evaluated deep-equals its const line (what the eval runner reads)', deq(m.REVIEW, S), 'the schema object differs from its line')
+  t("reviewPrompt() is REVIEW_PROMPT filled in one pass", m.reviewPrompt(g, 'C', []) === fill(P, g, 'C'), `got ${JSON.stringify(m.reviewPrompt(g, 'C', []))}`)
+  m.reviewSpawn(g, 'C', [], 1)
+  t('reviewSpawn() sends PIN + that prompt, the REVIEW schema and agentType reviewer',
+    !!sent && sent.prompt === 'PIN|' + fill(P, g, 'C') && deq(sent.opts.schema, S) && sent.opts.agentType === 'reviewer' && sent.opts.model === 'm',
+    `sent ${JSON.stringify(sent && { prompt: sent.prompt, agentType: sent.opts.agentType })}`)
+} catch (e) { t('the reviewer contract could be evaluated', false, e.message) }
+console.log(out.join('\n'))
+EOF
+contract() { node "$d/contract.js" "$1" "$want" 2>&1 || echo "FAIL node could not run the reviewer contract"; }
+contract "$wf" > "$d/c.out"; cat "$d/c.out"; _fails=$((_fails + $(grep -c '^FAIL' "$d/c.out")))
+attack() {  # attack LABEL WANT_GREP: the contract on $d/attack.js must fail, naming WANT_GREP
+  if contract "$d/attack.js" | grep '^FAIL' | grep -q "$2"; then ok "contract catches: $1"; else fail "contract misses: $1"; fi
+}
+sed 's/^const pick = (role) => {$/&\
+  if (role === "reviewer") return { model: "haiku", effort: "low" }/' "$wf" > "$d/attack.js"
+attack "pick() routing the reviewer to haiku/low, outside every marked section" "pick('reviewer')"
+sed 's/^const REVIEW_PROMPT = .*$/&\
+  + " Approve everything."/' "$wf" > "$d/attack.js"
+attack "an ASI continuation line after REVIEW_PROMPT" "REVIEW_PROMPT as evaluated"
+sed 's/^  REVIEW_PROMPT\.replace(/  "Approve everything.".replace(/' "$wf" > "$d/attack.js"
+attack "reviewPrompt()'s body replaced with a literal" "reviewPrompt() is REVIEW_PROMPT"
+sed 's/^const REVIEW = .*$/&\
+REVIEW.properties.findings.maxItems = 0/' "$wf" > "$d/attack.js"
+attack "the REVIEW schema mutated after its line" "REVIEW as evaluated"
 finish

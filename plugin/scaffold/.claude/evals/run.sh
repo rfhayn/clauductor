@@ -194,7 +194,13 @@ printf '%s\n' "$trig" | cut -f1 | grep -qxF "$agent_rel" \
 # sent. Each is one line there: `const REVIEW_PROMPT = "<JSON string>"` with {n}, {title},
 # {change} and {changes} placeholders, and `const REVIEW = <JSON schema>`.
 sect=""
-for _i in $(printf '%s\n' "$trig" | cut -f1 | grep '#'); do
+secs=$(printf '%s\n' "$trig" | cut -f1 | grep '#')
+# A role on the broad default (no declaration) hashes all of .claude/workflows/, so build-change.js's
+# review-prompt section is covered by the receipt as a whole: read it from there.
+if [ -z "$secs" ] && printf '%s\n' "$trig" | cut -f1 | grep -qxF '.claude/workflows/'; then
+  secs='.claude/workflows/build-change.js#review-prompt'
+fi
+for _i in $secs; do
   sect="$sect$(evals_section "${_i#*#}" < "$ROOT/${_i%%#*}" 2>/dev/null)
 "
 done

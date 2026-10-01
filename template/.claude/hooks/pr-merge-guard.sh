@@ -29,8 +29,10 @@
 #      the reviewer, its agent file and the marked review-prompt section of build-change.js) is
 #      blocked unless the head holds a passing eval receipt (.claude/evals/run.sh) for that role,
 #      run at the head's hashes of exactly those inputs (OPS-10, OPS-16; .claude/lib/evals.sh).
-#      A PR that narrows a role's triggers, deletes a suite or weakens .evals.thresholds is
-#      blocked outright: the owner's decision, which no receipt excuses.
+#      A PR that narrows a role's triggers, deletes a suite, removes a case or changes what one
+#      plants, weakens .evals.thresholds, or changes build-change.js's pick() is blocked outright:
+#      the owner's decision, which no receipt excuses. A receipt must also have been scored on the
+#      head's suite.
 #   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
 #
