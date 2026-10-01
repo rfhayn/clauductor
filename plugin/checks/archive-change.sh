@@ -235,6 +235,107 @@ arc add-greeting-name --apply; rc=$?
 expect_rc 0 "$rc" "a chain of renames in one delta is promoted, with no false count FAIL"
 grep -qx '### Requirement: Welcome each visitor' "$F/specs/greeting/spec.md" && ok "...under the last name" || fail "chain: $(tr '\n' '|' < "$F/out")"
 
+# A shift (B->C, then A->B) and a swap through a temporary name: each count follows its requirement.
+ab='# Greeting
+
+## Purpose
+Greets a visitor on the home page, so a first visit feels addressed rather than anonymous.
+
+## Requirements
+### Requirement: Alpha
+The system SHALL alpha.
+
+#### Scenario: a one
+- **THEN** a
+
+#### Scenario: a two
+- **THEN** a
+
+### Requirement: Beta
+The system SHALL beta.
+
+#### Scenario: b one
+- **THEN** b
+'
+mk shift; rm -rf "$F/$C/specs/farewell"; living greeting "$ab"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Beta`
+- TO: `### Requirement: Gamma`
+- FROM: `### Requirement: Alpha`
+- TO: `### Requirement: Beta`
+'
+arc add-greeting-name --apply; rc=$?
+expect_rc 0 "$rc" "a rename shift (Beta to Gamma, then Alpha to Beta) is promoted, with no false count FAIL"
+[ "$(scenario_counts "$F/specs/greeting/spec.md" | tr '\t\n' ':;')" = "2:Beta;1:Gamma;" ] && ok "...Alpha's scenarios under Beta, Beta's under Gamma" || fail "shift: $(scenario_counts "$F/specs/greeting/spec.md" | tr '\t\n' ':;') / $(tr '\n' '|' < "$F/out")"
+mk swap2; rm -rf "$F/$C/specs/farewell"; living greeting "$ab"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Alpha`
+- TO: `### Requirement: Tmp`
+- FROM: `### Requirement: Beta`
+- TO: `### Requirement: Alpha`
+- FROM: `### Requirement: Tmp`
+- TO: `### Requirement: Beta`
+'
+arc add-greeting-name --apply; rc=$?
+expect_rc 0 "$rc" "a rename swap through a temporary name is promoted"
+[ "$(scenario_counts "$F/specs/greeting/spec.md" | tr '\t\n' ':;')" = "2:Beta;1:Alpha;" ] && ok "...each requirement's scenarios under its new name" || fail "swap: $(scenario_counts "$F/specs/greeting/spec.md" | tr '\t\n' ':;') / $(tr '\n' '|' < "$F/out")"
+
+# design.md names a dropped scenario by its ID only as a whole ID: GREETING-1-S1 is not in GREETING-1-S10.
+twoid='# Greeting
+
+## Purpose
+Greets a visitor on the home page, so a first visit feels addressed rather than anonymous.
+
+## Requirements
+### Requirement: Greet every visitor
+The system SHALL show a greeting on the home page to every visitor.
+
+#### Scenario: [GREETING-1-S1] An anonymous visitor is greeted
+- **THEN** the page shows "Hello!"
+
+#### Scenario: [GREETING-1-S2] A returning visitor is greeted
+- **THEN** the page shows "Welcome back!"
+'
+idshort='## MODIFIED Requirements
+
+### Requirement: Greet every visitor
+The system SHALL show a greeting on the home page to every visitor.
+
+#### Scenario: [GREETING-1-S2] A returning visitor is greeted
+- **THEN** the page shows "Welcome back, friend!"
+'
+mk idsub; rm -rf "$F/$C/specs/farewell"; living greeting "$twoid"; delta greeting "$idshort"
+printf '\nA follow-up adds GREETING-1-S10 for single sign-on.\n' >> "$F/$C/design.md"
+arc add-greeting-name --apply; rc=$?
+has 'MERGE   greeting' "$F/out" && grep -q 'GREETING-1-S1\]' "$F/specs/greeting/spec.md" \
+  && ok "an ID that only prefixes another (GREETING-1-S10) does not name GREETING-1-S1's removal: a MERGE keeps it" || fail "id substring: $(tr '\n' '|' < "$F/out")"
+mk idnamed; rm -rf "$F/$C/specs/farewell"; living greeting "$twoid"; delta greeting "$idshort"
+printf '\nGREETING-1-S1 goes: the anonymous greeting is retired.\n' >> "$F/$C/design.md"
+arc add-greeting-name --apply; rc=$?
+has 'design.md names each living one dropped' "$F/out" && ! grep -q 'GREETING-1-S1\]' "$F/specs/greeting/spec.md" \
+  && ok "...and the whole ID does name it: a REPLACE" || fail "id named: $(tr '\n' '|' < "$F/out")"
+
+# Superseded wording in the REMOVED section is a CHECK; in a RENAMED TO line it reaches the specs.
+mk supremoved; rm -rf "$F/$C/specs/farewell"
+delta greeting '## REMOVED Requirements
+
+### Requirement: Greet every visitor
+**Reason:** the home page is gone.
+'
+arc add-greeting-name --superseded 'Greet every visitor' --apply; rc=$?
+expect_rc 0 "$rc" "superseded wording only in the REMOVED section does not stop the archive"
+has "REMOVED section" "$F/out" && ok "...it is listed, naming the section" || fail "superseded removed: $(tr '\n' '|' < "$F/out")"
+mk supto; rm -rf "$F/$C/specs/farewell"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Greet every visitor`
+- TO: `### Requirement: Greet each visitor warmly`
+'
+arc add-greeting-name --superseded 'warmly' --apply; rc=$?
+expect_rc 1 "$rc" "superseded wording in a RENAMED TO line (the new heading) is refused"
+
 # ── Superseded wording in a held-back capability's delta reaches nothing ─────────────────────────
 mk supheld
 printf '# Held\n\nNot shipped yet.\n' > "$F/$C/specs/farewell/NOT-SYNCED.md"

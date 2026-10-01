@@ -126,14 +126,18 @@ while IFS= read -r cap; do
   spec_merge apply "$cap" "$c/specs/$cap/spec.md" "$living" "$c/design.md" > "$w/new.$cap" || { say "  FAIL    $cap: the merge did not run"; bad=1; continue; }
   scenario_counts "$w/new.$cap" > "$w/after"
   # A requirement's count may fall only where the plan replaced it with design.md naming the drop,
-  # or removed it. A rename (or a chain of them) carries its count to the final name.
+  # or removed it. Renames carry each count to its requirement's final name: the plan's RENAME lines
+  # are replayed in order (current name -> original name), so a chain, a shift (B->C then A->B) and
+  # a swap through a temporary name all land where spec_merge put them.
   awk -F'\t' -v plan="$w/plan.$cap" '
     BEGIN { while ((getline l < plan) > 0) { split(l, f, "\t")
-              if (f[1] == "RENAME") { from = f[3]; sub(/^from "/, "", from); sub(/"$/, "", from); ren[from] = f[2] }
+              if (f[1] == "RENAME") { from = f[3]; sub(/^from "/, "", from); sub(/"$/, "", from)
+                o = (from in orig) ? orig[from] : from; delete orig[from]; orig[f[2]] = o }
               if (f[1] == "REMOVE") gone[f[2]] = 1
-              if (f[1] == "REPLACE" && f[3] ~ /design\.md names/) named[f[2]] = 1 } }
+              if (f[1] == "REPLACE" && f[3] ~ /design\.md names/) named[f[2]] = 1 }
+            for (cur in orig) fin[orig[cur]] = cur }
     FILENAME == ARGV[1] { after[$2] = $1; next }
-    { n = $2; hops = 0; while ((n in ren) && hops++ < 100) n = ren[n]
+    { n = ($2 in fin) ? fin[$2] : $2
       if (n in gone || n in named) next
       if (!(n in after)) { print "  FAIL    " n ": was in the living spec with " $1 " scenario(s), and is gone"; bad = 1; next }
       if (after[n] < $1) { print "  FAIL    " n ": " $1 " scenario(s) before, " after[n] " after"; bad = 1 } }
