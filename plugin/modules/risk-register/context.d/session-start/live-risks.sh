@@ -18,6 +18,6 @@ f="$ROOT/$reg"
 [ -f "$f" ] || { echo "CANNOT CHECK — RISK_REGISTER $reg does not exist (sh "$CLAUDUCTOR_FW"/modules/risk-register/enable.sh makes the stub)"; exit 0; }
 rows=$(grep -c '^| R[0-9][0-9]* |' "$f")
 [ "$rows" -gt 0 ] || { echo "none: $reg has no \`| R<n> |\` rows yet"; exit 0; }
-live=$(awk -F'|' '/^\| R[0-9]+ \|/ { id=$2; r=$3; g=$(NF-2); i=$(NF-1); gsub(/^ +| +$/,"",id); gsub(/^ +| +$/,"",g); gsub(/^ +| +$/,"",i); if (match(r, /\*\*[^*]+\*\*/)) r=substr(r, RSTART+2, RLENGTH-4); gsub(/^ +| +$/,"",r); if (r !~ /✅/) print id" "r" — gate "g" ("i")" }' "$f")
+live=$(awk -F'|' '/^\| R[0-9]+ \|/ { id=$2; r=$3; g=$(NF-2); i=$(NF-1); gsub(/^ +| +$/,"",id); gsub(/^ +| +$/,"",g); gsub(/^ +| +$/,"",i); closed=0; if (match(r, /\*\*[^*]+\*\*/)) { r=substr(r, RSTART+2, RLENGTH-4); closed=(r ~ /✅/) } gsub(/^ +| +$/,"",r); if (!closed) print id" "r" — gate "g" ("i")" }' "$f")
 if [ -n "$live" ]; then printf '%s\n' "$live"
 else echo "none: all $rows rows of $reg are ✅ closed"; fi

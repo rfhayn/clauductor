@@ -57,6 +57,12 @@ f=$(cd "$R" && sh .claude/extensions.sh fragments session-close 2>&1)
 has yes "Review the risk register" "$f" "on: session-close includes the review step"
 r=$(cd "$R" && sh .claude/checks/run.sh risk-register:register 2>&1); rc=$?
 expect_rc 0 "$rc" "the module's check passes a register in its grammar"
+# A row outside the grammar (no bold title) whose text holds a ✅ is still LIVE: only a ✅ inside a
+# bold title closes a risk (the module's check fails such a row; the listing must not hide it).
+cp "$R/docs/risk-register.md" "$d/keep"
+echo "| R5 | Plain title, the first half done ✅, the second open | L | M | x | Phase 3 | #5 |" >> "$R/docs/risk-register.md"
+c=$(ctx); cp "$d/keep" "$R/docs/risk-register.md"
+has yes "R5 Plain title, the first half done ✅, the second open — gate Phase 3 (#5)" "$c" "a row with no bold title and a ✅ in its text is listed as live"
 
 conf 'MODULES="risk-register"' 'RISK_REGISTER="docs/other.md"'
 c=$(ctx); has yes "CANNOT CHECK — RISK_REGISTER docs/other.md does not exist" "$c" "a register it cannot find says CANNOT CHECK, naming RISK_REGISTER"
