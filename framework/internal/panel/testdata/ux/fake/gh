@@ -50,7 +50,6 @@ if [ "$state" = merged ]; then
     echo "[]"; exit 0
   fi
   [ -f "$d/$repo.mergedlist.json" ] && { cat "$d/$repo.mergedlist.json"; exit 0; }
-  fi
   # Every merged branch, newest first, with only the fields asked for, keys sorted as
   # gh prints them (the shape recorded in signals/testdata/merged-real.json).
   now=$(date +%s) n=0 out=""
