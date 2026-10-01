@@ -107,10 +107,18 @@ func TestProjectAddedTrustedAndRemovedLive(t *testing.T) {
 	// Refusals: a linked worktree, a registered root, a relative path, not a repository.
 	linked := filepath.Join(t.TempDir(), "wt")
 	gitRun(t, rootA, "worktree", "add", "-q", "-b", "x", linked)
+	// A refusal is the answer to the question asked: 200, with why.
 	for path, want := range map[string]string{linked: "linked-worktree", rootA: "registered", "rel/x": "not-absolute", t.TempDir(): "not-git"} {
-		if code, body := p.post(t, "/api/projects/validate", map[string]string{"path": path}); code != 422 || body["code"] != want {
-			t.Errorf("validate %s: %d %v, want 422 %s", path, code, body, want)
+		code, body := p.post(t, "/api/projects/validate", map[string]string{"path": path})
+		var v validation
+		result(t, body, &v)
+		if code != 200 || v.Refused == nil || v.Refused.Code != want || v.Refused.Error == "" {
+			t.Errorf("validate %s: %d %v, want refused %s", path, code, body, want)
 		}
+	}
+	// Adding a refused path is refused (422), whatever the page did.
+	if code, body := p.post(t, "/api/projects/add", map[string]any{"path": linked}); code != 422 || body["code"] != "linked-worktree" {
+		t.Errorf("add a linked worktree: %d %v", code, body)
 	}
 
 	// Add without trusting: served at once, its card does not run.

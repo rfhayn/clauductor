@@ -341,6 +341,20 @@ func (ls *liveSet) inspect(ctx context.Context, path string) (install.Candidate,
 	return c, nil
 }
 
+// validation is Validate's answer: what adding would do, or why it cannot be added.
+// A refusal is an answer to the question asked, not a failed request, so it comes
+// back with 200 (the page checks as someone types; every refusal would otherwise be a
+// failed request in the browser's console).
+type validation struct {
+	install.Candidate
+	Refused *refused `json:"refused,omitempty"`
+}
+
+type refused struct {
+	Code  string `json:"code"`
+	Error string `json:"error"`
+}
+
 // Validate serves POST /api/projects/validate.
 func (ls *liveSet) Validate(ctx context.Context, path string) (any, *lanes.LaneError) {
 	if e := ls.onlyRefused(); e != nil {
@@ -348,9 +362,12 @@ func (ls *liveSet) Validate(ctx context.Context, path string) (any, *lanes.LaneE
 	}
 	c, e := ls.inspect(ctx, path)
 	if e != nil {
-		return nil, e
+		if e.Status >= 500 {
+			return nil, e
+		}
+		return validation{Candidate: c, Refused: &refused{Code: e.Code, Error: e.Msg}}, nil
 	}
-	return c, nil
+	return validation{Candidate: c}, nil
 }
 
 // initPlan is what the page shows of `panel init`.

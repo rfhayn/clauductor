@@ -69,20 +69,52 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .status .btn.primary { background: var(--act); color: var(--act-ink); border-color: var(--act); }
 .brandrow { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; min-width: 0; }
 .brandrow h1 { font-size: 1.125rem; line-height: 1.2; overflow-wrap: anywhere; }
-/* The project's name is the project menu's button (PANEL-16). */
-.projbtn { font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: var(--r-ctl); padding: .05rem .3rem; margin-left: -.3rem;
-  cursor: pointer; text-align: left; display: inline-flex; gap: .5rem; align-items: baseline; }
-.projbtn:hover, .projbtn[aria-expanded="true"] { border-color: var(--rule-strong); }
+/* The project's name is the project menu's button (PANEL-16), drawn as a dropdown box
+   (PANEL-22): a hairline box in the bar's own ink, the name and a chevron. */
+.projpick { display: inline-flex; align-items: center; gap: .6rem; min-width: 0; max-width: 100%; }
+.projpick h1 { min-width: 0; }
+.projbtn { font: inherit; color: inherit; background: var(--bar); border: 1px solid var(--bar-text-2); border-radius: var(--r-ctl); padding: .1rem .45rem .1rem .55rem;
+  cursor: pointer; text-align: left; display: inline-flex; gap: .55rem; align-items: center; max-width: min(30rem, calc(100vw - 2rem)); min-width: 0; }
+.projbtn:hover, .projbtn[aria-expanded="true"] { border-color: var(--bar-text); }
 .projbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.projelse { font-size: .75rem; font-weight: 400; color: var(--warn); }
+.projbtn .pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projbtn .chev { color: var(--bar-text-2); font-size: .8125rem; line-height: 1; flex: none; }
+.projbtn:hover .chev, .projbtn[aria-expanded="true"] .chev { color: var(--bar-text); }
+.projelse { font-size: .75rem; font-weight: 400; color: var(--warn); white-space: nowrap; }
 .projelse.crit { color: var(--crit); }
-.projmenu { right: auto; left: 0; width: 26rem; grid-template-columns: minmax(0, 1fr); }
-.projmenu .mi { grid-template-columns: minmax(0, 1fr) auto; }
+.projelse:empty { display: none; }
+.menu.projmenu { right: auto; left: 0; width: 28rem; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+.projlist { display: grid; gap: 1px; min-width: 0; }
+.projlist .mirow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 1px; min-width: 0; }
+.projmenu .mi { grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
+.projmenu .mi > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .projmenu .mi[aria-selected="true"] { background: var(--sel); color: var(--sel-text); }
 .projmenu .mi[aria-selected="true"] small { color: inherit; }
+.projmenu .mi[aria-disabled="true"] { cursor: default; }
 .projmenu .badge { font-weight: 700; color: var(--warn); }
 .projmenu .badge.crit { color: var(--crit); }
 .projmenu .err { color: var(--crit); }
+.projmenu .mimore { font: inherit; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: var(--r-ctl); padding: 0 .5rem; cursor: pointer; }
+.projmenu .mimore:hover, .projmenu .mimore[aria-expanded="true"] { border-color: var(--rule-strong); color: var(--text-1); }
+.projmenu .mimore:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.projmenu .msep { border-top: 1px solid var(--rule); margin: .15rem 0; }
+.projmenu .addproj { font: inherit; color: var(--act); background: none; border: 0; text-align: left; grid-template-columns: minmax(0, 1fr); }
+.menu.projacts { z-index: 25; }
+/* Add a project and the remove and trust dialogs (PANEL-22). */
+.dlg dl.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .15rem .75rem; margin: 0; font-size: .8125rem; }
+.dlg dl.facts dt { color: var(--text-2); }
+.dlg dl.facts dd { margin: 0; font-family: var(--font-data); overflow-wrap: anywhere; min-width: 0; }
+.dlg .adbody, .dlg .pdbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; min-width: 0; }
+.dlg .adbody:empty { display: none; }
+.dlg .adbody .sub, .dlg .pdbody > div { overflow-wrap: anywhere; min-width: 0; }
+/* Add a project's buttons stay in view while a long preview scrolls under them. */
+#addform .actions { position: sticky; bottom: -1rem; margin: 0 -1rem -1rem; padding: .6rem 1rem 1rem; background: var(--pane); border-top: 1px solid var(--rule); }
+.dlg pre.cfg { margin: 0; max-height: 12rem; overflow: auto; padding: .4rem .5rem; background: var(--ground); color: var(--text-1); border: 1px solid var(--rule);
+  font-family: var(--font-data); font-size: .75rem; white-space: pre; }
+.dlg ul.runs, .dlg ul.notes, .dlg ul.lanes { margin: 0; padding-left: 1.1rem; display: grid; gap: .15rem; font-size: .8125rem; min-width: 0; }
+.dlg ul.runs li, .dlg ul.notes li { font-family: var(--font-data); overflow-wrap: anywhere; }
+.dlg .ok { color: var(--text-1); }
+.dlg h4 { font-size: .8125rem; color: var(--text-2); }
 .live { display: inline-flex; align-items: center; font-size: .9375rem; font-weight: 700; white-space: nowrap; }
 .live .sq { width: 8px; height: 8px; background: var(--bar-text-2); }
 .live.dead { background: var(--crit-bg); color: var(--crit-ink); padding: 0 .35rem; }
@@ -169,6 +201,8 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .banner, .restore, .warnbar { padding: .3rem .75rem; border-bottom: 1px solid var(--rule); background: var(--crit-bg); color: var(--crit-ink); overflow-wrap: anywhere; }
 .banner b, .restore > b { font-weight: 700; margin-right: .5rem; }
 .banner.warn, .warnbar, .restore { background: var(--warn-bg); color: var(--warn-ink); }
+/* A banner's button (PANEL-22: Trust config…) takes the banner's ink. */
+.banner .btn { margin-left: .6rem; color: inherit; border-color: currentColor; background: none; }
 /* A warning closes (PANEL-13): its text, then the × at the end of the line. */
 .warnbar { display: flex; gap: .75rem; align-items: baseline; }
 .warnbar > span { flex: 1; min-width: 0; }

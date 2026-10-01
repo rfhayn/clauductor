@@ -194,6 +194,7 @@ function connect() {
   // Every stream also carries the menu of projects, with what needs you in each.
   es.addEventListener("projects", (e) => {
     try { P = JSON.parse(e.data); } catch (x) { return; }
+    followMenu();
     renderProjects();
     if (S) render();
   });
@@ -3086,7 +3087,9 @@ function renderBanners() {
   items.forEach((b, i) => {
     if (b.kind === "restore") return;
     const warn = b.kind === "untrusted" || b.kind === "dropped";
-    kids.push(key(el("div", "banner" + (warn ? " warn" : ""), null, [el("b", null, BANNER_LABEL[b.kind] || "Notice"), document.createTextNode(b.text)]), "banner:" + b.kind + ":" + i));
+    // PANEL-22: the untrusted banner offers the trust report, which asks before it trusts.
+    const act = b.kind === "untrusted" && pid() ? button("Trust config…", "small", () => openTrustDlg(pid()), "Read what this config runs, then trust exactly these bytes", "b:trustcfg", true) : null;
+    kids.push(key(el("div", "banner" + (warn ? " warn" : ""), null, [el("b", null, BANNER_LABEL[b.kind] || "Notice"), document.createTextNode(b.text), act]), "banner:" + b.kind + ":" + i));
   });
   for (const [k, src] of Object.entries(S.sources)) {
     if (k !== "prs" && !src.pending && !src.ok) kids.push(key(el("div", "banner", null, [el("b", null, "Cannot read"), document.createTextNode((SOURCE_NAME[k] || k) + ": " + src.error)]), "banner:src:" + k));
@@ -3267,7 +3270,7 @@ $("helpclose").addEventListener("click", closeHelp);
 $("helpdlg").addEventListener("click", (e) => { if (e.target === $("helpdlg")) closeHelp(); });
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "?" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
-  if (typingTarget(ev.target) || !$("startdlg").hidden) return;
+  if (typingTarget(ev.target) || !$("startdlg").hidden || !$("adddlg").hidden || !$("pdlg").hidden) return;
   ev.preventDefault();
   openHelp();
 });
@@ -3518,10 +3521,14 @@ function renderProjects() {
   setText($("projelse"), away.n ? away.n + " need" + (away.n === 1 ? "s" : "") + " you elsewhere" : "");
   $("projelse").classList.toggle("crit", away.block > 0);
   btn.setAttribute("aria-label", "Project " + (S ? S.name : "") + (away.n ? ", " + away.n + " need you in other projects" : "") + ". Switch project");
-  const menu = $("projmenu");
+  setText($("pname"), S ? S.name : "…");
+  btn.title = S ? S.name + ": switch project" : "Switch project";
+  const menu = $("projmenu"), list = $("projlist");
   if (menu.hidden) return;
   const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.key : null;
-  const items = (P || []).map((p) => {
+  // Each row: the project (an option of the listbox) and its ⋯ (PANEL-22), which opens
+  // its actions. The ⋯ sits beside the option, never inside it: an option holds no control.
+  const rows = (P || []).map((p) => {
     const need = p.needsYou ? el("span", "badge" + (p.blocking ? " crit" : ""), p.needsYou + " need" + (p.needsYou === 1 ? "s" : "") + " you") : el("span");
     const e = el("div", "mi", null, [el("span", null, p.name || p.id, [el("small", p.ok ? null : "err", projectLine(p))]), need]);
     e.setAttribute("role", "option");
@@ -3531,12 +3538,24 @@ function renderProjects() {
     e.tabIndex = -1;
     e.dataset.key = p.id;
     e.addEventListener("click", () => { if (p.ok) switchProject(p.id); else closeProjects(true); });
-    return e;
+    const more = el("button", "mimore", "⋯");
+    more.type = "button";
+    more.tabIndex = -1;
+    more.dataset.key = "more:" + p.id;
+    more.dataset.project = p.id;
+    more.setAttribute("aria-label", "Actions for " + (p.name || p.id));
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", String(projActs === p.id));
+    more.addEventListener("click", (ev) => { ev.stopPropagation(); if (projActs === p.id) closeProjActs(true); else openProjActs(p.id, more); });
+    const row = el("div", "mirow", null, [e, more]);
+    row.setAttribute("role", "none");
+    return row;
   });
-  menu.replaceChildren(...(items.length ? items : [el("div", "mi", "No other project is registered: clauductor panel add")]));
+  list.replaceChildren(...rows);
   if (focused) { const f = menu.querySelector('[data-key="' + CSS.escape(focused) + '"]'); if (f) f.focus(); }
 }
-function projItems() { return Array.from($("projmenu").querySelectorAll('[role="option"]')); }
+// The menu's stops for Up and Down: every project, then Add a project….
+function projItems() { return Array.from($("projmenu").querySelectorAll('[role="option"], #addproj')); }
 function openProjects(which) {
   const menu = $("projmenu");
   menu.hidden = false;
@@ -3548,13 +3567,67 @@ function openProjects(which) {
   (which === "last" ? items[items.length - 1] : cur).focus();
 }
 function closeProjects(refocus) {
+  closeProjActs(false);
   $("projmenu").hidden = true;
   $("projbtn").setAttribute("aria-expanded", "false");
   if (refocus) $("projbtn").focus();
 }
-function switchProject(id) {
+// ---- A project's actions (PANEL-22): Trust config… when it is untrusted, and Remove
+// from panel…. A menu of its own beside the row's ⋯ (WAI-ARIA APG menu button).
+let projActs = null;
+function openProjActs(id, anchor) {
+  const p = (P || []).find((x) => x.id === id);
+  if (!p) return;
+  projActs = id;
+  const m = $("projacts");
+  const item = (label, act, cls) => {
+    const e = el("div", "mi" + (cls ? " " + cls : ""), label);
+    e.setAttribute("role", "menuitem");
+    e.tabIndex = -1;
+    e.dataset.act = act;
+    e.addEventListener("click", () => {
+      closeProjects(false);
+      if (act === "trust") openTrustDlg(id); else openRemoveDlg(id);
+    });
+    return e;
+  };
+  const items = [];
+  if (p.ok && !p.trusted) items.push(item("Trust config…", "trust"));
+  items.push(item("Remove from panel…", "remove", "crit"));
+  m.replaceChildren(...items);
+  m.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = Math.max(m.offsetWidth, 176);
+  m.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
+  m.style.top = Math.min(r.bottom + 4, innerHeight - m.offsetHeight - 8) + "px";
+  for (const b of document.querySelectorAll("#projlist .mimore")) b.setAttribute("aria-expanded", String(b.dataset.project === id));
+  items[0].focus();
+}
+function closeProjActs(refocus) {
+  if (projActs === null) return;
+  const id = projActs;
+  projActs = null;
+  $("projacts").hidden = true;
+  for (const b of document.querySelectorAll("#projlist .mimore")) b.setAttribute("aria-expanded", "false");
+  if (refocus) { const b = document.querySelector('#projlist [data-key="more:' + CSS.escape(id) + '"]'); if (b) b.focus(); }
+}
+$("projacts").addEventListener("keydown", (e) => {
+  const items = Array.from($("projacts").querySelectorAll('[role="menuitem"]')), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape" || e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); closeProjActs(true); }
+  else if (e.key === "Tab") closeProjects(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+// switchProject: lane, when given, is selected in that project (a link in the remove
+// confirmation names a lane to close first).
+function switchProject(id, lane) {
   closeProjects(true);
-  if (id === pid()) return;
+  if (lane) { try { localStorage.setItem("clauductor-panel-sel:" + id, "t:" + lane); } catch (e) {} }
+  if (id === pid()) { if (lane) selectLane("t:" + lane); return; }
   PID = id;
   try { history.replaceState(null, "", location.pathname + "?p=" + encodeURIComponent(id)); } catch (e) {}
   // Nothing of the old project carries over: its terminals close (their lanes run
@@ -3572,19 +3645,265 @@ $("projbtn").addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); openProjects(e.key === "ArrowUp" ? "last" : "current"); }
 });
 $("projmenu").addEventListener("keydown", (e) => {
-  const items = projItems(), i = items.indexOf(document.activeElement);
+  const a = document.activeElement;
+  // On a row's ⋯: Left goes back to its project; Enter, Space or Down opens its actions.
+  if (a && a.classList.contains("mimore")) {
+    if (e.key === "ArrowLeft") { e.preventDefault(); const o = a.parentElement.querySelector('[role="option"]'); if (o) o.focus(); return; }
+    if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") { e.preventDefault(); openProjActs(a.dataset.project, a); return; }
+    if (e.key === "Escape") { e.preventDefault(); closeProjects(true); return; }
+    if (e.key === "Tab") { closeProjects(false); return; }
+    return;
+  }
+  const items = projItems(), i = items.indexOf(a);
   const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
   if (e.key === "ArrowDown") go(i + 1);
   else if (e.key === "ArrowUp") go(i - 1);
   else if (e.key === "Home") go(0);
   else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "ArrowRight" && a && a.getAttribute("role") === "option") {
+    e.preventDefault();
+    const m = a.parentElement.querySelector(".mimore");
+    if (m) m.focus();
+  }
   else if (e.key === "Escape") { e.preventDefault(); closeProjects(true); }
   else if (e.key === "Tab") closeProjects(false);
   else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
 });
 document.addEventListener("pointerdown", (e) => {
+  if (projActs !== null && !e.target.closest("#projacts") && !e.target.closest(".mimore")) closeProjActs(false);
   if (!$("projmenu").hidden && !e.target.closest(".projpick")) closeProjects(false);
 });
+$("addproj").addEventListener("click", () => { closeProjects(false); openAddDlg(); });
+
+// ---- Add a project (PANEL-22) ----------------------------------------------------------
+// The path is checked as it is typed (POST /api/projects/validate, which reads files and
+// runs git's read-only plumbing, never the repository's commands). A repository with no
+// config shows what `panel init` would write, and why; Create this config writes it,
+// never over a file. One with a config shows its exact trust report: Trust and add
+// trusts those bytes (by their hash) and adds it; Add without trusting adds it with its
+// commands off. Either way it is served at once, and the page switches to it.
+async function adminPost(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok && j.ok !== false, status: r.status, res: j.result, error: j.error || (r.ok ? "" : "HTTP " + r.status), code: j.code || "" };
+}
+const ad = { seq: 0, timer: 0, cand: null, plan: null, busy: false, returnTo: null };
+function dlgFocusables(box) {
+  return Array.from(box.querySelectorAll("a[href], button, input, select, textarea, [tabindex='0']")).filter((x) => !x.disabled && !x.hidden && x.offsetParent !== null);
+}
+// A modal dialog: Escape closes it, and Tab stays inside.
+function trapTab(e, box, close) {
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return; }
+  if (e.key !== "Tab") return;
+  const f = dlgFocusables(box);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+function openAddDlg() {
+  ad.returnTo = document.activeElement && document.activeElement !== document.body ? document.activeElement : $("projbtn");
+  ad.cand = null; ad.plan = null; ad.busy = false; ad.seq++;
+  $("ad-path").value = "";
+  setText($("ad-status"), "Type the absolute path of a repository's main worktree (~/ is your home).");
+  setText($("ad-err"), "");
+  $("ad-body").replaceChildren();
+  adButtons();
+  $("adddlg").hidden = false;
+  $("ad-path").focus();
+}
+function closeAddDlg() {
+  $("adddlg").hidden = true;
+  clearTimeout(ad.timer);
+  ad.seq++;
+  const r = ad.returnTo; ad.returnTo = null;
+  if (r && r.isConnected && r.focus && r.id !== "addproj") r.focus(); else $("projbtn").focus();
+}
+function adButtons() {
+  const c = ad.cand, ready = c && c.hasConfig && !c.configError;
+  $("ad-init").hidden = !(c && !c.hasConfig && ad.plan);
+  $("ad-plain").hidden = !ready || c.trusted;
+  $("ad-trust").hidden = !ready;
+  setText($("ad-trust"), ready && c.trusted ? "Add" : "Trust and add");
+  for (const b of ["ad-init", "ad-plain", "ad-trust"]) $(b).disabled = ad.busy || offline();
+}
+function fact(k, v) { return [el("dt", null, k), el("dd", null, v)]; }
+function adRender() {
+  const c = ad.cand, body = [];
+  if (c) {
+    body.push(el("dl", "facts", null, [
+      ...fact("Root", c.root), ...fact("Git common dir", c.commonDir), ...fact("Id", c.id), ...fact("tmux socket", c.socket),
+    ]));
+    if (!c.hasConfig) {
+      body.push(el("h4", null, "No .clauductor/panel.json yet"));
+      if (ad.plan) {
+        body.push(el("div", "sub", "clauductor panel init would write " + ad.plan.path + ":"));
+        body.push(el("pre", "cfg", ad.plan.body));
+        body.push(el("ul", "notes", null, (ad.plan.notes || []).map((n) => el("li", null, n))));
+        body.push(el("div", "sub", "Create this config writes it (never over a file). Review it before you trust it."));
+      } else body.push(el("div", "sub", "Reading what clauductor panel init would write…"));
+    } else if (c.configError) {
+      body.push(el("div", "stop", "Its config does not load, so it cannot be added yet: " + c.configError));
+    } else {
+      body.push(el("h4", null, c.trusted ? "Trusted already: sha256 " + c.hash.slice(0, 12) : "Trust report: sha256 " + c.hash.slice(0, 12)));
+      body.push(el("div", "sub", c.configPath + " runs:"));
+      body.push(c.runs && c.runs.length ? el("ul", "runs", null, c.runs.map((r) => el("li", null, r))) : el("div", "sub", "nothing: no cards, queue commands or templates"));
+      if (!c.trusted) body.push(el("div", "sub", "Trust and add trusts exactly these bytes. Add without trusting keeps its cards, queue commands and templates off until you trust it (its row's ⋯, or clauductor panel trust)."));
+    }
+  }
+  $("ad-body").replaceChildren(...body);
+  adButtons();
+}
+async function adValidate() {
+  const path = $("ad-path").value.trim(), seq = ++ad.seq;
+  ad.cand = null; ad.plan = null;
+  setText($("ad-err"), "");
+  if (!path) { setText($("ad-status"), "Type the absolute path of a repository's main worktree (~/ is your home)."); adRender(); return; }
+  setText($("ad-status"), "Checking " + path + "…");
+  const v = await adminPost("/api/projects/validate", { path });
+  if (seq !== ad.seq) return; // typed on since
+  if (!v.ok || v.res.refused) { setText($("ad-status"), "Not addable: " + (v.ok ? v.res.refused.error : v.error)); adRender(); return; }
+  ad.cand = v.res;
+  setText($("ad-status"), ad.cand.hasConfig ? (ad.cand.configError ? "A repository, but its config does not load." : "Ready to add " + (ad.cand.name || ad.cand.id) + ".") : "A repository with no panel config yet.");
+  adRender();
+  if (!ad.cand.hasConfig) {
+    const p = await adminPost("/api/projects/init-preview", { path });
+    if (seq !== ad.seq) return;
+    if (p.ok) ad.plan = p.res; else setText($("ad-err"), p.error);
+    adRender();
+  }
+}
+$("ad-path").addEventListener("input", () => { clearTimeout(ad.timer); ad.timer = setTimeout(adValidate, 350); });
+$("ad-path").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); clearTimeout(ad.timer); adValidate(); } });
+$("ad-cancel").addEventListener("click", closeAddDlg);
+$("adddlg").addEventListener("click", (e) => { if (e.target === $("adddlg")) closeAddDlg(); });
+$("adddlg").addEventListener("keydown", (e) => trapTab(e, $("addform"), closeAddDlg));
+$("ad-init").addEventListener("click", async () => {
+  const path = $("ad-path").value.trim();
+  ad.busy = true; adButtons();
+  const r = await adminPost("/api/projects/init", { path });
+  ad.busy = false;
+  if (!r.ok) { setText($("ad-err"), r.error); adButtons(); return; }
+  setText($("announce"), "Wrote " + r.res.path);
+  await adValidate();
+  $("ad-trust").hidden ? $("ad-path").focus() : $("ad-trust").focus();
+});
+async function adAdd(trust) {
+  const c = ad.cand;
+  if (!c || ad.busy) return;
+  ad.busy = true; adButtons();
+  setText($("ad-err"), "");
+  const r = await adminPost("/api/projects/add", trust ? { path: c.input, trust: true, hash: c.hash } : { path: c.input });
+  ad.busy = false;
+  if (!r.ok) {
+    if (r.code === "config-changed") await adValidate(); // show the bytes there are now
+    setText($("ad-err"), r.error);
+    adButtons();
+    return;
+  }
+  const a = r.res;
+  closeAddDlg();
+  setText($("announce"), (a.name || a.id) + " added" + (a.live ? "" : ", but it cannot load: " + a.error) + (a.trusted ? "." : "; its commands are off until you trust it."));
+  if (a.live) switchProject(a.id);
+}
+$("addform").addEventListener("submit", (e) => { e.preventDefault(); if (!$("ad-trust").hidden) adAdd(!ad.cand.trusted); });
+$("ad-plain").addEventListener("click", () => adAdd(false));
+
+// ---- Remove from panel… and Trust config… (PANEL-22) ----------------------------------
+const pd = { kind: "", id: "", data: null, busy: false };
+function closePDlg(refocus) {
+  $("pdlg").hidden = true;
+  pd.kind = ""; pd.data = null;
+  if (refocus !== false) $("projbtn").focus();
+}
+$("pd-cancel").addEventListener("click", () => closePDlg());
+$("pdlg").addEventListener("click", (e) => { if (e.target === $("pdlg")) closePDlg(); });
+$("pdlg").addEventListener("keydown", (e) => trapTab(e, $("pdlgbox"), () => closePDlg()));
+function pdShow(title, body, go, goCls) {
+  setText($("pd-title"), title);
+  $("pd-body").replaceChildren(...body);
+  setText($("pd-err"), "");
+  const b = $("pd-go");
+  b.hidden = !go;
+  if (go) setText(b, go);
+  b.className = "btn " + (goCls || "primary");
+  b.disabled = offline();
+  $("pdlg").hidden = false;
+  (go ? b : $("pd-cancel")).focus();
+}
+async function openRemoveDlg(id) {
+  const p = (P || []).find((x) => x.id === id), name = p ? p.name || id : id;
+  pd.kind = "remove"; pd.id = id;
+  pdShow("Remove " + name + " from the panel?", [el("div", "sub", "Reading its lanes…")], null);
+  const r = await adminPost("/api/projects/" + encodeURIComponent(id) + "/remove", { dryRun: true });
+  if (pd.kind !== "remove" || pd.id !== id) return;
+  if (!r.ok) { setText($("pd-err"), r.error); return; }
+  const plan = pd.data = r.res, body = [];
+  body.push(el("div", null, "This only unregisters it. Nothing on disk is deleted: the repository, its config, its worktrees and its lane registry stay where they are, and adding it again brings it all back."));
+  body.push(el("dl", "facts", null, [...fact("Root", plan.root), ...fact("Config", plan.configPath)]));
+  if (plan.default && plan.nextDefault) body.push(el("div", null, "It is the default project: " + (plan.nextDefaultName || plan.nextDefault) + " becomes the default."));
+  if (plan.lanes && plan.lanes.length) {
+    body.push(el("div", "stop", plan.refused));
+    body.push(el("ul", "lanes", null, plan.lanes.map((l) => {
+      const b = el("button", "link", l.id);
+      b.type = "button";
+      b.title = "Show " + l.id + " in " + name + ", to stop or close it";
+      b.addEventListener("click", () => { closePDlg(false); switchProject(id, l.id); });
+      return el("li", null, null, [b, el("span", "dim", " " + l.status)]);
+    })));
+  } else if (plan.refused) body.push(el("div", "stop", plan.refused));
+  pdShow("Remove " + (plan.name || name) + " from the panel?", body, plan.refused ? null : "Remove from panel", "danger");
+}
+async function openTrustDlg(id) {
+  const p = (P || []).find((x) => x.id === id), name = p ? p.name || id : id;
+  pd.kind = "trust"; pd.id = id;
+  pdShow("Trust " + name + "'s config?", [el("div", "sub", "Reading its config…")], null);
+  const r = await adminPost("/api/projects/" + encodeURIComponent(id) + "/trust", { dryRun: true });
+  if (pd.kind !== "trust" || pd.id !== id) return;
+  if (!r.ok) { setText($("pd-err"), r.error); return; }
+  const rep = pd.data = r.res;
+  const body = [
+    el("div", null, rep.trusted ? "These exact bytes are trusted already." : "Until you trust it, its cards, queue commands and templates stay off. Trusting records exactly these bytes; a change to the file asks again."),
+    el("dl", "facts", null, [...fact("Config", rep.path), ...fact("sha256", rep.hash)]),
+    el("h4", null, "It runs"),
+    rep.runs && rep.runs.length ? el("ul", "runs", null, rep.runs.map((x) => el("li", null, x))) : el("div", "sub", "nothing: no cards, queue commands or templates"),
+  ];
+  pdShow("Trust " + (rep.name || name) + "'s config?", body, rep.trusted ? null : "Trust");
+}
+$("pd-go").addEventListener("click", async () => {
+  if (pd.busy || !pd.data) return;
+  const id = pd.id, kind = pd.kind;
+  pd.busy = true; $("pd-go").disabled = true;
+  const r = kind === "remove"
+    ? await adminPost("/api/projects/" + encodeURIComponent(id) + "/remove", {})
+    : await adminPost("/api/projects/" + encodeURIComponent(id) + "/trust", { hash: pd.data.hash });
+  pd.busy = false; $("pd-go").disabled = offline();
+  if (!r.ok) {
+    if (kind === "trust" && r.code === "config-changed") await openTrustDlg(id); // the bytes there are now
+    setText($("pd-err"), r.error);
+    return;
+  }
+  closePDlg();
+  if (kind === "remove") {
+    const next = r.res.nextDefault;
+    setText($("announce"), (r.res.name || id) + " removed from the panel; nothing on disk was deleted." + (next ? " " + (r.res.nextDefaultName || next) + " is the default now." : ""));
+    if (id === pid()) {
+      const def = next || ((P || []).find((x) => x.default && x.id !== id) || {}).id || "";
+      if (def) switchProject(def); else { PID = ""; connect(); }
+    }
+  } else setText($("announce"), (r.res.name || id) + "'s config is trusted: its commands are on" + (r.res.reloaded ? ", from the file as it is now." : "."));
+});
+// A project no longer served (removed here, in another page or by `panel remove`): the
+// page moves to the default.
+function followMenu() {
+  if (!P || !P.length || !pid()) return;
+  if (P.some((p) => p.id === pid())) return;
+  const def = (P.find((p) => p.default && p.ok) || P.find((p) => p.ok) || {}).id;
+  if (def && def !== pid()) {
+    setText($("announce"), "That project is no longer served; showing " + ((P.find((p) => p.id === def) || {}).name || def) + ".");
+    switchProject(def);
+  }
+}
 
 function renderPicker() {
   const P = window.PanelTheme, cur = P.get(), menu = $("thememenu");
