@@ -152,6 +152,7 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 		}
 
 		fmt.Fprintln(out, "\nDone! Clauductor framework installed.")
+		printPrereqs(out, tmplDir)
 		fmt.Fprintln(out, "Next steps:")
 		fmt.Fprintln(out, "  claude")
 		fmt.Fprintln(out, "  /session-start")

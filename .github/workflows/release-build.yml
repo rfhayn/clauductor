@@ -1,0 +1,39 @@
+# Build-only: cross-compile the four release targets with CGO_ENABLED=0 from ONE Linux runner, and
+# run the linux/amd64 archive. This proves on every PR that a release can be built, and that it
+# needs no cgo (scripts/build-release.sh checks each binary's build settings). It never tags,
+# uploads or publishes anything, and it holds no write permission and no secrets.
+name: release-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: framework/go.mod
+          cache-dependency-path: framework/go.sum
+      - name: Cross-compile darwin/arm64, darwin/amd64, linux/amd64, linux/arm64 (CGO_ENABLED=0)
+        run: sh scripts/build-release.sh --out "$RUNNER_TEMP/dist"
+      - name: Run the linux/amd64 archive (the binary finds the template shipped beside it)
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP"
+          tar -xzf dist/clauductor_*_linux_amd64.tar.gz
+          bin=$(ls -d clauductor_*_linux_amd64)/clauductor
+          "$bin" version
+          "$bin" init "$RUNNER_TEMP/smoke" | tee init.out
+          grep -q 'shipped next to the binary' init.out
+          grep -q 'Prerequisites on Linux' init.out
+          test -f "$RUNNER_TEMP/smoke/.gitleaks.toml"
+          cat dist/checksums.txt

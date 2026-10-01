@@ -1,0 +1,23 @@
+# The gate's secret scan (scripts/ci/run-local.sh, the "secrets" step) runs gitleaks from the
+# repository root, so it reads this file. It keeps gitleaks' default rules and adds nothing yet.
+#
+# This file is the project's: `clauductor install` and `update` create it only when it is missing
+# and never write over it. Edit it freely.
+#
+# When the scan flags something that is NOT a secret (a test fixture, a vendored bundle, a public
+# sample value), allowlist exactly that, with a comment saying why. An allowlist that grows by
+# guessing hides real leaks. A real secret is never allowlisted: rotate it, then remove it.
+
+[extend]
+useDefault = true
+
+# [allowlist]
+# description = "Known non-secrets in this project"
+# paths = [
+#   # Vendored, minified third-party code: not ours to edit, and its identifiers look like keys.
+#   '''web/vendor/''',
+# ]
+# regexes = [
+#   # The sample key from the API's documentation, used by the client tests.
+#   '''EXAMPLE_KEY_0123456789''',
+# ]

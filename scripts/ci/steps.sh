@@ -31,6 +31,7 @@ gofmt_clean() {
 #   docs/panel.md            internal/template, internal/panel/{config,install,lease,metrics,web}
 #   docs/panel.schema.json   internal/panel/config
 #   docs/guide.md            internal/panel/web
+#   install.sh               internal/cmd (installsh_test.go runs it)
 # framework/, any go.mod or go.sum, .github/ and scripts/ci/ race everything. So does any doubt: no
 # origin/main, a shallow clone, a git error, or no change at all to scope from. Nothing mapped still
 # races RACE_BASELINE: the race step never disappears from a full gate.
@@ -67,6 +68,7 @@ race_select() {
       docs/panel.md) _pkgs="$_pkgs ./internal/template ./internal/panel/config ./internal/panel/install ./internal/panel/lease ./internal/panel/metrics ./internal/panel/web" ;;
       docs/panel.schema.json) _pkgs="$_pkgs ./internal/panel/config" ;;
       docs/guide.md) _pkgs="$_pkgs ./internal/panel/web" ;;
+      install.sh) _pkgs="$_pkgs ./internal/cmd" ;;
     esac
     case $_p in */*) _a="${_p%%/*}/" ;; *) _a=$_p ;; esac
     case " $_areas " in *" $_a "*) ;; *) _areas="$_areas $_a" ;; esac

@@ -88,7 +88,8 @@ func Classify(relPath string) Tier {
 	if relPath == "CLAUDE.md" || relPath == ".gitignore" {
 		return TierConfig
 	}
-	// Agents, docs, README and the rest: create only if missing.
+	// Agents, docs, README, .gitleaks.toml (the project's allowlist) and the rest: create only
+	// if missing.
 	return TierDoc
 }
 

@@ -213,4 +213,7 @@ for f in $merge; do
 done
 printf 'This repository runs the clauductor operating model from the clauductor plugin (0.1.0 at init).\nThe plugin'"'"'s hooks act only where this file exists. Delete it to make them stand aside.\n' > .claude/clauductor-plugin
 echo "  marked: .claude/clauductor-plugin"
+# The tools the model uses, present or missing, with this OS's install hints. A report: it never
+# fails the init (the template's .claude/prereqs.sh, which the plugin carries beside this script).
+[ -f "$PLUGIN/prereqs.sh" ] && sh "$PLUGIN/prereqs.sh"
 echo "Next: /clauductor:start-project, then commit."
