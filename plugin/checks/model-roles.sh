@@ -206,6 +206,59 @@ if [ -f "$pb" ]; then
   cat "$(scratch)/pb"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/pb")))
 fi
 
+# ── Eval evidence (OPS-10) ─────────────────────────────────────────────────────────────
+# A role with a seeded-defect suite records what its model and effort rest on: a passing receipt
+# of .claude/evals/run.sh for exactly that choice, or the baseline it had before the suite existed.
+# So changing the model or effort without a new receipt fails here. The roles are the suite
+# directories (the authority), both directions: a suite whose role records nothing, and evidence
+# for a role with no suite. The receipt's hashes are pr-merge-guard rule 13's to hold, not this
+# check's: here a receipt is judged on its role, model, effort, completeness and thresholds.
+evlib="$CLAUDUCTOR_FW/lib/evals.sh"
+if [ ! -f "$evlib" ]; then
+  fail "cannot find $evlib, so the eval evidence cannot be checked"
+else
+  . "$evlib"
+  if jq -e '(.evals.thresholds.recall | type) == "number" and (.evals.thresholds.fp_rate | type) == "number"' "$roles" >/dev/null; then
+    ok "eval thresholds: $(jq -r '.evals.thresholds | to_entries | map("\(.key) \(.value)") | join(", ")' "$roles")"
+  else
+    fail "model-roles.json needs .evals.thresholds with a numeric recall and fp_rate (and optionally severity_accuracy)"
+  fi
+  suites=$(evals_suite_roles "$ROOT")
+  for r in $suites; do
+    m=$(want "$r" model); e=$(want "$r" effort)
+    if [ -z "$m" ]; then fail "eval suite .claude/evals/$r/ is for role '$r', which .roles does not define"; continue; fi
+    ev=$(jq -c --arg r "$r" '.roles[$r].eval // empty' "$roles")
+    if [ -z "$ev" ]; then
+      fail "role $r has an eval suite but no .roles.$r.eval: run sh .claude/evals/run.sh --role $r --model $m --effort $e and record its receipt"
+      continue
+    fi
+    rc=$(printf '%s' "$ev" | jq -r '.receipt // empty'); base=$(printf '%s' "$ev" | jq -r '.baseline // empty')
+    if [ -n "$rc" ]; then
+      why=$(evals_verdict "$ROOT/$rc" "$r" "$m" "$e" "$roles")
+      if [ -n "$why" ]; then
+        fail "role $r is $m/$e, and its receipt $rc is not passing evidence for that: $(printf '%s' "$why" | tr '\n' ';' | sed 's/;/; /g'). Re-run: sh .claude/evals/run.sh --role $r --model $m --effort $e"
+        continue
+      fi
+      drift=$(jq -r --slurpfile x "$ROOT/$rc" --arg r "$r" '.roles[$r].eval as $v | $x[0] as $x
+        | [ ("recall", "precision", "fp_rate", "severity_accuracy") as $k | select($v[$k] != $x.scores[$k]) | "\($k) \($v[$k]) (receipt: \($x.scores[$k]))" ]
+          + (if $v.cost_usd != $x.cost.usd then ["cost_usd \($v.cost_usd) (receipt: \($x.cost.usd))"] else [] end) | join(", ")' "$roles")
+      if [ -z "$drift" ]; then
+        ok "role $r: $m/$e rests on $rc ($(jq -r '"recall \(.scores.recall), fp_rate \(.scores.fp_rate), $\(.cost.usd)"' "$ROOT/$rc"))"
+      else
+        fail "role $r: the scores model-roles.json records disagree with $rc: $drift"
+      fi
+    elif [ -n "$base" ]; then
+      if [ "$base" = "$m/$e" ]; then ok "role $r: $m/$e is its unmeasured baseline (a change of model or effort needs a passing receipt)"
+      else fail "role $r is now $m/$e, but its evidence is the baseline $base: a changed model or effort needs a passing receipt. Run sh .claude/evals/run.sh --role $r --model $m --effort $e and record it"; fi
+    else
+      fail "role $r: .roles.$r.eval has neither a receipt nor a baseline"
+    fi
+  done
+  for r in $(jq -r '.roles | to_entries[] | select(.value.eval != null) | .key' "$roles"); do
+    printf '%s\n' "$suites" | grep -qx "$r" || fail "role $r records eval evidence, but there is no suite .claude/evals/$r/cases/ to have produced it"
+  done
+fi
+
 # ── Attribution ────────────────────────────────────────────────────────────────────────
 if jq -e '.attribution.enabled | type == "boolean"' "$roles" >/dev/null; then
   ok "attribution.enabled is $(jq -r '.attribution.enabled' "$roles")"

@@ -12,7 +12,7 @@ R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/hooks/lib" "$R/.claude/lib" "$R/docs" "$d/bin"
 cp "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
 cp "$CLAUDUCTOR_FW/hooks/lib/"* "$R/.claude/hooks/lib/"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$R/.claude/lib/"
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/evals.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
 cat > "$R/.claude/project.conf" <<'EOF'
 GATE_DISPLAY_CONTEXTS="ci/local"
@@ -227,4 +227,60 @@ nojq 0 "git status" "allows anything else"
 a=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh")
 b=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/no-blind-source-rewrite.sh")
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "raw_command is identical in pr-merge-guard.sh and no-blind-source-rewrite.sh" || fail "raw_command differs between the two hooks"
+
+# Rule 13: a model choice rests on an eval receipt (OPS-10). main gets model-roles.json (provenance
+# off, so rule 12 stays out of it), two agents, a workflow and a two-case reviewer suite with the
+# real runner. Receipts are written by that runner over fake-claude.sh, so these cases also prove
+# the runner's working-tree hashes equal the guard's, read from the commit.
+git -C "$R" checkout -q main
+mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/cases"
+jq '.provenance.enabled = false' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
+cp "$CLAUDUCTOR_FW/agents/reviewer.md" "$CLAUDUCTOR_FW/agents/builder.md" "$R/.claude/agents/"
+echo "// the workflow" > "$R/.claude/workflows/build-change.js"
+cp "$ROOT/.claude/evals/run.sh" "$ROOT/.claude/evals/fake-claude.sh" "$R/.claude/evals/"
+for c in one two; do
+  mkdir -p "$R/.claude/evals/reviewer/cases/$c/before" "$R/.claude/evals/reviewer/cases/$c/after"
+  echo "echo a" > "$R/.claude/evals/reviewer/cases/$c/before/$c.sh"; echo "echo b" > "$R/.claude/evals/reviewer/cases/$c/after/$c.sh"
+done
+jq -n '{id: "one", lang: "sh", kind: "defect", title: "t", brief: "b", tasks: ["t"], expected: [{id: "D1", severity: "high", file: "one.sh", lines: [1, 1], keywords: ["echo"], why: "w"}]}' > "$R/.claude/evals/reviewer/cases/one/case.json"
+jq -n '{id: "two", lang: "sh", kind: "clean", title: "t", brief: "b", tasks: ["t"], expected: []}' > "$R/.claude/evals/reviewer/cases/two/case.json"
+git -C "$R" add -A && git -C "$R" commit -qm "evals base"
+(cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+ev() {  # ev MODEL EFFORT [EVAL_FAKE]: run the eval on the working tree, receipt into .claude/evals/receipts/
+  (cd "$R" && EVAL_CLAUDE="$R/.claude/evals/fake-claude.sh" EVAL_FAKE="${3:-perfect}" EVAL_DATE=2026-02-01 \
+    sh .claude/evals/run.sh --role reviewer --model "$1" --effort "$2" >/dev/null 2>&1)
+}
+roles_set() { jq "$1" "$R/.claude/model-roles.json" > "$d/mr13" && cp "$d/mr13" "$R/.claude/model-roles.json"; }
+g13() {  # a block must be rule 13's, not some other rule's
+  guard "$1" "rule 13: $2" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/models
+  [ "$1" != 2 ] || [ "$rc" != 2 ] || grep -q 'rule 13' "$d/err" || fail "rule 13: $2: blocked, but not by rule 13: $(head -2 "$d/err")"
+}
+
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; head_of "reviewer on sonnet, no receipt"; at
+g13 2 "the reviewer's model changes with no receipt"
+grep -q 'sh .claude/evals/run.sh --role reviewer --model sonnet --effort high' "$d/err" && ok "...and the block names the eval to run" || fail "rule 13 block message: $(cat "$d/err")"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high; head_of "reviewer on sonnet, with its receipt"; at
+g13 0 "the reviewer's model changes with a passing receipt at the head's hashes"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev opus high; head_of "reviewer on sonnet, a receipt for opus"; at
+g13 2 "a receipt for another model than the head's"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high silent; head_of "reviewer on sonnet, a failing receipt"; at
+g13 2 "a receipt that does not pass (recall 0)"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high; roles_set '.roles.builder.model = "sonnet"'; head_of "a receipt, then another role changed"; at
+g13 2 "a receipt run before the model-roles choices changed again (stale hash)"
+on ops/models; ev opus high; echo "One more line." >> "$R/.claude/agents/reviewer.md"; head_of "agent edited after its receipt"; at
+g13 2 "the reviewer agent edited after its receipt ran"
+on ops/models; echo "One more line." >> "$R/.claude/agents/reviewer.md"; ev opus high; head_of "agent edited, then evaluated"; at
+g13 0 "the reviewer agent edited, with a receipt run on the edit"
+on ops/models; echo "// changed" >> "$R/.claude/workflows/build-change.js"; head_of "workflow edited"; at
+g13 2 "a workflow edited with no receipt for the roles it frames"
+on ops/models; roles_set '.roles.builder.model = "sonnet"'; head_of "builder on sonnet"; at
+g13 0 "a role with no eval suite (the builder) changes: advisory only"
+grep -q 'role builder is changed but has no eval suite' "$d/err" && ok "...and it says why it does not block" || fail "rule 13 advisory: $(cat "$d/err")"
+on ops/models; roles_set '.roles.reviewer.eval = {baseline: "opus/high"}'; head_of "evidence recorded, no choice changed"; at
+g13 0 "recording evidence (.eval) changes no choice"
+on ops/models; ev opus high; head_of "a receipt alone"; at
+mv "$R/.claude/lib/evals.sh" "$d/evals.bak"
+g13 2 "the evals library missing (fails closed, not open)"
+mv "$d/evals.bak" "$R/.claude/lib/evals.sh"
+git -C "$R" checkout -q main
 finish

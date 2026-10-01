@@ -191,6 +191,16 @@ Separate milestones, also adopted:
     testing.
   - `pr-merge-guard` requires an eval receipt for any PR that changes `.claude/agents/`,
     `.claude/workflows/` or `model-roles.json`.
+  - **Built (2026-09-30).**
+    - The suite has 18 cases in `.claude/evals/reviewer/cases/`: Go, TypeScript, Python and
+      shell, 5 of them clean controls.
+    - `.claude/evals/run.sh` runs the agent through `claude -p` and writes a receipt with recall,
+      precision, fp_rate, severity accuracy, cost and hashes.
+    - `model-roles.json` gains `.evals.thresholds` and an `eval` field per role.
+    - `checks/model-roles.sh` refuses a model or effort with no evidence behind it.
+    - `pr-merge-guard` rule 13 enforces the receipt.
+    - `checks/evals.sh` tests all of this with a fake reviewer.
+    - How to choose a model is in the template playbook, *Choosing a model by evidence*.
 - **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
   from Slice lines and PR titles, and `release-prep` cuts semver tags.
 

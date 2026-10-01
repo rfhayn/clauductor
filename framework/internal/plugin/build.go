@@ -59,7 +59,9 @@ var projectSkills = map[string]bool{"architecture-audit": true, "release-prep": 
 
 // frameworkDirs are the template's `.claude/` directories that become plugin directories of the
 // same name. `.claude/health/` is not one: `clauductor install` treats it as the project's (a
-// project deletes the GitHub lines it does not use), so it is scaffolded.
+// project deletes the GitHub lines it does not use), so it is scaffolded. Nor is `.claude/evals/`:
+// a project adds cases for its own domain and commits the receipts its model choices rest on
+// (OPS-10), so the suite, its runner and its receipts are the project's.
 var frameworkDirs = []string{"skills", "agents", "hooks", "checks", "lib", "modules", "workflows", "examples"}
 
 // droppedHooks are template hooks the plugin does not register, each with the reason. The script
@@ -292,7 +294,7 @@ func place(rel string) (string, fileKind, error) {
 			return "", kindScaffold, nil
 		}
 	}
-	if dir == "health" {
+	if dir == "health" || dir == "evals" {
 		return "", kindScaffold, nil
 	}
 	for _, d := range frameworkDirs {

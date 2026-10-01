@@ -1,0 +1,32 @@
+{
+  "id": "sh-coverage-fails-open",
+  "lang": "sh",
+  "kind": "defect",
+  "charter": "silent control failure",
+  "title": "Coverage from covsum",
+  "brief": "CI moves from go tool cover to covsum, which also covers the TypeScript. check-coverage.sh reads the total from covsum --json and still fails the build below the floor.",
+  "tasks": [
+    "Read the total from covsum --json in check-coverage.sh"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "scripts/check-coverage.sh",
+      "lines": [
+        4,
+        5
+      ],
+      "keywords": [
+        "empty",
+        "-n",
+        "silent",
+        "missing",
+        "not installed",
+        "fails open",
+        "passes"
+      ],
+      "why": "When covsum or jq is missing or fails, pct is empty, `[ -n \"$pct\" ]` skips the comparison and the script exits 0: the coverage gate passes without measuring anything."
+    }
+  ]
+}

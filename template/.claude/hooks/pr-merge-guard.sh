@@ -24,7 +24,11 @@
 #      outcome-check row in the roadmap.
 #  12. While model-roles.json `provenance.enabled` is true, a merge is blocked unless its squash body
 #      (--body or --body-file) ends in Change:, Agent-Role:, Model: and Session: trailers.
-#   Rules 9–12 live in lib/change-guard.sh.
+#  13. A PR that changes a role's model, effort or tier variants in model-roles.json, an agent in
+#      .claude/agents/, or the workflows in .claude/workflows/ is blocked unless the head holds a
+#      passing eval receipt (.claude/evals/run.sh) for each affected role that has a suite, run at
+#      the head's model-roles, agent and workflows hashes (OPS-10; .claude/lib/evals.sh).
+#   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
 #
 # A MERGE IN ANOTHER REPOSITORY is not policed beyond rule 1, but it passes only when the whole
@@ -666,6 +670,30 @@ if jq -e '.provenance.enabled == true' "$roles_json" >/dev/null 2>&1; then
   why=$(cg_trailers "$cmd" "$(printf '%s' "$payload" | jq -r '.cwd // empty')" "$(printf '%s' "$payload" | jq -r '.session_id // empty')" "$roles_json")
   [ -z "$why" ] || block "rule 12: $why"
   say "rule 12: the squash body carries its provenance trailers."
+fi
+
+# Rule 13 — a model choice rests on evidence (OPS-10). The evals library is tested for, parsed and
+# proved complete before use, exactly as the change libraries above: a missing function's empty
+# output would read as "no receipt needed".
+ev_lib="$ROOT_HOOK/.claude/lib/evals.sh"
+[ -f "$ev_lib" ] || block "cannot find $ev_lib, so rule 13 (eval receipts) cannot be checked. Restore it."
+sh -n "$ev_lib" 2>/dev/null || block "$ev_lib does not parse, so rule 13 cannot be checked. Run: sh -n $ev_lib"
+. "$ev_lib"
+for f in evals_verdict evals_roles_hash_at evals_blob_at evals_tree_hash_at evals_suite_roles_at cg_eval_roles cg_eval_receipt; do
+  command -v "$f" >/dev/null 2>&1 || block "$ev_lib or $cg_lib did not define $f, so rule 13 cannot be checked."
+done
+roles13=$(cg_eval_roles "$base9" "$head_sha")
+if [ -n "$roles13" ]; then
+  suites13=$(evals_suite_roles_at "$head_sha")
+  for r in $roles13; do
+    if printf '%s\n' "$suites13" | grep -qx "$r"; then
+      why=$(cg_eval_receipt "$head_sha" "$r")
+      [ -z "$why" ] || block "rule 13: $why"
+      say "rule 13: role $r is changed, and the head holds a passing eval receipt for it at the head's hashes."
+    else
+      say "rule 13: role $r is changed but has no eval suite (.claude/evals/$r/cases/), so no receipt can be required. Not blocking."
+    fi
+  done
 fi
 
 allow

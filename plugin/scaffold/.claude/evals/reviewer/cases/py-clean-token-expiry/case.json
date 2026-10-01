@@ -1,0 +1,13 @@
+{
+  "id": "py-clean-token-expiry",
+  "lang": "py",
+  "kind": "clean",
+  "charter": "control: the near miss of py-token-expiry-untested, done in full",
+  "title": "Verify session tokens",
+  "brief": "Add verify(secret, token, now) for the session tokens sign() issues. Scenarios, each with a test: a valid token returns its user; a tampered token is rejected; an EXPIRED token (now at or past expires_at) is rejected.",
+  "tasks": [
+    "Add auth.tokens.verify",
+    "Test each of the three scenarios"
+  ],
+  "expected": []
+}
