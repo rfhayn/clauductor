@@ -1,8 +1,11 @@
 #!/bin/sh
 # roadmap-queue.sh: THE parser of the roadmap's change queue (ROADMAP in .claude/project.conf).
 # session-start, session-close, the panel's card and suggestions, and the checks all read the
-# queue through this script. Do not write a second parser: two parsers of one table disagree
-# silently, and the table is the authority.
+# queue through this script's contract, by way of roadmap_queue in .claude/lib/conf.sh. Do not
+# write a second parser: two parsers of one table disagree silently, and the table is the authority.
+# A project whose roadmap has its own grammar keeps its own parser INSTEAD of this one, named by
+# ROADMAP_PARSER in project.conf, to the contract docs/roadmap.md states (*Plugging in your own
+# parser*); this script then hands every call to it.
 #
 #   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
@@ -36,6 +39,14 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 
+# The front door: a project that keeps its own parser (ROADMAP_PARSER) gets it through every
+# command that names this script (skills, panel cards, people), via the one helper. Scripts call
+# roadmap_queue directly; the helper sets ROADMAP_BUILTIN, so this grammar is parsed below.
+if [ -n "$ROADMAP_PARSER" ] && [ -z "${ROADMAP_BUILTIN:-}" ]; then
+  roadmap_queue "$@"
+  exit $?
+fi
+
 mode=--text
 kindf=""
 case "${1:-}" in --text|--check|--tsv) mode=$1; shift ;; --queued) mode=$1; shift; case "${1:-}" in change|fix|ops) kindf=$1; shift ;; esac ;; esac
@@ -66,7 +77,9 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   else { if (powner != "") err("a second owner line in one phase"); powner = o }
   next
 }
-/^\*\*[^*]*[Oo]wner/ { err("looks like an owner line but is not \"**Owner:** <name>\""); next }
+# A near miss is bold LABEL text ending in "owner…:" (`**Phase 1 owner:** Ana`), not any bold
+# sentence that mentions an owner (`**Stage 1. Owner: #116. Met.**`), which is prose.
+/^\*\*[^*]*[Oo]wner[^*]*:\*\*/ { err("looks like an owner line but is not \"**Owner:** <name>\""); next }
 /^\|/ {
   line = $0; gsub(/\\\|/, "\001", line)
   nc = split(line, c, "|")
