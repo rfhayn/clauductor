@@ -19,6 +19,7 @@
 #   in `.openspec.yaml` (`skip_specs: true`).
 . "$(dirname "$0")/lib.sh"
 . "$ROOT/.claude/lib/change.sh"
+. "$ROOT/.claude/lib/records.sh"
 
 # ── Self-test: a well-formed change passes, and each broken shape fails ──────────────────────────
 # Built from the example change (.claude/examples), so the example is held to every rule too.
@@ -28,7 +29,7 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   C=changes/add-greeting-name
   mk() {  # mk NAME: a fixture project holding the example change, approved; returned in $F
     F="$(scratch)/$1"; mkdir -p "$F/.claude/lib" "$F/.claude/checks" "$F/changes" "$F/specs" "$F/docs"
-    cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$F/.claude/lib/"
+    cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/records.sh" "$F/.claude/lib/"
     cp "$ROOT/.claude/checks/lib.sh" "$F/.claude/checks/"
     cp "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/change-approval.sh" "$F/.claude/"
     cp -R "$EX/changes/add-greeting-name" "$F/changes/"; cp -R "$EX/specs/greeting" "$F/specs/"
@@ -85,6 +86,54 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk legacy; printf '\n### Requirement: Old behaviour\nThe system SHALL do the old thing.\n\n#### Scenario: written before IDs\n- **THEN** it works\n' >> "$F/specs/greeting/spec.md"
   case_bad "a living scenario with no ID (SCENARIO_IDS=required)" "'#### Scenario: written before IDs' needs"
   printf 'SCENARIO_IDS="new-only"\n' > "$F/.claude/project.conf"; case_ok "a living scenario with no ID under SCENARIO_IDS=new-only"
+
+  # ── Chained proposals: a change that MODIFIES what an open change ahead of it ADDS ────────────
+  # chain: a second change, add-farewell-wave, whose delta MODIFIES the farewell requirement the
+  # example change ADDS (not yet in any living spec), copying its scenario headers and adding one.
+  chain() {
+    W=changes/add-farewell-wave; cp -R "$F/$C" "$F/$W"; rm -rf "$F/$W/specs"; mkdir -p "$F/$W/specs/farewell"
+    awk '/^## Purpose/ { skip = 1 } /^## ADDED/ { skip = 0 } !skip' "$F/$C/specs/farewell/spec.md" \
+      | sed 's/^## ADDED Requirements/## MODIFIED Requirements/; s/show a farewell that names them\./show a farewell that names them, and wave./' > "$F/$W/specs/farewell/spec.md"
+    printf '\n#### Scenario: [FAREWELL-1-S3] The farewell waves\n- **WHEN** a member signs out\n- **THEN** a hand waves beside "Goodbye, Ana"\n' >> "$F/$W/specs/farewell/spec.md"
+  }
+  record() { (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" "$1" --record Ana >/dev/null); }
+  mk chained; chain; record add-farewell-wave
+  case_ok "a change MODIFYING a requirement that an open change ahead of it ADDS (chained proposals)"
+  mk chaindrop; chain; edit "$W/specs/farewell/spec.md" '/FAREWELL-1-S2/,/THEN/d'; record add-farewell-wave
+  case_bad "a chained MODIFIED that drops a scenario the change ahead adds" "of open change add-greeting-name (ahead of this one)"
+  mk chainadd; chain; edit "$W/specs/farewell/spec.md" 's/^## MODIFIED Requirements/## ADDED Requirements/; s/\[FAREWELL-1-S\([12]\)\]/[FAREWELL-2-S\1]/; s/\[FAREWELL-1-S3\]/[FAREWELL-2-S3]/'; record add-farewell-wave
+  case_bad "a second open change ADDING the same requirement" "is also ADDED by open change add-greeting-name"
+  mk chainnone; chain; edit "$W/specs/farewell/spec.md" 's/^### Requirement: Say goodbye on sign-out/### Requirement: Say nothing/'; record add-farewell-wave
+  case_bad "a MODIFIED requirement neither a living spec nor an open change has" "nor ADDED by an open change"
+
+  # ── Grandfathered changes (CHANGES_LEGACY): proposed before adoption, in the project's old format ─
+  # legacy_change: an open change shaped like one an adopting project already has: review page on
+  # line 1 and no Approved/Risk/How we'll know, a '## 0.' group, no Progress or Decision log, and a
+  # delta whose scenarios carry no IDs.
+  legacy_change() {
+    L="$F/changes/add-score-photo"; mkdir -p "$L/specs/scoring"
+    printf '**Review page:** https://claude.ai/artifact/abc123\n\n## Why\nScores are typed by hand.\n\n## What changes\nA photo of the card fills the scores.\n' > "$L/proposal.md"
+    printf '# Design\n\n## D1 — the photo is read by one adapter\n' > "$L/design.md"
+    printf '## 0. Preconditions\n- [x] 0.1 the provider is reachable\n\n## 1. Read the photo\n- [ ] 1.1 the adapter\n\n- [ ] Slice: a scorer can fill a card from a photo\n' > "$L/tasks.md"
+    printf 'schema: spec-driven\ncreated: 2026-09-20\n' > "$L/.openspec.yaml"
+    printf '## Purpose\nA scorer fills a card from a photograph of the paper card, checked before saving.\n\n## ADDED Requirements\n\n### Requirement: Fill a card from a photo\nThe system SHALL read a photo.\n\n#### Scenario: a clear photo\n- **THEN** the scores are filled\n' > "$L/specs/scoring/spec.md"
+  }
+  mk legacynone; legacy_change; case_bad "an open change in the pre-adoption format, not grandfathered" "add-score-photo: proposal.md needs '**Approved:**"
+  mk legacylist; legacy_change; printf 'CHANGES_LEGACY="add-score-photo"\n' > "$F/.claude/project.conf"
+  case_ok "the same change grandfathered by name (CHANGES_LEGACY)"
+  edit $C/proposal.md '/^\*\*Risk:\*\*/d'; record add-greeting-name; case_bad "a NEW change still judged while another is grandfathered" "needs '**Risk:**"
+  mk legacybase; legacy_change; printf 'CHANGES_LEGACY="baseline"\nRECORDS_BASELINE="2026-09-25"\n' > "$F/.claude/project.conf"
+  case_ok "a change created before a date RECORDS_BASELINE, grandfathered by CHANGES_LEGACY=baseline"
+  sed 's/^created: .*/created: 2026-09-26/' "$L/.openspec.yaml" > "$L/y"; mv "$L/y" "$L/.openspec.yaml"
+  case_bad "CHANGES_LEGACY=baseline with a change created after the baseline" "add-score-photo: proposal.md needs '**Approved:**"
+  mk legacylate; legacy_change; sed 's/^created: .*/created: 2026-09-26/' "$L/.openspec.yaml" > "$L/y"; mv "$L/y" "$L/.openspec.yaml"
+  printf 'CHANGES_LEGACY="add-score-photo"\nRECORDS_BASELINE="2026-09-25"\n' > "$F/.claude/project.conf"
+  case_bad "CHANGES_LEGACY naming a change created after RECORDS_BASELINE" "created after RECORDS_BASELINE"
+  mk legacychain; legacy_change; printf 'CHANGES_LEGACY="add-score-photo"\nSCENARIO_IDS="new-only"\n' > "$F/.claude/project.conf"
+  W=changes/add-photo-retake; cp -R "$F/$C" "$F/$W"; rm -rf "$F/$W/specs"; mkdir -p "$F/$W/specs/scoring"
+  printf '## MODIFIED Requirements\n\n### Requirement: Fill a card from a photo\nThe system SHALL read a photo, and offer a retake.\n\n#### Scenario: a clear photo\n- **THEN** the scores are filled\n\n#### Scenario: [SCORING-1-S1] a blurred photo\n- **THEN** a retake is offered\n' > "$F/$W/specs/scoring/spec.md"
+  record add-photo-retake
+  case_ok "a new change MODIFYING what a grandfathered open change ADDS"
 fi
 
 dir="$ROOT/$CHANGES_DIR"
@@ -132,7 +181,25 @@ for s in "$ROOT/$SPECS_DIR"/*/spec.md "$dir"/archive/*/specs/*/spec.md; do
 done
 sort -u "$w/history" -o "$w/history"
 
-roadmap_tsv=$(sh "$ROOT/.claude/roadmap-queue.sh" --tsv 2>/dev/null) || roadmap_tsv=""
+# ── Every open change's requirements, so a change can build on one proposed ahead of it ───────────
+# Chained proposals: change B MODIFIES (or REMOVES) a requirement that change A, still open, ADDS.
+# The requirement is in no living spec yet, so B resolves it against the union of the living specs
+# and the open changes' ADDED requirements. Grandfathered changes count: their deltas are real.
+: > "$w/open-reqs"
+for s in "$dir"/*/specs/*/spec.md; do
+  [ -f "$s" ] || continue
+  oc=$(basename "$(dirname "$(dirname "$(dirname "$s")")")"); [ "$oc" = archive ] && continue
+  awk -v oc="$oc" -v cap="$(basename "$(dirname "$s")")" '/^## (ADDED|MODIFIED|REMOVED|RENAMED) Requirements/ { sec = $2; next } /^## / { sec = "" }
+       /^### Requirement:/ { n = $0; sub(/^### Requirement:[ \t]*/, "", n); sub(/[ \t]+$/, "", n); print oc "\t" cap "\t" sec "\t" n }' "$s" >> "$w/open-reqs"
+done
+# added_ahead ME CAP NAME: the other open change that ADDS requirement NAME to CAP, if one does.
+added_ahead() {
+  awk -F'\t' -v me="$1" -v cap="$2" -v n="$3" '$1 != me && $2 == cap && $3 == "ADDED" && $4 == n { print $1; exit }' "$w/open-reqs"
+}
+
+bkind=$(records_baseline_kind)
+[ "$bkind" = bad ] && fail "$(records_baseline_bad)"
+roadmap_tsv=$(roadmap_queue --tsv 2>/dev/null) || roadmap_tsv=""
 : > "$w/added-all"
 n=0
 for c in "$dir"/*/; do
@@ -140,6 +207,16 @@ for c in "$dir"/*/; do
   c=${c%/}; id=$(basename "$c"); [ "$id" = archive ] && continue
   n=$((n + 1))
   for f in proposal.md design.md tasks.md; do [ -f "$c/$f" ] || fail "$id: no $f"; done
+
+  # ── A change proposed before adoption (CHANGES_LEGACY) keeps the format it was approved in ──────
+  if change_is_legacy "$id"; then
+    if [ "${CHANGES_LEGACY:-}" != baseline ] && { [ "$bkind" = date ] || [ "$bkind" = ref ]; } && ! change_created_legacy "$id"; then
+      fail "$id: CHANGES_LEGACY grandfathers it, but it was created after RECORDS_BASELINE ($RECORDS_BASELINE); a change proposed since adoption is held to the format"
+    else
+      ok "$id: grandfathered (CHANGES_LEGACY): proposed before adoption, so its format is not judged; its deltas still count for the changes after it"
+    fi
+    continue
+  fi
 
   # ── proposal.md ───────────────────────────────────────────────────────────────────────────────
   if [ -f "$c/proposal.md" ]; then
@@ -198,10 +275,24 @@ for c in "$dir"/*/; do
     have_delta=1; cap=$(basename "$(dirname "$s")"); rel="$id: specs/$cap/spec.md"; living="$ROOT/$SPECS_DIR/$cap/spec.md"
     out=$(spec_ok "$s") && ok "$rel: every requirement has a scenario and a SHALL" || fail "$rel: $out"
     out=$(then_ok "$s") || fail "$rel: $out"
-    ids_ok "$s" "$rel" 1 > "$w/ids"; cat "$w/ids"; _fails=$((_fails + $(grep -c '^FAIL' "$w/ids")))
+    ids_ok "$s" "$rel" 1 > "$w/ids"
+    # Under SCENARIO_IDS=new-only a MODIFIED block copies the current scenario headers word for word,
+    # so a header written before IDs (in the living spec, or in a grandfathered change ahead) is
+    # copied as it is: it is not a new scenario, and adding an ID would reword it.
+    if [ "${SCENARIO_IDS:-required}" = new-only ]; then
+      for o in "$living" "$dir"/*/specs/"$cap"/spec.md; do
+        [ -f "$o" ] && [ "$o" != "$s" ] && spec_malformed "$o" | awk -F'\t' -v l="$rel" '$1 == "none" { printf "FAIL %s: scenario header '"'"'%s'"'"' needs '"'"'[CAP-n-Sn] title'"'"' (docs: specs/README.md)\n", l, $2 }'
+      done > "$w/copied"
+      grep -vxF -f "$w/copied" "$w/ids" > "$w/ids.kept" 2>/dev/null || true; mv "$w/ids.kept" "$w/ids"
+    fi
+    cat "$w/ids"; _fails=$((_fails + $(grep -c '^FAIL' "$w/ids")))
     spec_scenarios "$s" > "$w/sc"
     # New IDs: every ADDED one, and every MODIFIED one the living requirement does not already hold.
     : > "$w/cur"; [ -f "$living" ] && spec_scenarios "$living" | awk -F'\t' '$3 != "-" { print $3 }' > "$w/cur"
+    # ...or one an open change ahead of it ADDS to this capability (a chained proposal copies those).
+    for o in "$dir"/*/specs/"$cap"/spec.md; do
+      [ -f "$o" ] && [ "$o" != "$s" ] && spec_scenarios "$o" | awk -F'\t' '$1 == "ADDED" && $3 != "-" { print $3 }' >> "$w/cur"
+    done
     awk -F'\t' '$1 == "ADDED" && $3 != "-" { print $3 }' "$w/sc" > "$w/new"
     awk -F'\t' '$1 == "MODIFIED" && $3 != "-" { print $3 }' "$w/sc" | { grep -vxF -f "$w/cur" 2>/dev/null || true; } >> "$w/new"
     for i in $(cat "$w/new"); do
@@ -213,20 +304,36 @@ for c in "$dir"/*/; do
          /^### Requirement:/ { n = $0; sub(/^### Requirement:[ \t]*/, "", n); sub(/[ \t]+$/, "", n); print sec "\t" n }' "$s" > "$w/reqs"
     while IFS="$(printf '\t')" read -r sec name; do
       has=""; [ -f "$living" ] && requirement_block "$living" "$name" | grep -q . && has=1
+      # Not in the living spec: an open change ahead may ADD it (the block this one must copy).
+      ahead=""; src="$living"; where="$SPECS_DIR/$cap/spec.md"
+      if [ -z "$has" ]; then
+        ahead=$(added_ahead "$id" "$cap" "$name")
+        [ -n "$ahead" ] && { has=1; src="$dir/$ahead/specs/$cap/spec.md"; where="open change $ahead (ahead of this one)"; }
+      fi
       case "$sec" in
-        ADDED) [ -z "$has" ] || fail "$rel: ADDED requirement \"$name\" is already in $SPECS_DIR/$cap/spec.md (MODIFY it instead)" ;;
-        REMOVED) [ -n "$has" ] || fail "$rel: REMOVED requirement \"$name\" is not in $SPECS_DIR/$cap/spec.md" ;;
+        ADDED)
+          if [ -n "$ahead" ]; then fail "$rel: ADDED requirement \"$name\" is also ADDED by open change $ahead (MODIFY it instead, chained after $ahead)"
+          elif [ -n "$has" ]; then fail "$rel: ADDED requirement \"$name\" is already in $SPECS_DIR/$cap/spec.md (MODIFY it instead)"; fi ;;
+        REMOVED) [ -n "$has" ] || fail "$rel: REMOVED requirement \"$name\" is not in $SPECS_DIR/$cap/spec.md, nor ADDED by an open change" ;;
         MODIFIED)
-          if [ -z "$has" ]; then fail "$rel: MODIFIED requirement \"$name\" is not in $SPECS_DIR/$cap/spec.md"; continue; fi
-          requirement_block "$living" "$name" | grep '^#### Scenario:' | sed 's/[[:space:]]*$//' > "$w/want"
+          if [ -z "$has" ]; then fail "$rel: MODIFIED requirement \"$name\" is not in $SPECS_DIR/$cap/spec.md, nor ADDED by an open change"; continue; fi
+          requirement_block "$src" "$name" | grep '^#### Scenario:' | sed 's/[[:space:]]*$//' > "$w/want"
           requirement_block "$s" "$name" | grep '^#### Scenario:' | sed 's/[[:space:]]*$//' > "$w/got"
           lost=$(grep -vxF -f "$w/got" "$w/want")
-          if [ -n "$lost" ]; then fail "$rel: MODIFIED \"$name\" leaves out or rewords current scenario(s), which archiving would delete: $(printf '%s' "$lost" | tr '\n' ';'). Copy the current block word for word, then edit"
-          else ok "$rel: MODIFIED \"$name\" keeps every current scenario header"; fi
+          if [ -n "$lost" ]; then fail "$rel: MODIFIED \"$name\" leaves out or rewords current scenario(s) of $where, which archiving would delete: $(printf '%s' "$lost" | tr '\n' ';'). Copy the current block word for word, then edit"
+          else ok "$rel: MODIFIED \"$name\" keeps every current scenario header of $where"; fi
           ;;
       esac
     done < "$w/reqs"
-    if [ ! -f "$living" ]; then
+    # A capability an open change ahead creates already has its Purpose there.
+    creator=""
+    if [ ! -f "$living" ] && ! grep -q '^## Purpose' "$s"; then
+      for o in "$dir"/*/specs/"$cap"/spec.md; do
+        [ -f "$o" ] && [ "$o" != "$s" ] && grep -q '^## Purpose' "$o" && { creator=$(basename "$(dirname "$(dirname "$(dirname "$o")")")"); break; }
+      done
+    fi
+    if [ -n "$creator" ]; then ok "$rel: a capability open change $creator creates, with its Purpose there"
+    elif [ ! -f "$living" ]; then
       purpose=$(sed -n '/^## Purpose/,/^## /{/^## /d;p;}' "$s" | tr -s ' \n\t' '   ' | sed 's/^ *//; s/ *$//')
       if [ "${#purpose}" -ge 50 ]; then ok "$rel: a new capability, with a Purpose (${#purpose} characters)"
       else fail "$rel: a new capability's delta needs '## Purpose' of at least 50 characters (it has ${#purpose}); archiving otherwise writes a placeholder"; fi

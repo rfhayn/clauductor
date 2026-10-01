@@ -2,7 +2,8 @@
 
 The program plan: phases, their order, and the change queue. The queue tables below are the
 **authority** for what is next; every script reads them through one parser,
-`${CLAUDE_PLUGIN_ROOT}/roadmap-queue.sh` (`clauductor-model roadmap-queue.sh --check` validates this file).
+`${CLAUDE_PLUGIN_ROOT}/roadmap-queue.sh` (`clauductor-model roadmap-queue.sh --check` validates this file), or the
+project's own named by `ROADMAP_PARSER` (*Plugging in your own parser*, below).
 
 ## How this layers with the other records
 
@@ -43,6 +44,46 @@ A phase is several changes. Decompose as you go, phase by phase.
   appetite. Its `proposal.md` repeats it, `build-change` stops past it, archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
+
+## Plugging in your own parser
+
+A project whose roadmap already has its own grammar keeps it, and its own parser: set
+`ROADMAP_PARSER` in `.claude/project.conf` to the command (run from the repo root, the mode
+appended, an explicit roadmap path after it when given; `ROOT` and `ROADMAP` are in its
+environment). Every reader goes through `roadmap_queue` in `${CLAUDE_PLUGIN_ROOT}/lib/conf.sh`, and
+`clauductor-model roadmap-queue.sh` hands every call to it, so the skills, the panel and the checks all
+follow the one key. `checks/roadmap.sh` fails a script that reads the queue any other way.
+
+The contract a parser meets:
+
+| Mode | Prints | Exit |
+|---|---|---|
+| `--text` | the current phase's open rows, for people (any layout) | 0 read; non-zero: the queue is UNKNOWN |
+| `--check` | one summary line, or one `ERROR` line per line it cannot parse | 0 valid; 1 not |
+| `--tsv` | one row per line, tab-separated, the 12 columns below; more columns are ignored | 0 read; non-zero: UNKNOWN |
+
+`--queued [change\|fix\|ops]` is derived from `--tsv` by the helper: a parser need not implement it.
+
+| # | Column | Values |
+|---|---|---|
+| 1 | line | the row's line number in the file |
+| 2 | phase | the phase it belongs to, `-` outside every phase (an outcome check) |
+| 3 | section | the group inside the phase (a gate, a track); may be empty |
+| 4 | id | the row id, `[A-Za-z0-9._-]`, unique |
+| 5 | change | the change id: `add-x`, `fix/<n>-<slug>`, `ops/<name>` |
+| 6 | kind | `change`, `fix` or `ops` |
+| 7 | state | `queued`, `inflight`, `merged` or `cancelled` |
+| 8 | pr | the PR number, or empty |
+| 9 | owner | who owns the row, or empty |
+| 10 | summary | what a user can now do |
+| 11 | budget | dollars (`40`, `12.50`), or empty |
+| 12 | due | `YYYY-MM-DD`, or empty |
+
+Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
+queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as
+`⬜ planned` or `❌ retired`, a richer phase id) does not have to change: `ROADMAP_NORMALIZER` is a
+filter command from its `--tsv` to the contract's (`awk -F'\t' -v OFS='\t' '$7 == "planned" { $7 =
+"queued" } { print }'`, say).
 
 ## Phase 1 — First slice
 **Owner:** <owner name>

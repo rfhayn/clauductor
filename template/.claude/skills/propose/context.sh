@@ -26,11 +26,11 @@ git for-each-ref --format='%(refname:short)' "refs/heads/$BRANCH_CHANGE" "refs/r
   done
 done
 echo "- Change queue:"
-sh .claude/roadmap-queue.sh --text 2>&1 | ind
+roadmap_queue --text 2>&1 | ind
 echo "- Living specs ($SPECS_DIR/):"
 ls "$SPECS_DIR" 2>/dev/null | grep -v README.md | ind
 echo "- Budgets on queued rows (repeat the row's in proposal.md):"
-sh .claude/roadmap-queue.sh --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
+roadmap_queue --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
 echo "- Scenario IDs already taken (living specs and archived changes; never reuse one):"
 . "$ROOT/.claude/lib/change.sh"
 for s in "$SPECS_DIR"/*/spec.md "$CHANGES_DIR"/archive/*/specs/*/spec.md; do

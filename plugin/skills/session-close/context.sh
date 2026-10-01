@@ -40,7 +40,7 @@ git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$BRANCH_CHANGE
 done
 
 echo "- Roadmap queue (step 3 sets each row's status):"
-sh "$CLAUDUCTOR_FW"/roadmap-queue.sh --text 2>&1 | ind
+roadmap_queue --text 2>&1 | ind
 
 base="origin/$MAIN_BRANCH"
 if fetch_main; then

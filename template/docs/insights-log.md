@@ -38,7 +38,8 @@ Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
 | `Archived` | No longer relevant. |
 
 Statuses may be emphasised (`**Decided 2026-01-02** — …`): anything that reads this column strips
-formatting before matching the vocabulary.
+formatting before matching the vocabulary. `.claude/compound.sh` reads the table under the
+`## Log` heading below (`INSIGHTS_TABLE_HEADING`), and says CANNOT CHECK, never "none", without it.
 
 ## Log
 

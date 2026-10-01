@@ -134,8 +134,8 @@ for d in "$ROOT/$CHANGES_DIR"/*/ "$ROOT/$CHANGES_DIR"/archive/*/; do
       open_tasks: ($open | tonumber? // 0) }' >> "$tmp/changes.jsonl"
 done
 
-# The roadmap's rows (one parser: roadmap-queue.sh), for titles and outcome checks.
-sh "$ROOT/.claude/roadmap-queue.sh" --tsv 2>/dev/null \
+# The roadmap's rows (one parser, through roadmap_queue in lib/conf.sh), for titles and outcome checks.
+roadmap_queue --tsv 2>/dev/null \
   | jq -R 'split("\t") | select(length >= 12) | {id: .[3], change: .[4], state: .[6], summary: .[9], due: .[11]}' \
   | jq -s . > "$tmp/roadmap.json" || echo '[]' > "$tmp/roadmap.json"
 jq -e 'type == "array"' "$tmp/roadmap.json" >/dev/null || echo '[]' > "$tmp/roadmap.json"

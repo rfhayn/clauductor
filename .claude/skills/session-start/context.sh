@@ -59,7 +59,7 @@ else
 fi
 
 echo "- Change queue (the roadmap's current phase; top = next up):"
-sh .claude/roadmap-queue.sh --text 2>&1 | ind
+roadmap_queue --text 2>&1 | ind
 echo "- Proposed, not yet built ($CHANGES_DIR/, at most one ahead):"
 found=""
 for d in "$CHANGES_DIR"/*/; do
