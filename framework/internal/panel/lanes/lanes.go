@@ -100,6 +100,9 @@ type LaneManager struct {
 	Registry *Registry      // durable lane ↔ session binding
 	Run      signals.Runner // runs git and `claude agents` (injectable for tests)
 	Program  []string       // the lane program; default the absolute path of `claude`
+	// UploadDir keeps images dropped on a lane's terminal, one directory per lane
+	// (images.go): in the panel's state directory, never a worktree. "" refuses them.
+	UploadDir string
 	// LookupEnv reads the panel's own environment (injectable for tests).
 	LookupEnv func(string) (string, bool)
 	// StopTimeout is how long Stop waits for /exit before killing the session.
@@ -168,6 +171,11 @@ func (m *LaneManager) TmuxArgv(args ...string) []string {
 }
 
 func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) {
+	return m.tmuxIn(ctx, "", args...)
+}
+
+// tmuxIn is tmux run in dir ("" is the panel's own directory).
+func (m *LaneManager) tmuxIn(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if m.Exec != nil {
@@ -175,6 +183,7 @@ func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) 
 	}
 	cmd := exec.CommandContext(cctx, m.TmuxPath, m.TmuxArgv(args...)...)
 	cmd.Env = TmuxEnv()
+	cmd.Dir = dir
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -185,6 +194,34 @@ func (m *LaneManager) tmux(ctx context.Context, args ...string) ([]byte, error) 
 		return out.Bytes(), errors.New("tmux: " + msg)
 	}
 	return out.Bytes(), nil
+}
+
+// ServerArgv is the command that starts the socket's server when it has none. A
+// tmux server is the fork of the client that started it: it keeps that client's
+// argv and cwd for life, and runs as an orphan (ppid 1). Started by a lane's
+// new-session, it would carry `-c <worktree>` and the lane's claude command line,
+// and a cleanup script hunting orphans that name `.claude/worktrees/` killed one,
+// and every lane with it. So the server is started by a command that names no
+// worktree, in the home directory, and exit-empty is off only until the lane's own
+// session exists (newSession turns it back on).
+func (m *LaneManager) ServerArgv() []string {
+	return m.TmuxArgv("start-server", ";", "set-option", "-g", "exit-empty", "off")
+}
+
+// newSession runs a lane's new-session on a server started by ServerArgv.
+func (m *LaneManager) newSession(ctx context.Context, argv []string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/"
+	}
+	if _, err := m.tmuxIn(ctx, home, m.ServerArgv()[4:]...); err != nil {
+		return err
+	}
+	_, err = m.tmux(ctx, argv[4:]...)
+	// Back to tmux's default either way: the server ends with its last session, as
+	// before, and a failed start leaves no empty server behind.
+	_, _ = m.tmux(ctx, "set-option", "-g", "exit-empty", "on")
+	return err
 }
 
 // noServer reports whether a tmux error only means the socket has no server yet.
@@ -273,6 +310,17 @@ func (m *LaneManager) TmuxEnvBlocked(ctx context.Context) string {
 	return ""
 }
 
+// ScrubbedArgv runs argv through /usr/bin/env with the API-key and parent-session
+// variables unset: the environment a lane's claude sees. `claude auth status` runs
+// this way too (PANEL-15), so it reports the login lanes will use.
+func ScrubbedArgv(argv ...string) []string {
+	out := []string{"/usr/bin/env"}
+	for _, k := range append(append([]string{}, apiKeyVars...), parentSessionVars...) {
+		out = append(out, "-u", k)
+	}
+	return append(out, argv...)
+}
+
 // LaneCommand is the argv tmux runs for a lane. /usr/bin/env unsets the variables a
 // parent Claude session would leak; with two or more arguments tmux execs the
 // command directly instead of passing it to a shell.
@@ -281,11 +329,7 @@ func (m *LaneManager) TmuxEnvBlocked(ctx context.Context) string {
 // <uuid>, and a restart or restore gets --resume <uuid>. --continue is never used,
 // because it picks the directory's most recent conversation, whoever's it is.
 func (m *LaneManager) LaneCommand(id, laneType, sessionID string, resume bool) []string {
-	argv := []string{"/usr/bin/env"}
-	for _, k := range append(append([]string{}, apiKeyVars...), parentSessionVars...) {
-		argv = append(argv, "-u", k)
-	}
-	argv = append(argv, m.Program...)
+	argv := ScrubbedArgv(m.Program...)
 	lt := m.launchOptions(id, laneType)
 	if lt.Model != "" {
 		argv = append(argv, "--model", lt.Model)
@@ -516,7 +560,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		res.Path = signals.ResolvePath(res.Path)
 		rec.Path = res.Path
 	}
-	if _, err := m.tmux(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)[2:]...); err != nil {
+	if err := m.newSession(ctx, m.NewSessionArgv(id, res.Path, req.Type, sid, false)); err != nil {
 		return fail(laneErr(500, "tmux", "starting the lane failed: %v", err))
 	}
 	if err := m.Registry.Done(rec); err != nil {
@@ -613,6 +657,7 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 		}
 		// Registered but already gone from tmux: stopping it means forgetting it.
 	}
+	m.dropImages(id)
 	if registered {
 		if err := m.Registry.Delete(id); err != nil {
 			return laneErr(500, "registry", "the lane stopped, but the registry could not forget it: %v", err)
@@ -722,7 +767,7 @@ func (m *LaneManager) pathTaken(ctx context.Context, dir, except string) string 
 func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (resume bool, lerr *LaneError) {
 	resume = rec.Conversation
 	for attempt := 0; attempt < 2; attempt++ {
-		if _, err := m.tmux(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)[2:]...); err != nil {
+		if err := m.newSession(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)); err != nil {
 			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
 		}
 		failed := ""
@@ -859,6 +904,7 @@ func (m *LaneManager) Forget(ctx context.Context, id string) *LaneError {
 	if err := m.Registry.Delete(id); err != nil {
 		return laneErr(500, "registry", "%v", err)
 	}
+	m.dropImages(id)
 	m.changed()
 	return nil
 }

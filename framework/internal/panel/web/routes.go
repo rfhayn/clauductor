@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
@@ -27,6 +29,7 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /vendor/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("GET /static/", s.requireAuth(files.ServeHTTP))
 	mux.HandleFunc("POST /api/lanes/{id}/ticket", s.requireAuth(s.issueTicketHandler))
+	mux.HandleFunc("POST /api/lanes/{id}/image", s.requireAuth(s.pasteImage))
 	// The terminal checks the cookie itself, after taking the rotation generation.
 	mux.HandleFunc("GET /ws/term", s.terminal)
 	mux.HandleFunc("POST /api/lanes", s.requireAuth(s.startLane))
@@ -109,6 +112,35 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "at": s.clock().Now().UnixMilli()})
+}
+
+// pasteImage serves POST /api/lanes/{id}/image (PANEL-15b): an image dropped or
+// pasted on the lane's terminal, as the raw body. Like every POST it needs the
+// cookie and this page's Origin; a page elsewhere cannot even send it, since an
+// image body is not a request the browser sends cross-origin without a preflight,
+// and the panel answers no preflight. The bytes decide whether it is an image, and
+// the name only names the file.
+func (s *Server) pasteImage(w http.ResponseWriter, r *http.Request) {
+	if s.noLanes(w) {
+		return
+	}
+	id := r.PathValue("id")
+	if !config.ValidLaneID(id) {
+		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, lanes.MaxImageBytes))
+	if err != nil {
+		writeLaneErr(w, laneErr(http.StatusRequestEntityTooLarge, "too-large", "the image is over %d MB", lanes.MaxImageBytes>>20))
+		return
+	}
+	name, _ := url.QueryUnescape(r.Header.Get("X-Filename"))
+	path, lerr := s.Lanes.PasteImage(r.Context(), id, data, name)
+	if lerr != nil {
+		writeLaneErr(w, lerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": path})
 }
 
 // orchRoutes adds the v2 routes. All need the cookie and, as POSTs, pass the global

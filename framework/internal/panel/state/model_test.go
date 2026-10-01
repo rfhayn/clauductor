@@ -191,25 +191,29 @@ func TestReducerStatusLine(t *testing.T) {
 	// A later post carrying only one window keeps the other window's last value.
 	partial := sp
 	seven := 71.0
-	partial.RateLimits.FiveHour = nil
-	partial.RateLimits.SevenDay = &signals.RateLimit{UsedPercentage: &seven}
+	partial.RateLimits = signals.RateLimits{"seven_day": {UsedPercentage: &seven}}
 	m.ApplyStatus(partial, t0.Add(time.Second))
 	if q := m.Snapshot(t0).Quota; q.FiveHour == nil || *q.FiveHour != 12 || *q.SevenDay != 71 {
 		t.Fatalf("partial quota post: %+v", q)
 	}
-	// A status post from another project must not move the quota or the cost. (A
-	// session already bound here keeps its binding when it cds away, so the foreign
-	// post is a different session.)
+	// A status post from another project must not move the cost, but it moves the
+	// quota: the quota is the account's (PANEL-15). (A session already bound here
+	// keeps its binding when it cds away, so the foreign post is a different session.)
 	foreign := sp
 	foreign.SessionID = "someone-else"
 	foreign.Cwd = "/elsewhere"
-	hi := 99.0
-	foreign.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &hi}
+	hi, cost := 99.0, 50.0
+	foreign.RateLimits = signals.RateLimits{"five_hour": {UsedPercentage: &hi}}
+	foreign.Cost.TotalCostUSD = &cost
 	if m.ApplyStatus(foreign, t0) {
 		t.Fatal("foreign status kept")
 	}
-	if v := m.Snapshot(t0); *v.Quota.FiveHour != 12 {
-		t.Fatal("foreign status moved the quota")
+	v = m.Snapshot(t0)
+	if *v.Quota.FiveHour != 99 || *v.Quota.SevenDay != 71 {
+		t.Fatalf("a foreign status post must move the account's quota: %+v", v.Quota)
+	}
+	if *v.EstCostUSD > 1 {
+		t.Fatal("a foreign status post moved the project's cost")
 	}
 }
 
@@ -731,8 +735,8 @@ func TestQuotaExpiresAtResetsAt(t *testing.T) {
 	five, seven := 80.0, 40.0
 	r5, r7 := t0.Add(time.Hour).Unix(), t0.Add(72*time.Hour).Unix()
 	p := signals.StatusPayload{SessionID: "s1", Cwd: buildWT}
-	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five, ResetsAt: &r5}
-	p.RateLimits.SevenDay = &signals.RateLimit{UsedPercentage: &seven, ResetsAt: &r7}
+	p.RateLimits = signals.RateLimits{"five_hour": {UsedPercentage: &five, ResetsAt: &r5},
+		"seven_day": {UsedPercentage: &seven, ResetsAt: &r7}}
 	m.ApplyStatus(p, t0)
 	if q := m.Snapshot(t0.Add(59 * time.Minute)).Quota; q.FiveHour == nil || *q.FiveHour != 80 || q.FiveHourExpired {
 		t.Fatalf("before reset: %+v", q)

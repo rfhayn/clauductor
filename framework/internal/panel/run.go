@@ -364,7 +364,8 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 		return nil, "the lane registry cannot be read, so lanes are not managed: " + err.Error()
 	}
 	m := &lanes.LaneManager{TmuxPath: tmuxPath, Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg, Run: o.Runner,
-		Program: o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit, Clock: clk}
+		UploadDir: filepath.Join(config.ProjectDir(o.Home, root), "uploads"),
+		Program:   o.LaneProgram, StopTimeout: o.StopTimeout, EnterDelay: 400 * time.Millisecond, FastExit: o.FastExit, Clock: clk}
 	if m.FastExit == 0 {
 		m.FastExit = 3 * time.Second
 	}
@@ -380,6 +381,7 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 			why = "claude was not found on the panel's PATH"
 		}
 	}
+	m.PruneImages() // images dropped more than a day ago, while the panel was down
 	return m, why
 }
 

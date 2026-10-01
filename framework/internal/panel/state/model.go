@@ -173,20 +173,12 @@ type Model struct {
 	laneGone map[string]time.Time
 	// trend holds the trends, the lane timelines, ps and git (PANEL-11; trends.go).
 	trend *trends
-}
 
-// Quota is the latest account quota the status line reported.
-type Quota struct {
-	FiveHour       *float64 `json:"fiveHour"`
-	SevenDay       *float64 `json:"sevenDay"`
-	FiveHourResets *int64   `json:"fiveHourResetsAt,omitempty"`
-	SevenDayResets *int64   `json:"sevenDayResetsAt,omitempty"`
-	At             int64    `json:"at"`
-	FromSession    string   `json:"fromSession,omitempty"`
-	// A window whose resets_at has passed is dropped (its value is from before the
-	// reset) and flagged, so the gauge shows "reset" rather than a stale number.
-	FiveHourExpired bool `json:"fiveHourExpired,omitempty"`
-	SevenDayExpired bool `json:"sevenDayExpired,omitempty"`
+	// The account (PANEL-15; quota.go): `claude auth status`, and how many status
+	// posts in a row carried no quota window.
+	account       *signals.AuthStatus
+	accountSrc    SourceStatus
+	noWindowPosts int
 }
 
 // NewModel returns an empty model. Every source starts Pending.
@@ -514,6 +506,9 @@ func agentLabel(typ, id string) string {
 
 // ApplyStatus folds one status-line payload into the state. Returns false when dropped.
 func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
+	// The quota is the account's: a post from any session, in this project or not,
+	// moves it (PANEL-15; before, one from another project was dropped first).
+	m.foldQuota(p, now)
 	lanePath, ok := m.bindLane(p.SessionID, p.Cwd)
 	if !ok {
 		m.dropped++
@@ -540,48 +535,7 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		}
 		s.Stats.fold(p, now)
 	}
-	m.foldQuota(p, now)
 	return true
-}
-
-// foldQuota merges a status post's rate limits into the quota.
-func (m *Model) foldQuota(p signals.StatusPayload, now time.Time) {
-	rl := p.RateLimits
-	// Merge per window: a live payload was seen carrying seven_day without five_hour,
-	// and a missing window must not blank the last value the panel knew.
-	if rl.FiveHour != nil || rl.SevenDay != nil {
-		q := &Quota{}
-		if m.quota != nil {
-			*q = *m.quota
-		}
-		q.At, q.FromSession = ms(now), p.SessionID
-		if rl.FiveHour != nil && rl.FiveHour.UsedPercentage != nil {
-			q.FiveHour, q.FiveHourResets = rl.FiveHour.UsedPercentage, rl.FiveHour.ResetsAt
-		}
-		if rl.SevenDay != nil && rl.SevenDay.UsedPercentage != nil {
-			q.SevenDay, q.SevenDayResets = rl.SevenDay.UsedPercentage, rl.SevenDay.ResetsAt
-		}
-		m.quota = q
-	}
-}
-
-// QuotaReading is the last quota the panel knows (a copy), or nil.
-func (m *Model) QuotaReading() *Quota {
-	if m.quota == nil {
-		return nil
-	}
-	q := *m.quota
-	return &q
-}
-
-// RestoreQuota puts back the reading a previous panel saved, until a post says more.
-// It is the account's, so it holds across a restart; its age (At) shows on the page,
-// and a window whose reset has passed shows as reset, as a live one would.
-func (m *Model) RestoreQuota(q Quota) {
-	if m.quota == nil && q.At > 0 {
-		q.FiveHourExpired, q.SevenDayExpired = false, false
-		m.quota = &q
-	}
 }
 
 // ApplyAgents folds a `claude agents --json` poll. Entries outside the project are
@@ -724,6 +678,8 @@ type View struct {
 	Lanes          []LaneView `json:"lanes"`
 	QuietWorktrees []LaneView `json:"quietWorktrees"`
 	Quota          *Quota     `json:"quota"`
+	// Account is how the account signs in and what the quota's place shows (PANEL-15).
+	Account AccountView `json:"account"`
 	// EstCostUSD sums the status line's list-price total_cost_usd over the sessions
 	// the panel currently tracks: live ones, and ones heard from in the last 30 min.
 	EstCostUSD *float64     `json:"estCostUsd"`
@@ -1194,6 +1150,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		}
 		v.Feed = append(v.Feed, ev)
 	}
+	v.Account = m.accountView(v.Quota)
 	m.snapshotV2(&v, now)
 	m.trendsView(&v, now)
 	return v
@@ -1500,38 +1457,6 @@ func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 // unreadable) counts as approximate too.
 func (m *Model) heuristicsApprox() bool {
 	return !m.v2.versionSet || m.checking()
-}
-
-// quotaAt returns the quota with every window whose resets_at has passed dropped.
-func (m *Model) quotaAt(now time.Time) *Quota {
-	if m.quota == nil {
-		return nil
-	}
-	q := *m.quota
-	if q.FiveHourResets != nil && *q.FiveHourResets <= now.Unix() {
-		q.FiveHour, q.FiveHourExpired = nil, true
-	}
-	if q.SevenDayResets != nil && *q.SevenDayResets <= now.Unix() {
-		q.SevenDay, q.SevenDayExpired = nil, true
-	}
-	return &q
-}
-
-// quotaGuardBlock says why a new lane is refused at this quota, or "". An unknown or
-// expired window never blocks: the guard acts on a number it has.
-func quotaGuardBlock(q *Quota, guardPct float64) string {
-	if guardPct <= 0 || q == nil || q.FiveHour == nil {
-		return ""
-	}
-	if *q.FiveHour >= guardPct {
-		return fmt.Sprintf("the 5-hour quota is at %.0f%%, at or above the quota guard (%.0f%%)", *q.FiveHour, guardPct)
-	}
-	return ""
-}
-
-// QuotaGuard returns the reason a new lane would be refused now, or "".
-func (m *Model) QuotaGuard(now time.Time) string {
-	return quotaGuardBlock(m.quotaAt(now), m.cfg.AlertThresholds().GuardPct)
 }
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.

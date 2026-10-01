@@ -17,9 +17,10 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | Source | How | Gives |
 |---|---|---|
 | HTTP hooks | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
-| Status line | the project's status-line script copies its stdin to `POST /status` | context %, 5-hour and 7-day quota, est. cost |
+| Status line | the status-line script copies its stdin to `POST /status` | context %, est. cost, and the account's quota windows (from any session, in any project) |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
+| `claude auth status --json` | at start, then every 10 min, with a lane's environment (no API key) | how the account signs in and its plan: what the quota's place shows (see *The account and its quota*) |
 | queue leases | read every 1 s from the git common dir; `ps` once per process (and every 30 s), else `kill -0` | who holds the gate, who waits |
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
@@ -291,14 +292,16 @@ value just changed.
 
 - **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
   lane. Totals live here and nowhere else.
-  - The **5-hour** and **7-day quota**, each a bar with its reset countdown. On the 5-hour bar a
-    magenta mark shows where the window lands at its reset at the current burn rate. The quota
-    comes only with a status-line post, and the panel keeps the last one across a restart
-    (`~/.clauductor/panel/quota.json`), so a reading older than 10 minutes says "as of … ago";
-    with none, hovering says where one comes from.
-  - **Burn rate**: the 5-hour quota's change per hour over the last 30 minutes, when there are at
-    least 5 minutes of it, and when it runs out at that rate. That time turns amber when it comes
-    before the reset.
+  - **The quota**: one bar per window the account's plan reports (usually the **5-hour** and
+    **7-day**), each with its reset countdown, and the plan named on the first ("5-hour quota
+    (Max)"). On the burn window's bar a magenta mark shows where it lands at its reset at the
+    current burn rate. The quota comes only with a status-line post, from any session on the
+    machine, and the panel keeps the last one across a restart (`~/.clauductor/panel/quota.json`),
+    so a reading older than 10 minutes says "as of … ago"; with none, hovering says where one
+    comes from. What stands here depends on the account: see *The account and its quota*.
+  - **Burn rate**: the shortest window's change per hour over the last 30 minutes, when there are
+    at least 5 minutes of it, and when it runs out at that rate. That time turns amber when it
+    comes before the reset.
   - **est. $ (list price)**: the sum of the status line's `total_cost_usd` over the sessions the
     panel tracks now (live ones, and ones heard from in the last 30 minutes), then today's cost and
     the cost per hour over the last hour, with a sparkline. It is a list-price estimate, not a bill.
@@ -434,6 +437,14 @@ value just changed.
   `noopener` and no referrer. A ⌘-press never reaches claude as a click. The browser test
   `testdata/browser/terminal-links-selection.cjs` checks the links and the selection through a
   real panel and tmux, with a lane that asks for the mouse as claude's fullscreen TUI does.
+- **Images in the terminal.** Drop an image file on a lane's terminal, or paste one (⌘V with an
+  image on the clipboard), and claude gets it as it would from a native terminal: its path is
+  typed at the cursor, as a bracketed paste followed by a space, and never Enter, so you go on
+  typing the prompt around it. A browser never tells a page where a file lives, so the page
+  sends the image to the panel, which keeps it in its own state directory (see [Security
+  model](#security-model)) and types that path. The terminal is outlined while an image is
+  dragged over it. PNG, JPEG, GIF and WebP only, up to 20 MB; what is refused says why under
+  the terminal.
 - **Warnings** (the amber bars: an unverified Claude Code, ignored events) close with their **×**.
   A closed warning stays closed in this browser while it is about the same thing, even as its
   text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
@@ -490,6 +501,44 @@ The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
 spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
 
+### The account and its quota
+
+The quota is the account's, not the project's: any session's status-line post moves it, whatever
+project it runs in (PANEL-15; before, a post from another project was set aside with the quota in
+it). Nothing in it is specific to a plan. The status line's `rate_limits` holds whatever windows
+the account's plan has, each a percentage of the plan's own limit, and the panel shows each one it
+receives:
+
+- `five_hour`, `seven_day`, `seven_day_opus` and `seven_day_sonnet` are labelled "5-hour",
+  "7-day", "7-day Opus" and "7-day Sonnet". A key shaped like them reads the same way
+  (`two_hour` is "2-hour"); any other is labelled from its words (`nimbus_quill` is "Nimbus
+  quill"). The bars go shortest window first, and a window whose span cannot be read goes last.
+- The burn rate and its projection follow the shortest window that has a number. When the
+  shortest window changes, the rate starts again.
+- A post carrying some windows keeps the others' last values.
+- `/api/state` carries `quota.windows` (`key`, `label`, `pct`, `resetsAt`, `expired`). The fields
+  before PANEL-15 (`fiveHour`, `sevenDay` and their resets) stay for one release, so a page left
+  open across an upgrade still draws.
+- The quota alert and the quota guard still read the 5-hour window, as their `five_hour_pct`
+  keys say. A plan with no 5-hour window never trips either.
+
+To know what kind of account it is, the panel runs `claude auth status --json` at start and
+every 10 minutes (it costs no token), through `/usr/bin/env -u ANTHROPIC_API_KEY -u
+ANTHROPIC_AUTH_TOKEN …`, the environment a lane gets, so it names the login lanes use. It keeps
+only `loggedIn`, `authMethod`, `apiProvider` and `subscriptionType`. The command also prints your
+email, your organisation's name and its id: the first two are never decoded, and the id is kept
+only as a short one-way hash, stored with the quota in `quota.json` so a reading saved for one
+account is dropped once the panel reads another. What stands in the quota's place:
+
+| Account | `claude auth status` | Shows |
+|---|---|---|
+| A subscription (Pro, Max, Team, Enterprise) whose status line has windows | `authMethod` `claude.ai` (or `oauth_token`) | the bars, the plan on the first ("(Max)") |
+| A subscription that reports no windows | the same, and 3 status posts in a row with no `rate_limits` | "Quota: none reported", and no burn rate |
+| An API key, or a cloud provider (Bedrock, Vertex, Foundry, a gateway) | `authMethod` `api_key` or `api_key_helper`, or an `apiProvider` other than `firstParty` | no quota: **API spend (est.)** comes first, and **Spend rate** is its dollars per hour |
+| Not read yet, not logged in, or a method the panel does not know | | the 5-hour and 7-day fields with no reading, and where one comes from |
+
+Lanes still start only on a subscription login (*Subscription only*).
+
 ## Lanes
 
 A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
@@ -528,6 +577,11 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
      /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
 ```
 
+- First, `tmux -L <socket> -f /dev/null start-server ; set-option -g exit-empty off`, run in
+  your home directory, so the server (which keeps its starting command line for life) names no
+  worktree; `exit-empty` goes back `on` right after the `new-session`, so the server still ends
+  with its last lane (see [Never kill the panel's tmux server from a
+  script](#never-kill-the-panels-tmux-server-from-a-script)).
 - The lane name is the tmux session name and the worktree directory name. It must match
   `[a-z0-9][a-z0-9-]{0,40}`, so it is safe in a tmux target and in a shell command.
 - The session id is a UUID that the panel generates, so the lane is bound to its Claude session
@@ -1041,7 +1095,7 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
 | context | `context_window.used_percentage` ≥ `context_pct` | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
-| quota | the 5-hour quota ≥ `five_hour_pct` (block at 100%) | warn |
+| quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
 
 ### Current or stale
 
@@ -1323,7 +1377,9 @@ sessions are found through `claude agents --json`.
 - **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
   session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
   by its `cwd` at first sight, and a later `cd` does not move it.
-- **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset".
+- **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset". Every
+  status post updates it, whatever project it comes from; a window that does not decode is
+  skipped without costing the post anything else (see *The account and its quota*).
 - **`claude agents`.** `id`, `state` and the `waitingFor` enum (permission prompt, input needed,
   sandbox request, worker request, dialog open) are decoded. The poll passes `--cwd <the
   deepest directory holding every worktree>`, but only after a cross-check: every 5 minutes it
@@ -1448,6 +1504,18 @@ send requests to `127.0.0.1`.
   in-page confirmation that shows its real address, since its text can say anything. The
   plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
   lane may print, other schemes and look-alike link text. Title escapes are ignored.
+- **A dropped image** (`POST /api/lanes/<id>/image`, PANEL-15b) is a lane action like the
+  others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
+  the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
+  body needs a CORS preflight, which the panel never answers. The bytes decide what it is (PNG,
+  JPEG, GIF or WebP by their magic numbers; the name and `Content-Type` are ignored), and it is
+  refused over 20 MB. The name the page sends only names the file: letters, digits, `_` and `-`,
+  60 characters at most, with the extension the bytes are. The file is written 0600 to
+  `~/.clauductor/panel/<project hash>/uploads/<lane>/<ms>-<name>` (directories 0700), **never
+  into the worktree**, where it would dirty git. Its path is typed with `tmux set-buffer` and
+  `paste-buffer -p` (bracketed when claude asked for it), then a space; no Enter. A lane's images
+  are removed when it is stopped or forgotten, and any image older than 24 hours when the next
+  one is dropped and when the panel starts. The panel never reads an image back.
 - **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
   forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
@@ -1468,6 +1536,9 @@ send requests to `127.0.0.1`.
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
+  - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
+  - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
+    the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
 
   Hook bodies include prompt text. The panel keeps only a short one-line summary per event, in a
@@ -1640,9 +1711,25 @@ loaded the hooks. Restart it.
 ### The page shows no context % or quota
 
 Only the status line carries them: add the [status-line snippet](#the-status-line). It posts
-nothing while `~/.clauductor/panel/pid` names no live process, and only while a session in the
-project draws its status line: with none running since the panel started, the quota is the last
-one saved (with its age), or none on a first start.
+nothing while `~/.clauductor/panel/pid` names no live process. Context % comes only from a
+session in the project; the quota from any session on the machine. With none running since the
+panel started, the quota is the last one saved (with its age), or none on a first start. An API
+key or cloud account has no quota: the page shows its spend instead (see *The account and its
+quota*).
+
+### Never kill the panel's tmux server from a script
+
+Every lane lives in one tmux server per socket (`tmux -L clauductor`). The server outlives the
+panel on purpose, as an orphan (its parent is pid 1), and killing it kills every lane at once.
+A cleanup script that kills orphaned processes by what their command line names did exactly
+that: until PANEL-15 the server was started by the first lane's `new-session`, and a tmux server
+keeps, for life, the command line of the command that started it, which named that lane's
+`.claude/worktrees/<lane>`. Since PANEL-15 the panel starts the server on its own with `tmux -L
+<socket> -f /dev/null start-server`, in your home directory, so its command line names no
+worktree (a test checks it). A server started by an older panel keeps its old command line until
+it next starts. Still: never kill tmux servers, or any process whose command line names `tmux`,
+from a script; stop a lane from the page (**Stop lane**), or with `tmux -L clauductor
+kill-session -t '=<lane>'` for that lane alone.
 
 ### A lease never frees
 

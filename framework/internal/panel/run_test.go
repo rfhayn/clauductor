@@ -26,6 +26,11 @@ import (
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
 func fakeRunner(root string) signals.Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		// `claude auth status` runs with a lane's environment: no API key (PANEL-15).
+		if j := strings.Join(argv, " "); strings.HasPrefix(j, "/usr/bin/env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN ") &&
+			strings.HasSuffix(j, " claude auth status --json") {
+			return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"dev@example.com","orgId":"x","subscriptionType":"max"}`), nil
+		}
 		switch strings.Join(argv, " ") {
 		case "git worktree list --porcelain":
 			return []byte(fmt.Sprintf("worktree %s\nHEAD abc\nbranch refs/heads/main\n\n", root)), nil
@@ -146,6 +151,16 @@ func TestRunEndToEnd(t *testing.T) {
 	waitFor(t, "hook applied", func() bool {
 		v := c.state(t)
 		return v.HookEvents == 1 && v.Dropped == 1 && len(v.Lanes) == 1 && len(v.Lanes[0].Subagents) == 1
+	})
+	// The account is read, and a status post from a session in another project moves
+	// its quota (PANEL-15).
+	if code := c.post(t, "/status", `{"session_id":"s9","cwd":"/elsewhere","rate_limits":{"five_hour":{"used_percentage":41}}}`); code != 204 {
+		t.Fatalf("foreign status post: %d", code)
+	}
+	waitFor(t, "the account and the quota", func() bool {
+		v := c.state(t)
+		return v.Account.Plan == "Max" && v.Account.QuotaMode == state.QuotaWindows && v.Quota != nil &&
+			v.Quota.Window("five_hour") != nil && *v.Quota.Window("five_hour").Pct == 41
 	})
 
 	cancel()

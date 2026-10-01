@@ -1,0 +1,12 @@
+{
+  "loggedIn": true,
+  "authMethod": "api_key",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/home/dev/.claude/projects",
+  "configDirectory": "/home/dev/.claude",
+  "apiKeySource": "/login managed key",
+  "email": "dev@example.com",
+  "orgId": "00000000-0000-4000-8000-000000000012",
+  "orgName": "Example Org Ltd"
+}
