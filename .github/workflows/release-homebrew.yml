@@ -1,0 +1,52 @@
+# Homebrew tap: when a release is published, render Formula/clauductor.rb from its checksums
+# and push it to the tap repository. OFF by default: it runs only once the repository variable
+# HOMEBREW_TAP_REPO (say rfhayn/homebrew-clauductor) and the secret HOMEBREW_TAP_TOKEN (a
+# fine-grained token with contents: write on that one repository) are both set. docs/release.md,
+# Homebrew, has the setup.
+name: release-homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag to render the formula for (v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  formula:
+    if: vars.HOMEBREW_TAP_REPO != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAP: ${{ vars.HOMEBREW_TAP_REPO }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Render the formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "not a release tag: $TAG" >&2; exit 1 ;; esac
+          gh release download "$TAG" --pattern checksums.txt --dir .
+          scripts/release/formula.sh "$TAG" checksums.txt > clauductor.rb
+          ruby -c clauductor.rb
+      - name: Push to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          test -n "$TAP_TOKEN" || { echo "HOMEBREW_TAP_TOKEN is not set" >&2; exit 1; }
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
+          mkdir -p tap/Formula
+          cp clauductor.rb tap/Formula/clauductor.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/clauductor.rb
+          git diff --cached --quiet && { echo "formula unchanged"; exit 0; }
+          git commit -m "clauductor ${TAG#v}"
+          git push
