@@ -522,6 +522,25 @@ if [ -n "$checks" ] && [ "$checks" != "[]" ]; then
              | "\(.name)=\(.bucket)" ] | join(", ")')
     block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr --watch), then merge."
   fi
+else
+  # Nothing reported. Right after a push CI has not registered yet, and an empty list has nothing
+  # red in it, so (a) alone would let a merge land before CI exists. Where this project HAS CI,
+  # nothing reported is not a pass: GATE_DISPLAY_CONTEXTS or GATE_REMOTE_WORKFLOW names some, or a
+  # workflow in .github/workflows runs on pull_request for every path. A project with none of those
+  # has no checks to wait for, and keeps merging on its receipt alone.
+  ci_expected=""
+  [ -n "${GATE_DISPLAY_CONTEXTS:-}" ] && ci_expected="GATE_DISPLAY_CONTEXTS names $GATE_DISPLAY_CONTEXTS"
+  [ -z "$ci_expected" ] && [ -n "$REMOTE_WF" ] && ci_expected="GATE_REMOTE_WORKFLOW names $REMOTE_WF"
+  if [ -z "$ci_expected" ]; then
+    for wf in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml; do
+      [ -f "$wf" ] || continue
+      grep -Eq '(^|[^A-Za-z_])pull_request([^A-Za-z_]|$)' "$wf" || continue
+      # A path filter may rightly skip this PR, and then nothing would ever report: not a requirement.
+      grep -Eq '^[[:space:]]*paths(-ignore)?[[:space:]]*:' "$wf" && continue
+      ci_expected="${wf#"$ROOT"/} runs on pull_request"; break
+    done
+  fi
+  [ -n "$ci_expected" ] && block "PR #$pr has no reported checks yet, but this project has CI ($ci_expected): it has not registered for the head commit. Wait for it (gh pr checks $pr --watch), then merge."
 fi
 
 # (b) Then require evidence for THIS commit, asked for BY NAME. "All reported checks are green" is
