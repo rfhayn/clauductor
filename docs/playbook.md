@@ -206,6 +206,32 @@ Everything else restates it and `checks/model-roles.sh` fails on a disagreement.
 AGENTS.md's *What executes each rule* table is the full list, including the honest last row: what
 nothing executes.
 
+## Metrics: how the work flows and what it costs
+
+DORA 2025 found that AI raises throughput and instability together, so both are measured, from
+data that already exists. Nothing new is recorded to feed them.
+
+| Figure | From |
+|---|---|
+| lead time (first commit to merge), cycle time (PR opened to merge), merges per week | merged PRs (`gh`) |
+| change-fail rate, escaped defects | a merged PR later reverted, or fixed by a `fix/` PR that names it (its `#number`, its change id, its title) |
+| approval wait | the proposal's first commit to its `**Approved:**` line (to the day where one squash carries both) |
+| review rounds | `tasks.md` `## Progress`: "converged in N round(s)" per group |
+| aging work in progress | open changes, and `change/`, `fix/`, `ops/` branches not merged |
+| outcomes | each proposal's `## How we'll know`, due and checked from its outcome-check roadmap row |
+| cost by role, model, change and project | this machine's Claude Code transcripts at the list prices in `model-roles.json` |
+
+- **`.claude/metrics.sh`** prints them as the panel's metrics JSON for 7, 30 and 90 days: the
+  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.clauductor/panel.json`,
+  panel config version 4). A source it cannot read (no `gh`, offline, no transcripts) leaves its
+  figures empty with a note saying why; it never prints a zero for "unknown".
+  `checks/metrics.sh` holds it to the panel's contract.
+- **`.claude/health/flow.sh`** is the same figures as one line at every `session-start`.
+- **`.claude/usage-report.sh`** is cost by role and model, for one session (`session-close` shows
+  this session's) or a window (`--days 30`). An agent's spend goes to the role at the root of its
+  spawn chain. A model with no price is listed as UNPRICED, never costed at zero. These are list
+  prices, so on a subscription they show how fast the quota drains, not a bill.
+
 ## The record
 
 | Tier | Where | Holds | Promotes to |

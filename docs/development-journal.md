@@ -73,6 +73,13 @@ it happened.
    project's model-roles.json into its rule-12 fixture and asserted provenance is on, so turning
    provenance off (a setting the template offers) failed the project's checks. Fixed in the
    template: the fixture forces it on, and the default is asserted only in the template itself.
+9. **The update that followed OPS-9 showed what `update` cannot see.** After rebasing on OPS-9
+   (#26), `clauductor update` listed none of its new top-level scripts: update compared its own
+   hand-typed list of paths, which had drifted from install's classification (and install's list
+   of top-level scripts had drifted too). Fixed: update now takes install's classification, and
+   every script directly in `.claude/` is framework tier by rule, with a test that enumerates the
+   template. Still open (OPS-14): update never adds a new doc-tier file, so `health/flow.sh` was
+   copied by hand.
 
 ### Decisions
 
