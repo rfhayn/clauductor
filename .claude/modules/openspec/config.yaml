@@ -1,0 +1,30 @@
+# openspec/config.yaml for the operating model (.claude/modules/openspec/enable.sh copies it to
+# openspec/config.yaml when you switch the OpenSpec module on). Rules must be LISTS, and keys must be
+# valid artifact ids: either mistake is accepted and silently ignored. Each rule is one quoted
+# string: a bare `**Key:**` inside an unquoted value is a YAML mapping, and the file stops parsing.
+schema: spec-driven
+
+context: |
+  Changes are proposed just in time from a row of docs/roadmap.md, at most one ahead of the change
+  being built. The owner approves every proposal and design decision before anything is built.
+  One change = one change/<id> branch = one squash PR.
+
+rules:
+  proposal:
+    - 'Open with "**Status:** awaiting approval" (replaced, on the owner''s word, by sh .claude/change-approval.sh <id> --record <owner>), then "**Roadmap row:** <row id>", "**Risk:** low | normal | high", and "**Budget:** $N" when the row has one.'
+    - 'Say what the existing specs already guarantee, and which requirements this adds to, modifies or contradicts.'
+    - 'One PR. If the change names more than about three write surfaces or more than one screen, split the roadmap row instead.'
+    - 'End with "## How we''ll know": "- **Signal:** <what you will observe>" and "- **Check on:** YYYY-MM-DD" or "- **Check after:** <n> days".'
+  design:
+    - 'Record every decision as the owner decided it, with the alternative it beat.'
+    - 'Include a refusals table: each situation where the change does not do its thing, and what happens instead.'
+  specs:
+    - 'Every requirement has a SHALL or MUST line and at least one scenario, and every scenario is testable.'
+    - 'Each scenario header is "#### Scenario: [CAP-n-Sn] <title>" (capability, requirement number, scenario number). An ID never changes and is never reused.'
+    - 'A MODIFIED requirement copies the current block word for word first, every scenario header included, then edits it.'
+    - 'A new capability''s delta opens with "## Purpose" of at least 50 characters.'
+  tasks:
+    - 'Group tasks as "## <n>. <title>", each group one builder''s and one reviewer''s worth.'
+    - 'Name the test in the task that needs it, and the scenario IDs it covers. A scenario no test can reach gets "(manual: <reason>)" or "(untestable: <reason>)" on the line naming it.'
+    - 'Keep "## Progress" and "## Decision log" sections, current as the build goes.'
+    - 'End with "- [ ] Slice: a <role> can <action> at <where>" or "- [ ] Slice: exempt - <reason>".'

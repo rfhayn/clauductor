@@ -75,6 +75,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | The change queue is read ONE way, and a malformed row is an error, not a shorter queue | **`${CLAUDE_PLUGIN_ROOT}/roadmap-queue.sh`** (the only parser); **`checks/roadmap.sh`** |
 | An ADR number is never taken twice; every ADR is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
+| The repo works without clauductor: nothing needs the binary or the panel | **`checks/no-clauductor.sh`**: the gate, the checks, a context script and the status line, `clauductor` off `PATH` |
 | **This file stays a budget, not an archive** | **`${CLAUDE_PLUGIN_ROOT}/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 

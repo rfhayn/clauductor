@@ -56,6 +56,11 @@ started from the panel's **New lane** (or by hand), on one branch:
   config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue
   cards. Trust it once with `clauductor panel trust`.
+- **Nothing needs the panel or the `clauductor` binary.** The skills, hooks, checks, the gate and
+  its lease (`lease.sh` when there is no binary), the merge guard and the records all run in Claude
+  Code alone; a panel that is not running is a normal state. `checks/no-clauductor.sh` holds this:
+  it runs the gate, the process checks, a skill context script and the status line with
+  `clauductor` off `PATH` and no panel, and fails on anything that errors or asks for either.
 
 ## Several people
 
