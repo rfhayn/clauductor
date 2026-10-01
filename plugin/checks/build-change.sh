@@ -116,7 +116,7 @@ const prefixRun = async (risk, econ) => {
   t("reviewPrompt() is REVIEW_PROMPT filled in one pass", m.reviewPrompt(g, 'C', []) === fill(P, g, 'C'), `got ${JSON.stringify(m.reviewPrompt(g, 'C', []))}`)
   m.reviewSpawn(g, 'C', [], 1)
   t('reviewSpawn() sends PIN + that prompt, the REVIEW schema and agentType reviewer',
-    !!sent && sent.prompt === 'PIN|' + fill(P, g, 'C') && deq(sent.opts.schema, S) && sent.opts.agentType === 'reviewer' && sent.opts.model === 'm',
+    !!sent && sent.prompt === 'PIN|' + fill(P, g, 'C') && deq(sent.opts.schema, S) && sent.opts.agentType === 'clauductor:reviewer' && sent.opts.model === 'm',
     `sent ${JSON.stringify(sent && { prompt: sent.prompt, agentType: sent.opts.agentType })}`)
 } catch (e) { t('the reviewer contract could be evaluated', false, e.message) }
 console.log(out.join('\n'))
