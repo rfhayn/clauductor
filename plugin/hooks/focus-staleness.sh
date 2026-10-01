@@ -15,6 +15,9 @@ branch=$(git --no-optional-locks branch --show-current 2>/dev/null)
 [ -z "$branch" ] && exit 0   # not a git repo, or detached: nothing to nudge about
 
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+# A `.` of a missing file is fatal with a shell-dependent status (dash exits 2, which reads as a
+# block of the prompt): test first; without the config there is no focus file to judge.
+[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 file=$(focus_file "$branch")

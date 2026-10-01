@@ -53,13 +53,15 @@ fi
 # spoke for the whole gate, so it neither writes nor deletes.
 #
 # Two steps are the operating model's own and run before GATE_STEPS in every gate, whatever the
-# project's steps.sh says (it is the project's to edit; these are not):
+# project's steps.sh says (it is the project's to edit; these are not). They live in lib/steps.sh,
+# which a project's own runner can source to run the same steps:
 #   scenario trace  every enforced scenario is cited by a test (.claude/scenario-trace.sh --check;
 #                   in the clean room, at the tested commit);
 #   secrets         gitleaks over the tracked files and the branch's commits. Without gitleaks the
 #                   step says SKIPPED and why; with CI set (CI=true, as every hosted CI sets it) a
 #                   missing gitleaks FAILS, so a remote gate cannot pass without the scan.
 
+HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 # shellcheck disable=SC1091
@@ -87,44 +89,18 @@ START_DIRTY=$([ -n "$(porcelain)" ] && echo 1 || echo 0)
 . "$ROOT/$GATE_STEPS"
 
 FAILED=""
-# The secret scan. Tracked files only (an ignored .env on this machine is not a leak), as they are in
-# the tree under test, plus the commits this branch adds (a secret committed and then deleted is
-# still in the history a push publishes).
-secret_scan() {
-  if ! command -v gitleaks >/dev/null 2>&1; then
-    case "${CI:-}" in
-      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (brew install gitleaks, or see github.com/gitleaks/gitleaks). Under CI this fails."; return 0 ;;
-      *) echo "secrets: FAIL — gitleaks is not installed, and CI=$CI requires the scan"; return 1 ;;
-    esac
-  fi
-  local src=. tmpd=""
-  if [ -d .git ] || [ -f .git ]; then
-    tmpd=$(mktemp -d "${TMPDIR:-/tmp}/secrets.XXXXXX")
-    git ls-files -z | xargs -0 tar -cf - 2>/dev/null | tar -xf - -C "$tmpd" 2>/dev/null
-    src=$tmpd
-  fi
-  local rc=0
-  if gitleaks dir --help >/dev/null 2>&1; then gitleaks dir --no-banner --redact "$src" || rc=$?
-  else gitleaks detect --no-git --no-banner --redact --source "$src" || rc=$?; fi
-  [ -n "$tmpd" ] && rm -rf "$tmpd"
-  if [ "$rc" -eq 0 ] && { [ -d .git ] || [ -f .git ]; } && git rev-parse -q --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1; then
-    local range; range="$(git merge-base "origin/$MAIN_BRANCH" HEAD 2>/dev/null)..HEAD"
-    if gitleaks git --help >/dev/null 2>&1; then gitleaks git --no-banner --redact --log-opts="$range" . || rc=$?
-    else gitleaks detect --no-banner --redact --log-opts="$range" --source . || rc=$?; fi
-  fi
-  return "$rc"
-}
-model_steps() {
-  local rev=""
-  [ "${GATE_CLEAN_ROOM:-none}" = archive ] && [ "$DIRTY" -eq 0 ] && rev="--rev $TESTED_SHA"
-  # shellcheck disable=SC2086
-  step "scenario trace" sh "$ROOT/.claude/scenario-trace.sh" --check $rev || return 1
-  step "secrets" secret_scan || return 1
-}
 step() {  # step NAME COMMAND [ARGS...]: one gate step, marked for the agent-facing filter.
   local name=$1; shift
   echo "==> $name"
   if "$@"; then echo "==> ok: $name"; else local rc=$?; echo "==> FAIL: $name (exit $rc)"; FAILED="$FAILED $name"; return 1; fi
+}
+# The model's own steps (scenario trace, secrets) are a library a project's own runner can call
+# too: lib/steps.sh beside this file. Sourced after step() above, so they record into FAILED.
+[ -f "$HERE/lib/steps.sh" ] || { echo "==> FAIL: $HERE/lib/steps.sh (the model's gate steps) is missing" >&2; exit 1; }
+# shellcheck disable=SC1091
+. "$HERE/lib/steps.sh"
+gate_model_steps() {
+  if [ "${GATE_CLEAN_ROOM:-none}" = archive ] && [ "$DIRTY" -eq 0 ]; then model_steps "$TESTED_SHA"; else model_steps; fi
 }
 
 workdir=$ROOT
@@ -139,12 +115,23 @@ fi
 
 echo "==> gate $MODE on $(printf %.9s "$TESTED_SHA") ($(git branch --show-current 2>/dev/null || echo detached))"
 code=0
-( cd "$workdir" && model_steps && gate_steps "$MODE" ) || code=$?
+( cd "$workdir" && gate_model_steps && gate_steps "$MODE" ) || code=$?
 
 state=clean
 if [ "$DIRTY" -eq 1 ]; then state=dirty
 elif [ "${GATE_CLEAN_ROOM:-none}" != archive ]; then
   { [ "$START_DIRTY" -eq 1 ] || [ -n "$(porcelain)" ] || [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; } && state=dirty
+fi
+
+# Still the lease's holder? A gate that lost its lease mid-run may have run beside another gate (two
+# gates binding one port fail each other falsely, or pass falsely), so its result cannot count:
+# lease.sh's lease_verify, by the nonce lease_run exported or, under lock-run, by the holder's pid.
+if [ "$code" -eq 0 ] && [ -n "${CLAUDUCTOR_LOCK_HELD:-}" ] && [ -f "$HERE/lease.sh" ]; then
+  command -v lease_verify >/dev/null 2>&1 || . "$HERE/lease.sh"
+  if ! lease_verify "$CLAUDUCTOR_LOCK_HELD" "$PPID"; then
+    echo "==> FAIL: lease — this gate no longer holds $CLAUDUCTOR_LOCK_HELD (now: $(cat "$CLAUDUCTOR_LOCK_HELD/owner.json" 2>/dev/null || echo nobody)); another gate may have run beside it"
+    FAILED="$FAILED lease"; code=70
+  fi
 fi
 
 if [ "$code" -eq 0 ]; then

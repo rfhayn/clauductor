@@ -26,6 +26,8 @@ var FrameworkScripts = map[string]bool{
 	"scripts/ci/run-local.sh": true,
 	"scripts/ci/gate.sh":      true,
 	"scripts/ci/lease.sh":     true,
+	// The model's gate steps as a library: a project's own runner calls them too (P1.6).
+	"scripts/ci/lib/steps.sh": true,
 }
 
 // isModelScript: a shell script directly under .claude/.
@@ -44,7 +46,16 @@ var FrameworkDirs = []string{
 	".claude/workflows/",
 	".claude/modules/",
 	".claude/examples/",
+	// The lease conformance kit: the suite IS the protocol, so a project runs it as shipped and
+	// update refreshes it (P1.12).
+	"scripts/ci/lease-conformance/",
 }
+
+// LocalDir is the project's own extension layer (.claude/local/README.md): guard rules, context
+// sections, health lines, checks, skill fragments and conflict rows that install and update never
+// write over. It is the doc tier BY RULE, tested first, so no framework entry (a FrameworkDirs
+// prefix, the model-script rule) can ever claim a file under it (P1.2).
+const LocalDir = ".claude/local/"
 
 // ProjectSkills are template skills a project configures (CONFIGURE FIRST stubs): created when
 // missing, never overwritten, like docs.
@@ -52,6 +63,9 @@ var ProjectSkills = []string{".claude/skills/architecture-audit/", ".claude/skil
 
 // Classify determines how a template file is handled.
 func Classify(relPath string) Tier {
+	if strings.HasPrefix(relPath, LocalDir) {
+		return TierDoc
+	}
 	for _, p := range ProjectSkills {
 		if strings.HasPrefix(relPath, p) {
 			return TierDoc

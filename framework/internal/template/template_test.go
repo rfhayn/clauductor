@@ -1,10 +1,13 @@
 package template
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -44,6 +47,47 @@ func TestVendoredLeaseMatchesPanelDoc(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(vendored), block) {
 		t.Fatal("template/scripts/ci/lease.sh has drifted from the lease.sh block in docs/panel.md: re-vendor it (keep the header comment, then the block verbatim)")
+	}
+}
+
+// The lease conformance kit (P1.12) ships the suite TestLeaseConformance runs, and VERSION names it
+// by a sha256 the kit's run.sh checks before running, so a project cannot pass by editing a case.
+// This holds VERSION to the files, computed exactly as run.sh does: sha256 over
+// "<sha256>  <path>\n" lines of conformance.sh and every file under cases/, sorted by path (C
+// locale). A suite change that forgot the bump fails here, with the new value.
+func TestLeaseConformanceKitVersion(t *testing.T) {
+	kit := filepath.Join(repoRoot(t), "template", "scripts", "ci", "lease-conformance")
+	paths := []string{"conformance.sh"}
+	err := filepath.WalkDir(filepath.Join(kit, "cases"), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(kit, p)
+		paths = append(paths, filepath.ToSlash(rel))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(paths)
+	var list strings.Builder
+	for _, p := range paths {
+		b, err := os.ReadFile(filepath.Join(kit, filepath.FromSlash(p)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&list, "%x  %s\n", sha256.Sum256(b), p)
+	}
+	got := fmt.Sprintf("%x", sha256.Sum256([]byte(list.String())))
+	v, err := os.ReadFile(filepath.Join(kit, "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(v), "\nsha256 "+got+"\n") {
+		t.Fatalf("lease-conformance/VERSION does not name the suite: put `sha256 %s` in it (README.md, Refreshing)", got)
+	}
+	if len(paths) < 30 {
+		t.Fatalf("the kit holds %d files; the suite has more than 30 cases", len(paths))
 	}
 }
 

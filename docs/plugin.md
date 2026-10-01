@@ -128,13 +128,21 @@ what exists:
 - `.claude/skills/architecture-audit/`, `.claude/skills/release-prep/`: CONFIGURE FIRST skills
   the project edits, so they are the project's, as with `clauductor install`
 - `.claude/health/`: the project's health lines, as with `clauductor install`
+- `.claude/local/`: the project's own extension layer (guard rules, context sections, health
+  lines, checks, skill fragments, conflict rows; its README has the contracts). The plugin's hooks,
+  context scripts and checks find it in the repository, exactly as an installed copy does.
+  Modules: the plugin carries the shipped ones (`modules/`), turned on by `MODULES` in
+  `.claude/project.conf`; a module of the project's own goes in the repository's
+  `.claude/modules/<name>/`, which the loader searches after the plugin's.
 - `.claude/evals/`: the seeded-defect suites, their runner and the receipts a project's model
   choices rest on (OPS-10). The project adds cases for its own domain and commits its receipts.
   The runner cannot source the plugin's `lib/evals.sh`, so it carries its own copy of the hash
   functions, and `checks/evals.sh` fails if the two copies drift. A plugin project points the
   runner at the plugin's agent with `EVAL_AGENT_FILE`.
 - `docs/`, `changes/`, `specs/`, `.github/`, with framework paths in prose named as the plugin's
-- `scripts/ci/`: the gate (`steps.sh`, `run-local.sh`, `gate.sh`, `lease.sh`) and
+- `scripts/ci/`: the gate (`steps.sh`, `run-local.sh`, `gate.sh`, `lease.sh`, the model's steps
+  in `lib/steps.sh`, which reach the plugin's scripts through the resolver, and the lease
+  conformance kit in `lease-conformance/`) and
   `clauductor-model.sh`, and `.claude/lib/conf.sh`: the gate runs in CI where no plugin is
   installed, and sources this one library
 - `.claude/clauductor-plugin`: the marker

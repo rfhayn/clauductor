@@ -14,7 +14,7 @@ has() {  # has FILE FIXED-TEXT WHAT
 
 # The fast path (D5): a one-sentence diff gets no proposal.
 has .claude/skills/propose/SKILL.md "## The fast path" "propose states the fast path"
-has docs/playbook.md "fast path" "the playbook states the fast path"
+has "$PLAYBOOK" "fast path" "the playbook states the fast path"
 for t in fix ops; do
   title=$(jq -r --arg t "$t" '.templates[] | select(.id == $t) | .title' "$ROOT/.clauductor/panel.json" 2>/dev/null)
   case "$title" in *"fast path"*) ok "the $t lane template's title offers the fast path" ;; *) fail "the $t lane template's title does not mention the fast path: '$title'" ;; esac
@@ -28,6 +28,9 @@ done
 # The log (D6): build-change has the builder keep it and writes Progress per group.
 has .claude/workflows/build-change.js '## Decision log' "build-change has the builder keep the Decision log"
 has .claude/workflows/build-change.js '## Progress' "build-change writes Progress per committed group"
+# The gate it runs is the project's (P1.7): GATE and GATE_QUICK_FLAGS, read at preflight.
+has .claude/workflows/build-change.js '"$GATE" "$GATE_QUICK_FLAGS"' "build-change reads the project's GATE and GATE_QUICK_FLAGS at preflight"
+has .claude/workflows/build-change.js 'if (!args.gate && String(pre.gate' "build-change runs the project's GATE when no arg names one"
 has .claude/agents/builder.md '## Decision log' "the builder agent keeps the Decision log"
 
 # Verify (D7): in build-change and in merge-pr.

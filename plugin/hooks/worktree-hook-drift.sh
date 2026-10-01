@@ -37,10 +37,18 @@ printf '%s' "$payload" | grep -Eq '"isolation"[[:space:]]*:[[:space:]]*"worktree
 
 root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || root=""
 ROOT=$root
-# shellcheck disable=SC1091
-. "$(dirname "$0")/../lib/conf.sh"
+# A `.` of a missing file is fatal with a shell-dependent status (dash exits 2, which Claude Code
+# reads as a BLOCK of every worktree spawn): test first, and fall back to the defaults.
+if [ -f "$(dirname "$0")/../lib/conf.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$(dirname "$0")/../lib/conf.sh"
+fi
 
-note() { hook_note PreToolUse "worktree-hook-drift: $1"; exit 0; }
+note() {
+  if command -v hook_note >/dev/null 2>&1; then hook_note PreToolUse "worktree-hook-drift: $1"
+  else echo "worktree-hook-drift: $1" >&2; fi
+  exit 0
+}
 
 base="origin/${MAIN_BRANCH:-main}"
 paths=".claude/hooks .claude/settings.json"

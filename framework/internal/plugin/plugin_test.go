@@ -30,8 +30,10 @@ func TestPluginAndInstallAgreeOnTiers(t *testing.T) {
 		}
 		inPlugin := kind == kindPlugin
 		fw := template.Classify(rel) == template.TierFramework
-		if strings.HasPrefix(rel, ".claude/agents/") || template.FrameworkScripts[rel] {
-			continue // the gate scripts are scaffolded: CI runs them where no plugin is installed
+		if strings.HasPrefix(rel, ".claude/agents/") || template.FrameworkScripts[rel] || strings.HasPrefix(rel, "scripts/ci/") {
+			// The gate scripts, its steps library and the lease conformance kit are scaffolded:
+			// CI runs them where no plugin is installed.
+			continue
 		}
 		if inPlugin != fw {
 			t.Errorf("%s: the plugin ships it as a component = %v, install treats it as framework = %v", rel, inPlugin, fw)

@@ -294,7 +294,10 @@ func place(rel string) (string, fileKind, error) {
 			return "", kindScaffold, nil
 		}
 	}
-	if dir == "health" || dir == "evals" {
+	// .claude/local/ is the project's own extension layer (P1.2): scaffolded once, never the
+	// plugin's. A project's own modules also live in its repository (.claude/modules/<name>/,
+	// found by lib/modules.sh beside the plugin's shipped ones), so only shipped modules are here.
+	if dir == "health" || dir == "evals" || dir == "local" {
 		return "", kindScaffold, nil
 	}
 	for _, d := range frameworkDirs {

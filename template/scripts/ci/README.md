@@ -5,7 +5,9 @@
 | `steps.sh` | **Yours.** The one definition of the gate's steps: `gate_steps full\|quick`. Put your lint, typecheck and test commands here. A remote CI, if you have one, calls it too. |
 | `run-local.sh` | The full gate (`GATE_RUN`). Takes the machine-wide gate lease, runs the steps, and writes the receipt after a complete, clean run. |
 | `gate.sh` | The same, for an agent (`GATE`): the log goes to `<git-dir>/ci-gate.log`, stdout gets markers, failure lines and a tail. |
-| `lease.sh` | The lease protocol in plain shell, vendored verbatim from clauductor's `docs/panel.md`. Used when `clauductor` is not installed. |
+| `lease.sh` | The lease protocol in plain shell, vendored verbatim from clauductor's `docs/panel.md`. Used when `clauductor` is not installed. Writes a real TTL and renews it while the gate runs; `lease_verify` says whether a run still holds it. |
+| `lib/steps.sh` | The operating model's own gate steps (scenario trace, secrets, process checks, no-clauductor) as a library. `run-local.sh` calls `model_steps`; a project with a runner of its own (`GATE_RUN` naming it) sources this file and calls the same steps. |
+| `lease-conformance/` | The lease protocol's conformance suite, as clauductor tests it. `sh scripts/ci/lease-conformance/run.sh [<impl>]` tests `lease.sh`, or a lease implementation of your own. |
 
 ## The lease
 
@@ -16,6 +18,11 @@ first thing: through `clauductor lock-run` when clauductor is installed, otherwi
 `lease.sh`. Both implement the same on-disk protocol, so the panel shows who holds the gate and who
 waits, and can cancel a wait, either way. The protocol, its staleness rules and its conformance
 suite are in the clauductor repo's `docs/panel.md`, *Queue and the gate lock protocol*.
+
+The holder renews its lease every TTL/3 (`CLAUDUCTOR_LEASE_TTL`, default 600 s), so a gate on
+another host never reads it as expired, and before writing the receipt `run-local.sh` asks
+`lease_verify` whether it still holds the lease: a gate that lost it mid-run (and so may have run
+beside another) fails with exit 70 and writes no receipt.
 
 ## The receipt contract
 

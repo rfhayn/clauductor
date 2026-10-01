@@ -7,7 +7,10 @@
 
 # clauductor lease protocol v1 in plain POSIX shell: interoperates with
 # `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
-# Exit status: the command's; 75 if the wait was cancelled from the panel.
+# Exit status: the command's; 75 if the wait was cancelled from the panel; 70
+# if the lease was taken away while the command ran. The holder writes a TTL
+# (CLAUDUCTOR_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
+# gets CLAUDUCTOR_LEASE_NONCE, and `lease_verify` says whether it still holds.
 # Liveness and start time need ps; without it, kill -0 (EPERM still means alive)
 # and /proc/<pid>/stat field 22. A start time from one source is never compared
 # with one from the other, and an alive pid that cannot be verified is live.
@@ -78,13 +81,44 @@ lease_holder_stale() {
   if ! lease_valid "$1/owner.json"; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
   lease_dead "$1/owner.json" ""
 }
+# lease_renew LOCK NONCE TTL HOLDER_PID: run in the background while the command holds the lease.
+# Every TTL/3 it rewrites owner.json's `renewed` (as lock-run does), so another host never reads a
+# live holder as expired; it stops once the holder is gone or the record is no longer its own.
+lease_renew() {
+  _every=$(( $3 / 3 )); [ "$_every" -ge 1 ] || _every=1
+  _last=$(date +%s)
+  while sleep 1; do
+    lease_alive "$4" || return 0
+    [ "$(lease_get "$1/owner.json" nonce)" = "$2" ] || return 0
+    _now=$(date +%s); [ $(( _now - _last )) -ge "$_every" ] || continue
+    LC_ALL=C sed "s/\"renewed\":[0-9]*/\"renewed\":$_now/" "$1/owner.json" > "$1/.renew.tmp" && mv "$1/.renew.tmp" "$1/owner.json" || true
+    _last=$_now
+  done
+}
+# lease_verify LOCK HOLDER_PID: 0 (true) when LOCK is still held for the command asking: owner.json
+# carries CLAUDUCTOR_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
+# exports none (lock-run), names HOLDER_PID or one of its ancestors as pid or child_pid. A gate
+# asks before it records a pass: a run that lost its lease may have run beside another.
+lease_verify() {
+  lease_valid "$1/owner.json" || return 1
+  if [ -n "${CLAUDUCTOR_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$CLAUDUCTOR_LEASE_NONCE" ]; return; fi
+  _vp=$(lease_get "$1/owner.json" pid) _vc=$(lease_get "$1/owner.json" child_pid) _va=${2:-} _vn=0
+  while [ -n "$_va" ] && [ "$_va" != 0 ] && [ "$_vn" -lt 12 ]; do
+    { [ "$_va" = "$_vp" ] || [ "$_va" = "$_vc" ]; } && return 0
+    command -v ps >/dev/null 2>&1 || return 1
+    _va=$(ps -o ppid= -p "$_va" 2>/dev/null | tr -d ' ' || true); _vn=$((_vn + 1))
+  done
+  return 1
+}
 lease_run() {
   # A quote or backslash would break owner.json, which readers then judge stale.
   _lock=$1 _lane=$(printf %s "$2" | tr -d '"\\'); shift 2
   _cmd=$(printf %s "$1" | tr -d '"\\')
   _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  # The holder's TTL (default 600 s, lock-run's); renewed every TTL/3 while the command runs.
+  _ttl=${CLAUDUCTOR_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
   mkdir -p "$_w"
-  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":0}"
+  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":$_ttl}"
   _me="$_w/$(date +%s)000000000-$_nonce.json"
   printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
   trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
@@ -100,9 +134,13 @@ lease_run() {
     if [ "$_first" = "${_me##*/}" ] && mkdir "$_lock" 2>/dev/null; then
       printf '%s\n' "$_rec" > "$_lock/.owner.tmp" && mv "$_lock/.owner.tmp" "$_lock/owner.json"
       rm -f "$_me"
-      trap 'if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
-      CLAUDUCTOR_LOCK_HELD=$_lock "$@" && _rc=0 || _rc=$?
-      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi
+      lease_renew "$_lock" "$_nonce" "$_ttl" $$ </dev/null >/dev/null 2>&1 &
+      _renewer=$!
+      trap 'kill "$_renewer" 2>/dev/null || :; if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
+      CLAUDUCTOR_LOCK_HELD=$_lock CLAUDUCTOR_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
+      kill "$_renewer" 2>/dev/null || :; wait "$_renewer" 2>/dev/null || :
+      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"
+      else echo "lease: LOST $_lock while the command ran (another may have run beside it)" >&2; _rc=70; fi
       trap - EXIT
       return "$_rc"
     fi

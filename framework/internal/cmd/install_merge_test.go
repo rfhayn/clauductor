@@ -199,7 +199,8 @@ func TestInstallFollowsGateRun(t *testing.T) {
 	if out, err := runInstall(t, dir, false); err != nil {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
-	for _, f := range []string{"tools/ci/run-local.sh", "tools/ci/gate.sh", "tools/ci/lease.sh", "tools/ci/steps.sh"} {
+	for _, f := range []string{"tools/ci/run-local.sh", "tools/ci/gate.sh", "tools/ci/lease.sh", "tools/ci/steps.sh",
+		"tools/ci/lib/steps.sh", "tools/ci/lease-conformance/run.sh", "tools/ci/lease-conformance/VERSION"} {
 		if !fileExists(filepath.Join(dir, f)) {
 			t.Errorf("%s was not installed", f)
 		}
@@ -243,6 +244,13 @@ func TestInstallGateRunOwnRunnerAndAmbiguity(t *testing.T) {
 	}
 	if !fileExists(filepath.Join(dir, "scripts/ci/gate.sh")) || !strings.Contains(out, "the project's own gate runner") {
 		t.Errorf("gate.sh should still install and the skip be reported:\n%s", out)
+	}
+	// The project's own runner calls the model's steps from the library, and runs its own lease
+	// through the conformance kit: both still install (P1.6, P1.12).
+	for _, f := range []string{"scripts/ci/lib/steps.sh", "scripts/ci/lease-conformance/run.sh"} {
+		if !fileExists(filepath.Join(dir, f)) {
+			t.Errorf("%s was not installed beside the project's own runner", f)
+		}
 	}
 
 	for conf, want := range map[string]string{
@@ -473,5 +481,38 @@ func TestDiffAfterInstallConverged(t *testing.T) {
 	}
 	if out, err := runDiff(t, dir, "--exit-code"); err != nil {
 		t.Fatalf("diff after install: %v\n%s", err, out)
+	}
+}
+
+// P1.2: the local layer is the project's. install creates its README once and never writes over a
+// file there, and update has nothing to refresh in it, however far it has drifted from the template.
+func TestInstallNeverOverwritesTheLocalLayer(t *testing.T) {
+	tmplDir(t)
+	dir := ownedRepo(t)
+	write(t, dir, ".claude/local/README.md", "our own notes\n")
+	write(t, dir, ".claude/local/guard.d/ledger.sh", "exit 0\n")
+	if out, err := runInstall(t, dir, false); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	for rel, want := range map[string]string{".claude/local/README.md": "our own notes\n", ".claude/local/guard.d/ledger.sh": "exit 0\n"} {
+		if got, _ := os.ReadFile(filepath.Join(dir, rel)); string(got) != want {
+			t.Errorf("install wrote over %s: %q", rel, got)
+		}
+	}
+	diffs, err := template.FindDiffs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range diffs {
+		if strings.HasPrefix(d.Path, template.LocalDir) {
+			t.Errorf("update would touch the local layer: %s (%s)", d.Path, d.Status)
+		}
+	}
+	fresh := ownedRepo(t)
+	if out, err := runInstall(t, fresh, false); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if !fileExists(filepath.Join(fresh, ".claude/local/README.md")) {
+		t.Error("install did not create .claude/local/README.md in a repository without one")
 	}
 }

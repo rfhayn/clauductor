@@ -194,7 +194,7 @@ cp -R "$CLAUDUCTOR_FW/agents" "$B/.claude/agents"
 [ -d "$CLAUDUCTOR_FW/workflows" ] && cp -R "$CLAUDUCTOR_FW/workflows" "$B/.claude/workflows"
 cp -R "$ROOT/.claude/evals" "$B/.claude/evals"
 for f in model-roles.json settings.json project.conf; do [ -f "$ROOT/.claude/$f" ] && cp "$ROOT/.claude/$f" "$B/.claude/"; done
-[ -f "$ROOT/docs/playbook.md" ] && cp "$ROOT/docs/playbook.md" "$B/docs/"
+[ -f "$ROOT/$PLAYBOOK" ] && mkdir -p "$B/$(dirname "$PLAYBOOK")" && cp "$ROOT/$PLAYBOOK" "$B/$PLAYBOOK"
 [ -d "$ROOT/.clauductor" ] && cp -R "$ROOT/.clauductor" "$B/.clauductor"
 rm -rf "$B/.claude/evals/receipts"
 # Two cases keep each complete run here fast; what is under test is the check, not the suite.

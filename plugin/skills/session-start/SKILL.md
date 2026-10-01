@@ -48,3 +48,10 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
 - **Research-only work goes to the `clauductor:researcher` agent**, not a fork (a fork inherits every tool).
 - Read, don't assume: the repo's records are the source of truth for "where we were". Keep the
   orientation short; this is a launchpad, not a report.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/session-start/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments session-start`

@@ -14,6 +14,9 @@ branch=$(git --no-optional-locks branch --show-current 2>/dev/null)
 [ -z "$branch" ] && exit 0   # not a git repo, or detached: nothing to nudge about
 
 ROOT=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)
+# A `.` of a missing file is fatal with a shell-dependent status (dash exits 2, which reads as a
+# block of the prompt): test first; without the config there is no focus file to judge.
+[ -f "$ROOT/.claude/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 file=$(focus_file "$branch")

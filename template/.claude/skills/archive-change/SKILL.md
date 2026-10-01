@@ -50,3 +50,10 @@ behind, and the next proposal reads them as current.
    `sh .claude/roadmap-queue.sh --check` and `sh .claude/checks/run.sh changes scenarios`: the
    promoted scenarios are now living, so the trace holds their tests to them from here on.
 7. Land it through `merge-pr` (or with the session close).
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/archive-change/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments archive-change`

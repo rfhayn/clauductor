@@ -31,7 +31,8 @@ do one group alone. The loop is the same, and so are its stops.
 2. **Register new and deleted files**, so the gate and the reviewer see them: for each path from
    `git ls-files --others --exclude-standard`, `git add -N -- <path>` (intent-to-add); for each
    from `git ls-files --deleted`, `git rm -q --cached -- <path>`.
-3. **Gate.** `scripts/ci/gate.sh --quick`. Red: the builder fixes it at its source (at most two
+3. **Gate.** `scripts/ci/gate.sh --quick` (the project's `GATE` with its `GATE_QUICK_FLAGS`, from
+   `.claude/project.conf`, when they differ). Red: the builder fixes it at its source (at most two
    attempts); an environment fault or a gate still red is a STOP.
 4. **Review.** Spawn the `reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
@@ -50,3 +51,10 @@ do one group alone. The loop is the same, and so are its stops.
 - `/verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
   `merge-pr`, recording `Review: converged in <n> round(s), peak <sev>, at <sha>` per group.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/apply-change/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments apply-change`

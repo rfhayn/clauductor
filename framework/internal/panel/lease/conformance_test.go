@@ -11,7 +11,7 @@ import (
 
 // The lease protocol has more than one implementation: lock-run, the plain-shell
 // lease.sh in docs/panel.md, and whatever a project writes for itself. The
-// conformance suite in testdata/lease-conformance is what they must all pass. This
+// conformance suite in template/scripts/ci/lease-conformance is what they must all pass. This
 // runs it against the first two, checks that it can fail (controls that break the
 // protocol, and mutants of lease.sh, must each fail a case), and runs its
 // adapter-free --lock-env mode.
@@ -24,7 +24,7 @@ func conformanceDriver(t *testing.T) string {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
 	}
-	driver, err := filepath.Abs(filepath.Join("testdata", "lease-conformance", "conformance.sh"))
+	driver, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "template", "scripts", "ci", "lease-conformance", "conformance.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
