@@ -153,6 +153,38 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 // InitConfig writes <git toplevel of dir>/.clauductor/panel.json. It refuses to
 // overwrite any file already there.
 func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult, error) {
+	res, err := PlanInit(ctx, run, dir)
+	if err != nil {
+		return res, err
+	}
+	return res, WriteInit(res)
+}
+
+// WriteInit writes what PlanInit planned, creating the file: it never overwrites
+// one, a dangling symlink included, even one that appeared since the plan.
+func WriteInit(res InitResult) error {
+	if err := os.MkdirAll(filepath.Dir(res.Path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(res.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%s %w; edit it, or remove it to start again", res.Path, ErrConfigExists)
+		}
+		return err
+	}
+	if _, err := f.Write(res.Body); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// PlanInit is what `panel init` would write for the repository at dir, and why,
+// without writing it (PANEL-22: the page's "Add a project…" shows it first). It reads
+// the repository's files and git's read-only plumbing; it runs nothing the
+// repository names.
+func PlanInit(ctx context.Context, run signals.Runner, dir string) (InitResult, error) {
 	git := func(args ...string) (string, error) {
 		out, err := run(ctx, dir, append([]string{"git"}, args...))
 		return strings.TrimSpace(string(out)), err
@@ -219,23 +251,6 @@ func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult
 	// What init writes, the panel must read: check it before it reaches the disk.
 	if _, err := config.ParseConfig(buf.Bytes()); err != nil {
 		return InitResult{}, fmt.Errorf("the starter config does not validate (a bug): %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return InitResult{}, err
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return InitResult{Path: path}, fmt.Errorf("%s %w; edit it, or remove it to start again", path, ErrConfigExists)
-		}
-		return InitResult{}, err
-	}
-	if _, err := f.Write(buf.Bytes()); err != nil {
-		f.Close()
-		return InitResult{}, err
-	}
-	if err := f.Close(); err != nil {
-		return InitResult{}, err
 	}
 	return InitResult{Path: path, Body: buf.Bytes(), Notes: notes}, nil
 }

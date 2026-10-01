@@ -28,26 +28,114 @@ type Project struct {
 	Refresh func() // re-poll every source of the project now
 	// Metrics is the project's Metrics view now (PANEL-19); nil serves none.
 	Metrics func() metrics.Report
+
+	goneOnce, goneClose sync.Once
+	gone                chan struct{}
+}
+
+// Gone is closed when the project stops being served (PANEL-22: removed live): its
+// event streams end, so a page on it reconnects and finds it gone.
+func (p *Project) Gone() <-chan struct{} {
+	p.goneOnce.Do(func() {
+		if p.gone == nil {
+			p.gone = make(chan struct{})
+		}
+	})
+	return p.gone
 }
 
 // projects is the server's project table. With none configured it is the one
 // project the fields before PANEL-16 describe (Hub, Lanes, Orch, Refresh), id "".
+// Since PANEL-22 the table changes while the panel serves (a project added or
+// removed live), so it is read under projMu, as a copy.
 func (s *Server) projects() []*Project {
+	s.projMu.RLock()
 	if len(s.Projects) > 0 {
-		return s.Projects
+		ps := append([]*Project(nil), s.Projects...)
+		s.projMu.RUnlock()
+		return ps
 	}
+	s.projMu.RUnlock()
 	s.legacyOnce.Do(func() {
 		s.legacy = &Project{Hub: s.Hub, Lanes: s.Lanes, Orch: s.Orch, Refresh: s.Refresh}
 	})
 	return []*Project{s.legacy}
 }
 
+// defaultID is the default project's id.
+func (s *Server) defaultID() string {
+	s.projMu.RLock()
+	defer s.projMu.RUnlock()
+	return s.Default
+}
+
+// AddProject serves one more project (PANEL-22: added live).
+func (s *Server) AddProject(p *Project) {
+	p.Gone()
+	s.projMu.Lock()
+	defer s.projMu.Unlock()
+	for i, q := range s.Projects {
+		if q.ID == p.ID {
+			s.Projects[i] = p
+			return
+		}
+	}
+	s.Projects = append(s.Projects, p)
+}
+
+// RemoveProject stops serving a project (PANEL-22: removed live): its routes answer
+// 404 from now on, its event streams end, its terminals close and its unused tickets
+// are dropped. Its lanes are tmux's and keep running.
+func (s *Server) RemoveProject(id string) {
+	s.projMu.Lock()
+	var gone *Project
+	kept := s.Projects[:0:0]
+	for _, q := range s.Projects {
+		if q.ID == id {
+			gone = q
+			continue
+		}
+		kept = append(kept, q)
+	}
+	s.Projects = kept
+	s.projMu.Unlock()
+	if gone == nil {
+		return
+	}
+	gone.Gone()
+	gone.goneClose.Do(func() { close(gone.gone) })
+	s.CloseProjectTerminals(id)
+}
+
+// SetDefault makes id the project a request that names none reaches.
+func (s *Server) SetDefault(id string) {
+	s.projMu.Lock()
+	s.Default = id
+	s.projMu.Unlock()
+}
+
+// SetHostNames replaces the extra Host names (PANEL-22: the union changes as trusted
+// projects come and go).
+func (s *Server) SetHostNames(names []string) {
+	s.projMu.Lock()
+	s.HostNames = append([]string(nil), names...)
+	s.projMu.Unlock()
+}
+
+// hostNames is a copy of the extra Host names.
+func (s *Server) hostNames() []string {
+	s.projMu.RLock()
+	defer s.projMu.RUnlock()
+	return append([]string(nil), s.HostNames...)
+}
+
 // project returns the project with this id; "" is the default project.
 func (s *Server) project(id string) *Project {
 	ps := s.projects()
 	if id == "" {
+		def := s.defaultID()
 		for _, p := range ps {
-			if p.ID == s.Default {
+			if p.ID == def {
 				return p
 			}
 		}
@@ -157,16 +245,94 @@ func (s *Summaries) encode() []byte {
 	return b
 }
 
-// Set replaces one project's entry, and publishes the list if it changed.
+// Set replaces one project's entry, and publishes the list if it changed. A project
+// the list does not hold is ignored: since PANEL-22 a hub's last push can arrive
+// after its project was removed, and must not bring it back (Add adds one).
 func (s *Summaries) Set(p ProjectSummary) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if old, ok := s.byID[p.ID]; ok {
-		p.Default = old.Default
-	} else {
+	old, ok := s.byID[p.ID]
+	if !ok {
+		return
+	}
+	p.Default = old.Default
+	s.byID[p.ID] = p
+	s.publish()
+}
+
+// Add puts a project in the list (at the end, or where it was), with its Default flag
+// as given; Reorder places it.
+func (s *Summaries) Add(p ProjectSummary) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byID[p.ID]; !ok {
 		s.order = append(s.order, p.ID)
 	}
 	s.byID[p.ID] = p
+	s.publish()
+}
+
+// Remove takes a project out of the list.
+func (s *Summaries) Remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byID[id]; !ok {
+		return
+	}
+	delete(s.byID, id)
+	kept := s.order[:0:0]
+	for _, x := range s.order {
+		if x != id {
+			kept = append(kept, x)
+		}
+	}
+	s.order = kept
+	s.publish()
+}
+
+// SetDefault marks id as the default and every other entry as not.
+func (s *Summaries) SetDefault(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, p := range s.byID {
+		p.Default = k == id
+		s.byID[k] = p
+	}
+	s.publish()
+}
+
+// Reorder puts the list in the registry's order; ids it does not hold are skipped,
+// and entries the order leaves out keep their place after it.
+func (s *Summaries) Reorder(ids []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	var order []string
+	for _, id := range ids {
+		if _, ok := s.byID[id]; ok && !seen[id] {
+			order = append(order, id)
+			seen[id] = true
+		}
+	}
+	for _, id := range s.order {
+		if !seen[id] {
+			order = append(order, id)
+		}
+	}
+	s.order = order
+	s.publish()
+}
+
+// Has reports whether the list holds id.
+func (s *Summaries) Has(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.byID[id]
+	return ok
+}
+
+// publish sends the list to every page when it says something new. s.mu is held.
+func (s *Summaries) publish() {
 	b := s.encode()
 	if bytes.Equal(b, s.last) {
 		return

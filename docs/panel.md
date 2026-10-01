@@ -57,8 +57,11 @@ the keyboard shortcuts.
 4. **Open** it: `clauductor panel` starts the panel and opens the browser. To keep it running
    with no terminal, `clauductor panel install --project <path> --app` installs a login agent;
    then `clauductor panel open` (or the app) opens the page.
-5. **More projects**: in each other repository, `clauductor panel init`, review, `clauductor
-   panel trust`, then `clauductor panel add`, and restart the panel. See [Projects](#projects).
+5. **More projects**: **+ Add a project…** at the foot of the page's project menu checks the
+   path, offers what `panel init` would write, shows what the config runs and adds it, trusted or
+   not, with no restart. In a terminal, `clauductor panel init`, review, `clauductor panel trust`,
+   then `clauductor panel add` does the same, and a running panel takes it within a second. See
+   [Projects](#projects).
 6. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
    context % and quota, and put your gate script through the queue
    ([In a project's gate script](#in-a-projects-gate-script)).
@@ -75,8 +78,8 @@ clauductor panel --port 4393 --no-open        # print the URL instead of opening
 clauductor panel --uninstall-hooks            # remove the panel's hooks and exit
 clauductor panel --trust-config               # trust panel.json as it is now, then run
 clauductor panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
-clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`)
-clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running
+clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`); a running panel serves it at once
+clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running; a running panel stops serving it at once
 clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
@@ -121,11 +124,74 @@ project, choose its socket, or make it the default.
   --default` does too; removing the default makes the first remaining project the default.
 - **`remove`** never stops a lane and keeps the lane registry, so adding the project again brings
   its lanes back; while lanes are registered it needs `--force`.
-- **Restart the panel after `add` or `remove`**: it reads `projects.json` at start (the commands
-  print the `launchctl kickstart` line).
+- **No restart** (PANEL-22). A running panel follows `projects.json`: it looks at the file every
+  second, and a project added there is served at once (its sources, its lane manager and its hub
+  start, and it joins the menu, the routes and the ingest), a project removed stops being served
+  (its runtime stops and every one of its goroutines is waited for; its lanes keep running in
+  tmux), and a new default is followed. `panel add` and `panel remove` wait up to 6 s for the
+  panel's owner record (`owner.json`) to say it took the change, and print so; only a panel that
+  did not (one from before PANEL-22, or a project that cannot load) gets the `launchctl
+  kickstart` line. The page's menu uses the same registry code (`install.AddProject`,
+  `install.RemoveProject`) and the same reconcile.
+- **The panel always serves one project.** The last one it serves is never stopped: the page
+  refuses to remove it, and a `projects.json` that lists none of the served projects leaves the
+  panel serving its last one until it restarts (it says so in its log).
 - **A project that cannot load** (its config, its worktree list, its socket) is shown in the
   project menu with the reason, and the others serve. The project named on the command line must
   load, as before.
+
+#### Add, trust and remove from the page
+
+PANEL-22. The project menu (the project's name, top left, drawn as a dropdown box) ends with **+
+Add a project…**, and each project's row has a **⋯** with **Trust config…** (while its config is
+untrusted, or changed since it was trusted) and **Remove from panel…**.
+
+**Add a project…** opens a dialog with one field, the repository's path: absolute, or `~/…` for
+your home. As you type, the panel checks it (`POST /api/projects/validate`) and shows the resolved
+root, git's common dir, the id and the tmux socket it would get, or why not:
+
+| Refused | Why |
+|---|---|
+| not absolute | a relative path, or `~user`; there is no working directory to resolve it against |
+| does not exist, not a directory, cannot be read | by the panel's user |
+| not in git | no work tree (`git rev-parse --show-toplevel` fails), or git lists no worktree |
+| a linked worktree | a project is its main worktree: add that one |
+| registered already | the same root (also through a symlink, or a path inside it), or the same git common dir |
+| its socket is taken | its config's `tmux_socket` (or the one it would get) is another project's |
+
+A path inside a repository adds the repository. A repository with **no `.clauductor/panel.json`**
+shows what `clauductor panel init` would write, with each reason `init` prints
+(`/api/projects/init-preview` writes nothing); **Create this config** writes it
+(`/api/projects/init`), never over an existing file. A config that **does not load** says why, and
+cannot be added until it does.
+
+A repository with a config shows its **trust report**, what `clauductor panel trust` prints: the
+SHA-256 of its exact bytes and every card command, queue command, template prompt, suggest
+command, metrics command, worktree hook and resume line it names. Nothing runs to make the report:
+it renders the file. Then:
+
+- **Trust and add** sends the hash the report showed. The panel trusts the file only if its bytes
+  still have that hash (an edit in between is refused, and the dialog reads the report again),
+  then registers it and starts serving it with its commands on.
+- **Add without trusting** registers it with its commands off, as `panel add` does; its row then
+  says "config untrusted", and its page has the **Config untrusted** banner, with **Trust
+  config…**.
+
+Either way the project is served at once and the page switches to it.
+
+**Trust config…** shows the same report for a served project (`/api/projects/<id>/trust` with
+`dryRun`) and trusts exactly those bytes. If the file on disk is not the one the panel loaded (it
+was edited since), the project is started again with the bytes just trusted. A config that
+changes after it was trusted asks again, as it always has.
+
+**Remove from panel…** explains first that it only unregisters the project: nothing on disk is
+deleted (the repository, its config, its worktrees and its lane registry stay, and adding it again
+brings it all back). It is **refused while the project has lanes**, running or registered: the
+confirmation lists each, as a link that shows it, so you can stop or close it first (removing never
+stops a lane). Removing the default project makes the next project the panel serves (in the
+registry's order) the default, and the confirmation says which. A page showing a project that is removed (here, in another page, or
+by `panel remove`) moves to the default. The panel always serves one project, so the last one
+cannot be removed.
 
 The hooks and the status line are the machine's: every session posts to the one panel. The panel
 places each post in its project by its session id first (a lane's own session, or a session it
@@ -415,12 +481,14 @@ value just changed.
 
 - **Status bar.** The project, **Live** or **Disconnected**, and the figures that hold across every
   lane. Totals live here and nowhere else.
-  - **The project's name is the project menu** (PANEL-16). It lists every project the panel
-    serves, each with its lanes (working, waiting, idle), how many need you there (amber, red when
-    one blocks), how many lanes it has to restore, and whether its config is untrusted; a project
-    that could not load says why. Beside the name, "N need you elsewhere" counts the other
-    projects'. The keyboard works as in **Appearance** (Down or Enter opens it, the arrows move,
-    Enter picks, Escape closes). Picking one switches the whole page: its lanes, its selected
+  - **The project's name is the project menu** (PANEL-16), drawn as a dropdown box: the name and
+    a ▾ (PANEL-22). It lists every project the panel serves, each with its lanes (working,
+    waiting, idle), how many need you there (amber, red when one blocks), how many lanes it has
+    to restore, and whether its config is untrusted; a project that could not load says why.
+    Beside the box, "N need you elsewhere" counts the other projects'. The keyboard works as in
+    **Appearance** (Down or Enter opens it, the arrows move, Enter picks, Escape closes); End
+    reaches **+ Add a project…**, Right a row's **⋯** (Enter opens its actions, Left or Escape
+    comes back). See [Add, trust and remove from the page](#add-trust-and-remove-from-the-page). Picking one switches the whole page: its lanes, its selected
     lane (kept per project), and `?p=<id>` in the address, so a bookmark opens on that project.
     Open terminals close on a switch; their lanes run on in tmux. The tab title adds ", +N
     elsewhere" while other projects need you.
@@ -2078,6 +2146,29 @@ send requests to `127.0.0.1`.
   path, a path inside a worktree, the same path spelled otherwise, a path the list lacks) is
   refused before any command runs in it. It carries no branch name and no command; see
   [Remove a worktree](#remove-a-worktree) for what is checked.
+- **Adding, trusting and removing projects** (PANEL-22): `POST /api/projects/validate`,
+  `/api/projects/init-preview`, `/api/projects/init`, `/api/projects/add`,
+  `/api/projects/<id>/trust` and `/api/projects/<id>/remove`. **The threat:** these let a page
+  action add a repository whose commands the panel will then run, so they are the routes a
+  hostile page would most want. Each passes every guard a lane action does: the Host allow-list,
+  a loopback peer, the cookie, and an `Origin` equal to this page's (so another loopback port or
+  another `*.localhost` name cannot call them), with no CORS answer to a preflight. Each body is
+  strict JSON, at most 16 KB, unknown fields refused, and names no command: a path, a project id,
+  a flag, and for trusting a SHA-256. **Nothing a repository names runs before an explicit trust
+  click:** validating a path and previewing `panel init` read files and run only git's read-only
+  plumbing (`rev-parse`, `worktree list`, `symbolic-ref`, `for-each-ref`); the trust report renders
+  the config. Commands run only after **Trust and add** or **Trust config…**, and only for the
+  bytes whose hash the request names, checked again when the trust is recorded (an edit between
+  the report and the click is refused). **Add without trusting** adds a project whose commands
+  stay off, as `panel add` does. `init` creates `.clauductor/panel.json` with `O_EXCL` and never
+  overwrites a file, a dangling symlink included. A project added or made the default live adds
+  its Host names to the allow-list only once it is trusted (only the default the panel started
+  with counts untrusted, as before PANEL-22). Removing never stops a lane or deletes a file, and is refused while the
+  project has lanes. There is still no remote access: the panel binds loopback only, and these
+  routes need the same-origin page and its token. A test sends every one of them without the
+  cookie, without an `Origin`, from another port, from a cross-site origin, with a foreign Host,
+  from a remote peer and with an unknown field, and checks that none reaches the registry
+  (`TestProjectAdminRoutesAreGuarded`).
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
@@ -2091,7 +2182,12 @@ send requests to `127.0.0.1`.
   every one of them. A project the panel does not serve is 404. The paths before PANEL-16
   (`/api/lanes/…`, `/api/queues/…`, `/api/refresh`) reach the default project for one release, so
   a page left open across the upgrade keeps working. `host_names` is the union of the default
-  project's and every trusted project's, so an untrusted config cannot add a name.
+  project's (the one the panel started with) and every trusted project's, so an untrusted config
+  cannot add a name; since PANEL-22 it is recomputed when a project is added, removed or trusted
+  while the panel runs, and a project that becomes the default live counts only once trusted. A
+  project removed live leaves the menu first, so a page on it moves to the default, then answers
+  404, its open event streams end, its terminals close and
+  its unused tickets are dropped.
 - **Events of no project are set aside.** An event counts only if its session is one of a
   project's, or its `cwd` is inside one of the project's worktrees, as `git worktree list
   --porcelain` reports them. That list is the authority, never a hand-kept list. It is re-read
@@ -2106,8 +2202,12 @@ send requests to `127.0.0.1`.
   - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
     a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
-  - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
-    started on a project it does not list) or removed; a refused start writes nothing;
+  - `projects.json`, when a project is added (`panel add`, `install --project`, a panel
+    started on a project it does not list, or the page's Add a project…) or removed (`panel
+    remove`, or Remove from panel…); a refused start writes nothing;
+  - a project's `.clauductor/panel.json`, only when the page's **Create this config** is pressed,
+    and never over a file (PANEL-22); and the trusted-config record when the page trusts one;
+  - `owner.json`'s list of projects, again whenever the projects served change (PANEL-22);
   - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
@@ -2131,8 +2231,14 @@ banner that names the hash (and the trusted one it replaces), until you review t
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
 record and everything it trusts: each card's command, each queue's RUN command, each
-template's first prompt, and the metrics command. There is no trust button in the page:
-trusting is a command you run after reading the file.
+template's first prompt, and the metrics command.
+
+Since PANEL-22 the page can trust too, but never without showing the same report first: **Trust
+and add** in Add a project…, and **Trust config…** (in the untrusted banner and a project row's
+**⋯**). Each shows the hash and every command and prompt, and trusts only the bytes with that
+hash, checked again as the trust is recorded; an edit in between is refused and the report is read
+again. See [Add, trust and remove from the page](#add-trust-and-remove-from-the-page) and, for the
+routes, [Security model](#security-model).
 
 ### Remote control
 
@@ -2419,6 +2525,12 @@ The rules the suite keeps, and a new test must too:
   time is left alone.
 - A helper process the test binary starts gets `GORACE=atexit_sleep_ms=0`. A `-race` binary
   otherwise sleeps a second at exit.
+- **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
+  goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
+  group of its own; removing it cancels the context and waits for the group before the request
+  answers, so a goroutine that did not stop hangs the test rather than leaking.
+  `TestProjectAddedTrustedAndRemovedLive` also counts the removed project's polls, which must not
+  grow while the other project's do; `leakcheck` checks the tmux sockets as everywhere.
 
 To show that a fix for a flaky test holds, run it 200 times under the race detector:
 
@@ -2430,8 +2542,8 @@ go test -race -run '^TestLockRunTwoProcessesQueue$' -count=200 ./internal/panel/
 
 - **Close lane** removes only a clean worktree and a merged branch; there is no way to force it
   from the page, by design. Discard or commit the work first, or remove it with git.
-- Adding or removing a project needs a panel restart; so does fixing a project that could not
-  load. The Needs-you rows show the project on view only (the menu and the tab title count the
+- A project that could not load is tried again when `projects.json` changes (adding or removing
+  any project, from the page or the CLI) or at a restart, not when its config is fixed. The Needs-you rows show the project on view only (the menu and the tab title count the
   others). One `claude agents` poll runs per project. Quota thresholds are the 5-hour window's,
   and lanes start only on a subscription login.
 - No remote access; the panel is loopback only.

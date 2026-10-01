@@ -173,18 +173,31 @@ The **Gate** figure in the header shows who holds it and who waits; a lane's **G
 **Cancel wait** and **Run in** that lane. See
 [Queue and the gate lock protocol](panel.md#queue-and-the-gate-lock-protocol).
 
-## Add a second repository
+## Add another repository
 
-In the other repository's checkout:
+Open the project menu (the project's name at the top left, in its box) and pick **+ Add a
+project…** at its foot. Type the repository's path (`~/` is your home); the panel checks it as you
+type and shows its root and git directory, or why it cannot be added (a linked worktree, a path
+already registered, not a git repository). If the repository has no `.clauductor/panel.json` yet,
+the dialog shows what `clauductor panel init` would write, with the reason for each value;
+**Create this config** writes it. Then it shows exactly what the config runs (its cards, queue
+commands and templates): **Trust and add** trusts those bytes and adds it, **Add without
+trusting** adds it with its commands off until you trust it. Either way it is served at once, no
+restart, and the page switches to it.
+
+Each project's row in the menu has a **⋯**: **Trust config…** (while it is untrusted, or after its
+config changed) and **Remove from panel…**, which only unregisters it (nothing on disk is deleted,
+and adding it again brings its lanes back) and is refused while it has lanes.
+
+The commands still work, and a running panel takes them within a second:
 
 ```sh
 clauductor panel init    # writes .clauductor/panel.json; review it
 clauductor panel trust   # allow its commands and templates
-clauductor panel add     # register it with the panel
+clauductor panel add     # register it: the running panel serves it now
 ```
 
-Then restart the panel (`add` prints the command). The project's name at the top of the page
-switches between projects. See [Projects](panel.md#projects).
+See [Projects](panel.md#projects).
 
 If the repository runs Clauductor's operating model (it has `.claude/owner-queue.sh` or
 `.claude/roadmap-queue.sh`), `init` also adds its cards, lane templates and gate, and prints
@@ -226,7 +239,8 @@ confirm Remote Control in the terminal. See [Remote control](panel.md#remote-con
    [A lane dies at start](panel.md#a-lane-dies-at-start).
 3. **New lane is greyed out.** Hover it for the reason: an API key in the environment, or the
    quota guard. See [Subscription only](panel.md#subscription-only).
-4. **Templates, cards or Run do nothing.** The config is not trusted as it is now. See
+4. **Templates, cards or Run do nothing.** The config is not trusted as it is now: **Trust
+   config…** in its banner or its project row's **⋯** shows what it runs and trusts it. See
    [Cards, RUN and templates do nothing](panel.md#cards-run-and-templates-do-nothing).
 5. **No context % or quota.** The panel needs a copy of your status line. See
    [The page shows no context % or quota](panel.md#the-page-shows-no-context--or-quota).
