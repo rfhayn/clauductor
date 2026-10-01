@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -44,24 +45,41 @@ func TemplatePath() (string, error) {
 	return "", fmt.Errorf("could not find Clauductor template directory — set CLAUDUCTOR_FRAMEWORK env var to framework repo root")
 }
 
-// ListTemplateFiles returns all relative file paths in the template directory.
+// ListTemplateFiles returns every template file's path relative to the template, with forward
+// slashes, sorted. Finder litter and lane worktrees (a checkout under template/.claude/worktrees)
+// are not template files.
 func ListTemplateFiles() ([]string, error) {
 	tmplPath, err := TemplatePath()
 	if err != nil {
 		return nil, err
 	}
+	return listDir(tmplPath)
+}
 
+func listDir(root string) ([]string, error) {
 	var files []string
-	filepath.WalkDir(tmplPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return err
 		}
-		relPath, _ := filepath.Rel(tmplPath, path)
-		files = append(files, relPath)
+		if d.IsDir() {
+			if d.Name() == "worktrees" && filepath.Base(filepath.Dir(p)) == ".claude" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == ".DS_Store" {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
 		return nil
 	})
-
-	return files, nil
+	sort.Strings(files)
+	return files, err
 }
 
 // CopyTemplate copies all template files to the target directory.
@@ -126,91 +144,84 @@ func FindConflicts(targetDir string) ([]string, error) {
 	return conflicts, nil
 }
 
-// FileDiff represents a difference between template and project file.
+// FileDiff represents a difference between a template file and the project's copy.
 type FileDiff struct {
-	Path   string // relative path
-	Status string // "new", "modified", "outdated"
+	Path   string // template-relative path
+	Dest   string // where the project keeps it (Path unless project.conf moves it)
+	Status string // "new" or "modified"
 }
 
-// FindDiffs compares template files against project files.
+// FindDiffs lists what `update` would refresh: every framework-tier file (Classify over the whole
+// template, so a new framework script cannot be left out the way a hand list left five, B3) that
+// is missing or differs, at the path the project's config puts it, plus the agents the project
+// lacks or has changed (doc tier, but offered for review as update always did). settings.json is
+// not here: it is merged, not copied (PlanSettings).
 func FindDiffs(targetDir string) ([]FileDiff, error) {
 	tmplPath, err := TemplatePath()
 	if err != nil {
 		return nil, err
 	}
-
-	var diffs []FileDiff
-
-	// Only compare skills and specific doc templates, not user content
-	comparePaths := []string{
-		".claude/skills",
-		".claude/agents",
-		".claude/hooks",
-		".claude/checks",
-		".claude/lib",
-		".claude/workflows",
-		".claude/modules",
-		".claude/settings.json",
-		".claude/statusline.sh",
-		".claude/status-write.sh",
-		".claude/owner-queue.sh",
-		".claude/roadmap-queue.sh",
-		".claude/panel-suggest.sh",
-		".claude/machine-quiet.sh",
-		"scripts/ci/run-local.sh",
-		"scripts/ci/gate.sh",
-		"scripts/ci/lease.sh",
+	files, err := listDir(tmplPath)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, cp := range comparePaths {
-		srcDir := filepath.Join(tmplPath, cp)
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+	conf, err := LoadConf(targetDir, tmplPath)
+	if err != nil {
+		return nil, err
+	}
+	pm, err := conf.Mapping(files)
+	if err != nil {
+		return nil, err
+	}
+	var diffs []FileDiff
+	for _, rel := range files {
+		if !UpdateRefreshes(rel) {
 			continue
 		}
-
-		filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-
-			relPath, _ := filepath.Rel(tmplPath, path)
-			destPath := filepath.Join(targetDir, relPath)
-
-			if _, err := os.Stat(destPath); os.IsNotExist(err) {
-				diffs = append(diffs, FileDiff{Path: relPath, Status: "new"})
-				return nil
-			}
-
-			// Compare content hashes
-			srcHash, _ := fileHash(path)
-			destHash, _ := fileHash(destPath)
-			if srcHash != destHash {
-				diffs = append(diffs, FileDiff{Path: relPath, Status: "modified"})
-			}
-
-			return nil
-		})
+		dest, _, skip := pm.Resolve(rel)
+		if skip != "" {
+			continue
+		}
+		destPath := filepath.Join(targetDir, filepath.FromSlash(dest))
+		if _, err := os.Stat(destPath); os.IsNotExist(err) {
+			diffs = append(diffs, FileDiff{Path: rel, Dest: dest, Status: "new"})
+			continue
+		}
+		if !FilesEqual(filepath.Join(tmplPath, filepath.FromSlash(rel)), destPath) {
+			diffs = append(diffs, FileDiff{Path: rel, Dest: dest, Status: "modified"})
+		}
 	}
-
 	return diffs, nil
 }
 
-// ApplyUpdate copies a single template file to the target directory.
+// UpdateRefreshes says whether `update` compares rel file by file.
+func UpdateRefreshes(rel string) bool {
+	return Classify(rel) == TierFramework || strings.HasPrefix(rel, ".claude/agents/")
+}
+
+// ApplyUpdate copies a single template file to where the project keeps it.
 func ApplyUpdate(targetDir string, diff FileDiff) error {
+	dest := diff.Dest
+	if dest == "" {
+		dest = diff.Path
+	}
+	return CopyFile(targetDir, diff.Path, dest)
+}
+
+// CopyFile copies the template file rel to dest (relative to targetDir).
+func CopyFile(targetDir, rel, dest string) error {
 	tmplPath, err := TemplatePath()
 	if err != nil {
 		return err
 	}
+	return copyFile(filepath.Join(tmplPath, filepath.FromSlash(rel)), filepath.Join(targetDir, filepath.FromSlash(dest)))
+}
 
-	srcPath := filepath.Join(tmplPath, diff.Path)
-	destPath := filepath.Join(targetDir, diff.Path)
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		return err
-	}
-
-	return copyFile(srcPath, destPath)
+// FilesEqual says whether two files have the same content.
+func FilesEqual(a, b string) bool {
+	ha, err1 := fileHash(a)
+	hb, err2 := fileHash(b)
+	return err1 == nil && err2 == nil && ha == hb
 }
 
 func copyFile(src, dst string) error {

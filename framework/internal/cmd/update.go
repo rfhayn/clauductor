@@ -11,19 +11,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var forceUpdate bool
+var (
+	forceUpdate  bool
+	updateDryRun bool
+)
 
 func init() {
 	updateCmd.Flags().BoolVar(&forceUpdate, "force", false, "Update even a repository that runs its own operating model")
+	updateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false, "List what would change, with the settings.json diff, and change nothing")
 }
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update project's Clauductor skills, hooks, and templates",
-	Long: `Compares the current project's skills, hooks, and doc templates against the
-latest framework version. Shows changes and applies them interactively.
-New files are applied automatically. Modified files require manual review
-to prevent overwriting project-specific customizations.`,
+	Long: `Compares every framework file the template ships (skills, hooks, checks,
+workflows, modules, the model's scripts) and the agents against the project's
+copies, at the paths its .claude/project.conf gives them. Shows changes and
+applies them interactively. New files are applied automatically. Modified files
+require manual review to prevent overwriting project-specific customizations.
+
+.claude/settings.json is merged, not copied: the model's hooks, status line,
+deny list and sandbox entries are brought up to date, the project's keys are
+kept, and every conflict is reported. --dry-run shows the diff first.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := os.Getwd()
 		if err != nil {
@@ -67,9 +76,16 @@ to prevent overwriting project-specific customizations.`,
 		if err != nil {
 			return fmt.Errorf("failed to compare files: %w", err)
 		}
+		settings, err := planProjectSettings(targetDir)
+		if err != nil {
+			return err
+		}
 
-		if len(diffs) == 0 {
+		if len(diffs) == 0 && !settings.Changed() {
 			fmt.Println("All skills, hooks, and templates are up to date.")
+			if len(settings.Changes) > 0 {
+				printSettingsPlan(os.Stdout, settings, false)
+			}
 			return nil
 		}
 
@@ -99,23 +115,37 @@ to prevent overwriting project-specific customizations.`,
 		if len(skillDiffs) > 0 {
 			fmt.Printf("Skills (%d):\n", len(skillDiffs))
 			for _, d := range skillDiffs {
-				fmt.Printf("  %s (%s)\n", d.Path, d.Status)
+				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
 			}
 			fmt.Println()
 		}
 		if len(hookDiffs) > 0 {
 			fmt.Printf("Hooks (%d):\n", len(hookDiffs))
 			for _, d := range hookDiffs {
-				fmt.Printf("  %s (%s)\n", d.Path, d.Status)
+				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
 			}
 			fmt.Println()
 		}
 		if len(otherDiffs) > 0 {
 			fmt.Printf("Other (%d):\n", len(otherDiffs))
 			for _, d := range otherDiffs {
-				fmt.Printf("  %s (%s)\n", d.Path, d.Status)
+				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
 			}
 			fmt.Println()
+		}
+
+		if settings.Changed() || len(settings.Changes) > 0 {
+			printSettingsPlan(os.Stdout, settings, updateDryRun)
+		}
+		if updateDryRun {
+			fmt.Println("--dry-run: no changes made.")
+			return nil
+		}
+		if settings.Changed() {
+			if err := writeSettings(targetDir, settings); err != nil {
+				return err
+			}
+			fmt.Printf("Merged %s.\n\n", template.SettingsPath)
 		}
 
 		// Auto-apply new files
@@ -125,7 +155,7 @@ to prevent overwriting project-specific customizations.`,
 				if err := template.ApplyUpdate(targetDir, d); err != nil {
 					fmt.Printf("  Error adding %s: %v\n", d.Path, err)
 				} else {
-					fmt.Printf("  Added %s\n", d.Path)
+					fmt.Printf("  Added %s\n", diffLabel(d))
 				}
 			}
 			fmt.Println()
@@ -146,9 +176,9 @@ to prevent overwriting project-specific customizations.`,
 
 		for _, d := range modifiedFiles {
 			srcPath := filepath.Join(tmplPath, d.Path)
-			destPath := filepath.Join(targetDir, d.Path)
+			destPath := filepath.Join(targetDir, d.Dest)
 
-			fmt.Printf("  %s\n", d.Path)
+			fmt.Printf("  %s\n", diffLabel(d))
 			fmt.Printf("  [y] overwrite with template  [d] show diff  [s] skip  [c] cancel remaining\n  > ")
 
 			for {
@@ -191,4 +221,41 @@ func showDiff(projectFile, templateFile string) {
 	cmd.Stderr = os.Stderr
 	cmd.Run() // exit code 1 means files differ, which is expected
 	fmt.Println()
+}
+
+func diffLabel(d template.FileDiff) string {
+	if d.Dest == "" || d.Dest == d.Path {
+		return d.Path
+	}
+	return d.Path + " → " + d.Dest
+}
+
+// planProjectSettings is the settings.json merge for the project in targetDir.
+func planProjectSettings(targetDir string) (*template.SettingsPlan, error) {
+	tmplDir, err := template.TemplatePath()
+	if err != nil {
+		return nil, err
+	}
+	conf, err := template.LoadConf(targetDir, tmplDir)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := os.ReadFile(filepath.Join(tmplDir, filepath.FromSlash(template.SettingsPath)))
+	if err != nil {
+		return nil, err
+	}
+	cur, readErr := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath)))
+	sp, err := template.PlanSettings(cur, readErr == nil, tmpl, conf)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w (fix it, then run update again)", template.SettingsPath, err)
+	}
+	return sp, nil
+}
+
+func writeSettings(targetDir string, sp *template.SettingsPlan) error {
+	dst := filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, sp.Result, 0o644)
 }

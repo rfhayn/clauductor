@@ -41,7 +41,7 @@ ci_receipt_git_dirs() {
 ci_receipt_verdict() {
   _head=$1; _pr=$2
   _run=${GATE_RUN:-scripts/ci/run-local.sh}
-  _wf=${GATE_REMOTE_WORKFLOW-ci.yml}
+  _wf=${GATE_REMOTE_WORKFLOW:-}  # the default is conf.sh's (the caller sources it), stated there once
   _alt=""; [ -n "$_wf" ] && _alt="   (or: gh workflow run $_wf --ref <branch>)"
   _nl='
 '

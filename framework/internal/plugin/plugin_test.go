@@ -524,3 +524,64 @@ func TestClaudePluginInstall(t *testing.T) {
 		}
 	}
 }
+
+// /clauductor:init merges an existing settings.json the way `clauductor install` does: the
+// project's keys and entries kept, the model's deny list and sandbox entries unioned in, the
+// plugin's status line set, and the gate's paths from the project's GATE_RUN and GATE.
+func TestScaffoldMergesSettings(t *testing.T) {
+	need(t, "git", "sh", "jq")
+	plug, _ := build(t)
+	home := t.TempDir()
+	e := env(t, home)
+	p := newProject(t, e)
+	os.MkdirAll(filepath.Join(p, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(p, ".claude", "project.conf"), []byte("GATE_RUN=\"tools/ci/run-local.sh\"\nGATE=\"tools/ci/gate.sh\"\n"), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "settings.json"), []byte(`{"model": "sonnet", "env": {"X": "1"},
+  "statusLine": {"type": "command", "command": "sh .claude/statusline.sh"},
+  "permissions": {"allow": ["Bash(npm test)"], "deny": ["Read(./secrets/**)"]},
+  "sandbox": {"excludedCommands": ["make *"]}}`), 0o644)
+	if out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh"), "--force"); code != 0 {
+		t.Fatalf("scaffold: exit %d\n%s", code, out)
+	}
+	raw, _ := os.ReadFile(filepath.Join(p, ".claude", "settings.json"))
+	var s struct {
+		Model       string                         `json:"model"`
+		Env         map[string]string              `json:"env"`
+		StatusLine  struct{ Command string }       `json:"statusLine"`
+		Permissions struct{ Allow, Deny []string } `json:"permissions"`
+		Sandbox     struct {
+			Enabled          bool     `json:"enabled"`
+			ExcludedCommands []string `json:"excludedCommands"`
+		} `json:"sandbox"`
+		EnabledPlugins map[string]bool `json:"enabledPlugins"`
+	}
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatalf("merged settings.json: %v\n%s", err, raw)
+	}
+	has := func(xs []string, x string) bool {
+		for _, v := range xs {
+			if v == x {
+				return true
+			}
+		}
+		return false
+	}
+	if s.Model != "sonnet" || s.Env["X"] != "1" {
+		t.Errorf("project keys not kept: %s", raw)
+	}
+	if s.StatusLine.Command != StatusLineCommand {
+		t.Errorf("statusLine is the project's old one, not the plugin's: %q", s.StatusLine.Command)
+	}
+	if !has(s.Permissions.Allow, "Bash(npm test)") || !has(s.Permissions.Deny, "Read(./secrets/**)") || !has(s.Permissions.Deny, "Read(./.env)") {
+		t.Errorf("permissions not unioned: %+v", s.Permissions)
+	}
+	if !s.Sandbox.Enabled || !has(s.Sandbox.ExcludedCommands, "make *") || !has(s.Sandbox.ExcludedCommands, "tools/ci/gate.sh *") || has(s.Sandbox.ExcludedCommands, "scripts/ci/gate.sh *") {
+		t.Errorf("sandbox not merged or gate paths not rendered: %+v", s.Sandbox)
+	}
+	if !has(s.Permissions.Allow, "Bash(tools/ci/gate.sh)") || has(s.Permissions.Allow, "Bash(scripts/ci/gate.sh)") {
+		t.Errorf("allow rules do not follow GATE: %v", s.Permissions.Allow)
+	}
+	if !s.EnabledPlugins[Name+"@"+Marketplace] {
+		t.Error("the plugin is not enabled")
+	}
+}

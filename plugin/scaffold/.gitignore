@@ -1,6 +1,3 @@
-# Clauductor runtime state (local only, not committed)
-orchestration/
-
 # One git worktree per lane (the panel and build-change create them here)
 .claude/worktrees/
 
