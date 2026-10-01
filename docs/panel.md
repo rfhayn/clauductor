@@ -333,7 +333,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
-| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off. |
 | `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
 | `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
 | `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
@@ -1575,8 +1575,9 @@ ledger is not in it, and the figures say "Since <day>" until the ledger is as ol
 Spend per week (PANEL-21) is a rate over the days the ledger has kept in the window, the smaller
 of the window and the days since its first day, never over days before it began (one day's $11.70
 is not "$2.73 a week" at 30d); a bucket before the ledger began is no data, not zero. With less
-than a week kept it is no rate at all: the view and the Flow card show the spend so far, "$11.70
-(since 2026-09-30, 1 day)", and the report marks it with `span: {since, days}`. For all projects,
+than a week kept it is no rate at all: the view and the Flow card show the spend so far, "$11.70",
+with "since 2026-09-30, 1 day" on a smaller line under it (the Flow card's row tooltip has the
+whole), and the report marks it with `span: {since, days}`. For all projects,
 spends so far add up only with each other; beside rates, the rates add up and the note names the
 projects left out.
 
@@ -1660,8 +1661,8 @@ tier; which roles, and to what, is the project's `.claude/model-roles.json`:
 Each key not starting with `_` is a role; its value is the tier it drops to, as
 `{model, effort}` or `"model/effort"` (the same object may sit under `economy.roles`). The
 reviewer and planner are simply not listed. While economy mode is on, an **Economy** field by
-the quota says **economy** and names those roles ("scribe to sonnet, low"); hovering says why it
-is on and since when. The panel only reads that file, every minute, and runs nothing.
+the quota says **on** and names those roles ("scribe to sonnet, low"); hovering says why it
+is on and since when. While it is off the field is not shown. The panel only reads that file, every minute, and runs nothing.
 
 `GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
 route it needs the cookie, and it runs nothing: it reports what the sources last read. For all

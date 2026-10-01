@@ -100,6 +100,34 @@ func TestCopyNamesButtonsAsTheyRead(t *testing.T) {
 	}
 }
 
+// PANEL-21: a field's value says something its label does not. The economy field read
+// "Economy / economy"; it reads "on" now (and is not shown while economy is off). The
+// test reads each label in panel.js with the first literal of its value, and requires
+// that it finds the economy field, so a rewrite that hides the pairs from it fails.
+func TestFieldValueDoesNotRepeatItsLabel(t *testing.T) {
+	t.Parallel()
+	js := readWeb(t, "panel.js")
+	pairs := map[string]string{}
+	for _, re := range []string{
+		`el\("span", "k", "([^"]+)"\), el\("span", "v(?: [^"]*)?", (?:"([^"]+)"|null, \[el\("span", (?:"[^"]*"|null), "([^"]+)")`,
+		`kv1\("([^"]+)", (?:"([^"]+)"|el\("span", (?:"[^"]*"|null), "([^"]+)")`,
+	} {
+		for _, m := range regexp.MustCompile(re).FindAllStringSubmatch(js, -1) {
+			pairs[m[1]] = m[2] + m[3]
+		}
+	}
+	if v, ok := pairs["Economy"]; !ok {
+		t.Fatal("no Economy field found; this test no longer reads the label/value pairs")
+	} else if v != "on" {
+		t.Errorf(`the Economy field's value reads %q; want "on"`, v)
+	}
+	for k, v := range pairs {
+		if strings.EqualFold(strings.TrimSpace(k), strings.TrimSpace(v)) {
+			t.Errorf("the field %q shows its label again as its value (%q); say the state", k, v)
+		}
+	}
+}
+
 // PANEL-21: the page is the window at every size. The page never scrolls (it did below
 // 900 px, and at 62vh the terminal ran over the footer below 1180 px), the terminal is
 // laid over its frame so the frame can shrink and refit it, the footer wraps, and the

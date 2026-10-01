@@ -1155,9 +1155,14 @@ function flowCard() {
   const rows = f.items.map((it) => {
     const [label, unit] = FLOW_LABEL[it.key] || [it.key, ""];
     const pts = (it.series || []).filter((v) => v != null);
-    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : mShown(it, unit)),
-      it.value == null ? el("span") : spark({ v: pts }, { lo: 0 }) || el("span")]);
-    row.title = it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command");
+    // PANEL-21: a value with a span (spend with under a week kept) shows the amount, and
+    // the span on a smaller line under the label and value: in one line it pushed the
+    // label out and the sparklines past the side panel's edge. The spark cell is fixed.
+    const sub = it.value != null && mSpan(it);
+    const row = el("span", "frow", null, [el("span", "fl", label), el("span", "fv", it.value == null ? "—" : sub ? money(it.value) : mShown(it, unit)),
+      el("span", "fsp", null, [it.value == null ? null : spark({ v: pts }, { lo: 0 })]), sub ? el("span", "fsub", sub) : null]);
+    row.title = (it.value == null ? it.missing || "" : (it.source === "builtin" ? "Built in" : "From the project's metrics command")) +
+      (sub ? ": " + label + " " + mShown(it, unit) : "");
     return key(row, "fr:" + it.key);
   });
   const b = el("button", "flowcard", null, [el("span", "fh", "Flow (" + f.window + ")"), ...rows]);
@@ -1623,7 +1628,7 @@ function economyField() {
   const e = S.economy;
   if (!e || !e.active) return [];
   const roles = (e.roles || []).map((r) => r.role + (r.to ? " to " + r.to : "")).join(", ");
-  const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "economy"),
+  const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "on"),
     el("span", "more", roles || "no role named")])]), "q:eco");
   f.title = (e.reason || "") + (e.since ? ", since " + hm(e.since) : "") + ". " + (roles ? "Roles on a cheaper tier: " + roles + "." : e.rolesNote || "") +
     " The panel writes ~/.clauductor/panel/economy.json; the operating model's build-change reads it.";
@@ -1852,11 +1857,15 @@ function mValue(v, unit) {
 // A figure's value as shown. With a span (PANEL-21: spend per week with under a week
 // kept), the value is the amount so far, not a rate: it says since when, never "a week".
 function mShown(m, unit) {
-  if (m && m.span && m.value != null) {
-    const d = m.span.days;
-    return money(m.value) + " (since " + m.span.since + ", " + d + (d === 1 ? " day" : " days") + ")";
-  }
+  const sp = m && m.value != null && mSpan(m);
+  if (sp) return money(m.value) + " (" + sp + ")";
   return mValue(m ? m.value : null, unit);
+}
+// The history a spanned value covers ("since 2026-09-30, 1 day"), or "" without a span.
+function mSpan(m) {
+  if (!m || !m.span) return "";
+  const d = m.span.days;
+  return "since " + m.span.since + ", " + d + (d === 1 ? " day" : " days");
 }
 const M_SRC = { project: "project", builtin: "built in", mixed: "project and built in" };
 function mSource(src) {
@@ -1909,7 +1918,8 @@ function mFigure(k, m) {
   const has = !!m && m.value != null;
   const row = el("div", "mrow" + (has ? "" : " miss"), null, [
     el("span", "ml", label),
-    el("span", "mv num", has ? mShown(m, unit) : "—"),
+    // A spanned value's span goes on a smaller line under it, so the column stays narrow.
+    has && mSpan(m) ? el("span", "mv num", null, [document.createTextNode(money(m.value)), el("span", "msub", mSpan(m))]) : el("span", "mv num", has ? mShown(m, unit) : "—"),
     el("span", "mspark", null, [has ? mBars(m.series, unit) : null]),
     el("span", "mn", null, [has && m.n ? el("span", "dim", "of " + m.n) : null, has ? mSource(m.source) : null]),
   ]);
