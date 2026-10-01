@@ -116,6 +116,8 @@ if [ -f "$R1" ]; then
   eq "receipt: the role hash is the reviewer's own model, effort and tiers" '.hashes.role' "\"$(evals_role_hash reviewer "$A/.claude/model-roles.json")\"" "$R1"
   eq "receipt: it names exactly the reviewer's declared trigger inputs" '.hashes.triggers | keys' "$(evals_triggers reviewer "$A/.claude/model-roles.json" | jq -Rnc '[inputs]')" "$R1"
   eq "receipt: names the agent file it evaluated" '.hashes.agent_file' '".claude/agents/reviewer.md"' "$R1"
+  eq "receipt: names the suite's AGENTS.md blob it ran under" '.suite.agents_md' "\"$(evals_blob "$A/.claude/evals/reviewer/AGENTS.md")\"" "$R1"
+  eq "receipt: records each case's claude session id" '[.cases[] | .session_id == "fake-" + .id] | all' 'true' "$R1"
   eq "receipt: the agent trigger is its blob" '.hashes.triggers[".claude/agents/reviewer.md"]' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
   if [ -f "$A/.claude/workflows/build-change.js" ]; then
     eq "receipt: the review-prompt trigger is the marked section's hash, not the whole file's" '.hashes.triggers[".claude/workflows/build-change.js#review-prompt"]' \
@@ -148,6 +150,10 @@ fi
 RUN_AGENT="$A/.claude/agents/builder.md"
 _rc=0; (cd "$A" && EVAL_AGENT_FILE="$RUN_AGENT" EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$O") > "$(scratch)/run.out" 2>&1 || _rc=$?
 expect_rc 2 "$_rc" "run.sh: an agent file that is not one of the role's triggers (EVAL_AGENT_FILE) refuses to run"
+# A stand-in claude never writes into the receipts the guard reads (no --out, no opt-in).
+_rc=0; (cd "$A" && EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope) > "$(scratch)/run.out" 2>&1 || _rc=$?
+expect_rc 2 "$_rc" "run.sh: a fake claude (EVAL_CLAUDE) refuses to write into .claude/evals/receipts/"
+ls "$A"/.claude/evals/receipts/*.json >/dev/null 2>&1 && fail "...but a receipt was written there" || ok "...and nothing was written there"
 # A trigger edited while the cases run: the claude stand-in edits the agent, then answers.
 cp "$A/.claude/agents/reviewer.md" "$(scratch)/reviewer.bak"
 printf '#!/bin/sh\necho "Edited mid-run." >> "%s"\nexec sh "%s" "$@"\n' "$A/.claude/agents/reviewer.md" "$FAKE" > "$(scratch)/editing-claude"
@@ -253,7 +259,7 @@ set_effort() {  # the role's effort, everywhere model-roles.sh holds it to (JSON
   [ -f "$B/.claude/workflows/build-change.js" ] && sed -E "s/^(  reviewer: \{ model: \"[a-z]+\", effort: )\"[a-z]+\"/\1\"$1\"/" "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
 }
 qrun() {  # qrun EFFORT FAKE [CASES]: the runner inside the scratch copy, receipt into its receipts/
-  (cd "$B" && EVAL_CLAUDE="$B/.claude/evals/fake-claude.sh" EVAL_FAKE="$2" EVAL_DATE=2026-03-02 \
+  (cd "$B" && EVAL_ALLOW_FAKE_RECEIPT=1 EVAL_CLAUDE="$B/.claude/evals/fake-claude.sh" EVAL_FAKE="$2" EVAL_DATE=2026-03-02 \
     sh .claude/evals/run.sh --role reviewer --model opus --effort "$1" ${3:+--cases "$3"} >/dev/null 2>&1)
 }
 record() {  # record RECEIPT_REL: copy its scores into .roles.reviewer.eval, as run.sh says to
@@ -299,6 +305,16 @@ if [ -f "$CLAUDUCTOR_FW/workflows/build-change.js" ]; then
   mr 0 "(control) the appended spawn removed"
   printf "    rev.findings = []\n" >> "$B/.claude/workflows/build-change.js"
   mr 1 "the review's findings overwritten after review-call fails" "outside the marked sections"
+  grep -v '^    rev.findings = \[\]$' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 0 "(control) the findings overwrite removed"
+  cp "$B/.claude/workflows/build-change.js" "$(scratch)/wf.ok"
+  sed 's/^const pick = (role) => {$/ROLES.reviewer = {model:"haiku",effort:"low"}; delete TIERS["reviewer.high"]\
+&/' "$(scratch)/wf.ok" > "$B/.claude/workflows/build-change.js"
+  mr 1 "ROLES.reviewer reassigned and TIERS[\"reviewer.high\"] deleted at run time fails" "mutates a model table"
+  sed "s/^const CHEAP = pick('mechanic')\$/&\\
+Object.assign(ROLES.reviewer, {model:\"haiku\"})/" "$(scratch)/wf.ok" > "$B/.claude/workflows/build-change.js"
+  mr 1 "Object.assign onto ROLES.reviewer at run time fails" "mutates a model table"
+  cp "$(scratch)/wf.ok" "$B/.claude/workflows/build-change.js"
 fi
 set_roles '.evals.triggers.wizard = [".claude/agents/wizard.md"]'
 mr 1 "triggers declared for a role that does not exist fail" "is not a role"

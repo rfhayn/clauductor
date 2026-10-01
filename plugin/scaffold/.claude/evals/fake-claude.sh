@@ -42,7 +42,7 @@ case "$mode" in
   *) echo "fake-claude: unknown EVAL_FAKE '$mode'" >&2; exit 2 ;;
 esac
 [ -n "$prompt" ] || { echo "fake-claude: no -p prompt" >&2; exit 2; }
-jq -cn --argjson f "$findings" --argjson c "${EVAL_FAKE_COST:-0.25}" '{
-  type: "result", subtype: "success", is_error: false, result: "",
+jq -cn --argjson f "$findings" --argjson c "${EVAL_FAKE_COST:-0.25}" --arg s "fake-$id" '{
+  type: "result", subtype: "success", is_error: false, result: "", session_id: $s,
   structured_output: {findings: $f}, total_cost_usd: $c,
   usage: {input_tokens: 3000, output_tokens: 9000, cache_read_input_tokens: 240000, cache_creation_input_tokens: 30000}}'

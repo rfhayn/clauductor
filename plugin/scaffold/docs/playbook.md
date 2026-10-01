@@ -268,17 +268,27 @@ A role with a suite that declares no triggers falls back to its agent file and a
 blocks these outright, so the owner merges such a PR themselves:
 - narrowing a role's triggers, including replacing the broad default. Deleting a declaration
   falls back to that broader default, so it is not a narrowing;
-- deleting a suite, removing one of its cases, or changing what a case plants or expects;
+- deleting a suite, removing a case, changing any file of an existing case (its `case.json`,
+  `before/` or `after/`), or changing the suite's `AGENTS.md`. Adding a case is fine;
 - lowering a recall or severity floor;
 - raising the fp_rate ceiling;
 - changing build-change.js's `pick()`, which chooses the reviewer's model at run time outside
   the hashed sections.
 
-**What the gate checks on top.** A receipt must have been scored on the head's suite.
-`checks/build-change.sh` executes the review code with `agent` stubbed. It holds
-`pick('reviewer')` to `model-roles.json` at every Risk tier, with economy mode on and off. It
-also checks that the reviewer actually receives the prompt and schema on the section's const
-lines.
+**What the gate checks on top.** A receipt must have been scored on the head's suite and the
+suite's `AGENTS.md`. `checks/build-change.sh` executes the whole script up to the review loop
+with `agent` stubbed. Afterwards it holds `pick('reviewer')` to `model-roles.json` at every Risk
+tier, with economy mode on and off. It also checks that the reviewer actually receives the
+prompt and schema on the section's const lines. `checks/model-roles.sh` fails if anything
+assigns into, deletes from or `Object.assign`s onto the `ROLES`, `TIERS` or `ECONOMY` tables.
+`run.sh` with a stand-in claude (`EVAL_CLAUDE`) refuses to write into
+`.claude/evals/receipts/`. Each receipt records every case's cost and claude session id.
+
+**What rule 13 is for, and what it is not.** It guards against ACCIDENTAL drift: a PR that
+changes what the reviewer is without anyone measuring it again. A receipt is self-reported. You
+run it on your own machine and nothing re-runs it. So a deliberate forger is out of scope, such
+as someone who edits a receipt or hides a change from these checks. Deliberate bypasses are what
+review and the owner are for.
 
 **When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
 (preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,

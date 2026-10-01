@@ -258,6 +258,19 @@ else
       !in_s && /agentType: *.reviewer.|schema: *REVIEW[^_A-Za-z]|schema: *REVIEW$|reviewSpawn\(|reviewPrompt\(|REVIEW_PROMPT|[^.A-Za-z_]rev *= *[^=]|rev\.findings *= *[^=]|rev\.findings\.(push|pop|shift|unshift|splice|length *= *[^=])|Object\.assign\(rev[,)]/ { print NR ": " t }' "$wfr")
     if [ -z "$outside" ]; then ok "build-change.js spawns the reviewer only inside its marked review-prompt and review-call sections"
     else fail "build-change.js reaches the reviewer outside the marked sections rule 13 hashes, so an edit there would change the review with no eval: $(printf '%s' "$outside" | tr '\n' ';')"; fi
+    # The model tables are restated literals (above) and must stay what was read: nothing in the
+    # script may assign into, delete from or Object.assign onto ROLES, TIERS or ECONOMY. (They are
+    # not frozen in the workflow itself: editing build-change.js would void the reviewer's receipt
+    # under guards that hash the whole workflows tree. checks/build-change.sh also runs the script's
+    # whole prefix and asks pick('reviewer') afterwards.)
+    mut=$(awk '
+      { t = $0; sub(/^[ \t]+/, "", t) }
+      t ~ /^\/\// { next }
+      /(^|[^A-Za-z0-9_$.])(ROLES|TIERS|ECONOMY)((\.[A-Za-z_$][A-Za-z0-9_$]*)|(\[[^]]*\]))+[ \t]*([-+*\/]?=)([^=]|$)/ \
+        || /delete[ \t]+(ROLES|TIERS|ECONOMY)[.[]/ \
+        || /Object\.(assign|defineProperty|defineProperties|setPrototypeOf)\([ \t]*(ROLES|TIERS|ECONOMY)([.[,)]|[ \t])/ { print NR ": " t }' "$wfr")
+    if [ -z "$mut" ]; then ok "build-change.js never mutates its ROLES, TIERS or ECONOMY tables"
+    else fail "build-change.js mutates a model table at run time, so pick() would not return what model-roles.json says: $(printf '%s' "$mut" | tr '\n' ';')"; fi
   fi
   for r in $suites; do
     m=$(want "$r" model); e=$(want "$r" effort)

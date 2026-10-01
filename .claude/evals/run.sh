@@ -124,6 +124,13 @@ if [ -n "$estimate" ]; then
 fi
 
 command -v "$CLAUDE" >/dev/null 2>&1 || die "cannot run '$CLAUDE' (install Claude Code, or set EVAL_CLAUDE)"
+# A stand-in claude (EVAL_CLAUDE: fake-claude.sh, a wrapper) never writes into the receipts the guard
+# reads, so a harness run cannot be committed as evidence by accident. The checks' scratch projects
+# opt in with EVAL_ALLOW_FAKE_RECEIPT=1.
+if [ -n "${EVAL_CLAUDE:-}" ] && [ -z "${EVAL_ALLOW_FAKE_RECEIPT:-}" ]; then
+  _o=$(mkdir -p "$out" 2>/dev/null && cd "$out" && pwd)
+  [ "$_o" != "$(cd "$dir" && pwd)/receipts" ] || die "EVAL_CLAUDE is set ($EVAL_CLAUDE), so this is not a real run: write it elsewhere with --out DIR, not into .claude/evals/receipts/"
+fi
 
 # ── Hashes: identical in .claude/lib/evals.sh (checks/evals.sh holds the copies together) ────
 evals_roles_hash() {  # evals_roles_hash MODEL_ROLES_JSON_FILE: every role's choice (receipt context only)
@@ -267,7 +274,7 @@ for c in $cases; do
       (.structured_output // (.result | if type == "string" then (try fromjson catch null) else . end)) as $o
       | { id: $id, kind: $k[0].kind, expected: ($k[0].expected // []),
           findings: (if ($o | type) == "object" and ($o.findings | type) == "array" then $o.findings else [] end),
-          cost_usd: (.total_cost_usd // 0), usage: (.usage // {}),
+          cost_usd: (.total_cost_usd // 0), usage: (.usage // {}), session_id: (.session_id // null),
           error: (if $rc != 0 then "exit \($rc)"
                   elif .is_error == true then "is_error: \(.result // "" | tostring | .[0:200])"
                   elif (($o | type) != "object" or ($o.findings | type) != "array") then "no findings array in the result"
@@ -297,6 +304,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg agent "$agent" --argjson complete "$complete" \
    --arg hr "$(evals_roles_hash "$roles_json")" --arg ha "$(evals_blob "$agent_md")" \
    --arg hw "$(evals_tree_hash "$ROOT/.claude/workflows" .claude/workflows)" --arg hs "$suite_hash" \
+   --arg sam "$(evals_blob "$dir/$role/AGENTS.md")" \
    --arg hrole "$hrole" --argjson trig "$trig_json" --arg af "$agent_rel" \
    --slurpfile mr "$roles_json" '
   def rank: {"low": 1, "medium": 2, "high": 3, "critical": 4}[.] // 0;
@@ -353,7 +361,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
   | { schema: 1, role: $role, model: $model, effort: $effort, date: $date, run_at: $at, agent: $agent,
       hashes: { role: $hrole, triggers: $trig, agent_file: $af, model_roles: $hr, agent: $ha, workflows: $hw },
       suite: { cases: ($cs | length), defect_cases: ([$cs[] | select(.kind != "clean")] | length),
-               clean_cases: ($clean | length), planted: $planted, hash: $hs },
+               clean_cases: ($clean | length), planted: $planted, hash: $hs, agents_md: $sam },
       complete: $complete, errors: $errors,
       thresholds: { recall: ($t.recall // 0.8), fp_rate: ($t.fp_rate // 0.2), severity_accuracy: ($t.severity_accuracy // 0) },
       scores: $s,
@@ -365,7 +373,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
               usd_per_catch: (if $caught > 0 then ($cost / $caught | r3) else null end),
               catches_per_usd: (if $cost > 0 then ($caught / $cost | r3) else null end) },
       cases: [ $cs[] | { id, kind, error, planted: (.expected | length), caught, actionable, false_positives,
-                         cost_usd: (.cost_usd | r3), matches, findings } ] }
+                         cost_usd: (.cost_usd | r3), session_id, matches, findings } ] }
   | . + { pass: (.complete and .errors == 0
                  and ($s.recall | type) == "number" and $s.recall >= .thresholds.recall
                  and ($s.fp_rate | type) == "number" and $s.fp_rate <= .thresholds.fp_rate

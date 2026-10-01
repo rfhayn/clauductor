@@ -210,6 +210,12 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
     _gsh=$(jq -r '.suite.hash // "-"' "$_f" 2>/dev/null)
     [ "$_gsh" = "$(evals_tree_hash_at "$1" ".claude/evals/$2/cases")" ] \
       || _why="${_why}${_why:+; }it was scored on another suite than the head's .claude/evals/$2/cases (suite hash $_gsh)"
+    # ...and under the head's suite AGENTS.md. A receipt from before OPS-16 round 3 does not name it
+    # (suite.agents_md absent) and is accepted on its cases hash alone: cg_eval_policy blocks every
+    # PR that changes that AGENTS.md, so it cannot have moved under such a receipt without the owner.
+    _gam=$(jq -r '.suite.agents_md // empty' "$_f" 2>/dev/null)
+    [ -z "$_gam" ] || [ "$_gam" = "$(evals_blob_at "$1" ".claude/evals/$2/AGENTS.md")" ] \
+      || _why="${_why}${_why:+; }it ran under another .claude/evals/$2/AGENTS.md than the head's"
     [ "$_grole" = "$_wrole" ] || _why="${_why}${_why:+; }it ran on another model, effort or tier variant of role $2 than the head's (role hash $_grole, head $_wrole)"
     [ "$_got" = "$_want" ] || _why="${_why}${_why:+; }it ran at other trigger inputs than the head's (has [$(printf '%s' "$_got" | tr '\n' ',')], head [$(printf '%s' "$_want" | tr '\n' ',')]), so something it measured changed after it ran"
     rm -f "$_f"
@@ -222,14 +228,19 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
     "$2" "$_m" "$_e" "${_seen:- No receipt for role $2 under .claude/evals/receipts/.}" "$2" "$_m" "$_e" "$2"
 }
 
+# SCOPE. Rule 13 guards against ACCIDENTAL drift: a PR that changes what the reviewer is without
+# anyone re-measuring it. A receipt is self-reported (run.sh writes it on the author's machine and
+# nothing re-runs it), so a deliberate forger who edits a receipt, or hides a change from these
+# string and hash checks, is out of scope. Deliberate bypasses are what review and the owner are for.
+#
 # Rule 13's own controls (OPS-16). Each would let a later PR weaken the evidence without a receipt
 # ever failing, so a receipt cannot excuse it: it is the owner's decision. No owner-approval marker
 # exists for an ops PR, so these BLOCK OUTRIGHT here; the owner merges such a PR themselves.
 #   - a role's trigger inputs narrowed: any input the base declares (or defaults to) that the head
 #     does not, including a declaration emptied or one replacing the broad default;
-#   - a suite at the base that the head lacks (deleting it would turn rule 13 into an advisory), or
-#     a base case removed, or a base case's kind or planted defects (case.json .kind/.expected)
-#     changed: a suite can be weakened one case at a time without being deleted;
+#   - a suite at the base that the head lacks (deleting it would turn rule 13 into an advisory), a
+#     base case removed or changed in any file (case.json, before/, after/), or the suite's
+#     AGENTS.md changed: a suite can be weakened one case, or one hint, at a time;
 #   - .evals.thresholds weakened: recall or severity_accuracy lowered, fp_rate raised, or removed;
 #   - build-change.js's pick() changed. It chooses the reviewer's model and effort at run time,
 #     outside every hashed section, and no receipt names it, so a receipt cannot cover a change
@@ -247,13 +258,18 @@ cg_eval_policy() {  # cg_eval_policy BASE HEAD: why this PR weakens rule 13 itse
     if ! printf '%s\n' "$_hs" | grep -qxF "$_r"; then
       echo "it deletes role $_r's eval suite (.claude/evals/$_r/cases/), which turns rule 13 for $_r into an advisory"; continue
     fi
+    # Any change to a base case's directory: its expectations, but equally its brief, title, tasks,
+    # deletions or before/after trees (a hint in a brief makes a case easier). New cases are fine.
     for _c in $(git ls-tree --name-only "$1" -- ".claude/evals/$_r/cases/" 2>/dev/null); do
-      _k="$_c/case.json"
-      git cat-file -e "$1:$_k" 2>/dev/null || continue
-      if ! git cat-file -e "$2:$_k" 2>/dev/null; then echo "it removes eval case ${_c##*/} from role $_r's suite"; continue; fi
-      [ "$(git show "$1:$_k" | jq -cS '{kind, expected}' 2>/dev/null)" = "$(git show "$2:$_k" | jq -cS '{kind, expected}' 2>/dev/null)" ] \
-        || echo "it changes what eval case ${_c##*/} of role $_r plants or expects (case.json .kind/.expected)"
+      git cat-file -e "$1:$_c/case.json" 2>/dev/null || continue
+      if ! git cat-file -e "$2:$_c/case.json" 2>/dev/null; then echo "it removes eval case ${_c##*/} from role $_r's suite"; continue; fi
+      [ "$(evals_tree_hash_at "$1" "$_c")" = "$(evals_tree_hash_at "$2" "$_c")" ] \
+        || echo "it changes eval case ${_c##*/} of role $_r (its case.json, before/ or after/)"
     done
+    # The suite's AGENTS.md is every case's project rules, so it is part of what the cases ask.
+    _ab=$(evals_blob_at "$1" ".claude/evals/$_r/AGENTS.md")
+    [ "$_ab" = none ] || [ "$_ab" = "$(evals_blob_at "$2" ".claude/evals/$_r/AGENTS.md")" ] \
+      || echo "it changes or removes .claude/evals/$_r/AGENTS.md, which every case of role $_r runs under"
   done
   for _r in $( { evals_suite_roles_at "$1"
                  git show "$1:$_mr" 2>/dev/null | jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' 2>/dev/null
