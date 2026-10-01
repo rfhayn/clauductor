@@ -544,7 +544,11 @@ value just changed.
   The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
   and End go to the limits, Escape or a double-click restores the theme's width), up to half
   the window; the width is kept per browser.
-  Below 1180 px the side panel moves under the terminal.
+  Below 1180 px the side panel moves under the terminal, taking at most two fifths of the
+  height and scrolling there. The page is the window at every size (PANEL-21): it never scrolls,
+  the footer always shows, the terminal shrinks and refits, and Needs you and the banners give
+  way and scroll when the window is too short for them all. Tabs out of sight are counted by
+  **N more** after the strip, whose menu lists them.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
   lane. Escape or Close closes it and returns focus.

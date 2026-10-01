@@ -203,7 +203,10 @@ start alpha '{"type":"build","mode":"new","name":"merged"}'
 start alpha '{"type":"build","mode":"new","name":"orphan"}'
 start alpha '{"type":"build","mode":"new","name":"quiet"}'
 start alpha '{"type":"build","mode":"new","name":"ready"}'
-lanes='"idle","working","waiting","stream","merged","orphan","quiet","ready"'
+# A long name (PANEL-21): the Lanes table's ⋯ column was pushed out of the rail by one.
+long=a-rather-long-lane-name-for-layout
+start alpha '{"type":"build","mode":"new","name":"'"$long"'"}'
+lanes='"idle","working","waiting","stream","merged","orphan","quiet","ready","'"$long"'"'
 if $supports_budget; then start alpha '{"type":"fix","mode":"new","name":"budget"}'; lanes="$lanes,\"budget\""; fi
 lifecycle=false
 if [ "${UX_LIFECYCLE:-}" = 1 ]; then

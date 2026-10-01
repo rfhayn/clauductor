@@ -10,7 +10,7 @@
 //                close, remove-leftover, forget-orphan, restore-all (kills the server)
 //   attachments  drop-png, drop-jpeg, paste-image, drop-non-image, selection-persists,
 //                cmd-click-url, osc8-asks
-//   projects     switch-keeps-selection, gamma-cannot-load
+//   projects     switch-keeps-selection, gamma-cannot-load, tab-overflow-keys
 //   metrics      (UX-2, PANEL-19/20) metrics-tabs-ranges-scope, metrics-bad-payload,
 //                flow-card-opens-metrics, economy-hysteresis, readiness-verdict,
 //                ports-header-env, worktreeinclude-setup-teardown, remote-control-menu,
@@ -754,9 +754,65 @@ flow("lifecycle", "auto-close-on-merge", async () => {
     return m || null;
   }, 20000);
   if (!/uncommitted|untracked|chang/i.test(ask)) throw new Error("the ask does not say why: " + ask);
+  // PANEL-21: the label asks, and the reason is its own sentence ("close lane?: its" was).
+  if (/[?!.]:/.test(ask)) throw new Error("the ask doubles its punctuation: " + ask);
   if (!fs.existsSync(path.join(WT, "shipdirty"))) throw new Error("the dirty worktree was removed");
   if (!branchExists("ship/shipdirty")) throw new Error("the dirty lane's branch was deleted");
   if (!/^shipclean \d+$/m.test(readFile(path.join(FAKE, "teardown.log")))) throw new Error("the auto-close's teardown ran without CLAUDUCTOR_PORT: teardown.log reads " + JSON.stringify(readFile(path.join(FAKE, "teardown.log"))));
+});
+
+// PANEL-21: at 1280 px and 175% the tabs overflow; "N more" says how many, its menu
+// (from the keyboard) reaches each, and the tablist's own keys still move between lanes
+// with the selected tab kept in view.
+flow("projects", "tab-overflow-keys", async () => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => window.PanelScale.set(175));
+  await page.waitForTimeout(900);
+  const strip = () => page.evaluate(() => {
+    const s = document.getElementById("tabs"), r = s.getBoundingClientRect();
+    const tabs = Array.from(s.querySelectorAll('[role="tab"]'));
+    const whole = (t) => { const b = t.getBoundingClientRect(); return b.left >= r.left - 1 && b.right <= r.right + 1; };
+    const sel = s.querySelector('[aria-selected="true"]');
+    const mb = document.getElementById("moretabs");
+    return { hidden: tabs.filter((t) => !whole(t)).length, more: mb.hidden ? "" : mb.textContent, sel: sel && sel.dataset.k, selWhole: !!sel && whole(sel),
+      focus: document.activeElement && (document.activeElement.dataset.k || document.activeElement.id), first: tabs[0].dataset.k, last: tabs[tabs.length - 1].dataset.k };
+  });
+  try {
+    let s = await strip();
+    if (!s.hidden) throw new Error("the tabs do not overflow at 1280 px and 175%, so this flow tests nothing");
+    if (s.more !== s.hidden + " more") throw new Error("the overflow control says \"" + s.more + "\" with " + s.hidden + " tab(s) out of sight");
+    // Down on the button opens the menu on its first item; End, Enter picks the last.
+    await page.focus("#moretabs");
+    await page.keyboard.press("ArrowDown");
+    const items = await page.$$eval('#tabmenu [role="menuitem"]', (es) => es.map((e) => e.dataset.lane));
+    if (items.length !== s.hidden) throw new Error("the menu lists " + items.length + " lane(s) for " + s.hidden + " out of sight");
+    if (!(await page.evaluate(() => document.activeElement.closest("#tabmenu")))) throw new Error("Down did not move focus into the menu");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(400);
+    s = await strip();
+    if (!(await page.$eval("#tabmenu", (e) => e.hidden))) throw new Error("the menu stayed open after a pick");
+    if (s.sel !== "tab:" + items[items.length - 1]) throw new Error("picking " + items[items.length - 1] + " selected " + s.sel);
+    if (!s.selWhole || s.focus !== s.sel) throw new Error("the picked tab is not whole and focused: " + JSON.stringify(s));
+    // The tablist's keys: Home, then Left wraps to the last; each kept in view.
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(300);
+    s = await strip();
+    if (s.sel !== s.first || !s.selWhole || s.focus !== s.first) throw new Error("Home: " + JSON.stringify(s));
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(300);
+    s = await strip();
+    if (s.sel !== s.last || !s.selWhole || s.focus !== s.last) throw new Error("Left from the first: " + JSON.stringify(s));
+    // Escape closes the menu back to its button.
+    await page.focus("#moretabs");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    if (!(await page.$eval("#tabmenu", (e) => e.hidden)) || (await page.evaluate(() => document.activeElement.id)) !== "moretabs") throw new Error("Escape did not close the menu back to its button");
+  } finally {
+    await page.evaluate(() => window.PanelScale.reset());
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(600);
+  }
 });
 
 (async () => {

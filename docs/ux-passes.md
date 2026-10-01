@@ -124,6 +124,21 @@ every call to `$HOME/fake/gh.log`.
 - **console**: page errors and console errors.
 - **focus-ring**: checked once per viewport and per theme × mode. Tabbing through the first stops,
   each focused control must draw an outline or a box-shadow.
+- **vscroll** / **footer-offscreen** / **footer-covered** (PANEL-21): the page scrolls down, or
+  the footer is not on screen whole, or something paints over it. The page is the window at
+  every size.
+- **truncated-untitled** (PANEL-21): a footer counter is truncated and its tooltip does not hold
+  its text.
+- **rowact-cut** / **control-cut** (PANEL-21): a lane's ⋯ in the rail, or a button in the bars
+  over the lanes (Needs you's Open terminal), is cut sideways. **railActs** also scrolls
+  the rail to every ⋯ in the Lanes table and the Worktrees tree, at the rail's narrowest (160 px),
+  its default and its widest, in every viewport, and checks each is whole and clickable
+  (`rowact-cut`, `rowact-covered`; a shot `rail-<width>.png` of each).
+- **tab-overflow** (PANEL-21): tabs are out of sight and no "N more" says how many, or it says a
+  different number.
+- **confirm-hidden** (PANEL-21): an inline confirmation under the terminal (Stop, Close lane,
+  Forget, Resume, Remote control, a link) is not whole on screen, or a button of it is covered.
+- **copy** (PANEL-21): text composed from parts doubles its punctuation ("close lane?: its").
 
 Flows run the same rules on the state they leave behind: more lanes, result bars and restore
 bars. Each finding records its selector, viewport, theme, mode, type, size and screenshot. The
@@ -211,6 +226,36 @@ first, types `/remote-control` + Enter only after Confirm into an idle lane; no 
 busy one), the approval, budget and stale rows and the Budget bars, auto-resume (`continue` +
 Enter once, 30 s after the reset, not before) and auto-close (the clean merged lane closed with
 its worktree, branch and record; the dirty one asks and keeps both).
+
+## Fixed in PANEL-21 (layout and copy)
+
+PANEL-18 findings 1, 2, 5 and 6 and PANEL-19/20 findings 2 to 5 are fixed, each with a rule
+above or a flow, and two Go tests (`TestLayoutFitsTheWindow`, `TestCopyNamesButtonsAsTheyRead`):
+
+- **The page is the window.** `body` no longer scrolls at any width; Needs you and the banners
+  sit in `#topbars`, which gives way to the lanes and scrolls; the shell keeps
+  `min(16rem, 40vh)`. The terminal is laid over its frame (`position: absolute`), so the frame
+  shrinks and refits it (sized by its content, it never shrank below its last fit). Below 1180 px
+  the side panel takes at most 40% under the terminal and scrolls; below 900 px the rail does
+  the same over the workspace. What still does not fit scrolls in `#wsbody`, and an inline
+  confirmation scrolls itself into view once per change of its words.
+- **A Needs-you or alert row's ask yields** its width and truncates, its text in its tooltip
+  (at 1280 px and 175% a long ask pushed Open terminal out of the window).
+- **The footer wraps**, and a counter too long for a line truncates with an ellipsis; each
+  counter's tooltip, and the footer's, hold the full text.
+- **"N more"** after the tab strip counts the tabs out of sight and opens a menu of them (a
+  menu button: Down, Up, Home, End, Enter, Escape). The selected tab is scrolled into the strip
+  when the selection changes, a tab changes width, or the strip resizes (flow
+  `tab-overflow-keys`).
+- **The Lanes table's ⋯ column sticks** to the rail's edge, and the Lane column yields and
+  truncates (a cell's `max-width` is no limit in an auto table; `max-width: 0` with `width: 100%`
+  is). The rail's panes never run wider than the rail. `up.sh` adds the lane
+  `a-rather-long-lane-name-for-layout`.
+- **Copy**: the orphan message names Resume, Forget and Close lane as the buttons read (and the
+  exited message Restart and Stop lane); a Needs-you label that asks ("PR merged: close lane?")
+  ends its sentence, and the reason is the next one.
+- A terminal shown again after its frame changed while hidden is refitted once it settles (it
+  kept its old grid: `xterm-fit` at 2560 px after the rail widths changed).
 
 Harness bugs fixed in UX-2: `up.sh` read `curl | grep -q` under `pipefail`, so the build's
 budgets always read as missing (grep's early exit is curl's SIGPIPE); a standalone `up.sh`

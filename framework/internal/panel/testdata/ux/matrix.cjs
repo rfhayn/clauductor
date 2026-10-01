@@ -401,6 +401,29 @@ async function featuresArea(browser) {
   }
 }
 
+// railActs (PANEL-21): every lane's ⋯ in the rail, whole and clickable, at the rail's
+// narrowest (160 px), its default and its widest; a shot of each width.
+async function railActs(page, area, c) {
+  const back = await withRail(page);
+  try {
+    for (const w of [160, 0, "max"]) {
+      await page.evaluate((w) => { if (w === 0) { rail.w = 0; saveRail(); applyRail(); } else setRailW(w === "max" ? railMax() : w); }, w);
+      await settle(page, 400);
+      const name = "rail-" + (w === 0 ? "default" : w);
+      const dir = path.join(out, "shots", area);
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, name + ".png");
+      await page.screenshot({ path: file });
+      shots++;
+      for (const f of await L.rowActAudit(page)) F.add(Object.assign({ area, name, screenshot: path.relative(out, file) }, c, f));
+      F.pass(area + "/" + name);
+    }
+  } finally {
+    await page.evaluate(() => { rail.w = 0; saveRail(); applyRail(); }).catch(() => {});
+    await back();
+  }
+}
+
 async function views(browser) {
   for (const vp of VIEWPORTS) {
     const area = "viewport-" + vpName(vp);
@@ -410,6 +433,7 @@ async function views(browser) {
       await settle(page, 1200);
       const c = Object.assign({ viewport: vpName(vp) }, await appearance(page));
       for (const f of await L.focusRingAudit(page)) F.add(Object.assign({ area, name: "focus", screenshot: "" }, c, f));
+      await railActs(page, area, c);
       await page.click('[data-k="tab:t:' + alphaLanes[0] + '"]').catch(() => {});
       for (const name of Object.keys(VIEWS)) await runView(page, errors, area, name, c);
     } finally { await ctx.close(); }

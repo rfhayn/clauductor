@@ -17,9 +17,12 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { font-size: calc(var(--fs-root) * var(--ui-scale)); }
+/* The page is the window at every size (PANEL-21): the bars keep their height, the shell
+   takes what is left, and whatever does not fit scrolls inside its own pane, never the page,
+   so the footer is always on screen. */
 html, body { height: 100%; }
 body { margin: 0; background: var(--ground); color: var(--text-1); font: 400 .8125rem/1.35 var(--font-ui); font-size-adjust: ex-height .52;
-  display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
+  display: flex; flex-direction: column; overflow: hidden; }
 button, input, select { font: inherit; font-size-adjust: ex-height .52; }
 h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
@@ -151,12 +154,17 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 /* ---- Needs you: rows under the status bar, only when something needs you ---------------- */
 .needs { flex: none; max-height: 30vh; overflow: auto; border-bottom: 1px solid var(--rule); background: var(--pane); }
 .needs .tbl td { vertical-align: middle; }
-.needs .ask { max-width: 40rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.needs .ask { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .needs h2 { font-size: .8125rem; padding: .3rem var(--cell-x) 0; color: var(--text-2); }
 
 /* ---- Banners --------------------------------------------------------------------------- */
 /* Each carries its own label (No hooks, Cannot read, Config changed…), never a generic one. */
 .banners { display: grid; min-width: 0; flex: none; }
+/* Needs you and the banners give way to the lanes together, and scroll, when the window is
+   too short for all of them and a usable shell (PANEL-21: with every bar shown at 175% the
+   page ran past the window and the footer went off its foot). */
+.topbars { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.topbars > * { flex: none; }
 .banners:empty { display: none; }
 .banner, .restore, .warnbar { padding: .3rem .75rem; border-bottom: 1px solid var(--rule); background: var(--crit-bg); color: var(--crit-ink); overflow-wrap: anywhere; }
 .banner b, .restore > b { font-weight: 700; margin-right: .5rem; }
@@ -212,7 +220,11 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .rail .tbl { font-size: .75rem; }
 .rail .tbl th, .rail .tbl td { padding: 0 .3rem; }
 .rail .tbl .num { font-size: calc(.75rem + var(--data-bump)); }
-.rail .tbl .lane-nm { max-width: 6.5rem; }
+/* The name takes what the other columns leave and truncates (a cell's max-width is not a
+   limit in an auto table; max-width 0 with width 100% is), and the ⋯ column sticks to the
+   rail's edge when the columns still run wider than the rail (PANEL-21). */
+.rail .tbl .lane-nm { width: 100%; max-width: 0; min-width: 3rem; }
+.rail .tbl :where(td.acts, th.acts) { position: sticky; right: 0; z-index: 1; background: var(--rail); }
 .tblwrap { overflow-x: auto; min-width: 0; }
 .colpick { position: relative; }
 /* Fixed to the window, placed under its button by colPicker: inside the rail (which
@@ -267,9 +279,9 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 .fin { color: var(--text-3); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- The shell: rail, splitter, workspace ------------------------------------------------------ */
-/* The shell fills the window; at a large text size it keeps enough height for a usable
-   terminal and the page scrolls down to it rather than squeezing it. */
-.shell { flex: 1 1 0; min-height: 22rem; display: grid; grid-template-columns: min(var(--rail-w), 38vw) 5px minmax(0, 1fr); }
+/* The shell fills what the bars leave; at a large text size the lane's body scrolls inside
+   the workspace rather than the page (PANEL-21: the page scrolled, and the footer went). */
+.shell { flex: 1 1 0; min-height: min(16rem, 40vh); display: grid; grid-template-columns: min(var(--rail-w), 38vw) 5px minmax(0, 1fr); }
 .shell.norail { grid-template-columns: minmax(0, 1fr); }
 .shell.norail .rail, .shell.norail > .splitter { display: none; }
 .rail { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; background: var(--rail); display: grid; align-content: start; gap: calc(var(--tui) * .75rem);
@@ -281,13 +293,16 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 /* "New lane here" sits on its own line under the worktree, whole, never cut by the
    tree's connectors or the rail's edge. */
 .tree li > .btn { display: inline-block; margin: .2rem 0 .25rem .25rem; position: relative; z-index: 1; }
-.rail > .pane { background: var(--rail); border-bottom: 1px solid var(--rule); }
+.rail > .pane { background: var(--rail); border-bottom: 1px solid var(--rule); grid-template-columns: minmax(0, 1fr); }
+/* A pane never runs wider than the rail (its heading's buttons wrap under it): wider, the
+   Lanes table's sticky ⋯ stuck to an edge past the rail's and was cut (PANEL-21). */
+.rail .pane-h { flex-wrap: wrap; row-gap: .25rem; }
 .rail .pane-h h2 { background: var(--rail); }
 .splitter { cursor: col-resize; background: var(--rule); background-clip: content-box; padding: 0 2px; touch-action: none; }
 .splitter:hover, .splitter.drag, .splitter:focus-visible { background: var(--act); }
 body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; -webkit-user-select: none; }
 .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--ground); }
-.wsbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wsbody { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 .wsgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 5px min(var(--side-w), 32vw); }
 @media (min-width: 1800px) { .wsgrid { grid-template-columns: minmax(0, 1fr) 5px min(calc(var(--side-w) * 1.25), 32vw); } }
 /* Its edge dragged (PANEL-12): the width you chose, up to half the window (panel.js). */
@@ -307,6 +322,15 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .tab .ty { color: var(--text-3); font-weight: 400; }
 .tab .sq { margin-right: 0; }
 .tab.addtab { color: var(--act); font-size: .9375rem; padding: .35rem .7rem; border-right: 0; }
+/* More tabs than the strip shows (PANEL-21): "3 more" after the strip opens a menu of the
+   lanes whose tabs are out of sight, whole or in part. */
+.tab.moretabs { color: var(--act); border-left: 1px solid var(--rule); border-right: 0; }
+.tab.moretabs:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.menu.tabmenu { position: fixed; top: auto; right: auto; width: auto; min-width: 12rem; max-width: min(24rem, calc(100vw - 1rem)); grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.tabmenu .mi { grid-template-columns: auto minmax(0, 1fr) auto; white-space: nowrap; }
+.tabmenu .mi > span { overflow: hidden; text-overflow: ellipsis; }
+.tabmenu .mi .ty { color: var(--text-3); }
+.tabmenu .mi[aria-current="true"] { font-weight: 700; }
 
 /* ---- The lane's header ---------------------------------------------------------------------- */
 .lanehead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem 1.25rem; padding: .4rem .5rem .3rem; min-width: 0; flex: none; border-bottom: 1px solid var(--rule); }
@@ -315,11 +339,16 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .lanehead .kv1 > .k { color: var(--text-2); font-size: .75rem; }
 .lanehead .where { color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 22rem; }
 /* panel.js fits xterm to the host; the host takes what the column leaves. */
-.termhost { flex: 1 1 auto; min-height: 12rem; background: var(--term-bg); border: 1px solid var(--rule); padding: .3rem; position: relative; min-width: 0; }
+/* It clips: in the moment between its frame shrinking and the settled refit, the old grid
+   ran over the buttons under it (PANEL-21). */
+.termhost { flex: 1 1 auto; min-height: min(12rem, 25vh); background: var(--term-bg); border: 1px solid var(--rule); padding: .3rem; position: relative; min-width: 0; overflow: hidden; }
 .termhost:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
 .termhint { font-size: .75rem; color: var(--text-3); min-height: 1.35em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
 .termhint.on { color: var(--text-1); }
-.termhost .term { width: 100%; height: 100%; }
+/* The terminal is laid over its frame, never in its flow: sized by its content, the frame
+   could not shrink below the rows of its last fit, so a smaller window never refitted it
+   and the lane's body overflowed onto the side panel and the footer (PANEL-21). */
+.termhost .term { position: absolute; inset: .3rem; }
 .termhost .term[hidden] { display: none; }
 /* An image dragged over a lane's terminal: dropping it types its path (PANEL-15b). */
 .termhost .term.drop { outline: 2px dashed var(--act); outline-offset: -2px; }
@@ -347,7 +376,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .pinrows details[open] > summary { font-weight: 700; }
 .pinbody { display: grid; gap: .3rem; padding: .15rem 0 .45rem 1rem; color: var(--text-2); line-height: 1.35; overflow-wrap: anywhere; }
 .pinrows code { font-family: var(--font-data); font-size: .95em; }
-.side { min-width: 0; min-height: 0; overflow-y: auto; border-left: 0; border-top: 0; align-content: start; }
+.side { min-width: 0; min-height: 0; overflow-y: auto; border-left: 0; border-top: 0; align-content: start; grid-template-columns: minmax(0, 1fr); }
+/* Its tables are as tight as the rail's, and their headings wrap, so the figures fit the
+   panel's width rather than scroll it sideways (PANEL-21). */
+.side .tbl th, .side .tbl td { padding: 0 .3rem; }
+.side .tbl thead th { white-space: normal; line-height: 1.15; }
 /* The tabs wrap rather than scroll: scrolled, the last one (Activity) sat out of sight at 16rem. */
 .sidetabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--rule); margin: calc(var(--pane-p) * -1) calc(var(--pane-p) * -1) 0; }
 .sidetabs [role=tab] { flex: none; white-space: nowrap; font-size: .75rem; padding: .35rem .45rem; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-2); cursor: pointer; }
@@ -498,8 +531,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 
 /* ---- Footer and key hints -------------------------------------------------------------------- */
 .obs { border-top: 1px solid var(--rule); background: var(--pane); padding: .2rem .75rem; font-size: .75rem; color: var(--text-2);
-  display: flex; flex-wrap: nowrap; gap: .2rem 1rem; align-items: center; overflow: hidden; white-space: nowrap; flex: none; }
-.obs.open { flex-wrap: wrap; white-space: normal; max-height: 40vh; overflow-y: auto; }
+  display: flex; flex-wrap: wrap; gap: .1rem 1rem; align-items: center; overflow: hidden; white-space: nowrap; flex: none; max-height: 40vh; }
+/* The counters wrap onto another line rather than run out of the footer; one too long for
+   a whole line truncates, and says it all in its tooltip (PANEL-21). */
+.obs > * { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.obs.open { white-space: normal; overflow-y: auto; }
+.obs.open > * { overflow: visible; }
 .obs .wrap { overflow-wrap: anywhere; }
 .obs b { color: var(--text-1); font-weight: 700; font-family: var(--font-data); font-feature-settings: var(--num); }
 .keyhints { display: var(--keyhints); flex-wrap: wrap; gap: .2rem 1.25rem; padding: .15rem .75rem; background: var(--bar); color: var(--bar-text-2); font-size: .75rem; flex: none; }
@@ -541,29 +578,26 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .mi.theme { grid-template-columns: auto minmax(0, 1fr) auto; }
 
 /* ---- Narrower windows ------------------------------------------------------------------------- */
-/* The side panel moves under the terminal first; below 900 px the page scrolls as a
-   whole, one column, and the terminal takes most of the window. */
+/* The side panel moves under the terminal first, and takes at most two fifths of the
+   lane's height, scrolling inside; the terminal takes the rest and refits. Below 900 px
+   the rail, when shown, sits over the workspace the same way. The page itself never
+   scrolls (PANEL-21: at 62vh the terminal ran over the footer and hid it). */
 @media (max-width: 1180px) {
-  .workspace { overflow-y: auto; }
-  .wsbody { flex: none; }
-  .wsgrid, .wsgrid.noside, .wsgrid.sized { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .wsgrid, .wsgrid.noside, .wsgrid.sized { display: flex; flex-direction: column; }
   .sidesplit { display: none; }
-  .wsgrid.noside .side { display: grid; }
-  .termhost { flex: none; height: 62vh; }
-  .side { overflow: visible; border-left: 0; border-top: 1px solid var(--rule); }
+  /* It keeps its own minimum (the frame's, its hint and its bar); the side panel yields. */
+  .termcol { flex: 1 1 0; min-height: auto; }
+  .side { flex: 0 1 auto; max-height: 40%; min-height: 0; overflow-y: auto; border-left: 0; border-top: 1px solid var(--rule); }
 }
 @media (max-width: 900px) {
-  html, body { height: auto; }
-  body { overflow: visible; }
   .status { padding: .45rem .75rem; }
   .fields { gap: .3rem 1rem; }
-  .needs { max-height: none; }
   .needs .ask { white-space: normal; }
-  .shell, .shell.norail { display: block; }
+  .shell, .shell.norail { display: flex; flex-direction: column; }
+  .shell > .rail { flex: 0 1 auto; max-height: 45%; }
   .shell.norail .rail { display: none; }
   .splitter { display: none; }
-  .workspace { overflow: visible; }
-  .termhost { height: 70vh; min-height: 16rem; }
+  .workspace { flex: 1 1 0; }
   .drawer { width: 100vw; }
   .tbl .lane-nm { max-width: 7rem; }
 }
@@ -571,7 +605,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   /* A Needs-you row becomes two lines: who and how long, then the ask. */
   .needs .tbl tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; border-bottom: 1px solid var(--rule); }
   .needs .tbl td { height: auto; padding: .15rem var(--cell-x); border: 0; }
-  .needs .tbl td.ask { grid-column: 1 / -1; order: 5; white-space: normal; padding-bottom: .3rem; }
+  .needs .tbl td.ask { grid-column: 1 / -1; order: 5; white-space: normal; padding-bottom: .3rem; max-width: none; }
   #f-proc, #f-intr { display: none; }
   /* A metric's row: its name and value, then its series across, then its source. */
   .mrow { grid-template-columns: minmax(0, 1fr) auto; }
