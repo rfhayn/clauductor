@@ -122,13 +122,14 @@ scenario_counts() {
 #
 # The operations run in OpenSpec's order: RENAMED (`- FROM: \`### Requirement: Old\`` then
 # `- TO: \`### Requirement: New\``), REMOVED, MODIFIED, ADDED. A MODIFIED requirement replaces the
-# living one whole UNLESS the delta carries FEWER scenarios than the living requirement: a delta may
-# restate only what it changed, and a literal replace then deletes every scenario it left out while
-# `openspec validate --strict` passes the shrunken spec (the only guard there is for specs without
-# scenario IDs). So a shorter delta is MERGED: the delta's body, then the living scenarios in their
-# order (the delta's version where it restates one, matched by scenario ID, else by header), then
-# the delta's new ones. Unless design.md names every scenario the delta drops (its title, verbatim):
-# a removal the owner approved is a REPLACE. The body follows the same count rule: in a merge, a
+# living one whole only when the delta restates every living scenario (by ID when both carry one,
+# else by title), or design.md names each one it leaves out (its ID, or its title in quotes,
+# backticks or emphasis). Otherwise a literal replace would delete what the delta left out while
+# `openspec validate --strict` passes the shrunken spec. A delta with FEWER scenarios than the living
+# requirement restated only what it changed, so it is MERGED: the delta's body, then the living
+# scenarios in their order (the delta's version where it restates one), then the delta's new ones.
+# One with as many or more that still leaves a living scenario out is a reword or a drop, which only
+# its author can tell apart: a STOP. The body follows the same count rule: in a merge, a
 # delta body with fewer paragraphs than the living one is partial too, and which living paragraph
 # it keeps is a judgement, so that is a STOP: restate the whole body in the delta (the record).
 spec_merge() {
@@ -139,15 +140,26 @@ spec_merge() {
     function rnm(s) { sub(/.*### Requirement:[ \t]*/, "", s); sub(/`.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
     function trim(s) { sub(/^\n+/, "", s); sub(/[ \t\n]+$/, "", s); return s }
     function stitle(h) { sub(/^#### Scenario:[ \t]*/, "", h); sub(/[ \t]+$/, "", h); if (match(h, "^\\[" ere "\\][ \t]*")) h = substr(h, RLENGTH + 1); return h }
-    function skey(h) { sub(/^#### Scenario:[ \t]*/, "", h); sub(/[ \t]+$/, "", h); if (match(h, "^\\[" ere "\\]")) return substr(h, 2, RLENGTH - 2); return h }
+    function sid(h) { sub(/^#### Scenario:[ \t]*/, "", h); if (match(h, "^\\[" ere "\\]")) return substr(h, 2, RLENGTH - 2); return "" }
+    # same(D, m, L, k): delta scenario m restates living scenario k. By ID when both carry one; else
+    # by title, since under SCENARIO_IDS=new-only a living scenario may have no ID that its restated
+    # delta copy (which must) carries.
+    function same(D, m, L, k) { if (D[m, "id"] != "" && L[k, "id"] != "") return D[m, "id"] == L[k, "id"]; return D[m, "title"] == L[k, "title"] }
+    # named(K): design.md names living scenario k as removed: its ID, or its title in quotes,
+    # backticks or emphasis (a bare substring would match unrelated prose).
+    function named(L, k,    t) {
+      t = L[k, "title"]
+      if (L[k, "id"] != "" && index(design, L[k, "id"])) return 1
+      return index(design, "\"" t "\"") || index(design, "`" t "`") || index(design, "*" t "*") || index(design, "“" t "”")
+    }
     # An empty name prints as "-": the reader splits on tabs, and tabs are IFS whitespace, which collapses.
     function emit(op, name, detail) { if (mode == "plan") printf "%s\t%s\t%s\n", op, (name == "" ? "-" : name), detail }
-    # parse(BLOCK, A): A["head"] (header and body), A["n"] scenarios, A[i,"key"], A[i,"hdr"], A[i,"text"].
+    # parse(BLOCK, A): A["head"] (header and body), A["n"] scenarios, A[i,"id"], A[i,"title"], A[i,"hdr"], A[i,"text"].
     function parse(blk, A,    n, L, i, k) {
       for (i in A) delete A[i]
       n = split(blk, L, "\n"); A["head"] = ""; k = 0
       for (i = 1; i <= n; i++) {
-        if (L[i] ~ /^#### Scenario:/) { k++; A[k, "hdr"] = L[i]; A[k, "key"] = skey(L[i]); A[k, "text"] = L[i]; continue }
+        if (L[i] ~ /^#### Scenario:/) { k++; A[k, "hdr"] = L[i]; A[k, "id"] = sid(L[i]); A[k, "title"] = stitle(L[i]); A[k, "text"] = L[i]; continue }
         if (k == 0) A["head"] = A["head"] (i > 1 ? "\n" : "") L[i]; else A[k, "text"] = A[k, "text"] "\n" L[i]
       }
       A["n"] = k
@@ -205,7 +217,8 @@ spec_merge() {
         if (rt[i] == "") { emit("STOP", rf[i], "a RENAMED FROM line with no TO line"); continue }
         if (!(rf[i] in lblk)) { emit("STOP", rf[i], "RENAMED, but the living spec has no such requirement"); continue }
         if (rt[i] in lblk) { emit("STOP", rt[i], "RENAMED to a name the living spec already has"); continue }
-        b = lblk[rf[i]]; sub(/^[^\n]*/, "### Requirement: " rt[i], b); lblk[rt[i]] = b; delete lblk[rf[i]]
+        # Concatenation, not sub(): an & or \ in the new name is literal text, not a back-reference.
+        b = lblk[rf[i]]; p = index(b, "\n"); b = "### Requirement: " rt[i] (p ? substr(b, p) : ""); lblk[rt[i]] = b; delete lblk[rf[i]]
         for (j = 1; j <= ln; j++) if (lord[j] == rf[i]) lord[j] = rt[i]
         emit("RENAME", rt[i], "from \"" rf[i] "\"")
       }
@@ -220,20 +233,22 @@ spec_merge() {
         parse(d, D); parse(lblk[nme], L)
         dropped = ""; nd = 0; unnamed = 0
         for (k = 1; k <= L["n"]; k++) {
-          hit = 0; for (m = 1; m <= D["n"]; m++) if (D[m, "key"] == L[k, "key"]) { hit = 1; break }
-          if (!hit) { nd++; t = stitle(L[k, "hdr"]); dropped = dropped (dropped == "" ? "" : "; ") t; if (index(design, t) == 0) unnamed++ }
+          hit = 0; for (m = 1; m <= D["n"]; m++) if (same(D, m, L, k)) { hit = 1; break }
+          if (!hit) { nd++; dropped = dropped (dropped == "" ? "" : "; ") L[k, "title"]; if (!named(L, k)) unnamed++ }
         }
-        if (D["n"] >= L["n"]) {
+        if (nd == 0) {
           lblk[nme] = d
-          emit("REPLACE", nme, D["n"] " scenario(s); the living requirement has " L["n"])
-          if (nd) emit("NOTE", nme, "the delta does not restate " nd " living scenario header(s), which the replace drops: " dropped)
+          emit("REPLACE", nme, D["n"] " scenario(s), restating all " L["n"] " of the living requirement")
           continue
         }
         if (unnamed == 0) {
           lblk[nme] = d
-          emit("REPLACE", nme, D["n"] " of " L["n"] " scenario(s); design.md names each one dropped: " dropped)
+          emit("REPLACE", nme, D["n"] " scenario(s); design.md names each living one dropped: " dropped)
           continue
         }
+        # Not restated and not named: with FEWER scenarios the delta is partial (merge below); with as
+        # many or more it is either a reword or a drop, and only the author knows which.
+        if (D["n"] >= L["n"]) { emit("STOP", nme, "the delta does not restate " nd " living scenario(s), and design.md does not name them as removed: " dropped ". Restate each (word for word, or by its ID), or name it in design.md (its ID, or its title in quotes)"); continue }
         # The body by the same rule as the scenarios: a delta body with fewer paragraphs than the
         # living one is partial, and which living paragraph it means to keep is a judgement.
         np = paragraphs(L["head"], LP); ndp = paragraphs(D["head"], DP); lost = ""
@@ -241,7 +256,7 @@ spec_merge() {
         if (lost != "") { emit("STOP", nme, "a partial MODIFIED (" D["n"] " of " L["n"] " scenarios) whose body leaves out living paragraph(s): " lost ". Restate the whole body in the delta, or name each dropped scenario in design.md"); continue }
         out = trim(D["head"])
         for (k = 1; k <= L["n"]; k++) {
-          t = L[k, "text"]; for (m = 1; m <= D["n"]; m++) if (D[m, "key"] == L[k, "key"]) { t = D[m, "text"]; used[m] = 1; break }
+          t = L[k, "text"]; for (m = 1; m <= D["n"]; m++) if (same(D, m, L, k)) { t = D[m, "text"]; used[m] = 1; break }
           out = out "\n\n" trim(t)
         }
         for (m = 1; m <= D["n"]; m++) if (!(m in used)) out = out "\n\n" trim(D[m, "text"])
