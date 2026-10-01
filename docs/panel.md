@@ -1870,6 +1870,24 @@ sessions are found through `claude agents --json`.
 - **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
   session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
   by its `cwd` at first sight, and a later `cd` does not move it.
+  - **A binding made too early is corrected** (PANEL-21). A lane's claude can report (a hook, a
+    status post, `claude agents`) before the panel has read the lane's new worktree, or before its
+    tmux poll has brought the lane's registry record in; the enclosing worktree (the project root)
+    then matches. So once the record's own worktree is listed, its session moves there. A session
+    bound by `cwd` moves only to a deeper worktree that holds the `cwd` it had **at first sight**,
+    and only within 2 minutes of it: a `cwd` seen later is never consulted, so a `cd` still does not
+    move a session. A lane action re-reads the worktree list at once, not through the 2 s throttle
+    of the early read a foreign `cwd` triggers.
+  - **A lane that ended stays ended** (PANEL-21). When a lane that was running is gone from the
+    next tmux poll (**Stop lane**, **Close lane**, **Forget**, its tmux session killed, its pane
+    dead), its session ends there and then, as if its `SessionEnd` had arrived, and whatever still
+    comes from that session id (late hooks, status posts, a `claude agents` entry of a claude still
+    exiting) is set aside and counted in `/api/state` as `observe.droppedEnded`. It is never bound
+    again by its `cwd`, so a closed lane whose worktree is gone does not come back on the root.
+    The mark lapses after 30 minutes of quiet; a lane live again on the same session id
+    (**Restart**, **Resume**) takes its session back at once. A session the panel did not start
+    ends when `claude agents` stops listing it, and its hooks and posts in the next 30 s are set
+    aside; listed again, it is back.
 - **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset". Every
   status post updates it, whatever project it comes from; a window that does not decode is
   skipped without costing the post anything else (see *The account and its quota*).
