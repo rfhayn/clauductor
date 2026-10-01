@@ -162,27 +162,25 @@ const GATE = {
   },
   required: ['passed', 'evidence'],
 }
-const REVIEW = {
-  type: 'object',
-  properties: {
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
-          file: { type: 'string' },
-          line: { type: 'number' },
-          summary: { type: 'string' },
-          failure: { type: 'string', description: 'concrete input/state -> wrong result' },
-          group: { type: 'number', description: "the task group whose code holds the defect's SOURCE (not where the symptom shows); 0 if the source predates this change" },
-        },
-        required: ['severity', 'file', 'summary', 'failure', 'group'],
-      },
-    },
-  },
-  required: ['findings'],
-}
+// THE REVIEW, as the reviewer receives it: its prompt, its findings schema, the agent type and the
+// spawn itself. With the reviewer agent's file and its model, this is what the reviewer IS.
+// pr-merge-guard rule 13 hashes the lines between these markers, and between the review-call
+// markers in the review loop (model-roles.json .evals.triggers.reviewer). An edit between them
+// needs a new eval receipt; an edit anywhere else in this file does not. So everything that shapes
+// the review stays inside, and checks/model-roles.sh fails if a reviewer spawn or the REVIEW schema
+// appears outside. .claude/evals/run.sh READS REVIEW_PROMPT and REVIEW from here (one line each,
+// JSON), so a receipt's hash of this section is a hash of what its eval actually sent.
+// <review-prompt>
+const REVIEW_PROMPT = "Review task group {n} (\"{title}\") of change \"{change}\" ({changes}/{change}/). The group's work is the current UNCOMMITTED working-tree diff."
+const REVIEW_DISPUTED = "\n\nThe builder DISPUTES these earlier findings. For each, re-check the code: re-raise it only if the builder's reason is wrong, and say why in the finding.\n"
+const REVIEW = {"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["critical","high","medium","low"]},"file":{"type":"string"},"line":{"type":"number"},"summary":{"type":"string"},"failure":{"type":"string","description":"concrete input/state -> wrong result"},"group":{"type":"number","description":"the task group whose code holds the defect's SOURCE (not where the symptom shows); 0 if the source predates this change"}},"required":["severity","file","summary","failure","group"]}}},"required":["findings"]}
+const reviewPrompt = (g, change, disputed) =>
+  REVIEW_PROMPT.replace(/\{(n|title|changes|change)\}/g, (_, k) => ({ n: String(g.n), title: g.title, changes: CHANGES, change })[k])
+  + (disputed.length ? REVIEW_DISPUTED + disputed.map((d) => `- ${d}`).join('\n') : '')
+// agentType last, so nothing a shared helper returns can turn the review into another agent's.
+const reviewSpawn = (g, change, disputed, round) =>
+  agent(PIN + reviewPrompt(g, change, disputed), { ...pick('reviewer'), label: `review:${g.n}#${round}`, phase: 'Review', schema: REVIEW, agentType: 'reviewer' })
+// </review-prompt>
 const COMMIT = {
   type: 'object',
   properties: {
@@ -259,7 +257,7 @@ const pick = (role) => {
 }
 const CHEAP = pick('mechanic')
 const BUILDER = { agentType: 'builder', ...pick('builder') }
-const REVIEWER = { agentType: 'reviewer', ...pick('reviewer') }
+const REVIEWER = pick('reviewer') // for the log line only: the review itself is spawned by reviewSpawn
 Object.assign(report, { risk: RISK, economy: ECONOMY_ON, budgetUsd: pre.budgetUsd, costUsd: pre.costUsd })
 log(`Risk ${RISK}: builder ${BUILDER.model}/${BUILDER.effort}, reviewer ${REVIEWER.model}/${REVIEWER.effort}, mechanic ${CHEAP.model}/${CHEAP.effort}${ECONOMY_ON ? ' (economy mode)' : ''}`)
 // The budget (Shape Up's appetite): a change over it stops for the owner, who raises it or cuts scope.
@@ -336,10 +334,10 @@ for (const g of todo) {
   // ── Review until peak severity converges ─────────────────────────────────────────────────────
   let prevPeak = null
   for (let round = 1; ; round++) {
-    const rev = await spawn(
-      `Review task group ${g.n} ("${g.title}") of change "${change}" (${CHANGES}/${change}/). The group's work is the current UNCOMMITTED working-tree diff.${entry.disputed.length ? `\n\nThe builder DISPUTES these earlier findings. For each, re-check the code: re-raise it only if the builder's reason is wrong, and say why in the finding.\n${entry.disputed.map((d) => `- ${d}`).join('\n')}` : ''}`,
-      { label: `review:${g.n}#${round}`, phase: 'Review', schema: REVIEW, ...REVIEWER },
-    )
+    // The one place a round's review is taken (rule 13 hashes it with the review-prompt section).
+    // <review-call>
+    const rev = await reviewSpawn(g, change, entry.disputed, round)
+    // </review-call>
     if (!rev) return stop(`group ${g.n} review`, `reviewer returned nothing; ${NO_AGENT}`)
     const peak = rev.findings.reduce((p, f) => (RANK[f.severity] > RANK[p] ? f.severity : p), 'none')
     const actionable = rev.findings.filter((f) => RANK[f.severity] >= RANK.medium)

@@ -201,6 +201,34 @@ Separate milestones, also adopted:
     - `pr-merge-guard` rule 13 enforces the receipt.
     - `checks/evals.sh` tests all of this with a fake reviewer.
     - How to choose a model is in the template playbook, *Choosing a model by evidence*.
+  - **Narrowed (OPS-16, 2026-10-01).** Rule 13 fired on every workflow edit, so any change to
+    build-change.js cost a reviewer eval. It now fires only when a PR changes what the reviewer
+    is:
+    - the reviewer's own model, effort or tier variants;
+    - `.claude/agents/reviewer.md`;
+    - the section of build-change.js between `// <review-prompt>` and `// </review-prompt>`.
+
+    Each is compared by content hash between base and head. The inputs are declared per role in
+    `model-roles.json` `.evals.triggers`, so a future suite declares its own. A receipt names the
+    hash of exactly those inputs. Missing markers fail closed.
+
+    After review, three more things changed:
+    - The whole review spawn is inside the marked sections: the prompt, the schema, the agent
+      type and the call.
+    - The eval runner reads the prompt and the schema from the section, and evaluates only an
+      agent file that is a declared trigger.
+    - Narrowing the triggers, deleting a suite or weakening `.evals.thresholds` is blocked
+      outright as the owner's decision.
+  - **Baseline measured (OPS-16, OPS-18).** The reviewer on opus/high was first run on the full
+    suite at recall 1.0, precision 0.54, fp_rate 0.4 and severity accuracy 0.9, for $2.81. That
+    fp_rate is over the 0.2 ceiling. Two of the five clean controls held real defects, and the
+    reviewer found both.
+
+    OPS-18 fixed those two controls, and the suite was re-run once. The re-run passed at recall
+    1.0, precision 0.56, fp_rate 0.2 (exactly at the ceiling) and severity accuracy 0.9, for
+    $2.63. Its receipt is recorded as `roles.reviewer.eval` in this repo's root
+    `model-roles.json` only. The template ships no receipt, because each project measures its
+    own.
 - **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
   from Slice lines and PR titles, and `release-prep` cuts semver tags.
 
