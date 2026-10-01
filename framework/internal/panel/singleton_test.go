@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
@@ -268,6 +269,57 @@ func TestHookDriftIsRepaired(t *testing.T) {
 	waitFor(t, "removed hooks reinstalled", func() bool {
 		return ourHooks(t, home)["Stop"] == 1
 	})
+}
+
+// PANEL-23: an install from before PANEL-23 carries synchronous HTTP hooks with a 1 s
+// timeout, which print "hook timed out" in every session on the machine when Claude
+// Code is slow. The keeper replaces them in place with the async command form, keeps
+// the user's own hooks, and says why it changed the file.
+func TestOldHTTPHooksAreUpgradedInPlace(t *testing.T) {
+	t.Parallel()
+	root, home := setupProject(t)
+	port, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
+		HookCheckInterval: 100 * time.Millisecond})
+	defer stop()
+	old := map[string]any{}
+	for _, ev := range signals.HookEvents {
+		old[ev] = []any{map[string]any{"hooks": []any{map[string]any{"type": "http", "url": hookURL(port), "timeout": 1}}}}
+	}
+	old["Stop"] = append(old["Stop"].([]any), map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "say done"}}})
+	b, _ := json.Marshal(map[string]any{"model": "opus", "hooks": old})
+	writeFile(t, install.SettingsPath(home), string(b))
+	waitFor(t, "the old HTTP hooks replaced by the async command form, with a warning", func() bool {
+		s, _ := os.ReadFile(install.SettingsPath(home))
+		warned := false
+		for _, w := range c.state(t).Warnings {
+			if strings.Contains(w, "older form") {
+				warned = true
+			}
+		}
+		n := ourHooks(t, home)
+		for _, ev := range signals.HookEvents {
+			if n[ev] != 1 {
+				return false
+			}
+		}
+		return warned && !strings.Contains(string(s), `"type": "http"`) &&
+			strings.Contains(string(s), `"say done"`) && strings.Contains(string(s), `"model": "opus"`)
+	})
+	// In place: Stop is still [the panel's hook, the user's], not [the user's, the panel's].
+	var got struct {
+		Hooks map[string][]struct {
+			Hooks []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	b, _ = os.ReadFile(install.SettingsPath(home))
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	groups := got.Hooks["Stop"]
+	if len(groups) != 2 || groups[0].Hooks[0]["type"] != "command" || groups[0].Hooks[0]["async"] != true ||
+		groups[1].Hooks[0]["command"] != "say done" {
+		t.Fatalf("the upgrade moved the panel's Stop hook: %s", b)
+	}
 }
 
 // A hook install that fails (settings.json unreadable as JSON) is not fatal: under
