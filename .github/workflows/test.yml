@@ -46,7 +46,11 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
-      - run: go test -race ./...
+      # -count=1: internal/plugin and internal/template run the template's checks in a
+      # subprocess, so Go's test cache (restored by setup-go) cannot see a template/ or plugin/
+      # change and would report a stale pass. -timeout: the per-package default of 10 minutes
+      # is too tight for internal/plugin on macOS runners (OPS-19).
+      - run: go test -race -count=1 -timeout 25m ./...
         env:
           OPENSPEC_REQUIRED: "1"
           NODE_REQUIRED: "1"
