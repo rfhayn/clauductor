@@ -10,7 +10,8 @@
 //                close, remove-leftover, forget-orphan, restore-all (kills the server)
 //   attachments  drop-png, drop-jpeg, paste-image, drop-non-image, selection-persists,
 //                cmd-click-url, osc8-asks
-//   projects     switch-keeps-selection, gamma-cannot-load, tab-overflow-keys
+//   projects     switch-keeps-selection, gamma-cannot-load, remove-refused-lanes,
+//                trust-from-menu, add-project-live, cli-add-live (PANEL-22), tab-overflow-keys
 //   metrics      (UX-2, PANEL-19/20) metrics-tabs-ranges-scope, metrics-bad-payload,
 //                flow-card-opens-metrics, economy-hysteresis, readiness-verdict,
 //                ports-header-env, worktreeinclude-setup-teardown, remote-control-menu,
@@ -428,6 +429,81 @@ flow("projects", "gamma-cannot-load", async () => {
   await page.click("#proj-gamma", { force: true }); // aria-disabled: Playwright would wait for it to enable
   await page.waitForTimeout(500);
   if ((await page.$eval("#pname", (e) => e.textContent)) !== "Alpha") throw new Error("picking gamma switched the page");
+});
+
+// ---- PANEL-22: add, trust and remove projects from the menu, live ----------------------
+const menuIds = () => page.evaluate(() => (P || []).map((p) => p.id + (p.trusted ? "+" : "")));
+const projActs = async (id, act) => {
+  await page.click("#projbtn");
+  await page.waitForSelector("#projmenu:not([hidden])", { timeout: 3000 });
+  await clickOrReport('[data-key="more:' + id + '"]', "⋯ of " + id);
+  await page.waitForSelector("#projacts:not([hidden])", { timeout: 3000 });
+  await clickOrReport('#projacts [data-act="' + act + '"]', act);
+};
+const regIds = () => { try { return JSON.parse(fs.readFileSync(path.join(R.home, ".clauductor", "panel", "projects.json"), "utf8")).projects.map((p) => p.id); } catch (e) { return []; } };
+flow("projects", "remove-refused-lanes", async () => {
+  await projActs("alpha", "remove");
+  await page.waitForSelector("#pd-body ul.lanes", { timeout: 8000 });
+  if (!(await page.$eval("#pd-go", (e) => e.hidden))) throw new Error("Remove from panel is offered while Alpha has lanes");
+  const lanes = await page.$$eval("#pd-body ul.lanes button", (bs) => bs.map((b) => b.textContent));
+  if (!lanes.includes("waiting") || !lanes.includes("working")) throw new Error("the refusal lists " + JSON.stringify(lanes));
+  await clickOrReport('#pd-body ul.lanes button:text-is("waiting")', "the lane link waiting");
+  await until("the waiting lane to be selected", async () => (await selectedTab()) === "tab:t:waiting");
+  if (!(await page.$eval("#pdlg", (e) => e.hidden))) throw new Error("the dialog stayed open after the lane link");
+  if (!regIds().includes("alpha")) throw new Error("a refused remove changed projects.json");
+});
+flow("projects", "trust-from-menu", async () => {
+  if (!(R.projects && R.projects.zeta)) throw new Error("this run has no Zeta");
+  if ((await menuIds()).includes("zeta+")) throw new Error("Zeta starts trusted");
+  await projActs("zeta", "trust");
+  await page.waitForSelector("#pd-go:not([hidden])", { timeout: 8000 });
+  const report = await page.$eval("#pd-body", (e) => e.innerText);
+  if (!/card health runs/.test(report)) throw new Error("the trust report does not name Zeta's card: " + report.slice(0, 300));
+  await clickOrReport("#pd-go", "Trust");
+  await until("the menu to say Zeta is trusted", async () => (await menuIds()).includes("zeta+"), 10000);
+  if ((await page.$eval("#pname", (e) => e.textContent)) !== "Alpha") throw new Error("trusting switched the page");
+});
+flow("projects", "add-project-live", async () => {
+  if (!R.candidates) throw new Error("this run has no candidates (up.sh before PANEL-22)");
+  const delta = R.candidates.delta, cfg = path.join(delta, ".clauductor", "panel.json");
+  await page.click("#projbtn");
+  await clickOrReport("#addproj", "Add a project…");
+  await page.waitForSelector("#adddlg:not([hidden])", { timeout: 3000 });
+  await page.fill("#ad-path", delta);
+  await page.waitForSelector("#ad-body pre.cfg", { timeout: 8000 });
+  if (fs.existsSync(cfg)) throw new Error("the init preview wrote the config");
+  await clickOrReport("#ad-init", "Create this config");
+  await page.waitForSelector("#ad-trust:not([hidden])", { timeout: 8000 });
+  if (!fs.existsSync(cfg)) throw new Error("Create this config wrote nothing");
+  // Its lanes would run on clauductor-delta: this run's own socket instead, before trust.
+  fs.writeFileSync(cfg, fs.readFileSync(cfg, "utf8").replace("{\n", '{\n  "tmux_socket": "' + R.sockets[3] + '",\n'));
+  await page.press("#ad-path", "Enter");
+  await until("the trust report of the edited config", async () => /tmux socket\s*ux-/.test(await page.$eval("#ad-body", (e) => e.innerText)), 8000);
+  await clickOrReport("#ad-trust", "Trust and add");
+  await until("the page to switch to delta", async () => (await page.$eval("#pname", (e) => e.textContent)) === "delta", 10000);
+  if (!(await menuIds()).includes("delta+")) throw new Error("the menu after Trust and add: " + (await menuIds()));
+  if (!regIds().includes("delta")) throw new Error("projects.json does not list delta");
+  const st = await page.evaluate(() => fetch("/api/state?project=delta").then((r) => r.status));
+  if (st !== 200) throw new Error("delta's state: " + st);
+  // Remove it again: allowed, and the page goes back to the default.
+  await projActs("delta", "remove");
+  await page.waitForSelector("#pd-go:not([hidden])", { timeout: 8000 });
+  await clickOrReport("#pd-go", "Remove from panel");
+  await until("the page to go back to Alpha", async () => (await page.$eval("#pname", (e) => e.textContent)) === "Alpha", 10000);
+  await until("delta to leave the menu", async () => !(await menuIds()).some((x) => x.startsWith("delta")));
+  if (regIds().includes("delta")) throw new Error("projects.json still lists delta");
+  if (!fs.existsSync(cfg)) throw new Error("removing deleted delta's config");
+  await page.waitForSelector('[data-k="tab:t:working"]', { timeout: 10000 });
+});
+flow("projects", "cli-add-live", async () => {
+  if (!R.candidates) throw new Error("this run has no candidates (up.sh before PANEL-22)");
+  const cli = (...a) => sh(R.bin, a, { env: Object.assign({}, env, { PATH: path.join(R.dir, "bin") + ":" + env.PATH }) });
+  const added = cli("panel", "add", "--project", R.candidates.epsilon);
+  if (!/serves it now/.test(added)) throw new Error("panel add did not see the panel take it: " + added.trim());
+  await until("epsilon in the menu", async () => (await menuIds()).includes("epsilon"), 5000);
+  const removed = cli("panel", "remove", "epsilon");
+  if (!/no longer serves it/.test(removed)) throw new Error("panel remove did not see the panel drop it: " + removed.trim());
+  await until("epsilon to leave the menu", async () => !(await menuIds()).some((x) => x.startsWith("epsilon")), 5000);
 });
 
 // ---- PANEL-19/20 (UX-2): metrics, economy, readiness, ports, setup, remote control ----

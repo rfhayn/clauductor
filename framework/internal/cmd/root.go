@@ -8,10 +8,10 @@ var Version = "0.1.0"
 
 var rootCmd = &cobra.Command{
 	Use:   "clauductor",
-	Short: "Multi-worker orchestration framework for Claude Code",
-	Long: `Clauductor coordinates multiple Claude Code sessions (human or AI)
-working simultaneously on the same codebase. It provides file locking,
-a real-time HUD, session management, and orchestration logging.`,
+	Short: "An operating model for Claude Code, and the panel that runs it",
+	Long: `Clauductor installs an operating model into a repository (skills, hooks, checks,
+agents and docs), keeps it current, and runs the panel: one local page for the
+lanes of every project.`,
 }
 
 func Execute() error {
@@ -23,19 +23,4 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(startCmd)
-	rootCmd.AddCommand(watchCmd)
-	rootCmd.AddCommand(registerCmd)
-	rootCmd.AddCommand(deregisterCmd)
-	rootCmd.AddCommand(lockCmd)
-	rootCmd.AddCommand(unlockCmd)
-	rootCmd.AddCommand(eventCmd)
-	rootCmd.AddCommand(queryCmd)
-	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(heartbeatCmd)
-	rootCmd.AddCommand(milestoneCmd)
-	rootCmd.AddCommand(exportCmd)
-	rootCmd.AddCommand(checkLockCmd)
-	rootCmd.AddCommand(autoLockCmd)
-	rootCmd.AddCommand(contextCmd)
 }

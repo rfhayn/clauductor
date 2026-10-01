@@ -22,6 +22,11 @@
 #   (its fake gh gives it an open pull request with a failing check and an unresolved
 #   thread; this writes its tasks.md and a gate receipt for another commit).
 #
+# - project-menu.cjs (PANEL-22): the project selector reads as a dropdown box; its menu's
+#   keys; Remove from panel… refused while the project has lanes (each a link to it);
+#   Add a project… on a second repository: validation, the init preview, Create this
+#   config, a refused path, Trust and add (live, no restart), then removing it again.
+#
 #   framework/internal/panel/testdata/browser/run.sh
 #
 # Needs node and Playwright with Chromium. Set PLAYWRIGHT to the playwright package
@@ -36,6 +41,7 @@ sock="clauductor-browser-test-$$"
 cleanup() {
   [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null || true
   tmux -L "$sock" kill-server 2>/dev/null || true
+  tmux -L "$sock-2" kill-server 2>/dev/null || true
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -115,11 +121,21 @@ touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null || date -d '2 days ago' +%Y%m%d%H
 printf '## Tasks\n- [x] one\n- [ ] two\n' > "$proj/.claude/worktrees/second/changes/second/tasks.md"
 printf '0123456789abcdef0123456789abcdef01234567\tfull\tclean\tall\n' > "$(git -C "$proj/.claude/worktrees/second" rev-parse --absolute-git-dir)/ci-receipt"
 status=0
-node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
-node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
-node "$here/project-and-side.cjs" "$base" "$tok" || status=1
-node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
-node "$here/lane-row-actions.cjs" "$base" "$tok" "$proj" || status=1
-node "$here/metrics-view.cjs" "$base" "$tok" || status=1
-node "$here/lane-readiness.cjs" "$base" "$tok" || status=1
+# ONLY=<script name> runs that one script (e.g. ONLY=project-menu).
+t() { local s=$1; shift; [ -z "${ONLY:-}" ] || [ "$ONLY" = "$s" ] || return 0; node "$here/$s.cjs" "$@" || status=1; }
+t focus-survives-updates "$base" "$tok" "$proj"
+t appearance-and-keys "$base" "$tok" "$tmp/home/typed.log"
+t project-and-side "$base" "$tok"
+t terminal-links-selection "$base" "$tok" "$tmp/home/typed.log"
+t lane-row-actions "$base" "$tok" "$proj"
+t metrics-view "$base" "$tok"
+t lane-readiness "$base" "$tok"
+# PANEL-22: a second repository, with no panel config, for Add a project…; its config,
+# once the page creates it, gets this run's second socket before it is trusted.
+other="$tmp/addme" # not "other": lane-row-actions.cjs clones one there
+mkdir -p "$other"
+git -C "$other" init -q -b main
+git -C "$other" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
+other=$(cd "$other" && pwd -P)
+t project-menu "$base" "$tok" "$proj" "$other" "$sock-2"
 exit $status

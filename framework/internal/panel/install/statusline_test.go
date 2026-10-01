@@ -36,10 +36,16 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 	}
 	snippet := s[i+len(begin) : j]
 
+	// Only a request carrying this run's marker is the snippet's. Parallel tests in this
+	// package probe loopback ports they have closed (singleton, open: GET /healthz), and
+	// the kernel can hand one of those ports to this server; a stray probe is not a post.
+	marker := "statusline-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	got := make(chan string, 4)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		got <- r.Method + " " + r.URL.Path + " " + string(body)
+		if strings.Contains(string(body), marker) {
+			got <- r.Method + " " + r.URL.Path + " " + string(body)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -73,7 +79,8 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 			}
 			cmd := exec.Command("bash", "-c", snippet)
 			cmd.Env = append(os.Environ(), "HOME="+home)
-			cmd.Stdin = strings.NewReader(`{"session_id":"s"}`)
+			input := `{"session_id":"` + marker + `-` + strings.ReplaceAll(tc.name, " ", "_") + `"}`
+			cmd.Stdin = strings.NewReader(input)
 			if out, err := cmd.CombinedOutput(); err != nil || len(out) != 0 {
 				t.Fatalf("the snippet must exit 0 and print nothing: %v %q", err, out)
 			}
@@ -82,7 +89,7 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 				if !tc.posts {
 					t.Fatalf("posted to a panel that is not running: %s", p)
 				}
-				if p != `POST /status {"session_id":"s"}` {
+				if p != "POST /status "+input {
 					t.Fatalf("posted %q", p)
 				}
 			case <-time.After(2 * time.Second):

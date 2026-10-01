@@ -46,7 +46,8 @@ func TestHelpDialogIsWired(t *testing.T) {
 		`if (ev.key !== "?" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;`,
 		// Never taken from the terminal, where ? is claude's, or from a field.
 		`t.closest(".xterm") || t.closest("input, select, textarea, [contenteditable]")`,
-		`if (typingTarget(ev.target) || !$("startdlg").hidden) return;`,
+		// Nor over another dialog (PANEL-22: Add a project, and Remove or Trust config).
+		`if (typingTarget(ev.target) || !$("startdlg").hidden || !$("adddlg").hidden || !$("pdlg").hidden) return;`,
 		`if (e.key === "Escape") { e.preventDefault(); closeHelp(); return; }`,
 		`if (r && r.isConnected && r.focus) r.focus(); else $("helpbtn").focus();`,
 	} {
