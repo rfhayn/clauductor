@@ -225,9 +225,9 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
     samefile($f.file // ""; $d.file)
     and ($f.line | type) == "number" and $f.line >= ($d.lines[0] - 3) and $f.line <= ($d.lines[1] + 3);
   def kwhit($f; $d):
-    samefile($f.file // ""; $d.file)
-    and ((($f.summary // "") + " " + ($f.failure // "")) | ascii_downcase) as $t
-        | any(($d.keywords // [])[]; . as $k | $t | contains($k | ascii_downcase));
+    ((($f.summary // "") + " " + ($f.failure // "")) | ascii_downcase) as $t
+    | samefile($f.file // ""; $d.file)
+      and any(($d.keywords // [])[]; . as $k | $t | contains($k | ascii_downcase));
   # A candidate finding'"'"'s priority for a defect: a line hit before a keyword hit, and an
   # actionable finding before a low one. 9 and above is no match.
   def prio($f; $d):
