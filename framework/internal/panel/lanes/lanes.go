@@ -49,7 +49,7 @@ var parentSessionVars = []string{
 // Initial size of a detached lane; the first attached client resizes it.
 const laneCols, laneRows = 200, 50
 
-const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}"
+const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}\t#{@clauductor_project}"
 
 // parseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
 // session whose name is not a valid lane id was not started by the panel and is
@@ -70,8 +70,12 @@ func parseTmuxPanes(out []byte) []types.TmuxLane {
 		}
 		created, _ := strconv.ParseInt(f[5], 10, 64)
 		attached, _ := strconv.Atoi(f[6])
-		lanes = append(lanes, types.TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
-			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]})
+		l := types.TmuxLane{ID: f[0], Path: signals.ResolvePath(path), Type: f[7], Created: created,
+			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]}
+		if len(f) > 8 {
+			l.Project = f[8]
+		}
+		lanes = append(lanes, l)
 	}
 	sort.Slice(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
 	return lanes
@@ -103,6 +107,10 @@ type LaneManager struct {
 	// UploadDir keeps images dropped on a lane's terminal, one directory per lane
 	// (images.go): in the panel's state directory, never a worktree. "" refuses them.
 	UploadDir string
+	// Project is the project id each lane is tagged with (@clauductor_project,
+	// PANEL-16). A session tagged for another project is not this manager's: each
+	// project has its own socket, and the tag guards against two sharing one.
+	Project string
 	// LookupEnv reads the panel's own environment (injectable for tests).
 	LookupEnv func(string) (string, bool)
 	// StopTimeout is how long Stop waits for /exit before killing the session.
@@ -246,7 +254,16 @@ func (m *LaneManager) ListServer(ctx context.Context) (lanes []types.TmuxLane, u
 		}
 		return nil, false, err
 	}
-	return parseTmuxPanes(out), true, nil
+	all := parseTmuxPanes(out)
+	// A session tagged for another project is that project's, never an orphan here;
+	// an untagged one (started before PANEL-16) belongs to the socket's owner.
+	lanes = all[:0]
+	for _, l := range all {
+		if l.Project == "" || m.Project == "" || l.Project == m.Project {
+			lanes = append(lanes, l)
+		}
+	}
+	return lanes, true, nil
 }
 
 // Exists reports whether a lane's tmux session is running. "=" makes the match
@@ -396,6 +413,9 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 		";", "set-option", "-t", "="+id+":", "@clauductor_type", laneType,
 		";", "set-option", "-t", "="+id+":", "window-size", "latest",
 		";")
+	if m.Project != "" {
+		args = append(args, "set-option", "-t", "="+id+":", "@clauductor_project", m.Project, ";")
+	}
 	args = append(args, hardenArgs...)
 	return m.TmuxArgv(args...)
 }

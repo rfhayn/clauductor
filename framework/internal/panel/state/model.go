@@ -179,7 +179,13 @@ type Model struct {
 	account       *signals.AuthStatus
 	accountSrc    SourceStatus
 	noWindowPosts int
+
+	// projectID is the project's id in the panel's registry (PANEL-16).
+	projectID string
 }
+
+// SetProjectID names the project the model is of; the view carries it.
+func (m *Model) SetProjectID(id string) { m.projectID = id }
 
 // NewModel returns an empty model. Every source starts Pending.
 func NewModel(cfg *config.Config, root string, now time.Time) *Model {
@@ -278,6 +284,32 @@ func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
 		return wt.Path, true
 	}
 	return "", false
+}
+
+// OwnsSession: a lane record of this project carries the session id, or the session
+// is already bound here. The dispatcher (PANEL-16) asks this before any cwd, so a
+// session stays with its project after a `cd` elsewhere.
+func (m *Model) OwnsSession(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, rec := range m.laneRecords {
+		if rec.SessionID == id {
+			return true
+		}
+	}
+	s := m.sessions[id]
+	return s != nil && s.Lane != ""
+}
+
+// WorktreeDepth is the length of the deepest worktree path of this project that
+// holds cwd, or -1: across projects the deepest wins, since one repository's
+// worktrees can sit inside another's checkout.
+func (m *Model) WorktreeDepth(cwd string) int {
+	if i := signals.MatchWorktree(m.worktrees, cwd); i >= 0 {
+		return len(m.worktrees[i].Path)
+	}
+	return -1
 }
 
 func (m *Model) worktreeByPath(p string) signals.Worktree {
@@ -672,6 +704,7 @@ func (m *Model) ApplySuggestions(id string, out *signals.Suggestions, err error,
 // View is the JSON the browser renders. It is derived, never stored.
 type View struct {
 	Name           string     `json:"name"`
+	ProjectID      string     `json:"projectId"` // its id in the panel's registry (PANEL-16)
 	Root           string     `json:"root"`
 	Now            int64      `json:"now"`
 	StartedAt      int64      `json:"startedAt"`
@@ -1014,7 +1047,7 @@ func (m *Model) stale(s *session, now time.Time) bool {
 // Snapshot derives the View at `now`.
 func (m *Model) Snapshot(now time.Time) View {
 	v := View{
-		Name: m.cfg.Name, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
+		Name: m.cfg.Name, ProjectID: m.projectID, Root: m.root, Now: ms(now), StartedAt: ms(m.startedAt),
 		Lanes: []LaneView{}, QuietWorktrees: []LaneView{}, NeedsYou: []NeedView{},
 		Cards: []CardState{}, PRs: append([]signals.PR{}, m.prs...), Banners: []string{}, BannerItems: []BannerView{},
 		Quota: m.quotaAt(now), HookEvents: m.hookEvents, StatusPosts: m.statusPosts, Dropped: m.dropped,

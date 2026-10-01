@@ -127,9 +127,12 @@ func polled[T any](f fetch[T], apply func(*state.Model, T, error, time.Time)) fu
 	}
 }
 
-// Runtime reads every source into the hub on its cadence and runs the panel's
-// periodic tasks. It is the one owner of the panel's clock, ticks and kicks.
+// Runtime reads one project's sources into its hub on their cadence and runs the
+// project's periodic tasks. Since PANEL-16 a panel runs one per registered project;
+// what is the machine's (the account, the hooks, the ingest, the token) is Machine's.
 type Runtime struct {
+	id       string   // the project's id in projects.json
+	machine  *Machine // nil in tests that build a Runtime alone
 	o        Options
 	cfg      *config.Config
 	root     string
@@ -150,8 +153,7 @@ type Runtime struct {
 
 	trust     atomic.Bool
 	trustView config.TrustView
-	malformed atomic.Int64
-	lastHook  atomic.Int64 // unix ns of the last hook the ingest accepted
+	lastHook  atomic.Int64 // unix ns of the last hook the ingest routed here
 	// agentsQuietNow: the agents source is waiting the quiet interval (hookSeen kicks it).
 	agentsQuietNow atomic.Bool
 	// agentsFilter is the --cwd filter and when it was last cross-checked (the
@@ -175,21 +177,14 @@ type Runtime struct {
 	// notifyPath persists the notifier's state, so a restart never re-notifies.
 	notifyPath string
 	savedState string
-	// quotaPath keeps the account's last quota across restarts (PANEL-12): before it,
-	// a restarted panel showed none until a session in the project redrew its status line.
-	quotaPath  string
-	savedQuota int64
-	// verifiedPath keeps the Claude Code version verified from live hooks (PANEL-13).
-	verifiedPath  string
-	savedVerified string
-	gitDir        string
-	lastQ         string
+	gitDir     string
+	lastQ      string
 }
 
-// newRuntime builds the runtime and its table of sources.
-func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *web.Hub,
+// newRuntime builds a project's runtime and its table of sources.
+func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *web.Hub,
 	lm *lanes.LaneManager, lanesWhy string, clk clock.Clock, ticks Ticks) *Runtime {
-	r := &Runtime{o: o, cfg: cfg, root: root, cfgPath: cfgPath, clock: clk, ticks: ticks, run: o.Runner, hub: hub, lanes: lm,
+	r := &Runtime{id: id, o: o, cfg: cfg, root: root, cfgPath: cfgPath, clock: clk, ticks: ticks, run: o.Runner, hub: hub, lanes: lm,
 		trustView: tv, runs: map[string]*types.QueueRun{},
 		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
 	if lm != nil {
@@ -205,23 +200,7 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 			r.notifier.Restore(st)
 		}
 	}
-	r.quotaPath = filepath.Join(config.PanelDir(o.Home), "quota.json")
-	if b, err := os.ReadFile(r.quotaPath); err == nil {
-		var q state.Quota
-		if json.Unmarshal(b, &q) == nil {
-			r.savedQuota = q.At
-			hub.Update(func(m *state.Model, now time.Time) { m.RestoreQuota(q) })
-		}
-	}
-	r.verifiedPath = filepath.Join(config.PanelDir(o.Home), "verified.json")
-	if b, err := os.ReadFile(r.verifiedPath); err == nil {
-		var vf savedVerification
-		if json.Unmarshal(b, &vf) == nil && vf.Version != "" {
-			r.savedVerified = vf.Version
-			hub.Update(func(m *state.Model, now time.Time) { m.RestoreAutoVerified(vf.Version) })
-		}
-	}
-	hub.Update(func(m *state.Model, now time.Time) { m.ApplyTrust(tv) })
+	hub.Update(func(m *state.Model, now time.Time) { m.SetProjectID(id); m.ApplyTrust(tv) })
 
 	t := ticks
 	worktrees := func(ctx context.Context) ([]signals.Worktree, error) {
@@ -238,14 +217,11 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 		r.agentsSource(),
 		{name: "prs", every: t.PRs, fixedRate: true, kick: r.kickPRs, poll: polled(prs, (*state.Model).ApplyPRs)},
 		{name: "tmux", every: t.TmuxIdle, kick: r.kickTmux, poll: newTmuxPoller(lm, lanesWhy, clk, t).poll},
-		{name: "version", every: t.Version, poll: r.pollVersion()},
-		{name: "account", every: t.Version, poll: r.pollAccount()},
 		{name: "obs", every: t.Obs, fixedRate: true, waitFirst: true, poll: r.pollObs},
 		{name: "notify", every: t.Notify, fixedRate: true, waitFirst: true, poll: r.pollNotify()},
 		{name: "trends", every: t.Trends, fixedRate: true, poll: func(context.Context, time.Time) (update, time.Duration) {
 			return func(m *state.Model, now time.Time) { m.Sample(now) }, 0
 		}},
-		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: r.saveReadings},
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		{name: "git", every: t.Git, fixedRate: true, poll: r.pollGit},
 	}
@@ -270,19 +246,7 @@ func newRuntime(o Options, cfg *config.Config, root, cfgPath string, tv config.T
 	if !tv.Trusted {
 		r.sources = append(r.sources, &source{name: "trust", every: t.Trust, fixedRate: true, waitFirst: true, poll: r.pollTrust})
 	}
-	if o.Launchd {
-		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
-		// follow it so the old token dies in the running panel too.
-		r.sources = append(r.sources, &source{name: "token", every: t.Token, fixedRate: true, waitFirst: true, poll: r.pollToken})
-	}
 	return r
-}
-
-// addHookKeeper adds the hooks check: it ran once at start and reported ok; it
-// runs again every interval, or sooner with backoff after a failure.
-func (r *Runtime) addHookKeeper(k *hookKeeper, ok bool) {
-	r.sources = append(r.sources, &source{name: "hooks", every: k.nextWait(ok), waitFirst: true,
-		poll: func(context.Context, time.Time) (update, time.Duration) { return nil, k.nextWait(k.check()) }})
 }
 
 // start runs every source in its own goroutine.
@@ -295,19 +259,25 @@ func (r *Runtime) start(ctx context.Context, start func(func())) {
 
 // loop runs one source until ctx ends.
 func (r *Runtime) loop(ctx context.Context, s *source) {
+	runLoop(ctx, r.clock, s, r.pollOnce)
+}
+
+// runLoop runs one source until ctx ends: poll, wait for the next tick, a kick or a
+// change in what it watches, and again.
+func runLoop(ctx context.Context, clk clock.Clock, s *source, pollOnce func(context.Context, *source) (time.Duration, bool)) {
 	if s.watch != nil {
 		path := s.watch(ctx)
-		go r.watchLoop(ctx, path, s)
+		go watchLoop(ctx, clk, path, s)
 	}
 	var ticks <-chan time.Time
 	if s.fixedRate && s.every > 0 {
-		t := r.clock.NewTicker(s.every)
+		t := clk.NewTicker(s.every)
 		defer t.Stop()
 		ticks = t.C()
 	}
 	next, ok := s.every, true
 	if !s.waitFirst {
-		next, ok = r.pollOnce(ctx, s)
+		next, ok = pollOnce(ctx, s)
 	}
 	for ok && next >= 0 {
 		var wait <-chan time.Time
@@ -316,7 +286,7 @@ func (r *Runtime) loop(ctx context.Context, s *source) {
 		case s.fixedRate:
 			wait = ticks
 		case next > 0:
-			timer = r.clock.NewTimer(next)
+			timer = clk.NewTimer(next)
 			wait = timer.C()
 		}
 		select {
@@ -330,7 +300,7 @@ func (r *Runtime) loop(ctx context.Context, s *source) {
 		if ctx.Err() != nil {
 			return
 		}
-		next, ok = r.pollOnce(ctx, s)
+		next, ok = pollOnce(ctx, s)
 	}
 }
 
@@ -344,19 +314,28 @@ func (r *Runtime) pollOnce(ctx context.Context, s *source) (time.Duration, bool)
 	if up != nil {
 		r.hub.Update(up)
 	}
-	if r.o.OnPoll != nil {
-		r.o.OnPoll(s.name)
-	}
+	r.polled(s.name)
 	if next == 0 {
 		next = s.every
 	}
 	return next, true
 }
 
+// polled reports one poll to Options.OnPoll: by its name, and by <project>/<name>,
+// so a test of several projects counts each one's polls apart.
+func (r *Runtime) polled(name string) {
+	if r.o.OnPoll != nil {
+		r.o.OnPoll(name)
+		if r.id != "" {
+			r.o.OnPoll(r.id + "/" + name)
+		}
+	}
+}
+
 // watchLoop kicks s whenever path's signature changes.
-func (r *Runtime) watchLoop(ctx context.Context, path string, s *source) {
+func watchLoop(ctx context.Context, clk clock.Clock, path string, s *source) {
 	last := pathSignature(path)
-	t := r.clock.NewTicker(s.watchEvery)
+	t := clk.NewTicker(s.watchEvery)
 	defer t.Stop()
 	for {
 		select {
@@ -450,42 +429,6 @@ func (r *Runtime) cardSource(c config.CardConfig) *source {
 	return s
 }
 
-// savedVerification is verified.json: the Claude Code version the subagent pairing was
-// verified on from live hooks, and when.
-type savedVerification struct {
-	Version string `json:"version"`
-	At      int64  `json:"at"`
-}
-
-// saveReadings writes what the panel keeps across a restart, when it changed: the
-// quota, and a version verified from live hooks. One panel runs per machine, so each
-// file has one writer.
-func (r *Runtime) saveReadings(_ context.Context, now time.Time) (update, time.Duration) {
-	var q *state.Quota
-	var verified string
-	r.hub.Read(func(m *state.Model, _ time.Time) { q, verified = m.QuotaReading(), m.AutoVerified() })
-	if q != nil && q.At != r.savedQuota {
-		if b, err := json.Marshal(q); err == nil && r.writePrivate(r.quotaPath, b) == nil {
-			r.savedQuota = q.At
-		}
-	}
-	if verified != "" && verified != r.savedVerified {
-		b, _ := json.Marshal(savedVerification{Version: verified, At: now.UnixMilli()})
-		if r.writePrivate(r.verifiedPath, b) == nil {
-			r.savedVerified = verified
-			fmt.Fprintf(r.o.Out, "Claude Code %s: the subagent pairing held on this project's own hooks; recorded as verified\n", verified)
-		}
-	}
-	return nil, 0
-}
-
-func (r *Runtime) writePrivate(path string, b []byte) error {
-	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
-		return err
-	}
-	return config.WriteAtomic(path, b, 0o600)
-}
-
 // suggestSource runs a template's suggest command on its refresh rule, exactly as a
 // card runs (same timeout, same trust gate, kicked by REFRESH too), and hands the
 // dialog what it prints.
@@ -512,31 +455,6 @@ func (r *Runtime) suggestSource(id string, sg config.SuggestConfig) *source {
 		s.watchEvery = r.ticks.CardWatch
 	}
 	return s
-}
-
-// pollVersion reads `claude --version`, and warns once per read when it is not the
-// version the heuristics were verified on.
-func (r *Runtime) pollVersion() func(context.Context, time.Time) (update, time.Duration) {
-	read := commandFetch(r, 10*time.Second, []string{"claude", "--version"}, signals.ParseClaudeVersion)
-	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
-		v, err := read(ctx)
-		if ctx.Err() == nil && err == nil && v != state.HeuristicsVerifiedOn {
-			fmt.Fprintf(r.o.Out, "warning: Claude Code %s differs from %s, which the subagent heuristics and fixtures were verified on; subagent lists are approximate\n", v, state.HeuristicsVerifiedOn)
-		}
-		return func(m *state.Model, now time.Time) { m.ApplyClaudeVersion(v, err, now) }, 0
-	}
-}
-
-// pollAccount reads `claude auth status --json` on the version's cadence (PANEL-15):
-// how the account signs in and its plan, which decide what the quota's place shows.
-// It runs with a lane's environment (no API key), so it names the login lanes use.
-// It costs no token; nothing personal it prints is kept (signals.ParseAuthStatus).
-func (r *Runtime) pollAccount() func(context.Context, time.Time) (update, time.Duration) {
-	read := commandFetch(r, 10*time.Second, lanes.ScrubbedArgv("claude", "auth", "status", "--json"), signals.ParseAuthStatus)
-	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
-		a, err := read(ctx)
-		return func(m *state.Model, now time.Time) { m.ApplyAccount(a, err, now) }, 0
-	}
 }
 
 // agentsSource polls `claude agents` (pollAgents).
@@ -631,7 +549,9 @@ func (r *Runtime) checkFilter(ctx context.Context, wts []signals.Worktree) []str
 // update is pushed to every page).
 func (r *Runtime) pollObs(context.Context, time.Time) (update, time.Duration) {
 	r.mu.Lock()
-	r.obs.MalformedDrops = r.malformed.Load()
+	if r.machine != nil {
+		r.obs.MalformedDrops = r.machine.malformed.Load()
+	}
 	if s := r.srv.Load(); s != nil {
 		r.obs.OverflowDrops = s.Overflow()
 	}
@@ -657,7 +577,12 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 		v := r.hub.View()
 		focused := map[string]bool{}
 		if s := r.srv.Load(); s != nil {
-			focused = s.FocusedLanes()
+			focused = s.FocusedLanesIn(r.id)
+		}
+		if r.machine != nil {
+			// The quota is the account's: the machine alone notifies it, once, not
+			// once per project (PANEL-16). The page still shows it in every project.
+			v.Alerts = withoutQuota(v.Alerts)
 		}
 		r.mu.Lock()
 		// The project name comes from panel.json, so it is config like any other: an
@@ -716,58 +641,6 @@ func (r *Runtime) pollTrust(context.Context, time.Time) (update, time.Duration) 
 		kick(k)
 	}
 	return func(m *state.Model, now time.Time) { m.ApplyTrust(tv) }, -1
-}
-
-// pollToken follows the token file: a rotated token closes every cookie, terminal
-// and event stream of the old one.
-func (r *Runtime) pollToken(context.Context, time.Time) (update, time.Duration) {
-	srv := r.srv.Load()
-	if srv == nil {
-		return nil, 0
-	}
-	if tok := install.ReadToken(r.o.Home); tok != "" && tok != srv.CurrentToken() {
-		srv.Rotate(tok)
-		fmt.Fprintln(r.o.Out, "token rotated: old cookies, terminals and event streams are closed")
-	}
-	return nil, 0
-}
-
-// ---- the ingest ----
-
-// ingest folds hook and status-line bodies into the model as they arrive.
-func (r *Runtime) ingest(ctx context.Context, hooks, status <-chan []byte) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case body := <-hooks:
-			ev, err := signals.ParseHook(body)
-			if err != nil {
-				r.malformed.Add(1)
-				continue
-			}
-			r.hookSeen(ev)
-			ev.Cwd = signals.ResolvePath(ev.Cwd)
-			// A prompt, or a finished turn, means the session has a conversation to
-			// --resume. Hooks can be dropped, so busy in `claude agents` counts too.
-			if (ev.Event == "UserPromptSubmit" || ev.Event == "Stop") && r.registry != nil {
-				_, _ = r.registry.MarkConversation(ev.SessionID)
-			}
-			kept := true
-			r.hub.Update(func(m *state.Model, now time.Time) { kept = m.ApplyHook(ev, now) })
-			if !kept {
-				r.kickWorktrees()
-			}
-		case body := <-status:
-			st, err := signals.ParseStatus(body)
-			if err != nil {
-				r.malformed.Add(1)
-				continue
-			}
-			st.Cwd = signals.ResolvePath(st.Cwd)
-			r.hub.Update(func(m *state.Model, now time.Time) { m.ApplyStatus(st, now) })
-		}
-	}
 }
 
 func (r *Runtime) hookSeen(ev signals.HookEvent) {
