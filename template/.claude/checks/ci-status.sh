@@ -37,8 +37,10 @@ exit 0
 EOF
 chmod +x "$d/bin/gh"
 # PATH without clauductor, gitleaks or a real gh: the stub goes first where it is wanted.
+# (A directory holding a real gh is kept: on Ubuntu that is /usr/bin, with sh in it. The stub goes
+# first, and "no gh" runs on a PATH of only the tools the publisher needs.)
 np=""; IFS_OLD=$IFS; IFS=:
-for p in $PATH; do [ -x "$p/clauductor" ] || [ -x "$p/gitleaks" ] || [ -x "$p/gh" ] && continue; np="$np${np:+:}$p"; done
+for p in $PATH; do [ -x "$p/clauductor" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
 IFS=$IFS_OLD
 
 # ── The publisher ───────────────────────────────────────────────────────────────────────
@@ -96,7 +98,8 @@ echo 'GATE_DISPLAY_CONTEXTS="ci/other"' >> "$P/.claude/project.conf"
 refuse "a context not in GATE_DISPLAY_CONTEXTS" "is not in GATE_DISPLAY_CONTEXTS" -- local pass
 cp "$d/conf.keep" "$P/.claude/project.conf"
 refuse "a context the project renamed but did not list" "is not in GATE_DISPLAY_CONTEXTS" CI_STATUS_LOCAL_CONTEXT=ci/mine -- local pass
-mv "$d/bin/gh" "$d/gh.off"; (cd "$P" && env PATH="$np" sh .claude/modules/ci-status/scripts/publish-status.sh local pass) 2>"$d/err"; rc=$?; mv "$d/gh.off" "$d/bin/gh"
+for t in sh git dirname sed grep head printf cat awk tr cut wc paste; do p=$(command -v "$t") && case $p in /*) ln -sf "$p" "$d/nogh/$t" ;; esac; done
+(cd "$P" && env PATH="$d/nogh" sh .claude/modules/ci-status/scripts/publish-status.sh local pass) 2>"$d/err"; rc=$?
 [ "$rc" -eq 0 ] && grep -q 'gh not installed' "$d/err" && ok "without gh on PATH: exits 0 and says so" || fail "without gh: rc $rc, $(cat "$d/err")"
 refuse "gh cannot name the repo" "could not identify the repo" GH_FAIL=repo -- local pass
 refuse "a commit not on the remote" "is not on the remote yet" GH_FAIL=commit -- local pass
