@@ -76,11 +76,11 @@ has yes "app/Card.tsx:1" "$next" "premise: a straight-quoted sentence is found w
 has yes "Reopen it to change a score" "$next" "premise: ...and the line shown already says what the issue claims it lacks"
 out=$(check "It names \"this week's corrections screen.\"")
 has yes "$CHANGED" "$out" "premise: the commit that changed the quoted sentence BEFORE filing is named"
-re yes '2d before filing\) name the way to a correction' "$out" "premise: ...dated relative to the filing"
+re yes '\(2d before filing\) name the way to a correction' "$out" "premise: ...dated relative to the filing"
 re no 'history: [0-9a-f]+ 2026-09-19' "$out" "premise: ...and the docs commit with the same spelling does not crowd it out"
 out=$(check 'The card falls back to `ask the committee`.')
 re yes '"ask the committee" — \*\*NO LONGER IN THE TREE' "$out" "premise: a named string that is gone says NO LONGER IN THE TREE"
-re yes '2d AFTER filing\) drop the legacy hint' "$out" "premise: ...and names the commit that removed it"
+re yes '\(2d AFTER filing\) drop the legacy hint' "$out" "premise: ...and names the commit that removed it"
 out=$(check 'See `window.ts:1`.')
 has yes '`window.ts:1` → lib/window.ts — **changed 1x since filing' "$out" "premise: a file cited by line number that changed after filing is flagged"
 out=$(check 'See `score/page.tsx:1` and `page.tsx`.')
