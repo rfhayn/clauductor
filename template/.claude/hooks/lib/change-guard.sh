@@ -117,6 +117,9 @@ cg_field() {
           if (c == "\"") q = ""; else tok = tok c; continue
         }
         if (c == "\047" || c == "\"") { q = c; have = 1; continue }
+        # Unquoted, a backslash makes the next character literal (Fixes\ \#239 is one word), and a
+        # backslash before a newline joins the lines.
+        if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
         if (c == " " || c == "\t" || c == "\n") { if (have) { t[++nt] = tok; oddt[nt] = odd; tok = ""; have = 0; odd = 0 }; continue }
         if (c == "$" || c == "`") odd = 1
         tok = tok c; have = 1
@@ -140,10 +143,20 @@ cg_field() {
           }
           continue
         }
-        if ((x == long || (want == "body" && x == "--body-file")) && k < nt) { kind = (x == "--body-file") ? "file" : "text"; v = t[k + 1]; vo = oddt[k + 1]; found = 1; k++ }
-        else if (index(x, long "=") == 1) { kind = "text"; v = substr(x, length(long) + 2); vo = oddt[k]; found = 1 }
-        else if (want == "body" && index(x, "--body-file=") == 1) { kind = "file"; v = substr(x, 13); vo = oddt[k]; found = 1 }
-        else if (x ~ /^-[^-]/) {
+        if (x == "--") break   # the end of the flags: what follows is an argument, never a flag
+        if (x ~ /^--/) {
+          # Every value-taking long flag of gh pr merge consumes its value, whichever field is
+          # wanted: a value that starts with - is text, never another flag.
+          name = x; hasv = 0
+          if (index(x, "=") > 0) { name = substr(x, 1, index(x, "=") - 1); val = substr(x, index(x, "=") + 1); vov = oddt[k]; hasv = 1 }
+          if (name !~ /^--(author-email|body|body-file|match-head-commit|repo|subject)$/) continue
+          if (!hasv) { if (k < nt) { val = t[k + 1]; vov = oddt[k + 1]; k++ } else continue }
+          if (want == "body" && name == "--body") { kind = "text"; v = val; vo = vov; found = 1 }
+          if (want == "body" && name == "--body-file") { kind = "file"; v = val; vo = vov; found = 1 }
+          if (want == "subject" && name == "--subject") { kind = "text"; v = val; vo = vov; found = 1 }
+          continue
+        }
+        if (x ~ /^-[^-]/) {
           # A cluster of shorthands, as pflag reads it: boolean ones (d s m r) go by; the first that
           # takes a value (b F t A R) takes the rest of the token, or the next token.
           for (c = 2; c <= length(x); c++) {

@@ -258,6 +258,14 @@ printf 'Tidy the card.\n' > "$G/tidy.md"
 MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body-file tidy.md'
 merge 2 "a squash whose --subject closes an issue (through the guard)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the squash subject closes it"
+MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body "-t tidy"'
+merge 2 "a squash whose --body text starts with -t (a value is never a flag; through the guard)" "Tidy." "" "Tidy the card"
+has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the subject still closes #239"
+MCMD='gh pr merge 290 --squash --subject Fixes\ \#239 --body-file tidy.md'
+merge 2 "a squash whose subject is backslash-escaped, unquoted (through the guard)" "Tidy." "" "Tidy the card"
+has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the escaped subject closes #239"
+MCMD='gh pr merge 290 --squash --body-file tidy.md -- -b"Fixes #239"'
+rulep 0 "words after -- are arguments, not a -b body (gh refuses them; nothing is closed)" "Tidy." "" "Tidy the card"
 MCMD='gh pr merge 290 --squash -t"Fixes #239: card"'
 rulep 2 "a squash whose glued -t subject closes an issue" "Tidy." "" "Tidy the card"
 MCMD='gh pr merge 290 --squash -b"Fixes #239."'

@@ -248,6 +248,9 @@ sguard 2 "rule 12: a body built by a substitution (unreadable)" 'gh pr merge 5 -
 sguard 0 "rule 12: a glued -F<file> ending in all four trailers" "gh pr merge 5 --squash -Fbody.txt"
 sguard 0 "rule 12: a glued -b<body> with all four trailers" "gh pr merge 5 --squash -b\"$(trail)\""
 sguard 2 "rule 12: a glued -b<body> missing the Session trailer" "gh pr merge 5 --squash -b\"$(trail | grep -v '^Session')\""
+# A value that starts with - is text: a --subject reading "-b<trailers>" sets no body.
+sguard 2 "rule 12: a --subject whose text starts with -b is not a body" "gh pr merge 5 --squash --subject \"-b$(trail)\""
+grep -q 'sets no --body' "$d/err" && ok "rule 12: ...it is read as no --body at all" || fail "rule 12: ...it is read as no --body at all: $(cat "$d/err")"
 trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
 sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
 rm -f "$R/-"
