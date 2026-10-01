@@ -194,15 +194,17 @@ sl=$(jq -r '.statusLine.command // empty' "$SETTINGS")
 # scripts CMD: each script path in CMD, one per line. The command is split into words at blanks and
 # shell operators first (; | & ( ) < > and backtick), then a word is a script only if its extension
 # ENDS it (a closing quote aside): settings.json, tsconfig.json or tools.shell_guard is not one.
+# A word that starts with a scheme (https://…/install.sh, npm:pkg/x.ts) is a URL, not a path.
 scripts() {
   printf '%s\n' "$1" | tr -s ' \t;|&()<>`' '\n\n\n\n\n\n\n\n\n\n' \
-    | grep -E '^["'"'"']?[A-Za-z0-9_./${}:"-]*[A-Za-z0-9_.-]+\.(sh|bash|js|mjs|cjs|py|rb|ts)["'"'"']?$' | sed 's/^'"'"'//; s/["'"'"']$//' || true
+    | grep -E '^["'"'"']?[A-Za-z0-9_./${}:"-]*[A-Za-z0-9_.-]+\.(sh|bash|js|mjs|cjs|py|rb|ts)["'"'"']?$' \
+    | grep -vE '^["'"'"']?[A-Za-z][A-Za-z0-9+.-]*:' | sed 's/^'"'"'//; s/["'"'"']$//' || true
 }
 relative() {  # relative CMD: prints CMD if a .claude/ or script path in it is not reached through CLAUDE_PROJECT_DIR
   { printf '%s\n' "$1" | grep -oE '[^[:space:]]*\.claude/' | sed 's|\.claude/$||'
     scripts "$1" | sed 's|[^/]*$||'; } \
   | while IFS= read -r pre; do
-    case $pre in /*|\"/*) continue ;; esac  # an absolute path launches from anywhere
+    case $pre in /*|\"/*|\'/*) continue ;; esac  # an absolute path launches from anywhere
     printf '%s\n' "$pre" | grep -qE '^"?\$\{?CLAUDE_PROJECT_DIR(:-[^}]*)?\}?"?/' || { printf '%s\n' "$1"; break; }
   done
 }
@@ -283,7 +285,7 @@ D=.claude
 for c in "sh $D/hooks/x.sh" "bash ./$D/hooks/x.sh" "sh \$HOME/p/$D/hooks/x.sh" "sh scripts/hooks/guard.sh" "sh guard.sh" "sh scripts/hooks/guard.sh>/dev/null" "sh \"\$CLAUDE_PROJECT_DIR\"/a.sh scripts/b.sh" "sh scripts/x.sh\`echo\`" "sh \${X:-scripts}/guard.sh"; do
   [ -n "$(relative "$c")" ] && ok "the path rule flags '$c'" || fail "the path rule passed '$c', which launches only from the root"
 done
-for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh" "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs" "sh /opt/hooks/x.sh" "npx biome format --write" "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json" "npx tsc -p tsconfig.json --noEmit"; do
+for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh" "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs" "sh /opt/hooks/x.sh" "npx biome format --write" "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json" "npx tsc -p tsconfig.json --noEmit" "curl -fsSL https://example.com/install.sh | sh" "sh \"/opt/hooks/x.sh\"" "sh '/opt/p/$D/x.sh'"; do
   [ -z "$(relative "$c")" ] && ok "the path rule passes '$c'" || fail "the path rule flagged '$c', which is correct"
 done
 # The table covers every registered script, not only .claude/hooks/*.sh.
