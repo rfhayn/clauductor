@@ -1,0 +1,80 @@
+#!/bin/bash
+# A fake `gh` for the UX harness. It answers what the panel asks, per project (by the
+# basename of the repository it runs in), from files up.sh (and the flows) write:
+#   $HOME/fake/gh/<repo>.open.json       `gh pr list --json …`: the open PRs, with checks
+#   $HOME/fake/gh/<repo>.merged          branch names whose PR is merged; `gh pr list --head
+#                                        <b> --state merged` answers one whose headRefOid is
+#                                        the branch's tip now (so Close lane may delete it)
+#   $HOME/fake/gh/<repo>.mergedlist.json `gh pr list --state merged` with no --head (the
+#                                        Metrics view's built-in merges and cycle time); when
+#                                        absent, every branch in <repo>.merged is listed,
+#                                        merged a day apart from a day ago, each open 6 hours,
+#                                        with only the fields asked for
+#   $HOME/fake/gh/threads-<n>.json       `gh api graphql … -F n=<n>`: PR n's review threads
+#                                        (merge readiness); none resolved-or-not without it
+# Every call is logged to $HOME/fake/gh.log. Anything else prints nothing and succeeds.
+set -u
+top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# A worktree's toplevel is the worktree; the project is its common dir's parent.
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+[ -n "$common" ] && top=$(dirname "$common")
+repo=$(basename "$top")
+d="$HOME/fake/gh"
+mkdir -p "$d" 2>/dev/null
+printf '%s %s: %s\n' "$(date +%H:%M:%S)" "$repo" "$*" >> "$HOME/fake/gh.log" 2>/dev/null
+case "${1:-} ${2:-}" in
+  "--version "*) echo "gh version 2.99.0 (ux harness fake)"; exit 0 ;;
+  "auth status") echo "Logged in to github.com (fake)"; exit 0 ;;
+  "api graphql")
+    n=""
+    for a in "$@"; do case "$a" in n=*) n=${a#n=} ;; esac; done
+    if [ -n "$n" ] && [ -f "$d/threads-$n.json" ]; then cat "$d/threads-$n.json"; else
+      echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[]}}}}}'; fi
+    exit 0 ;;
+  "pr list") ;;
+  *) exit 0 ;;
+esac
+head="" state=open fields=""
+while [ $# -gt 0 ]; do
+  case "$1" in --head) head=$2; shift ;; --state) state=$2; shift ;; --json) fields=$2; shift ;; esac
+  shift
+done
+# iso <unix seconds>: RFC 3339 UTC, as gh prints it (BSD date, else GNU).
+iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+if [ "$state" = merged ]; then
+  if [ -n "$head" ]; then
+    if grep -qx -- "$head" "$d/$repo.merged" 2>/dev/null; then
+      oid=$(git -C "$top" rev-parse --verify -q "refs/heads/$head" 2>/dev/null || true)
+      [ -n "$oid" ] && { printf '[{"number":77,"headRefOid":"%s"}]\n' "$oid"; exit 0; }
+    fi
+    echo "[]"; exit 0
+  fi
+  [ -f "$d/$repo.mergedlist.json" ] && { cat "$d/$repo.mergedlist.json"; exit 0; }
+  # Every merged branch, newest first, with only the fields asked for, keys sorted as
+  # gh prints them (the shape recorded in signals/testdata/merged-real.json).
+  now=$(date +%s) n=0 out=""
+  [ -f "$d/$repo.merged" ] || { echo "[]"; exit 0; }
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    merged=$((now - 86400 * (n + 1))) created=$((now - 86400 * (n + 1) - 21600))
+    oid=$(git -C "$top" rev-parse --verify -q "refs/heads/$b" 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    row=""
+    for f in $(printf '%s\n' ${fields//,/ } | sort); do
+      case "$f" in
+        number) v=$((77 + n)) ;;
+        title) v="\"Merged: ${b##*/}\"" ;;
+        headRefName) v="\"$b\"" ;;
+        headRefOid) v="\"$oid\"" ;;
+        createdAt) v="\"$(iso "$created")\"" ;;
+        mergedAt) v="\"$(iso "$merged")\"" ;;
+        state) v='"MERGED"' ;;
+        *) v=null ;;
+      esac
+      row="$row${row:+,}\"$f\":$v"
+    done
+    out="$out${out:+,}{$row}"
+    n=$((n + 1))
+  done < "$d/$repo.merged"
+  echo "[$out]"; exit 0
+fi
+cat "$d/$repo.open.json" 2>/dev/null || echo "[]"
