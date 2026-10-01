@@ -85,18 +85,26 @@ else
   while IFS= read -r p; do
     hits=$(cd "$c" && grep -rnF -- "$p" . 2>/dev/null | sed 's|^\./||')
     if [ -z "$hits" ]; then say "  ok      superseded wording \"$p\": not in $CHANGES_DIR/$id"; continue; fi
+    # A delta hit reaches the living specs, except where the delta names the old wording to retire
+    # it: a RENAMED FROM line, or a requirement in the REMOVED section.
     printf '%s\n' "$hits" | while IFS= read -r h; do
-      case $h in
-        specs/*) echo "S" ;;
-        *) echo "C" ;;
+      f=${h%%:*}; r=${h#*:}; n=${r%%:*}
+      case $f in
+        specs/*)
+          hc=${f#specs/}; hc=${hc%%/*}
+          if [ -f "$c/specs/$hc/NOT-SYNCED.md" ]; then echo "C	$h	(in held-back $hc, which is not promoted)"; continue; fi
+          sec=$(awk -v n="$n" 'NR > n { exit } /^## / { s = $2 } END { print s }' "$c/$f")
+          case "$sec:$r" in
+            RENAMED:*FROM:*|REMOVED:*) echo "C	$h	(in the delta's $sec section, which names the old wording to retire it)" ;;
+            *) echo "S	$h" ;;
+          esac ;;
+        *) echo "C	$h	(not in a delta: confirm it is recorded as rejected)" ;;
       esac
     done > "$w/kinds"
-    printf '%s\n' "$hits" | while IFS= read -r h; do
-      case $h in
-        specs/*) say "  STOP    superseded wording \"$p\" in a delta, which would reach the living specs: $(printf '%s' "$h" | cut -c1-140)" ;;
-        *) say "  CHECK   superseded wording \"$p\" in $(printf '%s' "$h" | cut -c1-140) (not in a delta: confirm it is recorded as rejected)" ;;
-      esac
-    done
+    while IFS="$(printf '\t')" read -r k h why; do
+      if [ "$k" = S ]; then say "  STOP    superseded wording \"$p\" in a delta, which would reach the living specs: $(printf '%s' "$h" | cut -c1-140)"
+      else say "  CHECK   superseded wording \"$p\" in $(printf '%s' "$h" | cut -c1-140) $why"; fi
+    done < "$w/kinds"
     stops=$((stops + $(grep -c '^S' "$w/kinds")))
   done < "$w/sup"
 fi
@@ -107,29 +115,35 @@ fi
 if [ "$stops" -gt 0 ]; then say "archive-change $id: $stops STOP(s); nothing written. Fix the delta (or design.md) and re-run"; exit 1; fi
 if [ -z "$apply" ]; then say "archive-change $id: the plan is clean; re-run with --apply to write $SPECS_DIR"; exit 0; fi
 
-# ── Apply, then hold every requirement's scenario count ──────────────────────────────────────────
+# ── Apply into scratch, hold every requirement's scenario count, then write ─────────────────────
+# Every capability is merged and counted BEFORE any living spec is written, so a FAIL, like a STOP,
+# leaves SPECS_DIR untouched.
 [ -f "$w/caps" ] || { say "archive-change $id: nothing to promote"; exit 0; }
 bad=0
 while IFS= read -r cap; do
   living="$ROOT/$SPECS_DIR/$cap/spec.md"
   : > "$w/before"; [ -f "$living" ] && scenario_counts "$living" > "$w/before"
   spec_merge apply "$cap" "$c/specs/$cap/spec.md" "$living" "$c/design.md" > "$w/new.$cap" || { say "  FAIL    $cap: the merge did not run"; bad=1; continue; }
-  mkdir -p "$(dirname "$living")" && cp "$w/new.$cap" "$living"
-  scenario_counts "$living" > "$w/after"
+  scenario_counts "$w/new.$cap" > "$w/after"
   # A requirement's count may fall only where the plan replaced it with design.md naming the drop,
-  # or removed it. A rename carries its count to the new name.
+  # or removed it. A rename (or a chain of them) carries its count to the final name.
   awk -F'\t' -v plan="$w/plan.$cap" '
     BEGIN { while ((getline l < plan) > 0) { split(l, f, "\t")
               if (f[1] == "RENAME") { from = f[3]; sub(/^from "/, "", from); sub(/"$/, "", from); ren[from] = f[2] }
               if (f[1] == "REMOVE") gone[f[2]] = 1
               if (f[1] == "REPLACE" && f[3] ~ /design\.md names/) named[f[2]] = 1 } }
-    FNR == NR { after[$2] = $1; next }
-    { n = ($2 in ren) ? ren[$2] : $2
+    FILENAME == ARGV[1] { after[$2] = $1; next }
+    { n = $2; hops = 0; while ((n in ren) && hops++ < 100) n = ren[n]
       if (n in gone || n in named) next
       if (!(n in after)) { print "  FAIL    " n ": was in the living spec with " $1 " scenario(s), and is gone"; bad = 1; next }
       if (after[n] < $1) { print "  FAIL    " n ": " $1 " scenario(s) before, " after[n] " after"; bad = 1 } }
     END { exit bad }' "$w/after" "$w/before" || bad=1
-  say "  wrote   ${living#"$ROOT"/} ($(awk -F'\t' '{ s += $1 } END { print s + 0 }' "$w/after") scenario(s) in $(wc -l < "$w/after" | tr -d ' ') requirement(s))"
+  printf '%s\t%s\t%s\n' "$cap" "$(awk -F'\t' '{ s += $1 } END { print s + 0 }' "$w/after")" "$(wc -l < "$w/after" | tr -d ' ')" >> "$w/counted"
 done < "$w/caps"
-if [ "$bad" -ne 0 ]; then say "archive-change $id: a scenario count FELL; the living specs are written but wrong. Inspect 'git diff $SPECS_DIR' and restore what was lost"; exit 1; fi
+if [ "$bad" -ne 0 ]; then say "archive-change $id: a scenario count would FALL; nothing written"; exit 1; fi
+while IFS="$(printf '\t')" read -r cap sc rq; do
+  living="$ROOT/$SPECS_DIR/$cap/spec.md"
+  mkdir -p "$(dirname "$living")" && cp "$w/new.$cap" "$living" || { say "  FAIL    could not write ${living#"$ROOT"/}"; exit 1; }
+  say "  wrote   ${living#"$ROOT"/} ($sc scenario(s) in $rq requirement(s))"
+done < "$w/counted"
 say "archive-change $id: promoted; no requirement lost a scenario. Next: the cost line, the outcome row, then git mv (the skill's steps 2-4)"

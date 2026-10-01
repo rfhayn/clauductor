@@ -121,8 +121,42 @@ mk named; rm -rf "$F/$C/specs/farewell"; living greeting "$two"; delta greeting 
 printf '\n## D9 — the returning greeting goes\nWe drop the scenario "A returning visitor is greeted": returning is not tracked.\n' >> "$F/$C/design.md"
 arc add-greeting-name --apply; rc=$?
 expect_rc 0 "$rc" "a partial MODIFIED whose dropped scenario design.md names is promoted"
-has "design.md names each one dropped" "$F/out" && ! grep -q 'Welcome back' "$F/specs/greeting/spec.md" \
+has "design.md names each living one dropped" "$F/out" && ! grep -q 'Welcome back' "$F/specs/greeting/spec.md" \
   && ok "...as a REPLACE: the removal the owner approved goes" || fail "named: $(tr '\n' '|' < "$F/out")"
+mk prose; rm -rf "$F/$C/specs/farewell"; living greeting "$two"; delta greeting "$short"
+printf '\nA returning visitor is greeted the way they are today.\n' >> "$F/$C/design.md"
+arc add-greeting-name --apply; rc=$?
+has 'MERGE   greeting' "$F/out" && grep -q 'Welcome back' "$F/specs/greeting/spec.md" \
+  && ok "a dropped scenario's title in unquoted prose is not naming its removal: still a MERGE" || fail "prose naming: $(tr '\n' '|' < "$F/out")"
+# A delta that changes one scenario and adds one (as many as the living requirement) but leaves the
+# other out: a reword or a drop, so neither a silent replace nor a merge.
+mk swap; rm -rf "$F/$C/specs/farewell"; living greeting "$two"
+delta greeting "$short
+#### Scenario: A member is greeted by name
+- **WHEN** a member opens the home page
+- **THEN** the page shows their name
+"
+arc add-greeting-name --apply; rc=$?
+expect_rc 1 "$rc" "a MODIFIED with as many scenarios that leaves a living one out is refused"
+has 'does not restate 1 living scenario(s), and design.md does not name them as removed: A returning visitor is greeted' "$F/out" && grep -q 'Welcome back' "$F/specs/greeting/spec.md" \
+  && ok "...naming it, and writing nothing" || fail "swap: $(tr '\n' '|' < "$F/out")"
+# SCENARIO_IDS=new-only: the living scenarios have no ID, the restated delta copy must carry one.
+mk newonly; rm -rf "$F/$C/specs/farewell"; living greeting "$two"
+delta greeting "$(printf '%s' "$short" | sed 's/^#### Scenario: An anonymous/#### Scenario: [GREETING-1-S1] An anonymous/')
+"
+arc add-greeting-name --apply; rc=$?
+expect_rc 0 "$rc" "a partial MODIFIED whose restated scenario gained an ID is promoted"
+[ "$(grep -c '^#### Scenario:' "$F/specs/greeting/spec.md")" = 2 ] && grep -q 'in the browser language' "$F/specs/greeting/spec.md" && ! grep -q '"Hello!"$' "$F/specs/greeting/spec.md" \
+  && ok "...the restated scenario replaces its ID-less original (matched by title), not sits beside it" || fail "new-only: $(grep '^####' "$F/specs/greeting/spec.md" | tr '\n' '|')"
+mk renamedamp; rm -rf "$F/$C/specs/farewell"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Greet every visitor`
+- TO: `### Requirement: Greet & welcome every visitor`
+'
+arc add-greeting-name --apply; rc=$?
+expect_rc 0 "$rc" "a RENAMED TO name with an & is promoted"
+grep -qx '### Requirement: Greet & welcome every visitor' "$F/specs/greeting/spec.md" && ok "...with the & as text, not the matched heading" || fail "renamed &: $(grep '^###' "$F/specs/greeting/spec.md")"
 mk shortbody; rm -rf "$F/$C/specs/farewell"
 living greeting "$(printf '%s' "$two" | sed 's/^The system SHALL show a greeting on the home page to every visitor\.$/The system SHALL show a greeting on the home page to every visitor.\
 \
@@ -162,6 +196,15 @@ mk supdelta
 arc add-greeting-name --superseded 'Goodbye, Ana' --apply; rc=$?
 expect_rc 1 "$rc" "superseded wording in a delta is refused"
 has 'STOP    superseded wording "Goodbye, Ana" in a delta' "$F/out" && [ ! -f "$F/specs/farewell/spec.md" ] && ok "...naming the line, writing nothing" || fail "superseded in delta: $(tr '\n' '|' < "$F/out")"
+mk suprename; rm -rf "$F/$C/specs/farewell"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Greet every visitor`
+- TO: `### Requirement: Greet each visitor`
+'
+arc add-greeting-name --superseded 'Greet every visitor' --apply; rc=$?
+expect_rc 0 "$rc" "superseded wording only in a RENAMED FROM line does not stop the archive (it names the old heading to retire it)"
+has 'CHECK   superseded wording "Greet every visitor" in specs/greeting/spec.md:3' "$F/out" && has "RENAMED section" "$F/out" && ok "...it is listed to confirm, naming the section" || fail "superseded in a FROM line: $(tr '\n' '|' < "$F/out")"
 mk supdesign
 printf '\nRejected: a farewell banner that slides in.\n' >> "$F/$C/design.md"
 arc add-greeting-name --superseded 'farewell banner that slides' --apply; rc=$?
@@ -177,6 +220,27 @@ grep -q 'lblk\[nme\] = d$' "$F/.claude/lib/change.sh" && ok "fixture: a merge th
 arc add-greeting-name --apply; rc=$?
 expect_rc 1 "$rc" "a promotion that lost a scenario fails"
 has 'FAIL    Greet every visitor: 2 scenario(s) before, 1 after' "$F/out" && ok "...naming the requirement and both counts" || fail "count guard: $(tr '\n' '|' < "$F/out")"
+grep -q 'Welcome back' "$F/specs/greeting/spec.md" && ok "...and, like a STOP, writes nothing" || fail "count guard: the living spec was written before the FAIL"
+
+# ── A chain of renames carries the count to the final name ───────────────────────────────────────
+mk chain; rm -rf "$F/$C/specs/farewell"
+delta greeting '## RENAMED Requirements
+
+- FROM: `### Requirement: Greet every visitor`
+- TO: `### Requirement: Greet each visitor`
+- FROM: `### Requirement: Greet each visitor`
+- TO: `### Requirement: Welcome each visitor`
+'
+arc add-greeting-name --apply; rc=$?
+expect_rc 0 "$rc" "a chain of renames in one delta is promoted, with no false count FAIL"
+grep -qx '### Requirement: Welcome each visitor' "$F/specs/greeting/spec.md" && ok "...under the last name" || fail "chain: $(tr '\n' '|' < "$F/out")"
+
+# ── Superseded wording in a held-back capability's delta reaches nothing ─────────────────────────
+mk supheld
+printf '# Held\n\nNot shipped yet.\n' > "$F/$C/specs/farewell/NOT-SYNCED.md"
+arc add-greeting-name --superseded 'Goodbye, Ana' --apply; rc=$?
+expect_rc 0 "$rc" "superseded wording only in a held-back capability's delta does not stop the archive"
+has 'in held-back farewell' "$F/out" && ok "...it is listed, naming the hold-back" || fail "superseded held: $(tr '\n' '|' < "$F/out")"
 
 # ── scenario_counts prints a requirement with no scenario as 0 (Standing Tee's awk omitted it) ──
 printf '### Requirement: A\n#### Scenario: a\n### Requirement: B\nThe system SHALL b.\n' > "$(scratch)/counts.md"
