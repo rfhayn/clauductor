@@ -38,3 +38,10 @@ run `sh .claude/skills/dev-journal/context.sh` yourself and read the result befo
 - Reference ADRs and insights rows rather than duplicating them.
 - "What's next" names owners, not hopes (AGENTS.md rule 1): a change, a roadmap row, an issue.
 - Never renumber another person's entry. On a collision at merge, yours takes the next number.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/dev-journal/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments dev-journal`

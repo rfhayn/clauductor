@@ -65,8 +65,9 @@ s=$(find "$fw" "$ROOT/scripts/ci" \( -name worktrees -o -name checks \) -prune -
 # ── 1. The gate, in a throwaway repo ────────────────────────────────────────────────────────────
 R="$d/repo"; mkdir -p "$R"
 git -C "$R" init -q -b main 2>/dev/null || git -C "$R" init -q
-mkdir -p "$R/scripts/ci" "$R/.claude/lib"
+mkdir -p "$R/scripts/ci/lib" "$R/.claude/lib"
 cp "$ROOT"/scripts/ci/run-local.sh "$ROOT"/scripts/ci/gate.sh "$ROOT"/scripts/ci/lease.sh "$R/scripts/ci/"
+cp "$ROOT/scripts/ci/lib/steps.sh" "$R/scripts/ci/lib/"
 cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
 steps() { printf 'gate_steps() {\n  step "unit" true || return 1\n%s  return 0\n}\n' "$1" > "$R/scripts/ci/steps.sh"; }
