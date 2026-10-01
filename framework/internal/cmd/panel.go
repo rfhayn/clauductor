@@ -114,6 +114,7 @@ func init() {
 	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
 	panelInstallCmd.Flags().IntVar(&installPort, "port", 4393, "loopback port")
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
+	panelInstallCmd.Flags().StringVar(&installRemote, "remote-control", "", "all (every Claude session: remoteControlAtStartup), lanes (the panel's lanes start with --remote-control) or off; without it, asked once on a terminal")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
 	panelOpenCmd.Flags().StringVar(&openProject, "project", "", "open on this project (an id or a path)")
 	panelInitCmd.Flags().StringVar(&initProject, "project", "", "project root (default: git toplevel of the current directory)")
@@ -132,6 +133,7 @@ var (
 	installConfig  string
 	installPort    int
 	installApp     bool
+	installRemote  string
 	openPort       int
 	openProject    string
 
@@ -264,8 +266,19 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			}
 			install.PrintTrusted(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs)
 		}
+		if installRemote != "" && installRemote != install.RemoteAll && installRemote != install.RemoteLanes && installRemote != install.RemoteOff {
+			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
+		}
 		// The agent serves projects.json (PANEL-16): the plist names no project.
-		return install.Install(install.InstallOptions{Home: home, Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System})
+		if err := install.Install(install.InstallOptions{Home: home, Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System}); err != nil {
+			return err
+		}
+		// PANEL-19: where Remote Control is on, asked once (docs/panel.md, Remote
+		// control), once the install has passed its checks. Lanes read it at each start.
+		fi, _ := os.Stdin.Stat()
+		_, err = install.ChooseRemoteControl(install.RemoteOptions{Home: home, Flag: installRemote, In: cmd.InOrStdin(), Out: cmd.OutOrStdout(),
+			Interactive: fi != nil && fi.Mode()&os.ModeCharDevice != 0})
+		return err
 	},
 }
 

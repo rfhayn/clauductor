@@ -32,7 +32,7 @@ var systemClockSites = map[string]map[string]int{
 	// into its files, so the cache's default and CancelWait read the wall clock.
 	"lease/lease.go": {"ProcCache.Check": 1, "CancelWait": 1},
 	// The pause between retries of a settings.json write that met a concurrent writer.
-	"install/hooks.go": {"rewriteHooks": 1},
+	"install/hooks.go": {"rewriteSettings": 1},
 }
 
 // clockReads returns every call of the time package's clock and every dot-import

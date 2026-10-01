@@ -26,6 +26,8 @@ SQLite database or file locks. It reads only Claude Code's own signals, plus git
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
 | project cards | per card: on a file change or an interval | anything the project prints |
+| the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
+| `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -38,7 +40,7 @@ the keyboard shortcuts.
 
 **Contents:** [Quick start](#quick-start) · [Configuration reference](#configuration-reference) ·
 [The page](#the-page) · [Lanes](#lanes) · [Queue and the gate lock protocol](#queue-and-the-gate-lock-protocol) ·
-[Alerts](#alerts) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
+[Alerts](#alerts) · [Metrics](#metrics) · [Appearance](#appearance) · [Signals: hooks and the status line](#signals-hooks-and-the-status-line) ·
 [Security model](#security-model) · [Operations](#operations) · [Troubleshooting](#troubleshooting) ·
 [Not yet](#not-yet)
 
@@ -77,7 +79,7 @@ clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep r
 clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
-clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app]
+clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app] [--remote-control=all|lanes|off]
 clauductor panel open [--project id]          # open the installed panel in the browser (on that project)
 clauductor panel rotate-token                 # replace the installed panel's token
 clauductor panel uninstall                    # stop and remove the login agent
@@ -221,11 +223,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 1 | `name`, `lanes`, `cards`, and the keys of lanes the panel starts: `tmux_socket`, `worktree_dir`, `base`, `lane_types` |
 | 2 | orchestration: `templates`, `queues`, `alerts`, `quota_guard`, `host_names` |
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
+| 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–3 (0 included) is refused.
+- A `version` outside 1–4 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -283,7 +286,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1, 2 or 3 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1, 2, 3 or 4 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -321,9 +324,17 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.waiting_seconds` | number | `120` | 2 | A permission prompt, MCP elicitation or input request older than this raises a waiting alert. |
 | `alerts.notify` | boolean | `true` | 2 | Send macOS notifications for the alerts that interrupt. |
 | `alerts.min_interval_seconds` | number | `300` | 2 | At most one notification per lane per interval. |
+| `alerts.approval_wait_hours` | number | `24` | 4 | A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*). |
+| `alerts.stale_days` | number | `3` | 4 | A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
+| `metrics.command` | array of strings |  | 4 | argv, run in the project root **without a shell**, like a card's, only while the config is trusted. 30-second timeout, 1 MB of output. Its stdout is the metrics JSON (see *Metrics*); a payload that breaks the contract shows its error in the view. |
+| `metrics.refresh` | string | `"interval:900"` | 4 | When to re-run the command, as a card's `refresh`. It also runs at start and on **Refresh**. Needs `metrics.command`. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
+| `metrics.card` | boolean | `true` | 4 | Show the **Flow** card in the side panel while there are metrics to show; `false` keeps them in the Metrics view alone. |
 <!-- config-reference end -->
 
 ### Card output
@@ -421,7 +432,7 @@ value just changed.
   - **Claude processes**: CPU and memory of the lanes' claude processes, with a sparkline (see
     *What the panel reads, and when*).
   - **Interruptions today** (OS notifications sent) and, from 1600 px, the **Hooks** counts.
-  - At the right: **New lane**, **Activity** (the drawer), **Refresh**, **Appearance** and **?**
+  - At the right: **New lane**, **Activity** (the drawer), **Metrics**, **Refresh**, **Appearance** and **?**
     (Help, PANEL-17): a dialog with the page's keyboard shortcuts, a few one-line how-tos and a
     link to [the guide](guide.md), which opens in a new tab. The `?` key opens it too, except in
     the terminal (where `?` is claude's) and in a text field; Escape or **Close** returns focus. **New
@@ -483,7 +494,9 @@ value just changed.
 - **The lane's header.** Its name and state, branch and worktree, model (as the status line
   reports it) with effort (its template's, else its lane type's), thinking and fast mode, uptime,
   context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
-  documented), and cost with cost per hour. **Hide details** folds the side panel; kept.
+  documented), and cost with cost per hour; when the lane builds a change whose proposal has a
+  budget, a **Budget** bar beside it (PANEL-19, see *Needs you from the metrics*). **Hide
+  details** folds the side panel; kept.
 - **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
   Under it: **Attach in Terminal.app**, **Interrupt (Esc)**, **Restart**, **Stop lane** and **Close lane**. Stop
   and restart ask in the page, in words built from the lane's state: idle gets `/exit`, busy or
@@ -509,7 +522,11 @@ value just changed.
     the holder and the line; **Cancel wait** for this lane's own wait; **Run in `<lane>`**.
   - **Alerts**: this lane's only. **Activity**: this lane's events, newest first.
   The tabs wrap onto a second line rather than scroll. Below them, the pinned cards' own box
-  (*Pinned cards*); with no lane selected, it is the side panel. **Hide details** folds both.
+  (*Pinned cards*); with no lane selected, it is the side panel. Under that, the **Flow (30d)**
+  card (PANEL-19): median cycle time, merges a week, change-fail rate and spend a week, each with
+  its sparkline, "—" (and why, on hover) where there is none. It shows once any of the four has a
+  value, whether the project's command or the panel gave it, unless `metrics.card` is `false`;
+  the whole card is one button that opens **Metrics** on Flow at 30d. **Hide details** folds all of them.
   The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
   and End go to the limits, Escape or a double-click restores the theme's width), up to half
   the window; the width is kept per browser.
@@ -517,6 +534,18 @@ value just changed.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
   lane. Escape or Close closes it and returns focus.
+- **Metrics (PANEL-19).** A wider drawer with four tabs, **Flow** (DORA and flow: cycle, lead
+  and approval time, merge frequency, change-fail rate, aging work in progress), **Cost** (spend,
+  per week, and by role, model, change and project), **Quality** (review rounds, the reviewer's
+  eval recall by model, escaped defects) and **Outcomes** (each change's hypothesis, when it is
+  due, whether it was checked; an unchecked one past its date is amber). **7d**, **30d** and
+  **90d** pick the range; **This project** or **All projects** the scope. The tabs are a tablist
+  (←, →, Home, End), the range and scope are pressed buttons, and the choices are kept per
+  browser. Each figure is its value with its unit, its series as columns drawn in the page (no
+  chart library; an empty bucket is a mark on the baseline, and the series is read out to a
+  screen reader), how many items it summarises, and **project** or **built in**; a figure with
+  none is "—" and the reason under it. A change over its budget is amber in **By change**. The
+  view is fetched when it opens and every minute while it stays open; see [Metrics](#metrics).
 - **The keyboard and the terminal.** Nothing moves focus into a terminal by itself: not loading
   the page, not picking a lane, not **Open terminal** (which takes focus to the terminal's frame).
   The terminal is one stop in the Tab order; **Enter** there, or a click, enters it. Inside, every
@@ -1293,6 +1322,9 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | context | `context_window.used_percentage` ≥ `context_pct` | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
+| approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
+| budget | a change whose branches have spent more than its proposal's `**Budget:** $N` (PANEL-19) | warn |
+| stale | a lane on a branch of its own with no commit for `stale_days` (PANEL-19) | warn |
 
 ### Current or stale
 
@@ -1342,6 +1374,167 @@ arguments, so without it a title starting with `-e` would be read as more script
 the config's `name` only while the config is trusted; `name` must be one line of plain text that
 does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
+
+## Metrics
+
+PANEL-19. How the work flows, what it costs, how good it is, and whether it did what it meant
+to. The figures come from two places, and the page marks every one with which:
+
+- **The project's metrics command** (`metrics.command`, config version 4): a project command,
+  like a card's, whose stdout is the JSON below. Clauductor's operating model ships one
+  (`.claude/metrics.sh`, OPS-9); any project can write its own.
+- **The panel's own** (built in), for any repository, with or without the command: merge
+  frequency and PR cycle time from merged pull requests (`gh`), spend from the status line's
+  posts, and the work in flight from the lanes. It costs no model token and runs nothing new but
+  one `gh pr list --state merged`, at most every 10 minutes while a page is in view.
+
+Where both have a figure, the project's is shown. A figure neither has shows "—" and why ("Only
+a project's metrics command reports this", "No pull request was merged in the last 7d", "The
+metrics command failed: …"), never a zero.
+
+### The metrics JSON (contract version 1)
+
+```json
+{
+  "version": 1,
+  "generated_at": 1790000000,
+  "windows": {
+    "30d": {
+      "flow": {
+        "lead_time":        { "value": 44,  "series": [50, 40, 46, 38, 42, 44, 45, 41, 43, 44], "n": 12 },
+        "cycle_time":       { "value": 7.5, "n": 12 },
+        "approval_wait":    { "value": 5.5, "n": 12, "note": "proposal written to Approved line" },
+        "merge_frequency":  { "value": 2.8, "series": [2.3, 4.7, 2.3, 0, 2.3, 4.7, 2.3, 2.3, 4.7, 2.3] },
+        "change_fail_rate": { "value": 8.3, "n": 12 },
+        "aging_wip": [ { "id": "add-score-photo", "title": "Photograph a scorecard", "age_days": 4.5, "stage": "build" } ]
+      },
+      "cost": {
+        "total_usd": 162.4,
+        "per_week":   { "value": 37.9, "series": [30, 35, 41, 38, 40, 36, 39, 37, 42, 38] },
+        "by_role":    [ { "name": "builder", "usd": 90.1 } ],
+        "by_model":   [ { "name": "opus", "usd": 140.4 } ],
+        "by_change":  [ { "name": "add-score-photo", "usd": 61.5, "budget_usd": 50 } ],
+        "by_project": [ { "name": "My Project", "usd": 162.4 } ]
+      },
+      "quality": {
+        "review_rounds":   { "value": 1.5, "n": 12 },
+        "reviewer_recall": [ { "model": "opus", "pct": 92, "n": 40 } ],
+        "escaped_defects": { "value": 1 }
+      },
+      "outcomes": {
+        "hypotheses": [ { "change": "add-score-photo", "hypothesis": "Half of new cards start from a photo",
+                          "due": "2026-10-20", "checked": false, "result": "" } ]
+      }
+    }
+  }
+}
+```
+
+- `windows` has any of `7d`, `30d` and `90d`; every section and every figure is optional.
+- A figure is `{value, series?, n?, note?}`. `value` may be `null` (with a `note` saying why);
+  `series` is the same figure over equal buckets of the window, oldest first, at most 120
+  points, a `null` point being a bucket with no data; `n` is how many items it summarises.
+- The units are fixed, so a payload carries numbers only: `lead_time`, `cycle_time` and
+  `approval_wait` are median **hours**; `merge_frequency` is **per week**; `change_fail_rate`
+  and `pct` are **percent** (0–100); money is **US dollars**; `age_days` is days;
+  `review_rounds` is a median count per change; `escaped_defects` a count.
+- `due` is `YYYY-MM-DD`. `generated_at` is unix seconds; the view shows its age.
+- It is read strictly, and drawn whole or not at all: an unknown key, another `version`, a window
+  other than those three, a negative or non-finite number, a percent over 100, text with a
+  control character or over 300 characters, a list over 500 entries, or output of 1 MB or more is
+  refused, and the view shows the error with the path of what is wrong
+  (`windows.30d.flow.change_fail_rate.value: must be at most 100`). A failed run shows its error,
+  not the last good payload's figures. The panel's own figures still draw.
+- `framework/internal/panel/metrics/testdata/metrics.sh` is a fixture command that prints a
+  valid payload (`metrics.json` beside it), or with `METRICS_FIXTURE=bad` one that breaks it.
+
+### The panel's own figures
+
+| Figure | From | How |
+|---|---|---|
+| Merge frequency | `gh pr list --state merged --search merged:>=<90 days ago> --limit 300` | merges in the window, per week; the series per bucket |
+| Cycle time | the same | median hours from a pull request's creation to its merge |
+| Cost: total, per week, by lane type, by model, by branch, by project | the spend ledger | the status line's `total_cost_usd`, per session, added up a day at a time |
+| Aging work in progress | the lanes | each registered lane on a branch of its own, by how long it has run |
+| Approval wait | the change directory (see *Needs you from the metrics*) | how long each proposal waiting for approval has waited so far |
+
+Buckets: 7 of a day for 7d, 10 of 3 days for 30d, 15 of 6 days for 90d. At gh's limit of 300 the
+figures say the oldest part of the window may lack merges. The ledger (see *Security model*,
+what the panel writes) counts a session the first time it sees it in full, and after that only
+what it added, so a panel restart counts nothing twice; spend from before the panel kept a
+ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
+By lane type, because the panel knows a lane's type, not the role a skill switched to: a
+project's command can report by role.
+
+### The command runs as a card does
+
+The metrics command is config like any other project command (see *Config trust*): it runs
+only while `panel.json` is trusted as it is, in the project's main checkout, without a shell, with
+a 30-second timeout and 1 MB of output; `trust` and `install` print it among what they trust.
+Untrusted, it does not run and the view says so. The JSON is data: every string reaches the page
+through `textContent`, never markup.
+
+### Needs you from the metrics
+
+Three signals act where you already look: the **Alerts** rows under **Needs you** (they show
+there whether or not a lane has them), and the lane's own **Alerts** tab. They are warnings, so,
+as every alert that does not block (see *Notifications*), they never raise an OS notification.
+
+- **An approval waiting too long.** A change's `proposal.md` with no `**Approved:** <date> by
+  <owner>` line (OPS-7's D8), last written (it or its `design.md`) more than
+  `alerts.approval_wait_hours` ago (default 24; 0 turns it off).
+- **A change over its budget.** A proposal's `**Budget:** $N` line (OPS-7, a cost budget per
+  change), against what every lane on the change's branches has spent, from the spend ledger. A
+  branch is the change's when its last path segment is the change's id (`change/add-x` builds
+  `add-x`). The lane's header shows a **Budget** bar next to **Cost**: what the change has spent
+  of its budget, amber from 80%, red past it.
+- **Work in flight gone quiet.** A registered lane on a branch of its own with no commit for
+  `alerts.stale_days` (default 3; 0 turns it off), counted from the lane's start while it has no
+  commit of its own. The commit time is the git read the dashboard takes while a page is in view,
+  so a lane not read yet is never called stale.
+
+The panel reads the changes from files alone, every minute and on **Refresh**, and runs no
+command for them: `<worktree>/<CHANGES_DIR>/<id>/proposal.md` in the main checkout and in every
+worktree (a proposal is drafted on a lane's branch before it lands; the copy written last
+counts), where `CHANGES_DIR` comes from `.claude/project.conf` when it names a directory inside
+the repository, else `changes`; and `openspec/changes/<id>/`. `archive/` is not read. The same
+reading gives the built-in **Approval wait** (the proposals waiting now) and the budgets beside
+**By change**.
+
+### Economy mode
+
+Off unless `quota_economy.five_hour_pct` is set (config version 4; the default project's, since
+the quota is the machine's). While the account's 5-hour quota is at or above it, the panel is in
+economy mode, and it leaves only once the quota is **3 points below** (so a quota hovering at the
+line does not flap). A reset window, or no reading, keeps the mode as it is.
+
+**The contract: `~/.clauductor/panel/economy.json`** (0600, written atomically, and only when
+the mode switches):
+
+```json
+{ "economy": true, "since": 1790000000, "reason": "5-hour quota 87% ≥ 85%" }
+```
+
+`since` is the unix time of the switch; `reason` the reading that switched it (off reads
+`"5-hour quota 81% < 82% (on at 85%)"`). A missing file means off. With `quota_economy` unset
+the panel writes nothing, except to turn a file an earlier run left on to off. Clauductor's
+operating model's `build-change` reads it and moves the roles that are not critical down one
+tier; which roles, and to what, is the project's `.claude/model-roles.json`:
+
+```
+"economy": { "_why": "…", "scribe": { "model": "sonnet", "effort": "low" }, "mechanic": "haiku/low" }
+```
+
+Each key not starting with `_` is a role; its value is the tier it drops to, as
+`{model, effort}` or `"model/effort"` (the same object may sit under `economy.roles`). The
+reviewer and planner are simply not listed. While economy mode is on, an **Economy** field by
+the quota says **economy** and names those roles ("scribe to sonnet, low"); hovering says why it
+is on and since when. The panel only reads that file, every minute, and runs nothing.
+
+`GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
+route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
+projects, merges, spend and escaped defects add up; a median cannot, so it is the projects'
+values weighted by how many each summarises, and says so; lists name their project.
 
 ## Appearance
 
@@ -1701,6 +1894,7 @@ send requests to `127.0.0.1`.
   in-page confirmation that shows its real address, since its text can say anything. The
   plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
   lane may print, other schemes and look-alike link text. Title escapes are ignored.
+- **Remote control** (PANEL-19) reaches past this page's guards: see [Remote control](#remote-control).
 - **A dropped image** (`POST /api/p/<project>/lanes/<id>/image`, PANEL-15b) is a lane action like the
   others: the cookie, this page's `Origin`, a valid lane id naming a running lane. The body is
   the image's bytes. A page elsewhere cannot send it at all: a cross-origin request with an image
@@ -1714,7 +1908,7 @@ send requests to `127.0.0.1`.
   are removed when it is stopped or forgotten, and any image older than 24 hours when the next
   one is dropped and when the panel starts. The panel never reads an image back.
 - **Lane control is fixed verbs on validated ids.** start, stop, close, interrupt, restart, resume,
-  forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
+  forget, terminal-app, remote-control (PANEL-19), restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
   names a lane type (checked against the config), a mode, a lane name, and for "existing" a path,
   which must be one of `git worktree list`'s. Unknown JSON fields are refused.
@@ -1758,9 +1952,12 @@ send requests to `127.0.0.1`.
   - the hook install;
   - the lane registry;
   - the trusted config hash, and the logs of queue RUNs;
+  - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
+    a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
   - `projects.json`, when a project is added (`panel add`, `install --project`, or a panel
     started on a project it does not list) or removed; a refused start writes nothing;
+  - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
@@ -1771,19 +1968,47 @@ send requests to `127.0.0.1`.
 
 ### Config trust
 
-`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN) and
+`panel.json` is in the repository, and it names commands the panel runs (cards, queue RUN, the
+metrics command) and
 prompts it types (templates). Anyone who can change the repository can change them, so the panel
 runs them only for the exact bytes you trusted. Trusting records the file's SHA-256 under
 `~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
-starts, but its cards, queue RUN and templates stay **off**, under a red **Config untrusted**
+starts, but its cards, queue RUN, metrics command and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
 `clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
 `clauductor panel install` trusts the config it installs. Both commands print the hash they
-record and everything it trusts: each card's command, each queue's RUN command, and each
-template's first prompt. There is no trust button in the page:
+record and everything it trusts: each card's command, each queue's RUN command, each
+template's first prompt, and the metrics command. There is no trust button in the page:
 trusting is a command you run after reading the file.
+
+### Remote control
+
+PANEL-19. Remote Control is Claude Code's own feature, and it reaches past everything above: a
+session connected to it can be driven from claude.ai/code or the Claude app on **any device
+signed in to your account**, which can send it prompts and answer its permission prompts. So
+whoever holds your account's session on a phone holds a shell on this Mac through that lane.
+Traffic goes out over TLS through Anthropic's API (no port is opened here), and while connected
+the transcript is kept on Anthropic's servers. It needs a claude.ai subscription login, and an
+organisation can turn it off (`disableRemoteControl`).
+
+The panel only chooses where it is on, once, at `panel install` (see *The launchd agent*):
+
+- **all** sets `remoteControlAtStartup` to `true` in your user `~/.claude/settings.json` (a
+  project's `.claude/settings.json` cannot turn it on, only off), so every interactive session
+  on the Mac connects;
+- **lanes** adds `--remote-control` to each lane's argv, before `-n` (never with its optional
+  name argument; `-n` names the session), read at every start and restart;
+- **off**, or an explicit `remoteControlAtStartup` of your own, leaves Claude Code as it is.
+
+The lane's header says **Remote: on, the panel's lanes** (or **every session**), and `panel list`
+names the mode. In lanes mode a running lane's **⋯** has **Remote control**: after an in-page
+confirmation, and only while `claude agents` reports the lane idle (read again just before the
+Enter, as Stop's `/exit` is), `POST /api/p/<project>/lanes/<id>/remote-control` types
+`/remote-control` and Enter. That connects a lane started before the choice, or shows a connected
+one's status. It passes the same guards as the other lane actions and takes no body. The first
+time on a machine claude asks, in the terminal, to confirm Remote Control.
 
 ## Operations
 
@@ -1837,6 +2062,27 @@ clauductor panel install                                      # once projects.js
      `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
      directories. launchd's default PATH has none of these.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
+
+Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
+where Claude Code's Remote Control is on. It asks once, on a terminal, and only when
+`~/.claude/settings.json` has no `remoteControlAtStartup` (an explicit `true` or `false` is
+your own choice, and is never asked about):
+
+```text
+  1) Every Claude session on this Mac (sets remoteControlAtStartup in ~/.claude/settings.json)
+  2) Only the panel's lanes (lanes start with --remote-control)
+  3) Not now
+Choose 1, 2 or 3 [3]:
+```
+
+`--remote-control=all|lanes|off` answers without asking; with no terminal and no flag it is
+off, unasked. The answer is kept in `~/.clauductor/panel/remote-control.json` (0600), so a
+later `install` does not ask again (the flag changes it). **all** merges that one key into
+`settings.json` through the same read-merge-atomic-write the hooks use (every other key keeps
+its value and place; a backup from before the panel's first change is
+`settings.json.clauductor-panel.bak`), and prints the change and how to undo it. **lanes** leaves
+`settings.json` alone: every lane the panel starts or restarts runs `claude --remote-control`.
+`panel list` names the mode.
 
 Since PANEL-16 the plist runs `clauductor panel --port <port> --launchd`, from your home
 directory: the agent serves `projects.json` as it is. A plist written before names `--project

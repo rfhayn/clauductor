@@ -37,6 +37,7 @@
     <div class="tools">
       <button class="btn primary" id="addlane" type="button" title="Start a lane: an interactive claude in its own tmux session">New lane</button>
       <button class="btn" id="activitybtn" type="button" aria-expanded="false" aria-controls="drawer" title="Every lane's activity, the open pull requests, the queues and the project's cards">Activity</button>
+      <button class="btn" id="metricsbtn" type="button" aria-expanded="false" aria-controls="mview" title="Metrics: flow, cost, quality and outcomes, for this project or all of them">Metrics</button>
       <button class="btn" id="refresh" type="button" title="Re-poll every source now">Refresh</button>
       <div class="picker">
         <button class="btn pickbtn" id="themebtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="thememenu" title="Appearance: theme, mode, type and size"><span id="themename">Appearance</span></button>
@@ -106,6 +107,13 @@
   <div class="drawerhead"><h2>Activity</h2><button class="btn" id="drawerclose" type="button">Close</button></div>
   <div class="drawerbody" id="drawerbody"></div>
 </aside>
+<!-- Metrics (PANEL-19): flow, cost, quality and outcomes, fetched while it is open. Every
+     figure says whether the project's metrics command or the panel gave it, or why neither did. -->
+<aside class="drawer mview" id="mview" aria-labelledby="mv-title" hidden>
+  <div class="drawerhead"><h2 id="mv-title">Metrics</h2><button class="btn" id="mviewclose" type="button">Close</button></div>
+  <div class="mvbar" id="mvbar"></div>
+  <div class="drawerbody mvbody" id="mvbody"></div>
+</aside>
 <div class="modal" id="startdlg" hidden>
   <form class="dlg" id="startform" autocomplete="off" role="dialog" aria-modal="true" aria-labelledby="st-title">
     <h3 id="st-title">Start a lane</h3>
@@ -161,6 +169,7 @@
       <li>Give claude an image: drop it on the terminal, or paste it with ⌘V.</li>
       <li>Stop lane ends claude and keeps the worktree; Close lane also removes the worktree and branch when nothing would be lost. The ⋯ on a lane's row has both, and asks first.</li>
       <li>After a reboot: Restore all, in the Restore bar, resumes every lane that lost its session.</li>
+      <li>How the work flows and what it costs: Metrics, next to Activity. Each figure says whether the project's metrics command or the panel gave it, and "—" says why there is none.</li>
       <li>Another repository: clauductor panel init, then trust, then add, and restart the panel.</li>
     </ul>
     <p><a id="helplink" target="_blank" rel="noopener noreferrer">The guide</a>, on GitHub, opens in a new tab.</p>

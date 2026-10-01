@@ -130,7 +130,11 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":4`,
+		"future version":        `,"version":5`,
+		"metrics refresh alone": `,"metrics":{"refresh":"interval:60"}`,
+		"metrics empty command": `,"metrics":{"command":[]}`,
+		"metrics bad refresh":   `,"metrics":{"command":["true"],"refresh":"interval:0"}`,
+		"metrics unknown key":   `,"metrics":{"cmd":["true"]}`,
 	}
 	for why, extra := range bad {
 		if _, err := parseConfig([]byte(`{"name":"T","lanes":{"change/":"build","main":"orchestrator"}` + extra + `}`)); err == nil {
