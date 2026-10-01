@@ -375,6 +375,11 @@ func Run(ctx context.Context, o Options) error {
 	if o.Launchd {
 		srv.CookieMaxAge = int((30 * 24 * time.Hour).Seconds())
 	}
+	srv.OnVisible = func() {
+		for _, r := range runtimes {
+			r.pageInView()
+		}
+	}
 	m.srv.Store(srv)
 	for _, r := range runtimes {
 		r := r

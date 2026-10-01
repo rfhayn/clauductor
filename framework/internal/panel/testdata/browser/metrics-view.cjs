@@ -82,11 +82,18 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const pressed = await p.$$eval('#mvbar [aria-label="Range"] button', (bs) => bs.map((x) => x.getAttribute("aria-pressed")));
     if (JSON.stringify(pressed) !== JSON.stringify(["false", "false", "true"])) fail("range pressed " + JSON.stringify(pressed));
     if (shots) await p.screenshot({ path: path.join(shots, "metrics-quality-90d-missing.png") });
-    // Flow at 90d: the panel's own merges (gh lists none: 0 a week, never "—").
+    // Flow at 90d: the panel's own merges (gh lists none: 0 a week, never "—"). PANEL-21:
+    // the page came into view, so gh was read at once, and the view asks again every 3 s
+    // while the read is pending: well within the wait, never "Reading…" for a minute.
     await p.click("#mtab-flow");
+    await p.waitForFunction(() => mv.data && mv.data.merged && mv.data.merged.ok, null, { timeout: 8000 }).catch(() => fail("merged pull requests still not read 8 s after the page came into view"));
     await p.waitForTimeout(150);
     const mf = await fig("Merge frequency");
-    if (!mf || !((mf.v === "0 a week" && mf.src === "built in") || /gh/.test(mf.note))) fail("90d merge frequency " + JSON.stringify(mf));
+    if (!mf || mf.v !== "0 a week" || mf.src !== "built in" || !/No pull request was merged in the last 90d/.test(mf.note)) fail("90d merge frequency " + JSON.stringify(mf));
+    // PANEL-21: spend with under a week kept is the amount so far and since when, never a
+    // weekly rate spread over the window.
+    const spanText = await p.evaluate(() => [mShown({ value: 11.7, span: { since: "2026-09-30", days: 1 } }, "$wk"), mShown({ value: 14 }, "$wk")]);
+    if (!/^\$11\.70? \(since 2026-09-30, 1 day\)$/.test(spanText[0]) || !/a week$/.test(spanText[1])) fail("spend with a span " + JSON.stringify(spanText));
 
     // All projects.
     await p.click('#mvbar [aria-label="Scope"] button:has-text("All projects")');
