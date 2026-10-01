@@ -277,6 +277,30 @@ const sideTab = async (page, lane, tab) => {
 async function reach(page, sel) {
   try { await page.click(sel, { timeout: 3000 }); } catch (e) { await page.$eval(sel, (b) => b.click()); }
 }
+// toProject switches to a project from the menu; what it returns switches back to Alpha.
+async function toProject(page, id) {
+  const name = id[0].toUpperCase() + id.slice(1);
+  await page.click("#projbtn");
+  await page.click("#proj-" + id);
+  await page.waitForFunction((n) => document.getElementById("pname").textContent === n, name, { timeout: 10000 });
+  await page.waitForTimeout(600);
+  return async () => {
+    await page.click("#projbtn");
+    await page.click("#proj-alpha");
+    await page.waitForFunction(() => document.getElementById("pname").textContent === "Alpha", null, { timeout: 10000 });
+    await page.waitForSelector('[data-k="tab:t:working"]', { timeout: 10000 });
+  };
+}
+async function flowCardShort(page, pct) {
+  const home = await toProject(page, "beta");
+  if (pct) await page.evaluate((v) => window.PanelScale.set(v), pct);
+  if (pct) await page.waitForTimeout(700);
+  const back = await withSide(page);
+  await page.waitForSelector(".flowcard", { timeout: 10000 });
+  if (!(await page.$(".flowcard .fsub"))) throw new Error("Beta's Flow card shows no spend span (.fsub): the short-history case is not on the page");
+  await page.locator(".flowcard").scrollIntoViewIfNeeded();
+  return async () => { await back(); if (pct) await page.evaluate(() => window.PanelScale.reset()); await home(); };
+}
 const FEATURES = {
   async "needs-alerts"(page) {
     await page.waitForSelector("#needs:not([hidden])", { timeout: 3000 });
@@ -356,6 +380,25 @@ const FEATURES = {
     await page.click('#rowmenu [data-act="remote-control"]');
     await page.waitForSelector('#termbar [data-k="confirm"]', { timeout: 3000 });
     return async () => { await page.click('#termbar [data-k="b:cancel"]').catch(() => {}); await back(); };
+  },
+  // PANEL-21: Beta's spend has under a week kept (its ledger starts with the run), so its
+  // Flow card shows the span ("since …, 1 day") on its own line; at 1440×900 and 110% it
+  // pushed the Spend label out and the sparklines past the side panel. The flowcard rule
+  // checks every row's label and the card's edge; this view also checks at 150%.
+  async "flow-card-short"(page) { return flowCardShort(page, 0); },
+  async "flow-card-short-150"(page) { return flowCardShort(page, 150); },
+  async "metrics-short-spend"(page) {
+    if (!(await page.$("#metricsbtn"))) return null;
+    const home = await toProject(page, "beta");
+    await page.click("#metricsbtn");
+    await page.waitForSelector("#mview:not([hidden])", { timeout: 3000 });
+    await page.click('[data-k="mscope:project"]').catch(() => {});
+    await page.click('[data-k="mrange:30d"]').catch(() => {});
+    await page.click("#mtab-cost");
+    await metricsLoaded(page);
+    if (!(await page.$("#mvbody .mrow .msub"))) throw new Error("Beta's Metrics Cost tab shows no spend span (.msub): the short-history case is not on the page");
+    await page.locator("#mvbody .mrow .msub").first().scrollIntoViewIfNeeded().catch(() => {});
+    return async () => { await page.click("#mtab-flow").catch(() => {}); await page.click("#mviewclose").catch(() => {}); await home(); };
   },
   async "metrics-from-flow-card"(page) {
     await page.click('[data-k="tab:t:' + alphaLanes[0] + '"]');

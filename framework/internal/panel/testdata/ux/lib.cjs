@@ -227,6 +227,28 @@ async function layoutAudit(page) {
       if (inTerm(e) || !vis(e)) continue;
       for (const n of e.childNodes) if (n.nodeType === 3 && /[?!.]:\s/.test(n.textContent)) out.push({ rule: "copy", selector: sel(e), detail: "\"" + n.textContent.trim().slice(0, 80) + "\" doubles its punctuation" });
     }
+    // PANEL-21: the Flow card (side panel) shows every row's label whole, and nothing in
+    // it runs past the side panel. Spend with under a week kept read "$0.20 (since …, 1 day)"
+    // in one line: it pushed the Spend label out and the sparklines past the panel's edge.
+    const side = document.getElementById("side");
+    for (const fc of document.querySelectorAll(".flowcard")) {
+      if (!vis(fc) || !side) continue;
+      const edge = Math.min(side.getBoundingClientRect().right, document.getElementById("wsbody") ? document.getElementById("wsbody").getBoundingClientRect().right : Infinity, innerWidth);
+      const fr = fc.getBoundingClientRect();
+      if (fr.right > edge + 1 || fc.scrollWidth > fc.clientWidth + 1) out.push({ rule: "flowcard", selector: sel(fc), detail: "the Flow card is " + Math.round(Math.max(fr.width, fc.scrollWidth)) + " px wide and runs " + Math.round(Math.max(fr.right - edge, fc.scrollWidth - fc.clientWidth)) + " px past the side panel" });
+      for (const row of fc.querySelectorAll(".frow")) {
+        const l = row.querySelector(".fl"), rr = row.getBoundingClientRect();
+        const lr = l && l.getBoundingClientRect();
+        if (!l || !vis(l) || l.scrollWidth > l.clientWidth + 1 || lr.left < rr.left - 1 || lr.right > Math.min(rr.right, edge) + 1)
+          out.push({ rule: "flowcard", selector: sel(row), detail: "a Flow card row's label " + (l ? "\"" + text(l) + "\"" : "") + " is not shown whole (row \"" + text(row) + "\")" });
+        for (const k of row.querySelectorAll("*")) {
+          if (!vis(k)) continue;
+          const kr = clipRect(k); // what shows: a spark's end dot clipped by its cell does not count
+          if (kr.right <= kr.left) continue;
+          if (kr.right > edge + 1 || kr.right > rr.right + 1) { out.push({ rule: "flowcard", selector: sel(k), detail: "\"" + (text(k) || k.tagName.toLowerCase()) + "\" in the Flow card row \"" + text(row.querySelector(".fl") || row) + "\" runs " + Math.round(kr.right - Math.min(edge, rr.right)) + " px past it" }); break; }
+        }
+      }
+    }
     // PANEL-21: a lane's ⋯ in the rail shows whole sideways (the Lanes table ran wider
     // than the rail with a long name, and cut it off). rowActAudit also scrolls to each.
     // The bars over the lanes too: a long ask pushed its row's Open terminal out of sight.

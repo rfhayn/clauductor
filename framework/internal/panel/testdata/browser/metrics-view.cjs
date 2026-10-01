@@ -150,6 +150,25 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const opened = await p.evaluate(() => ({ hidden: document.getElementById("mview").hidden, tab: mv.tab, range: mv.range }));
     if (opened.hidden || opened.tab !== "flow" || opened.range !== "30d") fail("the Flow card did not open Flow at 30d: " + JSON.stringify(opened));
     await p.keyboard.press("Escape");
+    // PANEL-21: spend with under a week kept puts its span on a line of its own; in one line
+    // it pushed the Spend label out and the sparklines past the side panel (UX pass 2).
+    for (const scale of [100, 110]) {
+      const fit = await p.evaluate((scale) => {
+        window.PanelScale.set(scale);
+        const sp = S.flow.items.find((it) => it.key === "cost.per_week");
+        sp.value = 0.2; sp.span = { since: "2026-09-30", days: 1 }; sp.series = [0, 0, 0.2];
+        render();
+        const side = document.getElementById("side").getBoundingClientRect(), c = document.querySelector("#side .flowcard");
+        const rows = Array.from(c.querySelectorAll(".frow")).map((r) => { const l = r.querySelector(".fl"), lr = l.getBoundingClientRect(), rr = r.getBoundingClientRect();
+          return { l: l.textContent, whole: l.scrollWidth <= l.clientWidth + 1 && lr.left >= rr.left - 1 && lr.right <= rr.right + 1,
+            past: Math.max(0, ...Array.from(r.querySelectorAll("*")).map((k) => k.getBoundingClientRect().right - Math.min(side.right, rr.right))) }; });
+        const sub = c.querySelector(".fsub");
+        window.PanelScale.reset();
+        return { rows, sub: sub && sub.textContent, title: sub && sub.parentElement.title, card: c.getBoundingClientRect().right - side.right, side: side.width };
+      }, scale);
+      if (fit.sub !== "since 2026-09-30, 1 day" || !/\$0\.20 \(since 2026-09-30, 1 day\)/.test(fit.title) || fit.side < 50 || fit.card > 1 || fit.rows.some((r) => !r.whole || r.past > 1))
+        fail("the Flow card with a short spend history at " + scale + "% " + JSON.stringify(fit));
+    }
 
     // PANEL-19 part 4: run.sh gave lane "second" a change whose proposal waits for
     // approval and has a budget. Refresh re-reads the change directory.
@@ -173,7 +192,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
       S.economy = null; render();
       return out;
     });
-    if (!eco || !/^Economyeconomyscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
+    if (!eco || !/^Economyonscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
 
     // PANEL-19 part 6: remote control in lanes mode (synthetic: install writes the mode).
     const rc = await p.evaluate(() => {

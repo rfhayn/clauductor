@@ -139,6 +139,11 @@ every call to `$HOME/fake/gh.log`.
 - **confirm-hidden** (PANEL-21): an inline confirmation under the terminal (Stop, Close lane,
   Forget, Resume, Remote control, a link) is not whole on screen, or a button of it is covered.
 - **copy** (PANEL-21): text composed from parts doubles its punctuation ("close lane?: its").
+- **flowcard** (PANEL-21): a Flow card row (side panel) does not show its label whole, or
+  something in the card runs past the side panel. `layout-metrics` shoots Beta's card, whose
+  spend has under a week kept (its ledger starts with the run), at 100% and 150%
+  (`flow-card-short`, `flow-card-short-150`), and Beta's Metrics Cost tab
+  (`metrics-short-spend`); each fails if the span line is not on the page.
 
 Flows run the same rules on the state they leave behind: more lanes, result bars and restore
 bars. Each finding records its selector, viewport, theme, mode, type, size and screenshot. The
@@ -261,6 +266,12 @@ above or a flow, and two Go tests (`TestLayoutFitsTheWindow`, `TestCopyNamesButt
 - **Copy**: the orphan message names Resume, Forget and Close lane as the buttons read (and the
   exited message Restart and Stop lane); a Needs-you label that asks ("PR merged: close lane?")
   ends its sentence, and the reason is the next one.
+- **The Flow card's rows are a fixed grid** (UX pass 2's `clip` at 1440×900, 110%: Beta's
+  "$0.20 (since 2026-09-30, 1 day)" pushed the Spend label out and the sparklines 22 px past the
+  side panel). The label keeps its width, the value truncates, the spark cell is 3rem and clips,
+  and a span goes on a smaller line under the label and value; the Metrics view's value cell
+  puts it on a line under the amount too (rule `flowcard`). The Economy field reads **on**, not
+  "economy" again (`TestFieldValueDoesNotRepeatItsLabel`).
 - A terminal shown again after its frame changed while hidden is refitted once it settles (it
   kept its old grid: `xterm-fit` at 2560 px after the rail widths changed).
 
