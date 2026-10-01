@@ -75,6 +75,24 @@ git -C "$R" revert -q --no-edit HEAD~1 >/dev/null 2>&1 || true
 
 echo "- **D3** edited after approval" >> "$C/design.md"; git -C "$R" commit -qam "edit design"
 V; expect_rc 1 $? "verify-change fails when the design changed after approval"
+# CHANGES_LEGACY: a grandfathered change keeps the format it was approved in, so its approval line
+# and its scenarios are not judged; its tasks still are.
+cp "$ROOT/.claude/lib/records.sh" "$R/.claude/lib/"
+[ -f "$R/.claude/project.conf" ] && cp "$R/.claude/project.conf" "$d/pc.bak" || : > "$d/pc.bak"
+{ cat "$d/pc.bak"; echo 'CHANGES_LEGACY="add-greeting-name"'; } > "$R/.claude/project.conf"
+# (group 2's files back, as the cases above may have left them; no test cites FAREWELL-1-S1)
+mkdir -p "$R/src/auth"; echo "// src/auth/sign-out.ts" > "$R/src/auth/sign-out.ts"; echo "// src/auth/sign-out.test.ts" > "$R/src/auth/sign-out.test.ts"
+for f in src/auth/sign-out.test.ts src/home/farewell.test.ts; do
+  [ -f "$R/$f" ] && sed 's/FAREWELL-1-S1//g' "$R/$f" > "$d/t" && cp "$d/t" "$R/$f"
+done
+git -C "$R" add -A; git -C "$R" commit -qm "legacy: voided approval, an uncited scenario"
+V; rc=$?; expect_rc 0 "$rc" "verify-change passes a grandfathered change whose approval and scenarios predate the format"
+[ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
+grep -q 'approval: grandfathered' "$d/out" && grep -q 'scenarios: grandfathered' "$d/out" && ok "...and says why it did not judge them" || fail "legacy verify output: $(cat "$d/out")"
+sed 's/- \[x\] 1.2/- [ ] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"
+V; expect_rc 1 $? "verify-change still fails a grandfathered change with an open task"
+sed 's/- \[ \] 1.2/- [x] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"
+cp "$d/pc.bak" "$R/.claude/project.conf"
 
 # ── change-cost.sh ─────────────────────────────────────────────────────────────────────────────
 P="$d/projects"
