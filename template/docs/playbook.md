@@ -163,6 +163,90 @@ Models and efforts are chosen in ONE place, `.claude/model-roles.json`: each rol
 variants, its economy-mode drop, the provenance trailers and the list prices change-cost reads.
 Everything else restates it and `checks/model-roles.sh` fails on a disagreement.
 
+## Choosing a model by evidence
+
+A role's model and effort are a bet on quality per dollar. `.claude/evals/` turns the bet into a
+measurement for every role that has a suite. Today that is the reviewer: 18 seeded-defect cases in
+Go, TypeScript, Python and shell, covering wrong money, cross-tenant access, data loss, an untested
+scenario, a test that passes without its code, a control that silently does nothing, and
+portability. Five of the cases are clean controls, which measure false alarms.
+
+```sh
+sh .claude/evals/run.sh --role reviewer --model sonnet --effort high --estimate   # the price, free
+EVAL_CLAUDE=.claude/evals/fake-claude.sh sh .claude/evals/run.sh --role reviewer --model opus --effort high --out /tmp/try   # the harness, free
+sh .claude/evals/run.sh --role reviewer --model opus --effort high                # the real run
+```
+
+Each case runs in a scratch repository. The agent runs through `claude -p` with the same prompt,
+tools and findings schema that build-change uses. The run writes
+`.claude/evals/receipts/<role>-<model>-<effort>-<date>.json`, which holds:
+
+- the role's **recall** (planted defects caught);
+- its **precision** (actionable findings that were real);
+- its **fp_rate** (clean cases it flagged);
+- its **severity accuracy**;
+- the run's **cost**, taken from Claude Code's own usage report;
+- the hashes it ran at.
+
+A full run's estimated cost:
+
+| Model and effort | Per run |
+|---|---|
+| opus/high | about $7.40 |
+| opus/medium | about $6.30 |
+| sonnet/high | about $4.10 |
+| haiku/high | about $2.10 |
+
+Multiply by 2 to 4 if the agent fans out through the `code-review` skill.
+
+**Comparing opus/high, sonnet/high and opus/medium.**
+
+1. Run all three on the same suite on the same day.
+2. Tabulate the receipts:
+
+   ```sh
+   jq -r '[.model, .effort, .scores.recall, .scores.fp_rate, .scores.severity_accuracy, .cost.usd, .cost.catches_per_usd] | @tsv' .claude/evals/receipts/reviewer-*.json
+   ```
+
+3. Drop any receipt below the thresholds in `model-roles.json` `.evals.thresholds`, however cheap it
+   is. The thresholds are recall ≥ 0.8, fp_rate ≤ 0.2 and severity accuracy ≥ 0.5.
+4. Among the receipts that pass, catches per dollar decides, with two cautions:
+   - **Noise.** A run is one sample, and one case moves recall by 0.05. Re-run a close call. Treat a
+     recall gap under about 0.1 as noise.
+   - **What was missed.** `jq '.cases[] | select(.caught < .planted)'` lists the misses. A cheaper
+     model that misses a critical case (cross-tenant access, a silent control) is not cheaper. For
+     the reviewer, a missed defect costs far more than the few dollars between runs.
+5. Weigh severity accuracy heavily for the reviewer. Severity is what tells build-change to stop,
+   so a reviewer that grades a critical as a medium ends rounds early.
+
+**Recording a choice.**
+
+1. Set the role's model and effort in `model-roles.json`.
+2. Fix what `checks/model-roles.sh` names. That covers the agent's frontmatter and build-change's
+   tables.
+3. Commit the receipt.
+4. Copy the line the run prints into the role's `eval` field.
+
+The check fails while the role's model differs from its evidence. `pr-merge-guard` rule 13 refuses
+any PR that changes the role's model, its agent or the workflows unless it carries a passing
+receipt at the head's hashes. Re-run the suite when any of those three changes. A role that has
+not yet been measured records `{"baseline": "<model>/<effort>"}`: it can stay as it is, but it
+cannot change without a receipt.
+
+**When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
+(preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,
+not by misjudging. Haiku fits the mechanic when both of these hold:
+
+- the step returns a schema that the workflow checks against evidence (the gate step reports
+  `passed` alongside the output it quotes);
+- you have seen Haiku do the job, through economy mode, which already drops the mechanic to
+  haiku/low.
+
+Before making Haiku the mechanic's default, give the mechanic a suite. Use script outputs with a
+planted FAIL line and the expected `passed: false`, under `.claude/evals/mechanic/cases/`, then
+compare haiku/low with sonnet/low. Until a suite exists, rule 13 only notes the change. Never use
+Haiku for the reviewer or the planner: economy mode never drops them either.
+
 ## Skills
 
 <!-- skills-table begin -->
@@ -189,7 +273,7 @@ Everything else restates it and `checks/model-roles.sh` fails on a disagreement.
 
 | Guard | When | What it does |
 |---|---|---|
-| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers |
+| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
 | `no-blind-source-rewrite.sh` | every Bash call | blocks `sed -i`/`perl -pi`/python read-modify-write on tracked source: use the Edit tool |
 | `worktree-hook-drift.sh` | every agent spawn | blocks a worktree agent while the main checkout's hooks lag `origin/main` |
 | `focus-staleness.sh` | every prompt | nudges when the status-line focus is stale |

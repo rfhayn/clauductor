@@ -103,7 +103,8 @@ The path rewrites, all mechanical and all in `framework/internal/plugin`:
   the project's own skills (`/architecture-audit`, `/release-prep`) keep their names. The
   scaffolded AGENTS.md and playbook lose the table rows for hooks the plugin does not register.
 - **Project paths are never rewritten**: `.claude/project.conf`, `model-roles.json`,
-  `settings.json`, `.claude/worktrees/`, `.claude/health/`, and the project's own skills.
+  `settings.json`, `.claude/worktrees/`, `.claude/health/`, `.claude/evals/`, and the project's
+  own skills.
 
 A template file the packager cannot place (a new top-level file or directory under `.claude/`)
 fails the build rather than being left out.
@@ -127,6 +128,11 @@ what exists:
 - `.claude/skills/architecture-audit/`, `.claude/skills/release-prep/`: CONFIGURE FIRST skills
   the project edits, so they are the project's, as with `clauductor install`
 - `.claude/health/`: the project's health lines, as with `clauductor install`
+- `.claude/evals/`: the seeded-defect suites, their runner and the receipts a project's model
+  choices rest on (OPS-10). The project adds cases for its own domain and commits its receipts.
+  The runner cannot source the plugin's `lib/evals.sh`, so it carries its own copy of the hash
+  functions, and `checks/evals.sh` fails if the two copies drift. A plugin project points the
+  runner at the plugin's agent with `EVAL_AGENT_FILE`.
 - `docs/`, `changes/`, `specs/`, `.github/`, with framework paths in prose named as the plugin's
 - `scripts/ci/`: the gate (`steps.sh`, `run-local.sh`, `gate.sh`, `lease.sh`) and
   `clauductor-model.sh`, and `.claude/lib/conf.sh`: the gate runs in CI where no plugin is

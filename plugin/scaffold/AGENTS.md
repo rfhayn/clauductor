@@ -57,6 +57,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`${CLAUDE_PLUGIN_ROOT}/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
 | A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/clauductor:verify-change`; **`checks/merge-guard.sh`** |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
+| A role's model, agent or workflows change only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
 | A change stays within its budget | **`build-change.js`** stops (`${CLAUDE_PLUGIN_ROOT}/change-cost.sh`); by hand, **Nothing. You.** |
 | No secret is committed, and agents cannot read the project's | **`run-local.sh`** secrets step (gitleaks; fails under CI without it); **`settings.json`** deny list and sandbox; **`checks/settings.sh`**, **`checks/gate.sh`** |
 | A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |

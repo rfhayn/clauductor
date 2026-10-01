@@ -19,7 +19,8 @@
       "does": "reviews one task group; never edits",
       "tiers": {
         "high": { "model": "opus", "effort": "xhigh" }
-      }
+      },
+      "eval": { "baseline": "opus/high", "why": "chosen before the seeded-defect suite existed and not yet measured: run sh .claude/evals/run.sh --role reviewer --model opus --effort high, then record its receipt here" }
     },
     "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },
     "scribe": { "model": "opus", "effort": "medium", "does": "journal, insights, merge, archive, close" },
@@ -31,6 +32,10 @@
   "tiers": {
     "_why": "A change's proposal.md declares **Risk:** low | normal | high, and the owner approves the tier with the design. build-change runs a role that has a `tiers` entry for the declared tier on that variant instead of the role's own model and effort; normal, and any tier a role does not list, is the role itself. .claude/checks/model-roles.sh holds build-change.js's TIERS table to these variants.",
     "levels": ["low", "normal", "high"]
+  },
+  "evals": {
+    "_why": "Evidence for a model choice (OPS-10). A role with a seeded-defect suite (.claude/evals/<role>/cases/) records, as roles.<role>.eval, either the receipt of a passing run of .claude/evals/run.sh on its model and effort ({receipt, recall, precision, fp_rate, severity_accuracy, cost_usd}, copied from the receipt), or {baseline: \"<model>/<effort>\"} for a choice made before the suite existed. .claude/checks/model-roles.sh fails when the role's model or effort differs from what its evidence covers, when the receipt does not pass the thresholds below, or when the recorded scores disagree with it; pr-merge-guard rule 13 refuses a PR that changes the role's model, its agent or the workflows without a passing receipt at the head's hashes. A choice is made by catch rate per dollar: docs/playbook.md, Choosing a model by evidence.",
+    "thresholds": { "recall": 0.8, "fp_rate": 0.2, "severity_accuracy": 0.5 }
   },
   "economy": {
     "_why": "Quota economy mode. When the panel's quota is past its threshold it writes the file below as {\"economy\": true, \"since\": <unix>, \"reason\": \"...\"}; build-change reads it at run time and runs each role listed here one tier down. Only roles that are not critical drop: the reviewer and the planner never do (a cheaper review is a weaker gate, a cheaper design a worse decision), and .claude/checks/model-roles.sh fails if either is listed, or if an entry is not strictly cheaper than its role.",

@@ -1,0 +1,26 @@
+{
+  "id": "go-tenant-scope",
+  "lang": "go",
+  "kind": "defect",
+  "charter": "cross-tenant access",
+  "title": "List a customer's invoices",
+  "brief": "The invoices page lists one customer's invoices. Add Store.ListByCustomer(ctx, tenantID, customerID), newest first, for the signed-in tenant. The store's integration suite covers the SQL (out of this group).",
+  "tasks": [
+    "Add Store.ListByCustomer for the signed-in tenant"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "store/invoices.go",
+      "lines": [
+        28,
+        30
+      ],
+      "keywords": [
+        "tenant"
+      ],
+      "why": "The query filters by customer_id only; tenantID is accepted and never used, so a customer id from another tenant returns that tenant's invoices."
+    }
+  ]
+}

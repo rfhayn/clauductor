@@ -1,0 +1,13 @@
+{
+  "id": "sh-clean-coverage-fails-closed",
+  "lang": "sh",
+  "kind": "clean",
+  "charter": "control: the near miss of sh-coverage-fails-open, done right",
+  "title": "Coverage from covsum",
+  "brief": "CI moves from go tool cover to covsum, which also covers the TypeScript. check-coverage.sh reads the total from covsum --json and still fails the build below the floor, and fails when it cannot read a total.",
+  "tasks": [
+    "Read the total from covsum --json in check-coverage.sh, failing when there is none",
+    "Test above, below and a failing covsum"
+  ],
+  "expected": []
+}

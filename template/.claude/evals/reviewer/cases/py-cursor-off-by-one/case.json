@@ -1,0 +1,46 @@
+{
+  "id": "py-cursor-off-by-one",
+  "lang": "py",
+  "kind": "defect",
+  "charter": "incorrect behaviour a user hits",
+  "title": "Cursor pagination",
+  "brief": "The mobile client pages with a cursor instead of page numbers. Add page_after(items, cursor, size): up to size items from cursor, and the next cursor (None at the end).",
+  "tasks": [
+    "Add api.pages.page_after",
+    "Test that paging walks every item, size items at a time"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "high",
+      "file": "api/pages.py",
+      "lines": [
+        9,
+        9
+      ],
+      "keywords": [
+        "off-by-one",
+        "size - 1",
+        "one fewer",
+        "size-1"
+      ],
+      "why": "items[cursor:cursor + size - 1] returns size-1 items: a page of 2 holds 1, and with size=1 every page is empty and the cursor never advances, so a client loops forever."
+    },
+    {
+      "id": "D2",
+      "severity": "medium",
+      "file": "tests/test_pages.py",
+      "lines": [
+        12,
+        18
+      ],
+      "keywords": [
+        "size",
+        "len",
+        "length",
+        "count"
+      ],
+      "why": "The test only checks that the walk covers every item, which it does one item at a time too: it never asserts a page holds size items, so it passes with D1."
+    }
+  ]
+}
