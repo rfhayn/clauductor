@@ -35,7 +35,7 @@ records_baseline_bad() {
 # is empty or not before. As integers: `[ a \< b ]` is not POSIX test.
 records_before() {
   case "$1" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) return 1 ;; esac
-  [ "$(printf '%s' "$1" | tr -d -)" -lt "$(printf '%s' "$RECORDS_BASELINE" | tr -d -)" ]
+  [ "$(printf '%s' "$1" | sed 's/-//g')" -lt "$(printf '%s' "$RECORDS_BASELINE" | sed 's/-//g')" ]
 }
 
 # records_added_date PATH: the day git first committed PATH (relative to ROOT); empty if never.

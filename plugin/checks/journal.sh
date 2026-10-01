@@ -108,21 +108,22 @@ d=$(grep -E '^## Session [0-9]' "$j" | sed -n 's/^## Session \([0-9.]*\).*/\1/p'
 kind=$(records_baseline_kind)
 if [ "$kind" = bad ]; then fail "$(records_baseline_bad)"; finish; fi
 journal_legacy_sessions > "$(scratch)/legacy-sessions"
-# Numbered headings only: the file's own preamble shows the shape as `## Session N — …`. The
-# pattern goes through ENVIRON, not -v, which would rewrite its backslashes.
-grep -nE '^## Session [0-9]' "$j" | JH="$JOURNAL_HEADING" awk -v kind="$kind" -v base="$RECORDS_BASELINE" -v lf="$(scratch)/legacy-sessions" '
-  BEGIN { pat = ENVIRON["JH"]; while ((getline l < lf) > 0) legacy[l] = 1; gsub(/-/, "", base); nl = nn = nb = 0 }
+# Numbered headings only: the file's own preamble shows the shape as `## Session N — …`. awk sorts
+# history from new (`L` / `N <line>:<heading>`); grep -E matches the pattern, because an ERE with
+# intervals ({4}) is not one every awk reads (mawk, Ubuntu's default, may not).
+grep -nE '^## Session [0-9]' "$j" | awk -v kind="$kind" -v base="$RECORDS_BASELINE" -v lf="$(scratch)/legacy-sessions" '
+  BEGIN { while ((getline l < lf) > 0) legacy[l] = 1; gsub(/-/, "", base) }
   {
     line = $0; sub(/^[0-9]+:/, "", line)
     n = line; sub(/^## Session /, "", n); sub(/[^0-9.].*$/, "", n)
     old = 0
     if (kind == "ref" && (n in legacy)) old = 1
     if (kind == "date" && match(line, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) { dt = substr(line, RSTART, 10); gsub(/-/, "", dt); if (dt + 0 < base + 0) old = 1 }
-    if (old) { nl++; next }
-    nn++; if (line !~ pat) { nb++; if (nb <= 3) bad = bad " " $0 }
-  }
-  END { printf "%d\t%d\t%d\t%s\n", nl, nn, nb, bad }' > "$(scratch)/j-judged"
-IFS="$(printf '\t')" read -r nl nn nb bad < "$(scratch)/j-judged"
+    print (old ? "L" : "N " $0)
+  }' > "$(scratch)/j-judged"
+nl=$(grep -c '^L' "$(scratch)/j-judged"); nn=$(grep -c '^N ' "$(scratch)/j-judged")
+sed -n 's/^N [0-9]*://p' "$(scratch)/j-judged" | { grep -vE -- "$JOURNAL_HEADING" || true; } > "$(scratch)/j-bad"
+nb=$(grep -c . "$(scratch)/j-bad"); bad=$(head -3 "$(scratch)/j-bad" | tr '\n' ' ')
 [ "$kind" = none ] || ok "$nl session heading(s) before RECORDS_BASELINE ($RECORDS_BASELINE) kept as written"
 if [ "$nb" -eq 0 ]; then ok "every session heading since adoption ($nn) matches JOURNAL_HEADING"
 else fail "malformed session headings ($nb of $nn since adoption; JOURNAL_HEADING): $bad"; fi
