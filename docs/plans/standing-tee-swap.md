@@ -1,11 +1,12 @@
 # The Standing Tee swap plan (ST-5)
 
-**Status:** a plan, for the owner's review. Nothing in `rfhayn/standingtee` was changed to write it.
+**Status:** a plan. The owner accepted all eleven decisions in §3 on 2026-10-01. Nothing in
+`rfhayn/standingtee` was changed to write it.
 **Inputs:** the Phase 0 convergence map and the Standing Tee docs audit (2026-10-01), the adoption
 plan in `docs/prds/active/PRD-change-process.md` (Phases 0–4, D1–D10), `origin/main` at `0b29da5`,
 and open PRs #41–#46, #49, #52 and #54.
 **Roadmap rows:** ST-3 (converge), ST-4 (hand-over) and ST-6 (designer onboarding). This plan
-splits ST-3 into the sub-rows ST-3.0 to ST-3.14 (the grammar allows dotted ids).
+splits ST-3 into the sub-rows ST-3.0 to ST-3.15 (the grammar allows dotted ids).
 
 ## 1. What the swap is
 
@@ -136,7 +137,7 @@ are decided at the normal session closes.
 |---|---|
 | `review/an-empty-diff-reviewed-reads-as-a-pass` | **Mechanism built.** The template's `review-lane.sh` prints `review-lane: full (… an empty diff is not evidence …)` for an empty diff. It arrives in ST-3.11. |
 | `review/diff-the-design-against-the-nearest-existing-implementation` | **Promote** to one line in the reviewer agent ("compare the design with the nearest existing implementation"), landed in ST-3.10, or **Not promoted** with the reason, if the owner prefers. |
-| `agents/a-nested-agents-code-review-result-goes-to-the-top-level-session` | **An instance** of clauductor's open lesson that a `reviewer` has no SendMessage, so its hand-back reaches the top session (ST #425 lost about 4 hours). Mark it an instance and point at the clauductor row that fixes it. **That row does not exist yet:** it must be queued before ST-3.0 cites it (§4). |
+| `agents/a-nested-agents-code-review-result-goes-to-the-top-level-session` | **An instance** of clauductor's open lesson that a `reviewer` has no SendMessage, so its hand-back reaches the top session (ST #425 lost about 4 hours). Mark it an instance of clauductor's **OPS-25**, which fixes it. The row is queued with this plan. |
 
 ### 2.4 The ADR (ST-3.1), drafted Proposed
 
@@ -166,23 +167,25 @@ are decided at the normal session closes.
   - `clauductor diff`: a template-owned file modified in place shows up there.
   - The process checks in the gate.
 
-## 3. Decisions still needed from the owner
+## 3. Decisions (settled 2026-10-01)
 
-| # | Decision | Recommendation |
+The owner accepted each of these on 2026-10-01, as written. Each row says where it takes effect.
+
+| # | Subject | Decided (2026-10-01) |
 |---|---|---|
-| 1 | **The duplicate `2D.7`.** The `--tsv` contract needs unique ids, and Standing Tee's parser misses the duplicate. Which row keeps the id? | Keep `2D.7` on the older Phase 3 row, `ops/environments-and-operational-hardening` (2026-09-24). Give `add-transactional-email` (2026-09-27) the next free 2D id, and grep every citation in the same PR. |
-| 2 | **Provenance trailers (rule 12) in Standing Tee.** | **On**, the template default. Replace the `Co-Authored-By` string with `attribution{}` plus provenance. `merge-pr` writes the trailers, Damian's included. |
-| 3 | **Sandbox exclusions for Standing Tee's own scripts.** | Shared settings exclude only the gate (derived). `infra/release/*`, `infra/aws/*`, `ssh`, `scp` and `aws` go in the owner's `settings.local.json`, because they need `~/.aws` and `~/.ssh`, which stay denied. Add Playwright's download host to the network allowlist, and confirm the colima and docker exclusions on the owner's machine in ST-3.6. |
-| 4 | **The AGENTS.md budget (18000 B, full).** About 8 new rows are needed. | Keep the ceiling. Pay by merging the vitest rows the new checks replace into one "process checks" row, and by renaming rows in place. Raising the ceiling is the fallback, in its own PR. |
-| 5 | **ST-3's dependency on REL-1.** The roadmap gates ST-3 on REL-1, but only §5.9 needs a released install, and the tag is the very last item. | Drop REL-1 from ST-3's deps, and put it (with the v0.1.0 tag) on ST-6.2 only. Also drop **P2.15b** from ST-5's deps: Standing Tee keeps its own parser, which already reads boundary-task lines, so P2.15b matters only to a project on the built-in parser. It stays queued as its own row. |
-| 6 | **Living visuals and ideas.** No module exists yet (P2.11 and P2.12b are queued). | Do not wait. Keep them as Standing Tee local fragments (`.claude/local/skills/`, local conflict rows) in ST-3.12, and move them to the modules when those ship, through `update`. |
-| 7 | **The plugin in Standing Tee.** | **Not adopted.** The installed copy plus the marker; `/clauductor:init` refuses a marked repo anyway. ST-6.1 says nothing about the plugin. ST-6's roadmap text, "(the panel, the plugin, who decides)", is reworded to drop "the plugin". |
-| 8 | **Rule 13 (eval receipts) in Standing Tee.** It costs a reviewer eval run whenever a role, agent or workflow changes. | Adopt it. Record the baseline receipt in ST-3.10, before the guard arrives. |
-| 9 | **OpenSpec CLI ≥ 1.13 on both machines and in CI.** 1.2.0 deletes scenarios on archive. | Require it before ST-3.14 (`OPENSPEC_REQUIRED=1` in CI). It is a one-line install for Damian, added to ST-6.1. |
-| 10 | **A short note to Damian before ST-3.6 merges** (outward, so the owner sends it). From ST-3.6 on, `failIfUnavailable` stops his Claude Code if the WSL2 sandbox packages are missing, and ST-6.1 lands much later. | Send it: the WSL2 steps (bubblewrap, socat, the seccomp filter, AppArmor on 24.04+, a clone under `~`), plus "the docs catch up in one revision at the end; ask Rich if something reads wrong". |
-| 11 | Small ones, defaults unless the owner objects: (a) format per checkout rather than main only (no `FORMAT_MAIN_ONLY` key exists); (b) no ArtifactData persistence for the welcome checklist. | Accept both defaults. |
+| 1 | **The duplicate `2D.7`** (the `--tsv` contract needs unique ids, and Standing Tee's parser misses the duplicate). | `2D.7` stays on the older Phase 3 row, `ops/environments-and-operational-hardening` (2026-09-24). `add-transactional-email` (2026-09-27) gets the next free 2D id, and every citation is found by grep and updated in the same PR (ST-3.0). |
+| 2 | **Provenance trailers (rule 12) in Standing Tee.** | **On**, the template default. The `Co-Authored-By` string is replaced with `attribution{}` plus provenance (ST-3.10). `merge-pr` writes the trailers, Damian's included. |
+| 3 | **Sandbox exclusions for Standing Tee's own scripts.** | Shared settings exclude only the gate (derived). `infra/release/*`, `infra/aws/*`, `ssh`, `scp` and `aws` go in the owner's `settings.local.json`, because they need `~/.aws` and `~/.ssh`, which stay denied. Playwright's download host joins the network allowlist. The colima and docker exclusions are confirmed on the owner's machine in ST-3.6. |
+| 4 | **The AGENTS.md budget (18000 B, full).** About 8 new rows are needed. | The ceiling stays. The rows are paid for by merging the vitest rows the new checks replace into one "process checks" row, and by renaming rows in place (ST-3.7, ST-3.15). Raising the ceiling stays the fallback, in its own PR. |
+| 5 | **ST-3's dependency on REL-1, and ST-5's on P2.15b.** | REL-1 is dropped from ST-3's deps, and it (with the v0.1.0 tag) gates ST-6.2 only. P2.15b is dropped from ST-5's deps: Standing Tee keeps its own parser, which already reads boundary-task lines, so P2.15b matters only to a project on the built-in parser, and it stays queued as its own row. **Both are applied to `docs/roadmap.md` in this PR** (the ST-5 row came with #52). |
+| 6 | **Living visuals and ideas** (no module yet; P2.11 and P2.12b are queued). | The swap does not wait. They become Standing Tee local fragments (`.claude/local/skills/`, local conflict rows) in ST-3.12, and move to the modules through `update` when those ship. |
+| 7 | **The plugin in Standing Tee.** | **Not adopted.** Standing Tee uses the installed copy plus the marker; `/clauductor:init` refuses a marked repo anyway. ST-6.1 says nothing about the plugin. ST-6's roadmap text, "(the panel, the plugin, who decides)", drops "the plugin" (applied in this PR). |
+| 8 | **Rule 13 (eval receipts) in Standing Tee.** It costs a reviewer eval run whenever a role, agent or workflow changes. | Adopted. The baseline receipt is recorded in ST-3.10, before the guard arrives. |
+| 9 | **OpenSpec CLI ≥ 1.13 on both machines and in CI** (1.2.0 deletes scenarios on archive). | Required before ST-3.14 (`OPENSPEC_REQUIRED=1` in CI). It is a one-line install for Damian, and ST-6.1 lists it. |
+| 10 | **A short note to Damian before ST-3.6 merges** (outward, so the owner sends it). From ST-3.6 on, `failIfUnavailable` stops his Claude Code if the WSL2 sandbox packages are missing, and ST-6.1 lands much later. | **The owner sends it.** The draft is Appendix A. |
+| 11 | Two small defaults: (a) format per checkout rather than main only (no `FORMAT_MAIN_ONLY` key exists); (b) no ArtifactData persistence for the welcome checklist. | Both defaults accepted. |
 
-**Settled since the convergence map's 16 decisions:**
+**The convergence map's 16 decisions, and where each was settled:**
 
 | # | Decision | How it was settled |
 |---|---|---|
@@ -194,13 +197,13 @@ are decided at the normal session closes.
 | 8 | Vitest vs shell checks | The plan's rule: retire the vitest file only once the template check passes in the gate. |
 | 9 | How Damian receives the revision | One dedicated PR, ST-6. |
 | 10 | Health lines | Upstreamed by #45; the local ones go to `.claude/local/health/`. |
-| 12 | The plugin | The recommendation stands as decision 7, for confirmation. |
+| 12 | The plugin | Decision 7: not adopted. |
 | 14 | The guard cutover | The replay is part of ST-3.11. |
 | 15 | The format hook's scope | The default stands: decision 11(a). |
 | 16 | Rule 8 head-contains-main | Core (#45), one of the 8 accepted differences. |
 
-Map decisions 3, 7, 11 and 13 are the open decisions 2, 4, 11(b) and 9 above. Also already
-decided: the `design/` and `docs/` prefixes (kept, with a `design/` lane and a prose-only `docs/`
+Map decisions 3, 7, 11 and 13 were settled as decisions 2, 4, 11(b) and 9 above. Also decided
+earlier: the `design/` and `docs/` prefixes (kept, with a `design/` lane and a prose-only `docs/`
 lane); the adoption ADR (drafted Proposed); the 8 accepted differences of #45; and the v0.1.0 tag,
 last.
 
@@ -212,15 +215,15 @@ last.
 |---|---|---|
 | **#41** risk-register, ci-status, openspec explore | three modules ST-3.9 enables; `explore` for ST-3.14 | ST-3.9, ST-3.14 |
 | **#42** premise-check, write-surfaces | guard rules 6 and 5 as modules | ST-3.9, ST-3.11 |
-| **#43** artifacts | the registry, currency and the close-PR currency rule | ST-3.9, ST-3.11, ST-3.12 |
+| **#43** artifacts (merged, 06fda3f) | the registry, currency and the close-PR currency rule | ST-3.9, ST-3.11, ST-3.12 |
 | **#44** people (column 14) | the lanes, who-is-on-what, the owner rule | ST-3.4, ST-3.9, ST-3.12 |
 | **#45** health, context, rule 8, roadmap gates (column 13) | the core guard's rule 8, `started` lines, queued-open | ST-3.4, ST-3.11, ST-3.12 |
 | **#46** archive, contracts, tail filter, build-change driver | the archive Standing Tee's records need; the hooks registration; `GATE_TAIL_EXCLUDE` | ST-3.8, ST-3.12, ST-3.13, ST-3.14 |
 | **#49** WSL2: LF, interop deny, line-endings check | Damian's platform; `update` merges `.gitattributes` | ST-3.6, ST-3.8 |
 | **#54** OPS-21: rule 2(a) requires reported CI | the guard Standing Tee receives; ST-3.9's ci-status wiring is planned around it | ST-3.11 |
-| **#52** OPS-22: the ST-5, ST-6 and P2.15b rows | the roadmap rows this plan is filed under | the plan's own record |
-| **OPS-24 (new, not yet queued)** | `BRANCH_DESIGN` and `BRANCH_DOCS` keys; `checks/branch-prefixes.sh` accepts their panel lanes; `review-lane.sh` sends `docs/` to reviewer-docs; `--tsv` kinds or a mapping for them; a model-roles lanes row. **Without it, ST's `design/` and `docs/` lanes fail `branch-prefixes.sh`.** | ST-3.3, ST-3.12 |
-| **A new row for the reviewer hand-back lesson** (not yet queued) | the owner that ST-3.0's third insight cites (rule 1) | ST-3.0 |
+| **#52** OPS-22: the ST-5, ST-6 and P2.15b rows (merged, b163aeb) | the roadmap rows this plan is filed under | the plan's own record |
+| **OPS-24** (queued in this PR) | `BRANCH_DESIGN` and `BRANCH_DOCS` keys; `checks/branch-prefixes.sh` accepts their panel lanes; `review-lane.sh` sends `docs/` to reviewer-docs; `--tsv` kinds or a mapping for them; a model-roles lanes row. **Without it, ST's `design/` and `docs/` lanes fail `branch-prefixes.sh`.** | ST-3.3, ST-3.12 |
+| **OPS-25** (queued in this PR): the reviewer hand-back | the row ST-3.0's third insight cites (rule 1). Only the row has to exist for ST-3.0; the fix itself does not block. | ST-3.0 (the row exists) |
 
 Not blocking: #53 (flaky panel tests), #25 (REL-1) except for ST-6.2, P2.11 and P2.12b (decision
 6), and P2.15b (decision 5).
@@ -228,8 +231,8 @@ Not blocking: #53 (flaky panel tests), #25 (REL-1) except for ST-6.2, P2.11 and 
 **"Ready for Standing Tee" means all of these hold, each checked by existence rather than by a
 summary:**
 
-1. Every PR in the table above shows `MERGED` (`gh pr view N --json state`), and OPS-24 and the
-   hand-back row exist on `origin/main`'s roadmap.
+1. Every PR in the table above shows `MERGED` (`gh pr view N --json state`). The OPS-24 and
+   OPS-25 rows are on `origin/main`'s roadmap (they land with this PR), and OPS-24 has merged.
 2. #44 and #45 agree on the contract: `template/docs/roadmap.md` on main states column 13 as
    `started` and column 14 as the raw status, and `checks/roadmap.sh` and `checks/people.sh` both
    pass on main.
@@ -242,11 +245,11 @@ summary:**
    - `clauductor diff` runs.
 5. On Standing Tee:
    - #426 (LF) is merged;
-   - the stray worktree `.claude/worktrees/add-group-card-entry`, which is missing 84 tracked
-     files, is restored or removed (owner's machine);
+   - done 2026-10-01: the worktree `.claude/worktrees/add-group-card-entry`, which was missing 84
+     tracked files, was restored with `git restore` and is clean;
    - `add-score-photo`'s lane is at a group boundary.
-6. The owner has answered decisions 1–3 and 10, and has accepted ADR-0039. The rest can be
-   answered before the PR that needs them.
+6. The owner has accepted ADR-0039 (the §3 decisions were settled on 2026-10-01), and Damian has
+   confirmed the Appendix A setup before ST-3.6 merges.
 
 ## 5. Risks and rollback
 
@@ -262,3 +265,34 @@ summary:**
 | **Artifact currency blocks a close.** | 3.9, 6.1 | Stamp the welcome entry in ST-3.9 (`people.json`). ST-6.1 refreshes and republishes. | Stamp with an honest note. |
 | **Template drift during the swap** (main moves while the 19 PRs land). | all | One pinned baseline. Re-pin only in its own PR, with the `clauductor diff` delta attached. | Re-pin back. |
 | **Whole-swap abort.** | — | Records are untouched, so nothing is lost. | Revert in reverse order; ADR-0039 is marked Rejected; no marker is written. Until ST-4, `update` refuses Standing Tee anyway. |
+
+## Appendix A. Draft note to Damian (decision 10; the owner sends it)
+
+> **Subject: a one-time setup before Claude Code's sandbox switches on in Standing Tee**
+>
+> Hi Damian. Over the next few sessions Standing Tee moves onto clauductor's operating model.
+> Your lane doesn't change. One part reaches your machine before the docs catch up: every Claude
+> Code command will run in a sandbox. The repo sets `failIfUnavailable`, so if the sandbox can't
+> start, Claude Code **stops** rather than running your commands unsandboxed. Please do this
+> once, inside WSL2 (Ubuntu), before that lands:
+>
+> 1. **Sandbox packages:** `sudo apt-get install bubblewrap socat`
+> 2. **The seccomp filter (required on WSL2):** `npm install -g @anthropic-ai/sandbox-runtime`.
+>    Install it without `sudo`: through nvm (`nvm install 22`, then the command above), or with a
+>    user prefix (`npm config set prefix ~/.npm-global`, then add `~/.npm-global/bin` to your
+>    `PATH`). Without the filter, a command such as `cmd.exe` or anything under `/mnt/c` can reach
+>    Windows outside the sandbox. The repo also denies those commands.
+> 3. **Ubuntu 24.04 or later:** run `sysctl kernel.apparmor_restrict_unprivileged_userns`. If it
+>    prints `1`, add the bwrap AppArmor profile from code.claude.com/docs/en/sandboxing, then run
+>    `sudo systemctl reload apparmor`.
+> 4. **Keep the clone under your Linux home** (`~/…`), not under `/mnt/c`: the scripts and the
+>    sandbox expect the Linux filesystem.
+> 5. **Restart Claude Code** and run `/sandbox`. On Linux it shows a Dependencies tab if anything
+>    is still missing.
+>
+> If Claude Code refuses to start a command, the fix is a missing package from this list. Please
+> don't set `failIfUnavailable` to false in your local settings: that would let commands run
+> unsandboxed without telling you.
+>
+> The onboarding docs and the welcome page catch up in one revision at the end of the move. Until
+> then, if something reads wrong, ask me. — Rich
