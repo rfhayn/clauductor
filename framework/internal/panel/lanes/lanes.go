@@ -654,7 +654,8 @@ func (m *LaneManager) Interrupt(ctx context.Context, id string) *LaneError {
 	return nil
 }
 
-// Stop ends a lane and forgets it; the worktree is never removed. Only a lane that
+// Stop ends a lane and forgets it; the worktree is never removed (Close, in
+// close.go, is Stop and then the worktree and branch when that is safe). Only a lane that
 // `claude agents` reports idle is asked to /exit. Anything else (busy, waiting on a
 // permission or a dialog, or unknown) gets Escape and then kill-session, never a
 // typed Enter: an Enter would confirm whatever default the dialog has focused.
@@ -664,6 +665,12 @@ func (m *LaneManager) Stop(ctx context.Context, id string) *LaneError {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.stopAndForgetLocked(ctx, id)
+}
+
+// stopAndForgetLocked is Stop under the lane lock; Close (PANEL-17) runs it too, so
+// the two end a lane in exactly the same way.
+func (m *LaneManager) stopAndForgetLocked(ctx context.Context, id string) *LaneError {
 	rec, registered := m.Registry.Get(id)
 	if registered {
 		var err error

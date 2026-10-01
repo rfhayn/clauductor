@@ -167,6 +167,13 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .warnx:focus-visible { outline: 2px solid var(--focus); }
 .restore { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .restore label { display: flex; gap: .25rem; align-items: center; }
+/* Close lane (PANEL-17): its confirmation under the terminal, and its result above the lanes. */
+.closed { display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: baseline; padding: .3rem .75rem; border-bottom: 1px solid var(--rule); background: var(--pane); color: var(--text-1); overflow-wrap: anywhere; }
+.closed > b { font-weight: 700; }
+.termbar .closeask { flex: 1 1 100%; display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
+.closelist { display: grid; gap: .1rem; min-width: 0; }
+.closelist b { font-weight: 700; color: var(--text-2); }
+.closelist ul { margin: 0; padding-left: 1.1rem; }
 
 /* ---- Panes ------------------------------------------------------------------------------- */
 /* A pane is a region split from the next by a rule. In TUI (--tui 1) it is boxed, with
@@ -389,6 +396,15 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .dlg legend { color: var(--text-2); padding: 0 .25rem; }
 .dlg .actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .dlg .stop { color: var(--crit); }
+/* Help (PANEL-17): keys are bold words in a column, never boxed. */
+.dlg.help { width: min(40rem, 100%); }
+.help h4 { font-size: .8125rem; color: var(--text-2); }
+.help table.keys { border-collapse: collapse; width: 100%; }
+.help .keys th { text-align: left; font-weight: 700; white-space: nowrap; padding: .15rem 1rem .15rem 0; vertical-align: top; }
+.help .keys td { padding: .15rem 0; }
+.help .howto { margin: 0; padding-left: 1.1rem; display: grid; gap: .2rem; }
+.help p { margin: 0; }
+.help a { color: var(--act); }
 /* Up next (PANEL-12): what each suggesting template could start, a row a line. */
 .dlg .next { display: grid; align-content: start; border: 1px solid var(--rule); max-height: 15rem; overflow-y: auto; padding-bottom: .2rem; }
 .next .mh { margin: 0; padding: .35rem .5rem .1rem; font-weight: 700; color: var(--text-1); }

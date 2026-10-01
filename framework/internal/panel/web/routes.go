@@ -38,6 +38,7 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 	for _, pre := range []string{"/api/p/{project}", "/api"} {
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/ticket", s.requireAuth(s.withProject(s.issueTicketHandler)))
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/image", s.requireAuth(s.withProject(s.pasteImage)))
+		mux.HandleFunc("POST "+pre+"/lanes/{id}/close", s.requireAuth(s.withProject(s.closeLane)))
 		mux.HandleFunc("POST "+pre+"/lanes", s.requireAuth(s.withProject(s.startLane)))
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/{action}", s.requireAuth(s.withProject(s.laneAction)))
 		// v2: fixed verbs on validated ids; none takes a command.
@@ -122,6 +123,41 @@ func (s *Server) laneAction(w http.ResponseWriter, r *http.Request, p *Project) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "at": s.clock().Now().UnixMilli()})
+}
+
+// closeLane serves POST /api/p/{project}/lanes/{id}/close (PANEL-17). {"dryRun":
+// true} answers the plan the page's confirmation lists; otherwise the body carries
+// what that confirmation offered to remove, and the lane is closed. Nothing the body
+// names is a path or a command: the worktree and branch are the lane's own, read from
+// the registry and `git worktree list`.
+func (s *Server) closeLane(w http.ResponseWriter, r *http.Request, p *Project) {
+	if noLanes(w, p) {
+		return
+	}
+	id := r.PathValue("id")
+	if !config.ValidLaneID(id) {
+		writeLaneErr(w, laneErr(http.StatusBadRequest, "invalid", "invalid lane id"))
+		return
+	}
+	var req lanes.CloseRequest
+	if !decodeStrict(w, r, &req) {
+		return
+	}
+	if req.DryRun {
+		plan, lerr := p.Lanes.ClosePlan(r.Context(), id)
+		if lerr != nil {
+			writeLaneErr(w, lerr)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "plan": plan})
+		return
+	}
+	res, lerr := p.Lanes.Close(r.Context(), id, req)
+	if lerr != nil {
+		writeLaneErr(w, lerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
 }
 
 // pasteImage serves POST /api/p/{project}/lanes/{id}/image (PANEL-15b): an image
