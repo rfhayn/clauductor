@@ -361,6 +361,17 @@ is held: a build PR moves a source and the page follows at the close. With
 republishes each STALE copy you own, the close records, merge-pr publishes what the merge recorded.
 `.claude/modules/artifacts/README.md` has the registry's format and the tools.
 
+### Pages whose facts are checked (the living-visuals module)
+
+The artifacts module says when a page's sources moved; `living-visuals` (on top of it) says whether
+what the page states is still true. A registry entry that declares `refresh` (the skill that
+refreshes it, or `"edit"`) is a living page, and the gate's `living-visuals:pages` holds it: each
+`<!-- generated:<name>:begin … -->` block equals its declared command's output (never hand-edited:
+`sh .claude/modules/living-visuals/bin/living.sh --regen` writes it), each `data-claim="<name>"`
+value equals its declared command's, no elapsed duration is typed (`data-days-since` counts it on
+load), and the page's scripts parse. session-close regenerates and refreshes before the artifacts
+step stamps; merge-pr names the living pages a merge moved. `.claude/modules/living-visuals/README.md`.
+
 ## Metrics: how the work flows and what it costs
 
 DORA 2025 found that AI raises throughput and instability together, so both are measured, from

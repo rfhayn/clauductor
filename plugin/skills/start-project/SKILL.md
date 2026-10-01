@@ -75,8 +75,9 @@ If those lines show as literal text, run the commands yourself.
    GitHub Actions; add any the project needs (a migration ledger, a backup's age). Uncomment the
    ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
 9. **Optional modules and the local layer**: OpenSpec (`${CLAUDE_PLUGIN_ROOT}/modules/openspec/README.md`),
-   the claude.ai review page (`${CLAUDE_PLUGIN_ROOT}/modules/review-page/README.md`) and shared pages held
-   current with their sources (`${CLAUDE_PLUGIN_ROOT}/modules/artifacts/README.md`) are off by default; turn one
+   the claude.ai review page (`${CLAUDE_PLUGIN_ROOT}/modules/review-page/README.md`), shared pages held
+   current with their sources (`${CLAUDE_PLUGIN_ROOT}/modules/artifacts/README.md`) and pages whose
+   stated facts are checked (`${CLAUDE_PLUGIN_ROOT}/modules/living-visuals/README.md`) are off by default; turn one
    on by naming it in `MODULES` (`${CLAUDE_PLUGIN_ROOT}/modules/README.md`). What the project adds of its own
    (an extra guard rule, a context section, a health line, a skill step, a conflict row) goes in
    `.claude/local/` (its README has each contract), never in a framework file the next
