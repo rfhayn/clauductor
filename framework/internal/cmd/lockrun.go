@@ -16,7 +16,7 @@ var (
 	lockRunTTL  time.Duration
 )
 
-// lockRunCmd is standalone like the panel: no SQLite, no install. A project's gate
+// lockRunCmd is standalone like the panel: it needs no install. A project's gate
 // script calls it, so it must work whether or not the panel is running.
 var lockRunCmd = &cobra.Command{
 	Use:   "lock-run [--lane <id>] [--ttl 10m] <lockdir> -- <command> [args...]",

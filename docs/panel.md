@@ -12,8 +12,8 @@ browser, and a launchd login agent keeps the panel running with no terminal open
 from the browser alone. On top of lanes it offers lane templates, a queue for a shared gate,
 alerts with macOS notifications, a quota guard, and restoring every lane after a reboot.
 
-It is **standalone**. It does not need `clauductor install`, the template, the skills, the
-SQLite database or file locks. It reads only Claude Code's own signals, plus git and `gh`:
+It is **standalone**. It does not need `clauductor install`, the template, the skills or file
+locks. It reads only Claude Code's own signals, plus git and `gh`:
 
 | Source | How | Gives |
 |---|---|---|
