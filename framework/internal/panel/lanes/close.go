@@ -301,10 +301,13 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	path, _, registered, running := m.closeTarget(ctx, id)
+	path, rec, registered, running := m.closeTarget(ctx, id)
 	if !registered && !running {
 		return res, laneErr(404, "not-found", "no lane %q", id)
 	}
+	// The teardown's environment is read now: stopAndForgetLocked deletes the lane's
+	// record, and with it the port the teardown is documented to get.
+	port := rec.Port
 	images := m.imageCount(id)
 	if lerr := m.stopAndForgetLocked(ctx, id); lerr != nil {
 		return res, lerr
@@ -341,7 +344,7 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 		return res, nil
 	}
 	// PANEL-20: the worktree's teardown, then the check again (teardown may leave files).
-	if ran, err := m.runHook(ctx, "worktree_teardown", m.Cfg.WorktreeTeardown, w.Path, id); err != nil {
+	if ran, err := m.runHook(ctx, "worktree_teardown", m.Cfg.WorktreeTeardown, w.Path, id, port); err != nil {
 		res.Kept = append(res.Kept, "the worktree "+w.Path+": "+err.Error())
 		if w.Branch != "" {
 			res.Kept = append(res.Kept, "the branch "+w.Branch+": its worktree stays")

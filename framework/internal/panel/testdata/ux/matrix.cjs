@@ -14,6 +14,15 @@
 //               a streaming lane; --full adds every theme × type × mode
 //   sizes       every text size step the page allows (85–175 %) at 1280, 1920 and the
 //               narrow 900 px
+//   features    (UX-2, PANEL-19/20) at 1280, 1440, 1920 and 900 px, once the signals are
+//               up: Needs you with the approval, budget and stale alerts, the economy
+//               badge, the Flow card, the Budget bar (over and amber), Port and Remote in
+//               the header, the Checks tab (not ready, ready, the root), the stale lane's
+//               Alerts tab, the ⋯ menu with Remote control and its confirmations (idle,
+//               busy), Metrics opened from the Flow card
+//   metrics     (UX-2) the Metrics view: every tab × range × scope, at 1440 and 900 px
+//   (features and metrics are not in the default --areas: run-parallel.sh gives them a
+//   shard of their own, layout-metrics)
 // Each shot runs lib.layoutAudit (horizontal scroll, clipped text, overlapping
 // controls, controls off screen, the terminal's fill and fit) and collects console
 // errors; each viewport and each theme × mode also runs the focus-ring audit.
@@ -124,16 +133,16 @@ const VIEWS = {
     return async () => { await page.click("#drawerclose").catch(() => page.keyboard.press("Escape")); };
   },
   async metrics(page) {
-    // Feature-detect: a control named Metrics (a later build's view); skip otherwise.
-    const m = page.locator('button:has-text("Metrics"), [role="tab"]:has-text("Metrics"), a:has-text("Metrics")').first();
-    if (!(await m.count())) return null;
-    await m.click();
-    await page.waitForTimeout(500);
-    return async () => { await page.keyboard.press("Escape"); };
+    // Feature-detect: the Metrics button (PANEL-19); skip on a build without it.
+    if (!(await page.$("#metricsbtn"))) return null;
+    await page.click("#metricsbtn");
+    await page.waitForSelector("#mview:not([hidden])", { timeout: 3000 });
+    await metricsLoaded(page);
+    return async () => { await page.click("#mviewclose").catch(() => page.keyboard.press("Escape")); };
   },
 };
 // The side panel's tabs, on the working lane (its PR, checks, agents and figures).
-for (const tab of ["figures", "git", "gate", "alerts", "activity"]) VIEWS["side-" + tab] = async (page) => {
+for (const tab of ["figures", "git", "checks", "gate", "alerts", "activity"]) VIEWS["side-" + tab] = async (page) => {
   await page.click('[data-k="tab:t:working"]');
   const k = '[data-k="stab:' + tab + '"]';
   if (!(await page.locator(k).isVisible().catch(() => false))) return null; // the side panel is folded at this size
@@ -188,6 +197,208 @@ async function runView(page, errors, area, name, ctx) {
   await shot(page, errors, area, name, ctx);
   if (typeof undo === "function") await undo().catch(() => {});
   await settle(page, 200);
+}
+
+// ---- PANEL-19/20 (UX-2) ------------------------------------------------------------
+// The Metrics view has read its figures (or its error) once "Reading the metrics…" goes.
+async function metricsLoaded(page) {
+  await page.waitForFunction(() => { const b = document.getElementById("mvbody"); return b && b.textContent && !/Reading the metrics/.test(b.textContent); }, null, { timeout: 10000 }).catch(() => {});
+}
+const featureFinding = (area, name, detail, ctx) => F.add(Object.assign({ area, name, rule: "feature-missing", selector: "", detail, screenshot: "" }, ctx || {}));
+
+// metrics: every tab × range × scope of the Metrics view, at a wide and the narrow window.
+async function metricsArea(browser) {
+  const pick = VIEWPORTS.filter((v) => ["1440x900", "900x800"].includes(vpName(v)));
+  for (const vp of pick.length ? pick : VIEWPORTS.slice(0, 1)) {
+    const area = "metrics-" + vpName(vp);
+    const { ctx, page, errors } = await L.openPage(browser, R, { context: { viewport: vp } });
+    try {
+      await page.waitForSelector('[data-k="tab:t:working"]', { timeout: 15000 });
+      if (!(await page.$("#metricsbtn"))) { F.pass(area + "/all", { skipped: "no Metrics view in this build" }); continue; }
+      const c = Object.assign({ viewport: vpName(vp) }, await appearance(page));
+      await page.click("#metricsbtn");
+      await page.waitForSelector("#mview:not([hidden])", { timeout: 3000 });
+      for (const scope of ["project", "all"]) {
+        await page.click('[data-k="mscope:' + scope + '"]');
+        for (const range of ["7d", "30d", "90d"]) {
+          await page.click('[data-k="mrange:' + range + '"]');
+          for (const tab of ["flow", "cost", "quality", "outcomes"]) {
+            try {
+              await page.click("#mtab-" + tab);
+              await metricsLoaded(page);
+              await settle(page, 250);
+              await shot(page, errors, area, scope + "-" + range + "-" + tab, c);
+            } catch (e) {
+              F.add(Object.assign({ area, name: scope + "-" + range + "-" + tab, rule: "view-failed", selector: "", detail: String(e.message || e).split("\n")[0] }, c));
+            }
+          }
+        }
+      }
+      // Put the view back the way a viewer finds it first.
+      await page.click('[data-k="mscope:project"]').catch(() => {});
+      await page.click('[data-k="mrange:30d"]').catch(() => {});
+      await page.click("#mtab-flow").catch(() => {});
+      await page.click("#mviewclose").catch(() => {});
+    } finally { await ctx.close(); }
+  }
+}
+
+// The signals the feature views need take a minute to appear: the spend ledger (budget)
+// is written every minute, the stale lane needs the registry re-read (30 s) and a git read
+// while a page is in view (30 s), readiness needs that git read too. Refresh kicks them.
+async function waitSignals(page, ms = 110000) {
+  const want = { approval: '[data-k="alert:approval_wait:add-group-card"]', budget: '[data-k^="alert:budget:"]', stale: '[data-k="alert:stale:quiet"]', economy: '[data-k="q:eco"]' };
+  const t0 = Date.now(), got = {};
+  let lastRefresh = 0;
+  while (Date.now() - t0 < ms) {
+    for (const [k, sel] of Object.entries(want)) if (!got[k] && (await page.$(sel))) got[k] = Math.round((Date.now() - t0) / 1000);
+    if (Object.keys(got).length === Object.keys(want).length) break;
+    if (Date.now() - lastRefresh > 10000) { await page.click("#refresh").catch(() => {}); lastRefresh = Date.now(); }
+    await page.waitForTimeout(1000);
+  }
+  return { got, missing: Object.keys(want).filter((k) => !(k in got)) };
+}
+// The side panel is folded at some sizes: a feature view in it shows it, and folds it back.
+async function withSide(page) {
+  const folded = await page.$eval('[data-k="sidetog"]', (b) => b.getAttribute("aria-expanded") === "false").catch(() => false);
+  if (folded) { await page.click('[data-k="sidetog"]'); await page.waitForTimeout(400); }
+  return async () => { if (folded) await page.click('[data-k="sidetog"]').catch(() => {}); };
+}
+const sideTab = async (page, lane, tab) => {
+  await page.click('[data-k="tab:t:' + lane + '"]');
+  await page.waitForTimeout(300);
+  const back = await withSide(page);
+  await page.click('[data-k="stab:' + tab + '"]');
+  await page.waitForTimeout(400);
+  return async () => { await page.click('[data-k="stab:agents"]').catch(() => {}); await back(); };
+};
+// reach clicks a control, or, when something covers it, presses it as the keyboard would,
+// so the view behind it is still shot (the layout rules report the cover).
+async function reach(page, sel) {
+  try { await page.click(sel, { timeout: 3000 }); } catch (e) { await page.$eval(sel, (b) => b.click()); }
+}
+const FEATURES = {
+  async "needs-alerts"(page) {
+    await page.waitForSelector("#needs:not([hidden])", { timeout: 3000 });
+    await page.locator("#needs").scrollIntoViewIfNeeded();
+    return true;
+  },
+  async "economy-badge"(page) {
+    const q = await page.$('[data-k="q:eco"]');
+    if (!q) return null;
+    await page.hover('[data-k="q:eco"]');
+    return true;
+  },
+  async "flow-card"(page) {
+    await page.click('[data-k="tab:t:' + alphaLanes[0] + '"]');
+    const back = await withSide(page);
+    const fc = page.locator(".flowcard");
+    if (!(await fc.count())) { await back(); return null; }
+    await fc.scrollIntoViewIfNeeded();
+    return back;
+  },
+  async "budget-bar-over"(page) {
+    if (!alphaLanes.includes("budget")) return null;
+    await page.click('[data-k="tab:t:budget"]');
+    await page.waitForSelector('#lanehead [data-k="budget"]', { timeout: 5000 });
+    return true;
+  },
+  async "budget-bar-amber"(page) {
+    await page.click('[data-k="tab:t:working"]');
+    await page.waitForSelector('#lanehead [data-k="budget"]', { timeout: 5000 });
+    return true;
+  },
+  async "port-remote-header"(page) {
+    await page.click('[data-k="tab:t:working"]');
+    await page.waitForSelector('#lanehead [data-k="port"]', { timeout: 5000 });
+    await page.waitForSelector('#lanehead [data-k="remote"]', { timeout: 5000 });
+    return true;
+  },
+  async "checks-working"(page) {
+    const back = await sideTab(page, "working", "checks");
+    await page.waitForSelector('#side [data-k="ck:v"]', { timeout: 5000 });
+    return back;
+  },
+  async "checks-ready"(page) {
+    const back = await sideTab(page, "ready", "checks");
+    await page.waitForSelector('#side [data-k="ck:v"]', { timeout: 5000 });
+    return back;
+  },
+  async "checks-root"(page) {
+    return sideTab(page, "idle", "checks");
+  },
+  async "stale-alerts-tab"(page) {
+    return sideTab(page, "quiet", "alerts");
+  },
+  async "row-menu-remote"(page) {
+    const back = await withRail(page);
+    const k = '[data-k="ra:t:idle"]';
+    await page.locator(k).scrollIntoViewIfNeeded({ timeout: 5000 });
+    await reach(page, k); // the footer covers it below 1180 px (the covered rule reports it)
+    await page.waitForSelector("#rowmenu:not([hidden])", { timeout: 3000 });
+    if (!(await page.$('#rowmenu [data-act="remote-control"]'))) throw new Error("the ⋯ menu of a running lane has no Remote control in lanes mode");
+    return async () => { await page.keyboard.press("Escape"); await back(); };
+  },
+  async "remote-confirm"(page) {
+    const back = await withRail(page);
+    const k = '[data-k="ra:t:idle"]';
+    await page.locator(k).scrollIntoViewIfNeeded({ timeout: 5000 });
+    await reach(page, k); // the footer covers it below 1180 px (the covered rule reports it)
+    await page.click('#rowmenu [data-act="remote-control"]');
+    await page.waitForSelector('#termbar [data-k="confirm"]', { timeout: 3000 });
+    return async () => { await page.click('#termbar [data-k="b:cancel"]').catch(() => {}); await back(); };
+  },
+  async "remote-confirm-busy"(page) {
+    const back = await withRail(page);
+    const k = '[data-k="ra:t:working"]';
+    await page.locator(k).scrollIntoViewIfNeeded({ timeout: 5000 });
+    await reach(page, k); // the footer covers it below 1180 px (the covered rule reports it)
+    await page.click('#rowmenu [data-act="remote-control"]');
+    await page.waitForSelector('#termbar [data-k="confirm"]', { timeout: 3000 });
+    return async () => { await page.click('#termbar [data-k="b:cancel"]').catch(() => {}); await back(); };
+  },
+  async "metrics-from-flow-card"(page) {
+    await page.click('[data-k="tab:t:' + alphaLanes[0] + '"]');
+    const back = await withSide(page);
+    const fc = page.locator(".flowcard");
+    if (!(await fc.count())) { await back(); return null; }
+    await fc.click();
+    await page.waitForSelector("#mview:not([hidden])", { timeout: 3000 });
+    await metricsLoaded(page);
+    return async () => { await page.click("#mviewclose").catch(() => {}); await back(); };
+  },
+};
+async function featuresArea(browser) {
+  const pick = VIEWPORTS.filter((v) => ["1280x800", "1440x900", "1920x1080", "900x800"].includes(vpName(v)));
+  let first = true;
+  for (const vp of pick.length ? pick : VIEWPORTS.slice(0, 1)) {
+    const area = "features-" + vpName(vp);
+    const { ctx, page, errors } = await L.openPage(browser, R, { context: { viewport: vp } });
+    try {
+      await page.waitForSelector('[data-k="tab:t:working"]', { timeout: 15000 });
+      const c = Object.assign({ viewport: vpName(vp) }, await appearance(page));
+      if (first) {
+        first = false;
+        const w = await waitSignals(page);
+        console.log("matrix: signals after " + JSON.stringify(w.got) + " s" + (w.missing.length ? "; missing " + w.missing.join(", ") : ""));
+        for (const m of w.missing) featureFinding(area, "signals", "no " + m + " signal on the page after 110 s (Needs you / status bar)", c);
+      } else await settle(page, 1500);
+      for (const [name, fn] of Object.entries(FEATURES)) {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        let undo;
+        try { undo = await fn(page); } catch (e) {
+          F.add(Object.assign({ area, name, rule: "view-failed", selector: "", detail: String(e.message || e).split("\n")[0] }, c));
+          await page.keyboard.press("Escape").catch(() => {});
+          continue;
+        }
+        if (undo === null) { F.pass(area + "/" + name, { skipped: "not in this build or state" }); continue; }
+        await settle(page);
+        await shot(page, errors, area, name, c);
+        if (typeof undo === "function") await undo().catch(() => {});
+        await settle(page, 200);
+      }
+    } finally { await ctx.close(); }
+  }
 }
 
 async function views(browser) {
@@ -262,6 +473,8 @@ async function sizes(browser) {
     if (areas.includes("views")) await views(browser);
     if (areas.includes("appearance")) await appearanceArea(browser);
     if (areas.includes("sizes")) await sizes(browser);
+    if (areas.includes("features")) await featuresArea(browser);
+    if (areas.includes("metrics")) await metricsArea(browser);
   } catch (e) {
     F.add({ area: "matrix", name: "crash", rule: "harness", selector: "", detail: String(e.stack || e) });
   } finally {

@@ -199,7 +199,10 @@ func projectMetrics(w *Window) map[string]*Metric {
 		}
 		set("cost.per_week", statMetric(c.PerWeek))
 		set("cost.by_role", listMetric(c.ByRole))
-		set("cost.by_model", listMetric(c.ByModel))
+		if c.ByModel != nil {
+			items, note := modelAmounts(c.ByModel)
+			set("cost.by_model", &Metric{Items: items, N: len(items), Note: note})
+		}
 		set("cost.by_change", listMetric(c.ByChange))
 		set("cost.by_project", listMetric(c.ByProject))
 	}
@@ -269,6 +272,9 @@ func Combine(reps []Report, now time.Time) Report {
 					first = &Metric{Missing: "No project reports this."}
 				}
 				win[k] = &Metric{Missing: first.Missing}
+			case k == "cost.by_model":
+				// One row per model, whichever way each project names it.
+				win[k] = combineModels(have, names)
 			default:
 				win[k] = combineOne(k, have, names)
 			}

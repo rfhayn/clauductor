@@ -19,10 +19,14 @@
 #   budget* busy, well over any budget figure the build may show (cost $48)
 #   anything else: idle, its turn done (UserPromptSubmit then Stop)
 # Typed bytes go to $HOME/typed.log and $HOME/fake/typed/<lane>.log; "/exit" + Enter
-# ends the session, as claude's own /exit does.
+# ends the session, as claude's own /exit does. Each interactive start records its argv in
+# $HOME/fake/argv/<lane> (so a flow can see --remote-control).
+# The 5-hour window every status post reports is 42% resetting in 2 h, unless a flow
+# writes $HOME/fake/five_hour_pct (a number) or $HOME/fake/five_hour_resets (unix
+# seconds): economy mode's hysteresis and auto-resume's reset are driven that way (UX-2).
 set -u
 F="$HOME/fake"
-mkdir -p "$F/agents" "$F/status" "$F/typed" "$F/role"
+mkdir -p "$F/agents" "$F/status" "$F/typed" "$F/role" "$F/argv"
 
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
 port() { cat "$HOME/.clauductor/panel/port" 2>/dev/null; }
@@ -67,6 +71,7 @@ JSON
 esac
 
 # Interactive.
+argv="$*"
 lane=${CLAUDUCTOR_LANE:-}
 sid=""
 while [ $# -gt 0 ]; do
@@ -78,6 +83,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$sid" ] || sid=$(uuidgen | tr 'A-Z' 'a-z')
 [ -n "$lane" ] || lane=lane
+printf '%s\n' "$argv" > "$F/argv/$lane"
 role=$(cat "$F/role/$lane" 2>/dev/null || true)
 if [ -z "$role" ]; then
   case "$lane" in work*) role=busy ;; wait*) role=waiting ;; stream*) role=stream ;; budget*) role=budget ;; *) role=idle ;; esac
@@ -89,8 +95,10 @@ printf '{"pid":%d,"cwd":"%s","kind":"interactive","startedAt":%s,"sessionId":"%s
 case "$role" in busy|stream|budget) echo busy > "$F/status/$sid" ;; waiting) echo "waiting:permission: Bash(npm run test:e2e)" > "$F/status/$sid" ;; *) echo idle > "$F/status/$sid" ;; esac
 
 status_post() { # status_post <context pct> <cost>
-  local t; t=$(date +%s)
-  post /status "{\"session_id\":\"$sid\",\"cwd\":\"$cwd\",\"version\":\"2.1.284\",\"workspace\":{\"current_dir\":\"$cwd\"},\"model\":{\"id\":\"claude-opus-4-1\",\"display_name\":\"Opus 4.1\"},\"cost\":{\"total_cost_usd\":$2,\"total_duration_ms\":1800000,\"total_api_duration_ms\":600000,\"total_lines_added\":412,\"total_lines_removed\":97},\"context_window\":{\"total_input_tokens\":128000,\"total_output_tokens\":9100,\"context_window_size\":200000,\"used_percentage\":$1,\"current_usage\":{\"input_tokens\":10,\"output_tokens\":63,\"cache_creation_input_tokens\":10579,\"cache_read_input_tokens\":26394}},\"prompt_cache\":{\"warm\":true,\"hit_ratio\":0.92,\"expires_at\":$((t+1800)),\"requests\":14,\"misses\":1,\"recache_tokens_if_cold\":36983},\"fast_mode\":false,\"thinking\":{\"enabled\":true},\"output_style\":{\"name\":\"default\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":$((t+7200))},\"seven_day\":{\"used_percentage\":61,\"resets_at\":$((t+259200))}}}"
+  local t q r; t=$(date +%s)
+  q=$(cat "$F/five_hour_pct" 2>/dev/null || true); [[ "$q" =~ ^[0-9]+$ ]] || q=42
+  r=$(cat "$F/five_hour_resets" 2>/dev/null || true); [[ "$r" =~ ^[0-9]+$ ]] || r=$((t+7200))
+  post /status "{\"session_id\":\"$sid\",\"cwd\":\"$cwd\",\"version\":\"2.1.284\",\"workspace\":{\"current_dir\":\"$cwd\"},\"model\":{\"id\":\"claude-opus-4-1\",\"display_name\":\"Opus 4.1\"},\"cost\":{\"total_cost_usd\":$2,\"total_duration_ms\":1800000,\"total_api_duration_ms\":600000,\"total_lines_added\":412,\"total_lines_removed\":97},\"context_window\":{\"total_input_tokens\":128000,\"total_output_tokens\":9100,\"context_window_size\":200000,\"used_percentage\":$1,\"current_usage\":{\"input_tokens\":10,\"output_tokens\":63,\"cache_creation_input_tokens\":10579,\"cache_read_input_tokens\":26394}},\"prompt_cache\":{\"warm\":true,\"hit_ratio\":0.92,\"expires_at\":$((t+1800)),\"requests\":14,\"misses\":1,\"recache_tokens_if_cold\":36983},\"fast_mode\":false,\"thinking\":{\"enabled\":true},\"output_style\":{\"name\":\"default\"},\"rate_limits\":{\"five_hour\":{\"used_percentage\":$q,\"resets_at\":$r},\"seven_day\":{\"used_percentage\":61,\"resets_at\":$((t+259200))}}}"
 }
 ev() { # ev <event> [extra json fields]
   hook "{\"session_id\":\"$sid\",\"cwd\":\"$cwd\",\"hook_event_name\":\"$1\"${2:+,$2}}"

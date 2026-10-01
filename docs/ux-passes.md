@@ -25,14 +25,18 @@ on a panel of its own, and writes `<out>/report.md`, `<out>/findings.json`, and 
 
 | Shard | What | Time on PANEL-18 (M-series Mac, all five at once) |
 |---|---|---|
-| `layout-views` | 6 viewports (1280×800, 1440×900, 1920×1080, 2000×900, 2560×1440, 900×800) × 23 views: 138 shots | ~180 s |
+| `layout-views` | 6 viewports (1280×800, 1440×900, 1920×1080, 2000×900, 2560×1440, 900×800) × 23 views: 138 shots (UX-2: 27 views with Checks, Metrics and the quiet, ready and budget lanes, ~162 shots, ~210 s) | ~180 s |
 | `layout-appearance` | every theme × light/dark, every type system, and the text sizes (85–175%) at 1280, 1920 and 900 px: 75 shots | ~115 s |
 | `flows-lanes` | start (from New lane, from New lane here), type and Ctrl+], interrupt, restart, stop, close, remove, forget, kill tmux and Restore all | ~60 s |
 | `flows-attachments` | PNG and JPEG dropped, image pasted, non-image refused, selection survives the pointer, ⌘-click URL, OSC 8 asks | ~35 s |
 | `flows-projects` | switching projects keeps each one's selection; a project that cannot load | ~20 s |
+| `layout-metrics` (UX-2) | once the signals are up (≤ 1 min: the spend ledger is written every minute): 13 PANEL-19/20 views (Needs you with approval/budget/stale, economy badge, Flow card, Budget bar over and amber, Port and Remote in the header, Checks not ready/ready/root, the stale lane's Alerts, ⋯ with Remote control and its idle and busy confirmations, Metrics from the Flow card) at 1280, 1440, 1920 and 900 px; the Metrics view's 4 tabs × 3 ranges × 2 scopes at 1440 and 900 px: ~100 shots | ~160 s |
+| `flows-metrics` (UX-2) | Metrics tabs, ranges and scope (values from the command, the all-projects error, focus back on Escape); Beta's bad payload (the error names the path, the built-in spend still draws); the Flow card opens Metrics; economy on/off with hysteresis (quota 42 → 38 stays on → 36 off → 39 stays off → 41 on, `economy.json` 0600); readiness turns Not ready on a failed check and back; ports in the state, header, tmux environment and setup marker; a new lane's `.worktreeinclude` copy, setup marker and start note, and Close's teardown; Remote control asks, types only after Confirm into an idle lane, and offers no Confirm on a busy one; the approval, budget and stale rows and the Budget bars | ~75 s |
+| `flows-lifecycle` (UX-2) | auto-resume: a `StopFailure` rate_limit in an idle lane with the 5-hour window resetting 20 s later is typed `continue` + Enter once, 30 s after the reset; auto-close: the ship PRs leave the open list merged at their tips, the clean lane closes as Close lane would (worktree, branch, registry, teardown), the dirty one asks "PR merged: close lane?" | ~120 s |
 
-Each run takes about 6 s to set up. With all five shards in parallel, the whole pass takes about
-3 minutes (the time of the slowest shard). `UX_MATRIX_ARGS=--full` adds every theme × type × mode
+Each run takes about 35 s to set up (most of it waiting for the panel to re-read the stale
+lane's backdated registry record). With all eight shards in parallel, the whole pass takes about
+4 minutes (243 s on ux/integration: the slowest shard, `layout-views`). `UX_MATRIX_ARGS=--full` adds every theme × type × mode
 combination (72 more shots).
 
 The pieces also run alone:
@@ -57,9 +61,37 @@ own. `matrix.cjs` only opens things and cancels them.
   so it is in Needs you), `idle` (the project root), `stream` (busy, printing a log line every
   0.4 s), `merged` (its PR is merged, so Close lane removes its branch) and `orphan` (its tmux
   session killed). There are also two worktrees with no lane: a clean detached one and a dirty
-  one. A `budget` lane starts only if the build shows budgets; PANEL-18 does not, so it is
-  skipped.
-- **Beta** has one lane and one card.
+  one. A `budget` lane starts only if the build shows budgets (PANEL-19 does).
+- **Alpha, for PANEL-19/20** (UX-2; config version 5):
+  - `metrics.command` is the metrics package's fixture (`metrics/testdata/metrics.sh`), and the
+    fake `gh` lists 6 merged PRs over 30 days for the built-in figures;
+  - `changes/` (untracked, in `.git/info/exclude`): `add-group-card`'s proposal has no
+    Approved line and is 3 days old (**approval_wait**); `budget`'s budget is $20 and the
+    `budget` lane spends $48.25 (**budget**, a red Budget bar); `working`'s is $3.50 against
+    $3.10 (an amber bar);
+  - `quiet`: its last commit is 5 days old and its registry record is backdated 5 days, so it
+    is **stale** (`stale_days` 3);
+  - `ready`: a green, approved PR (#44) with resolved review threads, every task in its
+    `tasks.md` ticked and a clean `ci-receipt` for HEAD in its git dir, so its **Checks** tab
+    says Ready to merge; `working`'s PR has a pending check, a review required and one of two
+    threads unresolved (the fake `gh api graphql`);
+  - `quota_economy.five_hour_pct` 40 against the fake's 42%, so **economy** is on (the badge
+    names the roles of `.claude/model-roles.json`); `economy.json` is written under the temp
+    HOME;
+  - `remote-control.json` in the temp HOME says `lanes`: every lane starts with
+    `--remote-control` and its **⋯** has **Remote control**;
+  - `ports` 39100 + 10 per lane (nothing listens there); `.worktreeinclude` names the
+    gitignored `.env.local` (and the tracked `README.md`, which must never be copied);
+    `worktree_setup` writes `.ux-setup` (gitignored) in the new worktree and a line to
+    `$HOME/fake/setup.log`, `worktree_teardown` a line to `$HOME/fake/teardown.log`, each
+    `<lane> <port>`;
+  - `lanes_auto_close` `on_merge` for the lane type `ship` only (`build` and `fix` say `off`, so
+    `merged` stays for Close lane's flow), and `quota_auto_resume` on.
+  - With `UX_LIFECYCLE=1` (the `flows-lifecycle` shard only) it also starts `shipclean` and
+    `shipdirty` (type `ship`, PRs #45 and #46 open; `shipdirty` has an untracked file) and
+    `limited` (idle, for auto-resume).
+- **Beta** has one lane and one card, and a metrics command that prints a payload breaking the
+  contract (`METRICS_FIXTURE=bad`).
 - **Gamma**'s `panel.json` is broken after it is added, so the project menu shows it as a project
   that cannot load.
 
@@ -68,8 +100,12 @@ role's status), `auth status --json` (Max) and interactive mode. In interactive 
 TUI-ish screen that asks for mouse modes 1000/1002/1003/1006 and bracketed paste, and prints a URL
 and two OSC 8 links. It records the bytes typed into it in `$HOME/typed.log` (and
 `$HOME/fake/typed/<lane>.log`), and it posts hooks and status lines (5-hour quota at 42%, 7-day
-at 61%). On `/exit` or a hangup it sends `SessionEnd`. A fake `gh` answers `pr list` with PRs and
-checks, and a merged PR for `change/merged`.
+at 61%). On `/exit` or a hangup it sends `SessionEnd`. It records each start's argv in
+`$HOME/fake/argv/<lane>`. A flow moves the quota by writing `$HOME/fake/five_hour_pct` (a number)
+or `$HOME/fake/five_hour_resets` (unix seconds). A fake `gh` answers `pr list` with PRs and
+checks, a merged PR for `change/merged` (and whatever branch `$HOME/fake/gh/alpha.merged` lists),
+the merged-PR list the Metrics view reads, and `api graphql` review threads per PR number; it logs
+every call to `$HOME/fake/gh.log`.
 
 ## The layout rules (every shot)
 
@@ -138,12 +174,69 @@ the selection surviving the pointer, ⌘-click and OSC 8 links, the per-project 
 Gamma row. Every view had no console errors, no page-level horizontal scroll, no overlapping
 controls and no focus ring missing.
 
+## Findings on PANEL-19/20 (ux/integration, UX-2)
+
+None is fixed here. Two rules are new: `unclickable` (a flow could not click a control a person
+would need; it then presses it as the keyboard would, so the flow goes on) and
+`feature-missing` (a signal the views wait for never showed).
+
+1. **Teardown runs without `CLAUDUCTOR_PORT`** (flows `worktreeinclude-setup-teardown` and
+   `auto-close-on-merge`). docs/panel.md says setup and teardown run with `CLAUDUCTOR_LANE` and
+   `CLAUDUCTOR_PORT` set, but `teardown.log` reads `ux-incl ` with no port. `Close`
+   (`lanes/close.go`) stops and forgets the lane (its registry record, which holds the port)
+   before `runHook` asks `LanePort(id)`, so the port is 0 and `hookArgv` leaves it out. Setup
+   gets it (`.ux-setup` reads `<lane> <port>`).
+2. **Close lane's confirmation can sit under the footer at 1440×900** (`covered`,
+   `unclickable`; flow `close`, view `close-confirm`). With the Needs-you rows, the Alerts and
+   the restore bar up, and the confirmation's new teardown note, **Confirm close** and
+   **Cancel** fall at y≈863–889, under the fixed footer (`#obs`): a person cannot click them.
+   It is the PANEL-18 footer finding again, now at a common laptop size. Seen in two of three
+   full runs (it depends on which bars are up when the confirmation opens).
+3. **The tab strip does not follow the selection** (`selected-hidden`). Picking **Remote
+   control** (or any item) in a lane's **⋯** selects that lane, but its tab stays scrolled out
+   of the strip (`working` shows 0 of 121 px at 1280, 1440 and 900 px); the same after Stop,
+   Forget, Close or Restore all moves the selection to another lane (`budget`).
+4. **⋯ under the footer at 900 px** (`covered`): the Lanes table's **⋯** of the lowest rows
+   (`idle`, `merged`) are under `#obs`, so Remote control cannot be reached by pointer there
+   (the PANEL-18 footer finding, new controls).
+5. **Copy**: the auto-close ask reads "PR merged: close lane?: its pull request #77 merged; …"
+   (a "?:" pair) in Needs you.
+6. **Metrics, All projects** (from the screenshots): By model mixes the project command's
+   names (`opus`, `sonnet`) with the panel's display names from Beta (`Opus 4.1`), so one model
+   shows as two rows.
+
+Everything else in the PANEL-19/20 flows passed: the Metrics view (values per range from the
+command, the all-projects error, focus back on Escape), Beta's bad payload (the error names
+`windows.30d.flow.change_fail_rate.value`, the built-in spend still draws), the Flow card,
+economy with its hysteresis (on at 40, still on at 38, off at 36 with the documented reason,
+still off at 39, on at 41; `economy.json` 0600 under the temp HOME), merge readiness (Ready to
+merge, Not ready on a failed check, back again; working's pending check, required review,
+unresolved thread and missing receipt; nothing to merge on the root), ports (unique, in the
+header, the tmux environment and the setup marker), `.worktreeinclude` (the ignored file copied,
+"copied 1 file(s)" in the start note), Remote control (`--remote-control` before `-n`; asks
+first, types `/remote-control` + Enter only after Confirm into an idle lane; no Confirm on a
+busy one), the approval, budget and stale rows and the Budget bars, auto-resume (`continue` +
+Enter once, 30 s after the reset, not before) and auto-close (the clean merged lane closed with
+its worktree, branch and record; the dirty one asks and keeps both).
+
+Harness bugs fixed in UX-2: `up.sh` read `curl | grep -q` under `pipefail`, so the build's
+budgets always read as missing (grep's early exit is curl's SIGPIPE); a standalone `up.sh`
+built with HOME already the temp HOME, so go's read-only module cache landed there and
+`down.sh` could not remove the run (it now builds first, and `down.sh` makes the tree writable
+and fails loudly if anything is left).
+
 ## Limitations
 
 - The fake claude is a shell script, not claude's TUI. Layout findings inside the terminal (how
   claude redraws on a resize) are out of scope; the rules check the terminal's box and grid only.
-- There is no Metrics view in PANEL-18, and no budgets: those views are feature-detected and
-  skipped. The side panel's tabs are skipped where the layout folds the side panel (1280 px).
+- The Metrics view and budgets are feature-detected: a build without them (PANEL-18) skips
+  those views.
+- The review threads are read at most every 2 minutes per PR, so no flow changes them; the
+  readiness flow turns the verdict with a check instead.
+- The fake does not send `UserPromptSubmit` for typed text, so after auto-resume types
+  `continue` the lane's rate-limit alert stays (a real claude's prompt clears it).
+- The dirty lane's auto-close ask is not followed to a close: the panel looks again only every
+  5 minutes while it asks. The side panel's tabs are skipped where the layout folds the side panel (1280 px).
 - The rules are heuristics. `clip` skips ellipsis truncation, and `overlap` and `covered` skip
   floating layers, so a real problem inside an open menu or dialog needs the screenshot.
 - Drag-and-drop and paste are synthetic DOM events (`DataTransfer`, `ClipboardEvent`), not OS
