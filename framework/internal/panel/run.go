@@ -117,6 +117,8 @@ type Ticks struct {
 	// PANEL-19: the Metrics view.
 	Spend  time.Duration // the spend the model observed, into the ledger (no spawn)
 	Merged time.Duration // the least time between two reads of merged pull requests (gh, while in view)
+	// PANEL-22: projects.json, for a project added or removed (no spawn: a stat).
+	Registry time.Duration
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -130,7 +132,7 @@ func DefaultTicks() Ticks {
 		Obs: time.Second, Notify: 2 * time.Second, Trust: 5 * time.Second, Token: 2 * time.Second,
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
-		Spend: time.Minute, Merged: 10 * time.Minute,
+		Spend: time.Minute, Merged: 10 * time.Minute, Registry: time.Second,
 	}
 }
 
@@ -145,7 +147,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.CardWatch, &d.CardWatch}, {&t.Queues, &d.Queues}, {&t.Prompt, &d.Prompt}, {&t.PromptKick, &d.PromptKick},
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
-		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged},
+		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged}, {&t.Registry, &d.Registry},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def
@@ -282,33 +284,13 @@ func Run(ctx context.Context, o Options) error {
 	// One runtime per project, each with its own model, hub, lanes and socket.
 	var runtimes []*Runtime
 	var def *Runtime
-	hostNames := []string{}
+	entries := map[string]config.ProjectEntry{}
 	for _, p := range projects {
-		trust := checkConfigTrust(o, p.entry.Root, p.cfgPath, p.raw, o.TrustConfig && p.entry.ID == primary)
-		for _, n := range p.cfg.Notices {
-			fmt.Fprintf(o.Out, "%s: %s\n", p.entry.ID, n)
-		}
-		lm, lanesWhy := newLaneManager(o, p.cfg, p.entry.Root, clk)
-		if lm != nil {
-			lm.Project = p.entry.ID
-		}
-		model := state.NewModel(p.cfg, p.entry.Root, clk.Now())
-		hub := web.NewHub(model, clk)
-		hub.TickEvery, hub.Coalesce = ticks.Hub, ticks.HubCoalesce
-		wts := p.wts
-		hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
-		r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
-		if lm != nil {
-			lm.Trusted = r.trusted // PANEL-20: worktree_setup and worktree_teardown are the config's commands
-		}
+		r := buildRuntime(o, clk, ticks, p, o.TrustConfig && p.entry.ID == primary)
 		runtimes = append(runtimes, r)
+		entries[r.id] = p.entry
 		if p.entry.ID == primary || (primary == "" && p.entry.ID == reg.Default) {
 			def = r
-		}
-		// A repository's config adds Host names only while it is trusted, except the
-		// default project's, which always could (before PANEL-16 it was the only one).
-		if trust.Trusted || r == def {
-			hostNames = append(hostNames, p.cfg.HostNames...)
 		}
 	}
 	if def == nil {
@@ -324,8 +306,9 @@ func Run(ctx context.Context, o Options) error {
 	// read `port` as digits only. A PID that is not running (or runs with another
 	// start time) marks the files stale; SIGKILL skips the removal at exit, which
 	// takes them only while they are still this panel's.
-	if err := install.ClaimPanelFiles(o.Home, install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: def.root,
-		Name: def.cfg.Name, Port: port, Started: clk.Now().Unix(), Projects: roots}); err != nil {
+	owner := install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: def.root,
+		Name: def.cfg.Name, Port: port, Started: clk.Now().Unix(), Projects: roots}
+	if err := install.ClaimPanelFiles(o.Home, owner); err != nil {
 		return err
 	}
 	defer install.ReleasePanelFiles(o.Home, os.Getpid())
@@ -368,49 +351,49 @@ func Run(ctx context.Context, o Options) error {
 	}
 	sums := web.NewSummaries(menu)
 
-	defOrch := def.orchestration()
 	srv := &web.Server{Port: port, Token: token, Hub: def.hub, Hooks: hooks, Status: status, Refresh: def.refreshAll, Lanes: def.lanes,
-		Orch: defOrch, HostNames: hostNames, TermIdleTimeout: o.TermIdleTimeout, Clock: clk, Heartbeat: ticks.Heartbeat,
-		Default: def.id, Summaries: sums}
+		TermIdleTimeout: o.TermIdleTimeout, Clock: clk, Heartbeat: ticks.Heartbeat, Default: def.id, Summaries: sums}
 	if o.Launchd {
 		srv.CookieMaxAge = int((30 * 24 * time.Hour).Seconds())
 	}
 	srv.OnVisible = func() {
-		for _, r := range runtimes {
+		for _, r := range m.list() {
 			r.pageInView()
 		}
 	}
 	m.srv.Store(srv)
+
+	// The live registry (PANEL-22): it serves these runtimes now, and follows
+	// projects.json from here on (the page's Add a project…, `panel add`/`remove`).
+	ls := &liveSet{ctx: ctx, o: o, clk: clk, ticks: ticks, m: m, srv: srv, sums: sums, primary: primary, owner: owner,
+		rts: map[string]*liveRT{}, failed: map[string]web.ProjectSummary{}, sig: pathSignature(config.ProjectsPath(o.Home))}
+	for _, f := range failed {
+		ls.failed[f.ID] = f
+	}
+	for _, e := range reg.Projects {
+		ls.order = append(ls.order, e.ID)
+	}
 	for _, r := range runtimes {
-		r := r
-		orch := defOrch
-		if r != def {
-			orch = r.orchestration()
-		}
-		srv.Projects = append(srv.Projects, &web.Project{ID: r.id, Name: r.cfg.Name, Hub: r.hub, Lanes: r.lanes, Orch: orch, Refresh: r.refreshAll,
-			Metrics: r.metricsReport})
-		r.srv.Store(srv)
-		r.hub.OnPush = func(v state.View) { sums.Set(web.Summarize(r.id, v)) }
-		if r.lanes != nil {
-			// A lane action re-reads the worktrees at once, not through kickWorktrees'
-			// throttle: lanes started together each add a worktree, and one read skipped
-			// leaves their sessions' first events with no worktree to bind to (PANEL-21).
-			// The kick channel coalesces, so a burst costs at most one extra read.
-			r.lanes.Changed = func() { kick(r.kickTmux); kick(r.kickWT); kick(r.kickAgents) }
-			r.lanes.Stopped = func(lane string) { srv.CloseTerminalsIn(r.id, lane) }
+		p := ls.wire(r)
+		srv.Projects = append(srv.Projects, p)
+		if r == def {
+			srv.Orch = p.Orch
 		}
 	}
+	ls.startDef = def
+	ls.refreshHosts()
+	srv.Admin = ls
 
 	var wg sync.WaitGroup
 	start := func(f func()) { wg.Add(1); go func() { defer wg.Done(); f() }() }
 	for _, r := range runtimes {
-		hub := r.hub
-		start(func() { hub.Run(ctx) })
+		ls.launch(r, entries[r.id])
 	}
 	start(func() { m.ingest(ctx, hooks, status) })
 	m.start(ctx, start)
-	for _, r := range runtimes {
-		r.start(ctx, start)
+	if !o.Only {
+		watch := &source{name: "registry", every: ticks.Registry, fixedRate: true, waitFirst: true, poll: ls.pollRegistry}
+		start(func() { runLoop(ctx, clk, watch, m.pollOnce) })
 	}
 
 	httpSrv := &http.Server{
@@ -465,6 +448,7 @@ func Run(ctx context.Context, o Options) error {
 	defer done()
 	_ = httpSrv.Shutdown(shutCtx)
 	wg.Wait()
+	ls.stopAll() // every project's runtime, each waited for
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

@@ -153,6 +153,34 @@ func (s *Server) CloseTerminalsIn(project, lane string) {
 	}
 }
 
+// CloseProjectTerminals closes every viewer of every lane of one project and drops
+// its unused tickets (PANEL-22: the project was removed live). The lanes run on.
+func (s *Server) CloseProjectTerminals(project string) {
+	if project == "" {
+		return
+	}
+	prefix := termKey(project, "")
+	s.termMu.Lock()
+	var vs []*termViewer
+	for k, set := range s.viewers {
+		if strings.HasPrefix(k, prefix) {
+			for v := range set {
+				vs = append(vs, v)
+			}
+			delete(s.viewers, k)
+		}
+	}
+	for k, t := range s.tickets {
+		if strings.HasPrefix(t.lane, prefix) {
+			delete(s.tickets, k)
+		}
+	}
+	s.termMu.Unlock()
+	for _, v := range vs {
+		go v.conn.Close(websocket.StatusGoingAway, "project removed")
+	}
+}
+
 // issueTicketHandler serves POST /api/p/{project}/lanes/{id}/ticket. The ticket is
 // for that project's lane only.
 func (s *Server) issueTicketHandler(w http.ResponseWriter, r *http.Request, p *Project) {

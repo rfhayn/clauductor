@@ -1,21 +1,19 @@
 # Clauductor
 
-A multi-worker orchestration framework for [Claude Code](https://claude.ai/code). Coordinate multiple AI agents and human developers working simultaneously on the same codebase — with file locking, real-time HUD, session management, and orchestration logging.
+An operating model for [Claude Code](https://claude.ai/code), and a local panel that runs it. The model is a set of skills, hooks, checks, agents and records a repository carries; the panel is one local web page for the lanes (Claude Code sessions in git worktrees) of every project on your machine.
 
 ## The Problem
 
-Claude Code is powerful, but scaling beyond one session is chaos. Run two agents on the same repo and they step on each other's files. Run three and you lose track of who's doing what. There's no coordination, no locking, no shared awareness.
+Claude Code is powerful, but scaling beyond one session is chaos. Run two agents on the same repo and they step on each other's work. Run three and you lose track of who is doing what, what was approved, and what is safe to merge.
 
-**claude-squad** solved the process management part (spawning agents in tmux), but has no inter-agent coordination, no file locking, and no intelligence in the orchestration layer.
-
-Clauductor fixes this. It's a coordination protocol — not just a process manager — built on Claude Code's skills system, with a real-time TUI dashboard and SQLite-backed state.
+Clauductor answers that with a process the repository enforces on itself (a roadmap queue, approved proposals, review per task group, a merge guard, a gate) and a panel that shows every lane and what it needs from you.
 
 ## What You Need
 
 - **[Claude Code](https://claude.ai/code)** — Anthropic's CLI tool
-- **tmux** — terminal multiplexer (installed automatically)
+- **tmux** — terminal multiplexer, for the panel's lanes (installed automatically)
 - **Go 1.24+** — for building the CLI (installed automatically)
-- **Git** + **GitHub CLI (`gh`)** — for git workflow
+- **Git**, **GitHub CLI (`gh`)** and **jq** — for the git workflow, the hooks and the checks
 
 ## Quick Start
 
@@ -47,75 +45,18 @@ Or, with Claude Code alone, as a plugin (one way per repository; see [docs/plugi
 
 ```
 clauductor/                     ← This repo (framework source)
-├── framework/                  ← Go source (CLI + HUD)
+├── framework/                  ← Go source (the CLI and the panel)
 ├── template/                   ← What projects receive
-│   ├── .claude/skills/         ← 21 orchestration + workflow skills
-│   ├── .claude/statusline.sh   ← Dynamic status line
-│   └── docs/                   ← Project doc templates
+│   ├── AGENTS.md, CLAUDE.md    ← Project-level instructions
+│   ├── .claude/                ← Skills, agents, hooks, checks, workflows
+│   ├── scripts/ci/             ← The gate
+│   └── docs/                   ← Project record templates
+├── plugin/                     ← The operating model as a plugin (generated from template/)
 ├── install.sh                  ← Build + install script
-└── docs/prds/                  ← Framework PRDs
+└── docs/                       ← This repo's records and PRDs
 ```
 
-Projects get only the `template/` contents — no Go source, no framework code.
-
-## Core Concepts
-
-### Naming Convention (PREFIX-#.#)
-```
-AUTH        = Epic (domain area)
-AUTH-1      = Feature within that epic
-AUTH-1.3    = Task within that feature
-```
-Define your epics in the Prefix Registry in CLAUDE.md. Legacy M#.#.# format also supported.
-
-### Session Types
-- **Research/Spike** — read anything, modify docs only, no file locks
-- **Build/Test** — PRD-driven, declares file manifest, locks files
-
-### File Locking
-Build sessions claim files before modifying them. Other sessions are blocked from those files until the lock is released. 15-minute escalation cycle with user notification.
-
-### The HUD
-Real-time TUI dashboard showing active workers, file locks, activity feed, and milestone progress. Toggle between sessions via tmux panes.
-
-```
-┌─ Clauductor ──────────────────────────────────────────┐
-│  WORKERS                                               │
-│  ● rich      AUTH-1  BUILD   src/auth/*       12m     │
-│  ● agent-1   API-1   BUILD   src/api/routes    4m     │
-│  ● agent-2   CACHE-1 SPIKE   (no locks)        8m     │
-│                                                        │
-│  MILESTONES                                            │
-│  AUTH-1  LOGIN FLOW      ██████████░░  65%  rich       │
-│  API-1   API ROUTES      ████░░░░░░░  30%  agent-1    │
-└────────────────────────────────────────────────────────┘
-```
-
-### Skills (21 included)
-
-| Skill | Purpose |
-|-------|---------|
-| `/session-start` | Register worker, load context |
-| `/new-milestone` | Create branch + per-milestone docs |
-| `/claim` | Declare file manifest, lock files |
-| `/release` | Release locks, deregister |
-| `/review` | Pre-PR code review (conventions, quality, docs) |
-| `/supervisor` | Orchestration loop — dispatch, monitor |
-| `/spawn` | Launch new Claude Code sessions |
-| `/assign` | Auto-dispatch work to agents |
-| `/handoff` | Structured handoff between workers |
-| `/blocked` | Report block, start wait/escalation |
-| `/status` | Quick orchestration status |
-| `/commit` | Commit with PREFIX-#.# conventions |
-| `/pr` | Create PR with project format |
-| `/build` | Build project |
-| `/milestone-complete` | Update docs + clean up |
-| `/dev-journal` | Session narrative entry |
-| `/log-insight` | Log technical insight |
-| `/prd-audit` | Verify PRD against code |
-| `/architecture-audit` | Check for violations |
-| `/release-prep` | Deployment pipeline |
-| `/skills` | List all available skills |
+Projects get only the `template/` contents — no Go source, no framework code. The model is explained, lane by lane, in the project's own `docs/playbook.md`.
 
 ### CLI Commands
 
@@ -124,19 +65,10 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 | `clauductor init <path>` | Create new project |
 | `clauductor install` | Add to existing project |
 | `clauductor install --dry-run` | Preview install changes |
-| `clauductor update` | Upgrade skills to latest |
-| `clauductor start` | Launch tmux + HUD |
-| `clauductor watch` | HUD dashboard only |
-| `clauductor status` | Quick terminal status |
-| `clauductor register` | Register a worker |
-| `clauductor deregister` | Remove a worker |
-| `clauductor lock` | Lock files |
-| `clauductor unlock` | Release locks |
-| `clauductor heartbeat` | Update worker heartbeat |
-| `clauductor milestone` | Create/update milestones |
-| `clauductor event` | Log orchestration event |
-| `clauductor query <type>` | Query state (JSON) |
-| `clauductor export <type>` | Export data (JSON/markdown) |
+| `clauductor update` | Upgrade the operating model to the latest template |
+| `clauductor diff` | Compare this repository with the template, file by file and key by key |
+| `clauductor plugin build` / `check` | Package the operating model as a Claude Code plugin, or check the committed one is current |
+| `clauductor lock-run` | Run a command while holding the shared gate lease ([docs](docs/panel.md)) |
 | `clauductor panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |
 | `clauductor panel init` | Write a starter `.clauductor/panel.json` for the project, from what the repository already says |
 | `clauductor panel --uninstall-hooks` | Remove the panel's hooks from `~/.claude/settings.json` |
@@ -144,7 +76,6 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 ## Documentation
 
 - **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
-- **[Onboarding Guide](docs/onboarding.md)** — Complete tutorial from install to multi-worker orchestration
 - **[Using the web panel](docs/guide.md)** — a short how-to for the panel's page: lanes, the terminal, stop vs close, restore, a second repository
 - **[Web panel](docs/panel.md)** — `clauductor panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
 - **[Claude Code plugin](docs/plugin.md)** — the operating model as a plugin: install, what it carries, what stays in the repository, running it beside `clauductor install`
@@ -152,7 +83,7 @@ Real-time TUI dashboard showing active workers, file locks, activity feed, and m
 
 ## Origin
 
-Built over 87+ sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Clauductor extends it from single-session methodology to multi-worker orchestration.
+Built over 87+ sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Clauductor extends it from single-session methodology to many lanes at once.
 
 ## License
 
