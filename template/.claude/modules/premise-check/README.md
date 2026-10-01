@@ -30,10 +30,12 @@ judge. The last line is the receipt, `premise-check: #N @ <sha>`, one per issue.
 ## What it enforces
 
 `guard.d/premise.sh` runs in the merge guard: a PR on a `PREMISE_REQUIRED_ON` branch (default
-`fix/`) is **blocked** unless its body carries a receipt for every issue it fixes. Those are
-GitHub's closing references, unioned with the body's closing keywords (GitHub's field can read
-empty at merge time), or, when neither names one, the `#N` in the PR title. A PR naming no issue is
-allowed, with a note. It checks that the receipt is there, not that the check ran before the fix or
+`fix/`) is **blocked** unless its body carries a receipt for every issue it fixes. "Every issue"
+is the union of whatever names one: GitHub's closing references (this repository's), the PR body's
+closing keywords (GitHub's field can read empty at merge time), the squash commit's message (the
+merge command's `--body`/`--body-file`, else the branch's commit messages, GitHub's default squash
+body), the `#N` in the PR title, and the number in a `fix/<n>-<slug>` branch. A PR naming no issue
+is allowed, with a note; a merge body it cannot read blocks. It checks that the receipt is there, not that the check ran before the fix or
 that anyone read it.
 
 ## Switching it on

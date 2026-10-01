@@ -6,23 +6,31 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 #
 # WHY. Fix units start from issue write-ups the code no longer matches. premise-check.sh reports
 # that drift; this makes its report a condition of landing the fix, by requiring its receipt line
-# (`premise-check: #N @ <sha>`) in the body for every issue the PR fixes.
+# (`premise-check: #N @ <sha>`) in the PR body for every issue the PR fixes.
 #
-# WHICH ISSUES: GitHub's `closingIssuesReferences` (what the merge will close), unioned with the
-# body's closing keywords (the field can read empty at merge time), and when both are EMPTY, the
-# `#N` references in the PR TITLE ("Fix #151/#152:" uses no closing keyword, yet names the issues
-# the fix is about). A PR with neither is told so and allowed: there is no premise to check.
+# WHICH ISSUES, the UNION of everything that names one, because each can be the only one that does:
+#   - GitHub's `closingIssuesReferences` (what the merge will close), this repository's only;
+#   - the PR body's closing keywords (that field can read empty at merge time);
+#   - the squash commit's own message: the merge command's --body/--body-file when it sets one
+#     (merge-pr writes a body file), else the branch's commit messages, which GitHub uses as the
+#     default squash body. Either can say "Fixes #239" and close the issue on merge;
+#   - the `#N` in the PR title ("Fix #151/#152:" uses no keyword, yet names the issues);
+#   - the number in a `<prefix><n>-<slug>` branch name (fix/239-card is about #239).
+# A PR naming none is told so and allowed: there is no premise to check.
 #
-# Fails CLOSED when it cannot read the PR: the remedy is one command the blocked reader can run.
+# Fails CLOSED when it cannot read the PR or the merge's body: the remedy is one command away.
 # NOT CHECKED: that the receipt's sha exists, or that the check ran BEFORE the fix. The receipt
 # proves the report was produced and put where review reads it: presence.
 #
 # Contract (.claude/local/README.md): GUARD_* and ROOT in the environment; exit 0 allows, each
-# stdout line an advisory; exit 2 blocks, stderr the reason. Needs gh and jq.
+# stdout line an advisory; exit 2 blocks, stderr the reason. Needs gh, jq and git.
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+no() { echo "$1" >&2; exit 2; }
+# Tested, not sourced blind: a `.` of a missing file ends the shell with a status that is not 2.
+[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || no "cannot read the project's configuration (lib/conf.sh is missing), so the premise check cannot be evaluated."
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh" || { echo "cannot read the project's configuration, so the premise check cannot be evaluated." >&2; exit 2; }
-[ -f "$HERE/lib/receipt.sh" ] || { echo "cannot find $HERE/lib/receipt.sh, so the premise-check receipt cannot be checked. Restore it." >&2; exit 2; }
+. "$CLAUDUCTOR_FW/lib/conf.sh"
+[ -f "$HERE/lib/receipt.sh" ] || no "cannot find $HERE/lib/receipt.sh, so the premise-check receipt cannot be checked. Restore it."
 # shellcheck disable=SC1091
 . "$HERE/lib/receipt.sh"
 
@@ -33,22 +41,44 @@ for p in ${PREMISE_REQUIRED_ON:-fix/}; do
 done
 [ -n "$on" ] || exit 0
 
+# The merge's own body is read the way rule 12 reads it (cg_body, hooks/lib/change-guard.sh).
+cg="$CLAUDUCTOR_FW/hooks/lib/change-guard.sh"
+{ [ -f "$cg" ] && sh -n "$cg" 2>/dev/null; } || no "cannot read $cg, so the merge's own body cannot be checked for the issues it closes."
+# shellcheck disable=SC1090
+. "$cg"
+command -v cg_body >/dev/null 2>&1 || no "$cg did not define cg_body, so the merge's own body cannot be checked."
+
 cd "$ROOT" || exit 2
+repo=${GUARD_REPO:-}
 pr_json=$(gh pr view "$pr" --json title,body,closingIssuesReferences 2>/dev/null)
-[ -n "$pr_json" ] || { echo "could not read PR #$pr's body and closing issues, so the premise check cannot be evaluated." >&2; exit 2; }
-closes=$(printf '%s' "$pr_json" | jq -r '[.closingIssuesReferences[]?.number] | map(tostring) | join(" ")') \
-  || { echo "could not parse PR #$pr's closing issues, so the premise check cannot be evaluated." >&2; exit 2; }
+[ -n "$pr_json" ] || no "could not read PR #$pr's body and closing issues, so the premise check cannot be evaluated."
+printf '%s' "$pr_json" | jq -e 'type == "object"' >/dev/null 2>&1 \
+  || no "PR #$pr's details did not come back as JSON ($(printf '%s' "$pr_json" | head -c 80)), so the premise check cannot be evaluated."
+gh_closes=$(printf '%s' "$pr_json" | jq -r --arg repo "$repo" '[.closingIssuesReferences[]?
+    | select($repo == "" or .repository == null
+             or ((((.repository.owner.login // "") + "/" + (.repository.name // "")) | ascii_downcase) == $repo))
+    | .number | tostring] | join(" ")' 2>/dev/null) \
+  || no "could not parse PR #$pr's closing issues, so the premise check cannot be evaluated."
 pr_body=$(printf '%s' "$pr_json" | jq -r '.body // ""')
-body_closes=$(closing_refs_in_body "$pr_body" "${GUARD_REPO:-}")
+title_refs=$(printf '%s' "$pr_json" | jq -r '.title // ""' | grep -oE '#[0-9]+' | tr -d '#')
+branch_ref=$(printf '%s\n' "${branch#"$on"}" | sed -n 's/^\([0-9][0-9]*\)\(-.*\)\{0,1\}$/\1/p')
+
+# The squash commit's message: the body the merge command sets, else the branch's commits.
+cwd=$(jq -r '.cwd // empty' "${GUARD_PAYLOAD:-/dev/null}" 2>/dev/null)
+merge_body=$(cg_body "${GUARD_COMMAND:-}" "${cwd:-$ROOT}"); mrc=$?
+case $mrc in
+  0) ;;
+  1) merge_body=$(git -C "$ROOT" log --format=%B "$GUARD_BASE..$GUARD_HEAD" 2>/dev/null) \
+       || no "could not read the commit messages of $GUARD_BASE..$GUARD_HEAD (the squash commit's default body), so the issues they close cannot be checked." ;;
+  *) no "cannot read this merge's --body/--body-file (a substitution, or an unreadable file), so the issues the squash commit closes cannot be checked. Write the body to a file and pass --body-file <file>." ;;
+esac
+
 # shellcheck disable=SC2086
-closes=$(printf '%s\n' $closes $body_closes | grep . | sort -un | tr '\n' ' ')
+closes=$(printf '%s\n' $gh_closes $(closing_refs_in_body "$pr_body" "$repo") \
+  $(closing_refs_in_body "$merge_body" "$repo") $title_refs $branch_ref | grep . | sort -un | tr '\n' ' ')
 closes=${closes% }
 if [ -z "$closes" ]; then
-  closes=$(printf '%s' "$pr_json" | jq -r '.title // ""' | grep -oE '#[0-9]+' | tr -d '#' | sort -un | tr '\n' ' ')
-  closes=${closes% }
-fi
-if [ -z "$closes" ]; then
-  echo "PR #$pr ($branch) closes no issue and names none in its title, so there is no premise to check. Not blocking."
+  echo "PR #$pr ($branch) names no issue (GitHub's closing list, its body, the squash message, its title or its branch), so there is no premise to check. Not blocking."
   exit 0
 fi
 if missing=$(premise_receipt_missing "$pr_body" "$closes"); then

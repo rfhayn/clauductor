@@ -124,6 +124,9 @@ rc=0; (cd "$R" && sh "$S" --issue-json "$d/issue.json" --at nope >"$d/o" 2>"$d/e
   || fail "premise: a ref that does not exist is a FAULT: exit $rc, stderr $(cat "$d/e"), stdout $(head -c 200 "$d/o")"
 rc=0; (cd "$R" && sh "$S" >/dev/null 2>"$d/e") || rc=$?
 [ "$rc" = 1 ] && grep -q 'usage' "$d/e" && ok "premise: no issue named is a usage FAULT" || fail "premise: no issue named is a usage FAULT: exit $rc $(cat "$d/e")"
+rc=0; (cd "$R" && TMPDIR="$d/no/such/dir" sh "$S" --issue-json "$d/issue.json" --at HEAD >/dev/null 2>"$d/e") || rc=$?
+[ "$rc" = 1 ] && grep -q 'FAULT — cannot make a temp directory' "$d/e" && ok "premise: no temp directory is a FAULT that says so" \
+  || fail "premise: no temp directory is a FAULT that says so: exit $rc $(cat "$d/e")"
 # The default ref is origin/<MAIN_BRANCH>, fetched first.
 git init -q --bare "$d/origin.git"; git -C "$R" remote add origin "$d/origin.git"; git -C "$R" push -q origin HEAD:main 2>/dev/null
 out=$(cd "$R" && sh "$S" --issue-json "$d/issue.json" 2>&1)
@@ -197,39 +200,74 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$d/bin/gh"
-# merge WANT LABEL BODY [CLOSES] [TITLE] [BRANCH]: a merge of PR 290 through the guard.
+# prjson BODY CLOSES TITLE: the PR as gh returns it. CLOSES items: N (this repo) or owner/name#N.
+prjson() {
+  jq -cn --arg t "$3" --arg b "$1" --arg c "$2" '{title: $t, body: $b, closingIssuesReferences: ($c | split(" ") | map(select(. != "")
+    | if test("#") then (split("#") as $p | ($p[0] | split("/")) as $r | {number: ($p[1] | tonumber), repository: {name: $r[1], owner: {login: $r[0]}}})
+      else {number: tonumber} end))}'
+}
+# merge WANT LABEL BODY [CLOSES] [TITLE] [BRANCH]: a merge of PR 290 through the guard; MCMD is the
+# merge command (default: no --body).
 merge() {
-  _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/239-card}
-  _pr=$(jq -cn --arg t "$_t" --arg b "$_b" --arg c "$_c" '{title: $t, body: $b, closingIssuesReferences: ($c | split(" ") | map(select(. != "") | {number: tonumber}))}')
+  _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/card}
+  _pr=$(prjson "$_b" "$_c" "$_t")
   rc=0
-  out=$(payload "gh pr merge 290 --squash" "$G" | (cd "$G" && env PATH="$d/bin:$PATH" GH_HEAD="$GH" GH_BRANCH="$_br" FAKE_PR="$_pr" sh "$G/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
+  out=$(payload "${MCMD:-gh pr merge 290 --squash}" "$G" | (cd "$G" && env PATH="$d/bin:$PATH" GH_HEAD="$GH" GH_BRANCH="$_br" FAKE_PR="$_pr" sh "$G/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
   [ "$rc" = "$_w" ] || sed 's/^/       /' "$d/err" | head -4
 }
 # rulep WANT LABEL BODY [CLOSES] [TITLE] [BRANCH]: the same PR, asked of the module's rule alone with
 # the facts the guard hands it (GUARD_*). The full guard costs a second a run; the merges through it
-# prove the wiring (a block reaches Claude, an advisory reaches Claude, a module that is off adds
-# nothing), so the rest of the cases ask the rule.
+# prove the wiring (a block reaches Claude, an advisory reaches Claude, the merge command reaches
+# the rule, a module that is off adds nothing), so the rest of the cases ask the rule. MCMD is the
+# merge command, RHEAD the PR's head (default: main, so no commits), RAW what gh prints instead.
 rulep() {
-  _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/239-card}
-  _pr=$(jq -cn --arg t "$_t" --arg b "$_b" --arg c "$_c" '{title: $t, body: $b, closingIssuesReferences: ($c | split(" ") | map(select(. != "") | {number: tonumber}))}')
-  [ "${NO_PR:-}" = 1 ] && _pr=""
+  _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/card}
+  _pr=$(prjson "$_b" "$_c" "$_t")
+  [ -n "${RAW+x}" ] && _pr=$RAW
+  payload "${MCMD:-gh pr merge 290 --squash}" "$G" > "$d/payload"
   rc=0
-  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="$G" GUARD_PR=290 GUARD_BRANCH="$_br" GUARD_REPO=acme/app GUARD_HEAD="$GH" \
+  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="$G" GUARD_PR=290 GUARD_BRANCH="$_br" GUARD_REPO=acme/app \
+    GUARD_BASE="$GH" GUARD_HEAD="${RHEAD:-$GH}" GUARD_COMMAND="${MCMD:-gh pr merge 290 --squash}" GUARD_PAYLOAD="$d/payload" \
     sh "$G/.claude/modules/premise-check/guard.d/premise.sh" 2>"$d/err") || rc=$?
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
   [ "$rc" = "$_w" ] || sed 's/^/       /' "$d/err" | head -4
 }
+RCPT="premise-check: #239 @ $(printf '%s' "$GH" | cut -c1-12)"
 merge 2 "a fix/ PR with no receipt" "Fixes the closed card."
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...naming the issue that lacks one"
 PC=.claude/modules/premise-check/premise-check.sh   # the script, as a reader types it at the root
 has yes "Run:  sh $PC 239" "$(cat "$d/err")" "guard rule: ...and the command that produces it, as typed at the root"
 merge 0 "a fix/ PR with a receipt for its issue" "Fixes it.
 
-premise-check: #239 @ $(printf '%s' "$GH" | cut -c1-12)"
+$RCPT"
 has yes "premise check present for every issue PR #290 fixes: #239" "$(cat "$d/err")$out" "guard rule: ...and says so as an advisory"
+MCMD='gh pr merge 290 --squash --body "Fixes #239: the closed card."'
+merge 2 "a squash whose --body closes an issue the PR does not name (the merge command reaches the rule)" "Tidy." "" "Tidy the card"
+has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the merge's --body closes it"
+MCMD=
+printf 'Resolves #239.\n' > "$G/merge-body.md"
+MCMD='gh pr merge 290 --squash --body-file merge-body.md'
+rulep 2 "a squash whose --body-file closes an issue the PR does not name" "Tidy." "" "Tidy the card"
+has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the merge's --body-file closes it"
+MCMD='gh pr merge 290 --squash --body-file nowhere.md'
+rulep 2 "a squash whose --body-file cannot be read (fails closed)" "$RCPT" "239" "Tidy the card"
+has yes "cannot read this merge's --body/--body-file" "$(cat "$d/err")" "guard rule: ...and says it cannot read the merge's body"
+MCMD=
+git -C "$G" checkout -q -b fix/commits
+git -C "$G" commit -q --allow-empty -m "card: stop the crash" -m "Fixes #241"
+RHEAD=$(git -C "$G" rev-parse HEAD); git -C "$G" checkout -q main
+rulep 2 "a squash with no --body whose commits close an issue (GitHub's default squash body)" "Tidy." "" "Tidy the card"
+has yes "fixes #241 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the branch's commit messages count"
+RHEAD=
 rulep 2 "a PR whose title names the issues and nothing closes them" "No closing keyword." "" "Fix #151/#152: window lifecycle"
 has yes "fixes #151 #152 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the title's issues need receipts"
+rulep 2 "a PR whose title names one issue and whose body closes another (title and body, unioned)" "Closes #409.
+
+premise-check: #409 @ $(printf '%s' "$GH" | cut -c1-12)" "" "Fix #410 too"
+has yes "fixes #410 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the title's issue counts beside the body's"
+rulep 2 "a fix/<n>-<slug> branch that names nothing else" "Tidy." "" "Tidy the card" "fix/512-card"
+has yes "fixes #512 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the branch's number is an issue"
 rulep 2 "a PR whose body closes an issue GitHub's field misses" "Closes #409.
 
 Why: it." "" "Keep live sessions' worktrees"
@@ -240,14 +278,25 @@ premise-check: #409 @ $(printf '%s' "$GH" | cut -c1-12)" "409"
 has yes "fixes #410 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...names the one without"
 rulep 2 "a PR whose issue only GitHub's closing list names (not its body or title)" "Tidy the card." "77" "Tidy the card"
 has yes "fixes #77 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...GitHub's closing list counts"
+rulep 2 "a PR whose closing list names this repository's issue" "Tidy." "acme/app#78" "Tidy the card"
+has yes "fixes #78 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...this repository's closing reference counts"
+rulep 0 "a PR whose closing list names only ANOTHER repository's issue" "Tidy." "other/repo#88" "Tidy the card"
+has no "#88" "$(cat "$d/err")$out" "guard rule: ...another repository's closing reference needs no receipt here"
 rulep 0 "a fix/ PR that closes and names no issue" "Tidy." "" "Tidy a comment"
-has yes "closes no issue and names none in its title" "$(cat "$d/err")$out" "guard rule: ...and says there was no premise to check"
+has yes "names no issue" "$(cat "$d/err")$out" "guard rule: ...and says there was no premise to check"
 rulep 0 "an ops/ PR (not PREMISE_REQUIRED_ON)" "Fixes #12, no receipt." "12" "Tidy" "ops/tidy"
 printf 'MODULES="premise-check"\nPREMISE_REQUIRED_ON="fix/ hotfix/"\n' > "$G/.claude/project.conf"
 rulep 2 "a hotfix/ PR once PREMISE_REQUIRED_ON names hotfix/" "Fixes #12." "12" "Hot" "hotfix/12"
-# Unreadable PR: gh answers nothing for its body and closing issues.
-NO_PR=1; rulep 2 "when it cannot read the PR (fails closed, not open)" "" "" "" "fix/1"; NO_PR=
+# Unreadable PR: gh answers nothing, or something that is not JSON.
+RAW=""; rulep 2 "when it cannot read the PR (fails closed, not open)" "" "" "" "fix/1"
 has yes "could not read PR #290" "$(cat "$d/err")" "guard rule: ...and says it could not read the PR"
+RAW="gh: Bad credentials (HTTP 401)"; rulep 2 "when gh answers with something that is not JSON (fails closed)" "" "" "" "fix/1"
+has yes "did not come back as JSON" "$(cat "$d/err")" "guard rule: ...and says the answer was not JSON"
+unset RAW
+mv "$G/.claude/lib/conf.sh" "$d/conf.bak"
+rulep 2 "when the project's configuration is missing (fails closed, saying why)" "Tidy." "" "Tidy"
+has yes "cannot read the project's configuration" "$(cat "$d/err")" "guard rule: ...and says the configuration is missing"
+mv "$d/conf.bak" "$G/.claude/lib/conf.sh"
 printf 'MODULES=""\n' > "$G/.claude/project.conf"
 merge 0 "a fix/ PR with no receipt while the module is OFF (the rule is the module's)" "Fixes the closed card."
 

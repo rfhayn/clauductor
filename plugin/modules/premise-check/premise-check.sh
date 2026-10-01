@@ -41,6 +41,10 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 JQ_LIB="$HERE/lib/terms.jq"
 US=$(printf '\037')
 TAB=$(printf '\t')
+# say TEXT: one line, as written (dash's echo would expand a backslash in an issue's text).
+# Defined before its first use: sh runs definitions in order, and an undefined say only prints
+# "say: not found" on stderr.
+say() { printf '%s\n' "$*"; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/premise.XXXXXX") || { say "premise-check: FAULT — cannot make a temp directory" >&2; exit 1; }
 trap 'rm -rf "$W"' EXIT
 trap 'rm -rf "$W"; exit 1' INT TERM
@@ -53,8 +57,6 @@ fault() {
   exit 1
 }
 faulted() { [ -e "$W/fault" ]; }
-# say TEXT: one line, as written (dash's echo would expand a backslash in an issue's text).
-say() { printf '%s\n' "$*"; }
 
 # g ARGS: git in the repository's top directory (pathspecs, `git grep` and ls-tree are relative to
 # the working directory). A fault stops the run; with G_NOMATCH=1, exit 1 and no stderr is "no
@@ -260,7 +262,8 @@ i=0
 while [ "$i" -lt "$k" ]; do
   i=$((i + 1))
   [ "$i" -gt 1 ] && printf '\n' >> "$W/report"
-  check_issue "$W/issue.$i" > "$W/one" || { faulted || fault "the check of issue $i stopped (exit $?)"; exit 1; }
+  check_issue "$W/issue.$i" > "$W/one"; crc=$?
+  [ "$crc" -eq 0 ] || { faulted || fault "the check of issue $i stopped (exit $crc)"; exit 1; }
   faulted && exit 1
   cat "$W/one" >> "$W/report"
 done
