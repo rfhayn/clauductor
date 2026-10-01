@@ -48,3 +48,10 @@ run `sh .claude/skills/session-start/context.sh` yourself and read the result be
 - **Research-only work goes to the `researcher` agent**, not a fork (a fork inherits every tool).
 - Read, don't assume: the repo's records are the source of truth for "where we were". Keep the
   orientation short; this is a launchpad, not a report.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/session-start/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments session-start`

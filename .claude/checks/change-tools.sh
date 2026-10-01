@@ -106,4 +106,15 @@ rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"
 case "$(cat "$d/out")" in "CANNOT CHECK"*) ok "...and says CANNOT CHECK, not \$0" ;; *) fail "no-transcript output: $(cat "$d/out")" ;; esac
+
+# CHANGE_RECORD_EXTRA (P1.7): the project's own required sections, as checks/changes.sh and rule 9
+# read them (lib/change.sh change_extra_missing).
+X="$d/extra"; mkdir -p "$X"
+printf '# P\n\n## Rollback\nRevert it.\n' > "$X/proposal.md"; printf '# D\n' > "$X/design.md"
+out=$(CHANGE_RECORD_EXTRA="" sh -c '. "$1"; change_extra_missing "$2"' _ "$ROOT/.claude/lib/change.sh" "$X")
+[ -z "$out" ] && ok "CHANGE_RECORD_EXTRA empty: nothing extra is required" || fail "empty CHANGE_RECORD_EXTRA: $out"
+out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback" sh -c '. "$1"; change_extra_missing "$2"' _ "$ROOT/.claude/lib/change.sh" "$X")
+[ -z "$out" ] && ok "CHANGE_RECORD_EXTRA: a record carrying the section passes" || fail "present section: $out"
+out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback; design.md:Security review (STRIDE); notes.md:Owner" sh -c '. "$1"; change_extra_missing "$2"' _ "$ROOT/.claude/lib/change.sh" "$X")
+case "$out" in *"design.md has no '## Security review (STRIDE)' section"*"notes.md is missing"*) ok "CHANGE_RECORD_EXTRA: a missing section and a missing file are each named" ;; *) fail "missing sections: $out" ;; esac
 finish

@@ -135,6 +135,15 @@ on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
 printf '## 1. Do it\n- [x] 1.1 thing\n- [x] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
 echo 'code' > "$R/src/y.txt"; head_of "build, every task done"; at
 guard 0 "rule 9: a build PR whose every task is ticked" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+# CHANGE_RECORD_EXTRA: the project's own required sections, read at the head.
+cp "$R/.claude/project.conf" "$d/conf.bak"; echo 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"' >> "$R/.claude/project.conf"
+guard 2 "rule 9: a build PR whose change lacks a CHANGE_RECORD_EXTRA section" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+grep -q "changes/add-y: tasks.md has no '## Rollback' section" "$d/err" && ok "rule 9: ...and names the missing section" || fail "rule 9 CHANGE_RECORD_EXTRA message: $(cat "$d/err")"
+on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
+printf '## 1. Do it\n- [x] 1.1 thing\n\n## Rollback\nRevert.\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+echo 'code' > "$R/src/y.txt"; head_of "build, with its rollback"; at
+guard 0 "rule 9: a build PR carrying every CHANGE_RECORD_EXTRA section" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+cp "$d/conf.bak" "$R/.claude/project.conf"
 
 on ops/spec; mkdir -p "$R/specs/cap" "$R/tests"
 printf '# Cap\n\n## Purpose\nx\n\n## Requirements\n\n### Requirement: R\nThe system SHALL r.\n\n#### Scenario: [CAP-1-S1] r\n- **THEN** r\n' > "$R/specs/cap/spec.md"
@@ -288,4 +297,47 @@ mv "$R/.claude/lib/evals.sh" "$d/evals.bak"
 g13 2 "the evals library missing (fails closed, not open)"
 mv "$d/evals.bak" "$R/.claude/lib/evals.sh"
 git -C "$R" checkout -q main
+
+# Extension rules: the enabled modules' guard.d/*.sh and .claude/local/guard.d/*.sh run after the
+# core rules, with the same exit/advisory contract, and fail closed (lib/modules.sh).
+cp "$ROOT/.claude/lib/modules.sh" "$R/.claude/lib/"
+TOP=$(git -C "$R" rev-parse HEAD); receipt "$TOP"
+G="$R/.claude/local/guard.d"; mkdir -p "$G"
+gx() {  # gx WANT LABEL [env...]: a plain merge of the clean head, through the extension rules
+  w=$1 l=$2; shift 2
+  guard "$w" "guard.d: $l" "gh pr merge 5 --squash" GH_HEAD="$TOP" "$@"
+}
+printf 'echo "PR $GUARD_PR head $GUARD_HEAD branch $GUARD_BRANCH"\n' > "$G/10-facts.sh"
+gx 0 "a rule that exits 0 allows"
+case "$out" in *'"additionalContext"'*"local guard.d/10-facts.sh: PR 5 head $TOP branch fix/1-x"*) ok "guard.d: its stdout reaches Claude as an advisory, with the PR's facts in GUARD_*" ;; *) fail "guard.d advisory: $out" ;; esac
+printf '#!/usr/bin/env bash\nif [[ -n "$GUARD_PR" ]]; then echo "bash ran me"; fi\n' > "$G/20-bash.sh"
+gx 0 "a bash-only rule runs under bash (its #! line), not sh"
+rm -f "$G/20-bash.sh"
+printf 'echo "not this one" >&2\nexit 2\n' > "$G/30-block.sh"
+gx 2 "a rule that exits 2 blocks"
+grep -q 'local guard.d/30-block.sh: not this one' "$d/err" && ok "guard.d: ...with its stderr as the reason" || fail "guard.d block message: $(cat "$d/err")"
+printf 'exit 1\n' > "$G/30-block.sh"
+gx 2 "a rule that crashes (exit 1) blocks: fail closed"
+printf 'if then fi\n' > "$G/30-block.sh"
+gx 2 "a rule that does not parse blocks"
+grep -q 'does not parse' "$d/err" && ok "guard.d: ...and says it does not parse" || fail "guard.d parse message: $(cat "$d/err")"
+printf 'sleep 20\n' > "$G/30-block.sh"
+gx 2 "a rule that outlives GUARD_RULE_TIMEOUT blocks" GUARD_RULE_TIMEOUT=1
+grep -q 'did not finish within 1 s' "$d/err" && ok "guard.d: ...and says it timed out" || fail "guard.d timeout message: $(cat "$d/err")"
+rm -f "$G/30-block.sh"
+mkdir -p "$R/.claude/modules/strict/guard.d"
+printf 'name="strict"\nrequires=""\nenables="guard.d"\n' > "$R/.claude/modules/strict/module.conf"
+printf 'echo "strict says no" >&2\nexit 2\n' > "$R/.claude/modules/strict/guard.d/no.sh"
+gx 0 "a DISABLED module's rule does not run"
+echo 'MODULES="strict"' >> "$R/.claude/project.conf"
+gx 2 "an ENABLED module's rule runs"
+grep -q 'module strict guard.d/no.sh: strict says no' "$d/err" && ok "guard.d: ...and the block names the module" || fail "guard.d module block: $(cat "$d/err")"
+sed -i.bak 's/^MODULES=.*/MODULES="nosuch"/' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
+gx 2 "a module in MODULES that cannot load blocks (its rules cannot run)"
+sed -i.bak '/^MODULES=/d' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
+mv "$R/.claude/lib/modules.sh" "$d/modules.bak"
+gx 2 "the loader missing while .claude/local/guard.d exists (fails closed, not open)"
+mv "$d/modules.bak" "$R/.claude/lib/modules.sh"
+rm -rf "$G" "$R/.claude/modules"
+gx 0 "no extension rules at all: the guard is unchanged"
 finish

@@ -90,3 +90,10 @@ If the line above shows as literal text instead of output, run
   their word). Never re-record an approval the owner did not give.
 - A design decision is the owner's even when the answer seems obvious: recommend, never decide.
 - Prefer a smaller change that converges over a complete one that does not.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/propose/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh .claude/extensions.sh fragments propose`
