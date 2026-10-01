@@ -4,24 +4,26 @@
   "model": "opus",
   "effort": "high",
   "date": "2026-10-01",
-  "run_at": "2026-10-01T12:27:20Z",
+  "run_at": "2026-10-01T14:56:35Z",
   "agent": "reviewer",
   "hashes": {
     "role": "6adee45ac63b88dbfcd72dea4761250b1f74b08c",
     "triggers": {
       ".claude/agents/reviewer.md": "deda42146ca25b4aff01525ef556e00d7f0a9c17",
-      ".claude/workflows/build-change.js#review-prompt": "5ded646dda129ea42a9e5ad4ba68808a5e20848c"
+      ".claude/workflows/build-change.js#review-call": "b9ad89cf8b7f339efe49530340b531d5baea2e71",
+      ".claude/workflows/build-change.js#review-prompt": "b2d436800847e96998bed798f2783e8b6beb1556"
     },
+    "agent_file": ".claude/agents/reviewer.md",
     "model_roles": "c0e4d2c19f2f69a2f5a7f226dbf552a8592f1de2",
     "agent": "deda42146ca25b4aff01525ef556e00d7f0a9c17",
-    "workflows": "a30122a6e9e16f9deecd757cac0db7d2e1318b16"
+    "workflows": "8088f26767dfb34b24c25b1ce411b5dd35d38a27"
   },
   "suite": {
     "cases": 18,
     "defect_cases": 13,
     "clean_cases": 5,
     "planted": 20,
-    "hash": "7e2382b65659811cdcc8fd5a0a324ace5160c03e"
+    "hash": "e033344b2ee60cd16a45e4b29233997a109f85c5"
   },
   "complete": true,
   "errors": 0,
@@ -32,19 +34,19 @@
   },
   "scores": {
     "recall": 1,
-    "precision": 0.556,
+    "precision": 0.541,
     "fp_rate": 0.2,
-    "severity_accuracy": 0.9,
+    "severity_accuracy": 0.85,
     "severity_within_one": 1
   },
   "cost": {
-    "usd": 2.627,
-    "input_tokens": 168,
-    "output_tokens": 42973,
-    "cache_read_tokens": 1048385,
-    "cache_write_tokens": 177496,
-    "usd_per_catch": 0.131,
-    "catches_per_usd": 7.612
+    "usd": 2.686,
+    "input_tokens": 166,
+    "output_tokens": 41033,
+    "cache_read_tokens": 1041277,
+    "cache_write_tokens": 178306,
+    "usd_per_catch": 0.134,
+    "catches_per_usd": 7.446
   },
   "cases": [
     {
@@ -53,9 +55,9 @@
       "error": null,
       "planted": 2,
       "caught": 2,
-      "actionable": 4,
-      "false_positives": 2,
-      "cost_usd": 0.206,
+      "actionable": 3,
+      "false_positives": 1,
+      "cost_usd": 0.287,
       "matches": [
         {
           "defect": "D1",
@@ -68,42 +70,34 @@
           "defect": "D2",
           "expected": "high",
           "caught": true,
-          "severity": "high",
+          "severity": "critical",
           "finding": 1
         }
       ],
       "findings": [
         {
-          "group": 1,
           "severity": "critical",
           "file": "jobs/archive.go",
           "line": 11,
-          "summary": "The DELETE from events runs before the INSERT ... SELECT into events_archive, so the copy reads rows that were already deleted and the archive gets nothing.",
-          "failure": "Given events rows with created_at < cutoff, ArchiveBefore(ctx, db, cutoff) first deletes them, then runs `INSERT INTO events_archive SELECT * FROM events WHERE created_at < $1`, which matches 0 rows. Every night all events older than 90 days are permanently deleted and never archived, and the function returns nil. The design says 'Nothing may be lost: the archive is the audit record', and AGENTS.md says a destructive step runs only after the data it replaces is safe. Fix: run the INSERT first and the DELETE only after it succeeds, both inside one transaction (db.BeginTx, then Commit)."
+          "group": 1,
+          "summary": "Events are deleted before they are copied, so the archive step has nothing left to copy and every archived event is lost",
+          "failure": "events holds rows with created_at < cutoff → the DELETE removes them first → `INSERT INTO events_archive SELECT * FROM events WHERE created_at < $1` matches 0 rows → events_archive gets nothing and the audit record is permanently gone, yet ArchiveBefore returns nil. The design says 'Nothing may be lost', and AGENTS.md says a destructive step runs only after the data it replaces is safe, or in a transaction. Fix: run the INSERT and then the DELETE inside one db.BeginTx transaction, and commit only if both succeed."
         },
         {
-          "group": 1,
-          "severity": "high",
+          "severity": "critical",
           "file": "jobs/archive.go",
-          "line": 14,
-          "summary": "An error from the archive INSERT is only logged, and the function returns nil, so a failed copy is reported to the caller as success.",
-          "failure": "If the INSERT into events_archive fails (schema drift on `SELECT *`, a constraint, a lost connection), the code calls log.Printf and returns nil. The scheduler (a later group) will treat the night's run as successful. Even once the statements are put in the right order, a later DELETE would still remove rows that were never copied. This breaks the AGENTS.md rule 'No error is discarded'. The error must be returned, and it must abort or roll back before any delete."
+          "line": 15,
+          "group": 1,
+          "summary": "A failed copy into events_archive is only logged, and the function still returns nil",
+          "failure": "The INSERT fails (for example events_archive is missing, its schema has drifted, or a constraint is violated) → the error goes to log.Printf → ArchiveBefore returns nil → the caller (the scheduler in a later group) treats the run as a success. Even with the steps in the right order, the DELETE would then go ahead after a failed copy. That breaks 'No error is discarded', and a nightly control that fails this way does nothing and says nothing. Return the error and roll back."
         },
         {
-          "group": 1,
-          "severity": "medium",
-          "file": "jobs/archive.go",
-          "line": 10,
-          "summary": "The copy and the delete are two separate auto-committed statements with no transaction, so the move is not atomic.",
-          "failure": "Even with INSERT-then-DELETE, nothing ties the two statements together. A crash or cancelled ctx between them leaves rows in both tables, and the next night's re-run either fails on duplicate keys or archives the rows twice. A row with created_at < cutoff that commits between the two statements is deleted without being archived. Run both statements in one transaction via db.BeginTx, or use one statement (`WITH moved AS (DELETE ... RETURNING *) INSERT INTO events_archive SELECT * FROM moved`)."
-        },
-        {
-          "group": 1,
           "severity": "high",
           "file": "jobs/archive.go",
           "line": 10,
-          "summary": "Task 1.1 has no test: no test file exists in jobs/, so nothing checks that old events end up in events_archive and are removed from events.",
-          "failure": "AGENTS.md says 'Every behaviour a task names has a test that would fail without the code.' A test should seed events on both sides of the cutoff, call ArchiveBefore, and assert three things: old rows are in events_archive, old rows are gone from events, and newer rows are untouched. It should also cover an INSERT failure, which must return an error and leave events intact. Today's code fails the first assertion, because the archive is empty, and nothing catches it."
+          "group": 1,
+          "summary": "Task 1.1 has no test: the diff adds no test for ArchiveBefore",
+          "failure": "No jobs/archive_test.go exists. A test would seed events on both sides of the cutoff, run ArchiveBefore, and check that the old rows are in events_archive and gone from events while newer rows stay. With the current delete-then-copy order that test fails, because the archive ends up empty. A second test should make the INSERT fail and check that it returns an error and leaves events untouched. AGENTS.md requires 'Every behaviour a task names has a test that would fail without the code'."
         }
       ]
     },
@@ -115,7 +109,7 @@
       "caught": 0,
       "actionable": 0,
       "false_positives": 0,
-      "cost_usd": 0.098,
+      "cost_usd": 0.103,
       "matches": [],
       "findings": []
     },
@@ -127,7 +121,7 @@
       "caught": 2,
       "actionable": 2,
       "false_positives": 0,
-      "cost_usd": 0.096,
+      "cost_usd": 0.126,
       "matches": [
         {
           "defect": "D1",
@@ -149,16 +143,17 @@
           "severity": "high",
           "file": "ratelimit/limiter.go",
           "line": 26,
-          "summary": "The rate limit check changed from `>=` to `>`, so the limiter now allows Max+1 calls per window. Task 1.1 and design.md both say this was a rename with no behaviour change.",
-          "failure": "New(3, time.Minute); calling Allow(\"k\", now) four times at the same instant: on the 4th call len(recent)==3 and `3 > 3` is false, so it returns true. Every key now gets one extra call per window, which breaks the design's rule of at most Max calls per key per Window. That makes the quota control fail open by one call. The fix is to restore `len(recent) >= l.Max`.",
-          "group": 1
+          "group": 1,
+          "summary": "The rename also changed the limit check from `len(kept) >= l.Max` to `len(recent) > l.Max`. That is a behaviour change, and design.md says there should be none (\"The limit is unchanged: at most Max calls per key per Window\"). The rate limiter now lets one extra call through per window.",
+          "failure": "New(3, time.Minute); call Allow(\"k\", t) four times at the same instant. After three calls len(recent)==3, and 3 > 3 is false, so the 4th call returns true where it should return false. Every key gets Max+1 calls per window. With Max=0, one call is allowed where none should be. The control fails open, which breaks AGENTS.md \"Controls fail closed\"."
         },
         {
           "severity": "high",
           "file": "ratelimit/limiter_test.go",
-          "summary": "The diff deletes the limiter's only tests, and the rename task did not call for that. One of the deleted tests, TestAllowStopsAtMax, is the one that would catch the off-by-one above.",
-          "failure": "With the old test file in place, TestAllowStopsAtMax fails on the new `>` check because the 4th call is allowed. The deletion is staged, so it is hidden from plain `git diff`, and it leaves the Max cap and window pruning in Allow with no test at all. That breaks the AGENTS.md rule that every behaviour has a test which would fail without the code. Restore ratelimit/limiter_test.go: a rename of locals needs no test changes.",
-          "group": 1
+          "line": 1,
+          "group": 1,
+          "summary": "The diff deletes the limiter's only tests (TestAllowStopsAtMax, TestAllowForgetsOldCalls). Task 1.1 is a rename with no behaviour change, so it gives no reason to drop them. TestAllowStopsAtMax is exactly the test that would catch the off-by-one in Allow, and with it gone the package has no tests. AGENTS.md says every behaviour needs a test that would fail without the code.",
+          "failure": "With limiter_test.go deleted, `go test ./ratelimit` reports no test files and passes even though Allow now permits Max+1 calls. Restoring the file makes TestAllowStopsAtMax fail with \"4th call allowed, want refused\", which is the regression this deletion hides. Neither the Max cap nor window expiry is covered any more."
         }
       ]
     },
@@ -170,13 +165,13 @@
       "caught": 2,
       "actionable": 3,
       "false_positives": 1,
-      "cost_usd": 0.127,
+      "cost_usd": 0.153,
       "matches": [
         {
           "defect": "D1",
           "expected": "critical",
           "caught": true,
-          "severity": "high",
+          "severity": "critical",
           "finding": 0
         },
         {
@@ -189,28 +184,28 @@
       ],
       "findings": [
         {
-          "severity": "high",
+          "severity": "critical",
           "file": "billing/invoice.go",
           "line": 22,
-          "summary": "WithTax truncates the tax instead of rounding it half-up as the design and task 1.1 require",
-          "failure": "`int64(tax)` truncates toward zero. For lines totalling 1050 cents at rate 0.05 the tax is 52.5, so WithTax returns 1102 instead of 1103. For 1000 cents at 0.0825 the tax is 82.5, so it returns 1082 instead of 1083. Any fractional tax of .5 or more loses a cent, and finance cannot then reconcile to the cent.",
-          "group": 1
+          "group": 1,
+          "summary": "Tax is truncated with int64(tax), not rounded half-up as the design and the doc comment require",
+          "failure": "WithTax([]Line{{UnitCents:1234,Qty:1}}, 0.05): tax = 61.7 and int64(61.7) = 61, so it returns 1295 instead of 1296. Likewise a subtotal of 1000 at 0.0825 gives tax 82.5, which becomes 82 instead of 83. Every invoice whose tax has a fractional part of .5 or more is undercharged by one cent, which breaks the to-the-cent reconciliation with the tax authority (wrong money)."
         },
         {
           "severity": "high",
           "file": "billing/invoice_test.go",
           "line": 12,
-          "summary": "TestWithTax never exercises rounding, so task 1.2 ('including the rounding') is not met and the test passes with the truncation bug",
-          "failure": "The only case is 2000 cents × 0.05 = 100, an exact whole number of cents. It passes whether the code truncates, rounds half-up or rounds half-down, so it would still pass if you deleted the rounding. Add half-boundary cases such as 1050 @ 0.05 → 1103 and 1000 @ 0.0825 → 1083, and a just-below-half case that must round down. All of these fail against the current code.",
-          "group": 1
+          "group": 1,
+          "summary": "Task 1.2 asks for a test of 'WithTax, including the rounding', but the only case (2000 cents × 0.05 = exactly 100) has no fractional tax",
+          "failure": "The test passes with the current truncating code, and it would pass with any rounding mode at all, so it cannot catch the defect above. It needs cases with a fraction of .5 or more (e.g. 1234 × 0.05 → 1296, and an exact half such as 1000 × 0.0825 → 1083) and one below .5 that must round down. With those cases the test fails against the current int64(tax) truncation."
         },
         {
           "severity": "medium",
           "file": "billing/invoice.go",
-          "line": 20,
-          "summary": "Tax is computed in floating point (float64 subtotal × float64 rate), against the AGENTS.md rule that money is integer cents and never floating point",
-          "failure": "Rates like 0.0825 have no exact binary representation, so float64(sub)*rate for an amount that is exactly x.5 cents can come out as x.4999…. It then rounds down even after truncation is replaced with math.Round, so the half-up guarantee breaks on some subtotals. Large subtotals also lose precision above 2^53. A safer approach is to express the rate as an integer, such as basis points or a rational, and round half-up with integer arithmetic: (sub*bp + 5000) / 10000.",
-          "group": 1
+          "line": 19,
+          "group": 1,
+          "summary": "The tax is computed in floating point (rate float64, float64(sub)*rate), which breaks the AGENTS.md rule 'Money is integer cents, never floating point. Rounding is explicit and half-up.'",
+          "failure": "A rate like 0.0825 has no exact binary representation, so float64(sub)*rate can land just below a true .5 boundary (x.4999999…). Even with math.Round added, such a tie would round down. Large subtotals above 2^53 cents also lose precision. Express the rate as an integer (e.g. basis points or a decimal rate in 1e-6 units) and compute tax = (sub*rateUnits + denom/2) / denom in int64."
         }
       ]
     },
@@ -222,7 +217,7 @@
       "caught": 1,
       "actionable": 2,
       "false_positives": 1,
-      "cost_usd": 0.104,
+      "cost_usd": 0.113,
       "matches": [
         {
           "defect": "D1",
@@ -237,16 +232,16 @@
           "severity": "critical",
           "file": "store/invoices.go",
           "line": 30,
-          "summary": "ListByCustomer ignores tenantID: the query filters only on customer_id, so it returns invoices from every tenant. This breaks AGENTS.md's rule that tenant data is scoped.",
-          "failure": "Tenant 1 calls ListByCustomer(ctx, 1, 42). Customer 42 belongs to tenant 2 (or tenants 1 and 2 both have a customer_id 42). The query `WHERE customer_id = $1` returns tenant 2's invoices with their amounts in cents to tenant 1. The tenantID parameter is never used. Fix: `WHERE tenant_id = $1 AND customer_id = $2 ORDER BY id DESC` with both values bound, matching how Get scopes its query.",
+          "summary": "ListByCustomer takes tenantID but never uses it: the query filters only by customer_id, so it does not scope to the signed-in tenant",
+          "failure": "Tenant A calls ListByCustomer(ctx, tenantA, 42) where customer 42 belongs to tenant B, or where customer IDs are reused across tenants. The query `WHERE customer_id = $1` returns tenant B's invoices and amounts to tenant A. Fix: `WHERE customer_id = $1 AND tenant_id = $2` and pass tenantID, the same way Get does.",
           "group": 1
         },
         {
-          "severity": "high",
+          "severity": "medium",
           "file": "store/invoices.go",
           "line": 28,
-          "summary": "The new ListByCustomer behaviour has no test. The design hands SQL coverage to an 'integration suite' that doesn't exist in the repo.",
-          "failure": "Task 1.1 (list for the signed-in tenant, newest first) adds a behaviour with no test, which breaks AGENTS.md's 'Every behaviour a task names has a test'. The repo has no *_test.go file and no integration suite, so the critical cross-tenant leak above passes with nothing failing. A test is needed that seeds two tenants sharing a customer_id and asserts that only the caller's invoices come back, in id-descending order. Dropping `tenant_id = $1` from the query would make that test fail.",
+          "summary": "Task 1.1 adds ListByCustomer with no test at all. Nothing checks the tenant scoping AGENTS.md requires, which is how the missing tenant_id filter got through",
+          "failure": "Remove the tenant filter (as the diff in fact does) and no test fails. AGENTS.md requires every behaviour a task names to have a test that would fail without the code. design.md leaves the SQL to the integration suite outside this group, but this group still has no test that a second tenant's invoices for the same customer_id are excluded.",
           "group": 1
         }
       ]
@@ -259,7 +254,7 @@
       "caught": 3,
       "actionable": 4,
       "false_positives": 1,
-      "cost_usd": 0.117,
+      "cost_usd": 0.098,
       "matches": [
         {
           "defect": "D1",
@@ -272,7 +267,7 @@
           "defect": "D2",
           "expected": "high",
           "caught": true,
-          "severity": "high",
+          "severity": "critical",
           "finding": 1
         },
         {
@@ -288,32 +283,32 @@
           "severity": "critical",
           "file": "webhook/handler.go",
           "line": 29,
-          "summary": "Signature check does nothing: on a mismatch the handler only logs, then calls Apply and returns 204. An unsigned or mis-signed webhook is never rejected with 401, which the design requires, and the control fails open (AGENTS.md: controls fail closed).",
-          "failure": "POST /webhook with body {\"id\":1} and X-Signature: deadbeef, or with no X-Signature at all -> logs 'signature mismatch', calls h.Apply(body) and returns 204. A forged payment event is applied. Expected: 401 without calling Apply.",
+          "summary": "The signature check does nothing: on a mismatch it only logs, then still calls Apply and returns 204. It should return 401 before Apply runs. This breaks the design ('reject an unsigned or mis-signed one with 401') and the AGENTS.md rule that controls fail closed.",
+          "failure": "POST /webhook with body {\"id\":1} and X-Signature: deadbeef (or no header at all) -> h.Apply(body) runs and the response is 204 No Content. Anyone can forge payment webhooks.",
           "group": 1
         },
         {
-          "severity": "high",
+          "severity": "critical",
           "file": "webhook/handler.go",
           "line": 25,
-          "summary": "The shared HMAC secret is written to the log on every request (`secret=%s`, h.Secret). It also logs the caller-supplied signature.",
-          "failure": "Any request -> the log line 'webhook: sig=... secret=<shared secret>'. Anyone with log access can then forge validly signed webhooks, so the signature check is bypassed even after the mismatch path is fixed.",
+          "summary": "Every request writes the HMAC shared secret to the log in plaintext (`secret=%s`, h.Secret).",
+          "failure": "Any webhook request, signed or not, logs `webhook: sig=... secret=<shared secret>`. Anyone who can read the logs can then sign forged webhooks, so the signature check is defeated even after the 401 is added.",
           "group": 1
         },
         {
           "severity": "high",
           "file": "webhook/handler_test.go",
           "line": 13,
-          "summary": "Task 1.2 is marked done but nothing tests a mis-signed webhook, and nothing tests an unsigned one. The only test checks the happy path, and it would still pass if the signature check were deleted entirely, so nothing guards the verification.",
-          "failure": "Delete lines 24-31 of handler.go (all signature handling), or leave the current fail-open code as is -> `go test ./webhook` still passes. Needed: tests sending a wrong X-Signature and a missing one, each asserting 401 and Apply not called.",
+          "summary": "Task 1.2 asks for a test of a mis-signed webhook, but none exists. There is also no test for an unsigned one. The only test passes even though the handler accepts bad signatures, so nothing guards the check.",
+          "failure": "Delete the hmac.Equal comparison entirely and TestSignedWebhookIsApplied still passes. The missing test would send a wrong X-Signature (and one with no header), then assert 401 and that Apply was not called. Against the current code that test would fail.",
           "group": 1
         },
         {
           "severity": "medium",
           "file": "webhook/handler.go",
           "line": 26,
-          "summary": "An empty or missing Secret is not treated as a configuration error. HMAC with an empty key is publicly computable, so a Handler built with a nil Secret accepts webhooks signed by anyone. The control should fail closed when it cannot decide.",
-          "failure": "Handler{Secret: nil, Apply: ...} plus a request signed with HMAC-SHA256 under an empty key -> the signature matches and the webhook is applied. Expected: reject (401 or 500) when no secret is configured.",
+          "summary": "The handler accepts an empty or unset Secret and computes the HMAC with an empty key. With a misconfigured secret the check should deny every request. Instead, anyone who computes HMAC-SHA256 with an empty key gets a valid signature.",
+          "failure": "Handler{Secret: nil} plus a request signed as hex(HMAC-SHA256(\"\", body)) -> the signature matches and Apply runs. The handler should refuse every request when len(h.Secret)==0.",
           "group": 1
         }
       ]
@@ -326,18 +321,9 @@
       "caught": 0,
       "actionable": 0,
       "false_positives": 0,
-      "cost_usd": 0.123,
+      "cost_usd": 0.118,
       "matches": [],
-      "findings": [
-        {
-          "severity": "low",
-          "file": "tests/test_pages.py",
-          "line": 14,
-          "group": 1,
-          "summary": "The new guard has no test at its legitimate edge (page_no=1, size=1), so an off-by-one in the guard would block page 1 and every test would still pass.",
-          "failure": "Change the guard in api/pages.py:3 to `page_no <= 1 or size <= 1`. Every call to page 1 or with size 1 now raises ValueError, and page 1 is the page the admin UI asks for most. The suite still passes: the rejection cases (0/-1 pages, 0/-3 sizes) still raise, and the passing tests only use page 2 or 3 with size 2. A case like `page([1, 2, 3], 1, 1) == [1]` would catch it."
-        }
-      ]
+      "findings": []
     },
     {
       "id": "py-clean-token-expiry",
@@ -347,16 +333,16 @@
       "caught": 0,
       "actionable": 0,
       "false_positives": 0,
-      "cost_usd": 0.131,
+      "cost_usd": 0.317,
       "matches": [],
       "findings": [
         {
           "severity": "low",
           "file": "auth/tokens.py",
-          "line": 19,
-          "summary": "verify() accepts a non-canonical expires_at (leading zeros). It parses the field with int() and recomputes the MAC over the canonical form, so a token string sign() never issued still verifies.",
-          "failure": "t = sign(SECRET,'u1',2000); verify(SECRET, 'u1.02000.' + t.rsplit('.',1)[1], now=1000) returns 'u1' instead of None. The user and expiry are unchanged, so nobody gains privilege. But tokens become malleable: anything later keyed on the token string, such as a revocation or replay list, could be bypassed by padding zeros. Fix: rebuild the expected token and compare the whole string (sign(secret, user_id, int(expires_at)) == token, via compare_digest), or reject expires_at when str(int(expires_at)) != expires_at. Add a test for the leading-zero case.",
-          "group": 1
+          "line": 22,
+          "group": 1,
+          "summary": "verify accepts non-canonical expiry encodings: it recomputes the MAC over int(expires_at) instead of over the token's own text, so leading-zero variants of a valid token also verify",
+          "failure": "token = sign(k,'u1',2000) = 'u1.2000.<mac>'; verify(k, 'u1.02000.<mac>', now=1000) returns 'u1' (likewise for '0002000'), because int('02000') == 2000 and sign() rebuilds the message as 'u1.2000'. Each issued token has many accepted string forms. Nothing in this change compares tokens by exact string (revocation lists, caches), so there's no exploit today. Fix: reject an expires_at with a leading zero, or check the MAC over f'{user_id}.{expires_at}' as received."
         }
       ]
     },
@@ -368,7 +354,7 @@
       "caught": 2,
       "actionable": 2,
       "false_positives": 0,
-      "cost_usd": 0.123,
+      "cost_usd": 0.103,
       "matches": [
         {
           "defect": "D1",
@@ -390,17 +376,17 @@
           "severity": "high",
           "file": "api/pages.py",
           "line": 9,
-          "group": 1,
-          "summary": "Off-by-one: page_after slices `items[cursor:cursor + size - 1]`, so every page has one item fewer than `size`",
-          "failure": "page_after(list(range(5)), 0, 2) returns ([0], 1) when it should return ([0, 1], 2). Every page is short by one. The design asks for 'up to size items', and the client would make about twice as many requests. With size=1 the slice is items[c:c] == [], so the next cursor equals the cursor and stays below len(items) whenever items is non-empty. A client looping until the cursor is None never stops (an infinite loop). Fix: `items[cursor:cursor + size]`."
+          "summary": "Off-by-one: page_after slices `items[cursor:cursor + size - 1]`, so every page holds size-1 items instead of size.",
+          "failure": "page_after(list(range(5)), 0, 2) returns ([0], 1) when it should return ([0, 1], 2). With size=1 the slice is empty, so nxt == cursor and the function returns the same cursor forever. Any client that loops until the cursor is None never stops (page_after(items, 0, 1) -> ([], 0)). The fix is `items[cursor:cursor + size]`.",
+          "group": 1
         },
         {
           "severity": "high",
           "file": "tests/test_pages.py",
           "line": 12,
-          "group": 1,
-          "summary": "Task 1.2's test does not assert 'size items at a time', so it passes with the off-by-one bug",
-          "failure": "test_page_after_walks_everything only checks that the pages joined together equal the items. With the current `size - 1` slice it walks 1 item at a time and still passes. Changing the slice to `size - 1` or `size - 2` (when size > 2) would not make it fail either. It needs to check that each chunk has length size except the last one (expected chunks [[0,1],[2,3],[4]] for size 2, cursors 2, 4, None). It should also cover size=1 and an empty list."
+          "summary": "Task 1.2 says 'walks every item, size items at a time', but the test only checks that the concatenation of all chunks equals items. It never checks how many items each chunk holds, so it passes with the off-by-one bug in place.",
+          "failure": "With the current `size - 1` slice and size=2, the walk returns [0],[1],[2],[3],[4]. That concatenates to items, so the test passes, though no page has 2 items. Fix: assert the chunk sequence directly (e.g. [[0,1],[2,3],[4]]) or check len(chunk) == size for every chunk except the last. Also add a size=1 case with an iteration bound, which would catch the non-terminating loop.",
+          "group": 1
         }
       ]
     },
@@ -412,7 +398,7 @@
       "caught": 1,
       "actionable": 3,
       "false_positives": 2,
-      "cost_usd": 0.147,
+      "cost_usd": 0.138,
       "matches": [
         {
           "defect": "D1",
@@ -424,36 +410,36 @@
       ],
       "findings": [
         {
-          "group": 1,
           "severity": "critical",
           "file": "jobs/quota.py",
           "line": 18,
-          "summary": "within_quota fails open: any Redis error returns True, so the quota is not enforced during an outage",
-          "failure": "Redis is down or erroring (ConnectionError/TimeoutError on incr) for a tenant already over its hourly limit → within_quota returns True and the tenant runs exports. design.md says the quota protects the database and 'a tenant over quota must not run exports'; AGENTS.md says 'Controls fail closed'. Every tenant becomes unlimited for the whole outage, exactly when the system is degraded. The fix is to return False (deny/defer the export) on a Redis error. The worker still survives the blip without dropping the batch, which is the stated goal."
+          "group": 1,
+          "summary": "The quota check fails open: any Redis error returns True, so the export is allowed.",
+          "failure": "Redis is unreachable (r.incr raises ConnectionError) and a tenant is already over its hourly limit → within_quota returns True and the export runs. During an outage, every tenant gets unlimited exports. design.md says 'a tenant over quota must not run exports', and AGENTS.md says a quota that cannot decide must deny. The fix is to return False (deny or defer the export) and log it, so the worker skips the item instead of crashing."
         },
         {
-          "group": 1,
           "severity": "high",
           "file": "tests/test_quota.py",
           "line": 13,
-          "summary": "Test asserts nothing, so it cannot catch the fail-open bug and does not pin the outage behaviour",
-          "failure": "test_a_redis_outage_does_not_crash_the_worker calls within_quota with Redis down and discards the result. It passes when the function returns True (fail open, as now) and when it returns False, so it would not fail if the control were made to silently allow. It needs `assert quota.within_quota(\"t1\", 10) is False`. Nothing tests the normal path either (under limit → True, over limit → False, TTL set on first incr). AGENTS.md: every behaviour a task names needs a test that would fail without the code."
+          "group": 1,
+          "summary": "The outage test asserts nothing. It only checks that no exception escapes, so it passes whether the check allows or denies.",
+          "failure": "The test calls quota.within_quota('t1', 10) and throws away the result. It passes with the current `return True` (fail-open) and would still pass with `return False`, so it cannot catch the critical defect above. It needs `assert quota.within_quota('t1', 10) is False`. There is also no test for normal behaviour: under-limit returns True, over-limit returns False, and expire is set only when n == 1. Replacing the body with `return True` would pass the whole suite."
         },
         {
-          "group": 0,
           "severity": "medium",
           "file": "jobs/quota.py",
-          "line": 12,
-          "summary": "incr and expire are not atomic: if expire fails after incr creates the key, the counter never expires",
-          "failure": "r.incr returns 1 and then r.expire raises (a blip between the two calls) → the quota:<tenant> key has no TTL, so the counter never resets. Once it passes the limit, the tenant is blocked from exports permanently, not for the hour. The non-atomic pattern predates this change, and the current fail-open except also swallows the error. Use a pipeline/MULTI (INCR + EXPIRE NX) or SET with NX/EX so the TTL is always set."
+          "line": 14,
+          "group": 0,
+          "summary": "incr and expire are separate, non-atomic calls. If expire fails after incr succeeds, the counter never gets a TTL and the error is now swallowed.",
+          "failure": "r.incr succeeds and returns 1, then r.expire raises during the blip. The except branch swallows it, so quota:<tenant> stays without a TTL. The counter never resets, and once it passes the limit the tenant stays blocked (or, with the current fail-open code, simply lets exports through). The non-atomic incr/expire predates this change. Fix: set the TTL atomically, e.g. a pipeline with INCR plus EXPIRE NX, or a Lua script."
         },
         {
-          "group": 1,
           "severity": "low",
           "file": "jobs/quota.py",
-          "line": 16,
-          "summary": "Catches bare Exception and logs without the exception, which hides non-Redis bugs",
-          "failure": "A programming error inside the try (e.g. a TypeError from a bad limit) is caught and logged only as 'quota check failed for t1', with no exc_info. Catch redis.RedisError and log with exc_info=True so the cause is visible."
+          "line": 17,
+          "group": 1,
+          "summary": "`except Exception` is too broad, and the warning drops the exception itself.",
+          "failure": "Any non-Redis bug, such as a TypeError from a bad limit argument, gets the same treatment as an outage. log.warning has no exc_info and does not include the error, so an operator cannot tell a Redis outage apart from a code defect. Catch redis.RedisError instead and log with exc_info=True."
         }
       ]
     },
@@ -465,7 +451,7 @@
       "caught": 1,
       "actionable": 2,
       "false_positives": 1,
-      "cost_usd": 0.148,
+      "cost_usd": 0.127,
       "matches": [
         {
           "defect": "D1",
@@ -478,19 +464,19 @@
       "findings": [
         {
           "severity": "high",
-          "group": 1,
           "file": "tests/test_tokens.py",
           "line": 16,
-          "summary": "The EXPIRED-token scenario has no test, but task 1.2 is ticked as done ('Test each of the three scenarios').",
-          "failure": "design.md names three scenarios: valid, tampered, and expired (now at or past expires_at). The diff tests only the first two, and both call verify with now=1000 < expires_at=2000. Deleting `if int(expires_at) <= now: return None` from auth/tokens.py, or changing it to `<`, would leave every test passing, so expired tokens would be accepted. A test needs verify(SECRET, sign(SECRET,'u1',2000), now=2000) is None (the boundary) and now=2001 is None. Without it, AGENTS.md's rule that every named behaviour has a test is broken."
+          "summary": "The design's third scenario (an expired token, with now at or past expires_at, is rejected) has no test, even though task 1.2 is ticked as 'Test each of the three scenarios'. The expiry check in verify is unguarded.",
+          "failure": "Delete `if int(expires_at) <= now: return None` (auth/tokens.py:22-23), or change it to `<` so the boundary is wrong, and every test still passes. With that edit, verify(SECRET, sign(SECRET, 'u1', 2000), now=2000) or now=3000 returns 'u1' instead of None, so expired sessions are accepted. Two tests are needed: one at the boundary (now == expires_at → None) and one past it (now > expires_at → None).",
+          "group": 1
         },
         {
           "severity": "medium",
-          "group": 1,
           "file": "auth/tokens.py",
           "line": 17,
-          "summary": "Some malformed tokens make verify raise an exception instead of returning None.",
-          "failure": "`str.isdigit()` returns True for Unicode digits such as '²', but `int('²')` raises ValueError. So the token 'u1.².abc' raises out of verify. Separately, `hmac.compare_digest` raises TypeError when given a str MAC with non-ASCII characters, so 'u1.2000.é' raises TypeError. The docstring says a bad token gives 'else None', and attacker-controlled input should be rejected cleanly, not surface as an unhandled error or 500. Fix: check with `expires_at.isascii() and expires_at.isdigit()`, compare as bytes or check `mac` is ASCII first, and add a test for a malformed token."
+          "summary": "Some malformed tokens make verify raise instead of returning None. str.isdigit() accepts Unicode digits that int() rejects, and hmac.compare_digest raises TypeError on str arguments that are not ASCII.",
+          "failure": "verify(SECRET, 'u1.².abc', now=0): '²'.isdigit() is True, so int('²') raises ValueError. verify(SECRET, 'u1.2000.é', now=0): compare_digest raises TypeError. In both cases the caller gets an uncaught exception (a 500, for example) on attacker-supplied input, not the documented None. Fix: check expires_at with str.isascii() as well as isdigit(), or wrap the int() conversion in a try block, and compare bytes (or reject a mac that is not ASCII).",
+          "group": 1
         }
       ]
     },
@@ -506,28 +492,12 @@
       "matches": [],
       "findings": [
         {
-          "severity": "medium",
-          "file": "scripts/check-coverage.sh",
-          "line": 8,
-          "summary": "The gate ignores covsum's exit status. Only jq's status counts in the pipeline, and pct is checked only for its shape, so a covsum that errors after printing a report still passes the gate. AGENTS.md requires controls to fail closed.",
-          "failure": "Suppose covsum fails partway, for example it cannot parse the TypeScript coverage. It still prints {\"total\":{\"percent\":85}} for the files it did read, then exits 1. pct becomes 85, which passes the digit check and is above the floor, so the script prints 'coverage 85%' and exits 0 on a partial measurement. The test's failing stub prints nothing, so this case is never exercised. Fix: capture the output first with out=$(covsum --json coverage.out) || { echo ...; exit 1; }, then pipe \"$out\" to jq. Add a test whose stub prints valid JSON and then exits 1.",
-          "group": 1
-        },
-        {
-          "severity": "low",
-          "file": "scripts/check-coverage.sh",
-          "line": 12,
-          "summary": "The comparison can fail open. If `[` errors, the `if` reads it as 'not below', so a gate that cannot compare lets the build pass.",
-          "failure": "Set .coverage-floor to 99999999999999999999. It passes the all-digits check. Then `[ \"$pct\" -lt \"$floor\" ]` fails with an out-of-range integer error (exit 2), and the script prints 'coverage 85% (floor ...%)' and exits 0. Writing the test as `if [ \"$pct\" -ge \"$floor\" ]; then pass; else fail` makes any comparison error deny. The trigger is unrealistic, hence low.",
-          "group": 1
-        },
-        {
-          "severity": "low",
+          "severity": "high",
           "file": "scripts/check-coverage_test.sh",
           "line": 21,
-          "summary": "Task 1.1 says the gate fails when covsum has no total, but no test covers covsum succeeding with JSON that lacks .total.percent. The only 'no total' test is a covsum that exits 1 and prints nothing.",
-          "failure": "A covsum stub that prints {} or {\"total\":{}} and exits 0 is never tested. The script fails closed today only because jq's `null | floor` errors. If the filter changed to something like '.total.percent // 0 | floor', the gate would still pass every existing test, but it would report 0% coverage and could pass whenever the floor is 0. Add a test case like `run '{}'` that checks the gate exits 1.",
-          "group": 1
+          "group": 1,
+          "summary": "Task 1.1's 'failing when there is none' behaviour (covsum exits 0 but its JSON has no total) has no test. The `case \"$pct\"` guard in check-coverage.sh is the only thing that makes this case fail closed, and none of the six cases reaches it.",
+          "failure": "Delete the `case \"$pct\" in '' | *[!0-9]*) ... esac` block (check-coverage.sh lines 12-14) and all six tests still pass. 'fail' and 'reportfail' are both stopped earlier by the `|| { ...; exit 1; }` on covsum, and the other cases print a numeric total. With that block gone, a covsum that exits 0 and prints `{}` or `{\"total\":{}}` behaves like this: jq errors on `null | floor`, so pct is empty. `[ \"\" -lt 80 ]` is then a test error (status 2), so the if branch is skipped, the script prints 'coverage % (floor 80%)' and exits 0. The CI coverage gate passes without measuring anything, and the suite would not catch it. Fix: add a case where the stub covsum succeeds with no total (for example `echo '{}'`) and assert exit 1. A case where covsum prints a non-numeric percent would also help."
         }
       ]
     },
@@ -537,9 +507,9 @@
       "error": null,
       "planted": 1,
       "caught": 1,
-      "actionable": 3,
-      "false_positives": 2,
-      "cost_usd": 0.155,
+      "actionable": 5,
+      "false_positives": 4,
+      "cost_usd": 0.136,
       "matches": [
         {
           "defect": "D1",
@@ -554,25 +524,41 @@
           "severity": "critical",
           "file": "scripts/check-coverage.sh",
           "line": 5,
-          "group": 1,
-          "summary": "The coverage gate now passes whenever it can't read a coverage figure. The new `[ -n \"$pct\" ] &&` short-circuits the floor check when pct is empty, the script then exits 0, and `2>/dev/null` on line 4 hides the reason. AGENTS.md says a CI guard that cannot decide must deny.",
-          "failure": "pct comes out empty in several cases: covsum is not installed on the CI runner, covsum exits non-zero, coverage.out is missing, jq is missing, or the JSON has no `.total.percent` (`null | floor` makes jq error and print nothing). In every one, line 5 is false and line 9 prints `coverage ?% (floor N%)`, so the build passes with no coverage check and no visible error. The case to expect is CI moving to covsum before the binary is on the runner: the gate then stops checking without anyone noticing. Fix: drop the 2>/dev/null, and exit non-zero when covsum or jq fails or when pct is not a plain integer (e.g. `case $pct in ''|*[!0-9]*) echo \"cannot read coverage\" >&2; exit 1;; esac`)."
+          "summary": "The coverage gate fails open: if no percentage comes back, the build passes. The new `[ -n \"$pct\" ] &&` short-circuit plus `${pct:-?}` turn every failure to read the percentage into a pass.",
+          "failure": "Several inputs leave pct empty: covsum is not installed on the CI runner, coverage.out is missing, covsum exits non-zero, jq is missing, or the JSON has no `.total.percent` (`null | floor` makes jq error and print nothing). Each time, `[ -n \"\" ]` is false, the script prints `coverage ?% (floor N%)` and exits 0, so the build passes with no coverage measured at all. AGENTS.md says a CI guard that cannot decide must deny. A guard that fails closed would exit non-zero when pct is empty or not an integer, e.g. `case $pct in ''|*[!0-9]*) echo 'cannot read coverage' >&2; exit 1;; esac`.",
+          "group": 1
+        },
+        {
+          "severity": "high",
+          "file": "scripts/check-coverage.sh",
+          "line": 4,
+          "summary": "Errors are thrown away: `2>/dev/null` hides covsum's stderr, and the `covsum | jq` pipeline's exit status reflects only jq, so a covsum failure can't be seen.",
+          "failure": "covsum exits 1 with 'coverage.out: unsupported format' on stderr. The message goes to /dev/null and the pipeline status comes from jq, which can still print something or nothing. Together with the empty-pct pass above, CI goes green and its log never says why. AGENTS.md says no error is discarded. POSIX sh has no pipefail, so capture covsum's output in its own step, check its exit status, and only then run jq.",
+          "group": 1
         },
         {
           "severity": "medium",
           "file": "scripts/check-coverage.sh",
-          "line": 4,
-          "group": 1,
-          "summary": "Nothing tests the new covsum parsing or the gate's pass/fail behaviour. AGENTS.md requires a test that would fail without the code for every behaviour a task names.",
-          "failure": "Task 1.1 (read the total from covsum --json) has no test. No test runs the script with a stubbed covsum on PATH and checks: below the floor → exit 1; at or above → exit 0; covsum missing, failing, or bad JSON → exit 1. Without one, the fail-open case above could ship and later regressions would go unnoticed. One sign: deleting `[ -n \"$pct\" ] &&`, or rewriting line 4 to always print an empty string, would not break any test."
+          "line": 5,
+          "summary": "If pct is not an integer, the gate also passes. A `[ ... -lt ... ]` that hits an error returns status 2, and the `if` treats that as 'not below the floor'.",
+          "failure": "Suppose `.total.percent` is a string such as \"72.5\": jq's `floor` errors and prints nothing, so pct is empty and the build passes. Or covsum prints a JSON value that `floor` can't turn into an integer: `[ \"$pct\" -lt \"$floor\" ]` prints 'integer expression expected', returns 2, the branch is skipped, and the script exits 0. Coverage below the floor goes through.",
+          "group": 1
         },
         {
           "severity": "medium",
           "file": "scripts/check-coverage.sh",
           "line": 3,
-          "group": 0,
-          "summary": "An empty or non-numeric `.coverage-floor` also makes the gate pass, because the failed `[ -lt ]` comparison is treated as false. This was already true before the change, and the change keeps it.",
-          "failure": "If .coverage-floor is missing or empty, or holds something like `80%`, `[ \"$pct\" -lt \"$floor\" ]` errors with status 2. The if-branch is skipped and the script exits 0 whatever the coverage is. A guard that cannot decide should deny, so the floor needs to be checked as an integer before the comparison."
+          "summary": "The gate also fails open when `.coverage-floor` is missing or empty. `floor=$(cat .coverage-floor)` doesn't check its result, and the integer comparison then errors and counts as a pass.",
+          "failure": "If .coverage-floor is deleted or empty, floor is empty and `[ \"$pct\" -lt \"\" ]` errors with status 2. The `if` is skipped and the script exits 0 whatever the coverage is. This was already in the code before this change, but it's the same fail-open pattern and sits on the line the change edited.",
+          "group": 0
+        },
+        {
+          "severity": "medium",
+          "file": "scripts/check-coverage.sh",
+          "line": 4,
+          "summary": "Task 1.1 adds new gate behaviour, reading the total from covsum, with no test. Nothing checks that coverage below the floor fails, that coverage at or above it passes, or that a missing or failing covsum fails.",
+          "failure": "AGENTS.md requires a test that would fail without the code for every behaviour a task names. The diff adds none, which is how the fail-open path above got through: a test that runs the script with no covsum on PATH and asserts a non-zero exit would fail against this diff. Suggested cases: a stub covsum returning {\"total\":{\"percent\":50.9}} with floor 80 must exit 1; percent 80.0 must exit 0; covsum missing or exiting 1 must exit non-zero.",
+          "group": 1
         }
       ]
     },
@@ -582,9 +568,9 @@
       "error": null,
       "planted": 1,
       "caught": 1,
-      "actionable": 4,
-      "false_positives": 3,
-      "cost_usd": 0.171,
+      "actionable": 3,
+      "false_positives": 2,
+      "cost_usd": 0.111,
       "matches": [
         {
           "defect": "D1",
@@ -596,44 +582,28 @@
       ],
       "findings": [
         {
-          "group": 1,
           "severity": "high",
           "file": "scripts/bump-version.sh",
           "line": 8,
-          "summary": "`sed -i` with no suffix argument only works with GNU sed. BSD sed on macOS, where design.md says maintainers cut releases, fails on it.",
-          "failure": "On macOS, `sed -i \"s/...\" package.json` is parsed by BSD sed as `-i <suffix=s/...>` followed by the script `package.json`, so it fails with `invalid command code p`. Because of `set -eu` the script then aborts after line 7 has already written VERSION. VERSION ends up at 1.4.3 while package.json stays at 1.4.2: the exact drift this change was meant to stop. AGENTS.md requires POSIX sh that runs on BSD and GNU tools. Fix: write to a temp file and `mv` it back (or use `sed -i.bak` and delete the .bak)."
+          "summary": "`sed -i` with no suffix argument is GNU-only. BSD sed on macOS, where maintainers cut releases, takes the next word as the backup suffix, so the bump fails there and leaves VERSION already bumped.",
+          "failure": "On macOS with VERSION=1.4.2, BSD sed takes the s/// expression as the `-i` backup suffix and parses `package.json` as the script. It fails with `sed: 1: \"package.json\": invalid command code .` and the script exits under `set -e`. VERSION was already rewritten to 1.4.3 on line 7, so it is left at 1.4.3 while package.json stays at 1.4.2. That is the drift this change exists to stop, and a rerun would bump VERSION to 1.4.4. AGENTS.md requires POSIX sh that runs on BSD and GNU tools. A portable fix: write to a temp file (`sed ... package.json > package.json.tmp && mv package.json.tmp package.json`), and do the package.json step before or atomically with the VERSION write.",
+          "group": 1
         },
         {
-          "group": 1,
-          "severity": "medium",
-          "file": "scripts/bump-version.sh",
-          "line": 7,
-          "summary": "VERSION is overwritten before the package.json update, which can fail, so any failure leaves a half-bumped tree.",
-          "failure": "If the package.json step fails (BSD sed, a missing package.json or a permissions error), VERSION already holds the new version. Running the script again reads that bumped value and bumps it a second time (1.4.2 -> 1.4.4 in VERSION), while package.json still never matches. This breaks the AGENTS.md rule that a destructive step runs only after the data it replaces is safe. Compute both new files first, then replace them."
-        },
-        {
-          "group": 1,
           "severity": "medium",
           "file": "scripts/bump-version.sh",
           "line": 8,
-          "summary": "When package.json's version does not equal VERSION, sed matches nothing, exits 0, and the script still reports `bumped`.",
-          "failure": "design.md says package.json has already drifted from VERSION twice. Take package.json at \"1.4.1\" and VERSION at 1.4.2. The substitution matches nothing, package.json is left unchanged, and the script prints `bumped 1.4.2 -> 1.4.3` and exits 0. The check that should keep the two versions in sync silently does nothing, which breaks the rule that controls fail closed. Fix: after the edit, verify that package.json contains `\"version\": \"$next\"` and exit non-zero if it does not."
+          "summary": "If package.json's version doesn't match VERSION, the sed changes nothing and the script still prints success, so the drift goes unnoticed.",
+          "failure": "The design says package.json has drifted from VERSION before. Say package.json holds \"1.4.1\" while VERSION holds 1.4.2: the s/// pattern matches nothing and sed exits 0. VERSION becomes 1.4.3 and the script prints `bumped 1.4.2 -> 1.4.3`, but package.json stays at 1.4.1 and npm publishes the wrong version. The script should check that the substitution happened and fail if it didn't. Separately, the dots in $v are unescaped regex metacharacters, so the pattern is looser than intended.",
+          "group": 1
         },
         {
-          "group": 1,
-          "severity": "medium",
+          "severity": "high",
           "file": "scripts/bump-version.sh",
           "line": 8,
-          "summary": "Task 1.1 (updating package.json's version) has no test.",
-          "failure": "AGENTS.md requires a test for every behaviour a task names, one that would fail without the code. The diff adds none: no test runs bump-version.sh against a fixture to check that VERSION and package.json both become the next version. Such a test, run on macOS CI or with BSD sed, would also have caught the `sed -i` failure."
-        },
-        {
-          "group": 1,
-          "severity": "low",
-          "file": "scripts/bump-version.sh",
-          "line": 8,
-          "summary": "The old version is put into the sed regex without escaping its dots.",
-          "failure": "Each `.` in `$v` matches any character, so for v=1.4.2 the pattern also matches \"1x4x2\". This is unlikely to matter in practice, but the match is looser than intended. Escape the dots (for example `$(printf '%s' \"$v\" | sed 's/\\./\\\\./g')`)."
+          "summary": "Task 1.1's package.json bump has no test. AGENTS.md requires a test for every behaviour a task names.",
+          "failure": "No test exists in the repo (tracked files: AGENTS.md, VERSION, package.json, scripts/bump-version.sh, change docs). Nothing checks that VERSION and package.json both end at the next patch version after running the script. Nothing runs it under BSD sed either, which is how the macOS failure above got through. Removing line 8, or the macOS failure itself, would fail no check.",
+          "group": 1
         }
       ]
     },
@@ -645,7 +615,7 @@
       "caught": 0,
       "actionable": 0,
       "false_positives": 0,
-      "cost_usd": 0.251,
+      "cost_usd": 0.121,
       "matches": [],
       "findings": []
     },
@@ -657,7 +627,7 @@
       "caught": 1,
       "actionable": 2,
       "false_positives": 1,
-      "cost_usd": 0.167,
+      "cost_usd": 0.164,
       "matches": [
         {
           "defect": "D1",
@@ -673,16 +643,16 @@
           "group": 1,
           "file": "src/coupon.test.ts",
           "line": 6,
-          "summary": "The cap test mocks the function it is meant to test, so it tests nothing. `vi.spyOn(coupon, \"applyCoupon\").mockReturnValue(9000)` replaces applyCoupon, then the test asserts the mock's own return value. Task 1.2 (\"Test that the discount is capped\") is effectively untested, and the only test for this behaviour counts as coverage without exercising it.",
-          "failure": "Remove `Math.min(..., maxOffCents)` from src/coupon.ts, so applyCoupon(10000, 50, 1000) returns 5000 instead of 9000. The test still passes, because the stub returns 9000 no matter what. Any edit to applyCoupon leaves the test green, even `return 0`. Fix: drop the spy and call the real applyCoupon. Assert 10000/50%/1000 gives 9000 (cap applies). Add an uncapped case such as 1000/50%/1000 giving 500, so a test fails if the cap is always applied too."
+          "summary": "The cap test mocks the function it is meant to test, so it never runs applyCoupon's cap logic",
+          "failure": "`vi.spyOn(coupon, \"applyCoupon\").mockReturnValue(9000)` replaces applyCoupon, and the next line calls the mock and checks that it returns the 9000 it was told to return. Remove `Math.min(..., maxOffCents)` from coupon.ts, so that applyCoupon(10000, 50, 1000) returns 5000, and the test still passes. Task 1.2 ('Test that the discount is capped') therefore has no real test, which breaks the AGENTS.md rule 'Every behaviour a task names has a test that would fail without the code'. The test must also expect 9000 for (10000, 50, 1000), not 5000. Fix: drop the spy, call the real function and assert `applyCoupon(10000, 50, 1000) === 9000`. Add an under-cap case, e.g. `applyCoupon(1000, 50, 1000) === 500`, so a cap that is always applied is caught too. Separately, under ESM (package.json has \"type\": \"module\"), spying on a module-namespace export may throw at runtime instead of mocking. Either way the test does not check the behaviour."
         },
         {
           "severity": "medium",
           "group": 1,
           "file": "src/coupon.ts",
           "line": 2,
-          "summary": "applyCoupon does not validate its money inputs. The sibling refund() in src/refunds.ts rejects non-integer and out-of-range cents; applyCoupon accepts anything. A bad percentOff or maxOffCents can raise the total or push it below zero, and a non-integer totalCents passes straight through. This breaks the 'money is integer cents' rule.",
-          "failure": "applyCoupon(1000, 150, 5000) returns -500, a negative total. applyCoupon(1000, 50, -200) returns 1200: the coupon makes the order more expensive. applyCoupon(999.5, 10, 1000) returns a fractional cents value. Each should be rejected (throw, as refund() does) or clamped so that 0 <= off <= totalCents."
+          "summary": "applyCoupon does not validate its inputs, so it can return a negative total, raise the total, or return fractional cents",
+          "failure": "applyCoupon(1000, 150, 5000) returns -500, a negative charge. applyCoupon(1000, 10, -200) returns 1200: a negative cap adds money to the total. applyCoupon(1000, -50, 1000) returns 1500. applyCoupon(999.5, 10, 1000) returns fractional cents, which breaks the integer-cents rule. These are money values. The neighbouring refunds.ts rejects non-integer and out-of-range amounts. applyCoupon should do the same: require integer totalCents >= 0 and maxOffCents >= 0, and 0 <= percentOff <= 100, or else clamp the discount to [0, totalCents]. Add a test for each check."
         }
       ]
     },
@@ -694,7 +664,7 @@
       "caught": 2,
       "actionable": 3,
       "false_positives": 1,
-      "cost_usd": 0.156,
+      "cost_usd": 0.16,
       "matches": [
         {
           "defect": "D1",
@@ -717,32 +687,32 @@
           "severity": "critical",
           "file": "src/refunds.ts",
           "line": 25,
-          "summary": "The late fee is added to refundedCents when it should be subtracted, so a late refund pays out 105% and can push refundedCents past amountCents",
-          "failure": "refund({amountCents:10000, refundedCents:0}, 4000, 45) returns refundedCents 4200. design.md says the customer receives 95%, so it should be 3800. With cents equal to the full remainder, refund({amountCents:10000, refundedCents:0}, 10000, 45) returns refundedCents 10500, which breaks the invariant that refundedCents never exceeds amountCents. The `cents > remaining` check runs before the fee is applied, so nothing catches it. Fix: refundedCents + cents - fee."
+          "summary": "The late fee is added to refundedCents instead of subtracted, so a late refund pays out more than requested and can push refundedCents past amountCents.",
+          "failure": "Charge {amountCents:10000, refundedCents:0}, refund(charge, 10000, 31) returns refundedCents 10500. The design says the customer receives 95% (9500) and refundedCents can never exceed amountCents. Here the payout is 105% and the invariant breaks: wrong money. The `remaining` check runs before the fee is added, so it never catches this."
         },
         {
           "group": 1,
           "severity": "high",
           "file": "src/refunds.test.ts",
           "line": 7,
-          "summary": "Task 1.2 asks for a late-refund test, but none exists; both tests would pass with the fee code deleted",
-          "failure": "No test calls refund() with ageDays > 30. The only age-related test uses ageDays=10, where fee is 0. If the whole fee line were reverted, or `+ fee` changed to `- fee`, every test would still pass, so the critical sign bug above goes undetected. There should be a test that refund(charge, 4000, 31).refundedCents === 3800, and a boundary case at exactly 30 days that charges no fee."
+          "summary": "Task 1.2 asks for a late-refund test, but no test calls refund with ageDays > 30. The fee code is completely untested, which is why the add-instead-of-subtract bug got through.",
+          "failure": "Both tests would still pass if the `fee` line were deleted, or if `+ fee` were changed to `- fee`. Nothing asserts that refund({amountCents:10000, refundedCents:0}, 4000, 31) gives 3800. Nothing tests the 30/31-day boundary, and nothing tests that a full late refund stays within amountCents."
         },
         {
           "group": 1,
           "severity": "medium",
           "file": "src/refunds.ts",
           "line": 10,
-          "summary": "The fee is computed in floating point (cents * 0.05), against the AGENTS.md rule that money is integer cents with explicit half-up rounding",
-          "failure": "LATE_FEE = 0.05 cannot be represented exactly as a binary float, so Math.round(cents * LATE_FEE) depends on representation error at the .5 boundaries instead of an explicit integer half-up rule. Use integer arithmetic instead, e.g. fee = Math.floor((cents * 5 + 50) / 100), with LATE_FEE expressed in basis points or percent."
+          "summary": "The fee is computed in floating point (LATE_FEE = 0.05, then Math.round(cents * LATE_FEE)). AGENTS.md says money is integer cents with explicit half-up rounding, never floating point.",
+          "failure": "cents * 0.05 gives a binary float that is not exact (for example 30 * 0.05 = 1.5000000000000002). Half-cent cases depend on float error rather than an explicit integer half-up rule. An integer form such as Math.floor((cents * 5 + 50) / 100) is required by the convention."
         },
         {
           "group": 1,
           "severity": "low",
           "file": "src/refunds.ts",
           "line": 16,
-          "summary": "ageDays defaults to 0 and is not validated, so a caller that omits it silently skips the fee",
-          "failure": "refund(charge, 4000) on a 60-day-old charge charges no fee because the default is 0. Non-integer, negative or NaN values of ageDays are also accepted without error."
+          "summary": "ageDays defaults to 0. Any caller that leaves it out silently skips the late fee instead of having to state the charge's age.",
+          "failure": "refund(charge, 4000) on a 90-day-old charge records a full refund with no fee. A required parameter would make every caller supply the age."
         }
       ]
     },
@@ -752,8 +722,8 @@
       "error": null,
       "planted": 1,
       "caught": 1,
-      "actionable": 1,
-      "false_positives": 0,
+      "actionable": 2,
+      "false_positives": 1,
       "cost_usd": 0.135,
       "matches": [
         {
@@ -770,8 +740,16 @@
           "file": "src/routes/statements.ts",
           "line": 20,
           "group": 1,
-          "summary": "The new statement PDF route has no ownership check. It never calls requireAccount, and it never checks that the loaded statement belongs to :accountId. loadStatement(id) looks the statement up by id alone, with no account scope.",
-          "failure": "A user signed in to account A requests GET /accounts/B/statements/<B's statement id>.pdf, or /accounts/A/statements/<B's statement id>.pdf. Either request returns 200 with account B's statement PDF. The design requires 'only the account's own users, and a 404 otherwise'. Adding requireAccount alone would not be enough: the handler must also return 404 when statement.accountId !== req.params.accountId, or else load the statement scoped by account. Otherwise the second URL still leaks B's PDF to a user of A."
+          "summary": "The PDF route has no authorization check. It skips requireAccount and never compares statement.accountId with the caller's account or with :accountId, so it hands out any tenant's statement.",
+          "failure": "A user signed in to account A (or a request with no user at all) calls GET /accounts/B/statements/<B's statement id>.pdf, or /accounts/A/statements/<B's id>.pdf. loadStatement(id) returns B's statement and the handler responds 200 with B's PDF. The design requires 'only the account's own users, and a 404 otherwise'. Fix: call requireAccount(req, res, req.params.accountId) first, then return 404 unless statement.accountId === req.params.accountId, or scope the lookup by account."
+        },
+        {
+          "severity": "high",
+          "file": "src/routes/statements.ts",
+          "line": 20,
+          "group": 1,
+          "summary": "The new route has no test. Nothing checks the owner-download case, the 404 for another account's statement or for a mismatched accountId/id pair, or the 404 for an unknown id. The design says route tests come in 'a later group', but tasks.md has no later group.",
+          "failure": "Every behaviour of the new route is untested, which breaks AGENTS.md ('Every behaviour a task names has a test'). The missing ownership check in this same route went through with nothing to catch it. Tests are needed for: (a) the owner gets 200 with application/pdf; (b) another account's user gets 404; (c) /accounts/A/statements/<B's id>.pdf gets 404 for A's user; (d) an unknown id gets 404."
         }
       ]
     }

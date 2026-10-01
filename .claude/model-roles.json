@@ -21,8 +21,8 @@
         "high": { "model": "opus", "effort": "xhigh" }
       },
       "eval": {
-        "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-01.json", "recall": 1, "precision": 0.556, "fp_rate": 0.2, "severity_accuracy": 0.9, "cost_usd": 2.627,
-        "why": "The first measured baseline (OPS-16). An earlier run on the same day did not pass (fp_rate 0.4) because two clean controls held real defects; OPS-18 fixed them, and this receipt is the one re-run on the fixed suite. Its fp_rate sits exactly at the 0.2 ceiling: one clean case flagged (sh-clean-coverage-fails-closed: covsum's exit status is ignored by the pipeline)."
+        "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-01.json", "recall": 1, "precision": 0.541, "fp_rate": 0.2, "severity_accuracy": 0.85, "cost_usd": 2.686,
+        "why": "The measured baseline (OPS-16, OPS-18), run with the prompt and schema read from build-change.js's marked review sections. Earlier runs the same day: fp_rate 0.4 (two clean controls held real defects, fixed in OPS-18), then a pass made stale by the review fixes. Its fp_rate sits exactly at the 0.2 ceiling: one clean case flagged (sh-clean-coverage-fails-closed: a high finding that its no-total path has no test)."
       }
     },
     "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },
