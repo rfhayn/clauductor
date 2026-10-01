@@ -214,6 +214,25 @@ git -C "$K" commit -qam "1.10 merged"
 o=$(kc --ref HEAD --check); rc=$?
 expect_rc 1 "$rc" "currency: a row under the gate changing reads BEHIND"
 has yes "gate:A (row:1.10)" "$(line_for "$o" docs/p.html)" "currency: ...naming the gate and the row"
+# The gate's own list of rows: reordering them changes nothing a row says, only the gate. Falsified
+# by dropping the gate:<id> item from the state: red.
+kc --stamp docs/p.html --note "1.10 merged" >/dev/null; git -C "$K" commit -qam "stamp"
+awk 'NR == FNR { if ($0 ~ /^\| 1\.1 \|/) a = $0; if ($0 ~ /^\| 1\.10 \|/) b = $0; next }
+     /^\| 1\.1 \|/ { print b; next } /^\| 1\.10 \|/ { print a; next } { print }' "$K/docs/roadmap.md" "$K/docs/roadmap.md" > "$d/rm" && cat "$d/rm" > "$K/docs/roadmap.md"
+o=$(kc --worktree --check); rc=$?
+expect_rc 1 "$rc" "currency: reordering a gate's rows reads BEHIND (the gate's list of rows is part of the state)"
+has yes "uncommitted: gate:A" "$(line_for "$o" docs/p.html)" "currency: ...naming the gate"
+git -C "$K" checkout -q docs/roadmap.md
+# Falsified by deleting the refusal: red.
+o=$(cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" --root "$K/docs" --worktree 2>&1); rc=$?
+expect_rc 2 "$rc" "currency: a --root inside a repository (not its top) is refused"
+has yes "is inside a repository" "$o" "currency: ...and says so"
+# Rows under no Gate heading, so an empty gate: id would match them all. Falsified by dropping the
+# empty-id refusal: red.
+krow '⬜ queued' '⬜ queued'
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["gate:", "row:"],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
+l=$(line_for "$(kc --worktree)" docs/p.html)
+has yes "gate: names no row in docs/roadmap.md; row: names no row" "$l" "currency: an authority with no id is CANNOT CHECK, never every row outside a gate"
 printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["gate:Z", "bogus:x", 5],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
 l=$(line_for "$(kc --worktree)" docs/p.html)
 has yes "gate:Z names no row" "$l" "currency: a gate with no rows is CANNOT CHECK"
@@ -223,7 +242,17 @@ printf '{"pages":{"docs/p.html":{"published":"x"}}}\n' > "$K/docs/artifacts.json
 o=$(kc --worktree --check); rc=$?
 expect_rc 1 "$rc" "currency: a registry with no artifact fails --check (never 'all 0 are current')"
 has yes "registers no artifact" "$o" "currency: ...and says so"
-git -C "$K" checkout -q docs/artifacts.json
+git -C "$K" commit -qam "an empty registry"; git -C "$K" update-ref refs/remotes/origin/main HEAD
+o=$(cd "$K" && sh "$K/.claude/modules/artifacts/health/currency.sh")
+has yes "CANNOT CHECK — docs/artifacts.json registers no artifact" "$o" "health: an empty registry is one CANNOT CHECK line"
+has no "— —" "$o" "health: ...passed through, not re-prefixed"
+has no "OK —" "$o" "health: ...and never OK"
+# A head and main that both lack the registry: nothing to hold current (the MIRROR of the deleted-
+# registry block below).
+git -C "$K" rm -q docs/artifacts.json; git -C "$K" commit -qm "no registry"; git -C "$K" update-ref refs/remotes/origin/main HEAD
+o=$(cd "$K" && ROOT="$K" GUARD_BRANCH=ops/session-2-close GUARD_HEAD="$(git -C "$K" rev-parse HEAD)" GUARD_PR=2 sh "$K/.claude/modules/artifacts/guard.d/currency.sh" 2>&1); rc=$?
+expect_rc 0 "$rc" "guard rule MIRROR: a close where neither the head nor main has a registry is allowed"
+has yes "no docs/artifacts.json at the head" "$o" "guard rule: ...saying so"
 
 # ── the guard rule, through the real pr-merge-guard.sh (Standing Tee's rule 8) ───────────────
 mkdir -p "$R/.claude/hooks/lib" "$d/bin" "$R/docs"
@@ -276,7 +305,9 @@ grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it w
 # A real overrun, past currency.sh's start: a jq that takes 2 s, a 1 s budget. The rule is run on
 # its own (the hook's own jq calls would be slow too). Falsified by a TERM trap that exits 2: the
 # block then reads "could not run", not "did not finish".
-mkdir -p "$d/slow"; printf '#!/bin/sh\nsleep 2\nexec %s "$@"\n' "$(command -v jq)" > "$d/slow/jq"; chmod +x "$d/slow/jq"
+# Slow ONCE: a parent shell holds a trapped TERM until its foreground child ends, so a jq slow on
+# every call would let the KILL win (137) and never reach the trap this case is about.
+mkdir -p "$d/slow"; printf '#!/bin/sh\n[ -e "$0.once" ] || { : > "$0.once"; sleep 2; }\nexec %s "$@"\n' "$(command -v jq)" > "$d/slow/jq"; chmod +x "$d/slow/jq"
 o=$(cd "$R" && env PATH="$d/slow:$PATH" ARTIFACT_RULE_SECONDS=1 GUARD_BRANCH=ops/session-9-close GUARD_HEAD="$HD" GUARD_PR=999 sh "$R/.claude/modules/artifacts/guard.d/currency.sh" 2>&1); rc=$?
 expect_rc 2 "$rc" "guard rule: a check that overruns its budget mid-run blocks"
 has yes "did not finish within 1 s" "$o" "guard rule: ...and says it was stopped, not that it could not run"
@@ -292,6 +323,7 @@ gd 2 ops/session-9-close "$HD" "BLOCKS again once a source moves after the stamp
 # Deleting the registry is not the way past the rule. Falsified by allowing a head with no registry: red.
 git -C "$R" rm -q docs/artifacts.json; commit "Drop the registry"
 gd 2 ops/session-9-close "$(git -C "$R" rev-parse HEAD)" "BLOCKS a close whose head deleted the registry main has"
+grep -q 'which origin/main has' "$d/err" && ok "guard rule: ...and says the registry is gone from the head" || fail "deleted-registry text: $(head -3 "$d/err")"
 git -C "$R" reset -q --hard HEAD~1
 sed -i.bak 's/^MODULES=.*/MODULES=""/' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
 gd 0 ops/session-9-close "$HD" "MIRROR: the module OFF, the same BEHIND close is not this rule's to block"
@@ -321,6 +353,10 @@ has yes "extra/thing → https://claude.ai/artifact/DDDDDDDDDDDD" "$o" "open: pr
 printf '#!/bin/sh\necho "$1" >> "%s/opened"\n' "$d" > "$d/bin/rec"; chmod +x "$d/bin/rec"
 sh "$OPEN" --root "$P" --opener "$d/bin/rec" >/dev/null 2>&1
 [ "$(wc -l < "$d/opened" | tr -d ' ')" = 3 ] && ok "open: hands each url to the opener exactly once" || fail "open: opened $(cat "$d/opened" 2>/dev/null)"
+# An opener that reads stdin must not eat the rest of the list. Falsified by dropping </dev/null: red.
+printf '#!/bin/sh\ncat >/dev/null\necho "$1" >> "%s/opened2"\n' "$d" > "$d/bin/greedy"; chmod +x "$d/bin/greedy"
+sh "$OPEN" --root "$P" --opener "$d/bin/greedy" >/dev/null 2>&1
+[ "$(wc -l < "$d/opened2" | tr -d ' ')" = 3 ] && ok "open: an opener that reads stdin still gets every url" || fail "open (greedy opener): $(cat "$d/opened2" 2>/dev/null)"
 printf '#!/bin/sh\ncase "$1" in *BBBB*) echo nope >&2; exit 4 ;; esac\n' > "$d/bin/half"; chmod +x "$d/bin/half"
 o=$(sh "$OPEN" --root "$P" --opener "$d/bin/half" 2>&1); rc=$?
 expect_rc 1 "$rc" "open: an opener that fails exits 1..."

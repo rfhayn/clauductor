@@ -379,12 +379,15 @@ state() {
         printf '%s\t%s\n' "$_a" "$_v" >> "$_o.raw" ;;
       Q)
         _kind=${_a%%:*}; _id=${_a#*:}; _id=${_id%%:*}
+        # An empty id would match every row outside a gate: a typo, so CANNOT CHECK.
+        if [ -z "$_id" ]; then echo "$_a names no row in $RM" >> "$_o.problems"; continue; fi
         if ! _rf=$(rows_at "$_src"); then
           echo "$_a: $RM does not parse" >> "$_o.problems"; printf '%s\tUNPARSEABLE\n' "$_a" >> "$_o.raw"; continue
         fi
         if [ "$_kind" = row ]; then _col=1; else _col=2; fi
         # As strings: awk compares number-shaped fields numerically, and 1.1 == 1.10.
-        awk -F"$TAB" -v c="$_col" -v id="$_id" '($c "") == (id "")' "$_rf" > "$_o.hit"
+        # The id through ENVIRON: -v would process backslash escapes in it.
+        RID=$_id awk -F"$TAB" -v c="$_col" '($c "") == (ENVIRON["RID"] "")' "$_rf" > "$_o.hit"
         [ -s "$_o.hit" ] || echo "$_a names no row in $RM" >> "$_o.problems"
         [ "$_kind" = gate ] && printf '%s\t%s\n' "$_a" "$(cut -f1 "$_o.hit" | joinl ,)" >> "$_o.raw"
         awk -F"$TAB" -v T="$TAB" '{ print "row:" $1 T $3 }' "$_o.hit" >> "$_o.raw" ;;
