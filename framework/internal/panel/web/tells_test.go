@@ -77,6 +77,97 @@ func TestPanelAvoidsTheTells(t *testing.T) {
 	}
 }
 
+// PANEL-21: words that name a button name it as the button reads ("Resume", not
+// "RESUME"): the orphan's message shouted its three buttons' names in capitals.
+func TestCopyNamesButtonsAsTheyRead(t *testing.T) {
+	t.Parallel()
+	js := readWeb(t, "panel.js")
+	labels := map[string]bool{}
+	for _, re := range []string{`button\("([^"]+)"`, `\["[a-z-]+", "([^"]+)"\]`} {
+		for _, m := range regexp.MustCompile(re).FindAllStringSubmatch(js, -1) {
+			labels[m[1]] = true
+		}
+	}
+	for _, want := range []string{"Resume", "Forget", "Close lane"} {
+		if !labels[want] {
+			t.Errorf("no button reads %q; this test no longer finds the labels", want)
+		}
+	}
+	for l := range labels {
+		if up := strings.ToUpper(l); up != l && len(l) > 3 && regexp.MustCompile(`\b`+regexp.QuoteMeta(up)+`\b`).MatchString(js) {
+			t.Errorf("panel.js names the button %q as %q; use the button's own words", l, up)
+		}
+	}
+}
+
+// PANEL-21: a field's value says something its label does not. The economy field read
+// "Economy / economy"; it reads "on" now (and is not shown while economy is off). The
+// test reads each label in panel.js with the first literal of its value, and requires
+// that it finds the economy field, so a rewrite that hides the pairs from it fails.
+func TestFieldValueDoesNotRepeatItsLabel(t *testing.T) {
+	t.Parallel()
+	js := readWeb(t, "panel.js")
+	pairs := map[string]string{}
+	for _, re := range []string{
+		`el\("span", "k", "([^"]+)"\), el\("span", "v(?: [^"]*)?", (?:"([^"]+)"|null, \[el\("span", (?:"[^"]*"|null), "([^"]+)")`,
+		`kv1\("([^"]+)", (?:"([^"]+)"|el\("span", (?:"[^"]*"|null), "([^"]+)")`,
+	} {
+		for _, m := range regexp.MustCompile(re).FindAllStringSubmatch(js, -1) {
+			pairs[m[1]] = m[2] + m[3]
+		}
+	}
+	if v, ok := pairs["Economy"]; !ok {
+		t.Fatal("no Economy field found; this test no longer reads the label/value pairs")
+	} else if v != "on" {
+		t.Errorf(`the Economy field's value reads %q; want "on"`, v)
+	}
+	for k, v := range pairs {
+		if strings.EqualFold(strings.TrimSpace(k), strings.TrimSpace(v)) {
+			t.Errorf("the field %q shows its label again as its value (%q); say the state", k, v)
+		}
+	}
+}
+
+// PANEL-21: the page is the window at every size. The page never scrolls (it did below
+// 900 px, and at 62vh the terminal ran over the footer below 1180 px), the terminal is
+// laid over its frame so the frame can shrink and refit it, the footer wraps, and the
+// Lanes table's ⋯ column sticks to the rail's edge. The UX harness checks the result in
+// a browser (docs/ux-passes.md: vscroll, footer-*, rowact-*, tab-overflow).
+func TestLayoutFitsTheWindow(t *testing.T) {
+	t.Parallel()
+	css := cssComment.ReplaceAllString(readWeb(t, "panel.css"), "")
+	rule := func(sel string) string {
+		for _, m := range cssBlock.FindAllStringSubmatch(css, -1) {
+			if strings.TrimSpace(m[1]) == sel {
+				return m[2]
+			}
+		}
+		t.Errorf("panel.css has no %s rule", sel)
+		return ""
+	}
+	for _, c := range []struct{ sel, re, why string }{
+		{"body", `overflow:\s*hidden`, "the page itself never scrolls"},
+		{".termhost .term", `position:\s*absolute`, "the terminal is laid over its frame, so the frame can shrink"},
+		{".obs", `flex-wrap:\s*wrap`, "the footer's counters wrap rather than run out of it"},
+		{".obs > *", `text-overflow:\s*ellipsis`, "a counter too long for a line truncates visibly"},
+		{".rail .tbl :where(td.acts, th.acts)", `position:\s*sticky`, "the ⋯ column stays in the rail"},
+		{".rail .tbl .lane-nm", `max-width:\s*0`, "a long lane name yields its width"},
+		{".wsbody", `overflow-y:\s*auto`, "what does not fit scrolls inside the workspace, not the page"},
+		{".topbars", `overflow-y:\s*auto`, "Needs you and the banners give way together, and scroll"},
+		{".topbars", `flex:\s*0 1 auto`, "Needs you and the banners shrink before the shell does"},
+	} {
+		if !regexp.MustCompile(c.re).MatchString(rule(c.sel)) {
+			t.Errorf("%s lacks %s: %s", c.sel, c.re, c.why)
+		}
+	}
+	if regexp.MustCompile(`(?:html|body)[^{}]*\{[^{}]*height:\s*auto`).MatchString(css) {
+		t.Error("panel.css lets the page grow past the window (height: auto on html or body)")
+	}
+	if regexp.MustCompile(`\.termhost\s*\{[^{}]*height:\s*\d+vh`).MatchString(css) {
+		t.Error("panel.css fixes the terminal's frame to a share of the window; it takes what the layout leaves")
+	}
+}
+
 // Tuned generates every colour from a hue, an accent and a contrast (tuned.js). Over a
 // grid of inputs, both modes, every output meets the same floors as the fixed themes,
 // and contrast 1 holds text to AAA.

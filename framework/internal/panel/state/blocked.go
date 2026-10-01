@@ -171,6 +171,7 @@ const waitingNoteMaxAge = 24 * time.Hour
 // but not without bound: until its lane's pane is dead (or its tmux session gone),
 // or waitingNoteMaxAge passes without a word from it, whichever comes first.
 func (m *Model) forgetSessions(now time.Time) {
+	m.pruneEnded(now)
 	for id, s := range m.sessions {
 		if s.Agent != nil && now.Sub(m.agentsOKAt) <= forgetSessionAge {
 			continue
