@@ -82,8 +82,12 @@ func newEconomy(home string, cfg *config.Config) *economy {
 
 func (m *Machine) pollEconomy(_ context.Context, now time.Time) (update, time.Duration) {
 	e := m.economy
+	// The threshold is the default project's, read each poll: since PANEL-22 the
+	// default can change while the panel serves.
+	def := m.defRT()
+	e.threshold = def.cfg.EconomyPct()
 	var pct *float64
-	m.def.hub.Read(func(md *state.Model, now time.Time) {
+	def.hub.Read(func(md *state.Model, now time.Time) {
 		if w := md.QuotaReading().Window("five_hour"); w != nil && w.Pct != nil && !w.Expired {
 			v := *w.Pct
 			pct = &v

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,9 +26,13 @@ import (
 // in its Runtime; what the machine reads it applies to every project's model, so
 // each project's view carries the account as it did with one project.
 type Machine struct {
-	o        Options
-	clock    clock.Clock
-	ticks    Ticks
+	o     Options
+	clock clock.Clock
+	ticks Ticks
+	// projMu guards projects and def: since PANEL-22 a project is added or removed,
+	// and the default changes, while the panel serves. Read them through list() and
+	// defRT().
+	projMu   sync.RWMutex
 	projects []*Runtime // in the menu's order
 	def      *Runtime   // the default project
 	srv      atomic.Pointer[web.Server]
@@ -91,14 +96,15 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 	}
 	t := ticks
 	m.sources = []*source{
-		{name: "version", every: t.Version, poll: m.pollVersion()},
-		{name: "account", every: t.Version, poll: m.pollAccount()},
+		// Kickable (PANEL-22): a project added live has them read at once.
+		{name: "version", every: t.Version, kick: make(chan struct{}, 1), poll: m.pollVersion()},
+		{name: "account", every: t.Version, kick: make(chan struct{}, 1), poll: m.pollAccount()},
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
 		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
 		// Where Remote Control is on (PANEL-19): settings.json and the install's
 		// choice, re-read on the account's cadence (install restarts the agent anyway).
-		{name: "remote", every: t.Version, poll: func(context.Context, time.Time) (update, time.Duration) {
+		{name: "remote", every: t.Version, kick: make(chan struct{}, 1), poll: func(context.Context, time.Time) (update, time.Duration) {
 			mode := install.RemoteControlSummary(o.Home)
 			return func(md *state.Model, _ time.Time) { md.ApplyRemoteControl(mode) }, 0
 		}},
@@ -114,15 +120,88 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 
 // each applies an update to every project's model.
 func (m *Machine) each(up update) {
-	for _, r := range m.projects {
+	for _, r := range m.list() {
 		r.hub.Update(up)
+	}
+}
+
+// list is the projects served now, in the menu's order (a copy).
+func (m *Machine) list() []*Runtime {
+	m.projMu.RLock()
+	defer m.projMu.RUnlock()
+	return append([]*Runtime(nil), m.projects...)
+}
+
+// defRT is the default project now.
+func (m *Machine) defRT() *Runtime {
+	m.projMu.RLock()
+	defer m.projMu.RUnlock()
+	return m.def
+}
+
+// addProject serves one more project's runtime (PANEL-22). It takes the account's
+// last quota and Claude Code's verified version from the default project's model, so
+// its view carries them before the machine's next reads.
+func (m *Machine) addProject(r *Runtime) {
+	r.machine = m
+	def := m.defRT()
+	if def != nil {
+		var q *state.Quota
+		verified := ""
+		def.hub.Read(func(md *state.Model, _ time.Time) { q, verified = md.QuotaReading(), md.AutoVerified() })
+		r.hub.Update(func(md *state.Model, _ time.Time) {
+			if q != nil {
+				md.RestoreQuota(*q)
+			}
+			if verified != "" {
+				md.RestoreAutoVerified(verified)
+			}
+		})
+	}
+	m.projMu.Lock()
+	m.projects = append(m.projects, r)
+	if m.def == nil {
+		m.def = r
+	}
+	m.projMu.Unlock()
+	m.kickAll() // the version, the account, the hooks and remote control, read for it now
+}
+
+// removeProject stops routing anything to a runtime. The ingest's session table
+// forgets it on its next look (route).
+func (m *Machine) removeProject(r *Runtime) {
+	m.projMu.Lock()
+	defer m.projMu.Unlock()
+	kept := m.projects[:0:0]
+	for _, x := range m.projects {
+		if x != r {
+			kept = append(kept, x)
+		}
+	}
+	m.projects = kept
+}
+
+// setDefault makes r the default project: the quota alert's thresholds, economy
+// mode's threshold and the commands the machine runs (claude --version) follow it.
+func (m *Machine) setDefault(r *Runtime) {
+	m.projMu.Lock()
+	m.def = r
+	m.projMu.Unlock()
+}
+
+// kickAll polls every machine source that can be kicked, now.
+func (m *Machine) kickAll() {
+	for _, s := range m.sources {
+		if s.kick != nil {
+			kick(s.kick)
+		}
 	}
 }
 
 // addHookKeeper adds the hooks check: it ran once at start and reported ok; it
 // runs again every interval, or sooner with backoff after a failure.
 func (m *Machine) addHookKeeper(k *hookKeeper, ok bool) {
-	m.sources = append(m.sources, &source{name: "hooks", every: k.nextWait(ok), waitFirst: true,
+	m.sources = append(m.sources, &source{name: "hooks", every: k.nextWait(ok), waitFirst: true, kick: make(chan struct{}, 1),
 		poll: func(context.Context, time.Time) (update, time.Duration) { return nil, k.nextWait(k.check()) }})
 }
 
@@ -154,7 +233,7 @@ func (m *Machine) pollOnce(ctx context.Context, s *source) (time.Duration, bool)
 
 // run runs argv through the Runner in the default project's root, with a timeout.
 func (m *Machine) run(ctx context.Context, timeout time.Duration, argv []string) ([]byte, error) {
-	return m.def.exec(ctx, timeout, argv)
+	return m.defRT().exec(ctx, timeout, argv)
 }
 
 // pollVersion reads `claude --version`, and warns once per read when it is not the
@@ -202,9 +281,9 @@ type savedVerification struct {
 // them holds the account's quota; a version any project verified holds for all.
 func (m *Machine) saveReadings(_ context.Context, now time.Time) (update, time.Duration) {
 	var q *state.Quota
-	m.def.hub.Read(func(md *state.Model, _ time.Time) { q = md.QuotaReading() })
+	m.defRT().hub.Read(func(md *state.Model, _ time.Time) { q = md.QuotaReading() })
 	verified := ""
-	for _, r := range m.projects {
+	for _, r := range m.list() {
 		r.hub.Read(func(md *state.Model, _ time.Time) {
 			if v := md.AutoVerified(); v != "" && verified == "" {
 				verified = v
@@ -249,7 +328,8 @@ func withoutQuota(as []state.AlertView) []state.AlertView {
 // pollQuotaAlert notifies the account's quota alert once for the machine. The alert
 // is derived in the default project's view, against its thresholds.
 func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, time.Duration) {
-	v := m.def.hub.View()
+	def := m.defRT()
+	v := def.hub.View()
 	var qa []state.AlertView
 	for _, a := range v.Alerts {
 		if a.Kind == state.AlertQuota {
@@ -262,7 +342,7 @@ func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, ti
 			m.savedState = string(st)
 		}
 	}
-	if !m.def.cfg.AlertThresholds().Notify {
+	if !def.cfg.AlertThresholds().Notify {
 		return nil, 0
 	}
 	send := m.o.Notify
@@ -271,7 +351,7 @@ func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, ti
 	}
 	for _, n := range notices {
 		err := send(n)
-		m.def.setObs(func(o *state.Obs) {
+		def.setObs(func(o *state.Obs) {
 			if err != nil {
 				o.NotifyFailed++
 				o.NotifyError = signals.Clip(err.Error(), 160)
@@ -332,11 +412,15 @@ func (m *Machine) ingest(ctx context.Context, hooks, status <-chan []byte) {
 // (a lane record of the project, or a session already placed), then by the deepest
 // worktree of any project that holds its cwd. Nil: no project's.
 func (m *Machine) route(sessionID, cwd string) *Runtime {
+	projects := m.list()
 	if sessionID != "" {
 		if r := m.bound[sessionID]; r != nil {
-			return r
+			if !r.removed.Load() {
+				return r
+			}
+			delete(m.bound, sessionID) // its project was removed live (PANEL-22)
 		}
-		for _, r := range m.projects {
+		for _, r := range projects {
 			owns := false
 			if r.registry != nil {
 				for _, rec := range r.registry.List() {
@@ -354,7 +438,7 @@ func (m *Machine) route(sessionID, cwd string) *Runtime {
 	}
 	var best *Runtime
 	bestLen := -1
-	for _, r := range m.projects {
+	for _, r := range projects {
 		d := -1
 		r.hub.Read(func(md *state.Model, _ time.Time) { d = md.WorktreeDepth(cwd) })
 		if d > bestLen {
@@ -379,7 +463,7 @@ func (m *Machine) bind(sessionID string, r *Runtime) {
 // early (the cwd may be a worktree just added).
 func (m *Machine) applyHook(ev signals.HookEvent) {
 	r := m.route(ev.SessionID, ev.Cwd)
-	targets := m.projects
+	targets := m.list()
 	if r != nil {
 		targets = []*Runtime{r}
 		r.hookSeen(ev)
@@ -402,7 +486,7 @@ func (m *Machine) applyHook(ev signals.HookEvent) {
 // account's), the rest into its own project only.
 func (m *Machine) applyStatus(st signals.StatusPayload) {
 	r := m.route(st.SessionID, st.Cwd)
-	for _, t := range m.projects {
+	for _, t := range m.list() {
 		if r == nil || t == r {
 			t.hub.Update(func(md *state.Model, now time.Time) { md.ApplyStatus(st, now) })
 		} else {

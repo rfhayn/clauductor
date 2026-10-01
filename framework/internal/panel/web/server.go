@@ -114,6 +114,13 @@ type Server struct {
 	Default  string
 	// Summaries, when set, is the projects' menu: every event stream carries it.
 	Summaries *Summaries
+	// Admin, when set, adds, trusts and removes projects from the page (PANEL-22,
+	// admin.go); without it those routes answer 404.
+	Admin ProjectAdmin
+
+	// projMu guards Projects, Default and HostNames, which change while the panel
+	// serves since PANEL-22. Set them directly only before Handler serves.
+	projMu sync.RWMutex
 
 	legacyOnce sync.Once
 	legacy     *Project
@@ -186,6 +193,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/refresh", s.requireAuth(s.withProject(refresh)))
 	mux.HandleFunc("POST /api/p/{project}/refresh", s.requireAuth(s.withProject(refresh)))
 	s.laneRoutes(mux)
+	s.adminRoutes(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Cache-Control", "no-store")
@@ -353,6 +361,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, p *Project) {
 		case <-r.Context().Done():
 			return
 		case <-rotated:
+			return
+		case <-p.Gone(): // removed live: the page reconnects and finds it gone
 			return
 		case b := <-ch:
 			if send("state", b) != nil {

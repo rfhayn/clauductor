@@ -88,6 +88,13 @@ func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
 		}
 		return res, nil
 	}
+	// One repository, one entry, by git's common dir too (PANEL-22): a second path to
+	// it that resolves elsewhere would claim the same worktrees and lanes.
+	if common, err := commonDir(ctx, o.Run, root); err == nil {
+		if id := registeredAs(ctx, o.Run, reg, root, common); id != "" {
+			return AddResult{}, fmt.Errorf("%s is the repository registered already as %q", root, id)
+		}
+	}
 	e := config.ProjectEntry{Root: root, Config: cfgPath, Added: o.Now.Unix()}
 	cfg, err := config.LoadConfig(e.ConfigPath())
 	if err != nil {
@@ -107,11 +114,8 @@ func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
 	// Two projects on one tmux server would each see the other's lanes as strays,
 	// and a lane name used in both would refuse to start in the second.
 	sock := e.Socket(cfg)
-	for _, other := range reg.Projects {
-		oc, _ := config.LoadConfig(other.ConfigPath())
-		if other.Socket(oc) == sock {
-			return AddResult{}, fmt.Errorf("tmux socket %q is %s's already; give this project its own tmux_socket in %s", sock, other.ID, e.ConfigPath())
-		}
+	if other := socketOwner(reg, sock, ""); other != "" {
+		return AddResult{}, fmt.Errorf("tmux socket %q is %s's already; give this project its own tmux_socket in %s", sock, other, e.ConfigPath())
 	}
 	reg.Projects = append(reg.Projects, e)
 	if reg.Default == "" || o.MakeDefault {
