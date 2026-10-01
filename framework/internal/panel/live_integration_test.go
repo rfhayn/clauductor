@@ -274,6 +274,43 @@ func TestCLIAddAndRemoveAreLive(t *testing.T) {
 	}
 }
 
+// PANEL-22: Trust config… on a file edited since the panel loaded it trusts the bytes on
+// disk (the report's) and serves them: the project starts again with that config.
+func TestTrustAnEditedConfigReloadsTheProject(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := t.TempDir()
+	rootA := multiRepo(t, "Alpha", noServerSocket())
+	rootB := multiRepo(t, "Beta", noServerSocket())
+	cr := &cardRunner{runs: map[string]int{}}
+	if _, err := install.AddProject(context.Background(), install.AddOptions{Home: home, Project: rootB, Run: gitOnlyRunner, Now: clock.System.Now(), Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := startPanelWith(t, rootA, home, sockA, func(o *Options) { o.Runner = cr.run })
+	if m := menu(t, p); !m["beta"].OK || m["beta"].Trusted {
+		t.Fatalf("menu: %+v", m)
+	}
+	// Edited while served: a card appears in the file the panel did not load.
+	cfg := filepath.Join(rootB, config.DefaultConfigRel)
+	writeFile(t, cfg, `{"name":"Beta","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
+		"cards":[{"id":"nc","title":"New card","command":["echo","new-card"],"refresh":"interval:60"}]}`)
+	_, body := p.post(t, "/api/projects/beta/trust", map[string]any{"dryRun": true})
+	var rep trustReport
+	result(t, body, &rep)
+	if len(rep.Runs) != 1 || !strings.Contains(rep.Runs[0], "new-card") {
+		t.Fatalf("the report is not the file's: %+v", rep)
+	}
+	code, body := p.post(t, "/api/projects/beta/trust", map[string]any{"hash": rep.Hash})
+	result(t, body, &rep)
+	if code != 200 || !rep.Reloaded {
+		t.Fatalf("trust: %d %v", code, body)
+	}
+	waitFor(t, "the new card to run", func() bool { return cr.count("new-card") > 0 })
+	if m := menu(t, p); !m["beta"].Trusted || !m["alpha"].Default {
+		t.Fatalf("menu after the reload: %+v", m)
+	}
+}
+
 // PANEL-22: the init preview writes nothing; Create this config writes it once and
 // never over a file; the default project removed hands the default to the next.
 func TestInitFromThePageAndDefaultHandOver(t *testing.T) {
