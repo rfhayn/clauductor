@@ -205,11 +205,12 @@ fq --tsv | grep -q 'column 11 (budget)' && ok "a budget that is not dollars brea
 
 # ── Every consumer reads the queue through roadmap_queue (lib/conf.sh) ──────────────────────────
 # bypass DIR: each line in DIR's scripts that runs the parser by path or reads the roadmap file
-# itself. Allowed: the helper, the parser, this check (its grammar tests run the parser), and a cp
-# that copies the parser into a scratch project.
+# itself. Allowed: the helper, the parser, this check (its grammar tests run the parser),
+# checks/panel-contract.sh (it holds the panel card's front-door call to the helper's output), and
+# a cp that copies the parser into a scratch project.
 bypass() {
   find "$1" \( -name '*.sh' -o -name '*.js' \) -type f | sort | while read -r f; do
-    case $f in */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh) continue ;; esac
+    case $f in */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) continue ;; esac
     grep -nE 'roadmap-queue\.sh|"\$ROOT/\$ROADMAP"|\$\{ROOT\}/\$\{?ROADMAP' "$f" \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"

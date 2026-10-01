@@ -161,4 +161,116 @@ for h in "$H"/*.sh; do
   awk '/^[[:space:]]*\. .*lib\/conf\.sh"$/ { if (!guarded) bad = 1 } /-f .*lib\/conf\.sh"/ { guarded = 1 } END { exit bad }' "$h" \
     && ok "$(basename "$h") tests for conf.sh before sourcing it" || fail "$(basename "$h") sources conf.sh without testing it exists first (a dash exit 2 reads as a block)"
 done
+
+# ── Registration: every hook settings.json registers LAUNCHES, from a subdirectory too ──────────
+# Every row above runs a hook by its absolute path, so it tests the HOOK and never the
+# REGISTRATION. Claude Code runs a command hook in the session's CURRENT directory, which follows
+# its `cd`: a hook registered by a relative path (`sh .claude/hooks/x.sh`) fails to launch from a
+# subdirectory, and an exit that is neither 0 nor 2 does not block, so the guard fails OPEN and
+# says nothing (Standing Tee #322: the merge guard was off this way). So this reads the
+# registration from settings.json itself (the authority, not a list typed here), runs each command
+# string as Claude Code does (`sh -c` with CLAUDE_PROJECT_DIR set) from a subdirectory and from the
+# root of a throwaway copy, and asks each for its OWN proof that it ran: exit code alone is not it,
+# since dash exits 2 when it cannot open a script, the very code a guard blocks with.
+#
+# THE TABLE: one row per registered hook script (script, exit, proof, payload, why), and a row for
+# a script that is not registered fails too, so a new hook cannot be registered without saying how
+# it proves it launched. A project that registers its own hook adds its row to
+# .claude/local/hook-expectations.tsv, the same five tab-separated columns. proof is `out:<ERE>`
+# (stdout and stderr together), `file:<path>` (it must exist after) or `exit` (the exit code and no
+# launch error: only for a hook with nothing else to show). @REPO@ in a payload or path is the
+# throwaway project; @TRACKED@ a tracked file in it.
+SETTINGS="$ROOT/.claude/settings.json"
+if [ ! -f "$SETTINGS" ]; then
+  fail "no .claude/settings.json: the hooks are registered nowhere, so none of them runs"
+  finish
+fi
+regs=$(jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? | select(.type == "command") | [$e, .command] | @tsv' "$SETTINGS" 2>/dev/null) \
+  || { fail "settings.json does not parse, so no hook it registers can be checked (or run)"; finish; }
+sl=$(jq -r '.statusLine.command // empty' "$SETTINGS")
+# Every .claude/ path in a hook or status-line command goes through CLAUDE_PROJECT_DIR.
+relative() {  # relative CMD: prints CMD if a .claude/ path in it is not reached through CLAUDE_PROJECT_DIR
+  printf '%s\n' "$1" | grep -oE '[^[:space:]]*\.claude/' | while IFS= read -r m; do
+    printf '%s\n' "${m%.claude/}" | grep -qE '^"?\$\{?CLAUDE_PROJECT_DIR(:-[^}]*)?\}?"?/$' || { printf '%s\n' "$1"; break; }
+  done
+}
+printf '%s\n%s\n' "$(printf '%s\n' "$regs" | cut -f2)" "$sl" | grep -v '^$' > "$d/cmds"
+bad=$(while IFS= read -r cmd; do relative "$cmd"; done < "$d/cmds" | sort -u)
+[ -z "$bad" ] && ok "every .claude/ path a hook or the status line names goes through \$CLAUDE_PROJECT_DIR" \
+  || printf '%s\n' "$bad" | while IFS= read -r b; do echo "FAIL registered relative to the session's cwd, so it cannot launch from a subdirectory: $b"; done
+[ -z "$bad" ] || _fails=$((_fails + 1))
+
+TAB=$(printf '\t')
+# Installed as a plugin, the model's own hooks are registered by the plugin (its hooks/hooks.json,
+# which clauductor's packager generates from the template's settings.json and tests): this
+# project's settings.json then registers only the project's own hooks, held to their local rows.
+plugin=""
+[ -n "${CLAUDUCTOR_FW:-}" ] && [ -f "$CLAUDUCTOR_FW/hooks/hooks.json" ] && plugin=1
+cat > "$d/core.tsv" <<'EOF'
+pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
+no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
+worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
+focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
+format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
+EOF
+if [ -n "$plugin" ]; then : > "$d/expect.tsv"; else cp "$d/core.tsv" "$d/expect.tsv"; fi
+[ -f "$ROOT/.claude/local/hook-expectations.tsv" ] && grep -v '^[[:space:]]*#' "$ROOT/.claude/local/hook-expectations.tsv" | grep -v '^[[:space:]]*$' >> "$d/expect.tsv"
+
+# The throwaway project: a COPY of this project's .claude (the real bytes), one tracked file, a
+# formatter that leaves a stamp, and no origin.
+P="$d/reg"; new_repo "$P"; mkdir -p "$P/.claude" "$P/src/sub" "$P/home"
+for e in "$ROOT"/.claude/* "$ROOT"/.claude/.[!.]*; do
+  [ -e "$e" ] || continue
+  case $(basename "$e") in worktrees|settings.local.json) continue ;; esac
+  cp -R "$e" "$P/.claude/"
+done
+echo 'export const x = 1;' > "$P/src/tracked.ts"
+git -C "$P" add src/tracked.ts && git -C "$P" commit -qm seed
+P=$(cd "$P" && pwd -P)
+printf '#!/bin/sh\ntouch "%s/formatted.stamp"\n' "$P" > "$P/fmt.sh"
+{ cat "$ROOT/.claude/project.conf" 2>/dev/null; printf '\nFORMAT_CMD="sh %s/fmt.sh"\nFORMAT_EXT="ts"\n' "$P"; } > "$P/.claude/project.conf"
+
+launching=$(printf '%s\n' "$regs" | grep -E '\.claude/hooks/[A-Za-z0-9_.-]+\.sh' || true)
+n=$(printf '%s\n' "$launching" | grep -c . || true)
+if [ -n "$plugin" ]; then ok "the model's hooks are the plugin's ($(jq '[.hooks[][].hooks[]] | length' "$CLAUDUCTOR_FW/hooks/hooks.json") in its hooks.json); settings.json registers $n of this project's own"
+else [ "$n" -ge 3 ] && ok "settings.json registers $n hook command(s) (non-vacuity)" || fail "settings.json registers only $n hook command(s): the table below would pass vacuously"; fi
+script_of() { printf '%s\n' "$1" | grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.sh' | head -1 | sed 's|.*/||'; }
+printf '%s\n' "$launching" | while IFS="$TAB" read -r ev cmd; do [ -n "$cmd" ] && script_of "$cmd"; done | sort -u > "$d/registered"
+cut -f1 "$d/expect.tsv" | sort -u > "$d/rows"
+for s in $(comm -23 "$d/registered" "$d/rows"); do fail "$s is registered in settings.json but has no expectation row (add one: checks/hooks.sh, or .claude/local/hook-expectations.tsv)"; done
+for s in $(comm -13 "$d/registered" "$d/rows"); do fail "$s has an expectation row but settings.json does not register it (a guard that is never registered guards nothing)"; done
+[ -z "$(comm -3 "$d/registered" "$d/rows")" ] && ok "every registered hook script has exactly one expectation row: $(tr '\n' ' ' < "$d/registered")"
+
+printf '%s\n' "$launching" > "$d/launching"
+while IFS="$TAB" read -r ev cmd; do
+  [ -n "$cmd" ] || continue
+  s=$(script_of "$cmd")
+  row=$(awk -F'\t' -v s="$s" '$1 == s { print; exit }' "$d/expect.tsv")
+  [ -n "$row" ] || continue
+  want=$(printf '%s' "$row" | cut -f2); proof=$(printf '%s' "$row" | cut -f3)
+  pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g"); why=$(printf '%s' "$row" | cut -f5)
+  for where in "$P/src/sub" "$P"; do
+    label="$ev $s from $( [ "$where" = "$P" ] && echo 'the project root' || echo 'a subdirectory'): $why"
+    rm -f "$P/formatted.stamp"
+    rc=0; out=$(cd "$where" && printf '%s' "$pl" | jq -c --arg c "$where" '. + {cwd: $c}' | CLAUDE_PROJECT_DIR="$P" HOME="$P/home" sh -c "$cmd" 2>&1) || rc=$?
+    if printf '%s' "$out" | grep -qE 'No such file|cannot open|not found'; then fail "$label: it did not launch: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; continue; fi
+    [ "$rc" = "$want" ] || { fail "$label: exit $rc, want $want ($(printf '%s' "$out" | head -2 | tr '\n' ' '))"; continue; }
+    case $proof in
+      out:*) printf '%s' "$out" | grep -qE -- "${proof#out:}" && ok "$label" || fail "$label: exit $rc, but not its own proof '${proof#out:}' (it may never have run): $(printf '%s' "$out" | head -2 | tr '\n' ' ')" ;;
+      file:*) f=$(printf '%s' "${proof#file:}" | sed "s|@REPO@|$P|g"); [ -e "$f" ] && ok "$label" || fail "$label: exit $rc, but ${proof#file:} was not made (it may never have run)" ;;
+      exit) ok "$label (exit code only)" ;;
+      *) fail "$s: proof '$proof' is not out:<ERE>, file:<path> or exit" ;;
+    esac
+  done
+done < "$d/launching"
+
+# The detector itself, both ways, on fixture commands (so a clean pass above is not vacuous).
+# Fixture commands, spelled through $D so no line here is itself a path this check uses.
+D=.claude
+for c in "sh $D/hooks/x.sh" "bash ./$D/hooks/x.sh" "sh \$HOME/p/$D/hooks/x.sh"; do
+  [ -n "$(relative "$c")" ] && ok "the path rule flags '$c'" || fail "the path rule passed '$c', which launches only from the root"
+done
+for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh"; do
+  [ -z "$(relative "$c")" ] && ok "the path rule passes '$c'" || fail "the path rule flagged '$c', which is correct"
+done
 finish
