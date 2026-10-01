@@ -229,7 +229,10 @@ qrun() {  # qrun EFFORT FAKE [CASES]: the runner inside the scratch copy, receip
 record() {  # record RECEIPT_REL: copy its scores into .roles.reviewer.eval, as run.sh says to
   set_roles ".roles.reviewer.eval = ($(jq -c --arg p "$1" '{receipt: $p, recall: .scores.recall, precision: .scores.precision, fp_rate: .scores.fp_rate, severity_accuracy: .scores.severity_accuracy, cost_usd: .cost.usd}' "$B/$1"))"
 }
-mr 0 "the template's baseline (reviewer opus/high) passes" "unmeasured baseline"
+# Start from an unmeasured baseline at the project's own choice: a project that has recorded a
+# receipt has it removed with receipts/ above, and its evidence must not depend on that file here.
+set_roles '.roles.reviewer.eval = {baseline: "\(.roles.reviewer.model)/\(.roles.reviewer.effort)"}'
+mr 0 "the reviewer's baseline (at the project's model and effort) passes" "unmeasured baseline"
 set_effort xhigh
 mr 1 "the reviewer moved to opus/xhigh with only the old baseline fails" "a changed model or effort needs a passing receipt"
 qrun xhigh perfect; record .claude/evals/receipts/reviewer-opus-xhigh-2026-03-02.json
