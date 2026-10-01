@@ -795,6 +795,8 @@ gitignored files, its dependencies and a port of its own before claude starts in
   remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
   (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
   and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
+  The teardown's `CLAUDUCTOR_PORT` is the port the lane's record held when Close began (Close
+  forgets the record before the teardown runs), so auto-close on merge passes it too.
   A failed teardown, or one that leaves the worktree changed (the clean check runs again after
   it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
   A lane on an existing worktree or the project root runs neither. The lane lock is held
@@ -1568,6 +1570,15 @@ what it added, so a panel restart counts nothing twice; spend from before the pa
 ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
 By lane type, because the panel knows a lane's type, not the role a skill switched to: a
 project's command can report by role.
+
+By model is one row per model however it is named (PANEL-21): the status line's display name
+(`Opus 4.1`), an id (`claude-opus-4-1-20250805`, a Bedrock or Vertex spelling of it) and a
+command's alias (`opus`) are keyed by family and version when the name says them, by family
+alone otherwise, and labelled `Opus 4.1` or `Opus`. An alias is counted with its family's
+version when exactly one version of that family is in the list, and the figure says so; with
+two or more it stays its own row. **All projects** joins every project's rows this way, so a
+model one project's command calls `opus` and another's status line calls `Opus 4.1` is one row
+naming both projects. A name of no known family is kept as it is.
 
 ### The command runs as a card does
 

@@ -170,7 +170,10 @@ func spendFigures(in Inputs, w string, m map[string]*Metric) {
 	}
 	m["cost.per_week"] = pw
 	m["cost.by_role"] = amounts(byType, nil, "By lane type: the panel knows a lane's type, not the role a skill switched to.")
-	m["cost.by_model"] = amounts(byModel, nil, "")
+	bm := amounts(byModel, nil, "")
+	bm.Items, bm.Note = modelAmounts(bm.Items.([]Amount))
+	bm.N = len(bm.Items.([]Amount))
+	m["cost.by_model"] = bm
 	m["cost.by_change"] = amounts(byBranch, in.Budgets, "By branch.")
 	proj := in.Project
 	if proj == "" {

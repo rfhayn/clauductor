@@ -82,8 +82,10 @@ func hookArgv(cmd []string, id string, port int) []string {
 }
 
 // runHook runs a setup or teardown command in dir. It runs only while the config is
-// trusted; an untrusted config's command is a note, not a run.
-func (m *LaneManager) runHook(ctx context.Context, what string, h *config.HookCommand, dir, id string) (ran bool, err error) {
+// trusted; an untrusted config's command is a note, not a run. port is the lane's,
+// passed in rather than read from the registry: Close runs the teardown after the
+// lane's record is gone (and its port with it).
+func (m *LaneManager) runHook(ctx context.Context, what string, h *config.HookCommand, dir, id string, port int) (ran bool, err error) {
 	if h == nil {
 		return false, nil
 	}
@@ -92,7 +94,7 @@ func (m *LaneManager) runHook(ctx context.Context, what string, h *config.HookCo
 	}
 	cctx, cancel := context.WithTimeout(ctx, HookTimeout)
 	defer cancel()
-	if _, err := m.Run(cctx, dir, hookArgv(h.Command, id, m.LanePort(id))); err != nil {
+	if _, err := m.Run(cctx, dir, hookArgv(h.Command, id, port)); err != nil {
 		return true, fmt.Errorf("%s failed: %v", what, err)
 	}
 	return true, nil
