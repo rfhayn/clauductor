@@ -439,7 +439,7 @@
       "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
       "properties": {
         "five_hour_pct": {
-          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off.",
+          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.",
           "maximum": 100,
           "minimum": 0,
           "type": "number"
