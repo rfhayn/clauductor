@@ -10,11 +10,12 @@
 # This script checks that claim for each binary (`go version -m`) instead of trusting it: a
 # dependency that brings cgo back fails the build here, not on a user's machine.
 #
-# Each target becomes dist/clauductor_<version>_<os>_<arch>.tar.gz holding the binary, the
-# template (tracked files only) beside it, where `install`, `init` and `update` find it ("shipped
-# next to the binary", framework/internal/template/resolve.go), the LICENSE and the README. Then
-# dist/checksums.txt (SHA-256). The version is the binary's own (Version in
-# framework/internal/cmd/root.go), which the template's version must match.
+# Each target becomes dist/clauductor-<os>-<arch>.tar.gz holding the binary, the template (tracked
+# files only) beside it, where `install`, `init` and `update` find it ("shipped next to the
+# binary", framework/internal/template/resolve.go), the LICENSE, the README and the CHANGELOG when
+# there is one. Then dist/checksums.txt (SHA-256). The names carry no version, so a release's
+# `releases/latest/download/clauductor-<os>-<arch>.tar.gz` URL never changes. The version is the
+# binary's own (Version in framework/internal/cmd/root.go), which the template's must match.
 #
 # The panel runs on macOS only (launchctl, osascript), but the CLI (install, update, init, diff,
 # plugin, lock-run) must build and run on Linux too, so the Linux targets are release targets.
@@ -49,7 +50,7 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 
 for t in $targets; do
   os=${t%/*} arch=${t#*/}
-  name="clauductor_${version}_${os}_${arch}"
+  name="clauductor-$os-$arch"
   dir="$stage/$name"
   mkdir -p "$dir"
   echo "build-release: $name (CGO_ENABLED=0)"
@@ -66,13 +67,15 @@ for t in $targets; do
   done
   (cd "$root" && tar -cf - -T "$stage/template.list") | (cd "$dir" && tar -xf -)
   cp "$root/LICENSE" "$root/README.md" "$dir/"
-  (cd "$stage" && tar -czf "$out/$name.tar.gz" "$name")
+  [ ! -f "$root/CHANGELOG.md" ] || cp "$root/CHANGELOG.md" "$dir/"
+  # COPYFILE_DISABLE: macOS tar would otherwise add ._ AppleDouble files to the archive.
+  (cd "$stage" && COPYFILE_DISABLE=1 tar -czf "$out/$name.tar.gz" "$name")
 done
 
 # Checksums over every archive in the output directory, so a partial run's set stays verifiable.
 (
   cd "$out"
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum clauductor_*.tar.gz
-  else shasum -a 256 clauductor_*.tar.gz; fi
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum clauductor-*.tar.gz
+  else shasum -a 256 clauductor-*.tar.gz; fi
 ) > "$out/checksums.txt"
 echo "build-release: $(wc -l < "$out/checksums.txt" | tr -d ' ') archive(s) in $out"

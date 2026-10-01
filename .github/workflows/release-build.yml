@@ -29,8 +29,8 @@ jobs:
         run: |
           set -eu
           cd "$RUNNER_TEMP"
-          tar -xzf dist/clauductor_*_linux_amd64.tar.gz
-          bin=$(ls -d clauductor_*_linux_amd64)/clauductor
+          tar -xzf dist/clauductor-linux-amd64.tar.gz
+          bin=clauductor-linux-amd64/clauductor
           "$bin" version
           "$bin" init "$RUNNER_TEMP/smoke" | tee init.out
           grep -q 'shipped next to the binary' init.out
