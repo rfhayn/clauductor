@@ -46,3 +46,5 @@ tool says `CANNOT CHECK — no Artifact tool` rather than erroring.
 |---|---|
 | `openspec` | `checks/project.sh` (this project's links and `openspec validate`), an `archive-change` fragment; `enable.sh` makes the links |
 | `review-page` | a `propose` fragment: the owner's claude.ai review page |
+| `premise-check` | `premise-check.sh` (does an issue's write-up still match the code?), a blocking guard rule (a `fix/` PR carries its receipt per issue), the panel fix-lane sentence (`enable.sh`), `checks/project.sh` |
+| `write-surfaces` | an advisory guard rule (a change adding `WRITE_SURFACE_MAX`+ routes or screens is told to consider splitting), `checks/project.sh` |
