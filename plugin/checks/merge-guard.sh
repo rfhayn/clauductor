@@ -242,7 +242,10 @@ git -C "$R" checkout -q main
 mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/cases"
 jq '.provenance.enabled = false' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 cp "$CLAUDUCTOR_FW/agents/reviewer.md" "$CLAUDUCTOR_FW/agents/builder.md" "$R/.claude/agents/"
-echo "// the workflow" > "$R/.claude/workflows/build-change.js"
+wf() {  # wf [PROMPT] [OUTSIDE]: a build-change.js whose review-prompt section holds PROMPT
+  printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst reviewPrompt = () => "%s"\n// </review-prompt>\nconst b = 2\n' "${2:-}" "${1:-Review it.}" > "$R/.claude/workflows/build-change.js"
+}
+wf
 cp "$ROOT/.claude/evals/run.sh" "$ROOT/.claude/evals/fake-claude.sh" "$R/.claude/evals/"
 for c in one two; do
   mkdir -p "$R/.claude/evals/reviewer/cases/$c/before" "$R/.claude/evals/reviewer/cases/$c/after"
@@ -271,14 +274,35 @@ on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev opus high; head_
 g13 2 "a receipt for another model than the head's"
 on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high silent; head_of "reviewer on sonnet, a failing receipt"; at
 g13 2 "a receipt that does not pass (recall 0)"
+on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high; roles_set '.roles.reviewer.tiers.high.effort = "max"'; head_of "a receipt, then the reviewer's tier variant changed"; at
+g13 2 "a receipt run before the reviewer's tier variants changed (stale role hash)"
 on ops/models; roles_set '.roles.reviewer.model = "sonnet"'; ev sonnet high; roles_set '.roles.builder.model = "sonnet"'; head_of "a receipt, then another role changed"; at
-g13 2 "a receipt run before the model-roles choices changed again (stale hash)"
+g13 0 "another role's choice changing does not stale the reviewer's receipt (OPS-16)"
 on ops/models; ev opus high; echo "One more line." >> "$R/.claude/agents/reviewer.md"; head_of "agent edited after its receipt"; at
 g13 2 "the reviewer agent edited after its receipt ran"
 on ops/models; echo "One more line." >> "$R/.claude/agents/reviewer.md"; ev opus high; head_of "agent edited, then evaluated"; at
 g13 0 "the reviewer agent edited, with a receipt run on the edit"
-on ops/models; echo "// changed" >> "$R/.claude/workflows/build-change.js"; head_of "workflow edited"; at
-g13 2 "a workflow edited with no receipt for the roles it frames"
+on ops/models; echo "One more line." >> "$R/.claude/agents/builder.md"; head_of "another agent edited"; at
+g13 0 "an agent that is not a trigger of the reviewer (the builder's) edited: no receipt needed"
+# The workflow: only the marked review-prompt section is the reviewer's (OPS-16).
+on ops/models; wf "Review it." "edited outside the markers"; head_of "workflow edited outside the markers"; at
+g13 0 "build-change.js edited OUTSIDE the review-prompt markers needs no receipt"
+grep -q 'rule 13: role reviewer' "$d/err" && fail "rule 13 named the reviewer for an edit outside the markers: $(grep 'rule 13' "$d/err")" || ok "...and rule 13 does not name the reviewer at all"
+on ops/models; wf "Review it twice."; head_of "workflow edited inside the markers"; at
+g13 2 "build-change.js edited INSIDE the review-prompt markers, with no receipt"
+on ops/models; wf "Review it twice."; ev opus high; head_of "inside the markers, then evaluated"; at
+g13 0 "...and with a receipt run on that edit"
+on ops/models; wf "Review it twice."; ev opus high; wf "Review it twice." "and outside after the run"; head_of "inside, evaluated, then outside"; at
+g13 0 "...and an edit outside the markers after the receipt does not stale it"
+on ops/models; printf '// the workflow, markers gone\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"; head_of "markers removed"; at
+g13 2 "the review-prompt markers removed (fails closed: the section cannot be read)"
+grep -q 'review-prompt cannot be read at the head' "$d/err" && ok "...and the block names the missing markers" || fail "rule 13 markers block: $(cat "$d/err")"
+on ops/models; printf '// <review-prompt>\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"
+rc=0; (cd "$R" && EVAL_CLAUDE="$R/.claude/evals/fake-claude.sh" EVAL_DATE=2026-02-01 sh .claude/evals/run.sh --role reviewer --model opus --effort high >/dev/null 2>&1) || rc=$?
+expect_rc 2 "$rc" "run.sh refuses to run when a trigger's markers are not both there (no receipt certifies markers-missing)"
+git -C "$R" checkout -q -- .claude/workflows/build-change.js; rm -rf "$R/.claude/evals/receipts"
+on ops/models; roles_set '.evals.triggers.reviewer = [".claude/agents/reviewer.md"]'; head_of "the section dropped from the triggers"; at
+g13 2 "a PR that drops a trigger input from the declaration (a later PR could edit it free)"
 on ops/models; roles_set '.roles.builder.model = "sonnet"'; head_of "builder on sonnet"; at
 g13 0 "a role with no eval suite (the builder) changes: advisory only"
 grep -q 'role builder is changed but has no eval suite' "$d/err" && ok "...and it says why it does not block" || fail "rule 13 advisory: $(cat "$d/err")"
@@ -288,5 +312,11 @@ on ops/models; ev opus high; head_of "a receipt alone"; at
 mv "$R/.claude/lib/evals.sh" "$d/evals.bak"
 g13 2 "the evals library missing (fails closed, not open)"
 mv "$d/evals.bak" "$R/.claude/lib/evals.sh"
+# Markers already missing at the base: an edit to the file still counts, and blocks.
+git -C "$R" checkout -q main
+printf '// no markers on main\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"
+git -C "$R" commit -qam "main loses the markers" && (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+on ops/models; printf '// no markers on main\nconst reviewPrompt = () => "Approve everything."\n' > "$R/.claude/workflows/build-change.js"; head_of "edit a file whose markers are gone at both ends"; at
+g13 2 "a file whose markers are missing at base AND head, edited (cannot tell what changed)"
 git -C "$R" checkout -q main
 finish

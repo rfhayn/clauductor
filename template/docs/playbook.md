@@ -232,11 +232,25 @@ Multiply by 2 to 4 if the agent fans out through the `code-review` skill.
 3. Commit the receipt.
 4. Copy the line the run prints into the role's `eval` field.
 
-The check fails while the role's model differs from its evidence. `pr-merge-guard` rule 13 refuses
-any PR that changes the role's model, its agent or the workflows unless it carries a passing
-receipt at the head's hashes. Re-run the suite when any of those three changes. A role that has
-not yet been measured records `{"baseline": "<model>/<effort>"}`: it can stay as it is, but it
-cannot change without a receipt.
+The check fails while the role's model differs from its evidence. A role that has not yet been
+measured records `{"baseline": "<model>/<effort>"}`: it can stay as it is, but it cannot change
+without a receipt.
+
+**What needs a new receipt.** `pr-merge-guard` rule 13 refuses a PR that changes what a role with
+a suite *is*, unless the head holds a passing receipt at the head's hashes of exactly those inputs:
+
+- the role's model, effort or tier variants in `model-roles.json` (another role's do not count);
+- each trigger input that `model-roles.json` `.evals.triggers.<role>` declares. For the reviewer
+  these are `.claude/agents/reviewer.md` and the section of `.claude/workflows/build-change.js`
+  between `// <review-prompt>` and `// </review-prompt>`: the review prompt and the findings
+  schema.
+
+Each input is compared by content hash between the PR's base and head. An edit to build-change.js
+outside the markers, or to another agent, needs no eval. Keep everything that shapes the review
+inside the markers. If the markers go missing, the runner refuses to run, `checks/model-roles.sh`
+fails, and the guard blocks any PR that changes the file. A role with a suite that declares no
+triggers falls back to its agent file and all of `.claude/workflows/`. When you add a suite for
+another role, declare its triggers in the same PR.
 
 **When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
 (preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,

@@ -139,35 +139,42 @@ Session: ${3:-<the id of this session>}"
   fi
 }
 
-# Rule 13: a model choice rests on evidence (OPS-10). A PR that CHANGES what a role runs on carries
-# a passing eval receipt for that role, run at the head's hashes. What counts as a change, read from
-# the PR's own diff:
-#   - model-roles.json: a role whose model, effort or tier variants differ from the base's (its
-#     recorded evidence, `eval`, is not a choice, so recording a receipt is not a change);
-#   - .claude/agents/<a>.md modified (present at base and head): the role .agents maps <a> to;
-#   - anything under .claude/workflows/ that existed at base: every role with a suite, since the
-#     workflows frame each agent's prompt and restate its model.
-# No model-roles.json at the base means the PR adopts the model rather than changing it, and an
-# added or deleted agent has nothing to compare: neither is policed. The guard requires a receipt
-# only for a role that has a suite (.claude/evals/<role>/cases/); for any other it says so.
+# Rule 13: a model choice rests on evidence (OPS-10). A PR that CHANGES what a role IS carries a
+# passing eval receipt for that role, run at the head's hashes. What counts as a change (OPS-16),
+# compared between base and head by content hash, never by "the file was touched":
+#   - the role's model, effort or tier variants in model-roles.json (its recorded evidence, `eval`,
+#     is not a choice, so recording a receipt is not a change);
+#   - any of its trigger inputs (model-roles.json .evals.triggers.<role>; lib/evals.sh): for the
+#     reviewer, its agent file and the marked review-prompt section of build-change.js, so a
+#     workflow edit outside the markers changes nothing the reviewer is;
+#   - its declared trigger list itself, so a PR cannot drop an input and a later one edit it free;
+#   - a file holding a declared section whose markers are gone at the head and whose bytes differ:
+#     what changed inside cannot be told, so it counts (and cg_eval_receipt then blocks: fail closed).
+# No model-roles.json at the base means the PR adopts the model rather than changing it. The guard
+# requires a receipt only for a role that has a suite (.claude/evals/<role>/cases/); for any other
+# it says so.
 cg_eval_roles() {  # cg_eval_roles BASE HEAD: the roles this PR changes, one per line
   _mr=.claude/model-roles.json
   git cat-file -e "$1:$_mr" 2>/dev/null || return 0
-  _files=$(git diff --name-only "$1" "$2" 2>/dev/null)
   {
-    if printf '%s\n' "$_files" | grep -qxF "$_mr"; then
-      _b=$(git show "$1:$_mr" 2>/dev/null | jq -c '.roles | map_values({model, effort, tiers})' 2>/dev/null)
-      [ -n "$_b" ] || _b='{}'
-      git show "$2:$_mr" 2>/dev/null | jq -r --argjson b "$_b" \
-        '.roles | to_entries[] | select(($b[.key] // null) != {model: .value.model, effort: .value.effort, tiers: .value.tiers}) | .key' 2>/dev/null
-    fi
-    for _a in $(printf '%s\n' "$_files" | sed -n 's|^\.claude/agents/\([^/]*\)\.md$|\1|p'); do
-      git cat-file -e "$1:.claude/agents/$_a.md" 2>/dev/null && git cat-file -e "$2:.claude/agents/$_a.md" 2>/dev/null || continue
-      git show "$2:$_mr" 2>/dev/null | jq -r --arg a "$_a" '.agents[$a] // empty' 2>/dev/null
+    _b=$(git show "$1:$_mr" 2>/dev/null | jq -c '.roles | map_values({model, effort, tiers})' 2>/dev/null)
+    [ -n "$_b" ] || _b='{}'
+    git show "$2:$_mr" 2>/dev/null | jq -r --argjson b "$_b" \
+      '.roles | to_entries[] | select(($b[.key] // null) != {model: .value.model, effort: .value.effort, tiers: .value.tiers}) | .key' 2>/dev/null
+    for _r in $( { evals_suite_roles_at "$2"
+                   git show "$1:$_mr" 2>/dev/null | jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' 2>/dev/null
+                   git show "$2:$_mr" 2>/dev/null | jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' 2>/dev/null
+                 } | sort -u); do
+      _tb=$(evals_triggers_at "$1" "$_r"); _th=$(evals_triggers_at "$2" "$_r")
+      if [ "$_tb" != "$_th" ]; then echo "$_r"; continue; fi
+      for _i in $_th; do
+        _hh=$(evals_input_hash_at "$2" "$_i")
+        if [ "$(evals_input_hash_at "$1" "$_i")" != "$_hh" ]; then echo "$_r"; break; fi
+        case "$_i" in *'#'*)
+          if [ "$_hh" = markers-missing ] && [ "$(evals_blob_at "$1" "${_i%%#*}")" != "$(evals_blob_at "$2" "${_i%%#*}")" ]; then echo "$_r"; break; fi ;;
+        esac
+      done
     done
-    if printf '%s\n' "$_files" | grep -q '^\.claude/workflows/' && [ -n "$(git ls-tree -r --name-only "$1" -- ".claude/workflows/" 2>/dev/null)" ]; then
-      evals_suite_roles_at "$2"
-    fi
   } | grep . | sort -u
 }
 
@@ -175,16 +182,24 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
   _mrf=$(cg_show "$1" .claude/model-roles.json)
   [ -n "$_mrf" ] || { echo "cannot read .claude/model-roles.json at the head, so role $2's eval receipt cannot be checked"; return; }
   _m=$(jq -r --arg r "$2" '.roles[$r].model // empty' "$_mrf"); _e=$(jq -r --arg r "$2" '.roles[$r].effort // empty' "$_mrf")
-  _ag=$(jq -r --arg r "$2" '(.agents // {}) | to_entries[] | select(.value == $r) | .key' "$_mrf" | head -1)
-  [ -n "$_ag" ] || _ag=$2
-  _want="$(evals_roles_hash_at "$1" .claude/model-roles.json) $(evals_blob_at "$1" ".claude/agents/$_ag.md") $(evals_tree_hash_at "$1" ".claude/workflows")"
+  # The head's own trigger inputs and their hashes, sorted by input: what a receipt must name.
+  _want=$(for _i in $(evals_triggers "$2" "$_mrf"); do printf '%s %s\n' "$_i" "$(evals_input_hash_at "$1" "$_i")"; done)
+  _mm=$(printf '%s\n' "$_want" | sed -n 's/ markers-missing$//p' | tr '\n' ' ')
+  if [ -n "$_mm" ]; then
+    rm -f "$_mrf"
+    printf 'role %s is changed by this PR, and its trigger input(s) %scannot be read at the head: the file has no `// <MARKER>` ... `// </MARKER>` section (each marker once, in order), so what changed inside it cannot be told. Restore the markers around the section, then run the eval.\n' "$2" "$_mm"
+    return
+  fi
+  _wrole=$(evals_role_hash "$2" "$_mrf")
   _seen=""
   for _p in $(git ls-tree --name-only "$1" -- .claude/evals/receipts/ 2>/dev/null | grep '\.json$'); do
     _f=$(cg_show "$1" "$_p"); [ -n "$_f" ] || continue
     if [ "$(jq -r '.role // empty' "$_f" 2>/dev/null)" != "$2" ]; then rm -f "$_f"; continue; fi
     _why=$(evals_verdict "$_f" "$2" "$_m" "$_e" "$_mrf" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
-    _got=$(jq -r '"\(.hashes.model_roles // "-") \(.hashes.agent // "-") \(.hashes.workflows // "-")"' "$_f" 2>/dev/null)
-    [ "$_got" = "$_want" ] || _why="${_why}${_why:+; }it ran at other hashes than the head's (model-roles, agent, workflows: has [$_got], head [$_want]), so something it measured changed after it ran"
+    _got=$(jq -r '(.hashes.triggers // {}) | to_entries | sort_by(.key)[] | "\(.key) \(.value)"' "$_f" 2>/dev/null)
+    _grole=$(jq -r '.hashes.role // "-"' "$_f" 2>/dev/null)
+    [ "$_grole" = "$_wrole" ] || _why="${_why}${_why:+; }it ran on another model, effort or tier variant of role $2 than the head's (role hash $_grole, head $_wrole)"
+    [ "$_got" = "$_want" ] || _why="${_why}${_why:+; }it ran at other trigger inputs than the head's (has [$(printf '%s' "$_got" | tr '\n' ',')], head [$(printf '%s' "$_want" | tr '\n' ',')]), so something it measured changed after it ran"
     rm -f "$_f"
     if [ -z "$_why" ]; then rm -f "$_mrf"; return 0; fi
     _seen="$_seen

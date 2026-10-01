@@ -42,9 +42,13 @@
 #   severity_accuracy  caught defects graded at exactly the expected severity / defects caught
 # A `low` finding never counts against precision: the reviewer is told never to inflate one.
 # `pass` is recall, fp_rate and severity_accuracy against model-roles.json .evals.thresholds, a
-# complete suite and no case that failed to run. The receipt names the model-roles hash, the
-# agent's blob and the workflows' hash it was run at, which is what pr-merge-guard rule 13 and
-# checks/model-roles.sh hold it to (.claude/lib/evals.sh).
+# complete suite and no case that failed to run.
+#
+# HASHES. The receipt's `hashes.role` (the role's model, effort and tier variants) and
+# `hashes.triggers` (each trigger input model-roles.json .evals.triggers declares for the role, by
+# its id) are what pr-merge-guard rule 13 holds it to (OPS-16; .claude/lib/evals.sh). It also
+# names, as context only, the hash of every role's choice, the agent's blob and the whole
+# workflows tree it ran beside (`model_roles`, `agent`, `workflows`).
 #
 # Exit: 0 pass, 1 ran but did not pass, 2 could not run.
 set -u
@@ -119,8 +123,24 @@ fi
 command -v "$CLAUDE" >/dev/null 2>&1 || die "cannot run '$CLAUDE' (install Claude Code, or set EVAL_CLAUDE)"
 
 # ── Hashes: identical in .claude/lib/evals.sh (checks/evals.sh holds the copies together) ────
-evals_roles_hash() {  # evals_roles_hash MODEL_ROLES_JSON_FILE
+evals_roles_hash() {  # evals_roles_hash MODEL_ROLES_JSON_FILE: every role's choice (receipt context only)
   jq -cS '.roles | map_values({model: .model, effort: .effort, tiers: .tiers})' "$1" 2>/dev/null | git hash-object --stdin
+}
+evals_role_hash() {  # evals_role_hash ROLE MODEL_ROLES_JSON_FILE: one role's model, effort and tier variants
+  jq -cS --arg r "$1" '(.roles[$r] // {}) | {model: .model, effort: .effort, tiers: .tiers}' "$2" 2>/dev/null | git hash-object --stdin
+}
+evals_triggers() {  # evals_triggers ROLE MODEL_ROLES_JSON_FILE: the role's trigger inputs, one per line, sorted
+  jq -r --arg r "$1" '
+    ([(.agents // {}) | to_entries[] | select(.value == $r) | .key] | first // $r) as $a
+    | ((.evals.triggers // {})[$r] // [".claude/agents/\($a).md", ".claude/workflows/"]) | .[]' "$2" 2>/dev/null | LC_ALL=C sort -u
+}
+evals_section() {  # evals_section MARKER < FILE: the lines between the MARKER lines; fails unless each is there once, in order
+  awk -v o="<$1>" -v c="</$1>" '
+    { t = $0; m = (t ~ /^[ \t]*(\/\/|#)/); sub(/^[ \t]*(\/\/|#)[ \t]*/, "", t); sub(/[ \t]+$/, "", t) }
+    m && t == o { no++; if (inside || no > 1) bad = 1; inside = 1; next }
+    m && t == c { nc++; if (!inside || nc > 1) bad = 1; inside = 0; next }
+    inside { print }
+    END { if (bad || no != 1 || nc != 1 || inside) exit 1 }'
 }
 evals_blob() {  # evals_blob FILE: its blob id, or "none"
   if [ -f "$1" ]; then git hash-object "$1"; else echo none; fi
@@ -132,7 +152,26 @@ evals_tree_hash() {  # evals_tree_hash DIR REL: one id for every file under DIR,
     done)
   fi | LC_ALL=C sort -k2 | git hash-object --stdin
 }
+evals_input_hash() {  # evals_input_hash ROOT INPUT: one trigger input's id; "none" if absent, "markers-missing" for a section that is not there
+  case "$2" in
+    *'#'*)
+      if [ ! -f "$1/${2%%#*}" ]; then echo none
+      elif _es=$(evals_section "${2#*#}" < "$1/${2%%#*}"); then printf '%s\n' "$_es" | git hash-object --stdin
+      else echo markers-missing; fi ;;
+    */) evals_tree_hash "$1/${2%/}" "${2%/}" ;;
+    *) evals_blob "$1/$2" ;;
+  esac
+}
 # ── end of the duplicated functions ───────────────────────────────────────────────────────────
+
+# What the receipt is held to (OPS-16): the role's own choice and its trigger inputs, hashed BEFORE
+# any case runs, so an input edited mid-run cannot be certified. A marked section that is missing
+# stops the run here: a receipt naming "markers-missing" would certify nothing.
+hrole=$(evals_role_hash "$role" "$roles_json")
+trig=$(evals_triggers "$role" "$roles_json" | while IFS= read -r _i; do printf '%s\t%s\n' "$_i" "$(evals_input_hash "$ROOT" "$_i")"; done)
+mm=$(printf '%s\n' "$trig" | awk -F'\t' '$2 == "markers-missing" { print $1 }' | tr '\n' ' ')
+[ -z "$mm" ] || die "trigger input(s) ${mm}have no marked section (each marker once, in order, on lines of their own); restore the markers before running the eval"
+trig_json=$(printf '%s\n' "$trig" | jq -Rn '[inputs | select(length > 0) | split("\t") | {(.[0]): .[1]}] | add // {}') || die "could not hash the trigger inputs"
 
 # The agent under test: the one model-roles.json .agents maps to the role.
 agent=$(jq -r --arg r "$role" '(.agents // {}) | to_entries[] | select(.value == $r) | .key' "$roles_json" | head -1)
@@ -215,6 +254,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg agent "$agent" --argjson complete "$complete" \
    --arg hr "$(evals_roles_hash "$roles_json")" --arg ha "$(evals_blob "$agent_md")" \
    --arg hw "$(evals_tree_hash "$ROOT/.claude/workflows" .claude/workflows)" --arg hs "$suite_hash" \
+   --arg hrole "$hrole" --argjson trig "$trig_json" \
    --slurpfile mr "$roles_json" '
   def rank: {"low": 1, "medium": 2, "high": 3, "critical": 4}[.] // 0;
   def r3: if type == "number" then (. * 1000 + 0.5 | floor) / 1000 else . end;
@@ -268,7 +308,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
       severity_within_one: (if ($got | length) > 0 then ([$got[] | select(((.severity | rank) - (.expected | rank)) as $x | (if $x < 0 then -$x else $x end) <= 1)] | length) / ($got | length) else 0 end)
     } | map_values(r3) as $s
   | { schema: 1, role: $role, model: $model, effort: $effort, date: $date, run_at: $at, agent: $agent,
-      hashes: { model_roles: $hr, agent: $ha, workflows: $hw },
+      hashes: { role: $hrole, triggers: $trig, model_roles: $hr, agent: $ha, workflows: $hw },
       suite: { cases: ($cs | length), defect_cases: ([$cs[] | select(.kind != "clean")] | length),
                clean_cases: ($clean | length), planted: $planted, hash: $hs },
       complete: $complete, errors: $errors,

@@ -223,6 +223,28 @@ else
     fail "model-roles.json needs .evals.thresholds with a numeric recall and fp_rate (and optionally severity_accuracy)"
   fi
   suites=$(evals_suite_roles "$ROOT")
+  # The trigger inputs rule 13 holds a receipt to (OPS-16): each declared role is a role, each
+  # input is a string, and each marked section present in this tree is readable. A marked file
+  # this project does not have (a plugin project's workflows live in the plugin) hashes as "none"
+  # at both ends of a PR, so it is reported, not failed.
+  if ! jq -e '(.evals.triggers // {}) | type == "object"' "$roles" >/dev/null; then
+    fail "model-roles.json .evals.triggers must be an object of role -> [inputs]"
+  else
+    for r in $(jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' "$roles"); do
+      if ! jq -e --arg r "$r" '.roles | has($r)' "$roles" >/dev/null; then fail "evals.triggers.$r: '$r' is not a role in .roles"; continue; fi
+      if ! jq -e --arg r "$r" '.evals.triggers[$r] | type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' "$roles" >/dev/null; then
+        fail "evals.triggers.$r must be a non-empty list of inputs (path, dir/ or path#MARKER)"; continue
+      fi
+      for i in $(evals_triggers "$r" "$roles"); do
+        h=$(evals_input_hash "$ROOT" "$i")
+        case "$h" in
+          markers-missing) fail "evals.triggers.$r: ${i%%#*} has no '// <${i#*#}>' ... '// </${i#*#}>' section (each marker once, in order, on lines of their own), so rule 13 cannot tell an edit inside it from one outside. Restore the markers" ;;
+          none) ok "evals.triggers.$r: $i is not in this tree (it hashes as none at both ends of a PR)" ;;
+          *) ok "evals.triggers.$r: $i is readable ($h)" ;;
+        esac
+      done
+    done
+  fi
   for r in $suites; do
     m=$(want "$r" model); e=$(want "$r" effort)
     if [ -z "$m" ]; then fail "eval suite .claude/evals/$r/ is for role '$r', which .roles does not define"; continue; fi

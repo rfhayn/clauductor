@@ -162,6 +162,14 @@ const GATE = {
   },
   required: ['passed', 'evidence'],
 }
+// The reviewer's prompt and findings schema: with the reviewer agent and its model, what the
+// reviewer IS. pr-merge-guard rule 13 hashes the lines between these two markers (model-roles.json
+// .evals.triggers.reviewer), so an edit between them needs a new eval receipt and an edit anywhere
+// else in this file does not. Keep everything that shapes the review inside, and the markers exact.
+// .claude/evals/run.sh restates both for its cases: change it with them.
+// <review-prompt>
+const reviewPrompt = (g, change, disputed) =>
+  `Review task group ${g.n} ("${g.title}") of change "${change}" (${CHANGES}/${change}/). The group's work is the current UNCOMMITTED working-tree diff.${disputed.length ? `\n\nThe builder DISPUTES these earlier findings. For each, re-check the code: re-raise it only if the builder's reason is wrong, and say why in the finding.\n${disputed.map((d) => `- ${d}`).join('\n')}` : ''}`
 const REVIEW = {
   type: 'object',
   properties: {
@@ -183,6 +191,7 @@ const REVIEW = {
   },
   required: ['findings'],
 }
+// </review-prompt>
 const COMMIT = {
   type: 'object',
   properties: {
@@ -337,7 +346,7 @@ for (const g of todo) {
   let prevPeak = null
   for (let round = 1; ; round++) {
     const rev = await spawn(
-      `Review task group ${g.n} ("${g.title}") of change "${change}" (${CHANGES}/${change}/). The group's work is the current UNCOMMITTED working-tree diff.${entry.disputed.length ? `\n\nThe builder DISPUTES these earlier findings. For each, re-check the code: re-raise it only if the builder's reason is wrong, and say why in the finding.\n${entry.disputed.map((d) => `- ${d}`).join('\n')}` : ''}`,
+      reviewPrompt(g, change, entry.disputed),
       { label: `review:${g.n}#${round}`, phase: 'Review', schema: REVIEW, ...REVIEWER },
     )
     if (!rev) return stop(`group ${g.n} review`, `reviewer returned nothing; ${NO_AGENT}`)

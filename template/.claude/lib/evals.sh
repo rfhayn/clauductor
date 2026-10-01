@@ -1,22 +1,51 @@
 # evals.sh: sourced by checks/model-roles.sh and by pr-merge-guard.sh (rule 13, through
 # hooks/lib/change-guard.sh). What makes an eval receipt count as evidence for a role's model and
-# effort (OPS-10). Receipts are written by .claude/evals/run.sh.
+# effort (OPS-10), and which inputs make a role what it is (OPS-16). Receipts are written by
+# .claude/evals/run.sh.
 #
 # THE HASHES ARE GIT BLOB IDS (`git hash-object`), so a hash computed from the working tree when
 # the eval ran equals one read from a commit's objects when the guard runs, with no sha256 tool to
-# differ between macOS and Linux. The three working-tree functions below are duplicated, on
-# purpose, in .claude/evals/run.sh: the evals directory is the project's (the plugin scaffolds it),
-# so the runner cannot source this framework library. checks/evals.sh asserts the copies match.
+# differ between macOS and Linux. The working-tree functions below are duplicated, on purpose, in
+# .claude/evals/run.sh: the evals directory is the project's (the plugin scaffolds it), so the
+# runner cannot source this framework library. checks/evals.sh asserts the copies match.
 #
-# The model-roles hash covers what the file CHOOSES (each role's model, effort and tier variants),
-# not the whole file: the evidence is recorded in the same file (roles.<r>.eval), and a hash of
-# the whole file would be invalidated by writing down the result it certifies.
+# WHAT A RECEIPT IS HELD TO (OPS-16) is exactly what makes the role what it is, and nothing else:
+#   - the role's own choice in model-roles.json: its model, effort and tier variants
+#     (evals_role_hash). Not the whole file: the evidence is recorded in the same file
+#     (roles.<r>.eval), and another role's choice does not change this one;
+#   - its TRIGGERS, declared in model-roles.json .evals.triggers.<role> as a list of inputs:
+#       path          a file (the agent: .claude/agents/reviewer.md);
+#       path#MARKER   the lines of path between `// <MARKER>` and `// </MARKER>` (or `# <MARKER>`),
+#                     each on a line of its own, once, in order: the review prompt and findings
+#                     schema inside .claude/workflows/build-change.js, so other workflow edits do
+#                     not need a new eval;
+#       dir/          every file under dir.
+#     A role with a suite that declares no triggers gets the broad default: its agent file and the
+#     whole of .claude/workflows/ (the rule before OPS-16).
+# A section whose markers are not there hashes as "markers-missing": the runner refuses to run on
+# it, and the guard blocks a PR that changes such a file, since it cannot tell what changed.
 #
 # Needs: jq, git.
 
 # ── Working tree (identical in .claude/evals/run.sh) ─────────────────────────────────────────
-evals_roles_hash() {  # evals_roles_hash MODEL_ROLES_JSON_FILE
+evals_roles_hash() {  # evals_roles_hash MODEL_ROLES_JSON_FILE: every role's choice (receipt context only)
   jq -cS '.roles | map_values({model: .model, effort: .effort, tiers: .tiers})' "$1" 2>/dev/null | git hash-object --stdin
+}
+evals_role_hash() {  # evals_role_hash ROLE MODEL_ROLES_JSON_FILE: one role's model, effort and tier variants
+  jq -cS --arg r "$1" '(.roles[$r] // {}) | {model: .model, effort: .effort, tiers: .tiers}' "$2" 2>/dev/null | git hash-object --stdin
+}
+evals_triggers() {  # evals_triggers ROLE MODEL_ROLES_JSON_FILE: the role's trigger inputs, one per line, sorted
+  jq -r --arg r "$1" '
+    ([(.agents // {}) | to_entries[] | select(.value == $r) | .key] | first // $r) as $a
+    | ((.evals.triggers // {})[$r] // [".claude/agents/\($a).md", ".claude/workflows/"]) | .[]' "$2" 2>/dev/null | LC_ALL=C sort -u
+}
+evals_section() {  # evals_section MARKER < FILE: the lines between the MARKER lines; fails unless each is there once, in order
+  awk -v o="<$1>" -v c="</$1>" '
+    { t = $0; m = (t ~ /^[ \t]*(\/\/|#)/); sub(/^[ \t]*(\/\/|#)[ \t]*/, "", t); sub(/[ \t]+$/, "", t) }
+    m && t == o { no++; if (inside || no > 1) bad = 1; inside = 1; next }
+    m && t == c { nc++; if (!inside || nc > 1) bad = 1; inside = 0; next }
+    inside { print }
+    END { if (bad || no != 1 || nc != 1 || inside) exit 1 }'
 }
 evals_blob() {  # evals_blob FILE: its blob id, or "none"
   if [ -f "$1" ]; then git hash-object "$1"; else echo none; fi
@@ -28,11 +57,24 @@ evals_tree_hash() {  # evals_tree_hash DIR REL: one id for every file under DIR,
     done)
   fi | LC_ALL=C sort -k2 | git hash-object --stdin
 }
+evals_input_hash() {  # evals_input_hash ROOT INPUT: one trigger input's id; "none" if absent, "markers-missing" for a section that is not there
+  case "$2" in
+    *'#'*)
+      if [ ! -f "$1/${2%%#*}" ]; then echo none
+      elif _es=$(evals_section "${2#*#}" < "$1/${2%%#*}"); then printf '%s\n' "$_es" | git hash-object --stdin
+      else echo markers-missing; fi ;;
+    */) evals_tree_hash "$1/${2%/}" "${2%/}" ;;
+    *) evals_blob "$1/$2" ;;
+  esac
+}
 # ── end of the duplicated functions ───────────────────────────────────────────────────────────
 
-# The same three, read from a commit instead of the working tree.
+# The same, read from a commit instead of the working tree.
 evals_roles_hash_at() {  # evals_roles_hash_at REV PATH
   git show "$1:$2" 2>/dev/null | jq -cS '.roles | map_values({model: .model, effort: .effort, tiers: .tiers})' 2>/dev/null | git hash-object --stdin
+}
+evals_role_hash_at() {  # evals_role_hash_at REV ROLE: evals_role_hash of .claude/model-roles.json at REV
+  git show "$1:.claude/model-roles.json" 2>/dev/null | evals_role_hash "$2" /dev/stdin
 }
 evals_blob_at() {  # evals_blob_at REV PATH
   git rev-parse -q --verify "$1:$2" 2>/dev/null || echo none
@@ -40,6 +82,19 @@ evals_blob_at() {  # evals_blob_at REV PATH
 evals_tree_hash_at() {  # evals_tree_hash_at REV DIR (repo-relative, no trailing slash)
   git ls-tree -r "$1" -- "$2/" 2>/dev/null | awk -F'\t' '{ split($1, m, " "); print m[3] " " $2 }' | grep -v '/\.DS_Store$' \
     | LC_ALL=C sort -k2 | git hash-object --stdin
+}
+evals_triggers_at() {  # evals_triggers_at REV ROLE: the trigger inputs .claude/model-roles.json declares at REV
+  git show "$1:.claude/model-roles.json" 2>/dev/null | evals_triggers "$2" /dev/stdin
+}
+evals_input_hash_at() {  # evals_input_hash_at REV INPUT: evals_input_hash, read from a commit
+  case "$2" in
+    *'#'*)
+      if ! git cat-file -e "$1:${2%%#*}" 2>/dev/null; then echo none
+      elif _es=$(git show "$1:${2%%#*}" | evals_section "${2#*#}"); then printf '%s\n' "$_es" | git hash-object --stdin
+      else echo markers-missing; fi ;;
+    */) evals_tree_hash_at "$1" "${2%/}" ;;
+    *) evals_blob_at "$1" "$2" ;;
+  esac
 }
 
 # evals_verdict RECEIPT ROLE MODEL EFFORT MODEL_ROLES_JSON: prints why RECEIPT is not passing

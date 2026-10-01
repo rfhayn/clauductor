@@ -7,7 +7,8 @@
 #   2. the runner's scoring arithmetic, on canned findings whose right answers are worked out here;
 #   3. the receipt's format and the hashes it names;
 #   4. checks/model-roles.sh refuses a changed model without a matching passing receipt;
-#   5. the hash functions run.sh duplicates from lib/evals.sh have not drifted.
+#   5. the marked sections a trigger names, and the trigger declaration's default (OPS-16);
+#   6. the hash functions run.sh duplicates from lib/evals.sh have not drifted.
 # pr-merge-guard rule 13 is exercised in checks/merge-guard.sh.
 . "$(dirname "$0")/lib.sh"
 need git jq
@@ -110,6 +111,14 @@ if [ -f "$R1" ]; then
   eq "receipt: the model-roles hash is of the choices it ran under" '.hashes.model_roles' "\"$(evals_roles_hash "$A/.claude/model-roles.json")\"" "$R1"
   eq "receipt: the agent hash is the agent file's blob" '.hashes.agent' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
   eq "receipt: the workflows hash covers .claude/workflows" '.hashes.workflows' "\"$(evals_tree_hash "$A/.claude/workflows" ".claude/workflows")\"" "$R1"
+  # What rule 13 holds it to (OPS-16): the reviewer's own choice and exactly its declared triggers.
+  eq "receipt: the role hash is the reviewer's own model, effort and tiers" '.hashes.role' "\"$(evals_role_hash reviewer "$A/.claude/model-roles.json")\"" "$R1"
+  eq "receipt: it names exactly the reviewer's declared trigger inputs" '.hashes.triggers | keys' "$(evals_triggers reviewer "$A/.claude/model-roles.json" | jq -Rnc '[inputs]')" "$R1"
+  eq "receipt: the agent trigger is its blob" '.hashes.triggers[".claude/agents/reviewer.md"]' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
+  if [ -f "$A/.claude/workflows/build-change.js" ]; then
+    eq "receipt: the review-prompt trigger is the marked section's hash, not the whole file's" '.hashes.triggers[".claude/workflows/build-change.js#review-prompt"]' \
+      "\"$(evals_section review-prompt < "$A/.claude/workflows/build-change.js" | git hash-object --stdin)\"" "$R1"
+  fi
 else
   fail "run.sh wrote no receipt at $R1: $(tail -2 "$(scratch)/run.out")"
 fi
@@ -241,8 +250,39 @@ set_roles '.evals.thresholds.recall = 0.8 | .roles.builder.eval = {baseline: "op
 mr 1 "evidence recorded for a role with no suite fails" "no suite"
 set_roles 'del(.roles.builder.eval) | del(.roles.reviewer.eval)'
 mr 1 "a role with a suite and no evidence at all fails" "no .roles.reviewer.eval"
+set_roles '.roles.reviewer.eval = {baseline: "opus/xhigh"}'
+mr 0 "(control) the scratch copy passes again with its evidence restored"
+if [ -f "$B/.claude/workflows/build-change.js" ]; then
+  grep -v '^// </review-prompt>$' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
+  mr 1 "build-change.js without its closing review-prompt marker fails (fails closed)" "has no '// <review-prompt>'"
+fi
+set_roles '.evals.triggers.wizard = [".claude/agents/wizard.md"]'
+mr 1 "triggers declared for a role that does not exist fail" "is not a role"
 
-# ── 5. The duplicated hash functions ──────────────────────────────────────────────────────────
+# ── 5. The marked sections and the trigger declaration (OPS-16) ───────────────────────────────
+. "$ROOT/.claude/lib/evals.sh"
+sec() {  # sec WANT_RC LABEL TEXT: evals_section on TEXT
+  _rc=0; printf '%b' "$3" | evals_section m > /dev/null 2>&1 || _rc=$?
+  expect_rc "$1" "$_rc" "evals_section: $2"
+}
+sec 0 "a // section reads" 'a\n// <m>\nx\n// </m>\nb\n'
+sec 0 "a # section reads, indented" '  # <m>\nx\n  # </m>\n'
+sec 1 "no markers fails" 'x\n'
+sec 1 "an opening marker alone fails" '// <m>\nx\n'
+sec 1 "a closing marker before the opening fails" '// </m>\nx\n// <m>\n'
+sec 1 "two sections of one name fail (which one is the reviewer's?)" '// <m>\n// </m>\n// <m>\n// </m>\n'
+sec 1 "a marker in a string, not a comment line, does not count" 'const s = "<m>"\nx\n// </m>\n'
+[ "$(printf 'a\n// <m>\nx\ny\n// </m>\nb\n' | evals_section m)" = "$(printf 'x\ny')" ] && ok "evals_section prints only the lines between the markers" || fail "evals_section printed the wrong lines"
+jq 'del(.evals.triggers)' "$A/.claude/model-roles.json" > "$(scratch)/mr-default.json"
+dflt=".claude/agents/reviewer.md|.claude/workflows/|"  # the project's paths, as git names them at a commit
+[ "$(evals_triggers reviewer "$(scratch)/mr-default.json" | tr '\n' '|')" = "$dflt" ] \
+  && ok "a suite role with no declared triggers falls back to its agent and all of .claude/workflows/ (fails safe, not open)" \
+  || fail "evals_triggers' default is '$(evals_triggers reviewer "$(scratch)/mr-default.json" | tr '\n' ' ')'"
+jq -e '.evals.triggers.reviewer | index(".claude/workflows/build-change.js#review-prompt") and index(".claude/agents/reviewer.md")' "$A/.claude/model-roles.json" >/dev/null \
+  && ok "model-roles.json declares the reviewer's triggers: its agent and build-change.js's review-prompt section" \
+  || fail "model-roles.json .evals.triggers.reviewer does not name the reviewer agent and build-change.js#review-prompt"
+
+# ── 6. The duplicated hash functions ──────────────────────────────────────────────────────────
 dup() { sed -n '/^evals_roles_hash() {/,/^# ── end of the duplicated functions/p' "$1"; }
 a=$(dup "$ROOT/.claude/lib/evals.sh"); b=$(dup "$ev/run.sh")
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "run.sh's hash functions are identical to lib/evals.sh's" || fail "run.sh's hash functions differ from .claude/lib/evals.sh's (the guard would never match a receipt)"

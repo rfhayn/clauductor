@@ -201,6 +201,19 @@ Separate milestones, also adopted:
     - `pr-merge-guard` rule 13 enforces the receipt.
     - `checks/evals.sh` tests all of this with a fake reviewer.
     - How to choose a model is in the template playbook, *Choosing a model by evidence*.
+  - **Narrowed (OPS-16, 2026-10-01).** Rule 13 fired on every workflow edit, so any change to
+    build-change.js cost a reviewer eval. It now fires only when a PR changes what the reviewer
+    is:
+    - the reviewer's own model, effort or tier variants;
+    - `.claude/agents/reviewer.md`;
+    - the section of build-change.js between `// <review-prompt>` and `// </review-prompt>`.
+
+    Each is compared by content hash between base and head. The inputs are declared per role in
+    `model-roles.json` `.evals.triggers`, so a future suite declares its own. A receipt names the
+    hash of exactly those inputs. Missing markers fail closed.
+  - **Baseline measured (OPS-16).** The reviewer on opus/high was run once on the full suite. Its
+    receipt is recorded in this repo's root `model-roles.json` only: the template ships no
+    receipt, because each project measures its own.
 - **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
   from Slice lines and PR titles, and `release-prep` cuts semver tags.
 

@@ -25,10 +25,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #      outcome-check row in the roadmap.
 #  12. While model-roles.json `provenance.enabled` is true, a merge is blocked unless its squash body
 #      (--body or --body-file) ends in Change:, Agent-Role:, Model: and Session: trailers.
-#  13. A PR that changes a role's model, effort or tier variants in model-roles.json, an agent in
-#      .claude/agents/, or the workflows in .claude/workflows/ is blocked unless the head holds a
-#      passing eval receipt (.claude/evals/run.sh) for each affected role that has a suite, run at
-#      the head's model-roles, agent and workflows hashes (OPS-10; .claude/lib/evals.sh).
+#  13. A PR that changes what a role with a suite IS (its model, effort or tier variants in
+#      model-roles.json, or a trigger input model-roles.json .evals.triggers declares for it: for
+#      the reviewer, its agent file and the marked review-prompt section of build-change.js) is
+#      blocked unless the head holds a passing eval receipt (.claude/evals/run.sh) for that role,
+#      run at the head's hashes of exactly those inputs (OPS-10, OPS-16; .claude/lib/evals.sh).
 #   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
 #
@@ -680,7 +681,7 @@ ev_lib="$CLAUDUCTOR_FW/lib/evals.sh"
 [ -f "$ev_lib" ] || block "cannot find $ev_lib, so rule 13 (eval receipts) cannot be checked. Restore it."
 sh -n "$ev_lib" 2>/dev/null || block "$ev_lib does not parse, so rule 13 cannot be checked. Run: sh -n $ev_lib"
 . "$ev_lib"
-for f in evals_verdict evals_roles_hash_at evals_blob_at evals_tree_hash_at evals_suite_roles_at cg_eval_roles cg_eval_receipt; do
+for f in evals_verdict evals_role_hash evals_triggers evals_section evals_triggers_at evals_input_hash_at evals_blob_at evals_tree_hash_at evals_suite_roles_at cg_eval_roles cg_eval_receipt; do
   command -v "$f" >/dev/null 2>&1 || block "$ev_lib or $cg_lib did not define $f, so rule 13 cannot be checked."
 done
 roles13=$(cg_eval_roles "$base9" "$head_sha")
