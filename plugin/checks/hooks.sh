@@ -191,12 +191,16 @@ regs=$(jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? 
 sl=$(jq -r '.statusLine.command // empty' "$SETTINGS")
 # Every .claude/ path, and every script path, in a hook or status-line command goes through
 # CLAUDE_PROJECT_DIR: `sh scripts/hooks/guard.sh` fails to launch from a subdirectory just the same.
-# The extension must END the token (a quote, a blank, a shell operator or the end may follow), so
-# settings.json, tsconfig.json or tools.shell_guard is not taken for a script.
-SCRIPT_ERE='[A-Za-z0-9_./${}"-]*[A-Za-z0-9_.-]+\.(sh|bash|js|mjs|cjs|py|rb|ts)("|'"'"'|[[:space:];|&)]|$)'
+# scripts CMD: each script path in CMD, one per line. The command is split into words at blanks and
+# shell operators first (; | & ( ) < > and backtick), then a word is a script only if its extension
+# ENDS it (a closing quote aside): settings.json, tsconfig.json or tools.shell_guard is not one.
+scripts() {
+  printf '%s\n' "$1" | tr -s ' \t;|&()<>`' '\n\n\n\n\n\n\n\n\n' \
+    | grep -E '^["'"'"']?[A-Za-z0-9_./${}"-]*[A-Za-z0-9_.-]+\.(sh|bash|js|mjs|cjs|py|rb|ts)["'"'"']?$' | sed 's/^'"'"'//; s/["'"'"']$//' || true
+}
 relative() {  # relative CMD: prints CMD if a .claude/ or script path in it is not reached through CLAUDE_PROJECT_DIR
   { printf '%s\n' "$1" | grep -oE '[^[:space:]]*\.claude/' | sed 's|\.claude/$||'
-    printf '%s\n' "$1" | grep -oE "(^|[[:space:]])$SCRIPT_ERE" | sed 's/^[[:space:]]*//; s|[^/]*$||'; } \
+    scripts "$1" | sed 's|[^/]*$||'; } \
   | while IFS= read -r pre; do
     case $pre in /*) continue ;; esac  # an absolute path launches from anywhere
     printf '%s\n' "$pre" | grep -qE '^"?\$\{?CLAUDE_PROJECT_DIR(:-[^}]*)?\}?"?/' || { printf '%s\n' "$1"; break; }
@@ -239,11 +243,11 @@ printf '#!/bin/sh\ntouch "%s/formatted.stamp"\n' "$P" > "$P/fmt.sh"
 { cat "$ROOT/.claude/project.conf" 2>/dev/null; printf '\nFORMAT_CMD="sh %s/fmt.sh"\nFORMAT_EXT="ts"\n' "$P"; } > "$P/.claude/project.conf"
 
 # Every registered command that runs a script file, wherever it lives and whatever its language.
-launching=$(printf '%s\n' "$regs" | grep -E "(^|[[:space:]])$SCRIPT_ERE" || true)
+launching=$(printf '%s\n' "$regs" | while IFS="$(printf '\t')" read -r ev cmd; do [ -n "$(scripts "$cmd")" ] && printf '%s\t%s\n' "$ev" "$cmd"; done)
 n=$(printf '%s\n' "$launching" | grep -c . || true)
 if [ -n "$plugin" ]; then ok "the model's hooks are the plugin's ($(jq '[.hooks[][].hooks[]] | length' "$CLAUDUCTOR_FW/hooks/hooks.json") in its hooks.json); settings.json registers $n of this project's own"
 else [ "$n" -ge 3 ] && ok "settings.json registers $n hook command(s) (non-vacuity)" || fail "settings.json registers only $n hook command(s): the table below would pass vacuously"; fi
-script_of() { printf '%s\n' "$1" | grep -oE "(^|[[:space:]])$SCRIPT_ERE" | head -1 | sed 's/^[[:space:]]*//; s/[^A-Za-z0-9_.-]$//; s|.*/||'; }
+script_of() { scripts "$1" | head -1 | sed 's|.*/||'; }
 printf '%s\n' "$launching" | while IFS="$TAB" read -r ev cmd; do [ -n "$cmd" ] && script_of "$cmd"; done | sort -u > "$d/registered"
 cut -f1 "$d/expect.tsv" | sort -u > "$d/rows"
 for s in $(comm -23 "$d/registered" "$d/rows"); do fail "$s is registered in settings.json but has no expectation row (add one: checks/hooks.sh, or .claude/local/hook-expectations.tsv)"; done
@@ -276,14 +280,14 @@ done < "$d/launching"
 # The detector itself, both ways, on fixture commands (so a clean pass above is not vacuous).
 # Fixture commands, spelled through $D so no line here is itself a path this check uses.
 D=.claude
-for c in "sh $D/hooks/x.sh" "bash ./$D/hooks/x.sh" "sh \$HOME/p/$D/hooks/x.sh" "sh scripts/hooks/guard.sh" "sh guard.sh"; do
+for c in "sh $D/hooks/x.sh" "bash ./$D/hooks/x.sh" "sh \$HOME/p/$D/hooks/x.sh" "sh scripts/hooks/guard.sh" "sh guard.sh" "sh scripts/hooks/guard.sh>/dev/null" "sh \"\$CLAUDE_PROJECT_DIR\"/a.sh scripts/b.sh" "sh scripts/x.sh\`echo\`"; do
   [ -n "$(relative "$c")" ] && ok "the path rule flags '$c'" || fail "the path rule passed '$c', which launches only from the root"
 done
 for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh" "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs" "sh /opt/hooks/x.sh" "npx biome format --write" "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json" "npx tsc -p tsconfig.json --noEmit"; do
   [ -z "$(relative "$c")" ] && ok "the path rule passes '$c'" || fail "the path rule flagged '$c', which is correct"
 done
 # The table covers every registered script, not only .claude/hooks/*.sh.
-[ "$(script_of "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs --flag")" = x.mjs ] && [ "$(script_of "sh \"\$CLAUDE_PROJECT_DIR\"/x.sh")" = x.sh ] && [ -z "$(script_of 'npx biome format --write')" ] \
+[ "$(script_of "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs --flag")" = x.mjs ] && [ "$(script_of "sh \"\$CLAUDE_PROJECT_DIR\"/x.sh")" = x.sh ] && [ "$(script_of "sh \"\$CLAUDE_PROJECT_DIR\"/g.sh>/dev/null")" = g.sh ] && [ -z "$(script_of 'npx biome format --write')" ] \
   && [ -z "$(script_of "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json")" ] && [ -z "$(script_of 'npx tsc -p tsconfig.json')" ] && [ -z "$(script_of 'python3 -m tools.shell_guard')" ] \
   && ok "a registered script in any directory or language gets a row of its own (x.mjs); an inline command needs none" || fail "script_of: '$(script_of "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs")'"
 finish
