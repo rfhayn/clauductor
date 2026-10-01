@@ -39,7 +39,15 @@ A phase is several changes. Decompose as you go, phase by phase.
 - `Status` leads with one of: `⬜ queued` · `⬜ in flight (#N)` · `✅ merged (#N)` ·
   `❌ cancelled — <why>`. Text may follow. `session-close` moves a row to in flight when its PR
   opens and to merged when it merges.
-- The current phase is derived: the first phase with a queued or in-flight row.
+- **An open row in its own word**: `⬜ <word>`, one lowercase word (`⬜ planned`,
+  `⬜ deferred — <trigger>`, `⬜ placeholder — <what it waits for>`). It is open, so it keeps its
+  phase current and `--text` lists it under its word, but it is never NEXT, never `--queued` and
+  never offered by the panel: it waits for something a queued row does not.
+- **A section's start**: `**<section> started:** YYYY-MM-DD`, optionally `— <why>`, anywhere in a
+  `###` section whose heading begins with `<section>` (`**Gate 2A started:** 2026-07-21` under
+  `### Gate 2A — "the model is correct"`). Its rows carry the date, and `--text` shows the days
+  since. One per section; a misspelled, misplaced, doubled or impossible one is an error.
+- The current phase is derived: the first phase with a queued, in-flight or open row.
 - **A budget**: `Budget: $N` anywhere in a row (the Scope cell, say) is the change's cost
   appetite. Its `proposal.md` repeats it, `build-change` stops past it, archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
@@ -60,7 +68,7 @@ The contract a parser meets:
 |---|---|---|
 | `--text` | the current phase's open rows, for people (any layout) | 0 read; non-zero: the queue is UNKNOWN |
 | `--check` | one summary line, or one `ERROR` line per line it cannot parse | 0 valid; 1 not |
-| `--tsv` | one row per line, tab-separated, the 12 columns below; more columns are ignored | 0 read; non-zero: UNKNOWN |
+| `--tsv` | one row per line, tab-separated, the 12 columns below and optionally the 13th; more are ignored | 0 read; non-zero: UNKNOWN |
 
 `--queued [change\|fix\|ops]` is derived from `--tsv` by the helper: a parser need not implement it.
 
@@ -72,12 +80,13 @@ The contract a parser meets:
 | 4 | id | the row id, `[A-Za-z0-9._-]`, unique |
 | 5 | change | the change id: `add-x`, `fix/<n>-<slug>`, `ops/<name>` |
 | 6 | kind | `change`, `fix` or `ops` |
-| 7 | state | `queued`, `inflight`, `merged` or `cancelled` |
+| 7 | state | `queued`, `inflight`, `open` (open, waiting in its own word), `merged` or `cancelled` |
 | 8 | pr | the PR number, or empty |
 | 9 | owner | who owns the row, or empty |
 | 10 | summary | what a user can now do |
 | 11 | budget | dollars (`40`, `12.50`), or empty |
 | 12 | due | `YYYY-MM-DD`, or empty |
+| 13 | started | optional: the row's section's start date, `YYYY-MM-DD`, or empty |
 
 Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
 queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as

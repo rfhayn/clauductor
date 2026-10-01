@@ -57,9 +57,12 @@ AGENTS_MD_MAX_BYTES="16000"
 AGENTS_MD_MAX_ROW="320"
 CHANGE_RECORD_EXTRA=""
 GATE_QUICK_FLAGS="--quick"
+# Derived from BRANCH_OPS after project.conf is read, unless the project names its own (or "").
+BRANCH_SESSION_CLOSE="@default"
 
 # shellcheck disable=SC1091
 [ -f "$ROOT/.claude/project.conf" ] && . "$ROOT/.claude/project.conf"
+[ "$BRANCH_SESSION_CLOSE" = "@default" ] && BRANCH_SESSION_CLOSE="${BRANCH_OPS}session-[0-9]*-close*"
 
 # roadmap_queue MODE [ARGS] [FILE]: THE way a script reads the change queue. Every consumer calls
 # this, never a parser by path (checks/roadmap.sh fails one that does), so a project that keeps its
@@ -101,8 +104,9 @@ roadmap_queue() {
 }
 
 # roadmap_tsv_errors: stdin is --tsv output; prints one line per row that breaks the contract and
-# exits 1 if any did. 12 tab-separated columns (more are ignored): line phase section id change kind
-# state pr owner summary budget due. Blank input is an empty queue, not an error.
+# exits 1 if any did. 12 tab-separated columns: line phase section id change kind state pr owner
+# summary budget due; an optional 13th, started (the row's section's start date); more are ignored.
+# Blank input is an empty queue, not an error.
 roadmap_tsv_errors() {
   awk -F'\t' '
     function bad(m) { printf "  tsv row %d (%s): %s\n", NR, substr($0, 1, 60), m; nb++ }
@@ -113,10 +117,11 @@ roadmap_tsv_errors() {
     $4 !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ { bad("column 4 (row id) \"" $4 "\" is empty or not [A-Za-z0-9._-]") }
     $5 == "" { bad("column 5 (change id) is empty") }
     $6 != "change" && $6 != "fix" && $6 != "ops" { bad("column 6 (kind) \"" $6 "\" is not change, fix or ops") }
-    $7 != "queued" && $7 != "inflight" && $7 != "merged" && $7 != "cancelled" { bad("column 7 (state) \"" $7 "\" is not queued, inflight, merged or cancelled (a ROADMAP_NORMALIZER maps a parser'"'"'s own words)") }
+    $7 != "queued" && $7 != "inflight" && $7 != "open" && $7 != "merged" && $7 != "cancelled" { bad("column 7 (state) \"" $7 "\" is not queued, inflight, open, merged or cancelled (a ROADMAP_NORMALIZER maps a parser'"'"'s own words)") }
     $8 != "" && $8 !~ /^[0-9]+$/ { bad("column 8 (PR) \"" $8 "\" is not a number") }
     $11 != "" && $11 !~ /^[0-9]+(\.[0-9][0-9]?)?$/ { bad("column 11 (budget) \"" $11 "\" is not dollars") }
     $12 != "" && $12 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { bad("column 12 (due) \"" $12 "\" is not YYYY-MM-DD") }
+    NF >= 13 && $13 != "" && $13 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { bad("column 13 (started) \"" $13 "\" is not YYYY-MM-DD") }
     END { exit nb > 0 }'
 }
 

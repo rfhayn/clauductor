@@ -52,6 +52,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Only a complete run of a clean tree is evidence; two gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
 | A journal `## Session N` is not claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** |
+| A session close lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, `BRANCH_SESSION_CLOSE`); **`checks/merge-guard.sh`** |
 | An open change has the shape build-change reads and records the owner's approval | **`checks/changes.sh`**; `/clauductor:propose` stops for the owner |
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `${CLAUDE_PLUGIN_ROOT}/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`${CLAUDE_PLUGIN_ROOT}/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
@@ -69,7 +70,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A model or effort is chosen in ONE place | **`${CLAUDE_PLUGIN_ROOT}/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |
 | Every insight gets a decision (promote, an instance, or why not) within a few sessions | **`${CLAUDE_PLUGIN_ROOT}/compound.sh`** via `session-close` step 3b; **`checks/compound.sh`** |
-| A scheduled or post-merge failure reaches a reader | **`.claude/health/*.sh`** via `session-start` (the directory is the list); **`checks/health.sh`** |
+| A scheduled or post-merge failure reaches a reader, naming its run's commit and age | **`.claude/health/*.sh`** via `session-start` (the directory is the list; `lib/health.sh`); **`checks/health.sh`**, **`health-lines.sh`** |
+| Work under way is seen on GitHub: branches with no PR, rows queued while their PR is open | **`lib/context.sh`** via the session-start and session-close context; **`checks/session-context.sh`** |
 | A module adds only while `MODULES` names it; a broken extension guard rule blocks, never allows | **`lib/modules.sh`** for every host; **`pr-merge-guard.sh`** extension rules; **`checks/modules.sh`** |
 | Orphans and clean lane worktrees do not outlive a session; tmux lanes are never killed | **`${CLAUDE_PLUGIN_ROOT}/machine-quiet.sh`** via `session-close`; **`checks/machine-quiet.sh`** |
 | Work that needs the owner at the computer is seen | **`${CLAUDE_PLUGIN_ROOT}/owner-queue.sh`** via `session-start` and the panel card |

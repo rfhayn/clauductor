@@ -21,6 +21,9 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/modules.sh" || { echo "CANNOT CHECK — .claude/lib/modules.sh is missing"; exit 0; }
 cd "$ROOT" || exit 0
+# The plugin's copy of this script knows the plugin root (CLAUDUCTOR_FW). A health line is the
+# project's own file, so in a plugin project it finds the model's libraries (lib/health.sh) there.
+[ -z "${CLAUDUCTOR_FW:-}" ] || export CLAUDUCTOR_FW
 TAB=$(printf '\t')
 ind() { sed 's/^/    /'; }
 

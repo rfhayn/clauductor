@@ -8,6 +8,15 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 . "$ROOT/.claude/lib/conf.sh"
 cd "$ROOT" || exit 0
 ind() { sed 's/^/    /'; }
+# The GitHub-reading sections (remote branches with no PR). Tested for, never sourced blind: a `.`
+# of a missing file ends the script under dash and hides every section after it.
+if [ -f "$ROOT/.claude/lib/context.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$ROOT/.claude/lib/context.sh"
+else
+  ctx_open_prs() { gh pr list --state open --limit 100 --json number,title,headRefName,author,updatedAt,files 2>/dev/null; }
+  ctx_loose_branches() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
+fi
 
 branch=$(git --no-optional-locks branch --show-current 2>/dev/null)
 if [ "$(git rev-parse --git-dir 2>/dev/null)" = "$(git rev-parse --git-common-dir 2>/dev/null)" ]; then
@@ -37,14 +46,15 @@ echo "- Recent commits:"
 git log --oneline -8 2>/dev/null | ind
 
 echo "- Open PRs (★ = another person's: read before building on anything they touch; bots unmarked):"
+prs=""
 if [ "${CONTEXT_OFFLINE:-}" = 1 ]; then
   echo "    CANNOT CHECK — offline"
 elif ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
   echo "    CANNOT CHECK — gh or jq is not installed; this learned NOTHING, do not read it as none"
 else
-  git --no-optional-locks fetch origin --prune --quiet 2>/dev/null || echo "    (git fetch failed: OVERLAP below reads a possibly stale origin)"
+  git --no-optional-locks fetch origin --prune --quiet 2>/dev/null || echo "    (git fetch failed: OVERLAP and branch dates below read a possibly stale origin)"
   me=$(gh api user --jq .login 2>/dev/null) || me=
-  if prs=$(gh pr list --state open --limit 100 --json number,title,headRefName,author,updatedAt,files 2>/dev/null); then
+  if prs=$(ctx_open_prs); then
     [ -n "$me" ] || echo "    (gh api user failed: cannot tell yours from theirs, so nothing is starred and OVERLAP is skipped)"
     printf '%s' "$prs" | jq -r --arg me "$me" '.[] | "\(if $me == "" or .author.login == $me or .author.is_bot or (.author.login | startswith("app/")) then " " else "★" end) #\(.number) \(.author.login) \(.headRefName) (updated \(.updatedAt[:10])): \(.title)"' | ind
     [ "$prs" = "[]" ] && echo "    none"
@@ -54,9 +64,14 @@ else
         | while read -r n p; do printf '%s\n' "$mine" | grep -qxF -- "$p" && echo "    OVERLAP: #$n (not yours) also changes $p"; done
     fi
   else
+    prs=""
     echo "    CANNOT CHECK — gh pr list failed; this learned NOTHING, do not read it as none"
   fi
 fi
+# Another person's work is on GitHub before it is anywhere else: a pushed branch with no PR yet is
+# the earliest sign of it, and of a lane of yours left unlanded.
+echo "- Remote branches with no open PR (last commit author · date):"
+ctx_loose_branches "$prs" 2>&1 | ind
 
 echo "- Change queue (the roadmap's current phase; top = next up):"
 roadmap_queue --text 2>&1 | ind
