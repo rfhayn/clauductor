@@ -1471,7 +1471,7 @@ let overTerm = false;
 function renderHint() {
   const host = $("termhost"), a = document.activeElement, t = terms[selTerm];
   const inTerm = a && a.classList && a.classList.contains("xterm-helper-textarea") && host.contains(a);
-  const copy = IS_MAC ? "⌘C copies" : "Ctrl+Shift+C copies";
+  const copy = IS_MAC ? "⌘C copies, ⌘-click opens a link" : "Ctrl+Shift+C copies, Ctrl-click opens a link";
   const hint = $("termhint");
   // The line is always there, so entering the terminal never resizes it.
   if (t && t.scrolled) setText(hint, "Scrolled back in history. Any key returns to the live screen and is typed; Esc only returns.");
@@ -1589,20 +1589,43 @@ function ensureTerm(id) {
     // An Option-click would otherwise move claude's cursor by sending it arrow keys.
     altClickMovesCursor: false,
     theme: termTheme(), minimumContrastRatio: termMinContrast(),
-    // Terminal output is untrusted. A link (OSC 8) opens only after an in-page
-    // confirmation, and only http(s). Title escapes are ignored: nothing subscribes
-    // to onTitleChange, so they never reach the DOM.
-    linkHandler: { activate: (ev, uri) => askOpenLink(uri), allowNonHttpProtocols: false },
+    // Terminal output is untrusted: a link opens only on ⌘-click, only http(s), and
+    // one whose text is not its target (OSC 8) only after an in-page confirmation
+    // (followLink). Title escapes are ignored: nothing subscribes to onTitleChange, so
+    // they never reach the DOM.
+    linkHandler: {
+      activate: (ev, uri, range) => followLink(ev, uri, rangeText(term, range)),
+      hover: (ev, uri) => linkTip(host, uri), leave: () => linkTip(host, null),
+      allowNonHttpProtocols: false,
+    },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  // xterm links only OSC 8 by itself; this links the plain-text URLs a lane prints.
+  term.registerLinkProvider({ provideLinks: (y, cb) => cb(urlLinks(term, y).map((l) => ({
+    ...l, activate: (ev, uri) => followLink(ev, uri, uri),
+    hover: (ev, uri) => linkTip(host, uri), leave: () => linkTip(host, null),
+  }))) });
+  // xterm clears its selection whenever it sends a mouse report (as it does for a
+  // key), and a program that asks for every motion (1003: claude's fullscreen TUI,
+  // relayed by tmux) gets one per cell the pointer crosses: a selection vanished as
+  // the hand left the mouse for ⌘C. Nothing here uses motion without a button (tmux
+  // binds only the wheel, and presses are selections), so the request is declined;
+  // tmux also sends 1002, which keeps the wheel. tmux resets 1003 before any change.
+  term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (p) => {
+    if (!p.includes(1003)) return false;
+    const rest = p.filter((x) => x !== 1003 && typeof x === "number");
+    if (rest.length) term.write("\x1b[?" + rest.join(";") + "h");
+    return true;
+  });
   const t = { id, host, term, fit, ws: null, retry: null, delay: 1000, gone: false, focused: false, scrolled: false };
-  // tmux has the mouse, so that the wheel scrolls its history, and it takes no
-  // clicks. A plain press would reach tmux and do nothing, so it becomes a text
-  // selection instead, exactly as an Option-press (Shift off a Mac) would: drag
-  // selects, and ⌘C copies through xterm. Nothing is taken from claude, which never
-  // saw clicks here.
+  // tmux has the mouse, so that the wheel scrolls its history, and binds no clicks:
+  // an unbound click goes to the program if it asked for the mouse, as claude's
+  // fullscreen TUI does. A plain press becomes a text selection instead, exactly as
+  // an Option-press (Shift off a Mac) would: drag selects, and ⌘C copies through
+  // xterm. So does a ⌘-press (Ctrl off a Mac): its release follows a link under it
+  // (followLink), and it never reaches claude as a click either.
   host.addEventListener("mousedown", (ev) => {
     if (ev.panelForced || ev.button !== 0) return;
     // The frame around the terminal (#termhost) is focusable, and a press would
@@ -1610,7 +1633,7 @@ function ensureTerm(id) {
     // reaches xterm's copy and typing reaches claude.
     ev.preventDefault();
     setTimeout(() => term.focus(), 0);
-    if (ev.altKey || ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
+    if (ev.altKey || ev.shiftKey || (IS_MAC ? ev.ctrlKey : ev.metaKey)) return;
     ev.stopImmediatePropagation();
     if (!IS_MAC) term.clearSelection(); // Shift extends a selection; start a fresh one
     const e2 = new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true, view: window, detail: ev.detail,
@@ -1731,12 +1754,62 @@ let sizeTimer = 0;
 function sizeTerm() { clearTimeout(sizeTimer); fitTerm(terms[selTerm]); }
 new ResizeObserver(() => { clearTimeout(sizeTimer); sizeTimer = setTimeout(sizeTerm, SETTLE_MS); }).observe($("termhost"));
 
+// The plain-text URLs on buffer row y (1-based), as xterm link ranges. A URL wrapped
+// onto the next row is one link while xterm holds the rows as one line (isWrapped);
+// a program that breaks its own lines (claude's fullscreen TUI) links with OSC 8.
+function urlLinks(term, y) {
+  const buf = term.buffer.active, cell = buf.getNullCell();
+  let top = y - 1, bot = y - 1;
+  while (top > 0 && y - 1 - top < 50 && buf.getLine(top)?.isWrapped) top--;
+  while (bot - top < 50 && buf.getLine(bot + 1)?.isWrapped) bot++;
+  // The line's text, and the cell each UTF-16 unit of it starts in: a wide character
+  // takes two cells for one unit, an emoji one or two cells for two.
+  let text = "";
+  const at = [];
+  for (let r = top; r <= bot; r++) {
+    const line = buf.getLine(r);
+    if (!line) break;
+    for (let x = 0; x < term.cols; x++) {
+      if (!line.getCell(x, cell) || cell.getWidth() === 0) continue;
+      const ch = cell.getChars() || " ";
+      for (let k = 0; k < ch.length; k++) at.push({ x: x + 1, y: r + 1 });
+      text += ch;
+    }
+  }
+  return TermLinks.findURLs(text)
+    .map((m) => ({ text: m.url, range: { start: at[m.start], end: at[m.end - 1] } }))
+    .filter((l) => l.range.start.y <= y && l.range.end.y >= y);
+}
+// The text on screen over an xterm link range (1-based, end inclusive).
+function rangeText(term, r) {
+  const buf = term.buffer.active;
+  let s = "";
+  for (let y = r.start.y; y <= r.end.y; y++) {
+    const line = buf.getLine(y - 1);
+    if (line) s += line.translateToString(true, y === r.start.y ? r.start.x - 1 : 0, y === r.end.y ? r.end.x : term.cols);
+  }
+  return s;
+}
+// ⌘-click (Ctrl-click off a Mac) follows a link, as in Ghostty and iTerm2: a plain
+// press is a text selection here, and a double-click on a URL selects a word of it.
+// A link whose text is its target opens at once; one whose text says something else
+// (OSC 8 prints any words over any URL) names its target in a confirmation first.
+function followLink(ev, uri, shown) {
+  if (!(IS_MAC ? ev.metaKey : ev.ctrlKey)) return;
+  const href = TermLinks.webURL(uri);
+  if (!href) return;
+  if (TermLinks.showsTarget(shown, href)) openLink(href);
+  else askOpenLink(href);
+}
+function openLink(href) { window.open(href, "_blank", "noopener,noreferrer"); }
+// The pointer over a link says where it goes and how to follow it.
+function linkTip(host, uri) { host.title = uri ? (IS_MAC ? "⌘" : "Ctrl") + "-click to open " + uri : ""; }
+
 let linkAsk = null;
 function askOpenLink(uri) {
-  let u;
-  try { u = new URL(uri); } catch (e) { return; }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return;
-  linkAsk = u.href;
+  const href = TermLinks.webURL(uri);
+  if (!href) return;
+  linkAsk = href;
   render();
 }
 
@@ -1842,8 +1915,8 @@ function renderTermBar(t) {
     const busy = busyAct && busyAct.startsWith(t.id + ":");
     if (linkAsk) {
       const href = linkAsk;
-      kids.push(key(el("span", "confirm", "The lane printed a link. Open " + href + " in a new tab?"), "linkask"),
-        button("Open link", "", () => { linkAsk = null; window.open(href, "_blank", "noopener,noreferrer"); render(); }),
+      kids.push(key(el("span", "confirm", "The lane printed a link whose text is not its whole address. Open " + href + " in a new tab?"), "linkask"),
+        button("Open link", "", () => { linkAsk = null; openLink(href); render(); }),
         button("Cancel", "", () => { linkAsk = null; render(); }, null, "b:link-cancel"));
     } else if (!t.running) {
       if (confirmAct && confirmAct.id === t.id) {

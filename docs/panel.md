@@ -411,9 +411,29 @@ value just changed.
   "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
   scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude,
   so nothing you type is lost. Escape only leaves, since claude would read it as an interrupt. The
-  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux takes no clicks
-  here, so a plain drag selects text in the browser (the page turns a plain press into xterm's
-  Option-press), and ⌘C copies it. tmux's status bar is off; the tab names the lane.
+  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux binds no clicks
+  here, and an unbound click would go to claude if it asked for the mouse (its fullscreen TUI,
+  `"tui": "fullscreen"`, does), so the page keeps presses for itself: a plain drag selects text
+  in the browser (the page turns a plain press into xterm's Option-press), and the selection
+  stays until you copy it with ⌘C or start another. It used to vanish as soon as the pointer
+  moved: claude's fullscreen TUI asks for every mouse motion (mode 1003), tmux relays that to
+  the page, and xterm.js clears its selection whenever it sends a mouse report, as it does for
+  a key. The page declines that one request; the wheel and the other modes still work, and
+  claude gets no hover reports (nothing here used them). tmux's status bar is off; the tab
+  names the lane.
+- **Links in the terminal.** ⌘-click a URL (Ctrl-click off a Mac) to open it in a new tab, as in
+  Ghostty and iTerm2. A plain click stays a selection, so a drag or a double-click on a URL
+  selects it and never opens it by accident. Hovering over a link underlines it and names its
+  target. Both kinds are links: plain-text `http(s)` URLs, which the page finds itself (a URL
+  that wraps onto the next row is one link), and OSC 8 hyperlinks, whose visible text can be
+  anything. claude prints URLs as OSC 8 inside tmux 3.4 or later, and its fullscreen TUI breaks
+  long ones across rows itself, so OSC 8 is what keeps those whole. A link whose text is its
+  own address opens directly. One whose text says something else (a link reading "PR 12", or
+  one row of a URL broken across rows) shows its real address above the terminal with **Open
+  link** and **Cancel** first. Only `http` and `https` ever open; the tab opens with
+  `noopener` and no referrer. A ⌘-press never reaches claude as a click. The browser test
+  `testdata/browser/terminal-links-selection.cjs` checks the links and the selection through a
+  real panel and tmux, with a lane that asks for the mouse as claude's fullscreen TUI does.
 - **Warnings** (the amber bars: an unverified Claude Code, ignored events) close with their **×**.
   A closed warning stays closed in this browser while it is about the same thing, even as its
   text changes ("2 of 3 confirmed"); a new Claude Code version, or a break, shows again.
@@ -1396,8 +1416,11 @@ send requests to `127.0.0.1`.
   and root tables. One root binding comes back: `WheelUpPane`, as tmux ships it (into copy
   mode, or to the program if it asked for the mouse), so the wheel scrolls history. Clicks and
   the right-click menu (which offers kill-pane and respawn-pane) stay unbound. The same pass sets
-  `mouse on` and `status off`. `-f` only applies when the panel starts the server, so the same
-  settings are applied again whenever the panel finds its socket's lane set changed, every 30 s
+  `mouse on`, `status off` and `terminal-features[99]` to `xterm-256color:hyperlinks`: tmux
+  strips OSC 8 hyperlinks unless the client's terminal has that feature, and no default entry
+  gives it to the viewers' `xterm-256color`. It lets links through, never a command; the page
+  decides what a link may do (see [The page](#the-page), links in the terminal). `-f` only
+  applies when the panel starts the server, so the same settings are applied again whenever the panel finds its socket's lane set changed, every 30 s
   while lanes run, and before every viewer attaches. A server someone else started there, with
   their `~/.tmux.conf` bindings, is stripped too. A lane's viewer therefore cannot use tmux keys
   to switch to another lane or reach tmux's command prompt and `run-shell`.
@@ -1419,8 +1442,12 @@ send requests to `127.0.0.1`.
     rotation is closed the moment it registers. Then `clauductor panel open` opens the page with
     the new token.
 - **Terminal output is untrusted.** xterm.js renders it to its own DOM, and the page never passes
-  it to `innerHTML`. A link that a lane prints (OSC 8) opens only after an in-page confirmation,
-  and only for `http`/`https`. Title escapes are ignored. There is no automatic linkifier.
+  it to `innerHTML`. A link that a lane prints opens only on ⌘-click (Ctrl-click off a Mac), and
+  only for `http`/`https`. A plain-text URL, or an OSC 8 link whose text is its own address,
+  opens directly: what you clicked is where it goes. Any other OSC 8 link opens only after an
+  in-page confirmation that shows its real address, since its text can say anything. The
+  plain-text matcher is `static/term-links.js`; `TestTermLinks` runs it in node against URLs a
+  lane may print, other schemes and look-alike link text. Title escapes are ignored.
 - **Lane control is fixed verbs on validated ids.** start, stop, interrupt, restart, resume,
   forget, terminal-app, restore-all, queue cancel and queue run (a queue id and a worktree from
   `git worktree list`; the command comes from the trusted config, never the browser). A start
@@ -1635,10 +1662,10 @@ go test -race ./...     # everything, under the race detector: about 15 s once b
 
 `-short` skips the tests that drive something real and slow: a tmux server on a
 throwaway socket, `lock-run` and `lease.sh` as separate processes, panel processes started
-side by side, `node` (the xterm style guard), `osascript` and `plutil`. It still runs the
-security tests, tmux or not: a token rotation closes terminals and cookies (twice, once
-during an upgrade), an idle terminal closes, an untrusted config runs no command, and a
-gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
+side by side, `node` (the xterm style guard and the terminal's URL matcher), `osascript` and
+`plutil`. It still runs the security tests, tmux or not: a token rotation closes terminals
+and cookies (twice, once during an upgrade), an idle terminal closes, an untrusted config runs
+no command, and a gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
 
 **CI enforces the full suite.** `.github/workflows/test.yml` runs `gofmt -l`, `go vet
 ./...` and `go test -race ./...` on macOS and Ubuntu, with tmux, on every push to `main` and
