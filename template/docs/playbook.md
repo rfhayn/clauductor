@@ -372,6 +372,14 @@ value equals its declared command's, no elapsed duration is typed (`data-days-si
 load), and the page's scripts parse. session-close regenerates and refreshes before the artifacts
 step stamps; merge-pr names the living pages a merge moved. `.claude/modules/living-visuals/README.md`.
 
+### A shared ideas queue (the ideas module)
+
+With `ideas` (on top of `artifacts`), ideas are added from anywhere on a claude.ai page whose
+database is the queue, or with `/ideas`. session-start counts it (`Ideas: N not touched, …`);
+session-close sets the status of the ideas the session discussed and renders the queue into
+`docs/ideas.md`, which is generated and never edited (`ideas:queue` fails a hand edit). The owner
+decides which ideas become roadmap rows. `.claude/modules/ideas/README.md`.
+
 ## Metrics: how the work flows and what it costs
 
 DORA 2025 found that AI raises throughput and instability together, so both are measured, from

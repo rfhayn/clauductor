@@ -1,0 +1,2 @@
+# The ideas module's shared file: the file, a TAB, what to do on a conflict.
+the rendered ideas file (IDEAS_FILE, default docs/ideas.md)	take either side, then redo the module's session-close dump and render on the merged tree (render.sh --out); never hand-merge it: ideas:queue fails a file whose body is not the renderer's
