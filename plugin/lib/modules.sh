@@ -104,6 +104,8 @@ ext_dirs() {
 }
 
 # ext_files POINT SUFFIX: "<label>\t<file>" for each POINT/*SUFFIX file, in ext_dirs order.
+# Exit 0 whatever it finds: a directory with no matching file is an empty list, not a failure
+# (roadmap_rules reads a failure as "the rules could not be listed").
 ext_files() {
   ext_dirs "$1" | while IFS="$(printf '\t')" read -r _el _edir; do
     [ -d "$_edir" ] || continue
@@ -111,6 +113,7 @@ ext_files() {
       [ -f "$_ef" ] && printf '%s\t%s\n' "$_el" "$_ef"
     done
   done
+  return 0
 }
 
 # shebang_interp FILE: the command line that runs FILE, from its #! line: `#!/usr/bin/env bash`

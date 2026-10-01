@@ -139,6 +139,20 @@ v=$(inr 'roadmap_queue --check; echo rc=$?')
 has yes "the roadmap rules (roadmap.d) could not be listed" "$v" "roadmap.d: a rule listing that fails makes the queue UNKNOWN, never ruleless"
 mv "$R/.claude/lib/modules.sh.off" "$R/.claude/lib/modules.sh"
 rm -rf "$R/.claude/local/roadmap.d"
+# ...but a roadmap.d/ holding no rule (empty, or only a non-.sh file) is an empty list: the queue
+# reads as before, with no module on and with one whose own rule runs (people, Mallory a person).
+printf '{"people":[{"name":"Mallory","github":"mallory-gh","role":"owner"}]}\n' > "$R/docs/people.json"
+for mods in "" people; do
+  conf "MODULES=\"$mods\""
+  mkdir -p "$R/.claude/local/roadmap.d"
+  v=$(inr 'roadmap_queue --check; echo rc=$?')
+  has yes "rc=0" "$v" "roadmap.d: an EMPTY local roadmap.d/ reads as no rules (MODULES=\"$mods\")"
+  : > "$R/.claude/local/roadmap.d/.gitkeep"; : > "$R/.claude/local/roadmap.d/x.sh.off"
+  v=$(inr 'roadmap_queue --check; echo rc=$?')
+  has yes "rc=0" "$v" "roadmap.d: a local roadmap.d/ holding only non-.sh files reads as no rules (MODULES=\"$mods\")"
+  rm -rf "$R/.claude/local/roadmap.d"
+done
+rm -f "$R/docs/people.json"; conf 'MODULES=""'
 # A rule that reads the queue itself is refused, not recursed into (each read would run the rule
 # again: hundreds of levels, then a fork failure that could read as "no rules" and ACCEPT). The
 # rule ignores its inner read's failure, so the outer read completes; it must do so promptly, and

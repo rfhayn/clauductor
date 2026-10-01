@@ -266,6 +266,14 @@ has yes "CANNOT CHECK — the open-PR list hit its limit of 100" "$c" "who.sh: a
 c=$(ctx GH_SLOW=1 PEOPLE_GH_TIMEOUT=1)
 has yes "CANNOT CHECK — gh timed out after 1s reading branch design/one's last commit" "$c" "who.sh: a gh call past PEOPLE_GH_TIMEOUT is cut off and named"
 has yes "branch design/one (account lookup failed)" "$c" "who.sh: ...and that branch reads as a failed lookup"
+# The watchdog of a call that returned in time leaves nothing running: no sleep survives it. The
+# timeout is a value nothing else on the machine sleeps for, so the count is ours.
+c=$(ctx PEOPLE_GH_TIMEOUT=7373)
+sleep 1
+if ! psout=$(ps -A -o args= 2>/dev/null) || [ -z "$psout" ]; then fail "cannot list processes (ps), so the watchdog cleanup is unchecked"; fi
+n=$(printf '%s\n' "$psout" | grep -cx 'sleep 7373')
+[ "$n" = 0 ] && ok "who.sh: a gh call that returns in time leaves no watchdog sleep behind" || fail "who.sh: $n watchdog sleep(s) outlived their gh calls"
+ps -A -o pid= -o args= 2>/dev/null | awk '$2 == "sleep" && $3 == "7373" { print $1 }' | while read -r p; do kill "$p" 2>/dev/null; done
 c=$(ctx PEOPLE_WHO_BUDGET=0)
 has yes "CANNOT CHECK — the branch lookups ran past 0s" "$c" "who.sh: the branch lookups stop at PEOPLE_WHO_BUDGET..."
 has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and the partial branch list is not handed over"

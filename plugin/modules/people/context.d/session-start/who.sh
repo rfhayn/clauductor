@@ -31,15 +31,25 @@ trap 'rm -rf "$state"' EXIT
 # share one budget (PEOPLE_WHO_BUDGET seconds): a slow GitHub must not hold session-start. A call
 # that runs out is a failed read, said by name below. Not lib/modules.sh's with_timeout: its
 # watchdog polls once a second and is waited for, which adds up to a second to EVERY call, and
-# this section makes one call per branch. Here the watchdog is one sleep, killed (not waited for)
-# when gh returns; its output is /dev/null, so it holds no command substitution open.
+# this section makes one call per branch. Here the watchdog is killed (not waited for) when gh
+# returns, and kills its own sleep as it goes; its output is /dev/null, so it holds no command
+# substitution open.
 T=${PEOPLE_GH_TIMEOUT:-20}; BUDGET=${PEOPLE_WHO_BUDGET:-90}
 notes="$state/notes"; : > "$notes"
 ghb() {  # ghb WHAT ARGS...: gh ARGS, bounded; a timeout is noted under WHAT
   _gw=$1; shift
   gh "$@" 2>/dev/null &
   _gp=$!
-  ( sleep "$T"; kill -TERM "$_gp" 2>/dev/null; sleep 2; kill -KILL "$_gp" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+  # The watchdog's sleeps run in the background and are waited for, so the TERM that ends the
+  # watchdog (gh returned in time) reaches the trap at once and takes the sleep with it: no
+  # orphaned sleep per call.
+  (
+    trap 'kill "$_gs" 2>/dev/null; exit 0' TERM
+    sleep "$T" & _gs=$!; wait "$_gs" || exit 0
+    kill -TERM "$_gp" 2>/dev/null
+    sleep 2 & _gs=$!; wait "$_gs" || exit 0
+    kill -KILL "$_gp" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
   _gd=$!
   wait "$_gp"; _gr=$?
   kill "$_gd" 2>/dev/null
