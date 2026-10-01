@@ -17,7 +17,10 @@
 #
 # GATE_FAIL_PATTERN (project.conf) is the extended regex of failure lines for YOUR tools; it is
 # matched against a colour-stripped copy, and never anchored at line start, because many runners
-# prefix their lines. GATE_RUNNER overrides the command (the checks use it).
+# prefix their lines. GATE_TAIL_EXCLUDE (project.conf) is an extended regex of lines the verdict
+# tail skips, for a tool that logs AFTER the verdict (an e2e server's one JSON line per request:
+# '^\{"'); empty skips nothing, and the full log keeps them either way. GATE_RUNNER overrides the
+# command (the checks use it).
 set -uo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -41,8 +44,13 @@ echo "gate: ${*:-full} (exit $code)"
 grep -nE "$PATTERN" "$PLAIN" | head -n "$MAX_FAIL"
 matched=$(grep -cE "$PATTERN" "$PLAIN")
 [ "$matched" -gt "$MAX_FAIL" ] && echo "… $((matched - MAX_FAIL)) more matching lines in the log"
-echo "--- last $TAIL lines ---"
-tail -n "$TAIL" "$PLAIN"
+if [ -n "${GATE_TAIL_EXCLUDE:-}" ]; then
+  echo "--- last $TAIL lines not matching GATE_TAIL_EXCLUDE ---"
+  { grep -vE -- "$GATE_TAIL_EXCLUDE" "$PLAIN" || true; } | tail -n "$TAIL"
+else
+  echo "--- last $TAIL lines ---"
+  tail -n "$TAIL" "$PLAIN"
+fi
 rm -f "$PLAIN"
 echo "--- full log ($(wc -l <"$LOG" | tr -d ' ') lines): $LOG"
 exit $code
