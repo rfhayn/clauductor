@@ -144,7 +144,7 @@ case "$out" in
   *) fail "the gate does not name the race scope: $(printf '%s' "$out" | grep 'test (race)')" ;;
 esac
 case "$out" in
-  *"RAN sh -c cd framework && go test -race \"\$@\" race ./internal/cmd ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages" ;;
+  *"RAN sh -c cd framework && go test -race -timeout 25m \"\$@\" race ./internal/cmd ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages" ;;
   *) fail "the race step does not run the selected packages: $(printf '%s' "$out" | grep '^RAN')" ;;
 esac
 out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE

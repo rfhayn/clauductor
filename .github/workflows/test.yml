@@ -19,7 +19,9 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # internal/plugin alone takes ~500 s under -race on macOS runners, near go test's 10-minute
+    # per-package default; the job ran 19m17s against a 20-minute limit (OPS-19).
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: framework

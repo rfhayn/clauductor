@@ -113,6 +113,8 @@ gate_steps() {
   if [ "$race_pkgs" = ./... ]; then shown="all packages"; else shown=$(printf '%s' "$race_pkgs" | sed 's|\./||g'); fi
   echo "==> test (race): $shown ($(printf '%s' "$scope" | cut -f2))"
   # shellcheck disable=SC2086  # the package list is split on purpose
-  step "test (race)" sh -c 'cd framework && go test -race "$@"' race $race_pkgs || return 1
+  # -timeout 25m as CI sets it: internal/plugin, always in the scope, runs near go test's 10-minute
+  # per-package default on a loaded machine.
+  step "test (race)" sh -c 'cd framework && go test -race -timeout 25m "$@"' race $race_pkgs || return 1
   return 0
 }
