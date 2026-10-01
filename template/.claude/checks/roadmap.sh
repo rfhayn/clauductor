@@ -217,7 +217,7 @@ bypass() {
 }
 fw=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$d/plant/skills/x"
-printf '#!/bin/sh\ntsv=$(sh .claude/roadmap-queue.sh --tsv)\n' > "$d/plant/skills/x/context.sh"
+printf '#!/bin/sh\ntsv=$(sh .claude/%s --tsv)\n' roadmap-queue.sh > "$d/plant/skills/x/context.sh"
 printf '#!/bin/sh\nawk 1 "$ROOT/$ROADMAP"\n' > "$d/plant/second-parser.sh"
 [ "$(bypass "$d/plant" | wc -l | tr -d ' ')" = 2 ] && ok "the bypass scan finds a script that runs the parser by path, and one that reads the roadmap itself" || fail "the bypass scan missed a planted bypass: $(bypass "$d/plant")"
 by=$(bypass "$fw")

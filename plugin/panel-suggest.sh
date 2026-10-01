@@ -32,7 +32,7 @@ if [ "$kind" = fix ]; then
   exit 0
 fi
 
-tsv=$(sh "$CLAUDUCTOR_FW"/roadmap-queue.sh --tsv) || { echo "panel-suggest: the roadmap queue could not be parsed" >&2; exit 1; }
+tsv=$(roadmap_queue --tsv) || { echo "panel-suggest: the roadmap queue could not be parsed" >&2; exit 1; }
 # The current phase: the first phase with a queued or in-flight row (the parser's own rule).
 cur=$(printf '%s\n' "$tsv" | awk -F'\t' '$2 != "-" && ($7 == "queued" || $7 == "inflight") { print $2; exit }')
 [ -n "$cur" ] || { echo "[]"; exit 0; }

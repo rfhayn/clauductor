@@ -18,7 +18,7 @@ if [ -z "${ADR_SELFTEST:-}" ]; then
     printf '# ADR NNNN: <Title>\n' > "$A/TEMPLATE.md"
     printf '# ADR 0001: The product is multi-tenant\n\n- **Status**: Accepted\n- **Date**: 2026-07-11\n\n## Decision\nx\n' > "$A/0001-multi-tenant.md"
     printf '# ADR-0002 — A passing test is evidence of nothing until it has failed\n\n- **Status**: Accepted\n- **Date**: 2026-08-02\n\n## Decision\nx\n' > "$A/0002-passing-test.md"
-    printf '# ADR-0003 — A spec seeds the world it asserts on, and a claim about another is on trust\n\n- **Status**: Accepted\n- **Date**: 2026-09-10\n\n## Decision\nx\n\n## Enforcement\nA test.\n' > "$A/0003-spec-seeds.md"
+    printf '# ADR-0003 — A spec seeds the world it asserts on, and a claim about another is on trust\n\n- **Status:** Accepted\n- **Date:** 2026-09-10\n\n## Decision\nx\n\n## Enforcement\nA test.\n' > "$A/0003-spec-seeds.md"
     printf '# ADRs\n\n| ADR | Title | Status |\n|---|---|---|\n| [0001](0001-multi-tenant.md) | t | Accepted |\n| [0002](0002-passing-test.md) | t | Accepted |\n| [0003](0003-spec-seeds.md) | t | Accepted |\n' > "$A/README.md"
   }
   add_adr() {  # add_adr HEADING ENFORCEMENT(yes|no): ADR 0004, dated 2026-09-29, indexed
