@@ -40,6 +40,11 @@ cur="$CLAUDUCTOR_FW/modules/artifacts/bin/currency.sh"
 git -C "$TOP" cat-file -e "$hd^{commit}" 2>/dev/null \
   || { echo "cannot find the head $hd locally, so the core-artifact currency rule cannot be evaluated. Run: git fetch origin pull/${GUARD_PR:-<n>}/head" >&2; exit 2; }
 if ! git -C "$TOP" cat-file -e "$hd:$reg" 2>/dev/null; then
+  # Deleting the registry must not be the way past this rule.
+  if git -C "$TOP" cat-file -e "origin/${MAIN_BRANCH:-main}:$reg" 2>/dev/null; then
+    echo "PR #${GUARD_PR:-?} (${GUARD_BRANCH}) is a session close whose head has no $reg, which origin/${MAIN_BRANCH:-main} has: the core artifacts cannot be judged. Restore it, or turn the artifacts module off in .claude/project.conf (MODULES) in its own PR." >&2
+    exit 2
+  fi
   echo "no $reg at the head: no core artifacts to hold current."
   exit 0
 fi

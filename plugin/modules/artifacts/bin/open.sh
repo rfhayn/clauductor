@@ -62,7 +62,8 @@ TAB=$(printf '\t')
 while IFS="$TAB" read -r name url; do
   n=$((n + 1))
   if [ -n "$print" ]; then echo "$name → $url"; continue; fi
-  if why=$("$opener" "$url" 2>&1 >/dev/null); then
+  # </dev/null: an opener that reads stdin must not eat the rest of the list.
+  if why=$("$opener" "$url" 2>&1 >/dev/null </dev/null); then
     echo "$name → $url"
   else
     rc=$?; failed=$((failed + 1))

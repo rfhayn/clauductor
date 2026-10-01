@@ -104,5 +104,12 @@ the same exit codes and the same registry bytes after every stamp. Where they di
   budget where Node named the commit. The verdict never depends on the walk, only the commit named.
 - **Text**: the stamp command named in a BEHIND line is this module's; the copy is written to a temp
   directory, not `.artifact-publish/`; "the founder's session" reads "the owner's session".
+- **Stricter where Standing Tee read nothing as green**: a registry with no artifact is
+  `CANNOT CHECK` (Node printed "All 0 … current"), and the guard rule blocks a close whose head
+  deleted the registry `origin/main` still has. `currency.sh` refuses a `--root` inside a
+  repository rather than at its top.
+- **Both hash raw bytes** (`hash-object --no-filters`, as Node did): in a repository whose
+  `.gitattributes` filter files (LFS, eol conversion), a `--worktree` stamp of such a file never
+  matches the committed blob, and the close stays blocked. Stamp with `--at HEAD` there.
 - **Characters past U+FFFF** in a review note or a commit subject are counted as one character where
   Node counted two, when a line is shortened.

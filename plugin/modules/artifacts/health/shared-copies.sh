@@ -27,5 +27,5 @@ printf '%s\n' "$out" | awk -v subj="$subject" '
   /^MISSING / { sub(/^MISSING /, ""); print "STALE — " $0; bad++; next }
   /^WARN / { sub(/^WARN +/, ""); print "STALE — the copy will carry a dead link: " $0; bad++; next }
   /^OK / { n++ }
-  END { if (!bad) print "OK — all " n " shared copies match " subj }'
+  END { if (!bad) print "OK — all " n + 0 " shared copies match " subj }'
 exit 0

@@ -38,13 +38,14 @@ if [ "${1:-}" = --recorded-in ]; then
     echo "$REG does not exist before $c: its entries are seeds, nothing to publish" >&2
     exit 0
   fi
-  git -C "$top" show "$c^:$REG" > "${TMPDIR:-/tmp}/artifacts-before.$$" 2>/dev/null
-  git -C "$top" show "$c:$REG" 2>/dev/null | jq -r --slurpfile b "${TMPDIR:-/tmp}/artifacts-before.$$" '
+  before=$(mktemp "${TMPDIR:-/tmp}/artifacts-before.XXXXXX") || { echo "artifacts: mktemp failed" >&2; exit 2; }
+  trap 'rm -f "$before"' EXIT
+  git -C "$top" show "$c^:$REG" > "$before" 2>/dev/null || { echo "artifacts: cannot read $REG at $c^" >&2; exit 2; }
+  git -C "$top" show "$c:$REG" 2>/dev/null | jq -r --slurpfile b "$before" '
       ($b[0].pages // {}) as $old
       | (.pages // error("no \"pages\" object")) | to_entries | sort_by(.key)[]
       | select(($old[.key].published // null) != .value.published) | "\(.key) \(.value.url)"'
   rc=$?
-  rm -f "${TMPDIR:-/tmp}/artifacts-before.$$"
   [ "$rc" -eq 0 ] || { echo "artifacts: $REG at $c or its parent is not a readable registry" >&2; exit 2; }
   exit 0
 fi

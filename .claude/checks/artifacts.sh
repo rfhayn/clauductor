@@ -177,6 +177,54 @@ has yes "STALE — docs/page.html is BEHIND its authorities" "$o" "health: a BEH
 has no "OK —" "$o" "health: ...and no OK line beside it"
 cur --stamp docs/page.html go-live --note "refreshed: a" >/dev/null; commit "stamp a"; git -C "$R" update-ref refs/remotes/origin/main HEAD
 
+# ── the template's own roadmap grammar: rows under no Gate heading, ids like 1.1 and 1.10 ─────
+K="$d/core"; new_repo "$K"
+mkdir -p "$K/.claude/lib" "$K/.claude/modules" "$K/docs"
+cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/modules.sh" "$K/.claude/lib/"
+cp -R "$MOD" "$K/.claude/modules/artifacts"
+kc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") 2>&1; }
+krc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") >/dev/null 2>&1; echo $?; }
+krow() {  # krow ROW-1.1-STATUS ROW-1.10-STATUS [GATE-HEADING]
+  { printf '## Phase 1 — First slice\n**Owner:** Rich\n\n'; [ -z "${3:-}" ] || printf '%s\n' "$3"
+    printf '| # | Change | Scope | Deps | Status |\n|---|--------|-------|------|--------|\n'
+    printf '| 1.1 | `add-first` — a user can start | `src/` | — | %s |\n' "$1"
+    printf '| 1.10 | `ops/gate` — the gate runs | `scripts/` | — | %s |\n' "$2"; } > "$K/docs/roadmap.md"
+}
+krow '⬜ queued' '⬜ queued'
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["row:1.1"]}}}\n' > "$K/docs/artifacts.json"
+git -C "$K" add -A; kc --stamp docs/p.html --note seed >/dev/null; git -C "$K" add -A; git -C "$K" commit -qm seed
+# Falsified by splitting the row lines with read on a TAB IFS (an empty gate merged away, every
+# row's value empty): red. A row with no Gate heading is the template roadmap's default shape.
+krow '⬜ in flight (#3)' '⬜ queued'
+o=$(kc --worktree --check); rc=$?
+expect_rc 1 "$rc" "currency: a row under NO Gate heading (the template's grammar) reads BEHIND when it changes"
+has yes "row:1.1" "$(line_for "$o" docs/p.html)" "currency: ...naming the row"
+# Falsified by comparing ids as numbers in awk (1.1 == 1.10): red.
+krow '⬜ queued' '✅ merged (#4)'
+expect_rc 0 "$(krc --worktree --check)" "currency MIRROR: row 1.10 changing leaves row:1.1 alone (ids compared as strings)"
+# gate:<id>: every row under the gate, and the gate's list of rows. Falsified by dropping the gate
+# items from the state: red.
+krow '⬜ queued' '⬜ queued' '### Gate A — the first gate'
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["gate:A"]}}}\n' > "$K/docs/artifacts.json"
+kc --stamp docs/p.html --note seed >/dev/null
+expect_rc 0 "$(krc --worktree --check)" "currency: a gate:<id> authority stamps clean"
+git -C "$K" add -A; git -C "$K" commit -qm "a gate"
+krow '⬜ queued' '✅ merged (#4)' '### Gate A — the first gate'
+git -C "$K" commit -qam "1.10 merged"
+o=$(kc --ref HEAD --check); rc=$?
+expect_rc 1 "$rc" "currency: a row under the gate changing reads BEHIND"
+has yes "gate:A (row:1.10)" "$(line_for "$o" docs/p.html)" "currency: ...naming the gate and the row"
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["gate:Z", "bogus:x", 5],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
+l=$(line_for "$(kc --worktree)" docs/p.html)
+has yes "gate:Z names no row" "$l" "currency: a gate with no rows is CANNOT CHECK"
+has yes "bogus:x is not an authority kind" "$l" "currency: ...an unknown kind too"
+has yes "an authority is not a non-empty string: 5" "$l" "currency: ...and an authority that is not a string"
+printf '{"pages":{"docs/p.html":{"published":"x"}}}\n' > "$K/docs/artifacts.json"
+o=$(kc --worktree --check); rc=$?
+expect_rc 1 "$rc" "currency: a registry with no artifact fails --check (never 'all 0 are current')"
+has yes "registers no artifact" "$o" "currency: ...and says so"
+git -C "$K" checkout -q docs/artifacts.json
+
 # ── the guard rule, through the real pr-merge-guard.sh (Standing Tee's rule 8) ───────────────
 mkdir -p "$R/.claude/hooks/lib" "$d/bin" "$R/docs"
 cp "$ROOT/.claude/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
@@ -225,6 +273,13 @@ for b in ops/session-start-x ops/session-plan-gate-fixes ops/session-71-cleanup;
 for b in ops/session-93-close-addendum ops/session-94-close-2; do gd 2 "$b" "$HD" "BLOCKS the close variant $b"; done
 gd 2 ops/session-9-close "$HD" "FAILS CLOSED when the check cannot finish in time" ARTIFACT_RULE_SECONDS=0
 grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it was stopped" || fail "guard timeout text: $(head -3 "$d/err")"
+# A real overrun, past currency.sh's start: a jq that takes 2 s, a 1 s budget. The rule is run on
+# its own (the hook's own jq calls would be slow too). Falsified by a TERM trap that exits 2: the
+# block then reads "could not run", not "did not finish".
+mkdir -p "$d/slow"; printf '#!/bin/sh\nsleep 2\nexec %s "$@"\n' "$(command -v jq)" > "$d/slow/jq"; chmod +x "$d/slow/jq"
+o=$(cd "$R" && env PATH="$d/slow:$PATH" ARTIFACT_RULE_SECONDS=1 GUARD_BRANCH=ops/session-9-close GUARD_HEAD="$HD" GUARD_PR=999 sh "$R/.claude/modules/artifacts/guard.d/currency.sh" 2>&1); rc=$?
+expect_rc 2 "$rc" "guard rule: a check that overruns its budget mid-run blocks"
+has yes "did not finish within 1 s" "$o" "guard rule: ...and says it was stopped, not that it could not run"
 # The verdict is the HEAD commit's, never the local tree's. Falsified by reading the working tree: red.
 cur --stamp docs/page.html --note "reviewed" >/dev/null
 gd 2 ops/session-9-close "$HD" "reads the HEAD commit: a stamp on disk alone does not clear it"
@@ -234,6 +289,10 @@ gd 0 ops/session-9-close "$HD" "ALLOWS the close once the stamp is committed"
 case "$gout" in *"every core artifact is current with its sources at the head"*) ok "guard rule: ...and says it ran" ;; *) fail "guard advisory: $gout" ;; esac
 w src/sub/b.md 'b, rewritten again'; commit "Rewrite again"; HD=$(git -C "$R" rev-parse HEAD)
 gd 2 ops/session-9-close "$HD" "BLOCKS again once a source moves after the stamp"
+# Deleting the registry is not the way past the rule. Falsified by allowing a head with no registry: red.
+git -C "$R" rm -q docs/artifacts.json; commit "Drop the registry"
+gd 2 ops/session-9-close "$(git -C "$R" rev-parse HEAD)" "BLOCKS a close whose head deleted the registry main has"
+git -C "$R" reset -q --hard HEAD~1
 sed -i.bak 's/^MODULES=.*/MODULES=""/' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
 gd 0 ops/session-9-close "$HD" "MIRROR: the module OFF, the same BEHIND close is not this rule's to block"
 sed -i.bak 's/^MODULES=.*/MODULES="artifacts"/' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"

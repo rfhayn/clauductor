@@ -22,7 +22,8 @@ fi
 subject=$(printf '%s\n' "$out" | head -n 1 | sed -n 's/^Core artifacts vs \(.*\); authorities.*/\1/p')
 printf '%s\n' "$out" | awk -v reg="$reg" -v subj="$subject" '
   /^BEHIND / { k = $2; sub(/^BEHIND +[^ ]+ — /, ""); print "STALE — " k " is BEHIND its authorities in " reg ": " $0; bad++; next }
+  /^CANNOT CHECK — / { print; bad++; next }
   /^CANNOT CHECK / { sub(/^CANNOT CHECK /, ""); print "CANNOT CHECK — " $0; bad++; next }
   /^OK / { n++ }
-  END { if (!bad) print "OK — all " n " core artifacts in " reg " are current with their authorities at " subj }'
+  END { if (!bad) print "OK — all " n + 0 " core artifacts in " reg " are current with their authorities at " subj }'
 exit 0

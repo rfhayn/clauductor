@@ -92,6 +92,11 @@ fi
 TOP=${root_arg:-$ROOT}
 [ -d "$TOP" ] || die "no directory $TOP"
 TOP=$(cd "$TOP" && pwd)
+# Paths are repository-relative everywhere (ls-tree --full-tree and ls-files must agree), so the
+# root must be the repository's top, not a directory inside it.
+if _pfx=$(git -C "$TOP" rev-parse --show-prefix 2>/dev/null) && [ -n "$_pfx" ]; then
+  die "$TOP is inside a repository ($_pfx), not its top: run from the repository root"
+fi
 REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 RM=${ROADMAP:-docs/roadmap.md}
 self=".claude/modules/artifacts/bin/currency.sh"
@@ -102,7 +107,9 @@ start_s=$(date +%s)
 
 W=$(mktemp -d "${TMPDIR:-/tmp}/artifacts.XXXXXX") || die "mktemp failed"
 trap 'rm -rf "$W"' EXIT
-trap 'rm -rf "$W"; exit 2' INT TERM
+# A watchdog's TERM keeps its meaning (143: stopped, not "could not run").
+trap 'rm -rf "$W"; exit 130' INT
+trap 'rm -rf "$W"; exit 143' TERM
 
 g() { git -C "$TOP" "$@"; }
 has_git() { g rev-parse --git-dir >/dev/null 2>&1; }
@@ -177,7 +184,7 @@ disk_listed() {
     if has_git; then
       if [ -z "$1" ]; then g ls-files -c -z; else g ls-files -c -z -- "$1"; fi 2>/dev/null | tr '\0' '\n' > "$W/ls.$_k"
     else
-      ( cd "$TOP" && find "./$1" \( -name node_modules -o -name .git -o -name .DS_Store -o -name .next -o -name dist \
+      ( cd "$TOP" && find "$( [ -n "$1" ] && printf './%s' "$1" || printf . )" \( -name node_modules -o -name .git -o -name .DS_Store -o -name .next -o -name dist \
           -o -name coverage -o -name .turbo -o -path ./.claude/worktrees -o -path ./.artifact-publish \) -prune \
           -o -type f -print 2>/dev/null ) | sed 's|^\./||; s|^/||' > "$W/ls.$_k"
     fi
@@ -336,8 +343,11 @@ rows_at() {
       : > "$W/rows.$_rb.bad"; : > "$W/rows.$_rb"
     else
       mkdir -p "$W/rv.$_rb"; _i=0
-      while IFS="$TAB" read -r _id _gt _v; do
-        _i=$((_i + 1)); printf '%s' "$_v" > "$W/rv.$_rb/$(printf '%06d' "$_i")"
+      # Whole lines, cut by expansion: a TAB is IFS whitespace, so `read a b c` would merge the two
+      # TABs around an EMPTY gate (a row under no Gate heading) and lose the value.
+      while IFS= read -r _ln; do
+        _i=$((_i + 1)); _v=${_ln#*"$TAB"}; _v=${_v#*"$TAB"}
+        printf '%s' "$_v" > "$W/rv.$_rb/$(printf '%06d' "$_i")"
       done < "$W/rows.$_rb.tmp"
       # One sha1 call for every row: the values file's line N is row N's value hash.
       if [ "$_i" -gt 0 ]; then sha1_files "$W/rv.$_rb"/* > "$W/rows.$_rb.h"; else : > "$W/rows.$_rb.h"; fi
@@ -373,7 +383,8 @@ state() {
           echo "$_a: $RM does not parse" >> "$_o.problems"; printf '%s\tUNPARSEABLE\n' "$_a" >> "$_o.raw"; continue
         fi
         if [ "$_kind" = row ]; then _col=1; else _col=2; fi
-        awk -F"$TAB" -v c="$_col" -v id="$_id" '$c == id' "$_rf" > "$_o.hit"
+        # As strings: awk compares number-shaped fields numerically, and 1.1 == 1.10.
+        awk -F"$TAB" -v c="$_col" -v id="$_id" '($c "") == (id "")' "$_rf" > "$_o.hit"
         [ -s "$_o.hit" ] || echo "$_a names no row in $RM" >> "$_o.problems"
         [ "$_kind" = gate ] && printf '%s\t%s\n' "$_a" "$(cut -f1 "$_o.hit" | joinl ,)" >> "$_o.raw"
         awk -F"$TAB" -v T="$TAB" '{ print "row:" $1 T $3 }' "$_o.hit" >> "$_o.raw" ;;
@@ -623,7 +634,11 @@ while IFS= read -r art; do
   echo "BEHIND  $key — reviewed $reviewed; $parts"
   echo "        clear it: refresh the page, or $STAMP_CMD --stamp $key $CLEAR_NOTE"
 done < "$W/arts"
-if [ "$notok" -eq 0 ]; then
+# A registry that holds no artifact learned nothing: never "all 0 are current".
+if [ "$total" -eq 0 ]; then
+  echo "CANNOT CHECK — $REG registers no artifact (no entry with a url), so nothing is held current."
+  notok=1
+elif [ "$notok" -eq 0 ]; then
   echo "All $total core artifacts are current with their authorities."
 else
   echo "$notok of $total core artifacts need a review; a session-close PR cannot merge until none does (the artifacts module's guard rule)."
