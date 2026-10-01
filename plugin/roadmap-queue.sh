@@ -42,8 +42,10 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 
 # The front door: a project that keeps its own parser (ROADMAP_PARSER) gets it through every
 # command that names this script (skills, panel cards, people), via the one helper. Scripts call
-# roadmap_queue directly; the helper sets ROADMAP_BUILTIN, so this grammar is parsed below.
-if [ -n "$ROADMAP_PARSER" ] && [ -z "${ROADMAP_BUILTIN:-}" ]; then
+# roadmap_queue directly; the helper sets ROADMAP_BUILTIN, so this grammar is parsed below. The
+# same holds while a module or the local layer has a roadmap rule (roadmap.d/), so a direct call
+# (`sh .claude/roadmap-queue.sh --check`) is held to the rules every reader is.
+if [ -z "${ROADMAP_BUILTIN:-}" ] && { [ -n "$ROADMAP_PARSER" ] || [ -n "$(roadmap_rules)" ]; }; then
   roadmap_queue "$@"
   exit $?
 fi

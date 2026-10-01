@@ -96,8 +96,55 @@ roadmap_queue() {
       return 1
     fi
   fi
+  # The roadmap rules of the enabled modules and the local layer (roadmap.d/*.sh) hold every read,
+  # whatever the mode: a queue a rule refuses is UNKNOWN to every reader, as a parse error is. A
+  # mode other than --tsv is checked through a --tsv read of the same file (a subshell, so this
+  # call's own variables survive it).
+  if [ "$_rq_rc" -eq 0 ] && [ -n "$(roadmap_rules)" ]; then
+    if [ "${1:-}" = --tsv ]; then
+      if ! _rq_e=$(printf '%s\n' "$_rq_o" | roadmap_rules_errors); then
+        printf 'ERROR: the change queue is UNKNOWN; a roadmap rule refused it:\n%s\n' "$_rq_e"
+        return 1
+      fi
+    else
+      case "${1:-}" in --text|--check) shift ;; esac
+      _rq_e=$(roadmap_queue --tsv "$@") || { printf '%s\n' "$_rq_e"; return 1; }
+    fi
+  fi
   [ -z "$_rq_o" ] || printf '%s\n' "$_rq_o"
   return "$_rq_rc"
+}
+
+# roadmap_rules: "<layer>\t<file>" per roadmap.d/*.sh rule of the enabled modules and the local
+# layer (lib/modules.sh), loaded here when no module was on to load it. Empty when there is none.
+roadmap_rules() {
+  roadmap_rules_load || return 0
+  ext_files roadmap.d .sh
+}
+roadmap_rules_load() {
+  command -v ext_files >/dev/null 2>&1 && return 0
+  [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ] && . "$CLAUDUCTOR_FW/lib/modules.sh"
+}
+
+# roadmap_rules_errors: stdin = the --tsv rows. Runs each rule per its own #! line on them, in the
+# project root; prints each refusal, indented and naming its rule, and exits 1 if any rule refused.
+roadmap_rules_errors() {
+  _rr_in=$(cat)
+  roadmap_rules_load || return 0
+  _rr_list=$(ext_files roadmap.d .sh)
+  [ -n "$_rr_list" ] || return 0
+  _rr_bad=0
+  _rr_tab=$(printf '\t')
+  while IFS="$_rr_tab" read -r _rr_l _rr_f; do
+    _rr_out=$(printf '%s\n' "$_rr_in" | (cd "$ROOT" && export ROOT ROADMAP && run_shebang "$_rr_f") 2>&1); _rr_rc=$?
+    [ "$_rr_rc" -eq 0 ] && continue
+    _rr_bad=1
+    [ -n "$_rr_out" ] || _rr_out="exited $_rr_rc and said nothing"
+    printf '%s\n' "$_rr_out" | sed "s|^|  ${_rr_l} roadmap.d/$(basename "$_rr_f"): |"
+  done <<EOF
+$_rr_list
+EOF
+  return "$_rr_bad"
 }
 
 # roadmap_tsv_errors: stdin is --tsv output; prints one line per row that breaks the contract and
