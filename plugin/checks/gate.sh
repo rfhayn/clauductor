@@ -218,6 +218,30 @@ out=$(bash -c '. "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbc
 [ "$out" = VERIFIED ] && ok "lease_verify: with no nonce (lock-run), the holder's pid as an ancestor verifies" || fail "lease_verify by pid: $out"
 rm -rf "$KL"
 
+# Where processes cannot be inspected (a sandbox: ps errors, kill -0 answers EPERM for every pid),
+# the lease never hangs in silence. ps and kill are stubbed; each run is bounded here, so a hang is
+# a FAIL, not a stuck check.
+U="$d/uninspectable"; mkdir -p "$U/bin"; UL="$U/gate.lock"
+printf '#!/bin/sh\necho "ps: operation not permitted" >&2\nexit 1\n' > "$U/bin/ps"; chmod +x "$U/bin/ps"
+holder() {  # holder RENEWED TTL: a holder record on this host, for a pid that cannot be inspected
+  rm -rf "$UL" "$UL.waiters"; mkdir -p "$UL"
+  printf '{"v":1,"nonce":"0123456789abcdef","pid":999999,"pstart":"","host":"%s","lane":"ghost","cmd":"gate","started":%s,"renewed":%s,"ttl":%s}\n' "$(hostname)" "$1" "$1" "$2" > "$UL/owner.json"
+}
+blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; killed after 25 s
+  ( PATH="$U/bin:$PATH" CLAUDUCTOR_LEASE_MAX_WAIT=$1 bash -c 'kill() { case "$1" in -0) echo "kill: Operation not permitted" >&2; return 1 ;; esac; builtin kill "$@"; }
+    . "$0"; lease_run "$1" blind sh -c "echo RAN"' "$LS" "$UL" > "$U/out" 2>&1; echo "$?" > "$U/rc" ) &
+  bp=$!; n=0
+  while kill -0 "$bp" 2>/dev/null && [ "$n" -lt 25 ]; do sleep 1; n=$((n + 1)); done
+  if kill -0 "$bp" 2>/dev/null; then kill "$bp" 2>/dev/null; echo hung > "$U/rc"; fi
+  wait "$bp" 2>/dev/null
+}
+holder $(( $(date +%s) - 3600 )) 60; blind 0
+[ "$(cat "$U/rc")" = 0 ] && grep -q '^RAN$' "$U/out" && ok "uninspectable: a holder whose heartbeat expired is reclaimed, and the waiter (never judging itself) runs" || fail "uninspectable, expired heartbeat: rc $(cat "$U/rc"): $(tr '\n' ' ' < "$U/out")"
+holder "$(date +%s)" 0; blind 3
+[ "$(cat "$U/rc")" = 124 ] && ok "uninspectable: a holder it cannot judge is waited for at most CLAUDUCTOR_LEASE_MAX_WAIT, exit 124" || fail "uninspectable, live-looking holder: rc $(cat "$U/rc") (want 124, not a hang): $(tr '\n' ' ' < "$U/out")"
+grep -q 'gave up after .*held by pid 999999' "$U/out" && grep -q "rm -rf '$UL'" "$U/out" && ok "...and names the holder and how to remove the lock" || fail "give-up message: $(tr '\n' ' ' < "$U/out")"
+rm -rf "$UL" "$UL.waiters"
+
 # The kit runs against this lease.sh (two quick cases; clauductor's own tests run all of them).
 if [ -f "$KIT/run.sh" ]; then
   out=$(CASES="dead-pid owner-record" CONFORMANCE_WAIT=1 sh "$KIT/run.sh" 2>&1)
