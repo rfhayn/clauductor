@@ -211,9 +211,12 @@ Separate milestones, also adopted:
     Each is compared by content hash between base and head. The inputs are declared per role in
     `model-roles.json` `.evals.triggers`, so a future suite declares its own. A receipt names the
     hash of exactly those inputs. Missing markers fail closed.
-  - **Baseline measured (OPS-16).** The reviewer on opus/high was run once on the full suite. Its
-    receipt is recorded in this repo's root `model-roles.json` only: the template ships no
-    receipt, because each project measures its own.
+  - **Baseline measured (OPS-16), and not passing.** The reviewer on opus/high was run once on
+    the full suite: recall 1.0, precision 0.54, fp_rate 0.4, severity accuracy 0.9, $2.81. The
+    fp_rate is over its 0.2 ceiling because two of the five clean controls hold real defects,
+    and the reviewer found both. OPS-17 fixes those controls. The receipt is recorded as
+    `measured` in this repo's root `model-roles.json` only. The template ships no receipt,
+    because each project measures its own.
 - **REL-1 also adds a changelog and versioning.** A `CHANGELOG.md` (Keep a Changelog) is generated
   from Slice lines and PR titles, and `release-prep` cuts semver tags.
 
