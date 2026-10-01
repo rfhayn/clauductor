@@ -29,6 +29,8 @@
 #      the reviewer, its agent file and the marked review-prompt section of build-change.js) is
 #      blocked unless the head holds a passing eval receipt (.claude/evals/run.sh) for that role,
 #      run at the head's hashes of exactly those inputs (OPS-10, OPS-16; .claude/lib/evals.sh).
+#      A PR that narrows a role's triggers, deletes a suite or weakens .evals.thresholds is
+#      blocked outright: the owner's decision, which no receipt excuses.
 #   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
 #
@@ -680,9 +682,11 @@ ev_lib="$ROOT_HOOK/.claude/lib/evals.sh"
 [ -f "$ev_lib" ] || block "cannot find $ev_lib, so rule 13 (eval receipts) cannot be checked. Restore it."
 sh -n "$ev_lib" 2>/dev/null || block "$ev_lib does not parse, so rule 13 cannot be checked. Run: sh -n $ev_lib"
 . "$ev_lib"
-for f in evals_verdict evals_role_hash evals_triggers evals_section evals_triggers_at evals_input_hash_at evals_blob_at evals_tree_hash_at evals_suite_roles_at cg_eval_roles cg_eval_receipt; do
+for f in evals_verdict evals_role_hash evals_triggers evals_section evals_triggers_at evals_input_hash_at evals_blob_at evals_tree_hash_at evals_suite_roles_at cg_eval_roles cg_eval_receipt cg_eval_policy; do
   command -v "$f" >/dev/null 2>&1 || block "$ev_lib or $cg_lib did not define $f, so rule 13 cannot be checked."
 done
+why=$(cg_eval_policy "$base9" "$head_sha" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
+[ -z "$why" ] || block "rule 13: this PR weakens rule 13 itself ($why). That is the owner's decision, not a receipt's: no eval run excuses it, and there is no approval marker for it, so Claude cannot merge this PR. The owner reviews and merges it on GitHub themselves."
 roles13=$(cg_eval_roles "$base9" "$head_sha")
 if [ -n "$roles13" ]; then
   suites13=$(evals_suite_roles_at "$head_sha")

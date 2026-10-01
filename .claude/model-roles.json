@@ -41,7 +41,7 @@
     "thresholds": { "recall": 0.8, "fp_rate": 0.2, "severity_accuracy": 0.5 },
     "triggers": {
       "_why": "What makes each role with a suite what it is, besides its model and effort (OPS-16). An input is a file, a dir/ (every file under it) or file#MARKER: the lines between `// <MARKER>` and `// </MARKER>` in that file. pr-merge-guard rule 13 compares each by content hash between a PR's base and head, and a receipt names the hash of each, so an edit anywhere else (the rest of build-change.js, another agent) needs no new eval. A role with a suite and no entry here falls back to its agent file and all of .claude/workflows/. Missing markers fail closed: the runner refuses to run, the guard blocks a PR that changes the file, and checks/model-roles.sh fails.",
-      "reviewer": [".claude/agents/reviewer.md", ".claude/workflows/build-change.js#review-prompt"]
+      "reviewer": [".claude/agents/reviewer.md", ".claude/workflows/build-change.js#review-call", ".claude/workflows/build-change.js#review-prompt"]
     }
   },
   "economy": {

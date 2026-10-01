@@ -211,6 +211,14 @@ Separate milestones, also adopted:
     Each is compared by content hash between base and head. The inputs are declared per role in
     `model-roles.json` `.evals.triggers`, so a future suite declares its own. A receipt names the
     hash of exactly those inputs. Missing markers fail closed.
+
+    After review, three more things changed:
+    - The whole review spawn is inside the marked sections: the prompt, the schema, the agent
+      type and the call.
+    - The eval runner reads the prompt and the schema from the section, and evaluates only an
+      agent file that is a declared trigger.
+    - Narrowing the triggers, deleting a suite or weakening `.evals.thresholds` is blocked
+      outright as the owner's decision.
   - **Baseline measured (OPS-16, OPS-18).** The reviewer on opus/high was first run on the full
     suite at recall 1.0, precision 0.54, fp_rate 0.4 and severity accuracy 0.9, for $2.81. That
     fp_rate is over the 0.2 ceiling. Two of the five clean controls held real defects, and the

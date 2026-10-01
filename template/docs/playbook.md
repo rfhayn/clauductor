@@ -241,16 +241,35 @@ a suite *is*, unless the head holds a passing receipt at the head's hashes of ex
 
 - the role's model, effort or tier variants in `model-roles.json` (another role's do not count);
 - each trigger input that `model-roles.json` `.evals.triggers.<role>` declares. For the reviewer
-  these are `.claude/agents/reviewer.md` and the section of `.claude/workflows/build-change.js`
-  between `// <review-prompt>` and `// </review-prompt>`: the review prompt and the findings
-  schema.
+  these are:
+  - `.claude/agents/reviewer.md`;
+  - the `// <review-prompt>` section of `.claude/workflows/build-change.js`, which holds the
+    prompt, the findings schema, the agent type and the spawn;
+  - the `// <review-call>` section, the one line in the review loop that takes a round's review.
 
 Each input is compared by content hash between the PR's base and head. An edit to build-change.js
-outside the markers, or to another agent, needs no eval. Keep everything that shapes the review
-inside the markers. If the markers go missing, the runner refuses to run, `checks/model-roles.sh`
-fails, and the guard blocks any PR that changes the file. A role with a suite that declares no
-triggers falls back to its agent file and all of `.claude/workflows/`. When you add a suite for
-another role, declare its triggers in the same PR.
+outside the markers, or to another agent, needs no eval.
+
+**Keep everything that shapes the review inside the markers.** `checks/model-roles.sh` fails if a
+reviewer spawn, the `REVIEW` schema or `reviewSpawn` appears outside them. The runner does not
+restate the prompt or the schema: it reads `REVIEW_PROMPT` and `REVIEW` from the section. So a
+receipt's section hash is a hash of what its eval sent.
+
+**The runner refuses to run** when:
+- the agent it would evaluate is not one of the role's triggers;
+- the section's markers are missing.
+
+The guard also checks a receipt's `hashes.agent_file` and `hashes.agent` against the head.
+
+A role with a suite that declares no triggers falls back to its agent file and all of
+`.claude/workflows/`. When you add a suite for another role, declare its triggers in the same PR.
+
+**Weakening rule 13 itself is the owner's decision.** No receipt excuses it. `pr-merge-guard`
+blocks these outright, so the owner merges such a PR themselves:
+- narrowing a role's triggers, including replacing the broad default;
+- deleting a suite;
+- lowering a recall or severity floor;
+- raising the fp_rate ceiling.
 
 **When Haiku makes sense for the mechanic.** The mechanic runs a script and quotes its result
 (preflight, gate, commit, receipt). It fails by misquoting, for example by dropping a FAIL line,

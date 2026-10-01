@@ -198,6 +198,14 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
     _why=$(evals_verdict "$_f" "$2" "$_m" "$_e" "$_mrf" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
     _got=$(jq -r '(.hashes.triggers // {}) | to_entries | sort_by(.key)[] | "\(.key) \(.value)"' "$_f" 2>/dev/null)
     _grole=$(jq -r '.hashes.role // "-"' "$_f" 2>/dev/null)
+    # The agent it evaluated must be one of the head's trigger inputs, at the head's content: a
+    # receipt naming reviewer.md's hash proves nothing if another agent file was the one run.
+    _gaf=$(jq -r '.hashes.agent_file // "-"' "$_f" 2>/dev/null); _gab=$(jq -r '.hashes.agent // "-"' "$_f" 2>/dev/null)
+    if ! printf '%s\n' "$_want" | cut -d' ' -f1 | grep -qxF "$_gaf"; then
+      _why="${_why}${_why:+; }the agent it evaluated ($_gaf) is not one of role $2's trigger inputs at the head"
+    elif [ "$_gab" != "$(evals_input_hash_at "$1" "$_gaf")" ]; then
+      _why="${_why}${_why:+; }the agent file it evaluated ($_gaf, blob $_gab) is not the head's"
+    fi
     [ "$_grole" = "$_wrole" ] || _why="${_why}${_why:+; }it ran on another model, effort or tier variant of role $2 than the head's (role hash $_grole, head $_wrole)"
     [ "$_got" = "$_want" ] || _why="${_why}${_why:+; }it ran at other trigger inputs than the head's (has [$(printf '%s' "$_got" | tr '\n' ',')], head [$(printf '%s' "$_want" | tr '\n' ',')]), so something it measured changed after it ran"
     rm -f "$_f"
@@ -208,4 +216,34 @@ cg_eval_receipt() {  # cg_eval_receipt HEAD ROLE: why the head holds no passing 
   rm -f "$_mrf"
   printf 'role %s (%s/%s) is changed by this PR, and the head holds no passing eval receipt for it.%s\nRun: sh .claude/evals/run.sh --role %s --model %s --effort %s on the final head (the receipt names its hashes), commit the receipt, record it as model-roles.json .roles.%s.eval, then re-run the gate.\n' \
     "$2" "$_m" "$_e" "${_seen:- No receipt for role $2 under .claude/evals/receipts/.}" "$2" "$_m" "$_e" "$2"
+}
+
+# Rule 13's own controls (OPS-16). Each would let a later PR weaken the evidence without a receipt
+# ever failing, so a receipt cannot excuse it: it is the owner's decision. No owner-approval marker
+# exists for an ops PR, so these BLOCK OUTRIGHT here; the owner merges such a PR themselves.
+#   - a role's trigger inputs narrowed: any input the base declares (or defaults to) that the head
+#     does not, including a declaration emptied or one replacing the broad default;
+#   - a suite at the base that the head lacks (deleting it would turn rule 13 into an advisory);
+#   - .evals.thresholds weakened: recall or severity_accuracy lowered, fp_rate raised, or removed.
+cg_eval_policy() {  # cg_eval_policy BASE HEAD: why this PR weakens rule 13 itself, one per line, or nothing
+  _mr=.claude/model-roles.json
+  git cat-file -e "$1:$_mr" 2>/dev/null || return 0
+  _hs=$(evals_suite_roles_at "$2")
+  for _r in $(evals_suite_roles_at "$1"); do
+    printf '%s\n' "$_hs" | grep -qxF "$_r" || echo "it deletes role $_r's eval suite (.claude/evals/$_r/cases/), which turns rule 13 for $_r into an advisory"
+  done
+  for _r in $( { evals_suite_roles_at "$1"
+                 git show "$1:$_mr" 2>/dev/null | jq -r '(.evals.triggers // {}) | keys[] | select(startswith("_") | not)' 2>/dev/null
+               } | sort -u); do
+    _th=$(evals_triggers_at "$2" "$_r")
+    _gone=$(evals_triggers_at "$1" "$_r" | while IFS= read -r _i; do
+      printf '%s\n' "$_th" | grep -qxF "$_i" || printf '%s ' "$_i"
+    done)
+    [ -z "$_gone" ] || echo "it narrows role $_r's eval triggers: ${_gone}would no longer need a receipt to change"
+  done
+  _tb=$(git show "$1:$_mr" 2>/dev/null | jq -c '.evals.thresholds // {}' 2>/dev/null); [ -n "$_tb" ] || _tb='{}'
+  git show "$2:$_mr" 2>/dev/null | jq -r --argjson b "$_tb" '(.evals.thresholds // {}) as $h
+    | [ ("recall", "severity_accuracy") as $k | select($b[$k] != null and (($h[$k] | type) != "number" or $h[$k] < $b[$k])) | "\($k) \($b[$k]) -> \($h[$k])" ]
+    + [ select($b.fp_rate != null and (($h.fp_rate | type) != "number" or $h.fp_rate > $b.fp_rate)) | "fp_rate \($b.fp_rate) -> \($h.fp_rate)" ]
+    | .[] | "it weakens .evals.thresholds: \(.)"' 2>/dev/null
 }

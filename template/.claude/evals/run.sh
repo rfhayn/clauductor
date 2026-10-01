@@ -46,7 +46,10 @@
 #
 # HASHES. The receipt's `hashes.role` (the role's model, effort and tier variants) and
 # `hashes.triggers` (each trigger input model-roles.json .evals.triggers declares for the role, by
-# its id) are what pr-merge-guard rule 13 holds it to (OPS-16; .claude/lib/evals.sh). It also
+# its id) are what pr-merge-guard rule 13 holds it to (OPS-16; .claude/lib/evals.sh), with
+# `hashes.agent_file` (the agent it evaluated, which must be one of those inputs) and
+# `hashes.agent` (that file's blob). The prompt and schema it sends are read from the marked
+# section, and it refuses to run if the agent is not a trigger or the section has no prompt. It also
 # names, as context only, the hash of every role's choice, the agent's blob and the whole
 # workflows tree it ran beside (`model_roles`, `agent`, `workflows`).
 #
@@ -178,6 +181,29 @@ agent=$(jq -r --arg r "$role" '(.agents // {}) | to_entries[] | select(.value ==
 [ -n "$agent" ] || agent=$role
 agent_md=${EVAL_AGENT_FILE:-$ROOT/.claude/agents/$agent.md}
 [ -f "$agent_md" ] || die "cannot find the $agent agent ($agent_md); a plugin project names its copy with EVAL_AGENT_FILE"
+# The file evaluated must be the file the receipt certifies: one of the role's declared trigger
+# inputs, under this project. Otherwise a receipt would name reviewer.md's hash while another agent
+# (EVAL_AGENT_FILE, a remapped .agents) was the one measured.
+agent_rel=$(cd "$(dirname "$agent_md")" 2>/dev/null && printf '%s/%s' "$(pwd)" "$(basename "$agent_md")")
+agent_rel=${agent_rel#"$ROOT"/}
+printf '%s\n' "$trig" | cut -f1 | grep -qxF "$agent_rel" \
+  || die "the agent it would evaluate ($agent_rel) is not one of role $role's trigger inputs ($(printf '%s\n' "$trig" | cut -f1 | tr '\n' ' ')), so its receipt would certify a file it did not run. Declare it in model-roles.json .evals.triggers.$role"
+
+# The review prompt and findings schema are READ from the role's marked section (build-change.js's
+# review-prompt), never restated here: a receipt's hash of that section is then a hash of what was
+# sent. Each is one line there: `const REVIEW_PROMPT = "<JSON string>"` with {n}, {title},
+# {change} and {changes} placeholders, and `const REVIEW = <JSON schema>`.
+sect=""
+for _i in $(printf '%s\n' "$trig" | cut -f1 | grep '#'); do
+  sect="$sect$(evals_section "${_i#*#}" < "$ROOT/${_i%%#*}" 2>/dev/null)
+"
+done
+review_prompt=$(printf '%s' "$sect" | sed -n 's/^const REVIEW_PROMPT = //p')
+schema=$(printf '%s' "$sect" | sed -n 's/^const REVIEW = //p')
+[ "$(printf '%s\n' "$review_prompt" | grep -c .)" = 1 ] && printf '%s' "$review_prompt" | jq -e 'type == "string"' >/dev/null 2>&1 \
+  || die "role $role's marked sections hold no single \`const REVIEW_PROMPT = \"...\"\` line (a JSON string), so there is no production prompt to evaluate"
+[ "$(printf '%s\n' "$schema" | grep -c .)" = 1 ] && printf '%s' "$schema" | jq -e 'type == "object"' >/dev/null 2>&1 \
+  || die "role $role's marked sections hold no single \`const REVIEW = {...}\` line (a JSON schema), so there is no production schema to evaluate"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/evals.XXXXXX") || die "mktemp failed"
 [ -n "$keep" ] || trap 'rm -rf "$work"' EXIT
@@ -195,8 +221,6 @@ jq -n --arg n "$agent" --arg d "$(fmv description)" --arg p "$body" --arg t "$(f
   '{($n): {description: $d, prompt: $p, model: $m, tools: ($t | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | if length > 0 then . + ["StructuredOutput"] | unique else . end)}}' \
   > "$work/agents.json" || die "could not build the agent JSON from $agent_md"
 
-# build-change.js's REVIEW schema: the findings the workflow grades rounds by.
-schema='{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["critical","high","medium","low"]},"file":{"type":"string"},"line":{"type":"number"},"summary":{"type":"string"},"failure":{"type":"string","description":"concrete input/state -> wrong result"},"group":{"type":"number"}},"required":["severity","file","summary","failure","group"]}}},"required":["findings"]}'
 tools="Read Grep Glob Skill Agent Bash(git *)"
 
 : > "$work/results.jsonl"
@@ -220,7 +244,11 @@ for c in $cases; do
   [ -n "$(git -C "$w" diff HEAD --stat)" ] || die "case $c: its before and after trees do not differ"
 
   title=$(jq -r .title "$cd_/case.json")
-  prompt="Review task group 1 (\"$title\") of change \"eval-$c\" (changes/eval-$c/). The group's work is the current UNCOMMITTED working-tree diff."
+  # build-change's reviewPrompt(): one pass over the placeholders, so a title holding "{change}"
+  # stays literal, exactly as the workflow's single regex replace leaves it.
+  prompt=$(printf '%s' "$review_prompt" | jq -r --arg t "$title" --arg c "eval-$c" \
+    '{n: "1", title: $t, changes: "changes", change: $c} as $m | gsub("\\{(?<k>n|title|changes|change)\\}"; $m[.k])') \
+    || die "case $c: could not build the review prompt"
   printf '[%s/%s] %s ... ' "$i" "$n" "$c" >&2
   rc=0
   # shellcheck disable=SC2086
@@ -247,6 +275,11 @@ for c in $cases; do
   printf '%s\n' "$r" | jq -r 'if .error then "ERROR \(.error)" else "\(.findings | length) finding(s), $\(.cost_usd)" end' >&2
 done
 
+# An input edited while the cases ran is not what they measured: no receipt then.
+trig_after=$(evals_triggers "$role" "$roles_json" | while IFS= read -r _i; do printf '%s\t%s\n' "$_i" "$(evals_input_hash "$ROOT" "$_i")"; done)
+[ "$trig_after" = "$trig" ] && [ "$(evals_role_hash "$role" "$roles_json")" = "$hrole" ] \
+  || die "a trigger input or role $role's model changed while the eval ran; re-run it on a tree nobody is editing"
+
 # ── Score ─────────────────────────────────────────────────────────────────────────────────────
 date=${EVAL_DATE:-$(date -u +%Y-%m-%d)}
 mkdir -p "$out" || die "cannot create $out"
@@ -258,7 +291,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg agent "$agent" --argjson complete "$complete" \
    --arg hr "$(evals_roles_hash "$roles_json")" --arg ha "$(evals_blob "$agent_md")" \
    --arg hw "$(evals_tree_hash "$ROOT/.claude/workflows" .claude/workflows)" --arg hs "$suite_hash" \
-   --arg hrole "$hrole" --argjson trig "$trig_json" \
+   --arg hrole "$hrole" --argjson trig "$trig_json" --arg af "$agent_rel" \
    --slurpfile mr "$roles_json" '
   def rank: {"low": 1, "medium": 2, "high": 3, "critical": 4}[.] // 0;
   def r3: if type == "number" then (. * 1000 + 0.5 | floor) / 1000 else . end;
@@ -312,7 +345,7 @@ jq -s --arg role "$role" --arg model "$model" --arg effort "$effort" --arg date 
       severity_within_one: (if ($got | length) > 0 then ([$got[] | select(((.severity | rank) - (.expected | rank)) as $x | (if $x < 0 then -$x else $x end) <= 1)] | length) / ($got | length) else 0 end)
     } | map_values(r3) as $s
   | { schema: 1, role: $role, model: $model, effort: $effort, date: $date, run_at: $at, agent: $agent,
-      hashes: { role: $hrole, triggers: $trig, model_roles: $hr, agent: $ha, workflows: $hw },
+      hashes: { role: $hrole, triggers: $trig, agent_file: $af, model_roles: $hr, agent: $ha, workflows: $hw },
       suite: { cases: ($cs | length), defect_cases: ([$cs[] | select(.kind != "clean")] | length),
                clean_cases: ($clean | length), planted: $planted, hash: $hs },
       complete: $complete, errors: $errors,

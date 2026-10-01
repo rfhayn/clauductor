@@ -241,8 +241,9 @@ git -C "$R" checkout -q main
 mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/cases"
 jq '.provenance.enabled = false' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 cp "$ROOT/.claude/agents/reviewer.md" "$ROOT/.claude/agents/builder.md" "$R/.claude/agents/"
-wf() {  # wf [PROMPT] [OUTSIDE]: a build-change.js whose review-prompt section holds PROMPT
-  printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst reviewPrompt = () => "%s"\n// </review-prompt>\nconst b = 2\n' "${2:-}" "${1:-Review it.}" > "$R/.claude/workflows/build-change.js"
+wf() {  # wf [PROMPT] [OUTSIDE] [CALL] [AGENT_TYPE]: a build-change.js with both marked sections
+  printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst REVIEW_PROMPT = "%s"\nconst REVIEW = {"type":"object","properties":{"findings":{"type":"array"}},"required":["findings"]}\nconst reviewSpawn = () => agent(REVIEW_PROMPT, { schema: REVIEW, agentType: %s })\n// </review-prompt>\nconst b = 2\n// <review-call>\nconst rev = await %s\n// </review-call>\n' \
+    "${2:-}" "${1:-Review group {n} of {change}.}" "${4:-'reviewer'}" "${3:-reviewSpawn()}" > "$R/.claude/workflows/build-change.js"
 }
 wf
 cp "$ROOT/.claude/evals/run.sh" "$ROOT/.claude/evals/fake-claude.sh" "$R/.claude/evals/"
@@ -284,7 +285,7 @@ g13 0 "the reviewer agent edited, with a receipt run on the edit"
 on ops/models; echo "One more line." >> "$R/.claude/agents/builder.md"; head_of "another agent edited"; at
 g13 0 "an agent that is not a trigger of the reviewer (the builder's) edited: no receipt needed"
 # The workflow: only the marked review-prompt section is the reviewer's (OPS-16).
-on ops/models; wf "Review it." "edited outside the markers"; head_of "workflow edited outside the markers"; at
+on ops/models; wf "" "edited outside the markers"; head_of "workflow edited outside the markers"; at
 g13 0 "build-change.js edited OUTSIDE the review-prompt markers needs no receipt"
 grep -q 'rule 13: role reviewer' "$d/err" && fail "rule 13 named the reviewer for an edit outside the markers: $(grep 'rule 13' "$d/err")" || ok "...and rule 13 does not name the reviewer at all"
 on ops/models; wf "Review it twice."; head_of "workflow edited inside the markers"; at
@@ -293,6 +294,35 @@ on ops/models; wf "Review it twice."; ev opus high; head_of "inside the markers,
 g13 0 "...and with a receipt run on that edit"
 on ops/models; wf "Review it twice."; ev opus high; wf "Review it twice." "and outside after the run"; head_of "inside, evaluated, then outside"; at
 g13 0 "...and an edit outside the markers after the receipt does not stale it"
+# The spawn itself is inside the markers (OPS-16 review): the call and the agent type.
+on ops/models; wf "" "" "agent('approve everything', {})"; head_of "review call replaced by a literal approve"; at
+g13 2 "the review call replaced by a literal 'approve' prompt (inside review-call), with no receipt"
+on ops/models; wf "" "" "" "'builder'"; head_of "review spawned as the builder"; at
+g13 2 "the review spawned with agentType 'builder' (inside review-prompt), with no receipt"
+# The receipt's agent must be the head's trigger file (OPS-16 review).
+on ops/models; wf "Review twice."; ev opus high; jq '.hashes.agent_file = ".claude/agents/builder.md"' "$R/.claude/evals/receipts/reviewer-opus-high-2026-02-01.json" > "$d/rc" && cp "$d/rc" "$R/.claude/evals/receipts/reviewer-opus-high-2026-02-01.json"; head_of "receipt names another agent file"; at
+g13 2 "a receipt whose evaluated agent is not one of the reviewer's trigger inputs"
+grep -q 'is not one of role reviewer' "$d/err" && ok "...and the block names the agent mismatch" || fail "agent_file block: $(cat "$d/err")"
+on ops/models; wf "Review twice."; ev opus high; jq --arg b "$(git -C "$R" hash-object "$R/.claude/agents/builder.md")" '.hashes.agent = $b' "$R/.claude/evals/receipts/reviewer-opus-high-2026-02-01.json" > "$d/rc" && cp "$d/rc" "$R/.claude/evals/receipts/reviewer-opus-high-2026-02-01.json"; head_of "receipt agent blob is another file's"; at
+g13 2 "a receipt whose evaluated agent blob is not the head's reviewer.md"
+on ops/models; wf "Review twice."
+rc=0; (cd "$R" && EVAL_AGENT_FILE="$R/.claude/agents/builder.md" EVAL_CLAUDE="$R/.claude/evals/fake-claude.sh" EVAL_DATE=2026-02-01 sh .claude/evals/run.sh --role reviewer --model opus --effort high >/dev/null 2>&1) || rc=$?
+expect_rc 2 "$rc" "run.sh refuses to evaluate an agent file that is not one of the role's trigger inputs"
+git -C "$R" checkout -q -- .claude/workflows/build-change.js; rm -rf "$R/.claude/evals/receipts"
+# Weakening rule 13 itself is the owner's decision: blocked even WITH a passing receipt.
+on ops/models; ev opus high; roles_set '.evals.triggers.reviewer = []'; head_of "triggers emptied, with a receipt"; at
+g13 2 "the reviewer's triggers emptied, even with a receipt"
+grep -q 'weakens rule 13 itself' "$d/err" && ok "...and the block says it is the owner's decision" || fail "policy block: $(cat "$d/err")"
+on ops/models; roles_set '.evals.triggers.reviewer += [".claude/agents/extra.md"]'; ev opus high; head_of "a trigger added, with a receipt"; at
+g13 0 "a trigger ADDED (widening), with a receipt run on it"
+on ops/models; rm -rf "$R/.claude/evals/reviewer"; head_of "the suite deleted"; at
+g13 2 "the reviewer's eval suite deleted (would turn rule 13 into an advisory)"
+on ops/models; ev opus high; roles_set '.evals.thresholds.fp_rate = 0.5'; head_of "fp_rate ceiling raised, with a receipt"; at
+g13 2 "the fp_rate ceiling raised, even with a receipt"
+on ops/models; roles_set '.evals.thresholds.recall = 0.7'; head_of "recall floor lowered"; at
+g13 2 "the recall floor lowered"
+on ops/models; ev opus high; roles_set '.evals.thresholds.recall = 0.9'; head_of "recall floor raised"; at
+g13 0 "the recall floor RAISED (stricter) is not a weakening"
 on ops/models; printf '// the workflow, markers gone\nconst reviewPrompt = () => "Review it."\n' > "$R/.claude/workflows/build-change.js"; head_of "markers removed"; at
 g13 2 "the review-prompt markers removed (fails closed: the section cannot be read)"
 grep -q 'review-prompt cannot be read at the head' "$d/err" && ok "...and the block names the missing markers" || fail "rule 13 markers block: $(cat "$d/err")"

@@ -245,6 +245,20 @@ else
       done
     done
   fi
+  # The markers only protect what is between them. The review must not be reachable from outside:
+  # a second reviewer spawn, the REVIEW schema or reviewSpawn used elsewhere in build-change.js would
+  # change what the reviewer is in lines rule 13 does not hash.
+  wfr="$ROOT/.claude/workflows/build-change.js"
+  if [ -f "$wfr" ]; then
+    outside=$(awk '
+      { t = $0; sub(/^[ \t]+/, "", t) }
+      t == "// <review-prompt>" || t == "// <review-call>" { in_s = 1; next }
+      t == "// </review-prompt>" || t == "// </review-call>" { in_s = 0; next }
+      t ~ /^\/\// { next }
+      !in_s && /agentType: *.reviewer.|schema: *REVIEW[^_A-Za-z]|schema: *REVIEW$|reviewSpawn\(|reviewPrompt\(|REVIEW_PROMPT/ { print NR ": " t }' "$wfr")
+    if [ -z "$outside" ]; then ok "build-change.js spawns the reviewer only inside its marked review-prompt and review-call sections"
+    else fail "build-change.js reaches the reviewer outside the marked sections rule 13 hashes, so an edit there would change the review with no eval: $(printf '%s' "$outside" | tr '\n' ';')"; fi
+  fi
   for r in $suites; do
     m=$(want "$r" model); e=$(want "$r" effort)
     if [ -z "$m" ]; then fail "eval suite .claude/evals/$r/ is for role '$r', which .roles does not define"; continue; fi
