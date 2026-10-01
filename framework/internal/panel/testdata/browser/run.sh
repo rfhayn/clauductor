@@ -8,7 +8,9 @@
 #   the terminal, and the tabs, Enter, Ctrl+] and the size keys behave. It needs two
 #   lanes, which this starts through the page's own API;
 # - project-and-side.cjs (PANEL-12): the pinned cards' tab box, rows that stay open,
-#   the side panel's edge, and Up next in the Start dialog.
+#   the side panel's edge, and Up next in the Start dialog;
+# - terminal-links-selection.cjs (PANEL-14): a selection survives the pointer moving on
+#   under a lane that asks for every motion, and links open on ⌘-click.
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -36,8 +38,16 @@ case "$1" in
   --version) echo "2.1.284 (Claude Code)" ;;
   agents) echo "[]" ;;
   # A lane's claude records the bytes typed into it (raw, unechoed), so the browser
-  # test can check which keys reach claude.
-  *) stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
+  # test can check which keys reach claude. Lane "second" also behaves as claude's
+  # fullscreen TUI does for terminal-links-selection.cjs: it asks for every mouse
+  # motion, and prints a URL and two OSC 8 links.
+  *) if [ "$CLAUDUCTOR_LANE" = second ]; then
+       printf '\033[?1000h\033[?1002h\033[?1003h\033[?1006h'
+       printf 'Selectable words on this row\n'
+       printf 'PR: https://github.com/o/r/pull/12 is open.\n'
+       printf '\033]8;;https://example.com/elsewhere\033\\Docs here\033]8;;\033\\ and \033]8;;https://example.com/same\033\\https://example.com/same\033]8;;\033\\\n'
+     fi
+     stty raw -echo 2>/dev/null; exec cat >> "$HOME/typed.log" ;;
 esac
 SH
 printf '#!/bin/sh\necho "[]"\n' > "$tmp/bin/gh"
@@ -78,4 +88,5 @@ status=0
 node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 node "$here/project-and-side.cjs" "$base" "$tok" || status=1
+node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 exit $status
