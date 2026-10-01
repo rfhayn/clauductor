@@ -287,8 +287,8 @@ type HookDrift struct {
 	Ports []int  // the loopback ports other panel-tagged hooks point at
 }
 
-// ReadHookDrift compares the hooks in settings.json with this panel's.
-func ReadHookDrift(home string, port int) (HookDrift, error) {
+// readHookDrift compares the hooks in settings.json with this panel's.
+func readHookDrift(home string, port int) (HookDrift, error) {
 	b, err := os.ReadFile(SettingsPath(home))
 	if os.IsNotExist(err) {
 		return HookDrift{Text: "they had been removed"}, nil
@@ -296,13 +296,49 @@ func ReadHookDrift(home string, port int) (HookDrift, error) {
 	if err != nil {
 		return HookDrift{}, err
 	}
+	d, err := driftOf(b, port)
+	if err != nil {
+		return HookDrift{}, fmt.Errorf("%s: %w", SettingsPath(home), err)
+	}
+	return d, nil
+}
+
+// KeepHooks is the hook keeper's check, made on ONE read of settings.json: it works out
+// what drifted, asks leave whether to leave the hooks alone (they belong to another
+// live panel), and otherwise installs this panel's hooks, all from that same read, and
+// writes only over the file it read (a concurrent change makes it start again). Two
+// reads, one to judge and one to edit, let a write that landed between them be judged
+// as the old file and overwritten as the new: a live panel's hooks taken, or a repair
+// reported without what it repaired. It returns the drift found, whether the file
+// changed, and whether leave kept it.
+func KeepHooks(home string, port int, leave func(HookDrift) bool) (d HookDrift, changed, left bool, err error) {
+	errLeave := errors.New("left to another panel")
+	edit := hooksEdit(installHooksEdit(port))
+	// rewriteSettings redoes the edit, judging included, on a file that changed.
+	changed, err = rewriteSettings(home, func(root *orderedObject) error {
+		b, _ := root.MarshalJSON() // the file as read; {} when it does not exist
+		// Hooks of a shape driftOf cannot read: the install's edit says what is wrong.
+		d, _ = driftOf(b, port)
+		if d.Text != "" && leave(d) {
+			return errLeave
+		}
+		return edit(root)
+	})
+	if errors.Is(err, errLeave) {
+		return d, false, true, nil
+	}
+	return d, changed, false, err
+}
+
+// driftOf compares the hooks in one settings.json document with this panel's.
+func driftOf(b []byte, port int) (HookDrift, error) {
 	var doc struct {
 		Hooks map[string][]struct {
 			Hooks []json.RawMessage `json:"hooks"`
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return HookDrift{}, fmt.Errorf("%s: %w", SettingsPath(home), err)
+		return HookDrift{}, err
 	}
 	want := hookURL(port)
 	current, _ := marshalRaw(hookEntry(port))

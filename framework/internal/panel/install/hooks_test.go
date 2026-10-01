@@ -3,8 +3,10 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -382,5 +384,45 @@ func TestInstallHooksKeepsAConcurrentWrite(t *testing.T) {
 	}
 	if _, err := InstallHooks(home, 4394); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("a constantly changing file must be refused: %v", err)
+	}
+}
+
+// PANEL-24: the keeper judges the hooks on the read it edits. Another panel that
+// re-points them while the keeper is repairing a stale drift is judged afresh, not
+// overwritten: a keeper that judged one read and edited another took a live panel's
+// hooks, or reported a repair without naming what it repaired.
+func TestKeepHooksJudgesTheFileItWritesOver(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallHooks(home, 4390); err != nil { // a panel that has gone
+		t.Fatal(err)
+	}
+	beforeSettingsRename = func(string) {
+		beforeSettingsRename = nil
+		if _, err := InstallHooks(home, 4391); err != nil { // a live panel takes them meanwhile
+			t.Error(err)
+		}
+	}
+	defer func() { beforeSettingsRename = nil }()
+	var judged [][]int
+	d, changed, left, err := KeepHooks(home, 4393, func(d HookDrift) bool {
+		judged = append(judged, d.Ports)
+		return slices.Contains(d.Ports, 4391)
+	})
+	if err != nil || changed || !left {
+		t.Fatalf("KeepHooks: changed %v, left %v, %v", changed, left, err)
+	}
+	if fmt.Sprint(judged) != "[[4390] [4391]]" || !strings.Contains(d.Text, ":4391") {
+		t.Fatalf("judged %v, drift %q: want the gone panel, then the live one that took the file", judged, d.Text)
+	}
+	if b, _ := os.ReadFile(SettingsPath(home)); !strings.Contains(string(b), ":4391/") || strings.Contains(string(b), ":4393/") {
+		t.Fatalf("the live panel's hooks were overwritten:\n%s", b)
+	}
+	// Left alone by no one: repaired, with the drift it repaired.
+	d, changed, left, err = KeepHooks(home, 4393, func(HookDrift) bool { return false })
+	if err != nil || !changed || left || !strings.Contains(d.Text, ":4391") {
+		t.Fatalf("repair: changed %v, left %v, drift %q, %v", changed, left, d.Text, err)
+	}
+	if d, changed, _, _ = KeepHooks(home, 4393, func(HookDrift) bool { t.Fatal("asked with no drift"); return true }); changed || d.Text != "" {
+		t.Fatalf("a repeat check changed the file (%v) or found drift %q", changed, d.Text)
 	}
 }

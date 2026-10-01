@@ -3,6 +3,7 @@ package lanes
 import (
 	"context"
 	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/clauductor/clauductor/internal/testwait"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,16 +42,11 @@ func throwawaySocket(t *testing.T) (string, string) {
 	return leakcheck.TmuxSocket(t)
 }
 
+// waitFor waits for cond, up to a deadline that is generous because passing costs
+// nothing: a loaded machine (several gates at once) is slow, not wrong.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testwait.For(t, what, 10*time.Second, cond)
 }
 
 func lineCount(p string) int {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/clauductor/clauductor/internal/testwait"
 	"io"
 
 	"context"
@@ -142,7 +143,7 @@ func (p *lockProc) wait(t *testing.T, d time.Duration) int {
 	select {
 	case c := <-p.done:
 		return c
-	case <-time.After(d):
+	case <-time.After(testwait.Scale(d)):
 		t.Fatalf("lock-run did not exit; stderr: %s", p.stderr)
 	}
 	return -1
@@ -150,14 +151,7 @@ func (p *lockProc) wait(t *testing.T, d time.Duration) int {
 
 func waitUntil(t *testing.T, what string, d time.Duration, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testwait.For(t, what, d, cond)
 }
 
 func readLog(t *testing.T, p string) []string {
@@ -534,7 +528,10 @@ func TestLockRunForwardsSignalAndReleases(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
-	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "echo up >> "+log+"; trap 'exit 9' TERM; while :; do sleep 0.05; done")
+	// "up" is written only once the trap is set. Written before it, a TERM that came
+	// right after the line found the shell without its trap and ended it with 143 (128
+	// + TERM): the command's own exit code was never in question, the test's order was.
+	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "trap 'exit 9' TERM; echo up >> "+log+"; while :; do sleep 0.05; done")
 	waitUntil(t, "running", 5*time.Second, func() bool { return len(readLog(t, log)) > 0 })
 	p.cmd.Process.Signal(syscall.SIGTERM)
 	if code := p.wait(t, 5*time.Second); code != 9 {

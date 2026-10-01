@@ -52,6 +52,9 @@ jobs:
       # is too tight for internal/plugin on macOS runners (OPS-19).
       - run: go test -race -count=1 -timeout 25m ./...
         env:
+          # Hosted runners are slower than a laptop: every test deadline doubles
+          # (internal/testwait). A passing test never waits for one.
+          CLAUDUCTOR_TEST_SLOW: "2"
           OPENSPEC_REQUIRED: "1"
           NODE_REQUIRED: "1"
       # This repo runs the operating model it ships (OPS-8): its own process checks, over its own

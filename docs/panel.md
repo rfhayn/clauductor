@@ -2618,7 +2618,15 @@ The rules the suite keeps, and a new test must too:
     `LOCKRUN_HELPER_SKEW` puts its clock an hour ahead instead of waiting out a TTL.
 - **Order by events, not by timing.** A test that needs B queued before C starts C once B's
   waiter file exists. A test that rewrites `owner.json` waits for lock-run's own last write to
-  it.
+  it. A lane that records its raw input is typed into only once its file exists (the shell is
+  past `stty raw`; before it, the line discipline eats C-u), and a command signalled after it
+  says "up" says so only once its `trap` is set (PANEL-24).
+- **Wait on the condition, with a generous, scaled deadline.** Every wait goes through
+  `internal/testwait` (`For`, `Scale`): a passing test never reaches its deadline, so a long
+  one costs nothing, and a short one fails on a loaded machine (several gates at once) where
+  nothing is wrong. `CLAUDUCTOR_TEST_SLOW=<factor>` multiplies every deadline; CI sets 2.
+  A duration the panel itself acts on (`FastExit`) is not a deadline unless the test needs
+  the event to happen within it.
 - **Run in parallel.** Every test that has its own temp `HOME`, tmux socket and port (`:0`)
   calls `t.Parallel()`. A test that sets the environment (`t.Setenv`) or a package hook
   cannot, and runs first, alone. A panel that runs no lane gets a socket no server runs on,

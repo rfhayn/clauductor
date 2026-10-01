@@ -22,19 +22,14 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
 )
 
+// waitUntil waits up to d (scaled by CLAUDUCTOR_TEST_SLOW) for cond.
 func waitUntil(t *testing.T, what string, d time.Duration, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testwait.For(t, what, d, cond)
 }
 
 // writeLeaseRecord writes an owner.json or waiter file as the lease protocol
@@ -274,7 +269,7 @@ func (p *pollCounter) more(t *testing.T, source string, n int) {
 // until waits until source has polled n times in all.
 func (p *pollCounter) until(t *testing.T, source string, n int) {
 	t.Helper()
-	deadline := time.After(15 * time.Second)
+	deadline := time.After(testwait.Scale(15 * time.Second))
 	for {
 		p.mu.Lock()
 		got, changed := p.n[source], p.changed
@@ -336,7 +331,7 @@ func machineFree(home string) bool {
 // is the next start's to report.
 func waitMachineFree(home string) {
 	claimed := func() bool { _, err := os.Stat(filepath.Join(config.PanelDir(home), "pid")); return err == nil }
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !machineFree(home) && !claimed(); {
+	for deadline := time.Now().Add(testwait.Scale(5 * time.Second)); time.Now().Before(deadline) && !machineFree(home) && !claimed(); {
 		time.Sleep(5 * time.Millisecond)
 	}
 }

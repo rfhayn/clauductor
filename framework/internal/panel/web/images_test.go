@@ -12,6 +12,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/leakcheck"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 const pngBytes = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -71,13 +72,8 @@ func TestDroppedImageIsTypedWithoutEnter(t *testing.T) {
 	s.Lanes.UploadDir = uploads
 	// Wait until the lane has asked for bracketed paste (tmux pastes plainly before):
 	// cat creating the file comes after the request.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(typed); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	// It is also past stty: keys sent before raw mode meet the line discipline.
+	testwait.For(t, "the lane recording its keys", 10*time.Second, func() bool { _, err := os.Stat(typed); return err == nil })
 	w := do(s, "POST", "/api/lanes/lane-a/image", pngBytes, withCookie(s), withHeader("Origin", "http://127.0.0.1:4393"),
 		withHeader("X-Filename", "..%2F..%2Fmy%20screen%20shot.jpeg"))
 	if w.Code != 200 {
@@ -96,13 +92,7 @@ func TestDroppedImageIsTypedWithoutEnter(t *testing.T) {
 	}
 	want := "\x1b[200~" + res.Path + "\x1b[201~ "
 	var got []byte
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if got, _ = os.ReadFile(typed); len(got) >= len(want) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	testwait.For(t, "the pasted path", 10*time.Second, func() bool { got, _ = os.ReadFile(typed); return len(got) >= len(want) })
 	if string(got) != want {
 		t.Fatalf("the lane got %q, want %q", got, want)
 	}

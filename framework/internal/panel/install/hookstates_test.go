@@ -188,7 +188,7 @@ func TestOldHTTPHooksAreReplaced(t *testing.T) {
 	b, _ := json.MarshalIndent(map[string]any{"model": "opus", "hooks": old}, "", "  ")
 	writeFile(t, SettingsPath(home), string(b))
 
-	d, err := ReadHookDrift(home, 4393)
+	d, err := readHookDrift(home, 4393)
 	if err != nil || !strings.Contains(d.Text, "older form") || len(d.Ports) != 0 {
 		t.Fatalf("the old form is not reported as drift: %+v %v", d, err)
 	}
@@ -205,7 +205,7 @@ func TestOldHTTPHooksAreReplaced(t *testing.T) {
 			t.Fatalf("%s: %d panel hooks after the upgrade", ev, n)
 		}
 	}
-	if d, _ := ReadHookDrift(home, 4393); d.Text != "" {
+	if d, _ := readHookDrift(home, 4393); d.Text != "" {
 		t.Fatalf("drift after the upgrade: %q", d.Text)
 	}
 	assertStopOrder(t, home)
@@ -367,7 +367,7 @@ func TestDriftFindsAnotherPanelInEitherForm(t *testing.T) {
 		}
 		b, _ := json.Marshal(map[string]any{"hooks": hooks})
 		writeFile(t, SettingsPath(home), string(b))
-		d, err := ReadHookDrift(home, 4393)
+		d, err := readHookDrift(home, 4393)
 		if err != nil || len(d.Ports) != 1 || d.Ports[0] != 4400 || !strings.Contains(d.Text, strconv.Itoa(4400)) {
 			t.Errorf("%s: %+v %v", name, d, err)
 		}
