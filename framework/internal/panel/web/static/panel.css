@@ -31,6 +31,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .num.s, .s .num { font-size: calc(.71875rem + var(--data-bump)); }
 .unit { color: var(--text-3); margin-left: .15em; }
 .warn { color: var(--warn); font-weight: 700; }
+/* The cards may be stale (PANEL-18): one line above them. */
+.warn.stale { font-weight: 400; font-size: .75rem; padding: .2rem .5rem; overflow-wrap: anywhere; }
 .crit { color: var(--crit); font-weight: 700; }
 .info { color: var(--info); }
 .ok { color: var(--ok); }
@@ -218,6 +220,21 @@ body.offline .rail, body.offline .workspace, body.offline .pane { background: va
 .colmenu { position: fixed; z-index: 20; background: var(--pane); border: 1px solid var(--rule-strong); padding: .35rem .5rem;
   box-shadow: 0 .5rem 1.5rem -.5rem var(--scrim); display: grid; gap: .15rem; min-width: 12rem; max-width: calc(100vw - 1rem); overflow-y: auto; }
 .colmenu label { display: flex; gap: .4rem; align-items: center; white-space: nowrap; }
+/* A lane's actions (PANEL-18): the "⋯" at a row's end, and its menu, fixed to the window
+   under it by renderRowMenu, as the Columns menu is. */
+.btn.rowact { padding: 0 .35rem; line-height: 1.1; flex: none; }
+.tbl td.acts, .tbl th.acts { width: 1%; text-align: right; padding-left: .15rem; }
+.menu.rowmenu { position: fixed; top: auto; right: auto; width: auto; min-width: 11rem; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.rowmenu .mi { grid-template-columns: minmax(0, 1fr); white-space: nowrap; }
+.rowmenu .mi.crit { color: var(--crit); }
+.tree .wtrow { display: flex; align-items: flex-start; gap: .25rem; min-width: 0; }
+.tree .wtrow > .node { flex: 1 1 auto; min-width: 0; }
+.tree .wtrow > .rowact { margin-top: .1rem; }
+/* Remove's confirmation (PANEL-18), under the worktree in the tree. */
+.tree .wtask { display: grid; gap: .2rem; margin: .2rem 0 .3rem .25rem; padding: .3rem .4rem; border: 1px solid var(--rule-strong);
+  background: var(--pane); min-width: 0; overflow-wrap: anywhere; position: relative; z-index: 1; }
+.tree .wtask .confirm { font-weight: 700; }
+.tree .wtask .wtbtns { display: flex; flex-wrap: wrap; gap: .3rem; }
 
 /* ---- The lane-state timeline, 2 h ------------------------------------------------------------ */
 .timeline { display: grid; gap: 2px; }
@@ -261,7 +278,7 @@ button.node:hover .nn { color: var(--act); text-decoration: underline; }
 /* While the rail has more below its fold, a line at its foot says so. */
 .morebelow { position: sticky; bottom: 0; margin-top: -1.5rem; padding: .3rem var(--pane-p); background: var(--rail); border-top: 1px solid var(--rule);
   color: var(--text-2); font-size: .75rem; text-align: center; pointer-events: none; }
-/* "Start lane here" sits on its own line under the worktree, whole, never cut by the
+/* "New lane here" sits on its own line under the worktree, whole, never cut by the
    tree's connectors or the rail's edge. */
 .tree li > .btn { display: inline-block; margin: .2rem 0 .25rem .25rem; position: relative; z-index: 1; }
 .rail > .pane { background: var(--rail); border-bottom: 1px solid var(--rule); }
@@ -315,6 +332,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 /* Pinned cards (PANEL-12): titles that open, the rest under them. */
 /* The project box: its own tabs (one per pinned card) under the lane's, and a fold. */
 .sidepins { display: grid; gap: .4rem; align-content: start; }
+/* A project with no card (PANEL-18): one line where the pinned cards would be. */
+.sidepins.nocards { display: block; font-size: .75rem; padding: .3rem 0; border-top: 1px solid var(--rule); }
 .projhead { display: flex; align-items: stretch; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); margin: .6rem calc(var(--pane-p) * -1) 0; }
 .sidepins:first-child .projhead { margin-top: calc(var(--pane-p) * -1); border-top: 0; }
 .projhead .sidetabs { flex: 1; min-width: 0; border: 0; margin: 0; }

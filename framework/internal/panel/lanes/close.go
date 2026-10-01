@@ -348,21 +348,10 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 	if w.Branch == "" {
 		return res, nil
 	}
-	head, ok, why := m.branchVerdict(cctx, w.Branch)
-	switch {
-	case ok == "":
-		res.Kept = append(res.Kept, "the local branch "+w.Branch+": "+why)
-	case !consent.Branch:
-		res.Kept = append(res.Kept, "the local branch "+w.Branch+": the confirmation did not include it")
-	default:
-		// Deleted only if it still points at the tip just checked.
-		if _, err := m.Run(cctx, m.Root, []string{"git", "update-ref", "-d", "refs/heads/" + w.Branch, head}); err != nil {
-			res.Kept = append(res.Kept, "the local branch "+w.Branch+": git update-ref refused ("+err.Error()+")")
-			return res, nil
-		}
-		// Its upstream and other settings go with it, as `git branch -d` does.
-		_, _ = m.Run(cctx, m.Root, []string{"git", "config", "--remove-section", "branch." + w.Branch})
-		res.Removed = append(res.Removed, "the local branch "+w.Branch+" (at "+short(head)+"; "+ok+")")
+	if removed, kept := m.deleteBranch(cctx, w.Branch, consent.Branch); removed != "" {
+		res.Removed = append(res.Removed, removed)
+	} else {
+		res.Kept = append(res.Kept, kept)
 	}
 	return res, nil
 }

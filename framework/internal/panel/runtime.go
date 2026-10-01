@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -223,7 +224,8 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 			return func(m *state.Model, now time.Time) { m.Sample(now) }, 0
 		}},
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
-		{name: "git", every: t.Git, fixedRate: true, poll: r.pollGit},
+		// Refresh re-reads git too (PANEL-18): after a pull, the cards' stale note goes at once.
+		{name: "git", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollGit},
 	}
 	for _, c := range cfg.Cards {
 		r.sources = append(r.sources, r.cardSource(c))
@@ -899,6 +901,12 @@ func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Dura
 	times := map[string]int64{}
 	r.hub.Read(func(m *state.Model, now time.Time) {
 		paths = m.LaneWorktrees(now)
+		// The checkout the cards run in, whether or not a lane does (PANEL-18): when
+		// it is behind its upstream the page says the cards may be stale. The same one
+		// `git status`, and no fetch: behind is as of the last fetch.
+		if c := m.CardsCheckout(); c != "" && !slices.Contains(paths, c) {
+			paths = append(paths, c)
+		}
 		for _, p := range paths {
 			heads[p], times[p] = m.GitHead(p)
 		}

@@ -153,10 +153,28 @@ writes, it reads from the repository:
 | `worktree_dir` | the directory every linked worktree already shares; else the default |
 | `queues` | one `gate` queue, only if the project itself names a gate: a `package.json` script (run with the package manager its lockfile names) or a `Makefile` target called `gate`, `ci`, `check`, `verify` or `test`, best name first |
 
-It writes **no card** (a card's command runs by itself on every refresh) and no template. The
-only command it may write is the gate queue's, which runs only when you press **RUN**, and it
-prints it. JSON has no comments, so `init` prints the reason for each value instead. For a
-repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
+It invents **no card** (a card's command runs by itself on every refresh) and no template. The
+only command it writes of its own is the gate queue's, which runs only when you press **RUN**, and
+it prints it. JSON has no comments, so `init` prints the reason for each value instead.
+
+**A repository that runs Clauductor's operating model** (PANEL-18: the template `clauductor
+install` copies, recognised by `.claude/owner-queue.sh` or `.claude/roadmap-queue.sh`) also gets
+that model's own panel setup, the same as the template's preset, for the files it has:
+
+| File | Adds |
+|---|---|
+| `.claude/owner-queue.sh` | the pinned card **Owner queue**: `sh -c "sh .claude/owner-queue.sh 2>&1"`, refreshed on `watch:docs/owner-queue.md` |
+| `.claude/roadmap-queue.sh` | the pinned card **Change queue**: `sh -c "sh .claude/roadmap-queue.sh --text 2>&1"`, refreshed on `watch:docs/roadmap.md` |
+| either of those | the four lane templates **build**, **propose**, **fix** and **ops**, and the lanes they use (`change/` → `build`, `fix/` → `fix`, `ops/` → `ops`; a detected prefix mapped otherwise is changed, and said so) |
+| `.claude/panel-suggest.sh` | each template's **Up next** (`sh .claude/panel-suggest.sh <template>`); without it, the templates have none |
+| `scripts/ci/run-local.sh` | the `gate` queue on it, instead of a gate found in `package.json` or a `Makefile` (those are printed as "also found") |
+
+Each addition is printed with its reason, like every other value, and none of them runs before
+`clauductor panel trust`. Without those files, `init` prints one line more: cards and lane
+templates come with `clauductor install` (the operating model), or can be added by hand (see
+[Keys](#keys), [Pinned cards](#pinned-cards) and [Lane templates](#lane-templates)).
+
+For a repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
 
 ```text
 Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
@@ -190,6 +208,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
   queues        gate runs `make ci` (Makefile target "ci"), and only when you press RUN on the page; also found `pnpm run check`, `pnpm run test`
+  cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, "Keys": cards, templates)
 ```
 
 ### Versions
@@ -333,6 +352,29 @@ a title that opens to the rest of it.
 So a card that prints one item per line, with a short lead, reads best. A JSON card is drawn as
 in the drawer.
 
+A project with **no card at all** shows one line in the box's place instead of nothing (PANEL-18):
+"No cards yet. Add them in .clauductor/panel.json.", with **How cards work**, a link to the
+guide's [Cards](guide.md#cards) section (opened in a new tab, from the same address as the Help
+dialog's guide link). A project whose cards are all unpinned shows nothing there: its cards are in
+**Activity**.
+
+### When the cards may be stale
+
+Every card runs its command in the project's main checkout and watches its file there, so it
+shows what that checkout's branch has. When the branch is behind its upstream (someone merged,
+you have not pulled), the cards show old data without anything looking wrong. So while it is,
+one line above the cards, in the side panel's pinned box and in **Activity**, says so (PANEL-18):
+
+> main is 3 commits behind origin/main (as of last fetch) — cards may be stale
+
+It comes from the dashboard's own `git status --porcelain=v2 --branch` of the main checkout (see
+*What the panel reads, and when*), read like a lane's worktree while a page is in view, and only
+for a project with cards. The panel adds no `git fetch` for it: behind is counted against the
+local remote-tracking branch, as of the last fetch (yours, or the panel's when a lane starts or
+Close lane or Remove plans), hence "as of last fetch". There is no line when the branch is up to
+date or only ahead, when it has no upstream or HEAD is detached, or when git cannot be read.
+Pull in the main checkout, then **Refresh** (it re-reads git and every card at once).
+
 ## The page
 
 The page is built around lanes (PANEL-11). From the top: the status bar, the Needs-you rows (only
@@ -423,12 +465,15 @@ value just changed.
   reads "92%" (its hit ratio) while the cache is warm, "cold in 1:52" in amber in the last two
   minutes, and "cold" once it has gone cold. A table wider than the rail scrolls inside it,
   never the page, and while the rail runs past its foot a line there says "More below". A lane has one name
-  everywhere: a lane with a terminal is called what you named it when you started it.
+  everywhere: a lane with a terminal is called what you named it when you started it. Each lane the
+  panel started ends its row with **⋯**, its actions (see [From the lists](#from-the-lists)).
 - **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
   changed), each lane's claude session (state, uptime, context), and its agents, nested by which
   agent started which, with finished ones folded under "N finished". A worktree with no lane has
-  **Start lane here**, which opens the Start dialog on it. The rail's edge drags (or, focused,
+  **New lane here**, which opens the Start dialog on that worktree, to start a new claude session
+  there, and (except the main checkout) **Remove** ([Remove a worktree](#remove-a-worktree)); a
+  lane has **⋯**, its actions. The rail's edge drags (or, focused,
   moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
   width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
   and whether it shows are kept per browser; below 900 px it starts hidden.
@@ -564,9 +609,10 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 
 - **ps**, every 10 s: one `ps -o pid=,pcpu=,rss=` for the claude processes `claude agents` names.
   CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
-- **git**, every 30 s, for each worktree a lane runs in: one `git status --porcelain=v2 --branch`,
+- **git**, every 30 s (and on **Refresh**), for each worktree a lane runs in and, for a project
+  with cards, the main checkout the cards run in: one `git status --porcelain=v2 --branch`,
   plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
-  HEAD moved.
+  HEAD moved. No `git fetch`: ahead and behind are as of the last fetch.
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
@@ -626,7 +672,7 @@ pauses, while a workflow in a background session fails.
 **New lane** asks for a template (or none), a lane type (from `lanes` and `lane_types`), a lane
 name, and where it runs. Under each choice a line says what it is: a **template** is a recipe for
 one kind of work (it sets the lane type, names the branch and types a first prompt); a **lane
-type** is only how claude runs (its branch prefix, model and effort). **Start lane here** on a
+type** is only how claude runs (its branch prefix, model and effort). **New lane here** on a
 worktree picks that worktree's own lane type (`main` → `orchestrator`). When a template has a
 `suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
 
@@ -761,10 +807,30 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | **Resume** (orphans) | The same resume, for a lane whose tmux session is gone. It is refused while `claude agents` shows another process on that session id, or cannot be read. Two processes on one session would interleave its transcript. |
 | **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
 | **Close lane** (running lanes and orphans) | **Stop lane** exactly as above (for an orphan, **Forget**), then removes the lane's worktree and branch **when that loses nothing**. See [Close lane](#close-lane). |
+| **Remove** (a worktree with no lane, in the tree) | Close lane's cleanup without a lane: removes the worktree, and its branch when merged, **when that loses nothing** and no lane or claude session is in it. See [Remove a worktree](#remove-a-worktree). |
+| **New lane here** (a worktree with no lane, in the tree) | Opens the Start dialog on that worktree: a new lane, a new claude session there. |
 | **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
 Sent together, a long line can sit in claude's input box unsubmitted.
+
+#### From the lists
+
+Every lane the panel started (a lane with a terminal, running or orphaned) also has a **⋯**
+button (PANEL-18) at the end of its row in the **Lanes** table and beside its node in the
+**Worktrees** tree, so a lane can be stopped without selecting it first. Its menu has **Interrupt
+(Esc)**, **Restart** (registered lanes), **Stop lane** and **Close lane** for a running lane, and
+**Resume**, **Forget** and **Close lane** for an orphan. Picking one selects the lane and opens the
+same confirmation under its terminal that the button there opens, in words built from the lane's
+state at that moment; nothing is sent to the panel until **Confirm …** is pressed, and **Cancel**
+sends nothing. From the menu, **Interrupt** and **Resume** ask too, although their buttons under
+the terminal act at once: one stray click in a list must never act. A lane started outside the
+panel has no **⋯**: the panel has no terminal on it to stop.
+
+The **⋯** is a menu button in the WAI-ARIA pattern the project and Appearance menus follow:
+Enter, Space or ↓ opens it on its first item and ↑ on its last; ↑/↓/Home/End move; Enter or Space
+picks; Escape closes it back to its button; Tab or a click elsewhere closes it. A click on it
+neither selects its row nor reaches the row: the row still selects on its own click, Enter or Space.
 
 ### Close lane
 
@@ -799,6 +865,30 @@ In order:
    branch that is not merged stays, and the page says so.
 
 The conversation is never removed: `claude --resume <session id>` still opens it.
+
+### Remove a worktree
+
+A worktree with no lane, such as a clean detached worktree a closed session left behind, has
+**Remove** under it in the **Worktrees** tree, beside **New lane here** (PANEL-18). It is Close
+lane's cleanup without a lane to stop, with the same rules, the same plan first and the same
+check again when it acts: the confirmation, under the worktree, lists what **Removes** and what
+**Keeps**, and why, after a `git fetch`; **Confirm remove** sends back only what it offered, and
+the result shows above the lanes. The main checkout has no **Remove**.
+
+The worktree is removed with `git worktree remove` (never `--force`) only if everything Close
+lane checks holds (listed in `git worktree list`, not the main worktree, inside `worktree_dir`,
+not locked, clean with untracked files counted), and also:
+
+- **no lane is registered in it**, running or orphaned: that lane's **Close lane** is the control
+  for it;
+- **no claude session runs in it**: no entry of `claude agents --json` has its `cwd` in this
+  worktree (the deepest worktree containing the `cwd`, as the panel matches sessions everywhere),
+  which covers a session started in a terminal of your own. If `claude agents` cannot be read, it
+  stays: such a session could not be ruled out.
+
+Its local branch then goes only under Close lane's rules (merged into `base`, or the head of a
+merged pull request, deleted at the tip checked). A detached worktree has no branch, and the plan
+says so: "no branch: the worktree is detached (HEAD at …), so there is no branch to delete".
 
 
 ### Window size: the latest client wins
@@ -1634,13 +1724,23 @@ send requests to `127.0.0.1`.
   offered to remove. It carries no path, no branch name and no command; the worktree and branch
   are the lane's own, from the registry and `git worktree list`, and each is removed only if a
   check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
+- **Remove a worktree** (`POST /api/p/<project>/worktrees/remove`, PANEL-18) passes the same
+  guards: the cookie, this page's `Origin`, a strict body (unknown fields are refused). It is
+  served under `/api/p/<project>/` only. The body is `{"worktree": <key>, "dryRun": true}` for the
+  plan, or `{"worktree": <key>, "remove": …, "branch": …}` with what the confirmation offered.
+  The key is the one the page's state gave the worktree (its resolved path), and it must be an
+  **exact** entry of that project's `git worktree list` at that moment: anything else (a relative
+  path, a path inside a worktree, the same path spelled otherwise, a path the list lacks) is
+  refused before any command runs in it. It carries no branch name and no command; see
+  [Remove a worktree](#remove-a-worktree) for what is checked.
 - **The ingest endpoints** (`/hook`, `/status`) take no token, since a session cannot know it.
   They accept `POST` from a loopback peer only, refuse any request carrying `Origin` or
   `Sec-Fetch-Site` (Claude Code sends neither; a browser always does), cap the body at 256 KB,
   answer `204` before processing, and never execute anything. The worst a local process can do
   is post fake lane events.
 - **Every route is a project's** (PANEL-16). The actions are served under
-  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh), and
+  `/api/p/<project>/…` (lanes, a lane's actions, close, image and ticket, restore-all, the queues, refresh,
+  and since PANEL-18 worktrees/remove, which has no path without the project), and
   the streams take `?project=<id>` (`/events`, `/api/state`, `/ws/term`). Each passes the same
   guards as before: the Host check, the cookie, and for a POST this page's `Origin`; a test checks
   every one of them. A project the panel does not serve is 404. The paths before PANEL-16
