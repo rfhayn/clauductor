@@ -183,12 +183,16 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/evals.XXXXXX") || die "mktemp failed"
 [ -n "$keep" ] || trap 'rm -rf "$work"' EXIT
 trap 'rm -rf "$work"; exit 2' INT TERM
 
-# The agent as --agents JSON, with the model under test in place of its frontmatter's.
+# The agent as --agents JSON, with the model under test in place of its frontmatter's. An agent
+# with a `tools:` allowlist also gets StructuredOutput, the tool --json-schema answers through:
+# without it the review runs, but its findings come back as prose with structured_output null, and
+# every case scores as an error (found on the first real run, OPS-16). An agent with no tools line
+# has every tool, so nothing is added (an added entry would become its only tool).
 front=$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1' "$agent_md")
 body=$(awk 'n>=2{print} /^---$/{n++}' "$agent_md")
 fmv() { printf '%s\n' "$front" | sed -n "s/^$1:[[:space:]]*//p" | head -1 | sed 's/^"//; s/"$//'; }
 jq -n --arg n "$agent" --arg d "$(fmv description)" --arg p "$body" --arg t "$(fmv tools)" --arg m "$model" \
-  '{($n): {description: $d, prompt: $p, model: $m, tools: ($t | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)))}}' \
+  '{($n): {description: $d, prompt: $p, model: $m, tools: ($t | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | if length > 0 then . + ["StructuredOutput"] | unique else . end)}}' \
   > "$work/agents.json" || die "could not build the agent JSON from $agent_md"
 
 # build-change.js's REVIEW schema: the findings the workflow grades rounds by.

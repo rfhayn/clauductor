@@ -12,11 +12,20 @@
 #   dir:<path>   the findings array in <path>/<case id>.json, or none when that file is absent
 # EVAL_FAKE_COST is each run's total_cost_usd (default 0.25). EVAL_FAKE_LOG, when set, receives
 # each call's arguments and the `git diff HEAD --stat` it was run on.
-prompt=""; prev=""
+prompt=""; prev=""; agents=""; agent=""
 for a in "$@"; do
   [ "$prev" = "-p" ] && prompt=$a
+  [ "$prev" = "--agents" ] && agents=$a
+  [ "$prev" = "--agent" ] && agent=$a
   prev=$a
 done
+# As the real CLI does: an agent whose tools allowlist lacks StructuredOutput cannot answer
+# --json-schema, so its result has no structured_output (OPS-16 found this on a real run).
+if [ -n "$agents" ] && [ -n "$agent" ] && [ -f "$agents" ] && jq -e --arg a "$agent" \
+     '(.[$a].tools // []) as $t | ($t | length) > 0 and ($t | index("StructuredOutput")) == null' "$agents" >/dev/null 2>&1; then
+  jq -cn '{type: "result", subtype: "success", is_error: false, result: "a prose review", structured_output: null, total_cost_usd: 0.25, usage: {}}'
+  exit 0
+fi
 id=$(basename "${EVAL_CASE_DIR:-unknown}")
 if [ -n "${EVAL_FAKE_LOG:-}" ]; then
   { echo "== $id"; printf 'arg: %s\n' "$@"; git diff HEAD --stat 2>/dev/null | tail -1; } >> "$EVAL_FAKE_LOG"
