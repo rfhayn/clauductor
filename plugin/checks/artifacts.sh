@@ -299,8 +299,11 @@ grep -qE 'BEHIND +docs/page.html' "$d/err" && grep -q 'src/\*\*/\*.md (sub/b.md)
 gd 0 ops/other-tooling "$HD" "MIRROR: ALLOWS a branch that is not a session close, with the same BEHIND artifact"
 case "$gout" in *"currency.sh"*) fail "a non-close branch got a currency advisory: $gout" ;; *) ok "guard rule MIRROR: ...and says nothing there" ;; esac
 # Falsified by matching ops/session-*: the tooling branches go red.
-for b in ops/session-start-x ops/session-plan-gate-fixes ops/session-71-cleanup; do gd 0 "$b" "$HD" "MIRROR: ALLOWS the session TOOLING branch $b"; done
-for b in ops/session-93-close-addendum ops/session-94-close-2; do gd 2 "$b" "$HD" "BLOCKS the close variant $b"; done
+# The branch scoping is the rule's own: asked of the rule directly (the hook around it is proven
+# above), which keeps this check inside the plugin suite's time budget.
+rule() { (cd "$R" && ROOT="$R" GUARD_BRANCH="$1" GUARD_HEAD="$2" GUARD_PR=999 sh "$R/.claude/modules/artifacts/guard.d/currency.sh") >/dev/null 2>&1; echo $?; }
+for b in ops/session-start-x ops/session-plan-gate-fixes ops/session-71-cleanup; do expect_rc 0 "$(rule "$b" "$HD")" "guard rule MIRROR: ALLOWS the session TOOLING branch $b"; done
+for b in ops/session-93-close-addendum ops/session-94-close-2; do expect_rc 2 "$(rule "$b" "$HD")" "guard rule: BLOCKS the close variant $b"; done
 gd 2 ops/session-9-close "$HD" "FAILS CLOSED when the check cannot finish in time" ARTIFACT_RULE_SECONDS=0
 grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it was stopped" || fail "guard timeout text: $(head -3 "$d/err")"
 # A real overrun, past currency.sh's start: a jq that takes 2 s, a 1 s budget. The rule is run on
