@@ -68,7 +68,10 @@ close to merge conflicts, deliberately (it forces step 6's merge of `origin/main
 - **The owner queue**: anything left that needs the owner at the computer, as a `- [ ]` line with
   the date and what it needs first; tick what this session did.
 - **`/clauductor:dev-journal`** last, once the facts are settled: number and author from the Context block's
-  `Journal:` line.
+  `Journal:` line. Put the Context block's **Flow** line and this session's cost total (its
+  `usage-report.sh` table, by role and model) in the entry: the model chosen for each role is a
+  hypothesis until its cost sits next to what the role caught. A `CANNOT CHECK` there is said as
+  such, never as $0.
 
 ### 3b. Compound: feed the lessons back into the rules
 The Context block's **Compound** section lists every insight still `Raw`, oldest first, with the

@@ -16,7 +16,7 @@ d=$(scratch)
 EX="$CLAUDUCTOR_FW/examples"
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$R/.claude/lib/"
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/usage.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/change-approval.sh" "$CLAUDUCTOR_FW/verify-change.sh" "$CLAUDUCTOR_FW/scenario-trace.sh" \
    "$CLAUDUCTOR_FW/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
