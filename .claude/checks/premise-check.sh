@@ -224,6 +224,8 @@ merge 2 "a PR with a receipt for one of two issues (the union)" "Closes #409. Fi
 
 premise-check: #409 @ $(printf '%s' "$GH" | cut -c1-12)" "409"
 has yes "fixes #410 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...names the one without"
+merge 2 "a PR whose issue only GitHub's closing list names (not its body or title)" "Tidy the card." "77" "Tidy the card"
+has yes "fixes #77 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...GitHub's closing list counts"
 merge 0 "a fix/ PR that closes and names no issue" "Tidy." "" "Tidy a comment"
 has yes "closes no issue and names none in its title" "$(cat "$d/err")$out" "guard rule: ...and says there was no premise to check"
 merge 0 "an ops/ PR (not PREMISE_REQUIRED_ON)" "Fixes #12, no receipt." "12" "Tidy" "ops/tidy"
@@ -249,5 +251,12 @@ has yes "Fix GitHub issue {issue}. Before fixing, run the premise check, sh $PC 
 has no "premise" "$(jq -r '.templates[1].first_prompt' "$E/.clauductor/panel.json")" "enable.sh: ...and no other lane's prompt changes"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
 [ "$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json")" = "$p" ] && ok "enable.sh: a second run changes nothing" || fail "enable.sh: a second run changes nothing: it added the sentence again"
+# Two fix lanes, one already running the check: only the other gains the sentence.
+jq --arg p "$p" '.templates += [{id: "fix2", lane_type: "fix", first_prompt: "Fix {issue} quickly."}]' "$E/.clauductor/panel.json" > "$d/panel2" && mv "$d/panel2" "$E/.clauductor/panel.json"
+(cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
+n1=$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+n2=$(jq -r '.templates[2].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+[ "$n1:$n2" = "1:1" ] && ok "enable.sh: a lane that already runs the check is left alone while another gains it" \
+  || fail "enable.sh: a lane that already runs the check is left alone while another gains it: counts $n1:$n2"
 out=$(cd "$E" && sh .claude/modules/premise-check/enable.sh --check 2>&1) && has yes "ok   every fix lane" "$out" "enable.sh --check: passes once the fix lane runs it" || fail "enable.sh --check: passes once the fix lane runs it: it did not: $out"
 finish
