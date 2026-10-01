@@ -99,14 +99,14 @@ atomically). It is the machine's file, not a repository's: nothing in a reposito
 project, choose its socket, or make it the default.
 
 ```json
-{ "version": 1, "default": "standingt",
-  "projects": [ { "id": "standingt", "root": "/Users/me/Development/StandingT",
+{ "version": 1, "default": "standing-tee",
+  "projects": [ { "id": "standing-tee", "root": "/Users/me/Development/standingtee",
                   "config": "", "tmux_socket": "clauductor", "added": 1790000000 } ] }
 ```
 
 - **A project is one repository**, named by its main worktree. `panel add` refuses a linked
   worktree (add its main one) and a path already registered, through a symlink too. Its `id`
-  (`[a-z0-9][a-z0-9-]{0,40}`) comes from the config's `name` (`StandingT` is `standingt`), or
+  (`[a-z0-9][a-z0-9-]{0,40}`) comes from the config's `name` (`Standing Tee` is `standing-tee`), or
   `--id`; it names the project in routes and in the page. The files of a project stay where they
   were, keyed by a hash of its path (the lane registry, trust, notifications).
 - **Adding is not trusting.** `panel add` loads and checks the config, and prints whether it is

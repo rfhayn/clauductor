@@ -7,7 +7,7 @@
 
 ## Context
 The panel began as one process per project (`clauductor panel` in a repo, one port, one tmux
-socket). The owner runs StandingT and clauductor side by side, and quota, cost and notifications
+socket). The owner runs Standing Tee and clauductor side by side, and quota, cost and notifications
 are per person, not per repo. Two panels would split the quota picture, contend for the launchd
 agent and the default port, and double the notifications.
 

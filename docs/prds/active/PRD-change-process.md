@@ -1,7 +1,7 @@
 # PRD: The change process (OPS-7), and adopting it in an existing project
 
 **Status:** decided 2026-09-30. OPS-7 items 1–17 and the economy-mode mapping are built (branch
-`feature/OPS-7-change-process`, on OPS-1 #19); see *OPS-7: what was built*. StandingT adopts it
+`feature/OPS-7-change-process`, on OPS-1 #19); see *OPS-7: what was built*. Standing Tee adopts it
 after everything below has shipped.
 
 ## Why
@@ -14,7 +14,7 @@ open:
 2. Does Claude Code have something built in that replaces it?
 3. How do behaviour specs connect to tests?
 
-StandingT, where the process was proven, has to be able to adopt the result without losing
+Standing Tee, where the process was proven, has to be able to adopt the result without losing
 anything.
 
 ## What the research found (2026-09-30)
@@ -94,8 +94,8 @@ The full survey, with sources, is in the session record (market research, 2026-0
     or asks for the binary or the panel. It is falsified by adding a hard `clauductor` call to a
     gate step.
   - The playbook and `AGENTS.md`'s "what executes" table name it.
-  - At convergence, StandingT gets the same check, beside its existing gate-lock conformance test.
-    This matters there because its designer works without clauductor, and possibly on Windows.
+  - At convergence, Standing Tee gets the same check, beside its existing gate-lock conformance
+    test. This matters there because its designer works without clauductor, and possibly on Windows.
 - **Not adopted:**
   - executable Gherkin as a default; it stays an opt-in module, and its tags reuse the D3 IDs;
   - Spec Kit's layout;
@@ -156,7 +156,7 @@ measurement, security hygiene and outcomes. The owner chose the following.
     - A secret-scanning step (gitleaks) goes in `scripts/ci/run-local.sh`, and a receipt is
       written only if it is clean.
     - A Dependabot or Renovate config with a minimum release age.
-    - A scheduled dependency-audit workflow, upstreamed from StandingT's `audit.yml`, with an
+    - A scheduled dependency-audit workflow, upstreamed from Standing Tee's `audit.yml`, with an
       advisories health line.
 12. **A cost budget per change** (Shape Up's appetite).
     - A roadmap row can carry `Budget: $N`, and `proposal.md` repeats it.
@@ -246,7 +246,7 @@ adaptation. The owner adopted all four of the following.
       low risk and opus/xhigh for high.
     - `build-change` picks the variant for the declared tier.
     - `checks/model-roles.sh` covers the variants.
-- **Cost per role** (in OPS-9). StandingT's `usage-report.mjs` (cost per role and model, from
+- **Cost per role** (in OPS-9). Standing Tee's `usage-report.mjs` (cost per role and model, from
   transcripts) is upstreamed as a portable script. Its output feeds the Metrics view's Cost tab.
 - **Evals across models** (in OPS-10).
   - The reviewer's seeded-defect suite runs on each model and effort combination. Roles are chosen
@@ -279,7 +279,7 @@ Metrics appear at three depths:
   draws. The panel stays standalone. A repo without the template still gets merge frequency, PR
   cycle time and spend, which the panel computes itself from git, `gh` and status posts.
 
-Later, at StandingT's go-live, and otherwise as needed: feature flags, SLOs, postmortems,
+Later, at Standing Tee's go-live, and otherwise as needed: feature flags, SLOs, postmortems,
 runbooks, the risk register, flaky-test quarantine, contract tests, SBOM/SLSA, retros, mutation and
 property testing, a STRIDE section for changes that cross a trust boundary, and a cap on lanes.
 
@@ -347,15 +347,15 @@ found seven things worth taking. Where each is built:
 
 ## OPS-8: clauductor runs its own operating model
 
-This comes after OPS-7 and before StandingT converges, as the rehearsal. Clauductor's own repo still
-runs the old lock-based skills, has no ADRs, and does not use the model it ships.
+This comes after OPS-7 and before Standing Tee converges, as the rehearsal. Clauductor's own repo
+still runs the old lock-based skills, has no ADRs, and does not use the model it ships.
 
 - **Install the model into this repo**, and replace the old skills (claim, spawn, supervisor and the
   rest).
   - `AGENTS.md`, `project.conf` and `model-roles.json`, with the owner named. The commit trailer is
     **off**, to keep this repo's rule.
   - The roadmap rows carry the milestone ids (PANEL-n, OPS-n, REL-n).
-- **Session start and session close run here as in StandingT:**
+- **Session start and session close run here as in Standing Tee:**
   - the context scripts;
   - merging own PRs through `merge-pr`, with evidence and a converged review;
   - archiving;
@@ -374,27 +374,28 @@ runs the old lock-based skills, has no ADRs, and does not use the model it ships
 - **The panel:** clauductor becomes the second project in the owner's panel, the first real
   multi-repo use.
 - **Everything OPS-8 surfaces** (friction in install, update, the guard or the skills) is fixed in
-  the template before StandingT's Phase 0.
+  the template before Standing Tee's Phase 0.
 
-## Adopting it in StandingT (after OPS-8)
+## Adopting it in Standing Tee (after OPS-8)
 
-StandingT keeps working as it is throughout. Every step below is an ordinary StandingT `ops/` PR
-through `/merge-pr`.
+Standing Tee keeps working as it is throughout. Every step below is an ordinary Standing Tee
+`ops/` PR through `/merge-pr`.
 
 - **Phase 0: the convergence map.** This is read-only.
-  - Diff each file that exists in both StandingT and the template. `clauductor install --dry-run`
+  - Diff each file that exists in both Standing Tee and the template. `clauductor install --dry-run`
     listed 25 of them on 2026-09-30.
   - Classify each file one of three ways:
     - take the template's version;
-    - move StandingT's additions into config, a module or the local layer;
+    - move Standing Tee's additions into config, a module or the local layer;
     - upstream to the template first.
-  - List every record format where StandingT and the template differ. Examples: the journal heading
-    (`## Session N — date — author — focus`), the insight row (with Area and Topic, and StandingT's
-    full status vocabulary), and the roadmap's Phase/Gate grammar with owner and started lines.
+  - List every record format where Standing Tee and the template differ. Examples: the journal
+    heading (`## Session N — date — author — focus`), the insight row (with Area and Topic, and
+    Standing Tee's full status vocabulary), and the roadmap's Phase/Gate grammar with owner and
+    started lines.
   - For each one, decide one of: the template parser accepts both, the format becomes a setting, or
-    the skill stays StandingT's own.
-  - **Existing records are never reformatted.** StandingT's roadmap, specs, archive, ADRs, journal,
-    insights, owner queue and registries stay exactly where they are.
+    the skill stays Standing Tee's own.
+  - **Existing records are never reformatted.** Standing Tee's roadmap, specs, archive, ADRs,
+    journal, insights, owner queue and registries stay exactly where they are.
   - **List the designer onboarding sections each change touches.** The files are
     `docs/onboarding-designer.md` and `docs/designer-welcome.html`. Both are written for a second
     contributor, and neither mentions the panel or clauductor today.
@@ -407,7 +408,7 @@ through `/merge-pr`.
     - The designer's lane, the tokens, the app setup, the tools and the first task are unaffected.
 - **Phase 1: extension points in clauductor.**
   - Install and update merge `settings.json` instead of overwriting it.
-  - Optional modules for StandingT's extras:
+  - Optional modules for Standing Tee's extras:
     - claude.ai artifacts and their currency (guard rule 8);
     - premise-check (rule 6);
     - write surfaces (rule 5);
@@ -416,14 +417,14 @@ through `/merge-pr`.
   - A project-local layer for health lines, guard rules and context sections that installs never
     overwrite.
   - A new `clauductor diff` command.
-- **Phase 2: upstream.** Whatever the map marks as generic and better in StandingT moves into the
+- **Phase 2: upstream.** Whatever the map marks as generic and better in Standing Tee moves into the
   template.
 - **Phase 3: converge, file by file.**
   - Set `CHANGES_DIR=openspec/changes` and `SPECS_DIR=openspec/specs`, so no folders move.
   - Existing scenarios need no IDs. D4 applies only to scenarios that a change adds or modifies,
     and a backfill can come later.
-  - StandingT's vitest meta-tests stay alongside the template's shell checks.
-  - Add the D10 check (`no-clauductor`) to StandingT's gate.
+  - Standing Tee's vitest meta-tests stay alongside the template's shell checks.
+  - Add the D10 check (`no-clauductor`) to Standing Tee's gate.
   - **Each PR that changes something the designer meets updates the matching onboarding section in
     the same PR,** using the Phase 0 list. The whole revision reaches the designer as one change,
     not a series.
@@ -431,7 +432,7 @@ through `/merge-pr`.
     install is a released download or Homebrew, not a source build.
     - Add an optional §5.9, "The panel (recommended on a Mac)": why it helps design work (dropping
       images into a lane, session status and notifications, lanes that survive, remote control),
-      the install, and `panel init`, `trust` and `add` for StandingT. It also says to skip the
+      the install, and `panel init`, `trust` and `add` for Standing Tee. It also says to skip the
       panel on Windows, and that nothing else depends on it.
     - The welcome page gains one optional checklist item.
     - Open: whether the designer uses a Mac or Windows. That decides between "recommended" and
@@ -441,13 +442,13 @@ through `/merge-pr`.
       localStorage only.
 - **Phase 4: hand-over.**
   - Write `.claude/clauductor-template`.
-  - From then on, `clauductor update` keeps StandingT current, and StandingT-specific parts live in
-    config, modules and the local layer.
+  - From then on, `clauductor update` keeps Standing Tee current, and Standing Tee-specific parts
+    live in config, modules and the local layer.
 
 ## Open
 
 - ~~**`TEST_GLOBS` defaults**~~ Decided in OPS-7: `*_test.go *.test.* *.spec.* test_*.py
   *_test.py tests/ test/ __tests__/ spec/`, over the files git knows, CHANGES_DIR and SPECS_DIR
   excluded.
-- **A backfill tool** that proposes IDs for existing scenarios, for StandingT's living specs.
+- **A backfill tool** that proposes IDs for existing scenarios, for Standing Tee's living specs.
   Optional, and Phase 3 or later.

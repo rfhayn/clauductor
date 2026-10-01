@@ -6,7 +6,7 @@
 - **Source**: PRD-change-process D10 (OPS-12, #23); built in OPS-8
 
 ## Context
-StandingT's designer works without clauductor, possibly on Windows. If a gate step, a hook or a
+Standing Tee's designer works without clauductor, possibly on Windows. If a gate step, a hook or a
 skill quietly called the binary or the panel, the repository would work for the owner and break
 for every other contributor, and nothing on the owner's machine would show it.
 
@@ -36,4 +36,4 @@ hard call in `steps.sh`, and in `statusline.sh`, each failed the check). Named i
 and the playbook. This repo's own gate runs it, and its plugin step uses `go run`, not the binary.
 
 ## Related
-- ADR-0007; StandingT gets the same check at convergence (roadmap ST-3)
+- ADR-0007; Standing Tee gets the same check at convergence (roadmap ST-3)
