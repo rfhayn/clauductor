@@ -16,6 +16,8 @@ clauductor/
 │   ├── .claude/skills/  ← Orchestration skills
 │   ├── .claude/agents/  ← Agent definitions
 │   └── docs/            ← Project doc templates
+├── plugin/              ← GENERATED from template/ (scripts/build-plugin.sh): the Claude Code plugin
+├── .claude-plugin/      ← marketplace.json listing plugin/ (docs/plugin.md)
 ├── docs/                ← Framework's own docs & PRDs
 └── install.sh           ← Build + install script
 ```

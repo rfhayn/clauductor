@@ -1,0 +1,27 @@
+{
+  "id": "py-token-expiry-untested",
+  "lang": "py",
+  "kind": "defect",
+  "charter": "a scenario with no test",
+  "title": "Verify session tokens",
+  "brief": "Add verify(secret, token, now) for the session tokens sign() issues. Scenarios, each with a test: a valid token returns its user; a tampered token is rejected; an EXPIRED token (now at or past expires_at) is rejected.",
+  "tasks": [
+    "Add auth.tokens.verify",
+    "Test each of the three scenarios"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "high",
+      "file": "tests/test_tokens.py",
+      "lines": [
+        1,
+        16
+      ],
+      "keywords": [
+        "expir"
+      ],
+      "why": "The expired-token scenario has no test: deleting the `int(expires_at) <= now` check leaves every test green, and a token would then live forever."
+    }
+  ]
+}

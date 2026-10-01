@@ -1,0 +1,13 @@
+{
+  "id": "go-clean-extract-helper",
+  "lang": "go",
+  "kind": "clean",
+  "charter": "control: a behaviour-preserving refactor",
+  "title": "Line totals as a method",
+  "brief": "The invoice PDF needs each line's total. Extract Line.Total() from Subtotal and use it there; Subtotal's behaviour is unchanged and its test stays.",
+  "tasks": [
+    "Add Line.Total and use it in Subtotal",
+    "Test Line.Total"
+  ],
+  "expected": []
+}

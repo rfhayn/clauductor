@@ -1,0 +1,51 @@
+{
+  "description": "Clauductor's operating-model hooks. Each runs only in a repository /clauductor:init set up (.claude/clauductor-plugin).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" format.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" pr-merge-guard.sh",
+            "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-blind-source-rewrite.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/plugin-session.sh\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" focus-staleness.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

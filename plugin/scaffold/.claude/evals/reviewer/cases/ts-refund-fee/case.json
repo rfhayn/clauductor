@@ -1,0 +1,42 @@
+{
+  "id": "ts-refund-fee",
+  "lang": "ts",
+  "kind": "defect",
+  "charter": "wrong money",
+  "title": "Late refund fee",
+  "brief": "Refunds requested more than 30 days after the charge keep a 5% fee: the customer receives 95% of the refund. The charge records how much has left the business as refundedCents, which can never exceed amountCents.",
+  "tasks": [
+    "Add the late fee to refund()",
+    "Test a late refund and an on-time one"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "src/refunds.ts",
+      "lines": [
+        24,
+        25
+      ],
+      "keywords": [
+        "fee"
+      ],
+      "why": "The fee is ADDED to refundedCents instead of kept back: a late refund of 4000 records 4200 as refunded (the customer is shorted nothing, the ledger overstates), and the sum can pass amountCents, which the remainder check then no longer bounds."
+    },
+    {
+      "id": "D2",
+      "severity": "high",
+      "file": "src/refunds.test.ts",
+      "lines": [
+        6,
+        13
+      ],
+      "keywords": [
+        "late",
+        "30 days",
+        "fee"
+      ],
+      "why": "The task names a late-refund test; there is none, so the fee arithmetic is untested."
+    }
+  ]
+}

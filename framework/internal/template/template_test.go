@@ -1,6 +1,7 @@
 package template
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,62 @@ func TestTemplatePanelConfigLoads(t *testing.T) {
 	}
 	if _, err := config.ParseConfig(raw); err != nil {
 		t.Fatalf("template/.clauductor/panel.json is not a valid panel config: %v", err)
+	}
+}
+
+// The command the template's panel preset runs for the Metrics view and the Flow card (OPS-9):
+// .claude/metrics.sh prints the panel's metrics JSON. `sh -c … 2>&1` as the preset's cards do;
+// metrics.sh discards its own stderr, so the fold cannot reach the JSON (checks/metrics.sh holds it).
+var templateMetrics = struct {
+	Command []string
+	Refresh string
+}{[]string{"sh", "-c", "sh .claude/metrics.sh 2>&1"}, "interval:600"}
+
+// TODO (OPS-9): the preset gains `"metrics": {"command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"],
+// "refresh": "interval:600"}` once this panel's config knows the key (PANEL-19, config version 4).
+// Until then the key would fail TestTemplatePanelConfigLoads, so it is not there yet. This test is
+// the reminder that executes itself: the moment config.Fields has `metrics`, it fails, naming the
+// block to add and the version to declare, until the preset carries it.
+func TestTemplatePanelMetricsCommand(t *testing.T) {
+	root := repoRoot(t)
+	if _, err := os.Stat(filepath.Join(root, "template", ".claude", "metrics.sh")); err != nil {
+		t.Fatalf("the metrics command names template/.claude/metrics.sh: %v", err)
+	}
+	need := 0
+	for _, f := range config.Fields {
+		if f.Path == "metrics" {
+			need = f.Version
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "template", ".clauductor", "panel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preset struct {
+		Version int `json:"version"`
+		Metrics *struct {
+			Command []string `json:"command"`
+			Refresh string   `json:"refresh"`
+		} `json:"metrics"`
+	}
+	if err := json.Unmarshal(raw, &preset); err != nil {
+		t.Fatal(err)
+	}
+	if need == 0 {
+		if preset.Metrics != nil {
+			t.Fatal("template/.clauductor/panel.json has \"metrics\", which this panel's config does not know yet (PANEL-19)")
+		}
+		return
+	}
+	const want = `"metrics": {"command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"], "refresh": "interval:600"}`
+	if preset.Metrics == nil {
+		t.Fatalf("the panel config now knows \"metrics\" (version %d): add %s to template/.clauductor/panel.json, set its \"version\" to at least %d, delete the TODO (OPS-9) above, and rebuild the plugin (scripts/build-plugin.sh)", need, want, need)
+	}
+	if strings.Join(preset.Metrics.Command, "\x00") != strings.Join(templateMetrics.Command, "\x00") || preset.Metrics.Refresh != templateMetrics.Refresh {
+		t.Fatalf("template/.clauductor/panel.json \"metrics\" is %+v, want %s", *preset.Metrics, want)
+	}
+	if preset.Version < need {
+		t.Fatalf("template/.clauductor/panel.json declares version %d; \"metrics\" needs %d", preset.Version, need)
 	}
 }
 

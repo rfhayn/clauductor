@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/template"
 )
 
 // A repository can run its own operating model — skills, hooks and scripts with the same names as
@@ -54,16 +56,27 @@ func foreignModel(targetDir, tmplDir string, files []string) (overwrite, add []s
 			break
 		}
 	}
+	// Compare where the project keeps each file (its project.conf may move the gate); an
+	// unreadable mapping falls back to the template's paths, which only over-reports.
+	var pm *template.PathMap
+	if conf, err := template.LoadConf(targetDir, tmplDir); err == nil {
+		pm, _ = conf.Mapping(files)
+	}
 	for _, rel := range files {
-		dst := filepath.Join(targetDir, rel)
-		if !fileExists(dst) {
-			if own && classifyFile(rel) == tierFramework {
-				add = append(add, rel)
-			}
+		t := classifyFile(rel)
+		if t != tierFramework && t != tierSettings {
+			continue // docs are kept and CLAUDE.md is merged: never replaced
+		}
+		dest, _, skip := pm.Resolve(rel)
+		if skip != "" {
 			continue
 		}
-		if classifyFile(rel) != tierFramework {
-			continue // docs are kept and CLAUDE.md is merged: never replaced
+		dst := filepath.Join(targetDir, filepath.FromSlash(dest))
+		if !fileExists(dst) {
+			if own {
+				add = append(add, dest)
+			}
+			continue
 		}
 		have, err := os.ReadFile(dst)
 		if err != nil {
@@ -74,7 +87,7 @@ func foreignModel(targetDir, tmplDir string, files []string) (overwrite, add []s
 			return nil, nil, err
 		}
 		if !bytes.Equal(have, want) {
-			overwrite = append(overwrite, rel)
+			overwrite = append(overwrite, dest)
 		}
 	}
 	sort.Strings(overwrite)
@@ -89,6 +102,10 @@ func refuseForeign(verb, targetDir string, overwrite, add []string) error {
 	if len(overwrite) > 0 {
 		fmt.Fprintf(&b, "\nIt would OVERWRITE %d file(s) the project has changed:\n", len(overwrite))
 		for _, f := range overwrite {
+			if f == template.SettingsPath {
+				fmt.Fprintf(&b, "    ~ %s (merged: the model's hooks, status line and entries updated, the project's keys kept)\n", f)
+				continue
+			}
 			fmt.Fprintf(&b, "    ~ %s\n", f)
 		}
 	}
@@ -98,8 +115,31 @@ func refuseForeign(verb, targetDir string, overwrite, add []string) error {
 			fmt.Fprintf(&b, "    + %s\n", f)
 		}
 	}
+	if files, err := template.ListTemplateFiles(); err == nil {
+		for _, w := range template.SkillCollisions(targetDir, files) {
+			fmt.Fprintf(&b, "\nWARNING: %s\n", w)
+		}
+	}
+	b.WriteString("\nTo see every difference, file by file and key by key: clauductor diff.\n")
 	b.WriteString("\nThe panel needs none of this: `clauductor panel` works in any repository as it is.\n" +
 		"To borrow one piece, copy it from the template by hand. To replace the project's model\n" +
 		"with the template's anyway, run again with --force (commit first: it overwrites).")
 	return fmt.Errorf("%s", b.String())
+}
+
+// pluginMarker is what the clauductor plugin's /clauductor:init writes: the repository runs the
+// model from the plugin (docs/plugin.md).
+const pluginMarker = ".claude/clauductor-plugin"
+
+// refusePluginModel refuses install and update in a repository that runs the model from the
+// plugin. Installing the framework files too would register every hook twice and give each
+// skill two copies that drift apart.
+func refusePluginModel(verb, targetDir string) error {
+	if !fileExists(filepath.Join(targetDir, pluginMarker)) {
+		return nil
+	}
+	return fmt.Errorf("%s refused: %s runs the operating model from the clauductor Claude Code plugin (%s).\n"+
+		"Run one or the other, not both (docs/plugin.md, Running both). To switch this repository to\n"+
+		"`clauductor install`, uninstall or disable the plugin here and delete %s, then run again;\n"+
+		"--force installs anyway", verb, targetDir, pluginMarker, pluginMarker)
 }

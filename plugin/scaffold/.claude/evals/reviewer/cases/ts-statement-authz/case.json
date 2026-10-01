@@ -1,0 +1,31 @@
+{
+  "id": "ts-statement-authz",
+  "lang": "ts",
+  "kind": "defect",
+  "charter": "cross-account access",
+  "title": "Download a statement PDF",
+  "brief": "Account holders download each monthly statement as a PDF from /accounts/:accountId/statements/:id.pdf. Same access rule as the statement list: only the account's own users, and a 404 otherwise. The route tests live in the API suite (a later group).",
+  "tasks": [
+    "Add the statement PDF route"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "src/routes/statements.ts",
+      "lines": [
+        20,
+        26
+      ],
+      "keywords": [
+        "requireaccount",
+        "authoriz",
+        "another account",
+        "any user",
+        "owner",
+        "accountid"
+      ],
+      "why": "The PDF route never calls requireAccount and loads the statement by id alone, so any signed-in user can download any account's statement by guessing ids."
+    }
+  ]
+}
