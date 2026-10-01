@@ -1,0 +1,18 @@
+# The gate's secret scan (scripts/ci/run-local.sh, the "secrets" step) runs gitleaks with its
+# default rules plus this allowlist. Each entry is a known non-secret, named with why, so the scan
+# stays strict everywhere else (an allowlist that grows by guessing hides real leaks).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets in clauductor"
+paths = [
+  # Vendored, minified third-party code (xterm.js): not ours to edit, and its bundles trip the
+  # generic-api-key rule on identifier-like strings.
+  '''framework/internal/panel/web/vendor/''',
+]
+regexes = [
+  # RFC 6455's sample Sec-WebSocket-Key ("the sample nonce", base64), used by the terminal tests.
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+]

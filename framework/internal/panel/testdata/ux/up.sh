@@ -68,7 +68,10 @@ chmod +x "$D/bin/"*
 C="$D/bin/clauductor"
 
 s1="ux-$runid-1" s2="ux-$runid-2" s3="ux-$runid-3"
-printf '%s\n' "$s1" "$s2" "$s3" > "$D/sockets"
+# PANEL-22: s4 is Delta's, written into the config the page creates before it is trusted
+# (flows); s5 Epsilon's; s6 Zeta's.
+s4="ux-$runid-4" s5="ux-$runid-5" s6="ux-$runid-6"
+printf '%s\n' "$s1" "$s2" "$s3" "$s4" "$s5" "$s6" > "$D/sockets"
 
 P="$D/projects"
 A="$P/alpha" B="$P/beta" G="$P/gamma"
@@ -150,12 +153,35 @@ cat > "$G/.clauductor/panel.json" <<JSON
 JSON
 git -C "$G" init -q -b main && git -C "$G" add -A && git -C "$G" commit -q -m "Start Gamma"
 
+# PANEL-22, Add a project…: Delta has no panel config (the init preview; the flows add it
+# live, then remove it); Epsilon has one (its trust report) and is never registered by
+# up.sh; Zeta is registered but untrusted (Trust config…, and a project that can be
+# removed: it has no lane).
+Dl="$P/delta" E="$P/epsilon" Z="$P/zeta"
+mkdir -p "$Dl" "$E/.clauductor" "$Z/.clauductor"
+git -C "$Dl" init -q -b main && git -C "$Dl" commit -q --allow-empty -m "Start Delta"
+cat > "$E/.clauductor/panel.json" <<JSON
+{ "name": "Epsilon", "version": 5, "base": "main", "tmux_socket": "$s5", "lanes": { "main": "orchestrator", "change/": "build" },
+  "alerts": { "notify": false },
+  "cards": [ { "id": "todo", "title": "To do", "pin": true, "refresh": "interval:3600", "command": ["printf", "nothing yet\\n"] } ],
+  "templates": [ { "id": "build", "title": "Build a change", "lane_type": "build", "branch_pattern": "change/{name}", "first_prompt": "/build-change {name}" } ],
+  "queues": [ { "id": "gate", "title": "Gate", "lock": "clauductor/gate.lock", "command": ["sh", "scripts/ci/gate.sh"] } ] }
+JSON
+git -C "$E" init -q -b main && git -C "$E" add -A && git -C "$E" commit -q -m "Start Epsilon"
+cat > "$Z/.clauductor/panel.json" <<JSON
+{ "name": "Zeta", "version": 5, "base": "main", "tmux_socket": "$s6", "lanes": { "main": "orchestrator" }, "alerts": { "notify": false },
+  "cards": [ { "id": "health", "title": "Health", "refresh": "interval:3600", "command": ["printf", "zeta ok\\n"] } ] }
+JSON
+git -C "$Z" init -q -b main && git -C "$Z" add -A && git -C "$Z" commit -q -m "Start Zeta"
+
 A=$(cd "$A" && pwd -P) B=$(cd "$B" && pwd -P) G=$(cd "$G" && pwd -P)
+Dl=$(cd "$Dl" && pwd -P) E=$(cd "$E" && pwd -P) Z=$(cd "$Z" && pwd -P)
 "$C" panel add --project "$A" --default >"$D/add.log" 2>&1
 "$C" panel trust --project "$A" >>"$D/add.log" 2>&1
 "$C" panel add --project "$B" >>"$D/add.log" 2>&1
 "$C" panel trust --project "$B" >>"$D/add.log" 2>&1
 "$C" panel add --project "$G" >>"$D/add.log" 2>&1
+"$C" panel add --project "$Z" >>"$D/add.log" 2>&1
 printf '{ "name": "Gamma", "version": 3, "tmux_socket": "%s", "lanes": { "main": ' "$s3" > "$G/.clauductor/panel.json"
 # PANEL-19: remote control in lanes mode, the machine's choice `panel install` records,
 # under the temp HOME: each lane starts with --remote-control and its ⋯ has Remote control.
@@ -336,7 +362,7 @@ else
 fi
 trap - ERR
 
-out=$(printf '{"runid":"%s","base":"%s","token":"%s","home":"%s","dir":"%s","pid":%s,"bin":"%s","sockets":["%s","%s","%s"],"projects":{"alpha":"%s","beta":"%s","gamma":"%s"},"lanes":{"alpha":[%s],"beta":["beta-one"]},"leftovers":["%s","%s"],"typedLog":"%s","budget":%s,"started":%s,"lifecycle":%s}' \
-  "$runid" "$base" "$tok" "$HOME" "$D" "$pid" "$C" "$s1" "$s2" "$s3" "$A" "$B" "$G" "$lanes" "$WT/leftover-clean" "$WT/leftover-dirty" "$HOME/typed.log" "$supports_budget" "$started" "$lifecycle")
+out=$(printf '{"runid":"%s","base":"%s","token":"%s","home":"%s","dir":"%s","pid":%s,"bin":"%s","sockets":["%s","%s","%s","%s","%s","%s"],"projects":{"alpha":"%s","beta":"%s","gamma":"%s","zeta":"%s"},"candidates":{"delta":"%s","epsilon":"%s"},"lanes":{"alpha":[%s],"beta":["beta-one"]},"leftovers":["%s","%s"],"typedLog":"%s","budget":%s,"started":%s,"lifecycle":%s}' \
+  "$runid" "$base" "$tok" "$HOME" "$D" "$pid" "$C" "$s1" "$s2" "$s3" "$s4" "$s5" "$s6" "$A" "$B" "$G" "$Z" "$Dl" "$E" "$lanes" "$WT/leftover-clean" "$WT/leftover-dirty" "$HOME/typed.log" "$supports_budget" "$started" "$lifecycle")
 echo "$out" > "$D/up.json"
 echo "$out"
