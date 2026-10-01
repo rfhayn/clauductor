@@ -46,6 +46,11 @@ func TestTypeLine(t *testing.T) {
 	if err := exec.Command(tmux, "-L", sock, "new-session", "-d", "-s", "x", "stty raw -echo; exec cat > "+out).Run(); err != nil {
 		t.Fatal(err)
 	}
+	// new-session returns once the pane's shell is forked, not once it has run stty.
+	// Keys that arrive before raw mode meet the terminal's line discipline, which eats
+	// C-u (the kill character) and turns the Enter into \n: nothing would ever count
+	// three C-u. out exists only once the shell is past stty, so wait for it.
+	waitFor(t, "the lane in raw mode", func() bool { _, err := os.Stat(out); return err == nil })
 	m := &LaneManager{Clock: clock.System, TmuxPath: tmux, Socket: sock, EnterDelay: 50 * time.Millisecond}
 	if err := m.TypeLine(context.Background(), "x", "continue", func() string { return "" }); err != nil {
 		t.Fatal(err)

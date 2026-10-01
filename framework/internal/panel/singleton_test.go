@@ -23,6 +23,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // PANEL-5: one panel per machine is enforced, not assumed. The hook URL in
@@ -191,7 +192,7 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 	case err := <-done:
 		cancel()
 		t.Fatalf("Run exited: %v", err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(testwait.Scale(10 * time.Second)):
 		cancel()
 		t.Fatal("never ready")
 	}
@@ -202,7 +203,7 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testwait.Scale(10 * time.Second)):
 			t.Fatal("Run did not stop")
 		}
 		waitMachineFree(o.Home)

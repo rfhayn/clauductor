@@ -19,7 +19,8 @@ clauductor/
 │       ├── panel/            ← the local panel (server, lanes, web UI; docs/panel.md)
 │       ├── plugin/           ← builds plugin/ from template/ (docs/plugin.md)
 │       ├── template/         ← reads template/ for install and update
-│       └── leakcheck/        ← test support: fails a run that leaves tmux or a helper behind
+│       ├── leakcheck/        ← test support: fails a run that leaves tmux or a helper behind
+│       └── testwait/         ← test support: waits with deadlines scaled by CLAUDUCTOR_TEST_SLOW
 ├── template/                 ← the operating model projects receive (`clauductor install`)
 │   ├── AGENTS.md, CLAUDE.md  ← project-level instructions
 │   ├── .claude/              ← skills, agents, hooks, checks, workflows, project.conf

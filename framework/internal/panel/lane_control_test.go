@@ -16,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // fakeAgents stands in for `claude agents --json`, so a test can say what state a
@@ -109,6 +110,7 @@ func TestStopNeverPressesEnterUnlessTheLaneIsIdle(t *testing.T) {
 		t.Fatalf("idle: start: %d %v", code, body)
 	}
 	agents.set(agentJSON(startedSession(t, body), "idle", root), nil)
+	waitFor(t, "the idle lane to be recording its keys", func() bool { _, err := os.Stat(keys); return err == nil })
 	if code, body := p.post(t, "/api/lanes/lane-idle/stop", nil); code != 200 {
 		t.Fatalf("idle: stop: %d %v", code, body)
 	}
@@ -160,7 +162,11 @@ func TestRestartFallsBackWhenClaudeRejectsTheFlag(t *testing.T) {
 	agents := &fakeAgents{}
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.Runner = agents.run
-		o.FastExit = 1500 * time.Millisecond
+		// The rejected start must be SEEN dead within FastExit, which on a loaded
+		// machine takes a while (sh starting, tmux noticing, a tmux call to look): a
+		// short window called it started, and no fallback ran. The restart that stays
+		// up waits all of it, so it is only as long as it must be.
+		o.FastExit = testwait.Scale(3 * time.Second)
 		// Like claude on a session with no conversation: --resume exits 1 at once.
 		o.LaneProgram = []string{"/bin/sh", "-c", `case "$*" in *--resume*) exit 1;; esac; exec /bin/sh`, "lane"}
 	})
@@ -302,6 +308,8 @@ func TestStopRechecksIdleBeforeTheEnter(t *testing.T) {
 	mu.Lock()
 	sid = startedSession(t, body)
 	mu.Unlock()
+	// Keys typed before the lane is in raw mode meet the line discipline (C-u is eaten).
+	waitFor(t, "the lane to be recording its keys", func() bool { _, err := os.Stat(keys); return err == nil })
 	if code, body := p.post(t, "/api/lanes/orch/stop", nil); code != 200 {
 		t.Fatalf("stop: %d %v", code, body)
 	}

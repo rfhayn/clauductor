@@ -32,23 +32,32 @@ type hookKeeper struct {
 // would flap every session between two panels. Once that panel stops answering,
 // the next check takes them back.
 func (k *hookKeeper) check() bool {
-	d, _ := install.ReadHookDrift(k.home, k.port)
-	for _, p := range d.Ports {
-		if pid := install.LivePanelAt(context.Background(), p); pid > 0 && pid != os.Getpid() {
-			k.apply(func(m *state.Model, now time.Time) { m.ApplyHookConflict(pid, p, now) })
-			if !k.conflicted {
-				fmt.Fprintf(k.out, "the hooks point at another live panel (pid %d, port %d); leaving them alone until it stops\n", pid, p)
+	// Judged and repaired on one read of settings.json (KeepHooks): another panel's
+	// write that lands between a judging read and an editing one would be overwritten
+	// unjudged.
+	otherPID, otherPort := 0, 0
+	d, changed, left, err := install.KeepHooks(k.home, k.port, func(d install.HookDrift) bool {
+		for _, p := range d.Ports {
+			if pid := install.LivePanelAt(context.Background(), p); pid > 0 && pid != os.Getpid() {
+				otherPID, otherPort = pid, p
+				return true
 			}
-			k.conflicted = true
-			return true
 		}
+		return false
+	})
+	if left {
+		k.apply(func(m *state.Model, now time.Time) { m.ApplyHookConflict(otherPID, otherPort, now) })
+		if !k.conflicted {
+			fmt.Fprintf(k.out, "the hooks point at another live panel (pid %d, port %d); leaving them alone until it stops\n", otherPID, otherPort)
+		}
+		k.conflicted = true
+		return true
 	}
 	k.conflicted = false
 	drift := ""
 	if k.installed {
 		drift = d.Text
 	}
-	changed, err := install.InstallHooks(k.home, k.port)
 	if err != nil {
 		k.apply(func(m *state.Model, now time.Time) { m.ApplyHookHealth(err, "", now) })
 		fmt.Fprintf(k.out, "installing hooks failed (the panel keeps running and retries): %v\n", err)

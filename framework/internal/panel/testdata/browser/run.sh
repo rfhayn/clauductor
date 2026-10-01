@@ -37,12 +37,33 @@ here=$(cd "$(dirname "$0")" && pwd)
 fw=$(cd "$here/../../../.." && pwd)
 port=${PORT:-4589}
 tmp=$(mktemp -d)
-sock="clauductor-browser-test-$$"
+prefix="clauductor-browser-test-"
+sock="$prefix$$"
+# tmux keeps a socket FILE per server, and kill-server leaves it behind: every run left
+# one. Only this harness's own names are touched, and a file is removed only when no
+# server answers on it, so a run going on beside this one keeps its socket. Never the
+# owner's sockets (the default, clauductor, a project's) and never a server this run
+# did not start (ADR-0005).
+sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+drop_socket() { # name: remove its file if no server answers on it
+  if [ -S "$sockdir/$1" ] && ! tmux -L "$1" ls >/dev/null 2>&1; then rm -f "$sockdir/$1"; fi
+}
+# Earlier runs' leftovers (a run killed before its cleanup, or one from before this fix).
+for f in "$sockdir/$prefix"*; do
+  if [ -S "$f" ]; then drop_socket "${f##*/}"; fi
+done
 cleanup() {
+  rc=$?
   [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null || true
-  tmux -L "$sock" kill-server 2>/dev/null || true
-  tmux -L "$sock-2" kill-server 2>/dev/null || true
+  for s in "$sock" "$sock-2"; do
+    tmux -L "$s" kill-server 2>/dev/null || true
+    # The server takes a moment to go; its file is removed once nothing answers.
+    for _ in $(seq 50); do tmux -L "$s" ls >/dev/null 2>&1 || break; sleep 0.1; done
+    drop_socket "$s"
+    if [ -e "$sockdir/$s" ]; then echo "leak: tmux socket $sockdir/$s is still there after cleanup" >&2; rc=1; fi
+  done
   rm -rf "$tmp"
+  exit "$rc"
 }
 trap cleanup EXIT
 

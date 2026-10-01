@@ -872,11 +872,16 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
 		}
 		failed := ""
-		deadline := m.now().Add(m.FastExit)
-		for m.now().Before(deadline) {
+		// The last look is at or after the deadline: a loop that only looked while
+		// before it could sleep past it and call a claude that died within FastExit
+		// started (one look takes a tmux call, slow on a loaded machine).
+		for deadline := m.now().Add(m.FastExit); ; {
 			l, ok := m.find(ctx, rec.ID)
 			if ok && l.Dead && l.DeadStatus != "" && l.DeadStatus != "0" {
 				failed = l.DeadStatus
+				break
+			}
+			if !m.now().Before(deadline) {
 				break
 			}
 			m.clock().Sleep(200 * time.Millisecond)

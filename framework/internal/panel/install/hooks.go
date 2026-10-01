@@ -104,6 +104,11 @@ func SettingsPath(home string) string { return filepath.Join(home, ".claude", "s
 // tagged panel hook per event in HookEvents. Every other key, and every hook not
 // tagged as ours, is preserved byte for byte. It returns whether the file changed.
 func InstallHooks(home string, port int) (bool, error) {
+	return rewriteHooks(home, installHooksEdit(port))
+}
+
+// installHooksEdit is InstallHooks' edit of the "hooks" object (KeepHooks makes it too).
+func installHooksEdit(port int) func(h *orderedObject) error {
 	// One entry per event; an event in HookMatchers carries its matcher, so the panel
 	// hears PreToolUse and PostToolUse only for the tools that start agents.
 	entryFor := func(ev string) json.RawMessage {
@@ -114,7 +119,7 @@ func InstallHooks(home string, port int) (bool, error) {
 		b, _ := marshalRaw(e)
 		return b
 	}
-	return rewriteHooks(home, func(h *orderedObject) error {
+	return func(h *orderedObject) error {
 		want := map[string]bool{}
 		for _, ev := range signals.HookEvents {
 			want[ev] = true
@@ -150,7 +155,7 @@ func InstallHooks(home string, port int) (bool, error) {
 			}
 		}
 		return nil
-	})
+	}
 }
 
 // UninstallHooks removes only the panel's tagged hooks. It returns whether the file

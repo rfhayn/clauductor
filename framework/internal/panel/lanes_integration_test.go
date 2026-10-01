@@ -24,6 +24,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
 )
 
@@ -105,7 +106,7 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 		return p
 	case err := <-done:
 		t.Fatalf("Run exited: %v", err)
-	case <-time.After(10 * time.Second):
+	case <-time.After(testwait.Scale(10 * time.Second)):
 		t.Fatal("panel never ready")
 	}
 	return nil
@@ -116,7 +117,7 @@ func (p *panelRun) stop() {
 		p.cancel()
 		select {
 		case <-p.done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testwait.Scale(10 * time.Second)):
 		}
 		waitMachineFree(p.home)
 	})

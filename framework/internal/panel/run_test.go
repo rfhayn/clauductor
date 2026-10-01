@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
@@ -89,16 +90,12 @@ func (c liveClient) post(t *testing.T, path, body string) int {
 	return resp.StatusCode
 }
 
+// waitFor waits for cond, up to a deadline that is generous because passing costs
+// nothing: a loaded machine (several gates at once) is slow, not wrong. A wait with a
+// bound of its own takes waitUntil.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
+	testwait.For(t, what, 10*time.Second, cond)
 }
 
 func TestRunEndToEnd(t *testing.T) {
