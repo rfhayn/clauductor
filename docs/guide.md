@@ -18,6 +18,9 @@ panel or open it in Terminal.app. Each lane has a tab, a row in the rail and a t
    and worktree, an existing worktree, or the project root.
 3. Give it a name (lower case, digits and dashes) and click **Start lane**.
 
+To start one in a worktree that has no lane, click **New lane here** under it in **Worktrees**:
+the Start dialog opens on that worktree, and the lane is a new claude session there.
+
 In a new directory claude first asks whether to trust it, and the default is **No, exit**. Press
 ↓, then Enter, in the lane's terminal. See [Lane templates](panel.md#lane-templates).
 
@@ -49,12 +52,45 @@ with no Enter, so you finish the prompt around it. PNG, JPEG, GIF and WebP, up t
   (or its pull request merged). The confirmation lists what goes and what stays before anything
   happens. See [Close lane](panel.md#close-lane).
 
+These buttons sit under the selected lane's terminal. To act on a lane without opening it, use
+the **⋯** at the end of its row in **Lanes**, or beside it in **Worktrees**: the same actions,
+and each one still asks in the page before anything happens.
+
+## Clean up a worktree with no lane
+
+A session that ended can leave its worktree behind. In **Worktrees**, a worktree with no lane has
+**Remove**. It checks first and lists what it would remove and what it would keep, and why: it
+removes only a clean worktree (no changes, no untracked files) that no lane and no claude session
+uses, and its branch only if it is merged. A detached worktree has no branch to remove. Nothing
+happens until you click **Confirm remove**. See [Remove a worktree](panel.md#remove-a-worktree).
+
 ## After a crash or a reboot
 
 A reboot ends every tmux session, but the panel remembers each lane. When you open the page, a
 **Restore** bar lists the lanes that lost their session: **Restore all** resumes each one's own
 conversation. A single lost lane shows **Resume**, **Forget** (drop it from the list) and
 **Close lane** instead of a terminal. See [Restore after a reboot](panel.md#restore-after-a-reboot).
+
+## Cards
+
+A card is a command the panel runs in the project's main checkout and shows on the page: where
+the project stands, such as a work queue or a to-do list. Each output line is a row. The panel
+runs it again when a file you name changes (`watch:<path>`), or every so many seconds
+(`interval:<seconds>`). With `"pin": true` it shows beside the lanes; every card also shows in
+**Activity**. A project with no card says "No cards yet" there instead.
+
+Add cards to `.clauductor/panel.json`, then run `clauductor panel trust`: the panel runs no
+command from the file until you trust it. A minimal one:
+
+```json
+"cards": [
+  { "id": "todo", "title": "To do", "command": ["cat", "docs/todo.md"],
+    "refresh": "watch:docs/todo.md", "pin": true }
+]
+```
+
+A repository with Clauductor's operating model gets its cards from `clauductor panel init`. See
+[Card output](panel.md#card-output) and [Pinned cards](panel.md#pinned-cards).
 
 ## Queues and the gate
 
@@ -77,6 +113,11 @@ clauductor panel add     # register it with the panel
 Then restart the panel (`add` prints the command). The project's name at the top of the page
 switches between projects. See [Projects](panel.md#projects).
 
+If the repository runs Clauductor's operating model (it has `.claude/owner-queue.sh` or
+`.claude/roadmap-queue.sh`), `init` also adds its cards, lane templates and gate, and prints
+each. Otherwise it writes none, and says they come with `clauductor install` or can be added by
+hand. See [`panel init`](panel.md#panel-init).
+
 ## Where things are kept
 
 - The project's settings: `.clauductor/panel.json` in the repository.
@@ -97,3 +138,7 @@ switches between projects. See [Projects](panel.md#projects).
    [Cards, RUN and templates do nothing](panel.md#cards-run-and-templates-do-nothing).
 5. **No context % or quota.** The panel needs a copy of your status line. See
    [The page shows no context % or quota](panel.md#the-page-shows-no-context--or-quota).
+6. **The cards show old data.** They run in the project's main checkout. When its branch is
+   behind its upstream, a line above them says "main is N commits behind origin/main (as of last
+   fetch) — cards may be stale": pull there, then **Refresh**. See
+   [When the cards may be stale](panel.md#when-the-cards-may-be-stale).

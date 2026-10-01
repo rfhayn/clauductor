@@ -19,9 +19,13 @@ import (
 
 // `clauductor panel init` writes a starter .clauductor/panel.json from what the
 // repository already says: its root, its default branch, where its worktrees live,
-// the prefixes its branches use, and a gate script it defines. It writes no card,
+// the prefixes its branches use, and a gate script it defines. It invents no card,
 // since a card's command runs by itself on every refresh; the only command it may
-// write is a queue's, which runs only when someone presses RUN, and it prints it.
+// write of its own is a queue's, which runs only when someone presses RUN, and it
+// prints it. A repository that runs Clauductor's operating model (PANEL-18: the
+// template's queue scripts are there) also gets that model's cards, lane templates
+// and gate, each naming only a script the repository has; every one is printed, and
+// none runs before `clauductor panel trust`.
 
 // InitResult is what InitConfig wrote, and a line of explanation per choice.
 type InitResult struct {
@@ -41,7 +45,109 @@ type starter struct {
 	Lanes       map[string]string   `json:"lanes"`
 	WorktreeDir string              `json:"worktree_dir"`
 	Base        string              `json:"base"`
+	Templates   []starterTemplate   `json:"templates,omitempty"`
 	Queues      []types.QueueConfig `json:"queues,omitempty"`
+	Cards       []config.CardConfig `json:"cards,omitempty"`
+}
+
+// starterTemplate is a lane template as init writes it: no empty keys.
+type starterTemplate struct {
+	ID            string                `json:"id"`
+	Title         string                `json:"title"`
+	LaneType      string                `json:"lane_type"`
+	BranchPattern string                `json:"branch_pattern"`
+	FirstPrompt   string                `json:"first_prompt"`
+	Suggest       *config.SuggestConfig `json:"suggest,omitempty"`
+}
+
+// The operating model's files (the template `clauductor install` copies), and what
+// each brings to the starter config. The cards, templates and gate are those of the
+// template's own preset (template/.clauductor/panel.json).
+const (
+	omOwnerQueue   = ".claude/owner-queue.sh"
+	omRoadmapQueue = ".claude/roadmap-queue.sh"
+	omSuggest      = ".claude/panel-suggest.sh"
+	omRunLocal     = "scripts/ci/run-local.sh"
+)
+
+// omHint is init's one line for a repository without the operating model.
+const omHint = "cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, \"Keys\": cards, templates)"
+
+// operatingModel adds the operating model's cards, lane templates and gate to s for
+// the files the repository has, with a note per addition. It reports whether the
+// repository has the model at all (either queue script).
+func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]string) bool {
+	has := func(rel string) bool {
+		fi, err := os.Stat(filepath.Join(root, rel))
+		return err == nil && fi.Mode().IsRegular()
+	}
+	owner, roadmap := has(omOwnerQueue), has(omRoadmapQueue)
+	if !owner && !roadmap {
+		return false
+	}
+	if owner {
+		s.Cards = append(s.Cards, config.CardConfig{ID: "owner-queue", Title: "Owner queue", Pin: true,
+			Command: []string{"sh", "-c", "sh " + omOwnerQueue + " 2>&1"}, Refresh: "watch:docs/owner-queue.md"})
+		*notes = append(*notes, "cards         Owner queue, pinned: runs `sh "+omOwnerQueue+"` when docs/owner-queue.md changes (the operating model's "+omOwnerQueue+" is here)")
+	}
+	if roadmap {
+		s.Cards = append(s.Cards, config.CardConfig{ID: "change-queue", Title: "Change queue", Pin: true,
+			Command: []string{"sh", "-c", "sh " + omRoadmapQueue + " --text 2>&1"}, Refresh: "watch:docs/roadmap.md"})
+		*notes = append(*notes, "cards         Change queue, pinned: runs `sh "+omRoadmapQueue+" --text` when docs/roadmap.md changes (the operating model's "+omRoadmapQueue+" is here)")
+	}
+
+	// The model's lane templates need its lane types, each on its branch prefix.
+	for _, pt := range [][2]string{{"change/", "build"}, {"fix/", "fix"}, {"ops/", "ops"}} {
+		prefix, typ := pt[0], pt[1]
+		switch old, ok := s.Lanes[prefix]; {
+		case !ok:
+			*notes = append(*notes, fmt.Sprintf("lanes         %s → %s added: the operating model's templates use it", prefix, typ))
+		case old != typ:
+			*notes = append(*notes, fmt.Sprintf("lanes         %s → %s, not %s: the operating model's templates use lane type %s", prefix, typ, old, typ))
+		}
+		s.Lanes[prefix] = typ
+	}
+	suggest := has(omSuggest)
+	sg := func(arg, refresh string) *config.SuggestConfig {
+		if !suggest {
+			return nil
+		}
+		return &config.SuggestConfig{Command: []string{"sh", omSuggest, arg}, Refresh: refresh}
+	}
+	s.Templates = []starterTemplate{
+		{ID: "build", Title: "Build an approved change (its proposal is on main)", LaneType: "build", BranchPattern: "change/{name}",
+			FirstPrompt: `/build-change {"change": "{name}"}`, Suggest: sg("build", "watch:changes")},
+		{ID: "propose", Title: "Propose the next roadmap row", LaneType: "build", BranchPattern: "change/{name}",
+			FirstPrompt: "/propose {name}: its row of the change queue (sh .claude/roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
+			Suggest:     sg("propose", "watch:docs/roadmap.md")},
+		{ID: "fix", Title: "Fix an issue", LaneType: "fix", BranchPattern: "fix/{name}",
+			FirstPrompt: "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+			Suggest:     sg("fix", "interval:300")},
+		{ID: "ops", Title: "Ops task (tooling, docs or process; no change proposal)", LaneType: "ops", BranchPattern: "ops/{name}",
+			FirstPrompt: "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+			Suggest:     sg("ops", "watch:docs/roadmap.md")},
+	}
+	why := "the operating model's queue scripts are here"
+	if suggest {
+		why += "; Up next lists from " + omSuggest
+	} else {
+		why += "; no " + omSuggest + ", so no Up next"
+	}
+	*notes = append(*notes, "templates     build, propose, fix, ops: each types its first prompt once claude is ready ("+why+")")
+
+	if has(omRunLocal) {
+		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Full gate (" + omRunLocal + ")", Lock: "clauductor/gate.lock", Command: []string{omRunLocal}}}
+		n := "queues        gate runs `" + omRunLocal + "` (the operating model's full gate is here), and only when you press RUN on the page"
+		if len(gates) > 0 {
+			var alt []string
+			for _, o := range gates {
+				alt = append(alt, "`"+strings.Join(o.argv, " ")+"`")
+			}
+			n += "; also found " + strings.Join(alt, ", ")
+		}
+		*notes = append(*notes, n)
+	}
+	return true
 }
 
 // InitConfig writes <git toplevel of dir>/.clauductor/panel.json. It refuses to
@@ -81,9 +187,12 @@ func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult
 	notes = append(notes, fmt.Sprintf("worktree_dir  %s (%s)", s.WorktreeDir, why))
 
 	gates := detectGates(root)
-	if len(gates) == 0 {
+	isOM := operatingModel(root, &s, gates, &notes)
+	switch {
+	case len(s.Queues) > 0: // the operating model's gate, noted with what else was found
+	case len(gates) == 0:
 		notes = append(notes, "queues        none: no gate script found in package.json or a Makefile; add one by hand if two lanes must never run it at once")
-	} else {
+	default:
 		g := gates[0]
 		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Gate: " + strings.Join(g.argv, " "), Lock: "clauductor/gate.lock", Command: g.argv}}
 		n := fmt.Sprintf("queues        gate runs `%s` (%s), and only when you press RUN on the page", strings.Join(g.argv, " "), g.from)
@@ -95,6 +204,9 @@ func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult
 			n += "; also found " + strings.Join(alt, ", ")
 		}
 		notes = append(notes, n)
+	}
+	if !isOM {
+		notes = append(notes, omHint)
 	}
 
 	var buf bytes.Buffer

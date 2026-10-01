@@ -10,7 +10,11 @@
 # - project-and-side.cjs (PANEL-12): the pinned cards' tab box, rows that stay open,
 #   the side panel's edge, and Up next in the Start dialog;
 # - terminal-links-selection.cjs (PANEL-14): a selection survives the pointer moving on
-#   under a lane that asks for every motion, and links open on ⌘-click.
+#   under a lane that asks for every motion, and links open on ⌘-click;
+# - lane-row-actions.cjs (PANEL-18): the "⋯" actions menu on a lane row and a tree
+#   node opens without selecting, moves by keys, and every item only asks; Remove on a
+#   lane-less worktree asks with its plan, then removes it; the cards say they may be
+#   stale while the checkout they run in is behind its upstream (this adds one).
 #
 #   framework/internal/panel/testdata/browser/run.sh
 #
@@ -89,4 +93,5 @@ node "$here/focus-survives-updates.cjs" "$base" "$tok" "$proj" || status=1
 node "$here/appearance-and-keys.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
 node "$here/project-and-side.cjs" "$base" "$tok" || status=1
 node "$here/terminal-links-selection.cjs" "$base" "$tok" "$tmp/home/typed.log" || status=1
+node "$here/lane-row-actions.cjs" "$base" "$tok" "$proj" || status=1
 exit $status

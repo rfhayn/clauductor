@@ -740,6 +740,9 @@ type View struct {
 	WorktreeRoot string                `json:"worktreeRoot"`
 	// Trends are the global trends and what they imply (PANEL-11).
 	Trends Trends `json:"trends"`
+	// CardsStale is set while the checkout the cards run in is behind its upstream
+	// (PANEL-18): the page says the cards may be stale.
+	CardsStale *CardsStale `json:"cardsStale,omitempty"`
 	// v2 (ViewOrchestration, below).
 	ViewOrchestration
 }
@@ -1186,6 +1189,7 @@ func (m *Model) Snapshot(now time.Time) View {
 	v.Account = m.accountView(v.Quota)
 	m.snapshotV2(&v, now)
 	m.trendsView(&v, now)
+	v.CardsStale = m.cardsStale()
 	return v
 }
 

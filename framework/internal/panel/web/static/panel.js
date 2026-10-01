@@ -209,6 +209,9 @@ function goLive() {
   conn.state = "live"; conn.attempt = 0; conn.expired = false; frozenAt = 0;
   clearTimeout(conn.timer);
   if (was !== "connecting") render();
+  // Say at once that a page is in view (not a minute from now): the dashboard's git read,
+  // and with it the cards' stale note (PANEL-18), starts on its next tick.
+  setTimeout(seen, 1000);
 }
 function lost(expired) {
   if (es) { es.close(); es = null; }
@@ -592,6 +595,9 @@ function laneTable(ls, cur) {
   };
   const head = el("tr", null, null, [th("state", "State"), th("lane", "Lane"), ...shown.filter((c) => c.id !== "state").map((c) => th(c.id, c.label, c.num))]);
   if (!cols.includes("state")) head.removeChild(head.firstChild);
+  const ah = el("th", "acts", null, [el("span", "sr", "Actions")]);
+  ah.scope = "col";
+  head.appendChild(key(ah, "th:acts"));
   const body = el("tbody");
   for (const x of rows) {
     const ab = abnormal(x), sel = cur && x.key === cur.key;
@@ -601,6 +607,7 @@ function laneTable(ls, cur) {
     nm.title = x.name + ", " + (x.branch || "detached") + ", " + x.path;
     tr.appendChild(nm);
     for (const c of shown) if (c.id !== "state") tr.appendChild(el("td", c.num ? "num" : null, null, [c.cell(x)]));
+    tr.appendChild(el("td", "acts", null, [actsButton(x, "ra:" + x.key)]));
     on(tr, "click", () => selectLane(x.key));
     pressable(tr, x.name + ", " + laneStatusText(x));
     if (sel) tr.setAttribute("aria-selected", "true");
@@ -686,7 +693,7 @@ function moreBelow() {
   const r = $("rail");
   $("morebelow").hidden = r.scrollTop + r.clientHeight >= r.scrollHeight - 4 || getComputedStyle(r).display === "none";
 }
-$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } }, { passive: true });
+$("rail").addEventListener("scroll", () => { moreBelow(); if (colMenu) { colMenu = false; render(); } if (rowMenu) closeRowMenu(false); }, { passive: true });
 window.addEventListener("resize", moreBelow);
 
 // The worktree tree, as the old control room's topology had it: the project, each
@@ -793,11 +800,19 @@ function renderTree(ls, cur) {
       node = nodeEl("span", "wt", first, ["no lane"].concat(second));
       node.title = w.path;
     }
-    const li = el("li", null, null, [key(node, "wtn")]);
+    // A lane's actions sit beside its worktree's node, never inside it: a button in a
+    // button is not operable.
+    const acts = mine.map((x) => actsButton(x, "rt:" + x.key)).filter(Boolean);
+    const li = el("li", null, null, [acts.length ? key(el("div", "wtrow", null, [key(node, "wtn"), ...acts]), "wtrow") : key(node, "wtn")]);
     if (!mine.length) {
-      const b = button("Start lane here", "small", () => openStart({ worktree: w.path }), "Start a lane in " + w.path, "wt:start", true);
+      const b = button("New lane here", "small", () => openStart({ worktree: w.path }), "Start a new lane (a new claude session) in " + w.path, "wt:start", true);
       if (S.startBlocked) b.disabled = true;
       li.appendChild(b);
+      // The main checkout is never removed, so it is never offered.
+      if (w.path !== S.root) {
+        if (removeAsk && removeAsk.path === w.path) li.appendChild(key(el("div", "wtask", null, removeWords(removeAsk)), "wtask"));
+        else li.appendChild(button("Remove", "small danger", () => askRemove(w.path), "Remove this worktree when that loses nothing. Asks first, listing what goes and what stays.", "wtrm:" + w.path, true));
+      }
     } else {
       const ul = el("ul");
       for (const x of mine) {
@@ -815,11 +830,109 @@ function renderTree(ls, cur) {
     const node = nodeEl("button", "wt" + (cur && cur.key === x.key ? " sel" : ""), [el("span", "tag", x.type || "lane"), el("span", "nn", x.name)], ["outside the worktrees"]);
     node.type = "button";
     on(node, "click", () => selectLane(x.key));
-    top.appendChild(key(el("li", null, null, [key(node, "wtn"), el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
+    const acts = actsButton(x, "rt:" + x.key);
+    top.appendChild(key(el("li", null, null, [acts ? key(el("div", "wtrow", null, [key(node, "wtn"), acts]), "wtrow") : key(node, "wtn"),
+      el("ul", null, null, [sessionNode(x, null, x.lv)])]), "tx:" + x.key));
   }
   kids.push(key(el("div", "tree", null, [el("div", null, null, [root]), top]), "treebody"));
   return kids;
 }
+
+// ---- A lane's actions, from the lists (PANEL-18) ----------------------------------------
+// Each lane the panel started has a "⋯" button in the Lanes table and the Worktrees tree:
+// a menu button (WAI-ARIA APG, as the project and Appearance menus are). Enter, Space or
+// Down opens it on its first item, Up on its last; Up/Down/Home/End move; Enter or Space
+// picks; Escape closes it back to its button; Tab and a click elsewhere close it. The
+// button is its own control: a click on it neither selects the row nor bubbles to it.
+// Picking an item selects the lane and opens the same in-page confirmation its button
+// under the terminal opens, built from the lane's state then. Nothing acts on one click.
+let rowMenu = null; // {lane: the lane's key, btn: the data-k of the button that opened it}
+function rowActs(t) {
+  if (!t.running) return [["resume", "Resume"], ["forget", "Forget"], ["close", "Close lane"]];
+  return [["interrupt", "Interrupt (Esc)"], t.registered ? ["restart", "Restart"] : null, ["stop", "Stop lane"], ["close", "Close lane"]].filter(Boolean);
+}
+function actsButton(x, k) {
+  if (!x.t) return null; // started outside the panel: nothing here can stop it
+  const b = el("button", "btn small rowact", "⋯");
+  b.type = "button";
+  b.setAttribute("aria-haspopup", "menu");
+  b.setAttribute("aria-controls", "rowmenu");
+  b.setAttribute("aria-expanded", String(!!rowMenu && rowMenu.btn === k));
+  b.setAttribute("aria-label", "Actions for lane " + x.name);
+  b.title = "Lane " + x.name + ": " + rowActs(x.t).map((a) => a[1]).join(", ");
+  on(b, "click", (ev) => {
+    ev.stopPropagation();
+    if (rowMenu && rowMenu.btn === k) closeRowMenu(true); else openRowMenu(x.key, k, "first");
+  });
+  on(b, "keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); ev.stopPropagation(); openRowMenu(x.key, k, ev.key === "ArrowUp" ? "last" : "first"); }
+  });
+  if (offline()) { b.disabled = true; b.title = "Disconnected from the panel"; }
+  return key(b, k);
+}
+function rowMenuItems() { return Array.from($("rowmenu").querySelectorAll('[role="menuitem"]')); }
+function renderRowMenu() {
+  const menu = $("rowmenu");
+  const x = rowMenu && S ? lanesOf().find((l) => l.key === rowMenu.lane) : null;
+  const live = rowMenu && document.querySelector('[data-k="' + CSS.escape(rowMenu.btn) + '"]');
+  if (!x || !x.t || !live || offline()) { if (rowMenu) closeRowMenu(false); return; }
+  const focused = menu.contains(document.activeElement) ? document.activeElement.dataset.act : null;
+  menu.setAttribute("aria-label", "Lane " + x.name);
+  menu.replaceChildren(...rowActs(x.t).map(([act, label]) => {
+    const e = el("div", "mi" + (act === "stop" || act === "close" || act === "forget" ? " crit" : ""), label);
+    e.setAttribute("role", "menuitem");
+    e.tabIndex = -1;
+    e.dataset.act = act;
+    e.addEventListener("click", () => pickRowAct(x.key, act));
+    return e;
+  }));
+  // Fixed to the window, under its button: the rail clips sideways.
+  const r = live.getBoundingClientRect();
+  menu.hidden = false;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  menu.style.top = Math.round(r.bottom + h + 12 > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + "px";
+  if (focused) { const f = menu.querySelector('[data-act="' + focused + '"]'); if (f) f.focus(); }
+}
+function openRowMenu(lane, btn, which) {
+  rowMenu = { lane, btn };
+  renderRowMenu();
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", String(b.dataset.k === btn));
+  const items = rowMenuItems();
+  if (items.length) (which === "last" ? items[items.length - 1] : items[0]).focus();
+}
+function closeRowMenu(refocus) {
+  const m = rowMenu;
+  rowMenu = null;
+  $("rowmenu").hidden = true;
+  for (const b of document.querySelectorAll(".rowact")) b.setAttribute("aria-expanded", "false");
+  if (refocus && m) focusKey(m.btn);
+}
+function pickRowAct(laneKey, act) {
+  closeRowMenu(false);
+  const x = lanesOf().find((l) => l.key === laneKey);
+  if (!x || !x.t || offline()) return;
+  selectLane(x.key);
+  if (act === "close") { askClose(x.t); return; }
+  confirmAct = { id: x.t.id, action: act };
+  render();
+  focusKey("b:cancel");
+}
+$("rowmenu").addEventListener("keydown", (e) => {
+  const items = rowMenuItems(), i = items.indexOf(document.activeElement);
+  const go = (n) => { e.preventDefault(); if (items.length) items[(n + items.length) % items.length].focus(); };
+  if (e.key === "ArrowDown") go(i + 1);
+  else if (e.key === "ArrowUp") go(i - 1);
+  else if (e.key === "Home") go(0);
+  else if (e.key === "End") go(items.length - 1);
+  else if (e.key === "Escape") { e.preventDefault(); closeRowMenu(true); }
+  else if (e.key === "Tab") closeRowMenu(false);
+  else if ((e.key === "Enter" || e.key === " ") && i >= 0) { e.preventDefault(); items[i].click(); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (rowMenu && !e.target.closest("#rowmenu, .rowact")) closeRowMenu(false);
+});
+window.addEventListener("resize", () => { if (rowMenu) closeRowMenu(false); });
 
 // ---- Terminal tabs: one per lane, then "+" -------------------------------------------------
 // A tablist with a roving tabindex: Tab reaches the selected tab only; Left/Right,
@@ -914,7 +1027,7 @@ function renderSide(x) {
   // under the lane's: the lane first, and the project never off the dashboard.
   const project = projectBox();
   if (!x) {
-    patchInto("side", [project ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
+    patchInto("side", [pinnedCards().length ? null : key(el("div", "empty", "Select a lane, or start one."), "side:none"), project]);
     return;
   }
   const tabs = SIDE_TABS;
@@ -989,9 +1102,30 @@ try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = loc
 function saveProj() {
   try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
 }
+// PANEL-18: a project with no card says where cards come from, in one line where its
+// pinned cards would be, rather than nothing. (Cards that exist but are not pinned are
+// in Activity, so they say nothing here.) The guide is the Help dialog's address.
+function noCards() {
+  const a = el("a", "link", "How cards work");
+  a.href = GUIDE_URL + "#cards";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return key(el("div", "sidepins nocards", null, [el("span", "dim", "No cards yet. Add them in .clauductor/panel.json. "), a]), "side:nocards");
+}
+// PANEL-18: the cards run in the project's main checkout and watch files there, so while
+// its branch is behind its upstream they read old files. git counts against the last
+// fetch (the panel fetches only when a lane starts and when a close or remove plans),
+// so the note says so. It shows once above the cards, in the side panel and Activity.
+function staleNote(k) {
+  const c = S.cardsStale;
+  if (!c) return null;
+  const e = el("div", "warn stale", c.branch + " is " + c.behind + " commit" + (c.behind === 1 ? "" : "s") + " behind " + c.upstream + " (as of last fetch) — cards may be stale");
+  e.title = "The cards run in " + c.dir + ". Pull there, then Refresh, to update them.";
+  return key(e, k);
+}
 function projectBox() {
   const pins = pinnedCards();
-  if (!pins.length) return null;
+  if (!pins.length) return (S.cards || []).length ? null : noCards();
   const cur = pins.find((c) => c.id === projTab) || pins[0];
   const tl = el("div", "sidetabs");
   tl.setAttribute("role", "tablist");
@@ -1017,6 +1151,7 @@ function projectBox() {
     projOpen ? "Fold the project box" : "Show the project box", "projfold");
   fold.setAttribute("aria-expanded", String(projOpen));
   const kids = [key(el("div", "projhead", null, [key(tl, "projtabs"), fold]), "projhead")];
+  kids.push(staleNote("pstale"));
   if (projOpen) {
     const body = el("div", "sidebody projbody", null, pinnedRows(cur));
     body.setAttribute("role", "tabpanel");
@@ -1466,6 +1601,7 @@ function renderDrawer() {
     prs.push(key(el("div", "tblwrap", null, [el("table", "tbl", null, [tb])]), "d:prtbl"));
   }
   kids.push(key(el("section", "pane", null, prs), "d:prs"));
+  if (S.cards.length) kids.push(staleNote("d:stale"));
   for (const c of S.cards) kids.push(projectCard(c));
   // Every lane's events, grouped by lane, the lane with the newest event first.
   const groups = new Map();
@@ -2023,6 +2159,22 @@ function stopHow(t) {
   return how + q;
 }
 
+// Interrupt and Resume ask only when picked from a lane's actions menu (PANEL-18),
+// where one stray click must never act; their buttons under the terminal act at once.
+function interruptWords(t) {
+  const ap = t.approx ? " (≈ not a current reading)" : "";
+  let how;
+  if (t.dead) how = "claude has already exited, so Escape reaches nothing.";
+  else if (t.status === "busy") how = "claude is busy" + ap + ": Escape interrupts its turn; the lane stays up.";
+  else if (t.status === "waiting") how = "claude is waiting on you" + (t.waitingFor ? " (" + t.waitingFor + ")" : "") + ap + ": Escape dismisses the question unanswered.";
+  else if (t.status === "idle") how = "claude is idle" + ap + ": Escape has nothing to interrupt.";
+  else how = "its state is not known yet: it gets Escape.";
+  return "Interrupt lane " + t.id + "? " + how;
+}
+function resumeWords(t) {
+  return "Resume lane " + t.id + "? claude --resume " + (t.sessionId || "") + " starts in " + t.path + ", in a new tmux session.";
+}
+
 // ---- Close lane (PANEL-17) ----------------------------------------------------------
 // Stop, then the lane's worktree and branch when that loses nothing. The confirmation
 // lists what the panel found, before asking: the server's plan, from git's own state.
@@ -2073,11 +2225,57 @@ function renderClosed() {
   bar.hidden = !closeMsg;
   if (!closeMsg) { patch(bar, []); return; }
   const m = closeMsg;
-  const kids = [el("b", null, m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id)];
+  const kids = [el("b", null, m.title || (m.err ? "Close lane " + m.id + " failed" : "Closed lane " + m.id))];
   if (m.err) kids.push(el("span", null, m.text));
   else kids.push(lineList("Removed", m.removed, "rm"), lineList("Kept", m.kept, "kp"));
+  for (const n of m.notes || []) kids.push(el("span", "sub", n));
   kids.push(button("Dismiss", "", () => { closeMsg = null; render(); }, null, "b:close-dismiss"));
-  patch(bar, [key(el("div", "closed", null, kids), "closed:" + m.id)]);
+  patch(bar, [key(el("div", "closed", null, kids), "closed:" + (m.id || m.title))]);
+}
+
+// ---- Remove a worktree (PANEL-18) ---------------------------------------------------
+// A worktree with no lane (a clean one a closed session left behind) has Remove: Close
+// lane's cleanup without a lane to stop. The confirmation, in the tree under it, is the
+// server's plan from git's own state; confirming sends back exactly what it offered,
+// and the server removes no more than that, after checking again. The worktree is
+// named by the key the state gave it, and the server acts only on that exact entry of
+// `git worktree list`.
+let removeAsk = null; // {path, loading} or {path, plan} or {path, err}
+async function askRemove(path) {
+  removeAsk = { path, loading: true }; render();
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ worktree: path, dryRun: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!removeAsk || removeAsk.path !== path) return;
+    removeAsk = r.ok && j.plan ? { path, plan: j.plan } : { path, err: j.error || "HTTP " + r.status };
+  } catch (e) { if (removeAsk && removeAsk.path === path) removeAsk = { path, err: String(e) }; }
+  render();
+  focusKey("wtno:" + path);
+}
+async function doRemove(path, plan) {
+  removeAsk = null; render();
+  const name = relPath(path);
+  try {
+    const r = await fetch(api("/worktrees/remove"), { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worktree: path, remove: !!plan.worktree, branch: !!plan.deleteBranch }) });
+    const j = await r.json().catch(() => ({}));
+    closeMsg = r.ok && j.result
+      ? { title: (j.result.removed || []).length ? "Removed worktree " + name : "Kept worktree " + name, removed: j.result.removed || [], kept: j.result.kept || [], notes: j.result.notes || [] }
+      : { title: "Remove worktree " + name + " failed", err: true, text: j.error || "HTTP " + r.status };
+  } catch (e) { closeMsg = { title: "Remove worktree " + name + " failed", err: true, text: String(e) }; }
+  render();
+}
+function removeWords(a) {
+  const cancel = button("Cancel", "small", () => { removeAsk = null; render(); focusKey("wtrm:" + a.path); }, null, "wtno:" + a.path);
+  if (a.loading) return [el("div", "sub", "Checking the worktree…"), cancel];
+  if (a.err) return [el("div", "stop sub", "Cannot remove it: " + a.err), cancel];
+  const p = a.plan;
+  const kids = [el("div", "confirm", p.worktree ? "Remove the worktree " + relPath(a.path) + "?" : "Nothing can be removed from " + relPath(a.path) + ".")];
+  kids.push(lineList("Removes", p.remove, "rm"), lineList("Keeps", p.keep, "kp"));
+  for (const n of p.notes || []) kids.push(el("div", "sub", n));
+  const btns = [p.worktree ? button("Confirm remove", "danger", () => doRemove(a.path, p), null, "wt:confirm", true) : null, cancel];
+  kids.push(el("div", "wtbtns", null, btns.filter(Boolean)));
+  return kids;
 }
 
 function renderTermBar(t) {
@@ -2092,7 +2290,12 @@ function renderTermBar(t) {
     } else if (closeAsk && closeAsk.id === t.id) {
       kids.push(...closeWords(t));
     } else if (!t.running) {
-      if (confirmAct && confirmAct.id === t.id) {
+      if (confirmAct && confirmAct.id === t.id && confirmAct.action === "resume") {
+        // Asked only from a lane's actions menu (PANEL-18); the Resume button acts at once.
+        kids.push(key(el("span", "confirm", resumeWords(t)), "confirm"),
+          button("Confirm resume", "primary", () => { confirmAct = null; laneAction(t.id, "resume"); }, null, null, true),
+          button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Resume"); }, null, "b:cancel"));
+      } else if (confirmAct && confirmAct.id === t.id) {
         kids.push(key(el("span", "confirm", "Forget lane " + t.id + "? It leaves the registry; its worktree and conversation stay."), "confirm"),
           button("Confirm forget", "danger", () => { confirmAct = null; laneAction(t.id, "forget"); }, null, null, true),
           button("Cancel", "", () => { confirmAct = null; render(); focusKey("b:Forget"); }, null, "b:cancel"));
@@ -2105,11 +2308,12 @@ function renderTermBar(t) {
             "Forget it, and remove its worktree and branch when that loses nothing. Asks first, listing what goes and what stays.", null, true));
       }
     } else if (confirmAct && confirmAct.id === t.id) {
-      const stop = confirmAct.action === "stop";
-      const back = stop ? "b:Stop lane" : "b:Restart";
+      const a = confirmAct.action;
+      const back = a === "stop" ? "b:Stop lane" : a === "interrupt" ? "b:Interrupt (Esc)" : "b:Restart";
       kids.push(
-        key(el("span", "confirm", stopWords(t, !stop)), "confirm"),
-        button(stop ? "Confirm stop" : "Confirm restart", "danger", () => { const a = confirmAct; confirmAct = null; laneAction(t.id, a.action); }, null, null, true),
+        key(el("span", "confirm", a === "interrupt" ? interruptWords(t) : stopWords(t, a !== "stop")), "confirm"),
+        button(a === "stop" ? "Confirm stop" : a === "interrupt" ? "Confirm interrupt" : "Confirm restart", "danger",
+          () => { const c = confirmAct; confirmAct = null; laneAction(t.id, c.action); }, null, null, true),
         button("Cancel", "", () => { confirmAct = null; render(); focusKey(back); }, null, "b:cancel"));
     } else {
       const b = [
@@ -2239,7 +2443,7 @@ function pickNext(x, it) {
   $("st-name").focus();
 }
 
-// opts.worktree: "Start lane here" on a worktree in the tree picks that worktree.
+// opts.worktree: "New lane here" on a worktree in the tree picks that worktree.
 let startReturn = null;
 function openStart(opts) {
   if (!S || offline()) return;
@@ -2517,6 +2721,7 @@ function render() {
   renderStatus(ls);
   renderNeeds();
   renderRail(ls, cur);
+  renderRowMenu();
   renderTabs(ls, cur);
   renderLaneHead(cur);
   renderTerminals(cur);
@@ -2846,7 +3051,8 @@ function switchProject(id) {
   // Nothing of the old project carries over: its terminals close (their lanes run
   // on in tmux), its state and choices go, and the new project's stream starts.
   for (const k of Object.keys(terms)) disposeTerm(k);
-  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
+  closeRowMenu(false);
+  S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
   conn.state = "connecting"; conn.attempt = 0; clearTimeout(conn.timer);
   connect();
   render();
