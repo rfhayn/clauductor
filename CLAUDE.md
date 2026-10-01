@@ -45,9 +45,10 @@ scripts/build-plugin.sh                        # after ANY template/ change (Tes
 CI (`.github/workflows/test.yml`) runs gofmt, vet, `go test -race` and the process checks on macOS
 and Ubuntu for every PR.
 
-After a template change, bring this repo's own copy along: `CLAUDUCTOR_FRAMEWORK=$PWD clauductor
-update` from the repo root (the variable makes it read this checkout's template, not another one).
-`.claude/workflows/build-change.js` is deliberately different here (attribution off): skip it.
+After a template change, bring this repo's own copy along: `framework/clauductor update` from the
+repo root, with the binary built from this checkout (it reads the template beside it, and prints
+which). Attribution and provenance are off in `.claude/model-roles.json` alone: build-change reads
+them at run time, so no framework file differs on purpose.
 
 ## Tech stack
 

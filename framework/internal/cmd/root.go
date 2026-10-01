@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,8 @@ func Execute() error {
 }
 
 func init() {
+	// The template's version marker must match this binary's (template.Resolve).
+	template.BinaryVersion = Version
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(updateCmd)

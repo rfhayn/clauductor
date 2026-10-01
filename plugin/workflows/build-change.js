@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change/<id> branch is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, changesDir?: "changes", branchPrefix?: "change/", gate?: "<GATE, from .claude/project.conf>", quickFlags?: "<GATE_QUICK_FLAGS, from .claude/project.conf>", attribution?: "<trailer or empty>", session?: "<this session\'s id, for the Session: trailer>"}. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, quickFlags?: "<GATE_QUICK_FLAGS, from .claude/project.conf>", session?: "<this session\'s id, for the Session: trailer>"}; the changes directory, branch prefix, gate, attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -30,19 +30,20 @@ export const meta = {
 
 const change = args && args.change
 if (!change) throw new Error('build-change needs args.change (the change id)')
-const CHANGES = (args.changesDir || 'changes').replace(/\/+$/, '')
-const BRANCH = `${args.branchPrefix || 'change/'}${change}`
-// The gate and its quick flags: args, else the project's GATE and GATE_QUICK_FLAGS (.claude/project.conf,
-// read at preflight), else the template's defaults.
-let GATE_CMD = args.gate || 'scripts/ci/gate.sh'
+// The project's settings (changes directory, branch prefix, gate, attribution, provenance) are read
+// at run time from .claude/project-config.sh, in the Preflight phase below: a project that changes
+// one edits project.conf or model-roles.json, never this file, so `clauductor update` sees this file
+// as the template's (OPS-8 rehearsal: attribution off meant editing it, and update flagged it forever).
+// The quick flags: args, else the project's GATE_QUICK_FLAGS (read at preflight), else --quick.
+let CHANGES, BRANCH, GATE_CMD, CFG
 let QUICK = args.quickFlags == null ? '--quick' : String(args.quickFlags)
 const MAX_ROUNDS = args.maxRounds ?? 3
 const RESUME = args.resume == null ? null : Number(args.resume)
 const MAX_GATE_FIXES = 2
 
-// ROLES, TIERS, ECONOMY, ECONOMY_FILE, PROVENANCE and ATTRIBUTION_DEFAULT restate
-// .claude/model-roles.json, which a workflow script cannot read; .claude/checks/model-roles.sh fails
-// when they disagree. The mechanical steps run a script and quote its output, so they take the
+// ROLES, TIERS, ECONOMY and ECONOMY_FILE restate .claude/model-roles.json, which a workflow script
+// cannot read; .claude/checks/model-roles.sh fails when they disagree. (Attribution and provenance
+// are the project's choice, not the model's, so they are read at run time instead: CFG.) The mechanical steps run a script and quote its output, so they take the
 // cheap role. TIERS: the variant a role runs on for the proposal's **Risk:** tier (normal is the
 // role itself). ECONOMY: the role one tier down while the panel's economy file says economy is on;
 // the reviewer is never in it.
@@ -62,9 +63,6 @@ const ECONOMY = {
   mechanic: { model: "haiku", effort: "low" },
 };
 const ECONOMY_FILE = '~/.clauductor/panel/economy.json'
-const PROVENANCE = true
-const ATTRIBUTION_DEFAULT = 'Co-Authored-By: Claude <noreply@anthropic.com>'
-const ATTRIBUTION = args.attribution == null ? ATTRIBUTION_DEFAULT : String(args.attribution)
 const SESSION = args.session ? String(args.session) : 'build-change'
 
 // ── pure: begin ── (no agent, no state: .claude/checks/build-change.sh loads this block into node
@@ -107,6 +105,30 @@ const stuckReason = (rounds) => {
   }
   return null
 }
+// THE PROJECT'S SETTINGS, from the output of `clauductor-model project-config.sh --json`, with this run's
+// args overriding. Returns {error} when the output is not that script's JSON: the run stops rather
+// than build on a guessed branch or commit with a guessed trailer.
+const projectSettings = (text, a) => {
+  let c
+  try { c = JSON.parse(String(text == null ? '' : text).trim()) } catch (e) { c = null }
+  if (!c || typeof c !== 'object' || !c.branch || typeof c.branch.change !== 'string') {
+    return { error: `project-config.sh --json printed no settings: ${String(text).slice(0, 160)}` }
+  }
+  return {
+    changesDir: String(a.changesDir || c.changesDir || 'changes').replace(/\/+$/, ''),
+    branchPrefix: a.branchPrefix != null ? String(a.branchPrefix) : c.branch.change,
+    gate: String(a.gate || c.gate || 'scripts/ci/gate.sh'),
+    attribution: a.attribution != null ? String(a.attribution) : String(c.attribution || ''),
+    provenance: c.provenance === true,
+  }
+}
+// The trailer block a commit message ends with: the provenance trailers while provenance is on, then
+// the attribution trailer when there is one; '' when neither.
+const trailerBlock = (cfg, change, role, model, session) => {
+  const t = cfg.provenance ? [`Change: ${change}`, `Agent-Role: ${role}`, `Model: ${model}`, `Session: ${session}`] : []
+  if (cfg.attribution) t.push(cfg.attribution)
+  return t.length ? `\n\n${t.join('\n')}` : ''
+}
 // ── pure: end ──
 // `git diff` omits untracked files and a clean-room gate archives tracked files only, so a new file
 // would be invisible to BOTH the gate and the reviewer, and a deleted-unstaged one breaks an
@@ -115,6 +137,11 @@ const REGISTER = `First make the index match the working tree without staging co
 const GATE_OUTPUT = 'It prints only stage markers, failure lines and the verdict tail, and names the full log: `grep` that log for more, never read it whole.'
 const NO_AGENT = 'if this is the first run since .claude/agents/ changed, the builder/reviewer types register only at SESSION START: restart Claude Code, then resume this run'
 
+const SETTINGS = {
+  type: 'object',
+  properties: { output: { type: 'string', description: 'the verbatim stdout of the command, or its error output if it failed' } },
+  required: ['output'],
+}
 const PREFLIGHT = {
   type: 'object',
   properties: {
@@ -219,6 +246,17 @@ const stop = (where, reason, kind = 'stop') => {
 
 // ── Preflight ──────────────────────────────────────────────────────────────────────────────────
 phase('Preflight')
+const settings = await agent(
+  `Repo root is the cwd. Run \`clauductor-model project-config.sh --json\` and return its stdout verbatim as output (if it fails, its error output). Change nothing; do not interpret it.`,
+  { label: 'settings', phase: 'Preflight', schema: SETTINGS, ...ROLES.mechanic },
+)
+if (!settings) return stop('preflight', 'the settings agent returned nothing')
+CFG = projectSettings(settings.output, args)
+if (CFG.error) return stop('preflight', CFG.error)
+CHANGES = CFG.changesDir
+BRANCH = `${CFG.branchPrefix}${change}`
+GATE_CMD = CFG.gate
+log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD}, provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
 const pre = await agent(
   `Repo root is the cwd. Report, without changing anything:
 1. \`git rev-parse --abbrev-ref HEAD\` → branch.
@@ -274,11 +312,7 @@ const overBudget = (cost) => pre.budgetUsd != null && cost != null && cost > pre
 if (overBudget(pre.costUsd)) return stop('budget', `already $${pre.costUsd} against a budget of $${pre.budgetUsd}; the owner raises the budget (roadmap row and proposal.md) or cuts scope`)
 if (pre.budgetUsd != null && pre.costUsd == null) report.warnings.push('budget set, but change-cost.sh could not read the cost: the budget is NOT being enforced on this run')
 // Provenance trailers (model-roles.json provenance) and the attribution trailer, as ONE trailer block.
-const trailers = (role) => {
-  const t = PROVENANCE ? [`Change: ${change}`, `Agent-Role: ${role}`, `Model: ${pick(role).model}`, `Session: ${SESSION}`] : []
-  if (ATTRIBUTION) t.push(ATTRIBUTION)
-  return t.length ? `\n\n${t.join('\n')}` : ''
-}
+const trailers = (role) => trailerBlock(CFG, change, role, pick(role).model, SESSION)
 if (!pre.clean && RESUME == null) return stop('preflight', `working tree not clean: ${(pre.dirtyFiles || []).join(', ')}; the reviewer reviews the uncommitted diff, so it must start empty. If a previous run stopped mid-group, re-run with {resume: <group>}`)
 if (RESUME != null && !pre.groups.some((g) => g.n === RESUME)) return stop('preflight', `resume group ${RESUME} is not a group in tasks.md`)
 const groupsArg = args.groups == null ? [] : [].concat(args.groups)

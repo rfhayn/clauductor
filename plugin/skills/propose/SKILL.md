@@ -15,7 +15,7 @@ owner approves its design (AGENTS.md, *Who decides*). The format is in `changes/
 ## The fast path: no proposal at all
 
 **If the diff fits in one sentence, it gets no proposal.** A typo, a dependency bump, a one-line
-fix, a rename, a doc edit: it goes to a `fix/` or `ops/` lane (the panel's *Fix an issue* or *Ops
+fix, a rename, a doc edit: it goes to a fix or ops lane (`BRANCH_FIX`, `BRANCH_OPS`; the panel's *Fix an issue* or *Ops
 task* template), is gated, reviewed and merged with `/clauductor:merge-pr`, and leaves no change directory.
 Anthropic's threshold for when a plan is worth writing, and Kiro's "quick spec": a proposal costs
 the owner a review, so it has to buy one. The test: *does it change what a user can do?* If it
@@ -23,6 +23,7 @@ does, or you cannot say it in one sentence, it is a change: carry on below.
 
 ## Context: the preconditions, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/propose/context.sh`
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
 `clauductor-model skills/propose/context.sh` yourself and read the result before step 0.
@@ -40,8 +41,8 @@ If the line above shows as literal text instead of output, run
      its write surfaces and its MODIFIED requirements. If it now looks like what a split existed
      to prevent (more than about three write surfaces, more than one screen), split the row in the
      roadmap first (*Size a change so one review round converges*).
-1. **Name it.** A kebab-case id from the row (`add-member-invites`). Work on `change/<id>`, cut
-   from `origin/main`, in a lane worktree (never the main checkout).
+1. **Name it.** A kebab-case id from the row (`add-member-invites`). Work on `<BRANCH_CHANGE><id>`
+   (`clauductor-model project-config.sh branch change <id>` prints it), cut from `origin/main`, in a lane worktree (never the main checkout).
 2. **Draft** `changes/<id>/proposal.md`, `design.md`, `tasks.md` and any
    `specs/<capability>/spec.md` deltas, in the shapes `changes/README.md` gives:
    - `proposal.md` opens with `**Status:** awaiting approval`, the `**Roadmap row:**`, a

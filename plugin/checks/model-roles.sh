@@ -4,8 +4,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # read that file restates it, and this check fails when any restatement disagrees:
 #   - every skill's and every agent's frontmatter `model:` and `effort:`;
 #   - .claude/settings.json `model`, `effortLevel` and CLAUDE_CODE_SUBAGENT_MODEL;
-#   - .claude/workflows/build-change.js's ROLES, TIERS and ECONOMY tables, its ECONOMY_FILE and its
-#     PROVENANCE flag, when the workflow exists;
+#   - .claude/workflows/build-change.js's ROLES, TIERS and ECONOMY tables and its ECONOMY_FILE,
+#     when the workflow exists (its attribution and provenance are read at run time from
+#     .claude/project-config.sh, so there is nothing to restate: checks/build-change.sh holds that);
 #   - .clauductor/panel.json `lane_types`, when the panel config exists.
 # The sets are enumerated from the filesystem, not from the JSON (*Enumerate the authority*):
 # a skill directory the JSON forgot is a failure, and so is a JSON entry naming nothing.
@@ -102,11 +103,6 @@ if [ -f "$wf" ]; then
   done > "$(scratch)/wf"
   cat "$(scratch)/wf"
   n=$(grep -c '^FAIL' "$(scratch)/wf"); _fails=$((_fails + n))
-  # Its default commit trailer restates attribution (empty when attribution is disabled).
-  g=$(sed -n "s/^const ATTRIBUTION_DEFAULT = '\\(.*\\)'\$/\\1/p" "$wf")
-  w=$(jq -r 'if .attribution.enabled then .attribution.trailer else "" end' "$roles")
-  if grep -q '^const ATTRIBUTION_DEFAULT = ' "$wf" && [ "$g" = "$w" ]; then ok "build-change.js ATTRIBUTION_DEFAULT matches attribution ('${w:-disabled}')"
-  else fail "build-change.js ATTRIBUTION_DEFAULT is '$g', model-roles.json attribution says '${w:-(disabled: empty)}'"; fi
 fi
 
 # ── Risk tiers, economy mode, provenance and prices ─────────────────────────────────────────────
@@ -170,8 +166,6 @@ if [ -f "$wf" ]; then
   else fail "build-change.js ECONOMY disagrees with .economy.roles: has [$(printf '%s' "$got" | tr '\n' ';')], want [$(printf '%s' "$want" | tr '\n' ';')]"; fi
   g=$(sed -n "s/^const ECONOMY_FILE = '\\(.*\\)'\$/\\1/p" "$wf"); w=$(jq -r '.economy.file // empty' "$roles")
   [ -n "$w" ] && [ "$g" = "$w" ] && ok "build-change.js ECONOMY_FILE is $w" || fail "build-change.js ECONOMY_FILE is '$g', .economy.file says '$w'"
-  g=$(sed -nE 's/^const PROVENANCE = (true|false)$/\1/p' "$wf"); w=$(jq -r '.provenance.enabled' "$roles")
-  [ "$g" = "$w" ] && ok "build-change.js PROVENANCE is $w" || fail "build-change.js PROVENANCE is '${g:-unset}', .provenance.enabled says '$w'"
 fi
 
 # ── The panel's lane types ─────────────────────────────────────────────────────────────

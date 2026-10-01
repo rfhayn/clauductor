@@ -24,7 +24,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   | 1.2 | `add-thing` — what a user can now do | … | 1.1 | ⬜ queued |
 #   Status leads with a symbol:  ⬜ queued · ⬜ in flight (#N) · ✅ merged (#N) · ❌ cancelled …
 #   The Change cell's first `backticked` token is the change id; `fix/…` and `ops/…` ids are those
-#   lanes, anything else is a capability change (branch change/<id>).
+#   lanes, anything else is a capability change (branch <BRANCH_CHANGE><id>).
 #   `Budget: $N` anywhere in a row is the change's cost budget (item 12 of the change process);
 #   `(due YYYY-MM-DD)` in the Change cell dates a row, as archive-change dates the "check the
 #   outcome of <id>" row it queues. --text lists every queued dated row that is due, whatever its

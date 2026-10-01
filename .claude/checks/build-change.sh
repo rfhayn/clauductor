@@ -10,6 +10,13 @@
 # Then, without node, that the loop calls the breaker, stops with the distinct kind 'stuck', and
 # records the grades in the Progress line.
 #
+# And the project's settings: build-change takes its branch prefix, changes directory, gate,
+# attribution trailer and provenance from .claude/project-config.sh at run time, never from a
+# constant a project would have to edit (OPS-8 rehearsal: turning attribution off meant editing
+# this framework file, which `clauductor update` then flagged forever). project-config.sh is run
+# against a project with attribution and provenance off and other branch keys, and its output is
+# fed to the workflow's own projectSettings and trailerBlock.
+#
 # node runs workflow scripts, so a project using build-change has it; without it this says SKIPPED
 # and why. NODE_REQUIRED=1 makes that a failure (clauductor's CI sets it).
 . "$(dirname "$0")/lib.sh"
@@ -22,6 +29,31 @@ grep -q 'const stuck = stuckReason(entry.rounds)' "$wf" && ok "the review loop c
 grep -q "return stop(\`group \${g.n} review\`, \`\${stuck}; grades \${grades(entry)}\${disputes}\`, 'stuck')" "$wf" && ok "a stuck loop stops with the distinct kind 'stuck'" || fail "build-change.js does not stop a stuck loop with kind 'stuck'"
 grep -q "\${kind === 'stuck' ? 'STUCK' : 'STOPPED'}" "$wf" && ok "the notify line says STUCK for a stuck loop" || fail "the notify line does not distinguish a stuck loop"
 grep -q 'grades ${grades(entry)}"' "$wf" && ok "the Progress line records each round's grade" || fail "the commit step's Progress line does not record the grades"
+
+# Nothing a project configures is a constant in the workflow.
+for c in 'const PROVENANCE =' 'const ATTRIBUTION' "|| 'change/'" "args.branchPrefix || "; do
+  grep -qF "$c" "$wf" && fail "build-change.js hard-codes a project setting ($c): read it from project-config.sh (CFG)" || ok "build-change.js has no '$c'"
+done
+grep -qF 'project-config.sh --json' "$wf" && grep -qF 'CFG = projectSettings(settings.output, args)' "$wf" \
+  && ok "build-change.js reads the project's settings at run time (project-config.sh --json, projectSettings)" \
+  || fail "build-change.js does not read its settings from .claude/project-config.sh --json"
+
+# project-config.sh against a project that turned attribution and provenance off and moved its branches.
+pc="$ROOT/.claude/project-config.sh"
+if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
+  mkdir -p "$d/p/.claude/lib"
+  cp "$ROOT/.claude/lib/conf.sh" "$d/p/.claude/lib/"; cp "$pc" "$d/p/.claude/"
+  printf 'BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\n' > "$d/p/.claude/project.conf"
+  printf '{"attribution": {"enabled": false, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": false}}\n' > "$d/p/.claude/model-roles.json"
+  ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/off.json" 2>&1
+  printf '{"attribution": {"enabled": true, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": true}}\n' > "$d/p/.claude/model-roles.json"
+  ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/on.json" 2>&1
+  [ "$(ROOT= sh "$d/p/.claude/project-config.sh" branch change add-x)" = "feature/add-x" ] && ok "project-config.sh branch change add-x follows BRANCH_CHANGE" || fail "project-config.sh branch does not follow BRANCH_CHANGE"
+  jq -e '.branch.change == "feature/" and .changesDir == "openspec/changes" and .gate == "infra/ci/gate.sh" and .attribution == "" and .provenance == false' "$d/off.json" >/dev/null \
+    && ok "project-config.sh --json reads project.conf and model-roles.json (attribution and provenance off)" || fail "project-config.sh --json printed: $(cat "$d/off.json")"
+else
+  ok "SKIPPED: no .claude/project-config.sh or no jq here"
+fi
 
 if ! command -v node >/dev/null 2>&1; then
   if [ "${NODE_REQUIRED:-}" = 1 ]; then fail "node is not installed (NODE_REQUIRED=1), so the loop's logic cannot be exercised"
@@ -51,9 +83,23 @@ t('stuck: the same diff as an earlier round is oscillating', (stuckReason([R('hi
 t('stuck: peak and count both not falling is not falling', (stuckReason([R('medium', 2, ['a', 'b'], 'h1'), R('medium', 2, ['c', 'd'], 'h2')]) || '').split(':')[0], 'not falling')
 t('stuck: the peak falling is converging', stuckReason([R('high', 2, ['a', 'b'], 'h1'), R('medium', 3, ['c', 'd', 'e'], 'h2')]), null)
 t('stuck: the count falling at the same peak is converging', stuckReason([R('medium', 3, ['a', 'b', 'c'], 'h1'), R('medium', 1, ['d'], 'h2')]), null)
+const fs = require('fs')
+const read = (f) => { try { return fs.readFileSync(f, 'utf8') } catch (e) { return null } }
+const off = read(process.env.D + '/off.json'), on = read(process.env.D + '/on.json')
+if (off != null) {
+  const c = projectSettings(off, {})
+  t('settings: the branch prefix is the project\'s', c.branchPrefix, 'feature/')
+  t('settings: the changes directory is the project\'s', c.changesDir, 'openspec/changes')
+  t('settings: the gate is the project\'s', c.gate, 'infra/ci/gate.sh')
+  t('settings: attribution and provenance off give a commit no trailer', trailerBlock(c, 'add-x', 'builder', 'opus', 's1'), '')
+  const c2 = projectSettings(on, {})
+  t('settings: provenance and attribution on give both trailers', trailerBlock(c2, 'add-x', 'builder', 'opus', 's1'), '\n\nChange: add-x\nAgent-Role: builder\nModel: opus\nSession: s1\nCo-Authored-By: X <x@y>')
+  t('settings: an args override wins for one run', projectSettings(off, { branchPrefix: 'x/', attribution: 'A: b' }).branchPrefix + projectSettings(off, { attribution: 'A: b' }).attribution, 'x/A: b')
+}
+t('settings: output that is not the script\'s JSON stops the run', Boolean(projectSettings('jq: command not found', {}).error), true)
 console.log(out.join('\n'))
 EOF
-node "$d/pure.js" > "$d/out" 2>&1 || echo "FAIL node could not run the pure block: $(tail -3 "$d/out")" >> "$d/out"
+D="$d" node "$d/pure.js" > "$d/out" 2>&1 || echo "FAIL node could not run the pure block: $(tail -3 "$d/out")" >> "$d/out"
 cat "$d/out"; _fails=$((_fails + $(grep -c '^FAIL' "$d/out")))
 
 # ── The reviewer as it actually runs (OPS-16) ─────────────────────────────────────────────────
@@ -79,14 +125,15 @@ const between = (a, b) => { const i = src.indexOf(a); const j = src.indexOf(b, i
 const deq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const prefixRun = async (risk, econ) => {
   // The WHOLE script up to the per-group loop, executed for real with agent, phase and log
-  // stubbed and the preflight answered: any statement before the loop that mutates ROLES, TIERS or
-  // ECONOMY, or redefines pick, has run by the time pick('reviewer') is asked.
+  // stubbed and the settings and preflight answered: any statement before the loop that mutates
+  // ROLES, TIERS or ECONOMY, or redefines pick, has run by the time pick('reviewer') is asked.
   const cut = src.indexOf('\nfor (const g of todo) {')
   if (cut < 0) throw new Error("cannot find the review loop ('for (const g of todo) {') in build-change.js")
   const prefix = src.slice(0, cut).replace(/^export const meta/m, 'const meta')
+  const settings = { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', attribution: '', provenance: false }) }
   const pre = { branch: 'change/x', clean: true, dirtyFiles: [], groups: [{ n: 1, title: 't', openTasks: 1 }],
     gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01' }
-  const agent = async (p, o) => (o && o.label === 'preflight' ? pre : null)
+  const agent = async (p, o) => (o && o.label === 'preflight' ? pre : o && o.label === 'settings' ? settings : null)
   const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick }\n})()`
   return new Function('args', 'agent', 'phase', 'log', body)({ change: 'x' }, agent, () => {}, () => {})
 }

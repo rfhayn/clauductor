@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Implements ONE task group of an approved change on its change/ branch, test-first where the project requires it, leaving the work uncommitted for the gate and the reviewer. Also applies review findings and gate failures to that same group. Invoked by the build-change workflow and the apply-change skill; use directly only for a single scoped group.
+description: Implements ONE task group of an approved change on its change branch, test-first where the project requires it, leaving the work uncommitted for the gate and the reviewer. Also applies review findings and gate failures to that same group. Invoked by the build-change workflow and the apply-change skill; use directly only for a single scoped group.
 model: opus
 effort: high
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill

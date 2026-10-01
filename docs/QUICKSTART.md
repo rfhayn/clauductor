@@ -46,6 +46,22 @@ of the template by hand. `--force` installs anyway, overwriting. `install` and `
 `clauductor diff` (`--json`, `--path`, `--exit-code`) compares any repository with the template
 file by file, and settings.json key by key, without the guard: it only reads.
 
+**A repository that runs clauductor's old model** (the lock-based skills such as `claim`,
+`spawn` and `supervisor`, the hooks that call the binary, or settings registering them) is
+clauductor's, and is installed over without `--force`. It is recognised from tracked files, so a
+fresh clone counts too (the old runtime state, `orchestration/`, is gitignored). The old model's
+files that the current one replaced are listed under OLD MODEL and offered for removal; `--prune`
+removes them without asking. Only those go: a project's own skill, a file the old model did not
+ship, or an old agent the project edited is never touched. `settings.json` loses every hook
+registration that runs a `.claude/hooks/` script that will not exist, and the old model's hooks.
+
+**Which template.** `init`, `install`, `update` and `diff` print the template they read on their
+first line. It comes from `--template-dir`, else `CLAUDUCTOR_FRAMEWORK`, else next to the binary
+(a release ships its `template/` beside it, unpacked to `~/.local/share/clauductor/<version>/`),
+else the checkout the binary was built from. Its `.template-version` must match `clauductor
+version`; a mismatch is refused (`--template-dir` uses it anyway, with a warning). There is no
+guessing from `~/Development/clauductor` any more.
+
 `install` sorts the template's files into three tiers:
 
 - **Framework** (skills, hooks, checks, the workflow, the model's scripts such as
@@ -58,7 +74,9 @@ file by file, and settings.json key by key, without the guard: it only reads.
   Every disagreement is reported, and `--dry-run` prints the diff.
 - **Project-owned** (`AGENTS.md`, `.claude/project.conf`, `.claude/model-roles.json`,
   `.clauductor/panel.json`, `scripts/ci/steps.sh`, agents, docs, the configure-first skills):
-  created only when missing, never overwritten.
+  created only when missing, never overwritten. `.clauductor/panel.json` is written with the
+  branch prefixes `project.conf` sets (`BRANCH_CHANGE`, `BRANCH_FIX`, `BRANCH_OPS`).
+  `model-roles.json` gains the keys a newer template added, without a value changing.
 - **Merged**: `CLAUDE.md` gains an `@AGENTS.md` import line; `.gitignore` gains the template's
   lines (`.claude/worktrees/`, `.claude/settings.local.json`, ...).
 
@@ -122,6 +140,16 @@ cd ~/clauductor && git pull && ./install.sh
 cd ~/Development/my-app && clauductor update --dry-run   # what would change, settings diff included
 cd ~/Development/my-app && clauductor install   # refreshes the framework tier, merges settings.json
 ```
+
+`update` also offers what the template added to project-owned files, and overwrites none of
+them: new files (a health line, `.claude/evals/`, a doc) are listed and created only if missing,
+after a yes or with `--create-missing`; `model-roles.json` gains the template's new keys (no
+existing value changes); the rows the template's AGENTS.md table gained are printed as a
+suggestion (AGENTS.md is yours and has a byte budget, so nothing is applied); and
+`.clauductor/panel.json` is checked against the branch keys. Project settings never live in a
+framework file: attribution and provenance are `model-roles.json`'s and the branch prefixes are
+`project.conf`'s, and build-change reads both at run time (`.claude/project-config.sh`), so
+`update` sees `build-change.js` as the template's.
 
 ## Troubleshooting
 

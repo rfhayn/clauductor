@@ -23,7 +23,9 @@ behind, and the next proposal reads them as current.
   (`openspec archive -y` archives both anyway, with a warning: do not rely on it.)
 
 ## Steps
-1. On an `ops/` branch (or inside the session-close PR), for each `changes/<id>/specs/<capability>/spec.md`:
+- Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
+
+1. On an ops branch (`<BRANCH_OPS><name>`), or inside the session-close PR, for each `changes/<id>/specs/<capability>/spec.md`:
    - **ADDED** requirements are appended to `specs/<capability>/spec.md` (create the file, with the
      delta's `## Purpose`, if the capability is new: never a placeholder).
    - **MODIFIED** requirements replace the requirement of the same name, whole. The delta already

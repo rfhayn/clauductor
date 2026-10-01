@@ -11,40 +11,6 @@ import (
 	"strings"
 )
 
-// TemplatePath returns the path to the template directory.
-// It looks for the template relative to the installed framework location.
-func TemplatePath() (string, error) {
-	// Check CLAUDUCTOR_FRAMEWORK env var first
-	if envPath := os.Getenv("CLAUDUCTOR_FRAMEWORK"); envPath != "" {
-		tmplPath := filepath.Join(envPath, "template")
-		if _, err := os.Stat(tmplPath); err == nil {
-			return tmplPath, nil
-		}
-	}
-
-	// Check common install locations
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("could not find home directory: %w", err)
-	}
-
-	candidates := []string{
-		filepath.Join(home, "clauductor", "template"),
-		filepath.Join(home, "Development", "clauductor", "template"),
-		filepath.Join(home, "claude-dev-framework", "template"),
-		filepath.Join(home, "Development", "claude-dev-framework", "template"),
-		filepath.Join(home, ".clauductor", "template"),
-	}
-
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not find Clauductor template directory — set CLAUDUCTOR_FRAMEWORK env var to framework repo root")
-}
-
 // ListTemplateFiles returns every template file's path relative to the template, with forward
 // slashes, sorted. Finder litter and lane worktrees (a checkout under template/.claude/worktrees)
 // are not template files.
@@ -75,6 +41,9 @@ func listDir(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		if rel == VersionFile {
+			return nil // the template's version marker, not a file a project receives
+		}
 		files = append(files, filepath.ToSlash(rel))
 		return nil
 	})
@@ -87,36 +56,26 @@ func CopyTemplate(targetDir string) error {
 	return CopyTemplateWithSkips(targetDir, nil)
 }
 
-// CopyTemplateWithSkips copies template files, skipping specified relative paths.
+// CopyTemplateWithSkips copies template files (ListTemplateFiles: no version marker, no lane
+// worktrees), skipping the given relative paths.
 func CopyTemplateWithSkips(targetDir string, skipFiles map[string]bool) error {
 	tmplPath, err := TemplatePath()
 	if err != nil {
 		return err
 	}
-
-	return filepath.WalkDir(tmplPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+	files, err := listDir(tmplPath)
+	if err != nil {
+		return err
+	}
+	for _, rel := range files {
+		if skipFiles[rel] {
+			continue
+		}
+		if err := copyFile(filepath.Join(tmplPath, filepath.FromSlash(rel)), filepath.Join(targetDir, filepath.FromSlash(rel))); err != nil {
 			return err
 		}
-
-		relPath, err := filepath.Rel(tmplPath, path)
-		if err != nil {
-			return err
-		}
-
-		destPath := filepath.Join(targetDir, relPath)
-
-		if d.IsDir() {
-			return os.MkdirAll(destPath, 0755)
-		}
-
-		// Check if this file should be skipped
-		if skipFiles != nil && skipFiles[relPath] {
-			return nil
-		}
-
-		return copyFile(path, destPath)
-	})
+	}
+	return nil
 }
 
 // FindConflicts returns relative paths of template files that already exist in targetDir.

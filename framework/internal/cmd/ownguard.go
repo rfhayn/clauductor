@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,11 +26,28 @@ const markerNote = "The operating model in this repository was installed by `cla
 	"`clauductor install` and `update` may bring its framework files up to date. Delete this file to\n" +
 	"make them refuse (unless --force), as they do in a repository that runs its own model.\n"
 
-// ownedByClauductor says whether clauductor installed the model here: the marker, or the old
-// model's orchestration config (installs made before the marker existed).
+// ownedByClauductor says whether clauductor installed the model here: the marker, or signs of
+// clauductor's old model (installs made before the marker existed). The signs are read from
+// tracked files (template.OldModelSigns): the old model's runtime state, orchestration/config.json,
+// is gitignored, so a fresh clone of an old-model repository looked foreign (OPS-8 rehearsal).
 func ownedByClauductor(targetDir string) bool {
-	return fileExists(filepath.Join(targetDir, installMarker)) ||
-		fileExists(filepath.Join(targetDir, "orchestration", "config.json"))
+	return fileExists(filepath.Join(targetDir, installMarker)) || len(template.OldModelSigns(targetDir)) > 0
+}
+
+// announceOldModel says why a repository without the marker counts as clauductor's.
+func announceOldModel(out io.Writer, targetDir string) {
+	if fileExists(filepath.Join(targetDir, installMarker)) {
+		return
+	}
+	signs := template.OldModelSigns(targetDir)
+	if len(signs) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "This repository runs clauductor's old operating model, so it is clauductor's to update:")
+	for _, s := range signs {
+		fmt.Fprintf(out, "    · %s\n", s)
+	}
+	fmt.Fprintln(out)
 }
 
 // writeInstallMarker marks targetDir as clauductor's to update.

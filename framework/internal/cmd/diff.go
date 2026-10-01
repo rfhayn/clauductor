@@ -78,11 +78,16 @@ func init() {
 	diffCmd.Flags().StringVar(&diffPath, "path", "", "Only files whose template or project path starts with this")
 	diffCmd.Flags().BoolVar(&diffExitCode, "exit-code", false, "Exit 1 when the framework or settings.json differ from the template")
 	diffCmd.Flags().BoolVar(&diffAll, "all", false, "List identical and present files too")
+	addTemplateFlag(diffCmd)
 	rootCmd.AddCommand(diffCmd)
 }
 
 func printSurvey(out io.Writer, r *template.Report, all bool) {
-	fmt.Fprintf(out, "clauductor diff: %s against %s\n", r.Repo, r.Template)
+	if r.Source != nil {
+		fmt.Fprintf(out, "clauductor diff: %s against %s\n", r.Repo, r.Source)
+	} else {
+		fmt.Fprintf(out, "clauductor diff: %s against %s\n", r.Repo, r.Template)
+	}
 	marks := map[string]string{"identical": "=", "differs": "~", "missing": "-", "extra": "+", "skipped": "s", "present": "="}
 	for _, tier := range []string{"framework", "doc", "config"} {
 		var lines []string

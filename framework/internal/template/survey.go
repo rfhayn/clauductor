@@ -48,6 +48,7 @@ type Hint struct {
 type Report struct {
 	Repo     string          `json:"repo"`
 	Template string          `json:"template"`
+	Source   *Source         `json:"template_source,omitempty"` // how the template was found, and its version
 	Files    []FileStatus    `json:"files"`
 	Settings *SettingsReport `json:"settings"`
 	Mapping  []Hint          `json:"mapping,omitempty"`
@@ -69,15 +70,19 @@ func (r *Report) Converged() bool {
 // Survey compares targetDir with the template. pathPrefix, when set, keeps only the files whose
 // template or project path starts with it.
 func Survey(targetDir, pathPrefix string) (*Report, error) {
-	tmplPath, err := TemplatePath()
+	src, err := Resolve()
 	if err != nil {
 		return nil, err
 	}
+	tmplPath := src.Dir
 	files, err := listDir(tmplPath)
 	if err != nil {
 		return nil, err
 	}
-	r := &Report{Repo: targetDir, Template: tmplPath, Summary: map[string]int{}}
+	r := &Report{Repo: targetDir, Template: tmplPath, Source: src, Summary: map[string]int{}}
+	if src.Warning != "" {
+		r.Warnings = append(r.Warnings, src.Warning)
+	}
 	conf, err := LoadConf(targetDir, tmplPath)
 	if err != nil {
 		return nil, err
@@ -117,7 +122,7 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 		if dest != rel {
 			fsx.Dest = dest
 		}
-		src := filepath.Join(tmplPath, filepath.FromSlash(rel))
+		srcFile := filepath.Join(tmplPath, filepath.FromSlash(rel))
 		dst := filepath.Join(targetDir, filepath.FromSlash(dest))
 		_, statErr := os.Stat(dst)
 		exists := skip == "" && statErr == nil
@@ -126,7 +131,7 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 			fsx.Status, fsx.Note = "skipped", skip
 		case tier == TierFramework && !exists:
 			fsx.Status = "missing"
-		case tier == TierFramework && FilesEqual(src, dst):
+		case tier == TierFramework && FilesEqual(srcFile, dst):
 			fsx.Status = "identical"
 		case tier == TierFramework:
 			fsx.Status = "differs"
@@ -134,12 +139,19 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 			fsx.Status = "missing"
 		default:
 			fsx.Status = "present"
-			fsx.Note = configNote(rel, src, dst)
+			fsx.Note = configNote(rel, srcFile, dst, conf)
+			if OldModelUnchanged(targetDir, dest) {
+				fsx.Note = "the old model's unedited stub (install replaces it)"
+			}
 		}
 		r.Files = append(r.Files, fsx)
 	}
 	// Files the project added inside the framework's directories: its own skills and hooks, or
-	// leftovers of an older template.
+	// leftovers of an older template, the old model's named as such.
+	old := map[string]bool{}
+	for _, f := range StaleOldModel(targetDir, files) {
+		old[f.Path] = true
+	}
 	for _, d := range FrameworkDirs {
 		root := filepath.Join(targetDir, filepath.FromSlash(d))
 		_ = filepath.WalkDir(root, func(p string, de fs.DirEntry, err error) error {
@@ -151,7 +163,11 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 			if dests[rel] || !keep(rel) {
 				return nil
 			}
-			r.Files = append(r.Files, FileStatus{Dest: rel, Tier: "framework", Status: "extra"})
+			fx := FileStatus{Dest: rel, Tier: "framework", Status: "extra"}
+			if old[rel] {
+				fx.Note = "the old model's, replaced by the current model (install or update --prune removes it)"
+			}
+			r.Files = append(r.Files, fx)
 			return nil
 		})
 	}
@@ -172,7 +188,7 @@ func surveySettings(targetDir, tmplPath string, conf *Conf) *SettingsReport {
 	}
 	cur, err := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(SettingsPath)))
 	exists := err == nil
-	plan, err := PlanSettings(cur, exists, tmpl, conf)
+	plan, err := PlanSettings(cur, exists, tmpl, conf, TemplateHookPrune(targetDir, tmplPath))
 	if err != nil {
 		return &SettingsReport{Status: "invalid", Error: err.Error()}
 	}
@@ -189,13 +205,34 @@ func surveySettings(targetDir, tmplPath string, conf *Conf) *SettingsReport {
 	return sr
 }
 
-// configNote says what a merge would add to CLAUDE.md or .gitignore.
-func configNote(rel, src, dst string) string {
+// configNote says what a merge would add to CLAUDE.md or .gitignore, and what update would offer
+// for AGENTS.md, model-roles.json and panel.json.
+func configNote(rel, src, dst string, conf *Conf) string {
 	have, err := os.ReadFile(dst)
 	if err != nil {
 		return ""
 	}
 	switch rel {
+	case AgentsPath:
+		want, err := os.ReadFile(src)
+		if err != nil {
+			return ""
+		}
+		if n := len(MissingAgentsRows(string(have), string(want))); n > 0 {
+			return fmt.Sprintf("lacks %d row(s) of the template's \"What executes each rule\" table (update lists them)", n)
+		}
+	case ModelRolesPath:
+		want, err := os.ReadFile(src)
+		if err != nil {
+			return ""
+		}
+		if _, added, err := MergeAddOnly(have, want); err == nil && len(added) > 0 {
+			return fmt.Sprintf("lacks %d key(s) the template added (update adds them): %s", len(added), abbrev(added))
+		}
+	case PanelPath:
+		if probs := PanelBranchProblems(have, conf); len(probs) > 0 {
+			return "disagrees with the BRANCH_* keys: " + strings.Join(probs, "; ")
+		}
 	case "CLAUDE.md":
 		if !hasLine(string(have), "@AGENTS.md") {
 			return "lacks the @AGENTS.md import (install appends it)"

@@ -35,6 +35,9 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 		}
 
 		fmt.Printf("Initializing new Clauductor project in %s\n", targetDir)
+		if _, err := announceTemplate(cmd.OutOrStdout()); err != nil {
+			return err
+		}
 
 		// Copy template files
 		if err := template.CopyTemplate(targetDir); err != nil {
@@ -59,6 +62,8 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 		return nil
 	},
 }
+
+func init() { addTemplateFlag(initCmd) }
 
 func runCommand(dir string, name string, args ...string) error {
 	cmd := execCommand(name, args...)

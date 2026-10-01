@@ -19,7 +19,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   change records       approval wait (the proposal's first commit to its Approved line), review
 #                        rounds (tasks.md `## Progress`: "converged in N round(s)"), outcomes (the
 #                        proposal's `## How we'll know`, due and checked from its roadmap row)
-#   git refs             aging work in progress: open changes, and change/fix/ops branches not merged
+#   git refs             aging work in progress: open changes, and BRANCH_CHANGE/FIX/OPS branches not merged
 #   transcripts          cost by role, model, change and project (.claude/lib/usage.sh, the reading
 #                        usage-report.sh and change-cost.sh's list prices share)
 #
@@ -213,7 +213,7 @@ jq -n --argjson now "$now" --arg windows "$windows" \
         first: ([.commits[]? | (.authoredDate // .committedDate) | ts | select(. != null)] | min)}
       | select(.merged != null) ] as $prs
   # A remediation: a revert, or a fix/ PR. It links to the PRs it names: by #number, by the change id
-  # of a change/ PR, by a revert of its title.
+  # of a BRANCH_CHANGE PR, by a revert of its title.
   | [ $prs[] | . as $p
       | select(($p.title | startswith("Revert \"")) or ($p.head | startswith($fix)))
       | ($p.title + "\n" + $p.body) as $text
@@ -243,7 +243,7 @@ jq -n --argjson now "$now" --arg windows "$windows" \
          else ([$from, ($c.approved | day)] | max) end) as $to
       | {ts: $to, hours: (($to - $from) / 3600)} ] as $approvals
 
-  # Aging work in progress: every open change, then every unmerged change/fix/ops branch not already
+  # Aging work in progress: every open change, then every unmerged BRANCH_CHANGE/FIX/OPS branch not already
   # listed and not merged by a PR since its last commit.
   | [ $chs[] | select(.archived == "") | . as $c
       | ([ $c.created, ($branches[0][] | select(.name == $change + $c.id) | .first) ] | map(select(. != null)) | min) as $from

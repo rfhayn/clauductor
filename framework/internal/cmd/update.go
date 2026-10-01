@@ -19,6 +19,9 @@ var (
 func init() {
 	updateCmd.Flags().BoolVar(&forceUpdate, "force", false, "Update even a repository that runs its own operating model")
 	updateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false, "List what would change, with the settings.json diff, and change nothing")
+	updateCmd.Flags().BoolVar(&pruneOld, "prune", false, "Remove the old model's files that the current model replaced, without asking (never a project-owned or unknown file)")
+	updateCmd.Flags().BoolVar(&createMissing, "create-missing", false, "Create the project files the template added that this project lacks, without asking (never overwrites)")
+	addTemplateFlag(updateCmd)
 }
 
 var updateCmd = &cobra.Command{
@@ -32,8 +35,24 @@ require manual review to prevent overwriting project-specific customizations.
 
 .claude/settings.json is merged, not copied: the model's hooks, status line,
 deny list and sandbox entries are brought up to date, the project's keys are
-kept, and every conflict is reported. --dry-run shows the diff first.`,
+kept, every conflict is reported, and a hook registration that runs a script
+that does not exist (or one of the old model's hooks) is dropped.
+
+Project-owned files are never overwritten, but update now offers what the
+template added to them:
+  new project files (health lines, evals, docs)  → offered, created only if
+                                                    missing (--create-missing:
+                                                    without asking)
+  .claude/model-roles.json                       → the template's new keys added;
+                                                    no existing value changes
+  AGENTS.md                                      → the template's new table rows
+                                                    listed as a suggestion, not applied
+  .clauductor/panel.json                         → checked against the BRANCH_* keys
+
+The old model's files that the current one replaced are listed and offered for
+removal (--prune removes them without asking). --dry-run shows everything first.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		out := cmd.OutOrStdout()
 		targetDir, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("could not get working directory: %w", err)
@@ -50,17 +69,21 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 			return fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")
 		}
 
+		fmt.Fprintf(out, "Checking for updates in %s\n", targetDir)
+		src, err := announceTemplate(out)
+		if err != nil {
+			return err
+		}
+		tmplPath := src.Dir
+		files, err := template.ListTemplateFiles()
+		if err != nil {
+			return err
+		}
+
 		// A repository running its own operating model is left alone (ownguard.go).
+		announceOldModel(out, targetDir)
 		if !forceUpdate && !ownedByClauductor(targetDir) {
-			files, err := template.ListTemplateFiles()
-			if err != nil {
-				return err
-			}
-			tmplDir, err := template.TemplatePath()
-			if err != nil {
-				return err
-			}
-			overwrite, add, err := foreignModel(targetDir, tmplDir, files)
+			overwrite, add, err := foreignModel(targetDir, tmplPath, files)
 			if err != nil {
 				return err
 			}
@@ -68,8 +91,6 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 				return refuseForeign("update", targetDir, overwrite, add)
 			}
 		}
-
-		fmt.Printf("Checking for updates in %s\n\n", targetDir)
 
 		// Find files that differ from template
 		diffs, err := template.FindDiffs(targetDir)
@@ -80,13 +101,9 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 		if err != nil {
 			return err
 		}
-
-		if len(diffs) == 0 && !settings.Changed() {
-			fmt.Println("All skills, hooks, and templates are up to date.")
-			if len(settings.Changes) > 0 {
-				printSettingsPlan(os.Stdout, settings, false)
-			}
-			return nil
+		x, err := planExtras(targetDir, tmplPath, files)
+		if err != nil {
+			return err
 		}
 
 		// Separate new files from modified files
@@ -111,105 +128,116 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 				otherDiffs = append(otherDiffs, d)
 			}
 		}
-
-		if len(skillDiffs) > 0 {
-			fmt.Printf("Skills (%d):\n", len(skillDiffs))
-			for _, d := range skillDiffs {
-				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
+		for _, grp := range []struct {
+			title string
+			list  []template.FileDiff
+		}{{"Skills", skillDiffs}, {"Hooks", hookDiffs}, {"Other", otherDiffs}} {
+			if len(grp.list) == 0 {
+				continue
 			}
-			fmt.Println()
+			fmt.Fprintf(out, "%s (%d):\n", grp.title, len(grp.list))
+			for _, d := range grp.list {
+				fmt.Fprintf(out, "  %s (%s)\n", diffLabel(d), d.Status)
+			}
+			fmt.Fprintln(out)
 		}
-		if len(hookDiffs) > 0 {
-			fmt.Printf("Hooks (%d):\n", len(hookDiffs))
-			for _, d := range hookDiffs {
-				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
-			}
-			fmt.Println()
-		}
-		if len(otherDiffs) > 0 {
-			fmt.Printf("Other (%d):\n", len(otherDiffs))
-			for _, d := range otherDiffs {
-				fmt.Printf("  %s (%s)\n", diffLabel(d), d.Status)
-			}
-			fmt.Println()
+		if len(diffs) == 0 {
+			fmt.Fprintln(out, "All skills, hooks, and templates are up to date.")
+			fmt.Fprintln(out)
 		}
 
 		if settings.Changed() || len(settings.Changes) > 0 {
-			printSettingsPlan(os.Stdout, settings, updateDryRun)
+			printSettingsPlan(out, settings, updateDryRun)
 		}
+		x.print(out, true)
 		if updateDryRun {
-			fmt.Println("--dry-run: no changes made.")
+			fmt.Fprintln(out, "--dry-run: no changes made.")
 			return nil
 		}
 		if settings.Changed() {
 			if err := writeSettings(targetDir, settings); err != nil {
 				return err
 			}
-			fmt.Printf("Merged %s.\n\n", template.SettingsPath)
+			fmt.Fprintf(out, "Merged %s.\n\n", template.SettingsPath)
+		}
+		if err := x.applyAdditive(out, targetDir); err != nil {
+			return err
+		}
+		if len(x.docNew) > 0 {
+			if createMissing || confirm(fmt.Sprintf("Create the %d new project file(s) listed above (none exists yet)?", len(x.docNew))) {
+				for _, f := range x.docNew {
+					if err := writeDocFile(targetDir, tmplPath, f, x.conf); err != nil {
+						fmt.Fprintf(out, "  Error adding %s: %v\n", f.dest, err)
+					} else {
+						fmt.Fprintf(out, "  Added %s\n", f.label())
+					}
+				}
+			} else {
+				fmt.Fprintln(out, "  Skipped the new project files (--create-missing adds them without asking).")
+			}
+			fmt.Fprintln(out)
+		}
+		if err := x.offerPrune(out, targetDir); err != nil {
+			return err
 		}
 
 		// Auto-apply new files
 		if len(newFiles) > 0 {
-			fmt.Printf("Applying %d new files automatically...\n", len(newFiles))
+			fmt.Fprintf(out, "Applying %d new files automatically...\n", len(newFiles))
 			for _, d := range newFiles {
 				if err := template.ApplyUpdate(targetDir, d); err != nil {
-					fmt.Printf("  Error adding %s: %v\n", d.Path, err)
+					fmt.Fprintf(out, "  Error adding %s: %v\n", d.Path, err)
 				} else {
-					fmt.Printf("  Added %s\n", diffLabel(d))
+					fmt.Fprintf(out, "  Added %s\n", diffLabel(d))
 				}
 			}
-			fmt.Println()
+			fmt.Fprintln(out)
 		}
 
 		// Interactive review for modified files
 		if len(modifiedFiles) == 0 {
-			fmt.Println("Update complete.")
+			fmt.Fprintln(out, "Update complete.")
 			return nil
 		}
 
-		tmplPath, err := template.TemplatePath()
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("%d modified files need review (may contain project customizations):\n\n", len(modifiedFiles))
+		fmt.Fprintf(out, "%d modified files need review (may contain project customizations):\n\n", len(modifiedFiles))
 
 		for _, d := range modifiedFiles {
 			srcPath := filepath.Join(tmplPath, d.Path)
 			destPath := filepath.Join(targetDir, d.Dest)
 
-			fmt.Printf("  %s\n", diffLabel(d))
-			fmt.Printf("  [y] overwrite with template  [d] show diff  [s] skip  [c] cancel remaining\n  > ")
+			fmt.Fprintf(out, "  %s\n", diffLabel(d))
+			fmt.Fprintf(out, "  [y] overwrite with template  [d] show diff  [s] skip  [c] cancel remaining\n  > ")
 
 			for {
 				choice := readChoice()
 				switch choice {
 				case "y":
 					if err := template.ApplyUpdate(targetDir, d); err != nil {
-						fmt.Printf("  Error: %v\n", err)
+						fmt.Fprintf(out, "  Error: %v\n", err)
 					} else {
-						fmt.Printf("  Updated.\n\n")
+						fmt.Fprintf(out, "  Updated.\n\n")
 					}
 					goto next
 				case "d":
 					showDiff(destPath, srcPath)
-					fmt.Printf("  [y] overwrite with template  [s] skip  [c] cancel remaining\n  > ")
+					fmt.Fprintf(out, "  [y] overwrite with template  [s] skip  [c] cancel remaining\n  > ")
 					continue
 				case "s":
-					fmt.Printf("  Skipped.\n\n")
+					fmt.Fprintf(out, "  Skipped.\n\n")
 					goto next
 				case "c":
-					fmt.Println("  Cancelled remaining.")
+					fmt.Fprintln(out, "  Cancelled remaining.")
 					return nil
 				default:
-					fmt.Printf("  [y/d/s/c] > ")
+					fmt.Fprintf(out, "  [y/d/s/c] > ")
 					continue
 				}
 			}
 		next:
 		}
 
-		fmt.Println("Update complete.")
+		fmt.Fprintln(out, "Update complete.")
 		return nil
 	},
 }
@@ -245,7 +273,7 @@ func planProjectSettings(targetDir string) (*template.SettingsPlan, error) {
 		return nil, err
 	}
 	cur, readErr := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath)))
-	sp, err := template.PlanSettings(cur, readErr == nil, tmpl, conf)
+	sp, err := template.PlanSettings(cur, readErr == nil, tmpl, conf, template.TemplateHookPrune(targetDir, tmplDir))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w (fix it, then run update again)", template.SettingsPath, err)
 	}

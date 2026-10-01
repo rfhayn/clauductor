@@ -64,6 +64,13 @@ that runs an operating model of its own (AGENTS.md, `.claude/skills`, `.claude/h
 `.claude/settings.json`, and no marker) unless the owner says `--force`, and lists what it would
 add. It never overwrites a file, even with `--force`.
 
+A repository that runs clauductor's **old** model (three of its lock-based skills, a hook that
+calls the binary, settings registering one, or `orchestration/config.json`) is not refused: the
+plugin replaces that model. `/clauductor:init` lists the old model's skills and hooks under OLD
+MODEL, and `scaffold.sh --prune` removes them (only them; never a project file). Either way,
+`settings.json` loses the hook registrations that run a `.claude/hooks/` script that does not
+exist, and the old model's hooks, and names each.
+
 ## What the plugin contains
 
 Built from `template/` by `clauductor plugin build` (`scripts/build-plugin.sh`), committed at
@@ -118,7 +125,8 @@ what exists:
   `.gitignore` (merged: missing lines appended)
 - `.claude/project.conf`, `.claude/model-roles.json` (with the plugin's `init` skill mapped to
   start-project's role), `.clauductor/panel.json` (its commands run the model's scripts through
-  `scripts/ci/clauductor-model.sh`)
+  `scripts/ci/clauductor-model.sh`; when created, its lanes and branch patterns follow the
+  project's `BRANCH_CHANGE`, `BRANCH_FIX`, `BRANCH_OPS` and `MAIN_BRANCH`, with jq)
 - `.claude/settings.json` (merged with jq when it exists, as `clauductor install` merges it: the
   project's keys and values kept, the allow and deny lists and the sandbox's excluded commands and
   domains unioned): the template's model, effort, env and skill overrides; the status line
@@ -183,9 +191,10 @@ default ref is a release tag, so a project scaffolded from a version that has no
   agent frontmatter and the workflow's ROLES table it is checked against are the plugin's. A
   project that changes a role there fails `checks/model-roles.sh` and cannot fix the plugin's
   side; that needs `clauductor install`, or a change to the template.
-- **The commit trailer default** in `build-change.js` (`ATTRIBUTION_DEFAULT`) is the plugin's;
-  start-project's step for it applies to `clauductor install` only. Pass `attribution` to the
-  workflow instead.
+- **The commit trailers and branch prefixes are the project's.** `build-change.js` reads
+  attribution and provenance from the project's `.claude/model-roles.json`, and the change branch,
+  changes directory and gate from its `.claude/project.conf`, at run time (`project-config.sh
+  --json`, run through `clauductor-model`), so neither install path needs an edit to the workflow.
 
 - **Workflows from a plugin are not yet verified in a session.** `workflows/build-change.js` is in
   the plugin's default `workflows/` directory, which the docs say a plugin can carry, but

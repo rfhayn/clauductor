@@ -614,3 +614,54 @@ func TestScaffoldMergesSettings(t *testing.T) {
 		t.Error("the plugin is not enabled")
 	}
 }
+
+// OPS-14 on the plugin path: /clauductor:init in a repository running clauductor's old model is not
+// refused; the old model's files are listed and removed only with --prune; its hook registrations
+// (and any whose script is missing) leave settings.json; and the panel preset follows the
+// project's branch keys.
+func TestScaffoldOverTheOldModel(t *testing.T) {
+	need(t, "git", "sh", "jq")
+	plug, _ := build(t)
+	e := env(t, t.TempDir())
+	p := newProject(t, e)
+	for _, s := range []string{"claim", "spawn", "supervisor"} {
+		os.MkdirAll(filepath.Join(p, ".claude", "skills", s), 0o755)
+		os.WriteFile(filepath.Join(p, ".claude", "skills", s, "SKILL.md"), []byte("old "+s+"\n"), 0o644)
+	}
+	os.MkdirAll(filepath.Join(p, ".claude", "skills", "ours"), 0o755)
+	os.WriteFile(filepath.Join(p, ".claude", "skills", "ours", "SKILL.md"), []byte("ours\n"), 0o644)
+	os.MkdirAll(filepath.Join(p, ".claude", "hooks"), 0o755)
+	os.WriteFile(filepath.Join(p, ".claude", "hooks", "heartbeat.sh"), []byte("#!/bin/sh\nclauductor heartbeat\n"), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "hooks", "mine.sh"), []byte("#!/bin/sh\n"), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "settings.json"), []byte(`{"hooks": {
+  "SessionStart": [{"hooks": [{"type": "command", "command": "bash .claude/hooks/session-register.sh"}]}],
+  "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash .claude/hooks/heartbeat.sh"}, {"type": "command", "command": "sh .claude/hooks/mine.sh"}]}]}}`), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "project.conf"), []byte("BRANCH_CHANGE=\"feature/\"\n"), 0o644)
+
+	out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh"))
+	if code != 0 || !strings.Contains(out, "OLD MODEL") || !strings.Contains(out, ".claude/skills/claim/SKILL.md") {
+		t.Fatalf("old-model repo: exit %d, want a scaffold listing the old files\n%s", code, out)
+	}
+	if !exists(filepath.Join(p, ".claude", "skills", "claim", "SKILL.md")) {
+		t.Fatal("old files were removed without --prune")
+	}
+	raw, _ := os.ReadFile(filepath.Join(p, ".claude", "settings.json"))
+	if strings.Contains(string(raw), "session-register.sh") || strings.Contains(string(raw), "heartbeat.sh") || !strings.Contains(string(raw), "mine.sh") {
+		t.Errorf("settings.json hooks not pruned right:\n%s", raw)
+	}
+	panel, _ := os.ReadFile(filepath.Join(p, ".clauductor", "panel.json"))
+	if !strings.Contains(string(panel), `"feature/"`) || strings.Contains(string(panel), `"change/`) {
+		t.Errorf("panel.json does not follow BRANCH_CHANGE=feature/:\n%s", panel)
+	}
+	if out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh"), "--prune"); code != 0 {
+		t.Fatalf("--prune: exit %d\n%s", code, out)
+	}
+	for _, gone := range []string{"skills/claim", "skills/spawn", "skills/supervisor", "hooks/heartbeat.sh"} {
+		if exists(filepath.Join(p, ".claude", gone)) {
+			t.Errorf("--prune left .claude/%s", gone)
+		}
+	}
+	if !exists(filepath.Join(p, ".claude", "skills", "ours", "SKILL.md")) || !exists(filepath.Join(p, ".claude", "hooks", "mine.sh")) {
+		t.Error("--prune removed a project file")
+	}
+}

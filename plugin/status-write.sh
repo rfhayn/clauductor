@@ -8,7 +8,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # Stored per project and per branch (focus_file in .claude/lib/conf.sh) so parallel lanes on
 # different branches never clobber each other. statusline.sh reads it, and the panel shows it on
-# each lane's card. Skills call this at transitions, e.g. "[change/x] group 2/5: <title>".
+# each lane's card. Skills call this at transitions, e.g. "[<change branch>] group 2/5: <title>".
 
 label="$1"
 [ -z "$label" ] && { echo "usage: status-write.sh \"<focus>\" [branch]" >&2; exit 1; }
