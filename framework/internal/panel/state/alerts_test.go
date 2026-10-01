@@ -15,7 +15,7 @@ func TestAlertThresholds(t *testing.T) {
 	ctx, five := 79.0, 89.0
 	p := signals.StatusPayload{SessionID: "s", Cwd: cwd}
 	p.ContextWindow.UsedPercentage = &ctx
-	p.RateLimits.FiveHour = &signals.RateLimit{UsedPercentage: &five}
+	p.RateLimits = signals.RateLimits{"five_hour": {UsedPercentage: &five}}
 	m.ApplyStatus(p, t0)
 	// Just under every threshold: nothing.
 	m.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "idle"}}, nil, t0.Add(9*time.Minute))
