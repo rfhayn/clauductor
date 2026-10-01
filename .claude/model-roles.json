@@ -21,9 +21,8 @@
         "high": { "model": "opus", "effort": "xhigh" }
       },
       "eval": {
-        "baseline": "opus/high",
-        "why": "chosen before the seeded-defect suite existed. Measured once (OPS-16), and the receipt below does NOT pass: fp_rate 0.4 against a ceiling of 0.2. Both flagged clean controls hold real defects that the reviewer found correctly: sh-clean-coverage-fails-closed passes the gate when .coverage-floor is not a number, and py-clean-token-expiry's verify() raises on a non-ASCII mac or a Unicode digit instead of returning None. So the choice stays a baseline until OPS-18 fixes those two controls and the suite is re-run; then record that receipt here in place of the baseline.",
-        "measured": { "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-01.json", "pass": false, "recall": 1, "precision": 0.541, "fp_rate": 0.4, "severity_accuracy": 0.9, "cost_usd": 2.811 }
+        "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-01.json", "recall": 1, "precision": 0.556, "fp_rate": 0.2, "severity_accuracy": 0.9, "cost_usd": 2.627,
+        "why": "The first measured baseline (OPS-16). An earlier run on the same day did not pass (fp_rate 0.4) because two clean controls held real defects; OPS-18 fixed them, and this receipt is the one re-run on the fixed suite. Its fp_rate sits exactly at the 0.2 ceiling: one clean case flagged (sh-clean-coverage-fails-closed: covsum's exit status is ignored by the pipeline)."
       }
     },
     "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },
