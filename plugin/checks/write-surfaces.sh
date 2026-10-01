@@ -115,6 +115,9 @@ rule "an empty WRITE_SURFACE_GLOBS is said, not silently counted as zero" yes "W
 conf 'MODULES="write-surfaces"' 'WRITE_SURFACE_GLOBS="*apps/web/app/*page.tsx"' 'WRITE_SURFACE_MAX="2"'
 pr change/x "$(change 'routes a b c; screens s1 s2')"
 rule "the project's own settings: WRITE_SURFACE_MAX=2, screens only" yes "adds 2 write surfaces"
+mv "$G/.claude/lib/conf.sh" "$d/conf.bak"
+rule "a missing configuration is said as CANNOT CHECK, never a crash the guard would block on" yes "CANNOT CHECK — cannot read the project's configuration"
+mv "$d/conf.bak" "$G/.claude/lib/conf.sh"
 conf 'MODULES=""' "WRITE_SURFACE_GLOBS=\"$GLOBS\""
 pr change/x "$(change 'routes a b c d e f; screens s1 s2 s3 s4')"
 merge "with the module OFF, 10 surfaces draw nothing (the rule is the module's)" no "write surface"

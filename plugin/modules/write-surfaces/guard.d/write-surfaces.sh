@@ -23,8 +23,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # Contract (.claude/local/README.md): GUARD_* and ROOT in the environment; exit 0 allows, each
 # stdout line an advisory. This rule never exits 2: a fault is said as an advisory.
 set -f   # the globs are patterns for `case`, never for the shell to expand against files
+# Tested, not sourced blind: a `.` of a missing file ends the shell (not 0, not 2), which the guard
+# reads as a crashed rule and BLOCKS on; an advisory rule must say so instead.
+if [ ! -f "$CLAUDUCTOR_FW/lib/conf.sh" ]; then
+  echo "CANNOT CHECK — cannot read the project's configuration (lib/conf.sh is missing), so write surfaces were not counted."
+  exit 0
+fi
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh" || { echo "CANNOT CHECK — cannot read the project's configuration, so write surfaces were not counted."; exit 0; }
+. "$CLAUDUCTOR_FW/lib/conf.sh"
 
 case $GUARD_BRANCH in "${BRANCH_CHANGE:-change/}"*) ;; *) exit 0 ;; esac
 if [ -z "${WRITE_SURFACE_GLOBS:-}" ]; then
