@@ -26,15 +26,22 @@ state=$(mktemp -d "${TMPDIR:-/tmp}/people-who.XXXXXX" 2>/dev/null) || state=
 [ -n "$state" ] || { echo "CANNOT CHECK — mktemp failed, so nothing read from GitHub could be handed over"; exit 0; }
 trap 'rm -rf "$state"' EXIT
 
-# Every gh call is bounded (PEOPLE_GH_TIMEOUT seconds each, lib/modules.sh's with_timeout), and
-# the serial per-branch lookups share one budget (PEOPLE_WHO_BUDGET seconds): a slow GitHub must
-# not hold session-start. A call that runs out is a failed read, said by name below.
-command -v with_timeout >/dev/null 2>&1 || . "$ROOT/.claude/lib/modules.sh"
+# Every gh call is bounded (PEOPLE_GH_TIMEOUT seconds each), and the serial per-branch lookups
+# share one budget (PEOPLE_WHO_BUDGET seconds): a slow GitHub must not hold session-start. A call
+# that runs out is a failed read, said by name below. Not lib/modules.sh's with_timeout: its
+# watchdog polls once a second and is waited for, which adds up to a second to EVERY call, and
+# this section makes one call per branch. Here the watchdog is one sleep, killed (not waited for)
+# when gh returns; its output is /dev/null, so it holds no command substitution open.
 T=${PEOPLE_GH_TIMEOUT:-20}; BUDGET=${PEOPLE_WHO_BUDGET:-90}
 notes="$state/notes"; : > "$notes"
 ghb() {  # ghb WHAT ARGS...: gh ARGS, bounded; a timeout is noted under WHAT
   _gw=$1; shift
-  with_timeout "$T" gh "$@" 2>/dev/null; _gr=$?
+  gh "$@" 2>/dev/null &
+  _gp=$!
+  ( sleep "$T"; kill -TERM "$_gp" 2>/dev/null; sleep 2; kill -KILL "$_gp" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+  _gd=$!
+  wait "$_gp"; _gr=$?
+  kill "$_gd" 2>/dev/null
   case $_gr in 143 | 137) echo "CANNOT CHECK — gh timed out after ${T}s reading $_gw" >> "$notes" ;; esac
   return "$_gr"
 }
