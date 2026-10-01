@@ -28,8 +28,13 @@ const cfg = path.join(other, ".clauductor", "panel.json");
     p.on("pageerror", (e) => errors.push(e.message));
     // A refused action answers 409, which the browser logs; only the one this test
     // provokes (stale bytes at Trust and add) is expected.
-    let conflictOK = false;
-    p.on("console", (m) => { if (m.type() === "error" && !(conflictOK && /409/.test(m.text()))) errors.push(m.text()); });
+    let conflictOK = false, offlineOK = false;
+    p.on("console", (m) => {
+      if (m.type() !== "error") return;
+      if (conflictOK && /409/.test(m.text())) return;
+      if (offlineOK && /404|ERR_FAILED|events/.test(m.text())) return;
+      errors.push(m.text());
+    });
     await p.goto(base + "/?t=" + token);
     await p.waitForSelector(".xterm-rows", { timeout: 15000 });
     const shot = async (n) => { if (shots) await p.screenshot({ path: path.join(shots, "project-menu-" + n + ".png") }); };
@@ -122,13 +127,19 @@ const cfg = path.join(other, ".clauductor", "panel.json");
     await p.waitForSelector("#pd-go:not([hidden])", { timeout: 5000 });
     await shot("remove-confirm");
     await p.click("#pd-cancel");
-    // Removed elsewhere (another page, or `panel remove`): this page's own code does not
-    // ask for it, so only the menu the panel pushes can move it to the default.
+    // Removed elsewhere (another page, or `panel remove`) while this page had lost the
+    // panel (asleep, say): it misses the menu the panel pushes, so its reconnect must
+    // find the project gone and move to the default, not retry forever on a stale menu.
+    await p.route("**/events*", (r) => r.abort());
+    await p.evaluate(() => { if (es) es.close(); lost(); });
+    offlineOK = true; // the aborted stream and the removed project's 404 are expected
     const rm = await (await b.newContext()).request.post(base + "/api/projects/addme/remove", {
       headers: { Origin: base, Cookie: (await p.context().cookies()).map((c) => c.name + "=" + c.value).join("; "), "Content-Type": "application/json" }, data: "{}" });
     if (!rm.ok()) fail("removing from elsewhere: " + rm.status() + " " + (await rm.text()));
+    await p.unroute("**/events*");
     await p.waitForFunction(() => document.getElementById("pname").textContent === "Focus test", null, { timeout: 10000 }).catch(() => fail("a project removed elsewhere left the page stuck on it"));
     await p.waitForSelector('#tabs [role="tab"]', { timeout: 10000 }).catch(() => fail("the default's lanes did not show"));
+    offlineOK = false;
     await p.waitForTimeout(800);
     if ((await p.evaluate(() => (P || []).map((x) => x.id))).includes("addme")) fail("the removed project is still in the menu");
     if (!fs.existsSync(cfg)) fail("removing deleted the config");

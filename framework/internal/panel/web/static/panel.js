@@ -241,8 +241,14 @@ async function probe() {
     if (r.status === 401) { lost(true); return; }
     // A project the panel no longer serves (?p= of an old link, or one removed while this
     // page showed it, PANEL-22): the default instead, with nothing of the old one kept.
-    // A project the last menu still lists is restarting (a trust reload): try again.
-    if (r.status === 404 && pid() && S && (P || []).some((p) => p.id === pid() && p.ok)) throw new Error("restarting");
+    // A project the panel's menu lists as served now is restarting (a trust reload):
+    // try again. The menu is fetched fresh: the one this page holds may be from before
+    // it lost the panel.
+    if (r.status === 404 && pid()) {
+      const m = await fetch("/api/projects", { cache: "no-store", signal: ac.signal }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (Array.isArray(m)) P = m;
+      if (Array.isArray(m) && m.some((p) => p.id === pid() && p.ok)) throw new Error("restarting");
+    }
     if (r.status === 404 && pid()) {
       PID = "";
       try { history.replaceState(null, "", location.pathname); } catch (e) {}
