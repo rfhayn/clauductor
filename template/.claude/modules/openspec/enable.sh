@@ -40,6 +40,20 @@ link() {  # link NAME TARGET-DIR
 }
 link changes "$CHANGES_DIR" "${1:-}" || exit 1
 link specs "$SPECS_DIR" "${1:-}" || exit 1
+# The explore skill: shipped here, installed as .claude/skills/explore so Claude Code finds it. A copy,
+# not a link (a link into a plugin's cache breaks when the plugin moves); a copy that differs from the
+# module's after an update is reported here and by checks/run.sh openspec:project, and refreshed by
+# running this again.
+sk_src="$ROOT/.claude/modules/openspec/skills/explore/SKILL.md"
+# Spelt with the quote before /skills on purpose: the destination is the PROJECT's .claude/, which
+# the plugin build must not rewrite to the plugin's own copy.
+sk_dst="$ROOT/.claude"/skills/explore/SKILL.md
+if [ -f "$sk_dst" ] && cmp -s "$sk_src" "$sk_dst"; then echo "ok   .claude/skills/explore is the module's explore skill"
+elif [ "${1:-}" = --check ]; then
+  echo "FAIL .claude/skills/explore $( [ -f "$sk_dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/openspec/skills/explore (run sh .claude/modules/openspec/enable.sh)"; exit 1
+else
+  mkdir -p "$(dirname "$sk_dst")" && cp "$sk_src" "$sk_dst" && echo "made .claude/skills/explore (map it in .claude/model-roles.json: \"explore\": \"thinker\", and add its row to the playbook's skills table)"
+fi
 if [ "${1:-}" != --check ] && [ ! -f "$ROOT/openspec/config.yaml" ]; then
   cp "$ROOT/.claude/modules/openspec/config.yaml" "$ROOT/openspec/config.yaml" && echo "made openspec/config.yaml (adjust its rules)"
 fi

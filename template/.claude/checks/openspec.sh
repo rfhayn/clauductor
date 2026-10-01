@@ -64,6 +64,42 @@ if [ -n "$usable" ]; then
   else ok "openspec $v fails the example once a MODIFIED block drops a scenario (it is really validating)"; fi
 fi
 
+# The explore skill the module ships (skills/explore/SKILL.md): a whole skill, installed by enable.sh
+# into .claude/skills/explore, refreshed by it, and reported by --check once the copy drifts.
+SK="$ROOT/.claude/modules/openspec/skills/explore/SKILL.md"
+if [ ! -f "$SK" ]; then fail "the module's explore skill is missing ($SK)"
+else
+  fmv() { awk -v k="$1" 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 { i=index($0, ":"); if (i && substr($0,1,i-1)==k) { v=substr($0,i+1); sub(/^[ \t]+/,"",v); gsub(/^"|"$/,"",v); print v; exit } }' "$SK"; }
+  [ "$(fmv name)" = explore ] && ok "the explore skill's frontmatter names it explore" || fail "explore SKILL.md: name is '$(fmv name)'"
+  roles="$ROOT/.claude/model-roles.json"
+  if command -v jq >/dev/null 2>&1 && [ -f "$roles" ]; then
+    wm=$(jq -r '.roles.thinker.model // empty' "$roles"); we=$(jq -r '.roles.thinker.effort // empty' "$roles")
+    [ "$(fmv model)/$(fmv effort)" = "$wm/$we" ] && ok "its model and effort are the thinker role's ($wm/$we), the role enable.sh tells the project to map it to" \
+      || fail "explore SKILL.md says $(fmv model)/$(fmv effort); the thinker role in model-roles.json is $wm/$we"
+  fi
+  # The template's rules, not the vendored skill's: scenario IDs, the CLI floor, /propose for a new
+  # change, an approved design is the owner's; and no path that assumes the records live in openspec/.
+  for want in '[CAP-n-Sn]' '1.13 or later' '/propose' 'voids that approval' 'CHANGES_DIR/<id>/'; do
+    grep -qF -- "$want" "$SK" && ok "the explore skill states '$want'" || fail "the explore skill does not state '$want'"
+  done
+  grep -qE 'openspec/changes/|openspec new change|/opsx:' "$SK" && fail "the explore skill still names OpenSpec's own paths or commands: $(grep -nE 'openspec/changes/|openspec new change|/opsx:' "$SK" | head -2)" \
+    || ok "the explore skill names no openspec/changes path and no opsx command"
+  X="$d/explore"; mkdir -p "$X/.claude/lib"
+  cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/modules.sh" "$X/.claude/lib/"
+  cp -R "$ROOT/.claude/modules" "$X/.claude/modules"
+  xen() { (cd "$X" && PATH="$d/stub:$PATH" OPENSPEC_BIN="$d/stub/os-1.13.2" sh .claude/modules/openspec/enable.sh "$@") 2>&1; }
+  mkdir -p "$X/openspec"; ln -s ../changes "$X/openspec/changes"; ln -s ../specs "$X/openspec/specs"
+  out=$(xen --check); case $out in *"FAIL .claude/skills/explore is not installed"*) ok "--check reports the explore skill not installed" ;; *) fail "--check before enable: $out" ;; esac
+  out=$(xen); cmp -s "$SK" "$X/.claude/skills/explore/SKILL.md" && ok "enable.sh installs .claude/skills/explore from the module" || fail "enable.sh did not install the skill: $out"
+  out=$(xen --check); case $out in *"ok   .claude/skills/explore is the module's"*) ok "--check then reports it current" ;; *) fail "--check after enable: $out" ;; esac
+  echo "drift" >> "$X/.claude/skills/explore/SKILL.md"
+  out=$(xen --check); rc=$?
+  case $out in *"FAIL .claude/skills/explore differs from"*) ok "--check fails a copy that drifted from the module's (exit $rc)" ;; *) fail "--check on a drifted copy: $out" ;; esac
+  xen >/dev/null; cmp -s "$SK" "$X/.claude/skills/explore/SKILL.md" && ok "enable.sh refreshes a drifted copy" || fail "enable.sh left the drifted copy"
+  f=$(cd "$X" && cp "$ROOT/.claude/extensions.sh" .claude/ && printf 'MODULES="openspec"\n' > .claude/project.conf && sh .claude/extensions.sh fragments explore 2>&1)
+  case $f in None.*) ok "the explore SKILL.md is not offered as a fragment of itself" ;; *) fail "fragments explore: $f" ;; esac
+fi
+
 # With the module on, this project's own links and records are the module's check
 # (modules/openspec/checks/project.sh, run by checks/run.sh as openspec:project), not this one's.
 finish
