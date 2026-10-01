@@ -7,7 +7,7 @@
 # `clauductor update` then flagged it forever).
 #
 #   sh .claude/project-config.sh --json            {"branch": {"change","fix","ops","main"}, "changesDir",
-#                                                   "specsDir", "gate", "attribution", "provenance"}
+#                                                   "specsDir", "gate", "quickFlags", "attribution", "provenance"}
 #   sh .claude/project-config.sh branch <kind> <name>   the branch for a lane: kind change|fix|ops,
 #                                                   e.g. `branch change add-x` prints <BRANCH_CHANGE>add-x
 #   sh .claude/project-config.sh [prefixes]        BRANCH_CHANGE=… BRANCH_FIX=… BRANCH_OPS=… MAIN_BRANCH=…
@@ -40,9 +40,9 @@ case "${1:-}" in
     roles="$ROOT/.claude/model-roles.json"
     jq -e 'type == "object"' "$roles" >/dev/null 2>&1 || { echo "project-config.sh: $roles is missing or not JSON" >&2; exit 2; }
     jq -c --arg change "$BRANCH_CHANGE" --arg fix "$BRANCH_FIX" --arg ops "$BRANCH_OPS" --arg main "$MAIN_BRANCH" \
-      --arg changes "$CHANGES_DIR" --arg specs "$SPECS_DIR" --arg gate "$GATE" '
+      --arg changes "$CHANGES_DIR" --arg specs "$SPECS_DIR" --arg gate "$GATE" --arg quick "$GATE_QUICK_FLAGS" '
       { branch: {change: $change, fix: $fix, ops: $ops, main: $main},
-        changesDir: $changes, specsDir: $specs, gate: $gate,
+        changesDir: $changes, specsDir: $specs, gate: $gate, quickFlags: $quick,
         attribution: (if (.attribution | type) == "object" then (if .attribution.enabled == true then (.attribution.trailer // "") else "" end)
                       elif (.attribution | type) == "string" then .attribution else "" end),
         provenance: (.provenance.enabled == true) }' "$roles"

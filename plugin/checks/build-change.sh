@@ -44,13 +44,13 @@ pc="$CLAUDUCTOR_FW/project-config.sh"
 if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
   mkdir -p "$d/p/.claude/lib"
   cp "$CLAUDUCTOR_FW/lib/conf.sh" "$d/p/.claude/lib/"; cp "$pc" "$d/p/.claude/"
-  printf 'BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\n' > "$d/p/.claude/project.conf"
+  printf 'BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\nGATE_QUICK_FLAGS="--fast"\n' > "$d/p/.claude/project.conf"
   printf '{"attribution": {"enabled": false, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": false}}\n' > "$d/p/.claude/model-roles.json"
   ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/off.json" 2>&1
   printf '{"attribution": {"enabled": true, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": true}}\n' > "$d/p/.claude/model-roles.json"
   ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/on.json" 2>&1
   [ "$(ROOT= sh "$d/p/.claude/project-config.sh" branch change add-x)" = "feature/add-x" ] && ok "project-config.sh branch change add-x follows BRANCH_CHANGE" || fail "project-config.sh branch does not follow BRANCH_CHANGE"
-  jq -e '.branch.change == "feature/" and .changesDir == "openspec/changes" and .gate == "infra/ci/gate.sh" and .attribution == "" and .provenance == false' "$d/off.json" >/dev/null \
+  jq -e '.branch.change == "feature/" and .changesDir == "openspec/changes" and .gate == "infra/ci/gate.sh" and .quickFlags == "--fast" and .attribution == "" and .provenance == false' "$d/off.json" >/dev/null \
     && ok "project-config.sh --json reads project.conf and model-roles.json (attribution and provenance off)" || fail "project-config.sh --json printed: $(cat "$d/off.json")"
 else
   ok "SKIPPED: no .claude/project-config.sh or no jq here"
@@ -92,6 +92,8 @@ if (off != null) {
   t('settings: the branch prefix is the project\'s', c.branchPrefix, 'feature/')
   t('settings: the changes directory is the project\'s', c.changesDir, 'openspec/changes')
   t('settings: the gate is the project\'s', c.gate, 'infra/ci/gate.sh')
+  t('settings: the quick flags are the project\'s', c.quickFlags, '--fast')
+  t('settings: a quickFlags arg wins, even an empty one', projectSettings(off, { quickFlags: '' }).quickFlags, '')
   t('settings: attribution and provenance off give a commit no trailer', trailerBlock(c, 'add-x', 'builder', 'opus', 's1'), '')
   const c2 = projectSettings(on, {})
   t('settings: provenance and attribution on give both trailers', trailerBlock(c2, 'add-x', 'builder', 'opus', 's1'), '\n\nChange: add-x\nAgent-Role: builder\nModel: opus\nSession: s1\nCo-Authored-By: X <x@y>')
@@ -131,11 +133,14 @@ const prefixRun = async (risk, econ) => {
   const cut = src.indexOf('\nfor (const g of todo) {')
   if (cut < 0) throw new Error("cannot find the review loop ('for (const g of todo) {') in build-change.js")
   const prefix = src.slice(0, cut).replace(/^export const meta/m, 'const meta')
-  const settings = { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', attribution: '', provenance: false }) }
+  const settings = { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'infra/ci/gate.sh', quickFlags: '--fast', attribution: '', provenance: false }) }
+  // The preflight answer also carries a gate that disagrees: the project's gate is read ONCE, from
+  // the settings, and nothing the preflight agent reports may replace it.
   const pre = { branch: 'change/x', clean: true, dirtyFiles: [], groups: [{ n: 1, title: 't', openTasks: 1 }],
-    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01' }
+    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01',
+    gate: 'scripts/ci/gate.sh', quickFlags: '--quick' }
   const agent = async (p, o) => (o && o.label === 'preflight' ? pre : o && o.label === 'settings' ? settings : null)
-  const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick }\n})()`
+  const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick, gate: GATE_CMD, quick: QUICK }\n})()`
   return new Function('args', 'agent', 'phase', 'log', body)({ change: 'x' }, agent, () => {}, () => {})
 }
 ;(async () => { try {
@@ -143,6 +148,8 @@ const prefixRun = async (risk, econ) => {
   for (const risk of ['low', 'normal', 'high']) for (const econ of [false, true]) {
     const r = await prefixRun(risk, econ)
     if (!r || !r.__ran) { t(`the script up to the review loop runs (Risk ${risk})`, false, `it stopped early: ${JSON.stringify(r && (r.reason || r))}`); continue }
+    if (risk === 'normal' && !econ) t("the gate and quick flags the run uses are project-config.sh's, read once",
+      r.gate === 'infra/ci/gate.sh' && r.quick === '--fast', `got ${JSON.stringify({ gate: r.gate, quick: r.quick })}`)
     const got = r.pick('reviewer')
     t(`after the whole prefix ran, pick('reviewer') at Risk ${risk}${econ ? ', economy on' : ''} is model-roles.json's reviewer ${JSON.stringify(want[risk])}`,
       deq({ model: got.model, effort: got.effort }, want[risk]) && Object.keys(got).every((k) => k === 'model' || k === 'effort'),

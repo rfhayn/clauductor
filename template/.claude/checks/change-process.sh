@@ -26,9 +26,11 @@ done
 # The log (D6): build-change has the builder keep it and writes Progress per group.
 has .claude/workflows/build-change.js '## Decision log' "build-change has the builder keep the Decision log"
 has .claude/workflows/build-change.js '## Progress' "build-change writes Progress per committed group"
-# The gate it runs is the project's (P1.7): GATE and GATE_QUICK_FLAGS, read at preflight.
-has .claude/workflows/build-change.js '"$GATE" "$GATE_QUICK_FLAGS"' "build-change reads the project's GATE and GATE_QUICK_FLAGS at preflight"
-has .claude/workflows/build-change.js 'if (!args.gate && String(pre.gate' "build-change runs the project's GATE when no arg names one"
+# The gate it runs is the project's (P1.7): GATE and GATE_QUICK_FLAGS, read ONCE, through
+# project-config.sh --json (a second read could replace one with the other; checks/build-change.sh).
+has .claude/project-config.sh '--arg quick "$GATE_QUICK_FLAGS"' "project-config.sh --json carries the project's GATE_QUICK_FLAGS"
+has .claude/workflows/build-change.js 'GATE_CMD = CFG.gate' "build-change runs the project's GATE (project-config.sh) when no arg names one"
+has .claude/workflows/build-change.js 'QUICK = CFG.quickFlags' "build-change runs the project's GATE_QUICK_FLAGS (project-config.sh) when no arg names them"
 has .claude/agents/builder.md '## Decision log' "the builder agent keeps the Decision log"
 
 # Verify (D7): in build-change and in merge-pr.
