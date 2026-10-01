@@ -140,6 +140,10 @@ if [ "$code" -eq 0 ]; then
   if [ "$MODE" = full ]; then
     printf '%s\tfull\t%s\tall\n' "$TESTED_SHA" "$state" > "$RECEIPT"
     echo "    receipt: $RECEIPT ($state)"
+    # The picture for a PR's reader (the ci-status module, when on), only for a clean run: a status
+    # has no `dirty` field the way the receipt does, and would show green for a commit that is not
+    # what was tested.
+    if [ "$state" = clean ]; then model_publish_status pass "$TESTED_SHA"; fi
     # Said HERE, at the end, where the verdict is read: a note at the top of a long log is not read.
     [ "$state" = clean ] || echo "    !!  The tree tested was NOT the commit (uncommitted or untracked files, --dirty, or HEAD moved): the merge guard refuses this receipt. Commit and re-run."
   else
@@ -149,5 +153,9 @@ else
   echo
   echo "==> FAIL ($MODE):$FAILED"
   if [ "$MODE" = full ] && [ -f "$RECEIPT" ]; then rm -f "$RECEIPT"; echo "    removed $RECEIPT: a stale pass must not outlive a fail"; fi
+  # Evidence and picture are retracted together: a failed full run of the committed tree also turns
+  # an earlier green status on the tested commit red. A --dirty run tested the working tree, so it
+  # has nothing to say about the commit either way.
+  if [ "$MODE" = full ] && [ "$DIRTY" -eq 0 ]; then model_publish_status fail "$TESTED_SHA"; fi
 fi
 exit "$code"
