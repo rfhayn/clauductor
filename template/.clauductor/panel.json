@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
   "name": "My Project",
-  "version": 3,
+  "version": 4,
   "lanes": {
     "change/": "build",
     "fix/": "fix",
@@ -66,6 +66,7 @@
     "waiting_seconds": 120
   },
   "quota_guard": { "five_hour_pct": 95 },
+  "metrics": { "command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"], "refresh": "interval:600" },
   "cards": [
     {
       "id": "owner-queue",

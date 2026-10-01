@@ -20,6 +20,16 @@ type Metric struct {
 	Items   any        `json:"items,omitempty"`
 	Source  string     `json:"source,omitempty"`
 	Missing string     `json:"missing,omitempty"`
+	// Span, on a rate, says the value is not one: with less history than the rate
+	// needs (spend per week with under a week kept), it is the actual amount since
+	// Since, over Days days, and the page says so instead of extrapolating.
+	Span *Span `json:"span,omitempty"`
+}
+
+// Span is the history a figure's value covers when that is shorter than its unit.
+type Span struct {
+	Since string `json:"since"` // 2006-01-02
+	Days  int    `json:"days"`
 }
 
 // Sources of a figure.
@@ -199,7 +209,10 @@ func projectMetrics(w *Window) map[string]*Metric {
 		}
 		set("cost.per_week", statMetric(c.PerWeek))
 		set("cost.by_role", listMetric(c.ByRole))
-		set("cost.by_model", listMetric(c.ByModel))
+		if c.ByModel != nil {
+			items, note := modelAmounts(c.ByModel)
+			set("cost.by_model", &Metric{Items: items, N: len(items), Note: note})
+		}
 		set("cost.by_change", listMetric(c.ByChange))
 		set("cost.by_project", listMetric(c.ByProject))
 	}
@@ -269,6 +282,9 @@ func Combine(reps []Report, now time.Time) Report {
 					first = &Metric{Missing: "No project reports this."}
 				}
 				win[k] = &Metric{Missing: first.Missing}
+			case k == "cost.by_model":
+				// One row per model, whichever way each project names it.
+				win[k] = combineModels(have, names)
 			default:
 				win[k] = combineOne(k, have, names)
 			}
@@ -304,6 +320,9 @@ func combineOne(k string, have []*Metric, names []string) *Metric {
 		return m
 	}
 	if additive[k] {
+		if c := combineSpans(have, names); c != nil {
+			return c
+		}
 		sum, n := 0.0, 0
 		sameLen := true
 		for _, h := range have {
@@ -355,6 +374,50 @@ func combineOne(k string, have []*Metric, names []string) *Metric {
 	v := sum / weight
 	m.Value, m.N = &v, n
 	m.Note = "The projects' values weighted by how many each summarises, not one median over all of them."
+	return m
+}
+
+// combineSpans sums a rate some of whose projects have too little history for it
+// (a Span: the value is an amount, not a rate), or returns nil when none has. An
+// amount and a rate cannot be added: with every project short, the amounts add up,
+// over the longest span; with some, the rates of the others add up, and the note
+// names the projects left out.
+func combineSpans(have []*Metric, names []string) *Metric {
+	var rated []*Metric
+	var short []string
+	var span *Span
+	sum := 0.0
+	for i, h := range have {
+		if h.Span == nil {
+			rated = append(rated, h)
+			continue
+		}
+		short = append(short, names[i])
+		if h.Value != nil {
+			sum += *h.Value
+		}
+		if span == nil {
+			span = &Span{Since: h.Span.Since, Days: h.Span.Days}
+		} else if h.Span.Since < span.Since {
+			span.Since, span.Days = h.Span.Since, h.Span.Days
+		}
+	}
+	if span == nil {
+		return nil
+	}
+	src := mixedSource(have)
+	if len(rated) == 0 {
+		return &Metric{Value: &sum, Span: span, Source: src, Note: "Less than a week of spend kept in any project: the spend so far, not a weekly rate."}
+	}
+	m := &Metric{Source: src, Note: "Without " + strings.Join(short, ", ") + ": less than a week of spend kept there."}
+	v := 0.0
+	for _, h := range rated {
+		if h.Value != nil {
+			v += *h.Value
+		}
+		m.N += h.N
+	}
+	m.Value = &v
 	return m
 }
 

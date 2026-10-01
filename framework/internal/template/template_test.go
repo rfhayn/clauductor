@@ -68,11 +68,7 @@ var templateMetrics = struct {
 	Refresh string
 }{[]string{"sh", "-c", "sh .claude/metrics.sh 2>&1"}, "interval:600"}
 
-// TODO (OPS-9): the preset gains `"metrics": {"command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"],
-// "refresh": "interval:600"}` once this panel's config knows the key (PANEL-19, config version 4).
-// Until then the key would fail TestTemplatePanelConfigLoads, so it is not there yet. This test is
-// the reminder that executes itself: the moment config.Fields has `metrics`, it fails, naming the
-// block to add and the version to declare, until the preset carries it.
+// The preset runs the model's metrics command (OPS-9), which needs config version 4 (PANEL-19).
 func TestTemplatePanelMetricsCommand(t *testing.T) {
 	root := repoRoot(t)
 	if _, err := os.Stat(filepath.Join(root, "template", ".claude", "metrics.sh")); err != nil {

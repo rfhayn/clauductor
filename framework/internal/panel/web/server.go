@@ -81,6 +81,10 @@ type Server struct {
 	// the panel runs under launchd with a persistent token.
 	CookieMaxAge int
 
+	// OnVisible, if set, runs when a page says it is in view and none was (MarkVisible).
+	// It must not block.
+	OnVisible func()
+
 	// Heartbeat is how often an open /events stream beats. Zero means HeartbeatEvery.
 	Heartbeat time.Duration
 	// Clock stamps terminal tickets and times their idle close. Required.
@@ -450,5 +454,13 @@ func (s *Server) PageVisible(now time.Time) bool {
 	return at != 0 && now.Sub(time.Unix(0, at)) < PageVisibleFor
 }
 
-// MarkVisible records that a page is in view now.
-func (s *Server) MarkVisible(now time.Time) { s.seenAt.Store(now.UnixNano()) }
+// MarkVisible records that a page is in view now. When no page was in view before,
+// OnVisible runs, so the reads that wait for a page start now rather than at their
+// next tick (PANEL-21: the Metrics view's merged pull requests waited a minute).
+func (s *Server) MarkVisible(now time.Time) {
+	was := s.PageVisible(now)
+	s.seenAt.Store(now.UnixNano())
+	if !was && s.OnVisible != nil {
+		s.OnVisible()
+	}
+}

@@ -28,6 +28,8 @@ type closeRepo struct {
 	gh   string // `gh pr list --state merged` output
 	// agents is `claude agents --json` output ("" fails the read).
 	agents string
+	// hooks are the setup and teardown argvs run (through /usr/bin/env).
+	hooks [][]string
 }
 
 func newCloseRepo(t *testing.T) *closeRepo {
@@ -74,6 +76,11 @@ func (r *closeRepo) run(ctx context.Context, dir string, argv []string) ([]byte,
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		return []byte(r.gh), nil
+	case "/usr/bin/env":
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.hooks = append(r.hooks, argv)
+		return nil, nil
 	case "claude":
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -288,5 +295,32 @@ func TestCloseRemovesACleanWorktreeAndOnlyAMergedBranch(t *testing.T) {
 	}
 	if _, lerr := r.m.Close(context.Background(), "kept", CloseRequest{}); lerr == nil || lerr.Status != 404 {
 		t.Fatalf("closing a closed lane: %v", lerr)
+	}
+}
+
+// PANEL-21: the teardown gets the lane's CLAUDUCTOR_PORT, as the docs say, although
+// Close forgets the lane (and with its record, its port) before the teardown runs.
+func TestCloseTeardownGetsTheLanePort(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	r.m.Cfg.WorktreeTeardown = &config.HookCommand{Command: []string{"true"}}
+	path := r.lane("ported", "fix/ported", filepath.Join(r.root, ".wt", "ported"))
+	rec, _ := r.m.Registry.Get("ported")
+	rec.Port = 4730
+	if err := r.m.Registry.Put(rec); err != nil {
+		t.Fatal(err)
+	}
+	_, res := r.closeAll("ported")
+	if exists(path) || !has(res.Removed, "worktree_teardown ran") {
+		t.Fatalf("close: %+v", res)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.hooks) != 1 {
+		t.Fatalf("hooks run: %v", r.hooks)
+	}
+	want := []string{"/usr/bin/env", "CLAUDUCTOR_LANE=ported", "CLAUDUCTOR_PORT=4730", "true"}
+	if strings.Join(r.hooks[0], " ") != strings.Join(want, " ") {
+		t.Fatalf("teardown argv %q, want %q", r.hooks[0], want)
 	}
 }

@@ -28,7 +28,7 @@ func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","version":5,"lanes":{"main":"orchestrator","fix/":"fix"},
 		"base":"main","worktree_dir":".wt","ports":{"base":4400,"per_lane":10},
 		"worktree_setup":{"command":["sh","-c","echo \"$CLAUDUCTOR_LANE $CLAUDUCTOR_PORT\" > .setup-ran"]},
-		"worktree_teardown":{"command":["sh","-c","test \"$CLAUDUCTOR_LANE\" = dirty && echo left > leftover.txt; true"]}}`)
+		"worktree_teardown":{"command":["sh","-c","test \"$CLAUDUCTOR_LANE\" = dirty && echo \"$CLAUDUCTOR_LANE $CLAUDUCTOR_PORT\" > leftover.txt; true"]}}`)
 	writeFile(t, filepath.Join(root, ".gitignore"), ".wt/\n.env\n.cache/\n.setup-ran\nsecret.txt\n")
 	writeFile(t, filepath.Join(root, ".worktreeinclude"), ".env\nconfig/*.json\n")
 	writeFile(t, filepath.Join(root, "config", "tracked.json"), "{}") // tracked: never copied
@@ -93,7 +93,11 @@ func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	if code != 200 || !strings.Contains(fmt.Sprint(body["result"]), "after worktree_teardown") {
 		t.Fatalf("close dirty: %d %v", code, body)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".wt", "dirty", "leftover.txt")); err != nil {
+	// PANEL-21: the teardown ran with the lane's port, although Close had already
+	// forgotten the lane's record (which holds it).
+	if b, err := os.ReadFile(filepath.Join(root, ".wt", "dirty", "leftover.txt")); err != nil {
 		t.Fatal("the worktree with the teardown's file was removed")
+	} else if string(b) != "dirty 4410\n" {
+		t.Fatalf("teardown saw %q, want the lane and its port", b)
 	}
 }

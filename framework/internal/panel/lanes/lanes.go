@@ -648,7 +648,7 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 				res.Notes = append(res.Notes, note)
 			}
 		}
-		if ran, err := m.runHook(ctx, "worktree_setup", m.Cfg.WorktreeSetup, res.Path, id); err != nil {
+		if ran, err := m.runHook(ctx, "worktree_setup", m.Cfg.WorktreeSetup, res.Path, id, rec.Port); err != nil {
 			res.Notes = append(res.Notes, err.Error()+"; the lane starts anyway")
 		} else if ran {
 			res.Notes = append(res.Notes, "worktree_setup ran")

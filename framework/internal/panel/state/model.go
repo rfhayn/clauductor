@@ -8,6 +8,7 @@ package state
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -114,6 +115,13 @@ type session struct {
 	WaitingSince time.Time // `claude agents` has reported waiting since
 	LastPromptAt time.Time // the last UserPromptSubmit
 	Unknown      string    // the last notification type the table does not know
+
+	// PANEL-21 (binding.go): the cwd at first sight and when, so a binding made
+	// before the worktree list caught up can be corrected; and when `claude agents`
+	// stopped listing the session, so its late events are set aside.
+	bindCwd string
+	boundAt time.Time
+	goneAt  time.Time
 }
 
 // CardState is the last result of one card.
@@ -196,6 +204,11 @@ type Model struct {
 	gateReceipts bool
 	mergeAsks    map[string]MergeAsk   // lifecycle.go
 	limits       map[string]*limitMark // resume.go, by session id
+	// PANEL-21 (binding.go): sessions whose lane ended, by session id, with the last
+	// time anything arrived from them; and the lanes live on the last tmux poll
+	// (lane id → its session and tmux creation time).
+	endedIDs  map[string]time.Time
+	liveLanes map[string]liveLane
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -215,6 +228,8 @@ func NewModel(cfg *config.Config, root string, now time.Time) *Model {
 		laneHookAt:   map[string]time.Time{},
 		costByID:     map[string]float64{},
 		laneGone:     map[string]time.Time{},
+		endedIDs:     map[string]time.Time{},
+		liveLanes:    map[string]liveLane{},
 	}
 	m.v2.versionSrc = SourceStatus{Pending: true}
 	m.v2.queuesSrc = SourceStatus{Pending: true}
@@ -251,6 +266,7 @@ func (m *Model) ApplyWorktrees(wts []signals.Worktree, err error, now time.Time)
 	}
 	m.worktrees = wts
 	m.worktreesSrc = SourceStatus{OK: true, At: ms(now)}
+	m.rebind(now)
 }
 
 func (m *Model) lane(cwd string) (signals.Worktree, bool) {
@@ -263,16 +279,22 @@ func (m *Model) lane(cwd string) (signals.Worktree, bool) {
 
 // sess returns the session, creating it bound to lane. A session is bound ONCE: an
 // event's cwd follows claude when it runs `cd`, so a later cwd never moves it. The
-// lane is found by bindLane, which prefers the panel's own session id.
-func (m *Model) sess(id, lane string) *session {
+// lane is found by bindLane, which prefers the panel's own session id. A binding
+// made before the inputs caught up is corrected from its registry record, or from
+// cwd, the cwd at first sight (rebindOne), never from a cwd seen later.
+func (m *Model) sess(id, lane, cwd string, now time.Time) *session {
 	s := m.sessions[id]
 	if s == nil {
-		s = &session{ID: id, Lane: lane, Subagents: map[string]subagent{}}
+		s = &session{ID: id, Lane: lane, Subagents: map[string]subagent{}, boundAt: now}
+		if cwd != "" {
+			s.bindCwd = filepath.Clean(cwd)
+		}
 		m.sessions[id] = s
 	}
 	if s.Lane == "" {
 		s.Lane = lane
 	}
+	m.rebindOne(s, now)
 	return s
 }
 
@@ -293,6 +315,9 @@ func (m *Model) bindLane(sessionID, cwd string) (string, bool) {
 		if s := m.sessions[sessionID]; s != nil && s.Lane != "" {
 			return s.Lane, true
 		}
+		if _, ok := m.endedIDs[sessionID]; ok {
+			return "", false // its lane ended: never re-bound by cwd (the root)
+		}
 	}
 	if wt, ok := m.lane(cwd); ok {
 		return wt.Path, true
@@ -311,6 +336,9 @@ func (m *Model) OwnsSession(id string) bool {
 		if rec.SessionID == id {
 			return true
 		}
+	}
+	if _, ok := m.endedIDs[id]; ok {
+		return true // set aside here, rather than bound by cwd in another project
 	}
 	s := m.sessions[id]
 	return s != nil && s.Lane != ""
@@ -356,6 +384,10 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		m.v2.droppedUnknown++
 		return true
 	}
+	if m.ended(ev.SessionID, now) {
+		m.v2.droppedEnded++ // a late event from a lane that ended: never brings it back
+		return true
+	}
 	lanePath, ok := m.bindLane(ev.SessionID, ev.Cwd)
 	if !ok {
 		m.dropped++
@@ -363,8 +395,9 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	}
 	wt := m.worktreeByPath(lanePath)
 	m.hookEvents++
+	s := m.sess(ev.SessionID, wt.Path, ev.Cwd, now)
+	wt = m.worktreeByPath(s.Lane)
 	m.laneHookAt[wt.Path] = now
-	s := m.sess(ev.SessionID, wt.Path)
 	s.LastHookAt = now
 	s.LastEvent = ev.Event
 	s.LastEventAt = now
@@ -555,6 +588,10 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 	// The quota is the account's: a post from any session, in this project or not,
 	// moves it (PANEL-15; before, one from another project was dropped first).
 	m.foldQuota(p, now)
+	if m.ended(p.SessionID, now) {
+		m.v2.droppedEnded++
+		return true
+	}
 	lanePath, ok := m.bindLane(p.SessionID, p.Cwd)
 	if !ok {
 		m.dropped++
@@ -566,7 +603,7 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		m.v2.statusVersion = p.Version
 	}
 	if p.SessionID != "" {
-		s := m.sess(p.SessionID, wt.Path)
+		s := m.sess(p.SessionID, wt.Path, p.Cwd, now)
 		s.StatusAt = now
 		if p.ContextWindow.UsedPercentage != nil {
 			v := *p.ContextWindow.UsedPercentage
@@ -603,13 +640,17 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 		if a.SessionID == "" {
 			continue
 		}
+		if _, ok := m.endedIDs[a.SessionID]; ok {
+			continue // its lane ended; a claude still exiting can linger in the list
+		}
 		lanePath, ok := m.bindLane(a.SessionID, a.Cwd)
 		if !ok {
 			continue
 		}
-		wt := m.worktreeByPath(lanePath)
 		seen[a.SessionID] = true
-		s := m.sess(a.SessionID, wt.Path)
+		s := m.sess(a.SessionID, lanePath, a.Cwd, now)
+		wt := m.worktreeByPath(s.Lane)
+		s.goneAt = time.Time{}
 		prev := ""
 		if s.Agent != nil {
 			prev = s.Agent.Status
@@ -664,10 +705,11 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 			if s.Lane != "" {
 				m.feedFor(m.worktreeByPath(s.Lane), id, "session", "gone", now)
 			}
-			s.Agent = nil
-			s.Note, s.Done = nil, nil
-			s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}
-			s.clearSubagents(now)
+			// Gone from the list with no SessionEnd (a crash, SIGKILL): it has ended,
+			// and what it still sends in the next moments is set aside, so it does not
+			// linger as a lane for activeWindow. Listed again, it is back.
+			s.end(now)
+			s.goneAt = now
 		}
 	}
 	m.forgetSessions(now)
@@ -1280,6 +1322,8 @@ func (m *Model) ApplyTmux(lanes []types.TmuxLane, recs []types.LaneRecord, block
 		return
 	}
 	m.tmuxLanes, m.laneRecords = lanes, recs
+	m.trackLaneEnds(lanes, recs, now)
+	m.rebind(now)
 	on := map[string]bool{}
 	for _, tl := range lanes {
 		on[tl.ID] = true
@@ -1421,6 +1465,7 @@ type modelV2 struct {
 	notifier       NotifierStats
 	trust          config.TrustView
 	versionSet     bool
+	droppedEnded   int                     // late hooks and status posts from sessions whose lane ended (PANEL-21)
 	suggest        map[string]*SuggestView // template id → its suggestions
 	autoVerified   string                  // a version verified from live hooks (verify.go)
 	verify         verifier
@@ -1433,6 +1478,7 @@ type ObsView struct {
 	StatusPosts          int           `json:"statusPosts"`
 	DroppedForeign       int           `json:"droppedForeign"`
 	DroppedUnknownEvent  int           `json:"droppedUnknownEvent"`
+	DroppedEnded         int           `json:"droppedEnded"`
 	UnknownNotifications int           `json:"unknownNotifications"`
 	ClaudeVersion        string        `json:"claudeVersion"`
 	VerifiedOn           string        `json:"verifiedOn"`
@@ -1778,7 +1824,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,
-		DroppedUnknownEvent: m.v2.droppedUnknown, UnknownNotifications: m.v2.unknownNotifs,
+		DroppedUnknownEvent: m.v2.droppedUnknown, DroppedEnded: m.v2.droppedEnded, UnknownNotifications: m.v2.unknownNotifs,
 		ClaudeVersion: m.v2.claudeVersion, VerifiedOn: HeuristicsVerifiedOn, VersionSource: m.v2.versionSrc,
 		Notifier: m.v2.notifier}
 	if v.Observe.ClaudeVersion == "" && m.v2.statusVersion != "" {

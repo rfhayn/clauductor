@@ -65,6 +65,9 @@
 <div class="connbar" id="connbar" role="alert" hidden></div>
 <!-- New blocking items are announced here, politely, for screen readers. -->
 <div class="sr" id="announce" aria-live="polite"></div>
+<!-- The bars between the status bar and the lanes (PANEL-21): together they give way to
+     the lanes and scroll, so with every one shown the page still fits the window. -->
+<div class="topbars" id="topbars">
 <!-- Needs you comes first in the DOM, so it is first at every width. It shows only
      when something needs you. -->
 <section class="needs" id="needs" aria-label="Needs you" hidden></section>
@@ -72,8 +75,10 @@
 <div class="banners" id="restorebar" hidden></div>
 <!-- What Close lane removed and kept (PANEL-17): the lane itself is gone by then. -->
 <div class="banners" id="closebar" role="status" hidden></div>
+</div>
 <!-- A lane's actions, opened by its "⋯" in the Lanes table or the Worktrees tree (PANEL-18). -->
 <div class="menu rowmenu" id="rowmenu" role="menu" aria-label="Lane actions" hidden></div>
+<div class="menu tabmenu" id="tabmenu" role="menu" aria-label="Lanes out of sight in the tabs" hidden></div>
 <main class="shell" id="shell">
   <nav class="rail" id="rail" aria-label="Lanes and worktrees">
     <section class="pane" id="lanelist" aria-label="Lanes"></section>
@@ -85,6 +90,8 @@
     <div class="tabrow" id="tabrow">
       <button class="btn railbtn" id="railbtn" type="button" aria-controls="rail" aria-expanded="true" title="Show or hide the lane list and worktrees">Lanes</button>
       <div class="tabs" id="tabs" role="tablist" aria-label="Lane terminals"></div>
+      <!-- More tabs than the strip shows (PANEL-21): how many, and a menu of them. -->
+      <button class="tab moretabs" id="moretabs" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="tabmenu" hidden></button>
       <button class="tab addtab" id="addtab" type="button" title="Start a new lane" aria-label="New lane">+</button>
     </div>
     <div class="wsbody" id="wsbody" role="tabpanel">

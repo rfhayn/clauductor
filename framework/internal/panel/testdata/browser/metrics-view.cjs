@@ -82,11 +82,18 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const pressed = await p.$$eval('#mvbar [aria-label="Range"] button', (bs) => bs.map((x) => x.getAttribute("aria-pressed")));
     if (JSON.stringify(pressed) !== JSON.stringify(["false", "false", "true"])) fail("range pressed " + JSON.stringify(pressed));
     if (shots) await p.screenshot({ path: path.join(shots, "metrics-quality-90d-missing.png") });
-    // Flow at 90d: the panel's own merges (gh lists none: 0 a week, never "—").
+    // Flow at 90d: the panel's own merges (gh lists none: 0 a week, never "—"). PANEL-21:
+    // the page came into view, so gh was read at once, and the view asks again every 3 s
+    // while the read is pending: well within the wait, never "Reading…" for a minute.
     await p.click("#mtab-flow");
+    await p.waitForFunction(() => mv.data && mv.data.merged && mv.data.merged.ok, null, { timeout: 8000 }).catch(() => fail("merged pull requests still not read 8 s after the page came into view"));
     await p.waitForTimeout(150);
     const mf = await fig("Merge frequency");
-    if (!mf || !((mf.v === "0 a week" && mf.src === "built in") || /gh/.test(mf.note))) fail("90d merge frequency " + JSON.stringify(mf));
+    if (!mf || mf.v !== "0 a week" || mf.src !== "built in" || !/No pull request was merged in the last 90d/.test(mf.note)) fail("90d merge frequency " + JSON.stringify(mf));
+    // PANEL-21: spend with under a week kept is the amount so far and since when, never a
+    // weekly rate spread over the window.
+    const spanText = await p.evaluate(() => [mShown({ value: 11.7, span: { since: "2026-09-30", days: 1 } }, "$wk"), mShown({ value: 14 }, "$wk")]);
+    if (!/^\$11\.70? \(since 2026-09-30, 1 day\)$/.test(spanText[0]) || !/a week$/.test(spanText[1])) fail("spend with a span " + JSON.stringify(spanText));
 
     // All projects.
     await p.click('#mvbar [aria-label="Scope"] button:has-text("All projects")');
@@ -143,6 +150,25 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     const opened = await p.evaluate(() => ({ hidden: document.getElementById("mview").hidden, tab: mv.tab, range: mv.range }));
     if (opened.hidden || opened.tab !== "flow" || opened.range !== "30d") fail("the Flow card did not open Flow at 30d: " + JSON.stringify(opened));
     await p.keyboard.press("Escape");
+    // PANEL-21: spend with under a week kept puts its span on a line of its own; in one line
+    // it pushed the Spend label out and the sparklines past the side panel (UX pass 2).
+    for (const scale of [100, 110]) {
+      const fit = await p.evaluate((scale) => {
+        window.PanelScale.set(scale);
+        const sp = S.flow.items.find((it) => it.key === "cost.per_week");
+        sp.value = 0.2; sp.span = { since: "2026-09-30", days: 1 }; sp.series = [0, 0, 0.2];
+        render();
+        const side = document.getElementById("side").getBoundingClientRect(), c = document.querySelector("#side .flowcard");
+        const rows = Array.from(c.querySelectorAll(".frow")).map((r) => { const l = r.querySelector(".fl"), lr = l.getBoundingClientRect(), rr = r.getBoundingClientRect();
+          return { l: l.textContent, whole: l.scrollWidth <= l.clientWidth + 1 && lr.left >= rr.left - 1 && lr.right <= rr.right + 1,
+            past: Math.max(0, ...Array.from(r.querySelectorAll("*")).map((k) => k.getBoundingClientRect().right - Math.min(side.right, rr.right))) }; });
+        const sub = c.querySelector(".fsub");
+        window.PanelScale.reset();
+        return { rows, sub: sub && sub.textContent, title: sub && sub.parentElement.title, card: c.getBoundingClientRect().right - side.right, side: side.width };
+      }, scale);
+      if (fit.sub !== "since 2026-09-30, 1 day" || !/\$0\.20 \(since 2026-09-30, 1 day\)/.test(fit.title) || fit.side < 50 || fit.card > 1 || fit.rows.some((r) => !r.whole || r.past > 1))
+        fail("the Flow card with a short spend history at " + scale + "% " + JSON.stringify(fit));
+    }
 
     // PANEL-19 part 4: run.sh gave lane "second" a change whose proposal waits for
     // approval and has a budget. Refresh re-reads the change directory.
@@ -166,7 +192,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
       S.economy = null; render();
       return out;
     });
-    if (!eco || !/^Economyeconomyscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
+    if (!eco || !/^Economyonscribe to sonnet, low$/.test(eco.text) || !/87% ≥ 85%/.test(eco.title) || !eco.afterQuota) fail("the economy badge " + JSON.stringify(eco));
 
     // PANEL-19 part 6: remote control in lanes mode (synthetic: install writes the mode).
     const rc = await p.evaluate(() => {

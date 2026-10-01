@@ -333,7 +333,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
-| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows an **economy** badge by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off. |
 | `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
 | `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
 | `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
@@ -544,7 +544,11 @@ value just changed.
   The side panel's left edge drags like the rail's (or, focused, ← widens and → narrows it; Home
   and End go to the limits, Escape or a double-click restores the theme's width), up to half
   the window; the width is kept per browser.
-  Below 1180 px the side panel moves under the terminal.
+  Below 1180 px the side panel moves under the terminal, taking at most two fifths of the
+  height and scrolling there. The page is the window at every size (PANEL-21): it never scrolls,
+  the footer always shows, the terminal shrinks and refits, and Needs you and the banners give
+  way and scroll when the window is too short for them all. Tabs out of sight are counted by
+  **N more** after the strip, whose menu lists them.
 - **Activity (the drawer).** Every queue, the open pull requests (from `gh`, "cannot read" on
   failure, never an empty list), the project's cards, and every lane's last events, grouped by
   lane. Escape or Close closes it and returns focus.
@@ -795,6 +799,8 @@ gitignored files, its dependencies and a port of its own before claude starts in
   remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
   (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
   and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
+  The teardown's `CLAUDUCTOR_PORT` is the port the lane's record held when Close began (Close
+  forgets the record before the teardown runs), so auto-close on merge passes it too.
   A failed teardown, or one that leaves the worktree changed (the clean check runs again after
   it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
   A lane on an existing worktree or the project root runs neither. The lane lock is held
@@ -1566,8 +1572,32 @@ figures say the oldest part of the window may lack merges. The ledger (see *Secu
 what the panel writes) counts a session the first time it sees it in full, and after that only
 what it added, so a panel restart counts nothing twice; spend from before the panel kept a
 ledger is not in it, and the figures say "Since <day>" until the ledger is as old as the window.
+Spend per week (PANEL-21) is a rate over the days the ledger has kept in the window, the smaller
+of the window and the days since its first day, never over days before it began (one day's $11.70
+is not "$2.73 a week" at 30d); a bucket before the ledger began is no data, not zero. With less
+than a week kept it is no rate at all: the view and the Flow card show the spend so far, "$11.70",
+with "since 2026-09-30, 1 day" on a smaller line under it (the Flow card's row tooltip has the
+whole), and the report marks it with `span: {since, days}`. For all projects,
+spends so far add up only with each other; beside rates, the rates add up and the note names the
+projects left out.
+
+The first read of merged pull requests is made as soon as a page comes into view (PANEL-21;
+before, it waited for the source's next minute), and the Metrics view asks again every 3 s while
+it is pending. A failed read says what to do where gh's message is a known one: gh not installed,
+not authenticated (`gh auth login`), no GitHub remote, or no answer in 30 s. A window with no
+merge shows merge frequency 0 with "No pull request was merged in the last 30d", and cycle time
+"—" with the same reason.
 By lane type, because the panel knows a lane's type, not the role a skill switched to: a
 project's command can report by role.
+
+By model is one row per model however it is named (PANEL-21): the status line's display name
+(`Opus 4.1`), an id (`claude-opus-4-1-20250805`, a Bedrock or Vertex spelling of it) and a
+command's alias (`opus`) are keyed by family and version when the name says them, by family
+alone otherwise, and labelled `Opus 4.1` or `Opus`. An alias is counted with its family's
+version when exactly one version of that family is in the list, and the figure says so; with
+two or more it stays its own row. **All projects** joins every project's rows this way, so a
+model one project's command calls `opus` and another's status line calls `Opus 4.1` is one row
+naming both projects. A name of no known family is kept as it is.
 
 ### The command runs as a card does
 
@@ -1631,8 +1661,8 @@ tier; which roles, and to what, is the project's `.claude/model-roles.json`:
 Each key not starting with `_` is a role; its value is the tier it drops to, as
 `{model, effort}` or `"model/effort"` (the same object may sit under `economy.roles`). The
 reviewer and planner are simply not listed. While economy mode is on, an **Economy** field by
-the quota says **economy** and names those roles ("scribe to sonnet, low"); hovering says why it
-is on and since when. The panel only reads that file, every minute, and runs nothing.
+the quota says **on** and names those roles ("scribe to sonnet, low"); hovering says why it
+is on and since when. While it is off the field is not shown. The panel only reads that file, every minute, and runs nothing.
 
 `GET /api/p/<project>/metrics` is the view (`?scope=all` combines every project); like every
 route it needs the cookie, and it runs nothing: it reports what the sources last read. For all
@@ -1870,6 +1900,24 @@ sessions are found through `claude agents --json`.
 - **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
   session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
   by its `cwd` at first sight, and a later `cd` does not move it.
+  - **A binding made too early is corrected** (PANEL-21). A lane's claude can report (a hook, a
+    status post, `claude agents`) before the panel has read the lane's new worktree, or before its
+    tmux poll has brought the lane's registry record in; the enclosing worktree (the project root)
+    then matches. So once the record's own worktree is listed, its session moves there. A session
+    bound by `cwd` moves only to a deeper worktree that holds the `cwd` it had **at first sight**,
+    and only within 2 minutes of it: a `cwd` seen later is never consulted, so a `cd` still does not
+    move a session. A lane action re-reads the worktree list at once, not through the 2 s throttle
+    of the early read a foreign `cwd` triggers.
+  - **A lane that ended stays ended** (PANEL-21). When a lane that was running is gone from the
+    next tmux poll (**Stop lane**, **Close lane**, **Forget**, its tmux session killed, its pane
+    dead), its session ends there and then, as if its `SessionEnd` had arrived, and whatever still
+    comes from that session id (late hooks, status posts, a `claude agents` entry of a claude still
+    exiting) is set aside and counted in `/api/state` as `observe.droppedEnded`. It is never bound
+    again by its `cwd`, so a closed lane whose worktree is gone does not come back on the root.
+    The mark lapses after 30 minutes of quiet; a lane live again on the same session id
+    (**Restart**, **Resume**) takes its session back at once. A session the panel did not start
+    ends when `claude agents` stops listing it, and its hooks and posts in the next 30 s are set
+    aside; listed again, it is back.
 - **Quota.** A window whose `resets_at` has passed is dropped, and its gauge says "reset". Every
   status post updates it, whatever project it comes from; a window that does not decode is
   skipped without costing the post anything else (see *The account and its quota*).

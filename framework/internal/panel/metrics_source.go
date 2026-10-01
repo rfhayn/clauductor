@@ -32,6 +32,9 @@ type metricsStore struct {
 	ledger    *metrics.Ledger
 	lastCard  string
 	mergedDue atomic.Bool // Refresh asks for a read at the next poll
+	// mergedKick polls the merged source now: when a page comes into view, so the
+	// first read does not wait for the source's next tick (PANEL-21).
+	mergedKick chan struct{}
 	// From the change directory: how long each unapproved proposal has waited (hours),
 	// each change branch's budget, and whether the project has changes at all.
 	waiting     []float64
@@ -81,8 +84,9 @@ func (r *Runtime) metricsSources() []*source {
 		}
 		out = append(out, s)
 	}
+	r.mstore.mergedKick = make(chan struct{}, 1)
 	out = append(out,
-		&source{name: "merged", every: r.ticks.PRs, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollMerged},
+		&source{name: "merged", every: r.ticks.PRs, fixedRate: true, kick: r.mstore.mergedKick, poll: r.pollMerged},
 		&source{name: "spend", every: r.ticks.Spend, fixedRate: true, waitFirst: true, poll: r.pollSpend},
 		&source{name: "changes", every: r.ticks.Spend, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollChanges},
 	)
@@ -125,6 +129,15 @@ func (r *Runtime) pollChanges(_ context.Context, now time.Time) (update, time.Du
 	r.mstore.mu.Unlock()
 	roles, note := economyRoles(r.root)
 	return func(m *state.Model, _ time.Time) { m.ApplyChanges(cs, spent); m.ApplyEconomyRoles(roles, note) }, 0
+}
+
+// pageInView is told when a page comes into view with none before: merged pull
+// requests are read now rather than at the source's next tick, up to a minute away.
+// pollMerged still keeps its 10-minute least between reads.
+func (r *Runtime) pageInView() {
+	if r.mstore != nil && r.mstore.mergedKick != nil {
+		kick(r.mstore.mergedKick)
+	}
 }
 
 // pollMerged reads merged pull requests at most every Ticks.Merged, and only while a
