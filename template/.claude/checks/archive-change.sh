@@ -334,6 +334,7 @@ delta greeting '## RENAMED Requirements
 '
 arc add-greeting-name --superseded 'warmly' --apply; rc=$?
 expect_rc 1 "$rc" "superseded wording in a RENAMED TO line (the new heading) is refused"
+has 'STOP    superseded wording "warmly" in a delta' "$F/out" && ok "...for that reason" || fail "superseded in a TO line: $(tr '\n' '|' < "$F/out")"
 
 # ── Superseded wording in a held-back capability's delta reaches nothing ─────────────────────────
 mk supheld
