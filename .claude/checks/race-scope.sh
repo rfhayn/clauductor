@@ -144,8 +144,17 @@ case "$out" in
   *) fail "the gate does not name the race scope: $(printf '%s' "$out" | grep 'test (race)')" ;;
 esac
 case "$out" in
-  *"RAN sh -c cd framework && go test -race -timeout 25m \"\$@\" race ./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages" ;;
-  *) fail "the race step does not run the selected packages: $(printf '%s' "$out" | grep '^RAN')" ;;
+  *"RAN sh -c cd framework && go test -race -count=1 -timeout 25m \"\$@\" race ./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages, uncached" ;;
+  *) fail "the race step does not run the selected packages with -count=1: $(printf '%s' "$out" | grep '^RAN')" ;;
+esac
+# Both test steps bypass go's test cache: it keys on what the test process itself opens, and these
+# tests run sh checks over template/ in subprocesses, so a cached pass can be stale evidence.
+out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
+  step() { [ "$1" = "test (short)" ] && { shift; echo "RAN $*"; }; return 0; }
+  gate_steps quick)
+case "$out" in
+  *"RAN sh -c cd framework && go test -short -count=1 ./..."*) ok "the short test step runs uncached (-count=1)" ;;
+  *) fail "the short test step does not run with -count=1: $(printf '%s' "$out" | grep '^RAN')" ;;
 esac
 out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
   step() { [ "$1" = "test (race)" ] && { shift; echo "RAN $*"; }; return 0; }
