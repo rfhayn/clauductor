@@ -72,6 +72,18 @@ merge() {
   case "$out" in *'"additionalContext"'*"$_t"*) got=yes ;; *) got=no ;; esac
   [ "$got" = "$_w" ] && ok "write surfaces: $_l" || fail "write surfaces: $_l (advisory '$_t' present: $got, want $_w): $(printf '%s' "$out" | head -c 500)"
 }
+# rule LABEL WANT [TEXT] [BRANCH]: the same, but the module's rule alone, with the facts the guard
+# hands it (GUARD_*). The full guard costs a second a run; two merges through it prove the wiring
+# (the advisory reaches Claude; a module that is off adds nothing), so the rest ask the rule.
+rule() {
+  _l=$1 _w=$2 _t=${3:-write surfaces (WRITE_SURFACE_GLOBS} _b=${4:-change/x}
+  rc=0
+  out=$(cd "$G" && env ROOT="$G" GUARD_PR=7 GUARD_BRANCH="$_b" GUARD_BASE="$(git -C "$G" merge-base main "$HEAD_PR")" GUARD_HEAD="$HEAD_PR" \
+    sh "$G/.claude/modules/write-surfaces/guard.d/write-surfaces.sh" 2>"$d/err") || rc=$?
+  [ "$rc" = 0 ] || { fail "write surfaces: $_l: the merge was BLOCKED (exit $rc); the rule is advisory: $(head -3 "$d/err")"; return; }
+  case "$out" in *"$_t"*) got=yes ;; *) got=no ;; esac
+  [ "$got" = "$_w" ] && ok "write surfaces: $_l" || fail "write surfaces: $_l (advisory '$_t' present: $got, want $_w): $(printf '%s' "$out" | head -c 500)"
+}
 # The guard's rules 3 and 9 police change/ branches; give the change its slice and its tasks done.
 change() { printf '%s\n' "mkdir -p changes/x && printf '## 1. Do\n- [x] 1.1 it\n\n- [ ] Slice: a user can x at /x\n' > changes/x/tasks.md; $1"; }
 
@@ -79,29 +91,29 @@ pr change/x "$(change 'routes a b c d e f; screens s1 s2 s3 s4')"
 merge "a change adding 10 routes and screens draws the advisory" yes "adds 10 write surfaces"
 case "$out" in *"… and 4 more"*) ok "write surfaces: ...naming six of them and how many more" ;; *) fail "write surfaces: ...naming six of them and how many more: not in the advisory: $(printf '%s' "$out" | head -c 300)" ;; esac
 pr change/x "$(change 'routes a b; screens s1 s2')"
-merge "a change adding exactly WRITE_SURFACE_MAX (4) draws it" yes "adds 4 write surfaces"
+rule "a change adding exactly WRITE_SURFACE_MAX (4) draws it" yes "adds 4 write surfaces"
 pr change/x "$(change 'routes a b; screens s1')"
-merge "a change adding 3 stays quiet" no
+rule "a change adding 3 stays quiet" no
 pr change/x "$(change 'for i in 1 2 3 4 5; do echo "// edit" >> apps/api/app/api/v1/r$i/route.ts; done')"
-merge "a change that only MODIFIES 5 routes stays quiet (added files only)" no
+rule "a change that only MODIFIES 5 routes stays quiet (added files only)" no
 pr change/x "$(change 'for i in 1 2 3 4; do git mv apps/api/app/api/v1/r$i apps/api/app/api/v1/moved$i; done')"
-merge "a change that RENAMES 4 routes stays quiet (a rename is not an addition)" no
+rule "a change that RENAMES 4 routes stays quiet (a rename is not an addition)" no
 pr change/x "$(change 'mkdir -p docs/a && for i in 1 2 3 4 5; do echo x > docs/a/route$i.md; done')"
-merge "a change adding 5 files that match no pattern stays quiet" no
+rule "a change adding 5 files that match no pattern stays quiet" no
 pr fix/9-x 'routes a b; screens s1 s2'
-merge "a fix/ PR adding 4 stays quiet (capability changes only, BRANCH_CHANGE)" no "" fix/9-x
+rule "a fix/ PR adding 4 stays quiet (capability changes only, BRANCH_CHANGE)" no "" fix/9-x
 pr change/x "$(change 'screens s1 s2 s3 s4')"
-merge "patterns are matched against the added files, never expanded against the tree" yes "adds 4 write surfaces"
+rule "patterns are matched against the added files, never expanded against the tree" yes "adds 4 write surfaces"
 pr change/x "$(change 'routes a b c d e f; screens s1 s2 s3 s4')"
 conf 'MODULES="write-surfaces"' "WRITE_SURFACE_GLOBS=\"$GLOBS\"" 'WRITE_SURFACE_MAX="11"'
-merge "WRITE_SURFACE_MAX=11: 10 stays quiet" no
+rule "WRITE_SURFACE_MAX=11: 10 stays quiet" no
 conf 'MODULES="write-surfaces"' "WRITE_SURFACE_GLOBS=\"$GLOBS\"" 'WRITE_SURFACE_MAX="many"'
-merge "a WRITE_SURFACE_MAX that is not a number is said, not blocked on" yes "CANNOT CHECK — WRITE_SURFACE_MAX"
+rule "a WRITE_SURFACE_MAX that is not a number is said, not blocked on" yes "CANNOT CHECK — WRITE_SURFACE_MAX"
 conf 'MODULES="write-surfaces"'
-merge "an empty WRITE_SURFACE_GLOBS is said, not silently counted as zero" yes "WRITE_SURFACE_GLOBS is empty"
+rule "an empty WRITE_SURFACE_GLOBS is said, not silently counted as zero" yes "WRITE_SURFACE_GLOBS is empty"
 conf 'MODULES="write-surfaces"' 'WRITE_SURFACE_GLOBS="*apps/web/app/*page.tsx"' 'WRITE_SURFACE_MAX="2"'
 pr change/x "$(change 'routes a b c; screens s1 s2')"
-merge "the project's own settings: WRITE_SURFACE_MAX=2, screens only" yes "adds 2 write surfaces"
+rule "the project's own settings: WRITE_SURFACE_MAX=2, screens only" yes "adds 2 write surfaces"
 conf 'MODULES=""' "WRITE_SURFACE_GLOBS=\"$GLOBS\""
 pr change/x "$(change 'routes a b c d e f; screens s1 s2 s3 s4')"
 merge "with the module OFF, 10 surfaces draw nothing (the rule is the module's)" no "write surface"

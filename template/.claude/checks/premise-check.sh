@@ -206,6 +206,20 @@ merge() {
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
   [ "$rc" = "$_w" ] || sed 's/^/       /' "$d/err" | head -4
 }
+# rulep WANT LABEL BODY [CLOSES] [TITLE] [BRANCH]: the same PR, asked of the module's rule alone with
+# the facts the guard hands it (GUARD_*). The full guard costs a second a run; the merges through it
+# prove the wiring (a block reaches Claude, an advisory reaches Claude, a module that is off adds
+# nothing), so the rest of the cases ask the rule.
+rulep() {
+  _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/239-card}
+  _pr=$(jq -cn --arg t "$_t" --arg b "$_b" --arg c "$_c" '{title: $t, body: $b, closingIssuesReferences: ($c | split(" ") | map(select(. != "") | {number: tonumber}))}')
+  [ "${NO_PR:-}" = 1 ] && _pr=""
+  rc=0
+  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="$G" GUARD_PR=290 GUARD_BRANCH="$_br" GUARD_REPO=acme/app GUARD_HEAD="$GH" \
+    sh "$G/.claude/modules/premise-check/guard.d/premise.sh" 2>"$d/err") || rc=$?
+  expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
+  [ "$rc" = "$_w" ] || sed 's/^/       /' "$d/err" | head -4
+}
 merge 2 "a fix/ PR with no receipt" "Fixes the closed card."
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...naming the issue that lacks one"
 PC=.claude/modules/premise-check/premise-check.sh   # the script, as a reader types it at the root
@@ -214,27 +228,25 @@ merge 0 "a fix/ PR with a receipt for its issue" "Fixes it.
 
 premise-check: #239 @ $(printf '%s' "$GH" | cut -c1-12)"
 has yes "premise check present for every issue PR #290 fixes: #239" "$(cat "$d/err")$out" "guard rule: ...and says so as an advisory"
-merge 2 "a PR whose title names the issues and nothing closes them" "No closing keyword." "" "Fix #151/#152: window lifecycle"
+rulep 2 "a PR whose title names the issues and nothing closes them" "No closing keyword." "" "Fix #151/#152: window lifecycle"
 has yes "fixes #151 #152 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the title's issues need receipts"
-merge 2 "a PR whose body closes an issue GitHub's field misses" "Closes #409.
+rulep 2 "a PR whose body closes an issue GitHub's field misses" "Closes #409.
 
 Why: it." "" "Keep live sessions' worktrees"
 has yes "fixes #409 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the body's closing keywords count"
-merge 2 "a PR with a receipt for one of two issues (the union)" "Closes #409. Fixes #410.
+rulep 2 "a PR with a receipt for one of two issues (the union)" "Closes #409. Fixes #410.
 
 premise-check: #409 @ $(printf '%s' "$GH" | cut -c1-12)" "409"
 has yes "fixes #410 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...names the one without"
-merge 2 "a PR whose issue only GitHub's closing list names (not its body or title)" "Tidy the card." "77" "Tidy the card"
+rulep 2 "a PR whose issue only GitHub's closing list names (not its body or title)" "Tidy the card." "77" "Tidy the card"
 has yes "fixes #77 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...GitHub's closing list counts"
-merge 0 "a fix/ PR that closes and names no issue" "Tidy." "" "Tidy a comment"
+rulep 0 "a fix/ PR that closes and names no issue" "Tidy." "" "Tidy a comment"
 has yes "closes no issue and names none in its title" "$(cat "$d/err")$out" "guard rule: ...and says there was no premise to check"
-merge 0 "an ops/ PR (not PREMISE_REQUIRED_ON)" "Fixes #12, no receipt." "12" "Tidy" "ops/tidy"
+rulep 0 "an ops/ PR (not PREMISE_REQUIRED_ON)" "Fixes #12, no receipt." "12" "Tidy" "ops/tidy"
 printf 'MODULES="premise-check"\nPREMISE_REQUIRED_ON="fix/ hotfix/"\n' > "$G/.claude/project.conf"
-merge 2 "a hotfix/ PR once PREMISE_REQUIRED_ON names hotfix/" "Fixes #12." "12" "Hot" "hotfix/12"
+rulep 2 "a hotfix/ PR once PREMISE_REQUIRED_ON names hotfix/" "Fixes #12." "12" "Hot" "hotfix/12"
 # Unreadable PR: gh answers nothing for its body and closing issues.
-rc=0
-out=$(payload "gh pr merge 290 --squash" "$G" | (cd "$G" && env PATH="$d/bin:$PATH" GH_HEAD="$GH" GH_BRANCH=fix/1 FAKE_PR= sh "$G/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
-expect_rc 2 "$rc" "guard rule: blocks when it cannot read the PR (fails closed, not open)"
+NO_PR=1; rulep 2 "when it cannot read the PR (fails closed, not open)" "" "" "" "fix/1"; NO_PR=
 has yes "could not read PR #290" "$(cat "$d/err")" "guard rule: ...and says it could not read the PR"
 printf 'MODULES=""\n' > "$G/.claude/project.conf"
 merge 0 "a fix/ PR with no receipt while the module is OFF (the rule is the module's)" "Fixes the closed card."
