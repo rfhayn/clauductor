@@ -62,3 +62,7 @@ echo "- Owner queue:"
 sh "$CLAUDUCTOR_FW"/owner-queue.sh 2>&1 | ind
 echo "- Lane worktrees:"
 sh .claude/health/worktrees.sh 2>&1 | ind
+# OPS-9: how the work flowed and what this session cost, for the journal entry and the Done line.
+echo "- Flow: $(sh "$CLAUDUCTOR_FW"/metrics.sh --line --window 30d 2>&1)"
+echo "- This session's cost (usage-report.sh: by role and model, at list price, this machine only):"
+sh "$CLAUDUCTOR_FW"/usage-report.sh 2>&1 | sed -n '1p; /^| /p; /^Total/p; /^UNPRICED/p; /^CANNOT CHECK/p' | ind

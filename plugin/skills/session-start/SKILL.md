@@ -17,7 +17,8 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
 1. **Summarize in 3–5 lines**: what the last session did (the journal), what is in flight (open
    PRs, lane worktrees, uncommitted changes), and the next step (the queue's NEXT row, the
    journal's "What's next"). **Then list every owner-queue item**, one line each with what it needs
-   first. `CANNOT CHECK` there is not an empty queue.
+   first. `CANNOT CHECK` there is not an empty queue. Then repeat the `Health: flow` line as one
+   **Flow** line (cycle time, merges per week, change-fail rate, spend per week, work in flight).
 2. **Say every line that is not healthy**: each health line that is not `OK` (a `CANNOT CHECK` is
    not a pass), a queue `ERROR` (the queue is then UNKNOWN: stop treating it as known), the main
    checkout not on `main`, the panel down. One sentence each, even when the session is about

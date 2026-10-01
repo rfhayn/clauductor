@@ -15,7 +15,7 @@ d=$(scratch)
 EX="$ROOT/.claude/examples"
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
-cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$R/.claude/lib/"
+cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/usage.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/change-approval.sh" "$ROOT/.claude/verify-change.sh" "$ROOT/.claude/scenario-trace.sh" \
    "$ROOT/.claude/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"

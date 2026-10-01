@@ -23,6 +23,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 . "$CLAUDUCTOR_FW/lib/change.sh"
+# The pricing is lib/usage.sh's, shared with usage-report.sh and metrics.sh: one price per message.
+. "$CLAUDUCTOR_FW/lib/usage.sh"
 
 id=${1:-}; [ -n "$id" ] || { echo "usage: change-cost.sh <change-id> [--json]" >&2; exit 64; }
 json=""; [ "${2:-}" = --json ] && json=1
@@ -58,21 +60,11 @@ jq -c --arg b "$branch" --arg root "$main" '
   select(.type == "assistant" and .gitBranch == $b and .message.usage != null
          and ((.cwd // "") == $root or ((.cwd // "") | startswith($root + "/"))))
   | {id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage}' $files 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" '
+| jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
-  | def price($m): ($p | to_entries | map(.key as $k | select($k != "_why" and ($m | startswith($k))))
-                    | sort_by(.key | length) | last | .value);
-  [ $msgs[] | . as $x | price($x.model) as $pr
-    | ($x.u.cache_creation.ephemeral_5m_input_tokens // null) as $w5
-    | ($x.u.cache_creation.ephemeral_1h_input_tokens // null) as $w1
-    | { model: $x.model, priced: ($pr != null),
-        usd: (if $pr == null then 0 else
-          ( ($x.u.input_tokens // 0) * $pr.input
-          + ($x.u.output_tokens // 0) * $pr.output
-          + ($x.u.cache_read_input_tokens // 0) * $pr.cache_read
-          + (if $w5 == null and $w1 == null then ($x.u.cache_creation_input_tokens // 0) * $pr.input * 1.25
-             else ($w5 // 0) * $pr.input * 1.25 + ($w1 // 0) * $pr.input * 2 end) ) / 1000000 end) } ]
+  | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd
+    | { model: $x.model, priced: ($usd != null), usd: ($usd // 0) } ]
   | { change: $c,
       costUsd: ((map(.usd) | add // 0) * 100 | round / 100),
       budgetUsd: (if $budget == "" then null else ($budget | tonumber) end),

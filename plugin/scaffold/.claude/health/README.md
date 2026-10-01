@@ -29,6 +29,7 @@ needs a named addressee*, `docs/principles.md`).
 | `worktrees.sh` | Each lane worktree under `.claude/worktrees/`: branch, clean or dirty, merged or not. |
 | `scheduled-workflows.sh` | Each GitHub Actions workflow with a `schedule:` trigger: its last run's result and date. |
 | `push-main.sh` | The latest `push` run on `main` per workflow, when not a success. |
+| `flow.sh` | Flow and cost over the last 30 days, from `${CLAUDE_PLUGIN_ROOT}/metrics.sh --line`: median cycle and lead time, merges per week, change-fail rate, approval wait, review rounds, spend per week, work in flight. A figure it cannot compute is "—", and the line says why. |
 | `dependency-audit.sh` | The weekly dependency audit (`.github/workflows/dependency-audit.yml`): `ADVISORIES` when its last run found one of high severity, `STALE` past two weeks. |
 
 Delete the GitHub ones if you do not use Actions. Project-specific health (a dependency audit, a
