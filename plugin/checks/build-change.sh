@@ -254,7 +254,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   // The settings agent (project-config.sh) runs before preflight; "after preflight" counts from it.
   const afterPreflight = (calls) => { const i = calls.findIndex((c) => c.opts.label === 'preflight'); return i < 0 ? null : calls.slice(i + 1) }
   r = await run([], { where: MAIN })
-  t('it stops in the MAIN checkout (trailing slash normalised), starting no agent after preflight', r.report.stoppedAt === 'preflight' && /MAIN checkout/.test(r.report.reason) && (afterPreflight(r.calls) || [null]).length === 0, [r.report.reason, r.calls.map((c) => c.opts.label)])
+  t('it stops in the MAIN checkout (trailing slash normalised), starting no agent but settings and preflight', r.report.stoppedAt === 'preflight' && /MAIN checkout/.test(r.report.reason) && r.calls.map((c) => c.opts.label).join() === 'settings,preflight', [r.report.reason, r.calls.map((c) => c.opts.label)])
   r = await run([], { where: MAIN, args: { allowMainCheckout: true } })
   t('allowMainCheckout alone does not start a run in the main checkout', /MAIN checkout/.test(r.report.reason || ''), r.report.reason)
   r = await run([], { where: MAIN, args: { allowMainCheckout: true, resume: 3 } })
