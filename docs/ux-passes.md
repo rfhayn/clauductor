@@ -25,11 +25,11 @@ on a panel of its own, and writes `<out>/report.md`, `<out>/findings.json`, and 
 
 | Shard | What | Time on PANEL-18 (M-series Mac, all five at once) |
 |---|---|---|
-| `layout-views` | 6 viewports (1280×800, 1440×900, 1920×1080, 2000×900, 2560×1440, 900×800) × 23 views: 138 shots (UX-2: 27 views with Checks, Metrics and the quiet, ready and budget lanes, ~162 shots, ~210 s) | ~180 s |
-| `layout-appearance` | every theme × light/dark, every type system, and the text sizes (85–175%) at 1280, 1920 and 900 px: 75 shots | ~115 s |
+| `layout-views` | 6 viewports (1280×800, 1440×900, 1920×1080, 2000×900, 2560×1440, 900×800) × 23 views: 138 shots (UX-2: 27 views with Checks, Metrics and the quiet, ready and budget lanes, ~162 shots, ~210 s; PANEL-22: 8 more, a project's ⋯ actions, Add a project… empty, refused, with the init preview and with the trust report, Remove from panel… refused and allowed, Trust config…, ~228 shots, ~280 s) | ~180 s |
+| `layout-appearance` | every theme × light/dark, every type system, and the text sizes (85–175%) at 1280, 1920 and 900 px: 75 shots (PANEL-22: the menu open and the trust report in every theme × mode, the menu with every type, the menu and the init preview at the smallest size and from 150%: ~123 shots) | ~115 s |
 | `flows-lanes` | start (from New lane, from New lane here), type and Ctrl+], interrupt, restart, stop, close, remove, forget, kill tmux and Restore all | ~60 s |
 | `flows-attachments` | PNG and JPEG dropped, image pasted, non-image refused, selection survives the pointer, ⌘-click URL, OSC 8 asks | ~35 s |
-| `flows-projects` | switching projects keeps each one's selection; a project that cannot load | ~20 s |
+| `flows-projects` | switching projects keeps each one's selection; a project that cannot load; PANEL-22: Remove from panel… refused on Alpha (its lanes listed, a lane's link shows it), Trust config… on Zeta, Delta added live (init preview, Create this config, its own socket written in, Trust and add, served at once, then removed: back on Alpha, its config kept), `panel add`/`panel remove` of Epsilon taken live | ~30 s |
 | `layout-metrics` (UX-2) | once the signals are up (≤ 1 min: the spend ledger is written every minute): 13 PANEL-19/20 views (Needs you with approval/budget/stale, economy badge, Flow card, Budget bar over and amber, Port and Remote in the header, Checks not ready/ready/root, the stale lane's Alerts, ⋯ with Remote control and its idle and busy confirmations, Metrics from the Flow card) at 1280, 1440, 1920 and 900 px; the Metrics view's 4 tabs × 3 ranges × 2 scopes at 1440 and 900 px: ~100 shots | ~160 s |
 | `flows-metrics` (UX-2) | Metrics tabs, ranges and scope (values from the command, the all-projects error, focus back on Escape); Beta's bad payload (the error names the path, the built-in spend still draws); the Flow card opens Metrics; economy on/off with hysteresis (quota 42 → 38 stays on → 36 off → 39 stays off → 41 on, `economy.json` 0600); readiness turns Not ready on a failed check and back; ports in the state, header, tmux environment and setup marker; a new lane's `.worktreeinclude` copy, setup marker and start note, and Close's teardown; Remote control asks, types only after Confirm into an idle lane, and offers no Confirm on a busy one; the approval, budget and stale rows and the Budget bars | ~75 s |
 | `flows-lifecycle` (UX-2) | auto-resume: a `StopFailure` rate_limit in an idle lane with the 5-hour window resetting 20 s later is typed `continue` + Enter once, 30 s after the reset; auto-close: the ship PRs leave the open list merged at their tips, the clean lane closes as Close lane would (worktree, branch, registry, teardown), the dirty one asks "PR merged: close lane?" | ~120 s |
@@ -53,7 +53,8 @@ own. `matrix.cjs` only opens things and cancels them.
 
 ## What a run holds
 
-`up.sh` creates three git repositories and registers them with `panel add` and `panel trust`:
+`up.sh` creates three git repositories and registers them with `panel add` and `panel trust`
+(and, since PANEL-22, three more for the project menu, below):
 
 - **Alpha** (the default project) has a bare `origin`. Its `main` is 2 commits behind, so the
   cards say they may be stale. It has pinned cards, a template with Up next and a queue, and these
@@ -94,6 +95,12 @@ own. `matrix.cjs` only opens things and cancels them.
   contract (`METRICS_FIXTURE=bad`).
 - **Gamma**'s `panel.json` is broken after it is added, so the project menu shows it as a project
   that cannot load.
+- **PANEL-22**, for Add a project…: **Delta** has no `panel.json` and is not registered (the init
+  preview; `flows-projects` adds it live and removes it, writing socket `ux-<runid>-4` into the
+  config it creates before trusting it); **Epsilon** has a config with a card, a template and a
+  queue and is not registered (its trust report; `flows-projects` adds and removes it with the
+  CLI); **Zeta** is registered and untrusted, with no lane (Trust config…, and a project that can
+  be removed). `up.json` names Delta and Epsilon under `candidates`.
 
 A fake `claude` answers `--version` (2.1.284), `agents --json` (each live session, with its
 role's status), `auth status --json` (Max) and interactive mode. In interactive mode it draws a
