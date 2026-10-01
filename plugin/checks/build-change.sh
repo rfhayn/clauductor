@@ -126,14 +126,15 @@ const between = (a, b) => { const i = src.indexOf(a); const j = src.indexOf(b, i
 const deq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const prefixRun = async (risk, econ) => {
   // The WHOLE script up to the per-group loop, executed for real with agent, phase and log
-  // stubbed and the preflight answered: any statement before the loop that mutates ROLES, TIERS or
-  // ECONOMY, or redefines pick, has run by the time pick('reviewer') is asked.
+  // stubbed and the settings and preflight answered: any statement before the loop that mutates
+  // ROLES, TIERS or ECONOMY, or redefines pick, has run by the time pick('reviewer') is asked.
   const cut = src.indexOf('\nfor (const g of todo) {')
   if (cut < 0) throw new Error("cannot find the review loop ('for (const g of todo) {') in build-change.js")
   const prefix = src.slice(0, cut).replace(/^export const meta/m, 'const meta')
+  const settings = { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', attribution: '', provenance: false }) }
   const pre = { branch: 'change/x', clean: true, dirtyFiles: [], groups: [{ n: 1, title: 't', openTasks: 1 }],
     gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01' }
-  const agent = async (p, o) => (o && o.label === 'preflight' ? pre : null)
+  const agent = async (p, o) => (o && o.label === 'preflight' ? pre : o && o.label === 'settings' ? settings : null)
   const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick }\n})()`
   return new Function('args', 'agent', 'phase', 'log', body)({ change: 'x' }, agent, () => {}, () => {})
 }
