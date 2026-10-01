@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clauductor/clauductor/internal/state"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -13,8 +12,8 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init [path]",
 	Short: "Create a new project with Clauductor framework",
-	Long: `Initialize a new project directory with Clauductor skills, docs, and
-orchestration infrastructure. If path doesn't exist, it will be created.`,
+	Long: `Initialize a new project directory with the Clauductor operating model: skills,
+hooks, checks, agents, docs and settings. If path doesn't exist, it will be created.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := filepath.Abs(args[0])
@@ -45,14 +44,6 @@ orchestration infrastructure. If path doesn't exist, it will be created.`,
 			return fmt.Errorf("could not mark the install: %w", err)
 		}
 
-		// Initialize orchestration directory and config
-		if err := initOrchestration(targetDir); err != nil {
-			return fmt.Errorf("failed to init orchestration: %w", err)
-		}
-		if err := ensureOrchestrationConfig(targetDir); err != nil {
-			fmt.Printf("  Warning: could not create orchestration config: %v\n", err)
-		}
-
 		// Initialize git if not already a repo
 		if _, err := os.Stat(filepath.Join(targetDir, ".git")); os.IsNotExist(err) {
 			fmt.Println("  Initializing git repository...")
@@ -67,38 +58,6 @@ orchestration infrastructure. If path doesn't exist, it will be created.`,
 		fmt.Println("  /session-start")
 		return nil
 	},
-}
-
-func initOrchestration(targetDir string) error {
-	orchDir := filepath.Join(targetDir, "orchestration")
-	if err := os.MkdirAll(filepath.Join(orchDir, "prompts"), 0755); err != nil {
-		return err
-	}
-
-	fmt.Println("  Created orchestration/ directory")
-
-	dbPath := filepath.Join(orchDir, "framework.db")
-	db, err := state.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("initializing database: %w", err)
-	}
-	db.Close()
-	fmt.Println("  Initialized orchestration database")
-	return nil
-}
-
-// ensureOrchestrationConfig creates orchestration/config.json if it doesn't exist.
-func ensureOrchestrationConfig(targetDir string) error {
-	configPath := filepath.Join(targetDir, "orchestration", "config.json")
-	if _, err := os.Stat(configPath); err == nil {
-		return nil // already exists
-	}
-	defaultConfig := []byte("{\n  \"default_workers\": 3,\n  \"auto_claude\": true\n}\n")
-	if err := os.WriteFile(configPath, defaultConfig, 0644); err != nil {
-		return err
-	}
-	fmt.Println("  Created orchestration/config.json")
-	return nil
 }
 
 func runCommand(dir string, name string, args ...string) error {

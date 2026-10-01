@@ -10,7 +10,11 @@
 #   - a file that exists is kept as it is, except these three, which are merged:
 #       .gitignore             missing lines appended
 #       CLAUDE.md              `@AGENTS.md` appended when absent
-#       .claude/settings.json  missing keys added, permissions.allow unioned (needs jq)
+#       .claude/settings.json  merged as `clauductor install` merges it (needs jq): the project's
+#                              keys and values kept, missing keys added, the allow/deny lists and
+#                              the sandbox's excluded commands and domains unioned, the status
+#                              line the plugin's
+#     and settings.json's gate paths follow GATE_RUN and GATE in .claude/project.conf.
 #   - the repository is then marked with .claude/clauductor-plugin, which is what makes the
 #     plugin's hooks act here (hooks/if-project.sh).
 #
@@ -89,6 +93,23 @@ fi
 for f in $create; do
   mkdir -p "$(dirname "$f")" && cp -p "$SRC/$f" "$f" || { echo "FAILED to create $f" >&2; exit 1; }
 done
+
+# render_settings: the scaffold's settings.json with the gate's paths (allow rules, sandbox
+# exclusions) at the project's GATE_RUN and GATE, read from its project.conf in a subshell.
+conf_get() { sh -c '[ -f .claude/project.conf ] && . ./.claude/project.conf >/dev/null 2>&1; eval "printf %s \"\${$1:-$2}\""' _ "$1" "$2"; }
+render_settings() {
+  if command -v jq >/dev/null 2>&1; then
+    jq --arg r "$(conf_get GATE_RUN scripts/ci/run-local.sh)" --arg g "$(conf_get GATE scripts/ci/gate.sh)" '
+      def rp: if type == "string" then (split("scripts/ci/run-local.sh") | join($r)) | (split("scripts/ci/gate.sh") | join($g)) else . end;
+      (if .permissions.allow then .permissions.allow |= map(rp) else . end)
+      | (if .sandbox.excludedCommands then .sandbox.excludedCommands |= map(rp) else . end)' "$SRC/.claude/settings.json"
+  else
+    cat "$SRC/.claude/settings.json"
+  fi
+}
+case " $create " in
+  *" .claude/settings.json "*) render_settings > .claude/settings.json.tmp && mv .claude/settings.json.tmp .claude/settings.json ;;
+esac
 for f in $merge; do
   case $f in
     .gitignore)
@@ -101,11 +122,18 @@ for f in $merge; do
       grep -qxF '@AGENTS.md' CLAUDE.md || printf '\n@AGENTS.md\n' >> CLAUDE.md ;;
     .claude/settings.json)
       if command -v jq >/dev/null 2>&1 && jq -e . .claude/settings.json >/dev/null 2>&1; then
+        render_settings > .claude/settings.json.want &&
         jq -s '.[0] as $have | .[1] as $want
-          | ($want * $have)
-          | .permissions.allow = ((($want.permissions.allow // []) + ($have.permissions.allow // [])) | unique)' \
-          .claude/settings.json "$SRC/.claude/settings.json" > .claude/settings.json.tmp &&
+          | def u($a; $b): ($a // []) + (($b // []) - ($a // []));
+          ($want * $have)
+          | .statusLine = $want.statusLine
+          | .permissions.allow = u($have.permissions.allow; $want.permissions.allow)
+          | .permissions.deny = u($have.permissions.deny; $want.permissions.deny)
+          | .sandbox.excludedCommands = u($have.sandbox.excludedCommands; $want.sandbox.excludedCommands)
+          | .sandbox.network.allowedDomains = u($have.sandbox.network.allowedDomains; $want.sandbox.network.allowedDomains)' \
+          .claude/settings.json .claude/settings.json.want > .claude/settings.json.tmp &&
           mv .claude/settings.json.tmp .claude/settings.json
+        rm -f .claude/settings.json.want
       else
         echo "  NOTE: .claude/settings.json kept as it is (no jq, or not valid JSON). Add by hand what"
         echo "        $SRC/.claude/settings.json sets: statusLine, permissions.allow, enabledPlugins."

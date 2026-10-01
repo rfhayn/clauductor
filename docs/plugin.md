@@ -118,9 +118,11 @@ what exists:
 - `.claude/project.conf`, `.claude/model-roles.json` (with the plugin's `init` skill mapped to
   start-project's role), `.clauductor/panel.json` (its commands run the model's scripts through
   `scripts/ci/clauductor-model.sh`)
-- `.claude/settings.json` (merged with jq when it exists): the template's model, effort, env and
-  skill overrides; the status line through the plugin's shim; allow rules for
-  `clauductor-model ...` and the gate; the plugin enabled for the repository. No hooks: the plugin
+- `.claude/settings.json` (merged with jq when it exists, as `clauductor install` merges it: the
+  project's keys and values kept, the allow and deny lists and the sandbox's excluded commands and
+  domains unioned): the template's model, effort, env and skill overrides; the status line
+  through the plugin's shim; allow rules for `clauductor-model ...` and the gate, at the paths
+  `GATE_RUN` and `GATE` give; the plugin enabled for the repository. No hooks: the plugin
   registers them.
 - `.claude/skills/architecture-audit/`, `.claude/skills/release-prep/`: CONFIGURE FIRST skills
   the project edits, so they are the project's, as with `clauductor install`

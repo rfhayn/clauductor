@@ -43,17 +43,24 @@ overwrite or add, and change nothing. Such a repository needs none of the templa
 panel. Run `clauductor panel init`, `trust` and `add` there instead, and copy any single piece
 of the template by hand. `--force` installs anyway, overwriting. `install` and `init` leave
 `.claude/clauductor-template` behind, and that marker lets later installs and updates act.
+`clauductor diff` (`--json`, `--path`, `--exit-code`) compares any repository with the template
+file by file, and settings.json key by key, without the guard: it only reads.
 
 `install` sorts the template's files into three tiers:
 
 - **Framework** (skills, hooks, checks, the workflow, the model's scripts such as
-  `scripts/ci/run-local.sh`, `settings.json`): always installed, so re-running `install` brings
-  them up to date.
+  `scripts/ci/run-local.sh`): always installed, so re-running `install` brings them up to date.
+  The gate scripts go where `GATE_RUN`, `GATE` and `GATE_STEPS` in `project.conf` say (a
+  `GATE_RUN` with another file name is your own runner, and the template's is left out).
+- **Settings** (`.claude/settings.json`): merged key by key. The model's hooks, status line, deny
+  list and sandbox entries are brought up to date (the gate's paths from `project.conf`); your
+  model, effort, env, skill overrides, plugins, and your own permissions and hooks are kept.
+  Every disagreement is reported, and `--dry-run` prints the diff.
 - **Project-owned** (`AGENTS.md`, `.claude/project.conf`, `.claude/model-roles.json`,
   `.clauductor/panel.json`, `scripts/ci/steps.sh`, agents, docs, the configure-first skills):
   created only when missing, never overwritten.
-- **Merged**: `CLAUDE.md` gains an `@AGENTS.md` import line; `.gitignore` gains
-  `.claude/worktrees/`.
+- **Merged**: `CLAUDE.md` gains an `@AGENTS.md` import line; `.gitignore` gains the template's
+  lines (`.claude/worktrees/`, `.claude/settings.local.json`, ...).
 
 ## Configure it (once)
 
@@ -112,7 +119,8 @@ computer waits in the owner queue. End with `/session-close`.
 
 ```bash
 cd ~/clauductor && git pull && ./install.sh
-cd ~/Development/my-app && clauductor install   # refreshes the framework tier only
+cd ~/Development/my-app && clauductor update --dry-run   # what would change, settings diff included
+cd ~/Development/my-app && clauductor install   # refreshes the framework tier, merges settings.json
 ```
 
 ## Troubleshooting

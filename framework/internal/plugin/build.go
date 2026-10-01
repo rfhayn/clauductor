@@ -54,7 +54,7 @@ const FWVar = "CLAUDUCTOR_FW"
 
 // projectSkills are template skills a project edits (CONFIGURE FIRST stubs). A plugin's files are
 // read-only in the cache, so these are scaffolded as the project's own skills instead. Mirrors
-// projectSkills in internal/cmd/install.go.
+// ProjectSkills in internal/template/tier.go.
 var projectSkills = map[string]bool{"architecture-audit": true, "release-prep": true}
 
 // frameworkDirs are the template's `.claude/` directories that become plugin directories of the

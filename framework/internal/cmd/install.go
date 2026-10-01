@@ -3,8 +3,10 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/clauductor/clauductor/internal/template"
@@ -16,86 +18,20 @@ var (
 	forceInstall bool // install over a model the project runs itself (ownguard.go)
 )
 
-// File tiers for install behavior
-type fileTier int
+// The tiers are the template package's (template.Classify), so install, update and diff agree on
+// what is the framework's.
+type fileTier = template.Tier
 
 const (
-	tierFramework fileTier = iota // Skills, agents, settings, statusline → always install
-	tierDoc                       // project-owned config, agents and docs → create only if missing
-	tierConfig                    // CLAUDE.md, .gitignore → merge
+	tierFramework = template.TierFramework
+	tierDoc       = template.TierDoc
+	tierConfig    = template.TierConfig
+	tierSettings  = template.TierSettings
 )
 
-// frameworkScripts are the operating model's own scripts outside the framework directories: a
-// project runs them but does not edit them, so an install brings them up to date.
-var frameworkScripts = map[string]bool{
-	".claude/statusline.sh":      true,
-	".claude/status-write.sh":    true,
-	".claude/owner-queue.sh":     true,
-	".claude/roadmap-queue.sh":   true,
-	".claude/panel-suggest.sh":   true,
-	".claude/machine-quiet.sh":   true,
-	".claude/scenario-trace.sh":  true,
-	".claude/change-approval.sh": true,
-	".claude/change-cost.sh":     true,
-	".claude/verify-change.sh":   true,
-	".claude/compound.sh":        true,
-	"scripts/ci/run-local.sh":    true,
-	"scripts/ci/gate.sh":         true,
-	"scripts/ci/lease.sh":        true,
-}
+func classifyFile(relPath string) fileTier { return template.Classify(relPath) }
 
-// projectSkills are template skills a project configures (CONFIGURE FIRST stubs): created when
-// missing, never overwritten, like docs.
-var projectSkills = []string{".claude/skills/architecture-audit/", ".claude/skills/release-prep/"}
-
-// classifyFile determines how to handle a template file during install.
-func classifyFile(relPath string) fileTier {
-	for _, p := range projectSkills {
-		if strings.HasPrefix(relPath, p) {
-			return tierDoc
-		}
-	}
-	// Framework files — always install/overwrite. The project's own values live elsewhere
-	// (.claude/project.conf, model-roles.json, .clauductor/panel.json, scripts/ci/steps.sh,
-	// AGENTS.md, docs/), which fall through to the doc tier and are never overwritten.
-	if strings.HasPrefix(relPath, ".claude/skills/") ||
-		strings.HasPrefix(relPath, ".claude/hooks/") ||
-		strings.HasPrefix(relPath, ".claude/checks/") ||
-		strings.HasPrefix(relPath, ".claude/lib/") ||
-		strings.HasPrefix(relPath, ".claude/workflows/") ||
-		strings.HasPrefix(relPath, ".claude/modules/") ||
-		strings.HasPrefix(relPath, ".claude/examples/") ||
-		relPath == ".claude/settings.json" ||
-		frameworkScripts[relPath] {
-		return tierFramework
-	}
-
-	// Agent files — create only if missing (preserves project-specific agents)
-	if strings.HasPrefix(relPath, ".claude/agents/") {
-		return tierDoc
-	}
-
-	// Config files — merge
-	if relPath == "CLAUDE.md" || relPath == ".gitignore" {
-		return tierConfig
-	}
-
-	// Everything else (docs, README) — create only if missing
-	return tierDoc
-}
-
-func tierLabel(t fileTier) string {
-	switch t {
-	case tierFramework:
-		return "framework"
-	case tierDoc:
-		return "doc"
-	case tierConfig:
-		return "config"
-	default:
-		return "unknown"
-	}
-}
+func tierLabel(t fileTier) string { return template.TierLabel(t) }
 
 var installCmd = &cobra.Command{
 	Use:   "install",
@@ -105,17 +41,28 @@ an existing project repository.
 
 File handling by tier:
   FRAMEWORK (skills, hooks, checks, workflows, the
-    operating model's scripts, settings)           → always installed
+    operating model's scripts)                     → always installed
+  SETTINGS (.claude/settings.json)                 → merged key by key: the model's
+    hooks, status line, deny list and sandbox entries are brought up to date; the
+    project's model, effort, env, skill overrides, plugins, and its own permissions
+    and hooks are kept; every disagreement is reported
   DOC TEMPLATES (agents, AGENTS.md, project.conf,
     model-roles.json, panel.json, docs, steps.sh)  → created only if missing
   CONFIG (CLAUDE.md, .gitignore)                    → merged with existing
+
+Paths follow .claude/project.conf: the gate scripts go where GATE_RUN, GATE and
+GATE_STEPS say (a GATE_RUN with another file name is the project's own runner,
+and the template's is left out), and the roadmap, journal, insights, owner
+queue, ADRs, changes and specs where their keys say.
 
 A repository that runs an operating model of its own (skills, hooks or
 AGENTS.md that clauductor did not install) is refused, with the files an
 install would overwrite or add, unless --force.
 
-Use --dry-run to preview changes without modifying anything.`,
+Use --dry-run to preview changes, including the settings.json diff, without
+modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		out := cmd.OutOrStdout()
 		targetDir, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("could not get working directory: %w", err)
@@ -123,18 +70,21 @@ Use --dry-run to preview changes without modifying anything.`,
 
 		// Verify this looks like a project
 		if _, err := os.Stat(filepath.Join(targetDir, ".git")); os.IsNotExist(err) {
-			fmt.Println("Warning: this directory is not a git repository.")
+			fmt.Fprintln(out, "Warning: this directory is not a git repository.")
 			if !dryRun && !confirm("Continue anyway?") {
 				return fmt.Errorf("aborted")
 			}
 		}
 
-		fmt.Printf("Installing Clauductor framework into %s\n\n", targetDir)
+		fmt.Fprintf(out, "Installing Clauductor framework into %s\n\n", targetDir)
 
-		// Get all template files and classify them
 		allFiles, err := template.ListTemplateFiles()
 		if err != nil {
 			return fmt.Errorf("failed to list template files: %w", err)
+		}
+		tmplDir, err := template.TemplatePath()
+		if err != nil {
+			return err
 		}
 
 		if !forceInstall {
@@ -145,10 +95,6 @@ Use --dry-run to preview changes without modifying anything.`,
 
 		// A repository running its own operating model is left alone (ownguard.go).
 		if !forceInstall && !ownedByClauductor(targetDir) {
-			tmplDir, err := template.TemplatePath()
-			if err != nil {
-				return err
-			}
 			overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
 			if err != nil {
 				return err
@@ -156,127 +102,242 @@ Use --dry-run to preview changes without modifying anything.`,
 			if len(overwrite)+len(add) > 0 {
 				refusal := refuseForeign("install", targetDir, overwrite, add)
 				if dryRun {
-					fmt.Println(refusal)
-					fmt.Println("\n--dry-run: no changes made.")
+					fmt.Fprintln(out, refusal)
+					fmt.Fprintln(out, "\n--dry-run: no changes made.")
 					return nil
 				}
 				return refusal
 			}
 		}
 
-		var frameworkFiles []string // Always install
-		var docSkipped []string     // Skip if exists
-		var configFiles []string    // Merge
-		var newFiles []string       // Don't exist yet, install regardless of tier
-
-		for _, relPath := range allFiles {
-			destPath := filepath.Join(targetDir, relPath)
-			exists := fileExists(destPath)
-			tier := classifyFile(relPath)
-
-			if !exists {
-				newFiles = append(newFiles, relPath)
-				continue
-			}
-
-			switch tier {
-			case tierFramework:
-				frameworkFiles = append(frameworkFiles, relPath)
-			case tierDoc:
-				docSkipped = append(docSkipped, relPath)
-			case tierConfig:
-				configFiles = append(configFiles, relPath)
-			}
+		plan, err := planInstall(targetDir, tmplDir, allFiles)
+		if err != nil {
+			return fmt.Errorf("install refused: %w", err)
 		}
-
-		// Report plan
-		if len(newFiles) > 0 {
-			fmt.Printf("  NEW (%d files) — will be created:\n", len(newFiles))
-			for _, f := range newFiles {
-				fmt.Printf("    + %s\n", f)
-			}
-			fmt.Println()
-		}
-
-		if len(frameworkFiles) > 0 {
-			fmt.Printf("  FRAMEWORK (%d files) — will be updated:\n", len(frameworkFiles))
-			for _, f := range frameworkFiles {
-				fmt.Printf("    ~ %s\n", f)
-			}
-			fmt.Println()
-		}
-
-		if len(docSkipped) > 0 {
-			fmt.Printf("  DOCS (%d files) — keeping existing project content:\n", len(docSkipped))
-			for _, f := range docSkipped {
-				fmt.Printf("    = %s\n", f)
-			}
-			fmt.Println()
-		}
-
-		if len(configFiles) > 0 {
-			fmt.Printf("  CONFIG (%d files) — will merge with existing:\n", len(configFiles))
-			for _, f := range configFiles {
-				fmt.Printf("    m %s\n", f)
-			}
-			fmt.Println()
+		plan.print(out, dryRun)
+		for _, w := range template.SkillCollisions(targetDir, allFiles) {
+			fmt.Fprintf(out, "  WARNING: %s\n\n", w)
 		}
 
 		if dryRun {
-			fmt.Println("--dry-run: no changes made.")
+			fmt.Fprintln(out, "--dry-run: no changes made.")
 			return nil
 		}
-
-		// Build skip list: doc files that already exist
-		skipFiles := make(map[string]bool)
-		for _, f := range docSkipped {
-			skipFiles[f] = true
-		}
-		// Also skip config files — we handle those separately
-		for _, f := range configFiles {
-			skipFiles[f] = true
+		if err := plan.apply(targetDir); err != nil {
+			return err
 		}
 
-		// Copy template (skipping docs that exist and config files)
-		if err := template.CopyTemplateWithSkips(targetDir, skipFiles); err != nil {
-			return fmt.Errorf("failed to copy template: %w", err)
-		}
-
-		if err := writeInstallMarker(targetDir); err != nil {
-			return fmt.Errorf("could not mark the install: %w", err)
-		}
-
-		// Handle config file merges
-		for _, f := range configFiles {
-			if err := mergeConfigFile(targetDir, f); err != nil {
-				fmt.Printf("  Warning: could not merge %s: %v\n", f, err)
-			}
-		}
-
-		// Initialize orchestration directory and config
-		if err := initOrchestration(targetDir); err != nil {
-			return fmt.Errorf("failed to init orchestration: %w", err)
-		}
-		if err := ensureOrchestrationConfig(targetDir); err != nil {
-			fmt.Printf("  Warning: could not create orchestration config: %v\n", err)
-		}
-
-		// Ensure orchestration/ is in .gitignore
-		if err := ensureGitignore(targetDir, "orchestration/"); err != nil {
-			fmt.Printf("  Warning: could not update .gitignore: %v\n", err)
-		}
-
-		fmt.Println("\nDone! Clauductor framework installed.")
-		fmt.Println("Next steps:")
-		fmt.Println("  claude")
-		fmt.Println("  /session-start")
+		fmt.Fprintln(out, "\nDone! Clauductor framework installed.")
+		fmt.Fprintln(out, "Next steps:")
+		fmt.Fprintln(out, "  claude")
+		fmt.Fprintln(out, "  /session-start")
 		return nil
 	},
 }
 
 func init() {
-	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without modifying anything")
-	installCmd.Flags().BoolVar(&forceInstall, "force", false, "Install even over an operating model the repository runs itself (overwrites its files)")
+	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes (and the settings.json diff) without modifying anything")
+	installCmd.Flags().BoolVar(&forceInstall, "force", false, "Install even over an operating model the repository runs itself (overwrites its framework files)")
+}
+
+// placed is one template file and where it goes.
+type placed struct {
+	rel, dest, key string
+}
+
+func (p placed) label() string {
+	if p.dest == p.rel {
+		return p.rel
+	}
+	return fmt.Sprintf("%s → %s (%s)", p.rel, p.dest, p.key)
+}
+
+// installPlan is everything an install would do, worked out before anything is written.
+type installPlan struct {
+	create    []placed          // missing in the project: written
+	update    []placed          // framework files that differ: overwritten
+	unchanged int               // framework files already identical
+	keep      []placed          // doc files that exist: left alone
+	merge     []placed          // CLAUDE.md, .gitignore: merged
+	skipped   map[string]string // template path → why the project's config leaves it out
+	settings  *template.SettingsPlan
+}
+
+func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error) {
+	conf, err := template.LoadConf(targetDir, tmplDir)
+	if err != nil {
+		return nil, err
+	}
+	pm, err := conf.Mapping(files)
+	if err != nil {
+		return nil, err
+	}
+	p := &installPlan{skipped: map[string]string{}}
+	for _, rel := range files {
+		tier := classifyFile(rel)
+		if tier == tierSettings {
+			continue
+		}
+		dest, key, skip := pm.Resolve(rel)
+		if skip != "" {
+			p.skipped[rel] = skip
+			continue
+		}
+		pl := placed{rel: rel, dest: dest, key: key}
+		destPath := filepath.Join(targetDir, filepath.FromSlash(dest))
+		if !fileExists(destPath) {
+			p.create = append(p.create, pl)
+			continue
+		}
+		switch tier {
+		case tierFramework:
+			if template.FilesEqual(filepath.Join(tmplDir, filepath.FromSlash(rel)), destPath) {
+				p.unchanged++
+			} else {
+				p.update = append(p.update, pl)
+			}
+		case tierDoc:
+			p.keep = append(p.keep, pl)
+		case tierConfig:
+			p.merge = append(p.merge, pl)
+		}
+	}
+	tmplSettings, err := os.ReadFile(filepath.Join(tmplDir, filepath.FromSlash(template.SettingsPath)))
+	if err != nil {
+		return nil, err
+	}
+	cur, readErr := os.ReadFile(filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath)))
+	p.settings, err = template.PlanSettings(cur, readErr == nil, tmplSettings, conf)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w (fix it, or move it aside and install again)", template.SettingsPath, err)
+	}
+	return p, nil
+}
+
+func (p *installPlan) print(out io.Writer, showDiff bool) {
+	section := func(title string, items []placed, mark string) {
+		if len(items) == 0 {
+			return
+		}
+		fmt.Fprintf(out, "  %s (%d files):\n", title, len(items))
+		for _, it := range items {
+			fmt.Fprintf(out, "    %s %s\n", mark, it.label())
+		}
+		fmt.Fprintln(out)
+	}
+	section("NEW — will be created", p.create, "+")
+	section("FRAMEWORK — will be updated", p.update, "~")
+	if p.unchanged > 0 {
+		fmt.Fprintf(out, "  FRAMEWORK — %d files already up to date\n\n", p.unchanged)
+	}
+	section("DOCS — keeping existing project content", p.keep, "=")
+	section("CONFIG — will merge with existing", p.merge, "m")
+	if len(p.skipped) > 0 {
+		fmt.Fprintf(out, "  SKIPPED (%d files) — the project's config says it runs its own:\n", len(p.skipped))
+		for _, rel := range sortedKeys(p.skipped) {
+			fmt.Fprintf(out, "    - %s: %s\n", rel, p.skipped[rel])
+		}
+		fmt.Fprintln(out)
+	}
+	printSettingsPlan(out, p.settings, showDiff)
+}
+
+// printSettingsPlan reports what happens to settings.json: created, merged (with every change and
+// conflict, and the diff when asked), or already current.
+func printSettingsPlan(out io.Writer, sp *template.SettingsPlan, showDiff bool) {
+	switch {
+	case !sp.Exists:
+		fmt.Fprintf(out, "  SETTINGS — %s will be created\n\n", template.SettingsPath)
+		return
+	case !sp.Changed():
+		fmt.Fprintf(out, "  SETTINGS — %s is up to date", template.SettingsPath)
+	default:
+		fmt.Fprintf(out, "  SETTINGS — %s will be merged (the model's keys updated, the project's kept)", template.SettingsPath)
+	}
+	if n := sp.Conflicts(); n > 0 {
+		fmt.Fprintf(out, "; %d conflict(s) reported", n)
+	}
+	fmt.Fprintln(out, ":")
+	for _, c := range sp.Changes {
+		fmt.Fprintf(out, "    %s\n", settingsChangeLine(c))
+	}
+	if showDiff && sp.Changed() {
+		fmt.Fprintln(out)
+		fmt.Fprint(out, indent(template.UnifiedDiff(string(sp.Current), string(sp.Result), "project/"+template.SettingsPath, "merged/"+template.SettingsPath), "    "))
+	}
+	fmt.Fprintln(out)
+}
+
+func settingsChangeLine(c template.SettingsChange) string {
+	var s string
+	switch c.Action {
+	case "add":
+		s = fmt.Sprintf("+ %s: %s", c.Path, c.Want)
+	case "remove":
+		s = fmt.Sprintf("- %s: %s", c.Path, c.Have)
+	case "replace":
+		s = fmt.Sprintf("! %s: the project's %s replaced by the template's %s", c.Path, c.Have, c.Want)
+	case "keep":
+		s = fmt.Sprintf("= %s: the project's %s kept (the template has %s)", c.Path, c.Have, c.Want)
+	default:
+		s = c.Action + " " + c.Path
+	}
+	if c.Note != "" {
+		s += " — " + c.Note
+	}
+	return s
+}
+
+func indent(s, pre string) string {
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	return pre + strings.Join(lines, "\n"+pre) + "\n"
+}
+
+func (p *installPlan) apply(targetDir string) error {
+	for _, list := range [][]placed{p.create, p.update} {
+		for _, f := range list {
+			if err := template.CopyFile(targetDir, f.rel, f.dest); err != nil {
+				return fmt.Errorf("failed to install %s: %w", f.dest, err)
+			}
+		}
+	}
+	if p.settings.Changed() || !p.settings.Exists {
+		dst := filepath.Join(targetDir, filepath.FromSlash(template.SettingsPath))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, p.settings.Result, 0o644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", template.SettingsPath, err)
+		}
+	}
+	if err := writeInstallMarker(targetDir); err != nil {
+		return fmt.Errorf("could not mark the install: %w", err)
+	}
+	for _, f := range p.merge {
+		if err := mergeConfigFile(targetDir, f.rel); err != nil {
+			fmt.Printf("  Warning: could not merge %s: %v\n", f.rel, err)
+		}
+	}
+	// The old model kept its runtime state in orchestration/; a repository that still has one
+	// keeps it out of git. The current model has none, so a fresh install adds no such line.
+	if fileExists(filepath.Join(targetDir, "orchestration")) {
+		if err := ensureGitignore(targetDir, "orchestration/"); err != nil {
+			fmt.Printf("  Warning: could not update .gitignore: %v\n", err)
+		}
+	}
+	return nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	var ks []string
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
 }
 
 func fileExists(path string) bool {
@@ -298,8 +359,7 @@ func readChoice() string {
 	return strings.TrimSpace(strings.ToLower(answer))
 }
 
-// mergeConfigFile handles merging a config file (CLAUDE.md, .gitignore).
-// For now, appends Clauductor-specific sections if they don't already exist.
+// mergeConfigFile merges a config file (CLAUDE.md, .gitignore) into the project's copy.
 func mergeConfigFile(targetDir, relPath string) error {
 	tmplPath, err := template.TemplatePath()
 	if err != nil {
@@ -323,8 +383,8 @@ func mergeConfigFile(targetDir, relPath string) error {
 
 	switch relPath {
 	case ".gitignore":
-		// Ensure the runtime state and the lane worktrees stay out of git.
-		for _, entry := range []string{"orchestration/", ".claude/worktrees/"} {
+		// The template's entries (lane worktrees, per-machine settings, ...), each added once.
+		for _, entry := range template.GitignoreEntries(string(srcContent)) {
 			if err := ensureGitignore(targetDir, entry); err != nil {
 				return err
 			}
@@ -379,7 +439,9 @@ func ensureGitignore(targetDir, entry string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		f.WriteString("\n")
 	}
-	f.WriteString("\n# Clauductor runtime state\n")
+	if !strings.Contains(content, "# Clauductor\n") {
+		f.WriteString("\n# Clauductor\n")
+	}
 	f.WriteString(entry + "\n")
 	return nil
 }
