@@ -82,6 +82,7 @@ machine needs Claude Code, then:
 | gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` | GitHub's apt repository (cli.github.com) |
 | gitleaks | the gate's secret scan (skipped locally without it, fails under CI) | `brew install gitleaks` | a release binary from github.com/gitleaks/gitleaks/releases, on `PATH` |
 | bubblewrap, socat | Claude Code's Bash sandbox | nothing: macOS has Seatbelt | `sudo apt-get install bubblewrap socat` |
+| the sandbox's seccomp filter | **required on WSL2**: without it a sandboxed command can launch Windows programs outside the sandbox (below) | not needed | `npm install -g @anthropic-ai/sandbox-runtime` |
 | python3 | `machine-quiet.sh` at session close | preinstalled | preinstalled on Ubuntu |
 | Docker | only if `scripts/ci/steps.sh` uses it | Docker Desktop | Docker Desktop with WSL integration on for the distro (Settings → Resources → WSL integration) |
 
@@ -104,8 +105,23 @@ Code then warns and runs every command unsandboxed. So:
   it out, and `checks/line-endings.sh` names any that still holds a CR (`$'\r': command not
   found` is the symptom). A clone made before the rule: with nothing uncommitted,
   `git rm -r -q --cached . && git reset -q --hard` checks every file out again.
-- **The sandbox**: `sudo apt-get install bubblewrap socat`, restart Claude Code, and run
-  `/sandbox`: it shows a Dependencies tab while anything is missing. On **Ubuntu 24.04 and
+- **The sandbox, with its seccomp filter (required on WSL2).** `sudo apt-get install bubblewrap
+  socat` and `npm install -g @anthropic-ai/sandbox-runtime`, restart Claude Code, and run
+  `/sandbox`: it shows a **Dependencies** tab while anything is missing, the seccomp filter
+  included, so the tab must be gone. Why it is required here: WSL hands a launch of `cmd.exe`,
+  `powershell.exe` or anything under `/mnt/c/` to the Windows host over a Unix socket, and only
+  the seccomp filter blocks that socket. Without it, a command the sandbox approves without a
+  prompt (`autoAllowBashIfSandboxed`) could run a Windows program with no sandbox at all. The
+  project's `.claude/settings.json` also denies `cmd.exe`, `powershell.exe`, `pwsh.exe`,
+  `wsl.exe` and `/mnt/...` commands outright (`checks/settings.sh` holds that), but a deny rule
+  matches only the form Claude writes, not the same program reached through `sh -c` or a script,
+  so the filter is the boundary. Stricter still, if nobody needs Windows programs from WSL:
+  `[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`.
+- **Recommended on WSL2: `"sandbox": {"failIfUnavailable": true}`** in your user settings
+  (`~/.claude/settings.json`). Then a missing dependency stops Claude Code at start instead of
+  warning and running every command unsandboxed. The template leaves it off, because the same
+  file serves every OS.
+- On **Ubuntu 24.04 and
   later**, AppArmor may stop bubblewrap creating user namespaces: if
   `sysctl kernel.apparmor_restrict_unprivileged_userns` prints `1`, add the profile below, then
   `sudo systemctl reload apparmor` (from code.claude.com/docs/en/sandboxing, checked 2026-10-01).

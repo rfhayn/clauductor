@@ -122,15 +122,21 @@ for f in $merge; do
     .gitattributes)
       # PREPENDED, not appended: the last matching line wins, so the project's own lines must
       # stay after the catch-all `* text=auto eol=lf` to keep overriding it.
+      # Lines compare trimmed, CR included, as `clauductor install` compares them: a CRLF file or
+      # a trailing space must not read as a missing rule and add it twice.
+      trim() { tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+      have=$(trim < .gitattributes)
       missing=""
       while IFS= read -r line; do
+        line=$(printf '%s' "$line" | trim)
         case $line in "" | "#"*) continue ;; esac
-        grep -qxF -- "$line" .gitattributes || missing="$missing$line
+        printf '%s\n' "$have" | grep -qxF -- "$line" || missing="$missing$line
 "
       done < "$SRC/.gitattributes"
       if [ -n "$missing" ]; then
-        { printf '# clauductor: LF line endings on every OS (checks/line-endings.sh). Your own lines below still win.\n%s\n' "$missing"; cat .gitattributes; } > .gitattributes.tmp &&
-          mv .gitattributes.tmp .gitattributes
+        { printf '# Clauductor: LF line endings on every OS, so shell scripts run under WSL2 and Git for Windows\n'
+          printf '# (.claude/checks/line-endings.sh holds it). Your own lines below still override these.\n%s\n' "$missing"
+          cat .gitattributes; } > .gitattributes.tmp && mv .gitattributes.tmp .gitattributes
       fi ;;
     CLAUDE.md)
       grep -qxF '@AGENTS.md' CLAUDE.md || printf '\n@AGENTS.md\n' >> CLAUDE.md ;;

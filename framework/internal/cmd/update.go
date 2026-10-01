@@ -37,7 +37,11 @@ kept, and every conflict is reported. --dry-run shows the diff first.
 
 .gitattributes gains the template's line-ending rules it lacks (LF for every
 text file, so shell scripts run under WSL2 and Git for Windows), prepended so
-the project's own lines still override them.`,
+the project's own lines still override them.
+
+Docs the project owns (the playbook, conventions, ...) are never written, but
+update names each one that differs from the template's copy or is missing, so
+new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := os.Getwd()
 		if err != nil {
@@ -75,6 +79,7 @@ the project's own lines still override them.`,
 		}
 
 		fmt.Printf("Checking for updates in %s\n\n", targetDir)
+		printGuidanceDrift(os.Stdout, targetDir)
 
 		// Find files that differ from template
 		diffs, err := template.FindDiffs(targetDir)
@@ -264,6 +269,30 @@ func planProjectSettings(targetDir string) (*template.SettingsPlan, error) {
 		return nil, fmt.Errorf("%s: %w (fix it, then run update again)", template.SettingsPath, err)
 	}
 	return sp, nil
+}
+
+// printGuidanceDrift names the template's guidance docs (the playbook, conventions, ...) that
+// differ from the project's copies or that it lacks. update never writes them, since a project
+// edits them, so without this notice a project installed earlier would never learn that, say, the
+// playbook gained its machine-setup guide. A survey that cannot run says so rather than nothing.
+func printGuidanceDrift(out io.Writer, targetDir string) {
+	differs, missing, err := template.GuidanceDrift(targetDir)
+	if err != nil {
+		fmt.Fprintf(out, "Docs — could not compare the template's docs with this project's: %v\n\n", err)
+		return
+	}
+	if len(differs)+len(missing) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "Docs — the template's guidance differs from this project's copies. update never overwrites")
+	fmt.Fprintln(out, "them (the project edits them); compare with `clauductor diff`, and take what you want:")
+	for _, p := range differs {
+		fmt.Fprintf(out, "  ~ %s\n", p)
+	}
+	for _, p := range missing {
+		fmt.Fprintf(out, "  - %s (missing here)\n", p)
+	}
+	fmt.Fprintln(out)
 }
 
 // gitattributesPlan is update's merge of the template's line-ending rules into the project's

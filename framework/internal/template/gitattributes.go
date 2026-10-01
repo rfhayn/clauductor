@@ -9,7 +9,8 @@ import "strings"
 // update merges it (an existing project gains the rule without reinstalling).
 const GitattributesPath = ".gitattributes"
 
-// gitattributesHeader introduces the block MergeGitattributes adds to a project's own file.
+// gitattributesHeader introduces the block MergeGitattributes adds to a project's own file. The
+// plugin's scaffold.sh writes the same two lines (TestScaffoldMergesGitattributes holds them equal).
 const gitattributesHeader = "# Clauductor: LF line endings on every OS, so shell scripts run under WSL2 and Git for Windows\n" +
 	"# (.claude/checks/line-endings.sh holds it). Your own lines below still override these.\n"
 

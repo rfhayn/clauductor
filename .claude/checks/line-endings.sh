@@ -15,12 +15,15 @@ need git awk
 
 # le_scan DIR: one line per problem in the repository at DIR, and nothing when it is sound.
 le_scan() {
-  _p=$(git -C "$1" check-attr eol -- .claude/hooks/new-hook.sh 2>/dev/null) || { echo "git check-attr failed in $1"; return; }
+  _p=$(git -C "$1" check-attr eol -- scripts/new-script.sh 2>/dev/null) || _p="(git check-attr failed in $1): failed"
   case $_p in
     *": eol: lf") ;;
     *) echo "no LF rule for shell scripts: a new one would get eol ${_p##*: } (add '* text=auto eol=lf' to .gitattributes)" ;;
   esac
-  git -C "$1" ls-files --eol -- '*.sh' '.claude/hooks/*' '.claude/checks/*' 2>/dev/null | awk -F '\t' '
+  # Fail closed: a listing git could not produce reads as "nothing to check", never as clean.
+  _l=$(git -C "$1" ls-files --eol -- '*.sh' '.claude/hooks/*' '.claude/checks/*' 2>&1) || {
+    echo "git ls-files --eol failed in $1, so no script was checked: $(printf '%s' "$_l" | head -1)"; return; }
+  printf '%s\n' "$_l" | grep . | awk -F '\t' '
     $1 ~ /[iw]\/(crlf|mixed)/ { print "carriage return in " $2 " (" $1 "): check it out again (rm it, then git checkout -- it), or commit it with LF"; next }
     $1 !~ /eol=lf/ { print "no LF rule for " $2 " (" $1 ")" }'
 }
@@ -61,6 +64,12 @@ case $out in *"carriage return in .claude/hooks/late.sh"*) ok "falsified: a scri
 fixture overridden "$(printf '* text=auto eol=lf\n*.sh text eol=crlf')"
 out=$(le_scan "$d/overridden")
 case $out in *"no LF rule for shell scripts"*) ok "falsified: a later line that gives shell scripts CRLF is caught" ;; *) fail "missed: '*.sh eol=crlf' after the LF rule ($out)" ;; esac
+
+# Fail closed: a repository git cannot list (a corrupt index) is a problem, not an empty list.
+fixture broken '* text=auto eol=lf'
+printf 'not an index' > "$d/broken/.git/index"
+out=$(le_scan "$d/broken")
+case $out in *"ls-files --eol failed"*) ok "falsified: a listing git could not produce fails the scan, not passes it" ;; *) fail "a corrupt index read as clean ($out)" ;; esac
 
 # ── This project ────────────────────────────────────────────────────────────────────────────────
 git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || { fail "cannot check: $ROOT is not a git checkout"; finish; }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,66 @@ func runUpdate(t *testing.T, dir string, dry bool) error {
 	t.Cleanup(func() { updateDryRun, forceUpdate = false, false })
 	t.Chdir(dir)
 	return updateCmd.RunE(updateCmd, nil)
+}
+
+// stdoutOf runs f with os.Stdout captured (update prints with fmt.Printf).
+func stdoutOf(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
+	defer func() { os.Stdout = old }()
+	f()
+	w.Close()
+	os.Stdout = old
+	return <-done
+}
+
+// OPS-20 review: update never writes doc-tier files, so it NAMES the guidance docs that differ
+// (or are missing), and diff notes each; a project's own records (the roadmap) are never named.
+func TestUpdateNamesChangedGuidanceDocs(t *testing.T) {
+	tmplDir(t)
+	dir := ownedRepo(t)
+	if out, err := runInstall(t, dir, false); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	quiet := stdoutOf(t, func() {
+		if err := runUpdate(t, dir, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if strings.Contains(quiet, "Docs —") {
+		t.Errorf("a project whose docs match the template got a docs notice:\n%s", quiet)
+	}
+
+	write(t, dir, "docs/playbook.md", "# Our playbook, edited before the machine-setup section\n")
+	write(t, dir, "docs/roadmap.md", "# Our roadmap\n")
+	if err := os.Remove(filepath.Join(dir, "docs", "principles.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := stdoutOf(t, func() {
+		if err := runUpdate(t, dir, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{"Docs —", "~ docs/playbook.md", "- docs/principles.md (missing here)", "clauductor diff"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("update's notice lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "docs/roadmap.md") {
+		t.Errorf("update named the project's own roadmap as drift:\n%s", out)
+	}
+
+	dout, _ := runDiff(t, dir)
+	if !strings.Contains(dout, "docs/playbook.md") || !strings.Contains(dout, "differs from the template's copy") {
+		t.Errorf("diff does not note the changed playbook:\n%s", dout)
+	}
 }
 
 // OPS-20: the line-ending rules reach every project: a fresh install creates .gitattributes, an

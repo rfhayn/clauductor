@@ -135,6 +135,9 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 		default:
 			fsx.Status = "present"
 			fsx.Note = configNote(rel, src, dst)
+			if fsx.Note == "" && IsGuidance(rel) && !FilesEqual(src, dst) {
+				fsx.Note = guidanceNote
+			}
 		}
 		r.Files = append(r.Files, fsx)
 	}
