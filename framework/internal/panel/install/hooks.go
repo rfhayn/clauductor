@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
@@ -31,6 +32,57 @@ func hookURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag)
 }
 
+// hookCommand is the shell command the panel's hooks run: it posts the hook's stdin
+// (the same JSON an HTTP hook would send) to the panel and always succeeds silently.
+// curl's own limits bound it, because Claude Code does not enforce "timeout" on an
+// async hook.
+func hookCommand(port int) string {
+	return "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- '" +
+		hookURL(port) + "' >/dev/null 2>&1; exit 0"
+}
+
+// hookEntry is the panel's hook object for one event.
+//
+// It is an ASYNC COMMAND hook, not an HTTP hook (PANEL-23). An HTTP hook always runs
+// synchronously (Claude Code ignores "async" on it), so a slow or hung panel delayed
+// every prompt in every session on the machine by its timeout and printed "hook timed
+// out"; a stopped panel printed "hook error"; and anything else on the port could
+// answer with a decision and block the prompt. An async command hook runs in the
+// background, and Claude Code ignores its exit code and output: no delay, no message,
+// no decision, whatever answers the port. Signals still arrive whenever the panel is up.
+func hookEntry(port int) map[string]any {
+	return map[string]any{"type": "command", "command": hookCommand(port), "async": true, "timeout": 10}
+}
+
+// tagged matches the panel's URL inside a command hook.
+var tagged = regexp.MustCompile(`http://127\.0\.0\.1:\d+/hook\?src=` + hookTag + `\b`)
+
+// hookTarget returns the panel URL a hook object posts to, or "" when it is not the
+// panel's. It recognises both forms: the current async command hook and the HTTP hook
+// earlier panels installed, so an older entry is still found, replaced and uninstalled.
+func hookTarget(raw json.RawMessage) string {
+	var h struct {
+		Type    string `json:"type"`
+		URL     string `json:"url"`
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(raw, &h) != nil {
+		return ""
+	}
+	s := h.URL
+	if h.Type == "command" {
+		s = tagged.FindString(h.Command)
+	}
+	if s == "" {
+		return ""
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Query().Get("src") != hookTag {
+		return ""
+	}
+	return s
+}
+
 // SettingsPath is the user settings file the installer edits.
 func SettingsPath(home string) string { return filepath.Join(home, ".claude", "settings.json") }
 
@@ -41,7 +93,7 @@ func InstallHooks(home string, port int) (bool, error) {
 	// One entry per event; an event in HookMatchers carries its matcher, so the panel
 	// hears PreToolUse and PostToolUse only for the tools that start agents.
 	entryFor := func(ev string) json.RawMessage {
-		e := map[string]any{"hooks": []map[string]any{{"type": "http", "url": hookURL(port), "timeout": 1}}}
+		e := map[string]any{"hooks": []map[string]any{hookEntry(port)}}
 		if m := signals.HookMatchers[ev]; m != "" {
 			e["matcher"] = m
 		}
@@ -238,17 +290,8 @@ func jsonEqual(a, b []byte) bool {
 	return bytes.Equal(ca.Bytes(), cb.Bytes())
 }
 
-// isOurs reports whether one hook object is tagged as the panel's.
-func isOurs(raw json.RawMessage) bool {
-	var h struct {
-		URL string `json:"url"`
-	}
-	if json.Unmarshal(raw, &h) != nil || h.URL == "" {
-		return false
-	}
-	u, err := url.Parse(h.URL)
-	return err == nil && u.Query().Get("src") == hookTag
-}
+// isOurs reports whether one hook object is tagged as the panel's, in either form.
+func isOurs(raw json.RawMessage) bool { return hookTarget(raw) != "" }
 
 // stripOurs removes every tagged hook object from every event.
 func stripOurs(h *orderedObject) error {

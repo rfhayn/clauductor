@@ -40,10 +40,10 @@ var panelCmd = &cobra.Command{
 	Long: `Serve a loopback-only web dashboard of every Claude Code session working in one
 project's git worktrees: status, context %, running subagents, notifications,
 quota, open PRs and project cards. It reads only Claude Code's own signals
-(HTTP hooks, the status line, 'claude agents --json'), git and gh.
+(hooks, the status line, 'claude agents --json'), git and gh.
 
-On start it installs tagged HTTP hooks into ~/.claude/settings.json (idempotent;
-other hooks are untouched). --uninstall-hooks removes them. See docs/panel.md.`,
+On start it installs tagged async hooks into ~/.claude/settings.json (idempotent;
+other hooks are untouched; they never delay or message a session). --uninstall-hooks removes them. See docs/panel.md.`,
 	Args: cobra.NoArgs,
 	// A refused start (port taken, no config) is not a usage mistake; print the reason once.
 	SilenceUsage:  true,

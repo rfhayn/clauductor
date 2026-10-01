@@ -133,8 +133,9 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// ourHooks counts the panel's tagged hook objects per event in settings.json: a
-// hook is the panel's when its URL carries src=<install.HookTag>.
+// ourHooks counts the panel's tagged hook objects per event in settings.json, in
+// their current form: an async command hook whose command posts to a URL carrying
+// src=<hookTag> (PANEL-23). The HTTP hook earlier panels installed is not counted.
 func ourHooks(t *testing.T, home string) map[string]int {
 	t.Helper()
 	b, err := os.ReadFile(install.SettingsPath(home))
@@ -150,7 +151,12 @@ func ourHooks(t *testing.T, home string) map[string]int {
 	for ev, groups := range hooks {
 		for _, g := range groups.([]any) {
 			for _, h := range g.(map[string]any)["hooks"].([]any) {
-				s, _ := h.(map[string]any)["url"].(string)
+				hm := h.(map[string]any)
+				cmd, _ := hm["command"].(string)
+				if hm["type"] != "command" || hm["async"] != true {
+					continue
+				}
+				s := hookURLInCommand.FindString(cmd)
 				if u, err := url.Parse(s); err == nil && s != "" && u.Query().Get("src") == hookTag {
 					out[ev]++
 				}
@@ -224,6 +230,9 @@ type termMsg struct {
 }
 
 func hookURL(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/hook?src=%s", port, hookTag) }
+
+// hookURLInCommand finds the panel URL a command hook posts to.
+var hookURLInCommand = regexp.MustCompile(`http://127\.0\.0\.1:\d+/hook\?src=[A-Za-z0-9-]+`)
 
 func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
 
