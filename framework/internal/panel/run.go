@@ -380,6 +380,7 @@ func Run(ctx context.Context, o Options) error {
 			srv.Orch = p.Orch
 		}
 	}
+	ls.startDef = def
 	ls.refreshHosts()
 	srv.Admin = ls
 

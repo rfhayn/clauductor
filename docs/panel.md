@@ -2161,8 +2161,9 @@ send requests to `127.0.0.1`.
   bytes whose hash the request names, checked again when the trust is recorded (an edit between
   the report and the click is refused). **Add without trusting** adds a project whose commands
   stay off, as `panel add` does. `init` creates `.clauductor/panel.json` with `O_EXCL` and never
-  overwrites a file, a dangling symlink included. A project's Host names join the allow-list only
-  once it is trusted. Removing never stops a lane or deletes a file, and is refused while the
+  overwrites a file, a dangling symlink included. A project added or made the default live adds
+  its Host names to the allow-list only once it is trusted (only the default the panel started
+  with counts untrusted, as before PANEL-22). Removing never stops a lane or deletes a file, and is refused while the
   project has lanes. There is still no remote access: the panel binds loopback only, and these
   routes need the same-origin page and its token. A test sends every one of them without the
   cookie, without an `Origin`, from another port, from a cross-site origin, with a foreign Host,
@@ -2181,9 +2182,11 @@ send requests to `127.0.0.1`.
   every one of them. A project the panel does not serve is 404. The paths before PANEL-16
   (`/api/lanes/…`, `/api/queues/…`, `/api/refresh`) reach the default project for one release, so
   a page left open across the upgrade keeps working. `host_names` is the union of the default
-  project's and every trusted project's, so an untrusted config cannot add a name; since
-  PANEL-22 it is recomputed when a project is added, removed or trusted while the panel runs. A
-  project removed live answers 404 at once, its open event streams end, its terminals close and
+  project's (the one the panel started with) and every trusted project's, so an untrusted config
+  cannot add a name; since PANEL-22 it is recomputed when a project is added, removed or trusted
+  while the panel runs, and a project that becomes the default live counts only once trusted. A
+  project removed live leaves the menu first, so a page on it moves to the default, then answers
+  404, its open event streams end, its terminals close and
   its unused tickets are dropped.
 - **Events of no project are set aside.** An event counts only if its session is one of a
   project's, or its `cwd` is inside one of the project's worktrees, as `git worktree list

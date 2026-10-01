@@ -336,6 +336,9 @@ func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, ti
 			qa = append(qa, a)
 		}
 	}
+	// The default's thresholds, read each poll: the default can change live (PANEL-22).
+	// Only this goroutine touches the notifier.
+	m.notifier.MinInterval = def.cfg.AlertThresholds().MinInterval
 	notices := m.notifier.Process(qa, nil, now)
 	if st, _ := json.Marshal(m.notifier.State()); string(st) != m.savedState {
 		if writePrivate(m.notifyPath, st) == nil {

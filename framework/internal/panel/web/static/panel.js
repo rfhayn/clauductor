@@ -239,10 +239,12 @@ async function probe() {
   try {
     const r = await fetch("/api/state" + projQuery("?"), { cache: "no-store", signal: ac.signal });
     if (r.status === 401) { lost(true); return; }
-    // A project the panel no longer serves (?p= of an old link): the default instead.
-    if (r.status === 404 && PID) {
+    // A project the panel no longer serves (?p= of an old link, or one removed while this
+    // page showed it, PANEL-22): the default instead, with nothing of the old one kept.
+    if (r.status === 404 && pid()) {
       PID = "";
       try { history.replaceState(null, "", location.pathname); } catch (e) {}
+      if (S) { resetProject(); return; }
       connect();
       return;
     }
@@ -3630,8 +3632,11 @@ function switchProject(id, lane) {
   if (id === pid()) { if (lane) selectLane("t:" + lane); return; }
   PID = id;
   try { history.replaceState(null, "", location.pathname + "?p=" + encodeURIComponent(id)); } catch (e) {}
-  // Nothing of the old project carries over: its terminals close (their lanes run
-  // on in tmux), its state and choices go, and the new project's stream starts.
+  resetProject();
+}
+// Nothing of the old project carries over: its terminals close (their lanes run on in
+// tmux), its state and choices go, and the stream of the project pid() names starts.
+function resetProject() {
   for (const k of Object.keys(terms)) disposeTerm(k);
   closeRowMenu(false);
   S = null; selKey = null; seenNeeds = null; confirmAct = null; closeAsk = null; removeAsk = null; closeMsg = null; actMsg = null; pendingTerm = null; linkAsk = null; favSig = "";
@@ -3773,7 +3778,13 @@ async function adValidate() {
     adRender();
   }
 }
-$("ad-path").addEventListener("input", () => { clearTimeout(ad.timer); ad.timer = setTimeout(adValidate, 350); });
+// An edit forgets the last answer at once: its buttons must never add the path before.
+$("ad-path").addEventListener("input", () => {
+  clearTimeout(ad.timer);
+  ad.seq++; ad.cand = null; ad.plan = null;
+  adRender();
+  ad.timer = setTimeout(adValidate, 350);
+});
 $("ad-path").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); clearTimeout(ad.timer); adValidate(); } });
 $("ad-cancel").addEventListener("click", closeAddDlg);
 $("adddlg").addEventListener("click", (e) => { if (e.target === $("adddlg")) closeAddDlg(); });

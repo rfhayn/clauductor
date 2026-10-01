@@ -121,8 +121,14 @@ const cfg = path.join(other, ".clauductor", "panel.json");
     await p.click('#projacts [data-act="remove"]');
     await p.waitForSelector("#pd-go:not([hidden])", { timeout: 5000 });
     await shot("remove-confirm");
-    await p.click("#pd-go");
-    await p.waitForFunction(() => document.getElementById("pname").textContent === "Focus test", null, { timeout: 10000 }).catch(() => fail("the page did not go back to the default"));
+    await p.click("#pd-cancel");
+    // Removed elsewhere (another page, or `panel remove`): this page's own code does not
+    // ask for it, so only the menu the panel pushes can move it to the default.
+    const rm = await (await b.newContext()).request.post(base + "/api/projects/addme/remove", {
+      headers: { Origin: base, Cookie: (await p.context().cookies()).map((c) => c.name + "=" + c.value).join("; "), "Content-Type": "application/json" }, data: "{}" });
+    if (!rm.ok()) fail("removing from elsewhere: " + rm.status() + " " + (await rm.text()));
+    await p.waitForFunction(() => document.getElementById("pname").textContent === "Focus test", null, { timeout: 10000 }).catch(() => fail("a project removed elsewhere left the page stuck on it"));
+    await p.waitForSelector('#tabs [role="tab"]', { timeout: 10000 }).catch(() => fail("the default's lanes did not show"));
     await p.waitForTimeout(800);
     if ((await p.evaluate(() => (P || []).map((x) => x.id))).includes("addme")) fail("the removed project is still in the menu");
     if (!fs.existsSync(cfg)) fail("removing deleted the config");

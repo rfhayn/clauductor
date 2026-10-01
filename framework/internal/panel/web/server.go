@@ -362,7 +362,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, p *Project) {
 			return
 		case <-rotated:
 			return
-		case <-p.Gone(): // removed live: the page reconnects and finds it gone
+		case <-p.Gone(): // removed live: the last menu (without it) first, then the end
+			select {
+			case b := <-menu:
+				_ = send("projects", b)
+			default:
+			}
 			return
 		case b := <-ch:
 			if send("state", b) != nil {

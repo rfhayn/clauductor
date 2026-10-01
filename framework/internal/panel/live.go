@@ -40,7 +40,10 @@ type liveSet struct {
 	srv     *web.Server
 	sums    *web.Summaries
 	primary string // the project named on the command line: its --tmux-socket override holds
-	owner   install.PanelOwner
+	// startDef is the default the panel started with (set before anything runs, then
+	// only read): its Host names count untrusted, as they always have.
+	startDef *Runtime
+	owner    install.PanelOwner
 
 	rts    map[string]*liveRT
 	failed map[string]web.ProjectSummary
@@ -122,8 +125,10 @@ func (ls *liveSet) stop(id string) {
 	delete(ls.rts, id)
 	lr.r.removed.Store(true)
 	ls.m.removeProject(lr.r)
-	ls.srv.RemoveProject(id)
+	// The menu first, so the project's own open streams carry the menu without it
+	// (the page then moves to the default) before they end.
 	ls.sums.Remove(id)
+	ls.srv.RemoveProject(id)
 	lr.cancel()
 	lr.wg.Wait()
 	fmt.Fprintf(ls.o.Out, "project %s: no longer served (its lanes keep running in tmux)\n", id)
@@ -162,8 +167,8 @@ func (ls *liveSet) startEntry(e config.ProjectEntry, isDefault bool) error {
 	delete(ls.failed, e.ID)
 	r := buildRuntime(ls.o, ls.clk, ls.ticks, p, false)
 	proj := ls.wire(r)
+	ls.m.addProject(r) // sets r.machine before any of its sources runs
 	ls.launch(r, e)
-	ls.m.addProject(r)
 	ls.srv.AddProject(proj)
 	s := web.Summarize(r.id, r.hub.View())
 	s.Default = isDefault
@@ -245,8 +250,26 @@ func (ls *liveSet) reconcile() error {
 		ls.order = append(ls.order, e.ID)
 	}
 	ls.sums.Reorder(ls.order)
-	// The default: the registry's, if served; else the first served in its order.
-	def := ls.rts[reg.Default]
+	ls.settleDefault(reg.Default)
+	return nil
+}
+
+// settle re-chooses the default, the Host names and the owner record from what is
+// served now and the registry's default. ls.mu is held.
+func (ls *liveSet) settle() {
+	want := ""
+	if reg, err := config.LoadProjects(ls.o.Home); err == nil {
+		want = reg.Default
+	} else if d := ls.m.defRT(); d != nil {
+		want = d.id
+	}
+	ls.settleDefault(want)
+}
+
+// settleDefault: the registry's default if served, else the first served in the
+// registry's order; then the Host names and the owner record. ls.mu is held.
+func (ls *liveSet) settleDefault(want string) {
+	def := ls.rts[want]
 	for _, id := range ls.order {
 		if def == nil && ls.rts[id] != nil {
 			def = ls.rts[id]
@@ -267,19 +290,16 @@ func (ls *liveSet) reconcile() error {
 	}
 	ls.refreshHosts()
 	ls.writeOwner()
-	return nil
 }
 
-// refreshHosts sets the Host names: the default project's and every trusted
-// project's, so an untrusted config cannot add a name (as at start).
+// refreshHosts sets the Host names: every trusted project's, and the startup default's
+// even untrusted (before PANEL-16 it was the only project, and its names always
+// counted). A project that becomes the default live adds its names only once trusted,
+// so removing a trusted default never lets an untrusted config add a name.
 func (ls *liveSet) refreshHosts() {
-	def := ls.m.defRT()
-	if def == nil {
-		return
-	}
-	names := append([]string{}, def.cfg.HostNames...)
+	var names []string
 	for _, r := range ls.m.list() {
-		if r != def && r.trusted() {
+		if r.trusted() || r == ls.startDef {
 			names = append(names, r.cfg.HostNames...)
 		}
 	}
@@ -449,16 +469,20 @@ func (ls *liveSet) Add(ctx context.Context, req web.AddProjectRequest) (any, *la
 	case req.Trust && req.Hash != c.Hash:
 		return nil, refusal(install.ErrConfigChanged)
 	}
-	if req.Trust {
-		// Trusted first, so the runtime starts with its commands on; exactly the bytes
-		// the report showed.
-		if _, err := install.TrustExact(ls.o.Home, c.Root, c.ConfigPath, req.Hash); err != nil {
-			return nil, refusal(err)
-		}
-	}
 	res, err := install.AddProject(ctx, install.AddOptions{Home: ls.o.Home, Project: c.Root, Run: ls.o.Runner, Now: ls.clk.Now(), Strict: true})
 	if err != nil {
-		return nil, refusal(err)
+		return nil, refusal(err) // nothing recorded: no entry, no trust
+	}
+	if req.Trust {
+		// Trusted before the runtime starts (ls.mu keeps the watch from starting it
+		// first), so its commands are on from its first poll; exactly the bytes the
+		// report showed. Refused, the add is undone: a refused request changes nothing.
+		if _, err := install.TrustExact(ls.o.Home, c.Root, c.ConfigPath, req.Hash); err != nil {
+			if _, rerr := install.RemoveProject(ls.o.Home, res.Entry.ID, true); rerr != nil {
+				fmt.Fprintf(ls.o.Out, "cannot undo the add of %s: %v\n", res.Entry.ID, rerr)
+			}
+			return nil, refusal(err)
+		}
 	}
 	fmt.Fprintf(ls.o.Out, "registered %s as project %q from the page (%s)\n", res.Entry.Root, res.Entry.ID,
 		map[bool]string{true: "trusted", false: "untrusted"}[req.Trust || c.Trusted])
@@ -615,20 +639,26 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 		return rep, nil
 	}
 	// The file is not the one the panel loaded: serve the bytes just trusted.
+	// First check that it loads, so a config that would not (its socket is another
+	// project's, git fails) never stops the runtime that serves now.
 	e := lr.entry
+	if p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary); err != nil {
+		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", err)
+	} else {
+		for other, olr := range ls.rts {
+			if other != id && olr.r.cfg.Socket() == p.cfg.Socket() {
+				return nil, lerr(http.StatusConflict, "socket-taken", "trusted, but its tmux socket %q is %s's, so the panel keeps serving the config it loaded", p.cfg.Socket(), other)
+			}
+		}
+	}
 	wasDefault := ls.m.defRT() == lr.r
 	ls.stop(id)
-	if err := ls.startEntry(e, wasDefault); err != nil {
+	err = ls.startEntry(e, wasDefault)
+	ls.sums.Reorder(ls.order)
+	ls.settle()
+	if err != nil {
 		return nil, lerr(http.StatusConflict, "bad-config", "%v", err)
 	}
-	ls.sums.Reorder(ls.order)
-	if wasDefault {
-		ls.m.setDefault(ls.rts[id].r)
-		ls.srv.SetDefault(id)
-		ls.sums.SetDefault(id)
-	}
-	ls.refreshHosts()
-	ls.writeOwner()
 	rep.Reloaded = true
 	return rep, nil
 }
