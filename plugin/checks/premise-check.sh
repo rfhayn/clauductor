@@ -254,6 +254,28 @@ has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule
 MCMD='gh pr merge 290 --squash --body-file nowhere.md'
 rulep 2 "a squash whose --body-file cannot be read (fails closed)" "$RCPT" "239" "Tidy the card"
 has yes "cannot read this merge's --body/--body-file" "$(cat "$d/err")" "guard rule: ...and says it cannot read the merge's body"
+printf 'Tidy the card.\n' > "$G/tidy.md"
+MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body-file tidy.md'
+merge 2 "a squash whose --subject closes an issue (through the guard)" "Tidy." "" "Tidy the card"
+has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the squash subject closes it"
+MCMD='gh pr merge 290 --squash -t"Fixes #239: card"'
+rulep 2 "a squash whose glued -t subject closes an issue" "Tidy." "" "Tidy the card"
+MCMD='gh pr merge 290 --squash -b"Fixes #239."'
+rulep 2 "a squash whose glued -b body closes an issue" "Tidy." "" "Tidy the card"
+MCMD='gh pr merge 290 -sdFmerge-body.md'
+rulep 2 "a squash whose -F file is glued inside a flag cluster" "Tidy." "" "Tidy the card"
+MCMD='gh api -X PUT repos/acme/app/pulls/290/merge -f merge_method=squash -f commit_message="Fixes #239."'
+rulep 2 "an API merge whose commit_message closes an issue" "Tidy." "" "Tidy the card"
+MCMD='gh api -X PUT repos/acme/app/pulls/290/merge -f merge_method=squash -f commit_title="Fixes #239: card"'
+rulep 2 "an API merge whose commit_title closes an issue" "Tidy." "" "Tidy the card"
+MCMD='gh api -X PUT repos/acme/app/pulls/290/merge --input merge.json'
+rulep 2 "an API merge whose fields come from --input (unreadable, fails closed)" "$RCPT" "239" "Tidy the card"
+# A file named "-" beside it: stdin must not be read as that file instead.
+printf 'Tidy.\n' > "$G/-"
+MCMD='gh pr merge 290 --squash --body-file -'
+rulep 2 "a squash whose body is read from stdin (unreadable, fails closed)" "$RCPT" "239" "Tidy the card"
+MCMD='gh pr merge 290 --squash --subject "$(cat s)" --body-file tidy.md'
+rulep 2 "a squash whose subject is a substitution (unreadable, fails closed)" "$RCPT" "239" "Tidy the card"
 MCMD=
 git -C "$G" checkout -q -b fix/commits
 git -C "$G" commit -q --allow-empty -m "card: stop the crash" -m "Fixes #241"
@@ -269,6 +291,8 @@ premise-check: #409 @ $(printf '%s' "$GH" | cut -c1-12)" "" "Fix #410 too"
 has yes "fixes #410 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the title's issue counts beside the body's"
 rulep 2 "a fix/<n>-<slug> branch that names nothing else" "Tidy." "" "Tidy the card" "fix/512-card"
 has yes "fixes #512 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the branch's number is an issue"
+rulep 0 "a fix/<date>-<slug> branch: a date is not an issue number" "Tidy." "" "Tidy the card" "fix/2026-10-01-cleanup"
+has no "#2026" "$(cat "$d/err")$out" "guard rule: ...and #2026 is not demanded"
 rulep 2 "a PR whose body closes an issue GitHub's field misses" "Closes #409.
 
 Why: it." "" "Keep live sessions' worktrees"

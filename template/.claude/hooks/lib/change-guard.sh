@@ -89,11 +89,22 @@ cg_archives() {  # cg_archives BASE HEAD
   done
 }
 
-# cg_body: the squash body a merge command sets: its --body/-b text, or the contents of its
-# --body-file/-F file (relative to CWD). Prints it; returns 1 when there is none, 2 when it cannot be
-# read (a substitution in the text, or an unreadable file).
-cg_body() {  # cg_body COMMAND CWD
-  _b=$(printf '%s' "$1" | awk '
+# cg_field COMMAND CWD body|subject: what a merge command sets for the squash commit's body or
+# subject, read the way gh reads its flags. Prints it; returns 1 when the command sets none, 2 when
+# it cannot be read (a substitution in the text, a file that cannot be read or is stdin, an API
+# merge whose fields come from --input). Forms read:
+#   gh pr merge   body:    --body T, --body=T, --body-file F, --body-file=F, and the short flags
+#                          -b/-F with the value next, glued (-bT, -FF) or after = (-b=T), also
+#                          inside a cluster of boolean shorthands (-sdbT)
+#                 subject: --subject T, --subject=T, -t T, -tT, -t=T, -sdtT
+#   gh api …/merge  body: -f|-F|--field|--raw-field commit_message=T (and glued -fcommit_message=T,
+#                         --field=commit_message=T); -F commit_message=@F reads F
+#                 subject: the same with commit_title
+# The last occurrence wins, as it does for gh.
+cg_body() { cg_field "$1" "$2" body; }        # cg_body COMMAND CWD (rule 12; premise-check)
+cg_subject() { cg_field "$1" "$2" subject; }  # cg_subject COMMAND CWD (premise-check)
+cg_field() {
+  _b=$(printf '%s' "$1" | awk -v want="$3" '
     { buf = buf $0 "\n" }
     END {
       s = buf; n = length(s); q = ""; tok = ""; have = 0; nt = 0; odd = 0
@@ -111,12 +122,45 @@ cg_body() {  # cg_body COMMAND CWD
         tok = tok c; have = 1
       }
       if (have) { t[++nt] = tok; oddt[nt] = odd }
+      mode = "pr"
+      for (k = 1; k < nt; k++) if (t[k] == "gh") { if (t[k + 1] == "api") mode = "api"; break }
+      long = (want == "body") ? "--body" : "--subject"
+      key = (want == "body") ? "commit_message" : "commit_title"
       for (k = 1; k <= nt; k++) {
         x = t[k]
-        if ((x == "--body" || x == "-b" || x == "--body-file" || x == "-F") && k < nt) { kind = x; v = t[k + 1]; vo = oddt[k + 1]; found = 1 }
-        else if (x ~ /^--body=/) { kind = "--body"; v = substr(x, 8); vo = oddt[k]; found = 1 }
-        else if (x ~ /^--body-file=/) { kind = "--body-file"; v = substr(x, 13); vo = oddt[k]; found = 1 }
+        if (mode == "api") {
+          kv = ""; ko = 0; isF = 0; got = 0
+          if ((x == "-f" || x == "-F" || x == "--field" || x == "--raw-field") && k < nt) { kv = t[k + 1]; ko = oddt[k + 1]; isF = (x == "-F" || x == "--field"); got = 1; k++ }
+          else if (x ~ /^--(raw-)?field=/) { kv = substr(x, index(x, "=") + 1); ko = oddt[k]; isF = (x ~ /^--field=/); got = 1 }
+          else if (x ~ /^-[fF]./) { kv = substr(x, 3); sub(/^=/, "", kv); ko = oddt[k]; isF = (substr(x, 2, 1) == "F"); got = 1 }
+          else if (x == "--input" || x ~ /^--input=/) { bad = 1 }
+          if (got && index(kv, key "=") == 1) {
+            v = substr(kv, length(key) + 2); vo = ko; found = 1; kind = "text"
+            if (isF && substr(v, 1, 1) == "@") { kind = "file"; v = substr(v, 2) }
+          }
+          continue
+        }
+        if ((x == long || (want == "body" && x == "--body-file")) && k < nt) { kind = (x == "--body-file") ? "file" : "text"; v = t[k + 1]; vo = oddt[k + 1]; found = 1; k++ }
+        else if (index(x, long "=") == 1) { kind = "text"; v = substr(x, length(long) + 2); vo = oddt[k]; found = 1 }
+        else if (want == "body" && index(x, "--body-file=") == 1) { kind = "file"; v = substr(x, 13); vo = oddt[k]; found = 1 }
+        else if (x ~ /^-[^-]/) {
+          # A cluster of shorthands, as pflag reads it: boolean ones (d s m r) go by; the first that
+          # takes a value (b F t A R) takes the rest of the token, or the next token.
+          for (c = 2; c <= length(x); c++) {
+            ch = substr(x, c, 1)
+            if (ch ~ /[dsmr]/) continue
+            if (ch ~ /[bFtAR]/) {
+              rest = substr(x, c + 1); sub(/^=/, "", rest)
+              if (rest != "") { val = rest; vov = oddt[k] } else if (k < nt) { val = t[k + 1]; vov = oddt[k + 1]; k++ } else break
+              if (want == "body" && ch == "b") { kind = "text"; v = val; vo = vov; found = 1 }
+              if (want == "body" && ch == "F") { kind = "file"; v = val; vo = vov; found = 1 }
+              if (want == "subject" && ch == "t") { kind = "text"; v = val; vo = vov; found = 1 }
+            }
+            break
+          }
+        }
       }
+      if (bad) exit 2
       if (!found) exit 1
       if (vo) exit 2
       printf "%s\n%s", kind, v
@@ -125,7 +169,8 @@ cg_body() {  # cg_body COMMAND CWD
   [ "$_rc" -eq 0 ] || return "$_rc"
   _kind=$(printf '%s\n' "$_b" | head -1); _val=$(printf '%s\n' "$_b" | sed '1d')
   case "$_kind" in
-    --body-file|-F)
+    file)
+      [ "$_val" != - ] || return 2   # stdin: not readable from here
       case "$_val" in /*) _f=$_val ;; *) _f="${2:-.}/$_val" ;; esac
       [ -r "$_f" ] || return 2
       cat "$_f" ;;
