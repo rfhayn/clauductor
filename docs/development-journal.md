@@ -79,7 +79,28 @@ it happened.
    of top-level scripts had drifted too). Fixed: update now takes install's classification, and
    every script directly in `.claude/` is framework tier by rule, with a test that enumerates the
    template. Still open (OPS-14): update never adds a new doc-tier file, so `health/flow.sh` was
-   copied by hand.
+   copied by hand. P1 (#29) landed the same fix for update's scope (B3) while this PR was open,
+   so this PR took P1's version and dropped its own.
+10. **`clauductor diff` (from P1) on the pre-OPS-8 tree and after.** Before: *"framework: 83
+    missing, 5 differs, 18 extra"*. The 18 extras are exactly the 16 old skills and 2 old hooks
+    that install never named, so diff now answers finding 2 (the 2 old agents are doc tier and
+    are not listed). *"doc: 26 missing, 6 present"*, and *"settings: .claude/settings.json merge,
+    1 conflict(s)"* (the status line). The merge would also keep the old SessionStart and
+    PostToolUse hooks pointing at `session-register.sh` and `heartbeat.sh`, so deleting those
+    scripts afterwards would break every hook call. After: *"framework: 85 identical, 3 differs"*
+    (P1's two hook changes, which update then took, and `build-change.js`, which differs on
+    purpose), with no extras, *"doc: 32 present"*, and *".gitignore — lacks
+    .claude/settings.local.json"*, which update does not merge, so it was appended by hand.
+11. **Rebasing on OPS-10 (#28)** meant hand-merging its new fields into this repo's
+    model-roles.json (the reviewer's `eval` baseline and `evals` thresholds: doc tier, so update
+    does not offer them), copying the new `.claude/evals/` (doc tier on purpose), and adding its
+    AGENTS.md row (rule 13) by hand. Answering `y` to update's review overwrote `build-change.js`,
+    which lost the attribution settings again (finding 6). A new test now fails when a directory
+    under `template/.claude/` is placed in neither tier.
+12. **B12, from the StandingT convergence map**, is the session-start line this PR had already
+    reworded. The no-clauductor check now also scans every script of the model for an
+    echo/printf line that tells the user to run clauductor. It was falsified with the old line,
+    which both the scan and the context run caught.
 
 ### Decisions
 

@@ -1,0 +1,30 @@
+{
+  "id": "ts-coupon-test-mocks-itself",
+  "lang": "ts",
+  "kind": "defect",
+  "charter": "a test that passes without the code",
+  "title": "Percent-off coupons",
+  "brief": "Checkout accepts percent-off coupons whose discount is capped (50% off, at most $10). Add applyCoupon(totalCents, percentOff, maxOffCents) with a test of the cap.",
+  "tasks": [
+    "Add applyCoupon",
+    "Test that the discount is capped"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "high",
+      "file": "src/coupon.test.ts",
+      "lines": [
+        6,
+        7
+      ],
+      "keywords": [
+        "mock",
+        "spy",
+        "without",
+        "stub"
+      ],
+      "why": "The test spies on applyCoupon and mocks its return value to 9000, then asserts 9000: it tests the mock, and passes with applyCoupon deleted or wrong."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "py-clean-page-guard",
+  "lang": "py",
+  "kind": "clean",
+  "charter": "control: a bug fix with its test",
+  "title": "Reject page 0",
+  "brief": "page(items, 0, n) silently returned the last n items (a negative slice start), which the admin UI showed as page 1. Reject a page number or size below 1 with ValueError.",
+  "tasks": [
+    "Raise ValueError for page_no < 1 or size < 1",
+    "Test the rejected values"
+  ],
+  "expected": []
+}

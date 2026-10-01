@@ -82,7 +82,7 @@ and reach the owner through session-start and the panel.
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
 | OPS-9 | `ops/ops-9-metrics` — `.claude/metrics.sh`: lead and cycle time, approval wait, review rounds, aging WIP, merge frequency, change-fail rate; a health line and a card | `template/.claude/metrics.sh`, `template/.claude/health/` | — | ✅ merged (#26) |
-| OPS-10 | `ops/ops-10-evals` — a seeded-defect suite measures the reviewer's recall; the merge guard wants an eval receipt for agent, workflow and role changes | `template/.claude/evals/`, `template/.claude/hooks/pr-merge-guard.sh` | — | ⬜ queued |
+| OPS-10 | `ops/ops-10-evals` — a seeded-defect suite measures the reviewer's recall; the merge guard wants an eval receipt for agent, workflow and role changes | `template/.claude/evals/`, `template/.claude/hooks/pr-merge-guard.sh` | — | ✅ merged (#28) |
 
 ## Phase 4 — Release
 **Owner:** Rich
@@ -104,7 +104,7 @@ StandingT's repo; the clauductor side of each phase is a row here.
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
 | ST-0 | `ops/st-0-convergence-map` — the convergence map: every shared file classified, every record format decided, the onboarding sections listed (read-only) | StandingT docs | OPS-8 | ⬜ queued |
-| ST-1 | `ops/st-1-extension-points` — settings.json merged not overwritten, optional modules, a project-local layer, `clauductor diff` | `framework/internal/cmd`, `template/.claude/modules/` | ST-0 | ⬜ queued |
+| ST-1 | `ops/st-1-extension-points` — optional modules and a project-local layer (the settings.json merge and `clauductor diff` landed in #29) | `framework/internal/cmd`, `template/.claude/modules/` | ST-0 | ⬜ queued |
 | ST-2 | `ops/st-2-upstream` — what the map marks generic and better in StandingT moves into the template | `template/` | ST-0 | ⬜ queued |
 | ST-3 | `ops/st-3-converge` — StandingT converges file by file, with the no-clauductor check in its gate | StandingT | ST-1, ST-2, REL-1 | ⬜ queued |
 | ST-4 | `ops/st-4-handover` — `.claude/clauductor-template` written; `clauductor update` from then on | StandingT | ST-3 | ⬜ queued |
