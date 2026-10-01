@@ -45,6 +45,7 @@ func TestClassifyFile(t *testing.T) {
 		".github/dependabot.yml":                                 tierDoc,
 		"CLAUDE.md":                                              tierConfig,
 		".gitignore":                                             tierConfig,
+		".gitattributes":                                         tierConfig,
 	} {
 		if got := classifyFile(path); got != want {
 			t.Errorf("classifyFile(%q) = %s, want %s", path, tierLabel(got), tierLabel(want))

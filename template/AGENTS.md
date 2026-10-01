@@ -78,6 +78,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | An ADR number is never taken twice; every ADR is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
 | The repo works without clauductor: nothing needs the binary or the panel | **`checks/no-clauductor.sh`**: the gate, the checks, a context script and the status line, `clauductor` off `PATH` |
+| Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | **This file stays a budget, not an archive** | **`.claude/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 

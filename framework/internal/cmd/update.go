@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +33,11 @@ require manual review to prevent overwriting project-specific customizations.
 
 .claude/settings.json is merged, not copied: the model's hooks, status line,
 deny list and sandbox entries are brought up to date, the project's keys are
-kept, and every conflict is reported. --dry-run shows the diff first.`,
+kept, and every conflict is reported. --dry-run shows the diff first.
+
+.gitattributes gains the template's line-ending rules it lacks (LF for every
+text file, so shell scripts run under WSL2 and Git for Windows), prepended so
+the project's own lines still override them.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := os.Getwd()
 		if err != nil {
@@ -81,7 +86,12 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 			return err
 		}
 
-		if len(diffs) == 0 && !settings.Changed() {
+		attrs, err := planGitattributes(targetDir)
+		if err != nil {
+			return err
+		}
+
+		if len(diffs) == 0 && !settings.Changed() && attrs == nil {
 			fmt.Println("All skills, hooks, and templates are up to date.")
 			if len(settings.Changes) > 0 {
 				printSettingsPlan(os.Stdout, settings, false)
@@ -137,9 +147,13 @@ kept, and every conflict is reported. --dry-run shows the diff first.`,
 		if settings.Changed() || len(settings.Changes) > 0 {
 			printSettingsPlan(os.Stdout, settings, updateDryRun)
 		}
+		attrs.print(os.Stdout)
 		if updateDryRun {
 			fmt.Println("--dry-run: no changes made.")
 			return nil
+		}
+		if err := attrs.apply(targetDir); err != nil {
+			return err
 		}
 		if settings.Changed() {
 			if err := writeSettings(targetDir, settings); err != nil {
@@ -250,6 +264,65 @@ func planProjectSettings(targetDir string) (*template.SettingsPlan, error) {
 		return nil, fmt.Errorf("%s: %w (fix it, then run update again)", template.SettingsPath, err)
 	}
 	return sp, nil
+}
+
+// gitattributesPlan is update's merge of the template's line-ending rules into the project's
+// .gitattributes. Update copies only framework files, so without this a project installed before
+// the template shipped the rules would never get them, and a collaborator on Windows would check
+// every shell script out with CRLF. nil means the project already has every rule.
+type gitattributesPlan struct {
+	exists bool
+	added  []string
+	result []byte
+}
+
+func planGitattributes(targetDir string) (*gitattributesPlan, error) {
+	tmplDir, err := template.TemplatePath()
+	if err != nil {
+		return nil, err
+	}
+	want, err := os.ReadFile(filepath.Join(tmplDir, template.GitattributesPath))
+	if os.IsNotExist(err) {
+		return nil, nil // a template from before the rules
+	}
+	if err != nil {
+		return nil, err
+	}
+	have, readErr := os.ReadFile(filepath.Join(targetDir, template.GitattributesPath))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	merged, added := template.MergeGitattributes(string(have), string(want))
+	if len(added) == 0 {
+		return nil, nil
+	}
+	return &gitattributesPlan{exists: readErr == nil, added: added, result: []byte(merged)}, nil
+}
+
+func (p *gitattributesPlan) print(out io.Writer) {
+	if p == nil {
+		return
+	}
+	if p.exists {
+		fmt.Fprintf(out, "Line endings — %s gains %d rule(s), prepended so the project's own lines still win:\n", template.GitattributesPath, len(p.added))
+	} else {
+		fmt.Fprintf(out, "Line endings — %s will be created:\n", template.GitattributesPath)
+	}
+	for _, l := range p.added {
+		fmt.Fprintf(out, "  + %s\n", l)
+	}
+	fmt.Fprintln(out)
+}
+
+func (p *gitattributesPlan) apply(targetDir string) error {
+	if p == nil {
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, template.GitattributesPath), p.result, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("Merged %s. Files already checked out keep their line endings until checked out again; .claude/checks/line-endings.sh names any that still hold a CR.\n\n", template.GitattributesPath)
+	return nil
 }
 
 func writeSettings(targetDir string, sp *template.SettingsPlan) error {

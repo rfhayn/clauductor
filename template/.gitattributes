@@ -1,0 +1,19 @@
+# Line endings: LF in the repository AND in every checkout, on every OS. Git for Windows defaults
+# to core.autocrlf=true, which checks text files out with CRLF unless this file says otherwise, and
+# a hook, check or gate script with CRLF fails in sh (`$'\r': command not found`). WSL2 and macOS
+# need nothing; the rule makes a checkout from Windows tools safe too. Add your own lines BELOW
+# these: the last matching line wins. Held by .claude/checks/line-endings.sh.
+* text=auto eol=lf
+
+# Binary types: never converted, never diffed as text (text=auto detects most; these are certain).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary

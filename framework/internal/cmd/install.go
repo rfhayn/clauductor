@@ -48,7 +48,8 @@ File handling by tier:
     and hooks are kept; every disagreement is reported
   DOC TEMPLATES (agents, AGENTS.md, project.conf,
     model-roles.json, panel.json, docs, steps.sh)  → created only if missing
-  CONFIG (CLAUDE.md, .gitignore)                    → merged with existing
+  CONFIG (CLAUDE.md, .gitignore, .gitattributes)    → merged with existing (the
+    .gitattributes line-ending rules are prepended, so the project's own win)
 
 Paths follow .claude/project.conf: the gate scripts go where GATE_RUN, GATE and
 GATE_STEPS say (a GATE_RUN with another file name is the project's own runner,
@@ -158,7 +159,7 @@ type installPlan struct {
 	update    []placed          // framework files that differ: overwritten
 	unchanged int               // framework files already identical
 	keep      []placed          // doc files that exist: left alone
-	merge     []placed          // CLAUDE.md, .gitignore: merged
+	merge     []placed          // CLAUDE.md, .gitignore, .gitattributes: merged
 	skipped   map[string]string // template path → why the project's config leaves it out
 	settings  *template.SettingsPlan
 }
@@ -371,7 +372,8 @@ func readChoiceFrom(r *bufio.Reader) string {
 	return answer
 }
 
-// mergeConfigFile merges a config file (CLAUDE.md, .gitignore) into the project's copy.
+// mergeConfigFile merges a config file (CLAUDE.md, .gitignore, .gitattributes) into the
+// project's copy.
 func mergeConfigFile(targetDir, relPath string) error {
 	tmplPath, err := template.TemplatePath()
 	if err != nil {
@@ -402,6 +404,13 @@ func mergeConfigFile(targetDir, relPath string) error {
 			}
 		}
 		return nil
+
+	case template.GitattributesPath:
+		merged, added := template.MergeGitattributes(existing, string(srcContent))
+		if len(added) == 0 {
+			return nil
+		}
+		return os.WriteFile(destPath, []byte(merged), 0644)
 
 	case "CLAUDE.md":
 		// The operating model's rules live in AGENTS.md, which CLAUDE.md imports. An existing

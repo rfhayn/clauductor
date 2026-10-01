@@ -189,7 +189,7 @@ func surveySettings(targetDir, tmplPath string, conf *Conf) *SettingsReport {
 	return sr
 }
 
-// configNote says what a merge would add to CLAUDE.md or .gitignore.
+// configNote says what a merge would add to CLAUDE.md, .gitignore or .gitattributes.
 func configNote(rel, src, dst string) string {
 	have, err := os.ReadFile(dst)
 	if err != nil {
@@ -213,6 +213,14 @@ func configNote(rel, src, dst string) string {
 		}
 		if len(missing) > 0 {
 			return "lacks " + strings.Join(missing, " ") + " (install appends them)"
+		}
+	case GitattributesPath:
+		want, err := os.ReadFile(src)
+		if err != nil {
+			return ""
+		}
+		if _, missing := MergeGitattributes(string(have), string(want)); len(missing) > 0 {
+			return "lacks " + strings.Join(missing, "; ") + " (install and update prepend them)"
 		}
 	}
 	return ""

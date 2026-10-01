@@ -7,8 +7,9 @@
 # project owns and edits (AGENTS.md, .claude/project.conf, model-roles.json, docs/, changes/,
 # specs/, scripts/ci/, .clauductor/panel.json, .claude/settings.json) has to live in the
 # repository, so this copies it there, and NEVER overwrites a file that exists:
-#   - a file that exists is kept as it is, except these three, which are merged:
+#   - a file that exists is kept as it is, except these four, which are merged:
 #       .gitignore             missing lines appended
+#       .gitattributes         missing line-ending rules PREPENDED (the project's own lines win)
 #       CLAUDE.md              `@AGENTS.md` appended when absent
 #       .claude/settings.json  merged as `clauductor install` merges it (needs jq): the project's
 #                              keys and values kept, missing keys added, the allow/deny lists and
@@ -56,7 +57,7 @@ keep=""
 merge=""
 for f in $files; do
   case $f in
-    .gitignore | CLAUDE.md | .claude/settings.json)
+    .gitignore | .gitattributes | CLAUDE.md | .claude/settings.json)
       if [ -e "$f" ]; then merge="$merge $f"; else create="$create $f"; fi ;;
     *)
       if [ -e "$f" ]; then keep="$keep $f"; else create="$create $f"; fi ;;
@@ -118,6 +119,19 @@ for f in $merge; do
         case $line in "" | "#"*) continue ;; esac
         grep -qxF -- "$line" .gitignore || { [ "$added" = 1 ] || printf '\n# clauductor\n' >> .gitignore; printf '%s\n' "$line" >> .gitignore; added=1; }
       done < "$SRC/.gitignore" ;;
+    .gitattributes)
+      # PREPENDED, not appended: the last matching line wins, so the project's own lines must
+      # stay after the catch-all `* text=auto eol=lf` to keep overriding it.
+      missing=""
+      while IFS= read -r line; do
+        case $line in "" | "#"*) continue ;; esac
+        grep -qxF -- "$line" .gitattributes || missing="$missing$line
+"
+      done < "$SRC/.gitattributes"
+      if [ -n "$missing" ]; then
+        { printf '# clauductor: LF line endings on every OS (checks/line-endings.sh). Your own lines below still win.\n%s\n' "$missing"; cat .gitattributes; } > .gitattributes.tmp &&
+          mv .gitattributes.tmp .gitattributes
+      fi ;;
     CLAUDE.md)
       grep -qxF '@AGENTS.md' CLAUDE.md || printf '\n@AGENTS.md\n' >> CLAUDE.md ;;
     .claude/settings.json)

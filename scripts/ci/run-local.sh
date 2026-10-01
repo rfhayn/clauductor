@@ -93,7 +93,7 @@ FAILED=""
 secret_scan() {
   if ! command -v gitleaks >/dev/null 2>&1; then
     case "${CI:-}" in
-      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (brew install gitleaks, or see github.com/gitleaks/gitleaks). Under CI this fails."; return 0 ;;
+      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (macOS: brew install gitleaks; Linux and WSL2: a release binary from github.com/gitleaks/gitleaks/releases). Under CI this fails."; return 0 ;;
       *) echo "secrets: FAIL — gitleaks is not installed, and CI=$CI requires the scan"; return 1 ;;
     esac
   fi

@@ -98,9 +98,7 @@ guard 0 "a change PR that states its slice" "gh pr merge 5 --squash" GH_HEAD="$S
 
 # Rule 7: a journal session number merged elsewhere after this branch was cut.
 git -C "$R" checkout -q -b ops/close main
-sed -i.bak 's/^## Session 1/## Session 2 — 2026-01-02 — b — mine\n\n## Session 1/' "$R/docs/development-journal.md" 2>/dev/null
 printf '# Journal\n\n## Session 2 — 2026-01-02 — b — mine\n\n## Session 1 — 2026-01-01 — a — start\n' > "$R/docs/development-journal.md"
-rm -f "$R/docs/development-journal.md.bak"
 git -C "$R" commit -qam "close: session 2"
 MINE=$(git -C "$R" rev-parse HEAD)
 git -C "$R" checkout -q main

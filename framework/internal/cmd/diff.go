@@ -33,8 +33,8 @@ model of its own (install and update refuse those; diff only reads).
   framework files   identical | differs | missing | extra (in a framework
                     directory, not in the template) | skipped (the project's
                     config says it runs its own, e.g. GATE_RUN)
-  doc and config    present | missing (and what a merge would add to CLAUDE.md
-                    and .gitignore)
+  doc and config    present | missing (and what a merge would add to CLAUDE.md,
+                    .gitignore and .gitattributes)
   settings.json     the key-level merge install and update would do, with each
                     conflict and the diff of the merged file
 

@@ -70,6 +70,58 @@ Shared records conflict at close by design, and resolve one way each (`session-c
 journal renumbers, the insights log keeps both rows, ADRs take the next number. Claude's memory is
 per machine, so what the other person needs goes in the repo.
 
+## Setting up a machine
+
+The model is POSIX sh, git and jq, so it runs the same on **macOS**, **Linux** and **Windows
+through WSL2**; a collaborator who moves from one to another changes nothing in the repo. Every
+machine needs Claude Code, then:
+
+| Tool | Why | macOS | Linux, WSL2 (Ubuntu) |
+|---|---|---|---|
+| git, jq | the hooks, checks and gate | `brew install git jq` | `sudo apt-get install git jq` |
+| gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` | GitHub's apt repository (cli.github.com) |
+| gitleaks | the gate's secret scan (skipped locally without it, fails under CI) | `brew install gitleaks` | a release binary from github.com/gitleaks/gitleaks/releases, on `PATH` |
+| bubblewrap, socat | Claude Code's Bash sandbox | nothing: macOS has Seatbelt | `sudo apt-get install bubblewrap socat` |
+| python3 | `machine-quiet.sh` at session close | preinstalled | preinstalled on Ubuntu |
+| Docker | only if `scripts/ci/steps.sh` uses it | Docker Desktop | Docker Desktop with WSL integration on for the distro (Settings → Resources → WSL integration) |
+
+Add whatever else your gate's steps call. **The panel is macOS-only and optional**: it runs on
+tmux, launchd and Terminal.app. Nothing needs it (`checks/no-clauductor.sh`): lanes are plain git
+worktrees under `.claude/worktrees/`, and the gate lease falls back to `scripts/ci/lease.sh`.
+
+**Windows: work inside WSL2.** Claude Code's sandbox runs on macOS, Linux and WSL2; on native
+Windows and on WSL1 (whose kernel lacks what bubblewrap needs) it does not, and by default Claude
+Code then warns and runs every command unsandboxed. So:
+
+- **Install WSL2** (`wsl --install` in PowerShell gives Ubuntu); `wsl -l -v` must show `VERSION 2`.
+- **Clone inside the WSL filesystem** (`~/src/<project>`), never under `/mnt/c`. The Windows drive
+  is reached through a file-sharing layer that makes git, the checks and the gate many times
+  slower, and it does not keep Unix permissions (`chmod` does not stick, and git reports
+  spurious mode changes).
+  Windows editors reach the clone at `\\wsl$\<distro>\home\<you>\…` (or VS Code's WSL extension).
+- **Run git, gh and Claude Code inside WSL**, not Git for Windows on the same checkout.
+  `.gitattributes` (`* text=auto eol=lf`) keeps every script LF even when a Windows tool checks
+  it out, and `checks/line-endings.sh` names any that still holds a CR (`$'\r': command not
+  found` is the symptom). A clone made before the rule: with nothing uncommitted,
+  `git rm -r -q --cached . && git reset -q --hard` checks every file out again.
+- **The sandbox**: `sudo apt-get install bubblewrap socat`, restart Claude Code, and run
+  `/sandbox`: it shows a Dependencies tab while anything is missing. On **Ubuntu 24.04 and
+  later**, AppArmor may stop bubblewrap creating user namespaces: if
+  `sysctl kernel.apparmor_restrict_unprivileged_userns` prints `1`, add the profile below, then
+  `sudo systemctl reload apparmor` (from code.claude.com/docs/en/sandboxing, checked 2026-10-01).
+
+```bash
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+```
+
 ## The change lifecycle
 
 ```
