@@ -147,9 +147,18 @@ spec_merge() {
     function same(D, m, L, k) { if (D[m, "id"] != "" && L[k, "id"] != "") return D[m, "id"] == L[k, "id"]; return D[m, "title"] == L[k, "title"] }
     # named(K): design.md names living scenario k as removed: its ID, or its title in quotes,
     # backticks or emphasis (a bare substring would match unrelated prose).
+    # hasid(S, ID): ID occurs in S as a whole ID (AUTH-1-S1 is not in AUTH-1-S10 or OAUTH-1-S1).
+    function hasid(s, id,    p, b, a) {
+      while ((p = index(s, id)) > 0) {
+        b = (p > 1) ? substr(s, p - 1, 1) : ""; a = substr(s, p + length(id), 1)
+        if (b !~ /[A-Za-z0-9-]/ && a !~ /[A-Za-z0-9-]/) return 1
+        s = substr(s, p + 1)
+      }
+      return 0
+    }
     function named(L, k,    t) {
       t = L[k, "title"]
-      if (L[k, "id"] != "" && index(design, L[k, "id"])) return 1
+      if (L[k, "id"] != "" && hasid(design, L[k, "id"])) return 1
       return index(design, "\"" t "\"") || index(design, "`" t "`") || index(design, "*" t "*") || index(design, "“" t "”")
     }
     # An empty name prints as "-": the reader splits on tabs, and tabs are IFS whitespace, which collapses.
