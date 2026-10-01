@@ -46,3 +46,4 @@ tool says `CANNOT CHECK — no Artifact tool` rather than erroring.
 |---|---|
 | `openspec` | `checks/project.sh` (this project's links and `openspec validate`), an `archive-change` fragment; `enable.sh` makes the links |
 | `review-page` | a `propose` fragment: the owner's claude.ai review page |
+| `artifacts` | shared pages and walkthroughs held current with the sources they declare (`ARTIFACT_REGISTRY`): health lines, context sections, a guard rule blocking a session close while one is BEHIND, session and merge fragments, a conflict row, `checks/registry.sh`, and `bin/currency.sh --stamp`; sh, git and jq, plus Node only for the optional claude.ai copies (`ARTIFACT_PUBLISH`) |
