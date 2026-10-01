@@ -94,6 +94,9 @@ guard 2 "no reported checks while GATE_DISPLAY_CONTEXTS names CI" "gh pr merge 5
 cp "$R/.claude/project.conf" "$d/conf.ci"
 printf 'GATE_DISPLAY_CONTEXTS=""\nGATE_REMOTE_WORKFLOW=""\n' > "$R/.claude/project.conf"
 guard 0 "no reported checks in a project with no CI at all (the receipt alone)" "gh pr merge 5 --squash" GH_CHECKS='[]'
+printf 'GATE_DISPLAY_CONTEXTS=""\nGATE_REMOTE_WORKFLOW="ci.yml"\n' > "$R/.claude/project.conf"
+guard 0 "no reported checks with only a dispatched GATE_REMOTE_WORKFLOW (gh pr checks never sees it)" "gh pr merge 5 --squash" GH_CHECKS='[]' GH_RUNS=1
+printf 'GATE_DISPLAY_CONTEXTS=""\nGATE_REMOTE_WORKFLOW=""\n' > "$R/.claude/project.conf"
 mkdir -p "$R/.github/workflows"
 printf 'on:\n  pull_request:\n    branches: [main]\n' > "$R/.github/workflows/test.yml"
 guard 2 "no reported checks while a workflow runs on pull_request" "gh pr merge 5 --squash" GH_CHECKS='[]'

@@ -63,6 +63,8 @@ too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <f
 
 - **Gate failed**: STOP. The fix is code, not a merge flag.
 - **A reported check is red**: STOP; the guard blocks on anything reported and not passing.
+- **Nothing reported yet, in a project with CI** (`GATE_DISPLAY_CONTEXTS`, or a workflow on
+  `pull_request`): the guard blocks until CI registers. Wait with `gh pr checks <n> --watch`.
 
 ### 2b. The slice line (change PRs only)
 Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD` under
