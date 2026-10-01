@@ -52,6 +52,19 @@ func TestMergeGitattributesEmptyAndComplete(t *testing.T) {
 	}
 }
 
+// Every guidance doc the update notice watches is a doc-tier file the template ships: a renamed
+// or moved doc must not leave the list watching nothing.
+func TestGuidanceDocsAreTemplateDocs(t *testing.T) {
+	for rel := range guidanceDocs {
+		if _, err := os.Stat(filepath.Join("..", "..", "..", "template", filepath.FromSlash(rel))); err != nil {
+			t.Errorf("guidance doc %s is not in the template: %v", rel, err)
+		}
+		if Classify(rel) != TierDoc {
+			t.Errorf("guidance doc %s is tier %s; update already handles it", rel, TierLabel(Classify(rel)))
+		}
+	}
+}
+
 // The shipped file carries the LF rule, and the tier merges it (install and update both carry it).
 func TestTemplateShipsTheLFRule(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "template", GitattributesPath))

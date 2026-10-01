@@ -3,7 +3,6 @@ package template
 import (
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Doc-tier files are created only if missing and never overwritten, because a project edits them.
@@ -12,35 +11,27 @@ import (
 // the model's advice rather than the project's own record or configuration; `update` names the
 // ones that differ, and `diff` notes each, so the new content is discoverable without being forced.
 
-// projectContent are doc-tier files whose content is the project's by design: records, its
-// configuration, its README. They always differ from the template, so naming them says nothing.
-var projectContent = map[string]bool{
-	"README.md":                   true,
-	".claude/project.conf":        true,
-	".claude/model-roles.json":    true,
-	".clauductor/panel.json":      true,
-	"scripts/ci/steps.sh":         true,
-	"docs/roadmap.md":             true,
-	"docs/development-journal.md": true,
-	"docs/insights-log.md":        true,
-	"docs/owner-queue.md":         true,
+// guidanceDocs are the template's guidance docs: prose a project reads and rarely edits, so a
+// difference most likely means the template moved on. An ALLOW list, not a deny list: most
+// doc-tier files hold the project's own content (AGENTS.md rows, the ADR index, eval cases, health
+// scripts, dependabot.yml, records, config), differ from the template by design, and would make the
+// notice fire on every update forever, which teaches everyone to ignore it.
+// TestGuidanceDocsAreTemplateDocs holds each entry to a doc-tier template file.
+var guidanceDocs = map[string]bool{
+	"docs/playbook.md":         true,
+	"docs/conventions.md":      true,
+	"docs/principles.md":       true,
+	"docs/adr/TEMPLATE.md":     true,
+	"changes/README.md":        true,
+	"specs/README.md":          true,
+	"scripts/ci/README.md":     true,
+	".claude/health/README.md": true,
 }
 
 const guidanceNote = "differs from the template's copy (update never overwrites it: compare and take what you want)"
 
-// IsGuidance says whether rel is a doc-tier template file that carries the model's guidance.
-// Agents are left out: update already offers them file by file.
-func IsGuidance(rel string) bool {
-	if Classify(rel) != TierDoc || projectContent[rel] || strings.HasPrefix(rel, ".claude/agents/") {
-		return false
-	}
-	for _, p := range ProjectSkills {
-		if strings.HasPrefix(rel, p) {
-			return false // CONFIGURE FIRST stubs the project fills in
-		}
-	}
-	return true
-}
+// IsGuidance says whether rel (a template path) is one of the template's guidance docs.
+func IsGuidance(rel string) bool { return guidanceDocs[rel] }
 
 // GuidanceDrift lists the guidance docs, at the project's paths, that differ from the template's
 // copy and those the project lacks.

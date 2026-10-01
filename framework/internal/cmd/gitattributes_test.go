@@ -51,28 +51,63 @@ func TestUpdateNamesChangedGuidanceDocs(t *testing.T) {
 		t.Errorf("a project whose docs match the template got a docs notice:\n%s", quiet)
 	}
 
-	write(t, dir, "docs/playbook.md", "# Our playbook, edited before the machine-setup section\n")
+	// The project's own content differs by design: rows added to AGENTS.md and the ADR index, its
+	// roadmap, an eval case it deleted. None of that is news, so the notice stays silent.
+	appendTo := func(rel, s string) {
+		b, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, dir, rel, string(b)+s)
+	}
+	appendTo("AGENTS.md", "| Our own rule | **checks/ours.sh** |\n")
+	appendTo("docs/adr/README.md", "| 0001 | Our first decision | Accepted |\n")
 	write(t, dir, "docs/roadmap.md", "# Our roadmap\n")
-	if err := os.Remove(filepath.Join(dir, "docs", "principles.md")); err != nil {
+	cases, _ := filepath.Glob(filepath.Join(dir, ".claude", "evals", "reviewer", "cases", "*"))
+	if len(cases) == 0 {
+		t.Fatal("no eval cases installed to delete")
+	}
+	if err := os.RemoveAll(cases[0]); err != nil {
 		t.Fatal(err)
 	}
+	ownContent := stdoutOf(t, func() {
+		if err := runUpdate(t, dir, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if strings.Contains(ownContent, "Docs —") {
+		t.Errorf("the project's own content set off the docs notice:\n%s", ownContent)
+	}
+
+	// The playbook differs: the notice names it, and only it.
+	write(t, dir, "docs/playbook.md", "# Our playbook, edited before the machine-setup section\n")
 	out := stdoutOf(t, func() {
 		if err := runUpdate(t, dir, true); err != nil {
 			t.Fatal(err)
 		}
 	})
-	for _, want := range []string{"Docs —", "~ docs/playbook.md", "- docs/principles.md (missing here)", "clauductor diff"} {
+	for _, want := range []string{"Docs —", "~ docs/playbook.md", "clauductor diff"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update's notice lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "docs/roadmap.md") {
-		t.Errorf("update named the project's own roadmap as drift:\n%s", out)
+	notice := out[strings.Index(out, "Docs —"):]
+	notice = notice[:strings.Index(notice, "\n\n")]
+	if n := strings.Count(notice, "\n  "); n != 1 {
+		t.Errorf("the notice should name only the playbook, named %d file(s):\n%s", n, notice)
+	}
+
+	// A guidance doc the project lacks is named too.
+	if err := os.Remove(filepath.Join(dir, "docs", "principles.md")); err != nil {
+		t.Fatal(err)
+	}
+	if out := stdoutOf(t, func() { runUpdate(t, dir, true) }); !strings.Contains(out, "- docs/principles.md (missing here)") {
+		t.Errorf("update does not name the missing principles.md:\n%s", out)
 	}
 
 	dout, _ := runDiff(t, dir)
-	if !strings.Contains(dout, "docs/playbook.md") || !strings.Contains(dout, "differs from the template's copy") {
-		t.Errorf("diff does not note the changed playbook:\n%s", dout)
+	if !strings.Contains(dout, "docs/playbook.md") || strings.Count(dout, "differs from the template's copy") != 1 {
+		t.Errorf("diff should note the changed playbook, and nothing else as guidance:\n%s", dout)
 	}
 }
 

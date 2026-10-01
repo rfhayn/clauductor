@@ -39,9 +39,10 @@ kept, and every conflict is reported. --dry-run shows the diff first.
 text file, so shell scripts run under WSL2 and Git for Windows), prepended so
 the project's own lines still override them.
 
-Docs the project owns (the playbook, conventions, ...) are never written, but
-update names each one that differs from the template's copy or is missing, so
-new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
+Docs the project owns are never written. Of them, the template's guidance docs
+(the playbook, conventions, principles, the READMEs of changes/, specs/ and
+scripts/ci/, ...) are named when they differ from the template's copy or are
+missing, so new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetDir, err := os.Getwd()
 		if err != nil {

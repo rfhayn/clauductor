@@ -82,6 +82,7 @@ machine needs Claude Code, then:
 | gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` | GitHub's apt repository (cli.github.com) |
 | gitleaks | the gate's secret scan (skipped locally without it, fails under CI) | `brew install gitleaks` | a release binary from github.com/gitleaks/gitleaks/releases, on `PATH` |
 | bubblewrap, socat | Claude Code's Bash sandbox | nothing: macOS has Seatbelt | `sudo apt-get install bubblewrap socat` |
+| Node.js and npm | the seccomp filter below is an npm package | only if your project uses it | through nvm (github.com/nvm-sh/nvm): `nvm install --lts`, after which `npm install -g` writes under `~/.nvm` and needs no sudo (or keep the distro's `nodejs` and set `npm config set prefix ~/.local`, with `~/.local/bin` on `PATH`) |
 | the sandbox's seccomp filter | **required on WSL2**: without it a sandboxed command can launch Windows programs outside the sandbox (below) | not needed | `npm install -g @anthropic-ai/sandbox-runtime` |
 | python3 | `machine-quiet.sh` at session close | preinstalled | preinstalled on Ubuntu |
 | Docker | only if `scripts/ci/steps.sh` uses it | Docker Desktop | Docker Desktop with WSL integration on for the distro (Settings → Resources → WSL integration) |
@@ -113,7 +114,9 @@ Code then warns and runs every command unsandboxed. So:
   the seccomp filter blocks that socket. Without it, a command the sandbox approves without a
   prompt (`autoAllowBashIfSandboxed`) could run a Windows program with no sandbox at all. The
   project's `.claude/settings.json` also denies `cmd.exe`, `powershell.exe`, `pwsh.exe`,
-  `wsl.exe` and `/mnt/...` commands outright (`checks/settings.sh` holds that), but a deny rule
+  `wsl.exe`, `explorer.exe`, `clip.exe`, `notepad.exe` and programs under `/mnt/c/` outright
+  (`checks/settings.sh` holds that; other drive letters are left to the filter, since `/mnt/`
+  also holds ordinary Linux mounts and a deny rule cannot be narrowed later), but a deny rule
   matches only the form Claude writes, not the same program reached through `sh -c` or a script,
   so the filter is the boundary. Stricter still, if nobody needs Windows programs from WSL:
   `[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`.

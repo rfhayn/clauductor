@@ -58,7 +58,10 @@
       "Bash(powershell.exe *)",
       "Bash(pwsh.exe *)",
       "Bash(wsl.exe *)",
-      "Bash(/mnt/*)"
+      "Bash(explorer.exe *)",
+      "Bash(clip.exe *)",
+      "Bash(notepad.exe *)",
+      "Bash(/mnt/c/*)"
     ]
   },
   "sandbox": {
