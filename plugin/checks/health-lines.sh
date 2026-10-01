@@ -203,12 +203,13 @@ out=$(PM CONTEXT_OFFLINE=1); has "push-main: offline is CANNOT CHECK" "$out" "CA
 # Every workflow with a push trigger, each its own line; a pull_request-only one is not a push net.
 printf 'name: L\non: [push, pull_request]\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/lint.yml"
 printf 'name: P\non: push  # the post-merge net\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/pages.yml"
-printf 'name: R\non:\n  pull_request:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/review.yml"
+printf 'name: R\non:\n  pull_request:\n  workflow_call:\n    inputs:\n      push:\n        type: string\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/review.yml"
+printf 'name: B\non:\n  - push\n  - pull_request\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/blist.yml"
 out=$(PM GH_PUSH="$(pushrun success completed "$(ago 1)" "$OLD")")
 n=$(printf '%s\n' "$out" | grep -c 'push:main ')
-[ "$n" = 3 ] && ok "push-main: one line per push workflow (block, inline list and scalar spellings)" || fail "push-main: $n line(s) for 3 push workflows: $out"
-hasnt "push-main: a pull_request-only workflow is not reported" "$out" "review.yml"
-rm -f "$R/.github/workflows/lint.yml" "$R/.github/workflows/pages.yml" "$R/.github/workflows/review.yml" "$R/.github/workflows/ci.yml"
+[ "$n" = 4 ] && ok "push-main: one line per push workflow (block, inline list, block list and scalar spellings)" || fail "push-main: $n line(s) for 4 push workflows: $out"
+hasnt "push-main: an input named push under workflow_call is not a push trigger" "$out" "review.yml"
+rm -f "$R/.github/workflows/blist.yml" "$R/.github/workflows/lint.yml" "$R/.github/workflows/pages.yml" "$R/.github/workflows/review.yml" "$R/.github/workflows/ci.yml"
 has "push-main: no push workflow says there is no post-merge net" "$(PM)" "OK no workflow in .github/workflows/ has a push: trigger"
 
 # ── The contract: every line starts with a verdict, and the runner shows stderr ───────────────

@@ -160,6 +160,11 @@ bad "an open status that is not one word" '| 1.1 | `add-a` — a | s | — | ⬜
 bad "an open status glued to its text" '| 1.1 | `add-a` — a | s | — | ⬜ planned2 |'
 bad "\"⬜ in\" that is not in flight" '| 1.1 | `add-a` — a | s | — | ⬜ in progress |'
 bad "a bare ⬜" '| 1.1 | `add-a` — a | s | — | ⬜ |'
+bad "a misspelled queued (⬜ queud), not an open word" '| 1.1 | `add-a` — a | s | — | ⬜ queud |'
+bad "in flight spelled as one word (⬜ inflight (#12))" '| 1.1 | `add-a` — a | s | — | ⬜ inflight (#12) |'
+bad "a merged row with the open glyph (⬜ merged (#3))" '| 1.1 | `add-a` — a | s | — | ⬜ merged (#3) |'
+bad "a cancelled row with the open glyph" '| 1.1 | `add-a` — a | s | — | ⬜ cancelled — dropped |'
+bad "a synonym of merged (⬜ shipped (#3))" '| 1.1 | `add-a` — a | s | — | ⬜ shipped (#3) |'
 printf '#!/bin/sh\nprintf "1\\t1\\t\\t1.1\\tadd-a\\tchange\\tqueued\\t\\tAna\\tsummary\\t\\t\\t24 Sept\\n"\n' > "$d/started13.sh"
 (cd "$d" && printf '%s\n' "$(sh started13.sh)" | roadmap_tsv_errors) >/dev/null && fail "a 13th column that is not a date passed the contract" || ok "a --tsv started column that is not YYYY-MM-DD breaks the contract"
 

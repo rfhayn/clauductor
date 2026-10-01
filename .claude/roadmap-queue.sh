@@ -153,6 +153,10 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
       w = substr(st, length("⬜ ") + 1)
       if (match(w, /^[a-z][a-z-]*/) && (RLENGTH == length(w) || substr(w, RLENGTH + 1, 1) ~ /[ \t]/)) word = substr(w, 1, RLENGTH)
     }
+    # A word that is, or misspells, one of the four states is a typo of that state, never a new
+    # open word: `⬜ queud`, `⬜ inflight (#12)` or a wrong-glyph `⬜ merged (#3)` read as open
+    # would drop a row from NEXT or hold a finished phase current, silently.
+    if (word ~ /^(que|in-?fl|flight|merg|cancel|done$|closed$|complete|finish|ship|land)/) word = ""
     if (word == "" || word == "in") { err("row " id ": status must lead with ⬜ queued, ⬜ in flight (#N), ✅ merged (#N), ❌ cancelled or an open row'"'"'s own word (⬜ <word>), not \"" substr(st, 1, 30) "\""); next }
     state = "open"
   }

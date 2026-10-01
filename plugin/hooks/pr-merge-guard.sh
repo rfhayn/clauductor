@@ -658,7 +658,9 @@ fi
 # (BRANCH_SESSION_CLOSE, a shell pattern; "" = off): blocking every behind PR would force a merge
 # and a re-run into the middle of a build, which rule 2(c) only advises. The pattern must not match
 # session TOOLING branches (`ops/session-start-…`), which are ordinary ops work. Fails CLOSED when
-# it cannot tell: the remedy is one command. The fetch repeats rule 2(c)'s, which is best-effort.
+# there is no origin/<main> to compare with: the remedy is one command. The fetch repeats rule
+# 2(c)'s and is best-effort: if it fails, an older local origin/<main> is what is compared (the
+# merge itself, which needs the same network, then usually fails too).
 if [ -n "${BRANCH_SESSION_CLOSE:-}" ]; then
   # shellcheck disable=SC2254
   case "$branch" in

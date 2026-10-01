@@ -68,7 +68,8 @@ TAB, what to do). Their rows, if any:
 - **The roadmap** (`ROADMAP`), statuses first, because session-start reads the queue off it: a
   merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)` (every `QUEUED ON` line in
   the Context block is one still reading queued on `origin/main`), a dropped one
-  `❌ cancelled — <why>`. Nothing else parses. Then `sh .claude/roadmap-queue.sh --check`.
+  `❌ cancelled — <why>`. Only a row waiting on something else takes its own word (`⬜ planned`,
+  `⬜ deferred — <trigger>`); a misspelling of these four is an error. Then `sh .claude/roadmap-queue.sh --check`.
 - **Remote branches with no open PR** (the Context block): land each of yours, hand it off in the
   journal, or delete it. **Living specs still carrying TBD**: fill each one's text.
 - **`/log-insight`** for anything non-obvious found today. If the Context block counts `0` rows

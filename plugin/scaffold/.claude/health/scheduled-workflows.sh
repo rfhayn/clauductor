@@ -8,7 +8,7 @@
 #   --list   the workflows it would check, one per line, with no network call
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 # shellcheck disable=SC1091
-. "$ROOT/.claude/lib/conf.sh"
+[ -f "$ROOT/.claude/lib/conf.sh" ] && . "$ROOT/.claude/lib/conf.sh"
 # The library: this checkout's, else the plugin's (CLAUDUCTOR_FW, exported by extensions.sh).
 lib="$ROOT/.claude/lib/health.sh"; [ -f "$lib" ] || lib="${CLAUDUCTOR_FW:-}/lib/health.sh"
 [ -f "$lib" ] || { echo "CANNOT CHECK — .claude/lib/health.sh is missing; scheduled results are UNKNOWN, not healthy"; exit 0; }

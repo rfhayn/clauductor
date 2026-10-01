@@ -61,8 +61,9 @@ ctx_queued_open() {
   if ! git show "origin/$MAIN_BRANCH:$ROADMAP" > "$_cq_t/roadmap.md" 2>/dev/null; then
     echo "CANNOT CHECK — origin/$MAIN_BRANCH:$ROADMAP could not be read"; rm -rf "$_cq_t"; return 0
   fi
-  if ! roadmap_queue --tsv "$_cq_t/roadmap.md" > "$_cq_t/rows.tsv" 2>&1; then
-    echo "CANNOT CHECK — the roadmap on origin/$MAIN_BRANCH could not be parsed: $(head -1 "$_cq_t/rows.tsv")"; rm -rf "$_cq_t"; return 0
+  # stderr apart: a parser's warning on a good read must not become a row.
+  if ! roadmap_queue --tsv "$_cq_t/roadmap.md" > "$_cq_t/rows.tsv" 2>"$_cq_t/rows.err"; then
+    echo "CANNOT CHECK — the roadmap on origin/$MAIN_BRANCH could not be parsed: $(cat "$_cq_t/rows.tsv" "$_cq_t/rows.err" | head -1)"; rm -rf "$_cq_t"; return 0
   fi
   if ! printf '%s' "$1" | jq -r '.[] | [(.number | tostring), .headRefName, (.title | gsub("\t"; " "))] | @tsv' > "$_cq_t/prs.tsv" 2>/dev/null; then
     echo "CANNOT CHECK — the open-PR list is not readable JSON"; rm -rf "$_cq_t"; return 0
@@ -98,8 +99,11 @@ ctx_queued_open() {
         else if (index(br[i], fix) == 1) pk = "fix"
         else if (index(br[i], ops) == 1) pk = "ops"
         else continue
+        # The branch first, over every row; only then the title: a title that mentions an earlier
+        # row ("add-beta on top of add-alpha") must not beat the row the branch itself names.
         r = 0
-        for (j = 1; j <= n && !r; j++) if (KIND[j] == pk && (bounded(br[i], CID[j], "[a-z0-9-]") || bounded(ti[i], CID[j], "[a-z0-9-]"))) r = j
+        for (j = 1; j <= n && !r; j++) if (KIND[j] == pk && bounded(br[i], CID[j], "[a-z0-9-]")) r = j
+        for (j = 1; j <= n && !r; j++) if (KIND[j] == pk && bounded(ti[i], CID[j], "[a-z0-9-]")) r = j
         for (j = 1; j <= n && !r; j++) if (KIND[j] == pk && (bounded(br[i], ID[j], "[A-Za-z0-9_.]") || bounded(ti[i], ID[j], "[A-Za-z0-9_.]"))) r = j
         if (!r) { if (pk == "change") out[++o] = "note: #" num[i] " " br[i] " names no roadmap row (a continuation branch?)"; continue }
         if (ST[r] == "queued") { q[++nq] = i; qr[nq] = r; want[L[r]] = 1 }

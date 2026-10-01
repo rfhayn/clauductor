@@ -73,6 +73,9 @@ roadmap "⬜ in flight (#41)" > "$R/docs/roadmap.md"
 out=$(ctx ctx_queued_open "$(prs "$(pr 41 change/add-beta)")")
 has "queued-open: reads origin/main's roadmap, not the working tree's (in flight here, queued on main)" "$out" "QUEUED ON MAIN: #41"
 git -C "$R" checkout -q -- docs/roadmap.md
+out=$(ctx ctx_queued_open "$(prs "$(pr 49 change/add-beta "Build add-beta on top of add-alpha")")")
+has "queued-open: the branch's own row wins over an earlier row the title mentions" "$out" "#49 change/add-beta → 2C.9 add-beta"
+hasnt "queued-open: ...and the earlier row is not marked in flight" "$out" "→ 2C.8 add-alpha"
 out=$(ctx ctx_queued_open "$(prs "$(pr 44 change/add-beta-2)")")
 hasnt "queued-open: a change id inside a longer one is not that row (add-beta-2 is not add-beta)" "$out" "QUEUED ON"
 has "queued-open: ...a change/ PR that names no row is noted, not dropped" "$out" "note: #44 change/add-beta-2 names no roadmap row"

@@ -40,7 +40,7 @@ health_days_since() {
 health_on_trigger() {
   awk -v key="$2" '
     /^["'"'"']?on["'"'"']?[[:space:]]*:/ {
-      inon = 1; rest = $0
+      inon = 1; ind = -1; rest = $0
       sub(/^[^:]*:/, "", rest); sub(/#.*$/, "", rest)
       if (rest ~ "[{[].*" key) found = 1
       # `on: push`, one event as a scalar (a form the upstream version did not read).
@@ -48,7 +48,15 @@ health_on_trigger() {
       next
     }
     /^[^[:space:]#]/ { inon = 0 }
-    inon && $0 ~ "^[[:space:]]+" key "[[:space:]]*:" { found = 1 }
+    # Only the block'"'"'s FIRST level is an event: an input named `push` under workflow_call is not.
+    # The first indented line that is not a comment sets that level.
+    inon && /^[[:space:]]+[^[:space:]#]/ {
+      match($0, /^[[:space:]]+/); if (ind < 0) ind = RLENGTH
+      if (RLENGTH != ind) next
+      if ($0 ~ "^[[:space:]]+" key "[[:space:]]*:") found = 1
+      # The block-list form: `on:` then `  - push`.
+      if ($0 ~ "^[[:space:]]+-[[:space:]]*" key "[[:space:]]*(#.*)?$") found = 1
+    }
     END { exit !found }
   ' "$1"
 }
