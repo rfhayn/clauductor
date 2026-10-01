@@ -1,0 +1,30 @@
+{
+  "id": "sh-sed-in-place-bsd",
+  "lang": "sh",
+  "kind": "defect",
+  "charter": "portability",
+  "title": "Bump package.json too",
+  "brief": "npm publishes the version in package.json, which drifted from VERSION twice. bump-version.sh updates both. Releases are cut from the maintainers' Macs and from Linux CI.",
+  "tasks": [
+    "Update package.json's version in bump-version.sh"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "high",
+      "file": "scripts/bump-version.sh",
+      "lines": [
+        8,
+        8
+      ],
+      "keywords": [
+        "sed -i",
+        "bsd",
+        "macos",
+        "portab",
+        "gnu"
+      ],
+      "why": "`sed -i \"s/…/\"` is GNU-only: BSD sed on macOS takes the script as the backup suffix and fails (set -e aborts after VERSION was already written), so a release cut on a Mac leaves the two versions out of step."
+    }
+  ]
+}

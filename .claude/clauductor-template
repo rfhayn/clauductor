@@ -1,0 +1,3 @@
+The operating model in this repository was installed by `clauductor install` or `init`.
+`clauductor install` and `update` may bring its framework files up to date. Delete this file to
+make them refuse (unless --force), as they do in a repository that runs its own model.

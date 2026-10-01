@@ -48,3 +48,11 @@ jobs:
         env:
           OPENSPEC_REQUIRED: "1"
           NODE_REQUIRED: "1"
+      # This repo runs the operating model it ships (OPS-8): its own process checks, over its own
+      # records, hooks and roles, the no-clauductor check included (no clauductor is installed here).
+      - name: process checks (this repo's operating model)
+        working-directory: .
+        run: sh .claude/checks/run.sh
+        env:
+          OPENSPEC_REQUIRED: "1"
+          NODE_REQUIRED: "1"

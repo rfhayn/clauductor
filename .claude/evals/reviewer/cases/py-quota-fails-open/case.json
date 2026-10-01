@@ -1,0 +1,32 @@
+{
+  "id": "py-quota-fails-open",
+  "lang": "py",
+  "kind": "defect",
+  "charter": "silent control failure",
+  "title": "Quota check survives a Redis blip",
+  "brief": "The export worker crashed when Redis blipped, dropping the whole batch. Make within_quota survive a Redis error without crashing the worker. The hourly export quota protects the database: a tenant over quota must not run exports.",
+  "tasks": [
+    "Handle a Redis error in within_quota",
+    "Test that an outage does not crash the worker"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "jobs/quota.py",
+      "lines": [
+        16,
+        18
+      ],
+      "keywords": [
+        "fail open",
+        "fails open",
+        "return true",
+        "bypass",
+        "unlimited",
+        "allows"
+      ],
+      "why": "Any exception returns True: while Redis is down every tenant is within quota, so the control that protects the database silently does nothing exactly when it is under stress."
+    }
+  ]
+}

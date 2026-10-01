@@ -1,0 +1,44 @@
+{
+  "id": "go-invoice-tax-rounding",
+  "lang": "go",
+  "kind": "defect",
+  "charter": "wrong money",
+  "title": "Invoice totals with tax",
+  "brief": "Add WithTax(lines, rate): the invoice subtotal plus sales tax at the given rate, in integer cents. The tax is rounded half-up to the cent, as the finance team reconciles against the tax authority to the cent.",
+  "tasks": [
+    "Add billing.WithTax, rounding the tax half-up",
+    "Test WithTax, including the rounding"
+  ],
+  "expected": [
+    {
+      "id": "D1",
+      "severity": "critical",
+      "file": "billing/invoice.go",
+      "lines": [
+        21,
+        22
+      ],
+      "keywords": [
+        "truncat",
+        "half-up",
+        "round"
+      ],
+      "why": "int64(tax) truncates toward zero instead of rounding half-up: a $10.00 subtotal at 8.25% is 82.5 cents of tax and bills 82, a cent short on every such invoice."
+    },
+    {
+      "id": "D2",
+      "severity": "high",
+      "file": "billing/invoice_test.go",
+      "lines": [
+        12,
+        17
+      ],
+      "keywords": [
+        "round",
+        "half",
+        "exact"
+      ],
+      "why": "TestWithTax uses a rate whose tax is a whole number of cents (2000 x 0.05 = 100), so the rounding the task names is untested: the test passes with the truncation."
+    }
+  ]
+}

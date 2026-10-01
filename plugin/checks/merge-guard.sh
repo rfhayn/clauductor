@@ -174,8 +174,14 @@ guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr me
 git -C "$R" checkout -q main; receipt "$MAINSHA"
 
 # Rule 12: provenance trailers, while model-roles.json enables them.
-cp "$ROOT/.claude/model-roles.json" "$R/.claude/model-roles.json"
-jq -e '.provenance.enabled == true' "$R/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"
+# The template ships it on; an installed project (it has an install or plugin marker) may turn it
+# off, as clauductor's own repo does, so the fixture forces it on to test the rule either way.
+if [ -f "$ROOT/.claude/clauductor-template" ] || [ -f "$ROOT/.claude/clauductor-plugin" ]; then
+  ok "this project sets provenance.enabled to $(jq -r .provenance.enabled "$ROOT/.claude/model-roles.json"); rule 12 is tested with it on"
+else
+  jq -e '.provenance.enabled == true' "$ROOT/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"
+fi
+jq '.provenance.enabled = true' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 sguard() {  # sguard WANT LABEL COMMAND — with a session id in the payload, as Claude Code sends
   rc=0
   jq -cn --arg c "$3" --arg d "$R" '{tool_name:"Bash", cwd:$d, session_id:"sess-1", tool_input:{command:$c}}' \

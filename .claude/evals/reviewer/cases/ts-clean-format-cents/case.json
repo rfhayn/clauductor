@@ -1,0 +1,13 @@
+{
+  "id": "ts-clean-format-cents",
+  "lang": "ts",
+  "kind": "clean",
+  "charter": "control: a small feature with its tests",
+  "title": "Format cents for display",
+  "brief": "Receipts and emails show amounts as US dollars. Add formatCents(cents): thousands grouped, two decimal places, the sign before the dollar sign, and a RangeError for anything but a safe integer.",
+  "tasks": [
+    "Add formatCents",
+    "Test grouping, padding, the sign and the RangeError"
+  ],
+  "expected": []
+}
