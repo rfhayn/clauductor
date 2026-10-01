@@ -8,7 +8,10 @@
 // Areas:
 //   views       every viewport × every view (overview, each lane, project menu, Help,
 //               New lane, Close confirmation, Remove confirmation, ⋯ menu, Activity,
-//               Appearance menu, Metrics if the build has it, each project)
+//               Appearance menu, Metrics if the build has it, each project; PANEL-22: a
+//               project's ⋯ actions, Add a project… empty, refused, with the init
+//               preview and with the trust report, Remove from panel… refused and
+//               allowed, Trust config…)
 //   appearance  every theme × mode (light, dark) the Appearance menu offers, with its
 //               own type, on overview and New lane; every type system on overview and
 //               a streaming lane; --full adds every theme × type × mode
@@ -176,6 +179,64 @@ VIEWS["project-gamma"] = async (page) => {
   await page.waitForSelector("#proj-gamma", { timeout: 3000 });
   await page.hover("#proj-gamma");
   return async () => { await page.keyboard.press("Escape"); };
+};
+
+// PANEL-22: the project menu's actions and its dialogs. Read-only like every view: each
+// opens, is shot, and is cancelled; nothing is added, trusted or removed.
+async function openMenuActs(page, id) {
+  await page.click("#projbtn");
+  await page.waitForSelector("#projmenu:not([hidden])", { timeout: 3000 });
+  await page.click('[data-key="more:' + id + '"]');
+  await page.waitForSelector("#projacts:not([hidden])", { timeout: 3000 });
+}
+async function openAdd(page, p) {
+  await page.click("#projbtn");
+  await page.click("#addproj");
+  await page.waitForSelector("#adddlg:not([hidden])", { timeout: 3000 });
+  if (p) { await page.fill("#ad-path", p); await page.press("#ad-path", "Enter"); }
+  return async () => { await page.click("#ad-cancel").catch(() => page.keyboard.press("Escape")); };
+}
+VIEWS["project-actions"] = async (page) => {
+  await openMenuActs(page, "zeta");
+  return async () => { await page.keyboard.press("Escape"); await page.keyboard.press("Escape"); };
+};
+VIEWS["project-add"] = async (page) => openAdd(page, "");
+VIEWS["project-add-init"] = async (page) => {
+  if (!R.candidates) return null;
+  const undo = await openAdd(page, R.candidates.delta);
+  await page.waitForSelector("#ad-body pre.cfg", { timeout: 8000 });
+  return undo;
+};
+VIEWS["project-add-trust"] = async (page) => {
+  if (!R.candidates) return null;
+  const undo = await openAdd(page, R.candidates.epsilon);
+  await page.waitForSelector("#ad-trust:not([hidden])", { timeout: 8000 });
+  return undo;
+};
+VIEWS["project-add-refused"] = async (page) => {
+  const undo = await openAdd(page, R.leftovers[0]); // a linked worktree of Alpha
+  await page.waitForFunction(() => /Not addable/.test(document.getElementById("ad-status").textContent), null, { timeout: 8000 });
+  return undo;
+};
+VIEWS["project-remove-refused"] = async (page) => {
+  await openMenuActs(page, "alpha");
+  await page.click('#projacts [data-act="remove"]');
+  await page.waitForSelector("#pd-body ul.lanes", { timeout: 8000 });
+  return async () => { await page.click("#pd-cancel").catch(() => page.keyboard.press("Escape")); };
+};
+VIEWS["project-remove"] = async (page) => {
+  if (!(R.projects && R.projects.zeta)) return null;
+  await openMenuActs(page, "zeta");
+  await page.click('#projacts [data-act="remove"]');
+  await page.waitForSelector("#pd-go:not([hidden])", { timeout: 8000 });
+  return async () => { await page.click("#pd-cancel").catch(() => page.keyboard.press("Escape")); };
+};
+VIEWS["project-trust"] = async (page) => {
+  if (!(R.projects && R.projects.zeta)) return null;
+  await openMenuActs(page, "zeta");
+  await page.click('#projacts [data-act="trust"]');
+  await page.waitForSelector("#pd-go:not([hidden])", { timeout: 8000 });
+  return async () => { await page.click("#pd-cancel").catch(() => page.keyboard.press("Escape")); };
 };
 
 // runView runs the view a shot name ends with ("hmi-dark-new-lane" is new-lane).
@@ -496,8 +557,9 @@ async function appearanceArea(browser) {
     for (const [id, name] of offered.themes.concat(offered.types)) if (!menuText.includes(name)) F.add({ area: "appearance", name: "menu", rule: "menu-missing", selector: "#thememenu", detail: name + " (" + id + ") is not in the Appearance menu", viewport: vpName(vp) });
     const set = (theme, mode, type) => page.evaluate(([t, m, y]) => { window.PanelTheme.setTheme(t); window.PanelTheme.setMode(m); window.PanelTheme.setType(y); }, [theme, mode, type]);
     const combos = [];
-    for (const [th] of offered.themes) for (const mode of ["light", "dark"]) combos.push([th, mode, null, ["overview", "new-lane", "row-menu"]]);
-    for (const [ty] of offered.types) combos.push(["hmi", "light", ty, ["overview", "lane-stream"]]);
+    // PANEL-22: the dropdown open, and Add a project's trust report, in every theme × mode.
+    for (const [th] of offered.themes) for (const mode of ["light", "dark"]) combos.push([th, mode, null, ["overview", "new-lane", "row-menu", "project-menu", "project-add-trust"]]);
+    for (const [ty] of offered.types) combos.push(["hmi", "light", ty, ["overview", "lane-stream", "project-menu"]]);
     if (full) for (const [th] of offered.themes) for (const [ty] of offered.types) for (const mode of ["light", "dark"]) combos.push([th, mode, ty, ["overview"]]);
     const focusDone = new Set();
     for (const [th, mode, ty, names] of combos) {
@@ -527,6 +589,10 @@ async function sizes(browser) {
         const c = Object.assign({ viewport: vpName(vp) }, await appearance(page));
         await runView(page, errors, "sizes", vpName(vp) + "-" + pct + "-overview", c);
         if (pct >= 150) await runView(page, errors, "sizes", vpName(vp) + "-" + pct + "-new-lane", c);
+        if (pct >= 150 || pct === steps[0]) {
+          await runView(page, errors, "sizes", vpName(vp) + "-" + pct + "-project-menu", c);
+          await runView(page, errors, "sizes", vpName(vp) + "-" + pct + "-project-add-init", c);
+        }
       }
       await page.evaluate(() => window.PanelScale.reset());
     } finally { await ctx.close(); }

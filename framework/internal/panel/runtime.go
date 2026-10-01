@@ -154,7 +154,13 @@ type Runtime struct {
 
 	trust     atomic.Bool
 	trustView config.TrustView
-	lastHook  atomic.Int64 // unix ns of the last hook the ingest routed here
+	raw       []byte // the config's bytes as loaded: what trust is recorded for
+	// onTrusted, when set, runs once the config is trusted (PANEL-22: the Host names
+	// follow trust). It must not block or take the live registry's lock.
+	onTrusted func()
+	// removed: the project was removed live (PANEL-22); the ingest stops routing to it.
+	removed  atomic.Bool
+	lastHook atomic.Int64 // unix ns of the last hook the ingest routed here
 	// agentsQuietNow: the agents source is waiting the quiet interval (hookSeen kicks it).
 	agentsQuietNow atomic.Bool
 	// agentsFilter is the --cwd filter and when it was last cross-checked (the
@@ -287,7 +293,10 @@ func (r *Runtime) loop(ctx context.Context, s *source) {
 func runLoop(ctx context.Context, clk clock.Clock, s *source, pollOnce func(context.Context, *source) (time.Duration, bool)) {
 	if s.watch != nil {
 		path := s.watch(ctx)
-		go watchLoop(ctx, clk, path, s)
+		// Waited for, so a runtime stopped live (PANEL-22) has no goroutine left.
+		done := make(chan struct{})
+		go func() { defer close(done); watchLoop(ctx, clk, path, s) }()
+		defer func() { <-done }()
 	}
 	var ticks <-chan time.Time
 	if s.fixedRate && s.every > 0 {
@@ -653,17 +662,32 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 // pollTrust lifts the untrusted mode once `clauductor panel trust` records the
 // loaded config's hash, then stops.
 func (r *Runtime) pollTrust(context.Context, time.Time) (update, time.Duration) {
+	if r.trusted() { // trusted from the page meanwhile (markTrusted)
+		return nil, -1
+	}
 	if !install.TrustedNow(r.o.Home, r.root, r.cfgPath, r.trustView.Hash) {
 		return nil, 0
 	}
-	r.trust.Store(true)
+	return r.markTrusted("trusted by `clauductor panel trust`"), -1
+}
+
+// markTrusted turns the loaded config's commands on: its trust was just recorded (by
+// `panel trust`, or by the page's Trust config…, PANEL-22). It returns the model
+// update, and tells the live registry, whose Host names follow trust.
+func (r *Runtime) markTrusted(note string) update {
+	if r.trust.Swap(true) {
+		return nil
+	}
 	tv := r.trustView
-	tv.Trusted, tv.Note = true, "trusted by `clauductor panel trust`"
-	fmt.Fprintln(r.o.Out, "config trusted: cards, queue commands and templates are on")
+	tv.Trusted, tv.Note = true, note
+	fmt.Fprintf(r.o.Out, "%s: config trusted: cards, queue commands and templates are on\n", r.id)
 	for _, k := range r.cardKicks {
 		kick(k)
 	}
-	return func(m *state.Model, now time.Time) { m.ApplyTrust(tv) }, -1
+	if r.onTrusted != nil {
+		r.onTrusted()
+	}
+	return func(m *state.Model, now time.Time) { m.ApplyTrust(tv) }
 }
 
 func (r *Runtime) hookSeen(ev signals.HookEvent) {

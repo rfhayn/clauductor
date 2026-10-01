@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -228,6 +230,42 @@ func ClaimPanelFiles(home string, o PanelOwner) error {
 		return err
 	}
 	return config.WriteAtomic(MarkerPath(home), []byte(strconv.Itoa(o.Port)+"\n"), 0o600)
+}
+
+// UpdatePanelOwner rewrites owner.json while it is still this process's (PANEL-22: a
+// project added or removed live changes Projects, a new default Project and Name).
+// `panel add` and `panel remove` read Projects to tell whether the running panel
+// took their change.
+func UpdatePanelOwner(home string, o PanelOwner) error {
+	if readPIDFile(home) != o.PID {
+		return nil
+	}
+	b, _ := json.Marshal(o)
+	return config.WriteAtomic(ownerPath(home), append(b, '\n'), 0o600)
+}
+
+// WaitPanelServes waits until the running panel's owner record lists root (serves
+// true) or does not (false), polling until ctx ends. It reports whether it did: a
+// panel from before PANEL-22 never follows projects.json, so the caller then says to
+// restart it.
+func WaitPanelServes(ctx context.Context, clk clock.Clock, home string, pid int, root string, serves bool) bool {
+	for {
+		var o PanelOwner
+		if b, err := os.ReadFile(ownerPath(home)); err == nil && json.Unmarshal(b, &o) == nil && o.PID == pid {
+			has := false
+			for _, p := range o.Projects {
+				has = has || p == root
+			}
+			if has == serves {
+				return true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-clk.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // ReleasePanelFiles removes the marker, pid and owner files only while the pid file

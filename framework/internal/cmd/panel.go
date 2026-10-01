@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/clauductor/clauductor/internal/panel"
 	"github.com/clauductor/clauductor/internal/panel/clock"
@@ -31,8 +33,7 @@ var (
 	panelOnly      bool
 )
 
-// panelCmd is standalone by design: unlike the rest of the CLI it never opens the
-// SQLite state, and needs no `clauductor install` in the project.
+// panelCmd is standalone by design: it needs no `clauductor install` in the project.
 var panelCmd = &cobra.Command{
 	Use:   "panel",
 	Short: "Serve a local, read-only web dashboard of the Claude sessions in a project",
@@ -151,8 +152,8 @@ var panelAddCmd = &cobra.Command{
 beside the others. It loads and checks the project's panel.json and gives the
 project an id (from its name, or --id) and a tmux socket of its own. It does not
 trust the config: run 'clauductor panel trust' after reviewing it. A project is
-its main worktree; a linked worktree is refused. A running panel reads
-projects.json at start, so restart it to serve the project.`,
+its main worktree; a linked worktree is refused. A running panel serves it
+within a second, with no restart (the page's project menu does the same).`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -185,11 +186,30 @@ projects.json at start, so restart it to serve the project.`,
 			fmt.Fprintf(out, "Its config %s is not trusted: its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n",
 				res.Entry.ConfigPath(), res.Entry.Root)
 		}
-		if other := install.RunningPanel(context.Background(), home, os.Getpid(), lease.LiveProc); other != nil {
-			fmt.Fprintln(out, install.RestartHint())
-		}
+		followRunningPanel(out, home, res.Entry.Root, true)
 		return nil
 	},
+}
+
+// followRunningPanel says whether a running panel took an add or a remove: since
+// PANEL-22 it follows projects.json within a second, and its owner record then lists
+// (or no longer lists) the project. One that does not within a few seconds is older,
+// or could not load the project; restarting it is the way then.
+func followRunningPanel(out io.Writer, home, root string, serves bool) {
+	other := install.RunningPanel(context.Background(), home, os.Getpid(), lease.LiveProc)
+	if other == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	switch {
+	case !install.WaitPanelServes(ctx, clock.System, home, other.PID, root, serves):
+		fmt.Fprintln(out, "The running panel did not take the change within 6 s (its project menu says why if the project cannot load). "+install.RestartHint())
+	case serves:
+		fmt.Fprintln(out, "The running panel serves it now: it is in the page's project menu.")
+	default:
+		fmt.Fprintln(out, "The running panel no longer serves it.")
+	}
 }
 
 var panelRemoveCmd = &cobra.Command{
@@ -197,8 +217,8 @@ var panelRemoveCmd = &cobra.Command{
 	Short: "Unregister a project (its lanes keep running; nothing is deleted)",
 	Long: `Remove a project from ~/.clauductor/panel/projects.json. It never stops a lane and
 keeps the project's lane registry, so adding it again brings its lanes back. While
-lanes are registered it refuses unless --force. A running panel reads projects.json
-at start, so restart it.`,
+lanes are registered it refuses unless --force. A running panel stops serving it
+within a second, with no restart.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -213,9 +233,7 @@ at start, so restart it.`,
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Removed %q (%s) from %s. Its lanes, worktrees and lane registry are untouched.\n", e.ID, e.Root, config.ProjectsPath(home))
-		if other := install.RunningPanel(context.Background(), home, os.Getpid(), lease.LiveProc); other != nil {
-			fmt.Fprintln(out, install.RestartHint())
-		}
+		followRunningPanel(out, home, e.Root, false)
 		return nil
 	},
 }

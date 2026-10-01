@@ -29,7 +29,7 @@ import (
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.Port)
 	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, config.DefaultHostName + ":" + p}
-	for _, n := range s.HostNames {
+	for _, n := range s.hostNames() {
 		if config.ValidHostName(n) {
 			hs = append(hs, n+":"+p)
 		}

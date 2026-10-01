@@ -939,9 +939,11 @@ func tcsetpgrp(fd, pg int) error {
 	return nil
 }
 
-// childEnv undoes the startup TERM workaround for the command. bubbletea's init (it
-// is linked into this binary for the HUD) asks the terminal for its background
-// colour and waits up to 5 s on a pty that does not answer. A caller skips that by
+// childEnv undoes the startup TERM workaround for the command. bubbletea's init
+// (linked in for the HUD until OPS-13 removed it) asked the terminal for its
+// background colour and waited up to 5 s on a pty that did not answer. This binary
+// no longer does, but the gate snippet must still serve an older clauductor on a
+// project's PATH, so callers keep sending the workaround and this keeps undoing it. A caller skips that by
 // starting lock-run with TERM=dumb, the real value in CLAUDUCTOR_TERM, and
 // CLAUDUCTOR_TERM_SET=1 if TERM was set at all (docs/panel.md's snippet does). The
 // command gets the real TERM back: set (even to "") if it was set, unset if not.
