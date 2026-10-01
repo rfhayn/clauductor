@@ -650,6 +650,15 @@ ch_lib="$ROOT_HOOK/.claude/lib/change.sh"
 for f in "$ch_lib" "$cg_lib"; do sh -n "$f" 2>/dev/null || block "$f does not parse, so rules 9–12 cannot be checked. Run: sh -n $f"; done
 . "$ch_lib"
 . "$cg_lib"
+# CHANGES_LEGACY (lib/records.sh): a grandfathered change is not held to the change-record rules
+# this format added (rules 9–11, cg_legacy). Set but unreadable is refused: a silent strict or lax
+# reading would both be guesses.
+rec_lib="$ROOT_HOOK/.claude/lib/records.sh"
+if [ -n "${CHANGES_LEGACY:-}" ]; then
+  [ -f "$rec_lib" ] && sh -n "$rec_lib" 2>/dev/null || block "CHANGES_LEGACY is set but $rec_lib is missing or does not parse, so which changes are grandfathered cannot be told. Restore it."
+  . "$rec_lib"
+  command -v change_is_legacy >/dev/null 2>&1 || block "$rec_lib did not define change_is_legacy, so CHANGES_LEGACY cannot be read."
+fi
 for f in open_tasks cg_build_tasks cg_trace cg_archives cg_trailers; do
   command -v "$f" >/dev/null 2>&1 || block "$cg_lib or $ch_lib did not define $f (a syntax error?), so rules 9–12 cannot be checked. Run: sh -n $cg_lib"
 done

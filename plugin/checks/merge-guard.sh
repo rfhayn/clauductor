@@ -180,6 +180,42 @@ archive "$DONE" spec know
 guard 2 "rule 11: archiving a change that says how we'll know, with no outcome check queued" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
 archive "$DONE" spec know row
 guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+
+# CHANGES_LEGACY (lib/records.sh): a grandfathered change keeps the format it was approved in, so
+# rules 9–11 do not ask it for the records this format added; finishing is still asked.
+git -C "$R" checkout -q main
+cp "$CLAUDUCTOR_FW/lib/records.sh" "$R/.claude/lib/"
+git -C "$R" add -A && git -C "$R" commit -qm "records library"
+cp "$R/.claude/project.conf" "$d/conf.bak"
+legacy_on() { cp "$d/conf.bak" "$R/.claude/project.conf"; printf '%s\n' "$@" >> "$R/.claude/project.conf"; }
+archive '- [x] 1.1 a\n' none
+guard 2 "CHANGES_LEGACY: an archive with no cost and no delta, not grandfathered" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+legacy_on 'CHANGES_LEGACY="add-z"'
+guard 0 "rule 11: the same archive of a grandfathered change (CHANGES_LEGACY by name)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive '- [ ] 1.1 a\n' none
+guard 2 "rule 11: a grandfathered change is still archived only when finished" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+mv "$R/.claude/lib/records.sh" "$d/records.bak"
+archive '- [x] 1.1 a\n' none
+guard 2 "CHANGES_LEGACY set with lib/records.sh missing (fails closed, not open)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+mv "$d/records.bak" "$R/.claude/lib/records.sh"
+# Rule 10: a finished open change whose scenario no test cites; grandfathered, it is not enforced.
+on ops/legacy; mkdir -p "$R/changes/add-old/specs/old"
+printf '## 1. Old\n- [x] 1.1 done\n' > "$R/changes/add-old/tasks.md"
+printf '## ADDED Requirements\n\n### Requirement: O\nThe system SHALL o.\n\n#### Scenario: [OLD-1-S1] o\n- **THEN** o\n' > "$R/changes/add-old/specs/old/spec.md"
+head_of "a finished change, uncited"; at
+legacy_on
+guard 2 "rule 10: a finished open change with an uncited scenario" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/legacy
+legacy_on 'CHANGES_LEGACY="add-old"'
+guard 0 "rule 10: the same change grandfathered (its scenarios not enforced until archived)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/legacy
+# Rule 9: CHANGE_RECORD_EXTRA is not asked of a grandfathered change.
+on change/add-old; mkdir -p "$R/changes/add-old" "$R/src"
+printf '## 1. Old\n- [x] 1.1 done\n\n- [ ] Slice: exempt — legacy\n' > "$R/changes/add-old/tasks.md"
+echo 'code' > "$R/src/old.txt"; head_of "build of a grandfathered change"; at
+legacy_on 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"'
+guard 2 "rule 9: a build lacking a CHANGE_RECORD_EXTRA section, not grandfathered" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-old
+legacy_on 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"' 'CHANGES_LEGACY="add-old"'
+guard 0 "rule 9: the same build of a grandfathered change" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-old
+cp "$d/conf.bak" "$R/.claude/project.conf"
 git -C "$R" checkout -q main; receipt "$MAINSHA"
 
 # Rule 12: provenance trailers, while model-roles.json enables them.
