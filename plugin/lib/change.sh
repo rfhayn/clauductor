@@ -16,6 +16,27 @@ sha256_hex() {
   else echo "no-sha256-tool"; fi
 }
 
+# change_extra_missing DIR: one line per section CHANGE_RECORD_EXTRA (project.conf) requires that
+# the change record in DIR lacks. CHANGE_RECORD_EXTRA is `;`-separated FILE:HEADING entries, e.g.
+# "proposal.md:Rollback; design.md:Security review": FILE must carry a `## HEADING` line (## to
+# ####). For a project whose records carry more than the template's sections; empty = none.
+change_extra_missing() {
+  [ -n "${CHANGE_RECORD_EXTRA:-}" ] || return 0
+  printf '%s\n' "$CHANGE_RECORD_EXTRA" | tr ';' '\n' | while IFS= read -r _ce; do
+    _ce=$(printf '%s' "$_ce" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$_ce" ] || continue
+    case $_ce in
+      *:*) ;;
+      *) echo "CHANGE_RECORD_EXTRA entry '$_ce' is not FILE:HEADING"; continue ;;
+    esac
+    _cf=${_ce%%:*} _ch=$(printf '%s' "${_ce#*:}" | sed 's/^[[:space:]]*//')
+    if [ ! -f "$1/$_cf" ]; then echo "$_cf is missing (CHANGE_RECORD_EXTRA requires its '## $_ch' section)"
+    elif ! grep -qE "^#{2,4} +$(printf '%s' "$_ch" | sed 's#[][\.*^$+?(){}|]#\\&#g')[[:space:]]*\$" "$1/$_cf"; then
+      echo "$_cf has no '## $_ch' section (CHANGE_RECORD_EXTRA in .claude/project.conf)"
+    fi
+  done
+}
+
 # design_hash DIR: what the owner's approval covers (D8): design.md as written, plus the proposal's
 # Risk line (the owner approves the tier with the design, item 15). 12 hex characters.
 design_hash() {

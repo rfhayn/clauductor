@@ -31,3 +31,10 @@ clauductor-model verify-change.sh <id>
 - `NOTE` lines (changed files no task names) are the reviewer's first question, not a failure.
 
 Change nothing while verifying: the gate's receipt names the commit, and a commit voids it.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/verify-change/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments verify-change`

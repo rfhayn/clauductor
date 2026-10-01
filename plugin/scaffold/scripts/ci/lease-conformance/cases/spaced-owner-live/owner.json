@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "nonce": "c0ffee0000000001",
+  "pid": {{PID}},
+  "pstart": "{{PSTART}}",
+  "host": "{{HOST}}",
+  "lane": "holder, with a comma",
+  "cmd": "make \"gate\"",
+  "started": {{NOW}},
+  "renewed": {{NOW}},
+  "ttl": 0,
+  "note": null
+}

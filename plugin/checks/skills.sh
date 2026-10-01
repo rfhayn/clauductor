@@ -13,10 +13,12 @@ for f in "$CLAUDUCTOR_FW"/skills/*/SKILL.md; do
   n=$(awk 'NR>1 && /^---$/{exit} /^name:/{sub(/^name:[ \t]*/, ""); print; exit}' "$f")
   [ "$n" = "$s" ] && ok "skill $s: name matches its directory" || fail "skill $s: frontmatter name is '$n'"
   awk 'NR>1 && /^---$/{exit} /^description:/{found=1} END{exit !found}' "$f" || fail "skill $s has no description"
-  grep -oE '!`(sh|bash) [^`]+`' "$f" | sed -E 's/^!`(sh|bash) //; s/`$//' | while read -r script _; do
+  # Each line runs as the skill would run it, whole: under the interpreter it names (`!`bash x`` is
+  # never forced through sh, which is dash on Ubuntu), with its arguments and any pipe after them.
+  grep -oE '!`(sh|bash) [^`]+`' "$f" | sed -E 's/^!`//; s/`$//' | while read -r interp script args; do
     case $script in '${CLAUDE_PLUGIN_ROOT}'/*) script="$CLAUDUCTOR_FW/${script#'${CLAUDE_PLUGIN_ROOT}'/}" ;; *) script="$ROOT/$script" ;; esac
     if [ -f "$script" ]; then
-      out=$(cd "$ROOT" && sh "$script" 2>&1 >/dev/null </dev/null); rc=$?
+      out=$(cd "$ROOT" && sh -c "\"\$0\" \"\$1\" $args" "$interp" "$script" 2>&1 >/dev/null </dev/null); rc=$?
       [ "$rc" -eq 0 ] && echo "ok   skill $s: $script runs" || echo "FAIL skill $s: $script exits $rc: $(printf '%s' "$out" | tail -1)"
     else
       echo "FAIL skill $s: its context line names $script, which does not exist"

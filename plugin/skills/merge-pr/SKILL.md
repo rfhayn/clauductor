@@ -120,3 +120,10 @@ squash commit landed (`git log --oneline -3`). Leave the main checkout on `main`
 - Refresh the focus: `clauductor-model status-write.sh "[main] <next focus>"`.
 - Remove the lane's worktree once it is merged and clean (`git worktree remove <path>`), or leave it
   to `session-close`'s `machine-quiet.sh`.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/merge-pr/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments merge-pr`

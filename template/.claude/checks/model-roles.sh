@@ -186,12 +186,28 @@ if [ -f "$pj" ]; then
 fi
 
 # ── The playbook's skill table ─────────────────────────────────────────────────────────
-# docs/playbook.md lists every skill with its role, between markers. Both directions: a skill the
-# table forgot, a row naming a skill that does not exist, and a role that disagrees.
-pb="$ROOT/docs/playbook.md"
+# The playbook (PLAYBOOK in project.conf, default docs/playbook.md) lists every skill with its role,
+# between `<!-- skills-table begin -->` and `<!-- skills-table end -->`. Both directions: a skill
+# the table forgot, a row naming a skill that does not exist, and a role that disagrees. The rows
+# are Markdown (| `/skill` | … | role |) or, in an HTML playbook, <tr><td>/skill</td>…<td>role</td>,
+# read as the same cells.
+pb_table() {  # pb_table FILE: "<skill> <role>" per row of FILE's skills table
+  sed -n '/<!-- skills-table begin -->/,/<!-- skills-table end -->/p' "$1" \
+    | awk '/^[ \t]*<tr>/ { s = $0; gsub(/<\/t[dh]>/, "\t", s); gsub(/<[^>]*>/, "", s); n = split(s, c, "\t")
+        for (i = 1; i <= n; i++) { gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
+        if (n >= 3) printf "| `%s` | | %s |\n", c[1], c[n - 1]; next } { print }' \
+    | sed -nE 's/^\| `\/([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\1 \2/p'
+}
+pb="$ROOT/$PLAYBOOK"
+[ -f "$pb" ] || fail "PLAYBOOK=$PLAYBOOK (.claude/project.conf) does not exist, so its skills table cannot be checked"
 if [ -f "$pb" ]; then
-  tbl=$(sed -n '/<!-- skills-table begin -->/,/<!-- skills-table end -->/p' "$pb" | sed -nE 's/^\| `\/([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\1 \2/p')
-  [ -n "$tbl" ] || fail "docs/playbook.md has no skills table between its markers"
+  tbl=$(pb_table "$pb")
+  [ -n "$tbl" ] || fail "$PLAYBOOK has no skills table between its markers"
+  # The same table as HTML rows reads the same (an adopting project's playbook may be a page).
+  printf '<!-- skills-table begin -->\n<table>\n' > "$(scratch)/pb.html"
+  printf '%s\n' "$tbl" | while read -r s r; do printf '  <tr><td><code>/%s</code></td><td>when</td><td>%s</td></tr>\n' "$s" "$r"; done >> "$(scratch)/pb.html"
+  printf '</table>\n<!-- skills-table end -->\n' >> "$(scratch)/pb.html"
+  [ "$(pb_table "$(scratch)/pb.html")" = "$tbl" ] && ok "the skills table reads the same from an HTML playbook" || fail "an HTML skills table reads differently: $(pb_table "$(scratch)/pb.html" | head -3 | tr '\n' ';')"
   printf '%s\n' "$tbl" | while read -r s r; do
     [ -n "$s" ] || continue
     w=$(role_of skills "$s")
@@ -200,7 +216,7 @@ if [ -f "$pb" ]; then
     else echo "FAIL playbook says /$s runs as $r, model-roles.json says $w"; fi
   done > "$(scratch)/pb"
   for s in $(jq -r '.skills | keys[]' "$roles"); do
-    printf '%s\n' "$tbl" | grep -q "^$s " || echo "FAIL skill $s is missing from docs/playbook.md's skills table" >> "$(scratch)/pb"
+    printf '%s\n' "$tbl" | grep -q "^$s " || echo "FAIL skill $s is missing from $PLAYBOOK's skills table" >> "$(scratch)/pb"
   done
   cat "$(scratch)/pb"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/pb")))
 fi

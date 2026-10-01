@@ -6,6 +6,13 @@
 # Needs from the caller: ROOT_HOOK, CHANGES_DIR, SPECS_DIR, ROADMAP, BRANCH_CHANGE,
 # .claude/lib/change.sh sourced (open_tasks, proposal_field), and for rule 13 .claude/lib/evals.sh.
 
+# cg_legacy ID: 0 when CHANGES_LEGACY grandfathers change ID (lib/records.sh change_is_legacy, which
+# the guard sources when it exists). Without the library nothing is grandfathered: the stricter
+# reading, never the silent one.
+cg_legacy() {
+  [ -n "${CHANGES_LEGACY:-}" ] && command -v change_is_legacy >/dev/null 2>&1 && change_is_legacy "$1"
+}
+
 # cg_show REV PATH: a file at a commit, into a temp file whose path is printed ("" if absent).
 cg_show() {
   _f=$(mktemp "${TMPDIR:-/tmp}/cg.XXXXXX") || return 1
@@ -25,6 +32,14 @@ cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
     _t=$(cg_show "$2" "$_d/tasks.md"); [ -n "$_t" ] || continue
     _n=$(open_tasks "$_t"); rm -f "$_t"
     [ "$_n" -eq 0 ] || printf '%s has %s open task(s), and this PR builds it (it changes %s and more). A build merges only finished: tick each task done, or name the change that owns it (AGENTS.md rule 1). Check with: sh "$CLAUDUCTOR_FW"/verify-change.sh %s\n' "$_d/tasks.md" "$_n" "$_other" "${_d##*/}"
+    # The project's own required sections (CHANGE_RECORD_EXTRA), read at the head; not asked of a
+    # grandfathered change (CHANGES_LEGACY), which keeps the format it was approved in.
+    if [ -n "${CHANGE_RECORD_EXTRA:-}" ] && ! cg_legacy "${_d##*/}"; then
+      _x=$(mktemp -d "${TMPDIR:-/tmp}/cgx.XXXXXX") || continue
+      git archive "$2" -- "$_d" 2>/dev/null | tar -x -C "$_x" 2>/dev/null
+      change_extra_missing "$_x/$_d" | sed "s|^|$_d: |"
+      rm -rf "$_x"
+    fi
   done
 }
 
@@ -49,6 +64,9 @@ cg_archives() {  # cg_archives BASE HEAD
     if [ -z "$_t" ]; then echo "$_d has no tasks.md: an archived change keeps its record"; continue; fi
     _n=$(open_tasks "$_t")
     [ "$_n" -eq 0 ] || echo "$_d is archived with $_n open task(s): a change is archived only when finished (tick each, or name the change that owns it)"
+    # A grandfathered change (CHANGES_LEGACY) is held to finishing, which is format-free, but not to
+    # the records this format added since it was proposed: cost, delta or skip_specs, outcome row.
+    if cg_legacy "$_id"; then rm -f "$_t"; continue; fi
     grep -Eiq '(^|[^a-z])actual cost:? (\$[0-9]|unknown \(.+\))' "$_t" \
       || echo "$_d/tasks.md does not record the change's actual cost: add under ## Progress '- <date> archived: actual cost \$X of budget \$N' (sh "$CLAUDUCTOR_FW"/change-cost.sh $_id), or 'actual cost unknown (<why>)'"
     rm -f "$_t"

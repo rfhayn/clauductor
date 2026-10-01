@@ -225,9 +225,15 @@ func (c *Conf) Mapping(files []string) (*PathMap, error) {
 				delete(m.dest, f)
 			}
 		} else if d := path.Dir(runner); d != "scripts/ci" {
-			for _, f := range []string{"lease.sh", "README.md"} {
-				m.dest["scripts/ci/"+f] = d + "/" + f
-				m.by["scripts/ci/"+f] = "GATE_RUN"
+			// The runner sources lib/steps.sh beside it, and the conformance kit tests the
+			// lease.sh beside it (../lease.sh): both move with it.
+			for _, rel := range files {
+				f, ok := strings.CutPrefix(rel, "scripts/ci/")
+				if !ok || !(f == "lease.sh" || f == "README.md" || f == "lib/steps.sh" || strings.HasPrefix(f, "lease-conformance/")) {
+					continue
+				}
+				m.dest[rel] = d + "/" + f
+				m.by[rel] = "GATE_RUN"
 			}
 		}
 	}

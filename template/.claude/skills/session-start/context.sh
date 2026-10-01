@@ -82,9 +82,8 @@ grep -m 4 -E '^\| [0-9]{4}-' "$INSIGHTS" 2>/dev/null | cut -c1-150 | ind
 echo "- ADRs not yet Accepted:"
 ( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" 2>/dev/null || echo "none" ) | ind
 
-# Pluggable health lines: every script in .claude/health, the directory being the list.
-for h in .claude/health/*.sh; do
-  [ -f "$h" ] || continue
-  echo "- Health: $(basename "$h" .sh)"
-  sh "$h" 2>&1 | ind
-done
+# Pluggable health lines: every script in .claude/health, the directory being the list, then the
+# enabled modules' and the local layer's (.claude/extensions.sh), each run per its own #! line.
+sh .claude/extensions.sh health
+# Sections the enabled modules and the local layer add (context.d/session-start/).
+sh .claude/extensions.sh context session-start

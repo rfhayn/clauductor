@@ -13,6 +13,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # catches a file the formatter could not handle.
 
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+# A `.` of a missing file is fatal with a shell-dependent status (dash exits 2): test first; without
+# the config there is no formatter configured.
+[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 [ -n "${FORMAT_CMD:-}" ] || exit 0

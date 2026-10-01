@@ -51,6 +51,12 @@ MQ_DOCKER="0"
 MQ_COLIMA="0"
 FORMAT_CMD=""
 FORMAT_EXT=""
+MODULES=""
+PLAYBOOK="docs/playbook.md"
+AGENTS_MD_MAX_BYTES="16000"
+AGENTS_MD_MAX_ROW="320"
+CHANGE_RECORD_EXTRA=""
+GATE_QUICK_FLAGS="--quick"
 
 # shellcheck disable=SC1091
 [ -f "$ROOT/.claude/project.conf" ] && . "$ROOT/.claude/project.conf"
@@ -113,6 +119,14 @@ roadmap_tsv_errors() {
     $12 != "" && $12 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { bad("column 12 (due) \"" $12 "\" is not YYYY-MM-DD") }
     END { exit nb > 0 }'
 }
+
+# The enabled modules (MODULES) may carry default keys of their own (module.conf), applied only
+# where project.conf set nothing. Only when a module is on, or a legacy switch names one: every
+# hook sources this file, and most projects enable none.
+if [ -n "$MODULES" ] || [ "$PROPOSALS" = openspec ] || [ "$REVIEW_PAGE" = artifact ]; then
+  # shellcheck disable=SC1091
+  [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ] && . "$CLAUDUCTOR_FW/lib/modules.sh" && modules_defaults
+fi
 
 # focus_file BRANCH: the per-branch focus file the status line reads and status-write.sh
 # writes. Keyed by project AND branch, so two repos, or two lanes of one, never show each

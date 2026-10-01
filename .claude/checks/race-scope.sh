@@ -93,7 +93,7 @@ want() {  # want DESC GOT-LINE WANT-PKGS [WANT-WHY-SUBSTRING]
 }
 
 change 'echo y >> template/a; echo y >> docs/roadmap.md'
-want "template/ and docs/ only" "$(scope)" "./internal/cmd ./internal/plugin ./internal/template" "only docs/, template/ changed"
+want "template/ and docs/ only" "$(scope)" "./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template" "only docs/, template/ changed"
 
 change 'echo y >> template/a; echo y >> framework/a.go'
 want "a framework/ change" "$(scope)" "./..." "framework/a.go changed"
@@ -140,11 +140,11 @@ out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
   step() { [ "$1" = "test (race)" ] && { shift; echo "RAN $*"; }; return 0; }
   gate_steps full)
 case "$out" in
-  *"==> test (race): internal/cmd internal/plugin internal/template (only template/ changed)"*) ok "the gate names the race scope and why" ;;
+  *"==> test (race): internal/cmd internal/panel/lease internal/plugin internal/template (only template/ changed)"*) ok "the gate names the race scope and why" ;;
   *) fail "the gate does not name the race scope: $(printf '%s' "$out" | grep 'test (race)')" ;;
 esac
 case "$out" in
-  *"RAN sh -c cd framework && go test -race -timeout 25m \"\$@\" race ./internal/cmd ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages" ;;
+  *"RAN sh -c cd framework && go test -race -timeout 25m \"\$@\" race ./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages" ;;
   *) fail "the race step does not run the selected packages: $(printf '%s' "$out" | grep '^RAN')" ;;
 esac
 out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE

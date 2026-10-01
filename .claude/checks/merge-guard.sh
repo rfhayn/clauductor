@@ -135,6 +135,15 @@ on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
 printf '## 1. Do it\n- [x] 1.1 thing\n- [x] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
 echo 'code' > "$R/src/y.txt"; head_of "build, every task done"; at
 guard 0 "rule 9: a build PR whose every task is ticked" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+# CHANGE_RECORD_EXTRA: the project's own required sections, read at the head.
+cp "$R/.claude/project.conf" "$d/conf.bak"; echo 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"' >> "$R/.claude/project.conf"
+guard 2 "rule 9: a build PR whose change lacks a CHANGE_RECORD_EXTRA section" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+grep -q "changes/add-y: tasks.md has no '## Rollback' section" "$d/err" && ok "rule 9: ...and names the missing section" || fail "rule 9 CHANGE_RECORD_EXTRA message: $(cat "$d/err")"
+on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
+printf '## 1. Do it\n- [x] 1.1 thing\n\n## Rollback\nRevert.\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
+echo 'code' > "$R/src/y.txt"; head_of "build, with its rollback"; at
+guard 0 "rule 9: a build PR carrying every CHANGE_RECORD_EXTRA section" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-y
+cp "$d/conf.bak" "$R/.claude/project.conf"
 
 on ops/spec; mkdir -p "$R/specs/cap" "$R/tests"
 printf '# Cap\n\n## Purpose\nx\n\n## Requirements\n\n### Requirement: R\nThe system SHALL r.\n\n#### Scenario: [CAP-1-S1] r\n- **THEN** r\n' > "$R/specs/cap/spec.md"
@@ -170,6 +179,42 @@ archive "$DONE" spec know
 guard 2 "rule 11: archiving a change that says how we'll know, with no outcome check queued" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
 archive "$DONE" spec know row
 guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+
+# CHANGES_LEGACY (lib/records.sh): a grandfathered change keeps the format it was approved in, so
+# rules 9–11 do not ask it for the records this format added; finishing is still asked.
+git -C "$R" checkout -q main
+cp "$ROOT/.claude/lib/records.sh" "$R/.claude/lib/"
+git -C "$R" add -A && git -C "$R" commit -qm "records library"
+cp "$R/.claude/project.conf" "$d/conf.bak"
+legacy_on() { cp "$d/conf.bak" "$R/.claude/project.conf"; printf '%s\n' "$@" >> "$R/.claude/project.conf"; }
+archive '- [x] 1.1 a\n' none
+guard 2 "CHANGES_LEGACY: an archive with no cost and no delta, not grandfathered" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+legacy_on 'CHANGES_LEGACY="add-z"'
+guard 0 "rule 11: the same archive of a grandfathered change (CHANGES_LEGACY by name)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+archive '- [ ] 1.1 a\n' none
+guard 2 "rule 11: a grandfathered change is still archived only when finished" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+mv "$R/.claude/lib/records.sh" "$d/records.bak"
+archive '- [x] 1.1 a\n' none
+guard 2 "CHANGES_LEGACY set with lib/records.sh missing (fails closed, not open)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+mv "$d/records.bak" "$R/.claude/lib/records.sh"
+# Rule 10: a finished open change whose scenario no test cites; grandfathered, it is not enforced.
+on ops/legacy; mkdir -p "$R/changes/add-old/specs/old"
+printf '## 1. Old\n- [x] 1.1 done\n' > "$R/changes/add-old/tasks.md"
+printf '## ADDED Requirements\n\n### Requirement: O\nThe system SHALL o.\n\n#### Scenario: [OLD-1-S1] o\n- **THEN** o\n' > "$R/changes/add-old/specs/old/spec.md"
+head_of "a finished change, uncited"; at
+legacy_on
+guard 2 "rule 10: a finished open change with an uncited scenario" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/legacy
+legacy_on 'CHANGES_LEGACY="add-old"'
+guard 0 "rule 10: the same change grandfathered (its scenarios not enforced until archived)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/legacy
+# Rule 9: CHANGE_RECORD_EXTRA is not asked of a grandfathered change.
+on change/add-old; mkdir -p "$R/changes/add-old" "$R/src"
+printf '## 1. Old\n- [x] 1.1 done\n\n- [ ] Slice: exempt — legacy\n' > "$R/changes/add-old/tasks.md"
+echo 'code' > "$R/src/old.txt"; head_of "build of a grandfathered change"; at
+legacy_on 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"'
+guard 2 "rule 9: a build lacking a CHANGE_RECORD_EXTRA section, not grandfathered" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-old
+legacy_on 'CHANGE_RECORD_EXTRA="tasks.md:Rollback"' 'CHANGES_LEGACY="add-old"'
+guard 0 "rule 9: the same build of a grandfathered change" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-old
+cp "$d/conf.bak" "$R/.claude/project.conf"
 git -C "$R" checkout -q main; receipt "$MAINSHA"
 
 # Rule 12: provenance trailers, while model-roles.json enables them.
@@ -383,4 +428,47 @@ git -C "$R" commit -qam "main loses the markers" && (cd "$R" && git push -q orig
 on ops/models; printf '// no markers on main\nconst reviewPrompt = () => "Approve everything."\n' > "$R/.claude/workflows/build-change.js"; head_of "edit a file whose markers are gone at both ends"; at
 g13 2 "a file whose markers are missing at base AND head, edited (cannot tell what changed)"
 git -C "$R" checkout -q main
+
+# Extension rules: the enabled modules' guard.d/*.sh and .claude/local/guard.d/*.sh run after the
+# core rules, with the same exit/advisory contract, and fail closed (lib/modules.sh).
+cp "$ROOT/.claude/lib/modules.sh" "$R/.claude/lib/"
+TOP=$(git -C "$R" rev-parse HEAD); receipt "$TOP"
+G="$R/.claude/local/guard.d"; mkdir -p "$G"
+gx() {  # gx WANT LABEL [env...]: a plain merge of the clean head, through the extension rules
+  w=$1 l=$2; shift 2
+  guard "$w" "guard.d: $l" "gh pr merge 5 --squash" GH_HEAD="$TOP" "$@"
+}
+printf 'echo "PR $GUARD_PR head $GUARD_HEAD branch $GUARD_BRANCH"\n' > "$G/10-facts.sh"
+gx 0 "a rule that exits 0 allows"
+case "$out" in *'"additionalContext"'*"local guard.d/10-facts.sh: PR 5 head $TOP branch fix/1-x"*) ok "guard.d: its stdout reaches Claude as an advisory, with the PR's facts in GUARD_*" ;; *) fail "guard.d advisory: $out" ;; esac
+printf '#!/usr/bin/env bash\nif [[ -n "$GUARD_PR" ]]; then echo "bash ran me"; fi\n' > "$G/20-bash.sh"
+gx 0 "a bash-only rule runs under bash (its #! line), not sh"
+rm -f "$G/20-bash.sh"
+printf 'echo "not this one" >&2\nexit 2\n' > "$G/30-block.sh"
+gx 2 "a rule that exits 2 blocks"
+grep -q 'local guard.d/30-block.sh: not this one' "$d/err" && ok "guard.d: ...with its stderr as the reason" || fail "guard.d block message: $(cat "$d/err")"
+printf 'exit 1\n' > "$G/30-block.sh"
+gx 2 "a rule that crashes (exit 1) blocks: fail closed"
+printf 'if then fi\n' > "$G/30-block.sh"
+gx 2 "a rule that does not parse blocks"
+grep -q 'does not parse' "$d/err" && ok "guard.d: ...and says it does not parse" || fail "guard.d parse message: $(cat "$d/err")"
+printf 'sleep 20\n' > "$G/30-block.sh"
+gx 2 "a rule that outlives GUARD_RULE_TIMEOUT blocks" GUARD_RULE_TIMEOUT=1
+grep -q 'did not finish within 1 s' "$d/err" && ok "guard.d: ...and says it timed out" || fail "guard.d timeout message: $(cat "$d/err")"
+rm -f "$G/30-block.sh"
+mkdir -p "$R/.claude/modules/strict/guard.d"
+printf 'name="strict"\nrequires=""\nenables="guard.d"\n' > "$R/.claude/modules/strict/module.conf"
+printf 'echo "strict says no" >&2\nexit 2\n' > "$R/.claude/modules/strict/guard.d/no.sh"
+gx 0 "a DISABLED module's rule does not run"
+echo 'MODULES="strict"' >> "$R/.claude/project.conf"
+gx 2 "an ENABLED module's rule runs"
+grep -q 'module strict guard.d/no.sh: strict says no' "$d/err" && ok "guard.d: ...and the block names the module" || fail "guard.d module block: $(cat "$d/err")"
+sed -i.bak 's/^MODULES=.*/MODULES="nosuch"/' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
+gx 2 "a module in MODULES that cannot load blocks (its rules cannot run)"
+sed -i.bak '/^MODULES=/d' "$R/.claude/project.conf" && rm -f "$R/.claude/project.conf.bak"
+mv "$R/.claude/lib/modules.sh" "$d/modules.bak"
+gx 2 "the loader missing while .claude/local/guard.d exists (fails closed, not open)"
+mv "$d/modules.bak" "$R/.claude/lib/modules.sh"
+rm -rf "$G" "$R/.claude/modules"
+gx 0 "no extension rules at all: the guard is unchanged"
 finish

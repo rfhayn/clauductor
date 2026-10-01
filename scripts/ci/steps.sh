@@ -62,7 +62,7 @@ race_select() {
     case $_p in
       framework/*|.github/*|scripts/ci/*|go.mod|go.sum|*/go.mod|*/go.sum)
         [ -n "$_full" ] || _full=$_p ;;
-      template/*) _pkgs="$_pkgs ./internal/cmd ./internal/plugin ./internal/template" ;;
+      template/*) _pkgs="$_pkgs ./internal/cmd ./internal/plugin ./internal/template ./internal/panel/lease" ;;
       plugin/*|.claude-plugin/*) _pkgs="$_pkgs ./internal/cmd ./internal/plugin" ;;
       docs/panel.md) _pkgs="$_pkgs ./internal/template ./internal/panel/config ./internal/panel/install ./internal/panel/lease ./internal/panel/metrics ./internal/panel/web" ;;
       docs/panel.schema.json) _pkgs="$_pkgs ./internal/panel/config" ;;

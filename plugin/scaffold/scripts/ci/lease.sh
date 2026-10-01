@@ -7,12 +7,22 @@
 
 # clauductor lease protocol v1 in plain POSIX shell: interoperates with
 # `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
-# Exit status: the command's; 75 if the wait was cancelled from the panel.
-# Liveness and start time need ps; without it, kill -0 (EPERM still means alive)
+# Exit status: the command's; 75 if the wait was cancelled from the panel; 70
+# if the lease was taken away while the command ran. The holder writes a TTL
+# (CLAUDUCTOR_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
+# gets CLAUDUCTOR_LEASE_NONCE, and `lease_verify` says whether it still holds.
+# 124 if the wait outlasted CLAUDUCTOR_LEASE_MAX_WAIT (default 7200 s; 0 = none).
+# Liveness and start time need ps; without it, or where ps errors (a sandbox), kill -0 (EPERM still means alive)
 # and /proc/<pid>/stat field 22. A start time from one source is never compared
 # with one from the other, and an alive pid that cannot be verified is live.
 lease_alive() {
-  if command -v ps >/dev/null 2>&1; then [ -n "$(ps -o pid= -p "$1" 2>/dev/null || true)" ]; return; fi
+  if command -v ps >/dev/null 2>&1; then
+    # ps that ran answers; ps that errored (a sandbox that denies inspecting other
+    # processes) answers nothing, and kill -0 below decides instead.
+    _o=$(ps -o pid= -p "$1" 2>&1) && _x=0 || _x=$?
+    case $_o in *[0-9]*) [ "$_x" -eq 0 ] && return 0 ;; esac
+    { [ "$_x" -ne 0 ] && [ -n "$_o" ]; } || return 1
+  fi
   _e=$(kill -0 "$1" 2>&1) && return 0
   case $_e in *ermitted*) return 0 ;; esac
   return 1
@@ -68,41 +78,89 @@ lease_dead() {
   _cp=$(lease_get "$1" child_pid); _cs=$(lease_get "$1" child_pstart)
   _r=$(lease_get "$1" renewed); _t=$(lease_get "$1" ttl); [ -n "$2" ] && _t=$2
   if [ -n "$_p" ] && [ "$_h" = "$(hostname)" ]; then
-    lease_proc_dead "$_p" "$_s" || return 1
+    _live=""; lease_proc_dead "$_p" "$_s" || _live=1
     if [ -n "$_cp" ] && ! lease_proc_dead "$_cp" "$_cs"; then return 1; fi
-    return 0
+    [ -n "$_live" ] || return 0
+    # CANNOT TELL (no start time readable here, or none recorded): a holder, not a
+    # waiter, is then held to its heartbeat, so an uninspectable dead holder that
+    # wrote a TTL frees once renewed + ttl has passed. A ttl of 0 still never expires.
+    [ -z "$2" ] && { [ -z "$_s" ] || [ -z "$(lease_pstart "$_p")" ]; } && lease_expired "$_r" "$_t" && return 0
+    return 1
   fi
   [ "${_t:-0}" -gt 0 ] && [ "$(date +%s)" -gt $(( ${_r:-0} + _t )) ]   # another host, or no pid: TTL
 }
+# lease_expired RENEWED TTL: 0 (true) when TTL > 0 and RENEWED + TTL has passed.
+lease_expired() { [ "${2:-0}" -gt 0 ] 2>/dev/null && [ "$(date +%s)" -gt $(( ${1:-0} + $2 )) ]; }
 lease_holder_stale() {
   if ! lease_valid "$1/owner.json"; then [ $(( $(date +%s) - $(lease_mtime "$1") )) -ge 10 ]; return; fi
   lease_dead "$1/owner.json" ""
+}
+# lease_renew LOCK NONCE TTL HOLDER_PID: run in the background while the command holds the lease.
+# Every TTL/3 it rewrites owner.json's `renewed` (as lock-run does), so another host never reads a
+# live holder as expired; it stops once the holder is gone or the record is no longer its own.
+lease_renew() {
+  _every=$(( $3 / 3 )); [ "$_every" -ge 1 ] || _every=1
+  _last=$(date +%s)
+  while sleep 1; do
+    lease_alive "$4" || return 0
+    [ "$(lease_get "$1/owner.json" nonce)" = "$2" ] || return 0
+    _now=$(date +%s); [ $(( _now - _last )) -ge "$_every" ] || continue
+    LC_ALL=C sed "s/\"renewed\":[0-9]*/\"renewed\":$_now/" "$1/owner.json" > "$1/.renew.tmp" && mv "$1/.renew.tmp" "$1/owner.json" || true
+    _last=$_now
+  done
+}
+# lease_verify LOCK HOLDER_PID: 0 (true) when LOCK is still held for the command asking: owner.json
+# carries CLAUDUCTOR_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
+# exports none (lock-run), names HOLDER_PID or one of its ancestors as pid or child_pid. A gate
+# asks before it records a pass: a run that lost its lease may have run beside another.
+lease_verify() {
+  lease_valid "$1/owner.json" || return 1
+  if [ -n "${CLAUDUCTOR_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$CLAUDUCTOR_LEASE_NONCE" ]; return; fi
+  _vp=$(lease_get "$1/owner.json" pid) _vc=$(lease_get "$1/owner.json" child_pid) _va=${2:-} _vn=0
+  while [ -n "$_va" ] && [ "$_va" != 0 ] && [ "$_vn" -lt 12 ]; do
+    { [ "$_va" = "$_vp" ] || [ "$_va" = "$_vc" ]; } && return 0
+    command -v ps >/dev/null 2>&1 || return 1
+    _va=$(ps -o ppid= -p "$_va" 2>/dev/null | tr -d ' ' || true); _vn=$((_vn + 1))
+  done
+  return 1
 }
 lease_run() {
   # A quote or backslash would break owner.json, which readers then judge stale.
   _lock=$1 _lane=$(printf %s "$2" | tr -d '"\\'); shift 2
   _cmd=$(printf %s "$1" | tr -d '"\\')
   _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  # The holder's TTL (default 600 s, lock-run's); renewed every TTL/3 while the command runs.
+  _ttl=${CLAUDUCTOR_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
   mkdir -p "$_w"
-  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":0}"
+  _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":$_ttl}"
   _me="$_w/$(date +%s)000000000-$_nonce.json"
   printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
   trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
-  _said=""
+  # A wait is bounded (CLAUDUCTOR_LEASE_MAX_WAIT seconds, default 7200; 0 = none)
+  # and says every 30 s whom it waits for, so no wait is ever silent or endless.
+  _max=${CLAUDUCTOR_LEASE_MAX_WAIT:-7200}; case $_max in '' | *[!0-9]*) _max=7200 ;; esac
+  _said="" _t0=$(date +%s)
   while :; do
     if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
     _first=""
     for _f in $(ls "$_w" 2>/dev/null | grep '\.json$' | sort -t- -k1,1n -k2); do
       lease_valid "$_w/$_f" || continue
+      # Our own file is never judged: a waiter that cannot inspect even its own pid
+      # would remove itself and then wait forever for a turn that never comes.
+      [ "$_f" = "${_me##*/}" ] && { _first=$_f; break; }
       if lease_dead "$_w/$_f" 60; then rm -f "$_w/$_f"; continue; fi
       _first=$_f; break
     done
     if [ "$_first" = "${_me##*/}" ] && mkdir "$_lock" 2>/dev/null; then
       printf '%s\n' "$_rec" > "$_lock/.owner.tmp" && mv "$_lock/.owner.tmp" "$_lock/owner.json"
       rm -f "$_me"
-      trap 'if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
-      CLAUDUCTOR_LOCK_HELD=$_lock "$@" && _rc=0 || _rc=$?
-      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi
+      lease_renew "$_lock" "$_nonce" "$_ttl" $$ </dev/null >/dev/null 2>&1 &
+      _renewer=$!
+      trap 'kill "$_renewer" 2>/dev/null || :; if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
+      CLAUDUCTOR_LOCK_HELD=$_lock CLAUDUCTOR_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
+      kill "$_renewer" 2>/dev/null || :; wait "$_renewer" 2>/dev/null || :
+      if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"
+      else echo "lease: LOST $_lock while the command ran (another may have run beside it)" >&2; _rc=70; fi
       trap - EXIT
       return "$_rc"
     fi
@@ -116,7 +174,16 @@ lease_run() {
       elif [ $(( $(date +%s) - $(lease_mtime "$_lock.reclaim") )) -ge 30 ]; then rmdir "$_lock.reclaim" 2>/dev/null || true
       fi
     fi
-    [ -n "$_said" ] || { echo "lease: waiting for $_lock ($(lease_get "$_lock/owner.json" lane))" >&2; _said=1; }
+    [ -n "$_said" ] || { echo "lease: waiting for $_lock ($(lease_get "$_lock/owner.json" lane))" >&2; _said=$_t0; }
+    _el=$(( $(date +%s) - _t0 ))
+    if [ $(( $(date +%s) - _said )) -ge 30 ]; then
+      _o="$_lock/owner.json"; _said=$(date +%s)
+      echo "lease: still waiting (${_el}s) for $_lock: held by lane $(lease_get "$_o" lane), pid $(lease_get "$_o" pid) on $(lease_get "$_o" host), started $(lease_get "$_o" started), renewed $(lease_get "$_o" renewed), ttl $(lease_get "$_o" ttl)" >&2
+    fi
+    if [ "$_max" -gt 0 ] && [ "$_el" -ge "$_max" ]; then
+      echo "lease: gave up after ${_el}s (CLAUDUCTOR_LEASE_MAX_WAIT=$_max) waiting for $_lock, held by pid $(lease_get "$_lock/owner.json" pid) on $(lease_get "$_lock/owner.json" host). If that holder is gone and this machine cannot inspect it, remove the lock by hand: rm -rf '$_lock'" >&2
+      return 124
+    fi
     sleep 1
   done
 }

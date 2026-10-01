@@ -267,6 +267,12 @@ for c in "$dir"/*/; do
       grep -qx "## $sec" "$c/tasks.md" && ok "$id: tasks.md keeps its $sec" || fail "$id: tasks.md has no '## $sec' section (the builder keeps it current, so a resumed lane continues from the file)"
     done
   fi
+  # The project's own required sections (CHANGE_RECORD_EXTRA; lib/change.sh).
+  if [ -n "${CHANGE_RECORD_EXTRA:-}" ]; then
+    extra=$(change_extra_missing "$c")
+    if [ -z "$extra" ]; then ok "$id: carries every CHANGE_RECORD_EXTRA section"
+    else printf '%s\n' "$extra" | while IFS= read -r l; do echo "FAIL $id: $l"; done > "$(scratch)/extra"; cat "$(scratch)/extra"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/extra"))); fi
+  fi
 
   # ── spec deltas ───────────────────────────────────────────────────────────────────────────────
   have_delta=""

@@ -30,8 +30,16 @@ ok() { echo "ok   $*"; }
 fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 [ -f "$dir/tasks.md" ] || { echo "FAIL $CHANGES_DIR/$id/tasks.md does not exist"; exit 1; }
 
+# A grandfathered change (CHANGES_LEGACY, lib/records.sh) was approved under the project's earlier
+# format: its approval line and its scenarios are not judged by this format's rules (1 and 3). Its
+# tasks and its diff still are: those claims are format-free.
+legacy=""
+# shellcheck disable=SC1091
+[ -f "$ROOT/.claude/lib/records.sh" ] && . "$ROOT/.claude/lib/records.sh" && change_is_legacy "$id" && legacy=1
+
 # 1. The approval.
-out=$(sh "$ROOT/.claude/change-approval.sh" "$id" 2>&1) && ok "approval: $out" || fail "approval: $out"
+if [ -n "$legacy" ]; then ok "approval: grandfathered (CHANGES_LEGACY): approved before adoption, in the earlier format; not judged here"
+else out=$(sh "$ROOT/.claude/change-approval.sh" "$id" 2>&1) && ok "approval: $out" || fail "approval: $out"; fi
 
 # 2. Every task ticked.
 open=$(open_tasks "$dir/tasks.md")
@@ -42,8 +50,10 @@ else
 fi
 
 # 3. The scenarios.
-out=$(sh "$ROOT/.claude/scenario-trace.sh" --check --change "$id" 2>&1) && ok "scenarios: $(printf '%s\n' "$out" | tail -1)" \
+if [ -n "$legacy" ]; then ok "scenarios: grandfathered (CHANGES_LEGACY): not enforced until archived"
+else out=$(sh "$ROOT/.claude/scenario-trace.sh" --check --change "$id" 2>&1) && ok "scenarios: $(printf '%s\n' "$out" | tail -1)" \
   || { fail "scenarios: $(printf '%s\n' "$out" | tail -1)"; printf '%s\n' "$out" | grep -E '^(MISSING|PENDING)' | sed 's/^/       /'; }
+fi
 
 # 4. The diff against the fork point.
 if [ -z "$base_ref" ]; then

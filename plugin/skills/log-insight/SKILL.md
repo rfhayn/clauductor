@@ -49,3 +49,10 @@ Routing follows *What this tier holds* in `docs/adr/README.md`.
   keep the row as `Technique — no mechanism`.
 
 Report which promotion, if any, applies.
+
+## Project steps
+
+What this project's enabled modules and its local layer (`.claude/local/skills/log-insight/`) add to this
+skill. Follow them as part of the steps above:
+
+!`sh ${CLAUDE_PLUGIN_ROOT}/extensions.sh fragments log-insight`

@@ -15,6 +15,7 @@
 #   MANUAL   <id>  <where>  manual: <reason>          (or untestable: <reason>)
 #   MISSING  <id>  <where>
 #   PENDING  change <id>: <n> task(s) open; its scenarios are enforced once every task is ticked
+#   LEGACY   change <id>: grandfathered (CHANGES_LEGACY); its scenarios are not enforced
 #
 # THE RULE. Every scenario ID a change adds or modifies (its ADDED and MODIFIED blocks) must appear
 # in at least one TEST FILE: in a test name, a comment or a tag, in any language. The other way is
@@ -37,6 +38,8 @@
 ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 . "$ROOT/.claude/lib/conf.sh"
 . "$ROOT/.claude/lib/change.sh"
+# shellcheck disable=SC1091
+[ -f "$ROOT/.claude/lib/records.sh" ] && . "$ROOT/.claude/lib/records.sh"
 
 check=""; now=""; rev=""; only_specs=""; changes=""; any_change=""
 while [ $# -gt 0 ]; do
@@ -106,6 +109,13 @@ if [ -z "$only_specs" ]; then
     base="$CHANGES_DIR/$c"
     files=$(ls_under "$base")
     [ -n "$files" ] || { echo "MISSING  change $c: no such open change in $CHANGES_DIR"; echo x >> "$tmp/bad"; continue; }
+    # A grandfathered change (CHANGES_LEGACY, lib/records.sh) was proposed before adoption, under
+    # the project's earlier format: its scenarios are not enforced here. Once archived, any of them
+    # that carries an ID is held in the living specs like every other.
+    if command -v change_is_legacy >/dev/null 2>&1 && change_is_legacy "$c"; then
+      echo "LEGACY   change $c: grandfathered (CHANGES_LEGACY); its scenarios are not enforced" >> "$tmp/pending"
+      continue
+    fi
     tasks=$(fetch "$base/tasks.md")
     open=$(open_tasks "$tasks")
     if [ "$open" -gt 0 ] && [ -z "$now" ]; then

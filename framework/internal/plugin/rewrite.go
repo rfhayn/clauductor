@@ -169,7 +169,7 @@ var shellPatches = map[string][]struct{ old, new string }{
 	// A plugin skill's context line names ${CLAUDE_PLUGIN_ROOT}/..., which Claude Code substitutes
 	// when it loads the skill; the check resolves it to the plugin copy it is running from.
 	"checks/skills.sh": {
-		{`while read -r script _; do`, `while read -r script _; do
+		{`while read -r interp script args; do`, `while read -r interp script args; do
     case $script in '${CLAUDE_PLUGIN_ROOT}'/*) script="$` + FWVar + `/${script#'${CLAUDE_PLUGIN_ROOT}'/}" ;; *) script="$ROOT/$script" ;; esac`},
 		{`if [ -f "$ROOT/$script" ]; then`, `if [ -f "$script" ]; then`},
 	},
