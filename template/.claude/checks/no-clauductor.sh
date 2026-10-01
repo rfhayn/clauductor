@@ -44,8 +44,22 @@ fi
 ok "clauductor is absent from PATH, and HOME has no panel"
 
 # asks FILE: the lines where something errored for want of clauductor, or asked for it or the panel.
-ASKS='clauductor: (command )?not found|command not found: clauductor|clauductor: No such file|clauductor[^a-z].*(is required|not installed|is missing)|install clauductor|(please )?start the panel|panel (is )?required'
+ASKS='clauductor: (command )?not found|command not found: clauductor|clauductor: No such file|clauductor[^a-z].*(is required|not installed|is missing|needed)|install clauductor|(please )?start the panel|panel (is )?required|start (it|the panel)? ?with:? .?clauductor|run .?clauductor panel'
 asks() { grep -iE "$ASKS" "$1" | head -3; }
+
+# ── 0. What the model's scripts print: no line tells the user to run clauductor ─────────────────
+# A missing panel is a normal state, so a script may mention the panel as optional ("If installed:
+# clauductor panel") but never as a step to take ("Panel: down (start it with: clauductor panel)").
+fw=$(cd "$dir/.." && pwd)   # the model's files: .claude/ here, the plugin root in the plugin
+said() {  # said FILE...: echo/printf lines that mention clauductor and ask for it
+  grep -nHE '(echo|printf)[^#]*clauductor' "$@" 2>/dev/null | grep -iE "$ASKS" | head -3
+}
+printf 'echo "- Panel: down (start it with: clauductor panel)"\n' > "$d/b12.sh"
+printf 'echo "- Panel: not running (optional; If installed: clauductor panel)"\n' > "$d/neutral.sh"
+[ -n "$(said "$d/b12.sh")" ] && ok "falsified: a line telling the user to start clauductor is caught" || fail "the output scan missed: $(cat "$d/b12.sh")"
+[ -z "$(said "$d/neutral.sh")" ] && ok "...and a line naming the panel as optional passes" || fail "the output scan flags a neutral line: $(said "$d/neutral.sh")"
+s=$(find "$fw" "$ROOT/scripts/ci" \( -name worktrees -o -name checks \) -prune -o -name '*.sh' -print 2>/dev/null | while read -r f; do said "$f"; done)
+[ -z "$s" ] && ok "no script of the model tells the user to run clauductor" || fail "a script asks for clauductor: $s"
 
 # ── 1. The gate, in a throwaway repo ────────────────────────────────────────────────────────────
 R="$d/repo"; mkdir -p "$R"

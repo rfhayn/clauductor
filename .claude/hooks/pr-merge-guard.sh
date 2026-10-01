@@ -52,9 +52,9 @@ if [ -f "$ROOT_HOOK/.claude/lib/conf.sh" ]; then
   # shellcheck disable=SC1091
   . "$ROOT_HOOK/.claude/lib/conf.sh"
 else
-  MAIN_BRANCH=main JOURNAL=docs/development-journal.md CHANGES_DIR=changes BRANCH_CHANGE=change/ GATE_RUN=scripts/ci/run-local.sh
+  MAIN_BRANCH=main JOURNAL=docs/development-journal.md CHANGES_DIR=changes BRANCH_CHANGE=change/ GATE_RUN=scripts/ci/run-local.sh GATE_REMOTE_WORKFLOW=
 fi
-REMOTE_WF=${GATE_REMOTE_WORKFLOW-ci.yml}
+REMOTE_WF=${GATE_REMOTE_WORKFLOW:-}  # the default is conf.sh's, stated there once
 payload=$(cat)
 
 block() {
