@@ -103,7 +103,7 @@ build.
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
 | REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
-| REL-2 | `ops/rel-2-install-kit` — release builds cross-compile with CGO_ENABLED=0 (and CI proves it per PR); install, init and the plugin's init report missing tools with per-OS hints; a starter `.gitleaks.toml` the project owns; install.sh offers, never installs unasked | `scripts/build-release.sh`, `.github/workflows/release-build.yml`, `template/.claude/prereqs.sh`, `template/.gitleaks.toml`, `install.sh` | — | ⬜ in flight (#56) |
+| REL-2 | `ops/rel-2-install-kit` — release builds cross-compile with CGO_ENABLED=0 (and CI proves it per PR); install, init and the plugin's init report missing tools with per-OS hints; a starter `.gitleaks.toml` the project owns; install.sh offers, never installs unasked | `scripts/build-release.sh`, `.github/workflows/release-build.yml`, `template/.claude/prereqs.sh`, `template/.gitleaks.toml`, `install.sh` | — | ✅ merged (#60) |
 | OPS-28 | `ops/ops-28-restore-macos-pr-ci` — roll OPS-26 back: a pull request's CI runs macOS and Ubuntu again (keep the superseded-run cancel). OPS-26 was a temporary speed-up for getting the first release out; start this once REL-1 has merged and the owner says the release is settled | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | OPS-26, REL-1 | ⬜ queued |
 
 ## Phase 5 — Standing Tee converges on the template
@@ -120,7 +120,7 @@ Standing Tee's repo; the clauductor side of each phase is a row here.
 | ST-2 | `ops/st-2-upstream` — what the map marks generic and better in Standing Tee moves into the template | `template/` | ST-0 | ⬜ queued |
 | ST-3 | `ops/st-3-converge` — Standing Tee converges file by file, with the no-clauductor check in its gate | Standing Tee | ST-1, ST-2, OPS-24 | ⬜ queued |
 | ST-4 | `ops/st-4-handover` — `.claude/clauductor-template` written; `clauductor update` from then on | Standing Tee | ST-3 | ⬜ queued |
-| ST-5 | `ops/st-5-swap-plan` — the swap plan: Standing Tee's convergence as an ordered list of PRs, each with its owner decisions, its checks and its rollback | Standing Tee docs | ST-0 | ⬜ queued |
+| ST-5 | `ops/st-5-swap-plan` — the swap plan: Standing Tee's convergence as an ordered list of PRs, each with its owner decisions, its checks and its rollback | Standing Tee docs | ST-0 | ✅ merged (#60) |
 | ST-6 | `ops/st-6-designer-onboarding` — the designer's onboarding PR: Standing Tee's designer onboarding and welcome page describe the converged model (the panel, who decides), so Damian works from them | Standing Tee docs | ST-3 | ⬜ queued |
 
 ### Phase 2 upstream follow-ups (the convergence map's P2 rows not yet owned)
@@ -130,6 +130,7 @@ Standing Tee's repo; the clauductor side of each phase is a row here.
 | P2.15b | `ops/roadmap-boundary-tasks` — the roadmap parser reads Standing Tee's `**Gate X boundary-task status:**` lines, and `--text` warns on an open boundary task (left over from P2.15, #45) | `template/.claude/roadmap-queue.sh`, `template/.claude/checks/roadmap.sh` | P2.15 (#45) | ⬜ queued |
 | P2.11 | `ops/module-living-visuals` — derived pages kept current: a registry `refresh:` field, a close step that refreshes or stamps every page that is behind, and a generated-block check (Phase 2 wave 2) | `template/.claude/modules/living-visuals/` | P2.7 (#43) | ⬜ queued |
 | P2.12b | `ops/module-ideas` — the ideas queue as a module: the skill, a session-start count, the close-time render, and a check that the rendered page is never hand-edited (Phase 2 wave 2; the risk register half of P2.12 is #41) | `template/.claude/modules/ideas/` | P2.7 (#43) | ⬜ queued |
+| P2.11c | `ops/living-visuals-lows` — #57's round-2 lows in `living.sh`: a claim value is read only up to the first `<`, so `<b data-claim="owner">Rich <i>and Damian</i></b>` passes against `echo Rich`, and the README's "markup inside a value fails" is untrue for that shape (L1); `data-claim` is counted inside scripts, styles and comments, so a `[data-claim=owner]` selector fails a valid page with a misleading message (L2); `--regen`'s temp-file-and-rename drops the page's mode, replaces a symlinked page and leaves `*.living-regen.<pid>` behind when interrupted (L3); jq 1.7's `(at file:6)` defeats the `jq: error` prefix strip (L4) | `template/.claude/modules/living-visuals/` | P2.11 | ⬜ queued |
 
 ## Done before the model
 
