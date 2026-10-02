@@ -139,12 +139,27 @@ wait, is its own row, PANEL-33 (D8).
      - **Per lock seen,** one line: path, holder pid, `ps -o command=` of the holder, whether it is
        the panel's own call and which, first seen, last modified, and how it ended.
      - **Per stopped call,** one line (group 2 writes these).
-   - **The panel's own calls, remembered:** a bounded history of the gate's calls, kept for 24 h
-     and capped at 1,000 entries: pid, process start time, which call, started, ended.
-     - **Matching a lock to a call:** a lock's holder is the panel's own when its owner record's
-       pid matches an entry, and its `lockBirthtimeMs` falls within that entry's start and end.
-       The record's `procStart` is matched too, once group 1's re-read records the form Claude
-       Code writes it in.
+   - **The panel's own calls, remembered:** an in-memory history of the gate's calls, each entry
+     with its pid, which call, when it was spawned and when it ended (still running: no end yet).
+     - **Where the times come from:** the spawned time is the panel's own clock when `ExecRunner`
+       reports the started `*os.Process`, so no `ps` runs per call. The record's `procStart` isn't
+       matched; the time window below does that job.
+     - **How big it is:** the last 10 minutes of calls, capped at 2,000 entries (oldest dropped).
+       That is sized to the real rate. Every project's agents poll at its fastest (2 s) is 30 a
+       minute. Five busy projects plus the filter checks and lane actions stay under 2,000 in 10
+       minutes.
+     - **When a lock is matched to a call:** at first sight, on the watch tick that first sees the
+       lock (within 2 s of its creation while the panel runs). The result is stored on the lock's
+       record and never recomputed, so a lock stranded for hours keeps the attribution it got when
+       the history still held its call.
+     - **The rule:** a lock is the panel's own when its owner record's pid matches an entry and its
+       `lockBirthtimeMs` falls within that entry's spawn and end. A lock created after the matching
+       call ended belongs to another process that reused the pid, and is not the panel's.
+     - **What the history can't attribute:**
+       - it isn't persisted, so a lock already present when the panel starts is logged with its
+         holder "unknown: before this panel started";
+       - a lock that appears and goes between two ticks isn't seen at all (PANEL-33's faster watch
+         covers that).
      - **Why a history:** a lock stranded by a panel call that has already been reaped (the
        SIGKILL case) would otherwise log as "not the panel's", and the outcome check would read
        clean when it isn't.
@@ -305,6 +320,16 @@ The sandbox investigation, and acting on what it finds, is PANEL-33's (D1, D6, D
     returns a retry in 1 s through the poll's own next-wait, rather than its interval, and applies
     no update.
   - **A lane action** waits within its own timeout.
+  - **How the gate tells a poll from a lane action:** both arrive as a Runner call with a 10 s
+    deadline, so a context key marks polls. `signals.WithPoll(ctx)` and its key live in `signals`.
+    - **Who sets it:** `Runtime.exec` (the agents poll, `checkFilter`, and the cards and suggest
+      commands through `commandFetch`), and the machine's `run` (version and account). If
+      PANEL-25 moves the machine's `run` off `Runtime.exec`, it sets the key itself.
+    - **No key means a lane action:** the lane manager's `claude agents` reads (`agentStatus`, the
+      first-prompt check, `liveSessions`, `removeVerdict`) call the Runner directly, and wait
+      within their own timeout.
+    - **The fallback is the safe one:** a poll that forgets the key waits within its 10 s, as a
+      lane action does, rather than failing.
   - **A context with no deadline** waits at most 10 s, then gets `ErrBusy`.
     - **The case today:** `RestoreAll` holds the lane manager's lock and calls `liveSessions` with
       the request's context and no timeout (`lanes/lanes.go`). Behind a stuck lock it would
@@ -377,6 +402,13 @@ The sandbox investigation, and acting on what it finds, is PANEL-33's (D1, D6, D
     owner logs in to another one, which is rare and their own act.
   - **Not dropping it:** no status-line field gives the auth mode or plan (#95598 asks for one).
 - **What it costs:** a change of account shows after **Refresh** or the next start. Help says so.
+- **A failed read:**
+  - **One retry, 1 minute later,** through the gate like any call. A paused or busy gate isn't a
+    failure: it retries as D3 and D4 say, and doesn't use up the retry.
+  - **If the retry fails too,** the account source shows the error and the saved reading (if any)
+    stays in use until **Refresh** or the next start.
+  - **Why not more:** each read is itself a suspect (#95822), so a loop of retries would bring back
+    the timer this decision removes.
 
 **D6. Making the panel's own `claude agents` start no refresh: PANEL-33's.**
 - **Recommended:** PANEL-33 owns this. Its row names outcomes A, B, C and inconclusive. Its

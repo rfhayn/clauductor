@@ -90,7 +90,7 @@ WHEN the login refresh lock, or the legacy lock beside the config directory, was
 - **THEN** no `claude` process starts
 
 ### Requirement: Every refresh lock the panel sees is logged
-THE SYSTEM SHALL record each refresh lock it observes, with its holder and whether the holder is one of the panel's own `claude` calls, and each `claude` call of its own that it had to stop.
+THE SYSTEM SHALL record each refresh lock it observes, with its holder and whether the holder is one of the panel's own `claude` calls, decided when the lock is first seen from the owner record's pid and the lock's birth time falling within that call's run, and each `claude` call of its own that it had to stop.
 
 #### Scenario: [CLAUDECALLS-4-S1] A lock held by another process is logged
 - **GIVEN** a lock whose owner record names a live process that is not the panel's
@@ -107,6 +107,12 @@ THE SYSTEM SHALL record each refresh lock it observes, with its holder and wheth
 - **AND** the lock is still there, its owner record naming that call's pid and a birth time within the call's start and end
 - **WHEN** the lock is logged
 - **THEN** its line says the holder was the panel's own call and names the call
+
+#### Scenario: [CLAUDECALLS-4-S5] A lock created after a panel call ended is not the panel's, whatever its pid
+- **GIVEN** a panel `claude` call with pid 4242 that ended at 10:00:00
+- **AND** a lock whose owner record names pid 4242 and a birth time of 10:00:30, from another process that reused the pid
+- **WHEN** the lock is first seen and logged
+- **THEN** its line says the holder is not the panel's own call
 
 #### Scenario: [CLAUDECALLS-4-S3] A stopped claude call is logged
 - **WHEN** the panel stops one of its `claude` calls at its timeout
@@ -143,7 +149,7 @@ WHEN a refresh lock has been modified within 60 seconds continuously for more th
 - **AND** no live-holder alert is raised
 
 ### Requirement: The account is read on demand, not on a timer
-THE SYSTEM SHALL run `claude auth status` only at start when no account reading under 24 hours old is saved, and when the owner asks for a refresh; it SHALL use the saved reading otherwise.
+THE SYSTEM SHALL run `claude auth status` only at start when no account reading under 24 hours old is saved, and when the owner asks for a refresh, retrying a failed read once a minute later; it SHALL use the saved reading otherwise.
 
 #### Scenario: [CLAUDECALLS-6-S1] A recent saved reading is used at start
 - **GIVEN** an account reading saved 3 hours ago
@@ -155,6 +161,12 @@ THE SYSTEM SHALL run `claude auth status` only at start when no account reading 
 - **GIVEN** an account reading saved 3 hours ago
 - **WHEN** a project is added to the running panel
 - **THEN** `claude --version` may run, but no `claude auth status` runs
+
+#### Scenario: [CLAUDECALLS-6-S5] A failed account read is retried once
+- **GIVEN** no saved account reading, and a `claude auth status` that fails
+- **WHEN** the panel starts
+- **THEN** it runs once at start and once more a minute later, and no more until Refresh
+- **AND** the account source shows the error
 
 #### Scenario: [CLAUDECALLS-6-S2] No timer reads the account
 - **GIVEN** a panel that read the account at start
