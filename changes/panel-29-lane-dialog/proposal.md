@@ -1,4 +1,4 @@
-**Approved:** 2026-10-02 by Rich · design 13473c565085
+**Status:** awaiting approval
 **Roadmap row:** PANEL-29
 **Risk:** normal
 
@@ -36,8 +36,8 @@ Starting a lane on work the panel already knows takes one click and doesn't fail
   branch that already exists with a plain sentence naming the branch, never a raw git error.
 - **"New lane here" on a change's worktree pre-selects that change**: its template, its name and the
   worktree.
-- **What's in a build's way is shown before Start**: a change with no Approved line, and the
-  queue's unmet dependencies, as warnings next to "Start anyway".
+- **What's in a build's way is shown before Start**: a build of a change with no Approved line gets
+  a warning next to "Start anyway".
 - **The empty option says what it is**: "No template: a plain Claude session".
 
 ## What the existing specs already guarantee
@@ -52,6 +52,9 @@ match.
 
 - **Remove worktree guidance** (#67 gap 1): PANEL-30.
 - **The Claude Code version check** (#68): PANEL-31.
+- **Dependency warnings.** An Up next row's detail is free text, so there's no reliable "unmet"
+  signal (D3). A structured unmet-dependencies field in the suggest schema would be its own row. Not
+  owned yet.
 - **Matching founder-queue prose to a change** (e.g. "Score photo, group 0…"): the queue is free
   text, so a match would be a guess. The dialog shows only what the panel knows structurally
   (D3). Not owned: revisit if the structured warnings prove too thin.

@@ -7,7 +7,7 @@
     worktree and "An existing worktree", and clears the template.
   - `stUpdate()` disables the lane type and every "Where it runs" radio when a template is chosen,
     and forces "new".
-  - `pickNext()` (Up next) sets the template and the name only.
+  - `pickNext()` (Up next) sets the template, the name and the issue, never where the lane runs.
   - The submit handler sends `{template, name}` for a template and `{type, mode, name, worktree}`
     without one.
 - **Server** (`framework/internal/panel/lanes/lanes.go`):
@@ -29,14 +29,24 @@
      has it, `remote` if only origin has it).
    - The first prompt and the registry record are the same in every mode, so the lane looks the same
      to the rest of the panel.
-2. **State: what the page needs to decide.** Each worktree in the state already carries its branch.
-   Add each open change's approval (approved or not, from the changes the metrics source already
-   reads) to the state the page receives, keyed by change id. No new polling.
+   - "branch" is a lane mode like the others: the registry knows it, and it runs the same fetch,
+     `.worktreeinclude` and `worktree_setup` as "new". The branch checks in "new" and "branch" run
+     after the fetch, so an unfetched origin branch is seen. A refusal's facts reach the page in
+     the HTTP reply, not only in the server's error.
+2. **What the page needs to decide, without new polling.**
+   - **Worktrees and their branches:** already in the state.
+   - **Approval:** each open change's approval (approved, not approved, or no proposal) is added to
+     the state, keyed by change id, from the changes the panel already reads for its metrics.
+   - **A branch with no worktree:** the state has no branch list. When a template and a name are
+     chosen, the dialog asks the server once, with a read-only call (`GET /api/lanes/branch?name=…`),
+     whether that branch exists locally or on origin and which worktree has it. It asks again only
+     when the template or name changes (D6).
 3. **Page: the decision is one pure function, tested in node** (D4). `start-plan.js` exports
    `planStart(state, intent)`:
    - **Intents:** `{from: "next", template, item}` (an Up next row), `{from: "worktree", path}`
      ("New lane here"), `{from: "template", template, name}` (the template or the name changed),
-     `{from: "conflict", error}` (the server's 409).
+     `{from: "branch", facts}` (the server's answer about the branch), `{from: "conflict", error}`
+     (a 409 at Start, the fallback if the branch changed in between).
    - **It returns** `{template, name, mode, worktree, choices, warnings}`. `choices` says which
      "Where it runs" radios are enabled; `warnings` lists what's in the build's way.
    - panel.js calls it from `openStart`, `pickNext`, the template and name handlers, and the submit
@@ -51,10 +61,10 @@
      branch. When several templates share a pattern (Standing Tee's build and propose both use
      `change/{name}`), the one whose Up next lists that name wins. If none lists it, the first in
      the config's order wins (D5).
-   - **A build-type template on a change with no Approved line:** a warning, "add-score-photo has no
-     Approved line in its proposal; /build-change will stop for it", and Start reads "Start anyway".
-   - **An Up next row whose detail names unmet dependencies** ("needs 2C.10"): that text as a
-     warning.
+   - **A build template on a change whose proposal has no Approved line:** a warning, "add-score-photo
+     has no Approved line in its proposal; /build-change will stop for it", and Start reads "Start
+     anyway". A build template is one whose first prompt runs `/build-change`. A propose template, or
+     a change with no proposal yet, gets no approval warning.
    - **The empty template option** reads "No template: a plain Claude session".
 5. **Docs**: `docs/panel.md`'s New lane section and the in-page Help say what each "Where it runs"
    choice does with a template, and what the warnings mean.
@@ -68,9 +78,14 @@
 | "new" for a branch that exists locally or on origin | 409 `branch-exists`, a plain sentence plus the facts. The page switches to "existing" or "branch" and says why. |
 | "branch" for a branch that exists nowhere | 400: "No branch named X; choose New branch and worktree." |
 | "branch" when the target folder already exists | 409 `exists`, as today. |
+| "branch" without a template | 400: the existing-branch choice belongs to a template's named branch; a plain lane uses "An existing worktree" or a new branch. |
 | Templates while panel.json is untrusted | Unchanged: 409 `untrusted-config`. |
 
-## Decisions (the owner decided all five as recommended, 2026-10-02)
+## Decisions (awaiting the owner; revised after the proposal's review, 2026-10-02)
+
+D1, D2, D4 and D5 are as first approved. D3 is narrowed and D6 is new: the review found that
+"unmet dependencies" has no structured source and that the page couldn't see a branch without a
+worktree before Start.
 
 **D1. Which existing worktree a template may run in.**
 - **Recommended:** only the worktree whose branch is the template's own (`change/add-score-photo`
@@ -88,14 +103,19 @@
   person should see before the lane starts on them.
 
 **D3. Blockers shown before Start.**
-- **Recommended:** structured facts only (no Approved line on the change; the Up next row's unmet
-  dependencies), as warnings with "Start anyway". Never a hard block.
+- **Recommended:** one structured fact only: a build template on a change whose proposal has no
+  Approved line, as a warning with "Start anyway". Never a hard block.
 - **Alternatives:**
   - a hard block on a missing Approved line;
+  - also warning on dependencies, by reading "needs …" out of an Up next row's detail text;
   - also matching founder-queue prose to the change.
 - **Why:**
   - **Not a block:** Standing Tee records approval in prose until its swap, so a block would refuse
     a genuinely approved change. `build-change` already stops on its own for what it needs.
+  - **No dependency warning:** an Up next row's detail is free text. This repo's never lists
+    dependencies, and Standing Tee's lists them whether they're met or not, so the warning would be
+    wrong either way. A structured "unmet dependencies" field in the suggest schema would fix that,
+    but it isn't part of this change.
   - **No prose matching:** it would be a guess, and a wrong warning teaches people to ignore them.
 
 **D4. Where the dialog's decision lives.**
@@ -113,3 +133,16 @@
 - **Why:** Up next already says which kind of work a name is waiting for (propose versus build), so
   it's the best evidence the panel has. A guess the person can change beats an empty field they must
   fill.
+
+**D6. How the page learns that a branch exists with no worktree, before Start.**
+- **Recommended:** one read-only server call when a template and a name are chosen (`GET
+  /api/lanes/branch?name=…`), answering whether the branch exists locally or on origin and which
+  worktree has it.
+- **Alternatives:**
+  - a list of branches in the polled state, refreshed every 10 seconds;
+  - learning it only from a refused Start (a 409), then letting the person start again.
+- **Why:**
+  - **Not polled:** a branch list adds a `git for-each-ref` to every poll, which is the idle cost
+    PANEL-25 removes.
+  - **Not only after a refusal:** "one click" would really be "refused, then pick again". The 409
+    path stays as the fallback for a branch created between the check and Start.
