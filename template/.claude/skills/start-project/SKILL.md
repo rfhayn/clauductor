@@ -71,7 +71,8 @@ If those lines show as literal text, run the commands yourself.
    ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
 9. **Optional modules and the local layer**: OpenSpec (`.claude/modules/openspec/README.md`), the
    claude.ai review page (`review-page`), shared pages held current with their sources
-   (`artifacts`), a risk register read at every session start (`risk-register`), a display-only
+   (`artifacts`), pages whose stated facts are checked (`living-visuals`), a shared ideas queue
+   (`ideas`), a risk register read at every session start (`risk-register`), a display-only
    commit status for local gate runs (`ci-status`), the premise check (`premise-check`) and the
    write-surface advisory (`write-surfaces`) are off by default; turn one on by naming it in
    `MODULES` (`.claude/modules/README.md` lists them). What the project adds of its own
