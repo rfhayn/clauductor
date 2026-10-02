@@ -34,5 +34,27 @@ carry no `Co-Authored-By`.
 disagree with `model-roles.json`. Nothing checks that a hand-written commit in this repo has no
 `Co-Authored-By`: that is review.
 
+## Amendment — 2026-10-01: build-change reads the choice at run time
+- **Source**: OPS-14 (#36), which closed the OPS-8 finding above; OPS-21 records it here.
+
+The decision stands: on in the template, off here, chosen in `model-roles.json` alone. Three things
+above no longer hold, and this amendment replaces them:
+- `build-change.js` no longer restates the choice. It has no `PROVENANCE` or `ATTRIBUTION_DEFAULT`
+  constant. At run time it reads `attribution` and `provenance` (with the branch prefixes, the
+  changes directory, the gate and its quick flags) from `.claude/project-config.sh --json`.
+- So turning attribution or provenance off edits only `model-roles.json`. No framework file differs
+  on purpose, and `clauductor update` no longer reports `build-change.js` as modified. The first
+  negative trade-off is gone; the second (no role attribution here) stands.
+- `checks/model-roles.sh` no longer compares constants in `build-change.js` with `model-roles.json`,
+  because there are none to compare. The original Enforcement paragraph's second clause is void.
+
+**Enforcement** (replacing the original's second clause): `checks/build-change.sh` fails when
+`build-change.js` carries a project setting as a constant (`const PROVENANCE =`, `const
+ATTRIBUTION`, a literal branch prefix). It also runs `project-config.sh --json` against a project
+with both off and feeds the output to the workflow's own `projectSettings` and `trailerBlock`.
+`checks/model-roles.sh` holds `provenance` and `attribution` in `model-roles.json` to their shape.
+`pr-merge-guard.sh` rule 12 is unchanged. Nothing checks a hand-written commit here for
+`Co-Authored-By`: that is still review.
+
 ## Related
-- ADR-0001; `.claude/model-roles.json`
+- ADR-0001; `.claude/model-roles.json`; `.claude/project-config.sh`

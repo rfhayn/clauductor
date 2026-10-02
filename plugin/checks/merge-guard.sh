@@ -40,7 +40,13 @@ git -C "$R" checkout -q main
 cat > "$d/bin/gh" <<'EOF'
 #!/bin/sh
 case "$1 $2" in
-  "pr checks") echo "${GH_CHECKS:-[]}" ;;
+  "pr checks")
+    # GH_CHECKS_ERR: gh itself fails (auth, network). GH_CHECKS=none: gh's own "no checks" answer.
+    # GH_CHECKS_NOISE: gh writes to stderr beside a valid answer (GH_DEBUG=1, an upgrade notice).
+    [ -n "${GH_CHECKS_ERR:-}" ] && { echo "$GH_CHECKS_ERR" >&2; exit 1; }
+    [ -n "${GH_CHECKS_NOISE:-}" ] && echo "$GH_CHECKS_NOISE" >&2
+    [ "${GH_CHECKS:-}" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
+    echo "${GH_CHECKS:-[]}" ;;
   "pr view")
     case "$*" in
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
@@ -104,6 +110,45 @@ mv "$d/receipt.keep" "$lane_receipt"
 guard 0 "ci-status on: red ci/local and ci/github with a valid receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"},{"name":"ci/github","state":"FAILURE","bucket":"fail"}]'
 guard 2 "ci-status on: a red check that is not a display context" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"lint","state":"FAILURE","bucket":"fail"}]'
 cp "$d/conf.keep" "$R/.claude/project.conf"; rm -rf "$R/.claude/modules" "$R/.claude/lib/modules.sh"
+guard 2 "a red check while gh also writes to stderr (only stdout is the answer)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]' GH_CHECKS_NOISE="[git remote -v]"
+grep -q "non-passing checks: lint=fail" "$d/err" && ok "...and names the red check" || fail "red-check-with-stderr message: $(cat "$d/err")"
+
+# Rule 2(a2): GATE_PR_CHECKS. Empty (the default), nothing reported is judged as before, whatever
+# the workflow files say: no file is read to guess which checks a PR will get.
+guard 0 "GATE_PR_CHECKS empty: no reported checks" "gh pr merge 5 --squash" GH_CHECKS='[]'
+guard 0 "GATE_PR_CHECKS empty: gh's own 'no checks reported'" "gh pr merge 5 --squash" GH_CHECKS=none
+guard 0 "GATE_PR_CHECKS empty: a gh error is left to rule 2(b), as before" "gh pr merge 5 --squash" GH_CHECKS_ERR="HTTP 401: Bad credentials"
+mkdir -p "$R/.github/workflows"
+probe() {  # probe LABEL WORKFLOW-TEXT: a workflow shape that gets no PR checks must not block
+  printf '%b' "$2" > "$R/.github/workflows/ci.yml"
+  guard 0 "GATE_PR_CHECKS empty, no checks reported, workflow $1" "gh pr merge 5 --squash" GH_CHECKS='[]'
+}
+probe "naming pull_request only in a comment" 'on:\n  push:\n    branches: [main]  # pull_request runs elsewhere\n'
+probe "naming pull_request only in an if: expression" "on: [push]\njobs:\n  t:\n    if: github.event_name == 'pull_request'\n"
+probe "on pull_request types: [closed]" 'on:\n  pull_request:\n    types: [closed]\n'
+probe "on pull_request for another base branch" 'on:\n  pull_request:\n    branches: [release]\n'
+probe "on pull_request_target" 'on:\n  pull_request_target:\n'
+rm -rf "$R/.github"
+cp "$R/.claude/project.conf" "$d/conf.ci"
+echo 'GATE_PR_CHECKS="test"' >> "$R/.claude/project.conf"
+M='[{"name":"test (macos-latest)","state":"SUCCESS","bucket":"pass"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: nothing reported yet (CI not registered)" "gh pr merge 5 --squash" GH_CHECKS='[]'
+grep -q "has not reported the checks GATE_PR_CHECKS requires: test" "$d/err" && ok "...and says which required check has not reported" || fail "missing-check message: $(cat "$d/err")"
+guard 2 "GATE_PR_CHECKS=test: gh's 'no checks reported'" "gh pr merge 5 --squash" GH_CHECKS=none
+grep -q "has not reported the checks GATE_PR_CHECKS requires: test" "$d/err" && ! grep -q "gh problem" "$d/err" \
+  && ok "...and reads gh's 'no checks reported' as nothing reported, not as a gh failure" || fail "no-checks message: $(cat "$d/err")"
+guard 0 "GATE_PR_CHECKS=test: the required check green while gh also writes to stderr" "gh pr merge 5 --squash" GH_CHECKS="[{\"name\":\"test\",\"state\":\"SUCCESS\",\"bucket\":\"pass\"}]" GH_CHECKS_NOISE="[git remote -v]"
+guard 2 "GATE_PR_CHECKS=test: only another check reported" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"audit","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: a different check that merely starts with 'test' does not count" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test-flaky","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: one matrix job pending" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test (macos-latest)","state":"PENDING","bucket":"pending"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: one matrix job failed" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test (macos-latest)","state":"FAILURE","bucket":"fail"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: a skipped required check (rule 2(a) alone passes it)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test","state":"SKIPPED","bucket":"skipping"}]'
+grep -q "required checks (GATE_PR_CHECKS) are not green: test=skipping" "$d/err" && ok "...and names the check that is not green" || fail "not-green message: $(cat "$d/err")"
+guard 0 "GATE_PR_CHECKS=test: every matrix job green" "gh pr merge 5 --squash" GH_CHECKS="$M"
+guard 2 "GATE_PR_CHECKS=test: gh itself fails" "gh pr merge 5 --squash" GH_CHECKS_ERR="HTTP 401: Bad credentials (https://api.github.com/graphql)"
+grep -q "cannot read PR #5's checks (gh: HTTP 401" "$d/err" && grep -q "not CI" "$d/err" && ! grep -q "has not reported" "$d/err" \
+  && ok "...and says gh failed, not that CI has not registered" || fail "gh-error message: $(cat "$d/err")"
+cp "$d/conf.ci" "$R/.claude/project.conf"
 
 # Rule 3: the slice line, read at the head from the PR's own change directory.
 printf '%s\tfull\tclean\tall\n' "$NOSLICE" > "$R/.git/ci-receipt"
