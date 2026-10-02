@@ -510,7 +510,18 @@ esac
 # a red one blocks, and a later successful remote run cannot clear it because it posts a different
 # context. Every other check still blocks when it is red.
 # gh normalizes each check into a `bucket`: pass | fail | pending | skipping | cancel.
-checks=$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null)
+# stdout alone is the answer when it is a JSON array (gh exits non-zero for pending checks and still
+# prints it), whatever gh also wrote to stderr: GH_DEBUG or a notice there must not hide a red check.
+# Otherwise stderr is gh saying why it has none, kept for GATE_PR_CHECKS below.
+checks_errf=$(mktemp "${TMPDIR:-/tmp}/guard-checks.XXXXXX") || block "cannot make a temp file to read PR #$pr's checks"
+checks_out=$(gh pr checks "$pr" --json name,state,bucket 2>"$checks_errf")
+checks_stderr=$(cat "$checks_errf"); rm -f "$checks_errf"
+if printf '%s' "$checks_out" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  checks=$checks_out checks_err=""
+else
+  checks="" checks_err=$(printf '%s\n%s\n' "$checks_stderr" "$checks_out" | grep . | head -n 1)
+  case "$checks_stderr$checks_out" in *"no checks reported"*) checks="[]" checks_err="" ;; esac
+fi
 display_re=$(printf '%s' "${GATE_DISPLAY_CONTEXTS:-}" | tr ' ' '\n' | grep . | sed 's/[][\.*^$+?(){}|]/\\&/g' | paste -sd'|' -)
 [ -z "$display_re" ] && display_re='\u0000never-matches'
 if [ -n "$checks" ] && [ "$checks" != "[]" ]; then
@@ -524,6 +535,29 @@ if [ -n "$checks" ] && [ "$checks" != "[]" ]; then
              | "\(.name)=\(.bucket)" ] | join(", ")')
     block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr --watch), then merge."
   fi
+fi
+
+# (a2) The checks this project REQUIRES on a PR, by name: GATE_PR_CHECKS (.claude/project.conf). An
+# empty list reported by gh has nothing red in it, so (a) alone lets a merge land in the minutes
+# before CI registers. Which checks a PR must have cannot be read reliably from workflow files
+# (triggers in comments and `if:` expressions, `types:`, `branches:`, pull_request_target), so it
+# is an explicit opt-in: empty, nothing changes. Each name must have reported AND passed on the
+# head; a name matches a check of exactly that name, or that name followed by " (" (a matrix job:
+# `test` matches `test (ubuntu-latest)`). A skipped required check is not a pass.
+if [ -n "${GATE_PR_CHECKS:-}" ]; then
+  [ -z "$checks_err" ] || block "cannot read PR #$pr's checks (gh: $checks_err), and GATE_PR_CHECKS requires $GATE_PR_CHECKS to have passed. That is a gh problem (auth or network), not CI: fix it (gh auth status), then retry."
+  missing="" notgreen=""
+  for want in $GATE_PR_CHECKS; do
+    got=$(printf '%s' "${checks:-[]}" | jq -r --arg w "$want" \
+      '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) | "\(.name)=\(.bucket)" ] | join(", ")')
+    if [ -z "$got" ]; then missing="$missing $want"; continue; fi
+    bad=$(printf '%s' "$checks" | jq -r --arg w "$want" \
+      '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) | select(.bucket != "pass") | "\(.name)=\(.bucket)" ] | join(", ")')
+    [ -z "$bad" ] || notgreen="${notgreen:+$notgreen, }$bad"
+  done
+  [ -z "$missing" ] || block "PR #$pr has not reported the checks GATE_PR_CHECKS requires:$missing (CI has not registered them for the head commit yet, or the names in .claude/project.conf are wrong: compare gh pr checks $pr). Wait (gh pr checks $pr --watch), then merge."
+  [ -z "$notgreen" ] || block "PR #$pr's required checks (GATE_PR_CHECKS) are not green: $notgreen. Wait for green (gh pr checks $pr --watch), then merge."
+  say "GATE_PR_CHECKS ($GATE_PR_CHECKS) reported and passed on PR #$pr."
 fi
 
 # (b) Then require evidence for THIS commit, asked for BY NAME. "All reported checks are green" is

@@ -1,0 +1,2 @@
+# The living-visuals module's shared files: the file, a TAB, what to do on a conflict.
+every living page (an ARTIFACT_REGISTRY entry with `refresh`)	take origin/main's side, then on the merged tree run living.sh --regen and the page's refresh again for what your side changed; never hand-merge a generated block. sh .claude/checks/run.sh living-visuals:pages must pass before the commit

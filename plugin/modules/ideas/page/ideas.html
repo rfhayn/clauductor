@@ -1,0 +1,527 @@
+<!doctype html>
+<!--
+  THE IDEAS PAGE (the ideas module, .claude/modules/ideas). People add ideas here from the phone,
+  the desktop app or the web; Claude Code adds them with /ideas (.claude/skills/ideas/SKILL.md).
+
+  THE PAGE'S DATABASE IS THE QUEUE. IDEAS_FILE (docs/ideas.md) is generated from it by
+  .claude/modules/ideas/bin/render.sh at session close and is never edited by hand. This file is
+  only the page's source; enable.sh made it from the module's page/ideas.html.
+
+  CAPABILITIES. The shared copy declares, on its FIRST publish only:
+      {"db": {}, "user": {"scopes": ["profile"]}}
+  `db` holds the collection `ideas`; `user` stamps the author's opaque id and resolves names at
+  view time ("profile" is what makes names resolve). Every REPUBLISH omits `capabilities`, which
+  keeps the stored declaration. Passing `{}` would revoke both. The data survives republishes; it
+  is erased only if the artifact is deleted.
+
+  One document per idea, id minted by the page (or the skill):
+      { text, note?, authorId, createdAt, updatedAt, status, roadmapRow? }
+  status is one of not-touched | discussed | parked | roadmap. Nothing is ever deleted.
+  authorId is RECORDED by the page, not proven: anyone who can write the page could set it.
+  The page also leaves each viewer's own id at data/users/<id>/whoami ({id}), private to them, so
+  /ideas can stamp the same authorId from Claude Code (ArtifactData reads it as data/users/me).
+
+  Opened as a local file there is no database: the page says so and shows no queue. Registered in
+  the artifacts registry (ARTIFACT_REGISTRY) like every shared page. The colours are neutral
+  defaults: replace the tokens in :root with the project's own.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ideas</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --surface-card: #ffffff;
+  --surface-3: #eef2f6;
+  --text-strong: #111827;
+  --text-body: #1f2937;
+  --text-muted: #5b6472;
+  --brand: #2563eb;
+  --brand-strong: #1d4ed8;
+  --brand-fg: #ffffff;
+  --accent-strong: #15803d;
+  --accent-soft: #ecfdf3;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --negative: #b91c1c;
+  --negative-soft: #fef2f2;
+  --border: #d9dee5;
+  --border-subtle: #eceff3;
+  --border-focus: #2563eb;
+  --gradient-brand: linear-gradient(135deg, #2563eb 0%, #0ea5e9 55%, #22c55e 100%);
+  --shadow-sm: 0 1px 3px rgba(17,24,39,.08), 0 1px 2px rgba(17,24,39,.04);
+  --shadow-focus: 0 0 0 3px rgba(37,99,235,.30);
+  --radius-xs: .25rem; --radius-sm: .5rem; --radius-md: .75rem; --radius-lg: 1rem;
+  --radius-pill: 999px;
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-5: 1.25rem;
+  --space-6: 1.5rem; --space-8: 2rem;
+  --touch-min: 2.75rem;
+  --container-app: 42rem;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f141a;
+    --surface-card: #171e26;
+    --surface-3: #1e2833;
+    --text-strong: #f3f5f8;
+    --text-body: #d5dbe3;
+    --text-muted: #94a0ae;
+    --brand: #60a5fa;
+    --brand-strong: #93c5fd;
+    --brand-fg: #0f141a;
+    --accent-strong: #4ade80;
+    --accent-soft: rgba(74,222,128,.14);
+    --warning: #f59e0b;
+    --warning-soft: rgba(245,158,11,.14);
+    --negative-soft: rgba(239,68,68,.18);
+    --border: #2c3744;
+    --border-subtle: #1e2833;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f141a;
+  --surface-card: #171e26;
+  --surface-3: #1e2833;
+  --text-strong: #f3f5f8;
+  --text-body: #d5dbe3;
+  --text-muted: #94a0ae;
+  --brand: #60a5fa;
+  --brand-strong: #93c5fd;
+  --brand-fg: #0f141a;
+  --accent-strong: #4ade80;
+  --accent-soft: rgba(74,222,128,.14);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245,158,11,.14);
+  --negative-soft: rgba(239,68,68,.18);
+  --border: #2c3744;
+  --border-subtle: #1e2833;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text-body);
+  font: 400 15px/1.55 var(--font-body);
+  padding-inline: var(--space-4);
+}
+.rule { height: 4px; background: var(--gradient-brand); margin-inline: calc(-1 * var(--space-4)); }
+main { max-width: var(--container-app); margin: 0 auto; padding-block: var(--space-6) var(--space-8);
+  display: grid; gap: var(--space-5); }
+h1, h2 { font-family: var(--font-display); color: var(--text-strong); margin: 0; text-wrap: balance; }
+h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+p { margin: 0; }
+.eyebrow { font: 600 .6875rem/1 var(--font-body); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--brand-strong); }
+.muted { color: var(--text-muted); }
+.lede { color: var(--text-muted); font-size: .875rem; }
+header { display: grid; gap: var(--space-2); }
+
+/* the add box */
+.add { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-3); box-shadow: var(--shadow-sm); display: grid; gap: var(--space-2); }
+.add .line { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+input[type="text"], textarea {
+  width: 100%; min-height: var(--touch-min); font: 400 1rem/1.4 var(--font-body);
+  color: var(--text-strong); background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
+}
+textarea { min-height: 5rem; resize: vertical; }
+input[type="text"]:focus, textarea:focus, select:focus, button:focus-visible {
+  outline: none; border-color: var(--border-focus); box-shadow: var(--shadow-focus);
+}
+button {
+  min-height: var(--touch-min); font: 600 .875rem/1 var(--font-body); border-radius: var(--radius-sm);
+  padding: 0 var(--space-4); cursor: pointer; border: 1px solid transparent;
+}
+.primary { background: var(--brand); color: var(--brand-fg); }
+.primary:disabled { opacity: .45; cursor: not-allowed; }
+.link { background: none; border: 0; color: var(--brand-strong); padding: 0; min-height: 0;
+  font-weight: 500; justify-self: start; text-decoration: underline; text-underline-offset: 3px; }
+.ghost { background: transparent; color: var(--text-body); border-color: var(--border); }
+.notice { font-size: .875rem; border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
+  background: var(--warning-soft); color: var(--text-strong); border-left: 3px solid var(--warning); }
+.notice.err { background: var(--negative-soft); border-left-color: var(--negative); }
+.notice:empty { display: none; }
+
+/* the filter */
+.filter { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.filter button { min-height: 2.25rem; padding: 0 var(--space-3); border-radius: var(--radius-pill);
+  background: var(--surface-card); color: var(--text-muted); border-color: var(--border);
+  font-weight: 500; font-size: .8125rem; }
+.filter button[aria-pressed="true"] { background: var(--text-strong); color: var(--bg);
+  border-color: var(--text-strong); }
+.filter .n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; margin-left: .35em; }
+
+/* the list */
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.idea { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-1); }
+.idea .text { color: var(--text-strong); font-weight: 600; overflow-wrap: anywhere; }
+.idea .note { color: var(--text-body); font-size: .875rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.idea .meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-2); margin-top: var(--space-1); }
+.idea .who { color: var(--text-muted); font-size: .8125rem; }
+.status { font: 500 .8125rem/1 var(--font-body); min-height: 2.25rem; border-radius: var(--radius-pill);
+  padding: 0 var(--space-3); border: 1px solid var(--border); background: var(--surface-3);
+  color: var(--text-strong); }
+.status[data-s="discussed"] { background: var(--accent-soft); color: var(--accent-strong); }
+.status[data-s="roadmap"] { background: var(--brand); color: var(--brand-fg); border-color: var(--brand); }
+.status[data-s="parked"] { background: transparent; color: var(--text-muted); }
+.row-form { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-2); margin-top: var(--space-2); }
+.row-tag { font-family: var(--font-mono); }
+.empty { color: var(--text-muted); font-size: .875rem; text-align: center; padding: var(--space-6) 0; }
+footer { font-size: .8125rem; color: var(--text-muted); border-top: 1px solid var(--border);
+  padding-top: var(--space-4); }
+code { font-family: var(--font-mono); font-size: .86em; }
+@media (max-width: 420px) { .row-form { grid-template-columns: 1fr 1fr; } .row-form input { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<div class="rule" role="presentation"></div>
+<main>
+  <header>
+    <p class="eyebrow">__PROJECT__</p>
+    <h1>Ideas</h1>
+    <p class="lede">Jot it down in a line. Every session sees what's new, and session close writes
+      the queue to <code>docs/ideas.md</code>. Nothing here is ever deleted.</p>
+  </header>
+
+  <form class="add" id="add" autocomplete="off">
+    <div class="line">
+      <input type="text" id="text" maxlength="300" placeholder="An idea, one line…" disabled
+        aria-label="Idea, one line">
+      <button type="submit" class="primary" id="add-btn" disabled>Add</button>
+    </div>
+    <button type="button" class="link" id="note-toggle" aria-expanded="false" disabled>+ add a note</button>
+    <textarea id="note" maxlength="4000" placeholder="Longer note (optional)" hidden
+      aria-label="Note (optional)"></textarea>
+    <p class="notice" id="notice" role="status" aria-live="polite">Loading the queue…</p>
+  </form>
+
+  <nav class="filter" id="filter" aria-label="Filter by status"></nav>
+  <ul class="list" id="list" aria-live="polite"></ul>
+
+  <footer>Statuses: <b>not touched</b> (new), <b>discussed</b> (a session talked it through),
+    <b>on the roadmap</b> (became a row), <b>parked</b> (not now). What becomes a roadmap row is
+    for __OWNER__ to scope.</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var STATUSES = [
+    { id: "not-touched", label: "Not touched" },
+    { id: "discussed", label: "Discussed" },
+    { id: "roadmap", label: "On the roadmap" },
+    { id: "parked", label: "Parked" },
+  ];
+  var LABEL = {};
+  STATUSES.forEach(function (s) { LABEL[s.id] = s.label; });
+
+  var el = function (id) { return document.getElementById(id); };
+  var form = el("add"), textIn = el("text"), noteIn = el("note"), addBtn = el("add-btn");
+  var noteToggle = el("note-toggle"), notice = el("notice"), list = el("list"), filterNav = el("filter");
+
+  var db = null, user = null, ideas = null;
+  var canWrite = false, filter = "all", openRowFor = null, renderSeq = 0;
+
+  function say(msg, isError) {
+    notice.textContent = msg || "";
+    notice.classList.toggle("err", !!isError);
+  }
+  function setWritable(on) {
+    canWrite = on;
+    textIn.disabled = !on; addBtn.disabled = !on; noteToggle.disabled = !on; noteIn.disabled = !on;
+  }
+  function readOnlyFor(reason) {
+    setWritable(false);
+    say(reason);
+    render();
+  }
+
+  // The page's data is untrusted input from every viewer: normalise before rendering.
+  function clean(snap) {
+    var d = snap.data() || {};
+    var status = LABEL[d.status] ? d.status : "not-touched";
+    return {
+      id: snap.id,
+      text: typeof d.text === "string" ? d.text : "",
+      note: typeof d.note === "string" ? d.note : "",
+      authorId: typeof d.authorId === "string" ? d.authorId : null,
+      createdAt: typeof d.createdAt === "string" ? d.createdAt : "",
+      updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : "",
+      status: status,
+      roadmapRow: typeof d.roadmapRow === "string" ? d.roadmapRow : "",
+      raw: d,
+    };
+  }
+
+  function when(iso) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return "";
+    var d = new Date(t), now = new Date();
+    if (d.toDateString() === now.toDateString()) return "today";
+    var opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  }
+
+  function renderFilter(counts) {
+    filterNav.textContent = "";
+    var all = [{ id: "all", label: "All" }].concat(STATUSES);
+    all.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(filter === s.id));
+      b.appendChild(document.createTextNode(s.label));
+      var n = document.createElement("span");
+      n.className = "n";
+      n.textContent = String(counts[s.id] || 0);
+      b.appendChild(n);
+      b.addEventListener("click", function () { filter = s.id; render(); });
+      filterNav.appendChild(b);
+    });
+  }
+
+  async function render() {
+    var seq = ++renderSeq;
+    if (!ideas) { filterNav.textContent = ""; list.textContent = ""; return; }
+    var counts = { all: ideas.length };
+    ideas.forEach(function (i) { counts[i.status] = (counts[i.status] || 0) + 1; });
+    var shown = ideas.filter(function (i) { return filter === "all" || i.status === filter; });
+    // Names are resolved at view time, never stored (user.d.ts): call profiles on every render.
+    var ids = [];
+    shown.forEach(function (i) { if (i.authorId && ids.indexOf(i.authorId) < 0) ids.push(i.authorId); });
+    var people = {};
+    if (user && ids.length) {
+      try { people = await user.profiles(ids); } catch (e) { people = {}; }
+    }
+    if (seq !== renderSeq) return; // a newer snapshot or click has already rendered
+    renderFilter(counts);
+    list.textContent = "";
+    if (!shown.length) {
+      var empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = ideas.length ? "No ideas with this status." : "No ideas yet. Add the first one above.";
+      list.appendChild(empty);
+      return;
+    }
+    shown.forEach(function (i) { list.appendChild(card(i, people)); });
+  }
+
+  function card(i, people) {
+    var li = document.createElement("li");
+    li.className = "idea";
+    var text = document.createElement("p");
+    text.className = "text";
+    text.textContent = i.text || "(empty)";
+    li.appendChild(text);
+    if (i.note) {
+      var note = document.createElement("p");
+      note.className = "note";
+      note.textContent = i.note;
+      li.appendChild(note);
+    }
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    var who = document.createElement("span");
+    who.className = "who";
+    var p = i.authorId && people[i.authorId];
+    var name = (p && p.name) || "Someone";
+    who.textContent = name + (when(i.createdAt) ? " · " + when(i.createdAt) : "");
+    meta.appendChild(who);
+    meta.appendChild(statusControl(i));
+    li.appendChild(meta);
+    if (openRowFor === i.id) li.appendChild(rowForm(i));
+    return li;
+  }
+
+  function statusControl(i) {
+    if (!canWrite) {
+      var tag = document.createElement("span");
+      tag.className = "status";
+      tag.dataset.s = i.status;
+      tag.style.display = "inline-flex";
+      tag.style.alignItems = "center";
+      tag.textContent = i.status === "roadmap" && i.roadmapRow
+        ? "Roadmap " + i.roadmapRow : LABEL[i.status];
+      return tag;
+    }
+    var sel = document.createElement("select");
+    sel.className = "status";
+    sel.dataset.s = i.status;
+    sel.setAttribute("aria-label", "Status of: " + (i.text || "idea"));
+    STATUSES.forEach(function (s) {
+      var o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = s.id === "roadmap" && i.status === "roadmap" && i.roadmapRow
+        ? "Roadmap " + i.roadmapRow : s.label;
+      if (s.id === i.status) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () {
+      if (sel.value === "roadmap") { openRowFor = i.id; render(); return; }
+      openRowFor = null;
+      writeStatus(i, sel.value, "");
+    });
+    return sel;
+  }
+
+  function rowForm(i) {
+    var f = document.createElement("form");
+    f.className = "row-form";
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.maxLength = 20;
+    inp.className = "row-tag";
+    inp.placeholder = "Roadmap row, e.g. 2.3";
+    inp.setAttribute("aria-label", "Which roadmap row it became");
+    inp.value = i.roadmapRow;
+    var save = document.createElement("button");
+    save.type = "submit";
+    save.className = "primary";
+    save.textContent = "Save";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ghost";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", function () { openRowFor = null; render(); });
+    f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var row = inp.value.trim();
+      if (!row) { inp.focus(); say("Name the roadmap row it became."); return; }
+      openRowFor = null;
+      writeStatus(i, "roadmap", row);
+    });
+    f.appendChild(inp); f.appendChild(save); f.appendChild(cancel);
+    setTimeout(function () { inp.focus(); }, 0);
+    return f;
+  }
+
+  function failWrite(e, what) {
+    var code = e && e.code;
+    if (code === "invalid_argument" || code === "not_granted" || code === "revoked") {
+      readOnlyFor("You can read this queue but not change it. Ask the page's owner to invite you by email " +
+        "as an Editor, with the page's link sharing off.");
+    } else if (code === "quota_exceeded") {
+      say("The queue is full (" + (e.message || "quota") + "). Tell the page's owner; nothing was saved.", true);
+    } else {
+      say("Could not " + what + ". Nothing was lost; try again in a moment.", true);
+    }
+  }
+
+  async function writeStatus(i, status, row) {
+    // A full replace from the stored body, so a roadmap row does not linger once the status moves on.
+    var body = JSON.parse(JSON.stringify(i.raw));
+    body.status = status;
+    body.updatedAt = new Date().toISOString();
+    if (status === "roadmap") body.roadmapRow = row; else delete body.roadmapRow;
+    try {
+      await db.collection("ideas").doc(i.id).set(body);
+      say("");
+    } catch (e) {
+      failWrite(e, "change the status");
+      render();
+    }
+  }
+
+  noteToggle.addEventListener("click", function () {
+    var open = noteIn.hidden;
+    noteIn.hidden = !open;
+    noteToggle.setAttribute("aria-expanded", String(open));
+    noteToggle.textContent = open ? "− no note" : "+ add a note";
+    if (open) noteIn.focus();
+  });
+
+  var adding = false;
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    if (!canWrite || adding) return;
+    var text = textIn.value.trim();
+    if (!text) { textIn.focus(); return; }
+    // Guard BEFORE the first await, or a second tap during `user.id()` adds the idea twice.
+    adding = true; addBtn.disabled = true;
+    var note = noteIn.hidden ? "" : noteIn.value.trim();
+    var now = new Date().toISOString();
+    var authorId = null;
+    try { authorId = user ? await user.id() : null; } catch (err) { authorId = null; }
+    var body = { text: text, authorId: authorId, createdAt: now, updatedAt: now, status: "not-touched" };
+    if (note) body.note = note;
+    try {
+      await db.collection("ideas").doc().set(body);
+      textIn.value = ""; noteIn.value = "";
+      noteIn.hidden = true; noteToggle.textContent = "+ add a note";
+      noteToggle.setAttribute("aria-expanded", "false");
+      say("Added.");
+      textIn.focus();
+    } catch (err) {
+      failWrite(err, "add the idea");
+    } finally {
+      adding = false;
+      if (canWrite) addBtn.disabled = false;
+    }
+  });
+
+  // `/ideas` in Claude Code writes through ArtifactData, which can address the caller's own
+  // subtree as `data/users/me` but never tells it the caller's id. So the page, which does know
+  // it, leaves it there once: the skill reads `data/users/me/whoami` and stamps ideas with the same
+  // authorId the page would. Private to that viewer (db.d.ts); written only when missing.
+  async function rememberWhoAmI() {
+    try {
+      var id = user ? await user.id() : null;
+      if (!id) return;
+      var ref = db.doc("data/users/" + id + "/whoami");
+      var snap = await ref.get();
+      if (snap.exists && (snap.data() || {}).id === id) return;
+      await ref.set({ id: id });
+    } catch (e) { /* a viewer who cannot write has no subtree; /ideas then stamps no author */ }
+  }
+
+  async function start() {
+    var claude = window.claude;
+    if (!claude || typeof claude.use !== "function") {
+      return readOnlyFor("This is the local copy, so it cannot reach the queue. " +
+        "Open the shared Ideas page on claude.ai to see and add ideas.");
+    }
+    var got = await Promise.all([claude.use("db"), claude.use("user")]);
+    db = got[0]; user = got[1];
+    if (!db) {
+      return readOnlyFor("This view cannot reach the queue. " +
+        "Open the shared Ideas page on claude.ai, signed in, to see and add ideas.");
+    }
+    rememberWhoAmI();
+    var may = null;
+    try { may = user ? await user.can("data.write") : null; } catch (e) { may = null; }
+    // null = the platform said nothing: keep the inputs and let a refused write decide.
+    setWritable(may !== false);
+    say(may === false
+      ? "You can read this queue but not add to it. Ask the page's owner to invite you by email as an " +
+        "Editor, with the page's link sharing off."
+      : "");
+    db.collection("ideas").onSnapshot(function (snap) {
+      ideas = snap.docs.filter(function (d) { return d.exists; }).map(clean);
+      ideas.sort(function (a, b) {
+        return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? -1 : 1;
+      });
+      render();
+    }, function (err) {
+      if (err && err.code === "revoked") return readOnlyFor("Access to this queue has ended for this view.");
+      say("The queue could not be read (" + ((err && err.code) || "unavailable") +
+        "). Reload the page to try again.", true);
+    });
+  }
+
+  start().catch(function () {
+    readOnlyFor("The queue could not be reached. Reload the page to try again.");
+  });
+})();
+</script>
+</body>
+</html>

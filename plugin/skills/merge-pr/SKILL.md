@@ -63,6 +63,10 @@ too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <f
 
 - **Gate failed**: STOP. The fix is code, not a merge flag.
 - **A reported check is red**: STOP; the guard blocks on anything reported and not passing.
+- **A required check has not reported or is not green**: the project names the PR checks a merge
+  waits for in `GATE_PR_CHECKS` (`.claude/project.conf`; empty = none). The guard blocks until each
+  has reported and passed on the head. Wait with `gh pr checks <n> --watch`. If it says gh itself
+  failed, fix gh (`gh auth status`): that is not CI.
 
 ### 2b. The slice line (change PRs only)
 Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD` under

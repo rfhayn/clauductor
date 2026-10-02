@@ -100,7 +100,9 @@ gate_steps() {
   step "process checks" sh .claude/checks/run.sh || return 1
   step "gofmt" gofmt_clean || return 1
   step "vet" sh -c 'cd framework && go vet ./...' || return 1
-  step "test (short)" sh -c 'cd framework && go test -short ./...' || return 1
+  # -count=1 on both test steps: go's test cache keys on what the test process itself opens, and
+  # many tests run sh checks over template/ in subprocesses, so a cached pass can be stale evidence.
+  step "test (short)" sh -c 'cd framework && go test -short -count=1 ./...' || return 1
   # The template's checks, run in the template (they hold the model every project receives).
   step "template checks" sh template/.claude/checks/run.sh || return 1
   # plugin/ is generated from template/; a template edit without a rebuild ships a stale plugin.
@@ -118,6 +120,6 @@ gate_steps() {
   # shellcheck disable=SC2086  # the package list is split on purpose
   # -timeout 25m as CI sets it: internal/plugin, always in the scope, runs near go test's 10-minute
   # per-package default on a loaded machine.
-  step "test (race)" sh -c 'cd framework && go test -race -timeout 25m "$@"' race $race_pkgs || return 1
+  step "test (race)" sh -c 'cd framework && go test -race -count=1 -timeout 25m "$@"' race $race_pkgs || return 1
   return 0
 }

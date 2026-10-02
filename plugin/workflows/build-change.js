@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, quickFlags?: "<GATE_QUICK_FLAGS, from .claude/project.conf>", session?: "<this session\'s id, for the Session: trailer>"}; the changes directory, branch prefix, gate, attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -34,9 +34,8 @@ if (!change) throw new Error('build-change needs args.change (the change id)')
 // at run time from .claude/project-config.sh, in the Preflight phase below: a project that changes
 // one edits project.conf or model-roles.json, never this file, so `clauductor update` sees this file
 // as the template's (OPS-8 rehearsal: attribution off meant editing it, and update flagged it forever).
-// The quick flags: args, else the project's GATE_QUICK_FLAGS (read at preflight), else --quick.
-let CHANGES, BRANCH, GATE_CMD, CFG
-let QUICK = args.quickFlags == null ? '--quick' : String(args.quickFlags)
+// The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args.
+let CHANGES, BRANCH, GATE_CMD, QUICK, CFG
 const MAX_ROUNDS = args.maxRounds ?? 3
 const RESUME = args.resume == null ? null : Number(args.resume)
 const MAX_GATE_FIXES = 2
@@ -118,6 +117,8 @@ const projectSettings = (text, a) => {
     changesDir: String(a.changesDir || c.changesDir || 'changes').replace(/\/+$/, ''),
     branchPrefix: a.branchPrefix != null ? String(a.branchPrefix) : c.branch.change,
     gate: String(a.gate || c.gate || 'scripts/ci/gate.sh'),
+    // An empty GATE_QUICK_FLAGS is a project's choice (its gate has no quick mode), not a missing value.
+    quickFlags: a.quickFlags != null ? String(a.quickFlags) : (typeof c.quickFlags === 'string' ? c.quickFlags : '--quick'),
     attribution: a.attribution != null ? String(a.attribution) : String(c.attribution || ''),
     provenance: c.provenance === true,
   }
@@ -155,8 +156,6 @@ const PREFLIGHT = {
     today: { type: 'string', description: 'verbatim output of date +%Y-%m-%d' },
     commonDir: { type: 'string', description: 'verbatim output of git rev-parse --path-format=absolute --git-common-dir' },
     toplevel: { type: 'string', description: 'verbatim output of git rev-parse --show-toplevel' },
-    gate: { type: 'string', description: 'GATE from .claude/project.conf (step 9, first line); empty if unread' },
-    quickFlags: { type: 'string', description: 'GATE_QUICK_FLAGS from .claude/project.conf (step 9, second line); empty if unread' },
     dirtyFiles: { type: 'array', items: { type: 'string' } },
     groups: {
       type: 'array',
@@ -256,7 +255,8 @@ if (CFG.error) return stop('preflight', CFG.error)
 CHANGES = CFG.changesDir
 BRANCH = `${CFG.branchPrefix}${change}`
 GATE_CMD = CFG.gate
-log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD}, provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
+QUICK = CFG.quickFlags
+log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD} (quick: ${QUICK || 'no flags'}), provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
 const pre = await agent(
   `Repo root is the cwd. Report, without changing anything:
 1. \`git rev-parse --abbrev-ref HEAD\` → branch.
@@ -267,16 +267,11 @@ const pre = await agent(
 6. \`clauductor-model change-cost.sh ${change} --json\` → its costUsd (null when it prints costUsd null or fails).
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
-9. \`sh -c '. .claude/lib/conf.sh; printf "%s\\n%s\\n" "$GATE" "$GATE_QUICK_FLAGS"'\` → its first line as gate, its second as quickFlags (verbatim; empty strings if it fails).
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
 if (!pre) return stop('preflight', 'preflight agent returned nothing')
 if (pre.branch !== BRANCH) return stop('preflight', `on branch ${pre.branch}, expected ${BRANCH}`)
-// An explicit arg wins; otherwise the project's own gate and quick flags (P1.7), so a project whose
-// gate is not scripts/ci/gate.sh --quick needs no args at every run.
-if (!args.gate && String(pre.gate || '').trim()) GATE_CMD = String(pre.gate).trim()
-if (args.quickFlags == null && pre.quickFlags != null && String(pre.gate || '').trim()) QUICK = String(pre.quickFlags).trim()
 // The main checkout stays on main: every hook runs from "$CLAUDE_PROJECT_DIR", the main checkout,
 // so a build holding it on a change branch leaves every worktree agent guarded by that branch's
 // hooks, and worktree-hook-drift.sh then refuses every new worktree agent. The comparison is done

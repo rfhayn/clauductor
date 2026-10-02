@@ -586,6 +586,20 @@ func TestPluginChecksPassInScaffoldedProject(t *testing.T) {
 	if out, code := run(t, p, e, "", "sh", "scripts/ci/clauductor-model.sh", "checks/run.sh"); code == 0 || !strings.Contains(out, "FAIL") {
 		t.Fatalf("with no plugin to find, the resolver must fail, not skip (exit %d)\n%s", code, out)
 	}
+	// The ideas module's enable.sh, run from the plugin, installs /ideas into the project with the
+	// tool spelt the plugin's way (a plugin project has no .claude/modules), and its own --check
+	// accepts that copy. Last, because the installed skill is one the scaffold's roles do not map.
+	en := filepath.Join(plug, "modules", "ideas", "enable.sh")
+	if out, code := run(t, p, e, "", "sh", en); code != 0 {
+		t.Fatalf("the plugin's ideas enable.sh: exit %d\n%s", code, out)
+	}
+	sk, err := os.ReadFile(filepath.Join(p, ".claude", "skills", "ideas", "SKILL.md"))
+	if err != nil || !strings.Contains(string(sk), "clauductor-model modules/ideas/bin/render.sh --url") || strings.Contains(string(sk), "sh .claude/modules/") {
+		t.Errorf("the plugin's ideas enable.sh did not install /ideas with the plugin's command (%v):\n%s", err, sk)
+	}
+	if out, code := run(t, p, e, "", "sh", en, "--check"); code != 0 {
+		t.Errorf("the plugin's ideas enable.sh --check refuses the copy it installed (exit %d)\n%s", code, out)
+	}
 }
 
 // `claude plugin validate` is the authoritative manifest check. CI runners have no claude CLI.
