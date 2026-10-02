@@ -81,7 +81,7 @@
 | "branch" without a template | 400: the existing-branch choice belongs to a template's named branch; a plain lane uses "An existing worktree" or a new branch. |
 | Templates while panel.json is untrusted | Unchanged: 409 `untrusted-config`. |
 
-## Decisions (awaiting the owner; revised after the proposal's review, 2026-10-02)
+## Decisions (the owner decided all six as recommended, 2026-10-02, after the proposal's review)
 
 D1, D2, D4 and D5 are as first approved. D3 is narrowed and D6 is new: the review found that
 "unmet dependencies" has no structured source and that the page couldn't see a branch without a
