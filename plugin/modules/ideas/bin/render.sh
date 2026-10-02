@@ -95,10 +95,13 @@ why_not() {
   [ -n "$h" ] || { echo "it does not begin with the generated header"; return; }
   [ "$(body_of "$1" | sha256)" = "${h#* }" ] || { echo "its body no longer matches the hash in its header: it was edited by hand"; return; }
   # The data-through stamp sits outside the hashed body (so the hash stays the reference's), so it
-  # is held to the body instead: "none" exactly when no idea is listed, an ISO time otherwise.
+  # is held to the body instead: "none" exactly when no listed idea is dated (updatedAt falls back
+  # to createdAt, so a stamp of none means every idea renders "undated"), an ISO time otherwise.
   t=${h%% *}; n=$(body_of "$1" | grep -c '^- \*\*')
   if [ "$n" -eq 0 ]; then [ "$t" = none ] || echo "its header's data-through ($t) dates a body that lists no idea: it was edited by hand"
-  elif [ "$t" = none ]; then echo "its header's data-through says none, but the body lists $n ideas: it was edited by hand"
+  elif [ "$t" = none ]; then
+    dated=$(body_of "$1" | grep -Ec '^- \*\*.*, [0-9]{4}-[0-9]{2}-[0-9]{2}($|\. Note: )')
+    [ "$dated" -eq 0 ] || echo "its header's data-through says none, but the body lists $dated dated ideas: it was edited by hand"
   elif ! printf '%s' "$t" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$'; then
     echo "its header's data-through ($t) is not an ISO time: it was edited by hand"
   fi
