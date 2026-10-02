@@ -53,7 +53,7 @@ fixed in the template before Standing Tee's Phase 0.
 |---|--------|-------|------|--------|
 | OPS-8 | `ops/ops-8-own-model` — this repo installs and runs the model it ships; ADRs 0001–0008; the no-clauductor check | `.claude/`, `AGENTS.md`, `scripts/ci/`, `docs/`, `template/.claude/checks/no-clauductor.sh` | — | ⬜ in flight (#27) |
 | OPS-13 | `ops/ops-13-remove-old-model` — the CLI no longer carries the lock-and-supervisor model: no SQLite registry, HUD, claim/spawn/assign, and install stops creating `orchestration/` | `framework/internal/{state,hud}`, `framework/internal/cmd`, `docs/onboarding.md` | OPS-8 | ✅ merged (#37) |
-| OPS-26 | `ops/ops-26-ci-linux-prs` — a pull request's CI runs Ubuntu only and a newer push cancels the running suite; `main` still runs macOS and Ubuntu (the local gate covers macOS per PR) | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md` | — | ⬜ in flight |
+| OPS-26 | `ops/ops-26-ci-linux-prs` — a pull request's CI runs Ubuntu only and a newer push cancels the running suite; `main` still runs macOS and Ubuntu (the local gate covers macOS per PR) | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md` | — | ⬜ in flight (#58) |
 | OPS-14 | `ops/ops-14-rehearsal-fixes` — the OPS-8 rehearsal findings too big to fix inline (journal Session 1): old-model detection on a fresh clone, stale old-model files after install, the ambient template path, update adding new doc-tier files, settings and branch prefixes a project changes living in framework files | `framework/internal/cmd/{ownguard,install,update}.go`, `template/.claude/workflows/build-change.js` | OPS-8 | ⬜ in flight (#36) |
 
 ## Phase 2 — The panel
