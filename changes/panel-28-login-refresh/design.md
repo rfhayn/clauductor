@@ -44,8 +44,11 @@ Who reuses them:
   existence, `~/.claude` hard-coded, a 10 s grace). PANEL-32's probe goes through the gate. A long
   call holds the slot like any other, so the probe pauses the agents poll for its length. PANEL-32
   states that cost to the owner, or proposes an exception there.
-- **PANEL-25's spawn counter** sits inside the gate, counting processes actually started. A skipped
-  or paused call is not a spawn.
+- **PANEL-25's spawn counter** sits inside the gate, between it and `ExecRunner`, counting
+  processes actually started. A skipped or paused call is not a spawn.
+  - **Machine calls:** PANEL-25 also moves `Machine.run` off `m.defRT().exec` and tags the
+    machine's calls "machine". The gate reads no tag and keys only on the argv, so it works with
+    either.
 - **PANEL-25's estimate of `auth status`** changes under D5: no longer every 10 min.
 
 `claude auth status` feeds only the status bar: the account's mode and plan, and a hash of the org
@@ -130,11 +133,20 @@ day's wait (D8).
      - **Per stopped call,** one line (group 2 writes these).
    - A re-read of the installed binary, recording in the Decision log what differs from *What is
      known*.
-2. **Group 2, the gate.** `claudecall.Gate` wraps the Runner for any argv whose program is
+2. **Group 2, the gate.** `claudecall.Gate` is a Runner wrapper for any argv whose program is
    `claude`, directly or after `/usr/bin/env -u …`. It covers cards and suggest commands too (D9).
-   - **How it stops a call:** it starts the process, reaps it in a goroutine, and returns to the
-     caller at its deadline (D2).
-   - **The slot:** one process at a time, held until reaped (D3).
+   It never execs anything itself.
+   - **Where it sits:** `Run` wraps `o.Runner` once, before any runtime, the machine or a lane
+     manager receives it. The order is the project tag (in the context), then this gate, then
+     PANEL-25's spawn counter, then `signals.ExecRunner`. The reference is PANEL-25's design D6 and
+     its shape item 5. Whichever change lands second keeps that order.
+   - **Why that order:** a call the gate holds back never reaches the counter, so it isn't counted
+     as a spawn.
+   - **How it stops a call:** the stop policy is split across two layers (D2).
+     - **The gate** calls the inner Runner in a goroutine, under a context of its own, and returns
+       to the caller at the caller's deadline.
+     - **`ExecRunner`** owns the signals, for `claude` argv only.
+   - **The slot:** one process at a time, held until the inner call returns (D3).
    - **The lock pause:** no start while a lock is live (D4).
    - **What the callers do:**
      - polls wait briefly and then return a short retry, applying no update;
@@ -205,16 +217,28 @@ day's wait (D8).
   group 4.
 
 **D2. How the gate stops a `claude` call.**
-- **Recommended:**
-  - **The caller** gets its timeout error at its own deadline. The gate starts the process and
-    reaps it in a goroutine, so the caller never waits for the exit.
-  - **The process** gets SIGTERM at that deadline, and SIGKILL 15 s later if it is still running.
-  - **The slot** stays held until the process is reaped (D3).
-  - **At panel shutdown,** the grace is 3 s, not 15. The gate's close runs after `wg.Wait()` and
-    waits at most 3 s.
+- **Recommended:** two layers, so the gate stays a plain Runner wrapper and PANEL-25's counter can
+  sit between them.
+  - **The gate:**
+    - It calls the inner Runner in a goroutine, under a context it owns, and returns the timeout
+      error to the caller at the caller's deadline, so the caller never waits for the exit.
+    - At that deadline it cancels its own context.
+    - The slot stays held until the inner call returns, which is when the process has been reaped
+      (D3).
+  - **`ExecRunner`, for `claude` argv only:**
+    - `Cmd.Cancel` sends SIGTERM, and `Cmd.WaitDelay` is 15 s. A process still running then is
+      killed.
+    - It reports the child's pid through a callback the gate puts in the context. The watch uses
+      it (group 1), and so does the shutdown.
+    - Other commands keep today's `exec.CommandContext` behaviour.
+  - **At panel shutdown,** the grace is 3 s, not 15. The gate's close runs after `wg.Wait()`:
+    SIGTERM is already sent through the cancelled contexts. It waits at most 3 s, then SIGKILLs any
+    pid it still holds.
 - **Alternatives:**
-  - `exec.Cmd.Cancel` with `WaitDelay`: `Wait` blocks the caller until the exit or the delay,
-    so the caller can't return at its deadline;
+  - `Cmd.Cancel` with `WaitDelay` called straight from the caller: `Wait` blocks the caller until
+    the exit or the delay, so the caller can't return at its deadline;
+  - the gate execing the process itself: it would bypass any Runner below it, PANEL-25's counter
+    included;
   - releasing the slot at the deadline: two `claude` processes at once during the grace;
   - the full 15 s grace at shutdown, or a longer install wait.
 - **Why:** SIGKILL is the one way to stop a holder that guarantees it can't release the lock, so it
