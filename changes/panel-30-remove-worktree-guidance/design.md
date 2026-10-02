@@ -153,7 +153,7 @@ couldn't tell whether its commit <sha> is on a branch (<why>), so it stays.`
 | Unfinished work appears between the plan and Confirm | Removed as confirmed: the warning is advice, not a guard (D1). |
 | Every refusal Remove has today (dirty, locked, a lane, a session, the main checkout) | Unchanged, under Keeps. |
 
-## Decisions (awaiting the owner; revised after review, 2026-10-02)
+## Decisions (the owner decided all as recommended, 2026-10-02, including D6: the data-loss fix ships first as #77)
 
 **D1. Unfinished work on the branch: warn, or refuse.**
 - **Recommended:** warn first, and relabel the button "Remove anyway". Never refuse.
