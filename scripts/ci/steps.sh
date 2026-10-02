@@ -1,6 +1,7 @@
 # steps.sh: THE one definition of the gate's steps (GATE_STEPS in .claude/project.conf). Sourced by
 # run-local.sh, which calls `gate_steps full|quick` in the directory being tested. The remote CI
-# (.github/workflows/test.yml) runs the same commands on macOS and Ubuntu.
+# (.github/workflows/test.yml) runs the same commands: on Ubuntu for a pull request, on macOS and
+# Ubuntu for a push to main (OPS-26).
 #
 # Each step is `step "<name>" <command> [args...]`: it prints `==> <name>` (the agent-facing
 # filter keys on that), runs the command, and a non-zero exit fails the gate. `|| return 1` stops at

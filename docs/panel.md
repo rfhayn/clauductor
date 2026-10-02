@@ -2599,8 +2599,9 @@ and cookies (twice, once during an upgrade), an idle terminal closes, an untrust
 no command, and a gate on a terminal can use it and gets one Ctrl-C. They take `SecurityTmuxSocket`.
 
 **CI enforces the full suite.** `.github/workflows/test.yml` runs `gofmt -l`, `go vet
-./...` and `go test -race ./...` on macOS and Ubuntu, with tmux, on every push to `main` and
-every pull request into it. `-short` is for working; CI is the gate. The clock check
+./...` and `go test -race ./...` with tmux: on Ubuntu for every pull request into `main`, and on
+macOS and Ubuntu for every push to it. A newer push to a pull request cancels its running
+suite. `-short` is for working; CI is the gate. The clock check
 (`TestOnlyPackageClockReadsTheTime`) is part of the suite.
 
 The rules the suite keeps, and a new test must too:
