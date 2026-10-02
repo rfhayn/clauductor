@@ -1,0 +1,1 @@
+Before fixing, run the premise check, {cmd} {issue}, read what it points at against the issue, and put its receipt line (premise-check: #N @ <sha>) in the PR body.

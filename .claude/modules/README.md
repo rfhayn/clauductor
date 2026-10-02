@@ -58,3 +58,5 @@ tool says `CANNOT CHECK — no Artifact tool` rather than erroring.
 | `people` | a people registry (`PEOPLE`); session-start's who-is-on-what and lane table; a roadmap rule that every `**Owner:**` is a person; conflict rows; `checks/registry.sh` |
 | `risk-register` | a session-start section listing the live risks, a session-close review fragment, `checks/register.sh` (the rows' grammar); `enable.sh` makes the register from its stub |
 | `ci-status` | `scripts/publish-status.sh`, which the gate runner calls after a full run to draw the verdict on the PR as a commit status (display only: never evidence), and `checks/display.sh` |
+| `premise-check` | `premise-check.sh` (does an issue's write-up still match the code?), a blocking guard rule (a `fix/` PR carries its receipt per issue), the panel fix-lane sentence (`enable.sh`), `checks/project.sh` |
+| `write-surfaces` | an advisory guard rule (a change adding `WRITE_SURFACE_MAX`+ routes or screens is told to consider splitting), `checks/project.sh` |

@@ -110,8 +110,9 @@ an agent cannot infer from the code. Keep each to two lines and put the detail i
 `docs/conventions.md`. For example:
 
 - **Branching.** One change = one branch = one squash PR: `change/<id>` for a capability,
-  `fix/<n>-<slug>`, `ops/<name>` otherwise. No stacked PRs. Commit messages in the imperative.
-  The main checkout stays on `main`; work happens in worktrees (`.claude/worktrees/<lane>`).
+  `fix/<n>-<slug>` (`<n>` is the issue number, never a date), `ops/<name>` otherwise. No stacked
+  PRs. Commit messages in the imperative. The main checkout stays on `main`; work happens in
+  worktrees (`.claude/worktrees/<lane>`).
 - **The gate** is `GATE_RUN` in `.claude/project.conf`; agents run it through `GATE`.
 - **Reuse before you write.** Grep for the concept before adding a function, a query or a
   dependency.
