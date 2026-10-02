@@ -8,7 +8,7 @@
 ## Context
 `clauductor install` overwrites the template's framework tier (skills, hooks, checks, settings)
 and `update` adds what is missing. Run in a repository that grew its own operating model
-(StandingT has skills and hooks with the same names), either would replace or scatter files the
+(Standing Tee has skills and hooks with the same names), either would replace or scatter files the
 project owns. The plugin and the binary install the same hooks, so running both would judge every
 Bash call twice.
 

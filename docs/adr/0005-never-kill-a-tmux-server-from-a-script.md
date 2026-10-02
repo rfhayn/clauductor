@@ -3,10 +3,10 @@
 - **Status**: Accepted
 - **Date**: 2026-09-30
 - **Tags**: process, panel, template
-- **Source**: the 2026-09-30 incident (both of the owner's live StandingT lanes died at once)
+- **Source**: the 2026-09-30 incident (both of the owner's live Standing Tee lanes died at once)
 
 ## Context
-On 2026-09-30 every lane of the owner's installed panel died at once. The cause was StandingT's
+On 2026-09-30 every lane of the owner's installed panel died at once. The cause was Standing Tee's
 `.claude/machine-quiet.sh`: its step 1 killed orphaned processes (parent pid 1) whose command line
 named `.claude/worktrees/`. The panel's daemonized tmux server matches exactly: it keeps the
 `new-session -c <worktree>` argv it was started with. A cleanup script that pattern-matches

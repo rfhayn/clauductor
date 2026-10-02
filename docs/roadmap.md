@@ -47,7 +47,7 @@ names as their ids. Earlier history (M1–M7, LIFE-1) is in `docs/prds/` and the
 
 Exit criteria: this repo's sessions run session-start, the gate, merge-pr and session-close as a
 project does; the old lock-and-supervisor model is gone from the code; what the rehearsal found is
-fixed in the template before StandingT's Phase 0.
+fixed in the template before Standing Tee's Phase 0.
 
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
@@ -84,6 +84,7 @@ and reach the owner through session-start and the panel.
 | OPS-9 | `ops/ops-9-metrics` — `.claude/metrics.sh`: lead and cycle time, approval wait, review rounds, aging WIP, merge frequency, change-fail rate; a health line and a card | `template/.claude/metrics.sh`, `template/.claude/health/` | — | ✅ merged (#26) |
 | OPS-10 | `ops/ops-10-evals` — a seeded-defect suite measures the reviewer's recall; the merge guard wants an eval receipt for agent, workflow and role changes | `template/.claude/evals/`, `template/.claude/hooks/pr-merge-guard.sh` | — | ✅ merged (#28) |
 | OPS-16 | `ops/OPS-16-narrow-rule-13` — rule 13 fires only on what makes the reviewer what it is (its model, its agent, the marked review prompt), declared per role in `evals.triggers`; the reviewer's opus/high baseline measured once | `template/.claude/{lib/evals.sh,evals/run.sh,hooks/}`, `.claude/model-roles.json` | OPS-10 | ⬜ in flight (#40) |
+| OPS-23 | `ops/ops-23-freeze-role-tables` — `build-change.js` deep-freezes ROLES, TIERS and ECONOMY, so no step can change a role's model or effort mid-run; it lands in the next PR that runs a reviewer eval anyway (the file is a rule-13 input) | `template/.claude/workflows/build-change.js` | — | ⬜ queued |
 | OPS-18 | `ops/OPS-18-clean-controls` — fix the two reviewer clean controls that hold real defects (`sh-clean-coverage-fails-closed`: a non-numeric floor passes; `py-clean-token-expiry`: verify() raises on a non-ASCII mac or a Unicode digit), then #40 re-runs the opus/high eval on its rebased head and records the receipt (rule 13 blocks #40 until a receipt passes) | `template/.claude/evals/reviewer/cases/` | — | ⬜ in flight (#40) |
 
 ## Phase 4 — Release
@@ -95,21 +96,32 @@ build.
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
 | REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
+| REL-2 | `ops/rel-2-install-kit` — what REL-1 (#25) leaves out: release builds cross-compile without cgo (SQLite left with OPS-13), install prints a prerequisites report, and a project starts with a `.gitleaks.toml` | `scripts/release/`, `.github/workflows/release*.yml`, `install.sh`, `template/.gitleaks.toml` | REL-1 | ⬜ queued |
 
-## Phase 5 — StandingT converges on the template
+## Phase 5 — Standing Tee converges on the template
 **Owner:** Rich
 
-Exit criteria: `clauductor update` keeps StandingT current, and its own parts live in config,
-modules and the local layer (PRD-change-process, "Adopting it in StandingT"). The work lands in
-StandingT's repo; the clauductor side of each phase is a row here.
+Exit criteria: `clauductor update` keeps Standing Tee current, and its own parts live in config,
+modules and the local layer (PRD-change-process, "Adopting it in Standing Tee"). The work lands in
+Standing Tee's repo; the clauductor side of each phase is a row here.
 
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
-| ST-0 | `ops/st-0-convergence-map` — the convergence map: every shared file classified, every record format decided, the onboarding sections listed (read-only) | StandingT docs | OPS-8 | ⬜ queued |
+| ST-0 | `ops/st-0-convergence-map` — the convergence map: every shared file classified, every record format decided, the onboarding sections listed (read-only) | Standing Tee docs | OPS-8 | ⬜ queued |
 | ST-1 | `ops/st-1-extension-points` — optional modules and a project-local layer (the settings.json merge and `clauductor diff` landed in #29) | `framework/internal/cmd`, `template/.claude/modules/` | ST-0 | ⬜ queued |
-| ST-2 | `ops/st-2-upstream` — what the map marks generic and better in StandingT moves into the template | `template/` | ST-0 | ⬜ queued |
-| ST-3 | `ops/st-3-converge` — StandingT converges file by file, with the no-clauductor check in its gate | StandingT | ST-1, ST-2, REL-1 | ⬜ queued |
-| ST-4 | `ops/st-4-handover` — `.claude/clauductor-template` written; `clauductor update` from then on | StandingT | ST-3 | ⬜ queued |
+| ST-2 | `ops/st-2-upstream` — what the map marks generic and better in Standing Tee moves into the template | `template/` | ST-0 | ⬜ queued |
+| ST-3 | `ops/st-3-converge` — Standing Tee converges file by file, with the no-clauductor check in its gate | Standing Tee | ST-1, ST-2, REL-1 | ⬜ queued |
+| ST-4 | `ops/st-4-handover` — `.claude/clauductor-template` written; `clauductor update` from then on | Standing Tee | ST-3 | ⬜ queued |
+| ST-5 | `ops/st-5-swap-plan` — the swap plan: Standing Tee's convergence as an ordered list of PRs, each with its owner decisions, its checks and its rollback | Standing Tee docs | ST-0, P2.15b | ⬜ queued |
+| ST-6 | `ops/st-6-designer-onboarding` — the designer's onboarding PR: Standing Tee's designer onboarding and welcome page describe the converged model (the panel, the plugin, who decides), so Damian works from them | Standing Tee docs | ST-3 | ⬜ queued |
+
+### Phase 2 upstream follow-ups (the convergence map's P2 rows not yet owned)
+
+| # | Change | Scope | Deps | Status |
+|---|--------|-------|------|--------|
+| P2.15b | `ops/roadmap-boundary-tasks` — the roadmap parser reads Standing Tee's `**Gate X boundary-task status:**` lines, and `--text` warns on an open boundary task (left over from P2.15, #45) | `template/.claude/roadmap-queue.sh`, `template/.claude/checks/roadmap.sh` | P2.15 (#45) | ⬜ queued |
+| P2.11 | `ops/module-living-visuals` — derived pages kept current: a registry `refresh:` field, a close step that refreshes or stamps every page that is behind, and a generated-block check (Phase 2 wave 2) | `template/.claude/modules/living-visuals/` | P2.7 (#43) | ⬜ queued |
+| P2.12b | `ops/module-ideas` — the ideas queue as a module: the skill, a session-start count, the close-time render, and a check that the rendered page is never hand-edited (Phase 2 wave 2; the risk register half of P2.12 is #41) | `template/.claude/modules/ideas/` | P2.7 (#43) | ⬜ queued |
 
 ## Done before the model
 

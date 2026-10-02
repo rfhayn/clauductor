@@ -22,7 +22,7 @@ entries with one number on `main`.
 
 This repo stopped running the old lock-based skills and installed the model it ships, using the
 product itself: a binary built from this checkout, `clauductor install` in the repo root. It is the
-rehearsal for StandingT's convergence, so the friction is the point, and it is recorded below as
+rehearsal for Standing Tee's convergence, so the friction is the point, and it is recorded below as
 it happened.
 
 1. **The guard refused, and was right to look twice.** `clauductor install --dry-run` said: *"install
@@ -97,7 +97,7 @@ it happened.
     AGENTS.md row (rule 13) by hand. Answering `y` to update's review overwrote `build-change.js`,
     which lost the attribution settings again (finding 6). A new test now fails when a directory
     under `template/.claude/` is placed in neither tier.
-12. **B12, from the StandingT convergence map**, is the session-start line this PR had already
+12. **B12, from the Standing Tee convergence map**, is the session-start line this PR had already
     reworded. The no-clauductor check now also scans every script of the model for an
     echo/printf line that tells the user to run clauductor. It was falsified with the old line,
     which both the scan and the context run caught.
@@ -114,7 +114,7 @@ it happened.
 
 OPS-13 (remove the old model from the CLI), then OPS-14 (the rehearsal fixes too big for this PR:
 old-model detection, stale-file listing, the template path, settings in framework files, branch
-prefixes), before StandingT's Phase 0 (ST-0).
+prefixes), before Standing Tee's Phase 0 (ST-0).
 
 ---
 

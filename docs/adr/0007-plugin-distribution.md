@@ -6,7 +6,7 @@
 - **Source**: OPS-11 (#24); docs/plugin.md
 
 ## Context
-`clauductor install` needs the Go binary. A contributor who only has Claude Code (StandingT's
+`clauductor install` needs the Go binary. A contributor who only has Claude Code (Standing Tee's
 designer) could not get the model's skills and hooks without it. Claude Code plugins distribute
 skills, agents and hooks through a marketplace, read-only and versioned.
 
