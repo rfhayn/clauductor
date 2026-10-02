@@ -95,13 +95,21 @@ why_not() {
   [ -n "$h" ] || { echo "it does not begin with the generated header"; return; }
   [ "$(body_of "$1" | sha256)" = "${h#* }" ] || { echo "its body no longer matches the hash in its header: it was edited by hand"; return; }
   # The data-through stamp sits outside the hashed body (so the hash stays the reference's), so it
-  # is held to the body instead: "none" exactly when no listed idea is dated (updatedAt falls back
-  # to createdAt, so a stamp of none means every idea renders "undated"), an ISO time otherwise.
-  t=${h%% *}; n=$(body_of "$1" | grep -c '^- \*\*')
+  # is held to the body instead: "none" only when every listed idea renders "undated" (updatedAt
+  # falls back to createdAt), an ISO time otherwise.
+  # Undated lines are counted, not dated ones: a note or text is free text and may hold ", <date>",
+  # but every undated line the renderer writes ends ", undated" or has ", undated. Note: ", so its
+  # own output always passes. The one false pass, a forged none over a dated idea whose note ends
+  # ", undated" or whose text, name or note holds ", undated. Note: " (NULs removed), is loud: under
+  # none, --summary counts every idea as newer.
+  # Both counts strip NULs first: jq writes a JSON \u0000 as a raw NUL, and greps disagree on one
+  # (GNU ends a line there, BSD ends a match there, and either prints "Binary file ... matches" in
+  # place of a line), so one in an idea's text, row or author would split or cut the line it is on.
+  t=${h%% *}; n=$(body_of "$1" | tr -d '\000' | grep -c '^- \*\*')
   if [ "$n" -eq 0 ]; then [ "$t" = none ] || echo "its header's data-through ($t) dates a body that lists no idea: it was edited by hand"
   elif [ "$t" = none ]; then
-    dated=$(body_of "$1" | grep -Ec '^- \*\*.*, [0-9]{4}-[0-9]{2}-[0-9]{2}($|\. Note: )')
-    [ "$dated" -eq 0 ] || echo "its header's data-through says none, but the body lists $dated dated ideas: it was edited by hand"
+    undated=$(body_of "$1" | tr -d '\000' | grep -Ec '^- \*\*.*, undated($|\. Note: )')
+    [ "$undated" -eq "$n" ] || echo "its header's data-through says none, but the body lists $((n - undated)) dated ideas: it was edited by hand"
   elif ! printf '%s' "$t" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$'; then
     echo "its header's data-through ($t) is not an ISO time: it was edited by hand"
   fi

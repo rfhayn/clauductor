@@ -78,8 +78,8 @@ on purpose:
 - **Stricter where the reference trusted the data**: a `createdAt` or `updatedAt` that is not an
   ISO time (or bare date) is refused, naming the file, where the reference printed its first ten
   characters raw into the Markdown; and `--check` also holds the header's `data-through` to the
-  body (`none` exactly when no listed idea is dated, an ISO time otherwise), which the hash does
-  not cover.
+  body (a `none` stamp means every listed idea renders undated, an ISO time otherwise), which the
+  hash does not cover.
 - **`enable.sh` never overwrites a project's own `/ideas` skill**: the module's copy carries an
   "installed by the ideas module" line, and a skill without it is refused, not replaced.
 - **Two modes the reference did not need**: `--url` (the skill read the registry with `node -p`) and
