@@ -119,5 +119,5 @@ launchd agent*. Each is updated to match.
   <project>: idle N min, M spawns …"), over the hours with at least 30 idle minutes. Neither the
   log nor `/api/state` makes a page "in view". Where a project has turned `lanes_auto_close` on
   (neither registered project has today; it is off by default), each auto-close log line shows the
-  close within 5 minutes of the merge.
+  close within 5 minutes of the merge, plus any lag in GitHub's search index.
 - **Check after:** 7 days

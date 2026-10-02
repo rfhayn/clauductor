@@ -30,7 +30,7 @@ WHEN a project has no lane and no page has said it is in view for 90 s THE SYSTE
 - **THEN** its next timed poll is 5 minutes later, not 2 seconds
 
 ### Requirement: What needs the panel wakes it at once
-WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added or removed, or a page comes into view THE SYSTEM SHALL poll the sources that event concerns at once, without waiting for the 5-minute tick; and WHEN the panel's `claude` slot skips a `claude agents` poll THE SYSTEM SHALL retry it every 2 seconds until one runs, never waiting the 5-minute tick after a skipped poll.
+WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added or removed, or a page comes into view THE SYSTEM SHALL poll the sources that event concerns at once, without waiting for the 5-minute tick; and WHEN the panel's `claude` slot skips a `claude agents` poll THE SYSTEM SHALL retry it on the gate's short retry until one runs, never waiting the 5-minute tick after a skipped poll.
 
 #### Scenario: [IDLE-2-S1] A hook polls claude agents at once
 - **GIVEN** an idle project whose `claude agents` loop waits its 5 minutes
@@ -62,7 +62,7 @@ WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added 
 - **AND** `claude agents` runs within 2 seconds of the slot coming free
 
 ### Requirement: The panel's own GitHub reads run only when something reads the answer
-WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests, and WHEN a page is in view SHALL read them every 60 s as before; WHILE a project has a lane that auto-close watches THE SYSTEM SHALL read the pull requests merged since its last good read (the merged-list read) at most every 3 minutes, in view or not, bounded by merge time, and SHALL close that lane, or ask, after its pull request merges, including one opened and merged between two reads and one merged in a train with newer pull requests; each close, each first ask and each change in an ask's reasons SHALL be logged with the merge time and its own time.
+WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests, and WHEN a page is in view SHALL read them every 60 s as before; WHILE a project has a lane that auto-close watches THE SYSTEM SHALL read the pull requests merged since its last good read (the merged-list read) at most every 3 minutes, in view or not, bounded by merge time to the second, and SHALL close that lane, or ask, after its pull request merges, including one opened and merged between two reads and one that many newer pull requests merged before; WHEN a merged-list read returns its full limit THE SYSTEM SHALL check each watched lane not checked since the read's lower bound by its branch; each close, each first ask and each change in an ask's reasons SHALL be logged with the merge time and its own time.
 
 #### Scenario: [IDLE-3-S1] No page and no lane to close means no GitHub call
 - **GIVEN** a project whose `panel.json` names no card, suggest or metrics command
@@ -75,7 +75,7 @@ WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests
 - **AND** no page in view
 - **WHEN** the pull request merges
 - **THEN** no open-list `gh pr list` runs, and the merged-list read (`gh pr list --state merged --search "merged:>=…"`) runs at most once every 3 minutes
-- **AND** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge, after its `--head` check confirms the merge
+- **AND** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge plus any GitHub search-index lag, after its `--head` check confirms the merge
 
 #### Scenario: [IDLE-3-S3] A page in view reads the open pull requests every minute
 - **GIVEN** a project with no lane
@@ -86,19 +86,25 @@ WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests
 #### Scenario: [IDLE-3-S4] A pull request opened and merged between two reads still closes its lane
 - **GIVEN** `lanes_auto_close` "on_merge", a lane on `fix/quick` already seen with no pull request, and a page in view
 - **WHEN** a pull request for `fix/quick` is opened and merged between two reads of the open list
-- **THEN** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge
+- **THEN** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge plus any GitHub search-index lag
 
 #### Scenario: [IDLE-3-S5] An auto-close is logged with its times
 - **GIVEN** a lane auto-close closes after its pull request #12 merged
 - **WHEN** the close is done
 - **THEN** one line naming the lane, the pull request, its merge time and the close time is written to the panel's output
 
-#### Scenario: [IDLE-3-S6] A lane's pull request merged in a train is found
+#### Scenario: [IDLE-3-S6] An old pull request is found among many newer merged ones
 - **GIVEN** `lanes_auto_close` "on_merge", no page in view, and a lane on `fix/old` whose pull request was opened weeks ago
-- **AND** a merge train that merges it with 25 pull requests created after it, all within one read
-- **WHEN** the next merged-list read runs
+- **AND** 120 pull requests created after it, all merged before the last good merged-list read
+- **WHEN** `fix/old`'s pull request merges, and the next merged-list read runs
 - **THEN** the lane is due and goes through its `--head` check
-- **AND** the read asked GitHub by merge time, not for the most recently created merged pull requests
+- **AND** a read of the 100 most recently created merged pull requests, without the merge-time bound, would not have listed it
+
+#### Scenario: [IDLE-3-S8] A full merged list falls back to each lane's own check
+- **GIVEN** `lanes_auto_close` "on_merge" and a watched lane on `fix/late` not checked since the last read's lower bound
+- **WHEN** a merged-list read returns its full 100 pull requests, none on `fix/late`
+- **THEN** the lane's `--head` check runs once
+- **AND** a later read that returns fewer than 100 sends no lane to its `--head` check unless its branch is listed
 
 #### Scenario: [IDLE-3-S7] An asking lane logs its first ask, not every recheck
 - **GIVEN** a lane whose pull request #12 merged while claude is working
@@ -149,7 +155,7 @@ WHEN `clauductor panel install` is given `--no-open` THE SYSTEM SHALL install a 
 - **AND** the plist has no `--no-open`
 
 ### Requirement: The metrics command waits for a page
-WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, and WHEN a page comes into view SHALL run it at once if its refresh interval passed meanwhile.
+WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, whether its refresh rule is an interval or a watched file; WHEN a page comes into view THE SYSTEM SHALL run it at once if it never ran, its interval passed or its watched file changed meanwhile, and not otherwise; and **Refresh** SHALL always run it.
 
 #### Scenario: [IDLE-6-S1] No metrics command with no page in view
 - **GIVEN** a project with a metrics command on `interval:600` and no page in view
@@ -160,3 +166,19 @@ WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, 
 - **GIVEN** a project whose metrics command last ran 20 minutes ago, on `interval:600`
 - **WHEN** a page says it is in view, and none was
 - **THEN** the metrics command runs at once
+
+#### Scenario: [IDLE-6-S3] A watched file changed while no page was in view
+- **GIVEN** a project whose metrics command is on `watch:docs/roadmap.md`, and no page in view
+- **WHEN** `docs/roadmap.md` changes, and later a page says it is in view
+- **THEN** the metrics command does not run while no page is in view
+- **AND** it runs at once when the page comes into view
+
+#### Scenario: [IDLE-6-S4] A page's return with nothing missed runs nothing
+- **GIVEN** a project whose metrics command ran 2 minutes ago, on `interval:600`, while a page was in view
+- **WHEN** the page goes out of view and comes back a minute later
+- **THEN** the metrics command does not run for the return
+
+#### Scenario: [IDLE-6-S5] Refresh always runs the metrics command
+- **GIVEN** a page in view and a metrics command that ran a minute ago
+- **WHEN** the person presses **Refresh**
+- **THEN** the metrics command runs

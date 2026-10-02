@@ -114,17 +114,25 @@
      watched lanes (registered, on a branch, in its own worktree, `AutoCloseOf(type) ==
      on_merge`). New: when it has a watched lane, it reads the recently merged pull requests
      itself (the **merged-list read**), at most every `Ticks.MergedLanes` (3 min, in
-     `DefaultTicks` and `withDefaults`), in view or not, bounded by merge time as
-     `signals.MergedArgv` already is:
+     `DefaultTicks` and `withDefaults`), in view or not, bounded by merge time:
      `gh pr list --state merged --search "merged:>=<since>" --limit 100 --json
      number,headRefName,mergedAt`.
+     - **Its own argv builder**, `signals.MergedSinceArgv(since time.Time)`, beside
+       `signals.MergedArgv`, which stays as it is: that one takes a date (`2006-01-02`), a limit of
+       300 and the Metrics view's fields, all pinned by `TestParseMergedPRsRealShape`, and a date
+       would make a 10-minute margin meaningless. `ParseMergedPRs` parses both outputs (a row
+       without `mergedAt` is skipped, as today).
+     - **`<since>` is RFC 3339 in UTC with a `Z`** (`2026-10-02T14:02:11Z`, `time.RFC3339` of the
+       UTC time), never a `+` offset, which a search query would read as a space.
      - **Why the bound.** Without `--search`, `gh pr list --state merged --limit N` returns the N
-       most recently *created* merged PRs, not the most recently merged. After a merge train, a
-       lane whose PR was opened long ago would be missing.
+       most recently *created* merged PRs, not the most recently merged. With many newer PRs
+       merged meanwhile, a lane whose PR was opened long ago would be missing.
      - **`<since>`** is the start of the last read that succeeded, minus 10 minutes (the margin
        covers GitHub's search index lagging a merge, and clock skew). The first read uses the
        panel's start minus 10 minutes: a merge before that is the first-sight check's to find. A
-       failed read leaves `<since>` where it was, so the next read covers the gap.
+       failed read leaves `<since>` where it was, so the next read covers the gap. A merge the
+       index has not caught up with is found by a later read, so every "within N minutes" for
+       auto-close means plus any search-index lag.
      - **The limit, truthfully.** The read returns at most 100 PRs merged since `<since>`. When it
        returns exactly 100 the list may be cut, so every watched lane not checked since `<since>`
        gets the `--head` check instead (one call per such lane, that once).
@@ -176,11 +184,22 @@
    claude is working` the first time for that lane and PR, and again only when its reasons
    change; a 5-minute recheck that finds the same reasons writes nothing. A close after an ask
    writes the close line. The merge time is the `mergedAt` the `--head` check now asks for.
-7. **The metrics command waits for a page** (D10). The `metrics` source runs the project's
-   metrics command only while a page is in view, still on its `metrics.refresh` rule, as
-   `pollMerged` does for the merged read. When a page comes into view, it runs at once if its
-   interval passed meanwhile (`pageInView` kicks it); **Refresh** runs it as today. Its run at
-   start waits for the first page. Cards and suggest commands keep their rules.
+7. **The metrics command waits for a page** (D10), for both forms of `metrics.refresh`
+   (`interval:<s>` and `watch:<path>`, `config.ParseRefresh`). Two flags on the metrics store,
+   beside `mergedDue`:
+   - **`metricsDue`** starts true (never run). Any poll while no page is in view runs nothing
+     and sets it: a tick of the interval, a change of the watched file (the watch kicks the
+     source), a trust kick. A run clears it.
+   - **`metricsForce`**: `refreshAll` sets it, as it sets `mergedDue` today (it otherwise only
+     kicks sources, so the poll could not tell **Refresh** from any other kick).
+   - **In view**, a poll runs the command as today, with one exception: a poll woken only by a
+     page coming into view (`pageInView` sets a `pageBack` flag and kicks the source) runs only if
+     `metricsDue` or `metricsForce` is set. So the page's return runs it once if anything was
+     missed (an interval passed, the watched file changed, it never ran), and not otherwise.
+     **Refresh** always runs it; trusting the config in view runs it, as today.
+   - Its run at start therefore waits for the first page.
+
+   Cards and suggest commands keep their rules.
 8. **`panel install --no-open`** (D4). `InstallOptions.NoOpen` → `plistSpec.NoOpen` →
    `--no-open` after `--launchd` in `ProgramArguments`. In `Run`, `o.NoOpen` wins under launchd
    too: no tab, and `browser-opened` is not written. `install` prints which it installed: "At
@@ -226,13 +245,16 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
 | A lane in project A, none in project B, no page | A keeps today's cadence; B is dormant. A lane is per project, the page is the machine's (D1) |
 | Out of view, a lane on a branch with `lanes_auto_close` off | No `gh` call from the panel's own polls: nothing reads the answer until a page comes back. The project's own commands still run on their rules (D10 for the metrics command) |
 | A pull request opened and merged between two reads | Auto-close's merged-list read sees it within 3 min, in view or not (D3); today it is missed |
-| A merge train: ten PRs merge at once, the lane's opened weeks before the others | Found: the read is bounded by merge time, not by creation, so every PR merged since `<since>` is in it, up to 100 |
+| The lane's PR was opened weeks ago, and over a hundred PRs created after it merged before the last read | Found: the read is bounded by merge time, not by creation, so the older-merged PRs are outside it and every PR merged since `<since>` is in it, up to 100 |
 | The merged-list read returns its full 100 | The list may be cut, so every watched lane not checked since `<since>` gets the `--head` check, once |
 | A merge GitHub's search has not indexed yet when the read runs | `<since>` trails the last good read by 10 min, so the next read covers it |
 | A merged-list or `--head` read fails | Nothing is due from it, and `<since>` stays put, so the next read covers the gap. Auto-close never closes on a failed read |
 | The first-sight check finds two merged PRs on a reused branch | Both numbers are recorded as checked; neither makes the lane due again |
 | A lane asks, and each 5-minute recheck finds the same reasons | One log line at the first ask, none at the rechecks; another only when the reasons change, and one at the close |
-| No page in view and the metrics command's interval passes | It does not run (D10). The first page view runs it at once; the Metrics view shows its last figures until it returns |
+| No page in view and the metrics command's interval passes | It does not run (D10), and it is marked due. The first page view runs it at once; the Metrics view shows its last figures until it returns |
+| No page in view and the file a `watch:` metrics rule names changes | The same: marked due, run at once when a page comes back. The watch's kick is not lost |
+| A page comes back and nothing was missed | The metrics command does not run for the return; its rule runs it next |
+| **Refresh** while the metrics command ran a minute ago | It runs (`metricsForce`), as today |
 | A page comes into view | Every backed-off source polls at once; the page shows them current within a second or two |
 | tmux errors while the project is dormant | The next poll is in 5 min, not 2 s (D7); the page's "Cannot read" banner refreshes when a page comes into view |
 | The tmux server is up with no lane while dormant | `list-panes` every 5 min; `show-environment` with it at most then (it runs only on a poll) |
@@ -269,8 +291,9 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
 - **Recommended:** the open list is the page's and stops out of view. Auto-close reads the merged
   pull requests itself: one `gh pr list --state merged --search "merged:>=<since>" --limit 100`
   per project every 3 minutes, only while the project has a watched lane, in view or not.
-  `<since>` is the last good read's start minus 10 minutes, so the read is bounded by merge time,
-  as `signals.MergedArgv` already is. A watched lane whose branch is in it under a number it has
+  `<since>` is the last good read's start minus 10 minutes, in RFC 3339 UTC, so the read is
+  bounded by merge time to the second, through a new argv builder beside `signals.MergedArgv`
+  (which takes a date). A watched lane whose branch is in it under a number it has
   not checked goes through today's `--head` check and Close's plan. A read that comes back full
   sends every watched lane not checked since `<since>` to the `--head` check instead.
 - **Alternatives:**
@@ -286,7 +309,8 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
   any cadence; a merged list can, provided it is bounded by merge time. One call covers every
   lane, however many have no PR yet, and it closes the gap that exists at 60 s today. Auto-close
   is off by default (`config/fields.go`), so for most projects the panel's own polls make no
-  GitHub call out of view. A merged lane closes within about 4 minutes instead of 1 when the open
+  GitHub call out of view. A merged lane closes within about 4 minutes (plus any search-index
+  lag) instead of 1 when the open
   list missed it, which costs nothing when nobody is looking.
 
 **D4. Where `--no-open` lives.**
@@ -365,10 +389,15 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
   the skip.
 
 **D10. The project's metrics command while no page is in view.**
-- **Recommended:** run it only while a page is in view, on its `metrics.refresh` rule, and at once
-  when a page comes into view if its interval passed meanwhile; **Refresh** runs it as today.
-  Cards and suggest commands keep their rules.
+- **Recommended:** run it only while a page is in view, on its `metrics.refresh` rule, interval
+  or watch, and at once when a page comes into view if anything was missed meanwhile (an interval
+  passed, the watched file changed, it never ran); **Refresh** runs it as today. Cards and
+  suggest commands keep their rules.
 - **Alternatives:**
+  - for a `watch:` rule, decide on the page's return by the watched file's mtime against the last
+    run's time, instead of a due flag (it also survives a restart, which a never-run command
+    covers anyway);
+  - apply it to `interval:` rules only, and leave a `watch:` rule running page or not;
   - leave it on its rule, page or not (the template's runs every 600 s and calls `gh api graphql
     --paginate` and `gh pr list --limit 200` each time);
   - also hold the interval cards and suggest commands while no page is in view (the fix
