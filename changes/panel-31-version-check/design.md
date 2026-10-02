@@ -46,6 +46,15 @@
    verified at three confirmations plus one for each orphan, while the orphans stay below the
    break threshold (two). Today one orphan holds the check open until a restart. After this change
    it means the check needs four confirmations, and it still clears by itself.
+   - **Overdue launches are aged before every verify decision.** Today `observePost` and
+     `observeStart` call `confirm` *before* `ageOrphans`, and ageing happens only when an Agent
+     hook arrives. So a launch already overdue, but not yet counted as an orphan, can't stop the
+     confirmation that verifies the version. Once the version is verified the check stops, and the
+     break that ageing then finds is never shown.
+   - Today that can happen with no orphan at all: the third match verifies while an overdue launch
+     waits. With D5 it can also happen at the fourth match.
+   - After this change both functions age first, so the decision always counts every launch that
+     is more than 10 s overdue.
 3. **A verification counts for every project, and is kept.**
    - `saveReadings` saves the version verified for the running Claude Code, whichever project
      verified it.
@@ -83,7 +92,7 @@ that means."
 
 With one unmatched launch, the dialog's first paragraph has one sentence replaced: "It clears by
 itself after three." becomes "1 launch named an agent Claude Code never announced, so it clears by
-itself after one more, at four." The count reads "**3 of 4**". Every other sentence stays.
+itself at four instead of three." The count reads "**n of 4**". Every other sentence stays.
 
 In the *changed* state, the dialog shows the break bar's text instead of both paragraphs.
 
@@ -98,7 +107,7 @@ In the *changed* state, the dialog shows the break bar's text instead of both pa
 >
 > The panel matches each subagent to the lane that started it using two details of Claude Code's
 > hooks that aren't documented. When Claude Code updates, the panel re-checks them from the hooks
-> your own sessions send, and the status bar shows "Claude Code · checking, n of 3". Three matched
+> your own sessions send, and the status bar shows "Claude Code · checking, n of 3 (or 4)". Three matched
 > subagent launches clear it by itself, in every project, plus one more for each launch that
 > didn't match. Nothing needs a restart, and the result is kept.
 >
@@ -205,7 +214,8 @@ In the *changed* state, the dialog shows the break bar's text instead of both pa
 **D5. One unmatched launch.**
 - **Recommended:** it costs one more confirmation. The version is verified at three confirmations
   plus one per orphan, while the orphans stay below the break threshold (two). With one orphan,
-  four confirmations verify the version.
+  four confirmations verify the version. Overdue launches are aged into orphans before every
+  verify decision, never after it.
 - **Alternatives:**
   - verify at three confirmations whenever the orphans are below the break threshold, so one
     orphan is simply ignored;
@@ -217,9 +227,13 @@ In the *changed* state, the dialog shows the break bar's text instead of both pa
     break. So the count climbs past three ("5 of 3") and only a restart, which forgets the counts,
     gets out of it. Without Verify now, a restart would be the only remedy.
   - **One orphan isn't a break, by the existing threshold's own logic.** A background agent whose
-    `SubagentStart` is late by more than 10 s produces one.
+    `SubagentStart` is late by more than 10 s can produce one. Today whether it does depends on
+    other traffic, because ageing is lazy (it runs only when an Agent hook arrives). With ageing
+    first (shape 2), a launch more than 10 s overdue always counts by the time it could matter.
   - **It is still evidence against the pairing**, which is why it costs a confirmation rather than
     being ignored. Once the version is verified the check stops, so a second orphan after that
-    would never be seen. The extra confirmation is a small price against that.
+    would never be seen. The extra confirmation is a small price against that, and it holds only
+    with ageing first. Otherwise an overdue second launch could slip past the fourth match
+    unseen.
   - **Not forgiving by age:** an orphan's age says nothing about whether the pairing held, and a
     timer is one more number to explain.

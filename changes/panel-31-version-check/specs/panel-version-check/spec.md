@@ -35,6 +35,13 @@ WHILE the running Claude Code version is being checked THE SYSTEM SHALL show it 
 - **WHEN** one more launch is matched
 - **THEN** the version is verified and the field is no longer shown
 
+#### Scenario: [VERCHECK-1-S6] An overdue launch counts before the confirmation that would verify
+- **GIVEN** Claude Code 2.1.288 is being checked with one unmatched launch and 3 of 4 confirmed
+- **AND** a further Agent launch named an agent no SubagentStart has announced for more than 10 s, with no hook since
+- **WHEN** a fourth launch is matched
+- **THEN** the version is not verified
+- **AND** the break bar shows, and the field reads "2.1.288 · changed"
+
 ### Requirement: Something actually wrong still raises the warning bar
 WHEN the check finds that the pairing changed on the running version, or the latest `claude --version` fails, THE SYSTEM SHALL show a warning bar for each that holds; a failed latest read SHALL take precedence over the check in progress, and SHALL NOT hide a break.
 

@@ -81,12 +81,13 @@ scope (`state`, `web`). This proposal's PR updates the row in `docs/roadmap.md`:
   automating them; open one if a break goes unnoticed.
 - **Moving `HeuristicsVerifiedOn` forward** (`state/model.go`, "2.1.284"). It moves with a
   clauductor release. REL rows own releases.
-- **"Accept this version" without evidence** (#68's optional item 3): not offered (D4). No row:
-  revisit with PANEL-32 if the check proves too slow to clear.
+- **"Accept this version" without evidence** (#68's optional item 3): not offered (D4). PANEL-32's
+  row names it for a revisit if the check proves too slow to clear.
 
 ## How we'll know
 
 - **Signal:** after the next Claude Code update, the owner sees the status-bar field and no
-  warning bar, in every project. Once a project's sessions confirm three subagent launches, the
-  field goes away in all of them, and it stays gone after a panel restart.
+  warning bar, in every project. Once a project's sessions confirm three subagent launches (four
+  if one didn't match), the field goes away in all of them, and it stays gone after a panel
+  restart.
 - **Check after:** 14 days
