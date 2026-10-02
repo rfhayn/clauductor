@@ -17,9 +17,10 @@ button to force it?
 - **When it clears.** After three confirmed subagent launches on the new version with none
   unmatched (`verify.go`, `confirm`). Confirmations only come from sessions that launch subagents,
   so on a quiet day the bar stays up.
-- **Restart.** Not needed. The verified version is kept in `~/.clauductor/panel/verified.json`
-  (`machine.go`, `saveReadings`), so a restart doesn't reset it. Reading the code turned up two
-  cases where it never clears, though:
+- **Restart.** Usually not needed today. The verified version is kept in
+  `~/.clauductor/panel/verified.json` (`machine.go`, `saveReadings`), so a restart doesn't reset
+  it. But reading the code turned up two cases where today it never clears by itself (both are
+  fixed by this change, after which nothing needs a restart):
   - **With two projects, the verification doesn't reach the other project.** Each project's model
     keeps the last verified version, and `saveReadings` pushes a new one with
     `RestoreAutoVerified`, which only fills an empty slot. So once any older version has been
@@ -29,8 +30,9 @@ button to force it?
     verifies 2.1.288 while the first still holds 2.1.287, nothing is saved, and a restart loses
     the second project's result too.
   - **One unmatched launch holds the check open.** A single agent with no matching `SubagentStart`
-    is below the break threshold (two), but `confirm` needs zero unmatched. The count then climbs
-    past three ("5 of 3 confirmed") and never clears until a restart starts the count over.
+    is below the break threshold (two), but `confirm` needs zero unmatched. Today the count then
+    climbs past three ("5 of 3 confirmed"), and the check clears only when a restart forgets the
+    counts.
 - **A button.** None today. The only control is the bar's ×, which hides it in this browser until
   the next version. A button that settles the check means the panel starting a Claude Code session
   of its own, which runs into the login-refresh race PANEL-28 is studying. This proposal
@@ -48,8 +50,11 @@ approximate, the subagent lists, is a small part of the page and the bar doesn't
   earlier read worked. The field says "changed" for a break.
 - **Help says what's approximate meanwhile.** Only the subagent lists and counts are approximate.
   Lane states, Needs you, the quota and the costs don't depend on the check.
-- **A version verified in any project counts for every project and is kept**, and one unmatched
-  launch shows as such instead of silently counting past three.
+- **A version verified in any project counts for every project and is kept.**
+- **One unmatched launch costs one more confirmation instead of holding the check open** ("3 of
+  4", D5). So the check always clears by itself, and nothing needs a restart.
+- **A break and an unreadable version each get their own bar.** A failed read wins over the check
+  in progress, but never hides a break (D2).
 
 ## What the existing specs already guarantee
 

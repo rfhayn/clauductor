@@ -23,15 +23,20 @@ WHILE the running Claude Code version is being checked THE SYSTEM SHALL show it 
 - **WHEN** the page renders
 - **THEN** no Claude Code field and no version warning bar is shown
 
-#### Scenario: [VERCHECK-1-S4] One unmatched launch is shown, not counted past three
+#### Scenario: [VERCHECK-1-S4] One unmatched launch costs one more confirmation
 - **GIVEN** Claude Code 2.1.288 is being checked
 - **AND** one Agent launch named an agent no SubagentStart announced within 10 s
 - **WHEN** three more launches are matched
-- **THEN** the field reads "2.1.288 · checking, 1 unmatched"
-- **AND** the version dialog says the check can't clear by itself and a restart of the panel starts the count over
+- **THEN** the version is not yet verified and the field reads "2.1.288 · checking, 3 of 4"
+- **AND** the version dialog says one launch was never announced, so it clears by itself after one more
+
+#### Scenario: [VERCHECK-1-S5] The fourth confirmation clears it without a restart
+- **GIVEN** Claude Code 2.1.288 is being checked with one unmatched launch and 3 of 4 confirmed
+- **WHEN** one more launch is matched
+- **THEN** the version is verified and the field is no longer shown
 
 ### Requirement: Something actually wrong still raises the warning bar
-WHEN the check finds that the pairing changed on the running version, or the latest `claude --version` fails, THE SYSTEM SHALL show a warning bar that says so; a failed latest read SHALL take precedence over the check in progress.
+WHEN the check finds that the pairing changed on the running version, or the latest `claude --version` fails, THE SYSTEM SHALL show a warning bar for each that holds; a failed latest read SHALL take precedence over the check in progress, and SHALL NOT hide a break.
 
 #### Scenario: [VERCHECK-2-S1] Two unmatched launches raise the bar
 - **GIVEN** Claude Code 2.1.288 is being checked
@@ -49,6 +54,12 @@ WHEN the check finds that the pairing changed on the running version, or the lat
 - **WHEN** the next `claude --version` fails
 - **THEN** a warning bar says the version cannot be read and subagent lists are approximate
 - **AND** no Claude Code field is shown
+
+#### Scenario: [VERCHECK-2-S4] A failed read does not hide a break
+- **GIVEN** the check found a break on Claude Code 2.1.288
+- **WHEN** the next `claude --version` fails
+- **THEN** the break bar and the unreadable-version bar both show
+- **AND** the field reads "2.1.288 · changed"
 
 ### Requirement: A version verified anywhere holds everywhere, and is kept
 WHEN any served project verifies the running Claude Code version THE SYSTEM SHALL treat it as verified in every project and SHALL record it in verified.json, replacing an older verified version.
@@ -77,4 +88,4 @@ THE SYSTEM SHALL explain in Help that only the subagent lists and counts are app
 #### Scenario: [VERCHECK-6-S1] Help has the Claude Code versions section
 - **GIVEN** the panel page
 - **WHEN** Help opens
-- **THEN** a "Claude Code versions" section says only the subagent lists and counts are approximate, that the check clears by itself after three matched launches, and that nothing needs a restart
+- **THEN** a "Claude Code versions" section says only the subagent lists and counts are approximate, that the check clears by itself after three matched launches plus one more for each launch that didn't match, and that nothing needs a restart

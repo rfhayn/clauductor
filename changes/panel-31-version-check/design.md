@@ -31,24 +31,30 @@
 
 ## The shape of the change
 
-1. **The check's state, made explicit.** The view's `verification` carries one state, and the
-   page renders it without deciding anything. In order of precedence, the first that holds wins:
-   - **unread:** the latest `claude --version` failed, even if an earlier read worked (D2);
+1. **The check's state, made explicit.** The view's `verification` carries one state for the
+   field and the dialog, and the page renders it without deciding anything. In order of
+   precedence, the first that holds wins (D2):
    - **changed:** a break, with what broke;
-   - **unmatched:** three or more confirmations, held open by one orphan;
-   - **checking:** with the count;
+   - **unread:** the latest `claude --version` failed, even if an earlier read worked;
+   - **checking:** with the count and the confirmations needed;
    - **verified:** nothing to show.
 
-   The `version:<v>` warning for *checking* goes away. The break and *unread* warnings stay.
-2. **A verification counts for every project, and is kept.**
+   The bars are separate from that state. The break bar shows whenever the check found a break,
+   and the unread bar whenever the latest read failed, so both can show at once. The
+   `version:<v>` warning for *checking* goes away.
+2. **An unmatched launch costs one more confirmation, not a restart** (D5). The version is
+   verified at three confirmations plus one for each orphan, while the orphans stay below the
+   break threshold (two). Today one orphan holds the check open until a restart. After this change
+   it means the check needs four confirmations, and it still clears by itself.
+3. **A verification counts for every project, and is kept.**
    - `saveReadings` saves the version verified for the running Claude Code, whichever project
      verified it.
    - It pushes that version to every project with a setter that replaces an older one.
      `RestoreAutoVerified` stays fill-only, for the start-up read of `verified.json`.
-3. **The status-bar field.** It's a field like Gate: a key, a value, and a click. It's shown only
-   while the state is checking, unmatched or changed. Clicking it opens the version dialog: what
-   the check is, what is approximate, the count, and when it clears.
-4. **Help** gets a "Claude Code versions" section (the wording is below). `docs/panel.md`'s two
+4. **The status-bar field.** It's a field like Gate: a key, a value, and a click. It's shown only
+   while the state is checking or changed. Clicking it opens the version dialog: what the check
+   is, what is approximate, the count, and when it clears.
+5. **Help** gets a "Claude Code versions" section (the wording is below). `docs/panel.md`'s two
    sections are rewritten to match.
 
 ## The wording
@@ -58,7 +64,7 @@
 | State | Value | Ink |
 |---|---|---|
 | checking | `2.1.288 · checking, 1 of 3` | normal |
-| unmatched | `2.1.288 · checking, 1 unmatched` | normal |
+| checking, with one unmatched launch | `2.1.288 · checking, 3 of 4` | normal |
 | changed | `2.1.288 · changed` | warn |
 
 Its tooltip: "Subagent lists are approximate until Claude Code 2.1.288 is checked. Click for what
@@ -75,11 +81,11 @@ that means."
 > Until then, only the subagent lists and counts (a lane's Agents tab, the Agents column) are
 > approximate. Lane states, Needs you, the quota and the costs don't depend on it.
 
-In the *unmatched* state, the count sentence reads instead: "3 subagent launches confirmed, but 1
-launch named an agent Claude Code never announced, so the check can't clear by itself. A restart
-of the panel starts the count over."
+With one unmatched launch, the dialog's first paragraph has one sentence replaced: "It clears by
+itself after three." becomes "1 launch named an agent Claude Code never announced, so it clears by
+itself after one more, at four." The count reads "**3 of 4**". Every other sentence stays.
 
-In the *changed* state, the dialog repeats the break bar's text.
+In the *changed* state, the dialog shows the break bar's text instead of both paragraphs.
 
 **The bars** keep today's text:
 - **A break:** "Claude Code 2.1.288 changed what the subagent pairing relies on: <what>. Subagent
@@ -93,8 +99,8 @@ In the *changed* state, the dialog repeats the break bar's text.
 > The panel matches each subagent to the lane that started it using two details of Claude Code's
 > hooks that aren't documented. When Claude Code updates, the panel re-checks them from the hooks
 > your own sessions send, and the status bar shows "Claude Code · checking, n of 3". Three matched
-> subagent launches clear it by itself, in every project. Nothing needs a restart, and the result
-> is kept.
+> subagent launches clear it by itself, in every project, plus one more for each launch that
+> didn't match. Nothing needs a restart, and the result is kept.
 >
 > Until then, only the subagent lists and counts are approximate. Lane states, Needs you, the
 > quota and the costs don't depend on it.
@@ -109,6 +115,7 @@ In the *changed* state, the dialog repeats the break bar's text.
 | The version is verified (in the source, or from live hooks in any project) | No field and no bar. |
 | `claude --version` has never been read (the first poll is pending) | No field and no bar: nothing is known yet, and the first poll runs at start. |
 | A read works, then a later one fails | The *unread* bar, and no field. The version last read isn't treated as current, and the subagent lists say they're approximate, as `heuristicsApprox`'s own comment already intends ("Unknown (not read yet, or unreadable) counts as approximate too") (D2). |
+| A break, then a read fails | Both bars. The field stays "changed": a failed read doesn't hide a break (D2). |
 | A break while the field's dialog is open | The dialog switches to the break's text. The bar appears as well. |
 
 ## Decisions (awaiting the owner)
@@ -128,10 +135,11 @@ In the *changed* state, the dialog repeats the break bar's text.
 
 **D2. What still raises the warning bar, and which state wins.**
 - **Recommended:**
-  - **The bar:** a break, and an unreadable `claude --version`. Checking and unmatched go to the
-    field only.
-  - **Precedence:** a failed latest read wins over every other state, even when an earlier read
-    worked.
+  - **The bar:** a break, and an unreadable `claude --version`, each with its own bar, so both
+    can show. Checking goes to the field only.
+  - **Precedence:** a failed latest read wins over the check in progress, even when an earlier
+    read worked. A break still wins over a failed read, because the break was found on real
+    evidence, and a failed read says nothing about the pairing.
 - **Alternative:** a break only, with an unreadable version shown in the field; precedence as
   today, where the last version read stays current after a failed read.
 - **Why:**
@@ -142,7 +150,7 @@ In the *changed* state, the dialog repeats the break bar's text.
     and the view shows *checking* first. With the field quiet, the failure would go unseen.
 
 **D3. Verify now: in this change, or its own row after PANEL-28.**
-- **Recommended:** split it out. PANEL-31 ships the field, the alert rules, the two fixes, the
+- **Recommended:** split it out. PANEL-31 ships the field, the alert rules, the fixes, the
   dialog and Help. Verify now becomes **PANEL-32** (`panel-32-verify-now`, queued after PANEL-28),
   and reuses PANEL-28's `claude` gate.
 - **Alternative:** keep Verify now in PANEL-31 (risk high) with what review found, briefly:
@@ -175,8 +183,9 @@ In the *changed* state, the dialog repeats the break bar's text.
 - **Why:**
   - **The owner asked for the button, and the split delays it.** That's the cost.
   - **For the split:**
-    - **The other parts don't depend on the button.** The field, the alert rules and the two
-      fixes are safe on their own, and they end the page-wide alert now.
+    - **The other parts don't depend on the button.** The field, the alert rules and the fixes
+      are safe on their own, and they end the page-wide alert now. With D5, nothing in PANEL-31
+      needs a button or a restart to clear.
     - **The button depends on PANEL-28.** A session the panel starts can refresh the shared login
       itself, and PANEL-28 is establishing which `claude` calls are safe and is building one gate
       for them. Building Verify now before that gate exists means a second, separate policy that
@@ -190,5 +199,27 @@ In the *changed* state, the dialog repeats the break bar's text.
   risk.
 - **Why:** accepting stops the check, so a real break on that version would then go unnoticed, and
   the subagent lists would be wrong without saying so. With this change the cost of waiting is
-  small: a quiet field, in one place, that says only the subagent lists are approximate. PANEL-32
-  can revisit it if the check proves too slow to clear.
+  small: a quiet field, in one place, that says only the subagent lists are approximate. PANEL-32's
+  row names "Accept this version" as one to revisit there if the check proves too slow to clear.
+
+**D5. One unmatched launch.**
+- **Recommended:** it costs one more confirmation. The version is verified at three confirmations
+  plus one per orphan, while the orphans stay below the break threshold (two). With one orphan,
+  four confirmations verify the version.
+- **Alternatives:**
+  - verify at three confirmations whenever the orphans are below the break threshold, so one
+    orphan is simply ignored;
+  - forgive an orphan once it is older than some number of minutes;
+  - keep today's rule (any orphan blocks verification), and name a restart as the remedy: Help,
+    the dialog and the Help requirement then say so for this case.
+- **Why:**
+  - **Today one orphan is a trap.** `confirm` needs zero orphans, and only a second orphan makes a
+    break. So the count climbs past three ("5 of 3") and only a restart, which forgets the counts,
+    gets out of it. Without Verify now, a restart would be the only remedy.
+  - **One orphan isn't a break, by the existing threshold's own logic.** A background agent whose
+    `SubagentStart` is late by more than 10 s produces one.
+  - **It is still evidence against the pairing**, which is why it costs a confirmation rather than
+    being ignored. Once the version is verified the check stops, so a second orphan after that
+    would never be seen. The extra confirmation is a small price against that.
+  - **Not forgiving by age:** an orphan's age says nothing about whether the pairing held, and a
+    timer is one more number to explain.
