@@ -55,6 +55,8 @@
      waits. With D5 it can also happen at the fourth match.
    - After this change both functions age first, so the decision always counts every launch that
      is more than 10 s overdue.
+   - It follows that a launch whose own `SubagentStart` arrives more than 10 s after its
+     `PostToolUse` always counts as an orphan, never as a confirmation.
 3. **A verification counts for every project, and is kept.**
    - `saveReadings` saves the version verified for the running Claude Code, whichever project
      verified it.

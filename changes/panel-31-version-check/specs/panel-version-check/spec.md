@@ -28,7 +28,7 @@ WHILE the running Claude Code version is being checked THE SYSTEM SHALL show it 
 - **AND** one Agent launch named an agent no SubagentStart announced within 10 s
 - **WHEN** three more launches are matched
 - **THEN** the version is not yet verified and the field reads "2.1.288 · checking, 3 of 4"
-- **AND** the version dialog says one launch was never announced, so it clears by itself after one more
+- **AND** the version dialog says one launch was never announced, so it clears by itself at four instead of three
 
 #### Scenario: [VERCHECK-1-S5] The fourth confirmation clears it without a restart
 - **GIVEN** Claude Code 2.1.288 is being checked with one unmatched launch and 3 of 4 confirmed
@@ -37,7 +37,7 @@ WHILE the running Claude Code version is being checked THE SYSTEM SHALL show it 
 
 #### Scenario: [VERCHECK-1-S6] An overdue launch counts before the confirmation that would verify
 - **GIVEN** Claude Code 2.1.288 is being checked with one unmatched launch and 3 of 4 confirmed
-- **AND** a further Agent launch named an agent no SubagentStart has announced for more than 10 s, with no hook since
+- **AND** a further Agent launch named an agent no SubagentStart has announced for more than 10 s, with no Agent hook since
 - **WHEN** a fourth launch is matched
 - **THEN** the version is not verified
 - **AND** the break bar shows, and the field reads "2.1.288 · changed"
