@@ -1,6 +1,6 @@
 #!/bin/sh
 # The write-surfaces module's merge-guard rule (ADVISORY, never blocking): a capability change
-# (BRANCH_CHANGE, default change/) that ADDS WRITE_SURFACE_MAX (default 4) or more write surfaces
+# (a branch under BRANCH_CHANGE) that ADDS WRITE_SURFACE_MAX (default 4) or more write surfaces
 # (files matching WRITE_SURFACE_GLOBS: routes, screens, handlers) is told to consider splitting.
 # Standing Tee's merge-guard rule 5, moved into a module.
 #

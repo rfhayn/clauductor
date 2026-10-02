@@ -11,8 +11,8 @@ exactly the change that never converged (10 surfaces) and the one that had to be
 
 ## What it does
 
-`guard.d/write-surfaces.sh` runs in the merge guard on a capability change (`BRANCH_CHANGE`,
-default `change/`). It counts the files the PR **adds** (from git, between the merge base and the
+`guard.d/write-surfaces.sh` runs in the merge guard on a capability change (a branch under
+`BRANCH_CHANGE`). It counts the files the PR **adds** (from git, between the merge base and the
 head) that match `WRITE_SURFACE_GLOBS`, and at `WRITE_SURFACE_MAX` (default 4) or more tells
 Claude, naming them: if this is one capability, carry on; if it is several, split it now, which is
 a roadmap edit, not a mid-review one.
