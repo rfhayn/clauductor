@@ -31,8 +31,10 @@ trap 'rm -rf "$state"' EXIT
 # that runs out is a failed read, said by name below. Not lib/modules.sh's with_timeout: its
 # watchdog polls once a second and is waited for, which adds up to a second to EVERY call, and
 # this section makes one call per branch. Here the watchdog is killed (not waited for) when gh
-# returns, and kills its own sleep as it goes; its output is /dev/null, so it holds no command
-# substitution open.
+# returns, and kills its own sleep as it goes. Its output is /dev/null, but where ghb's caller
+# redirects it (the merged-PR loop below), bash 3.2's /bin/sh hands the watchdog the saved stdout
+# (fd 10): the enclosing command substitution's pipe, held open for as long as the watchdog lives.
+# Killing it when gh returns is what keeps that to microseconds.
 T=${PEOPLE_GH_TIMEOUT:-20}; BUDGET=${PEOPLE_WHO_BUDGET:-90}
 notes="$state/notes"; : > "$notes"
 ghb() {  # ghb WHAT ARGS...: gh ARGS, bounded; a timeout is noted under WHAT
