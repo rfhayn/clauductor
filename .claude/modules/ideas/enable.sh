@@ -38,8 +38,12 @@ src="$mod/skill/SKILL.md"
 # Spelt with the quote before /skills on purpose: the destination is the PROJECT's .claude/, which
 # the plugin build must not rewrite to the plugin's own copy.
 dst="$ROOT/.claude"/skills/ideas/SKILL.md
+mark="installed by the ideas module"
 if [ -f "$dst" ] && [ "$(skill_body "$src")" = "$(skill_body "$dst")" ]; then
   echo "ok   .claude/skills/ideas is the module's /ideas skill"
+elif [ -f "$dst" ] && ! grep -qF "$mark" "$dst"; then
+  # A project's own /ideas skill (no module marker) is never overwritten: it is theirs.
+  echo "FAIL .claude/skills/ideas/SKILL.md exists and is not the ideas module's (it lacks the \"$mark\" line): rename or remove the project's own skill, then run this again"; rc=1
 elif [ -n "$CHECK" ]; then
   echo "FAIL .claude/skills/ideas $( [ -f "$dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/ideas/skill (run sh .claude/modules/ideas/enable.sh)"; rc=1
 else

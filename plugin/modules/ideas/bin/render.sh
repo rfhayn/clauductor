@@ -69,6 +69,9 @@ JQ_DEFS='
   def jstrim: sub("\\A" + ws + "+"; "") | sub(ws + "+\\z"; "");
   def inline: gsub(ws + "+"; " ") | jstrim | gsub("(?<c>[\\\\`*_\\[\\]<>#|~])"; "\\\(.c)");
   def str: if type == "string" then . else "" end;
+  # A time as the page and /ideas write it (toISOString), or a bare date; with an offset allowed.
+  # The summary compares these as strings and the file prints their day, so anything else is refused.
+  def iso: test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?\\z");
 '
 # The page's status menu offers the same four ids, in this order.
 STATUSES='[{"id":"not-touched","heading":"Not touched"},{"id":"discussed","heading":"Discussed"},{"id":"roadmap","heading":"On the roadmap"},{"id":"parked","heading":"Parked"}]'
@@ -90,7 +93,15 @@ body_of() { tail -n +2 "$1"; }
 why_not() {
   h=$(header_of "$1")
   [ -n "$h" ] || { echo "it does not begin with the generated header"; return; }
-  [ "$(body_of "$1" | sha256)" = "${h#* }" ] || echo "its body no longer matches the hash in its header: it was edited by hand"
+  [ "$(body_of "$1" | sha256)" = "${h#* }" ] || { echo "its body no longer matches the hash in its header: it was edited by hand"; return; }
+  # The data-through stamp sits outside the hashed body (so the hash stays the reference's), so it
+  # is held to the body instead: "none" exactly when no idea is listed, an ISO time otherwise.
+  t=${h%% *}; n=$(body_of "$1" | grep -c '^- \*\*')
+  if [ "$n" -eq 0 ]; then [ "$t" = none ] || echo "its header's data-through ($t) dates a body that lists no idea: it was edited by hand"
+  elif [ "$t" = none ]; then echo "its header's data-through says none, but the body lists $n ideas: it was edited by hand"
+  elif ! printf '%s' "$t" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$'; then
+    echo "its header's data-through ($t) is not an ISO time: it was edited by hand"
+  fi
 }
 
 # ── arguments: each flag once; a value never starts with -- ───────────────────────────────────
@@ -171,6 +182,8 @@ while IFS= read -r f; do
       elif ($d.text | type) != "string" or ($d.text | jstrim) == "" then {err: "has no text — not an idea document"}
       elif ($d.status | type) != "string" or ($d.status | IN("not-touched", "discussed", "roadmap", "parked") | not)
         then {err: "unknown status \(if $d | has("status") then $d.status | tojson else "undefined" end) (want one of not-touched, discussed, roadmap, parked)"}
+      elif ($d.createdAt | str) as $t | $t != "" and ($t | iso | not) then {err: "createdAt is not an ISO time: \($d.createdAt | tojson)"}
+      elif ($d.updatedAt | str) as $t | $t != "" and ($t | iso | not) then {err: "updatedAt is not an ISO time: \($d.updatedAt | tojson)"}
       else {ok: {id: $id, text: $d.text, note: ($d.note | str), authorId: ($d.authorId | str),
                  createdAt: ($d.createdAt | str),
                  updatedAt: (($d.updatedAt | str) as $u | if $u == "" then ($d.createdAt | str) else $u end),

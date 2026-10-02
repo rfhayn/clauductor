@@ -75,6 +75,12 @@ on purpose:
   Standing Tee's values the body is byte-identical. The summary names `IDEAS_FILE`.
 - **A JSON parse error** gives jq's reason in the parentheses, where Node gave its own; both say
   `not JSON` and name the file. The usage line names this tool and its two extra modes.
+- **Stricter where the reference trusted the data**: a `createdAt` or `updatedAt` that is not an
+  ISO time (or bare date) is refused, naming the file, where the reference printed its first ten
+  characters raw into the Markdown; and `--check` also holds the header's `data-through` to the
+  body (`none` exactly when no idea is listed, an ISO time otherwise), which the hash does not cover.
+- **`enable.sh` never overwrites a project's own `/ideas` skill**: the module's copy carries an
+  "installed by the ideas module" line, and a skill without it is refused, not replaced.
 - **Two modes the reference did not need**: `--url` (the skill read the registry with `node -p`) and
   `--mint` (it minted ids with `node -e`), so the skill and the steps need no Node.
 - **The page** has neutral colour tokens and system fonts (Standing Tee's design tokens and Google

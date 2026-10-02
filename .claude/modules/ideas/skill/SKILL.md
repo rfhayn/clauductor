@@ -5,6 +5,7 @@ effort: low
 description: "Add an idea to the shared Ideas queue, or show the queue. `/ideas <text>` adds one (status not touched); bare `/ideas` prints counts by status and every not-touched idea. TRIGGER when the user says '/ideas', 'add an idea', 'idea:', 'jot this down as an idea', 'put that in the ideas queue', or asks what is in the ideas queue."
 argument-hint: (optional) <the idea, one line; further lines become its note>
 ---
+<!-- installed by the ideas module (.claude/modules/ideas/enable.sh): a refresh replaces this file -->
 
 # Ideas: add one, or show the queue
 
