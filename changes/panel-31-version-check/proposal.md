@@ -1,4 +1,4 @@
-**Status:** awaiting approval
+**Approved:** 2026-10-02 by Rich · design 737fcb8d6f34
 **Roadmap row:** PANEL-31
 **Risk:** low
 

@@ -129,7 +129,7 @@ In the *changed* state, the dialog shows the break bar's text instead of both pa
 | A break, then a read fails | Both bars. The field stays "changed": a failed read doesn't hide a break (D2). |
 | A break while the field's dialog is open | The dialog switches to the break's text. The bar appears as well. |
 
-## Decisions (awaiting the owner)
+## Decisions (the owner decided all as recommended, 2026-10-02, including D3: Verify now becomes PANEL-32)
 
 **D1. Where the unverified version shows.**
 - **Recommended:** a status-bar field beside Gate, shown only while there's something to say.
