@@ -23,9 +23,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests run Ubuntu only (OPS-26): the local gate already runs the suite on macOS
-        # for the head it merges, and Linux is the leg only CI covers. main runs both, so a
-        # macOS-only break still surfaces on the merge that caused it.
+        # Pull requests run Ubuntu only (OPS-26, temporary; OPS-28 restores macOS): the local
+        # gate's short suite and scoped race run on the owner's Mac for the head it merges, and
+        # Linux is the leg only CI covers. main runs both, so a macOS-only break still surfaces
+        # on the merge that caused it (.claude/health/push-main.sh reports it at session start).
         os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["macos-latest", "ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     # internal/plugin alone takes ~500 s under -race on macOS runners, near go test's 10-minute

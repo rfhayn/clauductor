@@ -44,7 +44,8 @@ scripts/build-plugin.sh                        # after ANY template/ change (Tes
 ```
 
 CI (`.github/workflows/test.yml`) runs gofmt, vet, `go test -race` and the process checks on Ubuntu
-for every PR, and on macOS and Ubuntu for every push to `main` (the local gate covers macOS for a PR).
+for every PR, and on macOS and Ubuntu for every push to `main` (OPS-26, temporary until OPS-28;
+the local gate's short suite and scoped race run on the owner's Mac for a PR).
 
 After a template change, bring this repo's own copy along: `framework/clauductor update` from the
 repo root, with the binary built from this checkout (it reads the template beside it, and prints
