@@ -508,14 +508,17 @@ esac
 # a red one blocks, and a later successful remote run cannot clear it because it posts a different
 # context. Every other check still blocks when it is red.
 # gh normalizes each check into a `bucket`: pass | fail | pending | skipping | cancel.
-# stdout and stderr together: a JSON array is the answer (gh exits non-zero for pending checks and
-# still prints it); anything else is gh saying why it has none, kept for GATE_PR_CHECKS below.
-checks_out=$(gh pr checks "$pr" --json name,state,bucket 2>&1)
+# stdout alone is the answer when it is a JSON array (gh exits non-zero for pending checks and still
+# prints it), whatever gh also wrote to stderr: GH_DEBUG or a notice there must not hide a red check.
+# Otherwise stderr is gh saying why it has none, kept for GATE_PR_CHECKS below.
+checks_errf=$(mktemp "${TMPDIR:-/tmp}/guard-checks.XXXXXX") || block "cannot make a temp file to read PR #$pr's checks"
+checks_out=$(gh pr checks "$pr" --json name,state,bucket 2>"$checks_errf")
+checks_stderr=$(cat "$checks_errf"); rm -f "$checks_errf"
 if printf '%s' "$checks_out" | jq -e 'type == "array"' >/dev/null 2>&1; then
   checks=$checks_out checks_err=""
 else
-  checks="" checks_err=$(printf '%s' "$checks_out" | head -n 1)
-  case "$checks_err" in *"no checks reported"*) checks="[]" checks_err="" ;; esac
+  checks="" checks_err=$(printf '%s\n%s\n' "$checks_stderr" "$checks_out" | grep . | head -n 1)
+  case "$checks_stderr$checks_out" in *"no checks reported"*) checks="[]" checks_err="" ;; esac
 fi
 display_re=$(printf '%s' "${GATE_DISPLAY_CONTEXTS:-}" | tr ' ' '\n' | grep . | sed 's/[][\.*^$+?(){}|]/\\&/g' | paste -sd'|' -)
 [ -z "$display_re" ] && display_re='\u0000never-matches'

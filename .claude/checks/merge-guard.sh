@@ -41,7 +41,9 @@ cat > "$d/bin/gh" <<'EOF'
 case "$1 $2" in
   "pr checks")
     # GH_CHECKS_ERR: gh itself fails (auth, network). GH_CHECKS=none: gh's own "no checks" answer.
+    # GH_CHECKS_NOISE: gh writes to stderr beside a valid answer (GH_DEBUG=1, an upgrade notice).
     [ -n "${GH_CHECKS_ERR:-}" ] && { echo "$GH_CHECKS_ERR" >&2; exit 1; }
+    [ -n "${GH_CHECKS_NOISE:-}" ] && echo "$GH_CHECKS_NOISE" >&2
     [ "${GH_CHECKS:-}" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
     echo "${GH_CHECKS:-[]}" ;;
   "pr view")
@@ -92,6 +94,8 @@ printf '%s\tfull\tclean\tall\n' "$MAINSHA" > "$(git -C "$d/lane" rev-parse --abs
 guard 0 "a receipt in a linked worktree's git dir" "gh pr merge 5 --squash"
 guard 2 "a red check" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]'
 guard 0 "a red DISPLAY context (GATE_DISPLAY_CONTEXTS)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"}]'
+guard 2 "a red check while gh also writes to stderr (only stdout is the answer)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]' GH_CHECKS_NOISE="[git remote -v]"
+grep -q "non-passing checks: lint=fail" "$d/err" && ok "...and names the red check" || fail "red-check-with-stderr message: $(cat "$d/err")"
 
 # Rule 2(a2): GATE_PR_CHECKS. Empty (the default), nothing reported is judged as before, whatever
 # the workflow files say: no file is read to guess which checks a PR will get.
@@ -115,6 +119,9 @@ M='[{"name":"test (macos-latest)","state":"SUCCESS","bucket":"pass"},{"name":"te
 guard 2 "GATE_PR_CHECKS=test: nothing reported yet (CI not registered)" "gh pr merge 5 --squash" GH_CHECKS='[]'
 grep -q "has not reported the checks GATE_PR_CHECKS requires: test" "$d/err" && ok "...and says which required check has not reported" || fail "missing-check message: $(cat "$d/err")"
 guard 2 "GATE_PR_CHECKS=test: gh's 'no checks reported'" "gh pr merge 5 --squash" GH_CHECKS=none
+grep -q "has not reported the checks GATE_PR_CHECKS requires: test" "$d/err" && ! grep -q "gh problem" "$d/err" \
+  && ok "...and reads gh's 'no checks reported' as nothing reported, not as a gh failure" || fail "no-checks message: $(cat "$d/err")"
+guard 0 "GATE_PR_CHECKS=test: the required check green while gh also writes to stderr" "gh pr merge 5 --squash" GH_CHECKS="[{\"name\":\"test\",\"state\":\"SUCCESS\",\"bucket\":\"pass\"}]" GH_CHECKS_NOISE="[git remote -v]"
 guard 2 "GATE_PR_CHECKS=test: only another check reported" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"audit","state":"SUCCESS","bucket":"pass"}]'
 guard 2 "GATE_PR_CHECKS=test: a different check that merely starts with 'test' does not count" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test-flaky","state":"SUCCESS","bucket":"pass"}]'
 guard 2 "GATE_PR_CHECKS=test: one matrix job pending" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test (macos-latest)","state":"PENDING","bucket":"pending"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
