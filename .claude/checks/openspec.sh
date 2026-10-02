@@ -88,9 +88,12 @@ else
   fi
   # The template's rules, not the vendored skill's: scenario IDs, the CLI floor, /propose for a new
   # change, an approved design is the owner's; and no path that assumes the records live in openspec/.
-  for want in '[CAP-n-Sn]' '1.13 or later' '/propose' 'voids that approval' 'CHANGES_DIR/<id>/'; do
+  for want in '[CAP-n-Sn]' '1.13 or later' 'voids that approval' 'CHANGES_DIR/<id>/'; do
     grep -qF -- "$want" "$SK" && ok "the explore skill states '$want'" || fail "the explore skill does not state '$want'"
   done
+  # The plugin's builder namespaces skill references, so its copy says `/clauductor:propose`.
+  grep -qE '`/(clauductor:)?propose`' "$SK" && ok "the explore skill states '/propose' (or the plugin's '/clauductor:propose')" \
+    || fail "the explore skill does not state '/propose'"
   grep -qE 'openspec/changes/|openspec new change|/opsx:' "$SK" && fail "the explore skill still names OpenSpec's own paths or commands: $(grep -nE 'openspec/changes/|openspec new change|/opsx:' "$SK" | head -2)" \
     || ok "the explore skill names no openspec/changes path and no opsx command"
   X="$d/explore"; mkdir -p "$X/.claude/lib"
