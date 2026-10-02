@@ -27,7 +27,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 #                        --json number,title,headRefName,mergedAt, one file per person
 # --rows takes the roadmap's rows as a --tsv file (12 contract columns; the optional 14th, when a
 # project's parser emits one, is the row's raw status, and a status reading "⬜ deferred" is never
-# anyone's Next: a deferred row waits on an event, not a person. Column 13 is not read here).
+# anyone's Next: a deferred row waits on an event, not a person. Column 13, `started`, is not
+# read here).
 #
 # THE REGISTRY FAILS LOUDLY rather than reading as a shorter list: a person dropped here would
 # vanish from who-is-on-what and every row they own would refuse as an unknown owner, so the loud

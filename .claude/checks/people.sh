@@ -159,18 +159,20 @@ cat > "$R/.claude/parser14.sh" <<EOF
 #!/bin/sh
 # A project's own parser: the builtin's rows, then column 13 empty and column 14 the raw status.
 case "\${1:-}" in
-  --tsv) shift; ROADMAP_BUILTIN=1 sh $door.sh --tsv "\$@" | cut -f1-12 | awk -F'\t' -v OFS='\t' -v c="\${COL:-14}" '{ s = (\$4 == "2C.9") ? "⬜ deferred — trigger: a league asks" : "⬜ queued"; if (c == 13) print \$0, s; else print \$0, "", s }' ;;
+  --tsv) shift; ROADMAP_BUILTIN=1 sh $door.sh --tsv "\$@" | cut -f1-12 | awk -F'\t' -v OFS='\t' -v c="\${COL:-14}" '{ s = (\$4 == "2C.9") ? "⬜ deferred — trigger: a league asks" : "⬜ queued"; if (c == 13) print \$0, s; else if (c == "date") print \$0, "2026-07-21", s; else print \$0, "", s }' ;;
   *) ROADMAP_BUILTIN=1 sh $door.sh "\$@" ;;
 esac
 EOF
 printf 'MODULES="people"\nROADMAP_PARSER="sh .claude/parser14.sh"\n' > "$R/.claude/project.conf"
 [ "$(inr 'roadmap_queue --tsv' | awk -F'\t' '$4 == "2C.9" { print NF }')" = 14 ] && ok "fixture: the plugged parser emits 14 columns" || fail "fixture: the plugged parser's rows: $(inr 'roadmap_queue --tsv' | head -3)"
 has yes "Next: 2C.10 add-gamma" "$(act "$W" | blk Alice)" "a 14-column parser's deferred row (column 14) is skipped for Next"
-# Column 13 is the builtin's `started` date (docs/roadmap.md), so the contract refuses a status
-# there: the queue is CANNOT CHECK, and the deferred row is never skipped on column 13's word.
+# Column 13 is the builtin's `started` date (docs/roadmap.md): with a valid date there and the
+# deferred status in column 14, the module still reads column 14; a status in column 13 is refused
+# by the contract before the module runs.
+has yes "Next: 2C.10 add-gamma" "$(cd "$R" && COL=date sh "$PS" --activity --state "$W" 2>&1 | blk Alice)" "...with a started date in column 13, the status is still read from column 14"
 o13=$(cd "$R" && COL=13 sh "$PS" --activity --state "$W" 2>&1)
-has yes "column 13 (started)" "$o13" "...but a status in column 13 is not read as the row's status: the contract refuses it"
-has no "Next: 2C.10 add-gamma" "$o13" "...and nobody's Next skips the row on column 13's word"
+has yes "column 13 (started)" "$o13" "...and a status in column 13 is refused by the contract, never read as the row's status"
+has yes "CANNOT CHECK" "$o13" "...so the activity says CANNOT CHECK"
 printf 'MODULES="people"\n' > "$R/.claude/project.conf"
 has yes "Next: 2C.9 add-beta" "$(act "$W" --rows "$d/rows12.tsv" | blk Alice)" "...and a 12-column row has no status: Next as before"
 
