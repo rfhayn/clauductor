@@ -118,6 +118,47 @@ head_of() { git -C "$R" add -A && git -C "$R" commit -qm "$1" && h=$(git -C "$R"
 at() { printf '%s\tfull\tclean\tall\n' "$(cat "$d/head")" > "$R/.git/ci-receipt"; }
 H() { cat "$d/head"; }
 
+# Rule 2(c) and rule 8: a head behind origin/main. 2(c) advises on any PR; rule 8 BLOCKS a session
+# close (BRANCH_SESSION_CLOSE) until its head contains origin/main. Ported from the meta-tests of
+# the project rule 8 was upstreamed from (P2.5), with real git: the branch is cut, then main moves.
+seen() { printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
+on ops/session-9-close; echo "close" > "$R/close.txt"; head_of "the close's records"; at; CUT=$(H)
+guard 0 "rule 8: a session close whose head contains origin/main" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH=ops/session-9-close
+case "$(seen)" in *"rule 8"*"contains origin/main"*) ok "rule 8: ...and says so, naming the main it contains" ;; *) fail "rule 8 advisory on a current close: $(seen)" ;; esac
+case "$(seen)" in *"behind origin/main"*) fail "rule 2(c) warned on a head that IS origin/main plus its own commit: $(seen)" ;; *) ok "rule 2(c): silent when the head contains origin/main" ;; esac
+for i in 1 2; do echo "$i" > "$R/other$i.txt"; git -C "$R" add -A; git -C "$R" commit -qm "another PR lands $i"; done
+(cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+guard 2 "rule 8: a session close whose head does not contain origin/main" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH=ops/session-9-close
+grep -q 'does not contain origin/main' "$d/err" && grep -q 'git merge origin/main' "$d/err" && ok "rule 8: ...and the block says why and what to run" || fail "rule 8 block message: $(cat "$d/err")"
+for b in ops/session-93-close-addendum ops/session-94-close-2; do
+  guard 2 "rule 8: the close variant $b, behind" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH="$b"
+done
+for b in ops/session-start-x ops/session-plan-gate-fixes ops/session-71-cleanup fix/1-x; do
+  guard 0 "rule 8: $b is not a session close, so behind is advice, not a block" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH="$b"
+  case "$(seen)" in *"rule 8"*) fail "rule 8 ran on $b: $(seen)" ;; esac
+done
+case "$(seen)" in *"2 commit(s) behind origin/main"*"git merge origin/main"*) ok "rule 2(c): a behind head WARNS, naming the count and the merge, in what Claude reads" ;; *) fail "rule 2(c) advisory: $(seen)" ;; esac
+cp "$R/.claude/project.conf" "$d/conf8.bak"
+echo 'BRANCH_SESSION_CLOSE=""' >> "$R/.claude/project.conf"
+guard 0 "rule 8: BRANCH_SESSION_CLOSE=\"\" turns it off" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH=ops/session-9-close
+cp "$d/conf8.bak" "$R/.claude/project.conf"; echo 'BRANCH_SESSION_CLOSE="ops/close-*"' >> "$R/.claude/project.conf"
+guard 2 "rule 8: a project's own close pattern is the one enforced" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH=ops/close-12
+guard 0 "rule 8: ...and the default pattern then no longer applies" "gh pr merge 5 --squash" GH_HEAD="$CUT" GH_BRANCH=ops/session-9-close
+cp "$d/conf8.bak" "$R/.claude/project.conf"
+git -C "$R" checkout -q ops/session-9-close && git -C "$R" merge -q --no-edit origin/main && MERGED=$(git -C "$R" rev-parse HEAD) && git -C "$R" checkout -q main
+receipt "$MERGED"
+guard 0 "rule 8: the same close, once it merges origin/main" "gh pr merge 5 --squash" GH_HEAD="$MERGED" GH_BRANCH=ops/session-9-close
+case "$(seen)" in *"rule 8"*) ok "rule 8: ...and says rule 8 ran" ;; *) fail "rule 8 silent on the merged close: $(seen)" ;; esac
+on ops/session-9-close; echo "unfetched" > "$R/close.txt"; head_of "a head nobody fetched"; GONE=$(H); git -C "$R" branch -D -q ops/session-9-close
+printf '%s\tfull\tclean\tall\n' "$GONE" > "$R/.git/ci-receipt"
+# No origin/main, and none to fetch: the remote is unreachable (the guard's fetches repeat, so a
+# deleted ref alone would come straight back).
+git -C "$R" update-ref -d refs/remotes/origin/main; git -C "$R" remote set-url origin acme/gone.git
+guard 2 "rule 8: origin/main unreadable (fails closed, not open)" "gh pr merge 5 --squash" GH_HEAD="$GONE" GH_BRANCH=ops/session-9-close
+grep -q 'cannot read origin/main, so rule 8' "$d/err" && ok "rule 8: ...and the block is rule 8's, naming the fetch to run" || fail "rule 8 unreadable-main message: $(cat "$d/err")"
+git -C "$R" remote set-url origin acme/app.git; (cd "$R" && git fetch -q origin)
+receipt "$MAINSHA"
+
 on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"
 printf '## 1. Do it\n- [x] 1.1 thing\n- [ ] 1.2 other\n\n- [ ] Slice: a user can y at /y\n' > "$R/changes/add-y/tasks.md"
 echo 'code' > "$R/src/y.txt"; head_of "build with an open task"; at

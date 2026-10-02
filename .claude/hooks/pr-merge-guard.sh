@@ -16,6 +16,7 @@
 #      slice (`Slice: …`). A presence check: it makes the question be answered out loud.
 #   4. Advisory: more than one change is proposed at once (propose just in time).
 #   7. A PR is blocked if its journal claims a `## Session N` another merged session already uses.
+#   8. A session-close PR (BRANCH_SESSION_CLOSE) is blocked unless its head contains origin/<main>.
 #   9. A build PR on a change branch is blocked until every task of the change it touches is ticked.
 #  10. A merge is blocked while an enforced scenario is cited by no test at the head
 #      (.claude/scenario-trace.sh --rev; D4 of the change process).
@@ -35,7 +36,8 @@
 #      scored on the head's suite. Scope: ACCIDENTAL drift; a receipt is self-reported, so a
 #      deliberate forger is review's and the owner's to catch (lib/change-guard.sh, SCOPE).
 #   Rules 9–13 live in lib/change-guard.sh.
-#   (Numbering follows the rules this was extracted from; 5, 6 and 8 were project-specific.)
+#   (Numbering follows the rules this was extracted from; 5 and 6 were project-specific, and so
+#   was the other half of 8, which the artifacts module adds as an extension rule.)
 #
 # A MERGE IN ANOTHER REPOSITORY is not policed beyond rule 1, but it passes only when the whole
 # command matches one allowlisted plain shape (foreign_shape, below) and its -R owner/name differs
@@ -643,6 +645,34 @@ if git cat-file -e "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null; then
     block "PR #$pr's journal claims Session $clash, which another merged session already uses (rule 7).
 Renumber this PR's entry to one past the top '## Session N' on origin/$MAIN_BRANCH, keep BOTH entries, re-run the gate ($GATE_RUN), then merge."
   fi
+fi
+
+# Rule 8 — a session close lands on top of origin/<main>. BLOCKING.
+#
+# A close PR is the one per session whose job is to leave the records (roadmap statuses, journal,
+# owner queue, insights) true of what main IS. Its review and its gate judged the head's tree, but
+# the squash lands that tree PLUS whatever merged since the branch was cut: a status set from a
+# stale picture, or a record another close changed, lands unexamined with every other rule green.
+# Requiring the head to contain origin/<main> makes the head's tree the merge result. Only the close
+# (BRANCH_SESSION_CLOSE, a shell pattern; "" = off): blocking every behind PR would force a merge
+# and a re-run into the middle of a build, which rule 2(c) only advises. The pattern must not match
+# session TOOLING branches (`ops/session-start-…`), which are ordinary ops work. Fails CLOSED when
+# there is no origin/<main> to compare with: the remedy is one command. The fetch repeats rule
+# 2(c)'s and is best-effort: if it fails, an older local origin/<main> is what is compared (the
+# merge itself, which needs the same network, then usually fails too).
+if [ -n "${BRANCH_SESSION_CLOSE:-}" ]; then
+  # shellcheck disable=SC2254
+  case "$branch" in
+    $BRANCH_SESSION_CLOSE)
+      [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rule 8 (a session close contains origin/$MAIN_BRANCH) cannot be evaluated. Run: git fetch origin pull/$pr/head"
+      git fetch origin "$MAIN_BRANCH" --quiet 2>/dev/null
+      git rev-parse --verify --quiet "origin/$MAIN_BRANCH" >/dev/null \
+        || block "cannot read origin/$MAIN_BRANCH, so rule 8 cannot tell whether PR #$pr's head is what merging would produce. Run: git fetch origin $MAIN_BRANCH"
+      git merge-base --is-ancestor "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null \
+        || block "PR #$pr ($branch) is a session close whose head does not contain origin/$MAIN_BRANCH (rule 8). Its records and its gate evidence were checked against a tree that is not what merging would produce. Run: git merge origin/$MAIN_BRANCH, resolve per session-close's shared-file table, re-run the gate ($GATE_RUN), push, then merge."
+      say "rule 8: PR #$pr ($branch) is a session close, and its head contains origin/$MAIN_BRANCH ($(git rev-parse --short "origin/$MAIN_BRANCH" 2>/dev/null))."
+      ;;
+  esac
 fi
 
 

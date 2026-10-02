@@ -95,6 +95,79 @@ case "$text" in *o.2*) fail "--text listed an outcome check that is not due yet"
 bad "a budget that is not in dollars" '| 1.1 | `add-a` — a | s · Budget: 40 | — | ⬜ queued |'
 bad "a malformed due date" '| 1.1 | `add-a` — a (due soon) | s | — | ⬜ queued |'
 
+# Gates (P2.15): a section's started line and open rows in their own word. Ported from the
+# meta-tests of the parser this grammar was upstreamed from; each refusal, with its guard removed,
+# parsed as prose and left the gate "not started" with exit 0.
+cat > "$d/gates.md" <<'EOF'
+## Phase 1 — Done
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-a` — a | s | — | ✅ merged (#3) |
+## Phase 2 — Now
+**Owner:** Ana
+### Gate 2C-L — the league track
+**Gate 2C-L started:** 2026-09-24 — the first commits of #319
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2C.9 | `add-league` — league | s | — | ⬜ planned — walkthrough ready, not started |
+| 2C.10 | `add-other` — other | s | 2C.9 | ⬜ queued (after ✅ 2C.8) |
+### Gate 2D — the app
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2D.1 | `add-app` — app | s | — | ⬜ placeholder — owner: designer, scope TBD |
+### Gate 2E — later
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2E.1 | `add-trip` — trip | s | — | ✅ merged (#9) |
+**Gate 2E started:** 2026-08-01
+## Phase 3 — Later
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 3.1 | `add-g` — g | s | — | ⬜ deferred — until launch |
+EOF
+out=$(rq --check "$d/gates.md"); expect_rc 0 $? "a roadmap with started lines and open rows in their own word passes --check ($out)"
+tsv=$(rq --tsv "$d/gates.md")
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2C.9"{print $7, $13}')" = "open 2026-09-24" ] && ok "a started line with a reason dates its section's rows (tsv column 13); ⬜ planned is state open" || fail "row 2C.9 read as: $(printf '%s\n' "$tsv" | grep '	2C.9	')"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2D.1"{print $7 "|" $13 "|"}')" = "open||" ] && ok "a section with no started line has none (an empty column, not a borrowed date)" || fail "row 2D.1 read as: $(printf '%s\n' "$tsv" | grep '	2D.1	')"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2E.1"{print $13}')" = 2026-08-01 ] && ok "a started line after its section's table still dates the rows above it" || fail "row 2E.1 read as: $(printf '%s\n' "$tsv" | grep '	2E.1	')"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2C.10"{print $7}')" = queued ] && ok "an open row whose status merely mentions a tick stays queued" || fail "row 2C.10 read wrong"
+case "$(rq --check "$d/gates.md")" in *"current phase 2"*) ok "open rows keep their phase current" ;; *) fail "current phase with only open rows: $(rq --check "$d/gates.md")" ;; esac
+printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-a` — a | s | — | ⬜ planned |\n## Phase 2 — y\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 2.1 | `add-b` — b | s | — | ⬜ queued |\n' > "$d/only-open.md"
+case "$(rq --check "$d/only-open.md")" in *"current phase 1"*) ok "a phase whose only open row is in its own word is still the current phase" ;; *) fail "a phase of open rows was skipped: $(rq --check "$d/only-open.md")" ;; esac
+text=$(ROADMAP_TODAY=2026-10-01 rq --text "$d/gates.md")
+case "$text" in *"2C.10"*NEXT*) ok "--text: NEXT is the first QUEUED row; an open row in its own word is never NEXT" ;; *) fail "--text NEXT: $text" ;; esac
+case "$text" in *"2C.9"*"[planned]"*"(started 2026-09-24, 7d)"*) ok "--text shows an open row under its own word, and its section's start with the days since" ;; *) fail "--text open row: $text" ;; esac
+case "$text" in *"2D.1"*"[placeholder]"*) ok "--text lists every open row of the current phase" ;; *) fail "--text dropped an open row: $text" ;; esac
+case "$(rq --queued "$d/gates.md")" in add-other) ok "--queued lists only queued rows, never one waiting in its own word" ;; *) fail "--queued with open rows: $(rq --queued "$d/gates.md")" ;; esac
+gate_bad() {  # gate_bad LABEL LINES: lines after a ### Gate 2D section heading and its row
+  printf '## Phase 1 — x\n### Gate 2D — the app\n%s\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 2D.1 | `add-a` — a | s | — | ⬜ queued |\n' "$2" > "$d/gbad.md"
+  out=$(rq --check "$d/gbad.md"); rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "$3"; then ok "refuses $1"; else fail "accepted $1 (exit $rc): $out"; fi
+}
+gate_bad "a near-miss started line (Started)" '**Gate 2D Started:** 2026-09-24' 'looks like a started line'
+gate_bad "a near-miss started line (start)" '**Gate 2D start:** 2026-09-24' 'looks like a started line'
+gate_bad "a started line whose date is not YYYY-MM-DD" '**Gate 2D started:** 24 Sept' 'must read'
+gate_bad "a started line with an impossible date" '**Gate 2D started:** 2026-02-30' 'impossible date'
+gate_bad "a started line that names another section" '**Gate 2U started:** 2026-09-24' 'not its own'
+gate_bad "a started line for a prefix of the section's name" '**Gate 2 started:** 2026-09-24' 'not its own'
+gate_bad "a second started line for one section" '**Gate 2D started:** 2026-09-24
+**Gate 2D started:** 2026-09-25' 'a second started line'
+printf '## Phase 1 — x\n**Gate 2D started:** 2026-09-24\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-a` — a | s | — | ⬜ queued |\n' > "$d/gout.md"
+rq --check "$d/gout.md" | grep -q 'outside any ### section' && ok "refuses a started line outside any ### section" || fail "a started line outside a section: $(rq --check "$d/gout.md")"
+printf '## Phase 1 — x\n**Restart:** after the freeze\n**Start here:** the README\n' > "$d/gprose.md"
+rq --check "$d/gprose.md" >/dev/null && ok "bold labels that only contain or begin with \"start\" are prose, not near-miss started lines" || fail "bold prose refused as a started line: $(rq --check "$d/gprose.md")"
+bad "an open status that is not one word" '| 1.1 | `add-a` — a | s | — | ⬜ Planned |'
+bad "an open status glued to its text" '| 1.1 | `add-a` — a | s | — | ⬜ planned2 |'
+bad "\"⬜ in\" that is not in flight" '| 1.1 | `add-a` — a | s | — | ⬜ in progress |'
+bad "a bare ⬜" '| 1.1 | `add-a` — a | s | — | ⬜ |'
+bad "a misspelled queued (⬜ queud), not an open word" '| 1.1 | `add-a` — a | s | — | ⬜ queud |'
+bad "in flight spelled as one word (⬜ inflight (#12))" '| 1.1 | `add-a` — a | s | — | ⬜ inflight (#12) |'
+bad "a merged row with the open glyph (⬜ merged (#3))" '| 1.1 | `add-a` — a | s | — | ⬜ merged (#3) |'
+bad "a cancelled row with the open glyph" '| 1.1 | `add-a` — a | s | — | ⬜ cancelled — dropped |'
+bad "a synonym of merged (⬜ shipped (#3))" '| 1.1 | `add-a` — a | s | — | ⬜ shipped (#3) |'
+printf '#!/bin/sh\nprintf "1\\t1\\t\\t1.1\\tadd-a\\tchange\\tqueued\\t\\tAna\\tsummary\\t\\t\\t24 Sept\\n"\n' > "$d/started13.sh"
+(cd "$d" && printf '%s\n' "$(sh started13.sh)" | roadmap_tsv_errors) >/dev/null && fail "a 13th column that is not a date passed the contract" || ok "a --tsv started column that is not YYYY-MM-DD breaks the contract"
+
 bad "a near-miss owner line written as a gate label" '**Gate 2U owner:** Ben'
 printf '## Phase 1 — x\n**Stage 1 — the dry run. Owner: #116. ✅ MET.**\n' > "$d/prose.md"
 rq --check "$d/prose.md" >/dev/null 2>&1 && ok "bold prose that mentions an owner is not a near-miss owner line" || fail "bold prose naming an owner was refused as an owner line: $(rq --check "$d/prose.md")"

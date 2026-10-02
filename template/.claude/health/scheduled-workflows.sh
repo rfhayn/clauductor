@@ -1,27 +1,18 @@
 #!/bin/sh
-# Health: every GitHub Actions workflow that runs on a `schedule:`, and its last run. A scheduled
-# run's failure reaches no PR and no person, so this line is its reader.
-#
-# The set comes from the workflows' OWN `schedule:` keys (the authority), not from a list here: a
-# new scheduled workflow is reported the moment it exists. Each verdict names its subject: the
-# run's date and commit.
+# Health: every GitHub Actions workflow whose `on:` carries a `schedule:`, and its last scheduled
+# run. A scheduled run's failure reaches no PR and no person, so this line is its reader. The set
+# comes from the workflows' OWN keys (the authority), never a list; each line names the run's date,
+# its age (GitHub disables a schedule after 60 days of repo inactivity), its cron and its URL, and a
+# failure says whether the run ever started and when the last clean run was. The logic is
+# .claude/lib/health.sh's (health_scheduled), which `clauductor update` keeps current.
+#   --list   the workflows it would check, one per line, with no network call
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-dir="$ROOT/.github/workflows"
-[ -d "$dir" ] || { echo "OK no .github/workflows (nothing scheduled)"; exit 0; }
-files=$(grep -lE '^[[:space:]]*schedule:' "$dir"/*.yml "$dir"/*.yaml 2>/dev/null)
-[ -n "$files" ] || { echo "OK no workflow has a schedule: trigger"; exit 0; }
-[ "${CONTEXT_OFFLINE:-}" = 1 ] && { echo "CANNOT CHECK — offline"; exit 0; }
-command -v gh >/dev/null 2>&1 || { echo "CANNOT CHECK — gh is not installed; scheduled results are UNKNOWN"; exit 0; }
-command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed"; exit 0; }
-for f in $files; do
-  wf=$(basename "$f")
-  runs=$(cd "$ROOT" && gh run list --workflow "$wf" --event schedule --limit 1 --json conclusion,status,createdAt,headSha 2>/dev/null) || {
-    echo "CANNOT CHECK — $wf: gh run list failed (auth? offline?); this learned NOTHING"; continue; }
-  if [ "$(printf '%s' "$runs" | jq 'length')" = 0 ]; then
-    echo "NEVER RAN $wf: no scheduled run on record"
-    continue
-  fi
-  printf '%s' "$runs" | jq -r --arg wf "$wf" '.[0] |
-    (if .status != "completed" then "RUNNING" elif .conclusion == "success" then "OK" else "FAILED" end)
-    + " \($wf): \(.conclusion // .status) on \(.createdAt[:10]) at \(.headSha[:9])"'
-done
+# shellcheck disable=SC1091
+[ -f "$ROOT/.claude/lib/conf.sh" ] && . "$ROOT/.claude/lib/conf.sh"
+# The library: this checkout's, else the plugin's (CLAUDUCTOR_FW, exported by extensions.sh).
+lib="$ROOT/.claude/lib/health.sh"; [ -f "$lib" ] || lib="${CLAUDUCTOR_FW:-}/lib/health.sh"
+[ -f "$lib" ] || { echo "CANNOT CHECK — .claude/lib/health.sh is missing; scheduled results are UNKNOWN, not healthy"; exit 0; }
+# shellcheck disable=SC1090
+. "$lib"
+health_scheduled "$@"
+exit 0

@@ -66,8 +66,12 @@ TAB, what to do). Their rows, if any:
 
 ### 3. Update the written record
 - **The roadmap** (`ROADMAP`), statuses first, because session-start reads the queue off it: a
-  merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)`, a dropped one
-  `❌ cancelled — <why>`. Nothing else parses. Then `clauductor-model roadmap-queue.sh --check`.
+  merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)` (every `QUEUED ON` line in
+  the Context block is one still reading queued on `origin/main`), a dropped one
+  `❌ cancelled — <why>`. Only a row waiting on something else takes its own word (`⬜ planned`,
+  `⬜ deferred — <trigger>`); a misspelling of these four is an error. Then `clauductor-model roadmap-queue.sh --check`.
+- **Remote branches with no open PR** (the Context block): land each of yours, hand it off in the
+  journal, or delete it. **Living specs still carrying TBD**: fill each one's text.
 - **`/clauductor:log-insight`** for anything non-obvious found today. If the Context block counts `0` rows
   today after a substantive session, that is the finding. Then the promotion check: a topic at 3+
   Raw rows is the trigger for `/clauductor:new-adr`.
@@ -104,10 +108,11 @@ pointing forward. Then state what is still outstanding **and the change that own
 rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of closing.
 
 ### 6. Land the close itself, quiet the machine, notify
-1. The records from steps 2–4 are a PR like any other: branch `<BRANCH_OPS>session-<N>-close`, commit,
-   push, `gh pr create`.
+1. The records from steps 2–4 are a PR like any other: branch `<BRANCH_OPS>session-<N>-close` (the
+   pattern is `BRANCH_SESSION_CLOSE` in `.claude/project.conf`), commit, push, `gh pr create`.
 2. `git fetch origin main && git merge origin/main`, **every time**, even with no conflict shown:
-   someone may have closed while you wrote. Resolve per the table above.
+   someone may have closed while you wrote. Resolve per the table above. `pr-merge-guard` rule 8
+   blocks a close whose head does not contain `origin/main`.
 3. The gate (`scripts/ci/gate.sh`, no flags): the merge commit is a new head and needs its own
    receipt.
 4. **`merge-pr`**, all of it. For a docs-only diff its review step takes the `clauductor:reviewer-docs` lane.

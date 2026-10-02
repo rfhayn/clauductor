@@ -7,6 +7,17 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 cd "$ROOT" || exit 0
 ind() { sed 's/^/    /'; }
+# The GitHub-reading sections (remote branches, queued-while-open, TBD specs). Tested for, never
+# sourced blind: a `.` of a missing file ends the script under dash and hides every later section.
+if [ -f "$CLAUDUCTOR_FW/lib/context.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$CLAUDUCTOR_FW/lib/context.sh"
+else
+  ctx_open_prs() { gh pr list --state open --limit 100 --json number,title,headRefName,author,updatedAt,files 2>/dev/null; }
+  ctx_loose_branches() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
+  ctx_queued_open() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
+  ctx_tbd_specs() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
+fi
 
 echo "- Branch: $(git --no-optional-locks branch --show-current 2>/dev/null)"
 echo "- Uncommitted:"
@@ -16,11 +27,19 @@ echo "- Commits today:"
 git log --oneline --since=midnight 2>/dev/null | head -20 | ind
 
 echo "- Open PRs (merge-pr lands only yours):"
+prs=""
 if [ "${CONTEXT_OFFLINE:-}" = 1 ]; then echo "    CANNOT CHECK — offline"
+elif ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "    CANNOT CHECK — gh or jq is not installed; this learned NOTHING, do not read it as none"
+elif prs=$(ctx_open_prs); then
+  printf '%s' "$prs" | jq -r '.[] | "#\(.number) \(.headRefName) by \(.author.login): \(.title)"' | ind
+  [ "$prs" = "[]" ] && echo "    none"
 else
-  ( gh pr list --state open --json number,title,headRefName,author --jq '.[] | "#\(.number) \(.headRefName) by \(.author.login): \(.title)"' 2>/dev/null \
-    || echo "CANNOT CHECK — gh unavailable; this learned NOTHING, do not read it as none" ) | ind
+  prs=""
+  echo "    CANNOT CHECK — gh unavailable; this learned NOTHING, do not read it as none"
 fi
+echo "- Remote branches with no open PR (land, hand off or delete each one of yours):"
+ctx_loose_branches "$prs" 2>&1 | ind
 
 echo "- Changes in $CHANGES_DIR/ (a finished one is archived now; at most ONE may stay proposed):"
 found=""
@@ -43,7 +62,18 @@ echo "- Roadmap queue (step 3 sets each row's status):"
 roadmap_queue --text 2>&1 | ind
 
 base="origin/$MAIN_BRANCH"
-if fetch_main; then
+fetched=""
+fetch_main && fetched=1
+# Read against origin/<main>'s roadmap, not this branch's: main is what every other reader sees.
+echo "- Open PRs whose roadmap row still reads queued on $base (step 3 sets each to \`⬜ in flight (#N)\`):"
+if [ -n "$fetched" ] || [ "${CONTEXT_OFFLINE:-}" = 1 ]; then
+  ctx_queued_open "$prs" 2>&1 | ind
+else
+  echo "    CANNOT CHECK — no $base to read the roadmap from"
+fi
+echo "- Living specs still carrying TBD (archive-change promotes a Purpose; fill each one):"
+ctx_tbd_specs 2>&1 | ind
+if [ -n "$fetched" ]; then
   top=$(git show "$base:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | sort -n | tail -1)
   echo "- Journal: next session number on $base = $(( ${top:-0} + 1 )); author for the heading = $(git config user.name 2>/dev/null | cut -d' ' -f1)"
 else
