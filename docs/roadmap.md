@@ -51,9 +51,10 @@ fixed in the template before Standing Tee's Phase 0.
 
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
-| OPS-8 | `ops/ops-8-own-model` — this repo installs and runs the model it ships; ADRs 0001–0008; the no-clauductor check | `.claude/`, `AGENTS.md`, `scripts/ci/`, `docs/`, `template/.claude/checks/no-clauductor.sh` | — | ⬜ in flight (#27) |
+| OPS-8 | `ops/ops-8-own-model` — this repo installs and runs the model it ships; ADRs 0001–0008; the no-clauductor check | `.claude/`, `AGENTS.md`, `scripts/ci/`, `docs/`, `template/.claude/checks/no-clauductor.sh` | — | ✅ merged (#27) |
 | OPS-13 | `ops/ops-13-remove-old-model` — the CLI no longer carries the lock-and-supervisor model: no SQLite registry, HUD, claim/spawn/assign, and install stops creating `orchestration/` | `framework/internal/{state,hud}`, `framework/internal/cmd`, `docs/onboarding.md` | OPS-8 | ✅ merged (#37) |
-| OPS-14 | `ops/ops-14-rehearsal-fixes` — the OPS-8 rehearsal findings too big to fix inline (journal Session 1): old-model detection on a fresh clone, stale old-model files after install, the ambient template path, update adding new doc-tier files, settings and branch prefixes a project changes living in framework files | `framework/internal/cmd/{ownguard,install,update}.go`, `template/.claude/workflows/build-change.js` | OPS-8 | ⬜ in flight (#36) |
+| OPS-26 | `ops/ops-26-ci-linux-prs` — a pull request's CI runs Ubuntu only and a newer push cancels the running suite; `main` still runs macOS and Ubuntu (the local gate covers macOS per PR) | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | — | ⬜ in flight (#58) |
+| OPS-14 | `ops/ops-14-rehearsal-fixes` — the OPS-8 rehearsal findings too big to fix inline (journal Session 1): old-model detection on a fresh clone, stale old-model files after install, the ambient template path, update adding new doc-tier files, settings and branch prefixes a project changes living in framework files | `framework/internal/cmd/{ownguard,install,update}.go`, `template/.claude/workflows/build-change.js` | OPS-8 | ✅ merged (#36) |
 
 ## Phase 2 — The panel
 **Owner:** Rich
@@ -97,6 +98,7 @@ build.
 |---|--------|-------|------|--------|
 | REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
 | REL-2 | `ops/rel-2-install-kit` — what REL-1 (#25) leaves out: release builds cross-compile without cgo (SQLite left with OPS-13), install prints a prerequisites report, and a project starts with a `.gitleaks.toml` | `scripts/release/`, `.github/workflows/release*.yml`, `install.sh`, `template/.gitleaks.toml` | REL-1 | ⬜ queued |
+| OPS-28 | `ops/ops-28-restore-macos-pr-ci` — roll OPS-26 back: a pull request's CI runs macOS and Ubuntu again (keep the superseded-run cancel). OPS-26 was a temporary speed-up for getting the first release out; start this once REL-1 has merged and the owner says the release is settled | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | OPS-26, REL-1 | ⬜ queued |
 
 ## Phase 5 — Standing Tee converges on the template
 **Owner:** Rich
