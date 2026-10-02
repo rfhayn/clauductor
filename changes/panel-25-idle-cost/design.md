@@ -22,7 +22,14 @@
     fixed rate, `Ticks.PRs`, `waitFirst`. It reads the open list from the hub (no spawn) and runs
     `gh pr list --head <branch> --state merged --json number` for a lane when it first sees it
     (`a.seen`), when its branch leaves the open list, and every 5 min while it asks
-    (`autoclose.go`). It logs nothing on a close; it prints only when a notification fails.
+    (`autoclose.go`). `mergedPR` asks for up to 5 merged PRs on the branch and keeps only the
+    highest number. It logs nothing on a close; it prints only when a notification fails.
+  - **The project's own commands** run on `panel.json`'s refresh rules, page or not. With the
+    template's `panel.json` several call GitHub: the metrics command every 600 s
+    (`metrics_source.go` `metricsSources`, ungated; `.claude/metrics.sh` runs `gh api graphql
+    --paginate` and `gh pr list --limit 200`), and the fix suggestions every 300 s
+    (`.claude/panel-suggest.sh fix`: `gh issue list`). The metrics command's only reader is the
+    Metrics view.
 - **A gap auto-close has today.** A pull request opened and merged between two reads of the open
   list is never in it, so it never "leaves" it. The lane's first-sight check ran before the pull
   request existed, and the lane is not asking, so it stays open until the panel restarts. The
@@ -56,8 +63,15 @@
   - takes `claude auth status` off its 10-minute timer: at start, when no recent reading is saved,
     and on **Refresh** (its D5).
 
+  As of PANEL-28's `17617ae` (agreed with its proposer), the gate is a plain Runner wrapper that
+  starts nothing itself: it runs the inner Runner under its own context and keeps its slot until
+  the inner call returns, and `signals.ExecRunner` is the only starter (the stop signals for
+  `claude` argv live there). A poll that finds the slot taken waits up to 2 s, then returns a retry
+  in 1 s through its own next-wait, applying no update; while a login lock is live it returns a
+  retry in 2 s (its D3, D4). `checkFilter` records its check only after a cross-check that ran.
+
   Where this design says "the gate", "the slot" or "a skipped poll", it means PANEL-28's as it
-  merges. The builder reads its merged design first.
+  merges. The builder reads its merged design and code first.
 - **The browser at login**: `Run`'s `switch` opens under `o.Launchd` when
   `install.ShouldOpenAtLogin` allows (once per 5 min), and checks `!o.NoOpen` only for a run that is
   not under launchd. `renderPlist` writes `panel [--project …] [--config …] --port N --launchd`.
@@ -80,13 +94,13 @@
      (the filter must be decided once, idle or not); after it, while idle, the cross-check waits,
      and the next one runs at the first poll after the project stops being idle. Otherwise every
      idle poll would be three calls.
-   - **A poll PANEL-28's slot skips** (the slot taken, or the login lock live) spawned nothing and
-     read nothing, so it never waits the dormant interval (D9). `pollAgents` recognises the gate's
-     skip and returns `AgentsFast` (2 s): it retries every 2 s, spawning nothing while it is
-     skipped, until a poll runs, and only that poll's interval may be `Dormant`. The kick that
-     started it is spent, so the retry is what keeps a hook's answer seconds away; it is also what
-     keeps a timed idle poll that was skipped from making the reading 10 minutes old. The
-     cross-check's two calls go through the slot the same way: a skipped cross-check stays due.
+   - **A poll PANEL-28's gate skips** (the slot still taken after its 2 s wait, or the login lock
+     live) spawned nothing and read nothing. PANEL-28 already returns its own short retry through
+     the poll's next-wait (1 s for the slot, 2 s for a live lock). This change adds one rule (D9):
+     the dormant wait never replaces that retry. `pollAgents` computes `Dormant` only after a poll
+     that ran. The kick that started a skipped poll is spent, so the retry is what keeps a hook's
+     answer seconds away, and what keeps a skipped timed idle poll from leaving the reading 10
+     minutes old. A skipped cross-check stays due (PANEL-28 records the check only after one ran).
    - `tmuxPoller.tick` returns `Dormant` where it returns `TmuxIdle` today and no page is in view,
      and also after an error while dormant (D7).
    - The `worktrees` source's poll returns `Dormant` when the project is dormant.
@@ -98,13 +112,30 @@
      nothing out of view. It is kicked when a page comes into view.
    - The `autoclose` source keeps its gate (`r.lanes != nil && r.trusted()`) and its filter of
      watched lanes (registered, on a branch, in its own worktree, `AutoCloseOf(type) ==
-     on_merge`). New: when it has a watched lane, it reads the merged pull requests itself, at most
-     every `Ticks.MergedLanes` (3 min, in `DefaultTicks` and `withDefaults`), in view or not: one
-     `gh pr list --state merged --limit 20 --json number,headRefName,mergedAt`. A watched lane
-     whose branch is in that list, under a number not yet checked for that lane, is due. With no
-     watched lane, no call.
-   - A due lane goes through today's path unchanged: `gh pr list --head <branch> --state merged`
-     (now asking `--json number,mergedAt`), Close's own plan, then a close or an ask.
+     on_merge`). New: when it has a watched lane, it reads the recently merged pull requests
+     itself (the **merged-list read**), at most every `Ticks.MergedLanes` (3 min, in
+     `DefaultTicks` and `withDefaults`), in view or not, bounded by merge time as
+     `signals.MergedArgv` already is:
+     `gh pr list --state merged --search "merged:>=<since>" --limit 100 --json
+     number,headRefName,mergedAt`.
+     - **Why the bound.** Without `--search`, `gh pr list --state merged --limit N` returns the N
+       most recently *created* merged PRs, not the most recently merged. After a merge train, a
+       lane whose PR was opened long ago would be missing.
+     - **`<since>`** is the start of the last read that succeeded, minus 10 minutes (the margin
+       covers GitHub's search index lagging a merge, and clock skew). The first read uses the
+       panel's start minus 10 minutes: a merge before that is the first-sight check's to find. A
+       failed read leaves `<since>` where it was, so the next read covers the gap.
+     - **The limit, truthfully.** The read returns at most 100 PRs merged since `<since>`. When it
+       returns exactly 100 the list may be cut, so every watched lane not checked since `<since>`
+       gets the `--head` check instead (one call per such lane, that once).
+     - **Due.** A watched lane whose branch is in the list under a PR number not yet checked for
+       that lane. With no watched lane, no call.
+   - **"Checked" is a set.** `mergedPR` (the **`--head` check**) now returns every merged PR it
+     lists for the branch (`--json number,mergedAt`, up to 5), and each lane records every number
+     it has checked, at first sight too, not only the highest. So "a number not yet checked" is
+     well defined: a PR merged before the lane was first seen is never due again.
+   - A due lane goes through today's path unchanged: the `--head` check, Close's own plan, then a
+     close or an ask.
    - In view, the open-then-gone trigger stays as the fast path (within 60 s). The first-sight
      check and the 5-minute recheck while asking stay as they are.
 4. **Waking.** `Runtime.pageInView` (run on `OnVisible`) kicks `agents`, `worktrees`, `tmux` and
@@ -116,8 +147,12 @@
      PANEL-28's gate, which is already there when this builds: the project tag (in the context),
      then the gate, then the counter, then `signals.ExecRunner`. A call the gate skips, or holds
      waiting for the slot, reaches the counter only when it starts, so it is never counted as a
-     spawn. `LaneManager.tmuxIn` reports each tmux call through a `Spawned` callback (on the
-     `Exec` path too); tmux is not `claude`, so the gate does not see it.
+     spawn. Since PANEL-28's `17617ae` the gate starts nothing itself and `ExecRunner` is the only
+     starter, so the counter between them counts `claude` calls too, once each, when the inner
+     call starts the process. It counts on entry to the inner Runner, not on return: the gate can
+     hand its caller a timeout while the process still runs, and that process is still one spawn.
+     `LaneManager.tmuxIn` reports each tmux call through a `Spawned` callback (on the `Exec` path
+     too); tmux is not `claude`, so the gate does not see it.
    - **Whose.** Each runtime runs its commands with the context tagged with its project, and so
      does its lane manager (the tmux callback is set per project in `newLaneManager`).
      `Machine.run` tags its calls "machine", and no longer charges them to the default project.
@@ -136,17 +171,25 @@
    - **What it leaves out**, named in the docs: the starts beside the Runner other than tmux (a
      notification, a terminal attach, a queue RUN, Terminal.app, the browser, a lease holder's
      start time). Each follows a person's action or a held lease, not a timer.
-6. **The auto-close log line** (D8). Each close and each ask writes one line to the panel's
-   output: `auto-close: lane fix-x: PR #12 merged 14:02:11, closed 14:04:30 (2m19s)`, or `… asked
-   14:04:30: claude is working`. The merge time is the `mergedAt` the `--head` check now asks for.
-7. **`panel install --no-open`** (D4). `InstallOptions.NoOpen` → `plistSpec.NoOpen` →
+6. **The auto-close log line** (D8). A close writes one line to the panel's output: `auto-close:
+   lane fix-x: PR #12 merged 14:02:11, closed 14:04:30 (2m19s)`. An ask writes `… asked 14:04:30:
+   claude is working` the first time for that lane and PR, and again only when its reasons
+   change; a 5-minute recheck that finds the same reasons writes nothing. A close after an ask
+   writes the close line. The merge time is the `mergedAt` the `--head` check now asks for.
+7. **The metrics command waits for a page** (D10). The `metrics` source runs the project's
+   metrics command only while a page is in view, still on its `metrics.refresh` rule, as
+   `pollMerged` does for the merged read. When a page comes into view, it runs at once if its
+   interval passed meanwhile (`pageInView` kicks it); **Refresh** runs it as today. Its run at
+   start waits for the first page. Cards and suggest commands keep their rules.
+8. **`panel install --no-open`** (D4). `InstallOptions.NoOpen` → `plistSpec.NoOpen` →
    `--no-open` after `--launchd` in `ProgramArguments`. In `Run`, `o.NoOpen` wins under launchd
    too: no tab, and `browser-opened` is not written. `install` prints which it installed: "At
    login: opens the page once per login (--no-open to stop)" or "At login: opens no browser tab
    (clauductor panel open opens it)".
-8. **Docs**: `docs/panel.md`'s sources table, *What the panel reads, and when*, *Close a lane
+9. **Docs**: `docs/panel.md`'s sources table, *What the panel reads, and when*, *Close a lane
    when its PR merges*, *The lane registry*, the `claude agents` cadence under *How signals are
-   read*, *The launchd agent*, and the observability footer (the count, and what it leaves out).
+   read*, *Metrics* and the `metrics.refresh` key (D10), *The launchd agent*, and the
+   observability footer (the count, and what it leaves out).
 
 ### The cadences
 
@@ -159,15 +202,20 @@ of view", and auto-close's reads whether the project has a watched lane.
 | `git worktree list` | unchanged: 10 s | 10 s | **5 min** | a worktree added or removed (the 2 s `stat` watch); an event from an unknown cwd; a lane action; a page coming into view; Refresh |
 | tmux `list-panes` (the registry re-read rides on it) | unchanged: 2 s with lanes (and after an error), 10 s without | 10 s; 2 s after an error | **5 min**, after an error too | a lane action; a page coming into view; Refresh |
 | `gh pr list` (open) | in view: unchanged, 60 s | 60 s | **none** while out of view | a page coming into view; Refresh |
-| `gh pr list --state merged --limit 20` (auto-close) | new: every 3 min with a watched lane, in view or not | — | none (no lane, so none watched) | — |
-| `gh pr list --head <b> --state merged` | unchanged: first sight of a lane, its branch leaving the open list, every 5 min while it asks; new: its branch in the merged list | as today | none (no lane) | — |
+| merged-list read, `gh pr list --state merged --search "merged:>=<since>" --limit 100` (auto-close) | new: every 3 min with a watched lane, in view or not | — | none (no lane, so none watched) | — |
+| `--head` check, `gh pr list --head <b> --state merged` | unchanged: first sight of a lane, its branch leaving the open list, every 5 min while it asks; new: its branch in the merged list under an unchecked number, or a merged-list read that came back full | as today | none (no lane) | — |
+| the project's metrics command (D10) | in view: unchanged, its `metrics.refresh` | its `metrics.refresh` (600 s in the template) | **none** while out of view | a page coming into view, when its interval passed; Refresh |
 
-The arithmetic, two projects with the template's `panel.json`, idle: three polls at 0.2 a minute
-each is 0.6 per project, plus about 0.4 from the project's own interval commands: 1.0 per
-project, against a target of 1.2. The machine's timed calls are `claude --version` alone, once
-PANEL-28 has taken `auth status` off its 10-minute timer: 0.1, against 0.2. About 2.1 a minute
-for both, against 3. A poll PANEL-28's slot skips spawns nothing, so it lowers these figures,
-never raises them.
+The arithmetic, two projects with the template's `panel.json`, idle:
+- **The panel's polls:** three at 0.2 a minute each, 0.6 per project.
+- **The project's own interval commands:** the fix suggestions every 300 s (0.2), the health card
+  every 600 s (0.1) and the metrics command every 600 s (0.1): 0.4, or 0.3 with D10.
+- **Per project:** 1.0, or 0.9 with D10, against a target of 1.2.
+- **The machine:** `claude --version` alone on a timer, once PANEL-28 has taken `auth status` off
+  its 10-minute timer: 0.1, against 0.2.
+- **Both projects and the machine:** about 2.1 a minute (1.9 with D10), against 3.
+
+A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never raise them.
 
 ## Refusals
 
@@ -176,16 +224,21 @@ never raises them.
 | A hook arrives while `claude agents` waits its 5 min | It polls at once (`hookSeen`, as for the 15 s wait today), and the next interval counts the hook: no longer idle for 5 min |
 | A lane starts in a dormant project | `lanes.Changed` polls tmux, worktrees and agents at once; with a lane the project is not dormant |
 | A lane in project A, none in project B, no page | A keeps today's cadence; B is dormant. A lane is per project, the page is the machine's (D1) |
-| Out of view, a lane on a branch with `lanes_auto_close` off | No `gh` call: nothing reads the answer until a page comes back |
+| Out of view, a lane on a branch with `lanes_auto_close` off | No `gh` call from the panel's own polls: nothing reads the answer until a page comes back. The project's own commands still run on their rules (D10 for the metrics command) |
 | A pull request opened and merged between two reads | Auto-close's merged-list read sees it within 3 min, in view or not (D3); today it is missed |
-| More than 20 pull requests merge in the project between two merged-list reads | A lane whose PR fell off the list is missed by that read. In view, the open-then-gone trigger still catches a PR it saw open. Stated in the docs |
-| A merged-list or `--head` read fails | Nothing is due from it; the next read tries again. Auto-close never closes on a failed read |
+| A merge train: ten PRs merge at once, the lane's opened weeks before the others | Found: the read is bounded by merge time, not by creation, so every PR merged since `<since>` is in it, up to 100 |
+| The merged-list read returns its full 100 | The list may be cut, so every watched lane not checked since `<since>` gets the `--head` check, once |
+| A merge GitHub's search has not indexed yet when the read runs | `<since>` trails the last good read by 10 min, so the next read covers it |
+| A merged-list or `--head` read fails | Nothing is due from it, and `<since>` stays put, so the next read covers the gap. Auto-close never closes on a failed read |
+| The first-sight check finds two merged PRs on a reused branch | Both numbers are recorded as checked; neither makes the lane due again |
+| A lane asks, and each 5-minute recheck finds the same reasons | One log line at the first ask, none at the rechecks; another only when the reasons change, and one at the close |
+| No page in view and the metrics command's interval passes | It does not run (D10). The first page view runs it at once; the Metrics view shows its last figures until it returns |
 | A page comes into view | Every backed-off source polls at once; the page shows them current within a second or two |
 | tmux errors while the project is dormant | The next poll is in 5 min, not 2 s (D7); the page's "Cannot read" banner refreshes when a page comes into view |
 | The tmux server is up with no lane while dormant | `list-panes` every 5 min; `show-environment` with it at most then (it runs only on a poll) |
 | PANEL-28's gate skips a poll, or holds a lane action waiting for the slot | Not counted until it starts (D6) |
-| A hook-kicked `claude agents` poll finds PANEL-28's slot taken, or the login lock live | Skipped, and retried every 2 s, spawning nothing, until it runs; the dormant 5 min applies only after a poll that ran (D9) |
-| A timed idle `claude agents` poll is skipped | The same: retried every 2 s, not 5 min later, so the reading never ages past one dormant interval plus the skip |
+| A hook-kicked `claude agents` poll finds PANEL-28's slot taken, or the login lock live | PANEL-28's retry applies (a wait of up to 2 s, then a retry in 1 s for the slot, 2 s for a live lock), spawning nothing; the dormant 5 min applies only after a poll that ran (D9) |
+| A timed idle `claude agents` poll is skipped | The same retry, not 5 min later, so the reading never ages past one dormant interval plus the skip |
 | `/api/state` read with the token, no page open | Answers, the spawn count included; it does not mark a page in view (only `POST /api/seen` does) |
 | `panel install` without `--no-open` | Today's behaviour, and it says so in its output. A reinstall rewrites the plist, so the choice is made at each install (D4) |
 | `panel --launchd --no-open` crash-restarted by KeepAlive | Opens nothing, writes no `browser-opened` |
@@ -214,21 +267,27 @@ never raises them.
 
 **D3. How auto-close learns of a merge.**
 - **Recommended:** the open list is the page's and stops out of view. Auto-close reads the merged
-  pull requests itself: one `gh pr list --state merged --limit 20` per project every 3 minutes,
-  only while the project has a watched lane, in view or not. A watched lane whose branch is in it
-  goes through today's `--head` check and Close's plan.
+  pull requests itself: one `gh pr list --state merged --search "merged:>=<since>" --limit 100`
+  per project every 3 minutes, only while the project has a watched lane, in view or not.
+  `<since>` is the last good read's start minus 10 minutes, so the read is bounded by merge time,
+  as `signals.MergedArgv` already is. A watched lane whose branch is in it under a number it has
+  not checked goes through today's `--head` check and Close's plan. A read that comes back full
+  sends every watched lane not checked since `<since>` to the `--head` check instead.
 - **Alternatives:**
   - keep the open list out of view for a project with a watched lane, every 3 min, and add a
     per-lane `gh pr list --head <branch> --state merged` for each watched lane whose branch was
     never seen open (one call per such lane per read);
   - keep the open list out of view every 3 min, and state the gap: a PR opened and merged between
     two reads leaves its lane open until a restart;
-  - the same at 60 s.
+  - the same at 60 s;
+  - the merged list without `--search`, `--limit 20`: simpler, but gh orders it by creation, so a
+    merge train hides an old PR's merge.
 - **Why:** the open list cannot see a pull request that opened and merged between two reads, at
-  any cadence; a merged list can. One call covers every lane, however many have no PR yet, and it
-  closes the gap that exists at 60 s today. Auto-close is off by default (`config/fields.go`), so
-  most projects make no GitHub call out of view. A merged lane closes within about 4 minutes
-  instead of 1 when the open list missed it, which costs nothing when nobody is looking.
+  any cadence; a merged list can, provided it is bounded by merge time. One call covers every
+  lane, however many have no PR yet, and it closes the gap that exists at 60 s today. Auto-close
+  is off by default (`config/fields.go`), so for most projects the panel's own polls make no
+  GitHub call out of view. A merged lane closes within about 4 minutes instead of 1 when the open
+  list missed it, which costs nothing when nobody is looking.
 
 **D4. Where `--no-open` lives.**
 - **Recommended:** in the plist's `ProgramArguments`, written by `panel install --no-open`; each
@@ -255,8 +314,12 @@ never raises them.
 - **Recommended:** one counter around the shared Runner, applied once in `Run`, plus tmux's own
   starts; calls tagged by project (the machine's as "machine"). It sits innermost, inside
   PANEL-28's `claude` gate (which builds first), so a call the gate skips or holds waiting is not
-  a spawn, and only processes actually started are counted. The starts beside the
-  Runner that follow a person's action (a notification, a terminal attach, a queue RUN,
+  a spawn, and only processes actually started are counted. Because PANEL-28's gate (as of
+  `17617ae`) starts nothing itself and `ExecRunner` is the only starter, the counter sees every
+  `claude` call too, once, at the moment the inner call starts it. Nothing in `17617ae` conflicts:
+  its gate keys on the argv and reads no tag, its stop signals live in `ExecRunner` beneath the
+  counter, and its proposer has adopted this order. The starts beside the Runner that follow a
+  person's action (a notification, a terminal attach, a queue RUN,
   Terminal.app, the browser, a lease holder's start time) are left out, and the docs say so.
 - **Alternatives:**
   - count at every start site, eight of them, for a literal "every process";
@@ -283,17 +346,38 @@ never raises them.
   a week how long merged lanes stayed open. The line is the evidence for the auto-close half of
   the Signal, where a project has auto-close on.
 
-**D9. A `claude agents` poll that PANEL-28's slot skips.**
-- **Recommended:** retry every 2 s (`AgentsFast`), spawning nothing while skipped, until a poll
-  runs; only a poll that ran may set the dormant 5-minute wait. This holds whatever woke the poll:
-  a hook, a page coming into view, or the timer.
+**D9. A `claude agents` poll that PANEL-28's gate skips.**
+- **Recommended:** reuse PANEL-28's retry as it stands (a wait of up to 2 s for the slot, then a
+  retry in 1 s for the slot or 2 s for a live lock, through the poll's next-wait), and add one
+  rule: the dormant 5-minute wait is set only by a poll that ran, never after a skip. This holds
+  whatever woke the poll: a hook, a page coming into view, or the timer.
 - **Alternatives:**
-  - keep the interval the cadence gives, so a skipped idle poll waits the full 5 minutes again;
-  - retry only a kicked poll, and let a timed one wait.
+  - a retry of this change's own (every 2 s), beside PANEL-28's: two retry rules for one skip;
+  - let the cadence's interval win, so a skipped idle poll waits the full 5 minutes again;
+  - keep the short retry only for a kicked poll, and let a timed one wait.
 - **Why:** a hook-kicked poll is how a waiting session outside a lane gets its notification
   (*Current or stale*: only a current reading confirms "waiting"). Its kick is spent when it is
-  skipped, so without the retry the answer could be up to 5 minutes late, or never come if the
-  hook was the session's last. A skipped poll costs nothing, so retrying every 2 s adds no spawn;
-  the slot is held for seconds, so the retry runs within seconds (within about a minute while
-  PANEL-28 holds polls back for a live login lock, as it proposes). A timed poll is treated the same
-  so an idle reading never ages past one dormant interval plus the skip.
+  skipped, so if the dormant wait won, the answer could be up to 5 minutes late, or never come if
+  the hook was the session's last. PANEL-28's retry already does the right thing and spawns
+  nothing while skipped; this change must only not override it. The slot is held for about
+  0.1 s a call, so the retry runs within 2 s (longer only while a login refresh holds its lock).
+  A timed poll is treated the same, so an idle reading never ages past one dormant interval plus
+  the skip.
+
+**D10. The project's metrics command while no page is in view.**
+- **Recommended:** run it only while a page is in view, on its `metrics.refresh` rule, and at once
+  when a page comes into view if its interval passed meanwhile; **Refresh** runs it as today.
+  Cards and suggest commands keep their rules.
+- **Alternatives:**
+  - leave it on its rule, page or not (the template's runs every 600 s and calls `gh api graphql
+    --paginate` and `gh pr list --limit 200` each time);
+  - also hold the interval cards and suggest commands while no page is in view (the fix
+    suggestions' `gh issue list` every 300 s, the health card every 600 s).
+- **Why:** the metrics command's only reader is the Metrics view, and its contract is a reader's
+  (stdout is the metrics JSON), so holding it changes nothing anyone sees: the first page view
+  runs it. It is the costliest of the project's commands, a paginated search on GitHub. Cards
+  and suggest commands are also read only by the page, but a card's command is any script the
+  project names, with no contract that it only reads, so when it runs is the project's choice in
+  `panel.json`, not the panel's to change. Holding them is the
+  alternative if the owner prefers the lower figure: about 0.6 a minute per idle project
+  instead of 0.9.

@@ -1,5 +1,5 @@
 ## Purpose
-An idle panel costs little: with no lane and no page in view it starts almost no processes and calls GitHub only for a lane it may close, while anything that needs it wakes it at once, and the login agent can start without opening a browser tab.
+An idle panel costs little: with no lane and no page in view its own polls start almost no processes and call GitHub only for a lane it may close, the project's own commands aside, while anything that needs it wakes it at once, and the login agent can start without opening a browser tab.
 
 ## ADDED Requirements
 
@@ -58,14 +58,15 @@ WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added 
 - **GIVEN** an idle project whose `claude agents` loop waits its 5 minutes
 - **AND** the panel's `claude` slot held by another call
 - **WHEN** a hook from a session in the project arrives
-- **THEN** the poll is skipped without starting a process, and tried again every 2 seconds
-- **AND** `claude agents` runs within 2 seconds of the slot coming free, not 5 minutes later
+- **THEN** the poll is skipped without starting a process, and retried on the gate's short retry, not after 5 minutes
+- **AND** `claude agents` runs within 2 seconds of the slot coming free
 
-### Requirement: GitHub is called only when something reads the answer
-WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests, and WHEN a page is in view SHALL read them every 60 s as before; WHILE a project has a lane that auto-close watches THE SYSTEM SHALL read its merged pull requests at most every 3 minutes, in view or not, and SHALL close that lane, or ask, after its pull request merges, including one opened and merged between two reads; each close and each ask SHALL be logged with the merge time and its own time.
+### Requirement: The panel's own GitHub reads run only when something reads the answer
+WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests, and WHEN a page is in view SHALL read them every 60 s as before; WHILE a project has a lane that auto-close watches THE SYSTEM SHALL read the pull requests merged since its last good read (the merged-list read) at most every 3 minutes, in view or not, bounded by merge time, and SHALL close that lane, or ask, after its pull request merges, including one opened and merged between two reads and one merged in a train with newer pull requests; each close, each first ask and each change in an ask's reasons SHALL be logged with the merge time and its own time.
 
 #### Scenario: [IDLE-3-S1] No page and no lane to close means no GitHub call
-- **GIVEN** a project with lanes but none with `lanes_auto_close` on, and no page in view
+- **GIVEN** a project whose `panel.json` names no card, suggest or metrics command
+- **AND** lanes, but none with `lanes_auto_close` on, and no page in view
 - **WHEN** an hour passes on the panel's clock
 - **THEN** no `gh` command runs for the project
 
@@ -73,8 +74,8 @@ WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests
 - **GIVEN** `lanes_auto_close` "on_merge" and a lane on `fix/done` whose pull request is open
 - **AND** no page in view
 - **WHEN** the pull request merges
-- **THEN** no open-list `gh pr list` runs, and `gh pr list --state merged` runs at most once every 3 minutes
-- **AND** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge
+- **THEN** no open-list `gh pr list` runs, and the merged-list read (`gh pr list --state merged --search "merged:>=…"`) runs at most once every 3 minutes
+- **AND** the lane is closed, or asks "PR merged: close lane?", within 4 minutes of the merge, after its `--head` check confirms the merge
 
 #### Scenario: [IDLE-3-S3] A page in view reads the open pull requests every minute
 - **GIVEN** a project with no lane
@@ -91,6 +92,19 @@ WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests
 - **GIVEN** a lane auto-close closes after its pull request #12 merged
 - **WHEN** the close is done
 - **THEN** one line naming the lane, the pull request, its merge time and the close time is written to the panel's output
+
+#### Scenario: [IDLE-3-S6] A lane's pull request merged in a train is found
+- **GIVEN** `lanes_auto_close` "on_merge", no page in view, and a lane on `fix/old` whose pull request was opened weeks ago
+- **AND** a merge train that merges it with 25 pull requests created after it, all within one read
+- **WHEN** the next merged-list read runs
+- **THEN** the lane is due and goes through its `--head` check
+- **AND** the read asked GitHub by merge time, not for the most recently created merged pull requests
+
+#### Scenario: [IDLE-3-S7] An asking lane logs its first ask, not every recheck
+- **GIVEN** a lane whose pull request #12 merged while claude is working
+- **WHEN** it asks "PR merged: close lane?", and three 5-minute rechecks find claude still working
+- **THEN** one ask line is written, at the first ask
+- **AND** when claude goes idle and the lane closes, one close line is written
 
 ### Requirement: The panel reports what it spawns
 THE SYSTEM SHALL count every process it starts through its command runner or tmux, once each, per project (the machine's own calls apart) and by command, with each project's idle minutes, and SHALL report the last 10 minutes in each project's observability counters without that report marking a page in view; WHEN it runs as the login agent THE SYSTEM SHALL also write each project's last hour, and the machine's, to its log once an hour.
@@ -133,3 +147,16 @@ WHEN `clauductor panel install` is given `--no-open` THE SYSTEM SHALL install a 
 - **WHEN** the install finishes
 - **THEN** its output says the agent opens the page once per login and names `--no-open`
 - **AND** the plist has no `--no-open`
+
+### Requirement: The metrics command waits for a page
+WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, and WHEN a page comes into view SHALL run it at once if its refresh interval passed meanwhile.
+
+#### Scenario: [IDLE-6-S1] No metrics command with no page in view
+- **GIVEN** a project with a metrics command on `interval:600` and no page in view
+- **WHEN** an hour passes on the panel's clock
+- **THEN** the metrics command does not run
+
+#### Scenario: [IDLE-6-S2] A page coming into view runs the overdue metrics command
+- **GIVEN** a project whose metrics command last ran 20 minutes ago, on `interval:600`
+- **WHEN** a page says it is in view, and none was
+- **THEN** the metrics command runs at once

@@ -47,13 +47,18 @@ would be ignored under the agent even if it were there.
 
 An idle panel spawns almost nothing, and nothing that needs it waits:
 
-- **No page in view, no GitHub call per minute.** The open pull requests (`gh pr list`) are read
-  every 60 s while a page is in view, as today, and not at all otherwise.
+- **No page in view, no open-PR read every minute.** The open pull requests (`gh pr list`) are
+  read every 60 s while a page is in view, as today, and not at all otherwise.
 - **Auto-close reads the merged pull requests itself.** For a project with a lane auto-close
-  watches, one `gh pr list --state merged` every 3 minutes, page or not, so a lane closes even
-  when its pull request was opened and merged between two reads (a gap that exists today). A
-  project with no such lane makes no call. Auto-close is off by default, so most projects make
-  no GitHub call at all while no page is in view.
+  watches, one `gh pr list --state merged`, bounded by merge time, every 3 minutes, page or not,
+  so a lane closes even when its pull request was opened and merged between two reads (a gap
+  that exists today), and after a merge train. A project with no such lane makes no call.
+  Auto-close is off by default, so for most projects the panel's own polls make no GitHub call
+  while no page is in view. The project's own commands may still: with the template's
+  `panel.json`, the fix suggestions run `gh issue list` every 5 minutes and the metrics command
+  runs two `gh` reads every 10.
+- **The metrics command waits for a page** (D10, the owner's call): its only reader is the
+  Metrics view, so it runs while a page is in view, and at once when one comes back.
 - **No lane and no page in view: the polls back off to 5 minutes.** `claude agents` (once no hook
   has arrived for 5 minutes, today's quiet rule), `git worktree list` and tmux `list-panes` each
   wait 5 minutes between timed polls for that project.
@@ -88,10 +93,11 @@ launchd agent*. Each is updated to match.
   terminal fires no hook", `docs/panel.md`, *Current or stale*) and auto-resume read them. Not
   owned: the spawn count this change adds (D5) is what would show whether a row is worth it,
   since its hourly lines give the busy minutes' rate too.
-- **The project's own interval commands**: cards, suggest commands and the metrics command run on
-  `panel.json`'s refresh rules (the template's defaults: the fix suggestions every 5 min, the
-  metrics command and one card every 10 min, about 0.4 a minute per project). The project chose
-  them. Not owned, for the same reason.
+- **The project's own interval cards and suggest commands** keep `panel.json`'s refresh rules
+  (the template's: the fix suggestions every 5 min, which call `gh issue list`, and the health
+  card every 10 min; about 0.3 a minute per project). The project chose them. Holding them too
+  while no page is in view is D10's alternative. Not owned otherwise, for the same reason. The
+  metrics command is D10.
 - **The machine's `claude` calls.** `claude --version` stays every 10 minutes. PANEL-28 takes
   `claude auth status` off its timer (start and **Refresh** only); this change does not touch
   either.
