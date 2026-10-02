@@ -166,7 +166,11 @@ EOF
 printf 'MODULES="people"\nROADMAP_PARSER="sh .claude/parser14.sh"\n' > "$R/.claude/project.conf"
 [ "$(inr 'roadmap_queue --tsv' | awk -F'\t' '$4 == "2C.9" { print NF }')" = 14 ] && ok "fixture: the plugged parser emits 14 columns" || fail "fixture: the plugged parser's rows: $(inr 'roadmap_queue --tsv' | head -3)"
 has yes "Next: 2C.10 add-gamma" "$(act "$W" | blk Alice)" "a 14-column parser's deferred row (column 14) is skipped for Next"
-has yes "Next: 2C.9 add-beta" "$(cd "$R" && COL=13 sh "$PS" --activity --state "$W" 2>&1 | blk Alice)" "...but a status in column 13 is not read as the row's status"
+# Column 13 is the builtin's `started` date (docs/roadmap.md), so the contract refuses a status
+# there: the queue is CANNOT CHECK, and the deferred row is never skipped on column 13's word.
+o13=$(cd "$R" && COL=13 sh "$PS" --activity --state "$W" 2>&1)
+has yes "column 13 (started)" "$o13" "...but a status in column 13 is not read as the row's status: the contract refuses it"
+has no "Next: 2C.10 add-gamma" "$o13" "...and nobody's Next skips the row on column 13's word"
 printf 'MODULES="people"\n' > "$R/.claude/project.conf"
 has yes "Next: 2C.9 add-beta" "$(act "$W" --rows "$d/rows12.tsv" | blk Alice)" "...and a 12-column row has no status: Next as before"
 
