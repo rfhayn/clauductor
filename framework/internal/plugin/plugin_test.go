@@ -491,6 +491,37 @@ func TestScaffoldMergesGitattributes(t *testing.T) {
 	}
 }
 
+// /clauductor:init ends with the prerequisites report, and treats .gitleaks.toml as the
+// project's: created when missing, kept when the project has its own.
+func TestScaffoldReportsPrereqsAndKeepsGitleaksConfig(t *testing.T) {
+	need(t, "git", "sh")
+	plug, _ := build(t)
+	e := env(t, t.TempDir())
+	scaffold := filepath.Join(plug, "scaffold.sh")
+
+	p := newProject(t, e)
+	out, code := run(t, p, e, "", "sh", scaffold)
+	if code != 0 {
+		t.Fatalf("scaffold: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "Prerequisites on ") {
+		t.Errorf("scaffold printed no prerequisites report:\n%s", out)
+	}
+	if !exists(filepath.Join(p, ".gitleaks.toml")) {
+		t.Error("scaffold did not create the starter .gitleaks.toml")
+	}
+
+	q := newProject(t, e)
+	own := "[extend]\nuseDefault = true\n# ours\n"
+	os.WriteFile(filepath.Join(q, ".gitleaks.toml"), []byte(own), 0o644)
+	if out, code := run(t, q, e, "", "sh", scaffold); code != 0 {
+		t.Fatalf("scaffold: exit %d\n%s", code, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(q, ".gitleaks.toml")); string(b) != own {
+		t.Errorf("scaffold wrote over the project's .gitleaks.toml: %q", b)
+	}
+}
+
 // The plugin's hooks stand aside in a repository the plugin has not set up, and act in one it has.
 func TestHooksOnlyActInPluginProjects(t *testing.T) {
 	need(t, "git", "sh", "jq")
