@@ -45,8 +45,19 @@
     (`web/terminal.go`); a queue RUN (`queues.go`); Terminal.app (`lanes.go`
     `OpenInTerminalApp`); the browser (`install/launchd.go`); and a lease holder's start time
     (`lease.ProcStart`, `/bin/ps`, cached per process by `ProcCache`).
-  - **PANEL-28** (proposed, `changes/panel-28-login-refresh/design.md`, group 2) wraps the same
-    Runner with a `claude` gate that may hold a call back or refuse it.
+- **PANEL-28 builds first** (this row's Deps; the order is PANEL-29, PANEL-28, then PANEL-30, 31
+  and 25), so this change builds on it, not on the code above alone. As proposed
+  (`changes/panel-28-login-refresh/design.md`, branch `change/panel-28-login-refresh`, under
+  revision as this is written), PANEL-28:
+  - wraps the same Runner with a `claude` gate: one machine-wide slot for every panel `claude`
+    call, a stop policy past a timeout, and a reader of Claude Code's login lock;
+  - has a poll that finds the slot taken (or the lock live) skip its turn and keep its value,
+    while a lane action waits for the slot within its own timeout (its D3, D4);
+  - takes `claude auth status` off its 10-minute timer: at start, when no recent reading is saved,
+    and on **Refresh** (its D5).
+
+  Where this design says "the gate", "the slot" or "a skipped poll", it means PANEL-28's as it
+  merges. The builder reads its merged design first.
 - **The browser at login**: `Run`'s `switch` opens under `o.Launchd` when
   `install.ShouldOpenAtLogin` allows (once per 5 min), and checks `!o.NoOpen` only for a run that is
   not under launchd. `renderPlist` writes `panel [--project …] [--config …] --port N --launchd`.
@@ -69,6 +80,13 @@
      (the filter must be decided once, idle or not); after it, while idle, the cross-check waits,
      and the next one runs at the first poll after the project stops being idle. Otherwise every
      idle poll would be three calls.
+   - **A poll PANEL-28's slot skips** (the slot taken, or the login lock live) spawned nothing and
+     read nothing, so it never waits the dormant interval (D9). `pollAgents` recognises the gate's
+     skip and returns `AgentsFast` (2 s): it retries every 2 s, spawning nothing while it is
+     skipped, until a poll runs, and only that poll's interval may be `Dormant`. The kick that
+     started it is spent, so the retry is what keeps a hook's answer seconds away; it is also what
+     keeps a timed idle poll that was skipped from making the reading 10 minutes old. The
+     cross-check's two calls go through the slot the same way: a skipped cross-check stays due.
    - `tmuxPoller.tick` returns `Dormant` where it returns `TmuxIdle` today and no page is in view,
      and also after an error while dormant (D7).
    - The `worktrees` source's poll returns `Dormant` when the project is dormant.
@@ -93,11 +111,13 @@
    `prs` as well as the merged read. `hookSeen` and `lanes.Changed` are unchanged; they already
    wake what each needs.
 5. **The spawn count** (D5, D6).
-   - **Where.** A counter wraps `o.Runner` once in `Run`, before any runtime, the machine or a lane
-     manager receives it, so each start through the Runner is seen once. `LaneManager.tmuxIn`
-     reports each tmux call through a `Spawned` callback (on the `Exec` path too). PANEL-28's gate
-     goes outside the counter, so a call the gate refuses or holds back is not counted until it
-     starts; whichever change lands second keeps that order.
+   - **Where.** A counter wraps the Runner once in `Run`, before any runtime, the machine or a
+     lane manager receives it, so each start through the Runner is seen once. It goes **inside**
+     PANEL-28's gate, which is already there when this builds: the project tag (in the context),
+     then the gate, then the counter, then `signals.ExecRunner`. A call the gate skips, or holds
+     waiting for the slot, reaches the counter only when it starts, so it is never counted as a
+     spawn. `LaneManager.tmuxIn` reports each tmux call through a `Spawned` callback (on the
+     `Exec` path too); tmux is not `claude`, so the gate does not see it.
    - **Whose.** Each runtime runs its commands with the context tagged with its project, and so
      does its lane manager (the tmux callback is set per project in `newLaneManager`).
      `Machine.run` tags its calls "machine", and no longer charges them to the default project.
@@ -111,7 +131,8 @@
      machine source writes, once an hour, one line per project and one for the machine:
      `spawns, last hour, clauductor: idle <I> min, <N> spawns (<N/I> a minute); busy <B> min, <M>
      spawns; claude agents <a>, tmux list-panes <b>, git worktree <c>, gh pr <d>, other <e>`, and
-     `spawns, last hour, machine: <n> (claude --version <v>, claude auth status <s>)`.
+     `spawns, last hour, machine: <n> (claude --version <v>, other <o>)` (`auth status` shows
+     under "other" when **Refresh** or a start runs it).
    - **What it leaves out**, named in the docs: the starts beside the Runner other than tmux (a
      notification, a terminal attach, a queue RUN, Terminal.app, the browser, a lease holder's
      start time). Each follows a person's action or a held lease, not a timer.
@@ -143,8 +164,10 @@ of view", and auto-close's reads whether the project has a watched lane.
 
 The arithmetic, two projects with the template's `panel.json`, idle: three polls at 0.2 a minute
 each is 0.6 per project, plus about 0.4 from the project's own interval commands: 1.0 per
-project, against a target of 1.2. The machine's `claude --version` and `auth status` add 0.2,
-against 0.3. About 2.2 a minute for both, against 3.
+project, against a target of 1.2. The machine's timed calls are `claude --version` alone, once
+PANEL-28 has taken `auth status` off its 10-minute timer: 0.1, against 0.2. About 2.1 a minute
+for both, against 3. A poll PANEL-28's slot skips spawns nothing, so it lowers these figures,
+never raises them.
 
 ## Refusals
 
@@ -160,7 +183,9 @@ against 0.3. About 2.2 a minute for both, against 3.
 | A page comes into view | Every backed-off source polls at once; the page shows them current within a second or two |
 | tmux errors while the project is dormant | The next poll is in 5 min, not 2 s (D7); the page's "Cannot read" banner refreshes when a page comes into view |
 | The tmux server is up with no lane while dormant | `list-panes` every 5 min; `show-environment` with it at most then (it runs only on a poll) |
-| PANEL-28's gate holds back or refuses a `claude` call | Not counted until it starts (D6) |
+| PANEL-28's gate skips a poll, or holds a lane action waiting for the slot | Not counted until it starts (D6) |
+| A hook-kicked `claude agents` poll finds PANEL-28's slot taken, or the login lock live | Skipped, and retried every 2 s, spawning nothing, until it runs; the dormant 5 min applies only after a poll that ran (D9) |
+| A timed idle `claude agents` poll is skipped | The same: retried every 2 s, not 5 min later, so the reading never ages past one dormant interval plus the skip |
 | `/api/state` read with the token, no page open | Answers, the spawn count included; it does not mark a page in view (only `POST /api/seen` does) |
 | `panel install` without `--no-open` | Today's behaviour, and it says so in its output. A reinstall rewrites the plist, so the choice is made at each install (D4) |
 | `panel --launchd --no-open` crash-restarted by KeepAlive | Opens nothing, writes no `browser-opened` |
@@ -228,11 +253,15 @@ against 0.3. About 2.2 a minute for both, against 3.
 
 **D6. Where the count sits, and what it covers.**
 - **Recommended:** one counter around the shared Runner, applied once in `Run`, plus tmux's own
-  starts; calls tagged by project (the machine's as "machine"). It sits innermost: PANEL-28's
-  `claude` gate wraps it, so only processes actually started are counted. The starts beside the
+  starts; calls tagged by project (the machine's as "machine"). It sits innermost, inside
+  PANEL-28's `claude` gate (which builds first), so a call the gate skips or holds waiting is not
+  a spawn, and only processes actually started are counted. The starts beside the
   Runner that follow a person's action (a notification, a terminal attach, a queue RUN,
   Terminal.app, the browser, a lease holder's start time) are left out, and the docs say so.
-- **Alternative:** count at every start site, eight of them, for a literal "every process".
+- **Alternatives:**
+  - count at every start site, eight of them, for a literal "every process";
+  - count outside the gate, so a skipped call counts as an attempt (that measures the panel's
+    intent, not what the machine paid).
 - **Why:** the Runner and tmux are every start that runs on a timer, which is what idling costs.
   Wrapping the Runner per runtime and again in the machine would count `claude --version` and
   `auth status` twice and charge them to the default project; wrapping it once, with a tag, sees
@@ -253,3 +282,18 @@ against 0.3. About 2.2 a minute for both, against 3.
 - **Why:** the Activity goes with the lane and a notification is not kept, so neither can show in
   a week how long merged lanes stayed open. The line is the evidence for the auto-close half of
   the Signal, where a project has auto-close on.
+
+**D9. A `claude agents` poll that PANEL-28's slot skips.**
+- **Recommended:** retry every 2 s (`AgentsFast`), spawning nothing while skipped, until a poll
+  runs; only a poll that ran may set the dormant 5-minute wait. This holds whatever woke the poll:
+  a hook, a page coming into view, or the timer.
+- **Alternatives:**
+  - keep the interval the cadence gives, so a skipped idle poll waits the full 5 minutes again;
+  - retry only a kicked poll, and let a timed one wait.
+- **Why:** a hook-kicked poll is how a waiting session outside a lane gets its notification
+  (*Current or stale*: only a current reading confirms "waiting"). Its kick is spent when it is
+  skipped, so without the retry the answer could be up to 5 minutes late, or never come if the
+  hook was the session's last. A skipped poll costs nothing, so retrying every 2 s adds no spawn;
+  the slot is held for seconds, so the retry runs within seconds (within about a minute while
+  PANEL-28 holds polls back for a live login lock, as it proposes). A timed poll is treated the same
+  so an idle reading never ages past one dormant interval plus the skip.

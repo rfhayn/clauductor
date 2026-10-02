@@ -30,7 +30,7 @@ WHEN a project has no lane and no page has said it is in view for 90 s THE SYSTE
 - **THEN** its next timed poll is 5 minutes later, not 2 seconds
 
 ### Requirement: What needs the panel wakes it at once
-WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added or removed, or a page comes into view THE SYSTEM SHALL poll the sources that event concerns at once, without waiting for the 5-minute tick.
+WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added or removed, or a page comes into view THE SYSTEM SHALL poll the sources that event concerns at once, without waiting for the 5-minute tick; and WHEN the panel's `claude` slot skips a `claude agents` poll THE SYSTEM SHALL retry it every 2 seconds until one runs, never waiting the 5-minute tick after a skipped poll.
 
 #### Scenario: [IDLE-2-S1] A hook polls claude agents at once
 - **GIVEN** an idle project whose `claude agents` loop waits its 5 minutes
@@ -53,6 +53,13 @@ WHEN a hook reaches a dormant project, a lane starts in it, a worktree is added 
 - **GIVEN** a dormant project
 - **WHEN** a worktree is added to it with `git worktree add`
 - **THEN** `git worktree list` runs within one watch tick (2 s), not 5 minutes later
+
+#### Scenario: [IDLE-2-S5] A hook-kicked poll that the claude slot skips retries in seconds
+- **GIVEN** an idle project whose `claude agents` loop waits its 5 minutes
+- **AND** the panel's `claude` slot held by another call
+- **WHEN** a hook from a session in the project arrives
+- **THEN** the poll is skipped without starting a process, and tried again every 2 seconds
+- **AND** `claude agents` runs within 2 seconds of the slot coming free, not 5 minutes later
 
 ### Requirement: GitHub is called only when something reads the answer
 WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests, and WHEN a page is in view SHALL read them every 60 s as before; WHILE a project has a lane that auto-close watches THE SYSTEM SHALL read its merged pull requests at most every 3 minutes, in view or not, and SHALL close that lane, or ask, after its pull request merges, including one opened and merged between two reads; each close and each ask SHALL be logged with the merge time and its own time.
@@ -105,6 +112,12 @@ THE SYSTEM SHALL count every process it starts through its command runner or tmu
 - **WHEN** the machine runs `claude --version` once
 - **THEN** the machine's count of `claude --version` is 1
 - **AND** no project's count includes it
+
+#### Scenario: [IDLE-4-S4] A call the claude slot skips is not counted
+- **GIVEN** the panel's `claude` slot held by another call
+- **WHEN** a project's `claude agents` poll is skipped for it
+- **THEN** the project's count of `claude agents` does not change
+- **AND** it rises by one when the retried poll runs
 
 ### Requirement: The login agent can start without a browser tab
 WHEN `clauductor panel install` is given `--no-open` THE SYSTEM SHALL install a login agent that never opens a browser, and without it SHALL keep opening the page once per login; either way the install SHALL say which it installed.

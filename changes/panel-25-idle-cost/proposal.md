@@ -18,8 +18,9 @@ happening**, and closer to 100 with lanes running. The cadences account for all 
 | `gh pr list` | every 60 s (`Ticks.PRs`), page or no page | 1 |
 | **per project** | | **17.4** |
 
-Two projects make about 35, plus a few a minute from the machine (`claude --version`, `claude
-auth status`, every 10 min) and from the projects' own interval cards and suggest commands.
+Two projects make about 35, plus about 1 a minute from the machine (`claude --version` and
+`claude auth status`, each every 10 min) and the projects' own interval cards and suggest
+commands.
 
 None of these reads has a reader while nothing is happening:
 
@@ -91,10 +92,13 @@ launchd agent*. Each is updated to match.
   `panel.json`'s refresh rules (the template's defaults: the fix suggestions every 5 min, the
   metrics command and one card every 10 min, about 0.4 a minute per project). The project chose
   them. Not owned, for the same reason.
-- **`claude --version` and `claude auth status`**, the machine's, every 10 minutes: unchanged.
-- **The panel's `claude` calls racing a session's login refresh**: PANEL-28. Fewer `claude
-  agents` calls make that race rarer; they do not settle it. PANEL-28's `claude` gate and this
-  change's spawn count both wrap the panel's one Runner; design D6 fixes their order.
+- **The machine's `claude` calls.** `claude --version` stays every 10 minutes. PANEL-28 takes
+  `claude auth status` off its timer (start and **Refresh** only); this change does not touch
+  either.
+- **The panel's `claude` calls racing a session's login refresh**: PANEL-28, which builds first
+  (this row's Deps). Fewer `claude agents` calls make that race rarer; they do not settle it.
+  This change builds on PANEL-28's machine-wide `claude` slot: the spawn count sits inside it
+  (D6), and a poll the slot skips retries in seconds, never after the dormant 5 minutes (D9).
 - **Processes the panel starts on a person's action**, not on a timer: an OS notification, a
   terminal attach, a queue RUN, Terminal.app, the browser, a lease holder's start time. The
   spawn count leaves them out and says so (D6).
@@ -103,7 +107,8 @@ launchd agent*. Each is updated to match.
 
 - **Signal:** while a project is **idle** (no lane, no page in view, no hook for 5 minutes), it
   spawns **at most 1.2 processes a minute, down from about 17.4**, and the machine's own calls stay
-  under 0.3 a minute: two idle projects together **under 3 a minute, down from about 35**. Read
+  under 0.2 a minute (`claude --version` every 10 minutes, once PANEL-28 has taken `auth status`
+  off its timer): two idle projects together **under 3 a minute, down from about 35**. Read
   from the login agent's hourly lines in `~/.clauductor/panel/logs/panel.log` ("spawns, last hour,
   <project>: idle N min, M spawns …"), over the hours with at least 30 idle minutes. Neither the
   log nor `/api/state` makes a page "in view". Where a project has turned `lanes_auto_close` on
