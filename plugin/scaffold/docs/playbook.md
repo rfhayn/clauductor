@@ -74,7 +74,81 @@ Each person has their own Claude and **merges only their own PRs**. `session-sta
 another person's PR (★) and names every file their open PR shares with your branch (OVERLAP).
 Shared records conflict at close by design, and resolve one way each (`session-close`'s table): the
 journal renumbers, the insights log keeps both rows, ADRs take the next number. Claude's memory is
-per machine, so what the other person needs goes in the repo.
+per machine, so what the other person needs goes in the repo. The optional `people` module
+(`${CLAUDE_PLUGIN_ROOT}/modules/people/README.md`) adds a people registry, a per-person *who is on what* at
+session start (last merged, open now, next owned row), a lane table, and a rule that every roadmap
+owner is a person in the registry.
+
+## Setting up a machine
+
+The model is POSIX sh, git and jq, so it runs the same on **macOS**, **Linux** and **Windows
+through WSL2**; a collaborator who moves from one to another changes nothing in the repo. Every
+machine needs Claude Code, then:
+
+| Tool | Why | macOS | Linux, WSL2 (Ubuntu) |
+|---|---|---|---|
+| git, jq | the hooks, checks and gate | `brew install git jq` | `sudo apt-get install git jq` |
+| gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` | GitHub's apt repository (cli.github.com) |
+| gitleaks | the gate's secret scan (skipped locally without it, fails under CI) | `brew install gitleaks` | a release binary from github.com/gitleaks/gitleaks/releases, on `PATH` |
+| bubblewrap, socat | Claude Code's Bash sandbox | nothing: macOS has Seatbelt | `sudo apt-get install bubblewrap socat` |
+| Node.js and npm | the seccomp filter below is an npm package | only if your project uses it | through nvm (github.com/nvm-sh/nvm): `nvm install --lts`, after which `npm install -g` writes under `~/.nvm` and needs no sudo (or keep the distro's `nodejs` and set `npm config set prefix ~/.local`, with `~/.local/bin` on `PATH`) |
+| the sandbox's seccomp filter | **required on WSL2**: without it a sandboxed command can launch Windows programs outside the sandbox (below) | not needed | `npm install -g @anthropic-ai/sandbox-runtime` |
+| python3 | `machine-quiet.sh` at session close | preinstalled | preinstalled on Ubuntu |
+| Docker | only if `scripts/ci/steps.sh` uses it | Docker Desktop | Docker Desktop with WSL integration on for the distro (Settings → Resources → WSL integration) |
+
+Add whatever else your gate's steps call. **The panel is macOS-only and optional**: it runs on
+tmux, launchd and Terminal.app. Nothing needs it (`checks/no-clauductor.sh`): lanes are plain git
+worktrees under `.claude/worktrees/`, and the gate lease falls back to `scripts/ci/lease.sh`.
+
+**Windows: work inside WSL2.** Claude Code's sandbox runs on macOS, Linux and WSL2; on native
+Windows and on WSL1 (whose kernel lacks what bubblewrap needs) it does not, and by default Claude
+Code then warns and runs every command unsandboxed. So:
+
+- **Install WSL2** (`wsl --install` in PowerShell gives Ubuntu); `wsl -l -v` must show `VERSION 2`.
+- **Clone inside the WSL filesystem** (`~/src/<project>`), never under `/mnt/c`. The Windows drive
+  is reached through a file-sharing layer that makes git, the checks and the gate many times
+  slower, and it does not keep Unix permissions (`chmod` does not stick, and git reports
+  spurious mode changes).
+  Windows editors reach the clone at `\\wsl$\<distro>\home\<you>\…` (or VS Code's WSL extension).
+- **Run git, gh and Claude Code inside WSL**, not Git for Windows on the same checkout.
+  `.gitattributes` (`* text=auto eol=lf`) keeps every script LF even when a Windows tool checks
+  it out, and `checks/line-endings.sh` names any that still holds a CR (`$'\r': command not
+  found` is the symptom). A clone made before the rule: with nothing uncommitted,
+  `git rm -r -q --cached . && git reset -q --hard` checks every file out again.
+- **The sandbox, with its seccomp filter (required on WSL2).** `sudo apt-get install bubblewrap
+  socat` and `npm install -g @anthropic-ai/sandbox-runtime`, restart Claude Code, and run
+  `/sandbox`: it shows a **Dependencies** tab while anything is missing, the seccomp filter
+  included, so the tab must be gone. Why it is required here: WSL hands a launch of `cmd.exe`,
+  `powershell.exe` or anything under `/mnt/c/` to the Windows host over a Unix socket, and only
+  the seccomp filter blocks that socket. Without it, a command the sandbox approves without a
+  prompt (`autoAllowBashIfSandboxed`) could run a Windows program with no sandbox at all. The
+  project's `.claude/settings.json` also denies `cmd.exe`, `powershell.exe`, `pwsh.exe`,
+  `wsl.exe`, `explorer.exe`, `clip.exe`, `notepad.exe` and programs under `/mnt/c/` outright
+  (`checks/settings.sh` holds that; other drive letters are left to the filter, since `/mnt/`
+  also holds ordinary Linux mounts and a deny rule cannot be narrowed later), but a deny rule
+  matches only the form Claude writes, not the same program reached through `sh -c` or a script,
+  so the filter is the boundary. Stricter still, if nobody needs Windows programs from WSL:
+  `[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`.
+- **Recommended on WSL2: `"sandbox": {"failIfUnavailable": true}`** in your user settings
+  (`~/.claude/settings.json`). Then a missing dependency stops Claude Code at start instead of
+  warning and running every command unsandboxed. The template leaves it off, because the same
+  file serves every OS.
+- On **Ubuntu 24.04 and
+  later**, AppArmor may stop bubblewrap creating user namespaces: if
+  `sysctl kernel.apparmor_restrict_unprivileged_userns` prints `1`, add the profile below, then
+  `sudo systemctl reload apparmor` (from code.claude.com/docs/en/sandboxing, checked 2026-10-01).
+
+```bash
+sudo tee /etc/apparmor.d/bwrap > /dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+```
 
 ## The change lifecycle
 

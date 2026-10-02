@@ -1,0 +1,11 @@
+{
+  "$comment": "The people who work on this project, and the ONE place a GitHub login maps to a person (the people module, .claude/modules/people/README.md). `name` is what the roadmap's **Owner:** lines say; `github` is the login who-is-on-what reads PRs and branches by; `role` is shown beside the name. `lanes` (optional) is the table session-start prints: who owns which part of the repository. Read through .claude/modules/people/people.sh only.",
+  "people": [
+    { "name": "Ana", "github": "ana-gh", "role": "owner" },
+    { "name": "Ben", "github": "ben-gh", "role": "designer" }
+  ],
+  "lanes": [
+    { "lane": "designer", "owns": "the design system, every stylesheet, the public assets, and the roadmap rows under the design section" },
+    { "lane": "owner + Claude", "owns": "everything else" }
+  ]
+}

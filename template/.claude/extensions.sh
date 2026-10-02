@@ -69,7 +69,8 @@ case ${1:-} in
     ;;
   fragments)
     [ -n "${2:-}" ] || { echo "usage: extensions.sh fragments <skill>" >&2; exit 2; }
-    frags=$(ext_files "skills/$2" .md)
+    # A SKILL.md is a whole skill a module ships (enable.sh installs it), never a fragment of one.
+    frags=$(ext_files "skills/$2" .md | grep -v '/SKILL\.md$')
     [ -n "$frags" ] && printf '%s\n' "$frags" | while IFS="$TAB" read -r label f; do
       echo "#### From the ${label} layer: $(basename "$f")"
       echo

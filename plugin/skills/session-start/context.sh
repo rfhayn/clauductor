@@ -100,6 +100,6 @@ echo "- ADRs not yet Accepted:"
 
 # Pluggable health lines: every script in .claude/health, the directory being the list, then the
 # enabled modules' and the local layer's (.claude/extensions.sh), each run per its own #! line.
-sh "$CLAUDUCTOR_FW"/extensions.sh health
+sh "$CLAUDUCTOR_FW"/extensions.sh health 2>&1
 # Sections the enabled modules and the local layer add (context.d/session-start/).
 sh "$CLAUDUCTOR_FW"/extensions.sh context session-start

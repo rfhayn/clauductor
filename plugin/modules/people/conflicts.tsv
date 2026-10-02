@@ -1,0 +1,3 @@
+# The people module's shared files (.claude/modules/README.md): the file, a TAB, what to do.
+the people registry (`PEOPLE`, `docs/people.json` by default)	keep **both** sides' people and lanes; each person once by name and once by GitHub login; then `sh .claude/checks/run.sh people:registry`
+the roadmap's `**Owner:**` lines	keep `origin/main`'s owner unless your change reassigns that phase or section on purpose; every owner must be a person in the registry (`sh .claude/checks/run.sh people:registry`)

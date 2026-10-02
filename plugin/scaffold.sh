@@ -7,8 +7,9 @@
 # project owns and edits (AGENTS.md, .claude/project.conf, model-roles.json, docs/, changes/,
 # specs/, scripts/ci/, .clauductor/panel.json, .claude/settings.json) has to live in the
 # repository, so this copies it there, and NEVER overwrites a file that exists:
-#   - a file that exists is kept as it is, except these three, which are merged:
+#   - a file that exists is kept as it is, except these four, which are merged:
 #       .gitignore             missing lines appended
+#       .gitattributes         missing line-ending rules PREPENDED (the project's own lines win)
 #       CLAUDE.md              `@AGENTS.md` appended when absent
 #       .claude/settings.json  merged as `clauductor install` merges it (needs jq): the project's
 #                              keys and values kept, missing keys added, the allow/deny lists and
@@ -65,7 +66,7 @@ keep=""
 merge=""
 for f in $files; do
   case $f in
-    .gitignore | CLAUDE.md | .claude/settings.json)
+    .gitignore | .gitattributes | CLAUDE.md | .claude/settings.json)
       if [ -e "$f" ]; then merge="$merge $f"; else create="$create $f"; fi ;;
     *)
       if [ -e "$f" ]; then keep="$keep $f"; else create="$create $f"; fi ;;
@@ -189,6 +190,25 @@ for f in $merge; do
         case $line in "" | "#"*) continue ;; esac
         grep -qxF -- "$line" .gitignore || { [ "$added" = 1 ] || printf '\n# clauductor\n' >> .gitignore; printf '%s\n' "$line" >> .gitignore; added=1; }
       done < "$SRC/.gitignore" ;;
+    .gitattributes)
+      # PREPENDED, not appended: the last matching line wins, so the project's own lines must
+      # stay after the catch-all `* text=auto eol=lf` to keep overriding it.
+      # Lines compare trimmed, CR included, as `clauductor install` compares them: a CRLF file or
+      # a trailing space must not read as a missing rule and add it twice.
+      trim() { tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+      have=$(trim < .gitattributes)
+      missing=""
+      while IFS= read -r line; do
+        line=$(printf '%s' "$line" | trim)
+        case $line in "" | "#"*) continue ;; esac
+        printf '%s\n' "$have" | grep -qxF -- "$line" || missing="$missing$line
+"
+      done < "$SRC/.gitattributes"
+      if [ -n "$missing" ]; then
+        { printf '# Clauductor: LF line endings on every OS, so shell scripts run under WSL2 and Git for Windows\n'
+          printf '# (.claude/checks/line-endings.sh holds it). Your own lines below still override these.\n%s\n' "$missing"
+          cat .gitattributes; } > .gitattributes.tmp && mv .gitattributes.tmp .gitattributes
+      fi ;;
     CLAUDE.md)
       grep -qxF '@AGENTS.md' CLAUDE.md || printf '\n@AGENTS.md\n' >> CLAUDE.md ;;
     .claude/settings.json)
@@ -213,4 +233,7 @@ for f in $merge; do
 done
 printf 'This repository runs the clauductor operating model from the clauductor plugin (0.1.0 at init).\nThe plugin'"'"'s hooks act only where this file exists. Delete it to make them stand aside.\n' > .claude/clauductor-plugin
 echo "  marked: .claude/clauductor-plugin"
+# The tools the model uses, present or missing, with this OS's install hints. A report: it never
+# fails the init (the template's .claude/prereqs.sh, which the plugin carries beside this script).
+[ -f "$PLUGIN/prereqs.sh" ] && sh "$PLUGIN/prereqs.sh"
 echo "Next: /clauductor:start-project, then commit."

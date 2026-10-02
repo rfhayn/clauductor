@@ -16,6 +16,9 @@
 #   checks/*.sh                     extra process checks, run by checks/run.sh
 #   skills/<skill>/*.md             fragments appended to a template skill's instructions
 #   conflicts.tsv                   rows appended to session-close's shared-file conflict table
+#   roadmap.d/*.sh                  rules over the parsed change queue, run by roadmap_queue
+#                                   (lib/conf.sh): stdin = the --tsv rows; exit 0 accepts; anything
+#                                   else makes the queue UNKNOWN, stdout naming each refused row
 # Order: modules in MODULES order, then the local layer; within a directory, by file name.
 
 # The modules the model ships. In the plugin build this path is the plugin's own modules/.
@@ -26,7 +29,7 @@ MODULES_OWN="$ROOT/.claude"/modules
 LOCAL_DIR="$ROOT/.claude/local"
 # The points a module.conf may name in `enables`. A part on disk that its module does not
 # declare, or a declared one that is missing, is a finding (checks/modules.sh).
-MODULE_POINTS="guard.d context.d health checks skills conflicts.tsv"
+MODULE_POINTS="guard.d context.d health checks skills conflicts.tsv roadmap.d"
 
 # modules_enabled: one enabled module name per line, deduplicated, MODULES order. The two legacy
 # switches still turn their modules on: PROPOSALS="openspec" and REVIEW_PAGE="artifact".
@@ -101,6 +104,8 @@ ext_dirs() {
 }
 
 # ext_files POINT SUFFIX: "<label>\t<file>" for each POINT/*SUFFIX file, in ext_dirs order.
+# Exit 0 whatever it finds: a directory with no matching file is an empty list, not a failure
+# (roadmap_rules reads a failure as "the rules could not be listed").
 ext_files() {
   ext_dirs "$1" | while IFS="$(printf '\t')" read -r _el _edir; do
     [ -d "$_edir" ] || continue
@@ -108,6 +113,7 @@ ext_files() {
       [ -f "$_ef" ] && printf '%s\t%s\n' "$_el" "$_ef"
     done
   done
+  return 0
 }
 
 # shebang_interp FILE: the command line that runs FILE, from its #! line: `#!/usr/bin/env bash`

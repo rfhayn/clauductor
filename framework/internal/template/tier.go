@@ -10,7 +10,7 @@ type Tier int
 const (
 	TierFramework Tier = iota // the model's own code: always installed, refreshed by update
 	TierDoc                   // project-owned config, agents and docs: created only if missing
-	TierConfig                // CLAUDE.md, .gitignore: merged line-wise
+	TierConfig                // CLAUDE.md, .gitignore, .gitattributes: merged line-wise
 	TierSettings              // .claude/settings.json: merged key by key (MergeSettings)
 )
 
@@ -85,10 +85,11 @@ func Classify(relPath string) Tier {
 	if FrameworkScripts[relPath] || isModelScript(relPath) {
 		return TierFramework
 	}
-	if relPath == "CLAUDE.md" || relPath == ".gitignore" {
+	if relPath == "CLAUDE.md" || relPath == ".gitignore" || relPath == GitattributesPath {
 		return TierConfig
 	}
-	// Agents, docs, README and the rest: create only if missing.
+	// Agents, docs, README, .gitleaks.toml (the project's allowlist) and the rest: create only
+	// if missing.
 	return TierDoc
 }
 

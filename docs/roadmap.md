@@ -53,8 +53,12 @@ fixed in the template before Standing Tee's Phase 0.
 |---|--------|-------|------|--------|
 | OPS-8 | `ops/ops-8-own-model` — this repo installs and runs the model it ships; ADRs 0001–0008; the no-clauductor check | `.claude/`, `AGENTS.md`, `scripts/ci/`, `docs/`, `template/.claude/checks/no-clauductor.sh` | — | ✅ merged (#27) |
 | OPS-13 | `ops/ops-13-remove-old-model` — the CLI no longer carries the lock-and-supervisor model: no SQLite registry, HUD, claim/spawn/assign, and install stops creating `orchestration/` | `framework/internal/{state,hud}`, `framework/internal/cmd`, `docs/onboarding.md` | OPS-8 | ✅ merged (#37) |
-| OPS-26 | `ops/ops-26-ci-linux-prs` — a pull request's CI runs Ubuntu only and a newer push cancels the running suite; `main` still runs macOS and Ubuntu (the local gate covers macOS per PR) | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | — | ⬜ in flight (#58) |
+| OPS-26 | `ops/ops-26-ci-linux-prs` — a pull request's CI runs Ubuntu only and a newer push cancels the running suite; `main` still runs macOS and Ubuntu (the local gate covers macOS per PR) | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | — | ✅ merged (#58) |
 | OPS-14 | `ops/ops-14-rehearsal-fixes` — the OPS-8 rehearsal findings too big to fix inline (journal Session 1): old-model detection on a fresh clone, stale old-model files after install, the ambient template path, update adding new doc-tier files, settings and branch prefixes a project changes living in framework files | `framework/internal/cmd/{ownguard,install,update}.go`, `template/.claude/workflows/build-change.js` | OPS-8 | ✅ merged (#36) |
+| OPS-24 | `ops/ops-24-design-docs-lanes` — a project can run `design/` and `docs/` lanes: `BRANCH_DESIGN` and `BRANCH_DOCS` keys, `checks/branch-prefixes.sh` accepting their panel lanes, the `--tsv` kind for their rows, and a model-roles lanes row (Standing Tee's swap, ST-3.3 and ST-3.12, needs it) | `template/.claude/{project.conf,lib/conf.sh,checks/branch-prefixes.sh,model-roles.json}`, `framework/internal/panel` | — | ⬜ queued |
+| OPS-25 | `ops/ops-25-reviewer-hand-back` — a worker that spawns a reviewer gets its result: today a `reviewer` has no SendMessage, so its hand-back reaches the top session and the worker waits silently (Standing Tee #425 lost about 4h); build-change, apply-change and merge-pr route it, or the worker reads it back | `template/.claude/{skills/apply-change,skills/merge-pr,workflows/build-change.js,agents/reviewer.md}` | — | ⬜ queued |
+| OPS-27 | `ops/train-2026-10-02` — the 2026-10-02 merge train: #59, #44, #46, #41, #42, #49, #55, #56, #47 and #32 landed as one squash, with their conflict resolutions reviewed on their own | `docs/roadmap.md`, the included PRs' files | — | ✅ merged (#60) |
+| OPS-29 | `ops/ops-29-train-lows` — the train's resolution-review lows: `gitattributesPlan.apply` prints "Merged .gitattributes…" to stdout rather than update's writer (`apply(out, targetDir)`, and the comment at `gitattributes_test.go:19`) (L1); update names a missing guidance doc twice, in the Docs notice and under the new project files (`update.go`, `projectfiles.go`) (L2); start-project step 9 omits the `people` module (L3) | `framework/internal/cmd/{update,projectfiles}.go`, `template/.claude/skills/start-project/SKILL.md` | OPS-27 | ⬜ queued |
 
 ## Phase 2 — The panel
 **Owner:** Rich
@@ -73,6 +77,10 @@ flow, cost and quality metrics the model computes.
 | PANEL-20 | `panel-20-lane-lifecycle` — lanes auto-archive on merge, show merge readiness, auto-resume at the quota reset, and run per-lane setup and teardown | `framework/internal/panel` | PANEL-17 | ⬜ queued |
 | PANEL-21 | `panel-21-binding-corrections` — a session's events bind to the right lane after a worktree moves, and session ends close their lane state | `framework/internal/panel/state` | — | ⬜ queued |
 | OPS-15 | `ops/ops-15-clauductor-in-panel` — the owner adds this repo as the panel's second project (`panel trust`, `panel add`) | `.clauductor/panel.json` | PANEL-16 | ⬜ queued |
+| PANEL-25 | `panel-25-idle-github` — a panel with no page in view stops calling GitHub every minute per project (`gh pr list`), and a lane still auto-closes when its PR merges | `framework/internal/panel` | — | ⬜ queued |
+| PANEL-26 | `panel-26-idle-backoff` — a panel with no lane and no page in view backs its `claude agents`, `git worktree list` and tmux polls off to minutes, and a hook or a lane start still wakes it at once | `framework/internal/panel` | — | ⬜ queued |
+| PANEL-27 | `panel-27-install-no-open` — `panel install --no-open` keeps the login agent from opening a browser tab at every login | `framework/internal/panel/install`, `framework/internal/cmd` | — | ⬜ queued |
+| PANEL-28 | `panel-28-login-refresh` — the panel's own `claude` calls (`auth status` at start, `agents`) never race a session's login refresh ("another Claude Code process is refreshing it"), or the row records that they do not | `framework/internal/panel` | — | ⬜ queued |
 
 ## Phase 3 — Measuring the model
 **Owner:** Rich
@@ -97,7 +105,7 @@ build.
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
 | REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
-| REL-2 | `ops/rel-2-install-kit` — what REL-1 (#25) leaves out: release builds cross-compile without cgo (SQLite left with OPS-13), install prints a prerequisites report, and a project starts with a `.gitleaks.toml` | `scripts/release/`, `.github/workflows/release*.yml`, `install.sh`, `template/.gitleaks.toml` | REL-1 | ⬜ queued |
+| REL-2 | `ops/rel-2-install-kit` — release builds cross-compile with CGO_ENABLED=0 (and CI proves it per PR); install, init and the plugin's init report missing tools with per-OS hints; a starter `.gitleaks.toml` the project owns; install.sh offers, never installs unasked | `scripts/build-release.sh`, `.github/workflows/release-build.yml`, `template/.claude/prereqs.sh`, `template/.gitleaks.toml`, `install.sh` | REL-1 | ✅ merged (#60) |
 | OPS-28 | `ops/ops-28-restore-macos-pr-ci` — roll OPS-26 back: a pull request's CI runs macOS and Ubuntu again (keep the superseded-run cancel). OPS-26 was a temporary speed-up for getting the first release out; start this once REL-1 has merged and the owner says the release is settled | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | OPS-26, REL-1 | ⬜ queued |
 
 ## Phase 5 — Standing Tee converges on the template
@@ -112,10 +120,10 @@ Standing Tee's repo; the clauductor side of each phase is a row here.
 | ST-0 | `ops/st-0-convergence-map` — the convergence map: every shared file classified, every record format decided, the onboarding sections listed (read-only) | Standing Tee docs | OPS-8 | ⬜ queued |
 | ST-1 | `ops/st-1-extension-points` — optional modules and a project-local layer (the settings.json merge and `clauductor diff` landed in #29) | `framework/internal/cmd`, `template/.claude/modules/` | ST-0 | ⬜ queued |
 | ST-2 | `ops/st-2-upstream` — what the map marks generic and better in Standing Tee moves into the template | `template/` | ST-0 | ⬜ queued |
-| ST-3 | `ops/st-3-converge` — Standing Tee converges file by file, with the no-clauductor check in its gate | Standing Tee | ST-1, ST-2, REL-1 | ⬜ queued |
+| ST-3 | `ops/st-3-converge` — Standing Tee converges file by file, with the no-clauductor check in its gate | Standing Tee | ST-1, ST-2, OPS-24 | ⬜ queued |
 | ST-4 | `ops/st-4-handover` — `.claude/clauductor-template` written; `clauductor update` from then on | Standing Tee | ST-3 | ⬜ queued |
-| ST-5 | `ops/st-5-swap-plan` — the swap plan: Standing Tee's convergence as an ordered list of PRs, each with its owner decisions, its checks and its rollback | Standing Tee docs | ST-0, P2.15b | ⬜ queued |
-| ST-6 | `ops/st-6-designer-onboarding` — the designer's onboarding PR: Standing Tee's designer onboarding and welcome page describe the converged model (the panel, the plugin, who decides), so Damian works from them | Standing Tee docs | ST-3 | ⬜ queued |
+| ST-5 | `ops/st-5-swap-plan` — the swap plan: Standing Tee's convergence as an ordered list of PRs, each with its owner decisions, its checks and its rollback | Standing Tee docs | ST-0 | ✅ merged (#60) |
+| ST-6 | `ops/st-6-designer-onboarding` — the designer's onboarding PR: Standing Tee's designer onboarding and welcome page describe the converged model (the panel, who decides), so Damian works from them | Standing Tee docs | ST-3 | ⬜ queued |
 
 ### Phase 2 upstream follow-ups (the convergence map's P2 rows not yet owned)
 
@@ -124,6 +132,7 @@ Standing Tee's repo; the clauductor side of each phase is a row here.
 | P2.15b | `ops/roadmap-boundary-tasks` — the roadmap parser reads Standing Tee's `**Gate X boundary-task status:**` lines, and `--text` warns on an open boundary task (left over from P2.15, #45) | `template/.claude/roadmap-queue.sh`, `template/.claude/checks/roadmap.sh` | P2.15 (#45) | ⬜ queued |
 | P2.11 | `ops/module-living-visuals` — derived pages kept current: a registry `refresh:` field, a close step that refreshes or stamps every page that is behind, and a generated-block check (Phase 2 wave 2) | `template/.claude/modules/living-visuals/` | P2.7 (#43) | ⬜ queued |
 | P2.12b | `ops/module-ideas` — the ideas queue as a module: the skill, a session-start count, the close-time render, and a check that the rendered page is never hand-edited (Phase 2 wave 2; the risk register half of P2.12 is #41) | `template/.claude/modules/ideas/` | P2.7 (#43) | ⬜ queued |
+| P2.11c | `ops/living-visuals-lows` — #57's round-2 lows in `living.sh`: a claim value is read only up to the first `<`, so `<b data-claim="owner">Rich <i>and Damian</i></b>` passes against `echo Rich`, and the README's "markup inside a value fails" is untrue for that shape (L1); `data-claim` is counted inside scripts, styles and comments, so a `[data-claim=owner]` selector fails a valid page with a misleading message (L2); `--regen`'s temp-file-and-rename drops the page's mode, replaces a symlinked page and leaves `*.living-regen.<pid>` behind when interrupted (L3); jq 1.7's `(at file:6)` defeats the `jq: error` prefix strip (L4) | `template/.claude/modules/living-visuals/` | P2.11 | ⬜ queued |
 
 ## Done before the model
 

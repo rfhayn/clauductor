@@ -35,7 +35,8 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 		}
 
 		fmt.Printf("Initializing new Clauductor project in %s\n", targetDir)
-		if _, err := announceTemplate(cmd.OutOrStdout()); err != nil {
+		src, err := announceTemplate(cmd.OutOrStdout())
+		if err != nil {
 			return err
 		}
 
@@ -55,6 +56,7 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 			}
 		}
 
+		printPrereqs(cmd.OutOrStdout(), src.Dir)
 		fmt.Println("\nDone! Next steps:")
 		fmt.Printf("  cd %s\n", targetDir)
 		fmt.Println("  claude")

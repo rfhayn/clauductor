@@ -8,6 +8,8 @@
 #   model_step_secrets               gitleaks over the tracked files and the branch's commits
 #   model_step_checks                the process checks (.claude/checks/run.sh)
 #   model_step_no_clauductor         checks/no-clauductor.sh on its own (D10), where it exists
+#   model_publish_status pass|fail SHA   after a FULL run: the ci-status module's commit status on
+#                                    SHA, DISPLAY only (a no-op unless MODULES names ci-status)
 #
 # Each is a `step "<name>" …` call, so its output carries the `==> <name>` markers gate.sh filters
 # on. The caller's own `step` function is used when it has one (run-local.sh's records failures for
@@ -41,7 +43,7 @@ model_script() {
 model_secret_scan() {
   if ! command -v gitleaks >/dev/null 2>&1; then
     case "${CI:-}" in
-      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (brew install gitleaks, or see github.com/gitleaks/gitleaks). Under CI this fails."; return 0 ;;
+      ''|false|0) echo "secrets: SKIPPED — gitleaks is not installed, so NO secret scan ran (macOS: brew install gitleaks; Linux and WSL2: a release binary from github.com/gitleaks/gitleaks/releases). Under CI this fails."; return 0 ;;
       *) echo "secrets: FAIL — gitleaks is not installed, and CI=$CI requires the scan"; return 1 ;;
     esac
   fi
@@ -75,6 +77,15 @@ model_step_no_clauductor() {
   else
     echo "==> no clauductor: SKIPPED — .claude/checks/no-clauductor.sh is not in this repository"
   fi
+}
+
+# model_publish_status pass|fail SHA: draw a FULL run's verdict on the commit it tested, when the
+# ci-status module is on (.claude/modules/ci-status). Display only: the merge guard ignores the
+# contexts it posts (GATE_DISPLAY_CONTEXTS), so the receipt stays the only evidence. Never fails its
+# caller, whatever the publisher does: a cosmetic reporter must not turn a verdict.
+model_publish_status() {
+  case " ${MODULES:-} " in *" ci-status "*) ;; *) return 0 ;; esac
+  SHA=$2 model_script modules/ci-status/scripts/publish-status.sh local "$1" || true
 }
 
 # model_steps [SHA]: the steps every gate runs, before the project's own (GATE_STEPS). SHA, when

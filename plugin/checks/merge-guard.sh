@@ -89,6 +89,21 @@ printf '%s\tfull\tclean\tall\n' "$MAINSHA" > "$(git -C "$d/lane" rev-parse --abs
 guard 0 "a receipt in a linked worktree's git dir" "gh pr merge 5 --squash"
 guard 2 "a red check" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]'
 guard 0 "a red DISPLAY context (GATE_DISPLAY_CONTEXTS)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"}]'
+# ...and display the other way: a GREEN one is not evidence (the ci-status module posts these).
+lane_receipt="$(git -C "$d/lane" rev-parse --absolute-git-dir)/ci-receipt"
+mv "$lane_receipt" "$d/receipt.keep"
+guard 2 "a GREEN display context with no receipt (display is not evidence)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"}]'
+# The ci-status module on, GATE_DISPLAY_CONTEXTS left to its module.conf default: both directions
+# hold for both contexts its publisher posts, and every other check still gates.
+mkdir -p "$R/.claude/modules"; cp -R "$CLAUDUCTOR_FW/modules/ci-status" "$R/.claude/modules/"
+cp "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$R/.claude/project.conf" "$d/conf.keep"
+printf 'MODULES="ci-status"\nGATE_REMOTE_WORKFLOW="ci.yml"\n' > "$R/.claude/project.conf"
+guard 2 "ci-status on: green ci/local and ci/github with no receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"ci/github","state":"SUCCESS","bucket":"pass"}]'
+mv "$d/receipt.keep" "$lane_receipt"
+guard 0 "ci-status on: red ci/local and ci/github with a valid receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"},{"name":"ci/github","state":"FAILURE","bucket":"fail"}]'
+guard 2 "ci-status on: a red check that is not a display context" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"lint","state":"FAILURE","bucket":"fail"}]'
+cp "$d/conf.keep" "$R/.claude/project.conf"; rm -rf "$R/.claude/modules" "$R/.claude/lib/modules.sh"
 
 # Rule 3: the slice line, read at the head from the PR's own change directory.
 printf '%s\tfull\tclean\tall\n' "$NOSLICE" > "$R/.git/ci-receipt"
@@ -98,9 +113,7 @@ guard 0 "a change PR that states its slice" "gh pr merge 5 --squash" GH_HEAD="$S
 
 # Rule 7: a journal session number merged elsewhere after this branch was cut.
 git -C "$R" checkout -q -b ops/close main
-sed -i.bak 's/^## Session 1/## Session 2 — 2026-01-02 — b — mine\n\n## Session 1/' "$R/docs/development-journal.md" 2>/dev/null
 printf '# Journal\n\n## Session 2 — 2026-01-02 — b — mine\n\n## Session 1 — 2026-01-01 — a — start\n' > "$R/docs/development-journal.md"
-rm -f "$R/docs/development-journal.md.bak"
 git -C "$R" commit -qam "close: session 2"
 MINE=$(git -C "$R" rev-parse HEAD)
 git -C "$R" checkout -q main
@@ -285,6 +298,16 @@ sguard 2 "rule 12: a body missing the Session trailer" "gh pr merge 5 --squash -
 sguard 2 "rule 12: a Session trailer naming another session" "gh pr merge 5 --squash --body \"$(trail add-x builder sess-9)\""
 sguard 2 "rule 12: an Agent-Role that is not a role" "gh pr merge 5 --squash --body \"$(trail add-x wizard)\""
 sguard 2 "rule 12: a body built by a substitution (unreadable)" 'gh pr merge 5 --squash --body "$(cat body.txt)"'
+# The glued short forms gh accepts carry a body too (change-guard.sh cg_field), and are held to it.
+sguard 0 "rule 12: a glued -F<file> ending in all four trailers" "gh pr merge 5 --squash -Fbody.txt"
+sguard 0 "rule 12: a glued -b<body> with all four trailers" "gh pr merge 5 --squash -b\"$(trail)\""
+sguard 2 "rule 12: a glued -b<body> missing the Session trailer" "gh pr merge 5 --squash -b\"$(trail | grep -v '^Session')\""
+# A value that starts with - is text: a --subject reading "-b<trailers>" sets no body.
+sguard 2 "rule 12: a --subject whose text starts with -b is not a body" "gh pr merge 5 --squash --subject \"-b$(trail)\""
+grep -q 'sets no --body' "$d/err" && ok "rule 12: ...it is read as no --body at all" || fail "rule 12: ...it is read as no --body at all: $(cat "$d/err")"
+trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
+sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
+rm -f "$R/-"
 jq '.provenance.enabled = false' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
 sguard 0 "rule 12 is off when provenance.enabled is false" "gh pr merge 5 --squash --delete-branch"
 rm -f "$R/.claude/model-roles.json" "$R/body.txt"

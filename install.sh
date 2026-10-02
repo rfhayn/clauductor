@@ -10,62 +10,75 @@ echo "  Clauductor Framework Installer"
 echo "==================================="
 echo ""
 
-# --- Check / Install Prerequisites ---
+# --- Prerequisites ---
+#
+# A missing tool is OFFERED, never installed unasked, and never with sudo: on macOS the offer is
+# `brew install` (Homebrew installs into its own prefix, as the user); anywhere else the
+# prerequisites report at the end prints the command to run yourself. With no terminal to ask
+# (a CI job, a script), or CLAUDUCTOR_INSTALL_ASSUME=no, every offer is answered "no". Re-running
+# is safe: a tool already present is not offered again.
 
-check_brew() {
+OS="$(uname -s)"
+
+# ask PROMPT: true only on an explicit y or Y typed at a terminal. /dev/tty, not stdin, when stdin
+# is not one: under `curl … | bash` stdin is this script, and reading it would eat the script.
+ask() {
+    local response=""
+    [[ "${CLAUDUCTOR_INSTALL_ASSUME:-}" == no ]] && return 1
+    if [[ -t 0 ]]; then
+        read -r -p "$1" response || return 1
+    elif { : < /dev/tty; } 2>/dev/null; then
+        read -r -p "$1" response < /dev/tty || return 1
+    else
+        return 1
+    fi
+    [[ "$response" == y || "$response" == Y ]]
+}
+
+# offer TOOL WHY: report TOOL, and offer to install it when it is missing. True when TOOL is present
+# afterwards.
+offer() {
+    local tool=$1 why=$2
+    if command -v "$tool" &> /dev/null; then
+        echo "  $tool found"
+        return 0
+    fi
+    echo "  $tool is missing: $why"
+    if [[ "$OS" != Darwin ]]; then
+        echo "    Install it with your package manager (the report at the end has the command)."
+        return 1
+    fi
     if ! command -v brew &> /dev/null; then
-        echo "Homebrew is required but not found."
-        read -p "Install Homebrew? [y/N] " response
-        if [[ "$response" != "y" && "$response" != "Y" ]]; then
-            echo "Please install Homebrew manually: https://brew.sh"
-            exit 1
+        echo "    Install Homebrew (https://brew.sh), then: brew install $tool"
+        return 1
+    fi
+    if ask "    Install $tool now with 'brew install $tool'? [y/N] "; then
+        if brew install "$tool"; then
+            echo "  $tool installed"
+            return 0
         fi
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        # Source brew for current session
-        if [[ -f /opt/homebrew/bin/brew ]]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [[ -f /usr/local/bin/brew ]]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
-    fi
-}
-
-check_go() {
-    if ! command -v go &> /dev/null; then
-        echo "Go not found. Installing via Homebrew..."
-        check_brew
-        brew install go
-        # Refresh PATH
-        export PATH="$(go env GOPATH)/bin:$PATH"
-        echo "  Go installed: $(go version)"
+        echo "    brew install $tool failed. Install it yourself, then re-run this script."
     else
-        echo "  Go found: $(go version)"
+        echo "    Not installed. Later: brew install $tool"
     fi
-}
-
-check_tmux() {
-    if ! command -v tmux &> /dev/null; then
-        echo "tmux not found. Installing via Homebrew..."
-        check_brew
-        brew install tmux
-        echo "  tmux installed: $(tmux -V)"
-    else
-        echo "  tmux found: $(tmux -V)"
-    fi
-}
-
-check_claude() {
-    if command -v claude &> /dev/null; then
-        echo "  Claude Code found: $(claude --version 2>/dev/null || echo 'version unknown')"
-    else
-        echo "  Warning: Claude Code not found. Install from https://claude.ai/code"
-    fi
+    return 1
 }
 
 echo "Checking prerequisites..."
-check_go
-check_tmux
-check_claude
+if ! offer go "builds clauductor from this checkout"; then
+    echo ""
+    echo "Go is required to build clauductor from source: https://go.dev/dl/"
+    exit 1
+fi
+offer jq "the operating model's hooks, checks and context scripts read JSON with it" || true
+offer gh "merge-pr and the PR flow call the GitHub CLI" || true
+offer gitleaks "the gate's secret scan (skipped locally without it, a failure under CI)" || true
+if [[ "$OS" == Darwin ]]; then
+    offer tmux "the panel's lanes" || true
+fi
+if ! command -v claude &> /dev/null; then
+    echo "  Claude Code is missing: install it from https://claude.ai/code"
+fi
 echo ""
 
 # --- Build ---
@@ -115,6 +128,10 @@ fi
 
 # Export for current session
 export CLAUDUCTOR_FRAMEWORK="$FRAMEWORK_DIR"
+
+echo ""
+# The same report `clauductor install` prints in a project: every tool, with this OS's install hint.
+sh "$FRAMEWORK_DIR/template/.claude/prereqs.sh" || true
 
 echo ""
 echo "==================================="

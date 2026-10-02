@@ -46,6 +46,7 @@ for f in $(cd "$ROOT/framework" && find . -name '*_test.go' -not -path '*/testda
   reads=""
   grep -q '"template"' "$src" && reads="$reads template/x"
   grep -q 'PluginDrift(' "$src" && reads="$reads plugin/x .claude-plugin/x"
+  grep -q '"install\.sh"' "$src" && reads="$reads install.sh"
   grep -q '"\.claude-plugin", "marketplace.json"' "$src" && reads="$reads .claude-plugin/x plugin/x"
   for d in $(grep -oE '"docs", "[^"]+"|docsPath\("[^"]+"\)|Join\(docs, "[^"]+"\)' "$src" | grep -oE '"[^"]+"\)?$' | tr -d '")'); do
     reads="$reads docs/$d"

@@ -186,6 +186,54 @@ if [ -n "$WRAP" ]; then
   (cd "$R" && PATH="$d/bin:$np" CI= bash "$WRAP_REL" --quick >/dev/null 2>&1); rc=$?
   expect_rc 1 "$rc" "gate.sh passes a failure's exit code through"
   rm -f "$R/FAIL_UNIT"
+
+  # ── The summary contract, driven with GATE_RUNNER (ported from Standing Tee's ci-gate-summary):
+  # every failure line survives a 5,000-line log, colour codes and a `pnpm -r` prefix included; a
+  # green 10,000-line run stays short; GATE_TAIL_EXCLUDE drops the JSON lines an e2e server logs
+  # after the verdict (and only it does); the runner's exit code, not the filter's, is returned.
+  S="$d/summary"; new_repo "$S"; mkdir -p "$S/$(dirname "$WRAP_REL")" "$S/.claude/lib"
+  cp "$ROOT/$WRAP_REL" "$S/$WRAP_REL"; cp "$ROOT/.claude/lib/conf.sh" "$S/.claude/lib/"
+  # Standing Tee's own GATE_FAIL_PATTERN (its infra/ci/gate.sh), set the way a project sets it.
+  cat > "$S/.claude/project.conf" <<'EOF'
+GATE_FAIL_PATTERN='^gate-lock: |^==> |error TS[0-9]+|Found [0-9]+ errors?|(^|: ) *(FAIL|×|✗|✘) |AssertionError|Error: |(Test Files|Tests|Errors) +[0-9]+ |^ +[0-9]+\) \[|^ +[0-9]+ (passed|failed)|[0-9]+ failed|REFUSING|!!|lint/[a-zA-Z]+/|CI-STEPS-COMPLETE'
+GATE_TAIL_EXCLUDE='^\{"'
+EOF
+  noise='for i in $(seq 1 5000); do echo "  ✓ passing test $i (3ms)"; done'
+  { echo 'echo "==> lint"'; echo "$noise"; echo 'echo "apps/web/src/x.ts:3:1 lint/suspicious/noExplicitAny ━━━━━━"'
+    echo 'echo "==> typecheck"'; echo "echo \"src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.\""
+    echo 'echo "==> test (TZ=UTC)"'
+    echo "printf 'packages/db test:  \\033[41m FAIL \\033[49m packages/db/test/foo.test.ts > foo > bar\\n'"
+    echo "printf 'packages/db test: AssertionError: expected 1 to be 2\\n'"
+    echo "printf 'packages/db test: \\033[2m      Tests \\033[22m \\033[1m\\033[31m1 failed\\033[39m\\033[22m | 4999 passed (5000)\\n'"
+    echo "printf 'packages/service test: \\033[2m     Errors \\033[22m \\033[1m\\033[31m1 error\\033[39m\\033[22m\\n'"
+    echo "printf '  1) [chromium] \\342\\200\\272 e2e/csp.spec.ts:132:5 \\342\\200\\272 signed out \\n'"
+    echo "$noise"; echo 'echo "==> FAIL (exit 1)"'; echo 'exit 1'; } > "$d/red.sh"
+  { echo "$noise"; echo "printf 'packages/db test: \\033[2m Test Files \\033[22m \\033[1m\\033[32m98 passed\\033[39m (99)\\n'"
+    echo "$noise"; echo 'echo "==> PASS"'
+    echo "for i in \$(seq 1 40); do echo '{\"route\":\"/leagues/:leagueId\",\"result_code\":\"ok\"}'; done"; } > "$d/green.sh"
+  summ() { (cd "$S" && GATE_RUNNER="$1" bash "$WRAP_REL" --quick) > "$d/summ.out" 2>&1; }
+  summ "$d/red.sh"; rc=$?
+  expect_rc 1 "$rc" "gate.sh summary: a red run keeps its exit code"
+  for want in "lint/suspicious/noExplicitAny" "error TS2322" "FAIL  packages/db/test/foo.test.ts > foo > bar" "AssertionError: expected 1 to be 2" "Tests  1 failed" "Errors  1 error" "1) [chromium] › e2e/csp.spec.ts:132:5" "==> FAIL (exit 1)"; do
+    grep -qF -- "$want" "$d/summ.out" && ok "gate.sh summary: shows '$want' from a 10,000-line log, colour stripped" || fail "gate.sh summary: '$want' missing from the red summary"
+  done
+  log=$(sed -n 's/^--- full log ([0-9]* lines): //p' "$d/summ.out")
+  [ -f "$log" ] && [ "$(wc -l < "$log")" -gt 10000 ] && ok "gate.sh summary: the whole log stays on disk ($(wc -l < "$log" | tr -d ' ') lines)" || fail "gate.sh summary: no full log at '$log'"
+  summ "$d/green.sh"; rc=$?
+  expect_rc 0 "$rc" "gate.sh summary: a green run keeps its exit code"
+  if grep -qF "Test Files  98 passed" "$d/summ.out" && grep -qF "==> PASS" "$d/summ.out" && ! grep -qF '{"route"' "$d/summ.out" && [ "$(wc -l < "$d/summ.out")" -lt 60 ]; then
+    ok "gate.sh summary: a green run is short, shows the counts and the verdict, and GATE_TAIL_EXCLUDE drops the JSON lines after it"
+  else fail "gate.sh summary: green output ($(wc -l < "$d/summ.out" | tr -d ' ') lines): $(head -c 600 "$d/summ.out" | tr '\n' '|')"; fi
+  grep -v '^GATE_TAIL_EXCLUDE' "$S/.claude/project.conf" > "$d/conf" && cp "$d/conf" "$S/.claude/project.conf"
+  summ "$d/green.sh"
+  grep -qF '{"route"' "$d/summ.out" && ok "gate.sh summary: ...and without GATE_TAIL_EXCLUDE the tail keeps them (the setting is what drops them)" || fail "gate.sh summary: JSON lines dropped with GATE_TAIL_EXCLUDE unset"
+  printf "GATE_TAIL_EXCLUDE='^==> PASS'\n" >> "$S/.claude/project.conf"
+  summ "$d/green.sh"
+  sed -n '/^--- last/,$p' "$d/summ.out" > "$d/tail"
+  grep -qF '{"route"' "$d/tail" && ! grep -qF '==> PASS' "$d/tail" && ok "gate.sh summary: ...and another GATE_TAIL_EXCLUDE drops what IT matches, not JSON (the pattern is the project's)" || fail "gate.sh summary: GATE_TAIL_EXCLUDE='^==> PASS' tail: $(tr '\n' '|' < "$d/tail" | head -c 300)"
+  printf '#!/bin/sh\necho boom; exit 3\n' > "$d/exit3.sh"
+  summ "$d/exit3.sh"; rc=$?
+  expect_rc 3 "$rc" "gate.sh summary: returns the runner's exit code (3), not the filter's"
 else
   ok "GATE=$WRAP_REL is the project's own wrapper, not the model's gate.sh: its output contract is its own"
 fi

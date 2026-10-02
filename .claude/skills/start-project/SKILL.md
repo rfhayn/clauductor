@@ -69,10 +69,12 @@ If those lines show as literal text, run the commands yourself.
 8. **Health lines** (`.claude/health/`): delete the GitHub ones if the project does not use
    GitHub Actions; add any the project needs (a migration ledger, a backup's age). Uncomment the
    ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
-9. **Optional modules and the local layer**: OpenSpec (`.claude/modules/openspec/README.md`),
-   the claude.ai review page (`.claude/modules/review-page/README.md`) and shared pages held
-   current with their sources (`.claude/modules/artifacts/README.md`) are off by default; turn one
-   on by naming it in `MODULES` (`.claude/modules/README.md`). What the project adds of its own
+9. **Optional modules and the local layer**: OpenSpec (`.claude/modules/openspec/README.md`), the
+   claude.ai review page (`review-page`), shared pages held current with their sources
+   (`artifacts`), a risk register read at every session start (`risk-register`), a display-only
+   commit status for local gate runs (`ci-status`), the premise check (`premise-check`) and the
+   write-surface advisory (`write-surfaces`) are off by default; turn one on by naming it in
+   `MODULES` (`.claude/modules/README.md` lists them). What the project adds of its own
    (an extra guard rule, a context section, a health line, a skill step, a conflict row) goes in
    `.claude/local/` (its README has each contract), never in a framework file the next
    `clauductor update` overwrites. `sh .claude/extensions.sh list` shows what is on.

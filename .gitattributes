@@ -1,0 +1,23 @@
+# Line endings: LF in the repository AND in every checkout, on every OS. Git for Windows defaults
+# to core.autocrlf=true, which checks text files out with CRLF unless this file says otherwise, and
+# a hook, check or gate script with CRLF fails in sh. Held by .claude/checks/line-endings.sh.
+# template/.gitattributes is the product's copy (what `clauductor install` and `update` ship).
+* text=auto eol=lf
+
+# Binary types: never converted, never diffed as text. This repository tracks only *.woff2 (the
+# panel's fonts; git ls-files --eol shows -text); the rest are the template's, so that
+# `clauductor update` finds nothing of the template's missing here.
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.zip binary
+*.gz binary
+
+# Vendored verbatim from upstream with CRLF line endings: kept byte for byte, not normalised.
+framework/internal/panel/web/static/fonts/OFL-commit-mono.txt -text

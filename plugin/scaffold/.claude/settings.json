@@ -53,7 +53,15 @@
       "Bash(sudo *)",
       "Bash(tmux *kill-server*)",
       "Bash(gh repo delete *)",
-      "Bash(gh release delete *)"
+      "Bash(gh release delete *)",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(pwsh.exe *)",
+      "Bash(wsl.exe *)",
+      "Bash(explorer.exe *)",
+      "Bash(clip.exe *)",
+      "Bash(notepad.exe *)",
+      "Bash(/mnt/c/*)"
     ]
   },
   "sandbox": {

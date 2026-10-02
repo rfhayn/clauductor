@@ -57,6 +57,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `.claude/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`.claude/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
 | A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/verify-change`; **`checks/merge-guard.sh`** |
+| An archive loses no living scenario, keeps superseded wording out, and skips a `NOT-SYNCED.md` capability | **`.claude/archive-change.sh`** (`archive-change` step 1); **`checks/archive-change.sh`** |
+| Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
 | A role's model or a trigger it declares (`evals.triggers`: its agent, the marked review prompt) changes only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
 | A change stays within its budget | **`build-change.js`** stops (`.claude/change-cost.sh`); by hand, **Nothing. You.** |
@@ -82,6 +84,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
 | The repo works without clauductor: nothing needs the binary or the panel | **`checks/no-clauductor.sh`**: the gate, the checks, a context script and the status line, `clauductor` off `PATH` |
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
+| Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | **This file stays a budget, not an archive** | **`.claude/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 
@@ -109,8 +112,9 @@ an agent cannot infer from the code. Keep each to two lines and put the detail i
 `docs/conventions.md`. For example:
 
 - **Branching.** One change = one branch = one squash PR: `change/<id>` for a capability,
-  `fix/<n>-<slug>`, `ops/<name>` otherwise. No stacked PRs. Commit messages in the imperative.
-  The main checkout stays on `main`; work happens in worktrees (`.claude/worktrees/<lane>`).
+  `fix/<n>-<slug>` (`<n>` is the issue number, never a date), `ops/<name>` otherwise. No stacked
+  PRs. Commit messages in the imperative. The main checkout stays on `main`; work happens in
+  worktrees (`.claude/worktrees/<lane>`).
 - **The gate** is `GATE_RUN` in `.claude/project.conf`; agents run it through `GATE`.
 - **Reuse before you write.** Grep for the concept before adding a function, a query or a
   dependency.

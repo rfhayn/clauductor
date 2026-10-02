@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,10 @@ deny list and sandbox entries are brought up to date, the project's keys are
 kept, every conflict is reported, and a hook registration that runs a script
 that does not exist (or one of the old model's hooks) is dropped.
 
+.gitattributes gains the template's line-ending rules it lacks (LF for every
+text file, so shell scripts run under WSL2 and Git for Windows), prepended so
+the project's own lines still override them.
+
 Project-owned files are never overwritten, but update now offers what the
 template added to them:
   new project files (health lines, evals, docs)  → offered, created only if
@@ -50,7 +55,12 @@ template added to them:
   .clauductor/panel.json                         → checked against the BRANCH_* keys
 
 The old model's files that the current one replaced are listed and offered for
-removal (--prune removes them without asking). --dry-run shows everything first.`,
+removal (--prune removes them without asking). --dry-run shows everything first.
+
+Docs the project owns are never written. Of them, the template's guidance docs
+(the playbook, conventions, principles, the READMEs of changes/, specs/ and
+scripts/ci/, ...) are named when they differ from the template's copy or are
+missing, so new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		targetDir, err := os.Getwd()
@@ -92,6 +102,8 @@ removal (--prune removes them without asking). --dry-run shows everything first.
 			}
 		}
 
+		printGuidanceDrift(out, targetDir)
+
 		// Find files that differ from template
 		diffs, err := template.FindDiffs(targetDir)
 		if err != nil {
@@ -102,6 +114,10 @@ removal (--prune removes them without asking). --dry-run shows everything first.
 			return err
 		}
 		x, err := planExtras(targetDir, tmplPath, files)
+		if err != nil {
+			return err
+		}
+		attrs, err := planGitattributes(targetDir)
 		if err != nil {
 			return err
 		}
@@ -150,9 +166,13 @@ removal (--prune removes them without asking). --dry-run shows everything first.
 			printSettingsPlan(out, settings, updateDryRun)
 		}
 		x.print(out, true)
+		attrs.print(out)
 		if updateDryRun {
 			fmt.Fprintln(out, "--dry-run: no changes made.")
 			return nil
+		}
+		if err := attrs.apply(targetDir); err != nil {
+			return err
 		}
 		if settings.Changed() {
 			if err := writeSettings(targetDir, settings); err != nil {
@@ -278,6 +298,89 @@ func planProjectSettings(targetDir string) (*template.SettingsPlan, error) {
 		return nil, fmt.Errorf("%s: %w (fix it, then run update again)", template.SettingsPath, err)
 	}
 	return sp, nil
+}
+
+// printGuidanceDrift names the template's guidance docs (the playbook, conventions, ...) that
+// differ from the project's copies or that it lacks. update never writes them, since a project
+// edits them, so without this notice a project installed earlier would never learn that, say, the
+// playbook gained its machine-setup guide. A survey that cannot run says so rather than nothing.
+func printGuidanceDrift(out io.Writer, targetDir string) {
+	differs, missing, err := template.GuidanceDrift(targetDir)
+	if err != nil {
+		fmt.Fprintf(out, "Docs — could not compare the template's docs with this project's: %v\n\n", err)
+		return
+	}
+	if len(differs)+len(missing) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "Docs — the template's guidance differs from this project's copies. update never overwrites")
+	fmt.Fprintln(out, "them (the project edits them); compare with `clauductor diff`, and take what you want:")
+	for _, p := range differs {
+		fmt.Fprintf(out, "  ~ %s\n", p)
+	}
+	for _, p := range missing {
+		fmt.Fprintf(out, "  - %s (missing here)\n", p)
+	}
+	fmt.Fprintln(out)
+}
+
+// gitattributesPlan is update's merge of the template's line-ending rules into the project's
+// .gitattributes. Update copies only framework files, so without this a project installed before
+// the template shipped the rules would never get them, and a collaborator on Windows would check
+// every shell script out with CRLF. nil means the project already has every rule.
+type gitattributesPlan struct {
+	exists bool
+	added  []string
+	result []byte
+}
+
+func planGitattributes(targetDir string) (*gitattributesPlan, error) {
+	tmplDir, err := template.TemplatePath()
+	if err != nil {
+		return nil, err
+	}
+	want, err := os.ReadFile(filepath.Join(tmplDir, template.GitattributesPath))
+	if os.IsNotExist(err) {
+		return nil, nil // a template from before the rules
+	}
+	if err != nil {
+		return nil, err
+	}
+	have, readErr := os.ReadFile(filepath.Join(targetDir, template.GitattributesPath))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, readErr
+	}
+	merged, added := template.MergeGitattributes(string(have), string(want))
+	if len(added) == 0 {
+		return nil, nil
+	}
+	return &gitattributesPlan{exists: readErr == nil, added: added, result: []byte(merged)}, nil
+}
+
+func (p *gitattributesPlan) print(out io.Writer) {
+	if p == nil {
+		return
+	}
+	if p.exists {
+		fmt.Fprintf(out, "Line endings — %s gains %d rule(s), prepended so the project's own lines still win:\n", template.GitattributesPath, len(p.added))
+	} else {
+		fmt.Fprintf(out, "Line endings — %s will be created:\n", template.GitattributesPath)
+	}
+	for _, l := range p.added {
+		fmt.Fprintf(out, "  + %s\n", l)
+	}
+	fmt.Fprintln(out)
+}
+
+func (p *gitattributesPlan) apply(targetDir string) error {
+	if p == nil {
+		return nil
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, template.GitattributesPath), p.result, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("Merged %s. Files already checked out keep their line endings until checked out again; .claude/checks/line-endings.sh names any that still hold a CR.\n\n", template.GitattributesPath)
+	return nil
 }
 
 func writeSettings(targetDir string, sp *template.SettingsPlan) error {

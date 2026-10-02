@@ -68,7 +68,7 @@ The contract a parser meets:
 |---|---|---|
 | `--text` | the current phase's open rows, for people (any layout) | 0 read; non-zero: the queue is UNKNOWN |
 | `--check` | one summary line, or one `ERROR` line per line it cannot parse | 0 valid; 1 not |
-| `--tsv` | one row per line, tab-separated, the 12 columns below and optionally the 13th; more are ignored | 0 read; non-zero: UNKNOWN |
+| `--tsv` | one row per line, tab-separated, the 12 columns below, optionally the 13th and 14th; more are ignored | 0 read; non-zero: UNKNOWN |
 
 `--queued [change\|fix\|ops]` is derived from `--tsv` by the helper: a parser need not implement it.
 
@@ -87,6 +87,7 @@ The contract a parser meets:
 | 11 | budget | dollars (`40`, `12.50`), or empty |
 | 12 | due | `YYYY-MM-DD`, or empty |
 | 13 | started | optional: the row's section's start date, `YYYY-MM-DD`, or empty |
+| 14 | status (optional) | the row's raw status text (`⬜ deferred — trigger: …`), for a parser whose statuses say more than column 7; the `people` module skips a `⬜ deferred` row for **Next**. A parser that emits column 14 puts a date or nothing in column 13. |
 
 Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
 queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as
