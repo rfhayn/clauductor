@@ -41,9 +41,17 @@ change are built to be reused:
 
 Who reuses them:
 - **PANEL-31 and PANEL-32** use both, and drop the separate guard PANEL-31's draft had (one keyed on
-  existence, `~/.claude` hard-coded, a 10 s grace). PANEL-32's probe goes through the gate. A long
-  call holds the slot like any other, so the probe pauses the agents poll for its length. PANEL-32
-  states that cost to the owner, or proposes an exception there.
+  existence, `~/.claude` hard-coded, a 10 s grace).
+  - **PANEL-32's probe** goes through the gate. A long call holds the slot like any other. A 90 s
+    probe holds it for up to about 105 s, with the 15 s grace if it overruns.
+  - **The cost for that long:**
+    - the agents polls pause, and the readings age out;
+    - every lane action that needs `claude agents` fails at its own 10 s timeout: the
+      first-prompt check, `removeVerdict` and `agentStatus`.
+  - **PANEL-32 must** state that cost to the owner, or propose an exception (lane actions ahead of
+    the probe, or the probe outside the slot) in its own design.
+- **PANEL-25's retry** reuses D3's numbers (its D9): a wait of up to 2 s, then a retry in 1 s for
+  the slot and 2 s for a lock.
 - **PANEL-25's spawn counter** sits inside the gate, between it and `ExecRunner`, counting
   processes actually started. A skipped or paused call is not a spawn.
   - **Machine calls:** PANEL-25 also moves `Machine.run` off `m.defRT().exec` and tags the
@@ -115,8 +123,8 @@ Between them they fit everything seen:
 
 ## The shape of the change
 
-Groups 1–3 build unattended, in order. Group 4 is last because it needs the owner once, and then a
-day's wait (D8).
+Three groups, all built unattended, in order. The sandbox login, which needs the owner and a day's
+wait, is its own row, PANEL-33 (D8).
 
 1. **Group 1, the lock reader and the log.**
    - `framework/internal/panel/claudecall`, a new package that `panel` and `lanes` both import:
@@ -131,6 +139,15 @@ day's wait (D8).
      - **Per lock seen,** one line: path, holder pid, `ps -o command=` of the holder, whether it is
        the panel's own call and which, first seen, last modified, and how it ended.
      - **Per stopped call,** one line (group 2 writes these).
+   - **The panel's own calls, remembered:** a bounded history of the gate's calls, kept for 24 h
+     and capped at 1,000 entries: pid, process start time, which call, started, ended.
+     - **Matching a lock to a call:** a lock's holder is the panel's own when its owner record's
+       pid matches an entry, and its `lockBirthtimeMs` falls within that entry's start and end.
+       The record's `procStart` is matched too, once group 1's re-read records the form Claude
+       Code writes it in.
+     - **Why a history:** a lock stranded by a panel call that has already been reaped (the
+       SIGKILL case) would otherwise log as "not the panel's", and the outcome check would read
+       clean when it isn't.
    - A re-read of the installed binary, recording in the Decision log what differs from *What is
      known*.
 2. **Group 2, the gate.** `claudecall.Gate` is a Runner wrapper for any argv whose program is
@@ -142,30 +159,41 @@ day's wait (D8).
      its shape item 5. Whichever change lands second keeps that order.
    - **Why that order:** a call the gate holds back never reaches the counter, so it isn't counted
      as a spawn.
+   - **What lives in `signals`:** the `claude` argv matcher and the context key for the
+     process-start callback. `claudecall` imports `signals`, and `ExecRunner` needs both.
    - **How it stops a call:** the stop policy is split across two layers (D2).
      - **The gate** calls the inner Runner in a goroutine, under a context of its own, and returns
        to the caller at the caller's deadline.
      - **`ExecRunner`** owns the signals, for `claude` argv only.
    - **The slot:** one process at a time, held until the inner call returns (D3).
    - **The lock pause:** no start while a lock is live (D4).
+   - **A busy or paused gate** returns its own errors to the caller, `claudecall.ErrBusy` and
+     `claudecall.ErrPaused`, which callers tell apart from a failed call.
    - **What the callers do:**
-     - polls wait briefly and then return a short retry, applying no update;
+     - polls and cards wait briefly, then return a short retry and apply no update (D3, D9);
+     - a call whose context has no deadline waits at most 10 s, and `liveSessions` gets
+       `agentStatus`'s 10 s timeout (D3);
      - `checkFilter` records its check time only when the check ran;
      - `pollAccount` follows D5;
-     - Refresh kicks the machine's sources as well as the project's.
+     - Refresh kicks the machine's sources as well as the project's. Adding a project does not
+       kick the account (D5).
+   - **Shutdown:** `Run` closes the gate after `wg.Wait()`, and a test drives `Run` itself to
+     prove it (D2).
 3. **Group 3, the owner sees a lock** (D7): the live alert, the stranded warning, the future-dated
    warning, `docs/panel.md` and Help.
-4. **Group 4, last: the sandbox and its response** (D1, D6). It needs the owner's `/login` under a
-   scratch config dir, then an expiry. Its outcome picks one response decided in D6.
+
+The sandbox investigation, and acting on what it finds, is PANEL-33's (D1, D6, D8).
 
 ## Refusals
 
 | Situation | What happens instead |
 |---|---|
 | A `claude` call while the slot is taken | It waits up to 2 s (a poll) or within its own timeout (a lane action). A poll still blocked returns a retry in 1 s and applies no update: the last reading, its success time and its error stay as they were. |
-| A call while a lock is live (modified in the last 60 s, not in the future) | No start. A poll returns a retry in 2 s, applying no update; its source shows "paused: a login refresh is in progress". A lane action waits within its timeout. |
+| A call whose context has no deadline (`RestoreAll`'s `liveSessions` today) | It waits for the slot or a lock at most 10 s, then gets `ErrBusy` or `ErrPaused`. `liveSessions` itself gets a 10 s timeout, as `agentStatus` has, so `RestoreAll` never holds the lane lock without bound. |
+| A card or suggest command running `claude` that collides | It waits up to 2 s, then applies no update, so it is never shown failed for it. A watch-only card retries in 1 s (2 s for a lock). An interval card, being fixed-rate, runs again at its next tick (D9). |
+| A call while a lock is live (modified in the last 60 s, and no more than 5 s in the future) | No start. A poll returns a retry in 2 s, applying no update; its source shows "paused: a login refresh is in progress". A lane action waits within its timeout. |
 | A long pause (a lock live for minutes) | The agents reading ages out by the existing freshness window, as it would with no poll, and nothing typed waits on a stale read. The source says "paused", not "cannot read". The D7 alert fires at 2 min. |
-| A `claude` call past its timeout | The caller gets its timeout error at its deadline; the gate sends SIGTERM, SIGKILLs 15 s later if the process is still running, and keeps the slot until it is reaped. |
+| A `claude` call past its timeout | The caller gets its timeout error at its deadline. The gate's context is cancelled, so `ExecRunner` sends SIGTERM, and SIGKILL 15 s later if the process is still running. The slot is kept until the process is reaped. |
 | The panel shutting down with a `claude` call in flight | SIGTERM; SIGKILL 3 s later if it is still running; the shutdown waits no longer. |
 | The account wanted while a reading under 24 h old is saved | The saved reading is used; no `auth status` runs until **Refresh**. |
 | A lock held live for more than 2 min | An alert naming the holder (pid, command, age) and what to do. |
@@ -177,8 +205,19 @@ day's wait (D8).
 ## Decisions (awaiting the owner)
 
 **D1. How the facts are established.**
-- **Recommended:** a sandbox login, plus the passive watch from group 1.
-- **Setting up the sandbox,** with the owner once, with no lane running:
+- **Recommended:** here, a static re-read of the installed binary (group 1) and the passive lock
+  watch with its log, which observes the real machine from the day the change ships. The causal
+  answer, a sandbox login, is PANEL-33's (D8).
+- **This change doesn't wait on that answer:** every fix in it is right whatever the sandbox finds.
+- **PANEL-33's row carries** this method as its starting point, with round 2's review notes:
+  - word tasks plainly;
+  - give each stop path an owner;
+  - use a faster watch or an after-the-fact signal (the config dir's mtime), with an "anything
+    else" row in the outcome table;
+  - treat `/status` as a weak check, since it reads local state.
+- **The method, as recommended for PANEL-33's proposal** (it decides there):
+
+  Setting up the sandbox, with the owner once, with no lane running:
   1. Make a scratch `CLAUDE_CONFIG_DIR` and a scratch folder inside it.
   2. In that folder, `CLAUDE_CONFIG_DIR=<scratch> claude`; accept the folder's trust prompt, then
      `/login`. A fresh config dir trusts no folder, and the refresh path in `claude agents` runs
@@ -199,22 +238,23 @@ day's wait (D8).
 - **Every later question is optional,** with one run per later expiry: `auth status`, then
   `--version`, then a SIGTERM and a SIGKILL 1 s into `claude agents`. Each that isn't run stays
   unverified, and D2 already tolerates that.
-- **If the main login shows any trouble** at any point, group 4 stops and the owner is told. Its
-  tasks are ticked as "stopped: <why>", and the PR merges with groups 1–3 (D8).
+- **If the main login shows any trouble** at any point, PANEL-33 stops and the owner is told.
+  Nothing in this change depends on it.
 - **Alternatives:**
-  - the passive watch alone;
+  - the sandbox inside this change, as its last group, with round 2's notes fixed in place;
+  - the passive watch alone, with no sandbox anywhere;
   - tracing with `fs_usage`, `dtruss` or `eslogger`;
   - asking Anthropic.
 - **Why:**
   - **The sandbox** answers the one question that matters, causally, on the panel's own argv, and
     can't spend the owner's login. `CLAUDE_CONFIG_DIR` has its own Keychain entry, as documented.
-  - **The positive control** stops an unexpired token from passing for outcome A.
+    The positive control stops an unexpired token from passing for outcome A.
+  - **In its own row,** it needs a person and a day, and nothing here waits on it.
   - **Not the watch alone:** it waits for a natural expiry, and it can only correlate.
   - **Not tracing:** it needs root, or SIP off for `dtruss`.
   - **Not asking:** the upstream issues have no maintainer reply yet.
 - **Unverified:** that a second login of the same account leaves the first alone. The docs show it
-  with two different accounts. That is why step 3 checks at once, and why trouble stops only
-  group 4.
+  with two different accounts. PANEL-33 owns that risk.
 
 **D2. How the gate stops a `claude` call.**
 - **Recommended:** two layers, so the gate stays a plain Runner wrapper and PANEL-25's counter can
@@ -222,18 +262,24 @@ day's wait (D8).
   - **The gate:**
     - It calls the inner Runner in a goroutine, under a context it owns, and returns the timeout
       error to the caller at the caller's deadline, so the caller never waits for the exit.
-    - At that deadline it cancels its own context.
+    - **Its own context** is `context.WithoutCancel(caller)`, so values such as PANEL-25's project
+      tag survive. It is cancelled when the caller's context is done for any reason: deadline,
+      cancel or shutdown.
     - The slot stays held until the inner call returns, which is when the process has been reaped
       (D3).
   - **`ExecRunner`, for `claude` argv only:**
     - `Cmd.Cancel` sends SIGTERM, and `Cmd.WaitDelay` is 15 s. A process still running then is
       killed.
-    - It reports the child's pid through a callback the gate puts in the context. The watch uses
-      it (group 1), and so does the shutdown.
+    - It reports the child's `*os.Process` (not a bare pid) through a callback the gate puts in
+      the context. The key lives in `signals`. The watch's history uses it (group 1), and so does
+      the shutdown.
     - Other commands keep today's `exec.CommandContext` behaviour.
-  - **At panel shutdown,** the grace is 3 s, not 15. The gate's close runs after `wg.Wait()`:
-    SIGTERM is already sent through the cancelled contexts. It waits at most 3 s, then SIGKILLs any
-    pid it still holds.
+  - **At panel shutdown,** the grace is 3 s, not 15. `Run` closes the gate after `wg.Wait()`.
+    SIGTERM has already gone out through the cancelled contexts. The close waits at most 3 s, then
+    calls `Kill` on each `*os.Process` not yet reaped. `ErrProcessDone` from a process reaped in
+    between counts as success.
+  - **The test:** one that drives `Run`'s own shutdown, not only the gate's close. A test of the
+    gate alone would pass if `Run` never called the close.
 - **Alternatives:**
   - `Cmd.Cancel` with `WaitDelay` called straight from the caller: `Wait` blocks the caller until
     the exit or the delay, so the caller can't return at its deadline;
@@ -250,8 +296,8 @@ day's wait (D8).
   - **The residual risk:** a refresh straddling a panel restart. It needs a restart inside the
     seconds a refresh takes.
 - **This is necessary, not sufficient:** per #95822 a command can abandon its own refresh with
-  nobody killing it. D5 and D6 address that part. That SIGTERM lets Claude Code release the lock
-  stays unverified unless D1's optional stop test runs.
+  nobody killing it. D5 addresses that part here, and PANEL-33 the rest (D6). That SIGTERM lets
+  Claude Code release the lock stays unverified unless PANEL-33's optional stop test runs.
 
 **D3. One panel `claude` call at a time, without starving anyone.**
 - **Recommended:** one machine-wide slot, held until the process is reaped.
@@ -259,6 +305,14 @@ day's wait (D8).
     returns a retry in 1 s through the poll's own next-wait, rather than its interval, and applies
     no update.
   - **A lane action** waits within its own timeout.
+  - **A context with no deadline** waits at most 10 s, then gets `ErrBusy`.
+    - **The case today:** `RestoreAll` holds the lane manager's lock and calls `liveSessions` with
+      the request's context and no timeout (`lanes/lanes.go`). Behind a stuck lock it would
+      otherwise hold that lock without bound, blocking Start, Stop, Forget, the prompt state and
+      the first prompt.
+    - **The fix there:** `liveSessions` gets `agentStatus`'s 10 s timeout as well.
+  - **The numbers are shared:** a wait of up to 2 s, then a retry in 1 s for the slot and 2 s for a
+    lock. PANEL-25's D9 reuses them.
   - **`checkFilter`** records `agentsFilterCheck` only after a cross-check that ran. Today it is set
     before the call (`runtime.go`), so a skip would drop the `--cwd` filter for 5 min.
   - **Refresh** (`refreshAll`) also kicks the machine's sources (`Machine.kickAll`). Today it kicks
@@ -272,7 +326,10 @@ day's wait (D8).
     read waits for Refresh (D5). A hook-kicked agents poll under PANEL-25's dormant interval waits
     5 min.
   - **A short wait and a 1 s retry** serialize the start in a second or two, because each call
-    takes about 0.1 s.
+    is short.
+    - **The figure is an estimate:** 0.09 s, from one `claude agents --json` timed on 2026-10-02.
+    - **The live figure** is the panel's own diagnostic, `AgentsPollAvgMs` (with
+      `AgentsPollMaxMs`), which the build reads to confirm it.
   - **Not a queue:** it piles up stale reads behind a slow call.
   - **Not standing alone:** in the minutes around the shared token's expiry, every concurrent panel
     call is another refresh attempt.
@@ -303,6 +360,11 @@ day's wait (D8).
 - **Recommended:** no timer.
   - **When it runs:** at start only when no reading under 24 h old is saved, and on **Refresh**,
     which D3 makes kick the machine's sources.
+  - **Adding a project no longer reads the account.** `Machine.addProject` calls `m.kickAll()` (at
+    start, and on a live add from `live.go`), which today kicks the account source too. That would
+    run `auth status` at every start, whatever was saved. So there are two kicks:
+    - **adding a project** kicks the version, the hooks and remote control;
+    - **Refresh** kicks every machine source, the account included.
   - **The saved reading:** the last one, in `account.json` beside `quota.json`, keeping only the
     fields kept today.
   - **The guards:** the gate applies.
@@ -316,26 +378,31 @@ day's wait (D8).
   - **Not dropping it:** no status-line field gives the auth mode or plan (#95598 asks for one).
 - **What it costs:** a change of account shows after **Refresh** or the next start. Help says so.
 
-**D6. Making the panel's own `claude agents` start no refresh. Every outcome decided now.**
-- **Recommended:** D1's run picks one outcome:
+**D6. Making the panel's own `claude agents` start no refresh: PANEL-33's.**
+- **Recommended:** PANEL-33 owns this. Its row names outcomes A, B, C and inconclusive. Its
+  proposal starts from the responses below and decides them there. This change implements none of
+  them.
+
+  D1's run picks one outcome:
   - **A or B:** nothing more; recorded.
   - **Inconclusive:** run again at the next expiry, up to three times. If it's still inconclusive,
     record it as unanswered and treat it as B.
   - **C:**
-    - **The retest:** the owner logs in to the sandbox again, and at the next expiry the build
-      repeats the run with `DISABLE_TELEMETRY`, then with
-      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (both documented).
-    - **If one turns C into A** and leaves the JSON the panel parses unchanged, group 4 sets it on
-      every panel `claude agents` and `auth status` call.
-    - **If neither does,** no panel-side fix is left. 4.3 is ticked as "no panel-side fix", the
-      evidence goes to the owner, and the PR merges. Their options become a new roadmap row: a
-      slower cadence, polling only while no hook flows, or adding the evidence to #95822.
+    - **The retest:** the owner logs in to the sandbox again, and at the next expiry the run is
+      repeated with `DISABLE_TELEMETRY`, then with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+      (both documented).
+    - **If one turns C into A** and leaves the JSON the panel parses unchanged, PANEL-33 sets it on
+      every panel `claude agents` and `auth status` call, through one helper beside
+      `lanes.ScrubbedArgv`.
+    - **If neither does,** no panel-side fix is left, and the evidence goes to the owner. Their
+      options are a slower cadence, polling only while no hook flows, or adding the evidence to
+      #95822.
 - **Alternatives:**
-  - always set a variable;
-  - decide after the investigation, by editing this design.
+  - always set a variable, in this change;
+  - decide every outcome in this change and build it as its last group (D8's alternative).
 - **Why:**
   - **Not always:** the variable is a guess about one build, and it could change the listing.
-  - **Not deciding later:** an edit after approval voids the approval.
+  - **Not here:** the response depends on an answer only the sandbox gives.
 
 **D7. A stuck, stranded or future-dated lock.**
 - **Recommended:** three states for each of the two locks, read from mtime against now. No
@@ -357,30 +424,36 @@ day's wait (D8).
   - **No deletion:** deleting a lock a live process holds would let two processes refresh one
     login at once, which is the very thing the lock prevents.
 
-**D8. Group order, and which groups ship in which outcome.**
-- **Recommended:** one change, one PR.
-  - **Groups 1–3** build unattended, first, and are right whatever the sandbox finds.
-  - **Group 4** (the sandbox and D6's response) is last. The PR waits for it, because
-    `pr-merge-guard` rule 9 refuses a change PR with an unticked task.
-  - **A stop or a C-with-no-variable** ticks group 4 with its reason, so it never holds the PR.
-    Only C-with-no-variable leaves the owner a choice, as a new row.
+**D8. The sandbox in its own row.**
+- **Recommended:** split it.
+  - **PANEL-28** is groups 1–3 (the lock reader and log, the gate, the alerts and docs). All build
+    unattended, and all are right whatever the sandbox finds.
+  - **The sandbox investigation and acting on it** is a new row, PANEL-33 (`panel-33-login-sandbox`,
+    Deps PANEL-28), queued right after this one in Phase 2. This proposal adds it to the roadmap.
+    Its text carries the review notes listed in D1, so they aren't lost.
   - **The outcome check** reads `login-lock.jsonl` after 14 days.
-- **Alternatives:**
-  - **the sandbox first,** with every fix waiting on it;
-  - **group 4 split into its own roadmap row,** created on approval, so groups 1–3 merge without
-    waiting for the expiry.
+- **Alternative:** keep the sandbox as this change's last group. Round 2's notes would be fixed in
+  place: plain wording for verify-change, an owner for every stop path, a faster watch or the
+  config dir's mtime with an "anything else" outcome, and `/status` called a weak check.
+  - **The catch:** the PR would wait for the owner's `/login` and a day's expiry, because
+    `pr-merge-guard` rule 9 refuses a change PR with an unticked task.
 - **Why:**
-  - **Groups 1–3 can't depend on the answer:** each of D2–D5 and D7 is right even if the panel
-    never takes part in a refresh.
-  - **One PR:** it keeps the rule and the record whole, at the cost of the fixes landing a day or
-    two later.
-  - **The split** lands the fixes sooner. It is the better choice if the owner can't do the
-    sandbox `/login` soon after the build.
+  - **The fixes land without waiting** on a person and a day.
+  - **The investigation gets its own proposal and approval,** with the method recommended here as
+    its starting point.
+  - **Nothing in groups 1–3 depends on the answer:** each of D2–D5 and D7 is right even if the
+    panel never takes part in a refresh.
 
 **D9. Project cards and suggest commands that run `claude`.**
 - **Recommended:** gated like every other `claude` call (the stop policy, the slot, the lock pause).
-  Such a card waits up to 2 s for the slot and retries on its own cadence. Help says a card running
-  `claude` shares the panel's one slot.
+  - **A colliding card** waits up to 2 s for the slot, then applies no update, so it is never shown
+    failed for a skip. What happens next depends on the kind of card:
+    - **A watch-only card** (not fixed-rate) returns a retry in 1 s (2 s for a lock) through the
+      source's next-wait, which `runLoop` honours. It retries without waiting for its next file
+      change.
+    - **An interval card** is fixed-rate, and `runLoop` ignores a returned next-wait for those. It
+      runs again at its next tick and keeps its last output meanwhile.
+  - **Help** says a card running `claude` shares the panel's one slot.
 - **Alternative:** exempt them, since the project chose to run them.
 - **Why:** a project's `claude` card refreshes the same login as the panel's own calls. Exempting
   it would reopen every hazard this change closes. Its 30 s timeout is the cost a project accepts

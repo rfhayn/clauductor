@@ -82,6 +82,7 @@ flow, cost and quality metrics the model computes.
 | PANEL-26 | `panel-26-idle-backoff` — folded into PANEL-25 | `framework/internal/panel` | — | ❌ cancelled — folded into PANEL-25, which touches the same polling code |
 | PANEL-27 | `panel-27-install-no-open` — folded into PANEL-25 | `framework/internal/panel/install`, `framework/internal/cmd` | — | ❌ cancelled — folded into PANEL-25 |
 | PANEL-28 | `panel-28-login-refresh` — the panel's own `claude` calls (`auth status` at start, `agents`) never race a session's login refresh ("another Claude Code process is refreshing it"), or the row records that they do not | `framework/internal/panel` | — | ⬜ queued |
+| PANEL-33 | `panel-33-login-sandbox` — find out whether the panel's `claude agents` and `auth status` calls take or spend a login refresh, in a scratch login under its own CLAUDE_CONFIG_DIR, and act on it (PANEL-28 design D1/D6: outcomes A, B, C, inconclusive). Carry from PANEL-28's review: word tasks plainly (verify-change reads backticked slash commands such as login and status, and dotted Go names, as paths); every stop path names its owner; the 2 s lock watch can miss a fast refresh, so use a fast watcher or an after-the-fact signal (the config dir's mtime), and give the outcome table an "anything else" row; the status command reads local state, so it is a weak check of the main login | `framework/internal/panel` | PANEL-28 | ⬜ queued |
 
 ### Process follow-ups (after the panel batch, by the owner's decision of 2026-10-02)
 

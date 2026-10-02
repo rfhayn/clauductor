@@ -48,13 +48,18 @@ THE SYSTEM SHALL run at most one `claude` process of its own at a time across ev
 - **WHEN** another poll comes due 1 second after the timeout
 - **THEN** no second `claude` process starts until the first has exited
 
+#### Scenario: [CLAUDECALLS-2-S5] A call with no deadline does not wait without bound
+- **GIVEN** a `claude` call holding the slot for a minute
+- **WHEN** a lane action calls `claude agents` with a context that has no deadline
+- **THEN** it gives up within 10 seconds with a busy error, and no second `claude` process starts
+
 #### Scenario: [CLAUDECALLS-2-S4] Calls that start together all run
 - **GIVEN** a panel starting, with the agents, version and account sources due at once
 - **WHEN** their calls each take under a second
 - **THEN** each runs within a few seconds of the start, one after another
 
 ### Requirement: No claude call while a login refresh holds a lock
-WHEN the login refresh lock, or the legacy lock beside the config directory, was modified in the last 60 seconds and not in the future THE SYSTEM SHALL start no `claude` call; a poll SHALL try again within seconds, applying no update, and a lane action SHALL wait within its own timeout.
+WHEN the login refresh lock, or the legacy lock beside the config directory, was modified in the last 60 seconds and no more than 5 seconds in the future THE SYSTEM SHALL start no `claude` call; a poll SHALL try again within seconds, applying no update, and a lane action SHALL wait within its own timeout.
 
 #### Scenario: [CLAUDECALLS-3-S1] A live lock pauses the polls without marking them failed
 - **GIVEN** `.oauth_refresh.lock` in the config directory, modified 3 seconds ago
@@ -97,12 +102,18 @@ THE SYSTEM SHALL record each refresh lock it observes, with its holder and wheth
 - **WHEN** the lock is logged
 - **THEN** its line says the holder is the panel's own call and names the call
 
+#### Scenario: [CLAUDECALLS-4-S4] A lock left by a panel call that has already exited is still the panel's
+- **GIVEN** a panel `claude` call that started, took a lock, and was killed and reaped
+- **AND** the lock is still there, its owner record naming that call's pid and a birth time within the call's start and end
+- **WHEN** the lock is logged
+- **THEN** its line says the holder was the panel's own call and names the call
+
 #### Scenario: [CLAUDECALLS-4-S3] A stopped claude call is logged
 - **WHEN** the panel stops one of its `claude` calls at its timeout
 - **THEN** the log has a line naming the call, the signals it sent and whether a lock existed then
 
 ### Requirement: A stuck, stranded or future-dated lock is shown to the owner and never removed
-WHEN a refresh lock has been modified within 60 seconds continuously for more than 2 minutes THE SYSTEM SHALL raise an alert naming its holder and what to do; WHEN a lock last modified 60 seconds or more ago is still present 2 minutes later, or a lock is modified in the future, THE SYSTEM SHALL raise a warning naming the lock and the remedy; and THE SYSTEM SHALL never remove or write a lock or its owner record.
+WHEN a refresh lock has been modified within 60 seconds continuously for more than 2 minutes THE SYSTEM SHALL raise an alert naming its holder and what to do; WHEN a lock last modified 60 seconds or more ago is still present 2 minutes later, or a lock is modified more than 5 seconds in the future, THE SYSTEM SHALL raise a warning naming the lock and the remedy; and THE SYSTEM SHALL never remove or write a lock or its owner record.
 
 #### Scenario: [CLAUDECALLS-5-S1] A lock held live for over 2 minutes is an alert
 - **GIVEN** a lock whose directory is modified every 5 seconds for 3 minutes, held by pid 4242
@@ -139,6 +150,11 @@ THE SYSTEM SHALL run `claude auth status` only at start when no account reading 
 - **WHEN** the panel starts
 - **THEN** no `claude auth status` runs
 - **AND** the status bar shows the saved reading's mode and plan
+
+#### Scenario: [CLAUDECALLS-6-S4] Adding a project does not read the account
+- **GIVEN** an account reading saved 3 hours ago
+- **WHEN** a project is added to the running panel
+- **THEN** `claude --version` may run, but no `claude auth status` runs
 
 #### Scenario: [CLAUDECALLS-6-S2] No timer reads the account
 - **GIVEN** a panel that read the account at start

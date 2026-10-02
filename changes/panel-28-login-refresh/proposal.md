@@ -33,7 +33,9 @@ is known*, gives each claim's source and whether it was checked):
     and exit before saving it. That leaves the login spent.
   - **The panel's part:** it runs that command on a timer.
 
-Neither has been observed on this machine yet. A sandbox login settles the one that matters (D1).
+Neither has been observed on this machine yet. This change stops the panel feeding either, and
+logs what it sees. A sandbox login, in PANEL-33, settles whether `claude agents` takes part (D1,
+D8).
 
 ## What changes
 
@@ -59,9 +61,9 @@ gate, which PANEL-31, PANEL-32 and PANEL-25 reuse:
   - **A stuck one** is an alert.
   - **A stranded or future-dated one** is a warning, with the remedy.
   - **The panel never removes or writes** a lock.
-- **Last: a sandbox login answers whether `claude agents` itself spends a login.** It is a scratch
-  `CLAUDE_CONFIG_DIR` with a trusted folder, checked against a positive control. Each answer has a
-  decided response (D6). The fixes above don't wait on it: they're right whatever it finds.
+- **Next, in its own row (PANEL-33, added by this proposal):** a sandbox login under a scratch
+  `CLAUDE_CONFIG_DIR` answers whether `claude agents` itself takes or spends a login refresh, and
+  acts on the answer. The fixes above don't wait on it: they're right whatever it finds (D8).
 
 ## What the existing specs already guarantee
 
@@ -72,6 +74,9 @@ This change adds the capability spec `panel-claude-calls` and updates those sect
 
 ## Out of scope
 
+- **The sandbox investigation, and acting on it:** PANEL-33 (`panel-33-login-sandbox`, Deps
+  PANEL-28), which this proposal adds to the roadmap right after this row. Its row carries the
+  method recommended in design.md D1 and D6, and the review notes that go with it.
 - **Claude Code's own bugs.** Four are Anthropic's to fix:
   - short-lived commands abandoning a refresh (#95822);
   - a directory lock never reclaimed (#95236);
