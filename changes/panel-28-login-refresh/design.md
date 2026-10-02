@@ -221,7 +221,7 @@ The sandbox investigation, and acting on what it finds, is PANEL-33's (D1, D6, D
 | Any lock | The panel never removes or writes it, or the owner record. |
 | An owner record the panel can't parse (a new Claude Code format) | The lock is still watched and alerted by its mtime. The holder is reported "unknown". |
 
-## Decisions (awaiting the owner)
+## Decisions (the owner decided all as recommended, 2026-10-02, including D8's split into PANEL-33)
 
 **D1. How the facts are established.**
 - **Recommended:** here, a static re-read of the installed binary (group 1) and the passive lock
