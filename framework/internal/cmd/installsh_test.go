@@ -165,6 +165,11 @@ func TestInstallShNeverInstallsUnasked(t *testing.T) {
 		if !strings.Contains(out, "Prerequisites on ") {
 			t.Errorf("run %d: install.sh printed no prerequisites report:\n%s", run, out)
 		}
+		// The summary names the version of the binary it just installed (#66: escaped quotes
+		// inside $(…) made it print "unknown").
+		if !strings.Contains(out, "Version:   clauductor v0.0.0-test") {
+			t.Errorf("run %d: install.sh's summary did not name the installed version:\n%s", run, out)
+		}
 	}
 	if !fileExists(filepath.Join(home, "bin", "clauductor")) {
 		t.Error("install.sh did not install the stub build")
