@@ -1,6 +1,6 @@
-# The full suite, on every push to main and every pull request into it: `go test
-# -short` is for working locally; this is what enforces everything else (docs/panel.md,
-# Testing). Actions are pinned to commit SHAs; no secrets.
+# The full suite, on every push to main (macOS and Ubuntu) and every pull request into it
+# (Ubuntu): `go test -short` is for working locally; this is what enforces everything else
+# (docs/panel.md, Testing). Actions are pinned to commit SHAs; no secrets.
 name: test
 
 on:
@@ -12,12 +12,21 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request supersedes its running suite. A push to main never cancels:
+# each merge commit keeps its own result.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # Pull requests run Ubuntu only (OPS-26): the local gate already runs the suite on macOS
+        # for the head it merges, and Linux is the leg only CI covers. main runs both, so a
+        # macOS-only break still surfaces on the merge that caused it.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["macos-latest", "ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     # internal/plugin alone takes ~500 s under -race on macOS runners, near go test's 10-minute
     # per-package default; the job ran 19m17s against a 20-minute limit (OPS-19).
