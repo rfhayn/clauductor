@@ -270,7 +270,7 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
 | `panel install` without `--no-open` | Today's behaviour, and it says so in its output. A reinstall rewrites the plist, so the choice is made at each install (D4) |
 | `panel --launchd --no-open` crash-restarted by KeepAlive | Opens nothing, writes no `browser-opened` |
 
-## Decisions (awaiting the owner)
+## Decisions (the owner decided all as recommended, 2026-10-02)
 
 **D1. What makes a project dormant.**
 - **Recommended:** no lane in that project, and no page in view anywhere. A lane is the
