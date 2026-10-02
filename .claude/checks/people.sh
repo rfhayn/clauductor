@@ -277,17 +277,37 @@ has yes "branch design/one (account lookup failed)" "$c" "who.sh: ...and that br
 # a shared value counted, then killed, the other run's live watchdog (#63). Under macOS sleep's
 # INT_MAX limit for any PID.
 # A decoy stands in for the other run's watchdog, so a shared value fails here on every run, not
-# only when go test happens to overlap the two: it must be neither counted nor killed.
+# only when go test happens to overlap the two: it must be neither counted nor killed. It sleeps
+# for the value this check shared before #63, the one a regression would most likely bring back.
+# lib.sh's traps know only the scratch directory, and an async sleep ignores the Ctrl-C that ends
+# this check, so until the decoy is gone the traps take it too, or an interrupt leaves it for 2h.
+# The wait reaps it, so bash 3.2 prints no "Terminated" notice for it.
 wd=$((7000000 + $$))
 sleep 7373 </dev/null >/dev/null 2>&1 & decoy=$!
+trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"' EXIT
+trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"; exit 1' INT TERM
 c=$(ctx PEOPLE_GH_TIMEOUT="$wd")
 sleep 1
-if ! psout=$(ps -A -o args= 2>/dev/null) || [ -z "$psout" ]; then fail "cannot list processes (ps), so the watchdog cleanup is unchecked"; fi
-n=$(printf '%s\n' "$psout" | grep -cx "sleep $wd")
-[ "$n" = 0 ] && ok "who.sh: a gh call that returns in time leaves no watchdog sleep behind" || fail "who.sh: $n watchdog sleep(s) outlived their gh calls"
-ps -A -o pid= -o args= 2>/dev/null | awk -v wd="$wd" '$2 == "sleep" && $3 == wd { print $1 }' | while read -r p; do kill "$p" 2>/dev/null; done
-if kill -0 "$decoy" 2>/dev/null; then ok "...and the count and cleanup are this run's own: another run's watchdog survives them"; kill "$decoy" 2>/dev/null
-else fail "the watchdog count reached another run's sleep (the decoy was killed): the value is shared, not this run's"; fi
+if ! psout=$(ps -A -o pid= -o args= 2>/dev/null) || [ -z "$psout" ]; then
+  fail "cannot list processes (ps), so the watchdog count and cleanup are unchecked"
+else
+  # This run's watchdog sleeps, by PID: the count and the cleanup read the one list.
+  mine=$(printf '%s\n' "$psout" | awk -v wd="$wd" '$2 == "sleep" && $3 == wd && NF == 3 { print $1 }')
+  n=$(printf '%s\n' "$mine" | grep -cvx -e '' -e "$decoy")
+  [ "$n" = 0 ] && ok "who.sh: a gh call that returns in time leaves no watchdog sleep behind" || fail "who.sh: $n watchdog sleep(s) outlived their gh calls"
+  printf '%s\n' "$mine" | grep -qx "$decoy" \
+    && fail "the watchdog count and cleanup reach another run's sleep (the decoy was counted): the value is shared, not this run's own"
+  for p in $mine; do kill "$p" 2>/dev/null; done
+  # Not kill -0: a killed decoy is this shell's zombie until reaped, and kill -0 reaches a zombie.
+  case $(ps -o stat= -p "$decoy" 2>/dev/null | tr -d ' ') in
+    '' | Z*) fail "the watchdog count and cleanup reach another run's sleep (the decoy was killed): the value is shared, not this run's own" ;;
+    *) ok "...and the count and cleanup are this run's own: another run's watchdog survives them" ;;
+  esac
+fi
+{ kill "$decoy"; wait "$decoy"; } 2>/dev/null
+# lib.sh's own traps, restored: these two lines must stay word for word what lib.sh sets.
+trap 'rm -rf "$_scratch"' EXIT
+trap 'rm -rf "$_scratch"; exit 1' INT TERM
 c=$(ctx PEOPLE_WHO_BUDGET=0)
 has yes "CANNOT CHECK — the branch lookups ran past 0s" "$c" "who.sh: the branch lookups stop at PEOPLE_WHO_BUDGET..."
 has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and the partial branch list is not handed over"

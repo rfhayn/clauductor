@@ -32,6 +32,7 @@ need() {
 # substitution's subshell fires when that subshell exits, deleting the directory at once.
 # pwd -P: macOS reaches /var through a symlink, and git reports the resolved path.
 _scratch=$(mktemp -d "${TMPDIR:-/tmp}/checks.XXXXXX") && _scratch=$(cd "$_scratch" && pwd -P)
+# people.sh widens these two traps around its decoy and restores them word for word: change both together.
 trap 'rm -rf "$_scratch"' EXIT
 trap 'rm -rf "$_scratch"; exit 1' INT TERM
 scratch() { printf '%s' "$_scratch"; }
