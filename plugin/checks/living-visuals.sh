@@ -186,6 +186,46 @@ base; page '<p>Gate 2A closed after 41 days.</p>'; green "days MIRROR: a finishe
 base; sed -i.bak 's|<span data-days-since="2026-01-05" data-suffix=" days so far">in progress</span>|65 days so far|' "$R/docs/page.html"
 green "days: LIVING_TYPED_DURATION=\"\" turns the typed-duration rule off" LIVING_TYPED_DURATION=
 
+# ── every annotation is read, or the check says so ─────────────────────────────────────────────
+# The claim extractor reads `data-claim="name">value<`; an annotation in any other shape (markup in
+# the value, a name with a dot, no quotes, spaces round the =) would be skipped and the page pass.
+# Every `data-claim=` is counted and the count must equal the claims read. Falsified by dropping
+# the count comparison: each of the four goes green.
+base; page '<p>Total <b data-claim="item-count"><i>7</i></b> items.</p>'
+red "claims: an annotation whose value is markup is not skipped" "data-claim attributes, but 3 were read"
+base; page '<p>Range <b data-claim="mig.range">9</b></p>'
+red "claims: an annotation with a name the reader cannot parse is not skipped" "data-claim attributes, but 3 were read"
+base; page '<p>Other <b data-claim=other>9</b></p>'
+red "claims: an unquoted annotation is not skipped" "data-claim attributes, but 3 were read"
+base; page '<p>Other <b data-claim = "other">9</b></p>'
+red "claims: an annotation with spaces round its = is not skipped" "data-claim attributes, but 3 were read"
+# A value that is only whitespace claims nothing, even against a command that prints nothing.
+# Falsified by comparing the trimmed strings only: green.
+base; page '<p>Blank <b data-claim="blank-one">   </b></p>'
+reg '.pages["docs/page.html"].claims["blank-one"] = "true"'
+red "claims: a whitespace-only claim does not equal empty output" "claim blank-one claims nothing"
+# A generator that prints nothing would make an empty block that passes forever. Falsified by
+# dropping the empty-output test: green.
+base; reg '.pages["docs/page.html"].generated.queue.run = "true"'
+red "generated: a command that prints nothing FAILS" "block queue's command (true) printed nothing"
+has yes "printed nothing" "$(lv --regen docs/page.html)" "regen: ...and refuses to write an empty block"
+
+# --regen rewrites only the block: a page whose bytes are not UTF-8 is refused, never re-encoded
+# (jq would turn the bad byte into U+FFFD outside the block, and say "regenerated"). Falsified by
+# dropping the round-trip test: the page's bytes change.
+base; printf 'alpha\nbeta\nomega\n' > "$R/src/queue.txt"
+printf '<p>caf\351 is Latin-1, not UTF-8</p>\n' >> "$R/docs/page.html"
+cp "$R/docs/page.html" "$d/latin1.html"
+out=$(lv --regen docs/page.html); rc=$?
+expect_rc 1 "$rc" "regen: refuses a page that is not UTF-8..."
+has yes "not valid UTF-8" "$out" "regen: ...saying why"
+cmp -s "$R/docs/page.html" "$d/latin1.html" && ok "regen: ...and leaves its bytes exactly as they were" || fail "regen: rewrote a non-UTF-8 page"
+base; printf 'alpha\nbeta\nomega\n' > "$R/src/queue.txt"; printf '<p>café, naïve, 日本</p>\n' >> "$R/docs/page.html"
+lv --regen docs/page.html >/dev/null
+grep -q '<li>omega</li>' "$R/docs/page.html" && grep -q '<p>café, naïve, 日本</p>' "$R/docs/page.html" \
+  && ok "regen MIRROR: a UTF-8 page with non-ASCII text is regenerated, the rest kept byte for byte" || fail "regen: UTF-8 page"
+ls "$R/docs" | grep -q 'living-regen' && fail "regen: left a temporary file beside the page" || ok "regen: writes through a temporary file it removes"
+
 # ── --list: currency, with how each page is refreshed ──────────────────────────────────────────
 base; git -C "$R" add -A && git -C "$R" commit -qm reset >/dev/null
 out=$(lv --list --ref HEAD); rc=$?

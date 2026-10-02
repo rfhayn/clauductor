@@ -158,6 +158,11 @@ if [ "$MODE" = regen ]; then
     ng=$(jq '.generated | length' "$W/p.json")
     [ "$ng" -gt 0 ] || { [ -z "$PAGES" ] || echo "$k: no generated block declared"; continue; }
     [ -f "$ROOT/$k" ] || { echo "$k: does not exist"; rc=1; continue; }
+    # The page is rewritten through jq, which reads text: a byte that is not UTF-8 would come back
+    # as U+FFFD, outside the block as much as in it. A page jq cannot hand back byte for byte is
+    # refused, never re-encoded.
+    jq -Rsj . "$ROOT/$k" > "$W/round" 2>/dev/null
+    if ! cmp -s "$W/round" "$ROOT/$k"; then echo "$k: is not valid UTF-8, so regenerating its blocks would re-encode the rest of it; left as it was (fix its encoding first)"; rc=1; continue; fi
     gi=0; blocks=$((blocks + ng))
     while [ "$gi" -lt "$ng" ]; do
       gi=$((gi + 1))
@@ -166,6 +171,7 @@ if [ "$MODE" = regen ]; then
       case $n in *[!A-Za-z0-9_-]* | '') echo "$k: '$n' is not a block name ([A-Za-z0-9_-])"; rc=1; continue ;; esac
       [ -n "$c" ] || { echo "$k: block $n declares no command"; rc=1; continue; }
       if ! run_cmd "$c" "$W/out"; then echo "$k: block $n's command $(cmd_fail "$W/out"); left as it was"; rc=1; continue; fi
+      if ! grep -q '[^[:space:]]' "$W/out"; then echo "$k: block $n's command printed nothing; left as it was"; rc=1; continue; fi
       jq -Rsj --arg n "$n" --rawfile out "$W/out" '
         ($out | if endswith("\n") then . else . + "\n" end) as $o
         | ([match("<!-- generated:" + $n + ":begin"; "g")] | length) as $b
@@ -175,8 +181,23 @@ if [ "$MODE" = regen ]; then
           then error("block \($n): its begin marker is not a comment followed by a newline, before its end marker; left as it was")
           else sub("(?<pre><!-- generated:" + $n + ":begin[\\s\\S]*?-->\n)[\\s\\S]*?(?<post><!-- generated:" + $n + ":end -->)"; "\(.pre)\($o)\(.post)") end' \
         "$ROOT/$k" > "$W/new" 2> "$W/err" || { echo "$k: $(sed 's/^jq: error[^:]*: //' "$W/err" | head -n 1)"; rc=1; continue; }
+      # Only the block may differ: the bytes before its begin marker and after its end marker must
+      # come back exactly as they were.
+      cp "$ROOT/$k" "$W/old"
+      for f in old new; do
+        awk -v m="<!-- generated:$n:begin" '{ i = index($0, m); if (i) { printf "%s", substr($0, 1, i - 1); exit } print }' "$W/$f" > "$W/$f.head"
+        awk -v m="<!-- generated:$n:end -->" 'seen { print; next } { i = index($0, m); if (i) { seen = 1; print substr($0, i) } }' "$W/$f" > "$W/$f.tail"
+      done
+      if ! cmp -s "$W/old.head" "$W/new.head" || ! cmp -s "$W/old.tail" "$W/new.tail"; then
+        echo "$k: block $n: regenerating it would change bytes outside the block; left as it was"; rc=1; continue
+      fi
       if cmp -s "$W/new" "$ROOT/$k"; then echo "$k: block $n already current"
-      else cat "$W/new" > "$ROOT/$k" && echo "$k: block $n regenerated"; fi
+      else
+        # Through a temporary file beside the page, renamed over it: a reader never sees half a page.
+        tmp="$ROOT/$k.living-regen.$$"
+        if cat "$W/new" > "$tmp" && mv "$tmp" "$ROOT/$k"; then echo "$k: block $n regenerated"
+        else rm -f "$tmp"; echo "$k: block $n could not be written; left as it was"; rc=1; fi
+      fi
     done
   done < "$W/pages"
   [ "$blocks" -gt 0 ] || [ -n "$PAGES" ] || echo "no living page in $REG declares a generated block: nothing to regenerate"
@@ -226,6 +247,7 @@ while IFS= read -r p; do
      complete: (sub(ws + "+\\z"; "") | endswith("</html>")),
      opens: ([match("(?i)<script\\b(?![^>]*\\bsrc=)"; "g")] | length),
      scripts: [match("(?i)<script\\b(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)</script\\s*>"; "g") | .captures[0].string],
+     attrs: ([match("data-claim\\s*="; "gi")] | length),
      claims: [match("data-claim=[\"\\x27]([A-Za-z0-9_-]+)[\"\\x27][^>]*>([^<]+)<"; "g") | [.captures[0].string, (.captures[1].string | jstrim)]],
      days: [match("data-days-since=\"([^\"]*)\""; "g") | .captures[0].string],
      begins: [match("<!-- generated:([A-Za-z0-9_.:-]+?):begin"; "g") | .captures[0].string],
@@ -276,6 +298,9 @@ while IFS= read -r p; do
       continue
     fi
     if ! run_cmd "$gc" "$W/gen"; then fail "$k: block $gn's command ($gc) $(cmd_fail "$W/gen")"; continue; fi
+    # An empty block that equals an empty output passes forever: a generator says what it found,
+    # even when it found nothing ("None.").
+    if ! grep -q '[^[:space:]]' "$W/gen"; then fail "$k: block $gn's command ($gc) printed nothing: an empty block would match it forever. Make it print what it found, \"None.\" included"; continue; fi
     v=$(jq -Rsr --arg n "$gn" --rawfile out "$W/gen" "$JQ_DEFS"'
       (capture("<!-- generated:" + $n + ":begin[\\s\\S]*?-->\n(?<r>[\\s\\S]*?)<!-- generated:" + $n + ":end -->") | .r) as $r
       | if $r == null then "NOREGION" elif ($r | jstrim) == ($out | jstrim) then "SAME" else "DIFF" end' "$W/page" 2>/dev/null)
@@ -306,6 +331,11 @@ while IFS= read -r p; do
   done < "$W/auth"
   : > "$W/used"; : > "$W/members"
   nc=$(jq '.claims | length' "$W/facts"); ci=0
+  # Every annotation is read, or the check says so: the reader takes data-claim="name">value< only,
+  # so one in any other shape (markup in its value, a name with a dot, no quotes, spaces round
+  # the =) would be skipped silently. Counted against a plain scan, as the scripts are.
+  na=$(jq .attrs "$W/facts")
+  [ "$na" = "$nc" ] || fail "$k: carries $na data-claim attributes, but $nc were read. The reader takes data-claim=\"<name>\">value< (a name of letters, digits, _ and -, quoted; the value plain text, no markup inside): put each annotation in that shape, or nothing checks it"
   while [ "$ci" -lt "$nc" ]; do
     ci=$((ci + 1))
     cn=$(jq -r --argjson i "$((ci - 1))" '.claims[$i][0]' "$W/facts"); cv=$(jq -r --argjson i "$((ci - 1))" '.claims[$i][1]' "$W/facts")
@@ -326,6 +356,10 @@ while IFS= read -r p; do
       fail "$k: claim $cn's command ($cc) $(cmd_fail "$W/cv")"; continue
     fi
     want=$(jq -Rsr "$JQ_DEFS"' jstrim' "$W/cv")
+    # Empty on either side is not agreement: a blank annotation states nothing, and a command that
+    # prints nothing has said nothing.
+    if [ -z "$cv" ]; then fail "$k: claim $cn claims nothing (its value is empty or only whitespace)"; continue; fi
+    if [ -z "$want" ]; then fail "$k: claim $cn's command ($cc) printed nothing, so it cannot vouch for \"$cv\""; continue; fi
     # Equal as text, or as numbers: a count reads "six" in prose and 6 from a command, either case.
     same=$(jq -rn --arg a "$cv" --arg b "$want" '
       def num: ascii_downcase as $l

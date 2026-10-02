@@ -35,8 +35,8 @@ An entry in the artifacts registry (`ARTIFACT_REGISTRY`) is a living page when i
 | Field | Means | The check |
 |---|---|---|
 | `refresh` | the skill that refreshes the page (`.claude/skills/<name>`), or `"edit"` | the skill exists: a refresh nobody can run is an instruction that gets interpreted |
-| `generated.<name>` | a command, or `{run, outside}` | the page holds exactly one `<!-- generated:<name>:begin … -->` (a comment, then a newline) … `<!-- generated:<name>:end -->`, and its content equals `run`'s output (trimmed). Each line `outside` prints must not appear in the page outside the block (the hand-mirrored copy that drifts); `outside` printing nothing fails, since it would search for nothing. A block on the page that the entry does not declare fails too |
-| `claims.<name>` | a command, or `{run, each}` | every `data-claim="<name>">VALUE<` on the page equals `run`'s output: as text, or as the same number (`six`, `Six`, `6`). A claim on the page with no command fails, and so does a declared claim the page no longer carries |
+| `generated.<name>` | a command, or `{run, outside}` | the page holds exactly one `<!-- generated:<name>:begin … -->` (a comment, then a newline) … `<!-- generated:<name>:end -->`, and its content equals `run`'s output (trimmed). Each line `outside` prints must not appear in the page outside the block (the hand-mirrored copy that drifts); `outside` printing nothing fails, since it would search for nothing, and so does `run` printing nothing (an empty block would match it forever: print "None."). A block on the page that the entry does not declare fails too |
+| `claims.<name>` | a command, or `{run, each}` | every `data-claim="<name>">VALUE<` on the page equals `run`'s output: as text, or as the same number (`six`, `Six`, `6`). A claim on the page with no command fails, and so does a declared claim the page no longer carries. Every `data-claim=` on the page is counted, and the count must equal the claims read: an annotation in another shape (markup inside its value, a name with a dot, no quotes, spaces round the `=`) fails rather than being skipped. An empty value, or a command that prints nothing, never counts as agreement |
 | `claims.<prefix>*<suffix>` | a family | each member's command gets the part `*` matched as `$1` (and the full name as `$CLAIM`). With `each` (a command listing the members the authority defines), the page must claim exactly those: a new phase with no owner shown fails, and so does an owner left on a removed one |
 
 And for every living page: it is read twice and must be identical (a page caught mid-rewrite is
@@ -69,7 +69,7 @@ The commands run with `sh -c` from the project root, each stopped after `LIVING_
 |---|---|
 | `living.sh --check` | every rule, every living page: `ok`/`FAIL` lines, exit 1 on a FAIL |
 | `living.sh --list [--ref <rev> \| --worktree]` | each living page's currency (the artifacts module's `currency.sh`) and how to refresh it |
-| `living.sh --regen [<page>...]` | rewrite every generated block in place from its command |
+| `living.sh --regen [<page>...]` | rewrite every generated block in place from its command, through a temporary file renamed over the page; a page that is not valid UTF-8 is refused (it would be re-encoded), and nothing outside a block may change |
 
 ## Standing Tee compatibility, and the deliberate differences
 
