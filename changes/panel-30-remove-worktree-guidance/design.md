@@ -43,14 +43,20 @@
    `worktree_dir`).
 3. **Ignored files are named** (D5) under Removes: `git status --porcelain --ignored=matching`,
    leaving out each file identical to the project root's file at the same path (a `.worktreeinclude`
-   copy loses nothing). Up to three, then "and N more".
+   copy loses nothing). Up to three, then "and N more". It runs with its own timeout, as Close's
+   `git status` does; a timeout leaves the line out and adds a note.
 4. **The plan says whether unfinished work is on the branch** (D2), as its own part of the plan,
    apart from the lines:
    - **The change:** an open change the branch names (`ReadChanges` over this worktree and the main
      checkout, matched by `BranchOfChange`).
-   - **The pull request:** from the panel's polled list, handed to the lane manager as a function,
-     as `RemoteControl` is. No new `gh` call, and nothing more under the lock. A failed or pending
-     poll is a note.
+   - **The pull request:** from the panel's polled list (`gh pr list`, every 60 s), handed to the
+     lane manager as a function. It is set in `live.go`'s `buildRuntime`, beside `lm.Trusted`, the
+     one place that has both the lane manager and the hub. No new `gh` call is made, so no network
+     wait is added under the lock. The new local reads (the ignored-files status, the change
+     files, the templates) do run under it, and the status has its own timeout. A failed or pending poll is a note, and so is a list older than
+     two intervals (once PANEL-25 stops polling while no page is in view, an old list must not read
+     as fresh). `gh pr list` returns at most 30 open pull requests, so in a repository with more,
+     the oldest can be missed.
    - **Not when the branch is merged.** When `branchVerdict` judges the branch merged (the plan
      offers to delete it), there is no warning: the work is done, even if `changes/<id>/` still
      waits for archive.
@@ -58,7 +64,8 @@
 5. **The way back** (D3). The plan renders each template with the change's id, or else the
    branch's last segment, as the name, and keeps those whose branch equals the worktree's (a
    template that needs an issue is skipped). With a match, the way back names New lane, the
-   template and the name. Without one, it is the `git worktree add` command.
+   template and the name. Without one, or while panel.json is untrusted (templates are off then),
+   it is the `git worktree add` command.
 6. **The page's choices are one pure function** (`remove-plan.js`, tested in node like
    `term-links.js`): from a plan it decides the order (warning first), the safety line, the
    button's label, and the sentence the result repeats. panel.js only renders it.
@@ -109,6 +116,8 @@ merged):
   also on <ref>, so nothing is lost.`
 - the pull request list unread: `Couldn't check for an open pull request (<why>). The open changes
   were checked.`
+- the pull request list old: `The open pull requests were last read <age> ago.`
+- the ignored files unread: `Couldn't list the files git ignores in it (<why>).`
 - the fetch failed: as today.
 
 **Under the lists, when it can go** (the only safety line): `Only a worktree with no uncommitted or
@@ -124,6 +133,9 @@ commit <sha> is on no branch or tag, so removing the folder would lose it. To ke
 branch first: git branch <name> <sha>.` The command is shown because no panel control puts a commit
 on a branch, and the name is the person's to choose.
 
+**The refs can't be read** (Keeps, in Remove and in Close lane): `The worktree <folder>: the panel
+couldn't tell whether its commit <sha> is on a branch (<why>), so it stays.`
+
 ## Refusals
 
 | Situation | What happens instead |
@@ -132,8 +144,11 @@ on a branch, and the name is the person's to choose.
 | The branch is merged, and its change isn't archived yet | No warning: the branch goes as merged, and the work is done. |
 | A change's branch with no commits of its own (its build not started) | Counts as merged, as `branchVerdict` judges it: no warning, and the branch goes. New lane makes it again. |
 | The polled pull request list failed or isn't read yet | A note says so. The open-change check still applies, and removal is still offered. |
+| The polled list is older than two intervals | A note gives its age. It is still used. |
+| A pull request opened since the last poll (under 60 s), or beyond `gh pr list`'s 30 | Not seen: no warning for it. The open-change check still applies. |
+| panel.json is untrusted | The way back is the command: templates are off. |
 | A detached worktree whose commit is on no branch, remote-tracking branch or tag | The worktree stays, in Remove and in Close lane, with the reason and the `git branch` command (D4). |
-| Reading which refs hold that commit fails | The worktree stays: a commit that might be lost isn't removed. |
+| Reading which refs hold that commit fails | The worktree stays, with its own reason: a commit that might be lost isn't removed. |
 | Unfinished work appears between the plan and Confirm | Removed as confirmed: the warning is advice, not a guard (D1). |
 | Every refusal Remove has today (dirty, locked, a lane, a session, the main checkout) | Unchanged, under Keeps. |
 
@@ -161,7 +176,8 @@ on a branch, and the name is the person's to choose.
 - **Recommended:** when a template's branch is this branch, name New lane, that template and the
   name. Otherwise give the `git worktree add` command, to run in the project root. The template
   sentence is true only once PANEL-29 lets a template start on an existing branch, so PANEL-30's
-  Deps names PANEL-29 for that sentence.
+  Deps names PANEL-29 for that sentence, and group 4's test enforces it: it starts the lane the
+  sentence names, with PANEL-29's "branch" mode, and can't pass until PANEL-29 is on main.
 - **Alternative:** the command always. PANEL-30 then doesn't depend on PANEL-29.
 - **Why:** a command in a confirmation is the git-terms wording the owner asked to replace, so the
   panel's own route comes first wherever it works. PANEL-29 offers "Its existing branch, in a new
@@ -188,11 +204,18 @@ on a branch, and the name is the person's to choose.
   nothing, so naming it would only teach people to skim the line.
 
 **D6. Whether the data-loss fix waits for PANEL-29.**
-- **Recommended:** split D4 out. It ships now as a fix lane on the fast path (one sentence: "Remove
-  and Close lane keep a detached worktree whose commit is on no branch or tag"), with its tests.
-  PANEL-30 keeps everything else: its spec adds the requirement, and its group 1 tags those tests
-  with the REMOVEWT-3 IDs. D5 stays in PANEL-30 and waits with it: it changes what the
-  confirmation says, not what is removed, and its line belongs with this change's words.
+- **Recommended:** split D4 out. It ships now as the fix lane for issue #77 ("Remove worktree and
+  Close lane can strand a detached commit"), on branch `fix/77-detached-commit`, with commits
+  prefixed `PANEL-30:` (the row whose finding it is). It is the fast path: one sentence, "Remove and
+  Close lane keep a detached worktree whose commit is on no branch or tag, or can't be checked".
+  It writes the rule, its two Keeps sentences, its tests and its docs. PANEL-30 keeps everything
+  else, and then:
+  - tasks 1.1 and 1.2 only add the REMOVEWT-3 IDs to #77's tests (and add a test for any scenario
+    they don't reach);
+  - task 6.1 doesn't rewrite the detached-commit docs #77 wrote, and only checks they match.
+
+  D5 stays in PANEL-30 and waits with it: it changes what the confirmation says, not what is
+  removed, and its line belongs with this change's words.
 - **Alternative:** keep D4 in PANEL-30 as its first group. The whole change, the data-loss fix
   included, then merges only after PANEL-29.
 - **Why:** a commit can be lost today, and the fix is one rule with no dependency. It shouldn't wait

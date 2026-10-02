@@ -77,7 +77,7 @@ WHEN Remove is asked for on a worktree whose unmerged branch is an open change's
 - **AND** the result after removing repeats the way back
 
 #### Scenario: [REMOVEWT-2-S6] A merged change that isn't archived yet has no warning
-- **GIVEN** a clean worktree on branch `change/done`, every commit of which is in the base
+- **GIVEN** a clean worktree on branch `change/done`, squash-merged: pull request #12 merged with the branch's tip as its head
 - **AND** `changes/done/proposal.md` still exists
 - **WHEN** Remove is asked for on it
 - **THEN** the plan has no warning
@@ -107,4 +107,4 @@ WHEN a worktree is detached at a commit that no branch, remote-tracking branch o
 - **GIVEN** a clean detached worktree
 - **AND** reading which refs contain its commit fails
 - **WHEN** Remove is asked for on it
-- **THEN** the worktree is kept, with the reason that the panel couldn't tell whether its commit is on a branch
+- **THEN** the worktree is kept, with the reason "the panel couldn't tell whether its commit <sha> is on a branch"

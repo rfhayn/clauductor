@@ -55,8 +55,9 @@ the capability spec `panel-remove-worktree` and updates both sections to match.
 **One dependency on PANEL-29, for one sentence (D3).** When a template names the worktree's branch,
 the way back is "New lane, template …, name …", which works only once PANEL-29 lets a template
 start on an existing branch. Without a matching template the way back is a `git worktree add`
-command, which works today. The roadmap row's Deps says so. D6 asks whether the data-loss fix (D4)
-ships first on its own so that it doesn't wait for PANEL-29.
+command, which works today. The roadmap row's Deps says so, and the test of that sentence starts
+the lane it names with PANEL-29's "branch" mode, so it can't pass before PANEL-29 lands. D6 asks
+whether the data-loss fix (D4) ships first on its own, as issue #77, so that it doesn't wait.
 
 ## Out of scope
 
