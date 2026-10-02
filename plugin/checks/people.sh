@@ -309,6 +309,49 @@ fi
 # lib.sh's own traps, restored: these two lines must stay word for word what lib.sh sets.
 trap 'rm -rf "$_scratch"' EXIT
 trap 'rm -rf "$_scratch"; exit 1' INT TERM
+# #71: who.sh's own ghb, its gh an instant shell function, 300 calls. A TERM that lands while the
+# watchdog forks its sleep ended the watchdog but orphaned the sleep (52-146 of 300 before the
+# fix, 0 after), so more than 10 is the race back. bash 3.2 can also lose a TERM outright (0-10 of
+# 300): that watchdog stays alive with its sleep, so a sleep whose parent is a watchdog of ours is
+# that, not the race, and only more than 30 fails. The timeout is this run's own, apart from wd's
+# values and the decoy's, so only these sleeps are counted and killed; with no ps they could not be
+# found, so none start. As with the decoy, the traps take these sleeps too until they are gone.
+rt=$((12000000 + $$))
+rtkill() {
+  for p in $(ps -A -o pid= -o args= 2>/dev/null | awk -v t="$rt" '$2 == "sleep" && $3 == t && NF == 3 { print $1 }'); do
+    kill "$p" 2>/dev/null
+  done
+}
+fn=$(sed -n '/^ghb() {/,/^}/p' "$M/context.d/session-start/who.sh")
+case $fn in *'_gd=$!'*) found=1 ;; *) found= ;; esac
+if ! ps -A -o pid= >/dev/null 2>&1; then
+  fail "cannot list processes (ps), so ghb's watchdog race is unchecked"
+elif [ -z "$found" ]; then
+  fail "who.sh: no ghb() with a watchdog found, so its race is unchecked"
+else
+  : > "$d/watchdogs"
+  trap 'rtkill; rm -rf "$_scratch"' EXIT
+  trap 'rtkill; rm -rf "$_scratch"; exit 1' INT TERM
+  FN=$fn T=$rt notes=/dev/null GD="$d/watchdogs" sh -c 'gh() { :; }; eval "$FN"
+    i=0; while [ "$i" -lt 300 ]; do x=$(ghb race; echo "$_gd" >> "$GD"); i=$((i + 1)); done' </dev/null >/dev/null 2>&1
+  sleep 1
+  left=$(ps -A -o pid= -o ppid= -o args= 2>/dev/null | awk -v t="$rt" -v gd="$d/watchdogs" '
+    BEGIN { while ((getline l < gd) > 0) mine[l] = 1 }
+    $3 == "sleep" && $4 == t && NF == 4 { print $1, (($2 in mine) ? "lost" : "race") }')
+  n=$(printf '%s\n' "$left" | grep -c ' race$')
+  lost=$(printf '%s\n' "$left" | grep -c ' lost$')
+  if [ "$n" -gt 10 ]; then
+    fail "who.sh: $n of 300 watchdog sleeps were orphaned under a near-instant gh: the TERM races the sleep's fork (#71)"
+  elif [ "$lost" -gt 30 ]; then
+    fail "who.sh: $lost of 300 watchdogs outlived ghb with their sleep: the TERM no longer ends them"
+  else
+    ok "who.sh: ghb's watchdog takes its sleep with it under a near-instant gh ($n of 300 orphaned, $lost TERM lost)"
+  fi
+  rtkill
+  # lib.sh's own traps, restored: these two lines must stay word for word what lib.sh sets.
+  trap 'rm -rf "$_scratch"' EXIT
+  trap 'rm -rf "$_scratch"; exit 1' INT TERM
+fi
 c=$(ctx PEOPLE_WHO_BUDGET=0)
 has yes "CANNOT CHECK — the branch lookups ran past 0s" "$c" "who.sh: the branch lookups stop at PEOPLE_WHO_BUDGET..."
 has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and the partial branch list is not handed over"
