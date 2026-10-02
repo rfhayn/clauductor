@@ -70,7 +70,7 @@
 | "branch" when the target folder already exists | 409 `exists`, as today. |
 | Templates while panel.json is untrusted | Unchanged: 409 `untrusted-config`. |
 
-## Decisions (each awaiting the owner)
+## Decisions (the owner decided all five as recommended, 2026-10-02)
 
 **D1. Which existing worktree a template may run in.**
 - **Recommended:** only the worktree whose branch is the template's own (`change/add-score-photo`
