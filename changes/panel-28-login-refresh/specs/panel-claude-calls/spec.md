@@ -39,9 +39,10 @@ THE SYSTEM SHALL run at most one `claude` process of its own at a time across ev
 - **AND** the agents source's last reading, its success time and its error stay as they were
 
 #### Scenario: [CLAUDECALLS-2-S2] A lane action waits for the slot
-- **GIVEN** a `claude agents` poll in flight
-- **WHEN** a lane action needs `claude agents`
-- **THEN** it runs as soon as the poll's call ends, within its own timeout
+- **GIVEN** a `claude agents` poll in flight that holds the slot for 5 seconds, longer than a poll's 2-second wait
+- **WHEN** a lane action, carrying no poll marker, needs `claude agents` with its 10-second timeout
+- **THEN** it does not give up at 2 seconds
+- **AND** it runs as soon as the poll's call ends, within its own timeout
 
 #### Scenario: [CLAUDECALLS-2-S3] A stopped call holds the slot until it exits
 - **GIVEN** a `claude` call past its timeout whose program takes 5 seconds to exit after SIGTERM
@@ -113,6 +114,26 @@ THE SYSTEM SHALL record each refresh lock it observes, with its holder and wheth
 - **AND** a lock whose owner record names pid 4242 and a birth time of 10:00:30, from another process that reused the pid
 - **WHEN** the lock is first seen and logged
 - **THEN** its line says the holder is not the panel's own call
+
+#### Scenario: [CLAUDECALLS-4-S6] A lock born before the panel started has an unknown holder
+- **GIVEN** a lock whose birth time is before the panel started
+- **WHEN** the panel first sees it
+- **THEN** its line gives the holder as "unknown: before this panel started"
+
+#### Scenario: [CLAUDECALLS-4-S7] A lock a panel call takes before the first watch tick is still the panel's
+- **GIVEN** a panel `claude` call, spawned after the panel started, that takes a lock before the watch's first tick
+- **WHEN** the watch first sees the lock
+- **THEN** its line says the holder is the panel's own call and names the call
+
+#### Scenario: [CLAUDECALLS-4-S8] A stranded lock keeps its attribution after its call ages out
+- **GIVEN** a lock first seen and attributed to a panel call, whose call then ages out of the history
+- **WHEN** the lock is still there an hour later, and when it finally goes
+- **THEN** every line for it still says the holder was the panel's own call
+
+#### Scenario: [CLAUDECALLS-4-S9] A lock taken during the SIGTERM grace is still inside its call
+- **GIVEN** a panel `claude` call past its timeout, sent SIGTERM, that takes a lock 5 seconds later and is reaped 10 seconds later
+- **WHEN** the lock is first seen
+- **THEN** its line says the holder is the panel's own call, because the call's end is when it was reaped
 
 #### Scenario: [CLAUDECALLS-4-S3] A stopped claude call is logged
 - **WHEN** the panel stops one of its `claude` calls at its timeout

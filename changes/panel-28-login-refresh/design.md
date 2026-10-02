@@ -141,6 +141,8 @@ wait, is its own row, PANEL-33 (D8).
      - **Per stopped call,** one line (group 2 writes these).
    - **The panel's own calls, remembered:** an in-memory history of the gate's calls, each entry
      with its pid, which call, when it was spawned and when it ended (still running: no end yet).
+     "Ended" is when the inner runner returns, which is after the process has been reaped. A lock
+     the process takes during its 15 s SIGTERM grace therefore stays inside its call's window.
      - **Where the times come from:** the spawned time is the panel's own clock when `ExecRunner`
        reports the started `*os.Process`, so no `ps` runs per call. The record's `procStart` isn't
        matched; the time window below does that job.
@@ -149,15 +151,17 @@ wait, is its own row, PANEL-33 (D8).
        minute. Five busy projects plus the filter checks and lane actions stay under 2,000 in 10
        minutes.
      - **When a lock is matched to a call:** at first sight, on the watch tick that first sees the
-       lock (within 2 s of its creation while the panel runs). The result is stored on the lock's
-       record and never recomputed, so a lock stranded for hours keeps the attribution it got when
-       the history still held its call.
+       lock (within 2 s of its creation while the panel runs). The result is stored on the panel's
+       in-memory record of that lock, keyed by its identity, and never recomputed. A lock stranded
+       for hours keeps the attribution it got when the history still held its call. Claude Code's
+       owner record is only read, never written.
      - **The rule:** a lock is the panel's own when its owner record's pid matches an entry and its
        `lockBirthtimeMs` falls within that entry's spawn and end. A lock created after the matching
        call ended belongs to another process that reused the pid, and is not the panel's.
      - **What the history can't attribute:**
-       - it isn't persisted, so a lock already present when the panel starts is logged with its
-         holder "unknown: before this panel started";
+       - it isn't persisted, so a lock whose birth time precedes the panel's start is logged with
+         its holder "unknown: before this panel started". A lock that a panel call takes after the
+         start but before the watch's first tick is still attributed by the rule above;
        - a lock that appears and goes between two ticks isn't seen at all (PANEL-33's faster watch
          covers that).
      - **Why a history:** a lock stranded by a panel call that has already been reaped (the
