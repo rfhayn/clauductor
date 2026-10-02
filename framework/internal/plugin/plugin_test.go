@@ -270,7 +270,7 @@ func TestNoProjectPathsLeft(t *testing.T) {
 			return nil // the packaging layer's own files name the project's .claude/ on purpose
 		}
 		isSh := strings.HasSuffix(p, ".sh")
-		isComp := strings.HasSuffix(p, ".md") && (strings.HasPrefix(rel, "skills/") || strings.HasPrefix(rel, "agents/"))
+		isComp := strings.HasSuffix(p, ".md") && (strings.HasPrefix(rel, "skills/") || strings.HasPrefix(rel, "agents/") || isModuleFragment(filepath.ToSlash(rel)))
 		if !isSh && !isComp {
 			return nil
 		}
@@ -300,6 +300,19 @@ func TestComponentPathsExist(t *testing.T) {
 	ctx := regexp.MustCompile("!`sh ([^`]+)`")
 	files, _ := filepath.Glob(filepath.Join(out, "skills", "*", "SKILL.md"))
 	more, _ := filepath.Glob(filepath.Join(out, "agents", "*.md"))
+	// A module's skill fragments are appended to a plugin skill at load: held the same way.
+	frags, _ := filepath.Glob(filepath.Join(out, "modules", "*", "skills", "*", "*.md"))
+	if len(frags) == 0 {
+		t.Error("the plugin ships no module skill fragments (modules/<name>/skills/<skill>/*.md)")
+	}
+	more = append(more, frags...)
+	// The artifacts module's fragments name its tools the way a plugin project runs them.
+	frag, err := os.ReadFile(filepath.Join(out, "modules", "artifacts", "skills", "session-close", "artifacts.md"))
+	if err != nil {
+		t.Errorf("the plugin does not ship the artifacts module's session-close fragment: %v", err)
+	} else if !strings.Contains(string(frag), "clauductor-model modules/artifacts/bin/currency.sh --worktree") || strings.Contains(string(frag), "sh .claude/") {
+		t.Errorf("the artifacts module's session-close fragment is not rewritten for the plugin:\n%s", frag)
+	}
 	for _, f := range append(files, more...) {
 		data, _ := os.ReadFile(f)
 		rel, _ := filepath.Rel(out, f)

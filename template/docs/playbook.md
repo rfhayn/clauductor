@@ -348,6 +348,19 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 AGENTS.md's *What executes each rule* table is the full list, including the honest last row: what
 nothing executes.
 
+### Shared pages held current (the artifacts module)
+
+With `MODULES="artifacts"`, every page or walkthrough the project shares is registered in
+`docs/artifacts.json` with the sources it describes (`authorities`: globs, roadmap rows, the
+registry itself) and a review stamp. session-start's health line names each one whose sources
+moved since its stamp (`STALE — <key> is BEHIND`); session-close refreshes each, or stamps it
+`reviewed, no change: <why>` with `sh .claude/modules/artifacts/bin/currency.sh --stamp <key> --note "…"`;
+and the module's guard rule refuses the close's PR while any is BEHIND at its head. Only the close
+is held: a build PR moves a source and the page follows at the close. With
+`ARTIFACT_PUBLISH="claude.ai"` the `docs/*.html` pages also have claude.ai copies: session-start
+republishes each STALE copy you own, the close records, merge-pr publishes what the merge recorded.
+`.claude/modules/artifacts/README.md` has the registry's format and the tools.
+
 ## Metrics: how the work flows and what it costs
 
 DORA 2025 found that AI raises throughput and instability together, so both are measured, from

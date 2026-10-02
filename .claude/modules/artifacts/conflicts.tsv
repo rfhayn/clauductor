@@ -1,0 +1,2 @@
+# The artifacts module's shared file: the file, a TAB, what to do on a conflict.
+docs/artifacts.json	merge it entry by entry, never take a whole side: one side drops the other session's stamps and records. An entry only one side changed keeps that side; one both changed keeps origin/main's fields, then re-record any page whose copy differs (ARTIFACT_PUBLISH=claude.ai) and re-run currency.sh --worktree, re-stamping whatever now reads BEHIND

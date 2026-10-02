@@ -112,12 +112,23 @@ func (r *rewriter) pluginFile(dest string, data []byte) ([]byte, error) {
 		return []byte(out), nil
 	case strings.HasSuffix(dest, ".md") && (strings.HasPrefix(dest, "skills/") || strings.HasPrefix(dest, "agents/")):
 		return []byte(r.componentMarkdown(dest, s)), nil
+	case isModuleFragment(dest):
+		// A module's skill fragment is appended to a plugin skill's body at load (extensions.sh
+		// fragments), so its commands must name the plugin's copies exactly as the skill's own do.
+		return []byte(r.componentMarkdown(dest, s)), nil
 	case strings.HasSuffix(dest, ".js"):
 		// The workflow's prompts tell agents to run the model's scripts: through clauductor-model.
 		s = r.mdSh.ReplaceAllString(s, "clauductor-model $1")
 		return []byte(r.jsAgent.ReplaceAllString(s, "agentType: '"+Name+":$1'")), nil
 	}
 	return data, nil // READMEs, config.yaml, merge-reader.awk: read by people or by path
+}
+
+// isModuleFragment reports whether dest is a shipped module's skill fragment,
+// modules/<name>/skills/<skill>/<fragment>.md.
+func isModuleFragment(dest string) bool {
+	parts := strings.Split(dest, "/")
+	return len(parts) == 5 && parts[0] == "modules" && parts[2] == "skills" && strings.HasSuffix(dest, ".md")
 }
 
 // shell rewrites a framework script: the project root comes from git (the script's own location
