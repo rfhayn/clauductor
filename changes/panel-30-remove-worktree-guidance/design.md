@@ -3,73 +3,97 @@
 ## Where the behaviour lives today
 
 - **Server** (`framework/internal/panel/lanes/removewt.go`):
-  - `RemoveWorktreePlan` runs `git fetch`, then builds the confirmation's lines: `Remove`, `Keep`
-    and `Notes`, plus the consent flags `Worktree` and `DeleteBranch`. The worktree line is "the
-    worktree <absolute path> (clean: no changes, no untracked files; git worktree remove, without
-    --force)".
-  - `removeVerdict` keeps the worktree when Close's rule (`worktreeVerdict`) fails, when a lane is
+  - `RemoveWorktreePlan` runs `git fetch`, takes the lane lock (`m.mu`), then builds the
+    confirmation's lines (`Remove`, `Keep`, `Notes`) and the consent flags (`Worktree`,
+    `DeleteBranch`). The worktree line is "the worktree <absolute path> (clean: no changes, no
+    untracked files; git worktree remove, without --force)". Under the lock it runs
+    `removeVerdict` (up to 10 s for `claude agents`) and `branchVerdict` (up to 20 s for `gh`).
+  - `removeVerdict` keeps the worktree when Close's rules (`worktreeVerdict`) fail, when a lane is
     registered in it, or when a claude session runs in it. Nothing else.
   - `RemoveWorktree` checks again, runs `git worktree remove` (no `--force`), then deletes the
     local branch only when `branchVerdict` allows and the confirmation offered it.
 - **Shared with Close lane** (`lanes/close.go`):
   - `worktreeVerdict`: listed, not the main worktree, inside `worktree_dir`, not locked, no other
-    lane, and `git status --porcelain --untracked-files=all` empty. Ignored files don't count.
-    A detached HEAD's commit isn't checked.
+    lane, and `git status --porcelain --untracked-files=all` empty. Ignored files don't count. A
+    detached commit's refs aren't checked.
   - `branchVerdict`: a branch goes only when every commit is in the base, or its pull request
     merged at the current tip.
-- **What the panel already knows about changes** (`signals/changes.go`): `ReadChanges` reads every
-  open change's `proposal.md` in each worktree, not the archive; `BranchOfChange` matches
-  `change/<id>` (any prefix) to change `<id>`. The metrics source uses both for the approval alert.
+- **What the panel already knows:**
+  - **Open changes** (`signals/changes.go`): `ReadChanges` reads every open change's `proposal.md`
+    in each worktree, never the archive. The approval alert comes from it. `BranchOfChange`
+    matches `change/<id>` (any prefix) to change `<id>`; today it feeds the budget bars and links an
+    alert to its lane.
+  - **Open pull requests**: the runtime's `prs` source polls `gh pr list` every 60 s
+    (`runtime.go`), and the state keeps each one's `headRefName`. The lane manager doesn't see it.
+  - **Templates** (`config.RenderTemplate`): renders a template's branch from a name.
 - **Page** (`framework/internal/panel/web/static/panel.js`): `renderTree` offers Remove on a
   worktree with no lane. `askRemove` fetches the plan (`dryRun`). `removeWords` renders the
-  question, Removes, Keeps and Notes verbatim, with "Confirm remove". `doRemove` sends back the
-  consent and shows the result above the lanes.
+  question, Removes, Keeps and Notes as the server wrote them, with "Confirm remove". `doRemove`
+  sends back the consent and shows the result above the lanes.
 
 ## The shape of the change
 
-1. **The server writes the plain words.** The plan's lines stay the server's, so the page only
-   renders them. Folders are named relative to the project root. The words are below; the server
-   produces them for every case in the refusals table.
-2. **The plan says whether a change is in flight on the branch** (D2). At plan time it reads the
-   open changes (the files the approval alert already reads, in this worktree and the main
-   checkout) and asks `gh` for an open pull request from the branch. The facts travel as their own
-   part of the plan, apart from the lines, so the page can show them first and relabel the button.
-   It is a warning, never a guard (D1): `RemoveWorktree` doesn't check it again.
-3. **A detached commit on no branch keeps the worktree** (D4). The rule goes in `worktreeVerdict`,
-   so Remove and Close lane both apply it.
-4. **Ignored files are named** (D5) under Removes, up to three, then "and N more".
-5. **The page** shows the in-flight warning above Removes, the safety line under the lists, and
-   "Remove anyway" instead of "Remove worktree" when a change is in flight. The result above the
-   lanes repeats how to get the worktree back.
-6. **Docs**: `docs/panel.md`'s "Remove a worktree" and Close lane's worktree rules, and the in-page
-   Help's line on Stop and Close, say what goes, what stays, and the new rule.
+1. **A commit on no branch keeps the worktree** (D4). The rule goes in `worktreeVerdict`, so Remove
+   and Close lane both apply it. It asks which refs under `refs/heads`, `refs/remotes` and
+   `refs/tags` contain the detached commit (never `refs/stash`). None, or a failed read: the
+   worktree stays. Otherwise the note names one ref: a local branch first, then a remote-tracking
+   branch, then a tag, each the first by name.
+2. **The server writes the plain words.** The plan's lines stay the server's. A folder is named
+   relative to the project root when it is inside it, and by its full path otherwise (an absolute
+   `worktree_dir`).
+3. **Ignored files are named** (D5) under Removes: `git status --porcelain --ignored=matching`,
+   leaving out each file identical to the project root's file at the same path (a `.worktreeinclude`
+   copy loses nothing). Up to three, then "and N more".
+4. **The plan says whether unfinished work is on the branch** (D2), as its own part of the plan,
+   apart from the lines:
+   - **The change:** an open change the branch names (`ReadChanges` over this worktree and the main
+     checkout, matched by `BranchOfChange`).
+   - **The pull request:** from the panel's polled list, handed to the lane manager as a function,
+     as `RemoteControl` is. No new `gh` call, and nothing more under the lock. A failed or pending
+     poll is a note.
+   - **Not when the branch is merged.** When `branchVerdict` judges the branch merged (the plan
+     offers to delete it), there is no warning: the work is done, even if `changes/<id>/` still
+     waits for archive.
+   - It is a warning, never a guard (D1): `RemoveWorktree` doesn't check it again.
+5. **The way back** (D3). The plan renders each template with the change's id, or else the
+   branch's last segment, as the name, and keeps those whose branch equals the worktree's (a
+   template that needs an issue is skipped). With a match, the way back names New lane, the
+   template and the name. Without one, it is the `git worktree add` command.
+6. **The page's choices are one pure function** (`remove-plan.js`, tested in node like
+   `term-links.js`): from a plan it decides the order (warning first), the safety line, the
+   button's label, and the sentence the result repeats. panel.js only renders it.
+7. **Docs**: `docs/panel.md`'s "Remove a worktree" and Close lane's worktree rules, and the in-page
+   Help's line on Stop and Close.
 
 ## The words
 
-Placeholders are in angle brackets. `<folder>` is the worktree relative to the project root, and
-`<base>` is the configured base (`origin/main`).
+Placeholders are in angle brackets. `<folder>` is as in shape 2; `<base>` is the configured base
+(`origin/main`).
 
-**The question** (unchanged in meaning):
+**The question:** `Remove the worktree <folder>?`, or when nothing can go, `Nothing can be removed
+from <folder>.` (as today).
 
-- `Remove the worktree <folder>?`
-- when nothing can go: `Nothing can be removed from <folder>.`
+**Unfinished work** (a warning, shown first; only when the worktree can go and its branch isn't
+merged):
 
-**In flight** (a warning, shown first; only when the worktree can go):
-
-- a change and a pull request: `Change <id> is in flight on this branch: <changes dir>/<id> is
-  open, and so is pull request #<n>.`
-- a change only: `Change <id> is in flight on this branch: <changes dir>/<id> is open.`
+- a change and a pull request: `Change <id> isn't finished: its proposal is in <changes dir>/<id>,
+  and pull request #<n> is open.`
+- a change only: `Change <id> isn't finished: its proposal is in <changes dir>/<id>.`
 - a pull request only: `Pull request #<n> is open from this branch.`
-- then always: `Its next lane needs a worktree on <branch>. If you remove this one, start that lane
-  from New lane and choose "Its existing branch, in a new worktree".`
-- then, smaller: `Or in a terminal: git worktree add <folder> <branch>`
+- for a change, next: `Its next lane needs a worktree on this branch.`
+- then the way back. For a change it starts `To work on it again:`, for a pull request only `To get
+  the worktree back:`, followed by one of:
+  - a template matches: `New lane, template "<title>", name <name>. It starts on this branch in a
+    new worktree.` (several match: `template "<A>" or "<B>"`)
+  - none matches: `run this in the project root: git worktree add <folder> <branch>`
 
 **Removes:**
 
-- `The folder <folder>. It has no uncommitted or untracked files, so no work in it is lost.`
-- with ignored files: `Files git ignores in it, which go with it: <a>, <b>, <c> and <N> more.`
-- a merged branch: `The local branch <branch>. Every commit on it is already in <base>.` or
-  `The local branch <branch>. Its pull request #<n> was merged.`
+- `The folder <folder>. It has no uncommitted or untracked files.`
+- with ignored files that differ from the root's: `Files git ignores, which go with the folder:
+  <a>, <b>, <c> and <N> more.`
+- a merged branch: `The local branch <branch>. Every commit on it is already in <base>.` or `The
+  local branch <branch>. Its pull request #<n> was merged.`
 
 **Keeps:**
 
@@ -81,81 +105,95 @@ Placeholders are in angle brackets. `<folder>` is the worktree relative to the p
 
 **Notes:**
 
-- detached, its commit on a branch: `No branch: the worktree is detached at <sha>, a commit that is
+- detached, its commit on a ref: `No branch: the worktree is detached at <sha>, a commit that is
   also on <ref>, so nothing is lost.`
-- the pull request check failed: `Couldn't check for an open pull request (<error>). The open
-  changes were checked.`
+- the pull request list unread: `Couldn't check for an open pull request (<why>). The open changes
+  were checked.`
 - the fetch failed: as today.
 
-**Under the lists, always when it can go:** `Removing is safe: only a clean worktree can go, and
-the panel checks again before it removes anything.`
+**Under the lists, when it can go** (the only safety line): `Only a worktree with no uncommitted or
+untracked files can go, and the panel checks again before it removes anything.`
 
-**Buttons:** `Remove worktree`, or `Remove anyway` when a change is in flight; `Cancel`.
+**Buttons:** `Remove worktree`, or `Remove anyway` when there is a warning; `Cancel`.
 
-**The result** above the lanes: `Removed worktree <folder>`, with Removed `The folder <folder>` and
-Kept `The branch <branch> and every commit on it`. When the plan warned of a change in flight,
-the result repeats its "start that lane from New lane" sentence.
+**The result** above the lanes: `Removed worktree <folder>`, Removed `The folder <folder>`, Kept
+`The branch <branch> and every commit on it`. After a warning, it repeats the way back.
 
-**Close lane and Remove, a detached commit on no branch** (Keeps):
-`The worktree <folder>: its commit <sha> is on no branch or tag, so removing the folder would lose
-it. Put it on a branch first: git branch <name> <sha>.`
+**A detached commit on no branch** (Keeps, in Remove and in Close lane): `The worktree <folder>: its
+commit <sha> is on no branch or tag, so removing the folder would lose it. To keep it, put it on a
+branch first: git branch <name> <sha>.` The command is shown because no panel control puts a commit
+on a branch, and the name is the person's to choose.
 
 ## Refusals
 
 | Situation | What happens instead |
 |---|---|
-| The branch is an open change's, or has an open pull request | The warning shows first, and the button reads "Remove anyway". Removal is still offered (D1). |
-| `gh` can't say whether a pull request is open | A note says so. The open-change check still applies, and removal is still offered. |
-| A detached worktree whose commit is on no branch or tag | The worktree stays, in Remove and in Close lane, with the reason and the `git branch` command (D4). |
+| The branch is an unmerged open change's, or has an open pull request | The warning shows first, and the button reads "Remove anyway". Removal is still offered (D1). |
+| The branch is merged, and its change isn't archived yet | No warning: the branch goes as merged, and the work is done. |
+| A change's branch with no commits of its own (its build not started) | Counts as merged, as `branchVerdict` judges it: no warning, and the branch goes. New lane makes it again. |
+| The polled pull request list failed or isn't read yet | A note says so. The open-change check still applies, and removal is still offered. |
+| A detached worktree whose commit is on no branch, remote-tracking branch or tag | The worktree stays, in Remove and in Close lane, with the reason and the `git branch` command (D4). |
 | Reading which refs hold that commit fails | The worktree stays: a commit that might be lost isn't removed. |
-| A change appears in flight between the plan and Confirm | Removed as confirmed: the warning is advice, not a guard (D1). |
+| Unfinished work appears between the plan and Confirm | Removed as confirmed: the warning is advice, not a guard (D1). |
 | Every refusal Remove has today (dirty, locked, a lane, a session, the main checkout) | Unchanged, under Keeps. |
 
-## Decisions (awaiting the owner)
+## Decisions (awaiting the owner; revised after review, 2026-10-02)
 
-**D1. A change in flight: warn, or refuse.**
+**D1. Unfinished work on the branch: warn, or refuse.**
 - **Recommended:** warn first, and relabel the button "Remove anyway". Never refuse.
-- **Alternative:** refuse while the change is in flight. Removal only by hand, or by Close lane
+- **Alternative:** refuse while the change is unfinished. Removal only by hand, or by Close lane
   from the change's own lane.
-- **Why:** removing loses nothing (only a clean worktree goes, and an unmerged branch stays). A
-  refusal would send the owner to a terminal, where git checks less than the panel does. A stale
-  in-flight worktree is also a real case: removing it and starting fresh is a reasonable choice.
+- **Why:** removing loses nothing that is checked: only a worktree with no uncommitted or untracked
+  files goes, and an unmerged branch stays. A refusal would send the owner to a terminal, where git
+  checks less than the panel does. Removing a stale worktree and starting fresh is a fair choice.
 
-**D2. What counts as "in flight".**
-- **Recommended:** an open change whose id the branch names (`changes/<id>/`, not archived, read in
-  this worktree and the main checkout), or an open pull request from the branch. The plan reads
-  both on the server, when it is asked for.
-- **Alternative:** also Up next rows (from the templates' suggest commands) and owner-queue items
-  that mention the name.
-- **Why:** both recommended facts are structural, and the plan can read them itself. Up next lists
-  work not yet started, which rarely has a branch. Owner-queue items are prose, so a match is a
-  guess (PANEL-29 D3 declined the same match). The owner's case would have been caught: the panel
-  already raised `add-score-photo`'s approval alert from its change directory.
+**D2. What counts as unfinished.**
+- **Recommended:** an open change whose id the branch names, or an open pull request from the
+  branch, and only while the branch isn't merged.
+- **Alternative:** also Up next rows and owner-queue items that mention the name.
+- **Why:** both facts are structural, and the panel already has them. Up next lists work not yet
+  started, which rarely has a branch. Owner-queue items are prose, so a match is a guess (PANEL-29
+  D3 declined the same). A merged branch is finished even before archive, which is when the owner
+  is most likely to remove its worktree. The owner's case would have been caught: the panel already
+  raised `add-score-photo`'s approval alert from its change directory.
 
 **D3. How the warning says to get the worktree back.**
-- **Recommended:** name PANEL-29's New lane choice, "Its existing branch, in a new worktree", with
-  the `git worktree add` command as a smaller second line. Build this change after PANEL-29 (the
-  roadmap already queues it first); the roadmap row's Deps gains PANEL-29.
-- **Alternative:** the command alone. PANEL-30 then doesn't depend on PANEL-29.
-- **Why:** a command in a confirmation is the git-terms wording the owner asked to replace. Before
-  PANEL-29, New lane can't start on an existing branch at all (it fails with a raw git error), so
-  the sentence would be false without that dependency.
+- **Recommended:** when a template's branch is this branch, name New lane, that template and the
+  name. Otherwise give the `git worktree add` command, to run in the project root. The template
+  sentence is true only once PANEL-29 lets a template start on an existing branch, so PANEL-30's
+  Deps names PANEL-29 for that sentence.
+- **Alternative:** the command always. PANEL-30 then doesn't depend on PANEL-29.
+- **Why:** a command in a confirmation is the git-terms wording the owner asked to replace, so the
+  panel's own route comes first wherever it works. PANEL-29 offers "Its existing branch, in a new
+  worktree" only after a template and a name, and refuses it without a template. So the sentence
+  names both, and falls back to the command when no template fits.
 
 **D4. A detached worktree whose commit is on no branch.**
 - **Recommended:** keep it, in the rule Remove and Close lane share (`worktreeVerdict`), naming the
   commit and the `git branch` command that saves it.
 - **Alternatives:**
   - warn only;
-  - Remove only, with Close lane left as it is.
+  - Remove only, leaving Close lane as it is.
 - **Why:** "every commit stays" must be true whenever the confirmation says it. Today a clean
-  detached worktree with a commit of its own is removed, and the commit is then on nothing. Git
+  detached worktree with a commit of its own is removed, and the commit is then on nothing; git
   deletes it at a later garbage collection. One rule in the shared check closes it for both
-  controls; leaving Close out would leave the same gap one menu away.
+  controls. Leaving Close out would leave the same gap one menu away.
 
 **D5. Ignored files.**
-- **Recommended:** name up to three under Removes (`git status --porcelain --ignored`, folders
-  collapsed), then "and N more".
+- **Recommended:** name up to three under Removes, then "and N more", leaving out files identical
+  to the project root's copy.
 - **Alternative:** one generic sentence: "Files git ignores in it go too."
 - **Why:** an ignored `.env` or local config is the one thing in a "clean" worktree someone might
-  want. Its name is what makes them stop. Collapsed folders keep the read quick, even with
-  `node_modules`.
+  want, and its name is what makes them stop. A `.worktreeinclude` copy that matches the root loses
+  nothing, so naming it would only teach people to skim the line.
+
+**D6. Whether the data-loss fix waits for PANEL-29.**
+- **Recommended:** split D4 out. It ships now as a fix lane on the fast path (one sentence: "Remove
+  and Close lane keep a detached worktree whose commit is on no branch or tag"), with its tests.
+  PANEL-30 keeps everything else: its spec adds the requirement, and its group 1 tags those tests
+  with the REMOVEWT-3 IDs. D5 stays in PANEL-30 and waits with it: it changes what the
+  confirmation says, not what is removed, and its line belongs with this change's words.
+- **Alternative:** keep D4 in PANEL-30 as its first group. The whole change, the data-loss fix
+  included, then merges only after PANEL-29.
+- **Why:** a commit can be lost today, and the fix is one rule with no dependency. It shouldn't wait
+  on a dialog redesign.
