@@ -186,17 +186,21 @@
    writes the close line. The merge time is the `mergedAt` the `--head` check now asks for.
 7. **The metrics command waits for a page** (D10), for both forms of `metrics.refresh`
    (`interval:<s>` and `watch:<path>`, `config.ParseRefresh`). Two flags on the metrics store,
-   beside `mergedDue`:
-   - **`metricsDue`** starts true (never run). Any poll while no page is in view runs nothing
-     and sets it: a tick of the interval, a change of the watched file (the watch kicks the
-     source), a trust kick. A run clears it.
+   beside `mergedDue`, and no other state:
    - **`metricsForce`**: `refreshAll` sets it, as it sets `mergedDue` today (it otherwise only
-     kicks sources, so the poll could not tell **Refresh** from any other kick).
-   - **In view**, a poll runs the command as today, with one exception: a poll woken only by a
-     page coming into view (`pageInView` sets a `pageBack` flag and kicks the source) runs only if
-     `metricsDue` or `metricsForce` is set. So the page's return runs it once if anything was
-     missed (an interval passed, the watched file changed, it never ran), and not otherwise.
-     **Refresh** always runs it; trusting the config in view runs it, as today.
+     kicks sources, so the poll could not tell **Refresh** from any other kick). Every poll
+     clears it first, with `Swap(false)` at entry, as `pollMerged` does `mergedDue`.
+   - **`metricsDue`** starts true (never run). A run clears it.
+   - **A poll** (whatever woke it: a tick of the interval, a change of the watched file, a trust
+     kick, a page's return, **Refresh**):
+     - with a page in view, or with `metricsForce` taken at entry: runs the command, as today.
+       So **Refresh** always runs it, even in the rare case it arrives with no page in view;
+     - otherwise: runs nothing and sets `metricsDue`. It then reads the page's visibility once
+       more, and runs after all if a page came into view meanwhile, so a return that raced the
+       poll is not missed.
+   - **A page coming into view** (`pageInView`) kicks the source only if `metricsDue` or
+     `metricsForce` is set. So the return runs it once when anything was missed (an interval
+     passed, the watched file changed, it never ran), and sends no kick at all otherwise.
    - Its run at start therefore waits for the first page.
 
    Cards and suggest commands keep their rules.
@@ -253,8 +257,9 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
 | A lane asks, and each 5-minute recheck finds the same reasons | One log line at the first ask, none at the rechecks; another only when the reasons change, and one at the close |
 | No page in view and the metrics command's interval passes | It does not run (D10), and it is marked due. The first page view runs it at once; the Metrics view shows its last figures until it returns |
 | No page in view and the file a `watch:` metrics rule names changes | The same: marked due, run at once when a page comes back. The watch's kick is not lost |
-| A page comes back and nothing was missed | The metrics command does not run for the return; its rule runs it next |
-| **Refresh** while the metrics command ran a minute ago | It runs (`metricsForce`), as today |
+| A page comes back and nothing was missed | `pageInView` sends the metrics source no kick, so nothing runs for the return; its rule runs it next |
+| **Refresh** while the metrics command ran a minute ago | It runs (`metricsForce`), as today, with a page in view or not |
+| A tick of the interval and a page's return arrive together | The tick's poll runs it (a page is in view) and clears `metricsDue`; if the return's kick is still buffered, that poll runs it again as today's in-view kick would. At most one extra run, never a lost one |
 | A page comes into view | Every backed-off source polls at once; the page shows them current within a second or two |
 | tmux errors while the project is dormant | The next poll is in 5 min, not 2 s (D7); the page's "Cannot read" banner refreshes when a page comes into view |
 | The tmux server is up with no lane while dormant | `list-panes` every 5 min; `show-environment` with it at most then (it runs only on a poll) |
@@ -391,9 +396,15 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
 **D10. The project's metrics command while no page is in view.**
 - **Recommended:** run it only while a page is in view, on its `metrics.refresh` rule, interval
   or watch, and at once when a page comes into view if anything was missed meanwhile (an interval
-  passed, the watched file changed, it never ran); **Refresh** runs it as today. Cards and
+  passed, the watched file changed, it never ran); **Refresh** runs it as today. The mechanism is
+  two flags: a poll with no page in view marks it due instead of running, and a page's return
+  kicks it only when it is due or forced; every poll with a page in view runs as today. Cards and
   suggest commands keep their rules.
 - **Alternatives:**
+  - a third flag marking a poll woken by the page's return, which then runs only if due: it can
+    run twice (a tick's poll takes the flag, then the buffered kick runs as an in-view poll) and
+    lose a watched change (a coalesced kick finds the flag and skips after the watch has moved
+    on), so it was dropped;
   - for a `watch:` rule, decide on the page's return by the watched file's mtime against the last
     run's time, instead of a due flag (it also survives a restart, which a never-run command
     covers anyway);

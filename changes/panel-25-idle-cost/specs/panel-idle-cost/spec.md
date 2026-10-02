@@ -95,16 +95,17 @@ WHEN no page is in view THE SYSTEM SHALL NOT read a project's open pull requests
 
 #### Scenario: [IDLE-3-S6] An old pull request is found among many newer merged ones
 - **GIVEN** `lanes_auto_close` "on_merge", no page in view, and a lane on `fix/old` whose pull request was opened weeks ago
-- **AND** 120 pull requests created after it, all merged before the last good merged-list read
+- **AND** the lane's last `--head` check is newer than the next read's lower bound, so a full list would not send it to that check
+- **AND** 120 pull requests created after it, all merged before the read's lower bound
 - **WHEN** `fix/old`'s pull request merges, and the next merged-list read runs
-- **THEN** the lane is due and goes through its `--head` check
-- **AND** a read of the 100 most recently created merged pull requests, without the merge-time bound, would not have listed it
+- **THEN** the read returns fewer than 100 pull requests, `fix/old`'s among them
+- **AND** the lane is due through that listing and goes through its `--head` check, and no full-list check runs for any lane
 
 #### Scenario: [IDLE-3-S8] A full merged list falls back to each lane's own check
-- **GIVEN** `lanes_auto_close` "on_merge" and a watched lane on `fix/late` not checked since the last read's lower bound
+- **GIVEN** `lanes_auto_close` "on_merge" and a watched lane on `fix/late` whose only `--head` check, at first sight 20 minutes ago, came before the next read's lower bound (the last good read, 5 minutes ago, minus 10 minutes)
 - **WHEN** a merged-list read returns its full 100 pull requests, none on `fix/late`
 - **THEN** the lane's `--head` check runs once
-- **AND** a later read that returns fewer than 100 sends no lane to its `--head` check unless its branch is listed
+- **AND** a later read that returns fewer than 100 itself sends no lane to its `--head` check unless the lane's branch is listed in it (first sight, the open list and an ask's recheck still trigger that check as before)
 
 #### Scenario: [IDLE-3-S7] An asking lane logs its first ask, not every recheck
 - **GIVEN** a lane whose pull request #12 merged while claude is working
@@ -164,18 +165,19 @@ WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, 
 
 #### Scenario: [IDLE-6-S2] A page coming into view runs the overdue metrics command
 - **GIVEN** a project whose metrics command last ran 20 minutes ago, on `interval:600`
-- **WHEN** a page says it is in view, and none was
+- **AND** no page has said it is in view for those 20 minutes
+- **WHEN** a page says it is in view
 - **THEN** the metrics command runs at once
 
 #### Scenario: [IDLE-6-S3] A watched file changed while no page was in view
 - **GIVEN** a project whose metrics command is on `watch:docs/roadmap.md`, and no page in view
-- **WHEN** `docs/roadmap.md` changes, and later a page says it is in view
+- **WHEN** `docs/roadmap.md` changes, and later a page says it is in view, more than 90 seconds after any page last did
 - **THEN** the metrics command does not run while no page is in view
 - **AND** it runs at once when the page comes into view
 
 #### Scenario: [IDLE-6-S4] A page's return with nothing missed runs nothing
-- **GIVEN** a project whose metrics command ran 2 minutes ago, on `interval:600`, while a page was in view
-- **WHEN** the page goes out of view and comes back a minute later
+- **GIVEN** a project whose metrics command ran, on `interval:600`, at the moment a page last said it was in view
+- **WHEN** a page says it is in view 150 seconds later, past the 90 seconds a page stays in view, with the interval not yet elapsed
 - **THEN** the metrics command does not run for the return
 
 #### Scenario: [IDLE-6-S5] Refresh always runs the metrics command
