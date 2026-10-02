@@ -53,10 +53,11 @@
      lane manager as a function. It is set in `live.go`'s `buildRuntime`, beside `lm.Trusted`, the
      one place that has both the lane manager and the hub. No new `gh` call is made, so no network
      wait is added under the lock. The new local reads (the ignored-files status, the change
-     files, the templates) do run under it, and the status has its own timeout. A failed or pending poll is a note, and so is a list older than
-     two intervals (once PANEL-25 stops polling while no page is in view, an old list must not read
-     as fresh). `gh pr list` returns at most 30 open pull requests, so in a repository with more,
-     the oldest can be missed.
+     files, the templates) do run under it, and the status has its own timeout. A failed or
+     pending poll is a note, and so is a list older than two intervals (`Ticks.PRs`, which
+     `buildRuntime` passes in with the function): once PANEL-25 stops polling while no page is in
+     view, an old list must not read as fresh. `gh pr list` returns at most 30 open pull
+     requests, so in a repository with more, the oldest can be missed.
    - **Not when the branch is merged.** When `branchVerdict` judges the branch merged (the plan
      offers to delete it), there is no warning: the work is done, even if `changes/<id>/` still
      waits for archive.
