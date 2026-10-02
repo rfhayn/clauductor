@@ -25,15 +25,25 @@ behind, and the next proposal reads them as current.
 ## Steps
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
-1. On an ops branch (`<BRANCH_OPS><name>`), or inside the session-close PR, for each `changes/<id>/specs/<capability>/spec.md`:
-   - **ADDED** requirements are appended to `specs/<capability>/spec.md` (create the file, with the
-     delta's `## Purpose`, if the capability is new: never a placeholder).
-   - **MODIFIED** requirements replace the requirement of the same name, whole. The delta already
-     copies every current scenario header (`checks/changes.sh` held it to that), so nothing is lost.
-   - **REMOVED** requirements are deleted; their scenario IDs are retired, never reused, and the
-     reason goes in the journal.
-   With `PROPOSALS=openspec` (CLI 1.13 or later), `openspec archive <id> -y` does this step and the
-   move in step 4; the preconditions and steps 2–3 are still yours.
+1. On an ops branch (`<BRANCH_OPS><name>`), or inside the session-close PR, promote the deltas with
+   **`clauductor-model archive-change.sh <id>`**: it prints the plan and exits 1 on any `STOP`. First list
+   every decision this change reversed (what `design.md` records as rejected or superseded, and
+   anything a review round changed; the plan prints the design lines that say so) and pass a
+   distinctive phrase of each OLD wording as `--superseded '<phrase>'`. A hit in a delta is a STOP:
+   fix it where the finding pointed, in the delta, before any text reaches `specs/`. When the plan
+   is clean, re-run with `--apply`. What it does, so you can read the plan:
+   - **HELD**: a capability whose delta directory holds `NOT-SYNCED.md` is not promoted. The file
+     says why (a design with no production caller) and when to sync; honour it.
+   - **RENAME** keeps the body under the new heading; **REMOVE** deletes (the scenario IDs are
+     retired, never reused, and the reason goes in the journal); **ADD** appends, creating a new
+     capability with the delta's `## Purpose` (never a placeholder).
+   - **REPLACE / MERGE**: a MODIFIED requirement replaces the living one, unless its delta has
+     FEWER scenarios: then the living scenarios it did not restate are kept (MERGE), unless
+     `design.md` names each one dropped. A **NOTE** names living scenario headers a replace drops.
+   - After `--apply` no requirement's scenario count may fall; it says FAIL if one did.
+   With `PROPOSALS=openspec`, `openspec archive <id> -y --skip-specs` can do the move in step 4
+   after this; do not let the CLI promote (it replaces a shorter MODIFIED whole, and syncs a
+   held-back capability).
 2. **Record the actual cost** under `## Progress` in `changes/<id>/tasks.md`:
    `clauductor-model change-cost.sh <id>` prints it, from this machine's transcripts at list price.
    Write `- <date> archived: actual cost $X of budget $N` (or `(no budget)`), or, when it says

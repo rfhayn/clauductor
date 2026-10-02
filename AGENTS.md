@@ -56,6 +56,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `.claude/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`.claude/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
 | A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/verify-change`; **`checks/merge-guard.sh`** |
+| An archive loses no living scenario, keeps superseded wording out, and skips a `NOT-SYNCED.md` capability | **`.claude/archive-change.sh`** (`archive-change` step 1); **`checks/archive-change.sh`** |
+| Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
 | A role's model or a trigger it declares (`evals.triggers`: its agent, the marked review prompt) changes only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
 | A change stays within its budget | **`build-change.js`** stops (`.claude/change-cost.sh`); by hand, **Nothing. You.** |

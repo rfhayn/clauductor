@@ -85,7 +85,7 @@
     {
       "id": "health",
       "title": "Health",
-      "command": ["sh", "-c", "for h in .claude/health/*.sh; do printf '%s: ' \"$(basename \"$h\" .sh)\"; sh \"$h\" 2>&1 | head -5 | tr '\\n' ' '; echo; done"],
+      "command": ["sh", "-c", "sh .claude/extensions.sh health 2>&1"],
       "refresh": "interval:600"
     }
   ]

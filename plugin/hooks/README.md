@@ -2,7 +2,10 @@
 
 Registered in `.claude/settings.json`. Each is plain POSIX `sh`; the ones that read a payload
 use `jq`. Each is exercised by `.claude/checks/hooks.sh` (and `merge-guard.sh`) as a payload →
-exit-code table, in both directions.
+exit-code table, in both directions. Its registration table then runs every command
+`settings.json` registers exactly as Claude Code does (`sh -c`, `CLAUDE_PROJECT_DIR` set) from a
+subdirectory and the root, and needs each hook's own proof that it ran: register every hook through
+`"$CLAUDE_PROJECT_DIR"/`, and give a hook you add a row in `.claude/local/hook-expectations.tsv`.
 
 | Hook | Event | Blocks? | What it does |
 |---|---|---|---|

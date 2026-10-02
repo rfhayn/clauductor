@@ -16,6 +16,8 @@
 # this framework file, which `clauductor update` then flagged forever). project-config.sh is run
 # against a project with attribution and provenance off and other branch keys, and its output is
 # fed to the workflow's own projectSettings and trailerBlock.
+# Then the driver (below): the whole script, run with a stubbed agent, for review routing and the
+# main-checkout stop.
 #
 # node runs workflow scripts, so a project using build-change has it; without it this says SKIPPED
 # and why. NODE_REQUIRED=1 makes that a failure (clauductor's CI sets it).
@@ -57,7 +59,7 @@ fi
 
 if ! command -v node >/dev/null 2>&1; then
   if [ "${NODE_REQUIRED:-}" = 1 ]; then fail "node is not installed (NODE_REQUIRED=1), so the loop's logic cannot be exercised"
-  else ok "SKIPPED: node is not installed, so build-change's grading and stuck-loop logic is not exercised here"; fi
+  else ok "SKIPPED: node is not installed, so build-change's grading, stuck-loop, review-routing and checkout logic is not exercised here"; fi
   finish
 fi
 sed -n '/^\/\/ ── pure: begin/,/^\/\/ ── pure: end/p' "$wf" > "$d/pure.js"
@@ -190,4 +192,81 @@ attack "reviewPrompt()'s body replaced with a literal" "reviewPrompt() is REVIEW
 sed 's/^const REVIEW = .*$/&\
 REVIEW.properties.findings.maxItems = 0/' "$wf" > "$d/attack.js"
 attack "the REVIEW schema mutated after its line" "REVIEW as evaluated"
+
+# ── The driver: the REAL script, run the way the Workflow tool runs it ───────────────────────────
+# Its body as an async function over agent, phase, log and args, with `agent` stubbed by label
+# (ported from Standing Tee's build-change-review-routing test). It proves what each agent is TOLD
+# and where the run stops, not what a model then does with it:
+#   routing   a review finding whose SOURCE is an earlier group's committed code (or predates the
+#             change, group 0) lifts "Stay inside group N" for that finding; the group's own and a
+#             LATER group's findings keep the boundary (building a later group early is scope creep);
+#             the reviewer is asked for the group of each finding.
+#   checkout  the run stops in the MAIN checkout (comparing gitDir and commonDir itself, trailing
+#             slash normalised), starts no agent after preflight there, honours allowMainCheckout
+#             only with resume, refuses a preflight that did not report the paths, and pins every
+#             later agent to the toplevel preflight recorded.
+cat > "$d/driver.js" <<'EOF'
+const fs = require('fs')
+const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
+const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
+async function run(round1, { where = WORKTREE, args = {} } = {}) {
+  const calls = []
+  const reviews = [{ findings: round1 }, { findings: [] }]
+  let h = 0
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, opts })
+    const { label } = opts
+    if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', attribution: '', provenance: false }) }
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', budgetUsd: null, costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '',
+      groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
+    if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
+    if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
+    if (label.startsWith('review:')) return reviews.shift()
+    if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: null }
+    if (label === 'verify') return { passed: true, output: 'ok' }
+    throw new Error(`unexpected agent label ${label}`)
+  }
+  const body = SCRIPT.replace(/^export const meta\b/m, 'const meta')
+  const fn = new AsyncFunction('agent', 'phase', 'log', 'args', body)
+  const report = await fn(agent, () => {}, () => {}, { change: 'demo', ...args })
+  const fix = calls.find((c) => c.opts.label === 'review-fix:3#1')
+  const review = calls.find((c) => c.opts.label === 'review:3#1')
+  return { report, fix: fix ? fix.prompt : '', review, calls }
+}
+const finding = (group, file = 'apps/web/app/leagues/LinkOnVisit.tsx') => ({ severity: 'medium', file, line: 49, group, summary: 'a partial link is neither announced nor listed', failure: 'league A commits, league B faults, the route answers 500' })
+const LIFTED = 'the group boundary does not apply to them'
+const out = []
+const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${label}${cond ? '' : ` (got ${JSON.stringify(got)})`}`)
+;(async () => {
+  let r = await run([finding(3)])
+  const items = r.review && r.review.opts.schema.properties.findings.items
+  t('the reviewer is asked which group holds each finding\'s source', !!items && items.required.includes('group') && !!items.properties.group, items && items.required)
+  t('a finding of the group\'s own keeps "Stay inside group 3." and does not lift it', r.fix.includes('Stay inside group 3.') && !r.fix.includes(LIFTED) && r.report.groups[0].rounds[0].outside === 0, r.fix)
+  r = await run([finding(2, 'packages/service/src/leagues.ts')])
+  t('a finding sourced in an EARLIER group lifts the boundary for it (source: group 2), and the run finishes', r.report.stoppedAt === null && r.fix.includes('source: group 2') && r.fix.includes(LIFTED) && r.report.groups[0].rounds[0].outside === 1, [r.report.stoppedAt, r.fix])
+  r = await run([finding(0, 'packages/service/src/roster.ts')])
+  t('a finding whose source predates the change (group 0) lifts it too', r.fix.includes('source: predates this change') && r.fix.includes(LIFTED), r.fix)
+  r = await run([finding(4)])
+  t('a finding a LATER group owns keeps the boundary', r.fix.includes('Stay inside group 3.') && !r.fix.includes(LIFTED), r.fix)
+  const MAIN = { gitDir: '/repo/.git', commonDir: '/repo/.git/', toplevel: '/repo' }
+  // The settings agent (project-config.sh) runs before preflight; "after preflight" counts from it.
+  const afterPreflight = (calls) => { const i = calls.findIndex((c) => c.opts.label === 'preflight'); return i < 0 ? null : calls.slice(i + 1) }
+  r = await run([], { where: MAIN })
+  t('it stops in the MAIN checkout (trailing slash normalised), starting no agent after preflight', r.report.stoppedAt === 'preflight' && /MAIN checkout/.test(r.report.reason) && (afterPreflight(r.calls) || [null]).length === 0, [r.report.reason, r.calls.map((c) => c.opts.label)])
+  r = await run([], { where: MAIN, args: { allowMainCheckout: true } })
+  t('allowMainCheckout alone does not start a run in the main checkout', /MAIN checkout/.test(r.report.reason || ''), r.report.reason)
+  r = await run([], { where: MAIN, args: { allowMainCheckout: true, resume: 3 } })
+  t('...allowMainCheckout with resume does', !/MAIN checkout/.test(r.report.reason || ''), r.report.reason)
+  r = await run([], { where: { gitDir: '', commonDir: '', toplevel: '' } })
+  t('a preflight that did not report the paths is refused', /did not report gitDir/.test(r.report.reason || ''), r.report.reason)
+  r = await run([])
+  const later = afterPreflight(r.calls) || []
+  t('every agent after preflight is pinned to the recorded root', r.report.stoppedAt === null && later.length > 3 && later.every((c) => /^Repo root: \/repo\/\.claude\/worktrees\/build-demo\./.test(c.prompt)), [r.report.stoppedAt, later.map((c) => c.prompt.slice(0, 60))])
+  console.log(out.join('\n'))
+})().catch((e) => { console.log(`FAIL driver: the script threw: ${e && e.message}`) })
+EOF
+node "$d/driver.js" "$wf" > "$d/drv" 2>&1 || echo "FAIL driver: node exited non-zero: $(tail -3 "$d/drv")" >> "$d/drv"
+grep -q . "$d/drv" || echo "FAIL driver: printed nothing" >> "$d/drv"
+cat "$d/drv"; _fails=$((_fails + $(grep -c '^FAIL' "$d/drv")))
 finish
