@@ -170,8 +170,10 @@ WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, 
 - **THEN** the metrics command runs at once
 
 #### Scenario: [IDLE-6-S3] A watched file changed while no page was in view
-- **GIVEN** a project whose metrics command is on `watch:docs/roadmap.md`, and no page in view
-- **WHEN** `docs/roadmap.md` changes, and later a page says it is in view, more than 90 seconds after any page last did
+- **GIVEN** a project whose metrics command is on `watch:docs/roadmap.md`
+- **AND** the command ran while a page was in view, and `docs/roadmap.md` has not changed since
+- **AND** no page has said it is in view for more than 90 seconds
+- **WHEN** `docs/roadmap.md` changes, and later a page says it is in view
 - **THEN** the metrics command does not run while no page is in view
 - **AND** it runs at once when the page comes into view
 
@@ -181,6 +183,7 @@ WHEN no page is in view THE SYSTEM SHALL NOT run the project's metrics command, 
 - **THEN** the metrics command does not run for the return
 
 #### Scenario: [IDLE-6-S5] Refresh always runs the metrics command
-- **GIVEN** a page in view and a metrics command that ran a minute ago
-- **WHEN** the person presses **Refresh**
+- **GIVEN** a metrics command that ran a few minutes ago, on `interval:600`
+- **AND** no page has said it is in view for more than 90 seconds
+- **WHEN** **Refresh** is pressed (`/api/refresh`, which does not mark a page in view)
 - **THEN** the metrics command runs
