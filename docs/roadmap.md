@@ -72,6 +72,10 @@ flow, cost and quality metrics the model computes.
 | PANEL-20 | `panel-20-lane-lifecycle` — lanes auto-archive on merge, show merge readiness, auto-resume at the quota reset, and run per-lane setup and teardown | `framework/internal/panel` | PANEL-17 | ⬜ queued |
 | PANEL-21 | `panel-21-binding-corrections` — a session's events bind to the right lane after a worktree moves, and session ends close their lane state | `framework/internal/panel/state` | — | ⬜ queued |
 | OPS-15 | `ops/ops-15-clauductor-in-panel` — the owner adds this repo as the panel's second project (`panel trust`, `panel add`) | `.clauductor/panel.json` | PANEL-16 | ⬜ queued |
+| PANEL-25 | `panel-25-idle-github` — a panel with no page in view stops calling GitHub every minute per project (`gh pr list`), and a lane still auto-closes when its PR merges | `framework/internal/panel` | — | ⬜ queued |
+| PANEL-26 | `panel-26-idle-backoff` — a panel with no lane and no page in view backs its `claude agents`, `git worktree list` and tmux polls off to minutes, and a hook or a lane start still wakes it at once | `framework/internal/panel` | — | ⬜ queued |
+| PANEL-27 | `panel-27-install-no-open` — `panel install --no-open` keeps the login agent from opening a browser tab at every login | `framework/internal/panel/install`, `framework/internal/cmd` | — | ⬜ queued |
+| PANEL-28 | `panel-28-login-refresh` — the panel's own `claude` calls (`auth status` at start, `agents`) never race a session's login refresh ("another Claude Code process is refreshing it"), or the row records that they do not | `framework/internal/panel` | — | ⬜ queued |
 
 ## Phase 3 — Measuring the model
 **Owner:** Rich
