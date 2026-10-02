@@ -74,6 +74,12 @@ BRANCH_SESSION_CLOSE="@default"
 # ROADMAP_NORMALIZER when one is set (a filter from the parser's columns to the contract's), then is
 # held to the contract: a row the consumers would misread is an error, never a silently wrong queue.
 roadmap_queue() {
+  # A roadmap rule reads its rows on stdin. One that reads the queue itself would run every rule
+  # again, itself included, without end (hundreds of levels deep before process creation fails).
+  if [ -n "${ROADMAP_IN_RULE:-}" ]; then
+    echo "ERROR: a roadmap rule (roadmap.d) read the change queue; a rule reads its rows on stdin, never the queue, so the queue is UNKNOWN"
+    return 1
+  fi
   case "${1:-}" in
     --queued)
       shift; _rq_k=""
@@ -99,13 +105,71 @@ roadmap_queue() {
       return 1
     fi
   fi
+  # The roadmap rules of the enabled modules and the local layer (roadmap.d/*.sh) hold every read,
+  # whatever the mode: a queue a rule refuses is UNKNOWN to every reader, as a parse error is. A
+  # mode other than --tsv is checked through a --tsv read of the same file (a subshell, so this
+  # call's own variables survive it).
+  # The list is read with its exit status: a listing that FAILED is not "no rules".
+  if [ "$_rq_rc" -eq 0 ] && ! _rq_rl=$(roadmap_rules); then
+    echo "ERROR: the roadmap rules (roadmap.d) could not be listed, so the change queue is UNKNOWN"
+    return 1
+  fi
+  if [ "$_rq_rc" -eq 0 ] && [ -n "$_rq_rl" ]; then
+    if [ "${1:-}" = --tsv ]; then
+      if ! _rq_e=$(printf '%s\n' "$_rq_o" | roadmap_rules_errors); then
+        printf 'ERROR: the change queue is UNKNOWN; a roadmap rule refused it:\n%s\n' "$_rq_e"
+        return 1
+      fi
+    else
+      case "${1:-}" in --text|--check) shift ;; esac
+      _rq_e=$(roadmap_queue --tsv "$@") || { printf '%s\n' "$_rq_e"; return 1; }
+    fi
+  fi
   [ -z "$_rq_o" ] || printf '%s\n' "$_rq_o"
   return "$_rq_rc"
 }
 
+# roadmap_rules: "<layer>\t<file>" per roadmap.d/*.sh rule of the enabled modules and the local
+# layer (lib/modules.sh), loaded here when no module was on to load it. Empty when there is none;
+# exit 1 when there could be some (a module on, or a local roadmap.d/) but the loader cannot load.
+roadmap_rules() {
+  if ! roadmap_rules_load; then
+    [ -z "${MODULES:-}" ] && [ ! -d "$ROOT/.claude/local/roadmap.d" ] && return 0
+    return 1
+  fi
+  ext_files roadmap.d .sh
+}
+roadmap_rules_load() {
+  command -v ext_files >/dev/null 2>&1 && return 0
+  [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ] && . "$CLAUDUCTOR_FW/lib/modules.sh"
+}
+
+# roadmap_rules_errors: stdin = the --tsv rows. Runs each rule per its own #! line on them, in the
+# project root; prints each refusal, indented and naming its rule, and exits 1 if any rule refused.
+roadmap_rules_errors() {
+  _rr_in=$(cat)
+  _rr_list=$(roadmap_rules) || { echo "  the roadmap rules (roadmap.d) could not be listed"; return 1; }
+  [ -n "$_rr_list" ] || return 0
+  roadmap_rules_load || { echo "  lib/modules.sh could not be loaded to run the roadmap rules"; return 1; }
+  _rr_bad=0
+  _rr_tab=$(printf '\t')
+  while IFS="$_rr_tab" read -r _rr_l _rr_f; do
+    # ROADMAP_IN_RULE: a rule that reads the queue is refused (roadmap_queue), not recursed into.
+    _rr_out=$(printf '%s\n' "$_rr_in" | (cd "$ROOT" && ROADMAP_IN_RULE=1 && export ROOT ROADMAP ROADMAP_IN_RULE && run_shebang "$_rr_f") 2>&1); _rr_rc=$?
+    [ "$_rr_rc" -eq 0 ] && continue
+    _rr_bad=1
+    [ -n "$_rr_out" ] || _rr_out="exited $_rr_rc and said nothing"
+    printf '%s\n' "$_rr_out" | sed "s|^|  ${_rr_l} roadmap.d/$(basename "$_rr_f"): |"
+  done <<EOF
+$_rr_list
+EOF
+  return "$_rr_bad"
+}
+
 # roadmap_tsv_errors: stdin is --tsv output; prints one line per row that breaks the contract and
 # exits 1 if any did. 12 tab-separated columns: line phase section id change kind state pr owner
-# summary budget due; an optional 13th, started (the row's section's start date); more are ignored.
+# summary budget due; an optional 13th, started (the row's section's start date); an optional 14th,
+# the row's raw status, read by the people module (docs/roadmap.md); more are ignored.
 # Blank input is an empty queue, not an error.
 roadmap_tsv_errors() {
   awk -F'\t' '

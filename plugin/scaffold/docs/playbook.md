@@ -74,7 +74,10 @@ Each person has their own Claude and **merges only their own PRs**. `session-sta
 another person's PR (★) and names every file their open PR shares with your branch (OVERLAP).
 Shared records conflict at close by design, and resolve one way each (`session-close`'s table): the
 journal renumbers, the insights log keeps both rows, ADRs take the next number. Claude's memory is
-per machine, so what the other person needs goes in the repo.
+per machine, so what the other person needs goes in the repo. The optional `people` module
+(`${CLAUDE_PLUGIN_ROOT}/modules/people/README.md`) adds a people registry, a per-person *who is on what* at
+session start (last merged, open now, next owned row), a lane table, and a rule that every roadmap
+owner is a person in the registry.
 
 ## The change lifecycle
 

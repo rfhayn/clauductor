@@ -87,6 +87,7 @@ The contract a parser meets:
 | 11 | budget | dollars (`40`, `12.50`), or empty |
 | 12 | due | `YYYY-MM-DD`, or empty |
 | 13 | started | optional: the row's section's start date, `YYYY-MM-DD`, or empty |
+| 14 | status (optional) | the row's raw status text (`⬜ deferred — trigger: …`), for a parser whose statuses say more than column 7; the `people` module skips a `⬜ deferred` row for **Next**. Column 13 is the builtin parser's own. |
 
 Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
 queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as

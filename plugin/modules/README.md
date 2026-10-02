@@ -15,6 +15,7 @@ session-close's conflict table) find its parts by where they sit, and run them o
   checks/*.sh                       extra process checks (checks/run.sh names them <name>:<check>)
   skills/<skill>/*.md               fragments appended to a template skill ("## Project steps")
   conflicts.tsv                     rows for session-close's shared-file conflict table
+  roadmap.d/*.sh                    rules over the parsed change queue (roadmap_queue runs them)
 ```
 
 **On and off.** `MODULES="a b"` in `.claude/project.conf` is the list; a module not named there
@@ -28,7 +29,7 @@ contributes nothing, whatever it contains. The two older switches still work:
 |---|---|
 | `name` | the module's name; must equal its directory |
 | `requires` | other modules that must be on too (space-separated); one that is not fails `checks/modules.sh` and the merge guard |
-| `enables` | the points it contributes, from `guard.d context.d health checks skills conflicts.tsv`; a part on disk it does not declare, or a declared one that is missing, fails `checks/modules.sh` |
+| `enables` | the points it contributes, from `guard.d context.d health checks skills conflicts.tsv roadmap.d`; a part on disk it does not declare, or a declared one that is missing, fails `checks/modules.sh` |
 | `UPPERCASE="value"` | a default for that project.conf key, applied only where the project sets nothing (no `$`, backtick or backslash) |
 
 **The contract of each point** is the local layer's (`.claude/local/README.md`): the same points,
@@ -47,3 +48,4 @@ tool says `CANNOT CHECK — no Artifact tool` rather than erroring.
 | `openspec` | `checks/project.sh` (this project's links and `openspec validate`), an `archive-change` fragment; `enable.sh` makes the links |
 | `review-page` | a `propose` fragment: the owner's claude.ai review page |
 | `artifacts` | shared pages and walkthroughs held current with the sources they declare (`ARTIFACT_REGISTRY`): health lines, context sections, a guard rule blocking a session close while one is BEHIND, session and merge fragments, a conflict row, `checks/registry.sh`, and `bin/currency.sh --stamp`; sh, git and jq, plus Node only for the optional claude.ai copies (`ARTIFACT_PUBLISH`) |
+| `people` | a people registry (`PEOPLE`); session-start's who-is-on-what and lane table; a roadmap rule that every `**Owner:**` is a person; conflict rows; `checks/registry.sh` |

@@ -107,6 +107,68 @@ conf 'MODULES="openspec review-page"'
 v=$(inr 'echo "$PROPOSALS $REVIEW_PAGE"')
 [ "$v" = "openspec artifact" ] && ok "turning the modules on sets PROPOSALS and REVIEW_PAGE" || fail "PROPOSALS REVIEW_PAGE = '$v'"
 
+# roadmap.d: a rule over the parsed queue holds EVERY read (any mode, the front door too) while its
+# layer is on, and never while its module is off. The rule refuses any row owned by "Mallory".
+cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
+mkdir -p "$R/docs" "$R/.claude/modules/demo/roadmap.d"
+printf '## Phase 1 — one\n**Owner:** Mallory\n\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-x` — x | x | — | ⬜ queued |\n' > "$R/docs/roadmap.md"
+printf '#!/bin/sh\nawk -F"\\t" '"'"'$9 == "Mallory" { print "row " $4 ": Mallory may own nothing"; bad = 1 } END { exit bad }'"'"'\n' > "$R/.claude/modules/demo/roadmap.d/no-mallory.sh"
+sed -i.bak 's/conflicts.tsv"/conflicts.tsv roadmap.d"/' "$R/.claude/modules/demo/module.conf" && rm -f "$R/.claude/modules/demo/module.conf.bak"
+conf 'MODULES=""'
+v=$(inr 'roadmap_queue --check'); has yes "roadmap ok" "$v" "roadmap.d: a disabled module's rule does not run"
+conf 'MODULES="demo"'
+for m in --check --text --tsv --queued; do
+  v=$(inr "roadmap_queue $m; echo rc=\$?")
+  has yes "rc=1" "$v" "roadmap.d: an enabled module's rule refuses the queue on roadmap_queue $m"
+done
+has yes "module demo roadmap.d/no-mallory.sh: row 1.1: Mallory may own nothing" "$v" "roadmap.d: the refusal names its rule and the row"
+# The parser's front door, called by path ON PURPOSE (checks/roadmap.sh's bypass scan matches the
+# literal path, which a reader must not use; this case proves the door holds a direct caller too).
+door=.claude/roadmap-queue
+v=$(cd "$R" && sh "$door.sh" --check 2>&1; echo "rc=$?")
+has yes "rc=1" "$v" "roadmap.d: a direct call of the parser's front door is held to the rule too"
+sed -i.bak 's/Mallory/Ana/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
+v=$(inr 'roadmap_queue --check; echo rc=$?'); has yes "rc=0" "$v" "roadmap.d: a queue the rule accepts reads as before"
+sed -i.bak 's/Ana/Mallory/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
+conf 'MODULES=""'
+mkdir -p "$R/.claude/local/roadmap.d"; cp "$R/.claude/modules/demo/roadmap.d/no-mallory.sh" "$R/.claude/local/roadmap.d/"
+v=$(inr 'roadmap_queue --check; echo rc=$?'); has yes "local roadmap.d/no-mallory.sh" "$v" "roadmap.d: the local layer's rule runs with no module on"
+# A rule's listing that FAILS is not "no rules": with the loader gone and a local rule present,
+# the queue is UNKNOWN rather than read unchecked.
+mv "$R/.claude/lib/modules.sh" "$R/.claude/lib/modules.sh.off"
+v=$(inr 'roadmap_queue --check; echo rc=$?')
+has yes "the roadmap rules (roadmap.d) could not be listed" "$v" "roadmap.d: a rule listing that fails makes the queue UNKNOWN, never ruleless"
+mv "$R/.claude/lib/modules.sh.off" "$R/.claude/lib/modules.sh"
+rm -rf "$R/.claude/local/roadmap.d"
+# ...but a roadmap.d/ holding no rule (empty, or only a non-.sh file) is an empty list: the queue
+# reads as before, with no module on and with one whose own rule runs (people, Mallory a person).
+printf '{"people":[{"name":"Mallory","github":"mallory-gh","role":"owner"}]}\n' > "$R/docs/people.json"
+for mods in "" people; do
+  conf "MODULES=\"$mods\""
+  mkdir -p "$R/.claude/local/roadmap.d"
+  v=$(inr 'roadmap_queue --check; echo rc=$?')
+  has yes "rc=0" "$v" "roadmap.d: an EMPTY local roadmap.d/ reads as no rules (MODULES=\"$mods\")"
+  : > "$R/.claude/local/roadmap.d/.gitkeep"; : > "$R/.claude/local/roadmap.d/x.sh.off"
+  v=$(inr 'roadmap_queue --check; echo rc=$?')
+  has yes "rc=0" "$v" "roadmap.d: a local roadmap.d/ holding only non-.sh files reads as no rules (MODULES=\"$mods\")"
+  rm -rf "$R/.claude/local/roadmap.d"
+done
+rm -f "$R/docs/people.json"; conf 'MODULES=""'
+# A rule that reads the queue itself is refused, not recursed into (each read would run the rule
+# again: hundreds of levels, then a fork failure that could read as "no rules" and ACCEPT). The
+# rule ignores its inner read's failure, so the outer read completes; it must do so promptly, and
+# the inner read must have been refused by name.
+mkdir -p "$R/.claude/local/roadmap.d"
+door=.claude/roadmap-queue
+printf '#!/bin/sh\ncat >/dev/null\nsh %s.sh --tsv > "$ROOT/inner.out" 2>&1\nexit 0\n' "$door" > "$R/.claude/local/roadmap.d/reads-queue.sh"
+sed -i.bak 's/Mallory/Ana/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
+. "$CLAUDUCTOR_FW/lib/modules.sh"
+v=$(cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
+has yes "rc=0" "$v" "roadmap.d: a rule that reads the queue does not recurse (the outer read finishes)"
+has yes "a rule reads its rows on stdin, never the queue" "$(cat "$R/inner.out" 2>/dev/null)" "roadmap.d: ...its own read of the queue is refused by name"
+rm -rf "$R/.claude/local/roadmap.d" "$R/inner.out"
+sed -i.bak 's/Ana/Mallory/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
+
 # CANNOT CHECK discipline: a section that fails, or says nothing, is never shown as nothing.
 conf 'MODULES=""'
 printf 'exit 3\n' > "$R/.claude/local/context.d/session-start/broken.sh"
@@ -147,7 +209,7 @@ for md in "$CLAUDUCTOR_FW"/modules/*/; do
     [ "$declared" = "$there" ] || fail "module $m: enables says $p is $( [ "$declared" = yes ] && echo declared || echo 'not declared'), but it is $( [ "$there" = yes ] && echo present || echo missing)"
   done
   for e in $en; do case " $MODULE_POINTS " in *" $e "*) ;; *) fail "module $m: enables names '$e', which is not a point ($MODULE_POINTS)" ;; esac; done
-  for f in $(find "$md" -path "*/guard.d/*.sh" -o -path "*/context.d/*/*.sh" -o -path "*/health/*.sh" -o -path "*/checks/*.sh" 2>/dev/null); do
+  for f in $(find "$md" -path "*/guard.d/*.sh" -o -path "*/context.d/*/*.sh" -o -path "*/health/*.sh" -o -path "*/checks/*.sh" -o -path "*/roadmap.d/*.sh" 2>/dev/null); do
     shebang_parse "$f"; rc=$?
     [ "$rc" -eq 0 ] || fail "module $m: ${f#"$md"} does not parse under $(shebang_interp "$f") (rc $rc)"
   done
