@@ -46,18 +46,23 @@ would be ignored under the agent even if it were there.
 
 An idle panel spawns almost nothing, and nothing that needs it waits:
 
-- **No page in view, no GitHub call per minute.** `gh pr list` runs every 60 s while a page is in
-  view, as today. With no page in view it runs only for a project that has a lane auto-close
-  watches, every 3 minutes, so that lane still closes when its pull request merges. A project
-  with no such lane calls GitHub not at all until a page comes back.
+- **No page in view, no GitHub call per minute.** The open pull requests (`gh pr list`) are read
+  every 60 s while a page is in view, as today, and not at all otherwise.
+- **Auto-close reads the merged pull requests itself.** For a project with a lane auto-close
+  watches, one `gh pr list --state merged` every 3 minutes, page or not, so a lane closes even
+  when its pull request was opened and merged between two reads (a gap that exists today). A
+  project with no such lane makes no call. Auto-close is off by default, so most projects make
+  no GitHub call at all while no page is in view.
 - **No lane and no page in view: the polls back off to 5 minutes.** `claude agents` (once no hook
   has arrived for 5 minutes, today's quiet rule), `git worktree list` and tmux `list-panes` each
-  run once every 5 minutes for that project.
+  wait 5 minutes between timed polls for that project.
 - **Anything that needs the panel wakes it at once**: a hook polls `claude agents`; a lane start
   polls tmux, the worktrees and `claude agents`; a worktree added or removed is read within 2 s;
-  a page coming into view polls every backed-off source, the pull requests included.
-- **The panel counts what it spawns**, by command, and shows the rate in the observability footer
-  and `/api/state`. The login agent writes it to its log once an hour.
+  a page coming into view polls every backed-off source, the open pull requests included.
+- **The panel counts what it spawns**, per project and by command, and tells idle time from busy
+  time. The rate shows in the observability footer and `/api/state`, and the login agent writes
+  each project's last hour to its log once an hour. Each auto-close writes a log line with the
+  merge time and the close time.
 - **`clauductor panel install --no-open`** installs a login agent that never opens a browser tab.
   `clauductor panel open`, the app and a bookmark still open the page.
 
@@ -80,20 +85,28 @@ launchd agent*. Each is updated to match.
   a lane, and `claude agents` every 2 s for the 4.5 minutes after a session outside a lane goes
   quiet, stay as they are: first prompts, waiting notifications ("a prompt answered in the
   terminal fires no hook", `docs/panel.md`, *Current or stale*) and auto-resume read them. Not
-  owned: the spawn count this change adds (D5) is what would show whether a row is worth it.
+  owned: the spawn count this change adds (D5) is what would show whether a row is worth it,
+  since its hourly lines give the busy minutes' rate too.
 - **The project's own interval commands**: cards, suggest commands and the metrics command run on
   `panel.json`'s refresh rules (the template's defaults: the fix suggestions every 5 min, the
   metrics command and one card every 10 min, about 0.4 a minute per project). The project chose
   them. Not owned, for the same reason.
 - **`claude --version` and `claude auth status`**, the machine's, every 10 minutes: unchanged.
 - **The panel's `claude` calls racing a session's login refresh**: PANEL-28. Fewer `claude
-  agents` calls make that race rarer; they do not settle it.
+  agents` calls make that race rarer; they do not settle it. PANEL-28's `claude` gate and this
+  change's spawn count both wrap the panel's one Runner; design D6 fixes their order.
+- **Processes the panel starts on a person's action**, not on a timer: an OS notification, a
+  terminal attach, a queue RUN, Terminal.app, the browser, a lease holder's start time. The
+  spawn count leaves them out and says so (D6).
 
 ## How we'll know
 
-- **Signal:** with two projects registered (the template's `panel.json`), no lane and no page in
-  view, the panel spawns **at most 3 processes a minute, down from about 35**, read from its own
-  count: the login agent's hourly log line (`~/.clauductor/panel/logs/panel.log`, "spawns in the
-  last hour") or `/api/state`'s `obs`, neither of which makes a page "in view". And no lane with
-  `lanes_auto_close` stayed open more than 5 minutes after its pull request merged.
+- **Signal:** while a project is **idle** (no lane, no page in view, no hook for 5 minutes), it
+  spawns **at most 1.2 processes a minute, down from about 17.4**, and the machine's own calls stay
+  under 0.3 a minute: two idle projects together **under 3 a minute, down from about 35**. Read
+  from the login agent's hourly lines in `~/.clauductor/panel/logs/panel.log` ("spawns, last hour,
+  <project>: idle N min, M spawns …"), over the hours with at least 30 idle minutes. Neither the
+  log nor `/api/state` makes a page "in view". Where a project has turned `lanes_auto_close` on
+  (neither registered project has today; it is off by default), each auto-close log line shows the
+  close within 5 minutes of the merge.
 - **Check after:** 7 days
