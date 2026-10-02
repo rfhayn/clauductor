@@ -159,7 +159,7 @@ func TestBuildPlacesEveryTemplateFile(t *testing.T) {
 	}
 
 	// Nothing project-owned outside scaffold/.
-	for _, owned := range []string{"AGENTS.md", "CLAUDE.md", "project.conf", "model-roles.json", "settings.json", "panel.json", "steps.sh", "roadmap.md", "development-journal.md", ".gitignore"} {
+	for _, owned := range []string{"AGENTS.md", "CLAUDE.md", "project.conf", "model-roles.json", "settings.json", "panel.json", "steps.sh", "roadmap.md", "development-journal.md", ".gitignore", ".gitattributes"} {
 		filepath.WalkDir(out, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -442,6 +442,52 @@ func TestScaffoldGuards(t *testing.T) {
 	os.WriteFile(filepath.Join(q, ".claude", "clauductor-template"), []byte("x\n"), 0o644)
 	if out, code := run(t, q, e, "", "sh", scaffold, "--force"); code != 1 || !strings.Contains(out, "clauductor install") {
 		t.Fatalf("installed repo: exit %d, want a refusal naming clauductor install\n%s", code, out)
+	}
+}
+
+// OPS-20: init merges the line-ending rules into a project's own .gitattributes AHEAD of its lines
+// (the last matching line wins, so the project's overrides keep working), and only once.
+func TestScaffoldMergesGitattributes(t *testing.T) {
+	need(t, "git", "sh")
+	plug, _ := build(t)
+	e := env(t, t.TempDir())
+	p := newProject(t, e)
+	attrs := filepath.Join(p, ".gitattributes")
+	os.WriteFile(attrs, []byte("*.bat text eol=crlf\n"), 0o644)
+	if out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh")); code != 0 {
+		t.Fatalf("scaffold: exit %d\n%s", code, out)
+	}
+	got, _ := os.ReadFile(attrs)
+	rule, mine := strings.Index(string(got), "* text=auto eol=lf"), strings.Index(string(got), "*.bat text eol=crlf")
+	if rule < 0 || mine < 0 || rule > mine {
+		t.Fatalf("the LF rule must come before the project's own line:\n%s", got)
+	}
+	want, _ := os.ReadFile(filepath.Join(plug, ScaffoldDir, ".gitattributes"))
+	if merged, _ := template.MergeGitattributes("*.bat text eol=crlf\n", string(want)); string(got) != merged {
+		t.Errorf("init and `clauductor install` merge differently.\ninit:\n%s\ninstall:\n%s", got, merged)
+	}
+	if out, code := run(t, p, e, "", "git", "check-attr", "eol", "--", "x.sh", "y.bat"); code != 0 ||
+		!strings.Contains(out, "x.sh: eol: lf") || !strings.Contains(out, "y.bat: eol: crlf") {
+		t.Errorf("git reads the merged rules wrong (exit %d):\n%s", code, out)
+	}
+	run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh"))
+	if again, _ := os.ReadFile(attrs); string(again) != string(got) {
+		t.Errorf("a second init changed .gitattributes:\n%s", again)
+	}
+
+	// A CRLF file with trailing spaces that already has every rule: nothing is added twice.
+	q := newProject(t, e)
+	var crlf strings.Builder
+	for _, l := range strings.Split(strings.TrimSpace(string(want)), "\n") {
+		crlf.WriteString(l + "  \r\n")
+	}
+	qa := filepath.Join(q, ".gitattributes")
+	os.WriteFile(qa, []byte(crlf.String()), 0o644)
+	if out, code := run(t, q, e, "", "sh", filepath.Join(plug, "scaffold.sh")); code != 0 {
+		t.Fatalf("scaffold: exit %d\n%s", code, out)
+	}
+	if b, _ := os.ReadFile(qa); string(b) != crlf.String() {
+		t.Errorf("init re-added rules a CRLF, trailing-space file already has:\n%q", b)
 	}
 }
 

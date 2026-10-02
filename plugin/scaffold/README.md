@@ -14,7 +14,9 @@ claude
 /clauductor:session-start      # every session
 ```
 
-Then `clauductor panel` for the local panel (see the clauductor repo's `docs/panel.md`).
+A new machine (macOS, Linux, or Windows through WSL2) needs a few tools first: `docs/playbook.md`,
+**Setting up a machine**. On macOS, `clauductor panel` adds the optional local panel (see the
+clauductor repo's `docs/panel.md`); nothing needs it.
 
 ## Where things are
 
