@@ -13,9 +13,40 @@ the lane manager (`run.go`, `LaneManager{… Run: o.Runner}`):
 | `claude agents --json` | `lanes/lanes.go` `agentStatus`, the first-prompt check, `liveSessions`; `lanes/removewt.go` `removeVerdict` | lane actions | 10 s, or the caller's context |
 | `claude auth status --json` (through `/usr/bin/env -u …`, `lanes.ScrubbedArgv`) | `machine.go` `pollAccount` | at start, then every 10 min | 10 s |
 | `claude --version` | `machine.go` `pollVersion` | at start, then every 10 min | 10 s |
+| a project card or a template's suggest command whose argv starts with `claude` | `runtime.go` (cards and suggestions, `commandFetch`) | the project's own interval or watch | 30 s |
+| `claude -p …`, the Verify now probe (**future**: PANEL-32, split from PANEL-31) | not built | on the owner's click | about 90 s (its own row decides) |
 
 `ExecRunner` uses `exec.CommandContext` with no `Cancel` and no `WaitDelay`, so a timeout, or the
 panel's own shutdown (`cmd/panel.go` cancels on SIGTERM), sends the child SIGKILL.
+
+Shutdown today runs in `run.go`: `cancel()`, then `httpSrv.Shutdown` with 2 s, then `wg.Wait()` and
+`ls.stopAll()`. `panel install` waits for the old job to go after `bootout` for about 5 s (50 ×
+100 ms of `launchctl print`), then retries `bootstrap` once after 2 s (`install/launchd.go`). The
+plist doesn't set `AbandonProcessGroup`, so launchd also reaps whatever is left in the job's
+process group when the panel exits.
+
+Freshness: a successful agents poll sets `agentsOKAt` (`state/model.go`, `ApplyAgents`). A failed
+one sets the source's error and forgets nothing it read but stops calling it current. `blocked.go`
+and the first-prompt decisions read `agentsFresh(now)`, so an update applied for a poll that never
+ran would either pass a stale read off as fresh or flap the source to failed (M6 in D4).
+
+## Shared with later rows
+
+The build order is PANEL-29, then this, then PANEL-30, PANEL-31 and PANEL-25. Two pieces of this
+change are built to be reused:
+- **The lock reader** (`claudecall.Lock`): the config dir, the two lock paths, the owner record,
+  and a state for each lock (none, live, stale, future) with its holder.
+- **The gate** (`claudecall.Gate`): the stop policy (D2), the slot (D3) and the lock pause (D4) for
+  every `claude` the panel spawns.
+
+Who reuses them:
+- **PANEL-31 and PANEL-32** use both, and drop the separate guard PANEL-31's draft had (one keyed on
+  existence, `~/.claude` hard-coded, a 10 s grace). PANEL-32's probe goes through the gate. A long
+  call holds the slot like any other, so the probe pauses the agents poll for its length. PANEL-32
+  states that cost to the owner, or proposes an exception there.
+- **PANEL-25's spawn counter** sits inside the gate, counting processes actually started. A skipped
+  or paused call is not a spawn.
+- **PANEL-25's estimate of `auth status`** changes under D5: no longer every 10 min.
 
 `claude auth status` feeds only the status bar: the account's mode and plan, and a hash of the org
 id that drops a saved quota belonging to another account (`state/quota.go`, `ApplyAccount`). No
@@ -77,183 +108,256 @@ Between them they fit everything seen:
   - calls while a refresh holds the lock (D4);
   - `auth status` on a timer (D5);
   - possibly the feature-flag refresh in `claude agents` (D6);
-  - leaving the owner blind to a stuck or stranded lock (D7).
+  - leaving the owner blind to a stuck, stranded or future-dated lock (D7).
 
 ## The shape of the change
 
-1. **Group 1, the facts.**
-   - A lock watch: a stat of the lock and its owner record every 2 s (a stat spawns nothing).
-     Pids of the panel's own `claude` children are tracked, and `login-lock.jsonl` goes in the
-     panel's directory (`config.PanelDir`, beside `quota.json`), capped in size. It gets one line
-     per lock seen (holder pid, `ps -o command=` of the holder, whether it is a panel child, first
-     seen, last touched, how it ended) and one line per panel `claude` call that had to be stopped.
-   - The sandbox experiment (D1), which decides group 3.
-   - A re-read of the then-installed binary, recording what differs from the table above.
-2. **Group 2, calls that can't strand the lock.**
-   - A `claude` gate wrapping the Runner, for any argv whose program is `claude` (directly or
-     after `/usr/bin/env -u …`):
-     - SIGTERM, then grace (D2);
-     - one call at a time (D3);
-     - no call while the lock is live (D4).
+Groups 1–3 build unattended, in order. Group 4 is last because it needs the owner once, and then a
+day's wait (D8).
 
-     Each call site keeps its own timeout for its result. The gate decides only how the process
-     is stopped and whether it starts.
-   - `auth status` off the timer (D5).
-3. **Group 3, conditional (D6).** What group 1's sandbox shows picks one pre-decided response.
-4. **Group 4, the owner sees a stuck or stranded lock** (D7): the alerts, a diagnostics line, the
-   docs.
+1. **Group 1, the lock reader and the log.**
+   - `framework/internal/panel/claudecall`, a new package that `panel` and `lanes` both import:
+     - **The reader:** the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), the current lock
+       `<dir>/.oauth_refresh.lock`, the legacy lock `<dir>.lock`, and the owner record.
+       - **The state of each lock,** from its mtime against now: live, stale, or future (D4).
+       - **A lock's identity:** the owner record's `lockBirthtimeMs` when there is one, else the
+         path and an unbroken run of sightings. Birth time comes from the record, never from the
+         filesystem, so the code is the same on darwin and on PR CI's Ubuntu.
+     - **The watch:** a stat of both locks and the record every 2 s. A stat spawns nothing.
+   - **The log:** `login-lock.jsonl` in `config.PanelDir` (beside `quota.json`), capped in size.
+     - **Per lock seen,** one line: path, holder pid, `ps -o command=` of the holder, whether it is
+       the panel's own call and which, first seen, last modified, and how it ended.
+     - **Per stopped call,** one line (group 2 writes these).
+   - A re-read of the installed binary, recording in the Decision log what differs from *What is
+     known*.
+2. **Group 2, the gate.** `claudecall.Gate` wraps the Runner for any argv whose program is
+   `claude`, directly or after `/usr/bin/env -u …`. It covers cards and suggest commands too (D9).
+   - **How it stops a call:** it starts the process, reaps it in a goroutine, and returns to the
+     caller at its deadline (D2).
+   - **The slot:** one process at a time, held until reaped (D3).
+   - **The lock pause:** no start while a lock is live (D4).
+   - **What the callers do:**
+     - polls wait briefly and then return a short retry, applying no update;
+     - `checkFilter` records its check time only when the check ran;
+     - `pollAccount` follows D5;
+     - Refresh kicks the machine's sources as well as the project's.
+3. **Group 3, the owner sees a lock** (D7): the live alert, the stranded warning, the future-dated
+   warning, `docs/panel.md` and Help.
+4. **Group 4, last: the sandbox and its response** (D1, D6). It needs the owner's `/login` under a
+   scratch config dir, then an expiry. Its outcome picks one response decided in D6.
 
 ## Refusals
 
 | Situation | What happens instead |
 |---|---|
-| A poll while another panel `claude` call is in flight | Skipped. The source keeps its last value and says why; the next tick tries again. |
-| A poll while the lock is live (touched in the last 60 s) | Skipped, as above, with "a login refresh is in progress". |
-| A lane action needing `claude agents` while a call is in flight or the lock is live | It waits within its own timeout, then runs. If the timeout passes first, it fails as it does today when `claude agents` can't be read. |
-| A `claude` call past its timeout | SIGTERM; SIGKILL only after the 15 s grace. The caller gets its timeout error at once. |
-| The panel shutting down with a `claude` call in flight | The same SIGTERM, then grace. The panel doesn't wait past the grace. |
+| A `claude` call while the slot is taken | It waits up to 2 s (a poll) or within its own timeout (a lane action). A poll still blocked returns a retry in 1 s and applies no update: the last reading, its success time and its error stay as they were. |
+| A call while a lock is live (modified in the last 60 s, not in the future) | No start. A poll returns a retry in 2 s, applying no update; its source shows "paused: a login refresh is in progress". A lane action waits within its timeout. |
+| A long pause (a lock live for minutes) | The agents reading ages out by the existing freshness window, as it would with no poll, and nothing typed waits on a stale read. The source says "paused", not "cannot read". The D7 alert fires at 2 min. |
+| A `claude` call past its timeout | The caller gets its timeout error at its deadline; the gate sends SIGTERM, SIGKILLs 15 s later if the process is still running, and keeps the slot until it is reaped. |
+| The panel shutting down with a `claude` call in flight | SIGTERM; SIGKILL 3 s later if it is still running; the shutdown waits no longer. |
 | The account wanted while a reading under 24 h old is saved | The saved reading is used; no `auth status` runs until **Refresh**. |
 | A lock held live for more than 2 min | An alert naming the holder (pid, command, age) and what to do. |
-| A stale lock (untouched for 60 s or more) still present 2 min later | A warning naming the lock, its last holder and whether that process is gone, plus the documented remedy, which the owner carries out. |
-| Any lock, live or stale | The panel never removes or writes it, or its owner record. |
-| An owner record the panel can't parse (a new Claude Code format) | The lock is still watched and alerted by its directory's times. The holder is reported "unknown". |
+| A lock last modified 60 s or more ago, still present 2 min later | A warning naming that lock's path (current or legacy), its last holder and whether that process is gone, and the remedy, which the owner carries out. |
+| A lock modified more than 5 s in the future | Not live: calls run. A warning says it is dated in the future (#95739), and gives the same remedy. |
+| Any lock | The panel never removes or writes it, or the owner record. |
+| An owner record the panel can't parse (a new Claude Code format) | The lock is still watched and alerted by its mtime. The holder is reported "unknown". |
 
 ## Decisions (awaiting the owner)
 
-**D1. How group 1 establishes the facts.**
-- **Recommended:** a sandbox login, plus the passive lock watch.
-  - **The sandbox:** the owner logs in once under a scratch `CLAUDE_CONFIG_DIR` (documented to
-    have its own Keychain entry), then leaves it unused until its access token has expired. An
-    unused login always has an expired access token, so per #95822 every short-lived command run
-    against it must refresh.
-  - **The runs:** the build runs the panel's exact argv against the sandbox, one at a time, with
-    the sandbox's lock dir watched. That is `claude agents --json`, then `--cwd`, then
-    `auth status --json`, then `--version`.
-  - **What it records:** for each run, whether it took the lock, whether the sandbox login still
-    works afterwards (`auth status` reports `loggedIn`), and what a SIGTERM or a SIGKILL
-    mid-refresh leaves behind.
-  - **The watch:** it ships (group 1) and observes the real machine for the outcome check.
+**D1. How the facts are established.**
+- **Recommended:** a sandbox login, plus the passive watch from group 1.
+- **Setting up the sandbox,** with the owner once, with no lane running:
+  1. Make a scratch `CLAUDE_CONFIG_DIR` and a scratch folder inside it.
+  2. In that folder, `CLAUDE_CONFIG_DIR=<scratch> claude`; accept the folder's trust prompt, then
+     `/login`. A fresh config dir trusts no folder, and the refresh path in `claude agents` runs
+     only in a trusted one.
+  3. Right after, check the main login in an already-open session with `/status`. That is a
+     human-visible check, not `auth status`, which is itself a suspect (#95822).
+  4. Leave the sandbox unused until the next day.
+- **The run: one question first,** the panel's exact `claude agents --json`, in the trusted folder.
+  Then, at once, a positive control: `claude -p "ok"`, a tiny model call that must refresh an
+  expired token. The lock watch on the sandbox says which of these took the lock:
+
+  | agents took the lock | the control | Reading |
+  |---|---|---|
+  | no | took the lock | **A**: the token had expired, and agents didn't refresh |
+  | yes | works, takes no lock | **B**: agents refreshed and saved |
+  | yes | fails "Login expired" | **C**: agents spent the login |
+  | no | takes no lock | **Inconclusive**: the token hadn't expired; try again later |
+- **Every later question is optional,** with one run per later expiry: `auth status`, then
+  `--version`, then a SIGTERM and a SIGKILL 1 s into `claude agents`. Each that isn't run stays
+  unverified, and D2 already tolerates that.
+- **If the main login shows any trouble** at any point, group 4 stops and the owner is told. Its
+  tasks are ticked as "stopped: <why>", and the PR merges with groups 1–3 (D8).
 - **Alternatives:**
   - the passive watch alone;
   - tracing with `fs_usage`, `dtruss` or `eslogger`;
   - asking Anthropic.
 - **Why:**
-  - **The sandbox** answers the row's question in an afternoon, causally, on the panel's own argv,
-    without touching the owner's login. If an experiment spends a login, it spends the scratch
-    one.
+  - **The sandbox** answers the one question that matters, causally, on the panel's own argv, and
+    can't spend the owner's login. `CLAUDE_CONFIG_DIR` has its own Keychain entry, as documented.
+  - **The positive control** stops an unexpired token from passing for outcome A.
   - **Not the watch alone:** it waits for a natural expiry, and it can only correlate.
   - **Not tracing:** it needs root, or SIP off for `dtruss`.
   - **Not asking:** the upstream issues have no maintainer reply yet.
-- **Unverified:** that a second login of the same account doesn't affect the first. The docs
-  describe separate directories as separate logins, but they show it with two different accounts.
-  If the owner's main login shows any sign of trouble during the experiment, the build stops and
-  says so.
+- **Unverified:** that a second login of the same account leaves the first alone. The docs show it
+  with two different accounts. That is why step 3 checks at once, and why trouble stops only
+  group 4.
 
-**D2. A `claude` call past its timeout.**
-- **Recommended:** SIGTERM (`exec.Cmd.Cancel`), then SIGKILL after a 15 s grace
-  (`exec.Cmd.WaitDelay`). The caller still gets its error at the timeout.
+**D2. How the gate stops a `claude` call.**
+- **Recommended:**
+  - **The caller** gets its timeout error at its own deadline. The gate starts the process and
+    reaps it in a goroutine, so the caller never waits for the exit.
+  - **The process** gets SIGTERM at that deadline, and SIGKILL 15 s later if it is still running.
+  - **The slot** stays held until the process is reaped (D3).
+  - **At panel shutdown,** the grace is 3 s, not 15. The gate's close runs after `wg.Wait()` and
+    waits at most 3 s.
 - **Alternatives:**
-  - no timeout at all;
-  - a longer timeout, still SIGKILL.
-- **Why:** SIGKILL is the one way to stop a holder that guarantees it can't release the lock. 15 s
-  covers a 5 s refresh bound and a 2 s exit wait with room to spare.
-  - **Not "no timeout":** a hung `claude` would hold its poll forever.
-  - **Not a longer SIGKILL timeout:** that only moves the window.
+  - `exec.Cmd.Cancel` with `WaitDelay`: `Wait` blocks the caller until the exit or the delay,
+    so the caller can't return at its deadline;
+  - releasing the slot at the deadline: two `claude` processes at once during the grace;
+  - the full 15 s grace at shutdown, or a longer install wait.
+- **Why:** SIGKILL is the one way to stop a holder that guarantees it can't release the lock, so it
+  comes last.
+  - **15 s at runtime** covers a 5 s refresh bound and a 2 s exit wait with room to spare.
+  - **3 s at shutdown** keeps the exit inside `panel install`'s wait: about 5 s for the old job to
+    go, plus one 2 s retry. A longer install wait would only slow every install. launchd reaps the
+    job's process group at exit anyway (`AbandonProcessGroup` is unset).
+  - **The residual risk:** a refresh straddling a panel restart. It needs a restart inside the
+    seconds a refresh takes.
 - **This is necessary, not sufficient:** per #95822 a command can abandon its own refresh with
-  nobody killing it. D5 and D6 address that part.
+  nobody killing it. D5 and D6 address that part. That SIGTERM lets Claude Code release the lock
+  stays unverified unless D1's optional stop test runs.
 
-**D3. The panel's `claude` calls run one at a time.**
-- **Recommended:** one machine-wide slot. A poll that finds it taken skips its turn and keeps its
-  value. A lane action waits for it within its own timeout.
+**D3. One panel `claude` call at a time, without starving anyone.**
+- **Recommended:** one machine-wide slot, held until the process is reaped.
+  - **A poll** that finds the slot taken waits for it up to 2 s. If it's still taken, the poll
+    returns a retry in 1 s through the poll's own next-wait, rather than its interval, and applies
+    no update.
+  - **A lane action** waits within its own timeout.
+  - **`checkFilter`** records `agentsFilterCheck` only after a cross-check that ran. Today it is set
+    before the call (`runtime.go`), so a skip would drop the `--cwd` filter for 5 min.
+  - **Refresh** (`refreshAll`) also kicks the machine's sources (`Machine.kickAll`). Today it kicks
+    only the project's, so the version and account wait for their timers.
 - **Alternatives:**
-  - every call stands alone, as today;
-  - a queue for polls too.
-- **Why:** in the minutes around the shared token's expiry, every panel call is a refresh attempt.
-  Today the panel can bring one per project poll, plus the filter cross-check, `auth status` and
-  `--version`. With the slot it brings at most one. Polls refresh within seconds anyway, and a
-  queue would pile up stale reads behind a slow call.
+  - skip to the next interval;
+  - a queue;
+  - every call stands alone, as today.
+- **Why:** at start every source fires at once, so collisions are certain.
+  - **Not skipping to the next interval:** a skipped `--version` waits 10 min. A skipped account
+    read waits for Refresh (D5). A hook-kicked agents poll under PANEL-25's dormant interval waits
+    5 min.
+  - **A short wait and a 1 s retry** serialize the start in a second or two, because each call
+    takes about 0.1 s.
+  - **Not a queue:** it piles up stale reads behind a slow call.
+  - **Not standing alone:** in the minutes around the shared token's expiry, every concurrent panel
+    call is another refresh attempt.
 
-**D4. No `claude` call while a refresh holds the lock.**
-- **Recommended:** before each call, stat `<config dir>/.oauth_refresh.lock`. The config dir is
-  `$CLAUDE_CONFIG_DIR` from the panel's environment, else `~/.claude`.
-  - **If the lock was touched in the last 60 s,** polls skip and lane actions wait as in D3.
-  - **An older lock** stops nothing, and D7 reports it.
-- **Alternative:** ignore the lock.
+**D4. No `claude` call while a refresh holds a lock.**
+- **Recommended:** before each start, the gate reads both locks' state (D7 defines the states).
+  - **Live** (modified in the last 60 s, and no more than 5 s in the future): no start. Polls retry
+    in 2 s, applying no update. Lane actions wait within their timeout.
+  - **Stale or future:** nothing stops.
+  - **The legacy lock `<dir>.lock` counts too.** In 2.1.288 every refresher takes it as well, and a
+    stranded one makes the next acquire fail (`tengu_oauth_refresh_legacy_lock_contended`).
+- **What freshness does:**
+  - **A paused or skipped poll applies no update.** It neither advances `agentsOKAt` (which would
+    pass a stale read off as fresh to `blocked.go` and the first-prompt decisions) nor applies an
+    error (which would flap the source to failed and back).
+  - **During a long live lock,** the agents reading ages out by the existing freshness window,
+    exactly as if the poll had not been due.
+  - **The status** carries a pause note that leaves `OK` alone, so the banner reads "paused: a
+    login refresh is in progress", not "cannot read".
+- **Alternative:** ignore the locks.
 - **Why:** a live holder is refreshing the login every session shares, so a panel call would only
   add a contender or another short-lived refresher.
-- **The race:** a call can start in the instant before a lock appears. D2 and D3 cover that.
+  - **Future-dated isn't live** (#95739): its mtime reads "recent" until real time passes it, which
+    would pause every poll for hours.
+  - **The race:** a call can start in the instant before a lock appears. D2 and D3 cover that.
 
 **D5. `claude auth status`.**
 - **Recommended:** no timer.
-  - **When it runs:** at start only when no reading under 24 h old is saved, and on **Refresh**.
-  - **The saved reading:** the last one, in the panel's directory beside `quota.json`, keeping
-    only the fields kept today.
-  - **The guards:** D2–D4 apply.
+  - **When it runs:** at start only when no reading under 24 h old is saved, and on **Refresh**,
+    which D3 makes kick the machine's sources.
+  - **The saved reading:** the last one, in `account.json` beside `quota.json`, keeping only the
+    fields kept today.
+  - **The guards:** the gate applies.
 - **Alternatives:**
   - keep the 10-minute timer;
   - drop it, and infer the account from the status line.
 - **Why:**
   - **Not the timer:** #95822 names `auth status` itself as a command that starts a refresh and
-    exits without saving it, and the panel runs it 144 times a day. The account changes when the
+    exits without saving it, and the timer runs it 144 times a day. The account changes when the
     owner logs in to another one, which is rare and their own act.
-  - **Not dropping it:** there is no status-line field for the auth mode or plan (#95598 asks for
-    one), so the API-key and cloud modes, the plan and the account hash would be lost.
-- **What it costs:** a change of account shows after **Refresh** or the next start, not within
-  10 minutes. Help says so.
+  - **Not dropping it:** no status-line field gives the auth mode or plan (#95598 asks for one).
+- **What it costs:** a change of account shows after **Refresh** or the next start. Help says so.
 
-**D6. Making the panel's own `claude agents` start no refresh. Conditional, every outcome decided
-now.**
-- **Recommended:** group 1's sandbox runs pick one outcome:
-  - **A. `claude agents --json` takes no lock** against an expired token: group 3 does nothing,
-    and the evidence is recorded.
-  - **B. It takes the lock, and finishes and saves the refresh before exiting** (the sandbox login
-    still works): D2–D4 suffice. Group 3 does nothing; recorded.
-  - **C. It takes the lock and the sandbox login is spent afterwards** (it exits without saving, as
-    #95822 reports for `auth status`): the build tries, in the sandbox, `DISABLE_TELEMETRY` then
-    `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (both documented).
-    - **If one stops the lock-taking** and leaves the JSON the panel parses unchanged, group 3
-      sets it on every panel `claude agents` and `auth status` call.
-    - **If neither does,** the build stops at group 3. It brings the evidence to the owner, because
-      what remains is theirs to choose (a slower cadence, polling only while no hook flows, or
-      adding the evidence to #95822).
+**D6. Making the panel's own `claude agents` start no refresh. Every outcome decided now.**
+- **Recommended:** D1's run picks one outcome:
+  - **A or B:** nothing more; recorded.
+  - **Inconclusive:** run again at the next expiry, up to three times. If it's still inconclusive,
+    record it as unanswered and treat it as B.
+  - **C:**
+    - **The retest:** the owner logs in to the sandbox again, and at the next expiry the build
+      repeats the run with `DISABLE_TELEMETRY`, then with
+      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (both documented).
+    - **If one turns C into A** and leaves the JSON the panel parses unchanged, group 4 sets it on
+      every panel `claude agents` and `auth status` call.
+    - **If neither does,** no panel-side fix is left. 4.3 is ticked as "no panel-side fix", the
+      evidence goes to the owner, and the PR merges. Their options become a new roadmap row: a
+      slower cadence, polling only while no hook flows, or adding the evidence to #95822.
 - **Alternatives:**
   - always set a variable;
   - decide after the investigation, by editing this design.
 - **Why:**
-  - **Not always:** the variable is a guess about one build, and it could change the listing
-    (feature flags fall back to their defaults).
-  - **Not deciding later:** an edit after approval voids the approval. Only C-with-no-variable
-    returns to the owner, and only because no panel-side fix is left.
+  - **Not always:** the variable is a guess about one build, and it could change the listing.
+  - **Not deciding later:** an edit after approval voids the approval.
 
-**D7. A stuck or stranded lock.**
-- **Recommended:** two alerts, and never a deletion.
-  - **The live alert:** the same lock (same birth time) touched within 60 s continuously for more
-    than 2 minutes, which is a live holder stuck mid-refresh. The alert names the holder (pid,
-    command, age) and what to do: "run /login in any session; if it comes back, end pid N".
-  - **The stale warning:** a lock untouched for 60 s or more and still present 2 minutes later.
-    The warning names the lock, its last holder and whether that process is gone. It gives the
-    documented remedy for the path the panel actually sees: "if sessions fail to refresh, remove
-    `~/.claude/.oauth_refresh.lock` and run /login" (errors.md names `token.lock`, which 2.1.288
-    doesn't use).
-  - **Never** delete or write either file.
+**D7. A stuck, stranded or future-dated lock.**
+- **Recommended:** three states for each of the two locks, read from mtime against now. No
+  birth time is read from the filesystem: Go exposes it on darwin only, and PR CI runs on Ubuntu.
+  - **Live, continuously, for more than 2 min:** an alert naming the holder (pid, command, age)
+    and what to do: "run /login in any session; if it comes back, end pid N".
+  - **Stale (60 s or more) and still present 2 min later:** a warning naming that lock's path, its
+    last holder and whether that process is gone. Its remedy: "if sessions fail to refresh, remove
+    `<path>` and run /login". errors.md names `token.lock`, which 2.1.288 doesn't use.
+  - **More than 5 s in the future:** a warning saying so, that Claude Code waits for real time to
+    pass it (#95739), with the same remedy.
+  - **Never** delete or write a lock or the owner record.
 - **Alternatives:**
   - alert on the live lock only, trusting the 60 s stale reclaim;
   - remove a stale lock automatically.
 - **Why:**
-  - **The stale warning:** #95236 reports a directory lock that was never reclaimed, and the
-    2026-10-02 lock is consistent with it. On macOS the reclaim is unproven, so a stranded lock
-    needs a reader.
+  - **The warnings:** #95236 reports a directory lock never reclaimed, #95739 a future one that
+    blocks for hours, and the 2026-10-02 lock is consistent with the first.
   - **No deletion:** deleting a lock a live process holds would let two processes refresh one
-    login at once, which is the very thing the lock prevents. Telling a live holder from a gone
-    one is exactly what the owner record is for, and its format is internal.
+    login at once, which is the very thing the lock prevents.
 
-**D8. Which groups ship in which outcome.**
-- **Recommended:** groups 1, 2 and 4 ship whatever group 1 finds. Group 3 follows D6's outcome,
-  and only D6's outcome C-with-no-variable returns to the owner. The row closes when the change
-  merges. Its outcome check reads `login-lock.jsonl` after 14 days.
-- **Alternative:** make every fix wait for the investigation, and re-approve.
-- **Why:** each of D2–D5 and D7 is right even if the panel never takes part in a refresh:
-  - SIGKILL on any `claude` is wrong;
-  - contending with a live refresh only adds load;
-  - a timer on a command reported to spend logins is a risk with no matching benefit;
-  - a stranded lock needs a reader whoever stranded it.
+**D8. Group order, and which groups ship in which outcome.**
+- **Recommended:** one change, one PR.
+  - **Groups 1–3** build unattended, first, and are right whatever the sandbox finds.
+  - **Group 4** (the sandbox and D6's response) is last. The PR waits for it, because
+    `pr-merge-guard` rule 9 refuses a change PR with an unticked task.
+  - **A stop or a C-with-no-variable** ticks group 4 with its reason, so it never holds the PR.
+    Only C-with-no-variable leaves the owner a choice, as a new row.
+  - **The outcome check** reads `login-lock.jsonl` after 14 days.
+- **Alternatives:**
+  - **the sandbox first,** with every fix waiting on it;
+  - **group 4 split into its own roadmap row,** created on approval, so groups 1–3 merge without
+    waiting for the expiry.
+- **Why:**
+  - **Groups 1–3 can't depend on the answer:** each of D2–D5 and D7 is right even if the panel
+    never takes part in a refresh.
+  - **One PR:** it keeps the rule and the record whole, at the cost of the fixes landing a day or
+    two later.
+  - **The split** lands the fixes sooner. It is the better choice if the owner can't do the
+    sandbox `/login` soon after the build.
+
+**D9. Project cards and suggest commands that run `claude`.**
+- **Recommended:** gated like every other `claude` call (the stop policy, the slot, the lock pause).
+  Such a card waits up to 2 s for the slot and retries on its own cadence. Help says a card running
+  `claude` shares the panel's one slot.
+- **Alternative:** exempt them, since the project chose to run them.
+- **Why:** a project's `claude` card refreshes the same login as the panel's own calls. Exempting
+  it would reopen every hazard this change closes. Its 30 s timeout is the cost a project accepts
+  by running `claude` on a timer.

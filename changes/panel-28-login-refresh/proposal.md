@@ -33,28 +33,35 @@ is known*, gives each claim's source and whether it was checked):
     and exit before saving it. That leaves the login spent.
   - **The panel's part:** it runs that command on a timer.
 
-Neither has been observed on this machine yet, which is what group 1 does first.
+Neither has been observed on this machine yet. A sandbox login settles the one that matters (D1).
 
 ## What changes
 
-The panel stops doing what can strand the lock or spend the login. It shows the owner a lock that
-is stuck or left behind, and it finds out the rest with a scratch login rather than the owner's
-own:
+The panel stops doing what can strand the lock or spend the login, and shows the owner a lock that
+is stuck, left behind or dated in the future. Every `claude` the panel spawns goes through one
+gate, which PANEL-31, PANEL-32 and PANEL-25 reuse:
 
-- **No `claude` call is killed outright.** A timed-out call gets SIGTERM and a grace period before
-  any SIGKILL.
-- **One panel `claude` call at a time,** machine-wide. A poll that finds one in flight skips its
-  turn.
-- **No `claude` call while a refresh holds the lock.** Polls pause until it clears.
+- **No `claude` call is killed outright.**
+  - **The caller** gets its timeout at once.
+  - **The process** gets SIGTERM, and SIGKILL only 15 s later (3 s at shutdown).
+- **One panel `claude` call at a time,** machine-wide.
+  - **A call that collides** waits briefly and retries within seconds, so nothing waits out a full
+    interval.
+  - **Refresh** now re-reads the version and the account too.
+- **No `claude` call while a refresh holds a lock** (the current lock or the legacy one). Polls
+  pause without being marked failed or passed off as fresh, and resume within seconds of the lock
+  clearing.
 - **`claude auth status` comes off its timer.** It runs at start only without a recent saved
   reading, and on **Refresh**.
 - **Every lock the panel sees is logged** with its holder, and whether the holder is the panel's
   own call.
-- **A stuck lock is an alert, and a stranded one is a warning,** each with what to do. The panel
-  never removes or writes the lock.
-- **A sandbox login under a scratch `CLAUDE_CONFIG_DIR` answers whether `claude agents` itself
-  spends a login.** Each answer has a decided response (D6). Only one returns to the owner: the
-  case where no panel-side fix is left.
+- **The owner is told about a lock.**
+  - **A stuck one** is an alert.
+  - **A stranded or future-dated one** is a warning, with the remedy.
+  - **The panel never removes or writes** a lock.
+- **Last: a sandbox login answers whether `claude agents` itself spends a login.** It is a scratch
+  `CLAUDE_CONFIG_DIR` with a trusted folder, checked against a positive control. Each answer has a
+  decided response (D6). The fixes above don't wait on it: they're right whatever it finds.
 
 ## What the existing specs already guarantee
 
