@@ -15,8 +15,11 @@ migrated**: `openspec/changes` and `openspec/specs` are symlinks to `CHANGES_DIR
    then deletes that scenario from the living spec on archive, and it ignores `skip_specs`; the
    module refuses it by name.
 2. `sh .claude/modules/openspec/enable.sh`: checks the CLI's version, creates
-   `openspec/changes -> ../changes` and `openspec/specs -> ../specs`, and copies `config.yaml` from
-   this directory to `openspec/config.yaml` (adjust its rules). Commit the links.
+   `openspec/changes -> ../changes` and `openspec/specs -> ../specs`, copies `config.yaml` from
+   this directory to `openspec/config.yaml` (adjust its rules), and installs the **explore** skill
+   (below) as `.claude/skills/explore`. Commit the links and the skill, and map the skill to the
+   `thinker` role: `"explore": "thinker"` in `.claude/model-roles.json` and its row in the
+   playbook's skills table (`checks/model-roles.sh` holds both).
 3. Set `PROPOSALS="openspec"` in `.claude/project.conf`. From then on `.claude/checks/openspec.sh`
    (a gate step, through `checks/run.sh`) runs `openspec validate --all --strict` on the project,
    and fails if the links point anywhere else.
@@ -26,6 +29,20 @@ migrated**: `openspec/changes` and `openspec/specs` are symlinks to `CHANGES_DIR
 An adopting project whose records already live under `openspec/` sets
 `CHANGES_DIR="openspec/changes"` and `SPECS_DIR="openspec/specs"` instead; `enable.sh` then makes no
 links.
+
+## The explore skill
+
+`skills/explore/SKILL.md` is OpenSpec 1.2.0's `openspec-explore` thinking-partner skill (MIT),
+adapted to this model: `/explore` reads freely and never implements. Where the vendored skill
+creates changes and writes artifacts under `openspec/changes/`, this one reads `CHANGES_DIR`, sends
+a new change to `/propose` (one ahead, the owner approves), and captures only within the template's
+rules: `[CAP-n-Sn]` scenario IDs, MODIFIED blocks copied word for word, a `## Purpose` for a new
+capability, and no edit to an approved design without the owner (it voids the approval). It runs
+`openspec list --json` only with the CLI at 1.13 or later, and reads the directory otherwise.
+
+`enable.sh` copies it to `.claude/skills/explore` (Claude Code finds skills only there). After a
+`clauductor update` that changes it, `enable.sh --check` and `checks/run.sh openspec:project` fail
+until `enable.sh` is run again.
 
 ## What changes when it is on
 

@@ -75,6 +75,12 @@ has yes "OK health from demo" "$h" "health: an ENABLED module's line runs"
 has yes "Health: h (module demo)" "$h" "health: ...under a heading naming its module"
 has yes "start section from demo" "$c" "context: an enabled module's section prints"
 has yes "Fragment from demo." "$f" "fragments: an enabled module's fragment is included"
+# A module's whole skill (skills/<s>/SKILL.md) is installed by its enable.sh, never appended as a
+# fragment, not even to a host skill of the same name.
+printf -- '---\nname: merge-pr\n---\nWhole skill from demo.\n' > "$R/.claude/modules/demo/skills/merge-pr/SKILL.md"
+f=$(ext fragments merge-pr); rm -f "$R/.claude/modules/demo/skills/merge-pr/SKILL.md"
+has no "Whole skill from demo." "$f" "fragments: a module's SKILL.md is not a fragment"
+has yes "Fragment from demo." "$f" "...while its fragments beside it still are"
 has yes "| docs/demo.json | re-run the demo generator (module demo) |" "$t" "conflicts: an enabled module's row joins the table"
 has yes "module demo guard.d/rule.sh" "$l" "list: names the enabled module's guard rule"
 # Module first, then local: the order the README promises.
@@ -188,8 +194,10 @@ grep -q "extensions.sh context session-close" "$ROOT/.claude/skills/session-clos
 grep -qE '^!`sh [^ `]*extensions\.sh conflicts`$' "$ROOT/.claude/skills/session-close/SKILL.md" && ok "session-close's conflict table includes the modules' and local layer's rows" || fail "session-close/SKILL.md has no conflicts include line"
 for sk in "$ROOT"/.claude/skills/*/SKILL.md; do
   s=$(basename "$(dirname "$sk")")
-  # The project's own skills, and the plugin's scaffolding skill (init), extend nothing.
+  # The project's own skills, and the plugin's scaffolding skill (init), extend nothing; nor does a
+  # whole skill a module ships (modules/<m>/skills/<s>/SKILL.md, installed by its enable.sh).
   case $s in architecture-audit | release-prep | init) continue ;; esac
+  ls "$ROOT"/.claude/modules/*/skills/"$s"/SKILL.md >/dev/null 2>&1 && continue
   grep -qE "^!\`sh [^ \`]*extensions\\.sh fragments $s\`\$" "$sk" || fail "skill $s has no '!\`sh .claude/extensions.sh fragments $s\`' include line under ## Project steps"
 done
 [ "$_fails" -eq 0 ] && ok "every template skill includes its fragments"

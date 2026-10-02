@@ -122,6 +122,14 @@ if [ "$DIRTY" -eq 1 ]; then state=dirty
 elif [ "${GATE_CLEAN_ROOM:-none}" != archive ]; then
   { [ "$START_DIRTY" -eq 1 ] || [ -n "$(porcelain)" ] || [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; } && state=dirty
 fi
+# Did the steps run exactly TESTED_SHA's tree? A failure says something about that commit only then:
+# a clean room of it, or this checkout unchanged at the start and HEAD unmoved (files a failing
+# step leaves behind do not change what it ran). Otherwise a red would land on a commit never run.
+tested_commit=0
+if [ "$DIRTY" -eq 0 ]; then
+  if [ "${GATE_CLEAN_ROOM:-none}" = archive ]; then tested_commit=1
+  elif [ "$START_DIRTY" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$TESTED_SHA" ]; then tested_commit=1; fi
+fi
 
 # Still the lease's holder? A gate that lost its lease mid-run may have run beside another gate (two
 # gates binding one port fail each other falsely, or pass falsely), so its result cannot count:
@@ -140,6 +148,10 @@ if [ "$code" -eq 0 ]; then
   if [ "$MODE" = full ]; then
     printf '%s\tfull\t%s\tall\n' "$TESTED_SHA" "$state" > "$RECEIPT"
     echo "    receipt: $RECEIPT ($state)"
+    # The picture for a PR's reader (the ci-status module, when on), only for a clean run: a status
+    # has no `dirty` field the way the receipt does, and would show green for a commit that is not
+    # what was tested.
+    if [ "$state" = clean ]; then model_publish_status pass "$TESTED_SHA"; fi
     # Said HERE, at the end, where the verdict is read: a note at the top of a long log is not read.
     [ "$state" = clean ] || echo "    !!  The tree tested was NOT the commit (uncommitted or untracked files, --dirty, or HEAD moved): the merge guard refuses this receipt. Commit and re-run."
   else
@@ -149,5 +161,9 @@ else
   echo
   echo "==> FAIL ($MODE):$FAILED"
   if [ "$MODE" = full ] && [ -f "$RECEIPT" ]; then rm -f "$RECEIPT"; echo "    removed $RECEIPT: a stale pass must not outlive a fail"; fi
+  # Evidence and picture are retracted together: a failed full run of the committed tree also turns
+  # an earlier green status on that commit red. A run over anything else (--dirty, uncommitted
+  # changes, HEAD moved) did not run the commit, so it posts nothing either way.
+  if [ "$MODE" = full ] && [ "$tested_commit" -eq 1 ]; then model_publish_status fail "$TESTED_SHA"; fi
 fi
 exit "$code"

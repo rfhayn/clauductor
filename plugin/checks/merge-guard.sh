@@ -89,6 +89,21 @@ printf '%s\tfull\tclean\tall\n' "$MAINSHA" > "$(git -C "$d/lane" rev-parse --abs
 guard 0 "a receipt in a linked worktree's git dir" "gh pr merge 5 --squash"
 guard 2 "a red check" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"lint","state":"FAILURE","bucket":"fail"}]'
 guard 0 "a red DISPLAY context (GATE_DISPLAY_CONTEXTS)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"}]'
+# ...and display the other way: a GREEN one is not evidence (the ci-status module posts these).
+lane_receipt="$(git -C "$d/lane" rev-parse --absolute-git-dir)/ci-receipt"
+mv "$lane_receipt" "$d/receipt.keep"
+guard 2 "a GREEN display context with no receipt (display is not evidence)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"}]'
+# The ci-status module on, GATE_DISPLAY_CONTEXTS left to its module.conf default: both directions
+# hold for both contexts its publisher posts, and every other check still gates.
+mkdir -p "$R/.claude/modules"; cp -R "$CLAUDUCTOR_FW/modules/ci-status" "$R/.claude/modules/"
+cp "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$R/.claude/project.conf" "$d/conf.keep"
+printf 'MODULES="ci-status"\nGATE_REMOTE_WORKFLOW="ci.yml"\n' > "$R/.claude/project.conf"
+guard 2 "ci-status on: green ci/local and ci/github with no receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"ci/github","state":"SUCCESS","bucket":"pass"}]'
+mv "$d/receipt.keep" "$lane_receipt"
+guard 0 "ci-status on: red ci/local and ci/github with a valid receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"FAILURE","bucket":"fail"},{"name":"ci/github","state":"FAILURE","bucket":"fail"}]'
+guard 2 "ci-status on: a red check that is not a display context" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"lint","state":"FAILURE","bucket":"fail"}]'
+cp "$d/conf.keep" "$R/.claude/project.conf"; rm -rf "$R/.claude/modules" "$R/.claude/lib/modules.sh"
 
 # Rule 3: the slice line, read at the head from the PR's own change directory.
 printf '%s\tfull\tclean\tall\n' "$NOSLICE" > "$R/.git/ci-receipt"
