@@ -73,21 +73,44 @@ THE SYSTEM SHALL record each refresh lock it observes, with its holder and wheth
 - **WHEN** the panel stops one of its `claude` calls at its timeout
 - **THEN** the log has a line naming the call, the signal it sent and whether a lock existed then
 
-### Requirement: A stuck refresh is shown to the owner and never removed
-WHEN the same refresh lock has been touched within 60 seconds continuously for more than 2 minutes THE SYSTEM SHALL raise an alert naming its holder and what to do, and THE SYSTEM SHALL never remove or write the lock or its owner record.
+### Requirement: A stuck or stranded lock is shown to the owner and never removed
+WHEN the same refresh lock has been touched within 60 seconds continuously for more than 2 minutes THE SYSTEM SHALL raise an alert naming its holder and what to do; WHEN a lock untouched for 60 seconds or more is still present 2 minutes later THE SYSTEM SHALL raise a warning naming the lock, its last holder and the remedy; and THE SYSTEM SHALL never remove or write the lock or its owner record.
 
 #### Scenario: [CLAUDECALLS-5-S1] A lock held live for over 2 minutes is an alert
 - **GIVEN** a lock whose directory is touched every 5 seconds for 3 minutes, held by pid 4242
 - **WHEN** the panel derives its alerts
 - **THEN** an alert names pid 4242, its command and the lock's age, and says to run /login in any session and to end that process if it comes back
 
-#### Scenario: [CLAUDECALLS-5-S2] A left-behind lock is not an alert
-- **GIVEN** a lock last touched 10 minutes ago
+#### Scenario: [CLAUDECALLS-5-S2] A stranded lock is a warning with the remedy
+- **GIVEN** a lock last touched 5 minutes ago whose owner record names a pid that no longer runs
 - **WHEN** the panel derives its alerts
-- **THEN** no alert is raised
-- **AND** the diagnostics say the lock was left behind and that Claude Code reclaims it at the next refresh
+- **THEN** a warning names the lock's path and says its holder is gone
+- **AND** it says that if sessions fail to refresh, remove that path and run /login
 
 #### Scenario: [CLAUDECALLS-5-S3] The panel never touches the lock
 - **GIVEN** a lock and its owner record, live or stale
 - **WHEN** the panel watches, logs and alerts on them
 - **THEN** both still exist with the same contents and modification times
+
+#### Scenario: [CLAUDECALLS-5-S4] A lock that has only just gone stale is not yet a warning
+- **GIVEN** a lock last touched 90 seconds ago
+- **WHEN** the panel derives its alerts
+- **THEN** no warning is raised
+
+### Requirement: The account is read on demand, not on a timer
+THE SYSTEM SHALL run `claude auth status` only at start when no account reading under 24 hours old is saved, and when the owner asks for a refresh; it SHALL use the saved reading otherwise.
+
+#### Scenario: [CLAUDECALLS-6-S1] A recent saved reading is used at start
+- **GIVEN** an account reading saved 3 hours ago
+- **WHEN** the panel starts
+- **THEN** no `claude auth status` runs
+- **AND** the status bar shows the saved reading's mode and plan
+
+#### Scenario: [CLAUDECALLS-6-S2] No timer reads the account
+- **GIVEN** a panel that read the account at start
+- **WHEN** an hour passes with no refresh asked for
+- **THEN** no further `claude auth status` runs
+
+#### Scenario: [CLAUDECALLS-6-S3] Refresh reads the account
+- **WHEN** the owner presses Refresh
+- **THEN** `claude auth status` runs once, under the same guards as every panel `claude` call, and its reading is saved
