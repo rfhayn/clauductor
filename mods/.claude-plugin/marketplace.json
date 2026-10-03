@@ -1,0 +1,15 @@
+{
+  "description": "The Curtain prototype (OPS-31), for trying it in this repo's root lanes before it is proposed.",
+  "name": "curtain-proto",
+  "owner": {
+    "name": "Rich Hayn"
+  },
+  "plugins": [
+    {
+      "category": "development",
+      "description": "/curtain wraps a lane up (merge-pr, session-close, close the lane, exit) while Clawd sweeps the stage as the curtain falls.",
+      "name": "curtain",
+      "source": "./curtain"
+    }
+  ]
+}
