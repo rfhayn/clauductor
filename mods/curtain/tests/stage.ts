@@ -90,6 +90,12 @@ export async function startSession($: any): Promise<void> {
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 }
 
+// A command as the person types it. The engine stamps `origin` and
+// `presentation` on the way down, so a test leaves them out, as the docs do.
+export async function runCommand($: any, input: { command: string; args: string }): Promise<{ text?: string }> {
+  return $.command.run(input)
+}
+
 export async function endTurn($: any, isAborted = false): Promise<void> {
   await $.turn.complete({
     turnId: 't1',
@@ -131,10 +137,21 @@ export function rasterLines(props: { [key: string]: unknown }): string[] {
   return lines
 }
 
-/** What the band shows on the terminal now, as text. */
-export async function bandText($: any): Promise<string> {
-  const ui = await $.ui.mount({ plugin: 'curtain', surface: 'terminal', ...BAND })
+/** What the band shows on the terminal now: its lines, none when the mod draws nothing. */
+export async function band($: any, columns = 80, maxRows = 20): Promise<string[]> {
+  const ui = await $.ui.mount({
+    plugin: 'curtain',
+    surface: 'terminal',
+    ...BAND,
+    viewport: { ...BAND.viewport, columns },
+    props: { ...BAND.props, bodyColumns: columns, maxRows },
+  })
   const raster = await ui.find({ type: 'Raster' })
   await ui.unmount()
-  return raster ? rasterLines(raster.props).join('\n') : ''
+  return raster ? rasterLines(raster.props) : []
+}
+
+/** What the band shows on the terminal now, as one text. */
+export async function bandText($: any): Promise<string> {
+  return (await band($)).join('\n')
 }

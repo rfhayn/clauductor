@@ -13,7 +13,7 @@ import {
   stretchProgress,
   target,
   withSample,
-} from '../hooks/timing.ts'
+} from '../hooks/timing.js'
 
 test('each stretch is weighted by its expected duration', async () => {
   const b = boundaries([8 * 60_000, 4 * 60_000, 20_000])

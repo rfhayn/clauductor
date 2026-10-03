@@ -1,30 +1,38 @@
 // The stage, as pure functions: one frame in, one grid of cells out. No `$`,
 // so the hooks module calls it per frame and the tests read frames directly.
 //
-// Full layout (9 rows):         Compact layout (2 rows), for a narrow
-//   valance (gold trim)          terminal or a short band:
-//   6 rows of stage                curtain bar with Clawd sweeping
-//   floor boards                   status line
-//   status line
+// Three layouts:
+//   strip  (2 rows)  while the work runs, by default: a velvet valance with a
+//                    gold hem fills the top row as the progress bar; the step,
+//                    its time and a small Clawd sweeping share the second row
+//   medium (6 rows)  valance, 3 rows of stage, floor, status
+//   full   (9 rows)  valance, 6 rows of stage, floor, status; the finale's
+//                    layout whatever the size, and the whole run's at `full`
+// A band too narrow or too short for the layout asked for gets the next one down.
 
-export type ScenePhase = 'running' | 'bow' | 'fin' | 'done' | 'halted'
+export type ScenePhase = 'running' | 'finale' | 'bow' | 'fin' | 'done' | 'halted'
+export type SceneLayout = 'strip' | 'medium' | 'full'
 
 export type SceneInput = {
   /** Cells the site gives the band (`e.props.bodyColumns`). */
   columns: number
   /** Rows the band may take (`e.props.maxRows`). */
   maxRows: number
-  /** How closed the curtain is drawn, 0 (open) to 1 (closed). */
+  /** The layout asked for; a band too small for it gets a smaller one. */
+  layout: SceneLayout
+  /** How closed the curtain is drawn (or how full the strip's bar), 0 to 1. */
   drop: number
   /** The animation counter: Clawd's position and the dust come from it. */
   frame: number
   phase: ScenePhase
   /** Frames since the phase began: the bow's timing. */
   phaseFrame: number
-  /** The line under the stage. */
+  /** The status line (the strip's second row when it is held). */
   status: string
   /** Lines shown over the curtain (INTERMISSION, fin). */
   banner?: readonly string[]
+  /** Step boundaries as fractions of the travel, marked on the strip's rail. */
+  marks?: readonly number[]
 }
 
 /** What a non-terminal surface colours a cell by, in place of its RGB. */
@@ -32,19 +40,21 @@ export type Tone = 'curtain' | 'gold' | 'clawd' | 'broom' | 'dust' | 'floor' | '
 
 export type Cell = { ch: string; fg: number; bg: number; tone: Tone }
 
-export type Grid = { columns: number; rows: number; compact: boolean; cells: Cell[] }
+export type Grid = { columns: number; rows: number; layout: SceneLayout; cells: Cell[] }
 
 export const DEFAULT_COLOR = 0x01000000
-export const FULL_ROWS = 9
-export const COMPACT_ROWS = 2
 export const MAX_COLUMNS = 96
-// Narrower than this, or a band shorter than FULL_ROWS + 1, draws the compact layout.
-export const MIN_FULL_COLUMNS = 28
+export const STRIP_ROWS = 2
+export const MEDIUM_ROWS = 6
+export const FULL_ROWS = 9
+// A stage narrower than this draws the strip instead.
+export const MIN_STAGE_COLUMNS = 28
+// The strip's status column, at least; the rest of the second row is Clawd's
+// lane, when it is at least STRIP_LANE_MIN wide.
+const STRIP_STATUS_COLUMNS = 26
+const STRIP_LANE_MIN = 12
 
 const STAGE_TOP = 1
-const STAGE_ROWS = 6
-const FLOOR_ROW = STAGE_TOP + STAGE_ROWS
-const STATUS_ROW = FLOOR_ROW + 1
 
 // Velvet: mirrored around the centre seam so the two curtains fold alike.
 const FOLDS = [0x5c0912, 0x7a0e19, 0x991321, 0xb3192a, 0x991321, 0x7a0e19]
@@ -57,21 +67,30 @@ const BRISTLE = [0xe3c46a, 0xc9a54c]
 const DUST = [0xd0d0d0, 0xb0b0b0, 0x909090, 0x777777, 0x5f5f5f, 0x4a4a4a]
 const BOARD = 0x8a5a2b
 const BOARD_SHADE = 0x5e3b1b
+const RAIL = 0x4a4a4a
 const TEXT = 0xbdbdbd
 const ALERT = 0xf0c040
 
-// Clawd, the Claude Code mascot, three rows of nine cells. The cells marked
-// `e` in EYES are the quadrant blocks whose missing corner is an eye.
+// Clawd, the Claude Code mascot, three rows of nine cells. The cells marked in
+// EYES are the quadrant blocks whose missing corner is an eye.
 const CLAWD_UP = [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  ']
 const CLAWD_STEP = [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▝▘ ▝▘  ']
 const CLAWD_BOW = ['         ', '▗▟▀███▀▙▖', '  ▘▘ ▝▝  ']
 const EYES = new Set(['0,2', '0,6'])
+// Small Clawd for the strip: his head and eyes, bobbing as he sweeps.
+const MINI = ['▐▛█▜▌', '▗▛█▜▖']
+const MINI_EYES = new Set([1, 3])
 const DUST_GLYPHS = ['·', '∘', '°', '˚', '·', '.']
 
-export function layout(bodyColumns: number, maxRows: number): { columns: number; rows: number; compact: boolean } {
+const ROWS: Record<SceneLayout, number> = { strip: STRIP_ROWS, medium: MEDIUM_ROWS, full: FULL_ROWS }
+
+// The layout a band can hold: the one asked for, or the next one down.
+export function layout(bodyColumns: number, maxRows: number, wanted: SceneLayout = 'full'): { columns: number; rows: number; layout: SceneLayout } {
   const columns = Math.max(1, Math.min(MAX_COLUMNS, Math.floor(bodyColumns) || 1))
-  const compact = columns < MIN_FULL_COLUMNS || !(maxRows >= FULL_ROWS + 1)
-  return { columns, rows: compact ? COMPACT_ROWS : FULL_ROWS, compact }
+  const order: SceneLayout[] = wanted === 'full' ? ['full', 'medium', 'strip'] : wanted === 'medium' ? ['medium', 'strip'] : ['strip']
+  const fits = (l: SceneLayout) => l === 'strip' || (columns >= MIN_STAGE_COLUMNS && maxRows >= ROWS[l] + 1)
+  const chosen = order.find(fits) ?? 'strip'
+  return { columns, rows: ROWS[chosen], layout: chosen }
 }
 
 function blank(columns: number, rows: number): Cell[] {
@@ -88,9 +107,12 @@ function at(grid: Grid, x: number, y: number): Cell | undefined {
   return grid.cells[y * grid.columns + x]
 }
 
-function text(grid: Grid, x: number, y: number, s: string, fg: number, bg: number, tone: Tone): void {
+function text(grid: Grid, x: number, y: number, s: string, fg: number, bg: number, tone: Tone, width = grid.columns): void {
   let i = 0
-  for (const ch of s) put(grid, x + i++, y, ch, fg, bg, tone)
+  for (const ch of s) {
+    if (i >= width) break
+    put(grid, x + i++, y, ch, fg, bg, tone)
+  }
 }
 
 function centred(grid: Grid, y: number, s: string, fg: number, bg: number, tone: Tone): void {
@@ -103,14 +125,16 @@ function fold(grid: Grid, x: number): number {
   return FOLDS[Math.floor(Math.abs(x - seam)) % FOLDS.length]!
 }
 
-// Clawd's left edge and heading for a frame: back and forth across the boards,
-// one cell a frame, with room for the broom trailing on either side.
-export function sweepPosition(columns: number, frame: number): { x: number; dir: 1 | -1 } {
-  const lo = 3
-  const hi = Math.max(lo + 1, columns - 12)
-  const span = hi - lo
+// Back and forth across a lane `lo..hi` (left edges), one cell a frame.
+function bounce(lo: number, hi: number, frame: number): { x: number; dir: 1 | -1 } {
+  const span = Math.max(1, hi - lo)
   const p = ((frame % (2 * span)) + 2 * span) % (2 * span)
   return p < span ? { x: lo + p, dir: 1 } : { x: hi - (p - span), dir: -1 }
+}
+
+// Clawd's left edge and heading on the stage, with room for the broom trailing.
+export function sweepPosition(columns: number, frame: number): { x: number; dir: 1 | -1 } {
+  return bounce(3, Math.max(4, columns - 12), frame)
 }
 
 function sprite(grid: Grid, rows: readonly string[], x: number, top: number): void {
@@ -126,9 +150,17 @@ function sprite(grid: Grid, rows: readonly string[], x: number, top: number): vo
   })
 }
 
-function sweeper(grid: Grid, frame: number): void {
+function dust(grid: Grid, frame: number, fromX: number, dir: 1 | -1, low: number, high: number, puffs: number): void {
+  for (let i = 0; i < puffs; i++) {
+    const age = (frame + i * 2) % DUST_GLYPHS.length
+    const dx = dir === 1 ? fromX - 1 - age : fromX + 2 + age
+    put(grid, dx, age < 3 ? low : high, DUST_GLYPHS[age]!, DUST[age]!, DEFAULT_COLOR, 'dust')
+  }
+}
+
+function sweeper(grid: Grid, frame: number, floorRow: number): void {
   const { x, dir } = sweepPosition(grid.columns, frame)
-  const top = FLOOR_ROW - 3
+  const top = floorRow - 3
   const bristles = BRISTLE[frame % 2]!
   // The broom trails behind Clawd: handle up to his side, bristles on the boards.
   const handleX = dir === 1 ? x - 1 : x + 9
@@ -136,21 +168,15 @@ function sweeper(grid: Grid, frame: number): void {
   put(grid, handleX, top + 1, dir === 1 ? '╱' : '╲', HANDLE, DEFAULT_COLOR, 'broom')
   put(grid, brushX, top + 2, frame % 2 ? '▓' : '▒', bristles, DEFAULT_COLOR, 'broom')
   put(grid, brushX + 1, top + 2, frame % 2 ? '▒' : '▓', bristles, DEFAULT_COLOR, 'broom')
-  // Three puffs of dust kicked up behind the broom, drifting away and up.
-  for (let i = 0; i < 3; i++) {
-    const age = (frame + i * 2) % DUST_GLYPHS.length
-    const dx = dir === 1 ? brushX - 1 - age : brushX + 2 + age
-    const dy = age < 3 ? top + 2 : top + 1
-    put(grid, dx, dy, DUST_GLYPHS[age]!, DUST[age]!, DEFAULT_COLOR, 'dust')
-  }
+  dust(grid, frame, brushX, dir, top + 2, top + 1, 3)
   sprite(grid, frame % 4 < 2 ? CLAWD_UP : CLAWD_STEP, x, top)
 }
 
-function curtain(grid: Grid, drop: number): void {
+function curtain(grid: Grid, drop: number, stageRows: number): void {
   // Half-row resolution: the hem moves half a cell at a time.
-  const halves = STAGE_ROWS * 2
+  const halves = stageRows * 2
   const covered = Math.max(0, Math.min(halves, Math.round(drop * halves)))
-  for (let r = 0; r < STAGE_ROWS; r++) {
+  for (let r = 0; r < stageRows; r++) {
     const topHalf = 2 * r < covered
     const bottomHalf = 2 * r + 1 < covered
     if (!topHalf) continue
@@ -170,59 +196,83 @@ function curtain(grid: Grid, drop: number): void {
   }
 }
 
-function frameStage(grid: Grid): void {
-  for (let x = 0; x < grid.columns; x++) {
-    put(grid, x, 0, x % 6 === 0 ? '▀' : '▀', VALANCE, x % 6 === 3 ? VALANCE : GOLD, 'gold')
-    put(grid, x, FLOOR_ROW, '▀', x % 9 === 0 ? BOARD_SHADE : BOARD, BOARD_SHADE, 'floor')
-  }
-}
-
-function full(input: SceneInput, columns: number): Grid {
-  const grid: Grid = { columns, rows: FULL_ROWS, compact: false, cells: blank(columns, FULL_ROWS) }
-  const behind = input.phase === 'running' || input.phase === 'halted'
-  if (behind) sweeper(grid, input.frame)
-  curtain(grid, input.phase === 'running' || input.phase === 'halted' ? input.drop : 1)
+function stage(input: SceneInput, columns: number, stageRows: number, which: SceneLayout): Grid {
+  const rows = stageRows + 3
+  const floorRow = STAGE_TOP + stageRows
+  const grid: Grid = { columns, rows, layout: which, cells: blank(columns, rows) }
+  const isOpen = input.phase === 'running' || input.phase === 'halted' || input.phase === 'finale'
+  if (isOpen) sweeper(grid, input.frame, floorRow)
+  curtain(grid, isOpen ? input.drop : 1, stageRows)
   if (input.phase === 'bow') {
     // In front of the closed curtain, centre stage: up, a bow, up again.
     const bowing = input.phaseFrame >= 4 && input.phaseFrame < 12
-    sprite(grid, bowing ? CLAWD_BOW : CLAWD_UP, Math.floor((columns - 9) / 2), FLOOR_ROW - 3)
+    sprite(grid, bowing ? CLAWD_BOW : CLAWD_UP, Math.floor((columns - 9) / 2), floorRow - 3)
   }
-  const banner = input.banner ?? []
-  banner.forEach((line, i) => {
-    const y = STAGE_TOP + 1 + i
-    const bg = at(grid, Math.floor(columns / 2), y)?.tone === 'curtain' ? fold(grid, Math.floor(columns / 2)) : DEFAULT_COLOR
+  ;(input.banner ?? []).forEach((line, i) => {
+    const y = Math.min(STAGE_TOP + (stageRows > 3 ? 1 : 0) + i, floorRow - 1)
+    const mid = Math.floor(columns / 2)
+    const bg = at(grid, mid, y)?.tone === 'curtain' ? fold(grid, mid) : DEFAULT_COLOR
     centred(grid, y, line, ALERT, bg, input.phase === 'halted' ? 'alert' : 'gold')
   })
-  frameStage(grid)
-  const tone: Tone = input.phase === 'halted' ? 'alert' : 'text'
-  text(grid, 0, STATUS_ROW, [...input.status].slice(0, columns).join(''), input.phase === 'halted' ? ALERT : TEXT, DEFAULT_COLOR, tone)
+  for (let x = 0; x < columns; x++) {
+    put(grid, x, 0, '▀', VALANCE, x % 6 === 3 ? VALANCE : GOLD, 'gold')
+    put(grid, x, floorRow, '▀', x % 9 === 0 ? BOARD_SHADE : BOARD, BOARD_SHADE, 'floor')
+  }
+  const isHeld = input.phase === 'halted'
+  text(grid, 0, floorRow + 1, input.status, isHeld ? ALERT : TEXT, DEFAULT_COLOR, isHeld ? 'alert' : 'text')
   return grid
 }
 
-function compact(input: SceneInput, columns: number): Grid {
-  const grid: Grid = { columns, rows: COMPACT_ROWS, compact: true, cells: blank(columns, COMPACT_ROWS) }
-  const drop = input.phase === 'running' || input.phase === 'halted' ? input.drop : 1
-  const filled = Math.round(drop * columns)
+function strip(input: SceneInput, columns: number): Grid {
+  const grid: Grid = { columns, rows: STRIP_ROWS, layout: 'strip', cells: blank(columns, STRIP_ROWS) }
+  // Row 0: the valance. Velvet over a gold hem as far as the work has come,
+  // a thin rail after it, with each step's boundary picked out in gold.
+  const filled = Math.max(0, Math.min(columns, Math.round(input.drop * columns)))
+  const marks = new Set((input.marks ?? []).slice(0, -1).map((m) => Math.min(columns - 1, Math.round(m * columns))))
   for (let x = 0; x < columns; x++) {
-    if (x < filled) put(grid, x, 0, '█', fold(grid, x), DEFAULT_COLOR, 'curtain')
-    else put(grid, x, 0, '▁', BOARD, DEFAULT_COLOR, 'floor')
+    if (x < filled) put(grid, x, 0, '▀', fold(grid, x), GOLD, 'curtain')
+    else put(grid, x, 0, '▔', marks.has(x) ? GOLD : RAIL, DEFAULT_COLOR, marks.has(x) ? 'gold' : 'floor')
   }
-  if (input.phase === 'running' && filled < columns) {
-    // Clawd shrinks to one glyph and sweeps the boards the curtain has not reached.
-    const room = columns - filled
-    const p = input.frame % Math.max(1, 2 * room)
-    const x = filled + (p < room ? p : 2 * room - 1 - p)
-    put(grid, x, 0, '▟', CLAWD, DEFAULT_COLOR, 'clawd')
+  // Row 1: held, the reason takes the whole row; running, the status on the
+  // left and Clawd sweeping the rest.
+  const isHeld = input.phase === 'halted'
+  if (isHeld) {
+    text(grid, 0, 1, input.status, ALERT, DEFAULT_COLOR, 'alert')
+    return grid
   }
-  const banner = input.banner?.[0]
-  if (banner) centred(grid, 0, banner, ALERT, fold(grid, Math.floor(columns / 2)), input.phase === 'halted' ? 'alert' : 'gold')
-  text(grid, 0, 1, [...input.status].slice(0, columns).join(''), input.phase === 'halted' ? ALERT : TEXT, DEFAULT_COLOR, input.phase === 'halted' ? 'alert' : 'text')
+  // The status takes what it needs (at least STRIP_STATUS_COLUMNS, so Clawd's
+  // lane does not jump as the clock ticks); Clawd gets the rest if it is enough.
+  const statusColumns = Math.max(STRIP_STATUS_COLUMNS, [...input.status].length + 2)
+  const lane = columns - statusColumns
+  text(grid, 0, 1, input.status, TEXT, DEFAULT_COLOR, 'text')
+  if (lane >= STRIP_LANE_MIN) {
+    const lo = statusColumns + 3
+    const hi = columns - 8
+    const { x, dir } = bounce(lo, Math.max(lo + 1, hi), input.frame)
+    const mini = MINI[input.frame % 4 < 2 ? 0 : 1]!
+    const handleX = dir === 1 ? x - 1 : x + 5
+    const brushX = dir === 1 ? x - 2 : x + 6
+    put(grid, handleX, 1, dir === 1 ? '╱' : '╲', HANDLE, DEFAULT_COLOR, 'broom')
+    put(grid, brushX, 1, input.frame % 2 ? '▓' : '▒', BRISTLE[input.frame % 2]!, DEFAULT_COLOR, 'broom')
+    // A puff or two, kept inside Clawd's lane.
+    for (let i = 0; i < 2; i++) {
+      const age = (input.frame + i * 3) % DUST_GLYPHS.length
+      const dx = dir === 1 ? brushX - 1 - age : brushX + 1 + age
+      if (dx > statusColumns && dx < columns) put(grid, dx, 1, DUST_GLYPHS[age]!, DUST[age]!, DEFAULT_COLOR, 'dust')
+    }
+    let c = 0
+    for (const ch of mini) {
+      put(grid, x + c, 1, ch, CLAWD, MINI_EYES.has(c) ? EYE : DEFAULT_COLOR, 'clawd')
+      c++
+    }
+  }
   return grid
 }
 
 export function buildGrid(input: SceneInput): Grid {
-  const shape = layout(input.columns, input.maxRows)
-  return shape.compact ? compact(input, shape.columns) : full(input, shape.columns)
+  const shape = layout(input.columns, input.maxRows, input.layout)
+  if (shape.layout === 'strip') return strip(input, shape.columns)
+  return stage(input, shape.columns, shape.layout === 'full' ? 6 : 3, shape.layout)
 }
 
 // The Raster's `cells`: base64 of little-endian u32 triplets [codePoint, fg, bg].

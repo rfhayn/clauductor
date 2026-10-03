@@ -2,5 +2,14 @@
   "name": "curtain",
   "version": "0.1.0",
   "description": "The full wrap-up of a lane in one command, /curtain (merge-pr, session-close, close the lane, exit), with a closing show above the prompt: Clawd sweeps the stage while the curtain comes down",
-  "author": { "name": "Rich Hayn" }
+  "author": { "name": "Rich Hayn" },
+  "userConfig": {
+    "size": {
+      "type": "string",
+      "title": "Curtain size",
+      "description": "How much room the show takes while the work runs: small (a two-row strip), medium (half the stage) or full (the whole stage). The finale always uses the full stage.",
+      "options": ["small", "medium", "full"],
+      "default": "small"
+    }
+  }
 }

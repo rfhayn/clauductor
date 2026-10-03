@@ -1,9 +1,10 @@
 // The real show's chaining, with every gh call stubbed: the skill's events
-// move the curtain, the checks gate each boundary, and /exit goes out only on
-// the /curtain done signal with the PR confirmed merged.
+// move the curtain, the checks gate each boundary, the strip expands only for
+// the finale, and /exit goes out only on the /curtain done signal with the PR
+// confirmed merged.
 
 import { expect, test } from 'claude-code/testing'
-import { MERGED, TOOL, bandText, endTurn, stage, startSession } from './stage.ts'
+import { MERGED, TOOL, band, bandText, endTurn, runCommand, stage, startSession } from './stage.js'
 
 const SLOW = { timeoutMs: 30_000 }
 
@@ -12,22 +13,31 @@ async function raise($: any) {
   await $.skill.prompt({ skill: 'curtain', text: 'the curtain skill' })
 }
 
-test('all three steps succeed: the curtain falls, Clawd bows, and the mod submits /exit', SLOW, async ($, on) => {
+test('all three steps succeed: the strip expands, the curtain falls, Clawd bows, and the mod submits /exit', SLOW, async ($, on) => {
   const { clock, rec } = stage(on, MERGED)
   await raise($)
-  expect(await bandText($)).toMatch(/▐▛███▜▌/)
+  await clock.advance(1_000)
+  // While the work runs: the strip, two rows, the step and its time.
+  const running = await band($)
+  expect(running.length).toBe(2)
+  expect(running[1]!.startsWith('1/3 merge-pr 0:01 / ~8m')).toBe(true)
 
   // merge-pr runs for five minutes; session-close starting is its boundary.
   await clock.advance(5 * 60_000)
   await $.skill.prompt({ skill: 'session-close', text: 'the session-close skill' })
   await clock.advance(3 * 60_000)
+  expect((await band($))[1]!.startsWith('2/3 session-close 3:00 / ~4m')).toBe(true)
 
   const lane = await $.tool.call({ tool: TOOL, cue: 'lane' })
   expect(String(lane.result)).toMatch(/confirmed/)
   await clock.advance(15_000)
+  expect((await band($)).length).toBe(2)
 
   const exit = await $.tool.call({ tool: TOOL, cue: 'exit' })
   expect(String(exit.result)).toMatch(/End your turn now/)
+  // The finale: the full stage.
+  await clock.advance(1_000)
+  expect((await band($)).length).toBe(9)
   // The signal alone sends nothing: the turn has not ended.
   await clock.advance(20_000)
   expect(rec.commands).toEqual([])
@@ -40,6 +50,23 @@ test('all three steps succeed: the curtain falls, Clawd bows, and the mod submit
   expect(rec.commands).toEqual(['exit'])
   // Nothing was submitted as a prompt along the way.
   expect(rec.submits).toEqual([])
+})
+
+test('the finale takes about ten seconds: fall, bow, fin, then the exit', SLOW, async ($, on) => {
+  const { clock, rec } = stage(on, MERGED)
+  await raise($)
+  await $.skill.prompt({ skill: 'session-close', text: '' })
+  await clock.advance(1_000)
+  await $.tool.call({ tool: TOOL, cue: 'lane' })
+  await $.tool.call({ tool: TOOL, cue: 'exit' })
+  await endTurn($)
+  await clock.advance(4_000)
+  expect(await bandText($)).toMatch(/Clawd takes a bow/)
+  await clock.advance(3_000)
+  expect(await bandText($)).toMatch(/Thank you, goodnight/)
+  expect(rec.commands).toEqual([])
+  await clock.advance(3_500)
+  expect(rec.commands).toEqual(['exit'])
 })
 
 test('each completed step records its real duration for next time', SLOW, async ($, on) => {
@@ -60,14 +87,14 @@ test('each completed step records its real duration for next time', SLOW, async 
   expect(Math.abs((rec.store.get('samples:lane') as number[])[0]! - 10_000) < 1_000).toBe(true)
 })
 
-test('the curtain reads the stored timings: the band shows the learned estimate', SLOW, async ($, on) => {
-  const { clock } = stage(on, MERGED, { 'samples:merge-pr': [120_000, 180_000] })
+test('the curtain reads the stored timings: the strip shows the learned estimate', SLOW, async ($, on) => {
+  const { clock } = stage(on, MERGED, { 'samples:merge-pr': [60_000, 100_000] })
   await raise($)
   await clock.advance(1_000)
-  expect(await bandText($)).toMatch(/of ~2:30/)
+  expect((await band($))[1]!.startsWith('1/3 merge-pr 0:01 / ~80s')).toBe(true)
 })
 
-test('a PR that is not merged holds the show at INTERMISSION, and nothing exits', SLOW, async ($, on) => {
+test('a PR that is not merged freezes the strip at INTERMISSION, never expands, and nothing exits', SLOW, async ($, on) => {
   const { clock, rec } = stage(on, { ...MERGED, prState: 'OPEN' })
   await raise($)
   await clock.advance(60_000)
@@ -77,7 +104,9 @@ test('a PR that is not merged holds the show at INTERMISSION, and nothing exits'
   await clock.advance(60_000)
   expect(rec.commands).toEqual([])
   expect(rec.status.some((s) => /^INTERMISSION: merge-pr stopped/.test(s ?? ''))).toBe(true)
-  expect(await bandText($)).toMatch(/INTERMISSION/)
+  const held = await band($)
+  expect(held.length).toBe(2)
+  expect(held[1]!.startsWith('INTERMISSION · merge-pr stopped: PR #42 is OPEN')).toBe(true)
 })
 
 test('no session-close PR merged: the lane cue stops the show at session-close', SLOW, async ($, on) => {
@@ -93,6 +122,7 @@ test('no session-close PR merged: the lane cue stops the show at session-close',
   await endTurn($)
   await clock.advance(30_000)
   expect(rec.commands).toEqual([])
+  expect((await band($)).length).toBe(2)
 })
 
 test('a turn that ends without the done signal halts at the running step', SLOW, async ($, on) => {
@@ -115,11 +145,11 @@ test('an interrupted turn halts too', SLOW, async ($, on) => {
   expect(rec.commands).toEqual([])
 })
 
-test('/curtain-mod cancel freezes the curtain where it is, and a later done signal is refused', SLOW, async ($, on) => {
+test('/curtain-mod cancel freezes the strip where it is, and a later done signal is refused', SLOW, async ($, on) => {
   const { clock, rec } = stage(on, MERGED)
   await raise($)
   await clock.advance(4 * 60_000)
-  const held = await $.command.run({ command: 'curtain-mod', args: 'cancel' })
+  const held = await runCommand($,{ command: 'curtain-mod', args: 'cancel' })
   expect(String(held.text)).toMatch(/INTERMISSION/)
   const frozen = await bandText($)
   await clock.advance(60_000)
@@ -130,6 +160,7 @@ test('/curtain-mod cancel freezes the curtain where it is, and a later done sign
   await endTurn($)
   await clock.advance(30_000)
   expect(rec.commands).toEqual([])
+  expect((await band($)).length).toBe(2)
 })
 
 test('no PR when the curtain rises: the first check stops it', SLOW, async ($, on) => {
@@ -154,14 +185,38 @@ test('the done signal with no show running says so, and exits nothing', SLOW, as
   expect(rec.commands).toEqual([])
 })
 
+test('size medium: half the stage while the work runs', { ...SLOW, options: { size: 'medium' } }, async ($, on) => {
+  const { clock } = stage(on, MERGED)
+  await raise($)
+  await clock.advance(1_000)
+  const lines = await band($)
+  expect(lines.length).toBe(6)
+  expect(lines.some((l) => l.includes('▝▜█████▛▘'))).toBe(true)
+})
+
+test('size full: the whole stage for the whole run', { ...SLOW, options: { size: 'full' } }, async ($, on) => {
+  const { clock } = stage(on, MERGED)
+  await raise($)
+  await clock.advance(1_000)
+  expect((await band($)).length).toBe(9)
+})
+
+test('size small, the default: the strip', { ...SLOW, options: { size: 'small' } }, async ($, on) => {
+  const { clock } = stage(on, MERGED)
+  await raise($)
+  await clock.advance(1_000)
+  expect((await band($)).length).toBe(2)
+})
+
 test('the band draws text where there is no Raster', SLOW, async ($, on) => {
   const { clock } = stage(on, { ...MERGED, prState: 'OPEN' })
   await raise($)
   await clock.advance(1_000)
-  const desktop = await $.ui.mount({ plugin: 'curtain', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} } })
+  const props = { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} }
+  const desktop = await $.ui.mount({ plugin: 'curtain', surface: 'desktop', component: 'AbovePrompt', props })
   expect(await desktop.find({ type: 'Text', text: /merge-pr/ })).toBeDefined()
   await desktop.unmount()
   await $.tool.call({ tool: TOOL, cue: 'exit' })
-  const again = await $.ui.mount({ plugin: 'curtain', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} } })
+  const again = await $.ui.mount({ plugin: 'curtain', surface: 'desktop', component: 'AbovePrompt', props })
   expect(await again.find({ type: 'Text', text: /INTERMISSION/ })).toBeDefined()
 })
