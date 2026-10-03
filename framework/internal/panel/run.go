@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
@@ -119,6 +120,9 @@ type Ticks struct {
 	Merged time.Duration // the least time between two reads of merged pull requests (gh, while in view)
 	// PANEL-22: projects.json, for a project added or removed (no spawn: a stat).
 	Registry time.Duration
+	// PANEL-28: Claude Code's login refresh locks, into login-lock.jsonl (no spawn: a
+	// stat; one `ps` per holder newly seen).
+	LoginLock time.Duration
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -133,6 +137,7 @@ func DefaultTicks() Ticks {
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
 		Spend: time.Minute, Merged: 10 * time.Minute, Registry: time.Second,
+		LoginLock: claudecall.WatchEvery,
 	}
 }
 
@@ -148,6 +153,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
 		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged}, {&t.Registry, &d.Registry},
+		{&t.LoginLock, &d.LoginLock},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def
@@ -391,6 +397,11 @@ func Run(ctx context.Context, o Options) error {
 	}
 	start(func() { m.ingest(ctx, hooks, status) })
 	m.start(ctx, start)
+	// The login refresh locks (PANEL-28): watched and logged from the start, so the
+	// log covers every refresh this panel lives beside. It only reads them.
+	lockWatch := &claudecall.Watch{Reader: claudecall.NewReader(os.Getenv, o.Home), Log: claudecall.NewLog(o.Home),
+		Clock: clk, Every: ticks.LoginLock, Run: o.Runner, Out: o.Out}
+	start(func() { lockWatch.Loop(ctx) })
 	if !o.Only {
 		watch := &source{name: "registry", every: ticks.Registry, fixedRate: true, waitFirst: true, poll: ls.pollRegistry}
 		start(func() { runLoop(ctx, clk, watch, m.pollOnce) })
