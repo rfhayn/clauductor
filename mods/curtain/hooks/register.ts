@@ -2,16 +2,16 @@
 //
 // The `/curtain` skill (skills/curtain/SKILL.md) does the real work in one
 // turn: /merge-pr, /session-close, the lane step. This module watches it and
-// draws the show in the band above the prompt. While the work runs, a two-row
-// strip (the `size` option's default, `small`): a velvet valance filling the
-// top row, one stretch of travel per step, each paced by how long that step has
-// taken before, and a small Clawd sweeping beside the step and its time. When
-// the skill gives its done signal and the PR is confirmed merged, the strip
-// expands to the full stage for the finale: the curtain falls the rest of the
-// way, Clawd bows, and the mod submits /exit on the skill's behalf (a skill
-// cannot type /exit). Anything else (a step that stopped, a turn that ended
-// without the signal, a cancel) freezes the show where it is, at INTERMISSION,
-// and sends nothing.
+// draws the show in the band above the prompt: a stage crew of small Clawds
+// striking the set (hooks/scene.ts), as far along as the work is. The travel is
+// split into one stretch per step, each paced by how long that step has taken
+// before, and never passes a step's boundary until the step completes. When the
+// skill gives its done signal and the PR is confirmed merged, the curtain
+// closes, one Clawd runs out and bows, and the mod submits /exit on the skill's
+// behalf (a skill cannot type /exit). Anything else (a step that stopped, a turn
+// that ended without the signal, a cancel) freezes the scene where it is, at
+// INTERMISSION, and sends nothing. At the `size` option `off` nothing is drawn,
+// and the exit still follows the done signal.
 //
 // Commands: /curtain-mod plays the closing show alone (no exit);
 // /curtain-mod cancel holds a running show; /curtain-mod-demo [size] [halt]
@@ -24,27 +24,24 @@ import {
   DEMO_EXPECTED_MS,
   STEPS,
   approach,
-  boundaries,
   clock,
   expectedFrom,
   target,
   withSample,
 } from './timing.js'
-import { type SceneInput, type SceneLayout, type ScenePhase, type Tone, buildGrid, gridRuns, layout, packCells } from './scene.js'
+import { type SceneInput, type ScenePhase, type StageSize, type Tone, buildGrid, gridRuns, packCells } from './scene.js'
 
 type Api = EngineInterface
 type Mode = 'real' | 'demo' | 'closing'
-type Size = 'small' | 'medium' | 'full'
+type Size = 'off' | StageSize
 type Verdict = { ok: true; detail?: string } | { ok: false; reason: string }
 
 type Show = {
   mode: Mode
-  /** The layout while the work runs: the strip, half the stage, or all of it. */
+  /** How much room the show takes; `off` draws nothing. */
   size: Size
-  /** The finale has begun: the full stage, whatever the size. Never set by a halt. */
-  isExpanded: boolean
-  /** Where the finale's fall starts from. */
-  finaleFrom: number
+  /** The finale's last fall of the curtain, 0 to 1. */
+  fall: number
   labels: readonly string[]
   expected: readonly number[]
   phase: ScenePhase
@@ -81,9 +78,6 @@ const RASTER_KEY = 'curtain-stage'
 const FRAME_MS = 150
 // The finale: the curtain's last fall, then the bow and the fin, about 9 s.
 const FALL_MS = 3_000
-// In the strip and the half stage, the finale's full curtain starts halfway,
-// so the expansion shows it falling rather than already shut.
-const FINALE_FROM = 0.5
 const BOW_MS = 2_600
 const FIN_MS = 3_600
 const CLEAR_AFTER_MS = 4_000
@@ -99,10 +93,11 @@ const TONE_COLORS: Partial<Record<Tone, string>> = {
   broom: 'yellow',
   dust: 'gray',
   floor: 'yellow',
+  prop: 'cyan',
   alert: 'yellow',
 }
 
-const SIZES: readonly Size[] = ['small', 'medium', 'full']
+const SIZES: readonly Size[] = ['off', 'small', 'medium', 'full']
 
 function sizeOf(value: unknown): Size | undefined {
   return SIZES.find((size) => size === value)
@@ -123,63 +118,45 @@ function stepName(s: Show): string {
   return s.labels[Math.min(s.stage, s.labels.length - 1)] ?? 'curtain'
 }
 
-function statusLine(s: Show): string {
-  const prefix = s.mode === 'demo' ? 'DEMO · ' : s.mode === 'closing' ? 'CURTAIN CALL · ' : 'CURTAIN · '
-  if (s.phase === 'halted') {
-    return 'INTERMISSION · ' + (s.haltStep ?? stepName(s)) + ' stopped' + (s.haltReason ? ': ' + s.haltReason : '')
-  }
-  if (s.phase === 'bow') return prefix + 'Clawd takes a bow'
-  if (s.phase === 'fin' || s.phase === 'done') {
-    if (s.mode === 'demo') return prefix + 'fin · a demo: nothing was run, nothing exits'
-    if (s.mode === 'closing') return prefix + 'fin · this closing show does not exit'
-    const lane = s.lane ? 'close lane ' + s.lane + ' from the panel · ' : ''
-    return prefix + 'fin · ' + lane + (s.isExitArmed ? '/exit follows' : 'type /exit')
-  }
-  const steps = s.labels
-    .map((label, i) => (i < s.stage ? '✓ ' : i === s.stage ? '▸ ' : '· ') + label)
-    .join('  ')
-  if (s.stage >= s.labels.length) return prefix + steps
-  const elapsed = s.now - (s.stageStart[s.stage] ?? s.now)
-  return prefix + steps + '   ' + clock(elapsed) + ' of ~' + clock(s.expected[s.stage] ?? 0)
-}
-
 // "~8m", "~45s": the estimate, rounded the way a person would say it.
 function roughly(ms: number): string {
   return ms >= 90_000 ? '~' + Math.round(ms / 60_000) + 'm' : '~' + Math.round(ms / 1000) + 's'
 }
 
-// The strip's status: the step, which of how many, and its time against the estimate.
-function stripStatus(s: Show): string {
-  if (s.phase === 'halted') return statusLine(s)
+// The status row: the step, which of how many, and its time against the
+// estimate. ASCII only, so no font or tmux counts a character as two cells.
+function statusLine(s: Show): string {
+  if (s.phase === 'halted') {
+    return 'INTERMISSION - ' + (s.haltStep ?? stepName(s)) + ' stopped' + (s.haltReason ? ': ' + s.haltReason : '')
+  }
   const lead = s.mode === 'demo' ? 'demo ' : ''
-  if (s.stage >= s.labels.length) return lead + 'curtain falls'
+  if (s.phase === 'finale') return lead + 'the curtain falls'
+  if (s.phase === 'bow') return lead + 'Clawd takes a bow'
+  if (s.phase === 'fin' || s.phase === 'done') {
+    if (s.mode === 'demo') return 'demo: fin - nothing was run, nothing exits'
+    if (s.mode === 'closing') return 'fin - this closing show does not exit'
+    const lane = s.lane ? 'close lane ' + s.lane + ' from the panel - ' : ''
+    return 'fin - ' + lane + (s.isExitArmed ? '/exit follows' : 'type /exit')
+  }
+  if (s.stage >= s.labels.length) return lead + 'the curtain falls'
   const elapsed = s.now - (s.stageStart[s.stage] ?? s.now)
   const count = s.labels.length > 1 ? s.stage + 1 + '/' + s.labels.length + ' ' : ''
   return lead + count + stepName(s) + ' ' + clock(elapsed) + ' / ' + roughly(s.expected[s.stage] ?? 0)
 }
 
-// The layout asked for: the finale is always the full stage; otherwise the size,
-// and a halt keeps whatever layout it froze in.
-function layoutFor(s: Show): SceneLayout {
-  if (s.isExpanded || s.size === 'full') return 'full'
-  return s.size === 'medium' ? 'medium' : 'strip'
-}
-
 function sceneFor(s: Show, columns: number, maxRows: number): SceneInput {
-  const wanted = layoutFor(s)
-  const fitted = layout(columns, maxRows, wanted).layout
   const banner =
     s.phase === 'halted' ? ['INTERMISSION'] : s.phase === 'fin' || s.phase === 'done' ? ['~ fin ~', 'Thank you, goodnight'] : undefined
   return {
     columns,
     maxRows,
-    layout: wanted,
-    drop: s.display,
+    size: s.size === 'off' ? 'small' : s.size,
+    progress: s.display,
+    fall: s.fall,
     frame: s.frame,
     phase: s.phase,
     phaseFrame: s.phaseFrame,
-    status: fitted === 'strip' ? stripStatus(s) : statusLine(s),
-    marks: boundaries(s.expected),
+    status: statusLine(s),
     ...(banner ? { banner } : {}),
   }
 }
@@ -203,8 +180,7 @@ async function startShow($: Api, mode: Mode, labels: readonly string[], expected
   const s: Show = {
     mode,
     size,
-    isExpanded: false,
-    finaleFrom: 0,
+    fall: 0,
     labels,
     expected,
     phase: 'running',
@@ -227,6 +203,9 @@ async function startShow($: Api, mode: Mode, labels: readonly string[], expected
   }
   show = s
   $.ui.status(undefined)
+  // Off: no frames and no drawing. The show is still kept, for its checks,
+  // its timings and the exit.
+  if (size === 'off') return s
   ticker = $.clock.every(FRAME_MS, () => {
     void tick($)
   })
@@ -247,16 +226,15 @@ async function tick($: Api): Promise<void> {
     s.frame += 1
     s.phaseFrame += 1
     if (s.phase === 'running' && s.stage >= s.labels.length) {
-      // Every step is done: expand to the full stage for the finale.
-      s.isExpanded = true
-      s.finaleFrom = s.size === 'full' ? s.display : Math.min(s.display, FINALE_FROM)
-      s.display = s.finaleFrom
+      // Every step is done: the finale. The last of the crew hurry off as the
+      // curtain falls the rest of the way.
+      s.fall = 0
       enterPhase(s, 'finale', now)
     } else if (s.phase === 'running') {
       s.display = approach(s.display, target(s.expected, s.stage, now - (s.stageStart[s.stage] ?? now)), dt)
     } else if (s.phase === 'finale') {
       const t = Math.min(1, (now - s.phaseAt) / FALL_MS)
-      s.display = s.finaleFrom + (1 - s.finaleFrom) * (1 - Math.pow(1 - t, 3))
+      s.fall = 1 - Math.pow(1 - t, 3)
       if (t >= 1) enterPhase(s, 'bow', now)
     } else if (s.phase === 'bow' && now - s.phaseAt >= BOW_MS) {
       enterPhase(s, 'fin', now)
@@ -499,7 +477,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'curtain-mod-demo',
         description: 'Watch the whole curtain show with pretend steps; nothing runs, nothing exits',
-        argumentHint: '[small|medium|full] [halt]',
+        argumentHint: '[off|small|medium|full] [halt]',
         immediate: true,
       })
     } catch (err) {
@@ -565,7 +543,8 @@ export const register: Register = (on, options) => {
     if (!e.agentId && s && s.mode === 'real') {
       s.isTurnEnded = true
       if (s.isExitArmed) {
-        if (s.phase === 'done') void exitSession($, s)
+        // With the show off there is no finale to wait for.
+        if (s.phase === 'done' || s.size === 'off') void exitSession($, s)
       } else if (s.phase !== 'halted' && s.phase !== 'done') {
         const why = e.isAborted
           ? 'the turn was interrupted'
@@ -596,6 +575,7 @@ export const register: Register = (on, options) => {
     if (s && s.mode === 'real' && s.phase !== 'halted' && s.phase !== 'done') {
       return { text: 'A /curtain show is in progress (' + stepName(s) + '). /curtain-mod cancel holds it.' }
     }
+    if (configuredSize === 'off') return { text: 'The curtain show is off (Curtain size in /config).' }
     const closing = await startShow($, 'closing', ['curtain call'], [CLOSING_EXPECTED_MS], configuredSize)
     closing.timers.push(
       $.clock.after(CLOSING_ACTUAL_MS, () => {
@@ -615,8 +595,9 @@ export const register: Register = (on, options) => {
     const size = words.map(sizeOf).find((w) => w !== undefined) ?? configuredSize
     const unknown = words.filter((w) => w !== 'halt' && !sizeOf(w))
     if (unknown.length > 0 || words.length > 2) {
-      return { text: 'Usage: /curtain-mod-demo [small|medium|full] [halt]. Not understood: ' + (unknown.join(' ') || e.args.trim()) }
+      return { text: 'Usage: /curtain-mod-demo [off|small|medium|full] [halt]. Not understood: ' + (unknown.join(' ') || e.args.trim()) }
     }
+    if (size === 'off') return { text: 'The curtain show is off, so there is nothing to watch. /curtain-mod-demo small plays it anyway.' }
     const demo = await startShow($, 'demo', STEPS, DEMO_EXPECTED_MS, size)
     if (isHalt) {
       demo.timers.push(
@@ -649,7 +630,7 @@ export const register: Register = (on, options) => {
   // The band above the prompt: the stage while a show is on, nothing otherwise.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = show
-    if (!s) return next(e)
+    if (!s || s.size === 'off') return next(e)
     const props = e.props as { bodyColumns?: number; maxRows?: number }
     const bodyColumns = props.bodyColumns ?? e.viewport?.columns ?? 80
     const maxRows = props.maxRows ?? 12
