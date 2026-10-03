@@ -65,7 +65,8 @@ func TestAScriptRunsAtOnceBesideForks(t *testing.T) {
 // selfWritten names each place in src where a test writes an executable itself: an
 // os.WriteFile or os.OpenFile whose mode has an execute bit, or an os.Chmod that adds
 // one to a path the same function wrote. A mode the parser cannot read (a variable)
-// counts as executable: the guard must not pass what it cannot see.
+// counts as executable: the guard must not pass what it cannot see, so a plain file's
+// mode is written as a literal or a constant.
 func selfWritten(fset *token.FileSet, f *ast.File) []string {
 	var found []string
 	ast.Inspect(f, func(n ast.Node) bool {

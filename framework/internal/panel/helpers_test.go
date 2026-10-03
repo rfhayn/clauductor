@@ -319,37 +319,37 @@ func TestMain(m *testing.M) {
 // before it closes, as lease.go's does: a child another (parallel) test forks while the
 // probe holds the lock keeps a copy of the file until it execs, and Close alone leaves
 // the lock with that copy, so the next panel in this home was refused (#78).
-func machineFree(home string) bool {
+func machineFree(home string) bool { return probeMachine(home, nil) }
+
+// probeMachine is machineFree, calling held (if set) while the probe holds the lock: the
+// moment a child forked would take its copy of the file.
+func probeMachine(home string, held func(*os.File)) bool {
 	f, err := install.LockMachine(home)
 	if err == nil {
-		releaseProbe(f)
+		if held != nil {
+			held(f)
+		}
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
 	}
 	return err == nil
 }
 
-// releaseProbe unlocks a probe's lock file and closes it.
-func releaseProbe(f *os.File) {
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	f.Close()
-}
-
 // The probe's release holds even while a copy of its file is open elsewhere, as a child
-// forked at that moment has one: a dup shares the open file, and so its lock (#78).
+// forked while the probe held the lock has one: a dup shares the open file, and so its
+// lock (#78).
 func TestTheMachineProbeLeavesNoLockBehindInACopy(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	f, err := install.LockMachine(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	child, err := syscall.Dup(int(f.Fd()))
-	if err != nil {
-		t.Fatal(err)
+	child := -1
+	if !probeMachine(home, func(f *os.File) { child, _ = syscall.Dup(int(f.Fd())) }) || child < 0 {
+		t.Fatalf("premise: the probe found the lock free and its file was copied (fd %d)", child)
 	}
 	defer syscall.Close(child)
-	releaseProbe(f)
-	if !machineFree(home) {
-		t.Fatal("the machine lock is still held by a copy of the probe's file")
+	if f, err := install.LockMachine(home); err != nil {
+		t.Fatalf("the machine lock is still held by a copy of the probe's file: %v", err)
+	} else {
+		f.Close()
 	}
 }
 
