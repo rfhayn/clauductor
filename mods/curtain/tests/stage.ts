@@ -137,6 +137,28 @@ export function rasterLines(props: { [key: string]: unknown }): string[] {
   return lines
 }
 
+/** The Raster's cells with their colours. */
+export function rasterCells(props: { [key: string]: unknown }): { ch: string; fg: number; bg: number }[] {
+  const binary = atob(String(props.cells))
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+  const words = new Uint32Array(bytes.buffer)
+  const cells: { ch: string; fg: number; bg: number }[] = []
+  for (let i = 0; i < words.length; i += 3) cells.push({ ch: String.fromCodePoint(words[i]!), fg: words[i + 1]!, bg: words[i + 2]! })
+  return cells
+}
+
+// Clawd's eyes are the one colour nothing else uses: two cells of it per Clawd standing.
+const EYE = 0x1c1c1c
+
+/** How many Clawds the band shows on the terminal now, counted by their eyes. */
+export async function crewOnStage($: any): Promise<number> {
+  const ui = await $.ui.mount({ plugin: 'curtain', surface: 'terminal', ...BAND })
+  const raster = await ui.find({ type: 'Raster' })
+  await ui.unmount()
+  if (!raster) return 0
+  return rasterCells(raster.props).filter((c) => c.fg === EYE || c.bg === EYE).length / 2
+}
+
 /** What the band shows on the terminal now: its lines, none when the mod draws nothing. */
 export async function band($: any, columns = 80, maxRows = 20): Promise<string[]> {
   const ui = await $.ui.mount({

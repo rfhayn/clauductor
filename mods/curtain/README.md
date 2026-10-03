@@ -37,18 +37,34 @@ The tests run without a session: `claude plugin test` from this directory.
 
 ## The show
 
-The show plays in the band above the prompt: a stage crew of small Clawds strikes the set while
-the work runs.
+The show plays in the band above the prompt: a stage crew of Clawds strikes the set while the work
+runs. It's drawn as **pixel art in half blocks**. Each cell is `▀`, with the foreground colour as
+its upper pixel and the background as its lower pixel, so a cell holds two pixels, one above the
+other. A Raster cell carries both colours, `[codePoint, foreground, background]`, as the mods
+docs and types state.
 
-**At the start** the stage is full. At 80 columns there are five crew and six props: a crate, a
-chair, a potted plant, a ladder, a spotlight, and a painted flat on wheels. Fewer fit on a narrow
-terminal: 4 and 4 at 60 columns, 3 and 3 at 40.
+**The cast:**
+- **Clawd:** the Claude Code mascot at 11×7 pixels. A wide terracotta body with a highlight and a
+  shaded edge, two dark eyes, short arms and four legs.
+- **Poses:** a two-frame walk, in which one pair of legs steps down while the other lifts; a carry
+  pose, arms up, with the prop overhead; a sweep pose, with the broom swinging and a pixel dust
+  cloud rising; and a bow, head down.
+- **Props:** a planked crate with a darker edge, a ladder with rails and rungs (carried flat
+  overhead), a potted plant with leaves and a clay pot, a spotlight on a stand with a lens
+  highlight, a sandbag, a rope coil, a chair, and a painted flat on wheels, which is pushed rather
+  than carried.
+- **The stage:** the curtain falls in velvet folds of three reds with a gold hem, and the
+  floorboards have grain and joints.
 
-**As the work goes on** each mover takes its props into the nearest wing: it pushes the flat out
-in front of it, or walks out ahead of a carried prop. It leaves with its last one. The curtain
-comes down over the sky above them. **Near the end** one Clawd is left, sweeping the last spot.
-None of this runs ahead of the work: the scene follows the same weighted progress as before,
-which never passes a step's boundary until the step completes.
+**At the start** the stage is as full as its width allows. 80 columns holds three crew and four
+props (a crate, a ladder, a plant and a spotlight); 60 holds two crew and three props; 40 holds the
+sweeper alone. From 124 columns there are four crew and all eight props.
+
+**As the work goes on** each mover lifts its props overhead and carries them into the nearest
+wing, or pushes the flat out in front. It leaves with its last one. The curtain comes down over the
+sky above them. **Near the end** one Clawd is left, sweeping the last spot. None of this runs ahead
+of the work: the scene follows the same weighted progress as before, which never passes a step's
+boundary until the step completes.
 
 **The finale** (the done signal, or `/curtain-mod`): the curtain closes. One Clawd runs out in
 front of it and bows, then `~ fin ~` and `Thank you, goodnight`. About 9 s in all.
@@ -57,25 +73,23 @@ front of it and bows, then `~ fin ~` and `Thank you, goodnight`. About 9 s in al
 reason (`INTERMISSION - merge-pr stopped: PR #42 is OPEN, not MERGED`), as do the status line under
 the prompt and a transcript line. Nobody bows, nothing further runs, and no `/exit` is sent.
 
-At 80 columns, `small`, halfway through merge-pr:
-
-```
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-█                   ▐▛▜▌  ▞▚         ▐▛▜▌\   '  ▐▛▜▌  ▛▀▀▜  ▟█   ▐▛▜▌          █
-█                   ▘▝▘▝  ▜▛         ▝▘▝▘▒▓.    ▘▝▘▝  ▙▄▄▟  ▐    ▘▝▘▝          █
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-1/3 merge-pr 4:05 / ~8m
-```
+**See it in colour without a session:** `node --experimental-strip-types tools/preview.ts`
+renders the frames at 0, 25, 50, 75 and 95%, plus the bow, the fin and an intermission, at 80
+columns in `small` and `medium`. It uses the real scene module and writes them to
+`preview/curtain-v4.html` (gitignored), each cell with its own foreground and background. `--text`
+prints the pixels as letters instead.
 
 **The size setting:**
 
 | `size` | Rows | What it is |
 |---|---|---|
 | `off` | 0 | No show. `/curtain` still works, and the mod still submits `/exit` on its done signal once the turn ends. `/curtain-mod` and `/curtain-mod-demo` say the show is off. |
-| `small` (the default) | 6 | The valance, 3 rows of stage, the floor, and the status |
-| `medium` | 9 | The same with 6 rows of stage: more sky for the curtain, and carried props held up |
-| `full` | 12 | 9 rows of stage |
+| `small` (the default) | 10 | The valance, 7 rows of stage (14 pixels: a 7-pixel Clawd, a prop of up to 6 pixels held overhead, and a pixel of sky), the floor, and the status |
+| `medium` | 12 | 9 rows of stage: more sky for the curtain to come down through |
+| `full` | 16 | 13 rows of stage |
+
+`small` is 10 rows, not 8. A Clawd carrying a prop overhead is 13 pixels tall, 7 rows, and the
+valance, the floor and the status take three more.
 
 Set it in `/config`. The **Curtain size** row is a picker, and a change reloads the mod. Or set
 it in `~/.claude/settings.json`; for a plugin loaded with `--plugin-dir`, the key is
@@ -91,19 +105,21 @@ It's the plugin's `userConfig` option `size` (in `plugin.json`), which the mod r
 **Nothing is clipped.** A band too short for the size asked for steps down a size: a stage needs
 its rows plus one. Below `small`, or narrower than 30 columns, the show is a two-row bar (the
 progress in velvet, and the status) with no sprites. The tests check every sprite stays inside
-its grid at 80, 60 and 40 columns, at every size and phase, and that no Clawd walks through a
-prop or another Clawd.
+its grid, in cells and in pixels, at 80, 60 and 40 columns, at every size, phase and frame. They
+also check that no Clawd walks through a prop or another Clawd, and that a carried prop rests on
+its carrier's raised hands.
 
 **What renders in a panel lane** (tmux inside xterm.js):
 
-- **Characters:** only printable ASCII, box drawing and block elements (U+2500 to U+259F).
-  xterm.js draws that range itself, cell for cell. I avoided emoji and symbols such as `·`, `°`,
-  `✓` and `▸`, whose width a font or tmux may count as two cells and so shift the row. The dust is
-  plain `.`, `:`, `'` and a backtick, the broom handle is `/` or `\`, and the separators are ` - `.
-- **Colours:** every colour is one of the xterm 256-colour palette's, from the 6×6×6 cube or the
-  grey ramp. The panel's tmux gives `xterm-256color` no RGB feature (`hardenArgs` adds only
-  `hyperlinks`), so tmux maps truecolour down to 256 colours. Colours already on the palette pass
-  through unchanged; the earlier velvet's in-between reds collapsed into one flat red.
+- **Characters:** the stage uses only `▀`, `█` and the space; the status and banners are printable
+  ASCII. Block elements are in xterm.js's own cell-exact drawing, and none of these is ambiguous
+  in width. Emoji and symbols such as `·`, `°`, `✓` and `▸` are avoided, because a font or tmux
+  may count them as two cells and shift the row.
+- **Colours:** every colour, about 40 in all, is one of the xterm 256-colour palette's, from the
+  6×6×6 cube or the grey ramp. The panel's tmux gives `xterm-256color` no RGB feature (`hardenArgs`
+  adds only `hyperlinks`), so tmux maps truecolour down to 256 colours. Colours already on the
+  palette pass through unchanged. The Raster paints 1,024 distinct colour pairs at once, far more
+  than the scene uses.
 
 On the terminal the drawing is one `Raster`, repainted with `$.ui.blit` at about 6.7 frames a
 second (150 ms), so a frame costs no render pass. Other surfaces get the same frame as coloured

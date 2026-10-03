@@ -4,7 +4,7 @@
 // confirmed merged, after the turn has ended.
 
 import { expect, test } from 'claude-code/testing'
-import { MERGED, TOOL, band, bandText, endTurn, runCommand, stage, startSession } from './stage.js'
+import { MERGED, TOOL, band, bandText, crewOnStage, endTurn, runCommand, stage, startSession } from './stage.js'
 
 const SLOW = { timeoutMs: 30_000 }
 const status = (lines: string[]) => (lines[lines.length - 1] ?? '').trimEnd()
@@ -20,7 +20,8 @@ test('all three steps succeed: the curtain falls, one Clawd bows, and the mod su
   await clock.advance(1_000)
   // The small stage, the default: six rows, the step and its time last.
   const running = await band($)
-  expect(running.length).toBe(6)
+  expect(running.length).toBe(10)
+  expect(await crewOnStage($)).toBe(3)
   expect(status(running).startsWith('1/3 merge-pr 0:01 / ~8m')).toBe(true)
 
   // merge-pr runs for five minutes; session-close starting is its boundary.
@@ -39,7 +40,7 @@ test('all three steps succeed: the curtain falls, one Clawd bows, and the mod su
   expect(status(await band($))).toBe('the curtain falls')
   // The bow, in front of the closed curtain.
   await clock.advance(3_200)
-  expect(await bandText($)).toMatch(/▗▄▄▖/)
+  expect(await bandText($)).toMatch(/Clawd takes a bow/)
   // The signal alone sends nothing: the turn has not ended.
   await clock.advance(20_000)
   expect(rec.commands).toEqual([])
@@ -107,9 +108,9 @@ test('a PR that is not merged freezes the scene at INTERMISSION, nobody bows, an
   expect(rec.commands).toEqual([])
   expect(rec.status.some((s) => /^INTERMISSION: merge-pr stopped/.test(s ?? ''))).toBe(true)
   const held = await band($)
-  expect(held.length).toBe(6)
+  expect(held.length).toBe(10)
   expect(status(held).startsWith('INTERMISSION - merge-pr stopped: PR #42 is OPEN')).toBe(true)
-  expect(held.join('\n')).not.toMatch(/▗▄▄▖/)
+  expect(held.join('\n')).not.toMatch(/Clawd takes a bow/)
 })
 
 test('no session-close PR merged: the lane cue stops the show at session-close', SLOW, async ($, on) => {
@@ -125,7 +126,7 @@ test('no session-close PR merged: the lane cue stops the show at session-close',
   await endTurn($)
   await clock.advance(30_000)
   expect(rec.commands).toEqual([])
-  expect((await bandText($))).not.toMatch(/▗▄▄▖/)
+  expect((await bandText($))).not.toMatch(/Clawd takes a bow/)
 })
 
 test('a turn that ends without the done signal halts at the running step', SLOW, async ($, on) => {
@@ -163,7 +164,7 @@ test('/curtain-mod cancel freezes the scene where it is, and a later done signal
   await endTurn($)
   await clock.advance(30_000)
   expect(rec.commands).toEqual([])
-  expect(await bandText($)).not.toMatch(/▗▄▄▖/)
+  expect(await bandText($)).not.toMatch(/Clawd takes a bow/)
 })
 
 test('no PR when the curtain rises: the first check stops it', SLOW, async ($, on) => {
@@ -188,29 +189,28 @@ test('the done signal with no show running says so, and exits nothing', SLOW, as
   expect(rec.commands).toEqual([])
 })
 
-test('size medium: a 9-row stage', { ...SLOW, options: { size: 'medium' } }, async ($, on) => {
-  const { clock } = stage(on, MERGED)
-  await raise($)
-  await clock.advance(1_000)
-  const lines = await band($)
-  expect(lines.length).toBe(9)
-  expect(lines.join('\n')).toMatch(/▐▛▜▌/)
-})
-
-test('size full: a 12-row stage', { ...SLOW, options: { size: 'full' } }, async ($, on) => {
+test('size medium: a 12-row stage', { ...SLOW, options: { size: 'medium' } }, async ($, on) => {
   const { clock } = stage(on, MERGED)
   await raise($)
   await clock.advance(1_000)
   expect((await band($)).length).toBe(12)
+  expect(await crewOnStage($)).toBe(3)
+})
+
+test('size full: a 16-row stage', { ...SLOW, options: { size: 'full' } }, async ($, on) => {
+  const { clock } = stage(on, MERGED)
+  await raise($)
+  await clock.advance(1_000)
+  expect((await band($)).length).toBe(16)
 })
 
 test('size full in a short band steps down a size instead of clipping', { ...SLOW, options: { size: 'full' } }, async ($, on) => {
   const { clock } = stage(on, MERGED)
   await raise($)
   await clock.advance(1_000)
-  expect((await band($, 80, 10)).length).toBe(9)
-  expect((await band($, 80, 8)).length).toBe(6)
-  expect((await band($, 80, 5)).length).toBe(2)
+  expect((await band($, 80, 14)).length).toBe(12)
+  expect((await band($, 80, 12)).length).toBe(10)
+  expect((await band($, 80, 8)).length).toBe(2)
 })
 
 test('size off: nothing is drawn, and the done signal still exits once after the turn', { ...SLOW, options: { size: 'off' } }, async ($, on) => {

@@ -1,13 +1,13 @@
 {
   "name": "curtain",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The full wrap-up of a lane in one command, /curtain (merge-pr, session-close, close the lane, exit), with a closing show above the prompt: Clawd sweeps the stage while the curtain comes down",
   "author": { "name": "Rich Hayn" },
   "userConfig": {
     "size": {
       "type": "string",
       "title": "Curtain size",
-      "description": "How much room the show takes above the prompt: small (a 6-row stage), medium (9 rows), full (12 rows), or off (no show; /curtain still works and still exits on its done signal).",
+      "description": "How much room the show takes above the prompt: small (a 10-row stage), medium (12 rows), full (16 rows), or off (no show; /curtain still works and still exits on its done signal).",
       "options": ["off", "small", "medium", "full"],
       "default": "small"
     }
