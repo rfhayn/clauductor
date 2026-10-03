@@ -277,17 +277,80 @@ has yes "branch design/one (account lookup failed)" "$c" "who.sh: ...and that br
 # a shared value counted, then killed, the other run's live watchdog (#63). Under macOS sleep's
 # INT_MAX limit for any PID.
 # A decoy stands in for the other run's watchdog, so a shared value fails here on every run, not
-# only when go test happens to overlap the two: it must be neither counted nor killed.
+# only when go test happens to overlap the two: it must be neither counted nor killed. It sleeps
+# for the value this check shared before #63, the one a regression would most likely bring back.
+# lib.sh's traps know only the scratch directory, and an async sleep ignores the Ctrl-C that ends
+# this check, so until the decoy is gone the traps take it too, or an interrupt leaves it for 2h.
+# The wait reaps it, so bash 3.2 prints no "Terminated" notice for it.
 wd=$((7000000 + $$))
 sleep 7373 </dev/null >/dev/null 2>&1 & decoy=$!
+trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"' EXIT
+trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"; exit 1' INT TERM
 c=$(ctx PEOPLE_GH_TIMEOUT="$wd")
 sleep 1
-if ! psout=$(ps -A -o args= 2>/dev/null) || [ -z "$psout" ]; then fail "cannot list processes (ps), so the watchdog cleanup is unchecked"; fi
-n=$(printf '%s\n' "$psout" | grep -cx "sleep $wd")
-[ "$n" = 0 ] && ok "who.sh: a gh call that returns in time leaves no watchdog sleep behind" || fail "who.sh: $n watchdog sleep(s) outlived their gh calls"
-ps -A -o pid= -o args= 2>/dev/null | awk -v wd="$wd" '$2 == "sleep" && $3 == wd { print $1 }' | while read -r p; do kill "$p" 2>/dev/null; done
-if kill -0 "$decoy" 2>/dev/null; then ok "...and the count and cleanup are this run's own: another run's watchdog survives them"; kill "$decoy" 2>/dev/null
-else fail "the watchdog count reached another run's sleep (the decoy was killed): the value is shared, not this run's"; fi
+if ! psout=$(ps -A -o pid= -o args= 2>/dev/null) || [ -z "$psout" ]; then
+  fail "cannot list processes (ps), so the watchdog count and cleanup are unchecked"
+else
+  # This run's watchdog sleeps, by PID: the count and the cleanup read the one list.
+  mine=$(printf '%s\n' "$psout" | awk -v wd="$wd" '$2 == "sleep" && $3 == wd && NF == 3 { print $1 }')
+  n=$(printf '%s\n' "$mine" | grep -cvx -e '' -e "$decoy")
+  [ "$n" = 0 ] && ok "who.sh: a gh call that returns in time leaves no watchdog sleep behind" || fail "who.sh: $n watchdog sleep(s) outlived their gh calls"
+  printf '%s\n' "$mine" | grep -qx "$decoy" \
+    && fail "the watchdog count and cleanup reach another run's sleep (the decoy was counted): the value is shared, not this run's own"
+  for p in $mine; do kill "$p" 2>/dev/null; done
+  # Not kill -0: a killed decoy is this shell's zombie until reaped, and kill -0 reaches a zombie.
+  case $(ps -o stat= -p "$decoy" 2>/dev/null | tr -d ' ') in
+    '' | Z*) fail "the watchdog count and cleanup reach another run's sleep (the decoy was killed): the value is shared, not this run's own" ;;
+    *) ok "...and the count and cleanup are this run's own: another run's watchdog survives them" ;;
+  esac
+fi
+{ kill "$decoy"; wait "$decoy"; } 2>/dev/null
+# lib.sh's own traps, restored: these two lines must stay word for word what lib.sh sets.
+trap 'rm -rf "$_scratch"' EXIT
+trap 'rm -rf "$_scratch"; exit 1' INT TERM
+# #71: who.sh's own ghb, its gh an instant shell function, 300 calls. A TERM that lands while the
+# watchdog forks its sleep ended the watchdog but orphaned the sleep (52-146 of 300 before the
+# fix, 0 after), so more than 10 is the race back. bash 3.2 can also lose a TERM outright (0-10 of
+# 300): that watchdog stays alive with its sleep, so a sleep whose parent is a watchdog of ours is
+# that, not the race, and only more than 30 fails. The timeout is this run's own, apart from wd's
+# values and the decoy's, so only these sleeps are counted and killed; with no ps they could not be
+# found, so none start. As with the decoy, the traps take these sleeps too until they are gone.
+rt=$((12000000 + $$))
+rtkill() {
+  for p in $(ps -A -o pid= -o args= 2>/dev/null | awk -v t="$rt" '$2 == "sleep" && $3 == t && NF == 3 { print $1 }'); do
+    kill "$p" 2>/dev/null
+  done
+}
+fn=$(sed -n '/^ghb() {/,/^}/p' "$M/context.d/session-start/who.sh")
+case $fn in *'_gd=$!'*) found=1 ;; *) found= ;; esac
+if ! ps -A -o pid= >/dev/null 2>&1; then
+  fail "cannot list processes (ps), so ghb's watchdog race is unchecked"
+elif [ -z "$found" ]; then
+  fail "who.sh: no ghb() with a watchdog found, so its race is unchecked"
+else
+  : > "$d/watchdogs"
+  trap 'rtkill; rm -rf "$_scratch"' EXIT
+  trap 'rtkill; rm -rf "$_scratch"; exit 1' INT TERM
+  FN=$fn T=$rt notes=/dev/null GD="$d/watchdogs" sh -c 'gh() { :; }; eval "$FN"
+    i=0; while [ "$i" -lt 300 ]; do x=$(ghb race; echo "$_gd" >> "$GD"); i=$((i + 1)); done' </dev/null >/dev/null 2>&1
+  sleep 1
+  left=$(ps -A -o pid= -o ppid= -o args= 2>/dev/null | awk -v t="$rt" -v gd="$d/watchdogs" '
+    BEGIN { while ((getline l < gd) > 0) mine[l] = 1 }
+    $3 == "sleep" && $4 == t && NF == 4 { print $1, (($2 in mine) ? "lost" : "race") }')
+  n=$(printf '%s\n' "$left" | grep -c ' race$')
+  lost=$(printf '%s\n' "$left" | grep -c ' lost$')
+  if [ "$n" -gt 10 ]; then
+    fail "who.sh: $n of 300 watchdog sleeps were orphaned under a near-instant gh: the TERM races the sleep's fork (#71)"
+  elif [ "$lost" -gt 30 ]; then
+    fail "who.sh: $lost of 300 watchdogs outlived ghb with their sleep: the TERM no longer ends them"
+  else
+    ok "who.sh: ghb's watchdog takes its sleep with it under a near-instant gh ($n of 300 orphaned, $lost TERM lost)"
+  fi
+  rtkill
+  # lib.sh's own traps, restored: these two lines must stay word for word what lib.sh sets.
+  trap 'rm -rf "$_scratch"' EXIT
+  trap 'rm -rf "$_scratch"; exit 1' INT TERM
+fi
 c=$(ctx PEOPLE_WHO_BUDGET=0)
 has yes "CANNOT CHECK — the branch lookups ran past 0s" "$c" "who.sh: the branch lookups stop at PEOPLE_WHO_BUDGET..."
 has yes "CANNOT CHECK — the remote branches with no PR could not be read" "$c" "who.sh: ...and the partial branch list is not handed over"
