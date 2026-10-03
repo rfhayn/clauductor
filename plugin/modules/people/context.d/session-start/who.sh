@@ -43,13 +43,21 @@ ghb() {  # ghb WHAT ARGS...: gh ARGS, bounded; a timeout is noted under WHAT
   gh "$@" 2>/dev/null &
   _gp=$!
   # The watchdog's sleeps run in the background and are waited for, so the TERM that ends the
-  # watchdog (gh returned in time) reaches the trap at once and takes the sleep with it: no
-  # orphaned sleep per call.
+  # watchdog (gh returned in time) reaches the trap at once and takes the sleep with it. A fast gh
+  # can send that TERM while a sleep is being forked: before `_gs=$!` runs, or before the child
+  # has exec'd, which loses a TERM to the trap it inherited. So `_gb` holds `$!` from before each
+  # fork, set ahead of the trap, and the trap KILLs `$!` when it is not `_gb`: normally the new
+  # sleep, in narrow windows a PID just reaped. When it is `_gb`, the trap only sets `_gt` for the
+  # line after the fork. bash 3.2 can still lose the TERM outright with a near-instant gh, leaving
+  # a sleep for T seconds; the people check holds that to a few in 300 calls (#71).
   (
-    trap 'kill "$_gs" 2>/dev/null; exit 0' TERM
-    sleep "$T" & _gs=$!; wait "$_gs" || exit 0
+    _gb=$!
+    trap '[ "$!" = "$_gb" ] && _gt=1 || { kill -KILL "$!" 2>/dev/null; exit 0; }' TERM
+    sleep "$T" & _gs=$!; [ -z "${_gt:-}" ] || { kill -KILL "$_gs" 2>/dev/null; exit 0; }
+    wait "$_gs" || exit 0
     kill -TERM "$_gp" 2>/dev/null
-    sleep 2 & _gs=$!; wait "$_gs" || exit 0
+    _gb=$!; sleep 2 & _gs=$!; [ -z "${_gt:-}" ] || { kill -KILL "$_gs" 2>/dev/null; exit 0; }
+    wait "$_gs" || exit 0
     kill -KILL "$_gp" 2>/dev/null
   ) </dev/null >/dev/null 2>&1 &
   _gd=$!
