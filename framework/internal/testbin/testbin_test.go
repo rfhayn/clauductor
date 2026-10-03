@@ -66,7 +66,7 @@ func TestAScriptRunsAtOnceBesideForks(t *testing.T) {
 // os.WriteFile or os.OpenFile whose mode has an execute bit, or an os.Chmod that adds
 // one to a path the same function wrote. A mode the parser cannot read (a variable)
 // counts as executable: the guard must not pass what it cannot see, so a plain file's
-// mode is written as a literal or a constant.
+// mode is written as a literal, or a constant declared in the same file.
 func selfWritten(fset *token.FileSet, f *ast.File) []string {
 	var found []string
 	ast.Inspect(f, func(n ast.Node) bool {
