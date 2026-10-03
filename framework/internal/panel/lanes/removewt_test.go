@@ -2,9 +2,12 @@ package lanes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -35,17 +38,17 @@ func (r *closeRepo) removeAll(key string) (WorktreePlan, WorktreeResult) {
 	return p, res
 }
 
-// PANEL-18: a clean detached worktree a closed session left behind goes, and the plan
-// says there is no branch to delete.
+// PANEL-18: a clean detached worktree a closed session left behind goes when a branch
+// holds its commit, and the plan names the branch. REMOVEWT-3-S2.
 func TestRemoveWorktreeRemovesACleanDetachedOne(t *testing.T) {
 	t.Parallel()
 	r := newCloseRepo(t)
 	wt := r.worktree("", filepath.Join(r.root, ".wt", "left-behind"))
 	p, res := r.removeAll(wt)
-	if !p.Worktree || p.DeleteBranch || p.Branch != "" || !has(p.Remove, "the worktree "+wt) || !has(p.Notes, "detached") || !has(p.Notes, "no branch to delete") {
+	if !p.Worktree || p.DeleteBranch || p.Branch != "" || !has(p.Remove, "the worktree "+wt) || !has(p.Notes, "detached") || !has(p.Notes, "also on main, so nothing is lost") {
 		t.Fatalf("plan %+v", p)
 	}
-	if exists(wt) || !has(res.Removed, "the worktree "+wt) || !has(res.Notes, "detached") {
+	if exists(wt) || !has(res.Removed, "the worktree "+wt) || !has(res.Notes, "also on main, so nothing is lost") {
 		t.Fatalf("result %+v", res)
 	}
 	wts, _ := signals.ReadWorktrees(context.Background(), r.run, r.root)
@@ -57,6 +60,124 @@ func TestRemoveWorktreeRemovesACleanDetachedOne(t *testing.T) {
 	// Gone now: a second request names nothing.
 	if _, lerr := r.m.RemoveWorktreePlan(context.Background(), wt); lerr == nil || lerr.Status != 404 {
 		t.Fatalf("a removed worktree planned again: %v", lerr)
+	}
+}
+
+// #77: a clean detached worktree whose commit no branch, remote-tracking branch or tag
+// holds stays, even under a forced consent: removing it would leave the commit to git's
+// garbage collection. REMOVEWT-3-S1.
+func TestRemoveWorktreeKeepsADetachedCommitOfItsOwn(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	wt := r.worktree("", filepath.Join(r.root, ".wt", "own"))
+	sha := r.commit(wt, "work.txt")
+	want := "its commit " + short(sha) + " is on no branch or tag, so removing the folder would lose it. To keep it, put it on a branch first: git branch <name> " + short(sha)
+	p, lerr := r.m.RemoveWorktreePlan(context.Background(), wt)
+	if lerr != nil || p.Worktree || !has(p.Keep, "the worktree "+wt+": "+want) {
+		t.Fatalf("plan %+v %v", p, lerr)
+	}
+	res, lerr := r.m.RemoveWorktree(context.Background(), wt, RemoveWorktreeRequest{Worktree: wt, Remove: true})
+	if lerr != nil || len(res.Removed) != 0 || !has(res.Kept, want) || !exists(filepath.Join(wt, "work.txt")) {
+		t.Fatalf("a forced consent: %+v %v", res, lerr)
+	}
+	// A stash is not where anyone looks for a commit: it does not count.
+	r.git(r.root, "update-ref", "refs/stash", sha)
+	if p, _ := r.m.RemoveWorktreePlan(context.Background(), wt); p.Worktree {
+		t.Fatalf("refs/stash counted: plan %+v", p)
+	}
+}
+
+// A detached worktree whose commit a ref holds may go, and the plan names one ref: a
+// local branch first, then a remote-tracking branch, then a tag, each the first by name.
+// REMOVEWT-3-S2.
+func TestRemoveWorktreeNamesTheRefThatHoldsADetachedCommit(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		refs []string
+		want string
+	}{
+		{"tag", []string{"refs/tags/v2", "refs/tags/v1"}, "also on tag v1,"},
+		{"remote", []string{"refs/tags/v1", "refs/remotes/origin/zz", "refs/remotes/origin/aa"}, "also on origin/aa,"},
+		{"branch", []string{"refs/tags/v1", "refs/remotes/origin/aa", "refs/heads/zz", "refs/heads/keep"}, "also on keep,"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newCloseRepo(t)
+			wt := r.worktree("", filepath.Join(r.root, ".wt", c.name))
+			sha := r.commit(wt, "work.txt")
+			for _, ref := range c.refs {
+				r.git(r.root, "update-ref", ref, sha)
+			}
+			if c.name == "remote" {
+				// origin/HEAD sorts first, but it only names another ref.
+				r.git(r.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/zz")
+			}
+			p, res := r.removeAll(wt)
+			if !p.Worktree || !has(p.Notes, "detached at "+short(sha)+", a commit that is "+c.want+" so nothing is lost") {
+				t.Fatalf("plan %+v", p)
+			}
+			if exists(wt) || !has(res.Notes, c.want) {
+				t.Fatalf("result %+v", res)
+			}
+		})
+	}
+}
+
+// A commit made in a detached worktree after the check, just before `git worktree
+// remove`, is checked too: HEAD is read again, and a commit on no ref keeps it.
+func TestRemoveWorktreeRechecksADetachedHeadBeforeRemoving(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	wt := r.worktree("", filepath.Join(r.root, ".wt", "late"))
+	var mu sync.Mutex
+	armed, committed := false, ""
+	// The commit lands after the plan's checks and the act's check, as a terminal's
+	// commit would: on the act's last read of the worktree's refs.
+	r.m.Run = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		out, err := r.run(ctx, dir, argv)
+		if len(argv) > 2 && argv[1] == "for-each-ref" && strings.HasPrefix(argv[2], "--contains") {
+			mu.Lock()
+			if committed == "" && strings.Contains(string(out), "refs/heads/main") && armed {
+				committed = r.commit(wt, "late.txt")
+			}
+			mu.Unlock()
+		}
+		return out, err
+	}
+	p, lerr := r.m.RemoveWorktreePlan(context.Background(), wt)
+	if lerr != nil || !p.Worktree {
+		t.Fatalf("plan %+v %v", p, lerr)
+	}
+	mu.Lock()
+	armed = true
+	mu.Unlock()
+	res, lerr := r.m.RemoveWorktree(context.Background(), wt, RemoveWorktreeRequest{Worktree: wt, Remove: p.Worktree})
+	if lerr != nil || committed == "" || len(res.Removed) != 0 || !has(res.Kept, "its commit "+short(committed)+" is on no branch or tag") || !exists(filepath.Join(wt, "late.txt")) {
+		t.Fatalf("a commit after the check: %+v %v (commit %q)", res, lerr, committed)
+	}
+}
+
+// When which refs hold the commit cannot be read, the worktree stays: a commit that
+// might be lost is not removed. REMOVEWT-3-S4.
+func TestRemoveWorktreeKeepsADetachedOneWhenItsRefsCannotBeRead(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	wt := r.worktree("", filepath.Join(r.root, ".wt", "unread"))
+	head := r.git(wt, "rev-parse", "HEAD")
+	r.m.Run = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		if len(argv) > 2 && argv[1] == "for-each-ref" && strings.HasPrefix(argv[2], "--contains") {
+			return nil, errors.New("exit status 129")
+		}
+		return r.run(ctx, dir, argv)
+	}
+	want := "the panel couldn't tell whether its commit " + short(head) + " is on a branch (exit status 129), so it stays"
+	p, lerr := r.m.RemoveWorktreePlan(context.Background(), wt)
+	if lerr != nil || p.Worktree || !has(p.Keep, want) {
+		t.Fatalf("plan %+v %v", p, lerr)
+	}
+	res, lerr := r.m.RemoveWorktree(context.Background(), wt, RemoveWorktreeRequest{Worktree: wt, Remove: true})
+	if lerr != nil || len(res.Removed) != 0 || !has(res.Kept, want) || !exists(wt) {
+		t.Fatalf("a forced consent: %+v %v", res, lerr)
 	}
 }
 

@@ -25,7 +25,9 @@ import (
 //   - the worktree goes only with `git worktree remove` (no --force): never the main
 //     worktree, never a path outside the project's worktree_dir or not in `git
 //     worktree list`, never a locked one, never one another lane runs in, and never one
-//     with a change or an untracked file (`git status --porcelain` not empty);
+//     with a change or an untracked file (`git status --porcelain` not empty), and
+//     never a detached one whose commit no branch, remote-tracking branch or tag holds
+//     (its HEAD goes with the folder, and nothing would refer to the commit then);
 //   - the branch goes only after its worktree, and only when its tip is in the
 //     configured base, or it is the head of a merged pull request (a squash merge
 //     leaves no commit of the branch in the base, so `git branch -d` would refuse).
@@ -78,8 +80,70 @@ func (m *LaneManager) closeTarget(ctx context.Context, id string) (path string, 
 }
 
 // worktreeVerdict says why the worktree at path must stay, or "" when `git worktree
-// remove` may take it. w is its `git worktree list` entry.
-func (m *LaneManager) worktreeVerdict(ctx context.Context, path, id string) (w signals.Worktree, why string) {
+// remove` may take it. w is its `git worktree list` entry; held, for a detached one
+// that may go, names a ref that holds its commit.
+func (m *LaneManager) worktreeVerdict(ctx context.Context, path, id string) (w signals.Worktree, held, why string) {
+	w, why = m.worktreeCheck(ctx, path, id)
+	if why != "" || w.Branch != "" {
+		return w, "", why
+	}
+	held, why = m.detachedVerdict(ctx, w.Head)
+	return w, held, why
+}
+
+// detachedVerdict names a ref that holds a detached worktree's commit, or says why the
+// worktree must stay: removing the folder removes the HEAD that refers to the commit,
+// and git deletes a commit nothing refers to. A failed read keeps it too.
+func (m *LaneManager) detachedVerdict(ctx context.Context, head string) (held, why string) {
+	if head == "" {
+		return "", "the panel couldn't tell whether its commit is on a branch (git worktree list gave no HEAD), so it stays"
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	// Not refs/stash: a stash is not where anyone looks for a commit.
+	out, err := m.Run(cctx, m.Root, []string{"git", "for-each-ref", "--contains=" + head, "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes", "refs/tags"})
+	if err != nil {
+		return "", "the panel couldn't tell whether its commit " + short(head) + " is on a branch (" + err.Error() + "), so it stays"
+	}
+	// Sorted by refname: refs/heads, then refs/remotes, then refs/tags, each by name. A
+	// symbolic ref (origin/HEAD) is skipped: the ref it names is listed itself.
+	for _, l := range nonEmptyLines(out) {
+		ref, sym, _ := strings.Cut(l, "\t")
+		switch {
+		case sym != "":
+		case strings.HasPrefix(ref, "refs/heads/"):
+			return strings.TrimPrefix(ref, "refs/heads/"), ""
+		case strings.HasPrefix(ref, "refs/remotes/"):
+			return strings.TrimPrefix(ref, "refs/remotes/"), ""
+		case strings.HasPrefix(ref, "refs/tags/"):
+			return "tag " + strings.TrimPrefix(ref, "refs/tags/"), ""
+		}
+	}
+	return "", "its commit " + short(head) + " is on no branch or tag, so removing the folder would lose it. To keep it, put it on a branch first: git branch <name> " + short(head)
+}
+
+// detachedRecheck says why a detached worktree must stay after all, read just before
+// `git worktree remove`: a commit made in it since the check (a terminal, a teardown)
+// would otherwise go with the folder. It narrows that window; nothing can close it
+// while something outside the panel can commit there.
+func (m *LaneManager) detachedRecheck(ctx context.Context, w signals.Worktree) string {
+	if w.Branch != "" {
+		return ""
+	}
+	out, err := m.Run(ctx, w.Path, []string{"git", "rev-parse", "--verify", "--quiet", "HEAD"})
+	head := strings.TrimSpace(string(out))
+	if err != nil || head == "" {
+		return "the panel couldn't read its HEAD again before removing it, so it stays"
+	}
+	if head == w.Head {
+		return ""
+	}
+	_, why := m.detachedVerdict(ctx, head)
+	return why
+}
+
+// worktreeCheck is worktreeVerdict before the detached commit's check.
+func (m *LaneManager) worktreeCheck(ctx context.Context, path, id string) (w signals.Worktree, why string) {
 	if path == "" {
 		return w, "the lane's directory is not known (a corrupt registry record is not trusted)"
 	}
@@ -222,7 +286,7 @@ func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *La
 	if n := m.imageCount(id); n > 0 {
 		p.Remove = append(p.Remove, fmt.Sprintf("%d image%s dropped on the lane", n, plural(n)))
 	}
-	w, why := m.worktreeVerdict(ctx, path, id)
+	w, held, why := m.worktreeVerdict(ctx, path, id)
 	p.Branch = w.Branch
 	shown := path
 	if shown == "" {
@@ -239,6 +303,9 @@ func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *La
 	}
 	switch {
 	case w.Branch == "":
+		if held != "" {
+			p.Notes = append(p.Notes, detachedNote(w, held))
+		}
 	case !p.Worktree:
 		p.Keep = append(p.Keep, "the branch "+w.Branch+": its worktree stays")
 	default:
@@ -324,7 +391,7 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 	defer m.changed()
 
 	// Checked again now that claude has exited: its exit may have written files.
-	w, why := m.worktreeVerdict(ctx, path, id)
+	w, _, why := m.worktreeVerdict(ctx, path, id)
 	shown := path
 	if shown == "" {
 		shown = "(unknown)"
@@ -352,7 +419,7 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 		return res, nil
 	} else if ran {
 		res.Removed = append(res.Removed, "worktree_teardown ran in "+w.Path)
-		if _, why := m.worktreeVerdict(ctx, w.Path, id); why != "" {
+		if _, _, why := m.worktreeVerdict(ctx, w.Path, id); why != "" {
 			res.Kept = append(res.Kept, "the worktree "+w.Path+": after worktree_teardown, "+why)
 			if w.Branch != "" {
 				res.Kept = append(res.Kept, "the branch "+w.Branch+": its worktree stays")
@@ -362,6 +429,10 @@ func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	if why := m.detachedRecheck(cctx, w); why != "" {
+		res.Kept = append(res.Kept, "the worktree "+w.Path+": "+why)
+		return res, nil
+	}
 	// No --force: git refuses a dirty or locked worktree itself, a second guard.
 	if _, err := m.Run(cctx, m.Root, []string{"git", "worktree", "remove", w.Path}); err != nil {
 		res.Kept = append(res.Kept, "the worktree "+w.Path+": git worktree remove refused ("+err.Error()+")")
