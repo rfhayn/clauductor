@@ -1015,7 +1015,13 @@ In order:
    - it is **not locked** (`git worktree lock`);
    - no other lane runs in it;
    - it is **clean**: `git status --porcelain --untracked-files=all` prints nothing. An untracked
-     file counts; an ignored one does not.
+     file counts; an ignored one does not;
+   - when it is **detached**, a branch, remote-tracking branch or tag holds its commit (`git
+     for-each-ref --contains`; a stash does not count). Removing the folder removes the only
+     thing that refers to a commit none of them holds, so such a worktree stays, and the page
+     gives the `git branch <name> <sha>` that saves the commit. If the refs can't be read, it
+     stays too. Its HEAD is read again just before `git worktree remove`, and a new commit is
+     checked the same way.
 3. **The local branch** is deleted only after its worktree is gone, and only if nothing is lost:
    - its tip is in the configured `base` (`git for-each-ref --merged=<base>`); the confirmation
      runs `git fetch` first, and a failed fetch is shown and only makes the panel keep more; or
@@ -1061,7 +1067,8 @@ the result shows above the lanes. The main checkout has no **Remove**.
 
 The worktree is removed with `git worktree remove` (never `--force`) only if everything Close
 lane checks holds (listed in `git worktree list`, not the main worktree, inside `worktree_dir`,
-not locked, clean with untracked files counted), and also:
+not locked, clean with untracked files counted, and when detached, its commit on a branch,
+remote-tracking branch or tag), and also:
 
 - **no lane is registered in it**, running or orphaned: that lane's **Close lane** is the control
   for it;
@@ -1072,7 +1079,9 @@ not locked, clean with untracked files counted), and also:
 
 Its local branch then goes only under Close lane's rules (merged into `base`, or the head of a
 merged pull request, deleted at the tip checked). A detached worktree has no branch, and the plan
-says so: "no branch: the worktree is detached (HEAD at …), so there is no branch to delete".
+names the ref that holds its commit: "no branch: the worktree is detached at …, a commit that is
+also on main, so nothing is lost" (a local branch first, then a remote-tracking branch, then a
+tag). A detached worktree whose commit is on none of them stays, as under Close lane.
 
 
 ### Window size: the latest client wins
