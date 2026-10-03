@@ -29,7 +29,7 @@ import (
 
 var (
 	laneTypeRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{0,64}$`)
-	laneModes   = map[string]bool{"root": true, "existing": true, "new": true}
+	laneModes   = map[string]bool{"root": true, "existing": true, "new": true, "branch": true}
 	laneActions = map[string]bool{"start": true, "restart": true, "resume": true, "stop": true, "restore": true}
 	// v2 prompt states (DeliverFirstPrompt).
 	promptStates = map[string]bool{"": true, "pending": true, "typing": true, "sent": true, "delivered": true, "skipped": true}

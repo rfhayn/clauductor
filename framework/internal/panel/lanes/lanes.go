@@ -87,6 +87,23 @@ type LaneError struct {
 	Status int
 	Code   string
 	Msg    string
+	// Branch is set on a "branch-exists" refusal: where the branch already is, so the
+	// page can move the start there instead of failing on git (PANEL-29).
+	Branch *BranchFacts
+}
+
+// BranchFacts says where a branch a lane would start on already is: in this clone,
+// on origin (as last fetched), and in which worktree, if any.
+type BranchFacts struct {
+	Branch   string `json:"branch"`
+	Local    bool   `json:"local"`
+	Remote   bool   `json:"remote"`
+	Worktree string `json:"worktree,omitempty"`
+	// Busy is "rebase" or "bisect" when Worktree holds the branch only because it is
+	// stopped mid-rebase or mid-bisect (listed detached): no lane can start on the
+	// branch until that is finished or aborted there, since D1 refuses a detached
+	// worktree. "" otherwise.
+	Busy string `json:"busy,omitempty"`
 }
 
 func (e *LaneError) Error() string { return e.Msg }
@@ -511,7 +528,7 @@ func (m *LaneManager) TerminalAppArgv(id string) []string {
 // StartRequest is the body of POST /api/lanes.
 type StartRequest struct {
 	Type     string `json:"type"`
-	Mode     string `json:"mode"`     // "new" (new branch + worktree) | "existing" (a worktree) | "root" (the project root)
+	Mode     string `json:"mode"`     // "new" (new branch + worktree) | "existing" (a worktree) | "branch" (a template's existing branch, new worktree) | "root" (the project root)
 	Name     string `json:"name"`     // the lane id; for "new" also the branch name after the type's prefix
 	Worktree string `json:"worktree"` // for "existing": a path from git worktree list
 	// v2 (StartLane): a template fills the branch and the first prompt.
@@ -541,7 +558,8 @@ func (m *LaneManager) clock() clock.Clock {
 func (m *LaneManager) now() time.Time { return m.clock().Now() }
 
 // Start starts a lane: a new claude session, with an id the panel assigns, in the
-// project root, an existing worktree, or a new branch's new worktree.
+// project root, an existing worktree, a new branch's new worktree, or (a template's
+// lane) its existing branch in a new worktree.
 func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult, *LaneError) {
 	id := req.Name
 	if !config.ValidLaneID(id) {
@@ -550,8 +568,13 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	if !m.Cfg.HasLaneType(req.Type) {
 		return StartResult{}, laneErr(400, "invalid", "unknown lane type %q", req.Type)
 	}
-	if req.Mode != "new" && req.Mode != "existing" && req.Mode != "root" {
-		return StartResult{}, laneErr(400, "invalid", "mode must be new, existing or root")
+	switch {
+	case !laneModes[req.Mode]:
+		return StartResult{}, laneErr(400, "invalid", "mode must be new, existing, branch or root")
+	case req.Mode == "root" && req.tpl != nil:
+		return StartResult{}, laneErr(400, "invalid", "A template names a branch, so it runs in a worktree, not the project root.")
+	case req.Mode == "branch" && req.tpl == nil:
+		return StartResult{}, laneErr(400, "invalid", "An existing branch is a template's named branch; a plain lane starts in an existing worktree or on a new branch.")
 	}
 	if why := m.StartBlocked(ctx); why != "" {
 		return StartResult{}, laneErr(409, "api-key", "%s", why)
@@ -589,10 +612,27 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		if res.Path == "" {
 			return res, laneErr(400, "invalid", "%q is not one of this project's worktrees", req.Worktree)
 		}
+		// D1: a template types a prompt about one branch's work, so it runs only in
+		// that branch's worktree.
+		if req.tpl != nil && res.Branch != req.tpl.Branch {
+			// Detached by a stopped rebase or bisect of the template's own branch:
+			// refused all the same, with the advice the other modes give.
+			if res.Branch == "" {
+				if busy := m.holdsBranch(ctx, res.Path, req.tpl.Branch); busy != "" {
+					return res, laneErr(400, "invalid", "%s", busySentence(req.tpl.Branch, busy, res.Path))
+				}
+			}
+			on := "a detached HEAD"
+			if res.Branch != "" {
+				on = "branch " + res.Branch
+			}
+			return res, laneErr(400, "invalid", "%s is on %s, but template %q for %s runs on branch %s; start it in that branch's worktree",
+				res.Path, on, req.tpl.Template, id, req.tpl.Branch)
+		}
 		if other := m.pathTaken(ctx, res.Path, ""); other != "" {
 			return res, laneErr(409, "path-taken", "lane %q already runs in %s; two sessions in one checkout would edit the same files", other, res.Path)
 		}
-	case "new":
+	case "new", "branch":
 		prefix := m.Cfg.BranchPrefix(req.Type)
 		if prefix == "" && req.tpl == nil {
 			return res, laneErr(400, "invalid", "lane type %q has no branch prefix in lanes; pick an existing worktree or the project root", req.Type)
@@ -607,10 +647,9 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		if _, err := m.Run(ctx, m.Root, []string{"git", "check-ref-format", "--branch", res.Branch}); err != nil {
 			return res, laneErr(400, "invalid", "branch %q is not a valid branch name", res.Branch)
 		}
+		// Its folder is checked after the branch (below): the folder may be the
+		// branch's own worktree, and then the refusal names the branch.
 		res.Path = filepath.Join(m.Cfg.WorktreeRoot(m.Root), id)
-		if _, err := os.Stat(res.Path); err == nil {
-			return res, laneErr(409, "exists", "%s already exists; start the lane on the existing worktree instead", res.Path)
-		}
 	}
 
 	// The intent is on disk before anything is created, so a crash from here on
@@ -624,15 +663,36 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 		_ = m.Registry.Delete(id)
 		return res, e
 	}
-	if req.Mode == "new" {
+	if req.Mode == "new" || req.Mode == "branch" {
+		// --prune: merge-pr deletes merged branches on origin, and a stale
+		// remote-tracking ref would read as "origin has it" below, refusing a reused
+		// name or offering a branch that is gone.
 		fctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		_, ferr := m.Run(fctx, m.Root, []string{"git", "fetch", "--quiet"})
+		_, ferr := m.Run(fctx, m.Root, []string{"git", "fetch", "--prune", "--quiet", "origin"})
 		cancel()
 		if ferr != nil {
-			res.Notes = append(res.Notes, fmt.Sprintf("git fetch failed (%v); the branch starts from the last fetched %s", ferr, m.Cfg.BaseRef()))
+			if req.Mode == "new" {
+				res.Notes = append(res.Notes, fmt.Sprintf("git fetch failed (%v); the branch starts from the last fetched %s", ferr, m.Cfg.BaseRef()))
+			} else {
+				res.Notes = append(res.Notes, fmt.Sprintf("git fetch failed (%v); origin's branches are as last fetched", ferr))
+			}
+		}
+		// After the fetch, so a branch that only origin has is seen.
+		facts, err := m.branchFacts(ctx, res.Branch)
+		if err != nil {
+			return fail(laneErr(500, "git", "cannot read the branches: %v", err))
+		}
+		add, lerr := worktreeAddArgv(req.Mode, req.tpl != nil, facts, res.Path, m.Cfg.BaseRef())
+		if lerr != nil {
+			return fail(lerr)
+		}
+		// The folder rule comes after the branch's: an earlier lane's worktree at
+		// exactly this path is the branch's worktree, refused above with its facts.
+		if _, err := os.Stat(res.Path); err == nil {
+			return fail(laneErr(409, "exists", "%s already exists; start the lane on the existing worktree instead", res.Path))
 		}
 		actx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		_, err := m.Run(actx, m.Root, []string{"git", "worktree", "add", "-b", res.Branch, res.Path, m.Cfg.BaseRef()})
+		_, err = m.Run(actx, m.Root, add)
 		cancel()
 		if err != nil {
 			return fail(laneErr(409, "git", "git worktree add failed: %v", err))
@@ -662,6 +722,152 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	}
 	m.changed()
 	return res, nil
+}
+
+// branchFacts reads where branch already is, without fetching: a local branch, a
+// branch origin has (as last fetched), and the worktree a local one is checked out in.
+func (m *LaneManager) branchFacts(ctx context.Context, branch string) (BranchFacts, error) {
+	f := BranchFacts{Branch: branch}
+	local, remote := "refs/heads/"+branch, "refs/remotes/origin/"+branch
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	out, err := m.Run(cctx, m.Root, []string{"git", "for-each-ref", "--format=%(refname)", local, remote})
+	cancel()
+	if err != nil {
+		return f, err
+	}
+	// for-each-ref also matches refs under a pattern (change/x/y for change/x), so
+	// only an exact name counts.
+	for _, line := range strings.Split(string(out), "\n") {
+		switch strings.TrimSpace(line) {
+		case local:
+			f.Local = true
+		case remote:
+			f.Remote = true
+		}
+	}
+	if !f.Local {
+		return f, nil
+	}
+	wts, err := signals.ReadWorktrees(ctx, m.Run, m.Root)
+	if err != nil {
+		return f, err
+	}
+	for _, w := range wts {
+		if !w.Bare && w.Branch == branch {
+			f.Worktree = w.Path
+		}
+	}
+	// A worktree stopped mid-rebase or mid-bisect is listed `detached`, yet git
+	// still holds its branch there and refuses to check it out again.
+	for _, w := range wts {
+		if f.Worktree != "" || w.Bare || w.Branch != "" {
+			continue
+		}
+		if busy := m.holdsBranch(ctx, w.Path, branch); busy != "" {
+			f.Worktree, f.Busy = w.Path, busy
+		}
+	}
+	return f, nil
+}
+
+// holdsBranch says whether the detached worktree at path is in the middle of a
+// "rebase" or a "bisect" of branch, or "": from the files git itself reads to refuse
+// that branch elsewhere.
+func (m *LaneManager) holdsBranch(ctx context.Context, path, branch string) string {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	out, err := m.Run(cctx, path, []string{"git", "rev-parse", "--absolute-git-dir"})
+	cancel()
+	if err != nil {
+		return "" // a prunable worktree, its folder gone
+	}
+	dir := strings.TrimSpace(string(out))
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(dir, name))
+		return strings.TrimSpace(string(b))
+	}
+	// head-name is the full ref; BISECT_START is the short name bisect started on.
+	switch {
+	case read("rebase-merge/head-name") == "refs/heads/"+branch, read("rebase-apply/head-name") == "refs/heads/"+branch:
+		return "rebase"
+	case read("BISECT_START") == branch:
+		return "bisect"
+	}
+	return ""
+}
+
+// busySentence is the advice for a branch a stopped rebase or bisect holds: no start
+// is possible until it is finished there (D1 refuses the detached worktree).
+func busySentence(branch, busy, worktree string) string {
+	return fmt.Sprintf("A branch named %s is in the middle of a %s in the worktree %s. Finish or abort it there, then start the lane on that worktree.",
+		branch, busy, worktree)
+}
+
+// worktreeAddArgv is the `git worktree add` a "new" or "branch" start runs, given
+// where its branch already is, or the plain refusal that replaces git's own error.
+func worktreeAddArgv(mode string, template bool, f BranchFacts, path, base string) ([]string, *LaneError) {
+	if mode == "new" {
+		if f.Local || f.Remote {
+			return nil, branchExists(f, template)
+		}
+		return []string{"git", "worktree", "add", "-b", f.Branch, path, base}, nil
+	}
+	switch {
+	case f.Worktree != "":
+		// git refuses a branch checked out twice; say where it already is.
+		return nil, branchExists(f, template)
+	case f.Local:
+		return []string{"git", "worktree", "add", path, f.Branch}, nil
+	case f.Remote:
+		return []string{"git", "worktree", "add", "--track", "-b", f.Branch, path, "origin/" + f.Branch}, nil
+	}
+	return nil, laneErr(400, "invalid", "No branch named %s; choose New branch and worktree.", f.Branch)
+}
+
+// branchExists is the 409 for a branch a start cannot create or check out again. It
+// offers only what the server would accept instead: its worktree ("existing", which
+// D1 allows a template since the branch is its own), its branch in a new worktree
+// ("branch", a template's only), or for a plain lane another name.
+func branchExists(f BranchFacts, template bool) *LaneError {
+	var e *LaneError
+	onOrigin := ""
+	if !f.Local {
+		onOrigin = " on origin"
+	}
+	switch {
+	case f.Busy != "":
+		e = laneErr(409, "branch-exists", "%s", busySentence(f.Branch, f.Busy, f.Worktree))
+	case f.Worktree != "":
+		e = laneErr(409, "branch-exists", "A branch named %s already exists, in the worktree %s. Start the lane on that worktree.", f.Branch, f.Worktree)
+	case template:
+		e = laneErr(409, "branch-exists", "A branch named %s already exists%s. Start on the branch in a new worktree.", f.Branch, onOrigin)
+	default:
+		e = laneErr(409, "branch-exists", "A branch named %s already exists%s. Choose another name for the lane.", f.Branch, onOrigin)
+	}
+	e.Branch = &f
+	return e
+}
+
+// TemplateBranch answers GET /api/lanes/branch (D6): where the branch a template
+// names for a lane already is. Read only, and no fetch: the dialog asks once per
+// template and name, and a branch created since is caught by Start's own check. So
+// a branch deleted on origin reads as origin's until a fetch prunes its ref (Start's
+// does). Off, as templates are at Start, while panel.json is untrusted.
+func (m *LaneManager) TemplateBranch(ctx context.Context, g StartGate, template, name, issue string) (BranchFacts, *LaneError) {
+	if lerr := g.templatesOff(); lerr != nil {
+		return BranchFacts{}, lerr
+	}
+	branch, err := m.Cfg.TemplateBranch(template, name, issue)
+	if err != nil {
+		return BranchFacts{}, laneErr(400, "invalid", "%v", err)
+	}
+	if _, err := m.Run(ctx, m.Root, []string{"git", "check-ref-format", "--branch", branch}); err != nil {
+		return BranchFacts{}, laneErr(400, "invalid", "branch %q is not a valid branch name", branch)
+	}
+	f, err := m.branchFacts(ctx, branch)
+	if err != nil {
+		return BranchFacts{}, laneErr(500, "git", "cannot read the branches: %v", err)
+	}
+	return f, nil
 }
 
 // hardenArgs make the panel's socket keyless: no prefix, and no prefix or root
@@ -1066,11 +1272,20 @@ type StartGate struct {
 	QuotaGuard func() string // why the quota refuses a new lane now, or ""
 }
 
+// templatesOff refuses a template while panel.json is untrusted: its templates are
+// repo-controlled prompts and branch patterns.
+func (g StartGate) templatesOff() *LaneError {
+	if g.Trusted != nil && !g.Trusted() {
+		return laneErr(409, "untrusted-config", "panel.json is not trusted as it is now, so its templates are off; review it and run `clauductor panel trust`")
+	}
+	return nil
+}
+
 // StartLane is the v2 start: an optional template, then the quota guard, then Start.
 func (m *LaneManager) StartLane(ctx context.Context, req StartRequest, g StartGate) (StartResult, *LaneError) {
 	if req.Template != "" {
-		if g.Trusted != nil && !g.Trusted() {
-			return StartResult{}, laneErr(409, "untrusted-config", "panel.json is not trusted as it is now, so its templates are off; review it and run `clauductor panel trust`")
+		if lerr := g.templatesOff(); lerr != nil {
+			return StartResult{}, lerr
 		}
 		r, err := m.Cfg.RenderTemplate(req.Template, req.Name, req.Issue)
 		if err != nil {
@@ -1079,10 +1294,12 @@ func (m *LaneManager) StartLane(ctx context.Context, req StartRequest, g StartGa
 		if req.Type != "" && req.Type != r.LaneType {
 			return StartResult{}, laneErr(400, "invalid", "template %q starts a %s lane, not %s", req.Template, r.LaneType, req.Type)
 		}
-		if req.Mode != "" && req.Mode != "new" {
-			return StartResult{}, laneErr(400, "invalid", "a template lane starts on a new branch and worktree")
+		// PANEL-29: a template starts where its branch already is ("existing",
+		// "branch") or on a new one; Start refuses "root" for a template.
+		if req.Mode == "" {
+			req.Mode = "new"
 		}
-		req.Type, req.Mode, req.tpl = r.LaneType, "new", &r
+		req.Type, req.tpl = r.LaneType, &r
 	} else if req.Issue != "" {
 		return StartResult{}, laneErr(400, "invalid", "issue is only for templates")
 	}
