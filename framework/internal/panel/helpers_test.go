@@ -322,10 +322,35 @@ func TestMain(m *testing.M) {
 func machineFree(home string) bool {
 	f, err := install.LockMachine(home)
 	if err == nil {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		releaseProbe(f)
 	}
 	return err == nil
+}
+
+// releaseProbe unlocks a probe's lock file and closes it.
+func releaseProbe(f *os.File) {
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	f.Close()
+}
+
+// The probe's release holds even while a copy of its file is open elsewhere, as a child
+// forked at that moment has one: a dup shares the open file, and so its lock (#78).
+func TestTheMachineProbeLeavesNoLockBehindInACopy(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	f, err := install.LockMachine(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(child)
+	releaseProbe(f)
+	if !machineFree(home) {
+		t.Fatal("the machine lock is still held by a copy of the probe's file")
+	}
 }
 
 // waitMachineFree waits, after a panel stopped, until its machine lock is free, or

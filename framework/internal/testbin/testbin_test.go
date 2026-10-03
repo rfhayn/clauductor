@@ -2,11 +2,14 @@ package testbin
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,30 +62,140 @@ func TestAScriptRunsAtOnceBesideForks(t *testing.T) {
 	}
 }
 
-// fileWrite is a test writing a file itself, with its mode last, on one line.
-var fileWrite = regexp.MustCompile(`os\.(WriteFile|OpenFile)\(.*, 0o?([0-7]{3})\)`)
+// selfWritten names each place in src where a test writes an executable itself: an
+// os.WriteFile or os.OpenFile whose mode has an execute bit, or an os.Chmod that adds
+// one to a path the same function wrote. A mode the parser cannot read (a variable)
+// counts as executable: the guard must not pass what it cannot see.
+func selfWritten(fset *token.FileSet, f *ast.File) []string {
+	var found []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncLit)
+		var body *ast.BlockStmt
+		if ok {
+			body = fn.Body
+		} else if fd, ok := n.(*ast.FuncDecl); ok {
+			body = fd.Body
+		}
+		if body == nil {
+			return true
+		}
+		written := map[string]bool{}
+		ast.Inspect(body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, mode, path := osCall(call)
+			switch {
+			case name == "WriteFile" || name == "OpenFile":
+				written[path] = true
+				if executable(mode) {
+					found = append(found, fset.Position(call.Pos()).String())
+				}
+			case name == "Chmod" && written[path] && executable(mode):
+				found = append(found, fset.Position(call.Pos()).String())
+			}
+			return true
+		})
+		return false // a nested function literal was walked with its parent
+	})
+	return found
+}
+
+// osCall is call's os function name, its mode argument and its path, as source text.
+func osCall(call *ast.CallExpr) (name string, mode ast.Expr, path string) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", nil, ""
+	}
+	if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "os" {
+		return "", nil, ""
+	}
+	if len(call.Args) < 2 {
+		return "", nil, ""
+	}
+	switch sel.Sel.Name {
+	case "WriteFile", "OpenFile", "Chmod":
+		return sel.Sel.Name, call.Args[len(call.Args)-1], types.ExprString(call.Args[0])
+	}
+	return "", nil, ""
+}
+
+// executable reports whether mode, a literal, a conversion of one (fs.FileMode(0o755))
+// or a constant declared in the file, has an execute bit; anything else is assumed to.
+func executable(mode ast.Expr) bool {
+	switch m := mode.(type) {
+	case *ast.BasicLit:
+		v, err := strconv.ParseUint(strings.ReplaceAll(m.Value, "_", ""), 0, 32)
+		return err != nil || v&0o111 != 0
+	case *ast.ParenExpr:
+		return executable(m.X)
+	case *ast.CallExpr:
+		if len(m.Args) == 1 {
+			return executable(m.Args[0])
+		}
+	case *ast.Ident:
+		if m.Obj != nil && m.Obj.Kind == ast.Con {
+			if vs, ok := m.Obj.Decl.(*ast.ValueSpec); ok {
+				for i, n := range vs.Names {
+					if n.Name == m.Name && i < len(vs.Values) {
+						return executable(vs.Values[i])
+					}
+				}
+			}
+		}
+	}
+	return true
+}
+
+func TestTheGuardSeesEveryWayOfWritingAnExecutable(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		want int
+	}{
+		{`os.WriteFile(p, b, 0o644)`, 0},
+		{`os.WriteFile(p, b, 0644)`, 0},
+		{`os.WriteFile(p, b, 0o755)`, 1},
+		{`os.WriteFile(p, b, 0755)`, 1},
+		{`os.WriteFile(p, b, 0o0755)`, 1},
+		{"os.WriteFile(p,\n\t[]byte(`x`),\n\t0o755)", 1},
+		{`os.WriteFile(p, b, fs.FileMode(0o755))`, 1},
+		{`os.WriteFile(p, b, fs.FileMode(0o600))`, 0},
+		{`os.WriteFile(p, b, exe)`, 1},
+		{`os.WriteFile(p, b, plain)`, 0},
+		{`os.WriteFile(p, b, mode)`, 1}, // a variable: unreadable, so counted
+		{`os.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0o700)`, 1},
+		{`os.WriteFile(p, b, 0o644); os.Chmod(p, 0o755)`, 1},
+		{`os.Chmod(dir, 0o755)`, 0}, // a directory the test did not write
+		{`os.MkdirAll(dir, 0o755)`, 0},
+		{`func() { os.WriteFile(p, b, 0o755) }()`, 1},
+	} {
+		src := "package x\nconst exe, plain = 0o755, 0o644\nfunc f() {\n" + c.src + "\n}\n"
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "x_test.go", src, 0)
+		if err != nil {
+			t.Fatalf("%q: %v", c.src, err)
+		}
+		if got := selfWritten(fset, f); len(got) != c.want {
+			t.Errorf("%q: found %v, want %d", c.src, got, c.want)
+		}
+	}
+}
 
 // Every test file in the module, not a list of the known ones: a test that writes its own
 // executable is the flake this package exists to prevent.
 func TestNoTestWritesAnExecutableAnotherWay(t *testing.T) {
 	var found []string
+	fset := token.NewFileSet()
 	err := filepath.WalkDir("../..", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, "_test.go") {
 			return err
 		}
-		b, err := os.ReadFile(p)
+		f, err := parser.ParseFile(fset, p, nil, 0)
 		if err != nil {
 			return err
 		}
-		for i, line := range strings.Split(string(b), "\n") {
-			m := fileWrite.FindStringSubmatch(line)
-			if m == nil {
-				continue
-			}
-			if mode, _ := strconv.ParseUint(m[2], 8, 32); mode&0o111 != 0 {
-				found = append(found, p+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
-			}
-		}
+		found = append(found, selfWritten(fset, f)...)
 		return nil
 	})
 	if err != nil {
