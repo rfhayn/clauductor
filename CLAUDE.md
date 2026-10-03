@@ -20,6 +20,7 @@ clauductor/
 │       ├── plugin/           ← builds plugin/ from template/ (docs/plugin.md)
 │       ├── template/         ← reads template/ for install and update
 │       ├── leakcheck/        ← test support: fails a run that leaves tmux or a helper behind
+│       ├── testbin/          ← test support: writes a stand-in executable no parallel fork holds open
 │       └── testwait/         ← test support: waits with deadlines scaled by CLAUDUCTOR_TEST_SLOW
 ├── template/                 ← the operating model projects receive (`clauductor install`)
 │   ├── AGENTS.md, CLAUDE.md  ← project-level instructions

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/creack/pty"
 )
 
@@ -110,9 +111,7 @@ func installSh(t *testing.T, root, bin, home string, env ...string) (string, err
 func stub(t *testing.T, bin, name, calls, body string) {
 	t.Helper()
 	script := "#!/bin/sh\necho \"" + name + " $*\" >> " + calls + "\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, filepath.Join(bin, name), script)
 }
 
 // stubTools: brew, sudo and apt-get that only record, and a go whose `build` leaves a binary that

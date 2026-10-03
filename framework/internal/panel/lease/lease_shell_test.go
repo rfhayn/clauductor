@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // The plain-shell protocol in docs/panel.md is what a project without clauductor
@@ -196,9 +197,7 @@ func tracedSleep(t *testing.T, dir string) (trace string) {
 	trace = filepath.Join(t.TempDir(), "sleep-trace")
 	os.Remove(filepath.Join(dir, "sleep")) // noPSPath links the real one
 	script := "#!/bin/sh\necho \"$*\" >> " + shq(trace) + "\nexec " + shq(sleepBin) + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, filepath.Join(dir, "sleep"), script)
 	return trace
 }
 
@@ -369,7 +368,7 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 	dir := t.TempDir()
 	gitRun(t, dir, "init", "-q")
 	script := strings.Replace(s[i:i+j], "# ...the gate itself...", "echo gate-ran", 1)
-	os.WriteFile(filepath.Join(dir, "run-local.sh"), []byte(script), 0o755)
+	testbin.Write(t, filepath.Join(dir, "run-local.sh"), script)
 	path := noPSPath(t)
 	git, _ := exec.LookPath("git")
 	dirname, _ := exec.LookPath("dirname")

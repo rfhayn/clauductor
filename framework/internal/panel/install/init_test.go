@@ -12,6 +12,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 func initGit(t *testing.T, dir string, args ...string) {
@@ -184,7 +185,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 		root := newRepo(t, nil)
 		for name, body := range files {
 			os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o755)
-			os.WriteFile(filepath.Join(root, name), []byte(body), 0o755)
+			testbin.Write(t, filepath.Join(root, name), body)
 		}
 		initGit(t, root, "branch", "change/old-name")
 		res, err := InitConfig(context.Background(), signals.ExecRunner, root)
@@ -235,7 +236,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 	// the project defines, and no script the repository lacks is named.
 	root := newRepo(t, map[string]string{"Makefile": "ci:\n\ttrue\n"})
 	os.MkdirAll(filepath.Join(root, ".claude"), 0o755)
-	os.WriteFile(filepath.Join(root, ".claude/owner-queue.sh"), []byte("#!/bin/sh\n"), 0o755)
+	testbin.Write(t, filepath.Join(root, ".claude/owner-queue.sh"), "#!/bin/sh\n")
 	res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)

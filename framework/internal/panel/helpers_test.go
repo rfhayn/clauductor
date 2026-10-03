@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -314,10 +315,14 @@ func TestMain(m *testing.M) {
 	os.Exit(leakcheck.Main(m))
 }
 
-// machineFree reports whether the machine lock in home is free now.
+// machineFree reports whether the machine lock in home is free now. The probe unlocks
+// before it closes, as lease.go's does: a child another (parallel) test forks while the
+// probe holds the lock keeps a copy of the file until it execs, and Close alone leaves
+// the lock with that copy, so the next panel in this home was refused (#78).
 func machineFree(home string) bool {
 	f, err := install.LockMachine(home)
 	if err == nil {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}
 	return err == nil

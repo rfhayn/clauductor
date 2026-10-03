@@ -14,6 +14,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 func TestValidLaneID(t *testing.T) {
@@ -260,7 +261,7 @@ func TestRegistryIsWrittenBeforeTheAction(t *testing.T) {
 	t.Parallel()
 	m := testLaneManager(t)
 	m.TmuxPath = filepath.Join(t.TempDir(), "tmux") // a tmux whose socket has no server
-	os.WriteFile(m.TmuxPath, []byte("#!/bin/sh\necho 'no server running on /tmp/x' >&2\nexit 1\n"), 0o755)
+	testbin.Write(t, m.TmuxPath, "#!/bin/sh\necho 'no server running on /tmp/x' >&2\nexit 1\n")
 	var sawIntent bool
 	m.Run = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		if strings.Join(argv[:3], " ") == "git worktree add" {
