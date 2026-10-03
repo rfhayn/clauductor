@@ -16,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -220,7 +221,7 @@ func TestCorruptRegistryRecordsAreShownButNeverLaunched(t *testing.T) {
 	}
 	m.Registry = reg
 	m.TmuxPath = filepath.Join(t.TempDir(), "tmux")
-	os.WriteFile(m.TmuxPath, []byte("#!/bin/sh\necho 'no server running on /tmp/x' >&2\nexit 1\n"), 0o755)
+	testbin.Write(t, m.TmuxPath, "#!/bin/sh\necho 'no server running on /tmp/x' >&2\nexit 1\n")
 	m.Run = func(ctx context.Context, dir string, argv []string) ([]byte, error) { return []byte("[]"), nil }
 	rec, ok := reg.Get("bad")
 	if !ok || !strings.Contains(rec.Corrupt, "session id") {

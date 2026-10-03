@@ -2651,6 +2651,15 @@ The rules the suite keeps, and a new test must too:
   time is left alone.
 - A helper process the test binary starts gets `GORACE=atexit_sleep_ms=0`. A `-race` binary
   otherwise sleeps a second at exit.
+- **A file a test has open reaches every child a parallel test forks**, until that child execs
+  (#78). A stand-in executable is written with `testbin.Write`, which holds `syscall.ForkLock`
+  while the file is open: otherwise running it fails on Linux with ETXTBSY ("text file busy").
+  `TestNoTestWritesAnExecutableAnotherWay` reads every `_test.go` file and fails an
+  `os.WriteFile` or `os.OpenFile` whose mode has an execute bit, or an `os.Chmod` that adds one
+  to a path the same function wrote. A mode it cannot read (a variable) counts as executable, so
+  a plain file's mode is a literal, or a constant declared in the same file. A probe that takes
+  a flock unlocks it (`LOCK_UN`) before closing, as `lease.go` does: closing alone leaves the
+  lock with the child's copy, and the next taker is refused.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

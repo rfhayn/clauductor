@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // The plain-shell protocol in docs/panel.md is what a project without clauductor
@@ -162,7 +163,12 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
-		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c", body(log, "G"))
+		// The holder holds until the test releases it, not for body's one second: a
+		// waiter that took that long to start found the lease free and ran (#83's gate).
+		release := filepath.Join(dir, "release")
+		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c",
+			"echo G-start >> "+shq(log)+"; while [ ! -e "+shq(release)+" ]; do sleep 0.05; done; echo G-end >> "+shq(log))
+		defer os.WriteFile(release, nil, 0o644)
 		waitUntil(t, "held", 5*time.Second, func() bool { return lineCount(log) == 1 })
 		sh := startShellLease(t, leaseSh, lock, "shell", "echo SHELL-RAN >> "+log)
 		var v types.QueueView
@@ -176,6 +182,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		if code := sh.wait(t, 10*time.Second); code != ExitCancelled {
 			t.Fatalf("shell exit %d: %s", code, sh.stderr)
 		}
+		os.WriteFile(release, nil, 0o644)
 		lr.wait(t, 10*time.Second)
 		if strings.Contains(strings.Join(readLog(t, log), " "), "SHELL-RAN") {
 			t.Fatal("a cancelled shell waiter ran")
@@ -196,9 +203,7 @@ func tracedSleep(t *testing.T, dir string) (trace string) {
 	trace = filepath.Join(t.TempDir(), "sleep-trace")
 	os.Remove(filepath.Join(dir, "sleep")) // noPSPath links the real one
 	script := "#!/bin/sh\necho \"$*\" >> " + shq(trace) + "\nexec " + shq(sleepBin) + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, filepath.Join(dir, "sleep"), script)
 	return trace
 }
 
@@ -369,7 +374,7 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 	dir := t.TempDir()
 	gitRun(t, dir, "init", "-q")
 	script := strings.Replace(s[i:i+j], "# ...the gate itself...", "echo gate-ran", 1)
-	os.WriteFile(filepath.Join(dir, "run-local.sh"), []byte(script), 0o755)
+	testbin.Write(t, filepath.Join(dir, "run-local.sh"), script)
 	path := noPSPath(t)
 	git, _ := exec.LookPath("git")
 	dirname, _ := exec.LookPath("dirname")

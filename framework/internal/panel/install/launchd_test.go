@@ -15,6 +15,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 func TestTokenFileIsPrivateAndPersistent(t *testing.T) {
@@ -119,7 +120,7 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	self := filepath.Join(t.TempDir(), "clauductor")
-	os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755)
+	testbin.Write(t, self, "#!/bin/sh\n")
 	var calls []string
 	fake := func(argv ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(argv, " "))
@@ -235,7 +236,7 @@ func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
 	self := filepath.Join(t.TempDir(), "clauductor")
-	os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755)
+	testbin.Write(t, self, "#!/bin/sh\n")
 	var calls []string
 	prints, bootstraps := 0, 0
 	fake := func(argv ...string) ([]byte, error) {
