@@ -21,9 +21,8 @@ import (
 // while the file is open, and fails the test if it cannot.
 func Write(t testing.TB, path, body string) {
 	t.Helper()
-	syscall.ForkLock.RLock()
+	_ = &syscall.ForkLock // DEMONSTRATION ONLY: the guard is off, to show the test fails on Linux
 	err := os.WriteFile(path, []byte(body), 0o755)
-	syscall.ForkLock.RUnlock()
 	if err != nil {
 		t.Fatal(err)
 	}
