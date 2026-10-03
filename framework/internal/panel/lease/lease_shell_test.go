@@ -163,7 +163,12 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
-		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c", body(log, "G"))
+		// The holder holds until the test releases it, not for body's one second: a
+		// waiter that took that long to start found the lease free and ran (#83's gate).
+		release := filepath.Join(dir, "release")
+		lr := startLockRun(t, lock, "go", time.Minute, "/bin/sh", "-c",
+			"echo G-start >> "+shq(log)+"; while [ ! -e "+shq(release)+" ]; do sleep 0.05; done; echo G-end >> "+shq(log))
+		defer os.WriteFile(release, nil, 0o644)
 		waitUntil(t, "held", 5*time.Second, func() bool { return lineCount(log) == 1 })
 		sh := startShellLease(t, leaseSh, lock, "shell", "echo SHELL-RAN >> "+log)
 		var v types.QueueView
@@ -177,6 +182,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		if code := sh.wait(t, 10*time.Second); code != ExitCancelled {
 			t.Fatalf("shell exit %d: %s", code, sh.stderr)
 		}
+		os.WriteFile(release, nil, 0o644)
 		lr.wait(t, 10*time.Second)
 		if strings.Contains(strings.Join(readLog(t, log), " "), "SHELL-RAN") {
 			t.Fatal("a cancelled shell waiter ran")
