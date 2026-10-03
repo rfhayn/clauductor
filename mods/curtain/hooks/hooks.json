@@ -1,0 +1,4 @@
+{
+  "description": "Curtain: watches the /curtain skill, draws the closing show, and submits /exit on its done signal",
+  "modules": ["./register.ts"]
+}

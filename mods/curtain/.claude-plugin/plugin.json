@@ -1,0 +1,6 @@
+{
+  "name": "curtain",
+  "version": "0.1.0",
+  "description": "The full wrap-up of a lane in one command, /curtain (merge-pr, session-close, close the lane, exit), with a closing show above the prompt: Clawd sweeps the stage while the curtain comes down",
+  "author": { "name": "Rich Hayn" }
+}
