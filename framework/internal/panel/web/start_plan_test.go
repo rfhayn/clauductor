@@ -51,6 +51,13 @@ const inWT = "A branch named change/old-work already exists, in the worktree /el
 const midRebase = "A branch named change/old-work is in the middle of a rebase in the worktree /repo/w/old-work. Finish or abort it there, then start the lane on that worktree.";
 const old = (facts) => ({ from: "branch", template: "build", name: "old-work", facts: Object.assign({ branch: "change/old-work" }, facts) });
 const conflict = (error) => ({ from: "conflict", template: "build", name: "old-work", error: Object.assign({ ok: false, code: "branch-exists", branch: "change/old-work", local: true, remote: true }, error) });
+// The dialog re-plans from its fields after every edit and answer: what one plan puts
+// in them (template, name, issue) is what the next plan reads.
+const again = (p, extra) => P(base, Object.assign({ from: "template", template: p.template, name: p.name, issue: p.issue }, extra));
+const hereIssue = P(base, { from: "worktree", path: "/repo/w/12-login" });
+const nextIssue = P(base, { from: "next", template: "bug", item: { name: "login", issue: "12" } });
+const untrusted = Object.assign({}, base, { trust: { hash: "abc", trusted: false } });
+const running = Object.assign({}, base, { lanes: [base.lanes[0], Object.assign({ terminal: "score" }, base.lanes[1])] });
 console.log(JSON.stringify({
   tplWorktree: P(base, { from: "template", template: "build", name: "add-score-photo" }),
   nextWorktree: P(base, { from: "next", template: "build", item: { name: "add-score-photo" } }),
@@ -68,7 +75,16 @@ console.log(JSON.stringify({
   hereBuild: P(base, { from: "worktree", path: "/repo/w/add-score-photo" }),
   herePropose: P(base, { from: "worktree", path: "/repo/w/add-group-card-entry" }),
   hereFirst: P(base, { from: "worktree", path: "/repo/w/listed-nowhere" }),
-  hereIssue: P(base, { from: "worktree", path: "/repo/w/12-login" }),
+  hereIssue,
+  hereIssueAgain: again(hereIssue),
+  hereIssueFacts: again(hereIssue, { from: "branch", facts: { branch: "bug/12-login", local: true, remote: false, worktree: "/repo/w/12-login" } }),
+  nextIssue,
+  nextIssueAgain: again(nextIssue),
+  noIssueTemplate: P(base, { from: "worktree", path: "/repo/w/add-score-photo" }),
+  hereUntrusted: P(untrusted, { from: "worktree", path: "/repo/w/add-score-photo" }),
+  hereTrusted: P(Object.assign({}, base, { trust: { hash: "abc", trusted: true } }), { from: "worktree", path: "/repo/w/add-score-photo" }),
+  tplRunning: P(running, { from: "template", template: "build", name: "add-score-photo" }),
+  factsRunning: P(running, { from: "branch", template: "build", name: "add-score-photo", facts: { branch: "change/add-score-photo", local: true, worktree: "/repo/w/add-score-photo" } }),
   hereNone: P(base, { from: "worktree", path: "/repo/w/My Scratch" }),
   hereMain: P(base, { from: "worktree", path: "/repo" }),
   issueMissing: P(base, { from: "template", template: "bug", name: "login" }),
@@ -88,6 +104,7 @@ console.log(JSON.stringify({
 type startPlan struct {
 	Template string          `json:"template"`
 	Name     string          `json:"name"`
+	Issue    string          `json:"issue"`
 	Mode     *string         `json:"mode"`
 	Worktree string          `json:"worktree"`
 	Choices  map[string]bool `json:"choices"`
@@ -116,6 +133,18 @@ func (p startPlan) enabled() string {
 
 func runStartPlan(t *testing.T) map[string]startPlan {
 	t.Helper()
+	b := runPlanHarness(t, startPlanHarness)
+	var got map[string]startPlan
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("harness output: %v\n%s", err, b)
+	}
+	return got
+}
+
+// runPlanHarness runs a node script given start-plan.js's path as its argument, and
+// returns what it prints.
+func runPlanHarness(t *testing.T, harness string) []byte {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("-short: runs node against start-plan.js")
 	}
@@ -129,18 +158,14 @@ func runStartPlan(t *testing.T) map[string]startPlan {
 		t.Fatal(err)
 	}
 	h := filepath.Join(dir, "harness.js")
-	if err := os.WriteFile(h, []byte(startPlanHarness), 0o644); err != nil {
+	if err := os.WriteFile(h, []byte(harness), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	b, err := exec.Command(node, h, src).CombinedOutput()
 	if err != nil {
 		t.Fatalf("harness: %v\n%s", err, b)
 	}
-	var got map[string]startPlan
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatalf("harness output: %v\n%s", err, b)
-	}
-	return got
+	return b
 }
 
 // placed is where a plan runs the lane: template, name, mode, worktree and the enabled choices.
@@ -221,8 +246,38 @@ func TestStartPlan(t *testing.T) {
 	check("[NEWLANE-3-S2]", "herePropose", placed{"propose", "add-group-card-entry", "existing", "/repo/w/add-group-card-entry", "existing"})
 	// D5: listed by no Up next, the first template in the config's order wins.
 	check("D5", "hereFirst", placed{"build", "listed-nowhere", "existing", "/repo/w/listed-nowhere", "existing"})
-	// A pattern with an issue still yields the name.
+	// A pattern with an issue still yields the name, and the plan carries the issue the
+	// branch names, so the dialog's next plan (any edit, the server's answer) renders the
+	// same branch and Start sends it. Without it, the re-plan rendered no branch and
+	// offered a new one.
 	check("issue", "hereIssue", placed{"bug", "login", "existing", "/repo/w/12-login", "existing"})
+	for _, k := range []string{"hereIssueAgain", "hereIssueFacts", "nextIssue", "nextIssueAgain"} {
+		check("issue", k, placed{"bug", "login", "existing", "/repo/w/12-login", "existing"})
+	}
+	for _, k := range []string{"hereIssue", "hereIssueAgain", "hereIssueFacts", "nextIssue", "nextIssueAgain"} {
+		if got[k].Issue != "12" {
+			t.Errorf("issue %s: the plan's issue is %q, want 12", k, got[k].Issue)
+		}
+	}
+	if i := got["noIssueTemplate"].Issue; i != "" {
+		t.Errorf("issue: a branch pattern with no {issue} gives the plan the issue %q", i)
+	}
+
+	// While panel.json is untrusted, templates are off (409 untrusted-config), so "New
+	// lane here" opens a plain lane on the worktree, as before PANEL-29; trusted, it
+	// picks the build.
+	check("untrusted", "hereUntrusted", placed{"", "add-score-photo", "existing", "/repo/w/add-score-photo", "new,existing,root"})
+	check("untrusted", "hereTrusted", placed{"build", "add-score-photo", "existing", "/repo/w/add-score-photo", "existing"})
+
+	// A lane already runs in the branch's worktree: the server refuses a second (409
+	// path-taken), so the plan offers no choice and says why, from the page's worktrees
+	// and from the server's answer alike.
+	for _, k := range []string{"tplRunning", "factsRunning"} {
+		check("running", k, placed{"build", "add-score-photo", "<none>", "", ""})
+		if w := got[k].Warnings; len(w) != 1 || !strings.HasPrefix(w[0], "Lane score already runs in /repo/w/add-score-photo") {
+			t.Errorf("running %s: warnings %q, want the lane that already runs there", k, w)
+		}
+	}
 	// [NEWLANE-3-S3] A branch no template names: no template, and the worktree selected.
 	check("[NEWLANE-3-S3]", "hereNone", placed{"", "my-scratch", "existing", "/repo/w/My Scratch", "new,existing,root"})
 	check("[NEWLANE-3-S3]", "hereMain", placed{"", "repo", "existing", "/repo", "new,existing,root"})

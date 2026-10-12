@@ -142,7 +142,9 @@
       <legend>Where it runs</legend>
       <label class="inline"><input type="radio" name="st-mode" value="new" checked> New branch and worktree</label>
       <label class="inline"><input type="radio" name="st-mode" value="existing"> An existing worktree</label>
+      <label class="inline" id="st-branch-row" hidden><input type="radio" name="st-mode" value="branch"> Its existing branch, in a new worktree</label>
       <label class="inline"><input type="radio" name="st-mode" value="root"> The project root</label>
+      <div class="sub" id="st-note" hidden></div>
     </fieldset>
     <label id="st-wt-row">Worktree <select id="st-wt"></select></label>
     <label>Lane name <input type="text" id="st-name" maxlength="41" spellcheck="false" placeholder="e.g. add-login"></label>
@@ -150,6 +152,8 @@
     <div class="sub" id="st-prompt" hidden></div>
     <label class="inline" id="st-quota-row" hidden><input type="checkbox" id="st-quota"> <span id="st-quota-why"></span></label>
     <div class="sub" id="st-preview"></div>
+    <!-- What is in the way of this start (PANEL-29): shown above Start, never a block. -->
+    <div id="st-warn" role="status" hidden></div>
     <div class="card err" id="st-block" hidden></div>
     <div class="stop" id="st-err"></div>
     <div class="actions">
@@ -224,6 +228,7 @@
 </div>
 <script src="/static/xterm-style.js"></script>
 <script src="/static/term-links.js"></script>
+<script src="/static/start-plan.js"></script>
 <script src="/static/panel.js"></script>
 </body>
 </html>

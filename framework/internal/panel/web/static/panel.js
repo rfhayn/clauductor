@@ -2853,26 +2853,86 @@ document.addEventListener("visibilitychange", wakeTerms);
 window.addEventListener("focus", wakeTerms);
 
 // ---- v1: the Start lane dialog ------------------------------------------------
-function slug(s) { return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "").slice(0, 41).replace(/-+$/, ""); }
+const slug = StartPlan.slug;
 function stMode() { return document.querySelector('input[name="st-mode"]:checked').value; }
+function stRadio(m) { return document.querySelector('input[name="st-mode"][value="' + m + '"]'); }
+function stType() { return (S.laneTypes || []).find((x) => x.name === $("st-type").value); }
+// Where a lane of the chosen type runs by default: a new branch, or the project root
+// for a type with no branch prefix.
+function typeMode() { const type = stType(); return type && type.prefix ? "new" : "root"; }
 
 function stTpl() { return (S.templates || []).find((x) => x.id === $("st-tpl").value); }
 function fillTpl(s, name, issue) { return s.replace(/\{name\}/g, name || "<name>").replace(/\{issue\}/g, issue || "<issue>"); }
 
+// PANEL-29: where the lane runs is StartPlan.planStart's plan (start-plan.js); the
+// dialog only renders it. stCtx is what the server last said about the template's
+// branch (GET /lanes/branch's answer, or a 409 branch-exists at Start), so a re-render
+// on a poll still plans from it. Editing the template, name or issue drops it and asks
+// again.
+let stPlan = null, stCtx = null, stAskTimer = 0;
+function stFields() { return { template: $("st-tpl").value, name: $("st-name").value.trim(), issue: $("st-issue").value.trim() }; }
+
+// stApply puts a plan in the fields: the template, name and issue it planned with, the
+// "Where it runs" choices the server would accept, and the one it selects.
+function stApply(p) {
+  stPlan = p;
+  $("st-tpl").value = p.template;
+  if (p.name !== $("st-name").value.trim()) $("st-name").value = p.name;
+  if (p.issue !== $("st-issue").value.trim()) $("st-issue").value = p.issue;
+  for (const r of document.querySelectorAll('input[name="st-mode"]')) r.disabled = !p.choices[r.value];
+  // The existing-branch choice belongs to a template's branch: a plain lane never has it.
+  $("st-branch-row").hidden = !p.template;
+  if (p.mode) stRadio(p.mode).checked = true;
+  // The template that chose the existing branch is gone: back to the lane type's own.
+  else if (stRadio(stMode()).disabled && anyChoice(p)) stRadio(typeMode()).checked = true;
+  if (p.worktree) {
+    const wt = $("st-wt");
+    // The server may name a worktree made after the dialog listed them.
+    if (!Array.from(wt.options).some((o) => o.value === p.worktree)) { const o = el("option", null, p.worktree); o.value = p.worktree; wt.appendChild(o); }
+    wt.value = p.worktree;
+    wt.title = p.worktree;
+  }
+}
+// A plan with no choice enabled is one nothing can start from (start-plan.js).
+function anyChoice(p) { return Object.values(p.choices).some(Boolean); }
+function stCanStart() { return !!(S && !S.startBlocked && !offline() && stPlan && anyChoice(stPlan)); }
+
+// D6: asks where the template's branch already is, once typing pauses. An answer for
+// fields that have changed since is dropped; a refusal (an invalid name, an untrusted
+// config) leaves the plan from the worktrees the page knows.
+function stAsk() {
+  clearTimeout(stAskTimer);
+  const tpl = stTpl(), f = stFields();
+  if (!tpl || !StartPlan.branch(tpl, f.name, f.issue)) return;
+  stAskTimer = setTimeout(async () => {
+    const q = new URLSearchParams({ template: f.template, name: f.name });
+    if (f.issue) q.set("issue", f.issue);
+    try {
+      const r = await fetch(api("/lanes/branch?" + q), { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      const now = stFields();
+      if (!r.ok || $("startdlg").hidden || now.template !== f.template || now.name !== f.name || now.issue !== f.issue) return;
+      stCtx = { from: "branch", facts: j };
+      stUpdate();
+    } catch (err) { /* the plan from the page's worktrees stands; Start's 409 is the fallback */ }
+  }, 250);
+}
+// The template, the name or the issue changed: plan from the fields alone, then ask.
+function stEdited() { stCtx = null; stUpdate(); stAsk(); }
+
 function stUpdate() {
+  stApply(StartPlan.planStart(S, Object.assign({ from: "template" }, stCtx, stFields())));
   const tpl = stTpl();
   const untrusted = S.trust && S.trust.hash && !S.trust.trusted;
   $("st-type").disabled = !!tpl;
-  for (const r of document.querySelectorAll('input[name="st-mode"]')) r.disabled = !!tpl;
+  // D1: a template runs only in its own branch's worktree, which the plan selects.
+  $("st-wt").disabled = !!tpl;
   $("st-issue-row").hidden = !(tpl && tpl.needsIssue);
   $("st-prompt").hidden = !tpl;
-  if (tpl) {
-    $("st-type").value = tpl.laneType;
-    document.querySelector('input[name="st-mode"][value="new"]').checked = true;
-  }
+  if (tpl) $("st-type").value = tpl.laneType;
   $("st-quota-row").hidden = !S.quotaGuard;
   $("st-quota-why").textContent = S.quotaGuard ? S.quotaGuard + ". Start anyway." : "";
-  const type = (S.laneTypes || []).find((x) => x.name === $("st-type").value);
+  const type = stType();
   const mode = stMode();
   $("st-wt-row").hidden = mode !== "existing";
   const name = $("st-name").value;
@@ -2885,9 +2945,14 @@ function stUpdate() {
   else p = "Runs in " + S.root;
   if (tpl) {
     const name = $("st-name").value, issue = $("st-issue").value.trim();
-    p = "Creates branch " + fillTpl(tpl.branchPattern, name, issue) + " from " + S.laneBase + " in " + S.worktreeRoot + "/" + (name || "<name>");
+    const branch = StartPlan.branch(tpl, name.trim(), issue) || fillTpl(tpl.branchPattern, name, issue), at = S.worktreeRoot + "/" + (name || "<name>");
+    p = mode === "existing" ? "Runs in " + ($("st-wt").value || "?") + ", on its branch " + branch
+      : mode === "branch" ? "Adds a worktree in " + at + " on the existing branch " + branch
+      : "Creates branch " + branch + " from " + S.laneBase + " in " + at;
+    // Nothing can start (a stopped rebase holds the branch): the warning says why.
+    if (!anyChoice(stPlan)) p = "";
     const model = tpl.model || (type && type.model), effort = tpl.effort || (type && type.effort);
-    if (model || effort) p += ", then claude" + (model ? " --model " + model : "") + (effort ? " --effort " + effort : "");
+    if (p && (model || effort)) p += ", then claude" + (model ? " --model " + model : "") + (effort ? " --effort " + effort : "");
     $("st-prompt").replaceChildren(el("div", null, "Once claude is idle, the panel types this, then Enter:"),
       el("div", "tpl-prompt", fillTpl(tpl.firstPrompt, name, issue)));
     if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off until panel.json is trusted as it is now (clauductor panel trust)."));
@@ -2901,9 +2966,18 @@ function stUpdate() {
     ? "A recipe: it sets the lane type (" + tpl.laneType + "), names the branch " + (tpl.branchPattern || "<type prefix><name>") + " and types its first prompt once claude is ready."
     : "A template is a recipe for one kind of work: it picks the lane type, names the branch and types a first prompt. With none, claude starts with nothing typed.");
   setText($("st-type-help"), (tpl ? "Set by the template. " : "How claude runs, whatever the work. ") + (type ? type.name + ": " + how(type) + "." : ""));
+  // The plan's line saying why it chose where the lane runs, and what is in the way: a
+  // warning on a start the plan allows turns Start into "Start anyway" and never
+  // disables it. A plan that allows no start (its warning says why) keeps "Start lane",
+  // disabled.
+  setText($("st-note"), stPlan.note);
+  $("st-note").hidden = !stPlan.note;
+  patch($("st-warn"), stPlan.warnings.map((w, i) => key(el("div", "warnbar", w), "sw:" + i)));
+  $("st-warn").hidden = !stPlan.warnings.length;
+  setText($("st-go"), stPlan.warnings.length && anyChoice(stPlan) ? "Start anyway" : "Start lane");
   $("st-block").hidden = !S.startBlocked;
   $("st-block").textContent = S.startBlocked || "";
-  $("st-go").disabled = !!S.startBlocked || offline();
+  $("st-go").disabled = !stCanStart();
   renderNext();
 }
 
@@ -2939,20 +3013,22 @@ function renderNext() {
   patch(box, kids);
 }
 function pickNext(x, it) {
-  $("st-tpl").value = x.id;
-  $("st-name").value = it.name;
-  if (it.issue) $("st-issue").value = it.issue;
+  stCtx = null;
+  stApply(StartPlan.planStart(S, { from: "next", template: x.id, item: it }));
   stUpdate();
+  stAsk();
   $("st-name").focus();
 }
 
-// opts.worktree: "New lane here" on a worktree in the tree picks that worktree.
+// opts.worktree: "New lane here" on a worktree in the tree picks that worktree, and the
+// template its branch names, if any (PANEL-29).
 let startReturn = null;
 function openStart(opts) {
   if (!S || offline()) return;
   startReturn = document.activeElement;
+  stCtx = null;
   const tsel = $("st-tpl"), tprev = tsel.value;
-  const none = el("option", null, "(none: an empty lane)"); none.value = "";
+  const none = el("option", null, "No template: a plain Claude session"); none.value = "";
   tsel.replaceChildren(none, ...(S.templates || []).map((x) => { const o = el("option", null, (x.title || x.id) + " (" + x.laneType + ")"); o.value = x.id; return o; }));
   tsel.value = tprev && (S.templates || []).find((x) => x.id === tprev) ? tprev : "";
   $("st-quota").checked = false;
@@ -2968,29 +3044,27 @@ function openStart(opts) {
   $("startdlg").hidden = false;
   stTypeChanged();
   if (opts && opts.worktree) {
-    $("st-tpl").value = "";
-    // The worktree's own type (main → orchestrator), not whatever the list shows first.
+    // The worktree's own type (main → orchestrator), not whatever the list shows first;
+    // a template the plan picks sets its own.
     const own = S.lanes.concat(S.quietWorktrees).find((l) => l.path === opts.worktree);
     if (own && (S.laneTypes || []).some((x) => x.name === own.type)) sel.value = own.type;
-    wt.value = opts.worktree;
-    wt.title = opts.worktree;
-    document.querySelector('input[name="st-mode"][value="existing"]').checked = true;
-    if (!$("st-name").value) $("st-name").value = slug(opts.worktree.split("/").pop() || "");
+    stApply(StartPlan.planStart(S, { from: "worktree", path: opts.worktree }));
     stUpdate();
   }
+  stAsk();
   $("st-name").focus();
 }
 
 function stTypeChanged() {
-  const type = (S.laneTypes || []).find((x) => x.name === $("st-type").value);
-  const mode = type && type.prefix ? "new" : "root";
-  document.querySelector('input[name="st-mode"][value="' + mode + '"]').checked = true;
+  const type = stType(), mode = typeMode();
+  stRadio(mode).checked = true;
   if (mode === "root" && !$("st-name").value) $("st-name").value = slug(type ? type.name : "orchestrator");
   stUpdate();
 }
 
 // Closing returns focus to what opened the dialog, if it is still on the page.
 function closeStart() {
+  clearTimeout(stAskTimer);
   $("startdlg").hidden = true;
   const r = startReturn; startReturn = null;
   if (r && r.isConnected && r.focus) r.focus();
@@ -3015,9 +3089,9 @@ $("startdlg").addEventListener("focusout", () => setTimeout(() => {
 }, 0));
 $("st-type").addEventListener("change", stTypeChanged);
 $("st-wt").addEventListener("change", () => { $("st-wt").title = $("st-wt").value; if (!$("st-name").value) $("st-name").value = slug($("st-wt").value.split("/").pop()); stUpdate(); });
-$("st-name").addEventListener("input", stUpdate);
-$("st-issue").addEventListener("input", stUpdate);
-$("st-tpl").addEventListener("change", stUpdate);
+$("st-name").addEventListener("input", stEdited);
+$("st-issue").addEventListener("input", stEdited);
+$("st-tpl").addEventListener("change", stEdited);
 for (const r of document.querySelectorAll('input[name="st-mode"]')) r.addEventListener("change", () => {
   if (stMode() === "existing" && !$("st-name").value) $("st-name").value = slug($("st-wt").value.split("/").pop() || "");
   stUpdate();
@@ -3025,23 +3099,34 @@ for (const r of document.querySelectorAll('input[name="st-mode"]')) r.addEventLi
 $("startform").addEventListener("submit", async (e) => {
   e.preventDefault();
   const tpl = stTpl();
-  const body = tpl ? { template: tpl.id, name: $("st-name").value.trim() } : { type: $("st-type").value, mode: stMode(), name: $("st-name").value.trim() };
+  const body = tpl ? { template: tpl.id, mode: stMode(), name: $("st-name").value.trim() } : { type: $("st-type").value, mode: stMode(), name: $("st-name").value.trim() };
   if (tpl && tpl.needsIssue) body.issue = $("st-issue").value.trim();
-  if (!tpl && body.mode === "existing") body.worktree = $("st-wt").value;
+  if (body.mode === "existing") body.worktree = $("st-wt").value;
   if (S.quotaGuard && $("st-quota").checked) body.overrideQuota = true;
   $("st-go").disabled = true;
   $("st-err").textContent = "starting…";
   try {
     const r = await fetch(api("/lanes"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { $("st-err").textContent = j.error || "HTTP " + r.status; return; }
+    // A template's branch appeared after the dialog asked: plan again from the refusal,
+    // which moves the start to where the branch is and shows the refusal's sentence.
+    if (r.status === 409 && j.code === "branch-exists" && stTpl()) { $("st-err").textContent = ""; stCtx = { from: "conflict", error: j }; stUpdate(); return; }
+    if (!r.ok) {
+      $("st-err").textContent = j.error || "HTTP " + r.status;
+      // The answer the plan was built on may be stale (Start's fetch has pruned a deleted
+      // origin branch; a worktree may be gone): plan from the fields and ask again. A
+      // refusal before any git (the quota, an untrusted config, an API key) says nothing
+      // about the branch, so the plan stays where it is.
+      if (!["quota", "untrusted-config", "api-key"].includes(j.code)) { stCtx = null; stUpdate(); stAsk(); }
+      return;
+    }
     closeStart();
     $("st-name").value = ""; $("st-issue").value = "";
     if (j.lane && j.lane.notes) actMsg = { id: j.lane.id, text: j.lane.notes.join(" ") };
     pendingTerm = j.lane.id;
     fetch(api("/refresh"), { method: "POST" }).catch(() => {});
   } catch (err) { $("st-err").textContent = String(err); }
-  finally { $("st-go").disabled = !!(S && S.startBlocked) || offline(); }
+  finally { $("st-go").disabled = !stCanStart(); }
 });
 
 
