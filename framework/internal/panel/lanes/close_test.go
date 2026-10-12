@@ -193,6 +193,38 @@ func TestCloseKeepsADirtyWorktree(t *testing.T) {
 	}
 }
 
+// #77: Close lane applies Remove's rule for a detached commit: a lane's worktree detached
+// at a commit no ref holds stays, even under a forced consent; one at a commit a branch
+// holds goes, and the plan names the branch. REMOVEWT-3-S3.
+func TestCloseKeepsADetachedCommitOfItsOwn(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	wt := r.lane("own", "fix/own", filepath.Join(r.root, ".wt", "own"))
+	r.git(wt, "checkout", "-q", "--detach")
+	sha := r.commit(wt, "work.txt")
+	r.git(r.root, "branch", "-q", "-D", "fix/own")
+	want := "the worktree " + wt + ": its commit " + short(sha) + " is on no branch or tag, so removing the folder would lose it. To keep it, put it on a branch first: git branch <name> " + short(sha)
+	p, lerr := r.m.ClosePlan(context.Background(), "own")
+	if lerr != nil || p.Worktree || !has(p.Keep, want) {
+		t.Fatalf("plan %+v %v", p, lerr)
+	}
+	res, lerr := r.m.Close(context.Background(), "own", CloseRequest{Worktree: true})
+	if lerr != nil || !has(res.Kept, want) || has(res.Removed, "the worktree") || !exists(filepath.Join(wt, "work.txt")) {
+		t.Fatalf("a forced consent: %+v %v", res, lerr)
+	}
+	if _, ok := r.m.Registry.Get("own"); ok {
+		t.Fatal("the lane was not closed")
+	}
+
+	held := r.lane("held", "fix/held", filepath.Join(r.root, ".wt", "held"))
+	r.git(held, "checkout", "-q", "--detach")
+	r.git(r.root, "branch", "-q", "-D", "fix/held")
+	p, res = r.closeAll("held")
+	if !p.Worktree || !has(p.Notes, "also on main, so nothing is lost") || exists(held) || !has(res.Removed, "the worktree "+held) {
+		t.Fatalf("a commit on main: plan %+v, result %+v", p, res)
+	}
+}
+
 // Never a locked worktree, the main worktree, or one outside worktree_dir.
 func TestCloseKeepsLockedMainAndOutsideWorktrees(t *testing.T) {
 	t.Parallel()

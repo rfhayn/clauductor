@@ -117,7 +117,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     await p.click(rm);
     await p.waitForSelector(".tree .wtask .closelist", { timeout: 15000 });
     const plan = await p.$eval(".tree .wtask", (e) => e.textContent);
-    if (!/Remove the worktree/.test(plan) || !/detached/.test(plan) || !/no branch to delete/.test(plan)) fail("remove plan: " + plan);
+    if (!/Remove the worktree/.test(plan) || !/detached/.test(plan) || !/a commit that is also on \S+, so nothing is lost/.test(plan)) fail("remove plan: " + plan);
     if (!fs.existsSync(left)) fail("the dry run removed the worktree");
     await p.click('.tree .wtask [data-k="wt:confirm"]');
     await p.waitForSelector("#closebar:not([hidden]) .closed", { timeout: 15000 });

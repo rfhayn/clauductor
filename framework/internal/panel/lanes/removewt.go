@@ -72,15 +72,18 @@ func (m *LaneManager) findWorktree(ctx context.Context, key string) (signals.Wor
 }
 
 // removeVerdict says why the worktree at path must stay, or "" when it may go: Close's
-// rules, then no lane of any kind and no claude session in it.
-func (m *LaneManager) removeVerdict(ctx context.Context, wts []signals.Worktree, path string) string {
-	if _, why := m.worktreeVerdict(ctx, path, ""); why != "" {
-		return why
+// rules, then no lane of any kind and no claude session in it. held is worktreeVerdict's.
+// The detached commit's check runs last: a worktree refused already need not pay for
+// the ref read under the lane lock.
+func (m *LaneManager) removeVerdict(ctx context.Context, wts []signals.Worktree, path string) (held, why string) {
+	w, why := m.worktreeCheck(ctx, path, "")
+	if why != "" {
+		return "", why
 	}
 	in := func(dir string) bool { return dir == path || strings.HasPrefix(dir, path+"/") }
 	for _, rec := range m.Registry.List() {
 		if rec.Path != "" && in(signals.ResolvePath(rec.Path)) {
-			return "lane " + rec.ID + " is registered in it (Close lane on that lane removes its worktree)"
+			return "", "lane " + rec.ID + " is registered in it (Close lane on that lane removes its worktree)"
 		}
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -91,7 +94,7 @@ func (m *LaneManager) removeVerdict(ctx context.Context, wts []signals.Worktree,
 		agents, err = signals.ParseAgents(out)
 	}
 	if err != nil {
-		return "cannot read claude agents (" + err.Error() + "), so a claude session in it cannot be ruled out"
+		return "", "cannot read claude agents (" + err.Error() + "), so a claude session in it cannot be ruled out"
 	}
 	for _, a := range agents {
 		if a.Cwd == "" {
@@ -100,14 +103,22 @@ func (m *LaneManager) removeVerdict(ctx context.Context, wts []signals.Worktree,
 		// The deepest worktree containing the session's directory: a session in the
 		// main checkout is not in a worktree nested inside it, and the reverse.
 		if i := signals.MatchWorktree(wts, signals.ResolvePath(a.Cwd)); i >= 0 && wts[i].Path == path {
-			return fmt.Sprintf("a claude session runs in it (pid %d, %s)", a.PID, a.Status)
+			return "", fmt.Sprintf("a claude session runs in it (pid %d, %s)", a.PID, a.Status)
 		}
 	}
-	return ""
+	if w.Branch != "" {
+		return "", ""
+	}
+	return m.detachedVerdict(ctx, w.Head)
 }
 
-func detachedNote(w signals.Worktree) string {
-	return "no branch: the worktree is detached (HEAD at " + short(w.Head) + "), so there is no branch to delete"
+// detachedNote is for a detached worktree that may go: held is the ref that holds its
+// commit, or "" when it stays (its Keeps line says why).
+func detachedNote(w signals.Worktree, held string) string {
+	if held == "" {
+		return "no branch: the worktree is detached (HEAD at " + short(w.Head) + "), so there is no branch to delete"
+	}
+	return "no branch: the worktree is detached at " + short(w.Head) + ", a commit that is also on " + held + ", so nothing is lost"
 }
 
 // RemoveWorktreePlan is what Remove would do now, for the page's confirmation. It
@@ -130,7 +141,8 @@ func (m *LaneManager) RemoveWorktreePlan(ctx context.Context, key string) (Workt
 		return WorktreePlan{}, laneErr(503, "git", "cannot read git worktree list: %v", err)
 	}
 	p := WorktreePlan{Path: w.Path, Branch: w.Branch, Head: w.Head, Remove: []string{}, Keep: []string{}}
-	if why := m.removeVerdict(ctx, wts, w.Path); why != "" {
+	held, why := m.removeVerdict(ctx, wts, w.Path)
+	if why != "" {
 		p.Keep = append(p.Keep, "the worktree "+w.Path+": "+why)
 	} else {
 		p.Worktree = true
@@ -138,7 +150,7 @@ func (m *LaneManager) RemoveWorktreePlan(ctx context.Context, key string) (Workt
 	}
 	switch {
 	case w.Branch == "":
-		p.Notes = append(p.Notes, detachedNote(w))
+		p.Notes = append(p.Notes, detachedNote(w, held))
 	case !p.Worktree:
 		p.Keep = append(p.Keep, "the branch "+w.Branch+": its worktree stays")
 	default:
@@ -174,7 +186,8 @@ func (m *LaneManager) RemoveWorktree(ctx context.Context, key string, consent Re
 			res.Kept = append(res.Kept, "the branch "+w.Branch+": "+why)
 		}
 	}
-	switch why := m.removeVerdict(ctx, wts, w.Path); {
+	held, why := m.removeVerdict(ctx, wts, w.Path)
+	switch {
 	case why != "":
 		res.Kept = append(res.Kept, "the worktree "+w.Path+": "+why)
 		keepBranch("its worktree stays")
@@ -186,6 +199,10 @@ func (m *LaneManager) RemoveWorktree(ctx context.Context, key string, consent Re
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	if why := m.detachedRecheck(cctx, w); why != "" {
+		res.Kept = append(res.Kept, "the worktree "+w.Path+": "+why)
+		return res, nil
+	}
 	// No --force: git refuses a dirty or locked worktree itself, a second guard.
 	if _, err := m.Run(cctx, m.Root, []string{"git", "worktree", "remove", w.Path}); err != nil {
 		res.Kept = append(res.Kept, "the worktree "+w.Path+": git worktree remove refused ("+err.Error()+")")
@@ -195,7 +212,7 @@ func (m *LaneManager) RemoveWorktree(ctx context.Context, key string, consent Re
 	defer m.changed()
 	res.Removed = append(res.Removed, "the worktree "+w.Path)
 	if w.Branch == "" {
-		res.Notes = append(res.Notes, detachedNote(w))
+		res.Notes = append(res.Notes, detachedNote(w, held))
 		return res, nil
 	}
 	if removed, kept := m.deleteBranch(cctx, w.Branch, consent.Branch); removed != "" {
