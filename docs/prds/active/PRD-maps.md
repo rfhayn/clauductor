@@ -61,7 +61,9 @@ The Standing Tee playbook (updated 2026-10-07) has also moved past the 2026-10-0
    continue, and it continues only on their yes (OPS-44).
 5. **Phase 2 is the $15 Builder tier** of his Patreon (his dashboard source, "Classic" and "Current" layouts). It is
    studied, never vendored (see *The clean-room rule*).
-6. **Order:** after the in-flight three (OPS-33 #83, PANEL-29, PANEL-28) and OPS-36, ahead of every other queued row.
+6. **Order:** after the four rows ahead of it in Phase 2 (OPS-33 #83, OPS-36, PANEL-29, PANEL-28), ahead of every
+   other queued row.
+   Later the same day, PANEL-42 (attach, `PRD-attach.md`) was queued ahead of MAPS.
 7. **Checkpoints:**
    - the tag `checkpoint/2026-10-12-pre-maps` on `010941d` (pushed), plus a dated backup of the installed panel
      binary with its sha256;
@@ -88,7 +90,7 @@ then OPS-47, and build-change.js goes OPS-43 then OPS-44.
 
 **Capability chain:** OPS-40 → PANEL-35 → OPS-42 → PANEL-36 → PANEL-37 → PANEL-38 → PANEL-39 → OPS-47 →
 PANEL-40.
-**Ops lanes:** OPS-38 and OPS-39 first, because the chain's root needs them. OPS-41, OPS-43, OPS-44, OPS-45 and OPS-46
+**Ops lanes:** OPS-38 first, because the chain's root (OPS-40) needs its Deps column; OPS-39 follows it. OPS-41, OPS-43, OPS-44, OPS-45 and OPS-46
 fill in alongside.
 
 ### The roadmap reads Deps (OPS-38, OPS-39)
@@ -258,6 +260,24 @@ Three Claude Code behaviours are unverified and are probed before their designs 
 - `asyncRewake` hooks;
 - `agent_id` in a subagent's hook payload;
 - PushNotification under `-p`.
+
+## In an attached repository
+
+Attach mode (PANEL-42, `PRD-attach.md`) means a repository can use the panel with none of Clauductor's model installed
+in it. Standing Tee is the first. Each MAPS row works there as follows, and its proposal designs for both kinds of
+repository.
+
+| Row | In an attached repository |
+|---|---|
+| OPS-38, OPS-39 | Not used. The repository's cards run its own roadmap parser, so Standing Tee's derived order is its own. |
+| OPS-40 | No `map.sh`. Schema v1 allows a map the panel builds from what it already reads: lanes, worktrees, and the repository's `.claude/skills`, `.claude/agents` and settings hooks. Rule, control and record layers are empty, and the page says why. |
+| PANEL-35, PANEL-36 | Draw that panel-built map. The view is never an empty page. |
+| OPS-42 | The registry may live beside the sidecar config (`~/.clauductor/projects/<id>/routines.json`), with its run log there too. Its commands run in the repository, which it never writes to. |
+| PANEL-37 | Ticks the sidecar registry. The trust that covers the sidecar config covers it too. |
+| PANEL-38 | Works unchanged. Its sources are the panel's: the spend ledger, merged PRs and the routine log. With no gate run log, the gate row is absent, not zero. |
+| PANEL-39 | Works unchanged. Deck templates come from the sidecar config. |
+| PANEL-40 | Works unchanged for lanes. The wake hook is the template's, so an attached repository's orchestrator is woken only if it has one of its own. |
+| OPS-41, OPS-43 to OPS-47 | Template practices. They reach an installed repository, never an attached one. Standing Tee already has its own versions. |
 
 ## Phase 2: the Builder tier (OPS-48, PANEL-41)
 

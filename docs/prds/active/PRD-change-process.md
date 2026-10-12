@@ -378,6 +378,11 @@ still runs the old lock-based skills, has no ADRs, and does not use the model it
 
 ## Adopting it in Standing Tee (after OPS-8)
 
+> **Superseded 2026-10-12.** The owner decided that Standing Tee does not converge on the template: it keeps its own
+> operating model, the panel serves it in attach mode, and practices it proves are ported into the template one way
+> (`docs/prds/active/PRD-attach.md`). ST-0 to ST-4 are cancelled. This section is kept as the record of the plan it
+> replaced, and as a list of the practices worth porting.
+
 Standing Tee keeps working as it is throughout. Every step below is an ordinary Standing Tee
 `ops/` PR through `/merge-pr`.
 
