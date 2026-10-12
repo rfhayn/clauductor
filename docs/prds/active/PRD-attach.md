@@ -21,7 +21,7 @@ for it already exists outside every repository; the one missing piece is the pan
 |---|---|
 | The panel's hooks | The user's `~/.claude/settings.json` (`framework/internal/panel/install/hooks.go`) |
 | The project registry | `~/.clauductor/panel/projects.json` |
-| Trust | Keyed by a hash of the project's path |
+| Trust | Recorded per project (under a hash of its path), against the config file's path and content hash (`install.TrustedNow`) |
 | The registry's `config` field | Can name a config file outside the repository |
 
 **A project with no config does not load today.** An empty `config` falls back to `<root>/.clauductor/panel.json`
@@ -30,7 +30,7 @@ it is registered with `"config": ""` and has no `.clauductor/`, and the installe
 `config does not load: no panel config at …/standingtee/.clauductor/panel.json` and 0 lanes. So attach mode is what
 makes the panel serve Standing Tee at all, not a cleanup of something that half works. The pieces it builds on already
 exist: the `config` field that can name a file outside the repository, `panel init`'s reading of a repository, and
-trust keyed by the config's path.
+trust recorded against the config's path and content hash, wherever that file lives.
 
 ## Decisions (the owner, 2026-10-12)
 
