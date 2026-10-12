@@ -14,7 +14,8 @@ Until now, Clauductor reached a repository by installing into it:
 Phase 5 planned the same for Standing Tee: converge its operating model on the template file by file (ST-1 to ST-4),
 then keep it current with `clauductor update`.
 
-The owner asked whether Clauductor could be used without integrating it into a repository. **Most of it already can.**
+The owner asked whether Clauductor could be used without integrating it into a repository. **Most of the machinery
+for it already exists outside every repository; the one missing piece is the panel's config.**
 
 | Part | Where it lives today |
 |---|---|
@@ -23,8 +24,13 @@ The owner asked whether Clauductor could be used without integrating it into a r
 | Trust | Keyed by a hash of the project's path |
 | The registry's `config` field | Can name a config file outside the repository |
 
-The installed panel already serves Standing Tee with `"config": ""` and no `.clauductor/` folder: lanes, quota, cost
-and Needs-you work. What such a repository lacks is what a config provides: cards, templates, Up next and Metrics.
+**A project with no config does not load today.** An empty `config` falls back to `<root>/.clauductor/panel.json`
+(`ProjectEntry.ConfigPath()`), and `config.LoadConfigRaw` fails when that file is missing. Standing Tee shows this now:
+it is registered with `"config": ""` and has no `.clauductor/`, and the installed panel's `panel list` reports
+`config does not load: no panel config at …/standingtee/.clauductor/panel.json` and 0 lanes. So attach mode is what
+makes the panel serve Standing Tee at all, not a cleanup of something that half works. The pieces it builds on already
+exist: the `config` field that can name a file outside the repository, `panel init`'s reading of a repository, and
+trust keyed by the config's path.
 
 ## Decisions (the owner, 2026-10-12)
 
@@ -33,7 +39,7 @@ and Needs-you work. What such a repository lacks is what a config provides: card
    - ST-0 to ST-4 are cancelled, and so is OPS-24, which existed for the swap.
    - P2.15b is cancelled too: only a converged Standing Tee would run the template's parser.
 2. **Ideas flow one way.** A practice Standing Tee proves is ported into the template as a row of its own; the MAPS
-   rows OPS-38 to OPS-47 and PANEL-40 are the first. Standing Tee never receives the template back, so nothing has to
+   rows are the first. Standing Tee never receives the template back, so nothing has to
    keep the two in sync. The cost is that the two models drift, and a fix in one is ported to the other by hand.
 3. **Attach mode (PANEL-42) is how the panel serves a repository that does not install Clauductor.**
    - The config is generated into `~/.clauductor/projects/<id>/panel.json` and registered through the existing
@@ -41,7 +47,8 @@ and Needs-you work. What such a repository lacks is what a config provides: card
    - Its commands still run in the repository's root, against the repository's own scripts.
    - It is trusted like any config: by its hash, and only on the owner's say.
    - A test proves the repository's files are untouched.
-4. **The plugin can be installed at user scope**, with a per-repository opt-out in the uncommitted
+4. **The plugin can be installed at user scope** (PANEL-42 documents this; `docs/plugin.md` recommends project scope
+   today), with a per-repository opt-out in the uncommitted
    `.claude/settings.local.json` (`"enabledPlugins": {"clauductor@clauductor": false}`).
    - Its skills are namespaced (`/clauductor:*`), so they never collide with a repository's own.
    - Its hooks would run beside a repository's own guards, which is what the opt-out prevents.
@@ -50,9 +57,9 @@ and Needs-you work. What such a repository lacks is what a config provides: card
    - Attach adds no sidecar for records, because the `no-clauductor` check holds that a repository works without
      Clauductor, and its people and CI read the rules from the repository.
    - Only the panel's own config, and MAPS' routines registry (PRD-maps), may live beside it.
-6. **Order:** PANEL-42 comes after the in-flight rows and before MAPS phase 1. PRD-maps' standing answer to
-   `/propose` step 0a covers it too: PANEL-42 goes ahead of the approved PANEL-25, PANEL-30 and PANEL-31 proposals,
-   which keep their approval and wait.
+6. **Order:** PANEL-42 comes after the in-flight rows and before MAPS phase 1. The owner's standing answer to
+   `/propose` step 0a (PRD-maps) names PANEL-42 too: it goes ahead of the approved PANEL-25, PANEL-30 and PANEL-31
+   proposals, which keep their approval and wait.
 7. **Standing Tee's own attach (ST-7)** is worked out in the open in `docs/panel.md`, as the example of a repository
    with a model of its own:
    - cards run `infra/roadmap-queue.mjs`, `.claude/founder-queue.sh` and its health readers;

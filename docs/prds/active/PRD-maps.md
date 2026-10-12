@@ -78,9 +78,11 @@ The Standing Tee playbook (updated 2026-10-07) has also moved past the 2026-10-0
 
 **The owner's answer, given once here:** MAPS rows go ahead of the approved PANEL-25, PANEL-30 and PANEL-31
 proposals. Those proposals keep their approval and wait behind MAPS. A design whose code moved under it goes back to
-the owner before its build.
+the owner before its build. The same day the owner queued PANEL-42 (attach, `PRD-attach.md`) before MAPS, so the
+answer covers PANEL-42 as well.
 
-A `/propose` for a MAPS row cites this section and continues. It still stops for anything else ahead of it.
+A `/propose` for a MAPS row or for PANEL-42 cites this section and continues. It still stops for anything else ahead
+of it.
 
 ## Phase 1: the rows
 
