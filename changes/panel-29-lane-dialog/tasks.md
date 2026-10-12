@@ -9,6 +9,7 @@
 - paused 2026-10-03 after group 2; next: group 3 (wire planStart in panel.js, fixing the {issue} low), then group 4 (docs), then the PR
 - 2026-10-03 group 2 built (page state `approvals`; `start-plan.js` `planStart`, tested in node); groups 3–4 not started. Nothing calls `planStart` yet: group 3 wires it into panel.js and index.html
 - 2026-10-12 group 3: 3.1 and 3.2 built (panel.js renders `planStart`'s plan; the `{issue}` low fixed in `start-plan.js`); 3.3 (the manual end-to-end pass) and group 4 not started
+- 2026-10-12 group 4: 4.1 built (`docs/panel.md`: Starting a lane, Lane templates, the new "Where a template runs", Suggestions, Controls; the in-page Help's Start a lane how-to). 3.3, the manual pass, is left to the lead
 
 ## Decision log
 - 2026-10-02 · group 1 · `GET /lanes/branch` takes `template`, `name` and an optional `issue`, and the server renders the branch (new `config.TemplateBranch`, sharing `RenderTemplate`'s branch rule). The issue is needed only when the branch pattern uses it. Alternative: the page renders the pattern and sends the branch. Why: one rendering, the same one Start uses, and the `fix` template's issue is in its prompt only, so the dialog can ask before an issue is typed.
@@ -68,6 +69,6 @@
 - [ ] 3.3 An end-to-end pass in a throwaway panel against a scratch repo with a `change/x` branch (with a worktree, without one, and origin-only), starting the build template from "New lane here" and from Up next, checked by hand (manual: the dialog's rendering and a real tmux lane need a browser and a live panel; every scenario is also cited by a unit test above)
 
 ## 4. Docs
-- [ ] 4.1 `docs/panel.md`'s New lane section and the in-page Help: what each "Where it runs" choice does with a template, the existing-branch choice, the approval warning, and the plain-session option
+- [x] 4.1 `docs/panel.md`'s New lane section and the in-page Help: what each "Where it runs" choice does with a template, the existing-branch choice, the approval warning, and the plain-session option
 
 - [ ] Slice: an owner can start a build lane on an in-flight change's existing worktree from "New lane here" in one click, in the panel's New lane dialog

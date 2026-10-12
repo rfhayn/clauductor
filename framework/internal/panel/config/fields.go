@@ -111,7 +111,7 @@ var Fields = []Field{
 	{Path: "templates[].lane_type", Version: 2, Type: "string", Required: true,
 		Doc: "One of the config's lane types (a value of `lanes`, or a key of `lane_types`)."},
 	{Path: "templates[].branch_pattern", Version: 2, Type: "string",
-		Doc: "The new branch, with `{name}` (required) and `{issue}`, e.g. `\"feature/{name}\"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one."},
+		Doc: "The lane's branch (new, or the existing one: see *Where a template runs*), with `{name}` (required) and `{issue}`, e.g. `\"feature/{name}\"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one."},
 	{Path: "templates[].first_prompt", Version: 2, Type: "string", Required: true,
 		Doc:    "ONE line typed into claude once it is ready. `{name}` and `{issue}` only; no newline or control character; at most 4000 characters.",
 		Schema: map[string]any{"minLength": 1, "maxLength": MaxFirstPrompt}},
