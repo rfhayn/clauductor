@@ -41,6 +41,8 @@ func (s *Server) laneRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/image", s.requireAuth(s.withProject(s.pasteImage)))
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/close", s.requireAuth(s.withProject(s.closeLane)))
 		mux.HandleFunc("POST "+pre+"/lanes", s.requireAuth(s.withProject(s.startLane)))
+		// PANEL-29 (D6): read only; where a template's branch already is.
+		mux.HandleFunc("GET "+pre+"/lanes/branch", s.requireAuth(s.withProject(s.laneBranch)))
 		mux.HandleFunc("POST "+pre+"/lanes/{id}/{action}", s.requireAuth(s.withProject(s.laneAction)))
 		// v2: fixed verbs on validated ids; none takes a command.
 		mux.HandleFunc("POST "+pre+"/lanes/restore-all", s.requireAuth(s.withProject(s.restoreAll)))
@@ -91,7 +93,19 @@ func laneErr(status int, code, format string, a ...any) *lanes.LaneError {
 }
 
 func writeLaneErr(w http.ResponseWriter, e *lanes.LaneError) {
-	writeJSON(w, e.Status, map[string]any{"ok": false, "error": e.Msg, "code": e.Code})
+	body := map[string]any{"ok": false, "error": e.Msg, "code": e.Code}
+	// PANEL-29: a branch-exists refusal says where the branch is, in the same fields
+	// GET /lanes/branch answers with, so the page moves the start there.
+	if f := e.Branch; f != nil {
+		body["branch"], body["local"], body["remote"] = f.Branch, f.Local, f.Remote
+		if f.Worktree != "" {
+			body["worktree"] = f.Worktree
+		}
+		if f.Busy != "" {
+			body["busy"] = f.Busy
+		}
+	}
+	writeJSON(w, e.Status, body)
 }
 
 func noLanes(w http.ResponseWriter, p *Project) bool {
@@ -119,6 +133,25 @@ func (s *Server) startLane(w http.ResponseWriter, r *http.Request, p *Project) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "lane": res})
+}
+
+// laneBranch serves GET /api/lanes/branch?template=…&name=…[&issue=…] (PANEL-29, D6):
+// whether the branch that template names for that lane exists here or on origin, and
+// which worktree has it. It fetches nothing and runs no command that writes.
+func (s *Server) laneBranch(w http.ResponseWriter, r *http.Request, p *Project) {
+	if noLanes(w, p) {
+		return
+	}
+	q := r.URL.Query()
+	f, lerr := p.Lanes.TemplateBranch(r.Context(), p.Orch.startGate(), q.Get("template"), q.Get("name"), q.Get("issue"))
+	if lerr != nil {
+		writeLaneErr(w, lerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		OK bool `json:"ok"`
+		lanes.BranchFacts
+	}{true, f})
 }
 
 func (s *Server) laneAction(w http.ResponseWriter, r *http.Request, p *Project) {

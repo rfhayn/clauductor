@@ -387,7 +387,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |
 | `templates[].lane_type` | string, **required** |  | 2 | One of the config's lane types (a value of `lanes`, or a key of `lane_types`). |
-| `templates[].branch_pattern` | string |  | 2 | The new branch, with `{name}` (required) and `{issue}`, e.g. `"feature/{name}"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one. |
+| `templates[].branch_pattern` | string |  | 2 | The lane's branch (new, or the existing one: see *Where a template runs*), with `{name}` (required) and `{issue}`, e.g. `"feature/{name}"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one. |
 | `templates[].first_prompt` | string, **required** |  | 2 | ONE line typed into claude once it is ready. `{name}` and `{issue}` only; no newline or control character; at most 4000 characters. |
 | `templates[].model` | string |  | 2 | Overrides the lane type's model. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `templates[].effort` | string |  | 2 | Overrides the lane type's effort. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
@@ -803,22 +803,32 @@ pauses, while a workflow in a background session fails.
 
 ### Starting a lane
 
-**New lane** asks for a template (or none), a lane type (from `lanes` and `lane_types`), a lane
-name, and where it runs. Under each choice a line says what it is: a **template** is a recipe for
-one kind of work (it sets the lane type, names the branch and types a first prompt); a **lane
-type** is only how claude runs (its branch prefix, model and effort). **New lane here** on a
-worktree picks that worktree's own lane type (`main` → `orchestrator`). When a template has a
-`suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
+**New lane** asks for a template (or **No template: a plain Claude session**), a lane type (from
+`lanes` and `lane_types`), a lane name, and where it runs. Under each choice a line says what it
+is: a **template** is a recipe for one kind of work (it sets the lane type, names the branch and
+types a first prompt); a **lane type** is only how claude runs (its branch prefix, model and
+effort). **New lane here** on a worktree picks that worktree's own lane type (`main` →
+`orchestrator`), and the template its branch names, if any (see *Where a template runs*). When a
+template has a `suggest` command, **Up next** comes first (see *Suggestions*). Where it runs:
 
-- **New branch and worktree.** The server runs `git fetch`, then
+- **New branch and worktree.** The server runs `git fetch --prune --quiet origin`, then
   `git worktree add -b <prefix><name> <worktree_dir>/<name> <base>`. The prefix is the type's
   prefix rule in `lanes` (`fix/` for `fix`). A type with only exact rules (such as `main` →
-  `orchestrator`) has no prefix and cannot start a new branch.
+  `orchestrator`) has no prefix and cannot start a new branch. A branch that already exists here
+  or on origin is refused after the fetch, before `git worktree add` runs (see *Where a template
+  runs*).
 - **An existing worktree.** Any worktree that `git worktree list` reports.
+- **Its existing branch, in a new worktree.** Only with a template; see *Where a template runs*.
 - **The project root.** Use this for the orchestrator.
 
 A lane is refused in a directory where another lane is already running, registered or not: two
 sessions in one checkout would edit the same files.
+
+When Start is refused, the reason shows in the dialog and nothing starts. A refusal before any git
+runs (the quota guard, an untrusted config, an API key in the environment) leaves the dialog as it
+was. After any other refusal the branch or worktree may have changed since the dialog looked (Start's
+fetch prunes a branch origin has deleted), so a template's dialog asks the server again where its
+branch is (or, on a branch-exists refusal, takes it from the refusal) and moves the choice there.
 
 Then it runs, as an argv list with no shell:
 
@@ -901,15 +911,16 @@ gitignored files, its dependencies and a port of its own before claude starts in
 ### Lane templates
 
 **New lane** offers the config's `templates`. Pick one, give the lane a name (and an issue if the
-template uses `{issue}`), and START:
+template uses `{issue}`), and press **Start lane** (**Start anyway** when the dialog shows a
+warning):
 
 1. The server validates every value: the name is a lane id; the issue is one line of plain text
    (no newline, no control character, no invisible format character such as a bidi override, at
    most 200 characters), and must also make a valid branch name if the pattern uses it. The
    dialog previews the branch and the exact prompt.
-2. The lane starts as any new-branch lane does, with the template's model and effort. The
-   rendered prompt is written into the lane registry with state `pending` **before** the lane
-   starts.
+2. The lane starts where the dialog chose (see *Where a template runs*), with the template's
+   model and effort. The rendered prompt is written into the lane registry with state `pending`
+   **before** the lane starts.
 3. The panel types the prompt **once claude is ready**, and it decides "ready" from structured
    signals only: `claude agents --json` lists the lane's own session id as `idle` with no
    `waitingFor`, no hook says the session waits (a permission prompt, an elicitation), and that
@@ -930,12 +941,62 @@ claude, the panel asks `claude agents` for a fresh reading at most every 2 s. A 
 tmux session is gone (a reboot, a killed tmux server) waits 30 s, then shows "RESTORE the lane"
 and stops asking: no poll can bring it back. Once restored, the prompt is typed as usual.
 
+#### Where a template runs
+
+A template names its branch (`change/{name}` gives `change/add-score-photo`), so the dialog
+chooses where the lane runs from where that branch already is (PANEL-29), and enables only the
+choice the server would accept:
+
+- **The branch has a worktree:** **An existing worktree**, with that worktree selected and the
+  Worktree list fixed to it. No branch is created. A template runs only in its own branch's
+  worktree; the server refuses another one, naming both branches.
+- **The branch exists with no worktree** (here, or only on origin): **Its existing branch, in a
+  new worktree**, with a line saying why. The server runs `git fetch --prune --quiet origin`, then
+  `git worktree add <worktree_dir>/<name> <branch>`, or for a branch only origin has, `git worktree
+  add --track -b <branch> <worktree_dir>/<name> origin/<branch>`. The lane keeps the branch's
+  commits.
+- **Neither:** **New branch and worktree**.
+- **The project root** is never offered with a template: a template names a branch.
+
+The page knows the worktrees and their branches. For a branch with no worktree, the dialog asks
+the server once a template and a valid name are chosen (`GET /api/lanes/branch?template=…&name=…`,
+with `&issue=…` when the Issue field is filled). It's read-only and runs no fetch. It asks again when the
+template, the name or the issue changes. If the branch appears between that answer and Start, the
+server refuses the new branch with a plain sentence that names it and says where it is ("A branch
+named change/add-score-photo already exists…"), never a raw git error. The dialog then moves to the
+choice the sentence names.
+
+Nothing is offered, and Start stays **Start lane**, disabled, when the branch can't take a lane
+now. The warning above Start says why:
+
+- a lane already runs in the branch's worktree ("Lane x already runs in …; two sessions in one
+  checkout would edit the same files.");
+- a stopped rebase or bisect holds the branch in a worktree ("A branch named … is in the middle of
+  a rebase in the worktree …. Finish or abort it there, then start the lane on that worktree.").
+
+**New lane here** on a worktree whose branch matches a template's pattern selects that template,
+the lane name from the branch (and the issue, for a pattern with `{issue}`), and the worktree.
+When two templates share a pattern (a build and a propose template both naming `change/{name}`),
+the one whose **Up next** lists the name wins, else the first in the config's order. A branch no
+template names opens with no template. **While `panel.json` is untrusted, New lane here opens a
+plain lane** on the worktree, with no template selected. Templates are off until `clauductor panel
+trust`, and Start would refuse one.
+
+**The approval warning.** A build template (one whose first prompt starts with `/build-change`)
+on a change whose `proposal.md` has no `**Approved:**` line shows a warning above Start: "<name>
+has no Approved line in its proposal; /build-change will stop for it". Start then reads **Start
+anyway**. The warning never blocks: `build-change` stops for the approval on its own, and a
+project that records approval another way would be refused for a change it has approved. A
+propose template, or a change with no proposal yet, gets no warning. The approvals come from the
+change folders the panel already reads for its metrics; nothing new is polled.
+
 ### Suggestions
 
 A template's `suggest` (version 3) is a command that says what the template could start next:
 the project's roadmap, its issue list, whatever it keeps. **New lane** lists every suggesting
-template's rows under **Up next**; picking one selects the template and fills in the lane name
-(and the issue), so the next piece of work is a click away rather than a trip to the roadmap.
+template's rows under **Up next**; picking one selects the template, fills in the lane name (and
+the issue) and chooses where it runs (see *Where a template runs*), so the next piece of work is a
+click away rather than a trip to the roadmap.
 
 ```json
 { "id": "propose", "title": "Propose a roadmap row", "lane_type": "build",
@@ -952,7 +1013,7 @@ template's rows under **Up next**; picking one selects the template and fills in
   without one is skipped, and the dialog says how many were. At most 50 rows; every text is one
   line of plain text, cut to length.
 - The rows are the command's word, and are only offered: nothing starts until you press **Start
-  lane**.
+  lane** (or **Start anyway**).
 - A template that takes `{issue}` can list the open issues: a row's `issue` (`"#412"`) fills in
   the dialog's Issue, and its name can carry the number (`412-fix-the-week-row`). A script around
   `gh issue list --json number,title,labels` does it; exit non-zero when `gh` fails, so the dialog
@@ -990,7 +1051,7 @@ every 30 s. Anything that does not add up is shown as an **orphan**, never hidde
 | **Forget** (orphans) | Drops the registry record. The worktree and the conversation stay. |
 | **Close lane** (running lanes and orphans) | **Stop lane** exactly as above (for an orphan, **Forget**), then removes the lane's worktree and branch **when that loses nothing**. See [Close lane](#close-lane). |
 | **Remove** (a worktree with no lane, in the tree) | Close lane's cleanup without a lane: removes the worktree, and its branch when merged, **when that loses nothing** and no lane or claude session is in it. See [Remove a worktree](#remove-a-worktree). |
-| **New lane here** (a worktree with no lane, in the tree) | Opens the Start dialog on that worktree: a new lane, a new claude session there. |
+| **New lane here** (a worktree with no lane, in the tree) | Opens the Start dialog on that worktree: a new lane, a new claude session there, with the template its branch names, if any (a plain lane while the config is untrusted). See [Where a template runs](#where-a-template-runs). |
 | **Attach in Terminal.app** | Runs `osascript` to open a Terminal window with `exec tmux -u -L <socket> attach-session -t =<name>`. The command reaches AppleScript as an argument and is never spliced into the script, and every part of it is single-quoted. The first time, macOS asks whether the panel may control Terminal. |
 
 Text that the panel types into a lane (`/exit`) goes as the text first, then Enter 400 ms later.
@@ -2718,6 +2779,15 @@ The rules the suite keeps, and a new test must too:
   time is left alone.
 - A helper process the test binary starts gets `GORACE=atexit_sleep_ms=0`. A `-race` binary
   otherwise sleeps a second at exit.
+- **A file a test has open reaches every child a parallel test forks**, until that child execs
+  (#78). A stand-in executable is written with `testbin.Write`, which holds `syscall.ForkLock`
+  while the file is open: otherwise running it fails on Linux with ETXTBSY ("text file busy").
+  `TestNoTestWritesAnExecutableAnotherWay` reads every `_test.go` file and fails an
+  `os.WriteFile` or `os.OpenFile` whose mode has an execute bit, or an `os.Chmod` that adds one
+  to a path the same function wrote. A mode it cannot read (a variable) counts as executable, so
+  a plain file's mode is a literal, or a constant declared in the same file. A probe that takes
+  a flock unlocks it (`LOCK_UN`) before closing, as `lease.go` does: closing alone leaves the
+  lock with the child's copy, and the next taker is refused.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

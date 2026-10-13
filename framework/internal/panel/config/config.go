@@ -817,16 +817,23 @@ type RenderedTemplate struct {
 	Effort      string `json:"effort,omitempty"`
 }
 
-// RenderTemplate fills a template's placeholders. Every value is validated before it
-// is used: the name is a lane id; the issue is one line of plain text, and must also
-// make a valid branch name when the pattern uses it.
-func (c *Config) RenderTemplate(id, name, issue string) (RenderedTemplate, error) {
+// template is the template with id, or nil. The last of a repeated id wins, as it
+// always did in RenderTemplate.
+func (c *Config) template(id string) *TemplateConfig {
 	var t *TemplateConfig
 	for i := range c.Templates {
 		if c.Templates[i].ID == id {
 			t = &c.Templates[i]
 		}
 	}
+	return t
+}
+
+// RenderTemplate fills a template's placeholders. Every value is validated before it
+// is used: the name is a lane id; the issue is one line of plain text, and must also
+// make a valid branch name when the pattern uses it.
+func (c *Config) RenderTemplate(id, name, issue string) (RenderedTemplate, error) {
+	t := c.template(id)
 	if t == nil {
 		return RenderedTemplate{}, fmt.Errorf("unknown template %q", id)
 	}
@@ -846,19 +853,51 @@ func (c *Config) RenderTemplate(id, name, issue string) (RenderedTemplate, error
 	}
 	vals := map[string]string{"name": name, "issue": issue}
 	r := RenderedTemplate{Template: t.ID, LaneType: t.LaneType, Name: name, Model: t.Model, Effort: t.Effort}
-	if t.BranchPattern != "" {
-		r.Branch = fillPlaceholders(t.BranchPattern, vals)
-	} else {
-		r.Branch = c.BranchPrefix(t.LaneType) + name
-	}
-	if !BranchRe.MatchString(r.Branch) || strings.Contains(r.Branch, "..") {
-		return RenderedTemplate{}, fmt.Errorf("branch %q is not a valid branch name", r.Branch)
+	var err error
+	if r.Branch, err = c.templateBranch(t, vals); err != nil {
+		return RenderedTemplate{}, err
 	}
 	r.FirstPrompt = fillPlaceholders(t.FirstPrompt, vals)
 	if err := TypableText(r.FirstPrompt, MaxFirstPrompt); err != nil {
 		return RenderedTemplate{}, fmt.Errorf("first prompt %w", err)
 	}
 	return r, nil
+}
+
+// templateBranch is the branch template t names for vals: its pattern filled, or its
+// lane type's prefix and the name.
+func (c *Config) templateBranch(t *TemplateConfig, vals map[string]string) (string, error) {
+	b := c.BranchPrefix(t.LaneType) + vals["name"]
+	if t.BranchPattern != "" {
+		b = fillPlaceholders(t.BranchPattern, vals)
+	}
+	if !BranchRe.MatchString(b) || strings.Contains(b, "..") {
+		return "", fmt.Errorf("branch %q is not a valid branch name", b)
+	}
+	return b, nil
+}
+
+// TemplateBranch is the branch RenderTemplate names, without the first prompt: the
+// issue is needed only when the branch pattern uses it (PANEL-29, the Start dialog
+// asks where that branch already is before the issue is typed).
+func (c *Config) TemplateBranch(id, name, issue string) (string, error) {
+	t := c.template(id)
+	if t == nil {
+		return "", fmt.Errorf("unknown template %q", id)
+	}
+	if !ValidLaneID(name) {
+		return "", fmt.Errorf("lane name %q must match %s", name, LaneIDRe)
+	}
+	issue = strings.TrimSpace(issue)
+	if strings.Contains(t.BranchPattern, "{issue}") {
+		if issue == "" {
+			return "", fmt.Errorf("template %q needs an issue", id)
+		}
+		if err := TypableText(issue, maxPlaceholderValue); err != nil {
+			return "", fmt.Errorf("issue %w", err)
+		}
+	}
+	return c.templateBranch(t, map[string]string{"name": name, "issue": issue})
 }
 
 // TemplateInfo describes one template for the Start dialog.
