@@ -15,6 +15,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -26,16 +27,13 @@ func TestRunShutdownBoundsTheClaudeGrace(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "claude")
-	writeFile(t, fake, fmt.Sprintf(`#!/bin/sh
+	testbin.Write(t, fake, fmt.Sprintf(`#!/bin/sh
 case "$1" in
 agents) trap 'echo TERM >> %[1]s' TERM; echo "started $$" >> %[1]s; while :; do sleep 1; done;;
 --version) echo '2.1.296 (Claude Code)';;
 *) exit 1;;
 esac
 `, shq(marks)))
-	if err := os.Chmod(fake, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if got, err := exec.LookPath("claude"); err != nil || got != fake {
 		t.Fatalf("claude on PATH is %q (%v), not the fake", got, err)
