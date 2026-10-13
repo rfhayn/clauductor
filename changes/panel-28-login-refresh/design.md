@@ -128,8 +128,12 @@ wait, is its own row, PANEL-33 (D8).
 
 1. **Group 1, the lock reader and the log.**
    - `framework/internal/panel/claudecall`, a new package that `panel` and `lanes` both import:
-     - **The reader:** the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), the current lock
-       `<dir>/.oauth_refresh.lock`, the legacy lock `<dir>.lock`, and the owner record.
+     - **The reader:** the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`); the lock dir:
+       `$CLAUDE_SECURESTORAGE_CONFIG_DIR` when set and non-empty, else the config dir (Claude Code
+       2.1.296 keeps its lock there, and passes the variable to the sessions it spawns; 1.1's
+       re-read); the current lock `<lock dir>/.oauth_refresh.lock`, the legacy lock
+       `<config dir>.lock`, and the owner record beside the current lock. (Amended 2026-10-13 by
+       the owner's decision, after group 1.)
        - **The state of each lock,** from its mtime against now: live, stale, or future (D4).
        - **A lock's identity:** the owner record's `lockBirthtimeMs` when there is one, else the
          path and an unbroken run of sightings. Birth time comes from the record, never from the

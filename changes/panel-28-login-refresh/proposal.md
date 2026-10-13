@@ -1,4 +1,4 @@
-**Approved:** 2026-10-02 by Rich · design 42f48f7b3913
+**Approved:** 2026-10-12 by Rich · design 38002301e33a
 **Roadmap row:** PANEL-28
 **Risk:** normal
 
