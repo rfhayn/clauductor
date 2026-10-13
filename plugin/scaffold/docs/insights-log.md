@@ -5,12 +5,14 @@ trade-offs, debugging wins, guards that failed silently. Newest at the top. This
 tier; durable decisions get **promoted** from here (`/clauductor:log-insight` runs the check).
 
 ## Promotion rules
-Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
-- **A decision with trade-offs, or a lesson with a mechanism** → a new ADR, or a dated amendment
-  inside the ADR that already owns the principle. Mark **every** row the ADR cites
-  `Promoted → ADR-NNNN`, not only the one that prompted it.
-- **Already covered by an existing check** → `Instance of ADR-NNNN (check N)`, or the sentence
-  form. Nothing is written in the ADR.
+Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md) and
+[`practices/README.md`](practices/README.md).
+- **A decision about the system** → a new ADR; **a lesson about how we work, with a mechanism** →
+  a new practice record (`PRAC-NNNN`); or a dated amendment inside the record that already owns
+  the principle (`/clauductor:new-adr` asks which). Mark **every** row the record cites
+  `Promoted → ADR-NNNN` or `Promoted → PRAC-NNNN`, not only the one that prompted it.
+- **Already covered by an existing check** → `Instance of ADR-NNNN (check N)` (or `PRAC-NNNN`),
+  or the sentence form. Nothing is written in the record.
 - **The compound step** (`session-close` step 3b, `clauductor-model compound.sh`): every Raw row gets a
   decision (promote, mark an instance, or `Not promoted — <why>`). `checks/compound.sh` fails a row
   still Raw after `COMPOUND_MAX_SESSIONS` sessions (default 3).
@@ -25,8 +27,8 @@ Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md).
 | Status | Means |
 |---|---|
 | `Raw` | Genuinely un-triaged. Not "we know about it". |
-| `Promoted → ADR-NNNN` | The ADR (or its dated amendment) states it now. |
-| `Instance of ADR-NNNN (check N)` / `Instance of ADR-NNNN ("<covering sentence>")` | Triaged; an existing ADR or AGENTS.md rule already covers it. Find the sentence first. |
+| `Promoted → ADR-NNNN` / `Promoted → PRAC-NNNN` | The ADR or practice record (or its dated amendment) states it now. |
+| `Instance of ADR-NNNN (check N)` / `Instance of PRAC-NNNN ("<covering sentence>")` | Triaged; an existing ADR, practice record or AGENTS.md rule already covers it. Find the sentence first. |
 | `Folded → <file>` | Its content moved into a named doc. |
 | `Deferred → owned by <change>` | Work remains, and a named, open change owns it (AGENTS.md rule 1). Never an endpoint or a phase. |
 | `Decided` | A decision was taken; say whose and where it is recorded. |

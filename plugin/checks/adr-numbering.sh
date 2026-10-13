@@ -1,13 +1,18 @@
 #!/bin/sh
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
-# An ADR number is never taken twice, every ADR file has a row in the index (docs/adr/README.md),
-# and every index row links a file that exists. The set is the directory (the authority), not the
-# index: an ADR the index forgot is the failure this exists to catch.
+# A record number is never taken twice, every record file has a row in its directory's index
+# (README.md), and every index row links a file that exists. The set is the directory (the
+# authority), not the index: a record the index forgot is the failure this exists to catch.
 #
-# Each ADR added since adoption opens with '# ADR NNNN: <title>' and has an '## Enforcement'
-# section. An ADR written before RECORDS_BASELINE (.claude/lib/records.sh) is history, never
-# reformatted: its heading may be any '# ADR NNNN' / '# ADR-NNNN' form and it may lack the section.
-# Falsified on fixtures shaped like an adopting project's ADR history.
+# Two series share ONE number space: ADRs (ADR_DIR, decisions about the system) and practice
+# records (PRACTICES_DIR, PRAC-NNNN: how the project works). One number across both lets a citation
+# name a record by its digits alone. PRACTICES_DIR is optional: a project with no practice records
+# has no such directory.
+#
+# Each record added since adoption opens with '# ADR NNNN: <title>' (or '# PRAC NNNN: <title>') and
+# has an '## Enforcement' section. A record written before RECORDS_BASELINE (.claude/lib/records.sh)
+# is history, never reformatted: its heading may be any '# ADR NNNN' / '# ADR-NNNN' form and it may
+# lack the section. Falsified on fixtures shaped like an adopting project's ADR history.
 . "$(dirname "$0")/lib.sh"
 . "$CLAUDUCTOR_FW/lib/records.sh"
 
@@ -46,36 +51,85 @@ if [ -z "${ADR_SELFTEST:-}" ]; then
   conf "RECORDS_BASELINE=\"$(git -C "$F" rev-parse HEAD)\""; aok "legacy ADRs that exist at a ref RECORDS_BASELINE"
   add_adr '# ADR 0004: A new decision' no; abad "a NEW ADR (absent at the ref baseline) with no Enforcement" "0004-new.md has no '## Enforcement'"
   mka dup; conf 'RECORDS_BASELINE="2026-09-15"'; cp "$A/0003-spec-seeds.md" "$A/0003-again.md"; printf '| [0003](0003-again.md) | t | x |\n' >> "$A/README.md"
-  abad "a number taken twice, legacy or not" "ADR numbers used twice: 0003"
+  abad "a number taken twice, legacy or not" "numbers used twice across docs/adr and docs/practices: 0003"
   mka bad; conf 'RECORDS_BASELINE="nope"'; abad "an unresolvable RECORDS_BASELINE" "neither a YYYY-MM-DD date nor a commit"
+
+  # Practice records (PRACTICES_DIR): one number space with the ADRs, their own index and heading.
+  mkp() {  # mkp NAME: the fixture above plus a practices directory with its index and template
+    mka "$1"; conf 'RECORDS_BASELINE="2026-09-15"'; P="$F/docs/practices"; mkdir -p "$P"
+    printf '# PRAC NNNN: <Title>\n' > "$P/TEMPLATE.md"
+    printf '# Practice records\n\n| PRAC | Title | Status |\n|---|---|---|\n' > "$P/README.md"
+  }
+  add_prac() {  # add_prac NUM HEADING ENFORCEMENT(yes|no) [DATE]: practice record NUM, indexed
+    { printf '%s\n\n- **Status**: Accepted\n- **Date**: %s\n\n## Practice\nx\n' "$2" "${4:-2026-09-29}"; [ "$3" = yes ] && printf '\n## Enforcement\nchecks/x.sh\n'; } > "$P/$1-practice.md"
+    printf '| [%s](%s-practice.md) | t | Accepted |\n' "$1" "$1" >> "$P/README.md"
+  }
+  mka noprac; conf 'RECORDS_BASELINE="2026-09-15"'; aok "no practices directory (a project with no practice records yet)"
+  mkp prac; add_prac 0004 '# PRAC 0004: A new practice' yes; aok "a practice record in the template's form, numbered past the ADRs"
+  mkp prac-dup; add_prac 0003 '# PRAC 0003: A practice' yes
+  abad "a practice record that takes an ADR's number" "numbers used twice across docs/adr and docs/practices: 0003"
+  mkp prac-idx; add_prac 0004 '# PRAC 0004: A new practice' yes; printf '# Practice records\n' > "$P/README.md"
+  abad "a practice record missing from its own index" "0004-practice.md has no row in docs/practices/README.md's index"
+  mkp prac-head; add_prac 0004 '# ADR 0004: A new practice' yes
+  abad "a practice record headed as an ADR" "0004-practice.md: first line must be '# PRAC 0004: <title>'"
+  mkp prac-enf; add_prac 0004 '# PRAC 0004: A new practice' no
+  abad "a practice record with no Enforcement" "0004-practice.md has no '## Enforcement'"
+  mkp prac-legacy; add_prac 0004 '# PRAC-0004 — An old practice' no 2026-08-01
+  aok "a practice record dated before a date RECORDS_BASELINE, in a legacy form"
+  mkp prac-noreadme; rm "$P/README.md"; abad "a practices directory with no index" "no index at docs/practices/README.md"
+  mkp prac-link; printf '| [0009](0009-gone.md) | t | Accepted |\n' >> "$P/README.md"
+  abad "a practices index row linking a missing file" "the index links 0009-gone.md, which does not exist"
+
+  # new-adr's context numbers across both directories on origin/main: a practice record's number
+  # is taken for an ADR too.
+  mkp ctx; add_prac 0005 '# PRAC 0005: A practice' yes; mkdir -p "$F/.claude/skills/new-adr"
+  cp "$CLAUDUCTOR_FW/skills/new-adr/context.sh" "$F/.claude/skills/new-adr/"
+  new_repo "$F"; git -C "$F" add -A >/dev/null 2>&1; git -C "$F" commit -qm adopt >/dev/null 2>&1
+  git -C "$F" update-ref "refs/remotes/origin/$MAIN_BRANCH" HEAD
+  rm "$P/0005-practice.md"  # gone from the branch, still on origin/main
+  if (cd "$F" && sh .claude/skills/new-adr/context.sh) 2>&1 | grep -q 'Next number: at least 0006'; then
+    ok "new-adr context: the next number is past a practice record on origin/main"
+  else fail "new-adr context: the next number ignores a practice record on origin/main:"
+    (cd "$F" && sh .claude/skills/new-adr/context.sh) 2>&1 | sed 's/^/       /'; fi
 fi
 
 dir="$ROOT/$ADR_DIR"
 [ -d "$dir" ] || { fail "ADR_DIR $ADR_DIR does not exist"; finish; }
-idx="$dir/README.md"
-[ -f "$idx" ] || { fail "no index at $ADR_DIR/README.md"; finish; }
-[ -f "$dir/TEMPLATE.md" ] && ok "TEMPLATE.md exists" || fail "no $ADR_DIR/TEMPLATE.md for new-adr to copy"
 [ "$(records_baseline_kind)" = bad ] && { fail "$(records_baseline_bad)"; finish; }
+records() { ls "$ROOT/$1" 2>/dev/null | grep -E '^[0-9]{4}-.*\.md$'; }
 
-files=$(ls "$dir" | grep -E '^[0-9]{4}-.*\.md$')
-dups=$(printf '%s\n' "$files" | grep . | cut -c1-4 | sort | uniq -d)
-if [ -z "$dups" ]; then ok "no ADR number is used twice ($(printf '%s\n' "$files" | grep -c .) ADRs)"; else fail "ADR numbers used twice: $(echo $dups) (the branch that merged second takes the next free number)"; fi
+# The number space: both directories at once.
+nadr=$(records "$ADR_DIR" | grep -c .); nprac=$(records "$PRACTICES_DIR" | grep -c .)
+dups=$({ records "$ADR_DIR"; records "$PRACTICES_DIR"; } | cut -c1-4 | sort | uniq -d)
+if [ -z "$dups" ]; then ok "no record number is used twice ($nadr ADRs, $nprac practice records)"
+else fail "numbers used twice across $ADR_DIR and $PRACTICES_DIR: $(echo $dups) (the branch that merged second takes the next free number)"; fi
 
-nlegacy=0
-for f in $files; do
-  num=$(printf '%s' "$f" | cut -c1-4)
-  if grep -qF "($f)" "$idx"; then :; else fail "$f has no row in $ADR_DIR/README.md's index"; fi
-  if adr_is_legacy "$f"; then
-    nlegacy=$((nlegacy + 1))
-    head -1 "$dir/$f" | grep -qE "^# ADR[ -]$num([^0-9]|$)" || fail "$f: first line must name it, '# ADR $num: <title>' (or, before RECORDS_BASELINE, '# ADR-$num — <title>')"
-    continue
-  fi
-  head -1 "$dir/$f" | grep -qE "^# ADR $num([^0-9]|$)" || fail "$f: first line must be '# ADR $num: <title>'"
-  grep -q '^## Enforcement' "$dir/$f" || fail "$f has no '## Enforcement' section (an ADR without one is a wish)"
-done
-for l in $(grep -oE '\]\([0-9]{4}-[^)]*\.md\)' "$idx" | sed 's/^](//; s/)$//'); do
-  [ -f "$dir/$l" ] || fail "the index links $l, which does not exist"
-done
-[ "$nlegacy" -eq 0 ] || ok "$nlegacy ADR(s) written before RECORDS_BASELINE ($RECORDS_BASELINE) kept as written"
-[ "$_fails" -eq 0 ] && ok "every ADR is indexed, titled and has an Enforcement section (those since adoption)"
+# series REL WORD: one record directory, WORD being its heading's word (ADR, PRAC). Its index and
+# TEMPLATE.md; every NNNN-*.md has an index row, and (since adoption) the heading and an
+# Enforcement section; every index link resolves.
+series() {
+  sdir="$ROOT/$1"; idx="$sdir/README.md"
+  [ -f "$idx" ] || { fail "no index at $1/README.md"; return; }
+  [ -f "$sdir/TEMPLATE.md" ] && ok "$1/TEMPLATE.md exists" || fail "no $1/TEMPLATE.md for new-adr to copy"
+  nlegacy=0
+  for f in $(records "$1"); do
+    num=$(printf '%s' "$f" | cut -c1-4)
+    grep -qF "($f)" "$idx" || fail "$f has no row in $1/README.md's index"
+    if record_is_legacy "$1" "$f"; then
+      nlegacy=$((nlegacy + 1))
+      head -1 "$sdir/$f" | grep -qE "^# $2[ -]$num([^0-9]|$)" || fail "$f: first line must name it, '# $2 $num: <title>' (or, before RECORDS_BASELINE, '# $2-$num — <title>')"
+      continue
+    fi
+    head -1 "$sdir/$f" | grep -qE "^# $2 $num([^0-9]|$)" || fail "$f: first line must be '# $2 $num: <title>'"
+    grep -q '^## Enforcement' "$sdir/$f" || fail "$f has no '## Enforcement' section (a record without one is a wish)"
+  done
+  for l in $(grep -oE '\]\([0-9]{4}-[^)]*\.md\)' "$idx" | sed 's/^](//; s/)$//'); do
+    [ -f "$sdir/$l" ] || fail "the index links $l, which does not exist"
+  done
+  [ "$nlegacy" -eq 0 ] || ok "$nlegacy record(s) in $1 written before RECORDS_BASELINE ($RECORDS_BASELINE) kept as written"
+}
+series "$ADR_DIR" ADR
+if [ -d "$ROOT/$PRACTICES_DIR" ]; then series "$PRACTICES_DIR" PRAC
+else ok "no $PRACTICES_DIR: no practice records yet (new-adr writes the first)"; fi
+[ "$_fails" -eq 0 ] && ok "every ADR and practice record is indexed, titled and has an Enforcement section (those since adoption)"
 finish

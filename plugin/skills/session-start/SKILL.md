@@ -31,8 +31,8 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
 4. **Set the focus**: `clauductor-model status-write.sh "[<branch>] <short focus>"`. The panel shows it
    on the lane's card.
 5. **Flag what needs attention before new work**: uncommitted changes, a `Raw` insight that should
-   be promoted, a `Proposed` ADR awaiting the owner, a "What's next" that is now stale, two changes
-   proposed at once.
+   be promoted, a `Proposed` ADR or practice record awaiting the owner, a "What's next" that is
+   now stale, two changes proposed at once.
 
 ## Rules
 - **From here the session runs hands-off to `session-close`**: build, review, merge through
@@ -46,6 +46,11 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
   returns: a workflow agent takes the session's cwd when it starts); at most one proposal ahead;
   fix and ops lanes (`BRANCH_FIX`, `BRANCH_OPS`) in their own worktrees when they share no files. Take summaries from
   lanes rather than reading their files. When a lane frees up, offer the next queue row.
+- **Price a request before you relay it to a running lane.** Before passing an owner request to a
+  lane that is already working, tell the owner in two or three lines: which lane, its rough cost
+  (tokens or time, extra review rounds), what it displaces or delays, and whether it lands in a
+  control (AGENTS.md's *What executes* column). Offer a cheaper option when there is one; the
+  owner chooses. Pricing is not declining. A skill step: nothing checks it.
 - **Research-only work goes to the `clauductor:researcher` agent**, not a fork (a fork inherits every tool).
 - Read, don't assume: the repo's records are the source of truth for "where we were". Keep the
   orientation short; this is a launchpad, not a report.

@@ -27,6 +27,7 @@ ROADMAP_PARSER=""
 ROADMAP_NORMALIZER=""
 OWNER_QUEUE="docs/owner-queue.md"
 ADR_DIR="docs/adr"
+PRACTICES_DIR="docs/practices"
 INSIGHT_AREAS=""
 INSIGHTS_TABLE_HEADING="## Log"
 JOURNAL_HEADING='^## Session [0-9]+(\.[0-9]+)* — [0-9]{4}-[0-9]{2}-[0-9]{2}[^ ]* — [^ ].* — .+'
