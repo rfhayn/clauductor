@@ -79,7 +79,7 @@
 
    | Verb | What it does |
    |---|---|
-   | `tick` | Takes the lock (D5), validates the registry, records the tick, and runs every routine that is due, one after another. Exits 0 when routines fail (their verdicts are in the log); non-zero only when the registry is invalid. |
+   | `tick` | Records the tick in `last-tick` first (atomically, and even when the lock turns out busy), then takes the lock (D5), validates the registry, and runs every routine that is due, one after another. Exits 0 when routines fail (their verdicts are in the log); non-zero only when the registry is invalid. |
    | `run <name>` | Runs one routine now (trigger `manual`), whatever its schedule; everything else applies. Exits with the run's outcome. |
    | `list` | Each routine: schedule, kind, next due, last verdict, and which runner or machine it waits for when it is not this one's. |
    | `log [<name>] [--days N] [--json]` | The run records, newest first. `--json` is the form PANEL-37 and PANEL-38 read. |
@@ -125,10 +125,10 @@
 | Situation | What happens instead |
 |---|---|
 | The registry does not parse, or any entry is invalid | Nothing runs. `tick` exits 2 naming each fault; the health line says FAILED for the registry. A malformed entry is an error, not a shorter list. |
-| Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. Nothing is logged. |
+| Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. No run is logged; `last-tick` is still written. |
 | A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription\|api`" (D16). Command routines need no `billing`. |
 | `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (or a provider switch) is set | Each due `claude -p` routine is refused and logged `billing`, naming the variable: `-p` would bill it instead of the subscription (D16). Command routines run with both unset. `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
-| `billing` is `api` and the key file is missing, empty of `ANTHROPIC_API_KEY`, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
+| `billing` is `api` and the key file is missing, not a regular file (a symlink included), unreadable, without exactly one non-empty `ANTHROPIC_API_KEY` line, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
 | Subscription: a current reading of the 5-hour or 7-day window is at or above its cap | The `claude -p` routine is refused and logged `quota` with the window and the reading (D4). |
 | Subscription: no current reading of a window | Runs up to `unknown_quota_daily_runs` a day, then refused and logged `capped`; the health line says the quota is unknown (D17). |
 | API: a dollar cap or the run count is reached | The `claude -p` routine is refused and logged `capped` with the cap and the figure (D4). |
@@ -190,13 +190,16 @@
       When the reading has a model-specific 7-day window for the routine's model,
       `seven_day_<alias>` with the alias the routine's role names in `model-roles.json`
       (`seven_day_sonnet`, `seven_day_opus`), `seven_day_pct` applies to it too. A model window
-      past its reset is ignored, not unknown.
+      with no counting reading (past its reset, a null `pct`, or no `resetsAt`) is ignored, not
+      unknown.
     - **A reading counts until its window resets**, whatever its age. A window's use only grows
       until its reset, so an old reading is a floor: if it is already at the cap, the run is
       refused. After the reset (`resetsAt` passed) the 5-hour or 7-day window is unknown (D17).
       A window with no `resetsAt`, or a null `pct`, has no counting reading either: the panel's
-      `quota.go` omits both at times, and carries forward a window a newer post left out. The age
-      a refusal reports is the file's `at`.
+      `quota.go` omits both at times, and carries forward a window a newer post left out. The
+      units are `quota.go`'s: `at` is unix milliseconds, `resetsAt` unix seconds. The age a
+      refusal reports is the file's `at`, and is a lower bound: a carried-forward window can be
+      older than `at`.
     - **No dollar caps,** and **no runs-per-day limit by default**: `caps.subscription.daily_runs`
       exists and is null.
     - `--max-budget-usd` is passed only when the routine sets `max_usd`, as a bound on that one
@@ -235,7 +238,8 @@
 **D5. The tick's lock, and an overlapping tick.**
 - **Recommended: one lock per registry, held for the whole tick, routines run one at a time.**
   A tick that finds a live holder exits 0 at once, saying who holds it; the next tick picks up
-  what is still due. `run <name>` takes the same lock and is refused while it is held. A holder
+  what is still due. It logs no run, but it has already written `last-tick` (a temp file, then
+  `mv`, so a reader never sees half a write), so a long run never makes the ticker look STALE. `run <name>` takes the same lock and is refused while it is held. A holder
   that is dead or whose pid was reused (`lease.sh`'s pid-plus-start-time test, reused, not
   rewritten) is taken over, and its unfinished run is closed as failed.
   - The lock is a directory (`mkdir` is atomic) with `owner.json`: pid, start time, host, the
@@ -465,18 +469,31 @@ owner's direction of 2026-10-13.)*
     run, which inherits no shell's environment, can reach it without the key ever entering the
     repository or the ticker:
     - `routines.sh setup --billing api --key-file <path>` records the path in the registry's
-      `api_key_file` (a leading `~/` kept as written), never the key. It refuses a path inside
-      the repository (its top-level directory, `.git` included); a sidecar's directory is
-      outside it and allowed. The same on macOS and Linux.
-    - Each `api` run reads only the line `ANTHROPIC_API_KEY=<key>` from that file. It never
-      sources the file, so nothing else in it runs or is read. It puts the key only in the
-      `claude -p` child's environment, never in a `context` command's or a command routine's,
-      and never copies, prints or logs it.
-    - The run is refused, logged `billing`, when the file is missing, is not a regular file,
-      holds no non-empty `ANTHROPIC_API_KEY`, lies inside the repository, or is readable by
-      group or others (its mode bits, read the same way on both systems). An
-      `ANTHROPIC_API_KEY` in the runner's own environment, empty or not, is ignored: the key
-      comes from the file.
+      `api_key_file` as an **absolute** path, never the key: a relative path is resolved against
+      the directory setup ran in, and a leading `~/` is expanded then, not at run time, so every
+      later reader (the ticker, the panel) sees the same file. A sidecar's directory is outside
+      the repository and allowed. The same on macOS and Linux.
+    - **Inside the repository** means: the file's physical path (its directory resolved with
+      `cd -P`, then its name) lies under the physical top level of any worktree that
+      `git worktree list --porcelain` lists, or under the git common dir. On macOS the
+      comparison ignores case (APFS is case-insensitive by default); on Linux it is exact.
+    - **The line format.** The file must hold exactly one line matching
+      `^[ \t]*(export[ \t]+)?ANTHROPIC_API_KEY=`. Lines starting with `#` (after leading blanks)
+      are comments and ignored; other lines are ignored. The value is everything after the
+      first `=`, with a trailing `\r` stripped, then one pair of matching surrounding quotes
+      (`"…"` or `'…'`) stripped. An empty value after that is no key. More than one matching
+      line is refused as ambiguous. The file is never sourced, so nothing in it runs.
+    - **The key reaches only claude**, by an `export` in the subshell that execs `claude -p`. It
+      is never on any process's argv (no `env ANTHROPIC_API_KEY=… claude`, no `jq --arg`), never
+      in a `context` command's or a command routine's environment, and never copied, printed
+      or logged.
+    - The run is refused, logged `billing` with its own reason, when the file is missing; is not
+      a regular file (a symlink included, even one whose target is outside the repository);
+      is unreadable; has no matching line, an empty value, or more than one matching line; lies
+      inside the repository; or is readable by group or others (its mode bits, read the same
+      way on both systems). An `ANTHROPIC_API_KEY` in the runner's own environment, empty or
+      not, is ignored: the key comes from the file. Setup refuses the same file for the same
+      reasons.
     - The printed ticker (D11) carries no secret, only the repository's path and `PATH`.
   - **At every run,** Claude Code's precedence decides what `-p` would bill:
     `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `CLAUDE_CODE_OAUTH_TOKEN`, then the
@@ -526,7 +543,10 @@ owner asked to decide.)*
   are refused and logged `capped`. When `daily_runs` is also set, both apply, the smaller binds,
   and the refusal names which limit refused. The health line adds `CANNOT CHECK — routines
   quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3
-  runs a day (N of 3 runs used today)`, which the session summary repeats.
+  runs a day (N of 3 runs used today)`, which the session summary repeats. `<when>` is the
+  file's `at`, or `never read` when there is no file. The `3` is the limit that binds: the
+  smaller of `unknown_quota_daily_runs` and `daily_runs`, so with only the default it reads as
+  above.
 - **Alternatives:**
   - **(a) run anyway, and warn:** only the schedule bounds them, so a mis-typed `every 5m` on a
     `claude -p` routine would run 288 times a day against the owner's subscription before anyone

@@ -147,7 +147,7 @@ WHEN a run passes its `timeout_s` THE SYSTEM SHALL send SIGTERM to the process t
 - **THEN** that other process is still running afterwards
 
 ### Requirement: A claude -p routine runs as its billing mode says, bounded, and records its cost
-THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, with `--output-format json`, the model and effort of its role in `.claude/model-roles.json`, its tools and its turn limit; SHALL refuse it when the environment contradicts the registry's `billing`; and SHALL record the cost, turns, billing mode and credential source its run used. A variable is set when it is present and non-empty; the provider switches are `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY`. In `subscription` mode it SHALL refuse while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a provider switch is set. In `api` mode it SHALL take the key only from the line `ANTHROPIC_API_KEY=<key>` of the registry's `api_key_file`, never sourcing the file and never copying or logging the key, and SHALL refuse when that file is missing, holds no non-empty key, lies inside the repository, or is readable by group or others, or while `ANTHROPIC_AUTH_TOKEN` or a provider switch is set. Billing through Bedrock, Vertex or Foundry is out of scope.
+THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, with `--output-format json`, the model and effort of its role in `.claude/model-roles.json`, its tools and its turn limit; SHALL refuse it when the environment contradicts the registry's `billing`; and SHALL record the cost, turns, billing mode and credential source its run used. A variable is set when it is present and non-empty; the provider switches are `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY`. In `subscription` mode it SHALL refuse while `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a provider switch is set. In `api` mode it SHALL take the key only from the registry's `api_key_file`: from exactly one line matching `^[ \t]*(export[ \t]+)?ANTHROPIC_API_KEY=` (lines starting with `#` after leading blanks are comments and ignored), the value being everything after the first `=` with a trailing `\r` stripped and then one pair of matching surrounding quotes stripped. It SHALL never source the file, SHALL put the key only in the `claude -p` child's environment by an export, never on any process's argv, and SHALL never copy or log it. It SHALL refuse, with a reason of its own for each, when that file is missing, is not a regular file (a symlink included), is unreadable, has no matching line, an empty value or more than one matching line, lies inside the repository, or is readable by group or others; and while `ANTHROPIC_AUTH_TOKEN` or a provider switch is set. Inside the repository means the file's physical path (its directory resolved with `cd -P`) lies under the physical top level of any worktree `git worktree list --porcelain` lists, or under the git common dir, compared without regard to case on macOS. Billing through Bedrock, Vertex or Foundry is out of scope.
 
 #### Scenario: [ROUTINES-6-S1] An API credential refuses a subscription routine
 - **GIVEN** `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set in the runner's environment
@@ -194,11 +194,15 @@ THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, wit
 - **THEN** claude's environment has that key as `ANTHROPIC_API_KEY`, and its record says `billing` `api` and `auth` `key-file`
 - **AND** no part of the key is in the run log, the output, the ticker line or any file the runner wrote, and the file's other lines were never run or passed on
 - **AND** a `context` command and a command routine in the same tick do not get the key
+- **AND** the fake claude's recorded argv, and every other process's argv the check can see during the run, hold no part of the key
+- **AND** the same key is read from each accepted form of the line: `export ANTHROPIC_API_KEY=<key>`, leading blanks, `"<key>"` and `'<key>'`, a CRLF line ending, and with a `# ANTHROPIC_API_KEY=old` comment line beside it
 
 #### Scenario: [ROUTINES-6-S8] An api routine whose key file is not usable is refused
-- **GIVEN** `billing` is `api` and the key file is missing, empty, holds an empty `ANTHROPIC_API_KEY=`, lies inside the repository, or is readable by group or others (mode 0640 or 0644)
+- **GIVEN** `billing` is `api` and the key file is missing, empty, unreadable (mode 0000), holds an empty `ANTHROPIC_API_KEY=` or `ANTHROPIC_API_KEY=""`, holds two matching lines, holds the key only in a commented-out line, lies inside the repository, or is readable by group or others (mode 0640 or 0644)
 - **WHEN** a due `claude -p` routine would run
-- **THEN** claude is not started, and the run log records a `billing` refusal naming the file's problem, never the key
+- **THEN** claude is not started, and the run log records a `billing` refusal with that case's own reason, never the key
+- **AND** a key file that is a symlink is refused as not a regular file, including a symlink outside the repository that points at a file inside it
+- **AND** a key file reached through a symlinked directory, under another worktree of the repository, or under the git common dir is refused as inside the repository, and on macOS so is one whose path differs from the repository's only in case
 - **AND** an `ANTHROPIC_API_KEY` set in the runner's own environment does not stand in for the file: the key comes only from the file
 - **AND** with a usable file, `ANTHROPIC_AUTH_TOKEN` or a provider switch set is refused too, naming the variable
 - **AND** the same holds on macOS and Linux
@@ -238,9 +242,9 @@ THE SYSTEM SHALL apply only the caps of the registry's `billing` mode to `claude
 - **THEN** it runs, and its argv has no `--max-budget-usd`
 
 #### Scenario: [ROUTINES-7-S7] A reading counts until its window resets
-- **GIVEN** `billing` is `subscription` and a `quota.json` written three days ago, with the 7-day window at 85% resetting tomorrow, and the 5-hour window at 10% whose reset has passed
+- **GIVEN** `billing` is `subscription` and a `quota.json` whose `at` (unix milliseconds) is three days ago, with the 7-day window at 85% whose `resetsAt` (unix seconds) is tomorrow, and the 5-hour window at 10% whose `resetsAt` has passed
 - **WHEN** a `claude -p` routine is due
-- **THEN** it does not run, and the log records `quota` naming the 7-day window and the reading's age, taken from the file's `at`
+- **THEN** it does not run, and the log records `quota` naming the 7-day window and the reading's age, taken from the file's `at` and stated as at least that old
 - **AND** with the 7-day window at 40% instead, the 5-hour window counts as unknown (ROUTINES-7-S8 applies)
 
 #### Scenario: [ROUTINES-7-S8] An unknown quota allows only a few runs a day
@@ -284,6 +288,8 @@ THE SYSTEM SHALL print, at session start, one line per enabled routine for this 
 - **GIVEN** `billing` is `subscription`, an enabled `claude -p` routine, and no counting reading of the 5-hour window
 - **WHEN** the health line runs
 - **THEN** it prints `CANNOT CHECK — routines quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3 runs a day (N of 3 runs used today)`, N counting every `claude -p` run started today
+- **AND** `<when>` is the time of the file's `at`, or `never read` when there is no `quota.json`
+- **AND** with `caps.subscription.daily_runs` 2, the line says 2 where it says 3: the limit that binds
 - **AND** the line passes the health-line contract's verdict check
 
 #### Scenario: [ROUTINES-8-S7] A billing refusal is a failure, not a cap
@@ -342,5 +348,7 @@ THE SYSTEM SHALL record the registry's `billing` only through `routines.sh setup
 #### Scenario: [ROUTINES-12-S3] Setup records a key file's path, never its key
 - **GIVEN** a file outside the repository, mode 0600, holding `ANTHROPIC_API_KEY=<key>`
 - **WHEN** `routines.sh setup --billing api --key-file <it>` runs
-- **THEN** the registry's `billing` is `api` and `api_key_file` is that path, and no part of the key is in the registry or in setup's output
-- **AND** a key file inside the repository, readable by group or others, missing, or with no non-empty `ANTHROPIC_API_KEY` is refused, naming the problem, and the registry is unchanged
+- **THEN** the registry's `billing` is `api` and `api_key_file` is that file's absolute path, and no part of the key is in the registry or in setup's output
+- **AND** a relative `--key-file` is recorded resolved against the directory setup ran in, and a leading `~/` is recorded expanded
+- **AND** a key file that is missing, a symlink or otherwise not a regular file, unreadable, inside the repository (as ROUTINES-6-S8 defines it), readable by group or others, without a matching line, with an empty value, or with two matching lines is refused with that case's own reason, and the registry is unchanged
+- **AND** the accepted line forms of ROUTINES-6-S7 (export, quoted, CRLF, beside a comment) are accepted by setup too
