@@ -147,6 +147,19 @@ answer to `/propose` step 0a*).
 | OPS-29 | `ops/ops-29-train-lows` — the train's resolution-review lows: `gitattributesPlan.apply` prints "Merged .gitattributes…" to stdout rather than update's writer (`apply(out, targetDir)`, and the comment at `gitattributes_test.go:19`) (L1); update names a missing guidance doc twice, in the Docs notice and under the new project files (`update.go`, `projectfiles.go`) (L2); start-project step 9 omits the `people` module (L3); with `GH_DEBUG` on, `pr-merge-guard.sh` (around line 520) shows gh's first stderr line, not its real (last) error, where `tail -n 1` would fix it (L4); `checks/openspec.sh` has no committed negative case for its five required strings, such as a copy of the skill with each removed, asserting FAIL (L5); its `` `/(clauductor:)?propose` `` regex rejects an un-backticked `/propose` while its message says only "does not state '/propose'" (L6) | `framework/internal/cmd/{update,projectfiles}.go`, `template/.claude/skills/start-project/SKILL.md`, `template/.claude/hooks/pr-merge-guard.sh`, `template/.claude/checks/openspec.sh` | OPS-27 | ⬜ queued |
 | OPS-35 | `fix/62-metrics-fixture` — the metrics check's flake (#62) is fixed at its cause: when it next fails, OPS-33's `fx` line names the git step that failed, and this row fixes that step. Until then it waits on that observation (64 runs and 300 checkout cycles reproduced nothing) | `template/.claude/checks/metrics.sh` | OPS-33 | ⬜ queued |
 
+### Found on 2026-10-12
+
+Issues found while running the backlog overnight, queued at the bottom by the owner's decision of 2026-10-13. Each is
+a small fix or ops lane with no proposal; they run alongside the queue above as the gate allows.
+
+| # | Change | Scope | Deps | Status |
+|---|--------|-------|------|--------|
+| OPS-52 | `fix/100-guard-multibyte` — the merge guard reads a command that holds "merge" and a non-ASCII character such as `✅` instead of refusing it as unreadable (#100: `merge-reader.awk` fails with `towc: multibyte conversion failure`), while a merge it truly cannot read is still refused | `template/.claude/hooks/lib/merge-reader.awk`, `template/.claude/hooks/pr-merge-guard.sh`, `template/.claude/checks/hooks.sh` | — | ⬜ queued |
+| OPS-53 | `fix/92-daemon-lease-flake` — `TestDaemonLeftByTheGateDoesNotHoldTheLease/shell` no longer waits out its 10 s under a loaded full gate (#92): find in `lease.sh` why the shell waiter keeps seeing the killed gate's lease, and fix it at that cause, never by raising the wait | `template/scripts/ci/lease.sh`, `framework/internal/panel/lease` | — | ⬜ queued |
+| OPS-54 | `fix/88-rewrite-script-file` — `no-blind-source-rewrite.sh` refuses a find-and-replace run from a script file (`python3 rewrite.py`) as it refuses one given inline (#88; reproduce first) | `template/.claude/hooks/no-blind-source-rewrite.sh`, `template/.claude/checks/hooks.sh` | — | ⬜ queued |
+| OPS-55 | `fix/91-race-toolchain-guard` — the race step fails, naming golang/go#79804, on a Go toolchain that crashes a forked child (go1.26.0 to go1.26.4 on darwin), so `GOTOOLCHAIN=local` cannot bring #84 back (#91) | `framework/internal/testwait` | — | ⬜ queued |
+| OPS-56 | `ops/ops-56-overnight-lows` — the lows found on 2026-10-12: `archive-change.sh` puts a blank line after a new capability's Purpose; the New lane dialog clears the checked "Where it runs" choice when the plan allows no start; the UX harness's `fake/claude` gains a role that posts no startup hooks, so a template lane's first prompt is not skipped | `template/.claude/archive-change.sh`, `framework/internal/panel/web/static/panel.js`, `framework/internal/panel/testdata/ux/fake` | — | ⬜ queued |
+
 ### MAPS phase 2
 
 The $15 Builder tier. It starts when the owner buys it, so it sits last and nothing waits on the purchase.
