@@ -64,9 +64,10 @@ func TestAScriptRunsAtOnceBesideForks(t *testing.T) {
 
 // selfWritten names each place in src where a test writes an executable itself: an
 // os.WriteFile or os.OpenFile whose mode has an execute bit, or an os.Chmod that adds
-// one to a path the same function wrote. A mode the parser cannot read (a variable)
-// counts as executable: the guard must not pass what it cannot see, so a plain file's
-// mode is written as a literal, or a constant declared in the same file.
+// one to anything but a directory the same function made (t.TempDir, os.Mkdir,
+// os.MkdirAll). A file a helper wrote is still a file (#107). A mode the parser cannot
+// read (a variable) counts as executable: the guard must not pass what it cannot see,
+// so a plain file's mode is written as a literal, or a constant declared in the same file.
 func selfWritten(fset *token.FileSet, f *ast.File) []string {
 	var found []string
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -80,20 +81,28 @@ func selfWritten(fset *token.FileSet, f *ast.File) []string {
 		if body == nil {
 			return true
 		}
-		written := map[string]bool{}
+		dirs := map[string]bool{}
 		ast.Inspect(body, func(n ast.Node) bool {
+			if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == len(as.Rhs) {
+				for i, rhs := range as.Rhs {
+					if tempDir(rhs) {
+						dirs[types.ExprString(as.Lhs[i])] = true
+					}
+				}
+			}
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
 			name, mode, path := osCall(call)
 			switch {
+			case name == "Mkdir" || name == "MkdirAll":
+				dirs[path] = true
 			case name == "WriteFile" || name == "OpenFile":
-				written[path] = true
 				if executable(mode) {
 					found = append(found, fset.Position(call.Pos()).String())
 				}
-			case name == "Chmod" && written[path] && executable(mode):
+			case name == "Chmod" && !dirs[path] && !tempDir(call.Args[0]) && executable(mode):
 				found = append(found, fset.Position(call.Pos()).String())
 			}
 			return true
@@ -116,10 +125,31 @@ func osCall(call *ast.CallExpr) (name string, mode ast.Expr, path string) {
 		return "", nil, ""
 	}
 	switch sel.Sel.Name {
-	case "WriteFile", "OpenFile", "Chmod":
+	case "WriteFile", "OpenFile", "Chmod", "Mkdir", "MkdirAll":
 		return sel.Sel.Name, call.Args[len(call.Args)-1], types.ExprString(call.Args[0])
 	}
 	return "", nil, ""
+}
+
+// importsTesting reports whether f imports "testing", which is what makes a file that is
+// not a test test support.
+func importsTesting(f *ast.File) bool {
+	for _, imp := range f.Imports {
+		if imp.Path.Value == `"testing"` {
+			return true
+		}
+	}
+	return false
+}
+
+// tempDir reports whether e is a call of TempDir() on a test (t.TempDir()).
+func tempDir(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "TempDir"
 }
 
 // executable reports whether mode, a literal, a conversion of one (fs.FileMode(0o755))
@@ -167,8 +197,15 @@ func TestTheGuardSeesEveryWayOfWritingAnExecutable(t *testing.T) {
 		{`os.WriteFile(p, b, mode)`, 1}, // a variable: unreadable, so counted
 		{`os.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0o700)`, 1},
 		{`os.WriteFile(p, b, 0o644); os.Chmod(p, 0o755)`, 1},
-		{`os.Chmod(dir, 0o755)`, 0}, // a directory the test did not write
+		{`writeFile(t, fake, "x"); os.Chmod(fake, 0o755)`, 1}, // written by a helper (#107)
+		{`os.Chmod(p, 0o755)`, 1},                             // written who knows where
+		{`os.Chmod(p, 0o644)`, 0},
+		{`dir := t.TempDir(); os.Chmod(dir, 0o755)`, 0},
+		{`dir := t.TempDir(); t.Cleanup(func() { os.Chmod(dir, 0o755) })`, 0},
+		{`os.Mkdir(dir, 0); os.Chmod(dir, 0o755)`, 0},
 		{`os.MkdirAll(dir, 0o755)`, 0},
+		{`os.MkdirAll(dir, 0o700); os.Chmod(dir, 0o755)`, 0},
+		{`dir := t.TempDir(); os.Chmod(filepath.Join(dir, "x"), 0o755)`, 1},
 		{`func() { os.WriteFile(p, b, 0o755) }()`, 1},
 	} {
 		src := "package x\nconst exe, plain = 0o755, 0o644\nfunc f() {\n" + c.src + "\n}\n"
@@ -183,24 +220,47 @@ func TestTheGuardSeesEveryWayOfWritingAnExecutable(t *testing.T) {
 	}
 }
 
-// Every test file in the module, not a list of the known ones: a test that writes its own
-// executable is the flake this package exists to prevent.
+// Every test file in the module, and every file of test support (one that imports
+// "testing" outside a _test.go file: leakcheck, testwait), not a list of the known ones: a
+// test that writes its own executable is the flake this package exists to prevent. Only
+// this package's own writer is exempt; the rest of the module's code writes executables
+// (install's hooks) that no test runs at once.
 func TestNoTestWritesAnExecutableAnotherWay(t *testing.T) {
+	self, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var found []string
+	support := map[string]bool{}
 	fset := token.NewFileSet()
-	err := filepath.WalkDir("../..", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, "_test.go") {
+	err = filepath.WalkDir("../..", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return err
 		}
 		f, err := parser.ParseFile(fset, p, nil, 0)
 		if err != nil {
 			return err
 		}
+		if !strings.HasSuffix(p, "_test.go") {
+			dir, err := filepath.Abs(filepath.Dir(p))
+			if err != nil {
+				return err
+			}
+			if dir == self || !importsTesting(f) {
+				return nil
+			}
+			support[filepath.Base(p)] = true
+		}
 		found = append(found, selfWritten(fset, f)...)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range []string{"leakcheck.go", "testwait.go"} {
+		if !support[name] {
+			t.Errorf("%s was not scanned as test support (scanned: %v)", name, support)
+		}
 	}
 	if len(found) > 0 {
 		t.Fatalf("write these with testbin.Write, or a parallel test's fork can leave them busy:\n%s", strings.Join(found, "\n"))

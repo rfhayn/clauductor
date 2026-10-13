@@ -1,6 +1,6 @@
 // Package testbin is test support: it writes the stand-in executables tests run (a fake
 // tmux, a stub on PATH) so that running one cannot fail with "text file busy". Only tests
-// import it.
+// and test support (leakcheck) import it.
 //
 // A child that os/exec forks holds a copy of every open file of the test process until it
 // execs (close-on-exec closes them only then). When another goroutine (a parallel test)
