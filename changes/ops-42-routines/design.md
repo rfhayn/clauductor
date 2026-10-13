@@ -128,7 +128,7 @@
 | Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. No run is logged; `last-tick` is still written. |
 | A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription\|api`" (D16). Command routines need no `billing`. |
 | `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (or a provider switch) is set | Each due `claude -p` routine is refused and logged `billing`, naming the variable: `-p` would bill it instead of the subscription (D16). Command routines run with both unset. `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
-| `billing` is `api` and the key file is missing, not a regular file (a symlink included), unreadable, without exactly one non-empty `ANTHROPIC_API_KEY` line, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
+| `billing` is `api` and the key file is missing, not a regular file (a symlink included), unreadable, without exactly one matching `ANTHROPIC_API_KEY=` line, or with an empty value, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
 | Subscription: a current reading of the 5-hour or 7-day window is at or above its cap | The `claude -p` routine is refused and logged `quota` with the window and the reading (D4). |
 | Subscription: no current reading of a window | Runs up to `unknown_quota_daily_runs` a day, then refused and logged `capped`; the health line says the quota is unknown (D17). |
 | API: a dollar cap or the run count is reached | The `claude -p` routine is refused and logged `capped` with the cap and the figure (D4). |
@@ -238,8 +238,9 @@
 **D5. The tick's lock, and an overlapping tick.**
 - **Recommended: one lock per registry, held for the whole tick, routines run one at a time.**
   A tick that finds a live holder exits 0 at once, saying who holds it; the next tick picks up
-  what is still due. It logs no run, but it has already written `last-tick` (a temp file, then
-  `mv`, so a reader never sees half a write), so a long run never makes the ticker look STALE. `run <name>` takes the same lock and is refused while it is held. A holder
+  what is still due. It logs no run, but it has already written `last-tick` (a temp file made with
+  `mktemp` beside `last-tick`, so on the same file system, then `mv`, so a reader never sees half
+  a write), so a long run never makes the ticker look STALE. `run <name>` takes the same lock and is refused while it is held. A holder
   that is dead or whose pid was reused (`lease.sh`'s pid-plus-start-time test, reused, not
   rewritten) is taken over, and its unfinished run is closed as failed.
   - The lock is a directory (`mkdir` is atomic) with `owner.json`: pid, start time, host, the
@@ -469,20 +470,28 @@ owner's direction of 2026-10-13.)*
     run, which inherits no shell's environment, can reach it without the key ever entering the
     repository or the ticker:
     - `routines.sh setup --billing api --key-file <path>` records the path in the registry's
-      `api_key_file` as an **absolute** path, never the key: a relative path is resolved against
-      the directory setup ran in, and a leading `~/` is expanded then, not at run time, so every
-      later reader (the ticker, the panel) sees the same file. A sidecar's directory is outside
-      the repository and allowed. The same on macOS and Linux.
-    - **Inside the repository** means: the file's physical path (its directory resolved with
-      `cd -P`, then its name) lies under the physical top level of any worktree that
-      `git worktree list --porcelain` lists, or under the git common dir. On macOS the
-      comparison ignores case (APFS is case-insensitive by default); on Linux it is exact.
+      `api_key_file`, never the key. The registry is committed and shared by machines
+      (`machine: darwin|linux`), so it never holds a home directory: a path given with a leading
+      `~/` is recorded as written and expanded against `$HOME` each time it is read; any other
+      relative path is made absolute against the directory setup ran in (its logical `pwd`, not
+      `pwd -P`); an absolute path is recorded as given. A sidecar's directory is outside the
+      repository and allowed. The same on macOS and Linux.
+    - **Inside the repository** is decided by identity, not by comparing strings: the runner
+      walks the key file's physical ancestors (its directory resolved with `cd -P`, then each
+      parent up to `/`) and refuses when any of them `-ef` the top level of a worktree that
+      `git worktree list --porcelain` lists, or the git common dir. "Under" therefore means by
+      path components: the directory itself or one beneath it, so a sibling sharing a prefix
+      (`<top>-keys/`) is outside. Identity handles case-insensitive file systems, symlinked
+      parents, any shell, and WSL2's `/mnt/c` alike. A listed worktree whose directory no
+      longer exists (prunable) is skipped.
     - **The line format.** The file must hold exactly one line matching
-      `^[ \t]*(export[ \t]+)?ANTHROPIC_API_KEY=`. Lines starting with `#` (after leading blanks)
-      are comments and ignored; other lines are ignored. The value is everything after the
-      first `=`, with a trailing `\r` stripped, then one pair of matching surrounding quotes
-      (`"…"` or `'…'`) stripped. An empty value after that is no key. More than one matching
-      line is refused as ambiguous. The file is never sourced, so nothing in it runs.
+      `^[[:blank:]]*(export[[:blank:]]+)?ANTHROPIC_API_KEY=` (bracket classes, not `\t`, which
+      GNU grep reads literally inside brackets). Lines starting with `#` (after leading blanks)
+      are comments and ignored; other lines are ignored; the last line may lack a trailing
+      newline. The value is everything after the first `=`, with a trailing `\r` stripped, then
+      trailing blanks stripped, then one pair of matching surrounding quotes (`"…"` or `'…'`)
+      stripped. An empty value after that is no key. More than one matching line is refused as
+      ambiguous. The file is never sourced, so nothing in it runs.
     - **The key reaches only claude**, by an `export` in the subshell that execs `claude -p`. It
       is never on any process's argv (no `env ANTHROPIC_API_KEY=… claude`, no `jq --arg`), never
       in a `context` command's or a command routine's environment, and never copied, printed
@@ -544,7 +553,9 @@ owner asked to decide.)*
   and the refusal names which limit refused. The health line adds `CANNOT CHECK — routines
   quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3
   runs a day (N of 3 runs used today)`, which the session summary repeats. `<when>` is the
-  file's `at`, or `never read` when there is no file. The `3` is the limit that binds: the
+  5-hour window's `resetsAt` when the file has one (the reading stopped counting then), else
+  the file's `at`. With no file the clause reads `no reading ever of the 5-hour window` instead
+  of `no current reading … since <when>`. The `3` is the limit that binds: the
   smaller of `unknown_quota_daily_runs` and `daily_runs`, so with only the default it reads as
   above.
 - **Alternatives:**
