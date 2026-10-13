@@ -35,7 +35,8 @@ ever worked around: no `--admin`, no `--auto`, no merge clicked on the website.
   and `build-change` pass it on), every outcome goes to it by `SendMessage` instead: the stop line
   above, or, once merged, a short summary (PR number, squash commit, the review line, anything left
   open and the change or issue that owns it). The session that asked notifies the owner, so a push
-  from here as well would arrive twice.
+  from here as well would arrive twice. If SendMessage is not in your tool list, put the outcome in
+  your final hand-back if you are a subagent, else send it with `PushNotification`.
 
 ## Context: the state, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/merge-pr/context.sh`
@@ -97,9 +98,11 @@ Converged means **the last review round found nothing medium or worse.** By how 
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
 
-Spawn a reviewer in the FOREGROUND (`run_in_background: false`): its findings are the spawn's tool
-result. In the background they go to whoever is listening when it ends, which is not you if you
-are a subagent whose turn has ended: the top session gets them and you wait in silence (OPS-25).
+A reviewer spawn may come back as launched in the background (fork mode, the default, always
+does). Never spawn it again.
+Do not end your run or hand back while any agent you spawned has not reported; its findings
+arrive as a notification while you are still running. Once a launcher has ended, Claude Code
+sends a nested agent's result to the main conversation instead (OPS-25).
 
 Write the result into the PR body as one line: `Review: converged in <n> round(s), peak <sev>, at
 <short sha>`. Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).

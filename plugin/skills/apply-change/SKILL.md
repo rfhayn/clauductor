@@ -13,17 +13,20 @@ this loop for you and stops cleanly. Use this skill when the Workflow tool is no
 do one group alone. The loop is the same, and so are its stops.
 
 ## Who hears each result
-- **Spawn every agent in the FOREGROUND**: pass `run_in_background: false` on each builder and
-  reviewer spawn, so its result is the spawn's tool result and you read it before your next step.
-  A background agent's result goes to whoever is listening when it ends. If you are a subagent,
-  your turn has ended by then, so the result reaches the top session and you wait in silence
-  (OPS-25). If a spawn comes back without its result (moved to the background), spawn it again in
-  the foreground; never end your turn to wait for a notification.
+- **Wait for every agent you spawn.** A spawn may come back as launched in the background (fork
+  mode, the default, always does). Never spawn it again: a second builder would edit the same
+  uncommitted tree as the first.
+  Do not end your run or hand back while any agent you spawned has not reported; its result
+  arrives as a notification while you are still running. A launcher that ends first loses it:
+  Claude Code sends a nested agent's result to the main conversation once its launcher has
+  ended, and you wait in silence (OPS-25).
 - **Report to the session that asked.** When the request names one (`reportTo <session>`, the
   name `SendMessage` addresses it by), send it every outcome with `SendMessage`: at a stop, its one
   line, in place of the owner's `PushNotification` (the session that asked notifies the owner).
-  Run `merge-pr` with the same `reportTo`: it sends the merged outcome, or its own stop. With
-  none, notify the owner yourself at each stop.
+  Run `merge-pr` with the same `reportTo`: it sends the merged outcome, or its own stop.
+  If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a
+  subagent, else send it with `PushNotification`.
+  With none, notify the owner yourself at each stop.
 
 ## Preconditions
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
