@@ -48,6 +48,10 @@ printf '# Greeting\n\n## Purpose\nGreets a visitor on the home page, so a first 
 head -6 "$F/specs/greeting/spec.md" | cmp -s - "$F/want.head" && [ "$(tail -c 2 "$F/specs/greeting/spec.md" | od -An -c | tr -d ' ')" = '\n\n' ] \
   && awk 'NR > 1 && prev == "" && $0 == "" { bad = 1 } { prev = $0 } END { exit bad }' "$F/specs/greeting/spec.md" \
   && ok "...in the byte layout OpenSpec 1.2 writes" || fail "layout differs from OpenSpec's: $(head -8 "$F/specs/greeting/spec.md" | tr '\n' '|')"
+# A new capability is ours to lay out (OpenSpec would write a TBD Purpose): its Purpose is a
+# paragraph of its own, a blank line before "## Requirements".
+awk '/^## Requirements$/ { ok = (prev == ""); exit } { prev = $0 } END { exit !ok }' "$F/specs/farewell/spec.md" \
+  && ok "...and farewell's Purpose ends in a blank line before ## Requirements" || fail "farewell layout: $(head -6 "$F/specs/farewell/spec.md" | tr '\n' '|')"
 
 # ── NOT-SYNCED.md holds a capability back ─────────────────────────────────────────────────────
 mk held

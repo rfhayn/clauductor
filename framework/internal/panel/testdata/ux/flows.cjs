@@ -6,7 +6,7 @@
 //                  [--only name,name]
 //
 // Groups (and their flows, in order):
-//   lanes        start-new-lane, start-here, type-and-leave, interrupt, restart, stop,
+//   lanes        start-new-lane, start-here, start-template, type-and-leave, interrupt, restart, stop,
 //                close, remove-leftover, forget-orphan, restore-all (kills the server)
 //   attachments  drop-png, drop-jpeg, paste-image, drop-non-image, selection-persists,
 //                cmd-click-url, osc8-asks
@@ -57,6 +57,17 @@ function registry() {
     for (const l of Object.values(lanes)) ids.push(l.id || l.ID);
   }
   return ids;
+}
+// A lane's first-prompt state in the run's registries ("" when it has none).
+function promptState(id) {
+  const dir = path.join(R.home, ".clauductor", "panel");
+  for (const d of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    const f = path.join(dir, d, "lanes.json");
+    if (!fs.existsSync(f)) continue;
+    const j = JSON.parse(fs.readFileSync(f, "utf8"));
+    for (const l of Object.values(Array.isArray(j) ? j : (j.lanes || []))) if ((l.id || l.ID) === id) return l.promptState || "";
+  }
+  return "";
 }
 const fakeSession = (sid) => { try { return JSON.parse(fs.readFileSync(path.join(R.home, "fake", "agents", sid + ".json"), "utf8")); } catch (e) { return null; } };
 
@@ -164,6 +175,29 @@ flow("lanes", "start-here", async () => {
   const sid = await until("the lane's session id", async () => ((await laneState()).terminals || []).find((t) => t.id === "here-wt")?.sessionId);
   const s = await until("the fake session", () => fakeSession(sid), 10000);
   if (s.cwd !== here) throw new Error("the lane runs in " + s.cwd + ", not " + here);
+});
+
+// A template lane types its first prompt once claude is idle (PANEL-29). Its fake is a
+// fresh claude (the name fresh*: no startup hooks), as a real one posts no
+// UserPromptSubmit until someone types; the idle role's would read as a prompt typed
+// by hand, and the panel would rightly skip the first prompt (OPS-56).
+flow("lanes", "start-template", async () => {
+  await page.click("#addlane");
+  await page.waitForSelector("#startdlg:not([hidden])");
+  await page.selectOption("#st-tpl", "propose");
+  await page.fill("#st-name", "fresh-tpl");
+  await until("a plan that starts on a new branch", () => page.evaluate(() => !document.getElementById("st-go").disabled && document.querySelector('input[name="st-mode"]:checked').value === "new"), 5000);
+  await page.click("#st-go");
+  await page.waitForSelector('[data-k="tab:t:fresh-tpl"]', { timeout: 20000 });
+  if (!branchExists("change/fresh-tpl")) throw new Error("no branch change/fresh-tpl");
+  await until("the first prompt in fresh-tpl's typed log, or a decision not to type it",
+    () => typedFor("fresh-tpl").includes("propose fresh-tpl") || ["skipped", "delivered"].includes(promptState("fresh-tpl")), 30000);
+  if (!typedFor("fresh-tpl").includes("propose fresh-tpl")) throw new Error("the first prompt was not typed: its prompt state is " + JSON.stringify(promptState("fresh-tpl")));
+  // Stopped, so the flows after this one see the tab strip they were written for.
+  await select("fresh-tpl");
+  await page.click('#termbar [data-k="b:Stop lane"]');
+  await page.click('#termbar button:has-text("Confirm stop")', { timeout: 3000 }).catch(() => {});
+  await until("the fresh-tpl tab to go", async () => !(await page.$('[data-k="tab:t:fresh-tpl"]')), 30000);
 });
 
 flow("lanes", "type-and-leave", async () => {

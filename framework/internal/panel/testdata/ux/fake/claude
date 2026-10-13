@@ -17,6 +17,8 @@
 #   wait*   waiting on a permission prompt (Notification + PermissionRequest hooks)
 #   stream* busy, printing a long-running output stream
 #   budget* busy, well over any budget figure the build may show (cost $48)
+#   fresh*  idle, just started with nothing typed: no UserPromptSubmit, no Stop, so a
+#           template lane's first prompt is typed rather than skipped as already answered
 #   anything else: idle, its turn done (UserPromptSubmit then Stop)
 # Typed bytes go to $HOME/typed.log and $HOME/fake/typed/<lane>.log; "/exit" + Enter
 # ends the session, as claude's own /exit does. Each interactive start records its argv in
@@ -86,7 +88,7 @@ done
 printf '%s\n' "$argv" > "$F/argv/$lane"
 role=$(cat "$F/role/$lane" 2>/dev/null || true)
 if [ -z "$role" ]; then
-  case "$lane" in work*) role=busy ;; wait*) role=waiting ;; stream*) role=stream ;; budget*) role=budget ;; *) role=idle ;; esac
+  case "$lane" in work*) role=busy ;; wait*) role=waiting ;; stream*) role=stream ;; budget*) role=budget ;; fresh*) role=fresh ;; *) role=idle ;; esac
 fi
 cwd=$(pwd -P)
 me=$$
@@ -128,7 +130,7 @@ printf '\033[2m─────────────────────�
   # the session to the enclosing worktree (the project root) for good; UX_FAKE_EARLY=1
   # reproduces that (see docs/ux-passes.md, findings).
   [ "${UX_FAKE_EARLY:-}" = 1 ] || sleep "${UX_FAKE_START_DELAY:-4}"
-  ev UserPromptSubmit '"prompt":"(ux harness)"'
+  [ "$role" = fresh ] || ev UserPromptSubmit '"prompt":"(ux harness)"'
   n=0
   # Alive: the session runs and has not ended (its record goes first when it ends).
   while kill -0 "$me" 2>/dev/null && [ -f "$F/agents/$sid.json" ]; do
@@ -156,6 +158,8 @@ printf '\033[2m─────────────────────�
         fi ;;
       budget)
         status_post 71 48.25 ;;
+      fresh)
+        status_post 3 0 ;;
       *)
         status_post 12 0.2
         [ "$n" -eq 0 ] && ev Stop '"last_assistant_message":"Done."' ;;
