@@ -18,14 +18,15 @@ import (
 // notice fire on every update forever, which teaches everyone to ignore it.
 // TestGuidanceDocsAreTemplateDocs holds each entry to a doc-tier template file.
 var guidanceDocs = map[string]bool{
-	"docs/playbook.md":         true,
-	"docs/conventions.md":      true,
-	"docs/principles.md":       true,
-	"docs/adr/TEMPLATE.md":     true,
-	"changes/README.md":        true,
-	"specs/README.md":          true,
-	"scripts/ci/README.md":     true,
-	".claude/health/README.md": true,
+	"docs/playbook.md":           true,
+	"docs/conventions.md":        true,
+	"docs/principles.md":         true,
+	"docs/adr/TEMPLATE.md":       true,
+	"docs/practices/TEMPLATE.md": true,
+	"changes/README.md":          true,
+	"specs/README.md":            true,
+	"scripts/ci/README.md":       true,
+	".claude/health/README.md":   true,
 }
 
 const guidanceNote = "differs from the template's copy (update never overwrites it: compare and take what you want)"

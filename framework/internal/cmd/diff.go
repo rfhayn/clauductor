@@ -39,7 +39,8 @@ model of its own (install and update refuse those; diff only reads).
                     conflict and the diff of the merged file
 
 Paths follow .claude/project.conf (GATE_RUN, GATE, GATE_STEPS, ROADMAP, JOURNAL,
-INSIGHTS, OWNER_QUEUE, ADR_DIR, CHANGES_DIR, SPECS_DIR); the mapping is listed.
+INSIGHTS, OWNER_QUEUE, ADR_DIR, PRACTICES_DIR, CHANGES_DIR, SPECS_DIR); the mapping
+is listed.
 
 --json prints the whole report for a script. --exit-code exits 1 when a
 framework file differs or is missing, or the settings merge would change the

@@ -229,6 +229,27 @@ func TestInstallFollowsGateRun(t *testing.T) {
 	}
 }
 
+// The record directories follow their keys: a project that keeps its ADRs and practice records
+// elsewhere gets each directory's index and template there, and nothing under docs/.
+func TestInstallFollowsRecordDirs(t *testing.T) {
+	tmplDir(t)
+	dir := ownedRepo(t)
+	write(t, dir, ".claude/project.conf", "ADR_DIR=\"records/adr\"\nPRACTICES_DIR=\"records/practices\"\n")
+	if out, err := runInstall(t, dir, false); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	for _, f := range []string{"records/adr/README.md", "records/adr/TEMPLATE.md", "records/practices/README.md", "records/practices/TEMPLATE.md"} {
+		if !fileExists(filepath.Join(dir, f)) {
+			t.Errorf("%s was not installed", f)
+		}
+	}
+	for _, d := range []string{"docs/adr", "docs/practices"} {
+		if fileExists(filepath.Join(dir, d)) {
+			t.Errorf("install wrote %s/ although project.conf puts it under records/", d)
+		}
+	}
+}
+
 // A GATE_RUN with another file name is the project's own runner: install leaves the template's
 // runner and lease out. A path outside the repository, or two files on one path, is refused.
 func TestInstallGateRunOwnRunnerAndAmbiguity(t *testing.T) {

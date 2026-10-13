@@ -56,6 +56,9 @@ started from the panel's **New lane** (or by hand), on one branch:
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
+  which lane, its rough cost, what it displaces and whether it lands in a control, with a cheaper
+  option when there is one, and the owner chooses (`session-start`, *Rules*; nothing checks it).
 - **One gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a lane's
   gate may queue behind another's; the panel shows who holds it.
 - The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
@@ -398,7 +401,7 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 | `/clauductor:merge-pr` | land a PR: evidence, converged review, squash | scribe |
 | `/clauductor:dev-journal` | the session's narrative (session-close runs it) | scribe |
 | `/clauductor:log-insight` | a non-obvious lesson, now | scribe |
-| `/clauductor:new-adr` | promote a decision or a lesson with a mechanism | planner |
+| `/clauductor:new-adr` | promote a decision (ADR) or a practice (PRAC); asks which | planner |
 | `/clauductor:init` | scaffold this repository's own files from the plugin (`/clauductor:init`) | thinker |
 | `/clauductor:start-project` | first-time setup of this model | thinker |
 | `/architecture-audit` | check the project's architecture rules | thinker |
@@ -496,8 +499,9 @@ removed with `--prune`.
 
 | Tier | Where | Holds | Promotes to |
 |---|---|---|---|
-| raw | `docs/insights-log.md` | lessons as they happen, with a status | an ADR, or `Instance of`, or `Technique` |
-| decisions | `docs/adr/` | decisions and lessons with a mechanism, each naming its enforcement | AGENTS.md only as a mechanism |
+| raw | `docs/insights-log.md` | lessons as they happen, with a status | an ADR or a practice record, or `Instance of`, or `Technique` |
+| decisions | `docs/adr/` | decisions about the system, each naming its enforcement | AGENTS.md only as a mechanism |
+| practices | `docs/practices/` | how we work: lessons with a mechanism (`PRAC-NNNN`, one number space with ADRs) | AGENTS.md only as a mechanism |
 | rules | `AGENTS.md` | the four rules and what executes each (a byte budget) | never grows by prose |
 | narrative | `docs/development-journal.md` | each session: what, why, what next | — |
 

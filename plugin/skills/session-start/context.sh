@@ -95,8 +95,9 @@ else
 fi
 echo "- Insights: $(count_rows '\| (\*\*)?Raw\b[^|]*\|[[:space:]]*$' "$INSIGHTS") Raw row(s); latest:"
 grep -m 4 -E '^\| [0-9]{4}-' "$INSIGHTS" 2>/dev/null | cut -c1-150 | ind
-echo "- ADRs not yet Accepted:"
-( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" 2>/dev/null || echo "none" ) | ind
+echo "- ADRs and practice records not yet Accepted:"
+# A project with no practices directory yet: grep exits 2 on it even when the ADR index matches.
+( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" "$PRACTICES_DIR/README.md" 2>/dev/null | grep . || echo "none" ) | ind
 
 # Pluggable health lines: every script in .claude/health, the directory being the list, then the
 # enabled modules' and the local layer's (.claude/extensions.sh), each run per its own #! line.

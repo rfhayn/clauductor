@@ -6,14 +6,16 @@ decides*); a session drafts one `Proposed` and puts it in front of them.
 
 ## What this tier holds
 
-Two kinds of record, and both belong here:
-- **Architecture decisions**: choices with trade-offs about how the system is built.
-- **Lessons that have a mechanism**: rules about testing, review, evidence and process, each with
-  something that executes it, or a plain statement that nothing does. `AGENTS.md` does not take
-  new lessons (it changes only to add a mechanism or delete something), so this tier is a
-  lesson's durable home. The insights log is intake, not a home.
+**Decisions about the system**: choices with trade-offs about how it is built (its structure,
+dependencies, interfaces, construction techniques).
 
-How to route a lesson:
+**Lessons about how we work** (rules about testing, review, evidence and process, each with
+something that executes it, and the tooling decisions behind them) are **practice records**, in
+[`../practices/`](../practices/README.md), `PRAC-NNNN`. `/new-adr` asks which kind first. A lesson
+already written here as an ADR stays one. `AGENTS.md` does not take new lessons (it changes only
+to add a mechanism or delete something); the insights log is intake, not a home.
+
+How to route a decision:
 - **A new principle** gets a new ADR.
 - **A refinement of an existing ADR's principle**, or a new instance that changes what it says, is
   an **amendment**: a dated `## Amendment — YYYY-MM-DD: …` section inside that ADR, with its own
@@ -30,17 +32,19 @@ promote your own versions of them here as your project confirms or amends them.
 
 ## Process
 1. Capture raw observations in the insights log during the work.
-2. When one is a real decision or a lesson with a mechanism, promote it with `/new-adr`: copy
+2. When one is a real decision about the system, promote it with `/new-adr`: copy
    [`TEMPLATE.md`](TEMPLATE.md) to `NNNN-<kebab-title>.md`, or amend the ADR that owns the
    principle. Then retag **every** insights row it cites.
 3. Reference the ADR where it is enforced (a hook, a check, `AGENTS.md`'s table) so the decision
    and its guard stay in step.
 
 ## Numbering
-Zero-padded and monotonic (`0001`, `0002`, …). Never renumber an ADR on `main`; supersede it (new
-ADR `Accepted`, old one `Superseded by ADR-NNNN`). The next number comes from `origin/main` and the
-open PRs, never from your branch (`new-adr` prints it). `.claude/checks/adr-numbering.sh` fails on
-two files with one number and on an ADR missing from the index below. On a collision, the branch
+Zero-padded and monotonic (`0001`, `0002`, …), in **one number space with the practice records**:
+the next record of either kind takes the next free number. Never renumber an ADR on `main`;
+supersede it (new ADR `Accepted`, old one `Superseded by ADR-NNNN`). The next number comes from
+`origin/main` and the open PRs across both directories, never from your branch (`new-adr` prints
+it). `.claude/checks/adr-numbering.sh` fails on two files with one number, in either directory,
+and on an ADR missing from the index below. On a collision, the branch
 that merges second takes the next free number. Each ADR opens `# ADR NNNN: <title>` and has an
 `## Enforcement` section; a project that adopted this with ADRs of its own sets `RECORDS_BASELINE`
 (`.claude/project.conf`), and the ADRs from before it keep their headings as written.

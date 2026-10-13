@@ -6,10 +6,10 @@
 # RECORDS_BASELINE in .claude/project.conf (conf.sh sets the default, ""):
 #   ""            no baseline: every record is judged (a project that started on the template)
 #   YYYY-MM-DD    a record dated BEFORE this day is legacy: a journal heading by its own date, an ADR
-#                 by its `- **Date**:` (or `- **Date:**`) line, a change by its .openspec.yaml `created:`; git's first
+#                 or practice record by its `- **Date**:` (or `- **Date:**`) line, a change by its .openspec.yaml `created:`; git's first
 #                 commit of the file only when the record carries no date
 #   <git ref>     a record that EXISTS at this ref (a tag or sha: the adoption commit) is legacy: a
-#                 journal session by its number, an ADR by its number, a change by its directory
+#                 journal session by its number, an ADR or practice record by its number, a change by its directory
 #
 # A baseline that names a ref this clone cannot resolve (a shallow CI checkout, a typo) is not
 # "no baseline": records_baseline_kind prints "bad" and the caller FAILS, because judging the
@@ -50,14 +50,15 @@ journal_legacy_sessions() {
   git -C "$ROOT" show "$RECORDS_BASELINE:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9.]*\).*/\1/p'
 }
 
-# adr_is_legacy FILE (a basename in ADR_DIR): 0 when that ADR predates the baseline.
-adr_is_legacy() {
+# record_is_legacy DIR FILE (DIR is ADR_DIR or PRACTICES_DIR, FILE a basename in it): 0 when that
+# record predates the baseline.
+record_is_legacy() {
   case $(records_baseline_kind) in
-    ref) git -C "$ROOT" cat-file -e "$RECORDS_BASELINE:$ADR_DIR/$1" 2>/dev/null && return 0
+    ref) git -C "$ROOT" cat-file -e "$RECORDS_BASELINE:$1/$2" 2>/dev/null && return 0
          # Renamed since? The number is the record's identity.
-         git -C "$ROOT" ls-tree --name-only "$RECORDS_BASELINE" -- "$ADR_DIR/" 2>/dev/null | sed 's|.*/||' | grep -q "^$(printf '%s' "$1" | cut -c1-4)-" ;;
-    date) _rd=$(sed -n -E 's/^- \*\*Date(\*\*:|:\*\*)[[:space:]]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\2/p' "$ROOT/$ADR_DIR/$1" 2>/dev/null | head -1)
-          [ -n "$_rd" ] || _rd=$(records_added_date "$ADR_DIR/$1")
+         git -C "$ROOT" ls-tree --name-only "$RECORDS_BASELINE" -- "$1/" 2>/dev/null | sed 's|.*/||' | grep -q "^$(printf '%s' "$2" | cut -c1-4)-" ;;
+    date) _rd=$(sed -n -E 's/^- \*\*Date(\*\*:|:\*\*)[[:space:]]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\2/p' "$ROOT/$1/$2" 2>/dev/null | head -1)
+          [ -n "$_rd" ] || _rd=$(records_added_date "$1/$2")
           records_before "$_rd" ;;
     *) return 1 ;;
   esac

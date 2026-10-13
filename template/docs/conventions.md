@@ -55,9 +55,9 @@ diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-la
 
 ## Who decides, and what runs unattended
 
-**The owner decides:** a change's proposal and every `design.md` decision; ADRs; a production
-deploy and anything else irreversible; anything outward beyond this repo. **Everything else runs
-without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
+**The owner decides:** a change's proposal and every `design.md` decision; ADRs and practice
+records; a production deploy and anything else irreversible; anything outward beyond this repo.
+**Everything else runs without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
 comments on this repo, and the squash-merge through `merge-pr`. A session runs `session-start` to
 `session-close` hands-off and reaches the owner only by `PushNotification` (or your equivalent):
 at an owner decision, an environment fault, a gate that stays red, or review not converging, and

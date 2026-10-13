@@ -121,6 +121,7 @@ var pathKeys = []struct{ tmpl, key string }{
 	{"docs/insights-log.md", "INSIGHTS"},
 	{"docs/owner-queue.md", "OWNER_QUEUE"},
 	{"docs/adr/", "ADR_DIR"},
+	{"docs/practices/", "PRACTICES_DIR"},
 	{"changes/", "CHANGES_DIR"},
 	{"specs/", "SPECS_DIR"},
 }
