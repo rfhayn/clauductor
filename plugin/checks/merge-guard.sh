@@ -383,6 +383,19 @@ cutpr "a PR number with a backtick substitution after its digits" 'gh pr merge 5
 cutpr "a PR number with an expansion after its digits, flags first" 'gh pr merge --squash 5$X'
 cutpr "a PR URL with an expansion after its number" 'gh pr merge https://github.com/acme/app/pull/5$X --squash'
 cutpr "a quoted PR number with an expansion inside its quotes" 'gh pr merge "5$X" --squash'
+# A `(` after the digits is zsh's glob qualifier, which can empty or rewrite the word.
+cutpr "a PR number with a glob qualifier after its digits" 'gh pr merge 5(N) --squash'
+cutpr "a PR URL with a glob qualifier after its number" 'gh pr merge https://github.com/acme/app/pull/5(N) --squash'
+# A repo flag glued to a cut value still names a repo, one the guard cannot confirm.
+cutrepo() {  # cutrepo LABEL COMMAND: refused as a repo it cannot confirm
+  guard 2 "OPS-57: $1" "$2"
+  [ "$rc" != 2 ] || grep -q 'cannot confirm which repository' "$d/err" \
+    || fail "OPS-57: $1: blocked, but not as a repo it cannot confirm: $(head -n 1 "$d/err")"
+}
+cutrepo "a glued -R whose value is cut" 'gh pr merge 5 --squash -R$X'
+cutrepo "a glued -R whose value is cut after this repo's name" 'gh pr merge 5 --squash -Racme/app$X'
+cutrepo "a --repo= whose value is cut" 'gh pr merge 5 --squash --repo=acme/app$X'
+cutrepo "a --repo= whose value is all expansion" 'gh pr merge 5 --squash --repo=$X'
 # What still reads exactly: each of these is PR 5, allowed on PR 5's evidence.
 guard 0 "OPS-57: a plain PR number still reads exactly" "gh pr merge 5 --squash --delete-branch"
 guard 0 "OPS-57: this repo's PR URL still reads exactly" "gh pr merge https://github.com/acme/app/pull/5 --squash"

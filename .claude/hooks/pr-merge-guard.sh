@@ -320,8 +320,9 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # a later `-R`, an escaped `\;`); an allowlist has no such tail.
 #
 # Everything else is POLICED as this repo's merge, from merge_argv — a small shell-word tokenizer
-# that stops at `$`, a backtick, a `#` comment, a redirect or a separator. A word it stops INSIDE is
-# dropped, never kept cut short: its reading would be a shorter number than the shell merges (OPS-57):
+# that stops at `$`, a backtick, a `#` comment, a redirect or a separator. A word it stops INSIDE at
+# `$`, a backtick or `(` is dropped, never kept cut short: its reading would be a shorter number than
+# the shell merges (OPS-57). A repo flag glued to such a word still reads as a repo, unconfirmed:
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
 #   - a repo named (-R X, -RX, --repo X, --repo=X, or a PR URL) that is not this repo, outside the
 #     allowlisted shape, BLOCKS and shows the shape;
@@ -366,7 +367,11 @@ merge_argv() {
       for (j = 1; j <= n; j++) {
         c = substr(s, j, 1)
         if (q == "\047") { if (c == "\047") q = ""; else tok = tok c; continue }
-        if (c == "$" || c == "`") { have = 0; break }
+        if (c == "$" || c == "`") {
+          # A repo flag glued to a cut value still names a repo: one that cannot be confirmed.
+          if (tok ~ /^(-R|--repo=)/) t[++nt] = "-R"
+          have = 0; break
+        }
         if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
         if (q == "\"") { if (c == "\"") q = ""; else tok = tok c; continue }
         if (c == "#" && !have) break
@@ -374,6 +379,8 @@ merge_argv() {
         if (c == " " || c == "\t") { if (have) { t[++nt] = tok; tok = ""; have = 0 }; continue }
         if (c ~ /[\n;&|()<>]/) {
           if ((c == "<" || c == ">") && tok ~ /^[0-9]*$/) have = 0
+          # In zsh a `(` inside a word is a glob qualifier, which can empty or rewrite it.
+          if (c == "(" && have) have = 0
           break
         }
         tok = tok c; have = 1
