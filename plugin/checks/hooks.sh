@@ -150,6 +150,33 @@ nb 0 "a script editing a file under a variable cd" "sh $d/install.sh"
 mkdir -p "$R/dist"; cp "$R/fix.js" "$R/dist/cli.js"
 nb 0 "gitignored build output" "node dist/cli.js"
 nb 0 "gitignored build output through npm exec" "npm exec -- node dist/cli.js"
+# An editor shelled out to inside a string: the shell scan reads the string as one word, so the
+# paths the script names decide, as for a .replace( script.
+cat > "$R/shellout.py" <<'PY'
+import os
+os.system("sed -i '' s/x/y/ src/lib/app.ts")
+PY
+cat > "$R/shellout.js" <<'JS'
+require('child_process').execSync("sed -i '' s/x/y/ src/lib/app.ts");
+JS
+nb 2 "a python script shelling out to sed -i" "python3 shellout.py"
+nb 2 "a node script shelling out to sed -i" "node shellout.js"
+# A script's cds count toward the 32-base cap only when they fit; past it, only its absolute
+# targets are judged, and nothing is refused for the script's cds alone.
+cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'
+printf "${cds}sed -i '' s/x/y/ \"\$TMPDIR/notes.txt\"\n" > "$d/cds.sh"
+printf "${cds}sed -i '' s/x/y/ $R/$T\n" > "$d/cds-abs.sh"
+nb 0 "a script with many cds editing a temp file" "sh $d/cds.sh"
+nb 2 "a script with many cds editing tracked source by absolute path" "sh $d/cds-abs.sh"
+# python3 -m pkg runs pkg/__main__.py.
+mkdir -p "$R/pkg"; cp "$R/rewrite.py" "$R/pkg/__main__.py"
+nb 2 "python3 -m running a package in the cwd" "python3 -m pkg"
+# Only a lone file piped by a single |: these are the cat-pipe rule's edges, both known limits.
+nb 0 "cat of two files piped in (a known limit)" "cat preview.py rewrite.py | python3"
+nb 0 "cat then || (not a pipe)" "cat rewrite.py || python3"
+# A flag cluster ending in o takes the next word as its value.
+nb 2 "bash -euo pipefail on a script file" "bash -euo pipefail sub.sh"
+nb 2 "bash -euo pipefail -c" "bash -euo pipefail -c \"cd src && sed -i '' s/a/b/ lib/app.ts\""
 rc=0; printf '' | sh "$H/no-blind-source-rewrite.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than breaking every Bash call"
 

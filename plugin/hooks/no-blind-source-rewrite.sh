@@ -48,8 +48,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   - a runner the hook does not know (`uv run f.py`, `deno run f.ts`, `bun f.ts`, `make`);
 #   - a script run by the script read (one level is read, not the tree it starts);
 #   - a script's target it cannot resolve to a tracked file: a variable or an argument (`sed -i …
-#     "$1"`), a path under a cd to a variable, a path it builds or finds itself
-#     (`Path(__file__).parent / name`, `glob`);
+#     "$1"`), or a path it builds or finds itself (`Path(__file__).parent / name`, `glob`). A
+#     RELATIVE literal is still judged against the command's directories and literal cds, even
+#     after the script's own cd to a variable (safe: it can only over-refuse), so a script that
+#     edits a scratch copy names it by an absolute path or a variable;
+#   - past the 32-base cap, a script's relative targets: only its absolute ones are judged then;
 #   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`).
 # And one false refusal it shares with the inline path: a script that reads tracked source, uses
 # `.replace(`, and writes ELSEWHERE is refused when it names the tracked path.
@@ -332,7 +335,7 @@ scan_awk() {
         if (name ~ /^(sh|bash|zsh|dash|ksh)$/) {
           sawc = 0
           for (j = k + 1; j <= n; j++) {
-            if (W[j] ~ /^[-+][oO]$/) { j++; continue }
+            if (W[j] ~ /^[-+][A-Za-z]*[oO]$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; j++; continue }
             if (W[j] ~ /^--/) continue
             if (W[j] ~ /^[-+][A-Za-z]+$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; continue }
             break
@@ -407,7 +410,8 @@ scan_awk() {
         if (name ~ /^(sh|bash|zsh|dash|ksh)$/) {
           if (w !~ /^[-+]./) return j
           if (w ~ /^-[A-Za-z]*[cn]/) return -1
-          if (w ~ /^[-+][oO]$/) j++
+          # A cluster ending in o takes the next word as its value: -o pipefail, -euo pipefail.
+          if (w ~ /^[-+][A-Za-z]*[oO]$/) j++
           continue
         }
         if (w !~ /^-./) return j
@@ -505,6 +509,8 @@ scan_cmd() { scan=$(printf '%s\n' "$own" | scan_awk); scanned=yes; }
 # A fact of the command, or of a script file step 0 read ($sfacts: targets and cds only).
 sfacts=""
 facts() { printf '%s\n%s\n' "$scan" "$sfacts" | sed -n "s/^$1$TAB//p"; }
+own_facts() { printf '%s\n' "$scan" | sed -n "s/^$1$TAB//p"; }
+script_facts() { printf '%s\n' "$sfacts" | sed -n "s/^$1$TAB//p"; }
 
 # WHICH REPOSITORY. "Ours" is the git COMMON dir, so the main checkout and every worktree of it are
 # one repository: a subagent's absolute paths point into its worktree while this hook may run from
@@ -527,9 +533,11 @@ find_repo() {
 # each resolved against every base before it, so `cd packages && cd db` composes.
 # A UNION, not a simulation of which cd is in force where: `(cd /tmp) && sed -i … src/x.ts` must
 # not resolve against /tmp alone, and a union can only over-block.
+#
+# set_bases CDS DIR...: sets $bases. Fails as soon as they pass 32, before n cds can make 2^n.
 set_bases() {
+  cds=$1; shift
   bases=$(printf '%s\n' "$@" | grep -v '^$' | sort -u)
-  cds=$(facts CD)
   [ -n "$cds" ] || return 0
   while IFS= read -r t; do
     case "$t" in "~") t=$HOME ;; "~/"*) t=$HOME/${t#"~/"} ;; esac
@@ -538,6 +546,7 @@ set_bases() {
       *) new=$(printf '%s\n' "$bases" | while IFS= read -r b; do printf '%s/%s\n' "$b" "$t"; done) ;;
     esac
     bases=$(printf '%s\n%s\n' "$bases" "$new" | grep -v '^$' | sort -u)
+    [ "$(printf '%s\n' "$bases" | wc -l | tr -d ' ')" -le 32 ] || return 1
   done <<EOF
 $cds
 EOF
@@ -587,7 +596,7 @@ read_scripts=""
 codetext=""
 if [ -n "$scripts" ]; then
   find_repo
-  set_bases "$pcwd" "$PWD"
+  set_bases "$(facts CD)" "$pcwd" "$PWD" || :
   tmpd=${TMPDIR:-/tmp}; tmpd=${tmpd%/}
   while IFS= read -r f; do
     [ -f "$f" ] && [ -r "$f" ] || continue
@@ -602,11 +611,18 @@ if [ -n "$scripts" ]; then
     git -C "$sd" check-ignore -q -- "${f##*/}" 2>/dev/null && continue
     [ "$(wc -c < "$f" | tr -d ' ')" -le 65536 ] || continue
     body=$(strip_heredocs < "$f" | strip_triple)
-    printf '%s' "$body" | grep -Eq "$inplace_re" && inplace=yes
+    binp=no
+    printf '%s' "$body" | grep -Eq "$inplace_re" && { inplace=yes; binp=yes; }
     body=$(printf '%s\n' "$body" | strip_messages)
     cmd=$(printf '%s\n%s\n' "$cmd" "$body")
-    sfacts=$(printf '%s\n%s\n' "$sfacts" "$(printf '%s\n' "$body" | scan_awk | grep -E "^(INPLACE\$|(LIT|GLOB|CD)$TAB)")")
-    case "$body" in *".replace("*|*"re.sub("*) codetext=$(printf '%s\n%s\n' "$codetext" "$body") ;; esac
+    bfacts=$(printf '%s\n' "$body" | scan_awk | grep -E "^(INPLACE\$|(LIT|GLOB|CD)$TAB)")
+    sfacts=$(printf '%s\n%s\n' "$sfacts" "$bfacts")
+    # The paths it names decide for a `.replace(` script, and for an in-place editor the scan did
+    # not see as a command: one inside a string (`os.system("sed -i … f")`, `execSync(…)`).
+    case "$body" in *".replace("*|*"re.sub("*) binp=code ;; esac
+    if [ "$binp" = code ] || { [ "$binp" = yes ] && ! printf '%s\n' "$bfacts" | grep -qx INPLACE; }; then
+      codetext=$(printf '%s\n%s\n' "$codetext" "$body")
+    fi
     read_scripts="$read_scripts $(show "$f")"
   done <<EOF
 $(printf '%s\n' "$scripts" | absolutes | sort -u)
@@ -682,8 +698,18 @@ if printf '%s\n' "$scan" | grep -qx CDX && printf '%s\n' "$scan" | grep -qx INPL
 fi
 
 # The repo root is a base too: the original only base, kept so nothing narrows.
-set_bases "$pcwd" "$PWD" "$root"
-[ "$(printf '%s\n' "$bases" | wc -l | tr -d ' ')" -le 32 ] || block_opaque "too many cd targets to resolve"
+# The cap refuses only on the command's own cds. A script's cds widen the bases while they fit;
+# past the cap only the script's absolute targets are judged, since refusing for a script's cds
+# would refuse scripts that never touch tracked source (step 0).
+set_bases "$(own_facts CD)" "$pcwd" "$PWD" "$root" || block_opaque "too many cd targets to resolve"
+script_abs_only=no
+if [ -n "$(script_facts CD)" ]; then
+  own_bases=$bases
+  set_bases "$(facts CD)" "$pcwd" "$PWD" "$root" || { bases=$own_bases; script_abs_only=yes; }
+fi
+script_targets() {  # script_targets LIT|GLOB
+  if [ "$script_abs_only" = yes ]; then script_facts "$1" | grep -E '^(/|~)'; else script_facts "$1"; fi
+}
 
 # Docs and markdown are excluded on purpose: prose has no unique-anchor hazard worth a block, and
 # the first false positive was exactly a docs edit.
@@ -781,7 +807,7 @@ loose=$(printf '%s\n%s' "$own" "$codetext" \
   | tr -c 'A-Za-z0-9_./-' '\n' \
   | grep -E '\.[A-Za-z]+$' \
   | sed -e 's|^\./||')
-candidates=$(printf '%s\n%s\n' "$(facts LIT)" "$loose" | grep -v '^$' | sort -u)
+candidates=$(printf '%s\n%s\n%s\n' "$(own_facts LIT)" "$(script_targets LIT)" "$loose" | grep -v '^$' | sort -u)
 
 # `while read` over a heredoc, never `for x in $(…)`: an unquoted expansion would GLOB the glob
 # candidates in this hook's own directory, and split a path containing a space.
@@ -793,7 +819,7 @@ if [ -n "$candidates" ]; then
 $(printf '%s\n' "$candidates" | absolutes | grep -Ev '\.(md|mdx|txt|html)$' | sort -u | tracked_files)
 EOF
 fi
-globs=$(facts GLOB)
+globs=$(printf '%s\n%s\n' "$(own_facts GLOB)" "$(script_targets GLOB)" | grep -v '^$')
 if [ -n "$globs" ]; then
   gabs=$(printf '%s\n' "$globs" | absolutes | sort -u)
   while IFS= read -r g; do
