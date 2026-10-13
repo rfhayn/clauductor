@@ -85,7 +85,9 @@ trust recorded against the config's path and content hash, wherever that file li
 - **The page's Attach choice is its own row, PANEL-43** (D1), queued after PANEL-42. PANEL-42 ships the command.
 - **Decision 3's trust is stricter for a sidecar** (D5). A config outside its repository cannot be trusted while any
   command it names reaches outside the repository, and an earlier trust entry does not count. An in-repository config
-  keeps today's rules.
+  keeps today's rules. From 2026-10-13, by the owner's decision, a sidecar's commands are argv lists with no shell text
+  at all: no inline code (`sh -c`, `eval`, `xargs`), no glob, variable, redirection or whitespace in a word, and every
+  path inside the repository. Anything more belongs in a script in the repository.
 - **Decision 4's reason is superseded** (D9). The plugin's guard hooks already stand aside in a repository without
   `.claude/clauductor-plugin` (`plugin/hooks/if-project.sh`). The opt-out keeps the plugin's `/clauductor:*` skills
   and its SessionStart hook out of the repository.

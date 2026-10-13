@@ -39,7 +39,8 @@
 
 ## The shape of the change
 
-1. **`install.PlanInit` takes its target.** It gets a target path, plus whether a config already in
+1. **`install.PlanInit` takes its target.** For an attach it also writes its commands in argv form
+   (D5). It gets a target path, plus whether a config already in
    the repository should refuse the plan (for `panel init`) or add a note (for attach). The reading
    of the repository is unchanged, byte for byte. `panel init` and the page's **Create this config**
    pass `<root>/.clauductor/panel.json` as today.
@@ -58,9 +59,10 @@
    each project's config path. A config outside the repository is marked so, plus a line when the
    repository also has its own `.clauductor/panel.json`. The page's project menu row shows the
    same line (a field on `ProjectSummary`).
-5. **Commands stay in the repository** (D5). A pure function in the config package lists every
-   command word in a config that resolves outside a root. `CheckTrust` and `TrustedNow` refuse a
-   config outside its repository whose list is not empty, and the trust report marks each line.
+5. **A sidecar's commands are argv only, and stay in the repository** (D5). A pure function in the
+   config package lists every command word a sidecar may not hold: shell or interpreter code,
+   a non-literal word, or a path outside the root. `CheckTrust` and `TrustedNow` refuse a config
+   outside its repository whose list is not empty, and the trust report marks each line.
 6. **Serving writes nothing.** The panel's git reads of a served checkout pass
    `--no-optional-locks`.
 
@@ -75,7 +77,7 @@
 | The repository has its own `.clauductor/panel.json` | Attached anyway. The output says the panel will read the sidecar and not the repository's file (D7). |
 | The tmux socket the project would get is another project's | Refused, as `panel add` refuses it. The sidecar just written is removed. |
 | Registering fails after the sidecar is written | The sidecar is removed. A refused attach leaves no file and no entry. |
-| `panel trust` (or the page's **Trust config…**, `--trust-config` or `panel install`) on a sidecar that names a command outside the repository | Refused. Each offending line is printed (on the page, shown) with the word that resolves outside. Nothing is recorded (D5). |
+| `panel trust` (or the page's **Trust config…**, `--trust-config` or `panel install`) on a sidecar with a command D5 does not allow (shell or interpreter code, a non-literal word, or a path outside the repository) | Refused. Each offending line is printed (on the page, shown) with the word, why, and "move it into a script in the repository". Nothing is recorded (D5). |
 | A trust entry was recorded for such a sidecar earlier (by hand, or before this change) | It does not count: the project is served with its commands off, under the **Config untrusted** banner, whose report shows the marks (D5). |
 | `panel remove` (or the page's **Remove from panel…**) of an attached project | Unregisters it. `~/.clauductor/projects/<id>/` stays. `panel remove` says where it is and how to serve it again (D6). |
 
@@ -105,9 +107,10 @@
 
 **D2. Where the sidecar lives, and how it is made.**
 - **Recommended:** `~/.clauductor/projects/<id>/panel.json`, folder 0700, file 0600, created with
-  `O_EXCL`. Its bytes are `panel init`'s reading of the repository, unchanged, with only the target
-  moved. They are the same bytes `panel init` would write there, with init's notes printed. It is
-  the owner's file to edit (ST-7 will). Trust follows its hash as for any config.
+  `O_EXCL`. Its content is `panel init`'s reading of the repository, unchanged, with the target
+  moved and with each command written in argv form, without `sh -c` or `2>&1` (D5). Otherwise it
+  is what `panel init` would write, with init's notes printed. It is the owner's file to edit
+  (ST-7 will). Trust follows its hash as for any config.
 - **Alternatives:**
   - the panel's existing per-project folder, `~/.clauductor/panel/<hash of the root>/panel.json`;
   - a generator of its own for attach. For example, one that skips the operating model's cards,
@@ -143,39 +146,88 @@
   socket. A narrow rule keeps every working project as it is. Attaching here changes nothing until
   the owner runs it, and ST-7 waits for the owner's go.
 
-**D5. Commands that resolve outside the repository.**
+**D5. Commands that resolve outside the repository, and a sidecar's commands as argv only.**
 - **Recommended:** a config outside its repository (its resolved path is not under the root)
-  cannot be trusted while any command it names reaches outside the repository. The commands
+  cannot be trusted while any command it names holds shell or interpreter code, a word that is not
+  literal, or a path that reaches outside the repository. The commands
   checked are cards, queues, suggest, metrics, `worktree_setup` and `worktree_teardown`. A
   template's first prompt and the resume line are text typed into Claude, not commands, and are
   not checked. The report lists them as today.
-  - **What is checked:** every argv word. When a command is `sh`, `bash`, `zsh` or `dash` with
-    `-c`, each word of its script counts as well (split on whitespace and `;` `&&` `||` `|` `(`
-    `)`, quotes removed, a leading redirection such as `2>` or `>` dropped). For a word with `=`,
-    the part after it is checked too.
-  - **What is refused:**
-    - a word that starts with `~`;
-    - a word with `$` or a backtick, because where it resolves cannot be told before it runs;
-    - a word with a `/` that is absolute, or that lands outside the root once joined to it and
-      resolved through symlinks as far as it exists.
-  - **What is allowed:** a bare word (a program found on `PATH`, such as `sh`, `node`, `npm` or
-    `make`) and a path inside the repository.
-  - **One exception (the owner, 2026-10-13):** `/dev/null` as the target of a redirection (`>`,
-    `2>`, `>>`, `&>`, `<`) is not a project path and is allowed; any other absolute path,
-    including `/dev/null` as an ordinary argument, is still refused.
+  - **A sidecar's commands hold no shell text at all (the owner, 2026-10-13).** Each command is
+    an argv list the panel execs directly, with no shell, as it execs every command today
+    (`signals.ExecRunner`; the schema's `command` is already an argv list, so the schema does not
+    change). The check judges argv words, never a script, so there is nothing to parse. This
+    replaces the first rule, which split `sh -c` scripts into words: four review rounds each found
+    another shell form that slipped through, and every such form is code the panel cannot read
+    before it runs. Anything more than a program and literal words belongs in a script file in the
+    repository, and every refusal says so: "move it into a script in the repository".
+  - **No word is code.** These are refused, wherever the program appears in the argv (after a
+    launcher such as `env`, `nice`, `nohup`, `time` or `timeout` too):
+    - a shell or interpreter given inline code: `sh`, `bash`, `zsh`, `dash`, `ksh` or `fish` with
+      `-c`; `python*` with `-c`; `node` (or `deno`, `bun`) with `-e`, `-p` or `--eval`; `perl`
+      with `-e` or `-E`; `ruby` with `-e`; `php` with `-r`; `osascript` with `-e`; `awk` and its
+      kin, and `sed`, with a program in an argument rather than `-f <file>`. Their argument is a
+      program, not a path.
+    - `python*` with `-m`: it names a module, not a path, and the module is found on Python's path,
+      which is mostly outside the repository (`pip`, `http.server`). A module of the repository's
+      own is run by its file instead.
+    - `eval`, `source` and `.`: they run text as shell code.
+    - `env -S` (or `--split-string`): it splits one word into a command line.
+    - `xargs`, and `find` with `-exec`, `-execdir`, `-ok` or `-okdir`: they build commands from
+      data the check never sees.
+    - `npx`, `bunx`, `pnpm dlx`, `yarn dlx`, `uvx` and `pipx run`: they fetch and run a package
+      that is not in the repository.
+    - an interpreter with no script file: a shell, `python*`, `node`, `deno`, `bun`, `perl`,
+      `ruby` or `php` is allowed only when its first operand (its first word that is not a flag)
+      is a script file inside the repository, so it runs the repository's own code.
+  - **Every word is literal.** With no shell, these characters reach the program as they are, so
+    a word holding one is a mistake or a trick, and it is refused: `*` `?` `[` `]` `{` `}` `~` `$`
+    a backtick, `(` `)` `<` `>` `|` `&` `;`, and a newline. A word holding a space or a tab is
+    refused too. An argument with whitespace is almost always a command line or a program for
+    another program to run (an `awk` program, a `git` alias, a command for `ssh`). Here-strings
+    and redirections cannot exist without a shell, so they are refused by these characters.
+  - **Every path stays in the repository.** A word that is or holds a path must resolve inside
+    the root once joined to it and resolved through symlinks as far as it exists. That covers:
+    - a word that is absolute, holds a `/`, or is `..` or has a `..` segment (`git -C ..`);
+    - the value of a `NAME=value` word, and each of its `:` entries (`env PATH=x:.. gate`);
+    - the value of a flag that takes a directory or a file, whether attached or separate: `-C`,
+      `--directory`, `--prefix`, `--cwd`, `--git-dir`, `--work-tree`, `-f`, `--file` and
+      `--makefile` (`-C..`, `--prefix=..`, `-C ..`);
+    - an interpreter's script file.
+    A bare word with no `/` is a program found on `PATH` (`make`, `npm`, `git`) or a literal
+    argument (`gate`, `--text`, `main..HEAD`), and is allowed.
+  - **Output.** With no `2>&1`, a sidecar's card shows its stderr with its stdout: the panel merges
+    them itself, so the generated commands need no shell. A queue already logs both. Metrics and
+    suggest commands keep stdout alone, because the panel parses it, and their stderr is shown on
+    failure as today.
+  - **The `/dev/null` exception is superseded.** The owner allowed `/dev/null` as a redirection's
+    target on 2026-10-13. With no shell there is no redirection, so the exception has nothing left
+    to cover and is gone.
+  - **`panel init` for an attached repository writes argv-form commands.** They have no `sh -c`
+    and no `2>&1`: `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh",
+    "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]` and
+    `["npm", "run", "gate"]`. `panel init` into the repository writes exactly what it writes today.
   - **How it shows:** the trust report (`panel trust`, the page's **Trust config…**, the
-    **Config untrusted** banner) marks each line: `OUTSIDE THE REPOSITORY (<word>): card x runs
-    …`. Every way of trusting refuses with those lines, and nothing is recorded.
+    **Config untrusted** banner) marks each line with the word and the reason, ending in the
+    remedy: `NOT ALLOWED IN A SIDECAR (<word>: <why>; move it into a script in the repository):
+    card x runs …`. Every way of trusting refuses with those lines, and nothing is recorded.
   - **Where it is enforced:** in `CheckTrust` and `TrustedNow`, the two places every trust
     decision passes. A trust entry recorded earlier therefore does not turn the commands on.
   - **What it does not do:** it is not a sandbox. A script inside the repository can still run
     anything. The check holds the config to the repository's own scripts (PRD-attach decision 3:
     "its commands still run in the repository's root, against the repository's own scripts").
-  - **In-repository configs:** unchanged.
+    What the repository's own content does is not judged: a script file, a Makefile target, a
+    `package.json` script. Nor is the environment the panel inherits: `PATH`, `CDPATH`,
+    `OLDPWD`.
+  - **In-repository configs:** unchanged. Their commands may still use `sh -c`, and `panel init`
+    into a repository still writes them that way.
 - **Alternatives:**
   - mark the lines in the report but let the owner trust them anyway;
   - apply the rule to every config, in-repository ones included;
-  - refuse only absolute paths, and let `~`, `$` and `..` through.
+  - refuse only absolute paths, and let `~`, `$` and `..` through;
+  - keep shell scripts in sidecars and parse them (the first rule, before 2026-10-13). Each review
+    round found another form it missed: nested quoting, `eval`, extglob, backslash-newline,
+    `export PATH=…`, brace expansion and globs.
 - **Why:**
   - **Not marks alone:** a sidecar is a file nobody reviewed in the repository, on a machine with
     the owner's other projects. The only commands the premise allows are the repository's own.
@@ -184,7 +236,11 @@
     its rules is a change to every installed project. That is out of this row's scope.
   - **Not absolute paths alone:** `~/bin/x`, `$HOME/bin/x` and `../other-repo/x` reach out just as
     far.
-  - **The cost:** a sidecar cannot run a personal script from `~/bin`. Its logic belongs in the
+  - **Not a parser:** a shell's grammar is too large to judge word by word, and every miss runs
+    code nobody reviewed. An argv list with literal words has nothing to miss: what is checked is
+    exactly what runs.
+  - **The cost:** a sidecar cannot run a personal script from `~/bin`, a one-line pipeline, or a
+    command that needs a glob or a variable. Its logic belongs in a script file in the
     repository, or in an in-repository config.
 
 **D6. `panel remove` and the sidecar.**

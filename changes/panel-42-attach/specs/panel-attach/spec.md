@@ -4,7 +4,7 @@ The panel serves a repository that does not install Clauductor. It keeps that re
 ## ADDED Requirements
 
 ### Requirement: Attach serves a repository from a config outside it
-WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL write the panel config `panel init` would write for it to `~/.clauductor/projects/<id>/panel.json`, register the repository with that file as its config, and leave its commands off until the owner trusts it; it SHALL NOT overwrite an existing file.
+WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL write the panel config `panel init` would write for it, with its commands in argv form, to `~/.clauductor/projects/<id>/panel.json`, register the repository with that file as its config, and leave its commands off until the owner trusts it; it SHALL NOT overwrite an existing file.
 
 #### Scenario: [ATTACH-1-S1] Attach writes the sidecar and registers the repository
 - **GIVEN** a git repository with no `.clauductor/panel.json` that is not registered
@@ -15,8 +15,8 @@ WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL w
 #### Scenario: [ATTACH-1-S2] The sidecar is panel init's reading of the repository
 - **GIVEN** a git repository with the operating model's queue scripts, and another without them
 - **WHEN** each is attached
-- **THEN** each sidecar's bytes equal what `panel init` plans for that repository
-- **AND** the output prints init's notes for each choice
+- **THEN** each sidecar equals what `panel init` plans for that repository, except that every command is an argv list with no `sh -c` and no `2>&1` (the operating model's cards run `["sh", ".claude/owner-queue.sh"]` and `["sh", ".claude/roadmap-queue.sh", "--text"]`)
+- **AND** the output prints init's notes for each choice, and the sidecar passes the sidecar command rule with no line marked
 
 #### Scenario: [ATTACH-1-S3] An existing sidecar is never overwritten
 - **GIVEN** `~/.clauductor/projects/<id>/panel.json` exists for the id the repository would get
@@ -56,58 +56,58 @@ THE SYSTEM SHALL leave every file under an attached repository's root, its `.git
 - **WHEN** the panel polls the git state of the checkout its cards run in, its dirty-tree diff stat included
 - **THEN** every file and directory under the root, `.git/index` included, is as it was before the poll
 
-### Requirement: A config outside its repository runs only the repository's commands
-WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT trust it, by any way of trusting or by a trust entry recorded earlier, while any card, queue, suggest, metrics or worktree-hook command in it names a path outside the repository or a word whose location cannot be known before it runs; the trust report SHALL mark each such command.
+### Requirement: A config outside its repository runs only the repository's commands, as argv with no shell text
+WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT trust it, by any way of trusting or by a trust entry recorded earlier, while any card, queue, suggest, metrics or worktree-hook command in it holds shell or interpreter code, a word that is not literal, or a path outside the repository; the trust report SHALL mark each such command with the word, why, and "move it into a script in the repository".
 
 #### Scenario: [ATTACH-3-S1] Trust is refused for a command outside the repository
-- **GIVEN** an attached project whose sidecar has a card running `/usr/local/bin/report`, and a queue running `sh -c "sh ../other/gate.sh"`
+- **GIVEN** an attached project whose sidecar has a card running `/usr/local/bin/report`, and a queue running `sh ../other/gate.sh`
 - **WHEN** the owner runs `clauductor panel trust --project <repo>`
-- **THEN** trust is refused, and each of the two lines is printed marked as outside the repository, with the word that resolves outside
+- **THEN** trust is refused, and each of the two lines is printed marked as not allowed in a sidecar, with the word that resolves outside and "move it into a script in the repository"
 - **AND** nothing is recorded in the project's `trusted-config.json`
 
 #### Scenario: [ATTACH-3-S2] A trust entry recorded earlier does not run them
 - **GIVEN** an attached project whose sidecar names a command starting with `~/bin/`, and whose exact bytes are recorded as trusted in `trusted-config.json`
 - **WHEN** the panel loads it
 - **THEN** its cards, queue commands and templates are off, under the Config untrusted banner
-- **AND** the banner's trust report marks the command as outside the repository
+- **AND** the banner's trust report marks the command as not allowed in a sidecar
 
-#### Scenario: [ATTACH-3-S3] The repository's own commands are trusted as before
-- **GIVEN** an attached project whose sidecar runs `sh -c "sh .claude/owner-queue.sh 2>&1"`, `npm run gate`, `node infra/roadmap-queue.mjs --text` and `scripts/ci/run-local.sh`
+#### Scenario: [ATTACH-3-S3] The repository's own argv commands are trusted
+- **GIVEN** an attached project whose sidecar runs each argv command `panel init` writes for an attached repository, `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh", "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]` and `["npm", "run", "gate"]`, and also `["sh", ".claude/x.sh", "arg"]`, `["node", "infra/roadmap-queue.mjs", "--text"]`, `["git", "log", "--format=%h"]`, `["git", "log", "main..HEAD"]` and `["make", "-C", "sub", "gate"]` with `sub` inside the repository
 - **WHEN** the owner trusts it
 - **THEN** it is trusted and recorded, and no line is marked
 
 #### Scenario: [ATTACH-3-S4] An in-repository config keeps today's rules
-- **GIVEN** a project whose config is its own `.clauductor/panel.json` and runs `/usr/local/bin/report`
+- **GIVEN** a project whose config is its own `.clauductor/panel.json`, and runs `/usr/local/bin/report` and `sh -c "sh .claude/owner-queue.sh 2>&1"`
 - **WHEN** the owner trusts it
 - **THEN** it is trusted and recorded, as before this change
 
 #### Scenario: [ATTACH-3-S5] A symlink out of the repository is outside it
 - **GIVEN** an attached project whose sidecar runs `scripts/link.sh`, a symlink inside the repository to a script outside it
 - **WHEN** the owner trusts it
-- **THEN** trust is refused, and the line is marked as outside the repository
+- **THEN** trust is refused, and the line is marked as not allowed in a sidecar
 
 #### Scenario: [ATTACH-3-S6] The page refuses the same trust
 - **GIVEN** the attached project of ATTACH-3-S1, served untrusted
 - **WHEN** the page's Trust config… asks for its report and then trusts it with the report's hash
-- **THEN** the report's lines for the two commands are marked as outside the repository
+- **THEN** the report's lines for the two commands are marked as not allowed in a sidecar
 - **AND** the trust is refused and nothing is recorded
 
-#### Scenario: [ATTACH-3-S7] A bare `..`, and a script behind any shell's flags, are outside it
-- **GIVEN** an attached project whose sidecar has a queue running `make -C .. gate`, a card running `bash -lc "sh ../other/gate.sh"`, and a card running `sh -c "cd ..>/dev/null; sh other/gate.sh"`
-- **WHEN** the owner trusts it
-- **THEN** trust is refused, and all three lines are marked as outside the repository: `..` is a path that leaves the root, every argv word holding whitespace or a shell operator is split and checked as a script, whatever program and flags come before it, and a redirection operator attached to a word does not hide it
-
-#### Scenario: [ATTACH-3-S8] `/dev/null` is allowed only as a redirection's target
-- **GIVEN** attached projects whose sidecars each have one card, running `sh -c "sh .claude/owner-queue.sh 2>/dev/null"`, `sh -c "sh .claude/owner-queue.sh >/dev/null"`, `cat /dev/null`, and `sh -c "sh .claude/owner-queue.sh 2>/tmp/x"`
+#### Scenario: [ATTACH-3-S7] Shell and interpreter code is refused
+- **GIVEN** attached projects whose sidecars each have one card, running `["sh", "-c", "sh .claude/x.sh"]`, `["bash", "-lc", "make gate"]`, `["env", "sh", "-c", "make"]`, `["eval", "make"]`, `["xargs", "make"]`, `["find", ".", "-exec", "make", ";"]`, `["python3", "-c", "print(1)"]`, `["python3", "-m", "http.server"]`, `["node", "-e", "1"]`, `["env", "-S", "make gate"]`, `["npx", "tool"]`, and `["sh"]` with no script file
 - **WHEN** the owner trusts each
-- **THEN** the two that redirect to `/dev/null` are trusted and recorded, with no line marked
-- **AND** `cat /dev/null` (an ordinary argument) and `2>/tmp/x` are refused, each line marked as outside the repository with the word `/dev/null` or `/tmp/x`
+- **THEN** each is refused, its line marked as not allowed in a sidecar with the word, why, and "move it into a script in the repository"
 
-#### Scenario: [ATTACH-3-S9] A word a shell would expand is refused, whatever the expansion
-- **GIVEN** attached projects whose sidecars each have one card, running `sh -c "sh .?/other/gate.sh"`, `bash -c "sh .{.,}/other/gate.sh"`, `bash -c "{/,}usr/local/bin/report"`, `sh -c "PATH=.:~/bin x"` and `sh -c "sh .[.]/x"`
+#### Scenario: [ATTACH-3-S8] A word that is not literal is refused, and so is a redirection
+- **GIVEN** attached projects whose sidecars each have one card, running `["ls", "$HOME"]`, `["ls", "*.go"]`, `["ls", "~"]`, `["git", "log", "--format=%h %s"]`, `["sh", ".claude/x.sh", "2>/dev/null"]` and `["sh", ".claude/x.sh", ">", "out.txt"]`
 - **WHEN** the owner trusts each
-- **THEN** each is refused and its line marked as outside the repository: a word holding an unquoted `*`, `?`, `[`, `{`, `}`, `~`, `$` or backtick, or a `:` entry of a leading assignment's value holding one, is a word whose location cannot be known before it runs
-- **AND** every command `panel init` writes is trusted, with no line marked
+- **THEN** each is refused, its line marked as not allowed in a sidecar: with no shell, `$`, `*`, `~`, whitespace and a redirection would reach the program as they are
+- **AND** no `/dev/null` exception applies: the owner's exception of 2026-10-13 for a redirection to `/dev/null` is superseded, because a sidecar has no redirections
+
+#### Scenario: [ATTACH-3-S9] A path reached through `..`, a flag or an assignment stays inside
+- **GIVEN** attached projects whose sidecars each have one card, running `["make", "-C", "..", "gate"]`, `["make", "-C..", "gate"]`, `["npm", "--prefix=..", "run", "gate"]`, `["git", "--git-dir=/tmp/x", "log"]`, `["env", "PATH=x:..", "gate"]` and `["cat", "docs/../../x"]`
+- **WHEN** the owner trusts each
+- **THEN** each is refused, its line marked as not allowed in a sidecar with the word that resolves outside the repository
+- **AND** `["git", "log", "main..HEAD"]` and `["make", "-C", "sub", "gate"]` are trusted (ATTACH-3-S3)
 
 ### Requirement: The registry's config is the one every command reads
 THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.
@@ -148,3 +148,12 @@ WHEN an attached project is removed THE SYSTEM SHALL keep its `~/.clauductor/pro
 - **WHEN** the page's Remove from panel… opens its confirmation for each
 - **THEN** the attached project's confirmation names its sidecar, says it stays, and gives `clauductor panel add --project <repo> --config <file>` as the way to serve it again, and does not say that adding it again from the page brings it back
 - **AND** the other project's confirmation reads as it does today
+
+### Requirement: A sidecar's card shows its stderr without a shell
+WHERE a project's config resolves outside its repository THE SYSTEM SHALL show each card's stderr together with its stdout, so the card needs no `2>&1`; a metrics or suggest command's stdout SHALL stay alone, because the panel parses it.
+
+#### Scenario: [ATTACH-6-S1] A card's stderr shows in a sidecar, and not in an in-repository config
+- **GIVEN** an attached project, and a project with its own config, each with a card running a repository script that writes one line to stdout and one to stderr and exits 0
+- **WHEN** the panel runs each card
+- **THEN** the attached project's card shows both lines
+- **AND** the other project's card shows the stdout line alone, as today

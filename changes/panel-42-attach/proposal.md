@@ -52,11 +52,15 @@ approval and wait.
 - **Nothing is overwritten.** A sidecar already at that path is refused (D3). A registered project
   whose config does not load and whose registry `config` is empty, Standing Tee's state today, is
   attached in place: its id, socket and lane registry are kept (D4).
-- **A config outside its repository runs only the repository's commands.** The trust report marks
-  any card, queue, suggest, metrics or worktree-hook command that names a path outside the
-  repository (or one whose location cannot be told before it runs). No way of trusting will record
-  such a config, and the panel ignores a trust entry recorded for one earlier. A config inside the
-  repository keeps today's rules (D5).
+- **A config outside its repository runs only the repository's commands, as argv with no shell
+  text.** Each command is a program and literal words, which the panel execs directly (D5):
+  - no `sh -c`, `eval`, `xargs` or other inline code;
+  - no glob, variable, redirection or whitespace in a word;
+  - every path stays inside the repository.
+  The trust report marks any command that breaks this, with "move it into a script in the
+  repository". No way of trusting will record such a config, and the panel ignores a trust entry
+  recorded for one earlier. Attach writes its commands in that form, and a sidecar's card shows its
+  stderr without `2>&1`. A config inside the repository keeps today's rules.
 - **One config per project, read from the registry.** `panel trust`, a bare `panel`, `panel list`
   and the page all read the config the registry names. `panel list` and the project menu say when
   a project reads a config outside its repository, and when the repository's own
