@@ -3,7 +3,7 @@ name: apply-change
 model: opus
 effort: high
 description: "Build an approved change by hand, task group by task group, with the builder and reviewer agents: the same loop as the build-change workflow, for when the Workflow tool is not available or one group needs doing alone. TRIGGER when the user says 'apply the change', 'build group N', 'implement <change> by hand', or build-change is unavailable."
-argument-hint: <change-id> [group number]
+argument-hint: <change-id> [group number] [reportTo <session>]
 ---
 
 # Apply a change, group by group
@@ -11,6 +11,19 @@ argument-hint: <change-id> [group number]
 The paved road is the `build-change` workflow (`.claude/workflows/build-change.js`), which runs
 this loop for you and stops cleanly. Use this skill when the Workflow tool is not available, or to
 do one group alone. The loop is the same, and so are its stops.
+
+## Who hears each result
+- **Spawn every agent in the FOREGROUND**: pass `run_in_background: false` on each builder and
+  reviewer spawn, so its result is the spawn's tool result and you read it before your next step.
+  A background agent's result goes to whoever is listening when it ends. If you are a subagent,
+  your turn has ended by then, so the result reaches the top session and you wait in silence
+  (OPS-25). If a spawn comes back without its result (moved to the background), spawn it again in
+  the foreground; never end your turn to wait for a notification.
+- **Report to the session that asked.** When the request names one (`reportTo <session>`, the
+  name `SendMessage` addresses it by), send it every outcome with `SendMessage`: at a stop, its one
+  line, in place of the owner's `PushNotification` (the session that asked notifies the owner).
+  Run `merge-pr` with the same `reportTo`: it sends the merged outcome, or its own stop. With
+  none, notify the owner yourself at each stop.
 
 ## Preconditions
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh .claude/project-config.sh prefixes`
@@ -28,7 +41,7 @@ do one group alone. The loop is the same, and so are its stops.
 1. **Build.** Spawn the `builder` agent: "Implement task group N (<title>) of change <id>
    (changes/<id>/). Only group N. Record in tasks.md's Decision log each decision design.md does
    not settle. Leave the work uncommitted." A `design-issue` or `blocked` reply
-   is a STOP: notify the owner (`PushNotification`, one line) and stop.
+   is a STOP: one line to `reportTo`, or with none to the owner (`PushNotification`), and stop.
 2. **Register new and deleted files**, so the gate and the reviewer see them: for each path from
    `git ls-files --others --exclude-standard`, `git add -N -- <path>` (intent-to-add); for each
    from `git ls-files --deleted`, `git rm -q --cached -- <path>`.
@@ -57,7 +70,8 @@ do one group alone. The loop is the same, and so are its stops.
   2: no result, run the gate again).
 - `/verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
-  `merge-pr`, recording `Review: converged in <n> round(s), peak <sev>, at <sha>` per group.
+  `merge-pr` (passing on any `reportTo`), recording `Review: converged in <n> round(s), peak
+  <sev>, at <sha>` per group.
 
 ## Project steps
 

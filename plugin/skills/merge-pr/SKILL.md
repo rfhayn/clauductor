@@ -3,7 +3,7 @@ name: merge-pr
 model: opus
 effort: medium
 description: "Merge a PR to main the safe way, without waiting for the owner: gate evidence for the head commit, review converged, then squash-merge and prune; notify only if it stops. The paved road that keeps you off pr-merge-guard's blocks. TRIGGER when the user says 'merge this', 'merge the PR', 'land it', 'squash and merge', 'ready to merge', or asks to merge a pull request."
-argument-hint: (optional) PR number; defaults to the current branch's PR
+argument-hint: (optional) PR number, defaults to the current branch's PR; reportTo <session> to send it the outcome
 ---
 
 # Merge a PR: the paved road
@@ -31,6 +31,11 @@ ever worked around: no `--admin`, no `--auto`, no merge clicked on the website.
   block is not mechanically fixable (a stale receipt or a missing slice line IS mechanical: fix it
   and go on), when review does not converge, or when the gate stays red. If `PushNotification` is
   not in your tool list, say so in the session; do not improvise another channel.
+- **When a session asked for the outcome** (`reportTo <session>` in the request, as `apply-change`
+  and `build-change` pass it on), every outcome goes to it by `SendMessage` instead: the stop line
+  above, or, once merged, a short summary (PR number, squash commit, the review line, anything left
+  open and the change or issue that owns it). The session that asked notifies the owner, so a push
+  from here as well would arrive twice.
 
 ## Context: the state, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/merge-pr/context.sh`
@@ -91,6 +96,10 @@ Converged means **the last review round found nothing medium or worse.** By how 
   clean. Stop and notify if peak severity rises between rounds, or after 3 rounds.
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
+
+Spawn a reviewer in the FOREGROUND (`run_in_background: false`): its findings are the spawn's tool
+result. In the background they go to whoever is listening when it ends, which is not you if you
+are a subagent whose turn has ended: the top session gets them and you wait in silence (OPS-25).
 
 Write the result into the PR body as one line: `Review: converged in <n> round(s), peak <sev>, at
 <short sha>`. Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
