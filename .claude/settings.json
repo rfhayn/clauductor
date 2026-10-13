@@ -48,6 +48,10 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-blind-source-rewrite.sh"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-background-gate.sh"
           }
         ]
       },

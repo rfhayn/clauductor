@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# The run's state, for gate-wait.sh (OPS-41): written HERE, before the gate queues for the lease, so a
+# gate waiting for it reads as running. The re-run under the lease finds it written and skips it.
+if [ -f "$(dirname "$0")/lib/gate-state.sh" ]; then
+  . "$(dirname "$0")/lib/gate-state.sh"
+  gate_state_start "$0" "$@"
+fi
 # Serialise the full gate across every worktree of this repo.
 lock=""
 if common=$(git rev-parse --git-common-dir 2>/dev/null); then
@@ -26,7 +32,8 @@ elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   fi
   echo "gate: neither clauductor nor lease.sh found; running without the gate queue" >&2
 fi
-# ── Above: the clauductor docs/panel.md "In a project's gate script" snippet, verbatim. ─────
+# ── Above: the clauductor docs/panel.md "In a project's gate script" snippet, verbatim, but for the
+#    run-state lines at its top (OPS-41). ─────
 #
 # run-local.sh: THE full gate (GATE_RUN in .claude/project.conf). Runs every step in GATE_STEPS
 # and, only after a COMPLETE run of a CLEAN tree, writes the receipt pr-merge-guard reads:
@@ -60,10 +67,34 @@ fi
 #   secrets         gitleaks over the tracked files and the branch's commits. Without gitleaks the
 #                   step says SKIPPED and why; with CI set (CI=true, as every hosted CI sets it) a
 #                   missing gitleaks FAILS, so a remote gate cannot pass without the scan.
+#
+# EVERY RUN IS RECORDED (lib/gate-state.sh, OPS-41), however it ends, a signal included (SIGKILL
+# aside): the worktree's state file (<git-dir>/ci-gate.state: started, then exit), which
+# gate-wait.sh reads to say PASS, FAIL or still running; and one line in the repository's run log
+# (<git common dir>/clauductor/gate-runs.log: when, lane, branch, sha, mode, result, exit code, run
+# and queue seconds).
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
+RUN_STARTED=$(date +%s)
+cleanup() { :; }
+# A signal ends bash with the EXIT trap seeing $? = 0: a run that exits 0 without reaching its
+# verdict was interrupted, and is recorded as `signal`, never as a pass. (A TERM trap would get the
+# code right, but bash runs it only once the running step ends, which turns a cancel into a wait.)
+gate_end() {
+  rc=$?
+  trap - EXIT
+  cleanup
+  [ "$rc" -eq 0 ] && [ -z "${VERDICT:-}" ] && rc=signal
+  if command -v gate_state_end >/dev/null 2>&1; then
+    gate_state_end "$rc" "${MODE:-full}" "${TESTED_SHA:-$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)}" \
+      "$RUN_STARTED" "${lane:-$(basename "$ROOT")}" || true
+  fi
+  [ "$rc" = signal ] && exit 143
+  exit "$rc"
+}
+trap gate_end EXIT
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 
@@ -72,7 +103,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dirty) DIRTY=1 ;;
     --quick) MODE=quick ;;
-    -h|--help) sed -n '/^# run-local.sh:/,/^# spoke/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) trap - EXIT; sed -n '/^# run-local.sh:/,/^# spoke/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run-local: unknown flag $1 (see --help)" >&2; exit 64 ;;
   esac
   shift
@@ -104,11 +135,9 @@ gate_model_steps() {
 }
 
 workdir=$ROOT
-cleanup() { :; }
 if [ "${GATE_CLEAN_ROOM:-none}" = archive ] && [ "$DIRTY" -eq 0 ]; then
   workdir=$(mktemp -d "${TMPDIR:-/tmp}/gate.XXXXXX")
-  cleanup() { rm -rf "$workdir"; }
-  trap cleanup EXIT
+  cleanup() { rm -rf "$workdir"; }   # run by gate_end, the EXIT trap
   git archive "$TESTED_SHA" | tar -x -C "$workdir"
   echo "==> clean room: $(printf %.9s "$TESTED_SHA") from git archive, in $workdir"
 fi
@@ -166,4 +195,5 @@ else
   # changes, HEAD moved) did not run the commit, so it posts nothing either way.
   if [ "$MODE" = full ] && [ "$tested_commit" -eq 1 ]; then model_publish_status fail "$TESTED_SHA"; fi
 fi
+VERDICT=1
 exit "$code"
