@@ -45,15 +45,18 @@ in_json() {  # in_json RATE_LIMITS_JSON (or "" for none)
 # ── 1. A refresh with rate_limits writes the file ───────────────────────────────────────────────
 H="$d/home1"; mkdir -p "$H"; F="$H/.clauductor/quota-reading.json"
 rl=$(jq -cn --argjson f "$future" --argjson l "$later" \
-  '{five_hour:{used_percentage:12.5, resets_at:$f}, seven_day:{used_percentage:40, resets_at:$l}, broken:"yes", no_pct:{resets_at:1}}')
+  '{five_hour:{used_percentage:12.5, resets_at:$f}, seven_day:{used_percentage:40, resets_at:$l}, nimbus:{used_percentage:3, resets_at:null},
+    broken:"yes", no_pct:{resets_at:1}, "five-hour":{used_percentage:1}, ("k" * 65):{used_percentage:1},
+    frac:{used_percentage:1, resets_at:1.5}, str:{used_percentage:1, resets_at:"soon"}}')
 res=$(status "$H" "$(in_json "$rl")")
 [ "$(echo "$res" | head -1)" = "0 0" ] && ok "the status line exits 0, nothing on stderr" || fail "status line: $(echo "$res" | head -1)"
 case "$(echo "$res" | sed -n 2p)" in *"30% ctx"*) ok "...and prints its line" ;; *) fail "no line: $res" ;; esac
 if settle "$F"; then ok "a refresh with rate_limits writes ~/.clauductor/quota-reading.json"
 else fail "no quota reading written at $F"; fi
 got=$(jq -c '[.windows[] | [.key, .pct, .resetsAt]]' "$F" 2>/dev/null)
-want=$(jq -cn --argjson f "$future" --argjson l "$later" '[["five_hour",12.5,$f],["seven_day",40,$l]]')
-[ "$got" = "$want" ] && ok "...windows[].{key,pct,resetsAt} as the panel keeps them, malformed windows dropped" || fail "windows: $got (want $want)"
+want=$(jq -cn --argjson f "$future" --argjson l "$later" '[["five_hour",12.5,$f],["nimbus",3,null],["seven_day",40,$l]]')
+[ "$got" = "$want" ] && ok "...windows[].{key,pct,resetsAt} as the panel keeps them; bad keys, no pct, a non-integer reset dropped" || fail "windows: $got (want $want)"
+jq -e '.windows[] | select(.key == "nimbus") | has("resetsAt") | not' "$F" >/dev/null 2>&1 && ok "...a null resets_at is left out, not saved as null" || fail "nimbus: $(jq -c '.windows' "$F" 2>/dev/null)"
 at=$(jq -r '.at' "$F" 2>/dev/null)
 [ "$at" -ge $((now * 1000)) ] 2>/dev/null && [ "$at" -le $(( ($(date +%s) + 1) * 1000)) ] && ok "...and when it was read (at, unix ms)" || fail "at: $at"
 extra=$(jq -r '[keys[] | select(. != "windows" and . != "at")] | join(",")' "$F")
@@ -74,18 +77,39 @@ mode=$(ls -l "$F" | cut -c1-10)
 [ "$mode" = "-rw-------" ] && ok "a replaced file is 0600 again" || fail "the replaced file's mode is $mode"
 [ -z "$(find "$H/.clauductor" -name '.quota-reading.*')" ] && ok "no temp file is left behind" || fail "a temp file was left: $(ls -a "$H/.clauductor")"
 got=$(jq -c '[.windows[] | [.key, .pct]]' "$F")
-[ "$got" = '[["five_hour",20],["seven_day",40]]' ] && ok "a window the refresh left out is kept (the panel's per-window merge)" || fail "merge: $got"
+[ "$got" = '[["five_hour",20],["nimbus",3],["seven_day",40]]' ] && ok "a window the refresh left out is kept (the panel's per-window merge)" || fail "merge: $got"
 
 # ── 3. No rate_limits: the old file stays ───────────────────────────────────────────────────────
-# Its own seeded file, so the case cannot pass on a file that was never there.
+# Its own seeded file, so the case cannot pass on a file that was never there; quota_save itself,
+# in the foreground (the status line's only call), so no late write can slip past a fixed wait.
+# shellcheck disable=SC1091
+. "$ROOT/.claude/lib/quota.sh"
 H="$d/home-keep"; mkdir -p "$H/.clauductor"; F="$H/.clauductor/quota-reading.json"
 printf '{"windows":[{"key":"five_hour","pct":7,"resetsAt":%s}],"at":1}\n' "$future" > "$F"
 before=$(cat "$F"); ino=$(ls -i "$F" | awk '{print $1}')
 for r in "" '{}' '7' '{"five_hour":{"resets_at":1}}'; do
-  status "$H" "$(in_json "$r")" >/dev/null; sleep 0.5
+  HOME="$H" quota_save "$(in_json "$r")"
   [ "$(cat "$F")" = "$before" ] && [ "$(ls -i "$F" | awk '{print $1}')" = "$ino" ] \
     && ok "rate_limits ${r:-absent}: the old file is untouched" || fail "rate_limits ${r:-absent} changed the file: $(cat "$F")"
 done
+# A temp file a killed refresh left is cleared by a later save; a fresh one (a refresh under way) is not.
+touch "$H/.clauductor/.quota-reading.fresh"
+: > "$H/.clauductor/.quota-reading.stale"; touch -t 202001010000 "$H/.clauductor/.quota-reading.stale"
+HOME="$H" quota_save "$(in_json "$rl2")"
+[ ! -e "$H/.clauductor/.quota-reading.stale" ] && [ -e "$H/.clauductor/.quota-reading.fresh" ] \
+  && ok "a save clears a temp file older than 5 minutes, and leaves a fresh one" || fail "temp files: $(ls -a "$H/.clauductor")"
+rm -f "$H/.clauductor/.quota-reading.fresh"
+
+# ── 3b. The save never holds the line ───────────────────────────────────────────────────────────
+# A save that takes 5s (a mktemp that sleeps) must not delay the printed line: the status line
+# backgrounds it AND gives it no copy of the stdout Claude Code reads, or $(…) would wait for it.
+H="$d/home-slow"; mkdir -p "$H" "$d/slowbin"
+printf '#!/bin/sh\nsleep 5\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"
+t0=$(date +%s)
+line=$(printf '%s' "$(in_json "$rl")" | HOME="$H" PATH="$d/slowbin:$PATH" sh "$sl" 2>/dev/null)
+t1=$(date +%s)
+case "$line" in *"30% ctx"*) [ $((t1 - t0)) -lt 3 ] && ok "a 5s save does not delay the line ($((t1 - t0))s)" || fail "the line waited $((t1 - t0))s for the save" ;;
+  *) fail "slow save: no line: $line" ;; esac
 
 # ── 4. A write that cannot happen still prints the line ─────────────────────────────────────────
 for c in file ro; do
@@ -126,6 +150,14 @@ v=$(HOME="$H3" quota_pct five_hour); rc=$?
 [ "$rc" = 1 ] && [ -z "$v" ] && ok "quota_pct five_hour: no reading, exit 1 (its reset has passed)" || fail "quota_pct five_hour: '$v' (exit $rc)"
 v=$(HOME="$H3" quota_pct nimbus); rc=$?
 [ "$rc" = 1 ] && [ -z "$v" ] && ok "quota_pct of a window never read: exit 1" || fail "quota_pct nimbus: '$v' (exit $rc)"
+v=$(HOME="$H3" QUOTA_NOW=$((future + 1)) quota_pct seven_day); rc=$?
+[ "$rc" = 1 ] && [ -z "$v" ] && ok "QUOTA_NOW past seven_day's reset: no reading (the reader's clock is injectable)" || fail "QUOTA_NOW: '$v' (exit $rc)"
+v=$(HOME="$H3" QUOTA_NOW=$((past - 1)) quota_pct five_hour); rc=$?
+[ "$rc" = 0 ] && [ "$v" = 91 ] && ok "QUOTA_NOW before five_hour's reset: 91 counts" || fail "QUOTA_NOW early: '$v' (exit $rc)"
+v=$(HOME="$H3" quota_at); rc=$?
+[ "$rc" = 0 ] && [ "$v" = "$((now * 1000))" ] && ok "quota_at: when the reading was saved (unix ms)" || fail "quota_at: '$v' (exit $rc)"
+v=$(HOME="$d/nohome" quota_at); rc=$?
+[ "$rc" = 1 ] && [ -z "$v" ] && ok "quota_at with no file: exit 1" || fail "quota_at no file: '$v' (exit $rc)"
 v=$(HOME="$d/nohome" quota_read); rc=$?
 [ "$rc" = 1 ] && [ -z "$v" ] && ok "no file: quota_read prints nothing, exit 1" || fail "no file: '$v' (exit $rc)"
 echo '{"windows":' > "$R"
