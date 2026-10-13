@@ -31,7 +31,8 @@ import pathlib
 p = pathlib.Path('src/lib/app.ts')
 p.write_text(p.read_text().replace('x', 'y'))
 PY
-git -C "$R" add src tools Makefile README.md && git -C "$R" commit -qm seed
+echo 'dist/' > "$R/.gitignore"
+git -C "$R" add src tools Makefile README.md .gitignore && git -C "$R" commit -qm seed
 echo 'scratch' > "$R/src/lib/scratch.ts"            # untracked, beside a tracked file
 git -C "$R" worktree add -q "$d/wt" 2>/dev/null     # a second worktree of the same repo
 T=src/lib/app.ts
@@ -102,7 +103,8 @@ const f = 'src/lib/app.ts';
 fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('x', 'y'));
 JS
 printf "sed -i '' s/x/y/ src/lib/app.ts\n" > "$R/sub.sh"
-printf '#!/usr/bin/perl -pi\ns/x/y/;\n' > "$R/x.pl"
+# -0pi, not -pi: the literal `perl -pi` floor would catch -pi with no file read at all.
+printf '#!/usr/bin/perl -0pi\ns/x/y/;\n' > "$R/x.pl"
 cat > "$R/preview.py" <<'PY'
 print(open('src/lib/app.ts').read().replace('x', 'y'))
 PY
@@ -120,9 +122,33 @@ nb 0 "a script file that only reads" "python3 preview.py"
 nb 0 "a script file rewriting an untracked file" "python3 scratch.py"
 nb 0 "a TRACKED script (reviewed code, not a throwaway)" "python3 tools/codemod.py"
 nb 0 "a script file that does not exist" "python3 missing.py"
-nb 0 "python3 -m given a script file as an argument" "python3 -m py_compile rewrite.py"
 nb 0 "grep reading a script file" "grep -n replace rewrite.py"
 nb 0 "a script file over the size bound (a program, not a throwaway)" "node big.js"
+# Other ways a shell or an interpreter is handed the file.
+nb 2 "a script sourced with ." ". ./sub.sh"
+nb 2 "a script sourced with source" "source sub.sh"
+nb 2 "a script on stdin by redirect" "python3 < rewrite.py"
+nb 2 "a script on stdin as -" "python3 - < rewrite.py"
+nb 2 "a script piped in by cat" "cat rewrite.py | python3"
+nb 2 "python3 -m running a module in the cwd" "python3 -m rewrite"
+# A check-only run executes nothing.
+nb 0 "bash -n" "bash -n sub.sh"
+nb 0 "sh -n" "sh -n sub.sh"
+nb 0 "node --check" "node --check fix.js"
+nb 0 "node -c" "node -c fix.js"
+nb 0 "perl -c" "perl -c x.pl $T"
+# Only a literal or glob target that resolves to a TRACKED file is judged in a script's text:
+# what the script cannot name (a variable, a cd to one) is not refused, unlike on the command line.
+printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"
+printf 'sed -i "" "s/^version=.*/version=$1/" "$VERSION_FILE"\n' > "$R/bump.sh"
+printf 'PROFILE="$HOME/.profile"\ncd "$HOME"\nsed -i "" /nvm/d "$PROFILE"\n' > "$d/install.sh"
+nb 0 "a scratch mutation script editing a copy" "sh $d/mut.sh"
+nb 0 "a script editing a file its argument names" "sh bump.sh 1.2"
+nb 0 "a script editing a file under a variable cd" "sh $d/install.sh"
+# Ignored build output is a program, not a throwaway script.
+mkdir -p "$R/dist"; cp "$R/fix.js" "$R/dist/cli.js"
+nb 0 "gitignored build output" "node dist/cli.js"
+nb 0 "gitignored build output through npm exec" "npm exec -- node dist/cli.js"
 rc=0; printf '' | sh "$H/no-blind-source-rewrite.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than breaking every Bash call"
 
