@@ -13,20 +13,21 @@ this loop for you and stops cleanly. Use this skill when the Workflow tool is no
 do one group alone. The loop is the same, and so are its stops.
 
 ## Who hears each result
-- **Wait for every agent you spawn.** A spawn may come back as launched in the background (fork
-  mode, the default, always does). Never spawn it again: a second builder would edit the same
-  uncommitted tree as the first.
-  Do not end your run or hand back while any agent you spawned has not reported; its result
-  arrives as a notification while you are still running. A launcher that ends first loses it:
-  Claude Code sends a nested agent's result to the main conversation once its launcher has
-  ended, and you wait in silence (OPS-25).
+- **Wait for every agent you spawn, without handing back.** A spawn may come back as launched in
+  the background (fork mode, the default, always does). After a spawn, do any other work this
+  group has. If there is none, end your turn with no final report and without SubagentHandback:
+  Claude Code keeps you running while an agent you spawned is still working, and delivers its
+  result as your next turn. A hand-back finishes you, and the result then goes elsewhere (OPS-25).
+  Never poll, sleep or re-spawn: a second builder would edit the same uncommitted tree as the first.
+  If the Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK), pass
+  `false`: there, a launcher that ends its turn has ended.
 - **Report to the session that asked.** When the request names one (`reportTo <session>`, the
   name `SendMessage` addresses it by), send it every outcome with `SendMessage`: at a stop, its one
   line, in place of the owner's `PushNotification` (the session that asked notifies the owner).
   Run `merge-pr` with the same `reportTo`: it sends the merged outcome, or its own stop.
   If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a
   subagent, else send it with `PushNotification`.
-  With none, notify the owner yourself at each stop.
+  With no reportTo, notify the owner yourself at each stop.
 
 ## Preconditions
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`

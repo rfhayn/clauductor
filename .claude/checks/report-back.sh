@@ -1,14 +1,17 @@
 #!/bin/sh
 # A worker gets its agents' results, and the session that asked gets the worker's (OPS-43, folding
-# in OPS-25). In fork mode (the default) every spawn runs in the background: the Agent tool has no
-# `run_in_background`. A nested agent that finishes after its launcher has ended reports to the
-# main conversation instead (code.claude.com/docs/en/sub-agents), so a worker that hands back
-# early waits in silence (Standing Tee #425 lost about 4h; on 2026-10-13 the top session relayed
-# every builder and reviewer report by hand). So:
-#   apply-change, merge-pr  never end the run or hand back while a spawned agent has not reported,
-#                           never spawn one again (a second builder edits the same tree), and send
-#                           every outcome to a named `reportTo` session by SendMessage: without
-#                           SendMessage, in the hand-back, else by PushNotification;
+# in OPS-25). In an interactive session (fork mode, the default) every spawn runs in the background
+# and the Agent tool has no `run_in_background`; Claude Code holds a launcher that ends its TURN
+# until its spawned agents report, and delivers each result as its next turn. What loses a result
+# is HANDING BACK: the launcher has finished, so the result goes elsewhere (Standing Tee #425 lost
+# about 4h; on 2026-10-13 the top session relayed every builder and reviewer report by hand). In
+# `-p` and the Agent SDK (fork mode off) a launcher that ends its turn has ended, and passing
+# `run_in_background: false` is what keeps the result (code.claude.com/docs/en/sub-agents). So:
+#   apply-change, merge-pr  wait by ending the turn without a hand-back, never poll, sleep or
+#                           re-spawn (a second builder edits the same tree), pass `false` where the
+#                           tool offers run_in_background, and send every outcome to a named
+#                           `reportTo` session by SendMessage: without SendMessage, in the final
+#                           hand-back, else by PushNotification;
 #   build-change.js         its agents already return to the script; the script cannot SendMessage,
 #                           so it hands args.reportTo back in its report, and the session that
 #                           launched it sends the outcome there.
@@ -32,21 +35,26 @@ has() {
 for f in "$ROOT/.claude/skills/apply-change/SKILL.md" "$ROOT/.claude/skills/merge-pr/SKILL.md"; do
   s=$(basename "$(dirname "$f")")
   [ -f "$f" ] || { ok "no $s skill in this project"; continue; }
-  has "$f" "$s waits for every agent it spawned, and never spawns one again" \
-    'Never spawn it again' 'Do not end your run or hand back while any agent you spawned has not reported'
-  grep -qF 'run_in_background' "$f" && fail "$s names run_in_background, which fork mode (the default) removes from the Agent tool"
+  has "$f" "$s waits for every agent it spawned by ending its turn, never by handing back, polling or re-spawning" \
+    'end your turn with no final report and without SubagentHandback' 'Never poll, sleep or re-spawn'
+  has "$f" "$s keeps a child's result where fork mode is off (-p, the Agent SDK)" 'If the Agent tool offers `run_in_background`'
+  # Fork mode (the default) has no run_in_background, so an unconditional instruction to pass it is
+  # inert there, and `true` is the hand-back this check exists to prevent.
+  grep -F 'run_in_background' "$f" | grep -vqF 'If the Agent tool offers `run_in_background`' &&
+    fail "$s names run_in_background outside the clause for when the Agent tool offers it"
   has "$f" "$s sends its outcome to the session named as reportTo" 'reportTo' 'SendMessage'
-  has "$f" "$s has a channel without SendMessage: the hand-back, else PushNotification" 'If SendMessage is not in your tool list'
+  has "$f" "$s has a channel without SendMessage: the hand-back, else PushNotification" \
+    'If SendMessage is not in your tool list' 'in your final hand-back'
 done
 f="$ROOT/.claude/skills/apply-change/SKILL.md"
-[ -f "$f" ] && has "$f" "apply-change notifies the owner itself when no session asked" 'With none, notify the owner yourself'
+[ -f "$f" ] && has "$f" "apply-change notifies the owner itself when no session asked" 'With no reportTo, notify the owner yourself'
 f="$ROOT/.claude/skills/merge-pr/SKILL.md"
 [ -f "$f" ] && has "$f" "merge-pr notifies the owner itself when no session asked" 'notify the owner with `PushNotification`'
 
 wf="$ROOT/.claude/workflows/build-change.js"
 if [ -f "$wf" ]; then
   has "$wf" "build-change takes reportTo and tells the launching session to SendMessage it the outcome" \
-    'reportTo?: "<session>"' 'SendMessage it' 'reportTo: typeof args.reportTo' 'If SendMessage is not in your tool list'
+    'reportTo?: "<session>"' 'SendMessage it' 'reportTo: typeof args.reportTo' 'If SendMessage is not in your tool list' 'in your final hand-back'
 else
   ok "no build-change workflow in this project"
 fi
