@@ -295,14 +295,25 @@ entries_hash() {
 # A row's value is its line in the roadmap as written (--tsv column 1 names it), so any edit to the
 # row moves it, its scope, deps and status included. Its gate is <id> when its section (column 3)
 # reads `Gate <id>`, as the template's `### Gate 2A — …` sections do. A column 1 that is not a
-# line of the file, or names a line that is not this row (`| <id> |`), fails the read: a wrong or
-# neighbour's line would hash the same forever, and the row would never read BEHIND.
+# line of the file, or names a line without the row's id on it as a whole token, fails the read: a
+# wrong or neighbour's line would hash the same forever, and the row would never read BEHIND. The
+# line's shape is the parser's own (a table cell, bold, a list item): the contract says only that
+# column 1 is the row's line.
 ROWS_AWK='
+  # names LINE ID: 1 when ID is on LINE as a whole token, not part of a longer id (`9.1` in
+  # `| **9.1** |` or `- 9.1 …`, never in `9.10` or `19.1`). By index(), as an id holds dots.
+  function names(line, id,   s, p, b, pre, post) {
+    s = line; b = ""
+    while ((p = index(s, id)) > 0) {
+      pre = (p > 1) ? substr(s, p - 1, 1) : b; post = substr(s, p + length(id), 1)
+      if (pre !~ /[A-Za-z0-9._-]/ && post !~ /[A-Za-z0-9._-]/) return 1
+      b = substr(s, p, 1); s = substr(s, p + 1)
+    }
+    return 0
+  }
   BEGIN { while ((getline l < RMF) > 0) txt[++nl] = l }
   $0 == "" { next }
-  { if (!($1 in txt) || substr(txt[$1], 1, 1) != "|") exit 1
-    c = substr(txt[$1], 2); c = substr(c, 1, index(c, "|") - 1); gsub(/^[ \t]+|[ \t]+$/, "", c)
-    if (c != $4) exit 1
+  { if (!($1 in txt) || !names(txt[$1], $4)) exit 1
     g = ""
     if (match($3, /^Gate [0-9A-Za-z]+(-[0-9A-Za-z]+)*/) && substr($3, RLENGTH + 1, 1) !~ /[0-9A-Za-z_]/) g = substr($3, 6, RLENGTH - 5)
     print $4 T g T txt[$1] }'

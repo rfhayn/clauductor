@@ -253,12 +253,20 @@ git -C "$K" checkout -q docs/roadmap.md
 printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["row:9.1"],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
 printf 'ROADMAP_PARSER="sh own.sh"\n' > "$K/.claude/project.conf"
 printf '#!/bin/sh\n[ "$1" = --tsv ] && printf "%%s\\t1\\t\\t9.1\\tadd-own\\tchange\\tqueued\\t\\t\\town\\t\\t\\n" "${LN:-2}"\n' > "$K/own.sh"
-printf '# Our roadmap\n| 9.1 | own row | ready |\n| 9.2 | the next row | later |\n' > "$K/docs/roadmap.md"
+printf '# Our roadmap\n| 9.1 | own row | ready |\n| 9.2 | the next row | later |\n| **9.1** | own row, bold | ready |\n- 9.1 — own row, as a list item\n| 9.10 | a longer id | later |\n| 19.1 | another longer id | later |\n' > "$K/docs/roadmap.md"
 l=$(line_for "$(kc --worktree)" docs/p.html)
 has yes "BEHIND  docs/p.html" "$l" "currency: a row comes from the project's own parser (ROADMAP_PARSER), never a second parser"
-# A column 1 that names another row's line, or no line, would hash the same forever (never BEHIND):
-# it is CANNOT CHECK. Falsified by reading txt[\$1] unchecked: red (BEHIND, read past it).
-for LN in 3 99; do
+# The line is the parser's own shape: a bold id cell or a list item that names the row reads.
+# Falsified by requiring `| <id> |` as the line's first cell: red on both.
+for LN in 4 5; do
+  export LN
+  l=$(line_for "$(kc --worktree)" docs/p.html)
+  has yes "BEHIND  docs/p.html" "$l" "currency: a parser whose column 1 names its own row's line ($(sed -n "${LN}p" "$K/docs/roadmap.md" | cut -c1-14)…) reads it"
+done
+# A column 1 that names another row's line (a neighbour, or an id that only contains 9.1), or no
+# line, would hash the same forever (never BEHIND): it is CANNOT CHECK. Falsified by reading
+# txt[\$1] unchecked, or by matching the id without its token boundaries: red.
+for LN in 3 6 7 99; do
   export LN
   l=$(line_for "$(kc --worktree)" docs/p.html)
   has yes "row:9.1: docs/roadmap.md does not parse" "$l" "currency: a parser whose column 1 names line $LN, not row 9.1's, is CANNOT CHECK"
