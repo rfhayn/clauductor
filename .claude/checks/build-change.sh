@@ -270,6 +270,13 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([])
   const later = afterPreflight(r.calls) || []
   t('every agent after preflight is pinned to the recorded root', r.report.stoppedAt === null && later.length > 3 && later.every((c) => /^Repo root: \/repo\/\.claude\/worktrees\/build-demo\./.test(c.prompt)), [r.report.stoppedAt, later.map((c) => c.prompt.slice(0, 60))])
+  // reportTo (OPS-43): the script cannot SendMessage, so the session it reports to rides back in
+  // the report, for the session that launched it to send the outcome there.
+  t('a run given no reportTo names none in its report', r.report.reportTo === null, r.report.reportTo)
+  r = await run([], { args: { reportTo: ' lead ' } })
+  t('a finished run hands args.reportTo back in its report, trimmed', r.report.stoppedAt === null && r.report.reportTo === 'lead', [r.report.stoppedAt, r.report.reportTo])
+  r = await run([], { where: MAIN, args: { reportTo: 'lead' } })
+  t('...and so does a stopped run, beside its notify line', r.report.stoppedAt === 'preflight' && r.report.reportTo === 'lead' && !!r.report.notify, [r.report.stoppedAt, r.report.reportTo, r.report.notify])
   console.log(out.join('\n'))
 })().catch((e) => { console.log(`FAIL driver: the script threw: ${e && e.message}`) })
 EOF

@@ -3,7 +3,7 @@ name: apply-change
 model: opus
 effort: high
 description: "Build an approved change by hand, task group by task group, with the builder and reviewer agents: the same loop as the build-change workflow, for when the Workflow tool is not available or one group needs doing alone. TRIGGER when the user says 'apply the change', 'build group N', 'implement <change> by hand', or build-change is unavailable."
-argument-hint: <change-id> [group number]
+argument-hint: <change-id> [group number] [reportTo <session>]
 ---
 
 # Apply a change, group by group
@@ -11,6 +11,23 @@ argument-hint: <change-id> [group number]
 The paved road is the `build-change` workflow (`${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js`), which runs
 this loop for you and stops cleanly. Use this skill when the Workflow tool is not available, or to
 do one group alone. The loop is the same, and so are its stops.
+
+## Who hears each result
+- **Wait for every agent you spawn, without handing back.** A spawn may come back as launched in
+  the background (fork mode, the default, always does). After a spawn, do any other work this
+  group has. If there is none, end your turn with no final report and without SubagentHandback:
+  Claude Code keeps you running while an agent you spawned is still working, and delivers its
+  result as your next turn. A hand-back finishes you, and the result then goes elsewhere (OPS-25).
+  Never poll, sleep or re-spawn: a second builder would edit the same uncommitted tree as the first.
+  If the Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK), pass
+  `false`: there, a launcher that ends its turn has ended.
+- **Report to the session that asked.** When the request names one (`reportTo <session>`, the
+  name `SendMessage` addresses it by), send it every outcome with `SendMessage`: at a stop, its one
+  line, in place of the owner's `PushNotification` (the session that asked notifies the owner).
+  Run `merge-pr` with the same `reportTo`: it sends the merged outcome, or its own stop.
+  If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a
+  subagent, else send it with `PushNotification`.
+  With no reportTo, notify the owner yourself at each stop.
 
 ## Preconditions
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
@@ -28,7 +45,7 @@ do one group alone. The loop is the same, and so are its stops.
 1. **Build.** Spawn the `clauductor:builder` agent: "Implement task group N (<title>) of change <id>
    (changes/<id>/). Only group N. Record in tasks.md's Decision log each decision design.md does
    not settle. Leave the work uncommitted." A `design-issue` or `blocked` reply
-   is a STOP: notify the owner (`PushNotification`, one line) and stop.
+   is a STOP: one line to `reportTo`, or with none to the owner (`PushNotification`), and stop.
 2. **Register new and deleted files**, so the gate and the reviewer see them: for each path from
    `git ls-files --others --exclude-standard`, `git add -N -- <path>` (intent-to-add); for each
    from `git ls-files --deleted`, `git rm -q --cached -- <path>`.
@@ -57,7 +74,8 @@ do one group alone. The loop is the same, and so are its stops.
   2: no result, run the gate again).
 - `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
-  `merge-pr`, recording `Review: converged in <n> round(s), peak <sev>, at <sha>` per group.
+  `merge-pr` (passing on any `reportTo`), recording `Review: converged in <n> round(s), peak
+  <sev>, at <sha>` per group.
 
 ## Project steps
 

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome instead, and it notifies the owner: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -24,7 +24,8 @@ export const meta = {
 // is NOT theirs: the session merges through merge-pr once the guard passes and review converged.
 // Every stop below is an owner decision, an environment fault, a red gate, or a loop that is not
 // converging. Nothing here pushes, merges or notifies: a script cannot call PushNotification, so
-// every stop sets report.notify (ONE line) and the session that launched this sends it. On success
+// every stop sets report.notify (ONE line) and the session that launched this sends it: by
+// SendMessage to report.reportTo when the run was given one, else by PushNotification. On success
 // notify stays null and the session carries on to push, PR, merge-pr. A THROWN error sets nothing:
 // the session sees the throw itself and notifies as a block.
 
@@ -229,7 +230,10 @@ const VERIFY = {
 }
 
 const grades = (entry) => entry.rounds.map((r) => `R${r.round} ${r.grade}`).join(', ') || 'none'
-const report = { change, stoppedAt: null, reason: null, stopKind: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, costUsd: null, notify: null, warnings: [] }
+// reportTo: the session that asked for this build (OPS-43). Every agent below returns its result to
+// this script, so none is lost here; but the script cannot SendMessage, so it hands the name back
+// in the report the launching session reads when the run returns, and that session sends it.
+const report = { change, reportTo: typeof args.reportTo === 'string' && args.reportTo.trim() ? args.reportTo.trim() : null, stoppedAt: null, reason: null, stopKind: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, costUsd: null, notify: null, warnings: [] }
 let ROOT = null
 
 // kind: 'stop' (an owner decision, an environment fault, a red gate, a limit) or 'stuck' (the
@@ -239,7 +243,7 @@ const stop = (where, reason, kind = 'stop') => {
   report.reason = reason
   report.stopKind = kind
   report.notify = `build-change ${change} ${kind === 'stuck' ? 'STUCK' : 'STOPPED'} at ${where}: ${String(reason).slice(0, 160)}`
-  log(`STOP at ${where}: ${reason}; the session must send report.notify via PushNotification`)
+  log(`STOP at ${where}: ${reason}; the session must send report.notify ${report.reportTo ? `by SendMessage to "${report.reportTo}" (a rerun or resume passes the same reportTo)` : 'via PushNotification'}`)
   return report
 }
 
@@ -460,5 +464,5 @@ const v = await spawn(
 )
 report.verify = v ? { passed: v.passed, output: v.output } : null
 if (!v || !v.passed) return stop('verify', v ? v.output : 'verify agent returned nothing')
-log('All groups committed; full gate green; verified. Next: push, gh pr create, merge-pr.')
+log(`All groups committed; full gate green; verified. Next: push, gh pr create, merge-pr${report.reportTo ? ` with reportTo "${report.reportTo}", which sends it the outcome` : ''}.`)
 return report
