@@ -27,6 +27,7 @@
     "orient": { "model": "opus", "effort": "low", "does": "session-start" },
     "mechanic": { "model": "sonnet", "effort": "low", "does": "build-change preflight, gate, commit, receipt: run a script and quote it" },
     "researcher": { "model": "opus", "effort": "medium", "does": "read-only research: no Bash, Edit or Write" },
+    "routine": { "model": "sonnet", "effort": "low", "does": "unattended routines (claude -p, .claude/routines.json); read-only unless the routine says writes: true" },
     "helper": { "model": "opus", "does": "any other subagent (Explore, general-purpose), via CLAUDE_CODE_SUBAGENT_MODEL" }
   },
   "tiers": {

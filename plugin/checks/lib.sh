@@ -18,7 +18,12 @@ CONTEXT_OFFLINE=1; export CONTEXT_OFFLINE
 _fails=0
 ok() { echo "ok   $*"; }
 fail() { echo "FAIL $*"; _fails=$((_fails + 1)); }
-finish() { [ "$_fails" -eq 0 ]; exit $?; }
+finish() {
+  if [ -s "$_scratch/.no-claude/reached" ]; then
+    fail "this check reached the checks' refusing claude (checks/lib.sh), so it named no fake of its own: $(head -3 "$_scratch/.no-claude/reached" | tr '\n' ';')"
+  fi
+  [ "$_fails" -eq 0 ]; exit $?
+}
 expect_rc() {
   if [ "$1" = "$2" ]; then ok "$3"; else fail "$3 (exit $2, want $1)"; fi
 }
@@ -36,6 +41,32 @@ _scratch=$(mktemp -d "${TMPDIR:-/tmp}/checks.XXXXXX") && _scratch=$(cd "$_scratc
 trap 'rm -rf "$_scratch"' EXIT
 trap 'rm -rf "$_scratch"; exit 1' INT TERM
 scratch() { printf '%s' "$_scratch"; }
+
+# A refusing `claude` first on every check's PATH (OPS-42, design D13): a check reaches only a fake
+# claude it names itself (EVAL_CLAUDE, ROUTINES_CLAUDE, a stub directory of its own), never the
+# owner's real one, which would spend their quota or strand a login refresh (#93, #95). One that
+# forgets gets this stub: it records the call beside itself and exits 97, and `finish` fails the
+# check. Without a scratch directory, or with a stub that is not exactly this text (a write that
+# failed half way), the check stops here: running on would reach whatever claude is next on PATH.
+if [ -n "$_scratch" ] && mkdir -p "$_scratch/.no-claude"; then
+  cat > "$_scratch/.no-claude/claude" <<'EOF'
+#!/bin/sh
+printf '%s\n' "claude $*" >> "${0%/*}/reached"
+echo "claude: refused: this is the checks' refusing claude (checks/lib.sh); a check names its own fake" >&2
+exit 97
+EOF
+  chmod +x "$_scratch/.no-claude/claude"
+fi
+if [ -z "$_scratch" ] || [ ! -x "$_scratch/.no-claude/claude" ] || ! grep -qx 'exit 97' "$_scratch/.no-claude/claude" 2>/dev/null; then
+  echo "FAIL cannot make this check's scratch directory and its refusing claude (TMPDIR=${TMPDIR:-/tmp}): stopped before anything could reach the real claude"
+  exit 1
+fi
+PATH="$_scratch/.no-claude:$PATH"; export PATH
+# The outcome, not the file: a ':' in TMPDIR would split the entry, and PATH find another claude.
+if [ "$(command -v claude)" != "$_scratch/.no-claude/claude" ]; then
+  echo "FAIL PATH does not find this check's refusing claude first (it finds $(command -v claude || echo none); a ':' in TMPDIR=${TMPDIR:-/tmp}?): stopped before anything could reach the real claude"
+  exit 1
+fi
 
 payload() {
   jq -cn --arg c "$1" --arg d "${2:-}" '{tool_name:"Bash", cwd:$d, tool_input:{command:$c}}'

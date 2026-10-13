@@ -1,0 +1,11 @@
+{
+  "_why": "The project's routines: scheduled work run by .claude/routines.sh on this machine, while no one is at it. Each routine is a time (HH:MM, <days> HH:MM, every <N>m|h) and either a shell command or a claude -p run with a role, read-only tools and a turn limit. The runner is routines.sh: .claude/routines.sh in a project the model is installed in, or routines.sh at the root of the clauductor plugin. Run `routines.sh setup --billing subscription|api` once before adding a claude -p routine; `routines.sh validate` checks this file, and docs/playbook.md (Routines) says the rest.",
+  "version": 1,
+  "billing": null,
+  "api_key_file": null,
+  "caps": {
+    "subscription": { "five_hour_pct": 80, "seven_day_pct": 80, "unknown_quota_daily_runs": 3, "daily_runs": null },
+    "api": { "daily_usd": 1.00, "window_usd": 5.00, "window_days": 7, "daily_runs": null }
+  },
+  "routines": []
+}
