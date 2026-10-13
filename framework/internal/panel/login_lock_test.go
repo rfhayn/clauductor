@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 // Run itself watches the login refresh locks (PANEL-28), in the config dir its
@@ -58,5 +61,46 @@ func TestRunWatchesTheLoginLocks(t *testing.T) {
 		lines[0].Holder != "unknown: before this panel started" || lines[0].PID != 4242 {
 		t.Fatalf("lines: %+v, want the current lock in %s, ended %q, its holder unknown: before this panel started",
 			lines, cfg, claudecall.EndStopped)
+	}
+}
+
+// Run feeds the watch's reading to every project's model (PANEL-28 group 3): a lock
+// stranded in the config dir is a warning on the page, naming its path and its gone
+// holder, with the remedy.
+func TestRunShowsAStrandedLock(t *testing.T) {
+	t.Parallel()
+	root, home := setupProject(t)
+	r := claudecall.NewReader(testEnv, home)
+	if err := os.MkdirAll(r.CurrentPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gone := exec.Command("true")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	mod := time.Now().Add(-5 * time.Minute)
+	rec := fmt.Sprintf(`{"pid":%d,"lockBirthtimeMs":%d}`, gone.Process.Pid, mod.UnixMilli())
+	if err := os.WriteFile(r.OwnerPath(), []byte(rec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(r.CurrentPath(), mod, mod); err != nil {
+		t.Fatal(err)
+	}
+	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	defer stop()
+	var got state.AlertView
+	waitFor(t, "the stranded-lock warning", func() bool {
+		for _, a := range c.state(t).Alerts {
+			if a.Kind == state.AlertStrandedLock {
+				got = a
+				return true
+			}
+		}
+		return false
+	})
+	for _, want := range []string{r.CurrentPath(), "is gone", "remove " + r.CurrentPath() + " and run /login"} {
+		if !strings.Contains(got.Text, want) {
+			t.Errorf("warning %q lacks %q", got.Text, want)
+		}
 	}
 }

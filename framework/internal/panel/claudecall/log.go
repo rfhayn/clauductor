@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +16,9 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // LogName is the login-lock log's file name in the panel's directory, beside quota.json.
@@ -115,14 +118,17 @@ type LockLine struct {
 	PID    int    `json:"pid,omitempty"`
 	// Command is `ps -o command=` of the holder at first sight; "" with
 	// HolderRunning false when no such process ran by then.
-	Command       string     `json:"command,omitempty"`
-	HolderRunning bool       `json:"holder_running"`
-	Birth         *time.Time `json:"birth,omitempty"` // the owner record's birth time
-	FirstSeen     time.Time  `json:"first_seen"`
-	LastModified  time.Time  `json:"last_modified"`
-	LastState     State      `json:"last_state"`
-	Ended         string     `json:"ended"`
-	EndedAt       time.Time  `json:"ended_at"`
+	Command       string `json:"command,omitempty"`
+	HolderRunning bool   `json:"holder_running"`
+	// HolderState is the holder as last checked: HolderAlive, HolderGone or
+	// HolderPIDReused ("" when no record names one).
+	HolderState  string     `json:"holder_state,omitempty"`
+	Birth        *time.Time `json:"birth,omitempty"` // the owner record's birth time
+	FirstSeen    time.Time  `json:"first_seen"`
+	LastModified time.Time  `json:"last_modified"`
+	LastState    State      `json:"last_state"`
+	Ended        string     `json:"ended"`
+	EndedAt      time.Time  `json:"ended_at"`
 }
 
 // Attribution is whose a lock is, decided once, at the sighting that first names
@@ -133,6 +139,26 @@ type Attribution struct {
 	// Unknown, when set, is why the holder can't be told ("before this panel started").
 	Unknown string
 }
+
+// A holder as the watch last checked it (LockLine.HolderState, types.LoginLock.HolderState).
+const (
+	HolderAlive = "running"
+	HolderGone  = "gone"
+	// HolderPIDReused: its pid runs, but another process: `ps -o lstart=` differs
+	// from the record's procStart, or the pid came back after it was seen gone.
+	HolderPIDReused = "gone (pid reused)"
+)
+
+// SettleWait is how long a lock that has lost its identity (the record that named
+// it gone, the new one not yet written) is held to its old sighting before it counts
+// as another lock whose holder wrote no record. Claude Code writes the record just
+// after it takes the lock, so a retaken lock settles within a tick or two.
+const SettleWait = 10 * time.Second
+
+// liveGapTicks is how many watch intervals may pass between two ticks before a live
+// run is broken: the panel's ticks can be late by a busy moment, never by minutes
+// unless the machine slept.
+const liveGapTicks = 3
 
 // Watch stats both locks every WatchEvery and logs each lock it sees.
 type Watch struct {
@@ -149,9 +175,19 @@ type Watch struct {
 	// Out receives a failed log write, once per distinct error, so a log that
 	// cannot be written is said rather than silently empty.
 	Out io.Writer
+	// Alive says whether a holder's pid exists, spawning nothing (nil is
+	// lease.PIDAlive).
+	Alive func(pid int) bool
+	// OnChange receives the locks present, each time what the watch reads of them
+	// changes: the panel's alerts are derived from them (state.Model.ApplyLoginLocks).
+	OnChange func([]types.LoginLock)
 
 	seen    map[string]*sighting // by Which
 	lastErr string
+	last    []types.LoginLock
+	// lastTick is when Tick last finished: a gap of more than liveGapTicks ticks
+	// breaks the live runs.
+	lastTick time.Time
 }
 
 // sighting is one lock's unbroken run of sightings. It is attributed once its line
@@ -159,6 +195,15 @@ type Watch struct {
 type sighting struct {
 	id   string // the record's identity; "" while it is the path's unbroken run
 	line LockLine
+	// liveSince starts this identity's current unbroken run of live readings.
+	liveSince time.Time
+	// pendingSince is when the lock was first read without the identity this
+	// sighting has (released and retaken between ticks, or its record rewritten).
+	pendingSince time.Time
+	// procStart is the record's; checked says it has been compared with the pid's
+	// start time since the pid was last seen alive.
+	procStart string
+	checked   bool
 }
 
 // Loop runs the watch until ctx ends, then logs each lock still present as
@@ -187,6 +232,14 @@ func (w *Watch) Tick(ctx context.Context) {
 		w.seen = map[string]*sighting{}
 	}
 	now := w.Clock.Now()
+	// A gap of several ticks (the machine asleep) breaks every live run: the watch
+	// cannot say the lock stayed live while it did not look.
+	every := w.Every
+	if every <= 0 {
+		every = WatchEvery
+	}
+	gap := longGap(w.lastTick, now, every)
+	var views []types.LoginLock
 	for _, s := range w.Reader.Read(now).Locks() {
 		cur := w.seen[s.Which]
 		if s.State == None {
@@ -197,15 +250,31 @@ func (w *Watch) Tick(ctx context.Context) {
 			continue
 		}
 		id := s.ID()
-		if cur != nil && cur.id != "" && id != "" && id != cur.id {
-			w.end(cur, EndReplaced, now)
-			cur = nil
+		switch {
+		case cur != nil && cur.id != "" && id == "":
+			// The lock names no holder now: released and retaken between two ticks
+			// before the new holder wrote its record, or its record being rewritten.
+			// The old line stays as it was until the identity settles.
+			if cur.pendingSince.IsZero() {
+				cur.pendingSince = now
+			}
+			if now.Sub(cur.pendingSince) < SettleWait {
+				views = append(views, w.view(cur, s))
+				continue
+			}
+			// It never settled: another lock, whose holder wrote no record.
+			cur = w.replace(cur, s, cur.pendingSince)
+		case cur != nil && cur.id != "" && id != cur.id:
+			first := now
+			if !cur.pendingSince.IsZero() {
+				first = cur.pendingSince // first seen when it lost the old identity
+			}
+			cur = w.replace(cur, s, first)
 		}
 		if cur == nil {
-			cur = &sighting{line: LockLine{Kind: "lock", Which: s.Which, Path: s.Path, FirstSeen: now,
-				Holder: "unknown: no owner record"}}
-			w.seen[s.Which] = cur
+			cur = w.start(s, now)
 		}
+		cur.pendingSince = time.Time{}
 		if cur.id == "" && id != "" {
 			// The record names this lock's holder now (the holder writes it just
 			// after it takes the lock): the same unbroken run, now with its identity.
@@ -215,10 +284,113 @@ func (w *Watch) Tick(ctx context.Context) {
 			cur.line.LastModified = s.ModTime
 		}
 		cur.line.LastState = s.State
+		switch {
+		case s.State != Live:
+			cur.liveSince = time.Time{}
+		case cur.liveSince.IsZero() || gap:
+			cur.liveSince = now
+		}
 		if cur.line.Birth == nil {
 			w.attribute(ctx, cur, s)
 		}
+		w.checkHolder(ctx, cur)
+		views = append(views, w.view(cur, s))
 	}
+	w.emit(views)
+	// Read at the end: a slow tick (a ps of up to 5 s) is no gap before the next.
+	w.lastTick = w.Clock.Now()
+}
+
+// longGap reports whether a tick at now comes more than liveGapTicks intervals after
+// the last one ended, at prev. By the wall clock: Go's time.Sub would use the
+// monotonic reading, which stops while the machine sleeps (darwin's
+// mach_absolute_time, Linux's CLOCK_MONOTONIC), and the alerts compare wall times.
+func longGap(prev, now time.Time, every time.Duration) bool {
+	return !prev.IsZero() && now.Round(0).Sub(prev.Round(0)) > liveGapTicks*every
+}
+
+// start is a new sighting of s, first seen at first.
+func (w *Watch) start(s LockState, first time.Time) *sighting {
+	cur := &sighting{line: LockLine{Kind: "lock", Which: s.Which, Path: s.Path, FirstSeen: first,
+		Holder: "unknown: no owner record"}}
+	w.seen[s.Which] = cur
+	return cur
+}
+
+// replace ends cur as replaced, at first (when its successor was first seen), and
+// starts the successor's sighting from then.
+func (w *Watch) replace(cur *sighting, s LockState, first time.Time) *sighting {
+	w.end(cur, EndReplaced, first)
+	return w.start(s, first)
+}
+
+// view is the lock s as the sighting cur knows it.
+func (w *Watch) view(cur *sighting, s LockState) types.LoginLock {
+	v := types.LoginLock{Which: s.Which, Path: s.Path, State: string(s.State), ModTime: s.ModTime.UnixMilli(), PID: cur.line.PID,
+		Command: cur.line.Command, HolderState: cur.line.HolderState, Holder: cur.line.Holder, Call: cur.line.Call}
+	if cur.line.Birth != nil {
+		v.Birth = cur.line.Birth.UnixMilli()
+	}
+	switch {
+	case s.State == Live && !cur.liveSince.IsZero():
+		v.LiveSince = cur.liveSince.UnixMilli()
+	case s.State == Stale:
+		v.StaleSince = s.ModTime.Add(StaleAfter).UnixMilli()
+	}
+	return v
+}
+
+// emit hands OnChange the locks when they differ from the last it was handed.
+func (w *Watch) emit(views []types.LoginLock) {
+	if reflect.DeepEqual(views, w.last) {
+		return
+	}
+	w.last = views
+	if w.OnChange != nil {
+		w.OnChange(append([]types.LoginLock(nil), views...))
+	}
+}
+
+// checkHolder updates the holder's state, spawning nothing while it is unchanged:
+// its pid's existence is kill(pid, 0), and its start time (one ps) is compared with
+// the record's procStart once each time the pid is seen alive anew. Gone is final,
+// and a pid seen alive after it was seen gone names another process.
+func (w *Watch) checkHolder(ctx context.Context, cur *sighting) {
+	pid := cur.line.PID
+	if pid <= 0 || cur.line.HolderState == HolderPIDReused {
+		return
+	}
+	alive := lease.PIDAlive
+	if w.Alive != nil {
+		alive = w.Alive
+	}
+	switch {
+	case !alive(pid):
+		cur.line.HolderState, cur.checked = HolderGone, false
+	case cur.line.HolderState == HolderGone:
+		cur.line.HolderState = HolderPIDReused
+	case !cur.checked:
+		cur.checked = true
+		cur.line.HolderState = HolderAlive
+		if w.otherStart(ctx, pid, cur.procStart) {
+			cur.line.HolderState = HolderPIDReused
+		}
+	}
+}
+
+// otherStart reports whether pid now names a process other than the one whose start
+// time Claude Code recorded: procStart is `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>`
+// as Claude Code 2.1.296 reads it of itself. No procStart, or a ps that tells
+// nothing, is no evidence.
+func (w *Watch) otherStart(ctx context.Context, pid int, procStart string) bool {
+	if w.Run == nil || strings.TrimSpace(procStart) == "" {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := w.Run(cctx, "", []string{"/usr/bin/env", "LC_ALL=C", "TZ=UTC", "ps", "-o", "lstart=", "-p", strconv.Itoa(pid)})
+	now := strings.Join(strings.Fields(string(out)), " ")
+	return err == nil && now != "" && now != strings.Join(strings.Fields(procStart), " ")
 }
 
 // attribute fills the holder at the first sighting that names one, and never again:
@@ -235,8 +407,13 @@ func (w *Watch) attribute(ctx context.Context, cur *sighting, s LockState) {
 	}
 	h := *s.Holder
 	birth := h.Birth
-	cur.line.PID, cur.line.Birth = h.PID, &birth
-	cur.line.Command, cur.line.HolderRunning = w.command(ctx, h.PID)
+	cur.line.PID, cur.line.Birth, cur.procStart = h.PID, &birth, h.ProcStart
+	// Its command only when the pid is still the holder's: a reused pid's command
+	// is another process's.
+	w.checkHolder(ctx, cur)
+	if cur.line.HolderState == HolderAlive {
+		cur.line.Command, cur.line.HolderRunning = w.command(ctx, h.PID)
+	}
 	a := Attribution{Unknown: "no call history"}
 	if w.Attribute != nil {
 		a = w.Attribute(h)

@@ -218,6 +218,17 @@
       <li>How the work flows and what it costs: Metrics, next to Activity. Each figure says whether the project's metrics command or the panel gave it, and "—" says why there is none.</li>
       <li>Another repository: Add a project…, at the foot of the project menu; a row's ⋯ trusts or removes one. clauductor panel add works too, live.</li>
     </ul>
+    <h4 id="help-locks">Login lock alerts</h4>
+    <p>Every Claude Code session shares one login, and refreshes it under a lock. While a refresh holds the lock, the panel starts no claude of its own, and its readings say paused.</p>
+    <dl class="locks">
+      <dt>Login lock</dt>
+      <dd>A refresh has held the lock for over 2 minutes, so other sessions' refreshes fail. Run /login in any session; if the alert comes back, end the process it names.</dd>
+      <dt>Stranded lock</dt>
+      <dd>The lock has gone untouched for over 3 minutes and is still there; the alert says whether its holder is gone. If its holder still runs, end that process first. If sessions still fail to refresh, remove the path it names and run /login.</dd>
+      <dt>Future lock</dt>
+      <dd>The lock is dated in the future (the clock went back during a refresh), and Claude Code waits for real time to pass it. If sessions fail to refresh, remove the path it names and run /login.</dd>
+    </dl>
+    <p>The panel never removes or writes a lock: one a live process holds, removed, would let two processes refresh the login at once. Every lock it sees is logged in ~/.clauductor/panel/login-lock.jsonl.</p>
     <p><a id="helplink" target="_blank" rel="noopener noreferrer">The guide</a>, on GitHub, opens in a new tab.</p>
     <div class="actions"><button type="button" class="btn" id="helpclose">Close</button></div>
   </div>

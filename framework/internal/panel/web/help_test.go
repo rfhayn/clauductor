@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/panel/state"
 )
 
 const guideURL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md"
@@ -163,4 +165,42 @@ func githubSlug(h string) string {
 		}
 	}
 	return b.String()
+}
+
+// PANEL-28: Help says what to do about each login-lock alert, and each such alert's
+// row opens it there. The page names every kind the reducer raises.
+func TestHelpExplainsTheLoginLockAlerts(t *testing.T) {
+	t.Parallel()
+	b, _ := webFS.ReadFile("index.html")
+	page := string(b)
+	i := strings.Index(page, `<h4 id="help-locks">Login lock alerts</h4>`)
+	if i < 0 {
+		t.Fatal("Help has no login-lock section")
+	}
+	sec := page[i:]
+	sec = sec[:strings.Index(sec, `<p><a id="helplink"`)]
+	for _, want := range []string{
+		"<dt>Login lock</dt>", "Run /login in any session", "end the process it names",
+		"<dt>Stranded lock</dt>", "whether its holder is gone", "If its holder still runs, end that process first", "remove the path it names and run /login",
+		"<dt>Future lock</dt>", "Claude Code waits for real time to pass it",
+		"never removes or writes a lock", "login-lock.jsonl",
+	} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("Help's login-lock section lacks %q", want)
+		}
+	}
+	js := readWeb(t, "panel.js")
+	for _, kind := range []string{state.AlertLoginLock, state.AlertStrandedLock, state.AlertFutureLock} {
+		if !strings.Contains(js, "const LOCK_KINDS = {") || !regexp.MustCompile(`const LOCK_KINDS = \{[^}]*\b`+kind+`: true`).MatchString(js) {
+			t.Errorf("panel.js's LOCK_KINDS lacks %s", kind)
+		}
+	}
+	for _, want := range []string{
+		`: LOCK_KINDS[a.kind] ? [button("What to do", "small", (ev) => { ev.stopPropagation(); openHelpAt("help-locks"); }, null, "help")]`,
+		`function openHelpAt(id) {`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("panel.js lacks %q", want)
+		}
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -127,9 +128,15 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 	return m
 }
 
-// each applies an update to every project's model.
+// each applies an update to every project's model. It holds projMu (read) while it
+// does, so a project being added (addProject, which copies the default's machine
+// readings under the write lock) either copies a model this update reached, or is
+// listed and gets it. The lock order is projMu, then a hub's: an update never takes
+// projMu.
 func (m *Machine) each(up update) {
-	for _, r := range m.list() {
+	m.projMu.RLock()
+	defer m.projMu.RUnlock()
+	for _, r := range m.projects {
 		r.hub.Update(up)
 	}
 }
@@ -163,9 +170,11 @@ func (m *Machine) addProject(r *Runtime) {
 		verified := ""
 		var acct *signals.AuthStatus
 		var acctSrc state.SourceStatus
+		var locks []types.LoginLock
 		def.hub.Read(func(md *state.Model, _ time.Time) {
 			q, verified = md.QuotaReading(), md.AutoVerified()
 			acct, acctSrc = md.AccountReading()
+			locks = md.LoginLocks()
 		})
 		r.hub.Update(func(md *state.Model, _ time.Time) {
 			if q != nil {
@@ -176,6 +185,8 @@ func (m *Machine) addProject(r *Runtime) {
 			}
 			// The account is not read for it (PANEL-28, D5): it carries the default's.
 			md.RestoreAccount(acct, acctSrc)
+			// The login locks too (PANEL-28): the watch tells the models only of a change.
+			md.ApplyLoginLocks(locks)
 		})
 	}
 	m.projects = append(m.projects, r)
@@ -416,26 +427,27 @@ func writePrivate(path string, b []byte) error {
 	return config.WriteAtomic(path, b, 0o600)
 }
 
-// withoutQuota drops the account's quota alert: a project's notifier leaves it to
-// the machine.
+// withoutQuota drops the machine's alerts (the account's quota, and PANEL-28's login
+// locks): a project's notifier leaves them to the machine.
 func withoutQuota(as []state.AlertView) []state.AlertView {
 	out := as[:0:0]
 	for _, a := range as {
-		if a.Kind != state.AlertQuota {
+		if !state.MachineAlert(a.Kind) {
 			out = append(out, a)
 		}
 	}
 	return out
 }
 
-// pollQuotaAlert notifies the account's quota alert once for the machine. The alert
-// is derived in the default project's view, against its thresholds.
+// pollQuotaAlert notifies the machine's alerts (the account's quota, the login locks)
+// once for the machine. They are derived in the default project's view, against its
+// thresholds.
 func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, time.Duration) {
 	def := m.defRT()
 	v := def.hub.View()
 	var qa []state.AlertView
 	for _, a := range v.Alerts {
-		if a.Kind == state.AlertQuota {
+		if state.MachineAlert(a.Kind) {
 			qa = append(qa, a)
 		}
 	}

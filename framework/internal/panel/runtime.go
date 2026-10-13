@@ -655,8 +655,9 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 			focused = s.FocusedLanesIn(r.id)
 		}
 		if r.machine != nil {
-			// The quota is the account's: the machine alone notifies it, once, not
-			// once per project (PANEL-16). The page still shows it in every project.
+			// The quota is the account's, and the login locks (PANEL-28) the
+			// machine's: the machine alone notifies them, once, not once per project
+			// (PANEL-16). The page still shows them in every project.
 			v.Alerts = withoutQuota(v.Alerts)
 		}
 		r.mu.Lock()

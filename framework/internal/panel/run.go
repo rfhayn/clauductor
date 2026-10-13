@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -127,7 +128,7 @@ type Ticks struct {
 	// PANEL-22: projects.json, for a project added or removed (no spawn: a stat).
 	Registry time.Duration
 	// PANEL-28: Claude Code's login refresh locks, into login-lock.jsonl (no spawn: a
-	// stat; one `ps` per holder newly seen).
+	// stat; one or two `ps` per holder newly seen: its command and its start time).
 	LoginLock time.Duration
 }
 
@@ -415,8 +416,11 @@ func Run(ctx context.Context, o Options) error {
 	m.start(ctx, start)
 	// The login refresh locks (PANEL-28): watched and logged from the start, so the
 	// log covers every refresh this panel lives beside. It only reads them.
+	// What it reads of them goes to every project's model, where the alerts for a
+	// stuck, stranded or future-dated lock are derived (design D7).
 	lockWatch := &claudecall.Watch{Reader: lockReader, Log: lockLog, Clock: clk, Every: ticks.LoginLock, Run: o.Runner,
-		Attribute: gate.Attribute, Out: o.Out}
+		Attribute: gate.Attribute, Out: o.Out,
+		OnChange: func(ls []types.LoginLock) { m.each(func(md *state.Model, _ time.Time) { md.ApplyLoginLocks(ls) }) }}
 	start(func() { lockWatch.Loop(ctx) })
 	if !o.Only {
 		watch := &source{name: "registry", every: ticks.Registry, fixedRate: true, waitFirst: true, poll: ls.pollRegistry}

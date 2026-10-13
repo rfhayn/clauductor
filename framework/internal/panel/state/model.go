@@ -187,6 +187,10 @@ type Model struct {
 	dropped     int
 	v2          modelV2
 	hooks       hookHealth // PANEL-5: the hook install's health (hookhealth.go)
+	// loginLocks are Claude Code's login-refresh locks as the panel's watch last read
+	// them (PANEL-28; alerts.go derives their alerts). The machine's: every project's
+	// model holds the same.
+	loginLocks []types.LoginLock
 
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []types.TmuxLane
