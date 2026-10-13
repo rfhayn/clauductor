@@ -70,6 +70,14 @@ started from the panel's **New lane** (or by hand), on one branch:
   Code alone; a panel that is not running is a normal state. `checks/no-clauductor.sh` holds this:
   it runs the gate, the process checks, a skill context script and the status line with
   `clauductor` off `PATH` and no panel, and fails on anything that errors or asks for either.
+- **The current quota is read from one file, panel or no panel.** On every refresh that carries
+  Claude Code's `rate_limits`, the status line saves them to `~/.clauductor/quota-reading.json`
+  (per machine, mode 0600, replaced atomically; the panel's `quota.json` shape: `windows[].{key,
+  pct, resetsAt}` and `at` in milliseconds). Read it with `${CLAUDE_PLUGIN_ROOT}/lib/quota.sh`: `quota_read`
+  lists each window, `quota_pct five_hour` prints one. A window whose reset has passed, or that
+  has no reset time, has no reading (`-`, exit 1), never its old number. Routines and the
+  orchestrating session read this, not the panel's `quota.json`, which is written only while the
+  panel runs. `checks/quota-reading.sh` holds it.
 
 ## Several people
 
