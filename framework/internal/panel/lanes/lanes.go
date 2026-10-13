@@ -1514,10 +1514,19 @@ func (m *LaneManager) MarkRestored(id string) {
 	_ = m.Registry.Update(id, func(r *types.LaneRecord) bool { r.Restored = m.now().UnixMilli(); return true })
 }
 
-// InCopyMode reports whether the lane's pane is scrolled back in tmux's copy mode.
-func (m *LaneManager) InCopyMode(ctx context.Context, id string) bool {
-	out, err := m.tmux(ctx, "display-message", "-p", "-t", "="+id+":", "#{pane_in_mode}")
-	return err == nil && strings.TrimSpace(string(out)) == "1"
+// WheelOutcome reports, in one look, whether the lane's pane is in copy mode and
+// whether its program takes the wheel itself (the alternate screen or mouse
+// reporting): hardenArgs' WheelUpPane then sends the wheel to it, not to copy mode.
+func (m *LaneManager) WheelOutcome(ctx context.Context, id string) (inMode, program bool, err error) {
+	out, err := m.tmux(ctx, "display-message", "-p", "-t", "="+id+":", "#{pane_in_mode} #{alternate_on} #{mouse_any_flag}")
+	if err != nil {
+		return false, false, err
+	}
+	f := strings.Fields(string(out))
+	if len(f) != 3 {
+		return false, false, fmt.Errorf("display-message: %q", out)
+	}
+	return f[0] == "1", f[1] == "1" || f[2] == "1", nil
 }
 
 // LeaveCopyMode returns the lane's pane to the live screen.

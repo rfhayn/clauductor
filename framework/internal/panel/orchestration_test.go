@@ -26,12 +26,17 @@ import (
 // workspace-trust dialog looks like (verified on 2.1.284).
 func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*atomic.Bool) signals.Runner {
 	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		// A claude behind /usr/bin/env (the account poll's) is still claude (#93).
+		c := envCommand(argv)
+		claude := len(c) > 0 && c[0] == "claude"
 		switch {
+		case len(c) == 0:
+			return nil, refuseUnreadEnv(argv)
 		case argv[0] == "gh":
 			return []byte("[]"), nil
-		case argv[0] == "claude" && len(argv) > 1 && argv[1] == "--version":
+		case claude && len(c) > 1 && c[1] == "--version":
 			return []byte("2.1.284 (Claude Code)\n"), nil
-		case argv[0] == "claude" && len(argv) > 1 && argv[1] == "agents":
+		case claude && len(c) > 1 && c[1] == "agents":
 			if hidden.Load() {
 				return []byte("[]"), nil
 			}
@@ -50,7 +55,7 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*at
 			}
 			j, _ := json.Marshal(out)
 			return j, nil
-		case argv[0] == "claude":
+		case claude:
 			return nil, fmt.Errorf("unexpected %v", argv)
 		}
 		return signals.ExecRunner(ctx, dir, argv)
