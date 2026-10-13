@@ -128,8 +128,12 @@ wait, is its own row, PANEL-33 (D8).
 
 1. **Group 1, the lock reader and the log.**
    - `framework/internal/panel/claudecall`, a new package that `panel` and `lanes` both import:
-     - **The reader:** the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), the current lock
-       `<dir>/.oauth_refresh.lock`, the legacy lock `<dir>.lock`, and the owner record.
+     - **The reader:** the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`); the lock dir:
+       `$CLAUDE_SECURESTORAGE_CONFIG_DIR` when it is set (`~/.claude` when it is set but empty),
+       else the config dir, as Claude Code 2.1.296 does (`Lw()`, read from the binary); the
+       current lock `<lock dir>/.oauth_refresh.lock`, the legacy lock `<realpath(lock dir)>.lock`,
+       and the owner record beside the current lock. (Amended by the owner's decision on
+       2026-10-12 after group 1, and again after group 2's re-read of the binary.)
        - **The state of each lock,** from its mtime against now: live, stale, or future (D4).
        - **A lock's identity:** the owner record's `lockBirthtimeMs` when there is one, else the
          path and an unbroken run of sightings. Birth time comes from the record, never from the
@@ -447,7 +451,10 @@ The sandbox investigation, and acting on what it finds, is PANEL-33's (D1, D6, D
     and what to do: "run /login in any session; if it comes back, end pid N".
   - **Stale (60 s or more) and still present 2 min later:** a warning naming that lock's path, its
     last holder and whether that process is gone. Its remedy: "if sessions fail to refresh, remove
-    `<path>` and run /login". errors.md names `token.lock`, which 2.1.288 doesn't use.
+    `<path>` and run /login"; when the last holder still runs, "end pid N first; if sessions still
+    fail to refresh, remove `<path>` and run /login" (the owner's decision of 2026-10-12, after
+    group 3's review: removing a lock a live process holds is what the no-deletion reason below
+    forbids). errors.md names `token.lock`, which 2.1.288 doesn't use.
   - **More than 5 s in the future:** a warning saying so, that Claude Code waits for real time to
     pass it (#95739), with the same remedy.
   - **Never** delete or write a lock or the owner record.

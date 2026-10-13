@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
@@ -120,10 +121,16 @@ func commandFetch[T any](r *Runtime, timeout time.Duration, argv []string, parse
 	}
 }
 
-// polled feeds a fetch's result (value or error) to the model.
+// polled feeds a fetch's result (value or error) to the model. A call the claude
+// gate held back (a card or suggest command running claude, D9) applies no update,
+// so it is never shown failed for it, and retries soon; an interval card is
+// fixed-rate, so it runs again at its next tick instead.
 func polled[T any](f fetch[T], apply func(*state.Model, T, error, time.Time)) func(context.Context, time.Time) (update, time.Duration) {
 	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
 		v, err := f(ctx)
+		if wait, held := claudecall.RetryAfter(err); held {
+			return nil, wait
+		}
 		return func(m *state.Model, now time.Time) { apply(m, v, err, now) }, 0
 	}
 }
@@ -379,9 +386,11 @@ func watchLoop(ctx context.Context, clk clock.Clock, path string, s *source) {
 	}
 }
 
-// exec runs argv in the project root through the Runner, with a timeout.
+// exec runs argv in the project root through the Runner, with a timeout. Every call
+// through it is a poll's (the agents poll, checkFilter, cards and suggest commands,
+// the machine's): the gate gives a poll a short wait and a quick retry (PANEL-28).
 func (r *Runtime) exec(ctx context.Context, timeout time.Duration, argv []string) ([]byte, error) {
-	cctx, cancel := context.WithTimeout(ctx, timeout)
+	cctx, cancel := context.WithTimeout(signals.WithPoll(ctx), timeout)
 	defer cancel()
 	return r.run(cctx, r.root, argv)
 }
@@ -393,8 +402,12 @@ func kick(ch chan struct{}) {
 	}
 }
 
-// refreshAll polls every kickable source now (the page's refresh).
-func (r *Runtime) refreshAll() {
+// refreshAll polls every kickable source now (the page's refresh). With machine (the
+// owner's Refresh button) it kicks the machine's sources too: the version, read
+// otherwise only on its 10-minute timer, and the account, which no timer reads
+// (PANEL-28, D5). The page's refresh after a lane start passes false, so a session
+// starting never has `claude auth status` run beside it.
+func (r *Runtime) refreshAll(machine bool) {
 	if r.mstore != nil {
 		r.mstore.mergedDue.Store(true)
 	}
@@ -402,6 +415,9 @@ func (r *Runtime) refreshAll() {
 		if s.kick != nil {
 			kick(s.kick)
 		}
+	}
+	if machine && r.machine != nil {
+		r.machine.kickAll()
 	}
 }
 
@@ -502,13 +518,23 @@ func (r *Runtime) pollAgents(ctx context.Context, now time.Time) (update, time.D
 	var wts []signals.Worktree
 	r.hub.Read(func(m *state.Model, _ time.Time) { wts = m.Worktrees() })
 	if r.agentsFilterCheck.IsZero() || now.Sub(r.agentsFilterCheck) >= r.ticks.AgentsFilter {
-		r.agentsFilterCheck = now
-		r.agentsFilter = r.checkFilter(ctx, wts)
+		// Its time is recorded only after a cross-check that ran (PANEL-28): one the
+		// gate held back keeps the filter as it was, and is tried again with the poll.
+		filter, err := r.checkFilter(ctx, wts)
+		if wait, held := claudecall.RetryAfter(err); held {
+			return heldUpdate("agents", err), wait
+		}
+		r.agentsFilterCheck, r.agentsFilter = now, filter
 	}
 	argv := append([]string{"claude", "agents", "--json"}, r.agentsFilter...)
+	// Timed from when the gate lets it run: the poll's figures (AgentsPollAvgMs, D3's
+	// live estimate) are the call's, not its wait for the slot or a lock.
 	t0 := r.clock.Now()
-	out, err := r.exec(ctx, 10*time.Second, argv)
+	out, err := r.exec(claudecall.WithAcquired(ctx, func() { t0 = r.clock.Now() }), 10*time.Second, argv)
 	dur := r.clock.Now().Sub(t0)
+	if wait, held := claudecall.RetryAfter(err); held {
+		return heldUpdate("agents", err), wait
+	}
 	var agents []signals.Agent
 	if err == nil {
 		agents, err = signals.ParseAgents(out)
@@ -544,25 +570,42 @@ func (r *Runtime) pollAgents(ctx context.Context, now time.Time) (update, time.D
 	}, interval
 }
 
+// heldUpdate is the update for a machine or agents poll the claude gate held back
+// (PANEL-28): none for a busy slot; for a live lock, the pause note on its source
+// alone, which leaves its last reading, its success time and its error as they were.
+func heldUpdate(source string, err error) update {
+	if !errors.Is(err, claudecall.ErrPaused) {
+		return nil
+	}
+	return func(m *state.Model, _ time.Time) { m.PauseSource(source, claudecall.ErrPaused.Error()) }
+}
+
 // checkFilter decides whether `--cwd <dir>` may be used: only when the filtered list
-// holds every in-project session the unfiltered one does.
-func (r *Runtime) checkFilter(ctx context.Context, wts []signals.Worktree) []string {
+// holds every in-project session the unfiltered one does. Its error is the claude
+// gate's refusal alone (the cross-check did not run); a failed call is a filter of nil.
+func (r *Runtime) checkFilter(ctx context.Context, wts []signals.Worktree) ([]string, error) {
 	dir := signals.AgentsFilterDir(r.root, wts)
 	set := func(desc string) { r.setObs(func(o *state.Obs) { o.AgentsFilter = desc }) }
 	if dir == "" {
 		set("unfiltered: the worktrees share no directory but /")
-		return nil
+		return nil, nil
 	}
 	list := commandFetch(r, 10*time.Second, []string{"claude", "agents", "--json"}, signals.ParseAgents)
 	all, err := list(ctx)
+	if _, held := claudecall.RetryAfter(err); held {
+		return nil, err
+	}
 	if err != nil {
 		set("unfiltered: cannot cross-check (" + signals.Clip(err.Error(), 80) + ")")
-		return nil
+		return nil, nil
 	}
 	filtered, err := commandFetch(r, 10*time.Second, []string{"claude", "agents", "--json", "--cwd", dir}, signals.ParseAgents)(ctx)
+	if _, held := claudecall.RetryAfter(err); held {
+		return nil, err
+	}
 	if err != nil {
 		set("unfiltered: --cwd failed (" + signals.Clip(err.Error(), 80) + ")")
-		return nil
+		return nil, nil
 	}
 	var recs map[string]bool
 	r.hub.Read(func(m *state.Model, _ time.Time) { recs = m.LaneSessions() })
@@ -571,10 +614,10 @@ func (r *Runtime) checkFilter(ctx context.Context, wts []signals.Worktree) []str
 	})
 	if len(missed) > 0 {
 		set(fmt.Sprintf("unfiltered: --cwd %s missed %d session(s) of this project", dir, len(missed)))
-		return nil
+		return nil, nil
 	}
 	set("--cwd " + dir + " (cross-checked every " + r.ticks.AgentsFilter.String() + ")")
-	return []string{"--cwd", dir}
+	return []string{"--cwd", dir}, nil
 }
 
 // pollObs copies the counters into the model, only when they change (a model
@@ -612,8 +655,9 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 			focused = s.FocusedLanesIn(r.id)
 		}
 		if r.machine != nil {
-			// The quota is the account's: the machine alone notifies it, once, not
-			// once per project (PANEL-16). The page still shows it in every project.
+			// The quota is the account's, and the login locks (PANEL-28) the
+			// machine's: the machine alone notifies them, once, not once per project
+			// (PANEL-16). The page still shows them in every project.
 			v.Alerts = withoutQuota(v.Alerts)
 		}
 		r.mu.Lock()

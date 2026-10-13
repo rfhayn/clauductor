@@ -130,3 +130,106 @@ func TestQuotaAlertNotifiesOncePerMachine(t *testing.T) {
 		}
 	}
 }
+
+// PANEL-28: a login-lock alert is the machine's, as the quota's is. A lock live for
+// over 2 min notifies once, from the machine, however many projects show it; no
+// project's notifier sends it; and a project added live shows it too.
+func TestLoginLockAlertNotifiesOncePerMachine(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var sent []state.Notice
+	notify := func(n state.Notice) error { mu.Lock(); sent = append(sent, n); mu.Unlock(); return nil }
+	project := func(id string) *Runtime {
+		r := dispatchProject(t, id, "/r/"+id)
+		r.cfg = v2Config(t, "")
+		r.o = Options{Notify: notify, Out: io.Discard}
+		r.notifier = state.Notifier{MinInterval: time.Minute, Project: id}
+		r.notifyPath = filepath.Join(t.TempDir(), "notifier.json")
+		return r
+	}
+	projects := []*Runtime{project("a"), project("b")}
+	m := &Machine{o: Options{Notify: notify, Out: io.Discard}, projects: projects, def: projects[0],
+		notifier: state.Notifier{MinInterval: time.Minute, Project: "clauductor panel"}, notifyPath: filepath.Join(t.TempDir(), "n.json")}
+	lock := types.LoginLock{Which: "current", Path: "/h/.claude/.oauth_refresh.lock", State: "live",
+		ModTime: t0.Add(-2 * time.Second).UnixMilli(), LiveSince: t0.Add(-3 * time.Minute).UnixMilli(), PID: 4242,
+		Command: "claude -p hi", HolderState: "running", Holder: "other"}
+	m.each(func(md *state.Model, _ time.Time) { md.ApplyLoginLocks([]types.LoginLock{lock}) }) // as Run's watch does
+	for _, r := range projects {
+		r.machine = m
+		r.pollNotify()(context.Background(), t0)
+	}
+	mu.Lock()
+	if len(sent) != 0 {
+		t.Fatalf("a project's notifier sent %+v", sent)
+	}
+	mu.Unlock()
+	m.pollQuotaAlert(context.Background(), t0)
+	m.pollQuotaAlert(context.Background(), t0.Add(time.Second))
+	mu.Lock()
+	if len(sent) != 1 || !strings.HasPrefix(sent[0].Title, "clauductor panel") || !strings.Contains(sent[0].Body, "pid 4242") {
+		t.Fatalf("sent %+v, want one login-lock notification from the machine", sent)
+	}
+	mu.Unlock()
+
+	added := project("c")
+	m.addProject(added)
+	found := false
+	for _, a := range viewOf(added).Alerts {
+		found = found || a.Kind == state.AlertLoginLock
+	}
+	if !found {
+		t.Fatalf("a project added live does not show the lock alert: %+v", viewOf(added).Alerts)
+	}
+}
+
+// A project added while the machine applies a reading to every project ends with the
+// reading the default has: each() and addProject's copy do not interleave.
+//
+// The add is made to fall where it would miss: each() is held on the project it
+// updates before the default, and the add is tried meanwhile. It must wait for each()
+// to finish, then copy the default's new reading.
+func TestAddProjectNeverMissesAMachineReading(t *testing.T) {
+	t.Parallel()
+	first, def, added := dispatchProject(t, "a", "/r/a"), dispatchProject(t, "b", "/r/b"), dispatchProject(t, "c", "/r/c")
+	def.cfg = v2Config(t, "")
+	m := &Machine{projects: []*Runtime{first, def}, def: def}
+	var firstModel *state.Model
+	first.hub.Read(func(md *state.Model, _ time.Time) { firstModel = md })
+	release := make(chan struct{})
+	lock := types.LoginLock{Which: "current", Path: "/l", State: "live", PID: 4242}
+	eachDone := make(chan struct{})
+	go func() {
+		defer close(eachDone)
+		m.each(func(md *state.Model, _ time.Time) {
+			if md == firstModel {
+				<-release // held on the first project; the default is not updated yet
+			}
+			md.ApplyLoginLocks([]types.LoginLock{lock})
+		})
+	}()
+	waitUntil(t, "each() on the first project", 5*time.Second, func() bool {
+		// The first project's hub is locked while its update waits.
+		ok := make(chan struct{})
+		go func() { first.hub.Read(func(*state.Model, time.Time) {}); close(ok) }()
+		select {
+		case <-ok:
+			return false
+		case <-time.After(20 * time.Millisecond):
+			return true
+		}
+	})
+	addDone := make(chan struct{})
+	go func() { m.addProject(added); close(addDone) }()
+	select {
+	case <-addDone: // it copied the default's old reading: the update will miss it
+	case <-time.After(200 * time.Millisecond): // it waits for each(), as it must
+	}
+	close(release)
+	<-eachDone
+	<-addDone
+	var got []types.LoginLock
+	added.hub.Read(func(md *state.Model, _ time.Time) { got = md.LoginLocks() })
+	if len(got) != 1 || got[0].PID != 4242 {
+		t.Fatalf("the project added while the reading was applied holds %+v, not the default's", got)
+	}
+}
