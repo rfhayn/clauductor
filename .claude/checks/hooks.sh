@@ -25,7 +25,13 @@ mkdir -p "$R/src/lib"
 echo 'export const x = 1;' > "$R/src/lib/app.ts"
 printf 'all:\n' > "$R/Makefile"
 echo '# doc' > "$R/README.md"
-git -C "$R" add src Makefile README.md && git -C "$R" commit -qm seed
+mkdir -p "$R/tools"
+cat > "$R/tools/codemod.py" <<'PY'
+import pathlib
+p = pathlib.Path('src/lib/app.ts')
+p.write_text(p.read_text().replace('x', 'y'))
+PY
+git -C "$R" add src tools Makefile README.md && git -C "$R" commit -qm seed
 echo 'scratch' > "$R/src/lib/scratch.ts"            # untracked, beside a tracked file
 git -C "$R" worktree add -q "$d/wt" 2>/dev/null     # a second worktree of the same repo
 T=src/lib/app.ts
@@ -79,6 +85,44 @@ PY"
 nb 0 "echo prose naming sed -i" "echo never use sed -i on source"
 nb 0 "git log --grep for the spelling" "git log --oneline --grep 'sed -i'"
 nb 0 "an empty command" ""
+
+# A SCRIPT FILE is code too (#88): the command names only the file, and the rewrite is inside it.
+# Untracked scripts in the repository or a temp dir, each the same hazard as an inline row above.
+cp "$R/tools/codemod.py" "$R/rewrite.py"
+sed "s|src/lib/app.ts|$R/$T|" "$R/rewrite.py" > "$d/rewrite-tmp.py"
+{ printf '#!/usr/bin/env python3\n'; cat "$R/rewrite.py"; } > "$R/fix.py"; chmod +x "$R/fix.py"
+cat > "$R/resub.py" <<'PY'
+import re
+s = open('src/lib/app.ts').read()
+open('src/lib/app.ts', 'w').write(re.sub(r'x', 'y', s))
+PY
+cat > "$R/fix.js" <<'JS'
+const fs = require('fs');
+const f = 'src/lib/app.ts';
+fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('x', 'y'));
+JS
+printf "sed -i '' s/x/y/ src/lib/app.ts\n" > "$R/sub.sh"
+printf '#!/usr/bin/perl -pi\ns/x/y/;\n' > "$R/x.pl"
+cat > "$R/preview.py" <<'PY'
+print(open('src/lib/app.ts').read().replace('x', 'y'))
+PY
+sed 's|src/lib/app.ts|src/lib/scratch.ts|' "$R/rewrite.py" > "$R/scratch.py"
+{ cat "$R/fix.js"; awk 'BEGIN { for (i = 0; i < 2000; i++) print "// padding padding padding padding padding padding padding" }'; } > "$R/big.js"
+nb 2 "python3 on a script file" "python3 rewrite.py"
+nb 2 "a script file in a temp dir" "python3 $d/rewrite-tmp.py"
+nb 2 "a script run directly" "./fix.py"
+nb 2 "a script run through env" "env python3 rewrite.py"
+nb 2 "re.sub in a script file" "python3 -u resub.py"
+nb 2 "node on a script file" "node fix.js"
+nb 2 "sh on a script file" "sh sub.sh"
+nb 2 "perl with the script's own -pi switches" "perl x.pl $T"
+nb 0 "a script file that only reads" "python3 preview.py"
+nb 0 "a script file rewriting an untracked file" "python3 scratch.py"
+nb 0 "a TRACKED script (reviewed code, not a throwaway)" "python3 tools/codemod.py"
+nb 0 "a script file that does not exist" "python3 missing.py"
+nb 0 "python3 -m given a script file as an argument" "python3 -m py_compile rewrite.py"
+nb 0 "grep reading a script file" "grep -n replace rewrite.py"
+nb 0 "a script file over the size bound (a program, not a throwaway)" "node big.js"
 rc=0; printf '' | sh "$H/no-blind-source-rewrite.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than breaking every Bash call"
 
@@ -92,6 +136,7 @@ nojq() {
   expect_rc "$1" "$rc" "no-blind-source-rewrite without jq: $3"
 }
 nojq 2 "sed -i '' s/a/b/ $T" "blocks a command it could police"
+nojq 2 "python3 rewrite.py" "blocks a script-file run it could police"
 nojq 0 "git status" "allows a command it could not"
 
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
