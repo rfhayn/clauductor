@@ -794,8 +794,10 @@ func TestHeuristicsApproximateOnOtherVersion(t *testing.T) {
 	}
 	m.ApplyClaudeVersion("2.2.0", nil, t0)
 	v = m.Snapshot(t0)
-	if !laneByName(v, "add-feature").SubagentsApprox || len(v.Warnings) != 1 || !strings.Contains(v.Warnings[0], "2.2.0") {
-		t.Fatalf("other version not flagged: %+v", v.Warnings)
+	// PANEL-31: the lane's list says it is approximate; the check in progress is the
+	// status-bar field (Verification), not a warning bar.
+	if !laneByName(v, "add-feature").SubagentsApprox || len(v.Warnings) != 0 || v.Verification.State != VerifyChecking || v.Verification.Version != "2.2.0" {
+		t.Fatalf("other version not flagged: %+v %+v", v.Warnings, v.Verification)
 	}
 	if v.Observe.ClaudeVersion != "2.2.0" || v.Observe.VerifiedOn != "2.1.284" {
 		t.Fatalf("observe %+v", v.Observe)

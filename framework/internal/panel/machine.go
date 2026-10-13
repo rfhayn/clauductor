@@ -393,13 +393,17 @@ type savedVerification struct {
 // quota, and a version verified from live hooks. One panel runs per machine, so each
 // file has one writer. Every project's model folds every status post, so any one of
 // them holds the account's quota; a version any project verified holds for all.
+//
+// The version saved is the one verified for the RUNNING Claude Code, whichever project
+// holds it, not the first project's (which may still hold an older one restored from
+// verified.json), and it replaces an older version in every project (PANEL-31).
 func (m *Machine) saveReadings(_ context.Context, now time.Time) (update, time.Duration) {
 	var q *state.Quota
 	m.defRT().hub.Read(func(md *state.Model, _ time.Time) { q = md.QuotaReading() })
 	verified := ""
 	for _, r := range m.list() {
 		r.hub.Read(func(md *state.Model, _ time.Time) {
-			if v := md.AutoVerified(); v != "" && verified == "" {
+			if v := md.VerifiedRunning(); v != "" && verified == "" {
 				verified = v
 			}
 		})
@@ -414,7 +418,7 @@ func (m *Machine) saveReadings(_ context.Context, now time.Time) (update, time.D
 		if writePrivate(m.verifiedPath, b) == nil {
 			m.savedVerified = verified
 			fmt.Fprintf(m.o.Out, "Claude Code %s: the subagent pairing held on this machine's own hooks; recorded as verified\n", verified)
-			return func(md *state.Model, now time.Time) { md.RestoreAutoVerified(verified) }, 0
+			return func(md *state.Model, now time.Time) { md.ReplaceAutoVerified(verified) }, 0
 		}
 	}
 	return nil, 0

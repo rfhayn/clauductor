@@ -1605,9 +1605,10 @@ func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 
 // heuristicsApprox: the running Claude Code is not one the heuristics were verified
 // on, in the source or from live hooks (verify.go). Unknown (not read yet, or
-// unreadable) counts as approximate too.
+// unreadable) counts as approximate too, and so does a latest read that failed after
+// an earlier one worked: the version last read is not known to be the running one.
 func (m *Model) heuristicsApprox() bool {
-	return !m.v2.versionSet || m.checking()
+	return !m.v2.versionSet || m.readFailed() || m.checking() || m.breakFound()
 }
 
 // needsFor adds one session's "Needs you" (blocking) and "Done" (your move) items.
@@ -1869,17 +1870,16 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			"`clauductor panel trust` (or restart with --trust-config).")
 	}
 	v.Verification = m.verification()
-	switch vf := v.Verification; {
-	case vf.Broken != "":
+	// Two bars, independent of the state's precedence (PANEL-31, D2): a break, and a
+	// latest read that failed, so both can show. The check in progress is no bar: it
+	// is the status-bar field (Verification.State).
+	if vf := v.Verification; vf.Broken != "" {
 		// Keyed apart from the check in progress: a break shows again if it was closed.
 		v.warn("version:"+vf.Version+":broken", "Claude Code "+vf.Version+" changed what the subagent pairing relies on: "+vf.Broken+
 			". Subagent lists stay approximate until the panel is updated for it (docs/panel.md, Version pinning).")
-	case vf.Version != "":
-		v.warn("version:"+vf.Version, fmt.Sprintf("Claude Code %s is running; the subagent pairing was verified on %s. The panel is checking it "+
-			"against this project's own hooks (%d of %d subagent launches confirmed); subagent lists are approximate until then.",
-			vf.Version, HeuristicsVerifiedOn, vf.Confirmed, vf.Needed))
-	case !m.v2.versionSrc.Pending && !m.v2.versionSrc.OK && m.v2.versionSrc.Error != "":
-		v.warn("version:unread", "cannot read `claude --version` ("+m.v2.versionSrc.Error+"); subagent lists are approximate.")
+	}
+	if vf := v.Verification; vf.Unread != "" {
+		v.warn("version:unread", "cannot read `claude --version` ("+vf.Unread+"); subagent lists are approximate.")
 	}
 	if m.v2.droppedUnknown > 0 {
 		v.warn("unknown-events", fmt.Sprintf("%d hook event(s) with an event name the panel does not subscribe to were ignored.", m.v2.droppedUnknown))

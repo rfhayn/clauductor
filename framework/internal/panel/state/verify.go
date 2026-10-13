@@ -20,9 +20,10 @@ import (
 //   - it names no agent at all: unnamed (an error response does this too, so only a
 //     run of them with no confirmation counts against the version).
 //
-// verifyNeeded confirmations and no break verify the version; it is kept on disk
-// (verified.json) so a restart does not start over. A break keeps the warning and
-// says what broke: the page's subagent lists stay approximate, as before.
+// verifyNeeded confirmations, plus one per orphan while the orphans stay below
+// orphansBreak, verify the version (PANEL-31, D5); it is kept on disk (verified.json)
+// so a restart does not start over. A break keeps the warning and says what broke:
+// the page's subagent lists stay approximate, as before.
 const (
 	verifyNeeded = 3
 	orphanAfter  = 10 * time.Second
@@ -39,12 +40,28 @@ type verifier struct {
 	broken    string               // what broke, once something has
 }
 
+// The check's state (PANEL-31), the one the status-bar field and the version dialog
+// read. The first that holds wins: a break was found on real evidence, a failed read
+// says nothing about the pairing, and a check in progress is the quietest.
+const (
+	VerifyChanged  = "changed"  // the pairing changed on the running version
+	VerifyUnread   = "unread"   // the latest `claude --version` failed
+	VerifyChecking = "checking" // the running version is being checked
+	VerifyVerified = "verified" // nothing to show (this includes: not read yet)
+)
+
 // Verification is what the page and the footer say about it.
 type Verification struct {
+	State     string `json:"state"`
 	Version   string `json:"version,omitempty"` // the running version being checked
 	Confirmed int    `json:"confirmed"`
-	Needed    int    `json:"needed"`
-	Broken    string `json:"broken,omitempty"`
+	// Needed is the confirmations that verify it: verifyNeeded, plus one per orphan.
+	Needed int `json:"needed"`
+	// Orphans is the launches that named an agent no SubagentStart announced.
+	Orphans int    `json:"orphans"`
+	Broken  string `json:"broken,omitempty"`
+	// Unread is why the latest `claude --version` failed, if it did.
+	Unread string `json:"unread,omitempty"`
 	// Auto is the version verified from live hooks (verified.json), if any.
 	Auto string `json:"auto,omitempty"`
 }
@@ -73,11 +90,13 @@ func (m *Model) observeStart(ev signals.HookEvent, now time.Time) {
 		return
 	}
 	vr := m.verifierFor()
+	// Aged first (D5): a launch more than orphanAfter overdue is an orphan before any
+	// confirmation can verify the version, and a SubagentStart that late is one too.
+	m.ageOrphans(vr, now)
 	if _, ok := vr.await[ev.AgentID]; ok {
 		delete(vr.await, ev.AgentID)
 		m.confirm(vr)
 	}
-	m.ageOrphans(vr, now)
 }
 
 // observePost: an Agent call's PostToolUse, checked before the session applies it.
@@ -86,6 +105,7 @@ func (m *Model) observePost(s *session, ev signals.HookEvent, now time.Time) {
 		return
 	}
 	vr := m.verifierFor()
+	m.ageOrphans(vr, now) // before any confirmation, as in observeStart; this launch is not overdue
 	child, _, _ := ev.AgentResult()
 	switch {
 	case child == "":
@@ -98,7 +118,6 @@ func (m *Model) observePost(s *session, ev signals.HookEvent, now time.Time) {
 	default:
 		vr.await[child] = now
 	}
-	m.ageOrphans(vr, now)
 }
 
 // knowsAgent reports whether the session has seen this agent's SubagentStart.
@@ -119,7 +138,7 @@ func (m *Model) confirm(vr *verifier) {
 		return
 	}
 	vr.confirmed++
-	if vr.confirmed >= verifyNeeded && vr.orphans == 0 {
+	if vr.confirmed >= verifyNeeded+vr.orphans && vr.orphans < orphansBreak {
 		m.v2.autoVerified = vr.version
 	}
 }
@@ -148,13 +167,62 @@ func (m *Model) RestoreAutoVerified(v string) {
 	}
 }
 
-// verification is the view of it.
+// ReplaceAutoVerified makes v the verified version, replacing an older one: the
+// machine's, when any project verified the running version (PANEL-31, design.md shape 3).
+func (m *Model) ReplaceAutoVerified(v string) {
+	if v != "" {
+		m.v2.autoVerified = v
+	}
+}
+
+// VerifiedRunning is the version verified from live hooks, when it is the running one
+// ("" otherwise): what the machine keeps and shares. An older verified version a
+// restart restored is not it.
+func (m *Model) VerifiedRunning() string {
+	if m.v2.versionSet && m.v2.autoVerified == m.v2.claudeVersion {
+		return m.v2.autoVerified
+	}
+	return ""
+}
+
+// breakFound: this project's own check found a break on the running version. It holds
+// even when another project's verification has since made the version verified here
+// (ReplaceAutoVerified): a break was found on real evidence, so it stays first in the
+// precedence (design.md D2). It is in memory only; a restart forgets it.
+func (m *Model) breakFound() bool {
+	vr := m.v2.verify
+	return m.v2.versionSet && vr.version == m.v2.claudeVersion && vr.broken != ""
+}
+
+// readFailed: the latest `claude --version` failed, even if an earlier read worked.
+func (m *Model) readFailed() bool {
+	s := m.v2.versionSrc
+	return !s.Pending && !s.OK && s.Error != ""
+}
+
+// verification is the view of it: one state (verify.go's constants), computed here
+// and nowhere else, so the page renders it without deciding anything.
 func (m *Model) verification() Verification {
-	out := Verification{Needed: verifyNeeded, Auto: m.v2.autoVerified}
-	if m.checking() && m.v2.verify.version == m.v2.claudeVersion {
-		out.Version, out.Confirmed, out.Broken = m.v2.verify.version, m.v2.verify.confirmed, m.v2.verify.broken
-	} else if m.checking() {
+	out := Verification{State: VerifyVerified, Needed: verifyNeeded, Auto: m.v2.autoVerified}
+	checking := m.checking()
+	if checking || m.breakFound() {
 		out.Version = m.v2.claudeVersion
+		if vr := m.v2.verify; vr.version == m.v2.claudeVersion {
+			out.Confirmed, out.Orphans, out.Broken = vr.confirmed, vr.orphans, vr.broken
+			out.Needed = verifyNeeded + vr.orphans
+		}
+	}
+	if m.readFailed() {
+		out.Unread = m.v2.versionSrc.Error
+	}
+	switch {
+	case out.Broken != "":
+		out.State = VerifyChanged
+	case out.Unread != "":
+		out.State = VerifyUnread
+		out.Version = "" // the version last read is not treated as current
+	case checking:
+		out.State = VerifyChecking
 	}
 	return out
 }
