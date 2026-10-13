@@ -95,7 +95,8 @@ This change adds the capability spec `panel-attach` and updates those sections t
 **Scope.** The row names the page's Attach choice. D1 (approved by the owner, 2026-10-12) moves
 that choice to a new row, PANEL-43, queued right after this one, so this change ships the command and everything serving
 needs. This proposal's PR updates the roadmap to match: it narrows the PANEL-42 row, adds
-`framework/internal/panel` to its scope (for `run.go` and the git poll), and adds PANEL-43.
+`framework/internal/panel` to its scope (for `run.go` and the git poll) and `framework/internal/treesnap`
+(the test-support package the untouched-repository proof shares), and adds PANEL-43.
 
 ## Out of scope
 

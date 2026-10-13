@@ -93,9 +93,9 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **AND** the trust is refused and nothing is recorded
 
 #### Scenario: [ATTACH-3-S7] A bare `..`, and a script behind any shell's flags, are outside it
-- **GIVEN** an attached project whose sidecar has a queue running `make -C .. gate`, and a card running `bash -lc "sh ../other/gate.sh"`
+- **GIVEN** an attached project whose sidecar has a queue running `make -C .. gate`, a card running `bash -lc "sh ../other/gate.sh"`, and a card running `sh -c "cd ..>/dev/null; sh other/gate.sh"`
 - **WHEN** the owner trusts it
-- **THEN** trust is refused, and both lines are marked as outside the repository: `..` is a path that leaves the root, and every argv word holding whitespace or a shell operator is split and checked as a script, whatever program and flags come before it
+- **THEN** trust is refused, and all three lines are marked as outside the repository: `..` is a path that leaves the root, every argv word holding whitespace or a shell operator is split and checked as a script, whatever program and flags come before it, and a redirection operator attached to a word does not hide it
 
 #### Scenario: [ATTACH-3-S8] `/dev/null` is allowed only as a redirection's target
 - **GIVEN** attached projects whose sidecars each have one card, running `sh -c "sh .claude/owner-queue.sh 2>/dev/null"`, `sh -c "sh .claude/owner-queue.sh >/dev/null"`, `cat /dev/null`, and `sh -c "sh .claude/owner-queue.sh 2>/tmp/x"`
