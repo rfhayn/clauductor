@@ -40,6 +40,12 @@ THE SYSTEM SHALL read routines only from the registry (`.claude/routines.json`, 
 - **WHEN** the registry is validated
 - **THEN** validation fails, saying routines load no MCP server
 
+#### Scenario: [ROUTINES-1-S7] A claude -p routine needs a declared billing mode
+- **GIVEN** a registry with `"billing": null` and an enabled `claude -p` routine
+- **WHEN** it is validated
+- **THEN** validation fails, saying to run `routines.sh setup --billing subscription|api`
+- **AND** a registry with only command routines validates with no `billing`
+
 ### Requirement: A routine runs when its schedule says, and catches up as it declares
 THE SYSTEM SHALL run an enabled routine once for each schedule slot it reaches, and WHEN a slot passed while nothing ticked THE SYSTEM SHALL run it once at the next tick if its `catch_up` is `once`, and SHALL skip that slot if its `catch_up` is `skip`.
 
@@ -140,13 +146,13 @@ WHEN a run passes its `timeout_s` THE SYSTEM SHALL send SIGTERM to the process t
 - **WHEN** the routine times out and is stopped
 - **THEN** that other process is still running afterwards
 
-### Requirement: A claude -p routine runs on the subscription, bounded, and records its cost
-THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, with `--output-format json`, the model and effort of its role in `.claude/model-roles.json`, its tools, its turn limit and a budget no larger than what its caps leave; SHALL refuse it while `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set; and SHALL record the cost and turns its JSON reports.
+### Requirement: A claude -p routine runs as its billing mode says, bounded, and records its cost
+THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, with `--output-format json`, the model and effort of its role in `.claude/model-roles.json`, its tools and its turn limit; SHALL refuse it when the environment contradicts the registry's `billing` (in `subscription` mode, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a provider switch is set; in `api` mode, none is); and SHALL record the cost, turns, billing mode and credential source its run used.
 
-#### Scenario: [ROUTINES-6-S1] A key in the environment refuses the run
-- **GIVEN** `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set in the runner's environment
+#### Scenario: [ROUTINES-6-S1] An API credential refuses a subscription routine
+- **GIVEN** `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set in the runner's environment
 - **WHEN** a due `claude -p` routine would run
-- **THEN** claude is not started, and the run log records a refusal naming the variable
+- **THEN** claude is not started, and the run log records a `billing` refusal naming the variable
 - **AND** a due command routine in the same tick still runs, with both variables removed from its environment
 
 #### Scenario: [ROUTINES-6-S2] The invocation carries the role, the tools and the bounds
@@ -162,11 +168,11 @@ THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, wit
 - **THEN** the end record holds cost 0.12, turns 4, the model and the effort
 - **AND** the result text is kept as the run's output
 
-#### Scenario: [ROUTINES-6-S4] An unreadable answer counts at its budget
+#### Scenario: [ROUTINES-6-S4] An unreadable answer is cost unknown
 - **GIVEN** a fake claude that exits 1, or answers with no JSON, or is stopped by the timeout
 - **WHEN** the run ends
-- **THEN** its verdict is `failed` or `timeout`, its cost is recorded as unknown
-- **AND** the caps count that run at the budget it was given
+- **THEN** its verdict is `failed` or `timeout`, and its cost is recorded as unknown
+- **AND** in `api` mode the caps count that run at the budget it was given
 
 #### Scenario: [ROUTINES-6-S5] An error result is a failed run
 - **GIVEN** a fake claude whose JSON has `is_error: true`, or a subtype other than `success`
@@ -175,39 +181,66 @@ THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, wit
 - **AND** a subtype the runner has never seen is treated the same way
 
 #### Scenario: [ROUTINES-6-S6] A subscription token is allowed and named
-- **GIVEN** `CLAUDE_CODE_OAUTH_TOKEN` is set and neither API key variable is
+- **GIVEN** `billing` is `subscription`, `CLAUDE_CODE_OAUTH_TOKEN` is set and neither API key variable is
 - **WHEN** a due `claude -p` routine runs against a fake claude
 - **THEN** it runs, and its record's `auth` is `oauth-token`, with no part of the token's value in the log or the output
 - **AND** with no token set, the record's `auth` is `login`
 
-### Requirement: Caps and the quota bound unattended spend
-THE SYSTEM SHALL refuse to start a `claude -p` run when today's recorded spend has reached `daily_usd`, when the spend over the last `window_days` has reached `window_usd`, when today's `claude -p` runs have reached `daily_runs`, or when a current reading of the account's quota has any window at or above `quota_pct`; and SHALL log each refusal.
+#### Scenario: [ROUTINES-6-S7] An api routine runs on its key
+- **GIVEN** `billing` is `api` and `ANTHROPIC_API_KEY` is set
+- **WHEN** a due `claude -p` routine runs against a fake claude
+- **THEN** it runs with the key in its environment, and its record says `billing` `api` and `auth` `api-key`, with no part of the key in the log or the output
 
-#### Scenario: [ROUTINES-7-S1] The daily dollar cap refuses the next run
-- **GIVEN** `daily_usd` 1.00 and today's runs recorded at 1.02
+#### Scenario: [ROUTINES-6-S8] An api routine with no API credential is refused
+- **GIVEN** `billing` is `api` and none of `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or a provider switch is set
+- **WHEN** a due `claude -p` routine would run
+- **THEN** claude is not started, and the run log records a `billing` refusal saying the run would fall through to the subscription
+
+### Requirement: The caps follow the billing mode
+THE SYSTEM SHALL apply only the caps of the registry's `billing` mode to `claude -p` runs, and never to command runs. In `subscription` mode it SHALL refuse a new run when a counting reading of the 5-hour window is at or above `five_hour_pct`, or of the 7-day window (or the 7-day window for the routine's model) at or above `seven_day_pct`, a reading counting until its window resets; SHALL apply no dollar cap, and a daily run count only when `daily_runs` is set; and WHILE either window has no counting reading SHALL start at most `unknown_quota_daily_runs` runs a day. In `api` mode it SHALL refuse a new run when today's recorded spend has reached `daily_usd`, the spend over the last `window_days` has reached `window_usd`, or, when set, today's runs have reached `daily_runs`, and SHALL give each run a budget no larger than what those caps leave. It SHALL log each refusal.
+
+#### Scenario: [ROUTINES-7-S1] The daily dollar cap refuses the next api run
+- **GIVEN** `billing` is `api`, `daily_usd` 1.00 and today's runs recorded at 1.02
 - **WHEN** a `claude -p` routine is due
 - **THEN** it does not run, and the log records `capped` naming the daily cap and the spend
 
-#### Scenario: [ROUTINES-7-S2] The window cap and the run count refuse too
-- **GIVEN** `window_usd` 5.00 over 7 days with 5.10 recorded, or `daily_runs` 6 with six `claude -p` runs today
+#### Scenario: [ROUTINES-7-S2] The window cap, and a run count when set, refuse too
+- **GIVEN** `billing` is `api`, with `window_usd` 5.00 over 7 days and 5.10 recorded, or `daily_runs` set to 6 with six `claude -p` runs today
 - **WHEN** a `claude -p` routine is due
 - **THEN** it does not run, and the log records `capped` naming that cap
 
 #### Scenario: [ROUTINES-7-S3] The budget given is what the caps leave
-- **GIVEN** `daily_usd` 1.00 with 0.80 spent today and a routine with `max_usd` 0.50
+- **GIVEN** `billing` is `api`, `daily_usd` 1.00 with 0.80 spent today, and a routine with `max_usd` 0.50
 - **WHEN** it runs against a fake claude
 - **THEN** it is given `--max-budget-usd 0.20`
 
 #### Scenario: [ROUTINES-7-S4] Command routines are never capped
-- **GIVEN** every cap is reached
+- **GIVEN** every cap of either mode is reached
 - **WHEN** a command routine is due
 - **THEN** it runs
 
-#### Scenario: [ROUTINES-7-S5] A high quota reading refuses, an unknown one does not
-- **GIVEN** the panel's `quota.json` reports the 5-hour window at 72% with `quota_pct` 60, read 10 minutes ago and not yet reset
+#### Scenario: [ROUTINES-7-S5] A subscription window at its cap refuses
+- **GIVEN** `billing` is `subscription`, the defaults, and the panel's `quota.json` with the 5-hour window at 83%, or the 7-day window at 80%, or `seven_day_sonnet` at 90% for a routine whose role runs on sonnet, none of them past its reset
 - **WHEN** a `claude -p` routine is due
-- **THEN** it does not run, and the log records `quota` with the window and its percentage
-- **AND** with no `quota.json`, a reading older than 6 hours, or a window past its reset, it runs and the record says the quota was unknown
+- **THEN** it does not run, and the log records `quota` with the window, its percentage and when it was read
+- **AND** with every window below 80% it runs, and its record holds the readings
+
+#### Scenario: [ROUTINES-7-S6] A subscription has no dollar cap and no run count by default
+- **GIVEN** `billing` is `subscription`, the defaults, every window below 80%, $40 recorded today and twenty `claude -p` runs today
+- **WHEN** a `claude -p` routine with no `max_usd` is due
+- **THEN** it runs, and its argv has no `--max-budget-usd`
+
+#### Scenario: [ROUTINES-7-S7] A reading counts until its window resets
+- **GIVEN** `billing` is `subscription` and a `quota.json` written three days ago, with the 7-day window at 85% resetting tomorrow, and the 5-hour window at 10% whose reset has passed
+- **WHEN** a `claude -p` routine is due
+- **THEN** it does not run, and the log records `quota` naming the 7-day window and the reading's age
+- **AND** with the 7-day window at 40% instead, the 5-hour window counts as unknown (ROUTINES-7-S8 applies)
+
+#### Scenario: [ROUTINES-7-S8] An unknown quota allows only a few runs a day
+- **GIVEN** `billing` is `subscription`, `unknown_quota_daily_runs` 3, and no counting reading of the 5-hour window (no `quota.json`, or its reset has passed)
+- **WHEN** a `claude -p` routine is due with two `claude -p` runs today
+- **THEN** it runs, and its record says the quota was unknown
+- **AND** with three runs today it does not run, and the log records `capped` naming the unknown quota and the limit
 
 ### Requirement: The health line reports every routine and the ticker
 THE SYSTEM SHALL print, at session start, one line per enabled routine for this machine and one for the ticker, each opening with its verdict (`OK`, `FAILED`, `NEVER RAN`, `STALE`, `CAPPED`, `RUNNING` or `CANNOT CHECK`) and naming the run and the time it covers, and for a finished run its commit.
@@ -236,6 +269,11 @@ THE SYSTEM SHALL print, at session start, one line per enabled routine for this 
 - **GIVEN** jq is missing, or the run log is unreadable, or the registry does not validate
 - **WHEN** the health line runs
 - **THEN** it prints CANNOT CHECK, or FAILED for an invalid registry, with the reason, and exits 0
+
+#### Scenario: [ROUTINES-8-S6] An unknown quota is said, with the limit it brings
+- **GIVEN** `billing` is `subscription`, an enabled `claude -p` routine, and no counting reading of the 5-hour window
+- **WHEN** the health line runs
+- **THEN** it prints CANNOT CHECK for the routines' quota, naming the window, when it was last read, and the `unknown_quota_daily_runs` limit in force
 
 ### Requirement: Something ticks the runner without the panel
 THE SYSTEM SHALL print, on `routines.sh ticker`, a launchd job (macOS) or a crontab line (Linux and WSL2) that ticks this registry every 5 minutes from the repository's root, and SHALL install nothing itself.
@@ -268,3 +306,17 @@ THE SYSTEM SHALL run every process check with a refusing `claude` first on PATH,
 - **WHEN** the runner calls `claude`
 - **THEN** the refusing `claude` answers, the run's verdict is `failed` naming it
 - **AND** the check that did so fails, and the real `claude` is never started
+
+### Requirement: The billing mode is declared once, without calling claude
+THE SYSTEM SHALL record the registry's `billing` only through `routines.sh setup --billing subscription|api`, SHALL start no `claude` process and make no network call doing so, and SHALL refuse a declaration the environment contradicts.
+
+#### Scenario: [ROUTINES-12-S1] Setup writes the mode and calls nothing
+- **GIVEN** a registry with `"billing": null`, no API credential in the environment, and the checks' refusing `claude` first on PATH
+- **WHEN** `routines.sh setup --billing subscription` runs
+- **THEN** the registry's `billing` is `subscription`, every other field is unchanged
+- **AND** the refusing `claude` was never called
+
+#### Scenario: [ROUTINES-12-S2] Setup refuses a contradicted declaration
+- **GIVEN** `ANTHROPIC_API_KEY` is set
+- **WHEN** `routines.sh setup --billing subscription` runs, or `--billing api` runs with no API credential set
+- **THEN** it exits non-zero naming the variable (or its absence), and the registry is unchanged

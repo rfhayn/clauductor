@@ -30,8 +30,16 @@ A project can:
   `routines.sh ticker` prints (and, after PANEL-37, from the panel). Due routines run one at a
   time, a missed slot catches up once, and an overlapping tick leaves at once;
 - **bound them**: a timeout that stops only the routine's own child (SIGTERM, then SIGKILL 15 s
-  later); for `claude -p`, a daily and a 7-day dollar cap, a daily run count, the account's quota
-  when the panel has read one, and a refusal while an API key is set;
+  later). For `claude -p`, the caps follow how Claude Code is paid for, declared once with
+  `routines.sh setup --billing subscription|api`:
+  - **on a subscription,** quota only: no new run at 80% of the 5-hour or the 7-day window, as
+    the panel last read them. There is no dollar cap and no run count unless set. While the quota
+    is unknown (no panel, or no session since the window reset), at most 3 runs a day, and the
+    health line says so. A run is refused while an API key or auth token is set, because `-p`
+    would bill it instead;
+  - **on an API key,** dollar caps ($1 a day, $5 a week by default, each run's budget is what
+    they leave). A run is refused when no key is set, because it would fall through to the
+    subscription unguarded;
 - **read what happened**: every run in `<git common dir>/clauductor/routines/runs.jsonl` with its
   commit, verdict, duration and, for `claude -p`, the cost and turns from claude's own JSON; each
   run's output kept; and at the next session start, one health line per routine (OK, FAILED,
@@ -69,7 +77,8 @@ row gains the machine-wide cap across projects (D4). Both are revised to the own
 ## Out of scope
 
 - **The panel ticking routines, the routines table and ▶ run now:** PANEL-37. So is a machine-wide
-  dollar cap across projects (D4), added to its row by this PR.
+  dollar cap across projects for `api`-billed routines (D4), added to its row by this PR. On a
+  subscription the quota is already machine-wide.
 - **Showing the digest and routine costs in Today:** PANEL-38.
 - **Cloud routines:** the registry's `where` field is reserved for them. This runner runs only
   `local` and skips the rest. No row owns a cloud runner; PRD-maps keeps it for later.
@@ -84,6 +93,7 @@ row gains the machine-wide cap across projects (D4). Both are revised to the own
 
 - **Signal:** with the ticker loaded, on at least 5 of the first 7 mornings the session start
   shows `OK` for `nightly-checks` and `morning-digest`, with a digest file the owner finds worth
-  reading. No `CAPPED` line appears. Each digest costs under $0.30. `flake-watch` either stays OK
+  reading. No `CAPPED` line appears, and no `quota` refusal while the owner's windows are under
+  80%. Each digest's recorded cost (a list-price estimate on a subscription) is under $0.30. `flake-watch` either stays OK
   or shows a FAILED line whose log holds the `fx` line OPS-35 needs.
 - **Check after:** 14 days
