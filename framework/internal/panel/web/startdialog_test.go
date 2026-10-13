@@ -188,6 +188,70 @@ func TestStartDialogStartButton(t *testing.T) {
 	}
 }
 
+// startDialogChoiceHarness runs the dialog's own stApply (cut from panel.js) over a
+// stand-in for the "Where it runs" radios: a build template's plan where a lane already
+// runs in the branch's worktree (nothing can start), then a plain lane's plan.
+const startDialogChoiceHarness = `
+const vm = require("vm"), fs = require("fs");
+const window = {};
+vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), { window });
+const radios = ["new", "existing", "branch", "root"].map((value) => ({ value, checked: value === "existing", disabled: false }));
+const document = {
+  querySelectorAll: () => radios,
+  querySelector: (s) => { const m = /\[value="(\w+)"\]/.exec(s); return m ? radios.find((r) => r.value === m[1]) : radios.find((r) => r.checked) || null; },
+};
+const fields = { "st-tpl": { value: "build" }, "st-name": { value: "add-score-photo" }, "st-issue": { value: "" }, "st-type": { value: "build" },
+  "st-branch-row": { hidden: true }, "st-wt": { value: "/repo/w/add-score-photo", title: "", options: [{ value: "/repo/w/add-score-photo" }], appendChild() {} } };
+const $ = (id) => fields[id], el = () => ({}), offline = () => false;
+const S = {
+  laneTypes: [{ name: "build", prefix: "change/" }],
+  templates: [{ id: "build", laneType: "build", branchPattern: "change/{name}", firstPrompt: '/build-change {"change": "{name}"}' }],
+  lanes: [{ path: "/repo/w/add-score-photo", branch: "change/add-score-photo", terminal: "score" }],
+  quietWorktrees: [], approvals: { "add-score-photo": true },
+};
+let stPlan = null;
+%FUNCS%
+const seen = () => ({ checked: radios.filter((r) => r.checked).map((r) => r.value), mode: stMode(), canStart: stCanStart() });
+const out = {};
+stApply(window.StartPlan.planStart(S, { from: "template", template: "build", name: "add-score-photo" }));
+out.none = seen();
+stApply(window.StartPlan.planStart(S, { from: "template", template: "", name: "add-score-photo" }));
+out.plain = seen();
+console.log(JSON.stringify(out));
+`
+
+// OPS-56: a plan that allows no start leaves no "Where it runs" choice checked, so none
+// claims where a lane would run; the next plan that allows a start checks the lane
+// type's own choice again.
+func TestStartDialogClearsTheChoiceWhenNothingCanStart(t *testing.T) {
+	t.Parallel()
+	js := readWeb(t, "panel.js")
+	var funcs []string
+	for _, name := range []string{"stMode", "stRadio", "stType", "typeMode", "anyChoice", "stCanStart"} {
+		m := regexp.MustCompile(`(?m)^function ` + name + `\(.*$`).FindString(js)
+		if m == "" {
+			t.Fatalf("panel.js has no one-line function %s", name)
+		}
+		funcs = append(funcs, m)
+	}
+	funcs = append(funcs, funcBody(t, js, "stApply")+"\n}")
+	var got map[string]struct {
+		Checked  []string `json:"checked"`
+		Mode     string   `json:"mode"`
+		CanStart bool     `json:"canStart"`
+	}
+	b := runPlanHarness(t, strings.Replace(startDialogChoiceHarness, "%FUNCS%", strings.Join(funcs, "\n"), 1))
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("harness output: %v\n%s", err, b)
+	}
+	if n := got["none"]; len(n.Checked) != 0 || n.Mode != "" || n.CanStart {
+		t.Errorf("a plan that allows no start: checked %q, stMode %q, Start enabled %v; want none checked, \"\", disabled", n.Checked, n.Mode, n.CanStart)
+	}
+	if p := got["plain"]; len(p.Checked) != 1 || p.Checked[0] != "new" || p.Mode != "new" || !p.CanStart {
+		t.Errorf("the next plan, which allows a start: checked %q, stMode %q, Start enabled %v; want the type's \"new\" checked, Start enabled", p.Checked, p.Mode, p.CanStart)
+	}
+}
+
 // [NEWLANE-5-S1] The New lane dialog's template list opens with its empty choice
 // reading "No template: a plain Claude session".
 func TestStartDialogNamesThePlainLane(t *testing.T) {

@@ -282,8 +282,10 @@ spec_merge() {
       body = preamble; sub(/[ \t\n]+$/, "", body); if (body !~ /[^ \t\n]/) body = ""
       if (after != "") after = after "\n"
       for (j = 1; j <= ln; j++) if (lord[j] in lblk) { body = body (body == "" ? "" : "\n\n") trim(lblk[lord[j]]); delete lblk[lord[j]] }
+      # A new capability has no OpenSpec layout to match (it would write a TBD Purpose), so its
+      # Purpose stays a paragraph of its own.
       b = before; sub(/[ \t\n]+$/, "", b)
-      out = (b == "" ? "" : b "\n") hdr "\n" body "\n" (after ~ /^\n/ ? after : "\n" after)
+      out = (b == "" ? "" : b (newcap ? "\n\n" : "\n")) hdr "\n" body "\n" (after ~ /^\n/ ? after : "\n" after)
       while (gsub(/\n\n\n/, "\n\n", out)) {}
       printf "%s", out
     }' "$_sm_g" "$3" "$_sm_l"

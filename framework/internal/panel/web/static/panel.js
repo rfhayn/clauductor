@@ -2854,7 +2854,8 @@ window.addEventListener("focus", wakeTerms);
 
 // ---- v1: the Start lane dialog ------------------------------------------------
 const slug = StartPlan.slug;
-function stMode() { return document.querySelector('input[name="st-mode"]:checked').value; }
+// "" while a plan that allows no start leaves no choice checked (stApply).
+function stMode() { const r = document.querySelector('input[name="st-mode"]:checked'); return r ? r.value : ""; }
 function stRadio(m) { return document.querySelector('input[name="st-mode"][value="' + m + '"]'); }
 function stType() { return (S.laneTypes || []).find((x) => x.name === $("st-type").value); }
 // Where a lane of the chosen type runs by default: a new branch, or the project root
@@ -2882,9 +2883,13 @@ function stApply(p) {
   for (const r of document.querySelectorAll('input[name="st-mode"]')) r.disabled = !p.choices[r.value];
   // The existing-branch choice belongs to a template's branch: a plain lane never has it.
   $("st-branch-row").hidden = !p.template;
-  if (p.mode) stRadio(p.mode).checked = true;
-  // The template that chose the existing branch is gone: back to the lane type's own.
-  else if (stRadio(stMode()).disabled && anyChoice(p)) stRadio(typeMode()).checked = true;
+  // Nothing can start (a lane runs there, a stopped rebase): no choice stays checked, so
+  // none claims where the lane would run.
+  if (!anyChoice(p)) { if (stMode()) stRadio(stMode()).checked = false; }
+  else if (p.mode) stRadio(p.mode).checked = true;
+  // The template that chose the existing branch is gone, or the last plan allowed no
+  // start: back to the lane type's own.
+  else if (!stMode() || stRadio(stMode()).disabled) stRadio(typeMode()).checked = true;
   if (p.worktree) {
     const wt = $("st-wt");
     // The server may name a worktree made after the dialog listed them.
@@ -2942,7 +2947,7 @@ function stUpdate() {
       ? "Creates branch " + type.prefix + (name || "<name>") + " from " + S.laneBase + " in " + S.worktreeRoot + "/" + (name || "<name>")
       : "Lane type " + (type ? type.name : "?") + " has no branch prefix; pick an existing worktree or the project root.";
   } else if (mode === "existing") p = "Runs in " + ($("st-wt").value || "?");
-  else p = "Runs in " + S.root;
+  else if (mode === "root") p = "Runs in " + S.root;
   if (tpl) {
     const name = $("st-name").value, issue = $("st-issue").value.trim();
     const branch = StartPlan.branch(tpl, name.trim(), issue) || fillTpl(tpl.branchPattern, name, issue), at = S.worktreeRoot + "/" + (name || "<name>");
