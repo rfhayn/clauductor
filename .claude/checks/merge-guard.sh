@@ -364,6 +364,31 @@ guard 0 "a commit message that mentions a merge (prose)" 'git commit -m "then gh
 guard 2 "a quoted gh (cannot read the site)" '"gh" pr merge 5 --squash'
 guard 2 "a computed word" 'gh pr $(echo merge) 5'
 guard 2 "no PR named" "gh pr merge --squash"
+# OPS-57: a PR word the reader cut short. merge_argv stops at a `$` or a backtick, and once kept the
+# digits before it as the PR, so the guard judged a shorter number than the shell merged. With
+# evidence for that shorter number's head, each of these was ALLOWED. The PR word is either read
+# whole or not at all: no PR, so the merge is refused as one whose PR cannot be told.
+cp "$R/.git/ci-receipt" "$d/receipt.ops57" 2>/dev/null || :
+receipt "$MAINSHA"
+cutpr() {  # cutpr LABEL COMMAND: refused as a merge whose PR cannot be told, not on its evidence
+  guard 2 "OPS-57: $1" "$2"
+  [ "$rc" != 2 ] || grep -q 'cannot tell which PR this merges' "$d/err" \
+    || fail "OPS-57: $1: blocked, but not as a PR it cannot tell: $(head -n 1 "$d/err")"
+}
+cutpr "a PR number with a parameter expansion after its digits" 'gh pr merge 5$X --squash'
+cutpr "a PR number with a braced expansion after its digits" 'gh pr merge 5${X} --squash'
+cutpr "a PR number with a command substitution after its digits" 'gh pr merge 5$(echo 1) --squash'
+cutpr "a PR number with a backtick substitution after its digits" 'gh pr merge 5`echo 1` --squash'
+cutpr "a PR number with an expansion after its digits, flags first" 'gh pr merge --squash 5$X'
+cutpr "a PR URL with an expansion after its number" 'gh pr merge https://github.com/acme/app/pull/5$X --squash'
+cutpr "a quoted PR number with an expansion inside its quotes" 'gh pr merge "5$X" --squash'
+# What still reads exactly: each of these is PR 5, allowed on PR 5's evidence.
+guard 0 "OPS-57: a plain PR number still reads exactly" "gh pr merge 5 --squash --delete-branch"
+guard 0 "OPS-57: this repo's PR URL still reads exactly" "gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 0 "OPS-57: a quoted PR number still reads exactly" 'gh pr merge "5" --squash'
+guard 0 "OPS-57: an expansion in a later flag's value leaves the PR word whole" 'gh pr merge 5 --squash --subject "$X"'
+cutpr "the current-branch form (no PR word) is still refused" "gh pr merge --squash --delete-branch"
+rm -f "$R/.git/ci-receipt"; mv "$d/receipt.ops57" "$R/.git/ci-receipt" 2>/dev/null || :
 guard 2 "two merges in one command" "gh pr merge 5 --squash && gh pr merge 6 --squash"
 guard 0 "another repo's merge, in the allowlisted shape" "gh pr merge 2 -R other/tool --squash --delete-branch"
 guard 2 "another repo named outside the shape" "echo x | xargs gh pr merge 2 -R other/tool"
