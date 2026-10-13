@@ -403,4 +403,21 @@ expect_rc 1 "$rc" "gate-wait on an interrupted gate: FAIL (1)"
 # Bounded: past GATE_RUNS_MAX_BYTES the log becomes gate-runs.log.1 and a new one starts.
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
 [ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES the run log rotates to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
+
+# A project.conf that names a variable the run state does not set ($ROOT, read before conf.sh runs)
+# still gates: recording the run must never stop the gate.
+printf 'PROJECT_NOTES="$ROOT/docs/notes"\n' >> "$R/.claude/project.conf"
+rm -f "$STATE"; run --quick; rc=$?
+git -C "$R" checkout -q -- .claude/project.conf
+expect_rc 0 "$rc" "a project.conf naming \$ROOT does not stop the gate (the run state reads it without nounset)"
+grep -q '^started .* mode=quick ' "$STATE" && ok "...and the run is still recorded" || fail "no started line after a project.conf naming \$ROOT: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
+
+# Every place that tells an agent to run the gate says how to follow one the tool backgrounds. Read
+# from the model's own copy: the project's, or the plugin's (CLAUDUCTOR_FW).
+for f in workflows/build-change.js skills/apply-change/SKILL.md; do
+  p="${CLAUDUCTOR_FW:-$ROOT/.claude}/$f"
+  if [ ! -f "$p" ]; then fail "$p is missing: nothing tells its agents how to run the gate"
+  elif grep -q 'gate-wait.sh' "$p"; then ok "$f tells its agent to follow a backgrounded gate with gate-wait.sh"
+  else fail "$f never names gate-wait.sh: an agent whose gate the tool backgrounds is told nothing"; fi
+done
 finish

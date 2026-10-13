@@ -34,7 +34,9 @@ do one group alone. The loop is the same, and so are its stops.
    from `git ls-files --deleted`, `git rm -q --cached -- <path>`.
 3. **Gate.** `scripts/ci/gate.sh --quick` (the project's `GATE` with its `GATE_QUICK_FLAGS`, from
    `.claude/project.conf`, when they differ). Red: the builder fixes it at its source (at most two
-   attempts); an environment fault or a gate still red is a STOP.
+   attempts); an environment fault or a gate still red is a STOP. If the tool moves the gate to
+   the background, call `scripts/ci/gate-wait.sh` in the foreground (timeout 600000) until it
+   exits 0 or 1.
 4. **Review.** Spawn the `clauductor:reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
@@ -49,6 +51,8 @@ do one group alone. The loop is the same, and so are its stops.
 
 ## Then
 - The full gate on the committed HEAD: `scripts/ci/gate.sh` (no flags). It writes the receipt.
+  If the tool moves the gate to the background, call `scripts/ci/gate-wait.sh` in the foreground
+  (timeout 600000) until it exits 0 or 1.
 - `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
   `merge-pr`, recording `Review: converged in <n> round(s), peak <sev>, at <sha>` per group.

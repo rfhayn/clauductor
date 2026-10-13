@@ -14,7 +14,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # from the main thread, `agent_id` from a general-purpose subagent and from a Workflow agent.
 #
 # THREE DOORS TO THE BACKGROUND, for a call that INVOKES a gate (lib/gate-reader.awk: a gate in
-# command position, not a mention in `cat`, `git log` or a commit message):
+# command position, not a mention in `cat`, `git log` or a commit message). A gate is a configured
+# PATH (GATE, GATE_RUN, gate-wait.sh beside GATE_RUN), given as itself, `./`-prefixed or ending
+# `/<path>`, never any script that shares its file name (`.claude/checks/gate.sh` is not the gate):
 #   1. the shell's own `&` (`gate.sh &`, `nohup … &`, `( gate.sh ) &`): the call returns at once
 #      and NOTHING waits for the gate, in a subagent or in the main session alike, so it is refused
 #      for both (any unquoted `&` in a command that invokes a gate counts);
@@ -29,10 +31,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # KNOWN LIMIT: doors 2 and 3 rest on `agent_id`. A Claude Code that stopped sending it would make
 # them allow everything, silently; door 1 does not depend on it.
 #
-# WITHOUT jq THIS HOOK FAILS CLOSED, for a subagent call that names a gate, and only then (as
-# no-blind-source-rewrite does): the raw payload carries `"agent_id"` and a gate's file name, so it
-# is refused, even a mention. Everything else is allowed: blocking every Bash call over a risk
-# confined to one command would stop the session dead.
+# WITHOUT jq THIS HOOK FAILS CLOSED, for a call that names a gate, and only then (as
+# no-blind-source-rewrite does): a raw payload naming a gate's path is refused when it also holds a
+# background `&` (anyone's) or `"agent_id"` (a subagent's), even a mention. Everything else is
+# allowed: blocking every Bash call over a risk confined to one command would stop the session dead.
+# The same raw reading stands in when the awk reader fails.
 #
 # Protocol: exit 2 = block (stderr reaches Claude); exit 0 = allow. Checked by .claude/checks/hooks.sh.
 
@@ -49,32 +52,43 @@ if [ -f "$(dirname "$0")/../lib/conf.sh" ]; then
   # shellcheck disable=SC1091
   . "$(dirname "$0")/../lib/conf.sh"
 fi
-run=${GATE_RUN:-scripts/ci/run-local.sh}
-wrap=${GATE:-scripts/ci/gate.sh}
-waiter="$(dirname "$run")/gate-wait.sh"
-gates="${run##*/} ${wrap##*/} gate-wait.sh"
+run=${GATE_RUN:-scripts/ci/run-local.sh}; run=${run#./}
+wrap=${GATE:-scripts/ci/gate.sh}; wrap=${wrap#./}
+waiter="$(dirname "$run")/gate-wait.sh"; waiter=${waiter#./}
+gates="$run $wrap $waiter"
+
+# names TEXT: a gate's path anywhere in TEXT (backslashes dropped: JSON may escape a slash).
+names() {
+  _t=$(printf '%s' "$1" | tr -d '\\')
+  for g in $gates; do case "$_t" in *"$g"*) return 0 ;; esac; done
+  return 1
+}
+# amp TEXT: an `&` that backgrounds something (`&&`, `<&`, `>&`, `|&` and `&>` do not): the raw
+# reading, broader than the reader's, for when the reader or jq cannot run.
+amp() { printf '%s' "$1" | sed -e 's/&&//g' -e 's/[<>|]&//g' -e 's/&>//g' | grep -q '&'; }
 
 HINT="Run it in the FOREGROUND, with the Bash timeout at 600000 and without '&'. If the tool still moves it to the background (a gate longer than 10 minutes), call $waiter in the foreground (timeout 600000) until it prints PASS or FAIL: exit 3 means still running, call it again. Never end your turn while a gate is pending."
 
 block() { echo "BLOCKED by no-background-gate: $1" >&2; echo "$2" >&2; exit 2; }
 
 if ! command -v jq >/dev/null 2>&1 || ! printf '%s' "$payload" | jq -e . >/dev/null 2>&1; then
-  case "$payload" in *'"agent_id"'*) ;; *) exit 0 ;; esac
-  for g in $gates; do
-    case "$payload" in *"$g"*)
-      block "jq could not read the hook payload (jq missing, or a malformed payload), and this subagent call names the gate ($g), so it is refused rather than let it run unwatched." \
-        "Install jq (macOS: brew install jq; Debian/Ubuntu: apt-get install jq), check that 'jq --version' works, then retry. $HINT" ;;
-    esac
-  done
+  names "$payload" || exit 0
+  why=""
+  amp "$payload" && why="beside an '&'"
+  case "$payload" in *'"agent_id"'*) why="${why:-from a subagent}" ;; esac
+  [ -n "$why" ] && block "jq could not read the hook payload (jq missing, or a malformed payload), and this call names the gate $why, so it is refused rather than let it run unwatched." \
+    "Install jq (macOS: brew install jq; Debian/Ubuntu: apt-get install jq), check that 'jq --version' works, then retry. $HINT"
   exit 0
 fi
 
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // "" | tostring')
-# The reader failing (missing, or an awk that cannot run it) leaves the raw text: a gate's file name
+# No gate path anywhere in the text: no gate, and no need to read a long command word by word.
+names "$cmd" || exit 0
+# The reader failing (missing, or an awk that cannot run it) leaves the raw text: a gate's path
 # anywhere in it counts as an invocation, broader than the reader and never narrower.
 if ! verdict=$(printf '%s' "$cmd" | awk -v gates="$gates" -f "$(dirname "$0")/lib/gate-reader.awk" 2>/dev/null); then
-  verdict=""
-  for g in $gates; do case "$cmd" in *"$g"*) verdict=GATE ;; esac; done
+  verdict=GATE
+  amp "$cmd" && verdict="GATE AMP"
 fi
 case "$verdict" in *GATE*) ;; *) exit 0 ;; esac
 

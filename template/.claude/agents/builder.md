@@ -40,7 +40,9 @@ credential). A guess is the expensive failure here: it passes the gate and reads
 
 **Context discipline.** Every line you read is re-read as cache on each later turn, so:
 - Gate with the agent-facing wrapper (`GATE` in `.claude/project.conf`), never the full runner
-  directly: it prints the failures and a tail, and names the full log to `grep`.
+  directly: it prints the failures and a tail, and names the full log to `grep`. If the tool moves
+  the gate to the background, call `scripts/ci/gate-wait.sh` in the foreground (timeout 600000)
+  until it exits 0 or 1.
 - Send any command output that can exceed ~100 lines to a file; read only its failure lines and a
   `tail`.
 - Read a file over ~300 lines by range: `grep -n` for the symbol, then `offset`/`limit` around it.

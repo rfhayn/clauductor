@@ -65,11 +65,12 @@ gate_state_start() {
   done
   # The clean room tests HEAD's commit whatever is on disk; otherwise the run tests the checkout.
   _gs_subject=worktree
-  # Read in a subshell: run-local.sh calls this before it loads the config itself.
+  # Read in a subshell: run-local.sh calls this before it loads the config itself, so a value the
+  # config takes from $ROOT is unset here, and nounset (run-local.sh's set -u) must not end the gate.
   _gs_room=${GATE_CLEAN_ROOM:-}
   if [ -z "$_gs_room" ]; then
     _gs_top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$_gs_top/.claude/project.conf" ] \
-      && _gs_room=$(. "$_gs_top/.claude/project.conf" >/dev/null 2>&1; printf '%s' "${GATE_CLEAN_ROOM:-}")
+      && _gs_room=$(set +eu; . "$_gs_top/.claude/project.conf" >/dev/null 2>&1; printf '%s' "${GATE_CLEAN_ROOM:-}")
   fi
   [ "$_gs_room" = archive ] && [ "$_gs_dirty" -eq 0 ] && _gs_subject=commit
   printf 'started pid=%s at=%s mode=%s subject=%s head=%s tree=%s script=%s\n' "$$" "$(date +%s)" \

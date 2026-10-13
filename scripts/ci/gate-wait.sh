@@ -39,8 +39,9 @@ LIB="$(dirname "$0")/lib/gate-state.sh"
 STATE="$GD/ci-gate.state"
 RECEIPT="$GD/ci-receipt"
 LOG="$GD/ci-gate.log"
-LIMIT=${GATE_WAIT_SECONDS:-540}
-POLL=${GATE_WAIT_POLL:-5}
+# Whole seconds only: anything else would never compare as elapsed, and the call would never end.
+LIMIT=${GATE_WAIT_SECONDS:-540}; case $LIMIT in ''|*[!0-9]*) LIMIT=540 ;; esac
+POLL=${GATE_WAIT_POLL:-5}; case $POLL in ''|*[!0-9]*|0) POLL=5 ;; esac
 TOP=$(git rev-parse --show-toplevel)
 GATE_CMD=$( [ -f "$TOP/.claude/project.conf" ] && . "$TOP/.claude/project.conf" >/dev/null 2>&1; printf '%s' "${GATE:-scripts/ci/gate.sh}")
 HEAD_SHA=$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)

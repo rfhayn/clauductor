@@ -135,7 +135,7 @@ const trailerBlock = (cfg, change, role, model, session) => {
 // would be invisible to BOTH the gate and the reviewer, and a deleted-unstaged one breaks an
 // archive. Registering them makes all three see one set.
 const REGISTER = `First make the index match the working tree without staging content: for each path from \`git ls-files -z --others --exclude-standard\` run \`git add -N -- <path>\` (intent-to-add), and for each path from \`git ls-files -z --deleted\` run \`git rm -q --cached -- <path>\`. Report nothing about this step unless it fails.`
-const GATE_OUTPUT = 'It prints only stage markers, failure lines and the verdict tail, and names the full log: `grep` that log for more, never read it whole.'
+const GATE_OUTPUT = 'It prints only stage markers, failure lines and the verdict tail, and names the full log: `grep` that log for more, never read it whole. If the tool moves the gate to the background, call `scripts/ci/gate-wait.sh` in the foreground (timeout 600000) until it exits 0 or 1.'
 const NO_AGENT = 'if this is the first run since .claude/agents/ changed, the builder/reviewer types register only at SESSION START: restart Claude Code, then resume this run'
 
 const SETTINGS = {

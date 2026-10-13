@@ -2,14 +2,17 @@
 # questions. Not a shell: a tokenizer that knows quotes, escapes, `$(…)`, backticks, `${…}`,
 # heredocs, comments, redirections and separators. POSIX awk only (BSD awk on a Mac, mawk on Debian).
 #
-#   awk -v gates="gate.sh run-local.sh gate-wait.sh" -f gate-reader.awk
+#   awk -v gates="scripts/ci/run-local.sh scripts/ci/gate.sh scripts/ci/gate-wait.sh" -f gate-reader.awk
 #
 # Output, one line each, only when true:
-#   GATE   a gate is INVOKED: one of `gates` (by file name) in COMMAND POSITION. That is the first
+#   GATE   a gate is INVOKED: one of `gates` in COMMAND POSITION, as that path, `./` and that path,
+#          or any word ending `/<that path>` (an absolute path, "$CLAUDE_PROJECT_DIR"/…, ../…), never
+#          another script of the same file name (`.claude/checks/gate.sh`). Command position is the first
 #          word of a simple command, after `VAR=value` prefixes and any wrapper (nohup, env,
 #          timeout 600, time, exec, nice, xargs, `{`, `!`, if/then/do …), or the script a shell runs
-#          (`bash scripts/ci/gate.sh`, `. gate.sh`), read recursively through `sh -c "…"`,
-#          `eval "…"`, `env -S "…"`, `$( … )` and backticks. A MENTION is not an invocation:
+#          (`bash scripts/ci/gate.sh`, `. scripts/ci/gate.sh`), read recursively through `sh -c "…"`,
+#          `eval "…"`, `env -S "…"`, `$( … )` and backticks (arithmetic `$(( … ))` is not a command).
+#          A MENTION is not an invocation:
 #          `cat scripts/ci/gate.sh`, `git log -- scripts/ci/run-local.sh`, a commit message or a
 #          heredoc body naming them.
 #   AMP    an `&` outside quotes, comments and heredoc bodies sends something to the shell's
@@ -18,7 +21,8 @@
 #          broader than the shell, never narrower.
 #
 # KNOWN LIMITS (not seen, so allowed): a computed command word (`$G`, `$(echo gate.sh)`), an alias
-# or a function, `find -exec`, and a gate run as a script on a shell's stdin (`bash <<EOF`).
+# or a function, `find -exec`, a gate run as a script on a shell's stdin (`bash <<EOF`), and a gate
+# reached by a path relative to another directory (`cd scripts/ci && ./gate.sh`).
 # Checked by .claude/checks/hooks.sh.
 
 BEGIN {
@@ -38,6 +42,13 @@ END { scan(src); if (G) print "GATE"; if (A) print "AMP" }
 
 function base(t) { sub(/.*\//, "", t); return t }
 
+# isgate T: T names a configured gate path: exactly, `./`-prefixed, or as the end of a longer path.
+function isgate(t,   p) {
+  sub(/^\.\//, "", t)
+  for (p in GATES) if (t == p || (length(t) > length(p) && substr(t, length(t) - length(p)) == "/" p)) return 1
+  return 0
+}
+
 # A new simple command at this depth.
 function sep() { ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0 }
 
@@ -54,7 +65,7 @@ function onword(t,   b, st) {
   st = ST[D]
   if (st == "rest") return
   if (st == "eval") { scan(t); return }
-  if (st == "src") { if (base(t) in GATES) G = 1; ST[D] = "rest"; return }
+  if (st == "src") { if (isgate(t)) G = 1; ST[D] = "rest"; return }
   if (st == "shell") {
     if (SKN[D]) { SKN[D] = 0; return }
     if (t ~ /^--./) return
@@ -67,7 +78,7 @@ function onword(t,   b, st) {
     }
     if (t == "-" || t == "--") return
     if (CF[D]) { ST[D] = "rest"; scan(t); return }
-    if (!NOX[D] && (base(t) in GATES)) G = 1
+    if (!NOX[D] && isgate(t)) G = 1
     ST[D] = "rest"
     return
   }
@@ -84,21 +95,47 @@ function onword(t,   b, st) {
   if (WK[D] != "" && t ~ /^[0-9.]+[smhd]?$/) return
   b = base(t)
   if (b in WRAP) { WK[D] = b; return }
-  if (b in GATES) { G = 1; ST[D] = "rest"; return }
+  if (isgate(t)) { G = 1; ST[D] = "rest"; return }
   if (b in SHELLS) { ST[D] = "shell"; return }
   if (t == "eval") { ST[D] = "eval"; return }
   if (t == "." || t == "source") { ST[D] = "src"; return }
   ST[D] = "rest"
 }
 
-# close_paren S I: the index of the `)` matching the `(` at I, quotes skipped; past the end if none.
-function close_paren(s, i,   n, d, c) {
-  n = length(s); d = 0
+# close_paren S I [ARITH]: the index of the `)` matching the `(` at I, past the end if none. Quotes
+# are skipped, and so are heredoc bodies (a `)` in one does not close it), except in arithmetic
+# (ARITH), where `<<` is a shift.
+function close_paren(s, i, arith,   n, d, c, hd, dl, st, e, line, k, m, q) {
+  n = length(s); d = 0; hd = ""
   for (; i <= n; i++) {
     c = substr(s, i, 1)
     if (c == "\\") { i++; continue }
     if (c == "'") { while (++i <= n && substr(s, i, 1) != "'") ; continue }
     if (c == "\"") { while (++i <= n && substr(s, i, 1) != "\"") if (substr(s, i, 1) == "\\") i++; continue }
+    if (!arith && c == "<" && substr(s, i + 1, 1) == "<" && substr(s, i + 2, 1) != "<") {
+      # The delimiter: after `<<` or `<<-` and blanks, up to a blank or an operator, quotes dropped.
+      i += 2; st = 0
+      if (substr(s, i, 1) == "-") { st = 1; i++ }
+      while (i <= n && substr(s, i, 1) ~ /[ \t]/) i++
+      dl = ""
+      while (i <= n && substr(s, i, 1) !~ /[ \t\n;&|<>()]/) { q = substr(s, i, 1); if (q != "'" && q != "\"" && q != "\\") dl = dl q; i++ }
+      hd = hd SUBSEP st dl
+      i--; continue
+    }
+    if (c == "\n" && hd != "") {
+      # Skip each pending body, line by line, to its delimiter.
+      m = split(substr(hd, 2), k, SUBSEP); hd = ""; i++
+      for (e = 1; e <= m; e++) {
+        st = substr(k[e], 1, 1); dl = substr(k[e], 2)
+        while (i <= n) {
+          q = index(substr(s, i), "\n"); if (q == 0) q = n - i + 2
+          line = substr(s, i, q - 1); i += q
+          if (st == "1") sub(/^\t+/, "", line)
+          if (line == dl) break
+        }
+      }
+      i--; continue
+    }
     if (c == "(") d++
     else if (c == ")" && --d == 0) return i
   }
@@ -115,6 +152,8 @@ function close_tick(s, i,   n, c) {
 # subst S I: a `$(…)` (I at `$`) or a `…` (I at the backtick) read as commands of their own; returns
 # the index after it. The word keeps a placeholder, so `$(…)/scripts/ci/gate.sh` still names a gate.
 function subst(s, i,   j) {
+  # Arithmetic, `$(( … ))`, holds no command: its `&` is a bitwise and, its `<<` a shift.
+  if (substr(s, i, 3) == "$((") { j = close_paren(s, i + 1, 1); WB[D] = WB[D] "0"; HV[D] = 1; return j + 1 }
   if (substr(s, i, 1) == "`") { j = close_tick(s, i + 1); scan(substr(s, i + 1, j - i - 1)) }
   else { j = close_paren(s, i + 1); scan(substr(s, i + 2, j - i - 2)) }
   WB[D] = WB[D] "$()"; HV[D] = 1

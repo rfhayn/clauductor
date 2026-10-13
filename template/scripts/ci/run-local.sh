@@ -4,7 +4,7 @@ set -euo pipefail
 # gate waiting for it reads as running. The re-run under the lease finds it written and skips it.
 if [ -f "$(dirname "$0")/lib/gate-state.sh" ]; then
   . "$(dirname "$0")/lib/gate-state.sh"
-  gate_state_start "$0" "$@"
+  gate_state_start "$0" "$@" || :   # recording a run never stops it
 fi
 # Serialise the full gate across every worktree of this repo.
 lock=""
@@ -85,8 +85,10 @@ cleanup() { :; }
 gate_end() {
   rc=$?
   trap - EXIT
-  cleanup
-  [ "$rc" -eq 0 ] && [ -z "${VERDICT:-}" ] && rc=signal
+  cleanup || :
+  # Past the verdict, the verdict's code stands, even if a signal lands before the exit.
+  if [ -n "${VERDICT:-}" ]; then rc=$code
+  elif [ "$rc" -eq 0 ]; then rc=signal; fi
   if command -v gate_state_end >/dev/null 2>&1; then
     gate_state_end "$rc" "${MODE:-full}" "${TESTED_SHA:-$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)}" \
       "$RUN_STARTED" "${lane:-$(basename "$ROOT")}" || true

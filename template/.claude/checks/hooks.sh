@@ -129,6 +129,21 @@ EOF")"
 nbg 0 "a syntax check of the gate (sh -n)" "$(bgp a1 "sh -n scripts/ci/gate-wait.sh")"
 nbg 0 "a subagent's other background task" "$(bgp a1 "go test ./..." true)"
 nbg 0 "a subagent's & on a command that is not a gate" "$(bgp a1 "sleep 1 & wait")"
+# A gate is the configured PATH, not any script that shares its file name.
+nbg 0 "a subagent's check script that is also named gate.sh" "$(bgp a1 "sh .claude/checks/gate.sh")"
+nbg 0 "the template's check named gate.sh" "$(bgp a1 "sh template/.claude/checks/gate.sh")"
+nbg 0 "the plugin's check named gate.sh, with &" "$(bgp "" "plugin/checks/gate.sh &")"
+nbg 2 "the gate by an absolute path" "$(bgp a1 "\"\$CLAUDE_PROJECT_DIR\"/$G" true)"
+nbg 2 "the gate as ./scripts/ci/gate.sh" "$(bgp a1 "./$G --quick")"
+# Arithmetic is not a background job, and a heredoc inside \$( ) does not end it early.
+nbg 0 "\$((3 & 1)) beside a foreground gate at 600000" "$(bgp a1 "echo \$((3 & 1)); $G" "" 600000)"
+nbg 0 "a heredoc inside \$( ) whose body has ')' and then names the gate with &" "$(bgp "" "x=\$(cat <<'EOF'
+)
+$G &
+EOF
+)")"
+# Without a working awk reader or jq, the shell's & still counts.
+nbg 2 "without jq: the main session's gate with &" "$(bgp "" "$G &")" "$d/nojq"
 nbg 0 "an empty payload" ""
 # The gate is the project's GATE and GATE_RUN (project.conf, read from CLAUDE_PROJECT_DIR as the plugin does).
 mkdir -p "$d/own-gate/.claude"; printf 'GATE="tools/check.sh"\nGATE_RUN="tools/run-all.sh"\n' > "$d/own-gate/.claude/project.conf"
@@ -226,7 +241,7 @@ done
 # .claude/local/hook-expectations.tsv, the same five tab-separated columns. proof is `out:<ERE>`
 # (stdout and stderr together), `file:<path>` (it must exist after) or `exit` (the exit code and no
 # launch error: only for a hook with nothing else to show). @REPO@ in a payload or path is the
-# throwaway project; @TRACKED@ a tracked file in it.
+# throwaway project; @TRACKED@ a tracked file in it; @GATE_WAIT@ gate-wait.sh beside GATE_RUN.
 SETTINGS="$ROOT/.claude/settings.json"
 if [ ! -f "$SETTINGS" ]; then
   fail "no .claude/settings.json: the hooks are registered nowhere, so none of them runs"
@@ -269,7 +284,7 @@ plugin=""
 cat > "$d/core.tsv" <<'EOF'
 pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
 no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
-no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"scripts/ci/gate-wait.sh","run_in_background":true}}	a subagent's gate wait in the background
+no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
@@ -310,7 +325,7 @@ while IFS="$TAB" read -r ev cmd; do
   row=$(awk -F'\t' -v s="$s" '$1 == s { print; exit }' "$d/expect.tsv")
   [ -n "$row" ] || continue
   want=$(printf '%s' "$row" | cut -f2); proof=$(printf '%s' "$row" | cut -f3)
-  pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g"); why=$(printf '%s' "$row" | cut -f5)
+  pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g; s|@GATE_WAIT@|$(dirname "$GATE_RUN")/gate-wait.sh|g"); why=$(printf '%s' "$row" | cut -f5)
   for where in "$P/src/sub" "$P"; do
     label="$ev $s from $( [ "$where" = "$P" ] && echo 'the project root' || echo 'a subdirectory'): $why"
     rm -f "$P/formatted.stamp"
