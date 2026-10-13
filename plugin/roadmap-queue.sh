@@ -11,8 +11,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
 #   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner summary
-#                                             budget due started  (budget: dollars or empty; due and
-#                                             started: YYYY-MM-DD or empty)
+#                                             budget due started status deps  (budget: dollars or
+#                                             empty; due and started: YYYY-MM-DD or empty; status:
+#                                             empty here; deps: ids and #N, comma-separated, or empty)
 #   sh .claude/roadmap-queue.sh --queued [kind]   change ids of queued rows (kind: change|fix|ops)
 #   ... [file]                                any mode takes an explicit roadmap path last
 #
@@ -26,6 +27,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                                     its rows carry the date (--tsv column 13, --text)
 #   | # | Change | Scope | Deps | Status |    a queue table header, exactly these five columns
 #   | 1.2 | `add-thing` — what a user can now do | … | 1.1 | ⬜ queued |
+#   Deps is `—` or what the row waits on, comma-separated: row ids of this file, or #N (an issue or
+#   PR outside it). An id that names no row, a cycle, or an open row waiting on a cancelled one is
+#   an error in every mode; a note about a dependency goes in the Change cell, never in Deps.
 #   Status leads with a symbol:  ⬜ queued · ⬜ in flight (#N) · ✅ merged (#N) · ❌ cancelled …
 #   or an open row's own word: `⬜ <word>` (`⬜ planned`, `⬜ deferred — <trigger>`), state `open`:
 #   it keeps its phase current and shows in --text under its word, but is never NEXT or --queued.
@@ -68,7 +72,9 @@ if [ ! -f "$file" ]; then
   exit 1
 fi
 
-awk -v mode="$mode" -v kindf="$kindf" -v file="$file" -v today="${ROADMAP_TODAY:-$(date +%Y-%m-%d)}" '
+# parse MODE: the grammar below, printing what MODE prints.
+parse() {
+awk -v mode="$1" -v kindf="$kindf" -v file="$file" -v today="${ROADMAP_TODAY:-$(date +%Y-%m-%d)}" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function err(msg) { errs = errs file ":" NR ": " msg "\n"; nerr++ }
 # civil DATE: 1 when YYYY-MM-DD names a real day (no 2026-02-30).
@@ -178,6 +184,10 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   n++; R_line[n] = NR; R_phase[n] = phase; R_sec[n] = section; R_id[n] = id; R_cid[n] = cid
   R_kind[n] = kind; R_state[n] = state; R_pr[n] = pr; R_owner[n] = owner
   R_scope[n] = trim(c[4])
+  # Deps: `—` (or empty) is none; else comma-separated, kept as written for roadmap_deps_errors to
+  # hold (a row id or #N each), spaces around a comma dropped.
+  dp = trim(c[5]); if (dp == "—" || dp == "–" || dp == "-") dp = ""
+  gsub(/[ \t]*,[ \t]*/, ",", dp); R_deps[n] = dp
   R_sum[n] = sm; R_budget[n] = budget; R_due[n] = due; R_seckey[n] = seckey; R_word[n] = word
   if ((state == "queued" || state == "inflight" || state == "open") && phase != "-" && !(phase in openphase)) openphase[phase] = 1
   next
@@ -192,7 +202,8 @@ END {
     exit 0
   }
   if (mode == "--tsv") {
-    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i], R_budget[i], R_due[i], (R_seckey[i] in started ? started[R_seckey[i]] : "")
+    # Column 14 (a raw status) is for a plugged parser: empty here, so column 15 is the deps.
+    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i], R_budget[i], R_due[i], (R_seckey[i] in started ? started[R_seckey[i]] : ""), R_deps[i]
     exit 0
   }
   if (mode == "--queued") {
@@ -214,3 +225,18 @@ END {
   printf "%s", dues
 }
 ' "$file"
+}
+
+# Every mode reads the rows first and holds their Deps (roadmap_deps_errors in lib/conf.sh, the
+# same rule the --tsv contract applies to any parser): a dependency the queue cannot follow makes
+# it UNKNOWN in --check and --text too, never a row that silently waits on nothing.
+rows=$(parse --tsv) || { printf '%s\n' "$rows"; exit 1; }
+if ! derr=$(printf '%s\n' "$rows" | roadmap_deps_errors); then
+  printf 'ERROR: the roadmap queue is UNKNOWN; %s: Deps the queue cannot follow:\n%s\n' "$file" "$derr"
+  exit 1
+fi
+if [ "$mode" = --tsv ]; then
+  [ -z "$rows" ] || printf '%s\n' "$rows"
+else
+  parse "$mode"
+fi

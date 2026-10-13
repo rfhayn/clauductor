@@ -10,9 +10,10 @@
 # session-close PR while any artifact is not OK, so the answer is acted on once per session.
 #
 # HOW. Each registry entry declares `authorities`: path globs (`*` within a directory, `**` across),
-# `row:<id>` or `gate:<id>` for rows of the roadmap (ROADMAP; `gate:<id>` is every row under a
-# `## Gate <id>` heading, two to four #), and `registry:entries` for the registry's own list of
-# artifacts. `reviewedAt` holds a hash of those authorities' CONTENT at the last review, and
+# `row:<id>` or `gate:<id>` for rows of the roadmap (ROADMAP, read through roadmap_queue;
+# `gate:<id>` is every row in a `### Gate <id>` section, three # or more, which the next ### or
+# ## heading ends: a `## Gate <id>` heading ends the phase instead, and names no gate), and
+# `registry:entries` for the registry's own list of artifacts. `reviewedAt` holds a hash of those authorities' CONTENT at the last review, and
 # `reviewNote` says what the review was ("YYYY-MM-DD: <one line>"). BEHIND means the content now
 # hashes differently. An artifact clears it by being refreshed and stamped, or by being stamped
 # "reviewed, no change: <why>":
@@ -37,9 +38,10 @@
 #       Declarations only, on disk: authorities declared and matching, stamps well formed.
 #
 # THE SAME HASH AS Standing Tee's infra/artifact-currency.mjs: sha1 over the sorted "key value"
-# lines (file:<path> <git blob>, row:<id> <sha1 of the row's cells as JSON>, gate:<id> <ids>,
+# lines (file:<path> <git blob>, row:<id> <sha1 of the row's line>, gate:<id> <ids>,
 # registry:entries <sha1 of the sorted "section/key url" lines>), so a registry stamped by either
-# reads the same here. The module README lists where the two deliberately differ.
+# reads the same here, but for row and gate authorities: Standing Tee hashes a row's cells as JSON
+# (OPS-38). The module README lists where the two deliberately differ.
 #
 # NEVER DEGRADES TO SILENCE. An authority matching no file, a row not in the roadmap, an unreadable
 # registry or a missing stamp is a CANNOT CHECK line, never OK: a typo'd glob would otherwise match
@@ -287,59 +289,42 @@ entries_hash() {
 }
 
 # ── the roadmap's rows ───────────────────────────────────────────────────────────────────────
-# One line per queue row: "<id>\t<gate>\t<cells as JSON>", or one "ERR\t<why>" line. The grammar is
-# docs/roadmap.md's: `## Phase N` sections, `| id | change | scope | deps | status |` tables in
-# them, a `## Gate <id>` heading (2-4 #) naming the gate of the rows under it. A row's value is its
-# change id, summary, scope, deps and status, as plain text (emphasis, code and strikes removed).
-JQ_ROWS='
-  def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
-  def plain: gsub("~~(?<x>[^~]*)~~"; .x) | gsub("\\*\\*"; "") | gsub("`"; "") | gsub("\\*"; "") | trim;
-  reduce (split("\n")[]) as $l ({fenced: false, inphase: false, gate: null, rows: [], err: null};
-    if .err != null then .
-    elif ($l | test("^\\s*(```|~~~)")) then .fenced = (.fenced | not)
-    elif .fenced then .
-    elif ($l | test("^## Phase \\d+\\b")) then .inphase = true | .gate = null
-    elif ($l | test("^#{2,4} Gate [0-9A-Za-z]+(?:-[0-9A-Za-z]+)*\\b")) then
-      .gate = ($l | capture("^#{2,4} Gate (?<g>[0-9A-Za-z]+(?:-[0-9A-Za-z]+)*)\\b").g)
-    elif ($l | test("^## ")) then .inphase = false | .gate = null
-    elif (.inphase | not) or ($l | startswith("|") | not) then .
-    else
-      ([$l | splits("(?<!\\\\)\\|")] | map(trim)) as $cells
-      | ($cells | length) as $n
-      | [$cells | to_entries[] | select(.value != "" or (.key != 0 and .key != ($n - 1))) | .value] as $cols
-      | (($cols[0] // "")) as $c0
-      | if $c0 == "#" or ($c0 | test("^:?-+:?$")) then .
-        else ($c0 | plain) as $id
-        | (if $id == "" then "(blank id)" else $id end) as $nm
-        | if ($id | test("^[A-Za-z0-9._-]+$") | not) then
-            .err = "queue row \"\($nm)\" has an id that is not [A-Za-z0-9._-]"
-          elif ($cols | length) != 5 then
-            .err = "queue row \"\($nm)\" has \($cols | length) columns, expected exactly 5"
-          elif ($cols[4] | plain | test("^(✅|❌|⬜)") | not) then
-            .err = "queue row \"\($nm)\" has a status that does not start with ✅, ❌ or ⬜"
-          else
-            ($cols[1]) as $c
-            | ((($c | capture("^(?:~~)?\\*\\*`(?<x>[^`]+)`\\*\\*") | .x)
-                // ($c | capture("\\b(?<x>add-[a-z0-9-]+)") | .x)
-                // ($c | plain | .[0:40]))) as $change
-            | ($c | sub("^\\*\\*`?[^`*]+`?\\*\\*\\s*"; "") | sub("^\\*\\([^)]*\\)\\*\\s*"; "") | sub("^—\\s*"; "") | plain) as $summary
-            | .rows += [{id: $id, gate: .gate,
-                v: ({change: $change, summary: $summary, scope: ($cols[2] | plain), deps: ($cols[3] | plain), status: ($cols[4] | plain)}
-                    | tojson | gsub("\\\\u007f"; "\u007f"))}]
-          end
-        end
-    end)
-  | if .err != null then "ERR\t\(.err)"
-    elif .fenced then "ERR\ta fenced code block is never closed"
-    else .rows[] | "\(.id)\t\(.gate // "")\t\(.v)" end'
+# The rows come from roadmap_queue (lib/conf.sh), the one parser of the change queue, or the
+# project's own (ROADMAP_PARSER): a second parser here would disagree with it silently (OPS-38).
+# A row's value is its line in the roadmap as written (--tsv column 1 names it), so any edit to the
+# row moves it, its scope, deps and status included. Its gate is <id> when its section (column 3)
+# reads `Gate <id>`, as the template's `### Gate 2A — …` sections do. A column 1 that is not a
+# line of the file, or names a line without the row's id on it as a whole token, fails the read: a
+# wrong or neighbour's line would hash the same forever, and the row would never read BEHIND. The
+# line's shape is the parser's own (a table cell, bold, a list item): the contract says only that
+# column 1 is the row's line.
+ROWS_AWK='
+  # names LINE ID: 1 when ID is on LINE as a whole token, not part of a longer id (`9.1` in
+  # `| **9.1** |` or `- 9.1 …`, never in `9.10` or `19.1`). By index(), as an id holds dots.
+  function names(line, id,   s, p, b, pre, post) {
+    s = line; b = ""
+    while ((p = index(s, id)) > 0) {
+      pre = (p > 1) ? substr(s, p - 1, 1) : b; post = substr(s, p + length(id), 1)
+      if (pre !~ /[A-Za-z0-9._-]/ && post !~ /[A-Za-z0-9._-]/) return 1
+      b = substr(s, p, 1); s = substr(s, p + 1)
+    }
+    return 0
+  }
+  BEGIN { while ((getline l < RMF) > 0) txt[++nl] = l }
+  $0 == "" { next }
+  { if (!($1 in txt) || !names(txt[$1], $4)) exit 1
+    g = ""
+    if (match($3, /^Gate [0-9A-Za-z]+(-[0-9A-Za-z]+)*/) && substr($3, RLENGTH + 1, 1) !~ /[0-9A-Za-z_]/) g = substr($3, 6, RLENGTH - 5)
+    print $4 T g T txt[$1] }'
 
 # rows_at SRC: the rows file ("<id>\t<gate>\t<value>"), or exit 1 when the roadmap is missing or
 # does not parse.
 rows_at() {
   _rb=$(blob_at "$1" "$RM") || return 1
   if [ ! -f "$W/rows.$_rb" ]; then
-    read_src "$1" "$RM" | jq -R -s -r "$JQ_ROWS" > "$W/rows.$_rb.tmp" 2>/dev/null || echo "ERR	jq" > "$W/rows.$_rb.tmp"
-    if grep -q '^ERR' "$W/rows.$_rb.tmp"; then
+    read_src "$1" "$RM" > "$W/rm.$_rb"
+    if ! roadmap_queue --tsv "$W/rm.$_rb" > "$W/rq.$_rb" 2>&1 \
+      || ! awk -F"$TAB" -v T="$TAB" -v RMF="$W/rm.$_rb" "$ROWS_AWK" "$W/rq.$_rb" > "$W/rows.$_rb.tmp"; then
       : > "$W/rows.$_rb.bad"; : > "$W/rows.$_rb"
     else
       mkdir -p "$W/rv.$_rb"; _i=0

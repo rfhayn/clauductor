@@ -36,10 +36,13 @@ comments. Every entry with a `url` is an artifact:
 ```
 
 **Authorities** are what the artifact describes: path globs (`*` within a directory, `**` across),
-`row:<id>` (a roadmap row: its change, summary, scope, deps and status), `gate:<id>` (every row under
-a `## Gate <id>` heading, two to four `#`), and `registry:entries` (which artifacts exist and where,
-for a page that lists them). A glob matching no file, a row that is not there, or a missing stamp is
-`CANNOT CHECK`, never `OK`.
+`row:<id>` (a roadmap row: its line as written, so its change, summary, scope, deps and status),
+`gate:<id>` (every row in a `### Gate <id>` section, three `#` or more, such as `### Gate 2A — …`,
+up to the next `###` or `##` heading; a `## Gate <id>` heading ends the phase and names no gate), and
+`registry:entries` (which artifacts exist and where, for a page that lists them). The rows are the
+change queue's own, read through `roadmap_queue` (`lib/conf.sh`, or the project's `ROADMAP_PARSER`),
+never a second parser. A glob matching no file, a row that is not there, a roadmap the queue cannot
+read, or a missing stamp is `CANNOT CHECK`, never `OK`.
 
 **Start it** by writing the entries, then stamping each once:
 `sh .claude/modules/artifacts/bin/currency.sh --stamp <key>... --note "seed: <why>"`.
@@ -91,12 +94,13 @@ reads the same in the other. Measured on Standing Tee's own history (every `main
 check landed, and 25 working-tree, stamp and lint states): the same BEHIND and CANNOT CHECK lists,
 the same exit codes and the same registry bytes after every stamp. Where they differ, on purpose:
 
-- **Row ids** follow the template's roadmap grammar, `[A-Za-z0-9._-]+`, not Standing Tee's enumerated
-  gate letters. Gate headings take any `## Gate <id>` id. On a roadmap Standing Tee's parser
-  accepts, both read the same rows.
-- **The roadmap's owner, started and boundary lines are not validated here.** Standing Tee's parser
-  throws on a malformed one (which makes every row authority `CANNOT CHECK`); the template's
-  `checks/roadmap.sh` owns the roadmap's grammar.
+- **Row and gate authorities hash differently** (OPS-38). The rows come from `roadmap_queue`, the
+  change queue's one parser, and a row's value is its line as written, not Standing Tee's JSON of
+  its plain-text cells; a gate is a `### Gate <id>` section, and a `## Gate <id>` heading, which
+  Standing Tee reads as a gate, ends the phase here. So a `row:` or `gate:` stamp
+  written by either reads `BEHIND` in the other until it is stamped again; every other authority
+  still hashes the same. A roadmap the queue refuses (a malformed row, Deps it cannot follow) makes
+  every row authority `CANNOT CHECK`, as Standing Tee's parser does when it throws.
 - **Path globs are matched against real paths** (`git ls-tree -z`). Standing Tee's `--ref` mode
   matched git's quoted form of a path with non-ASCII characters, so such a path hashed differently
   between `--ref` and `--worktree` there.
