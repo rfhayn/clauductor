@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // The guard is the claude a test meets on PATH (#93): it refuses, says why, and
@@ -17,9 +19,7 @@ func TestGuardClaudeRefusesAndRecords(t *testing.T) {
 	// its own FIRST (not at all, or after the decoy: #93's failure mode), the decoy
 	// answers with exit 7, the assertions below fail, and no real claude is reached.
 	decoy := t.TempDir()
-	if err := os.WriteFile(filepath.Join(decoy, "claude"), []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, filepath.Join(decoy, "claude"), "#!/bin/sh\nexit 7\n")
 	t.Setenv("PATH", decoy+":/usr/bin:/bin")
 	mark := filepath.Join(t.TempDir(), "it's")
 	if err := os.Mkdir(mark, 0o755); err != nil {

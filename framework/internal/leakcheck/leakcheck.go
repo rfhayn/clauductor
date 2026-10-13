@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // Prefix begins the name of every tmux socket a test makes.
@@ -222,7 +224,9 @@ func guardClaude(mark string) (string, error) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+	// testbin's writer, though no test has forked yet in Main: a test that calls this
+	// itself could race a parallel test's fork into "text file busy" (#78).
+	if err := testbin.WriteFile(filepath.Join(dir, "claude"), script); err != nil {
 		return "", err
 	}
 	return calls, os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
