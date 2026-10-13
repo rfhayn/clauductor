@@ -37,8 +37,9 @@ quota_file() {
 
 # The windows are kept as the panel's signals.RateLimits keeps them: a key of at most 64 word
 # characters with a numeric used_percentage, and a resets_at that is absent, null or a whole number
-# (the panel's *int64: any other value fails that window's decode); any other entry is skipped,
-# never fatal.
+# within int64 (the panel's *int64: any other value fails that window's decode); any other entry is
+# skipped, never fatal. One difference is jq's, not ours: jq 1.6 reads 1700000000.0 as the integer
+# it equals and keeps it (saved as 1700000000), where jq 1.7 and the panel drop it.
 quota_save() (
   f=$(quota_file)
   dir=$(dirname "$f")
@@ -47,7 +48,8 @@ quota_save() (
     (.rate_limits | if type == "object" then . else {} end | to_entries
       | map(select((.key | test("^[A-Za-z0-9_]{1,64}\\z")) and (.value | type) == "object"
                    and (.value.used_percentage | type) == "number"
-                   and (.value.resets_at | type == "null" or (type == "number" and (tostring | test("^-?[0-9]+\\z")))))
+                   and (.value.resets_at | type == "null" or (type == "number" and . > -9e18 and . < 9e18
+                                                               and (tostring | test("^-?[0-9]+\\z")))))
         | {key, pct: .value.used_percentage}
           + (if .value.resets_at == null then {} else {resetsAt: .value.resets_at} end))) as $new
     | if ($new | length) == 0 then empty else

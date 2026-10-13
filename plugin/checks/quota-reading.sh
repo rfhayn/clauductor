@@ -104,6 +104,9 @@ rm -f "$H/.clauductor/.quota-reading.fresh"
 # never saved as a decimal a shell `-gt` would choke on. Raw text, so no jq in between rewrites it.
 HOME="$H" quota_save '{"rate_limits":{"dec":{"used_percentage":1,"resets_at":1700000000.0}}}'
 grep -q '1700000000\.0' "$F" && fail "a decimal reset time was saved: $(cat "$F")" || ok "a reset time written as 1700000000.0 is never saved as a decimal"
+# A reset time past int64 fails the panel's decode, and would read as current for ever.
+HOME="$H" quota_save '{"rate_limits":{"huge":{"used_percentage":1,"resets_at":99999999999999999999}}}'
+jq -e '[.windows[].key] | index("huge") | not' "$F" >/dev/null && ok "a reset time past int64 drops its window" || fail "a reset time past int64 was saved: $(cat "$F")"
 
 # ── 3b. The save never holds the line ───────────────────────────────────────────────────────────
 # A save that takes 3s (a mktemp that sleeps) must not delay the printed line: the status line
@@ -139,6 +142,9 @@ for c in file ro; do
     if [ "$(cat "$H2/.clauductor/quota-reading.json")" = old ]; then ok "...and the old file is left in place"
     elif [ "$(id -u)" = 0 ]; then ok "...(as root a read-only directory is writable: the file case above holds the line)"
     else fail "$why: the old file changed"; fi
+    # The status line's own backgrounded save must be done before the mode is restored, or it
+    # could write into scratch after the case is over.
+    settle "$H2/.clauductor/quota-reading.json"
     chmod 755 "$H2/.clauductor"
   fi
 done
