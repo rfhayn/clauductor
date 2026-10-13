@@ -1,4 +1,4 @@
-**Status:** awaiting approval
+**Approved:** 2026-10-12 by Rich · design a72fc5cbcf53
 **Roadmap row:** PANEL-42
 **Risk:** normal
 
