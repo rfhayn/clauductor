@@ -243,8 +243,12 @@ func newNonce() string {
 	return hex.EncodeToString(b)
 }
 
-// pidAlive reports whether a process exists: kill(pid, 0) succeeds, or fails with
-// EPERM (it exists but belongs to someone else).
+// PIDAlive reports whether a process exists, spawning nothing and signalling
+// nothing: kill(pid, 0) succeeds, or fails with EPERM (it exists but belongs to
+// someone else). PANEL-28's lock watch asks it about a lock's holder.
+func PIDAlive(pid int) bool { return pidAlive(pid) }
+
+// pidAlive is PIDAlive.
 func pidAlive(pid int) bool {
 	if pid <= 0 {
 		return false
