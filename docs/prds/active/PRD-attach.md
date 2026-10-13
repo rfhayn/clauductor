@@ -73,24 +73,13 @@ trust recorded against the config's path and content hash, wherever that file li
 
 - **The command and the page:** `clauductor panel attach <repo>`, and an Attach choice in **+ Add a project…** beside
   today's init, which writes into the repository.
-- **The generator:** the sidecar config comes from `panel init`'s reading of the repository, with argv-form commands (D5), with a target
+- **The generator:** the sidecar config comes from `panel init`'s reading of the repository, unchanged, with a target
   outside it.
 - **Commands that resolve outside the repository:** how the trust prompt shows them, and refuses them.
 - **`panel remove`:** whether it keeps or deletes the sidecar folder. Recommendation: keep it, as the lane registry
   is kept today.
 - **A repository with both:** an in-repository `.clauductor/panel.json` and a sidecar. Recommendation: the registry's
   `config` wins, and the page says which file it reads.
-
-**As approved (2026-10-12, `changes/panel-42-attach/design.md`).** Three points differ from the decisions above:
-- **The page's Attach choice is its own row, PANEL-43** (D1), queued after PANEL-42. PANEL-42 ships the command.
-- **Decision 3's trust is stricter for a sidecar** (D5). A config outside its repository cannot be trusted while any
-  command it names reaches outside the repository, and an earlier trust entry does not count. An in-repository config
-  keeps today's rules. From 2026-10-13, by the owner's decision, a sidecar's commands are argv lists with no shell text
-  at all: no inline code (`sh -c`, `eval`, `xargs`), no glob, variable, redirection or whitespace in a word, and every
-  path inside the repository. Anything more belongs in a script in the repository.
-- **Decision 4's reason is superseded** (D9). The plugin's guard hooks already stand aside in a repository without
-  `.claude/clauductor-plugin` (`plugin/hooks/if-project.sh`). The opt-out keeps the plugin's `/clauductor:*` skills
-  and its SessionStart hook out of the repository.
 
 ## What does not change
 
