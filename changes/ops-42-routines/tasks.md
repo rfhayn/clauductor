@@ -4,9 +4,18 @@
 - 2026-10-13 proposed; nothing built yet
 - 2026-10-13 revised to the owner's direction on the caps: D4 rewritten (caps follow the billing mode), D16 rewritten (the mode declared by `setup`, and which credentials each mode accepts), D17 added (an unknown quota); ROUTINES-6 and ROUTINES-7 rewritten, ROUTINES-1-S7, 6-S7, 6-S8, 7-S6 to 7-S8, 8-S6 and requirement 12 added. The owner approved D8 and the rest as written
 - 2026-10-13 owner approved D1-D17. A delta review then found 5 mediums and 4 lows, applied here with the owner's two answers: `api` mode takes its key from a key file outside the repository (D16, ROUTINES-6-S7, 6-S8, 12-S3), and the unknown-quota health line's wording (D10, D17). Approval to be re-recorded on the revised design
+- 2026-10-13 review rounds 4 to 7 (the owner: "keep going until clean") refined the key file, the argv and environment guards and the home-path fold; round 7 found nothing medium or worse. Owner's approval re-recorded on design c6895680b60d. Round 7's lows are for the build, below
 
 ## Decision log
-- (none yet)
+- 2026-10-13, for the build (review round 7's lows; group 4 settles each and logs it here):
+  - the recorder searches a local copy of `PATH` and execs with `PATH` unchanged, so a tool's own children are recorded too;
+  - the static check's "nothing bypasses the shims" holds for literal absolute command words only: also fail a relative command word containing `/` (`./jq`), with `"$ROUTINES_CLAUDE"` the one allowed variable command word, or say plainly what it does not cover (`J=/usr/bin/jq; "$J"`, `env -u X /bin/x`);
+  - a `PATH=` inside a printed crontab line or plist must pass the PATH-assignment ban; failing fixtures: `/usr/bin/jq .`, `x | /bin/cat`, `exec /usr/bin/env`, `command -p jq`, `PATH=/usr/bin jq`, `export PATH=x`;
+  - a second permanent negative runner exports the key in the runner's own shell before calling `jq` or `git`, and must fail the environment assertion on every run;
+  - the fake claude starts no process (builtins only), or the environment assertion excludes processes the fake claude started;
+  - 12-S3's example paths are illustrative: the test uses scratch files under a scratch `HOME`, and the "HOME is not set" refusal is checked before the file checks;
+  - an absolute recorded `api_key_file` runs with `HOME` empty or unset (only a recorded `~/` path is refused);
+  - wording: spec.md 12-S3 uses `<home>/` throughout.
 
 ## 1. The registry, its validation, and a check that cannot reach the real claude
 - [ ] 1.1 `template/.claude/checks/lib.sh`: a refusing `claude` first on PATH for every check (it writes a marker in the scratch directory and exits 97), and `finish` fails a check that left the marker (design.md D13). Tested in `template/.claude/checks/routines.sh` citing [ROUTINES-11-S1], run first against today's `lib.sh` to see a forgotten fake reach PATH's `claude`; then the whole template suite (`sh template/.claude/checks/run.sh`) still passes with the stub in place

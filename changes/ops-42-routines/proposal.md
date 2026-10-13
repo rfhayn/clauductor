@@ -1,4 +1,4 @@
-**Approved:** 2026-10-13 by Rich · design 03c4c43e3460
+**Approved:** 2026-10-13 by Rich · design c6895680b60d
 **Roadmap row:** OPS-42
 **Risk:** high
 
