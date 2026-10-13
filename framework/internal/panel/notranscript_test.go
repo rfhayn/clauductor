@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -41,8 +42,12 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 			return err
 		}
 		scanned++
+		// The panel's own login-lock log (PANEL-28), in its own directory, is a
+		// .jsonl by design and no transcript: its one name is cut before the scan, so
+		// any other ".jsonl" still fails.
+		src := strings.ReplaceAll(string(b), claudecall.LogName, "")
 		for _, f := range forbidden {
-			if strings.Contains(string(b), f) {
+			if strings.Contains(src, f) {
 				t.Errorf("%s mentions %q: the panel must not read transcripts", path, f)
 			}
 		}
@@ -140,7 +145,7 @@ var fileReadSites = map[string]int{
 	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
 	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
 	"runtime.go":           1, // a project's notifier state (notifier.json)
-	"machine.go":           3, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state
+	"machine.go":           4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
 	"config/projects.go":   1, // the projects registry (projects.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
@@ -155,6 +160,8 @@ var fileReadSites = map[string]int{
 	"lanes/lanes.go":       1, // PANEL-29: a listed worktree's git-dir rebase-merge/head-name, rebase-apply/head-name, BISECT_START
 	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
 	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
+	"claudecall/lock.go":   1, // PANEL-28: Claude Code's refresh-lock owner record (<lock dir>/.oauth_refresh.lock.owner), read only
+	"claudecall/log.go":    1, // PANEL-28: the panel's own login-lock.jsonl, re-read to trim it to its cap
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative

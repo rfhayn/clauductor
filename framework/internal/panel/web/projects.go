@@ -20,12 +20,14 @@ import (
 
 // Project is one project the server serves.
 type Project struct {
-	ID      string
-	Name    string
-	Hub     *Hub
-	Lanes   *lanes.LaneManager // nil when lanes are unavailable
-	Orch    *Orchestration
-	Refresh func() // re-poll every source of the project now
+	ID    string
+	Name  string
+	Hub   *Hub
+	Lanes *lanes.LaneManager // nil when lanes are unavailable
+	Orch  *Orchestration
+	// Refresh re-polls every source of the project now; with machine, the machine's
+	// sources too (the version, the account): the owner's Refresh button only.
+	Refresh func(machine bool)
 	// Metrics is the project's Metrics view now (PANEL-19); nil serves none.
 	Metrics func() metrics.Report
 

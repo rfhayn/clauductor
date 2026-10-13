@@ -138,11 +138,13 @@ raw_command() {
 # merge_hint — step 1 of "WHICH COMMANDS ARE A MERGE" (read that block, below the jq check). Here
 # because unreadable() uses it and runs first. Quotes and backslashes deleted, blank runs (newlines
 # too) squeezed, then: the words `pr merge`, flags allowed between; `merge` after a computed word;
-# `pr` before one. Exit 0 = may be a merge.
+# `pr` before one. Exit 0 = may be a merge. A parameter name may hold bytes 0x80-0xFF, as zsh's
+# `$é` does (#100): HIBYTES is that range, matched as bytes under LC_ALL=C.
+HIBYTES=$(printf '\200-\377')
 merge_hint() {
-  printf '%s' "$1" | tr -d "\\\\'\"" | tr '\t\r\n' '   ' | tr -s ' ' | grep -Eq \
+  printf '%s' "$1" | tr -d "\\\\'\"" | tr '\t\r\n' '   ' | tr -s ' ' | LC_ALL=C grep -Eq \
     -e '(^|[^A-Za-z0-9_-])pr( -[^ ]+( [^ -][^ ]*)?)* merge([^A-Za-z0-9_-]|$)' \
-    -e '([)}`]|[$][A-Za-z0-9_@*#?!-]+) merge([^A-Za-z0-9_-]|$)' \
+    -e '([)}`]|[$][A-Za-z0-9_@*#?!'"$HIBYTES"'-]+) merge([^A-Za-z0-9_-]|$)' \
     -e '(^|[^A-Za-z0-9_-])pr [$`]'
 }
 
@@ -229,10 +231,16 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 # merge_hint (step 2) is defined above unreadable(), which runs before this point and uses it.
 
 # merge_scan — lib/merge-reader.awk on $cmd. Its header lists what it prints.
+# Under LC_ALL=C (#100): the reader walks the command one character at a time with substr, which
+# BSD awk counts in BYTES, then matches each piece against a regex, which a UTF-8 locale converts
+# to a wide character. A piece that is part of `✅` or `🤖` does not convert, awk dies ("towc:
+# multibyte conversion failure"), and the guard refused harmless commands as unreadable. The reader
+# needs only bytes: its syntax characters are ASCII, and a non-ASCII letter in a parameter name
+# (zsh's `$é`) is matched as any byte 0x80-0xFF.
 READER="$(dirname "$0")/lib/merge-reader.awk"
 merge_scan() {
   [ -f "$READER" ] || return 1
-  printf '%s' "$cmd" | awk -f "$READER"
+  printf '%s' "$cmd" | LC_ALL=C awk -f "$READER"
 }
 PLAIN_FORM='gh pr merge <n> --squash --delete-branch — gh, pr and merge unquoted and unescaped, nothing substituted, one merge per command'
 
@@ -340,8 +348,9 @@ repo_key() {
 # merge_argv — one line per finding: `M` more than one merge, `R <repo>` per repo named, `P <word>`
 # the PR argument. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
 # is named at all. It never decides that a merge is foreign — foreign_shape does, by allowlist.
+# LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
-  printf '%s' "$cmd" | awk '
+  printf '%s' "$cmd" | LC_ALL=C awk '
     { buf = buf $0 "\n" }
     END {
       rest = buf; count = 0; off = 0; start = 0

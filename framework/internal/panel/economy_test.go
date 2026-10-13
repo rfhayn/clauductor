@@ -95,7 +95,7 @@ func TestEconomyEndToEnd(t *testing.T) {
 	ticks := fastTicks()
 	ticks.Trends, ticks.Spend = 50*time.Millisecond, 50*time.Millisecond
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, TrustConfig: true, Runner: fakeRunner(root), Ticks: ticks,
+		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, LookupEnv: testEnv, TrustConfig: true, Runner: fakeRunner(root), Ticks: ticks,
 			OnPoll: polls.hook, OnReady: func(u string) { ready <- u }})
 	}()
 	defer func() { cancel(); <-done }()
