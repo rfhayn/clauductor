@@ -474,10 +474,14 @@ owner's direction of 2026-10-13.)*
       (`machine: darwin|linux`), so it never holds a home directory: a path given with a leading
       `~/` is recorded as written; any other relative path is made absolute against the
       directory setup ran in (its logical `pwd`, not `pwd -P`); an absolute path is kept. Then,
-      because the user's shell usually expands `~/` before setup sees it, **any resolved path
-      that begins with `$HOME/` is rewritten to `~/…` before it is recorded**. A recorded `~/`
-      is expanded against `$HOME` each time it is read; with `HOME` empty or unset, the run (or
-      setup) is refused `billing`, "HOME is not set", never expanded to `/…`. A sidecar's
+      because the user's shell usually expands `~/` before setup sees it, **a resolved path is
+      folded to `~/…` when it begins with `<home>/`**, where `<home>` is `$HOME` with trailing
+      slashes stripped, and only when that `<home>` is non-empty: `HOME=/Users/u/` folds
+      `/Users/u/keys/k` to `~/keys/k`, and `HOME=/` folds nothing. With `HOME` empty or unset,
+      `setup --billing api` is refused outright, "HOME is not set", so `/opt/keys/k` is never
+      recorded as `~/opt/keys/k`. A recorded `~/` is expanded against `$HOME` each time it is
+      read; with `HOME` empty or unset, the run is refused `billing`, "HOME is not set", never
+      expanded to `/…`. A sidecar's
       directory is outside the repository and allowed. The same on macOS and Linux.
     - **Inside the repository** is decided by identity, not by comparing strings: the runner
       walks the key file's physical ancestors (its directory resolved with `cd -P`, then each
@@ -504,10 +508,15 @@ owner's direction of 2026-10-13.)*
       cannot leak it to an argv by construction: a builtin starts no process.
     - **How the check holds that** (rule 4: enumerate the authority, not a list of suspects):
       it builds a shim directory from every executable name found in the test's `PATH`
-      directories, each linked to one recorder that writes its argv and then execs the real
-      tool, and puts that directory first on `PATH`. A second check reads `routines.sh` and
-      fails on any tool invoked by absolute path or through `command -p`, so nothing bypasses
-      the shims. A leaking runner (`env ANTHROPIC_API_KEY=… claude`) stays in the check as a
+      directories, each linked to one recorder that writes its argv and its environment
+      (`export -p`) and then execs the real tool, and puts that directory first on `PATH`. The
+      recorder uses only builtins, and finds the real tool on `PATH` with its own directory
+      removed, so no name (`sh` included) re-enters a shim. The check asserts no argv holds the
+      key, and no process but the fake claude had it in its environment. A second check reads
+      `routines.sh` and fails on any tool invoked by absolute path (the first word of a simple
+      command, or the word after `exec`, `env`, `command`, `nohup` or `xargs`, starting with
+      `/`), on `command -p`, and on any assignment to `PATH` (`PATH=/usr/bin jq`,
+      `export PATH=…`), so nothing bypasses the shims. A leaking runner (`env ANTHROPIC_API_KEY=… claude`) stays in the check as a
       permanent negative case, which must fail on every run.
     - The run is refused, logged `billing` with its own reason, when the file is missing; is not
       a regular file (a symlink included, even one whose target is outside the repository);
