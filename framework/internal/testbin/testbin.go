@@ -21,10 +21,15 @@ import (
 // while the file is open, and fails the test if it cannot.
 func Write(t testing.TB, path, body string) {
 	t.Helper()
-	syscall.ForkLock.RLock()
-	err := os.WriteFile(path, []byte(body), 0o755)
-	syscall.ForkLock.RUnlock()
-	if err != nil {
+	if err := WriteFile(path, body); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// WriteFile is Write for a caller with no test to fail: leakcheck.Main writes its
+// claude guard (#93) before any test runs.
+func WriteFile(path, body string) error {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	return os.WriteFile(path, []byte(body), 0o755)
 }

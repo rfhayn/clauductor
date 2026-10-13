@@ -397,6 +397,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			if _, err := ptmx.Write([]byte(m.Data)); err != nil {
 				return
 			}
+			scroll.after(ctx, m.Data)
 		case "resize":
 			_ = pty.Setsize(ptmx, &pty.Winsize{Cols: clampDim(m.Cols, 80), Rows: clampDim(m.Rows, 24)})
 		default:

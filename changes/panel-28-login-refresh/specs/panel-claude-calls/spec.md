@@ -86,9 +86,16 @@ WHEN the login refresh lock, or the legacy lock beside the config directory, was
 - **THEN** the call runs
 
 #### Scenario: [CLAUDECALLS-3-S5] A live legacy lock pauses the polls too
-- **GIVEN** the legacy lock beside the config directory, modified 3 seconds ago, and no `.oauth_refresh.lock`
+- **GIVEN** the legacy lock beside the lock directory, modified 3 seconds ago, and no `.oauth_refresh.lock`
 - **WHEN** a `claude agents` poll comes due
 - **THEN** no `claude` process starts
+
+#### Scenario: [CLAUDECALLS-3-S6] The lock follows CLAUDE_SECURESTORAGE_CONFIG_DIR
+- **GIVEN** `CLAUDE_SECURESTORAGE_CONFIG_DIR` names a directory holding a live lock
+- **AND** the config directory holds none
+- **WHEN** a `claude agents` poll comes due
+- **THEN** no `claude` process starts
+- **AND** the legacy lock beside that directory, live, pauses the polls the same way
 
 ### Requirement: Every refresh lock the panel sees is logged
 THE SYSTEM SHALL record each refresh lock it observes, with its holder and whether the holder is one of the panel's own `claude` calls, decided when the lock is first seen from the owner record's pid and the lock's birth time falling within that call's run, and each `claude` call of its own that it had to stop.

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
@@ -20,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -36,6 +38,12 @@ type Options struct {
 	Home   string // the user's home; injectable for tests
 	Out    io.Writer
 	Runner signals.Runner
+	// LookupEnv reads the environment where the panel follows it (PANEL-28: the Claude
+	// Code config dir and lock dir whose login locks it watches and its gate reads; a
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR set but empty differs from one unset). nil is
+	// os.LookupEnv; tests pin it so a developer's CLAUDE_CONFIG_DIR or
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR never points a test at their real dirs.
+	LookupEnv claudecall.LookupEnv
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
 	// OnPoll, if set, is called with a source's name each time one of its polls has
@@ -119,6 +127,9 @@ type Ticks struct {
 	Merged time.Duration // the least time between two reads of merged pull requests (gh, while in view)
 	// PANEL-22: projects.json, for a project added or removed (no spawn: a stat).
 	Registry time.Duration
+	// PANEL-28: Claude Code's login refresh locks, into login-lock.jsonl (no spawn: a
+	// stat; one or two `ps` per holder newly seen: its command and its start time).
+	LoginLock time.Duration
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -133,6 +144,7 @@ func DefaultTicks() Ticks {
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
 		Spend: time.Minute, Merged: 10 * time.Minute, Registry: time.Second,
+		LoginLock: claudecall.WatchEvery,
 	}
 }
 
@@ -148,6 +160,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
 		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged}, {&t.Registry, &d.Registry},
+		{&t.LoginLock, &d.LoginLock},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def
@@ -164,6 +177,9 @@ func Run(ctx context.Context, o Options) error {
 	if o.Runner == nil {
 		o.Runner = signals.ExecRunner
 	}
+	if o.LookupEnv == nil {
+		o.LookupEnv = os.LookupEnv
+	}
 	if o.Home == "" {
 		return errors.New("cannot determine the home directory")
 	}
@@ -172,6 +188,13 @@ func Run(ctx context.Context, o Options) error {
 		clk = clock.System // the one default: Run is where the clock is chosen
 	}
 	ticks := o.Ticks.withDefaults()
+	// Every `claude` the panel spawns goes through one gate (PANEL-28), wrapped here
+	// once, before any runtime, the machine or a lane manager receives the Runner: the
+	// stop policy, one call at a time, and no call while a login refresh holds a lock.
+	// The order is the project tag, the gate, PANEL-25's spawn counter, ExecRunner.
+	lockReader, lockLog := claudecall.NewReader(o.LookupEnv, o.Home), claudecall.NewLog(o.Home)
+	gate := claudecall.NewGate(o.Runner, lockReader, clk, lockLog)
+	o.Runner = gate.Run
 	if o.Project != "" {
 		// The project named on the command line must load: fail before touching
 		// anything, as a single-project panel always has.
@@ -391,6 +414,14 @@ func Run(ctx context.Context, o Options) error {
 	}
 	start(func() { m.ingest(ctx, hooks, status) })
 	m.start(ctx, start)
+	// The login refresh locks (PANEL-28): watched and logged from the start, so the
+	// log covers every refresh this panel lives beside. It only reads them.
+	// What it reads of them goes to every project's model, where the alerts for a
+	// stuck, stranded or future-dated lock are derived (design D7).
+	lockWatch := &claudecall.Watch{Reader: lockReader, Log: lockLog, Clock: clk, Every: ticks.LoginLock, Run: o.Runner,
+		Attribute: gate.Attribute, Out: o.Out,
+		OnChange: func(ls []types.LoginLock) { m.each(func(md *state.Model, _ time.Time) { md.ApplyLoginLocks(ls) }) }}
+	start(func() { lockWatch.Loop(ctx) })
 	if !o.Only {
 		watch := &source{name: "registry", every: ticks.Registry, fixedRate: true, waitFirst: true, poll: ls.pollRegistry}
 		start(func() { runLoop(ctx, clk, watch, m.pollOnce) })
@@ -449,6 +480,10 @@ func Run(ctx context.Context, o Options) error {
 	_ = httpSrv.Shutdown(shutCtx)
 	wg.Wait()
 	ls.stopAll() // every project's runtime, each waited for
+	// The claude calls still running had SIGTERM as the contexts ended: they get
+	// ShutdownGrace, not the 15 s, then SIGKILL, so the exit stays inside `panel
+	// install`'s wait for the old job.
+	gate.Close(claudecall.ShutdownGrace)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

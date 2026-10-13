@@ -14,6 +14,20 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
+// lifecycleRunner runs the hooks through /usr/bin/env for real and fakes git's
+// neighbours as gitOnlyRunner does. A claude behind env (the account poll's) is faked
+// like a bare one, and an env argv whose command it cannot tell is refused (#93).
+func lifecycleRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
+	c := envCommand(argv)
+	switch {
+	case len(c) == 0:
+		return nil, refuseUnreadEnv(argv)
+	case argv[0] == "/usr/bin/env" && c[0] != "claude":
+		return signals.ExecRunner(ctx, dir, argv)
+	}
+	return gitOnlyRunner(ctx, dir, c)
+}
+
 // PANEL-20, on a throwaway socket: a new lane gets a port of its own (in its registry
 // record and its tmux environment), the gitignored files .worktreeinclude names (and
 // no others), and worktree_setup runs in its worktree with CLAUDUCTOR_LANE and
@@ -38,12 +52,7 @@ func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	writeFile(t, filepath.Join(root, "secret.txt"), "ignored but not named\n")
 	p := startPanelWith(t, root, home, sock, func(o *Options) {
 		o.TrustConfig = true
-		o.Runner = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
-			if argv[0] == "/usr/bin/env" {
-				return signals.ExecRunner(ctx, dir, argv)
-			}
-			return gitOnlyRunner(ctx, dir, argv)
-		}
+		o.Runner = lifecycleRunner
 	})
 	var notes []string
 	for _, id := range []string{"one", "dirty"} {

@@ -40,6 +40,23 @@ type SourceStatus struct {
 	Pending bool   `json:"pending"`
 	Error   string `json:"error,omitempty"`
 	At      int64  `json:"at,omitempty"` // unix ms of the last attempt
+	// Paused says why the source's claude call did not run (PANEL-28: a login refresh
+	// holds a lock). It leaves the rest as the last read set it; the next read clears it.
+	Paused string `json:"paused,omitempty"`
+}
+
+// PauseSource notes that a claude source's poll was held back ("agents", "version",
+// "account"): its last reading, its success time and its error stay as they were, so
+// nothing reads it as failed, nor as fresh.
+func (m *Model) PauseSource(source, note string) {
+	switch source {
+	case "agents":
+		m.agentsSrc.Paused = note
+	case "version":
+		m.v2.versionSrc.Paused = note
+	case "account":
+		m.accountSrc.Paused = note
+	}
 }
 
 // FeedEvent is one line of the activity feed. It holds a short summary, never a body.
@@ -170,6 +187,10 @@ type Model struct {
 	dropped     int
 	v2          modelV2
 	hooks       hookHealth // PANEL-5: the hook install's health (hookhealth.go)
+	// loginLocks are Claude Code's login-refresh locks as the panel's watch last read
+	// them (PANEL-28; alerts.go derives their alerts). The machine's: every project's
+	// model holds the same.
+	loginLocks []types.LoginLock
 
 	// v1 lanes on the panel's tmux socket.
 	tmuxLanes    []types.TmuxLane
