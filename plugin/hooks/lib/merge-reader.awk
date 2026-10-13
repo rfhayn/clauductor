@@ -20,7 +20,7 @@ function norm(t) { gsub(/\\/, "", t); gsub(/"/, "", t); gsub(/'/, "", t); gsub(/
 function hits(t,   l) {
   t = " " norm(t) " "
   if (t ~ /[^A-Za-z0-9_-]pr( -[^ ]+( [^ -][^ ]*)?)* merge[^A-Za-z0-9_-]/) return 1
-  if (t ~ /([)}`]|[$][A-Za-z0-9_@*#?!-]+) merge[^A-Za-z0-9_-]/) return 1
+  if (t ~ /([)}`]|[$][A-Za-z0-9_@*#?!\200-\377-]+) merge[^A-Za-z0-9_-]/) return 1
   if (t ~ /[^A-Za-z0-9_-]pr [$`]/) return 1
   l = tolower(t)
   return l ~ /pulls\/[^ ]*\/merge|mergepullrequest|automerge/
@@ -153,7 +153,9 @@ function dollar(i,   nx, j) {
   nx = substr(S, i + 1, 1)
   if (nx == "(") return subst(i + 2, "paren")
   if (nx == "{") { j = i; i = brace(i + 2); wild(".*", "${}", substr(S, j + 2, i - j - 3) ~ /^@|\[@\]/ ? "ds" : "d"); return i }
-  if (match(substr(S, i + 1, 128), /^([A-Za-z_][A-Za-z0-9_]*|[0-9@*#?!$-])/)) {
+  # A name may hold bytes 0x80-0xFF (#100): zsh in a UTF-8 locale takes `$é` as a parameter, so
+  # `gh pr mer$é\ge 5` runs a merge. Read as a literal `$`, it passed as plain text.
+  if (match(substr(S, i + 1, 128), /^([A-Za-z_\200-\377][A-Za-z0-9_\200-\377]*|[0-9@*#?!$-])/)) {
     wild(".*", "$" substr(S, i + 1, RLENGTH), substr(S, i + 1, 1) == "@" ? "ds" : "d"); return i + 1 + RLENGTH
   }
   lit("$"); return i + 1
