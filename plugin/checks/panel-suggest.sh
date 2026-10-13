@@ -3,8 +3,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # panel-suggest.sh offers, per lane template, exactly what the roadmap's current phase allows:
 # build = queued change rows whose proposal exists; propose = the first queued change row, and
 # nothing while one is already proposed ahead; ops = queued ops rows by name; each only once its
-# dependencies are met (OPS-39). Its output is the
-# panel's JSON. Also: the project's preset panel config, when present, names only scripts that exist.
+# dependencies are met (OPS-39). Its output is the panel's JSON. Also: the project's preset panel config, when present, names only scripts that exist.
 . "$(dirname "$0")/lib.sh"
 need jq
 

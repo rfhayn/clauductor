@@ -57,8 +57,9 @@ A phase is several changes. Decompose as you go, phase by phase.
     row is `NEXT`, the session's next step.
   - **The critical path** is the longest chain of open rows (queued, in flight, open), each waiting
     on the one before, counted in rows. On a tie, the chain whose first row comes first in the file,
-    then the earlier next row. `--text` names it on a line of its own and marks each of its rows;
-    with no open row waiting on another, it is `none`.
+    then the earlier next row. It spans every phase: `--text` names it on a line of its own and
+    marks each of its rows that the current phase lists; with no open row waiting on another, it
+    is `none`.
   - The panel offers only `next` rows. `roadmap_order` in `.claude/lib/conf.sh` is the one reading
     of the order, over any parser's `--tsv`: a parser with no column 15 reads every row as met.
 - **A section's start**: `**<section> started:** YYYY-MM-DD`, optionally `— <why>`, anywhere in a

@@ -74,7 +74,7 @@ fi
 echo "- Remote branches with no open PR (last commit author · date):"
 ctx_loose_branches "$prs" 2>&1 | ind
 
-echo "- Change queue (the roadmap's current phase; top = next up):"
+echo "- Change queue (the roadmap's current phase; the [NEXT] row is next up):"
 roadmap_queue --text 2>&1 | ind
 echo "- Proposed, not yet built ($CHANGES_DIR/, at most one ahead):"
 found=""
