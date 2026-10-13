@@ -81,7 +81,7 @@ trust recorded against the config's path and content hash, wherever that file li
 - **A repository with both:** an in-repository `.clauductor/panel.json` and a sidecar. Recommendation: the registry's
   `config` wins, and the page says which file it reads.
 
-**As approved (2026-10-12, `changes/panel-42-attach/design.md`).** Three points differ from the decisions above:
+**As approved (2026-10-13, design 418cd801099a, `changes/panel-42-attach/design.md`).** Three points differ from the decisions above:
 - **The page's Attach choice is its own row, PANEL-43** (D1), queued after PANEL-42. PANEL-42 ships the command.
 - **Decision 3's trust is stricter for a sidecar** (D5). A config outside its repository cannot be trusted while any
   command it names reaches outside the repository, and an earlier trust entry does not count. An in-repository config
