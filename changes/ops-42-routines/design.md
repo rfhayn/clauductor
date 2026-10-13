@@ -118,7 +118,7 @@
 |---|---|
 | The registry does not parse, or any entry is invalid | Nothing runs. `tick` exits 2 naming each fault; the health line says FAILED for the registry. A malformed entry is an error, not a shorter list. |
 | Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. Nothing is logged. |
-| `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set | Each due `claude -p` routine is refused and logged `api-key`; command routines run with both unset. |
+| `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set | Each due `claude -p` routine is refused and logged `api-key` naming the variable; command routines run with both unset (D16). `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
 | A cap is reached | The `claude -p` routine is refused and logged `capped` with the cap and the figure. |
 | The quota is at or above `quota_pct` (current reading) | The `claude -p` routine is refused and logged `quota` with the window. An unknown reading never refuses. |
 | A routine's `where` is not `local`, or its `machine` is another OS | It is not this runner's: skipped silently, shown by `list`. |
@@ -229,7 +229,7 @@
     <allowed> --disallowedTools <disallowed> --strict-mcp-config`, run in the repository's root,
     with stdin from `/dev/null` and both API key variables unset. Never `--bare`, which never
     reads the subscription login.
-  - **Why each bound** (Claude Code's docs, `cli-reference`, `permissions`, `headless`):
+  - **Why each bound** (Claude Code's docs; sources and what is inferred below):
     - `--tools` "restricts which built-in tools Claude can use": a tool left out is not in the
       model's context, so a project's `permissions.allow` (say `Bash(git log *)`) cannot hand it
       back. `--allowedTools` alone only pre-approves; it restricts nothing.
@@ -259,12 +259,26 @@
   - `--setting-sources user`: no project permissions at all, but the project's hooks, its merge
     guard included, would not load either;
   - a list of write tools in the check: a new or misspelt tool would pass as read-only.
-- **Unverified, checked by hand in group 5** (rule 2; never by a test, which uses a fake): that
-  `--tools` keeps a settings-allowed tool out under `dontAsk` (the docs imply it and do not say
-  it); that `--tools Read,Grep,Glob` gives all three (the docs say the default set on macOS and
-  Linux leaves out `Glob` and `Grep`); and the CLI's `subtype` when `--max-turns` or
-  `--max-budget-usd` stops a run (`error_max_turns` and `error_max_budget_usd` are documented for
-  the Agent SDK).
+- **What the docs say, and what is inferred.** Explicit: `--tools` restricts the built-in set;
+  a bare name in `--disallowedTools` removes the tool from context; deny beats allow at every
+  scope; `--tools` does not govern MCP tools; `dontAsk` denies anything that would prompt; set the
+  mode explicitly under `-p`; in a folder never trusted, `-p` does not apply the project's
+  `permissions.allow`. Inferred, and so not relied on:
+  - that `--tools` keeps a settings-allowed tool out. The forced `--disallowedTools` covers every
+    write tool by an explicit rule, so a read-only routine stays read-only either way;
+  - that `--tools Read,Grep,Glob` gives all three (the docs say the default set on macOS and
+    Linux leaves out `Glob` and `Grep`). The digest's input comes from `context`, so `Read` alone
+    is enough;
+  - the CLI's `subtype` names when `--max-turns` or `--max-budget-usd` stops a run
+    (`error_max_turns`, `error_max_budget_usd` are documented for the Agent SDK, and the CLI's
+    snake_case fields by examples). The runner treats any subtype but `success`, and any
+    `is_error: true`, as failed, and records the name it got.
+  - **How they are checked:** in the build, with the fake claude only (D13), answering each
+    documented and inferred shape: every subtype, `is_error`, no JSON, exit 143 with no result.
+    No check runs the real one. The first scheduled `morning-digest`, a production run, records
+    the real argv, subtype, cost and turns in the run log; task 5.5 reads that record.
+- **Sources:** code.claude.com/docs/en/cli-reference, /en/headless, /en/permissions,
+  /en/permission-modes, /en/agent-sdk/agent-loop and /en/agent-sdk/cost-tracking.
 
 **D8. A timeout, and ADR-0005.**
 - **Recommended:** the runner starts each routine as a child it holds by the pid `$!` gave it,
@@ -272,7 +286,9 @@
   to that child (and its group), then SIGKILL 15 s later if it is still running: PANEL-28's
   sequence, so a `claude` refreshing the login gets the chance to finish. The docs say a
   SIGTERMed `claude -p` stops starting tool calls and model requests, kills its Bash process
-  trees, runs its `SessionEnd` hooks and exits 143, writing no result. The runner never looks a
+  trees, runs its `SessionEnd` hooks and exits 143, writing no result
+  (code.claude.com/docs/en/headless). Its record therefore says `timeout`, cost unknown, counted
+  at its budget (D9). The runner never looks a
   process up by name, argv or parent.
   - **ADR-0005 is amended**, because its decision reads "No script in the model kills … a
     `claude` process … whatever its argv or parent says", and the timeout stops a `claude -p`.
@@ -383,3 +399,18 @@
   Code's docs do not mention it under `-p` (phone push is documented for Remote Control only). A
   notification at 07:00 would also go to the owner before they sit down; the session start is
   where they already look (*A control needs a named addressee*).
+
+**D16. Which credentials count as the subscription.**
+- **Recommended:** refuse a `claude -p` routine while `ANTHROPIC_AUTH_TOKEN` or
+  `ANTHROPIC_API_KEY` is set, and unset both for every command routine. Claude Code's
+  precedence is `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then
+  `CLAUDE_CODE_OAUTH_TOKEN`, then the `/login` subscription, and "in non-interactive mode
+  (`-p`), the key is always used when present" (code.claude.com/docs/en/authentication). So
+  either variable would bill an API account instead. **`CLAUDE_CODE_OAUTH_TOKEN` is allowed**:
+  it is a subscription token (`claude setup-token`). The run record says which source was in use
+  (`auth`: `oauth-token` or `login`), never its value.
+- **Alternative:** refuse `CLAUDE_CODE_OAUTH_TOKEN` too, so only the `/login` session counts. It
+  would block a machine that runs Claude Code headless on a setup token, which is still the
+  subscription and still Claude Code. The token could belong to another account; the record's
+  `auth` field shows it was used.
+- **Never `--bare`**, which reads neither OAuth credentials nor the keychain.

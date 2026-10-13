@@ -172,6 +172,13 @@ THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, wit
 - **GIVEN** a fake claude whose JSON has `is_error: true`, or a subtype other than `success`
 - **WHEN** the run ends
 - **THEN** its verdict is `failed`, with the subtype recorded, and its reported cost is still counted
+- **AND** a subtype the runner has never seen is treated the same way
+
+#### Scenario: [ROUTINES-6-S6] A subscription token is allowed and named
+- **GIVEN** `CLAUDE_CODE_OAUTH_TOKEN` is set and neither API key variable is
+- **WHEN** a due `claude -p` routine runs against a fake claude
+- **THEN** it runs, and its record's `auth` is `oauth-token`, with no part of the token's value in the log or the output
+- **AND** with no token set, the record's `auth` is `login`
 
 ### Requirement: Caps and the quota bound unattended spend
 THE SYSTEM SHALL refuse to start a `claude -p` run when today's recorded spend has reached `daily_usd`, when the spend over the last `window_days` has reached `window_usd`, when today's `claude -p` runs have reached `daily_runs`, or when a current reading of the account's quota has any window at or above `quota_pct`; and SHALL log each refusal.
