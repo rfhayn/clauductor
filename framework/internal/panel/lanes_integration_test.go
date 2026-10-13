@@ -595,7 +595,7 @@ func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
 			if got != want {
 				t.Fatalf("page told %s, want %s", got, want)
 			}
-		case <-time.After(3 * time.Second):
+		case <-time.After(testwait.Scale(5 * time.Second)): // beyond the watch's own recheckFor
 			t.Fatalf("page never told %s", want)
 		}
 	}

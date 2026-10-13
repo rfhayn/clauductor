@@ -643,9 +643,12 @@ value just changed.
 - **The mouse and the terminal.** The wheel scrolls the lane's history: the panel's tmux has
   `mouse on`, so the first wheel-up enters tmux's copy mode, and the line above the terminal says
   "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
-  scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude,
-  so nothing you type is lost. Escape only leaves, since claude would read it as an interrupt. The
-  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux binds no clicks
+  scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude.
+  A key typed after wheels that end scrolled back waits for tmux to act on them, up to three
+  seconds after the last wheel, before it leaves copy mode. One known gap: a key typed while
+  already scrolled back, with a wheel-up tmux has not read yet, can be lost (OPS-62). Escape only
+  leaves, since claude would read it as an interrupt. The panel asks tmux about copy mode only
+  after a wheel, never per keystroke. tmux binds no clicks
   here, and an unbound click would go to claude if it asked for the mouse (its fullscreen TUI,
   `"tui": "fullscreen"`, does), so the page keeps presses for itself: a plain drag selects text
   in the browser (the page turns a plain press into xterm's Option-press), and the selection
