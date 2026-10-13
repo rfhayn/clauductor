@@ -97,11 +97,11 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **WHEN** the owner trusts it
 - **THEN** trust is refused, and both lines are marked as outside the repository: `..` is a path that leaves the root, and every argv word holding whitespace or a shell operator is split and checked as a script, whatever program and flags come before it
 
-#### Scenario: [ATTACH-3-S8] A redirection to an absolute path is outside it, `/dev/null` included
-- **GIVEN** an attached project whose sidecar has a card running `sh -c "sh .claude/owner-queue.sh 2>/dev/null"`
-- **WHEN** the owner trusts it
-- **THEN** trust is refused, and the line is marked as outside the repository with the word `/dev/null`: design.md D5 refuses every absolute path, and a redirection's target is a word like any other
-- **AND** the same card written with `2>&1` is trusted
+#### Scenario: [ATTACH-3-S8] `/dev/null` is allowed only as a redirection's target
+- **GIVEN** attached projects whose sidecars each have one card, running `sh -c "sh .claude/owner-queue.sh 2>/dev/null"`, `sh -c "sh .claude/owner-queue.sh >/dev/null"`, `cat /dev/null`, and `sh -c "sh .claude/owner-queue.sh 2>/tmp/x"`
+- **WHEN** the owner trusts each
+- **THEN** the two that redirect to `/dev/null` are trusted and recorded, with no line marked
+- **AND** `cat /dev/null` (an ordinary argument) and `2>/tmp/x` are refused, each line marked as outside the repository with the word `/dev/null` or `/tmp/x`
 
 ### Requirement: The registry's config is the one every command reads
 THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.

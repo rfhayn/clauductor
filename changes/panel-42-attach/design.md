@@ -160,6 +160,9 @@
       resolved through symlinks as far as it exists.
   - **What is allowed:** a bare word (a program found on `PATH`, such as `sh`, `node`, `npm` or
     `make`) and a path inside the repository.
+  - **One exception (the owner, 2026-10-13):** `/dev/null` as the target of a redirection (`>`,
+    `2>`, `>>`, `&>`, `<`) is not a project path and is allowed; any other absolute path,
+    including `/dev/null` as an ordinary argument, is still refused.
   - **How it shows:** the trust report (`panel trust`, the page's **Trust config…**, the
     **Config untrusted** banner) marks each line: `OUTSIDE THE REPOSITORY (<word>): card x runs
     …`. Every way of trusting refuses with those lines, and nothing is recorded.
