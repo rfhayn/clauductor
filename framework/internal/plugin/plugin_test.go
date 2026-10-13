@@ -2,10 +2,12 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -602,29 +604,151 @@ func TestPluginChecksPassInScaffoldedProject(t *testing.T) {
 	}
 }
 
-// `claude plugin validate` is the authoritative manifest check. CI runners have no claude CLI.
+// realHome is the user's home as the test binary started, before any test overrides HOME.
+var realHome, _ = os.UserHomeDir()
+
+// Where Claude Code keeps state. The first three claudeConfig points into the test's home; the
+// rest it unsets, so Claude Code falls back to paths under that HOME (#95).
+var (
+	claudeStateRequired = []string{"HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR"}
+	claudeStateOptional = []string{"ANTHROPIC_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "XDG_CACHE_HOME"}
+)
+
+// claudeConfig is a throwaway HOME and Claude Code config for a test that runs the real claude
+// CLI, so the user's real ~/.claude is never read or written (#95: validate once ran against it).
+// HOME is a t.TempDir(), CLAUDE_CONFIG_DIR its .claude and the plugin cache .claude/plugins;
+// ANTHROPIC_CONFIG_DIR and the XDG config, data, state, runtime and cache dirs are unset.
+func claudeConfig(t *testing.T) (home string, e []string) {
+	home = t.TempDir()
+	cfg := filepath.Join(home, ".claude")
+	os.MkdirAll(cfg, 0o755)
+	for _, kv := range env(t, home) {
+		if !slices.Contains(claudeStateOptional, strings.SplitN(kv, "=", 2)[0]) {
+			e = append(e, kv)
+		}
+	}
+	// The updater would replace the user's installed claude from inside a test run.
+	return home, append(e, "CLAUDE_CONFIG_DIR="+cfg, "CLAUDE_CODE_PLUGIN_CACHE_DIR="+filepath.Join(cfg, "plugins"), "DISABLE_AUTOUPDATER=1")
+}
+
+// claudeEnvOutsideTemp says why running claude in home with env could reach state outside the
+// test, or nil. home must be strictly inside the temporary directory and must not contain the
+// real home (a TMPDIR above HOME); every required location must be set inside home, and every
+// optional one unset (or empty) or inside home. The last value of a key is the one exec uses.
+func claudeEnvOutsideTemp(home string, env []string) error {
+	within := func(base, p string) bool {
+		rel, err := filepath.Rel(base, p)
+		return err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	if !within(os.TempDir(), home) || filepath.Clean(home) == filepath.Clean(os.TempDir()) {
+		return fmt.Errorf("claude would run in %q, not inside the temporary directory %s", home, os.TempDir())
+	}
+	if realHome != "" && within(home, realHome) {
+		return fmt.Errorf("claude would run in %q, which contains the real home %s", home, realHome)
+	}
+	for _, k := range slices.Concat(claudeStateRequired, claudeStateOptional) {
+		v, set := "", false
+		for _, kv := range env {
+			if strings.HasPrefix(kv, k+"=") {
+				v, set = strings.TrimPrefix(kv, k+"="), true
+			}
+		}
+		if !set || v == "" {
+			if slices.Contains(claudeStateRequired, k) {
+				return fmt.Errorf("claude would run without %s", k)
+			}
+			continue
+		}
+		if !within(home, v) {
+			return fmt.Errorf("claude would run with %s=%q, outside the test's home %s", k, v, home)
+		}
+	}
+	return nil
+}
+
+// runClaude runs the real claude CLI in home with e, and refuses to unless the environment the
+// command receives keeps it inside the test (claudeEnvOutsideTemp): a regression back to the real
+// HOME or ~/.claude fails here rather than running against it (#95).
+func runClaude(t *testing.T, home string, e []string, args ...string) (string, int) {
+	t.Helper()
+	if err := claudeEnvOutsideTemp(home, e); err != nil {
+		t.Fatalf("refusing to run claude: %v", err)
+	}
+	return run(t, home, e, "", "claude", args...)
+}
+
+// The guard in front of every real claude run refuses each way back to the user's own state (#95).
+func TestClaudeEnvOutsideTemp(t *testing.T) {
+	home, valid := claudeConfig(t)
+	with := func(kv ...string) []string { return append(slices.Clone(valid), kv...) }
+	cases := []struct {
+		name string
+		home string
+		env  []string
+		ok   bool
+	}{
+		{"valid", home, valid, true},
+		{"inherited environment", home, os.Environ(), false},
+		{"later duplicate wins: real HOME last", home, with("HOME=" + realHome), false},
+		{"later duplicate wins: test HOME last", home, append([]string{"HOME=" + realHome}, valid...), true},
+		{"relative path", home, with("CLAUDE_CONFIG_DIR=.claude"), false},
+		{"dot-dot escape", home, with("CLAUDE_CONFIG_DIR=" + home + "/../escape"), false},
+		{"TMPDIR itself as HOME", home, with("HOME=" + os.TempDir()), false},
+		{"TMPDIR itself as the home", os.TempDir(), valid, false},
+		{"home outside the temporary directory", "/var/empty/h", []string{"HOME=/var/empty/h", "CLAUDE_CONFIG_DIR=/var/empty/h/.claude", "CLAUDE_CODE_PLUGIN_CACHE_DIR=/var/empty/h/.claude/plugins"}, false},
+		{"no CLAUDE_CONFIG_DIR", home, slices.DeleteFunc(slices.Clone(valid), func(kv string) bool { return strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") }), false},
+		{"ANTHROPIC_CONFIG_DIR real", home, with("ANTHROPIC_CONFIG_DIR=" + filepath.Join(realHome, ".claude")), false},
+		{"XDG_CONFIG_HOME real", home, with("XDG_CONFIG_HOME=" + filepath.Join(realHome, ".config")), false},
+		{"XDG_DATA_HOME real", home, with("XDG_DATA_HOME=" + filepath.Join(realHome, ".local", "share")), false},
+		{"XDG_STATE_HOME real", home, with("XDG_STATE_HOME=" + filepath.Join(realHome, ".local", "state")), false},
+		{"XDG_RUNTIME_DIR real", home, with("XDG_RUNTIME_DIR=/run/user/501"), false},
+		{"XDG_CACHE_HOME real", home, with("XDG_CACHE_HOME=" + filepath.Join(realHome, ".cache")), false},
+		{"XDG_STATE_HOME inside the test's home", home, with("XDG_STATE_HOME=" + filepath.Join(home, ".local", "state")), true},
+		{"XDG_STATE_HOME empty", home, with("XDG_STATE_HOME="), true},
+	}
+	for _, c := range cases {
+		if err := claudeEnvOutsideTemp(c.home, c.env); (err == nil) != c.ok {
+			t.Errorf("%s: want ok=%v, got %v", c.name, c.ok, err)
+		}
+	}
+	// A TMPDIR above the real home makes the real home "temporary": it is refused all the same.
+	// No t.TempDir() below: it would create a directory beside the user's home.
+	if realHome == "" {
+		t.Skip("no home directory: the TMPDIR-above-HOME case needs one")
+	}
+	t.Setenv("TMPDIR", filepath.Dir(realHome))
+	real := []string{"HOME=" + realHome, "CLAUDE_CONFIG_DIR=" + filepath.Join(realHome, ".claude"), "CLAUDE_CODE_PLUGIN_CACHE_DIR=" + filepath.Join(realHome, ".claude", "plugins")}
+	if err := claudeEnvOutsideTemp(realHome, real); err == nil {
+		t.Errorf("TMPDIR %s above the real home: the real home was accepted", filepath.Dir(realHome))
+	}
+	if err := claudeEnvOutsideTemp(filepath.Join(filepath.Dir(realHome), "t"), real); err == nil {
+		t.Errorf("TMPDIR %s above the real home: HOME=%s was accepted", filepath.Dir(realHome), realHome)
+	}
+}
+
+// `claude plugin validate` is the authoritative manifest check, run with the installed claude
+// CLI on purpose; CI runners have none. It runs in a throwaway config like TestClaudePluginInstall:
+// validating needs nothing from the user's own ~/.claude, so it must not touch it (#95).
 func TestClaudePluginValidate(t *testing.T) {
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("the claude CLI is not installed (CI runners): claude plugin validate not run")
 	}
 	plug, _ := build(t)
-	out, err := exec.Command("claude", "plugin", "validate", "--strict", plug).CombinedOutput()
-	if err != nil {
-		t.Fatalf("claude plugin validate --strict: %v\n%s", err, out)
+	home, e := claudeConfig(t)
+	if out, code := runClaude(t, home, e, "plugin", "validate", "--strict", plug); code != 0 {
+		t.Fatalf("claude plugin validate --strict: exit %d\n%s", code, out)
 	}
 	root := repoRoot(t)
 	if exists(filepath.Join(root, ".claude-plugin", "marketplace.json")) {
-		out, err := exec.Command("claude", "plugin", "validate", "--strict", root).CombinedOutput()
-		if err != nil {
-			t.Fatalf("claude plugin validate --strict (marketplace): %v\n%s", err, out)
+		if out, code := runClaude(t, home, e, "plugin", "validate", "--strict", root); code != 0 {
+			t.Fatalf("claude plugin validate --strict (marketplace): exit %d\n%s", code, out)
 		}
 	}
 }
 
 // Installing through Claude Code's own plugin commands, from the committed marketplace, into a
-// throwaway config (HOME, CLAUDE_CONFIG_DIR and the plugin cache all temporary: the user's real
-// ~/.claude is never touched). Opt-in with CLAUDUCTOR_PLUGIN_INSTALL_TEST=1: it runs the claude
-// CLI, which CI runners do not have.
+// throwaway config (claudeConfig: the user's real ~/.claude is never touched). Opt-in with
+// CLAUDUCTOR_PLUGIN_INSTALL_TEST=1: it runs the claude CLI, which CI runners do not have.
 func TestClaudePluginInstall(t *testing.T) {
 	if os.Getenv("CLAUDUCTOR_PLUGIN_INSTALL_TEST") != "1" {
 		t.Skip("set CLAUDUCTOR_PLUGIN_INSTALL_TEST=1 to install the plugin with the claude CLI into a temporary config")
@@ -632,12 +756,9 @@ func TestClaudePluginInstall(t *testing.T) {
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("the claude CLI is not installed")
 	}
-	home := t.TempDir()
-	cfg := filepath.Join(home, ".claude")
-	os.MkdirAll(cfg, 0o755)
-	e := append(env(t, home), "CLAUDE_CONFIG_DIR="+cfg, "CLAUDE_CODE_PLUGIN_CACHE_DIR="+filepath.Join(cfg, "plugins"))
+	home, e := claudeConfig(t)
 	claude := func(args ...string) string {
-		out, code := run(t, home, e, "", "claude", args...)
+		out, code := runClaude(t, home, e, args...)
 		t.Logf("claude %s (exit %d):\n%s", strings.Join(args, " "), code, out)
 		if code != 0 {
 			t.Fatalf("claude %v failed", args)
