@@ -162,8 +162,8 @@ require('child_process').execSync("sed -i '' s/x/y/ src/lib/app.ts");
 JS
 nb 2 "a python script shelling out to sed -i" "python3 shellout.py"
 nb 2 "a node script shelling out to sed -i" "node shellout.js"
-# A script's cds count toward the 32-base cap only when they fit; past it, only its absolute
-# targets are judged, and nothing is refused for the script's cds alone.
+# A script's cds compose with the command's only while they fit the 32-base cap; past it, each
+# resolves against the command's directories alone, and nothing is refused for the script's cds.
 cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'
 printf "${cds}sed -i '' s/x/y/ \"\$TMPDIR/notes.txt\"\n" > "$d/cds.sh"
 printf "${cds}sed -i '' s/x/y/ $R/$T\n" > "$d/cds-abs.sh"
@@ -189,6 +189,21 @@ nb 0 "a shell script copying tracked source under a sed -i comment" "sh copies.s
 nb 0 "a python script reading tracked source under a sed -i comment" "python3 reads.py"
 printf 'exec > "$TMPDIR/harness.log"\ngrep -n "sed -i" src/lib/app.ts\n' > "$R/harness.sh"
 nb 0 "a shell script with an exec, grepping for sed -i in tracked source" "sh harness.sh"
+# The same harness is a shell script however it is started: by its path, sourced, or by a perl
+# that hands a non-perl shebang to the interpreter it names.
+nb 0 "the harness run by its path" "./harness.sh"
+nb 0 "the harness sourced" ". ./harness.sh"
+{ printf '#!/bin/sh\n'; cat "$R/harness.sh"; } > "$R/shtool"
+nb 0 "a shell-shebang harness run by perl" "perl shtool"
+# An editor the script's own scan sees (backticks) is judged by its operands, not by the paths
+# the script names: this one edits only a temp file, though it reads tracked source.
+cat > "$R/ticks.pl" <<'PL'
+open(my $f, '<', 'src/lib/app.ts'); print <$f>;
+system("true");
+`sed -i '' s/x/y/ "$ENV{TMPDIR}/notes.txt"`;
+PL
+nb 0 "a perl script whose backtick sed -i edits a temp file" "perl ticks.pl"
+nb 2 "bash --rcfile FILE -c" "bash --rcfile /dev/null -c \"cd src && sed -i '' s/a/b/ lib/app.ts\""
 # A multi-package codemod: its cds pass the cap when composed, and each one still resolves.
 printf "cd packages/%s && sed -i '' s/x/y/ src/index.ts && cd ../..\n" a b c > "$R/codemod.sh"
 nb 2 "a multi-package codemod script" "sh codemod.sh"

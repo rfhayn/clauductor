@@ -46,8 +46,11 @@
 #     does not exist yet when the hook runs, and the heredoc body fed to cat is data, not code;
 #   - a script named by a variable or a substitution (`python3 "$S"`, `bash -c "$(cat f)"`), piped
 #     in by anything but a lone `cat f`, or kept in an ignored directory (`tmp/`, when ignored);
-#   - a runner the hook does not know (`uv run f.py`, `deno run f.ts`, `bun f.ts`, `make`);
-#   - a script run by the script read (one level is read, not the tree it starts);
+#   - a runner the hook does not know (`uv run f.py`, `deno run f.ts`, `bun f.ts`, `make`), and a
+#     script run by its path with no script extension or behind a prefix (`./edsh`,
+#     `timeout 60 ./fix.py`): a path is read as a script only when it is the command word;
+#   - a script run by the script read (one level is read, not the tree it starts), including an
+#     interpreter a shell script hands an editor in a heredoc or a `-c` string;
 #   - a script's target it cannot resolve to a tracked file: a variable or an argument (`sed -i …
 #     "$1"`), or a path it builds or finds itself (`Path(__file__).parent / name`, `glob`). A
 #     RELATIVE literal is still judged against the command's directories and literal cds, even
@@ -55,15 +58,20 @@
 #     edits a scratch copy names it by an absolute path or a variable;
 #   - past the 32-base cap, a relative target under a cd composed from two of the script's own cds
 #     (each script cd is then resolved against the command's directories alone);
-#   - an editor a non-shell script runs from a string with no exec call the hook knows (perl
-#     backticks, a call it spells some other way);
+#   - an editor a non-shell script runs from a string with no exec call the hook knows (a call it
+#     spells some other way), or as a LIST (`subprocess.run(["sed", "-i", …])`): no `sed -i` to
+#     match. One in backticks or qx IS read (the scan reads a backtick as a command), but only
+#     with a literal operand: a variable one is missed;
 #   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`).
-# And two false refusals:
+# And three false refusals:
 #   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
 #     ELSEWHERE is refused when it names the tracked path;
 #   - the price of reading an editor run from a string: a non-shell script that execs anything,
 #     names `sed -i` anywhere (a comment too) and names a tracked path is refused, even if it only
-#     reads that path.
+#     reads that path;
+#   - a command that names the tracked original AND runs a script editing only a copy by absolute
+#     path (`cp src/x.ts /tmp/x.ts && python3 fix-copy.py`) is refused: the command's own words are
+#     read loosely for tracked paths, which is what catches `python3 argv.py src/x.ts`.
 #
 # Checked by .claude/checks/hooks.sh, a payload → exit-code table in both directions.
 #
@@ -620,8 +628,9 @@ show() { case "$1" in "$root"/*) printf '%s' "${1#"$root"/}" ;; *) printf '%s' "
 #  - it is NOT a shell script, matches the in-place pattern, has an exec call (`system(`,
 #    `subprocess`, `popen`, `exec`, `spawn`, `qx`), and its own scan sees no in-place editor: the
 #    editor runs from inside a string (`os.system("sed -i … f")`). A shell script needs no such
-#    case, because the scan sees every command it runs; a comment or a grep pattern that merely
-#    names `sed -i` is not a run. The shared price: a non-shell script that execs anything, names
+#    case: the scan sees every command it runs itself (not what it hands an interpreter in a
+#    heredoc or a -c string, a known limit), and a comment or a grep pattern that merely names
+#    `sed -i` is not a run. The shared price: a non-shell script that execs anything, names
 #    `sed -i` anywhere and names a tracked path is refused, even if it only reads that path.
 # Its OPAQUE, CDX and UNCLOSED never leave this step.
 own=$cmd
