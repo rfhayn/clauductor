@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // The lease protocol has more than one implementation: lock-run, the plain-shell
@@ -86,9 +88,7 @@ func startConformance(driver string, env []string, cases []string, impl ...strin
 func writeImpl(t *testing.T, dir, name, body string) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, p, body)
 	return p
 }
 
