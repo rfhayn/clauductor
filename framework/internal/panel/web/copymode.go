@@ -22,8 +22,11 @@ import (
 
 var (
 	mouseReports = regexp.MustCompile(`^(\x1b\[<\d+;\d+;\d+[Mm])+$`)
-	wheelReport  = regexp.MustCompile(`\x1b\[<(6[4-9]|7[0-9]|9[6-9]|10[0-9]);`) // buttons 64/65 with any modifier
-	scrollKeys   = regexp.MustCompile(`^\x1b(\[|O)[ABCDHF]$|^\x1b\[[1-6]~$|^\x1b\[1;\d[ABCDHF]$`)
+	// Wheel buttons 64-79 (up, down, left, right, with Shift and Meta) and 96-109 (most
+	// of those with the motion bit). It misses 80-95, the wheel with Ctrl, which tmux
+	// does not act on either: only a plain 64 or 65 changes copy mode (after).
+	wheelReport = regexp.MustCompile(`\x1b\[<(6[4-9]|7[0-9]|9[6-9]|10[0-9]);`)
+	scrollKeys  = regexp.MustCompile(`^\x1b(\[|O)[ABCDHF]$|^\x1b\[[1-6]~$|^\x1b\[1;\d[ABCDHF]$`)
 )
 
 // Input kinds, as copy mode treats them.

@@ -739,3 +739,35 @@ func TestWheelWithAModifierIsNotSimulated(t *testing.T) {
 		}
 	}
 }
+
+// Nor does a modified or sideways wheel count as a scroll down: after two wheel-ups
+// the pane is 5 lines back whatever Shift-wheel-down (69) or wheel-left (66) came
+// after, so a key typed before tmux has read them waits for copy mode, leaves it
+// once, and reaches the lane. Counted as a down, it would take the pane for the live
+// screen, and copy mode would eat the key (#82).
+func TestWheelWithAModifierDoesNotScrollDown(t *testing.T) {
+	t.Parallel()
+	for name, other := range map[string]string{"shift-down": "\x1b[<69;10;5M", "left": "\x1b[<66;10;5M"} {
+		w, pane, clk, _ := watchWithFakes(t)
+		for _, d := range []string{wheelUp, wheelUp, other} {
+			sendThrough(w, pane, d) // on the terminal; tmux has not read it
+		}
+		typed := make(chan struct{})
+		go func() { defer close(typed); sendThrough(w, pane, "y") }()
+		waitLook(t, pane, name+": the key's look") // no copy mode yet
+		pane.read()                                // tmux reads the wheels only now: 5 lines back
+		ctx, cancel := context.WithTimeout(context.Background(), testwait.Scale(time.Second))
+		_ = clk.BlockUntilContext(ctx, 4) // the key's next look, and each wheel's recheck
+		cancel()
+		clk.Advance(time.Second)
+		select {
+		case <-typed:
+		case <-time.After(testwait.Scale(3 * time.Second)):
+			t.Fatalf("%s: the key was never written", name)
+		}
+		pane.read()
+		if got, lost, left := pane.keys(); got != "y" || lost != "" || left != 1 {
+			t.Fatalf("%s: the lane got %q, copy mode ate %q, copy mode was left %d times; want \"y\", nothing, once", name, got, lost, left)
+		}
+	}
+}
