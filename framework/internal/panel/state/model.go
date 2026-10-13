@@ -804,6 +804,10 @@ type View struct {
 	Flow *metrics.Card `json:"flow,omitempty"`
 	// Economy is economy mode while it is on (PANEL-19): the badge by the quota.
 	Economy *EconomyView `json:"economy,omitempty"`
+	// Approvals is each open change's approval by change id (PANEL-29): true when its
+	// proposal has an Approved line, false when it has none, and absent when the change
+	// has no proposal. The New lane dialog warns before a build of an unapproved change.
+	Approvals map[string]bool `json:"approvals"`
 	// RemoteControl is where Remote Control is on, "all" or "lanes"; absent when off.
 	RemoteControl string `json:"remoteControl,omitempty"`
 	// v2 (ViewOrchestration, below).
@@ -1269,6 +1273,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		v.QuietWorktrees[i].Readiness = m.readiness(v.QuietWorktrees[i])
 	}
 	v.Economy = m.economyView()
+	v.Approvals = m.approvals()
 	if m.remoteControl != "off" {
 		v.RemoteControl = m.remoteControl
 	}
