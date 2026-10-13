@@ -44,9 +44,11 @@
    {
      "version": 1,
      "billing": "subscription",
+     "api_key_file": null,
      "caps": {
-       "subscription": { "five_hour_pct": 80, "seven_day_pct": 80, "unknown_quota_daily_runs": 3 },
-       "api": { "daily_usd": 1.00, "window_usd": 5.00, "window_days": 7 }
+       "subscription": { "five_hour_pct": 80, "seven_day_pct": 80, "unknown_quota_daily_runs": 3,
+                         "daily_runs": null },
+       "api": { "daily_usd": 1.00, "window_usd": 5.00, "window_days": 7, "daily_runs": null }
      },
      "routines": [
        { "name": "nightly-checks", "schedule": "02:30", "catch_up": "once",
@@ -82,7 +84,7 @@
    | `list` | Each routine: schedule, kind, next due, last verdict, and which runner or machine it waits for when it is not this one's. |
    | `log [<name>] [--days N] [--json]` | The run records, newest first. `--json` is the form PANEL-37 and PANEL-38 read. |
    | `validate` | The registry's checks, shared by `tick` and `checks/routines.sh`. |
-   | `setup --billing subscription\|api` | Records how this project's `claude -p` routines are paid for (D16). Run once by the user. |
+   | `setup --billing subscription\|api [--key-file PATH]` | Records how this project's `claude -p` routines are paid for, and for `api` the key file's path, never the key (D16). Run once by the user. |
    | `health` | The health lines (D10). `health/routines.sh` is a thin caller. |
    | `ticker [--launchd | --cron]` | Prints the panel-free ticker (D11). Installs nothing. |
 
@@ -126,7 +128,7 @@
 | Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. Nothing is logged. |
 | A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription\|api`" (D16). Command routines need no `billing`. |
 | `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (or a provider switch) is set | Each due `claude -p` routine is refused and logged `billing`, naming the variable: `-p` would bill it instead of the subscription (D16). Command routines run with both unset. `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
-| `billing` is `api` and no API credential is set | Each due `claude -p` routine is refused and logged `billing`: it would run on the subscription with no quota guard (D16). |
+| `billing` is `api` and the key file is missing, empty of `ANTHROPIC_API_KEY`, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
 | Subscription: a current reading of the 5-hour or 7-day window is at or above its cap | The `claude -p` routine is refused and logged `quota` with the window and the reading (D4). |
 | Subscription: no current reading of a window | Runs up to `unknown_quota_daily_runs` a day, then refused and logged `capped`; the health line says the quota is unknown (D17). |
 | API: a dollar cap or the run count is reached | The `claude -p` routine is refused and logged `capped` with the cap and the figure (D4). |
@@ -135,7 +137,7 @@
 | `jq` is missing | `tick` exits 2; the health line says CANNOT CHECK. |
 | The `claude` binary is missing | The run fails, "claude is not installed", logged; the tick carries on. |
 
-## Decisions (2026-10-13: the owner approved D1–D3 and D5–D15 as recommended, D8's amendment of ADR-0005 included; D4 and D16 are revised to their direction on the caps, and D17 is the gap they asked to decide: these three await them)
+## Decisions (the owner approved D1-D17 (2026-10-13))
 
 **D1. One change, or two.**
 - **Recommended: one change, in five groups.** Re-measured (`/propose` step 0c): the row's four
@@ -185,18 +187,23 @@
     - Refuse a new `claude -p` run when the **5-hour** window is at or above `five_hour_pct`
       (default **80**), or the **7-day** window is at or above `seven_day_pct` (default **80**).
       Both windows are in the panel's `quota.json` (`state.Quota`: `five_hour`, `seven_day`).
-      When the reading has a model-specific 7-day window for the routine's model
-      (`seven_day_sonnet`, `seven_day_opus`), `seven_day_pct` applies to it too.
+      When the reading has a model-specific 7-day window for the routine's model,
+      `seven_day_<alias>` with the alias the routine's role names in `model-roles.json`
+      (`seven_day_sonnet`, `seven_day_opus`), `seven_day_pct` applies to it too. A model window
+      past its reset is ignored, not unknown.
     - **A reading counts until its window resets**, whatever its age. A window's use only grows
       until its reset, so an old reading is a floor: if it is already at the cap, the run is
-      refused. After the reset (`resetsAt` passed) that window is unknown (D17).
-    - **No dollar caps,** and **no runs-per-day limit by default**: the key `daily_runs` exists
-      and is unset.
+      refused. After the reset (`resetsAt` passed) the 5-hour or 7-day window is unknown (D17).
+      A window with no `resetsAt`, or a null `pct`, has no counting reading either: the panel's
+      `quota.go` omits both at times, and carries forward a window a newer post left out. The age
+      a refusal reports is the file's `at`.
+    - **No dollar caps,** and **no runs-per-day limit by default**: `caps.subscription.daily_runs`
+      exists and is null.
     - `--max-budget-usd` is passed only when the routine sets `max_usd`, as a bound on that one
       run (a runaway guard), never as a daily cap.
-  - **`api` (an API key or auth token): dollar caps.**
+  - **`api` (the Anthropic API key from the key file, D16): dollar caps.**
     - `daily_usd` (default **1.00**) and `window_usd` over `window_days` (default **5.00** over
-      **7**), from the run log's recorded costs; `daily_runs` optional, unset by default.
+      **7**), from the run log's recorded costs; `caps.api.daily_runs` optional, null by default.
     - Each run's `--max-budget-usd` is the least of its `max_usd` and what the two caps leave, so
       one run cannot cross a cap by more than claude's own overshoot. A run whose cost is unknown
       counts at the budget it was given.
@@ -355,8 +362,11 @@
   - `CAPPED routine morning-digest — refused at 07:00: 7-day quota at 83% (cap 80%, read 02:10)`;
   - `RUNNING routine flake-watch — since 03:30 (pid 4211)`;
   - `NEVER RAN routine morning-digest — due since 2026-10-13 07:00`;
-  - `CANNOT CHECK routines quota — no reading since the window reset; 2 of 3 unknown-quota runs
-    used today` (D17);
+  - `FAILED routine morning-digest — refused at 07:00: billing is subscription but
+    ANTHROPIC_API_KEY is set` (a `billing` refusal, D16: FAILED, never CAPPED, naming the
+    variable or the key file's problem);
+  - `CANNOT CHECK — routines quota: no current reading of the 5-hour window since 2026-10-12
+    23:40; claude -p routines limited to 3 runs a day (2 of 3 runs used today)` (D17);
   - `STALE routine nightly-checks — last ran 2026-10-10 02:30; 3 slots missed`;
   - a `show` routine's OK line names its latest output (`… ; digest <path>`).
   - **The ticker:** `OK routines ticker — last tick 02:35` while ticks arrive at least hourly,
@@ -440,28 +450,51 @@ owner's direction of 2026-10-13.)*
 - **Recommended: the user declares it once, with `routines.sh setup --billing subscription|api`,
   and the runner checks the environment against it at every run.**
   - **Setup** writes `billing` into the registry and calls nothing: no `claude`, no network. It
-    cross-checks the environment and refuses a declaration the environment contradicts
-    (`subscription` while an API key variable is set, `api` while none is), naming the variable.
-    The template's registry ships `"billing": null`; validation fails a registry with an enabled
-    `claude -p` routine and no `billing`, pointing at `setup`. The playbook's *Routines* section
-    says to run it; this repository's registry is `subscription`.
+    cross-checks the environment and refuses a declaration the environment contradicts,
+    naming the variable: `subscription` while `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or a
+    provider switch is set; `api` while `ANTHROPIC_AUTH_TOKEN` or a provider switch is set, or
+    without a usable key file. The template's registry ships `"billing": null`; validation
+    fails a registry with an enabled `claude -p` routine and no `billing`, pointing at `setup`.
+    The playbook's *Routines* section says to run it; this repository's registry is
+    `subscription`.
+  - **Set** means present and non-empty, for every variable named here. The **provider
+    switches** are `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and
+    `CLAUDE_CODE_USE_FOUNDRY`. Billing through Bedrock, Vertex or Foundry is out of scope: a
+    switch is refused in both modes.
+  - **The API key comes from a key file** (the owner's decision of 2026-10-13), so a scheduled
+    run, which inherits no shell's environment, can reach it without the key ever entering the
+    repository or the ticker:
+    - `routines.sh setup --billing api --key-file <path>` records the path in the registry's
+      `api_key_file` (a leading `~/` kept as written), never the key. It refuses a path inside
+      the repository (its top-level directory, `.git` included); a sidecar's directory is
+      outside it and allowed. The same on macOS and Linux.
+    - Each `api` run reads only the line `ANTHROPIC_API_KEY=<key>` from that file. It never
+      sources the file, so nothing else in it runs or is read. It puts the key only in the
+      `claude -p` child's environment, never in a `context` command's or a command routine's,
+      and never copies, prints or logs it.
+    - The run is refused, logged `billing`, when the file is missing, is not a regular file,
+      holds no non-empty `ANTHROPIC_API_KEY`, lies inside the repository, or is readable by
+      group or others (its mode bits, read the same way on both systems). An
+      `ANTHROPIC_API_KEY` in the runner's own environment, empty or not, is ignored: the key
+      comes from the file.
+    - The printed ticker (D11) carries no secret, only the repository's path and `PATH`.
   - **At every run,** Claude Code's precedence decides what `-p` would bill:
     `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `CLAUDE_CODE_OAUTH_TOKEN`, then the
     `/login` subscription, and "in non-interactive mode (`-p`), the key is always used when
     present" (code.claude.com/docs/en/authentication). So:
     - **`subscription`:** refuse while `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` is set, or a
-      provider switch (`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`): `-p` would silently bill
-      that instead. `CLAUDE_CODE_OAUTH_TOKEN` is allowed: it is a subscription token
-      (`claude setup-token`).
-    - **`api`:** run with the key; refuse when none of `ANTHROPIC_AUTH_TOKEN`,
-      `ANTHROPIC_API_KEY` or a provider switch is set, because the run would fall through to the
-      subscription with no quota guard. An `apiKeyHelper` in settings is not detected; such a
-      project sets the key variable for the ticker.
+      provider switch: `-p` would silently bill that instead. A variable present but empty is
+      unset before `claude` starts. `CLAUDE_CODE_OAUTH_TOKEN` is allowed: it is a subscription
+      token (`claude setup-token`).
+    - **`api`:** run with the key from the key file; refuse when the key file is not usable (as
+      above), or while `ANTHROPIC_AUTH_TOKEN` (which outranks the key) or a provider switch is
+      set. Without a key the run would fall through to the subscription with no quota guard. An
+      `apiKeyHelper` in settings is not detected and not used.
     - Command routines run with `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` unset in both
       modes: they cost no tokens, and a command that calls claude should not bill a key by
       accident.
-  - The run record says `billing` and which source was in use (`auth`: `login`, `oauth-token`,
-    `api-key`, `auth-token` or the provider), never a value.
+  - The run record says `billing` and which source was in use (`auth`: `login`, `oauth-token`
+    or `key-file`), never a value. A `billing` refusal reads FAILED in the health line (D10).
 - **Alternatives:**
   - **`claude auth status --json` once at setup** (its `authMethod`: `claude.ai`, `oauth_token`,
     `api_key`, …, as `signals/auth.go` reads it): it would detect rather than ask, but
@@ -472,6 +505,9 @@ owner's direction of 2026-10-13.)*
     every installed project would never be asked. `setup` is what `start-project` can call later.
   - **detecting at each tick from the environment alone:** an unset key would silently switch an
     `api` project to the subscription.
+  - **the key in the ticker's environment** (the plist's `EnvironmentVariables`, the crontab
+    line): the secret would sit in a file the user copies around and in `ps` output. A key file
+    with tight permissions is read only by the runner, at run time.
   - **refusing `CLAUDE_CODE_OAUTH_TOKEN` in `subscription` mode:** it would block a machine that
     runs Claude Code headless on a setup token, which is still the subscription and still Claude
     Code. The token could belong to another account; the record's `auth` shows it was used.
@@ -485,10 +521,12 @@ owner asked to decide.)*
   usually still counts (D4: a floor until its reset).
 - **Recommended: (c) a small run count while unknown, and a health line that says so.** While
   either window has no counting reading, `claude -p` routines may start at most
-  `unknown_quota_daily_runs` (default **3**) runs a day, counted from the run log; past it they
-  are refused and logged `capped`. The health line adds `CANNOT CHECK routines quota — no current
-  reading of the 5-hour window since <when>; claude -p routines limited to 3 runs a day`, which
-  the session summary repeats.
+  `unknown_quota_daily_runs` (default **3**) runs a day: every `claude -p` run started today
+  (the local day) counts, from the run log, whatever the quota was when it started. Past it they
+  are refused and logged `capped`. When `daily_runs` is also set, both apply, the smaller binds,
+  and the refusal names which limit refused. The health line adds `CANNOT CHECK — routines
+  quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3
+  runs a day (N of 3 runs used today)`, which the session summary repeats.
 - **Alternatives:**
   - **(a) run anyway, and warn:** only the schedule bounds them, so a mis-typed `every 5m` on a
     `claude -p` routine would run 288 times a day against the owner's subscription before anyone

@@ -38,8 +38,10 @@ A project can:
     health line says so. A run is refused while an API key or auth token is set, because `-p`
     would bill it instead;
   - **on an API key,** dollar caps ($1 a day, $5 a week by default, each run's budget is what
-    they leave). A run is refused when no key is set, because it would fall through to the
-    subscription unguarded;
+    they leave). The key comes from a key file outside the repository (`setup --key-file`
+    records its path, never the key; it must not be readable by group or others), so the
+    ticker carries no secret. A run is refused when the file is not usable, because it would
+    fall through to the subscription unguarded;
 - **read what happened**: every run in `<git common dir>/clauductor/routines/runs.jsonl` with its
   commit, verdict, duration and, for `claude -p`, the cost and turns from claude's own JSON; each
   run's output kept; and at the next session start, one health line per routine (OK, FAILED,
