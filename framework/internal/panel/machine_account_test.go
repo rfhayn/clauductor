@@ -206,8 +206,12 @@ func TestLaneStartRefreshRunsNoAuthStatus(t *testing.T) {
 	if start < 0 {
 		t.Fatal("panel.js: no lane start's POST /lanes")
 	}
+	// Bounded by the Refresh button's handler, not a byte count: the start handler grows
+	// (PANEL-29 added its re-plan), and the button's own /refresh?machine=1 must never be
+	// the one found here.
+	buttonAt := strings.Index(src, `$("refresh").addEventListener("click"`)
 	call := src[start:]
-	if i := strings.Index(call, `api("/refresh`); i < 0 || i > 1000 {
+	if i := strings.Index(call, `api("/refresh`); i < 0 || (buttonAt > start && start+i > buttonAt) {
 		t.Fatal("panel.js: no refresh after a lane start's POST /lanes")
 	} else if call = call[i:]; strings.HasPrefix(call[:strings.IndexByte(call, ')')], `api("/refresh?machine=1"`) {
 		t.Fatal("panel.js: the refresh after a lane start asks for the machine's sources (machine=1)")
