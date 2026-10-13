@@ -152,6 +152,7 @@ var fileReadSites = map[string]int{
 	"metrics/ledger.go":    1, // the project's spend ledger (spend.json)
 	"economy.go":           2, // economy.json (the panel's own, at start); the project's .claude/model-roles.json
 	"lanes/lifecycle.go":   1, // a .worktreeinclude file copied from the project root into a new worktree
+	"lanes/lanes.go":       1, // PANEL-29: a listed worktree's git-dir rebase-merge/head-name, rebase-apply/head-name, BISECT_START
 	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
 	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
 }

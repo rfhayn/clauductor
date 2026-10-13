@@ -122,8 +122,14 @@ mkdir -p "$R/.claude/lib" "$R/changes/archive" "$R/docs"
 cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/usage.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/metrics.sh" "$CLAUDUCTOR_FW/usage-report.sh" "$CLAUDUCTOR_FW/roadmap-queue.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 printf 'PROJECT_NAME="Fixture"\n' > "$R/.claude/project.conf"
+# A fixture step that fails is a FAIL naming the step and git's words, never a figure that comes out
+# wrong further down: a lost commit once surfaced only as a branch missing from aging WIP (#62).
+fx() { # CMD…: run one fixture step
+  _o=$("$@" 2>&1) && return 0
+  fail "fixture: $* failed: $_o"; return 1
+}
 at() { # DATE MESSAGE: commit everything, dated
-  git -C "$R" add -A && GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1" git -C "$R" commit -qm "$2"
+  fx git -C "$R" add -A && fx env GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1" git -C "$R" commit -qm "$2"
 }
 cat > "$R/docs/roadmap.md" <<'MD'
 # Roadmap
@@ -154,7 +160,7 @@ proposal() { # DIR STATUS-LINE [BUDGET]
 # old-thing: approved and archived long ago; its outcome was checked (row o.2 merged) on 2026-09-01.
 proposal "$R/changes/old-thing" "**Approved:** 2026-07-20 by Ana · design 000000000000" "" "The old signal"
 at 2026-07-20T00:00:00Z "old-thing: propose"
-git -C "$R" mv changes/old-thing changes/archive/2026-08-01-old-thing && at 2026-08-01T00:00:00Z "old-thing: archive"
+fx git -C "$R" mv changes/old-thing changes/archive/2026-08-01-old-thing && at 2026-08-01T00:00:00Z "old-thing: archive"
 # add-photo: written at 09-10 00:00, approved by a later commit at 06:00 (6 h), built in 2 + 1 rounds,
 # archived 09-20; its outcome row is due 2026-10-21.
 proposal "$R/changes/add-photo" "**Status:** awaiting approval" "" "Half of new cards start from a photo"
@@ -162,7 +168,7 @@ at 2026-09-10T00:00:00Z "add-photo: propose"
 sed 's/^\*\*Status:\*\* awaiting approval/**Approved:** 2026-09-10 by Ana · design 000000000000/' "$R/changes/add-photo/proposal.md" > "$d/p" && cp "$d/p" "$R/changes/add-photo/proposal.md"
 printf '# Tasks\n\n## Progress\n- 2026-09-15 group 1 (a) built and reviewed: converged in 2 round(s), peak low; grades R1 concern, R2 pass\n- 2026-09-16 group 2 (b) built and reviewed: converged in 1 round(s), peak none; grades R1 pass\n\n## 1. a\n- [x] 1.1 done\n' > "$R/changes/add-photo/tasks.md"
 at 2026-09-10T06:00:00Z "add-photo: approve"
-git -C "$R" mv changes/add-photo changes/archive/2026-09-20-add-photo && at 2026-09-20T00:00:00Z "add-photo: archive"
+fx git -C "$R" mv changes/add-photo changes/archive/2026-09-20-add-photo && at 2026-09-20T00:00:00Z "add-photo: archive"
 # group-card: proposed and approved in ONE commit (a squash) on 09-25, Approved line dated 09-26:
 # day precision gives 24 h. Budget $50, 3 review rounds on 09-27, tasks open, an open PR: review.
 proposal "$R/changes/group-card" "**Approved:** 2026-09-26 by Ana · design 000000000000" 50
@@ -172,11 +178,15 @@ at 2026-09-25T00:00:00Z "group-card: propose"
 proposal "$R/changes/tee-times" "**Status:** awaiting approval"
 at 2026-09-29T12:00:00Z "tee-times: propose"
 # Branches: fix/12-slow in flight since 09-28 12:00; ops/tidy merged by PR #2 after its last commit.
-git -C "$R" checkout -q -b fix/12-slow && echo slow > "$R/slow" && at 2026-09-28T12:00:00Z "slow"
-git -C "$R" checkout -q main
-git -C "$R" checkout -q -b ops/tidy && echo tidy > "$R/tidy" && at 2026-09-19T20:00:00Z "tidy"
-git -C "$R" checkout -q main
-git -C "$R" update-ref refs/remotes/origin/main main
+fx git -C "$R" checkout -q -b fix/12-slow && echo slow > "$R/slow" && at 2026-09-28T12:00:00Z "slow"
+fx git -C "$R" checkout -q main
+fx git -C "$R" checkout -q -b ops/tidy && echo tidy > "$R/tidy" && at 2026-09-19T20:00:00Z "tidy"
+fx git -C "$R" checkout -q main
+fx git -C "$R" update-ref refs/remotes/origin/main main
+for b in fix/12-slow ops/tidy; do
+  n=$(git -C "$R" rev-list --count "main..$b" 2>&1)
+  [ "$n" = 1 ] || fail "fixture: $b has '$n' commits beyond main, want 1, so its aging WIP figure would test nothing"
+done
 
 # ── A fake gh ─────────────────────────────────────────────────────────────────────────────────
 # Merged PRs (now = 2026-09-30 12:00):

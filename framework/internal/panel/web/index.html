@@ -142,7 +142,9 @@
       <legend>Where it runs</legend>
       <label class="inline"><input type="radio" name="st-mode" value="new" checked> New branch and worktree</label>
       <label class="inline"><input type="radio" name="st-mode" value="existing"> An existing worktree</label>
+      <label class="inline" id="st-branch-row" hidden><input type="radio" name="st-mode" value="branch"> Its existing branch, in a new worktree</label>
       <label class="inline"><input type="radio" name="st-mode" value="root"> The project root</label>
+      <div class="sub" id="st-note" hidden></div>
     </fieldset>
     <label id="st-wt-row">Worktree <select id="st-wt"></select></label>
     <label>Lane name <input type="text" id="st-name" maxlength="41" spellcheck="false" placeholder="e.g. add-login"></label>
@@ -150,6 +152,8 @@
     <div class="sub" id="st-prompt" hidden></div>
     <label class="inline" id="st-quota-row" hidden><input type="checkbox" id="st-quota"> <span id="st-quota-why"></span></label>
     <div class="sub" id="st-preview"></div>
+    <!-- What is in the way of this start (PANEL-29): shown above Start, never a block. -->
+    <div id="st-warn" role="status" hidden></div>
     <div class="card err" id="st-block" hidden></div>
     <div class="stop" id="st-err"></div>
     <div class="actions">
@@ -209,7 +213,7 @@
     </table>
     <h4>How to</h4>
     <ul class="howto">
-      <li>Start a lane: New lane, pick a template or a lane type, name it, then Start lane.</li>
+      <li>Start a lane: New lane, pick a template or a lane type, name it, then Start lane. With a template, the dialog runs it where its branch already is: that branch's worktree, or the branch in a new worktree. A warning above Start (a change with no Approved line) turns it into Start anyway; that warning never blocks. New lane here on a change's worktree picks its template, unless panel.json is untrusted.</li>
       <li>Type into a lane: Enter or click on its terminal; Ctrl+] leaves.</li>
       <li>Copy: drag to select, then ⌘C. Open a link: ⌘-click it.</li>
       <li>Give claude an image: drop it on the terminal, or paste it with ⌘V.</li>
@@ -224,6 +228,7 @@
 </div>
 <script src="/static/xterm-style.js"></script>
 <script src="/static/term-links.js"></script>
+<script src="/static/start-plan.js"></script>
 <script src="/static/panel.js"></script>
 </body>
 </html>
