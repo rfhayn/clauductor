@@ -4,13 +4,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # (`templates[].suggest` in .clauductor/panel.json; clauductor docs/panel.md, "Suggestions").
 #
 #   sh .claude/panel-suggest.sh build     queued change rows whose proposal is on this checkout (CHANGES_DIR/<id>)
-#   sh .claude/panel-suggest.sh propose   queued change rows with no proposal yet: the NEXT one only
+#   sh .claude/panel-suggest.sh propose   queued change rows with no proposal yet: the first met one only
 #   sh .claude/panel-suggest.sh ops       queued ops/<name> rows, named <name>
 #   sh .claude/panel-suggest.sh fix       open GitHub issues (gh), newest first, named <n>-<title slug>
 #
 # It prints the panel's JSON: [{"name","title","detail","issue"}]. The rows are the CURRENT phase's
 # queued rows as .claude/roadmap-queue.sh parses them (one parser, never a second copy of the
-# table), so the dialog offers what the Change queue card shows. A lane name must match
+# table) whose dependencies are met (roadmap_order: every Deps row merged, no #N), so the dialog
+# offers what the Change queue card shows as next. A lane name must match
 # [a-z0-9][a-z0-9-]{0,40}; a row that cannot be one is left out, not mangled. A failure exits
 # non-zero, so the panel says "cannot read" and keeps the last list rather than showing none.
 set -u
@@ -36,22 +37,25 @@ tsv=$(roadmap_queue --tsv) || { echo "panel-suggest: the roadmap queue could not
 # The current phase: the first phase with a queued, in-flight or open row (the parser's own rule).
 cur=$(printf '%s\n' "$tsv" | awk -F'\t' '$2 != "-" && ($7 == "queued" || $7 == "inflight" || $7 == "open") { print $2; exit }')
 [ -n "$cur" ] || { echo "[]"; exit 0; }
+# Only a row whose dependencies are met is offered (roadmap_order, the reading --text shows as next).
+order=$(printf '%s\n' "$tsv" | roadmap_order) || { echo "panel-suggest: the roadmap order could not be read" >&2; exit 1; }
+ready=$(printf '%s\n' "$order" | awk -F'\t' '$2 == "ready" { printf " %s", $1 }')
 
 # Which change ids already have a proposal in this checkout (the main checkout, where the panel runs).
 have=$(ls "$CHANGES_DIR" 2>/dev/null | grep -vx 'archive\|README.md' | tr '\n' ' ')
 # Fields: line phase section id change kind state pr owner. awk, not `read`: a tab is IFS
 # whitespace to the shell, so an empty field (no section) would collapse and shift the rest.
-printf '%s\n' "$tsv" | awk -F'\t' -v cur="$cur" -v kind="$kind" -v have=" $have " '
+printf '%s\n' "$tsv" | awk -F'\t' -v cur="$cur" -v kind="$kind" -v have=" $have " -v ready="$ready " '
   $2 != cur || $7 != "queued" { next }
   {
-    name = ""; proposed = index(have, " " $5 " ") > 0
-    if (kind == "ops" && $6 == "ops") name = substr($5, 5)
-    else if (kind == "build" && $6 == "change" && proposed) name = $5
+    name = ""; proposed = index(have, " " $5 " ") > 0; met = index(ready, " " $4 " ") > 0
+    if (kind == "ops" && $6 == "ops" && met) name = substr($5, 5)
+    else if (kind == "build" && $6 == "change" && proposed && met) name = $5
     else if (kind == "propose" && $6 == "change") {
       # Just in time, at most one ahead: a queued row that already has a proposal IS the one
-      # ahead, so offer nothing; otherwise offer only the first queued change row.
+      # ahead, so offer nothing; otherwise offer only the first queued change row that is met.
       if (proposed) ahead = 1
-      else if (pick == "") { pick = $5; pline = $0 }
+      else if (pick == "" && met) { pick = $5; pline = $0 }
     }
     if (name == "") next
     emit(name, $0)

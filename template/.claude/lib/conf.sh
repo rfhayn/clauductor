@@ -226,6 +226,52 @@ roadmap_deps_errors() {
     }'
 }
 
+# roadmap_order: stdin is --tsv output (held to the contract first); prints one line per open row
+# (queued, in flight, open), in input order: id, reading, detail, critical. The reading comes from
+# Deps (column 15) alone: `ready` when every dependency is a merged row, `outside` when one is #N
+# (work outside the roadmap, never looked up; detail: the #N, comma-separated), else `waits`
+# (detail: the open dependencies). A dependency that names no row is never met. Critical is the
+# row's place (1, 2, ...) on the critical path, the longest chain of open rows each waiting on the
+# one before, counted in rows; on a tie, the chain whose first row comes first in the input, then
+# the earlier next row. Empty off the path, and on every row when no open row waits on another.
+# --text and panel-suggest.sh read the order this one way; a status's own word (blocked, held) is
+# the parser's to read, not this.
+roadmap_order() {
+  awk -F'\t' '
+    function isopen(s) { return s == "queued" || s == "inflight" || s == "open" }
+    # chain(u): the rows in the longest chain from u through the rows waiting on it; nx[u] is the next.
+    function chain(u,   k, v, l, b) {
+      if (u in memo) return memo[u]
+      if (u in onpath) return 0
+      onpath[u] = 1; b = 0; nx[u] = ""
+      for (k = 1; k <= nw[u]; k++) {
+        v = W[u, k]; l = chain(v)
+        if (l > b || (l == b && N[v] < N[nx[u]])) { b = l; nx[u] = v }
+      }
+      delete onpath[u]; memo[u] = b + 1; return memo[u]
+    }
+    $0 == "" || NF < 7 { next }
+    { n++; I[n] = $4; S[$4] = $7; N[$4] = n; P[n] = (NF >= 15 ? $15 : "") }
+    END {
+      for (r = 1; r <= n; r++) {
+        u = I[r]; if (!isopen(S[u])) continue
+        out = ""; wt = ""; m = (P[r] == "" ? 0 : split(P[r], t, ","))
+        for (k = 1; k <= m; k++) {
+          if (t[k] ~ /^#/) out = out (out == "" ? "" : ",") t[k]
+          else if (S[t[k]] != "merged") {
+            wt = wt (wt == "" ? "" : ",") t[k]
+            if (isopen(S[t[k]])) W[t[k], ++nw[t[k]]] = u
+          }
+        }
+        R[u] = out != "" ? "outside" : (wt != "" ? "waits" : "ready"); X[u] = out != "" ? out : wt
+      }
+      best = ""; bl = 0
+      for (r = 1; r <= n; r++) { u = I[r]; if (isopen(S[u]) && chain(u) > bl) { bl = memo[u]; best = u } }
+      if (bl >= 2) for (p = 1; best != ""; p++) { C[best] = p; best = nx[best] }
+      for (r = 1; r <= n; r++) { u = I[r]; if (isopen(S[u])) printf "%s\t%s\t%s\t%s\n", u, R[u], X[u], C[u] }
+    }'
+}
+
 roadmap_tsv_shape_errors() {
   awk -F'\t' '
     function bad(m) { printf "  tsv row %d (%s): %s\n", NR, substr($0, 1, 60), m; nb++ }

@@ -136,9 +136,9 @@ case "$(rq --check "$d/gates.md")" in *"current phase 2"*) ok "open rows keep th
 printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-a` — a | s | — | ⬜ planned |\n## Phase 2 — y\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 2.1 | `add-b` — b | s | — | ⬜ queued |\n' > "$d/only-open.md"
 case "$(rq --check "$d/only-open.md")" in *"current phase 1"*) ok "a phase whose only open row is in its own word is still the current phase" ;; *) fail "a phase of open rows was skipped: $(rq --check "$d/only-open.md")" ;; esac
 text=$(ROADMAP_TODAY=2026-10-01 rq --text "$d/gates.md")
-case "$text" in *"2C.10"*NEXT*) ok "--text: NEXT is the first QUEUED row; an open row in its own word is never NEXT" ;; *) fail "--text NEXT: $text" ;; esac
-case "$text" in *"2C.9"*"[planned]"*"(started 2026-09-24, 7d)"*) ok "--text shows an open row under its own word, and its section's start with the days since" ;; *) fail "--text open row: $text" ;; esac
-case "$text" in *"2D.1"*"[placeholder]"*) ok "--text lists every open row of the current phase" ;; *) fail "--text dropped an open row: $text" ;; esac
+case "$text" in *NEXT*) fail "--text NEXT: $text" ;; *"2C.10"*"[waits on 2C.9]"*) ok "--text: an open row in its own word is never NEXT, and a queued row waiting on it waits" ;; *) fail "--text NEXT: $text" ;; esac
+case "$text" in *"2C.9"*"[held — planned — walkthrough ready, not started]"*"(started 2026-09-24, 7d)"*) ok "--text shows an open row as held under its own word, and its section's start with the days since" ;; *) fail "--text open row: $text" ;; esac
+case "$text" in *"2D.1"*"[held — placeholder"*) ok "--text lists every open row of the current phase" ;; *) fail "--text dropped an open row: $text" ;; esac
 case "$(rq --queued "$d/gates.md")" in add-other) ok "--queued lists only queued rows, never one waiting in its own word" ;; *) fail "--queued with open rows: $(rq --queued "$d/gates.md")" ;; esac
 gate_bad() {  # gate_bad LABEL LINES: lines after a ### Gate 2D section heading and its row
   printf '## Phase 1 — x\n### Gate 2D — the app\n%s\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 2D.1 | `add-a` — a | s | — | ⬜ queued |\n' "$2" > "$d/gbad.md"
@@ -221,6 +221,65 @@ tsv15 '1.2' | grep -q 'which is cancelled' && ok "the --tsv contract refuses a p
 tsv15 '1.2, #3' | grep -q '"1.2, #3" is not a row id or #N' && ok "the --tsv contract refuses a column 15 that is not comma-separated ids" || fail "the contract accepted a spaced column 15: $(tsv15 '1.2, #3')"
 tsv15 '7.7' | grep -q 'Deps name 7.7, which is no row' && ok "the --tsv contract refuses a parser's Deps naming no row" || fail "the contract accepted an unknown dependency: $(tsv15 '7.7')"
 tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside the roadmap" || fail "the contract refused #N: $(tsv15 '#3')"
+
+# The order (OPS-39): --text derives each open row's reading from Deps and its own status, and marks
+# the critical path, the longest chain of open dependencies counted in rows.
+cat > "$d/order.md" <<'EOF'
+## Phase 1 — Done
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-a` — a | s | — | ✅ merged (#3) |
+## Phase 2 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2.1 | `add-b` — b | s | 1.1 | ⬜ queued |
+| 2.2 | `add-c` — c | s | 2.1 | ⬜ queued |
+| 2.3 | `add-d` — d | s | 2.2 | ⬜ queued |
+| 2.4 | `add-e` — e | s | — | ⬜ queued |
+| 2.5 | `add-f` — f | s | #45 | ⬜ queued |
+| 2.6 | `add-g` — g | s | — | ⬜ blocked — the vendor's sandbox key (Ana) |
+| 2.7 | `add-h` — h | s | — | ⬜ held — until the launch |
+| 2.8 | `ops/x` — x | s | 2.4,1.1 | ⬜ queued |
+| 2.9 | `add-i` — i | s | — | ⬜ planned — scope TBD |
+| 2.10 | `add-j` — j | s | — | ⬜ in flight (#8) |
+EOF
+out=$(rq --check "$d/order.md"); expect_rc 0 $? "a roadmap with blocked and held rows passes --check ($out)"
+text=$(rq --text "$d/order.md")
+rd() { printf '%s\n' "$text" | awk -v id="$1" '$1 "" == id "" { s = $0; sub(/^[^[]*\[/, "", s); sub(/\].*$/, "", s); print s }'; }
+[ "$(rd 2.1)" = NEXT ] && ok "--text: a row waiting only on a merged row is met, and the first met row is NEXT" || fail "row 2.1 read as \"$(rd 2.1)\": $text"
+[ "$(rd 2.4)" = next ] && ok "--text: every other row whose dependencies are met reads next" || fail "row 2.4 read as \"$(rd 2.4)\": $text"
+[ "$(rd 2.2)" = "waits on 2.1" ] && [ "$(rd 2.3)" = "waits on 2.2" ] && ok "--text: a chain of three reads next, waits on 2.1, waits on 2.2" || fail "the chain read as \"$(rd 2.2)\", \"$(rd 2.3)\": $text"
+[ "$(rd 2.8)" = "waits on 2.4" ] && ok "--text: waits on names only the open dependencies, never a merged one" || fail "row 2.8 read as \"$(rd 2.8)\": $text"
+[ "$(rd 2.5)" = "blocked — #45 (outside the roadmap)" ] && ok "--text: a #N dependency is outside work, so the row is blocked on it" || fail "row 2.5 read as \"$(rd 2.5)\": $text"
+[ "$(rd 2.6)" = "blocked — the vendor's sandbox key (Ana)" ] && ok "--text: a row's own ⬜ blocked — <what> (<owner>) reads blocked" || fail "row 2.6 read as \"$(rd 2.6)\": $text"
+[ "$(rd 2.7)" = "held — until the launch" ] && ok "--text: a row's own ⬜ held — <why> reads held" || fail "row 2.7 read as \"$(rd 2.7)\": $text"
+[ "$(rd 2.9)" = "held — planned — scope TBD" ] && ok "--text: any other open word reads held, its status kept" || fail "row 2.9 read as \"$(rd 2.9)\": $text"
+[ "$(rd 2.10)" = "in flight #8" ] && ok "--text: an in-flight row reads in flight" || fail "row 2.10 read as \"$(rd 2.10)\": $text"
+case "$text" in "Phase 2 — Now: 10 open row(s)"*) ok "--text: the phase title loses its dash whole, never a byte of it" ;; *) fail "--text header: $(printf '%s\n' "$text" | head -1)" ;; esac
+case "$text" in *"critical path (3 rows): 2.1 → 2.2 → 2.3"*) ok "--text names the critical path, the longest chain of open dependencies in rows" ;; *) fail "--text critical path: $text" ;; esac
+[ "$(printf '%s\n' "$text" | grep -c '· critical path')" = 3 ] && printf '%s\n' "$text" | grep -q '^  2.2 .*· critical path' && ok "--text marks each row on the critical path" || fail "--text critical path marks: $text"
+cat > "$d/tie.md" <<'EOF'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-a` — a | s | — | ⬜ queued |
+| 1.2 | `add-b` — b | s | — | ⬜ queued |
+| 1.3 | `add-c` — c | s | 1.2 | ⬜ queued |
+| 1.4 | `add-d` — d | s | 1.1 | ⬜ queued |
+| 1.5 | `add-e` — e | s | 1.1 | ⬜ in flight (#4) |
+EOF
+case "$(rq --text "$d/tie.md")" in *"critical path (2 rows): 1.1 → 1.4"*) ok "a tie on the critical path takes the chain whose first row comes first, then the earlier next row" ;; *) fail "the tie broke wrong: $(rq --text "$d/tie.md")" ;; esac
+printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-a` — a | s | — | ⬜ queued |\n| 1.2 | `add-b` — b | s | — | ⬜ queued |\n' > "$d/flat.md"
+case "$(rq --text "$d/flat.md")" in *"critical path: none"*) ok "with no open row waiting on another, the critical path is none, not a one-row chain" ;; *) fail "a flat queue's critical path: $(rq --text "$d/flat.md")" ;; esac
+bad "a blocked row with no owner" '| 1.1 | `add-a` — a | s | — | ⬜ blocked — the vendor |'
+bad "a blocked row with no what" '| 1.1 | `add-a` — a | s | — | ⬜ blocked (Ana) |'
+bad "a blocked row whose owner is a PR" '| 1.1 | `add-a` — a | s | — | ⬜ blocked — the vendor (#12) |'
+bad "a held row with no why" '| 1.1 | `add-a` — a | s | — | ⬜ held |'
+# roadmap_order, the one reading of the order every consumer shares, over any parser's --tsv.
+ord() { printf '1\t1\t\t1.1\tadd-a\tchange\tmerged\t1\t\ta\t\t\t\t\t\n2\t1\t\t1.2\tadd-b\tchange\t%s\t\t\tb\t\t\t\t\t%s\n3\t1\t\t1.3\tadd-c\tchange\tqueued\t\t\tc\t\t\t\t\t%s\n' "$1" "$2" "$3" | roadmap_order; }
+[ "$(ord queued 1.1 1.2 | tr '\t\n' ' |')" = "1.2 ready  1|1.3 waits 1.2 2|" ] && ok "roadmap_order: met (a merged dependency) is ready; an open one waits; the two are the critical path" || fail "roadmap_order: $(ord queued 1.1 1.2)"
+[ "$(ord queued '#9' '' | tr '\t\n' ' |')" = "1.2 outside #9 |1.3 ready  |" ] && ok "roadmap_order: a #N dependency is outside work" || fail "roadmap_order #N: $(ord queued '#9' '')"
+[ "$(ord queued '' '' | tr '\t\n' ' |')" = "1.2 ready  |1.3 ready  |" ] && ok "roadmap_order: a parser with no deps column reads every row ready" || fail "roadmap_order no deps: $(ord queued '' '')"
 
 # ── ROADMAP_PARSER: a project's own parser, plugged in through the contract ──────────────────────
 # A project shaped like one whose roadmap has its own grammar (phases with gates, owner lines per

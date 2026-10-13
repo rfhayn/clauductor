@@ -46,6 +46,21 @@ A phase is several changes. Decompose as you go, phase by phase.
   `⬜ deferred — <trigger>`, `⬜ placeholder — <what it waits for>`). It is open, so it keeps its
   phase current and `--text` lists it under its word, but it is never NEXT, never `--queued` and
   never offered by the panel: it waits for something a queued row does not.
+- **Two open words have their own grammar**, and a row missing a part is an error:
+  `⬜ blocked — <what> (<owner>)` (who must clear it, a name, never `#N`) and `⬜ held — <why>`.
+- **The order is derived from Deps.** `--text` reads each open row of the current phase as:
+  - `in flight #N`, `blocked — <what> (<owner>)` or `held — <why>` from its own status; any other
+    open word reads `held — <its status>` (`held — planned — scope TBD`);
+  - else, for a queued row: `blocked — #N (outside the roadmap)` when a dependency is `#N` (the
+    parser looks nothing up, so drop the `#N` from Deps once that work lands); `waits on <ids>`
+    naming the dependencies not yet merged; or `next` when every one is merged. The first `next`
+    row is `NEXT`, the session's next step.
+  - **The critical path** is the longest chain of open rows (queued, in flight, open), each waiting
+    on the one before, counted in rows. On a tie, the chain whose first row comes first in the file,
+    then the earlier next row. `--text` names it on a line of its own and marks each of its rows;
+    with no open row waiting on another, it is `none`.
+  - The panel offers only `next` rows. `roadmap_order` in `.claude/lib/conf.sh` is the one reading
+    of the order, over any parser's `--tsv`: a parser with no column 15 reads every row as met.
 - **A section's start**: `**<section> started:** YYYY-MM-DD`, optionally `— <why>`, anywhere in a
   `###` section whose heading begins with `<section>` (`**Gate 2A started:** 2026-07-21` under
   `### Gate 2A — "the model is correct"`). Its rows carry the date, and `--text` shows the days

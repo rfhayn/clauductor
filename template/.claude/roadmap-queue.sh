@@ -7,7 +7,9 @@
 # ROADMAP_PARSER in project.conf, to the contract docs/roadmap.md states (*Plugging in your own
 # parser*); this script then hands every call to it.
 #
-#   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
+#   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, each with its reading
+#                                             (NEXT, next, waits on, blocked, held, in flight) and
+#                                             the critical path (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
 #   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner summary
 #                                             budget due started status deps  (budget: dollars or
@@ -32,6 +34,14 @@
 #   Status leads with a symbol:  ⬜ queued · ⬜ in flight (#N) · ✅ merged (#N) · ❌ cancelled …
 #   or an open row's own word: `⬜ <word>` (`⬜ planned`, `⬜ deferred — <trigger>`), state `open`:
 #   it keeps its phase current and shows in --text under its word, but is never NEXT or --queued.
+#   Two open words have their own grammar, refused when a part is missing:
+#   `⬜ blocked — <what> (<owner>)` and `⬜ held — <why>`.
+# THE ORDER (--text), derived from Deps by roadmap_order (lib/conf.sh): a row reads by its own
+# status first (in flight #N; blocked — <what> (<owner>); held — <why>; any other open word is
+# held — <its status>), then a queued row by its Deps: `blocked — #N (outside the roadmap)` when
+# one is #N, `waits on <ids>` naming its open dependencies, else next (every one merged), the
+# first of them NEXT. The critical path is the longest chain of open rows, each waiting on the one
+# before, counted in rows; on a tie, the chain whose first row comes first in the file.
 #   The Change cell's first `backticked` token is the change id; `fix/…` and `ops/…` ids are those
 #   lanes, anything else is a capability change (branch <BRANCH_CHANGE><id>).
 #   `Budget: $N` anywhere in a row is the change's cost budget (item 12 of the change process);
@@ -93,7 +103,7 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
 /^## / {
   intable = 0; section = ""; sowner = ""; insec = 0; seckey = ""
   if (match($0, /^## Phase [0-9]+/)) {
-    phase = substr($0, 10, RLENGTH - 9); ptitle = trim(substr($0, RLENGTH + 1)); sub(/^[—–-][ \t]*/, "", ptitle)
+    phase = substr($0, 10, RLENGTH - 9); ptitle = trim(substr($0, RLENGTH + 1)); sub(/^(—|–|-)[ \t]*/, "", ptitle)
     if (phase in seenphase) err("a second \"## Phase " phase "\" heading")
     seenphase[phase] = 1; order[++np] = phase; ptitles[phase] = ptitle; powner = ""
   } else { phase = "-"; powner = "" }
@@ -149,6 +159,7 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   sm = substr(chg, RSTART + RLENGTH); gsub(/\001/, "|", sm); gsub(/\*\*|~~/, "", sm); sm = trim(sm); sub(/^[—–-]+[ \t]*/, "", sm)
   kind = "change"; if (cid ~ /^fix\//) kind = "fix"; else if (cid ~ /^ops\//) kind = "ops"
   pr = ""; if (match(st, /\(#[0-9]+\)/)) pr = substr(st, RSTART + 2, RLENGTH - 3)
+  reading = ""
   if (index(st, "⬜ queued") == 1) state = "queued"
   else if (index(st, "⬜ in flight") == 1) { state = "inflight"; if (pr == "") err("row " id ": in flight needs its PR, \"⬜ in flight (#N)\"") }
   else if (index(st, "✅ merged") == 1) { state = "merged"; if (pr == "") err("row " id ": merged needs its PR, \"✅ merged (#N)\"") }
@@ -168,6 +179,17 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
     if (word ~ /^(que|in-?fl|flight|merg|cancel|done$|closed$|complete|finish|ship|land)/) word = ""
     if (word == "" || word == "in") { err("row " id ": status must lead with ⬜ queued, ⬜ in flight (#N), ✅ merged (#N), ❌ cancelled or an open row'"'"'s own word (⬜ <word>), not \"" substr(st, 1, 30) "\""); next }
     state = "open"
+    # Its reading in --text: `⬜ blocked — <what> (<owner>)` and `⬜ held — <why>` say so in their
+    # own grammar, refused when a part is missing (a blocked row nobody owns would wait silently);
+    # any other word is held, its status kept.
+    rest = trim(substr(w, length(word) + 1))
+    if (word == "blocked") {
+      if (index(rest, "— ") != 1 || !match(rest, /\([^()#][^()]*\)$/) || trim(substr(rest, length("— ") + 1, RSTART - length("— ") - 1)) == "") { err("row " id ": a blocked row must read \"⬜ blocked — <what> (<owner>)\""); next }
+      reading = "blocked " rest
+    } else if (word == "held") {
+      if (index(rest, "— ") != 1 || trim(substr(rest, length("— ") + 1)) == "") { err("row " id ": a held row must read \"⬜ held — <why>\""); next }
+      reading = "held " rest
+    } else reading = "held — " w
   }
   owner = sowner != "" ? sowner : powner
   budget = ""
@@ -187,7 +209,7 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   # hold (a row id or #N each), spaces around a comma dropped.
   dp = trim(c[5]); if (dp == "—" || dp == "–" || dp == "-") dp = ""
   gsub(/[ \t]*,[ \t]*/, ",", dp); R_deps[n] = dp
-  R_sum[n] = sm; R_budget[n] = budget; R_due[n] = due; R_seckey[n] = seckey; R_word[n] = word
+  R_sum[n] = sm; R_budget[n] = budget; R_due[n] = due; R_seckey[n] = seckey; R_read[n] = reading
   if ((state == "queued" || state == "inflight" || state == "open") && phase != "-" && !(phase in openphase)) openphase[phase] = 1
   next
 }
@@ -214,12 +236,30 @@ END {
   if (cur == "") { print "queue: empty (every row is merged or cancelled); add rows to the roadmap"; printf "%s", dues; exit 0 }
   k = 0; for (i = 1; i <= n; i++) if (R_phase[i] == cur && (R_state[i] == "queued" || R_state[i] == "inflight" || R_state[i] == "open")) k++
   printf "Phase %s%s: %d open row(s), in table order\n", cur, (ptitles[cur] == "" ? "" : " — " ptitles[cur]), k
+  # The order, as roadmap_order (lib/conf.sh) read it from these same rows: id, reading, detail,
+  # place on the critical path.
+  no = split(ENVIRON["RQ_ORDER"], ol, "\n"); cl = 0
+  for (j = 1; j <= no; j++) {
+    if (split(ol[j], of, "\t") < 2) continue
+    O_r[of[1]] = of[2]; O_x[of[1]] = of[3]; O_c[of[1]] = of[4]
+    if (of[4] != "") { cp[of[4] + 0] = of[1]; if (of[4] + 0 > cl) cl = of[4] + 0 }
+  }
+  if (cl < 2) print "  critical path: none (no open row waits on another)"
+  else { p = cp[1]; for (j = 2; j <= cl; j++) p = p " → " cp[j]; printf "  critical path (%d rows): %s\n", cl, p }
   nx = 0
   for (i = 1; i <= n; i++) {
     if (R_phase[i] != cur || (R_state[i] != "queued" && R_state[i] != "inflight" && R_state[i] != "open")) continue
-    tag = R_state[i] == "inflight" ? "in flight #" R_pr[i] : (R_state[i] == "open" ? R_word[i] : (nx++ == 0 ? "NEXT" : "queued"))
+    u = R_id[i]
+    # A row reads by its own status first (in flight, blocked, held), then by its Deps; the first
+    # row whose dependencies are met is NEXT, the next step of the session.
+    if (R_state[i] == "inflight") tag = "in flight #" R_pr[i]
+    else if (R_state[i] == "open") tag = R_read[i]
+    else if (O_r[u] == "outside") { tag = O_x[u]; gsub(/,/, ", ", tag); tag = "blocked — " tag " (outside the roadmap)" }
+    else if (O_r[u] == "waits") { tag = O_x[u]; gsub(/,/, ", ", tag); tag = "waits on " tag }
+    else if (O_r[u] == "ready") tag = (nx++ == 0 ? "NEXT" : "next")
+    else { print "ERROR: the roadmap queue is UNKNOWN; row " u " has no reading in its order"; exit 1 }
     sd = (R_seckey[i] in started) ? started[R_seckey[i]] : ""
-    printf "  %-6s %-24s [%s]%s%s%s\n", R_id[i], R_cid[i], tag, (R_owner[i] == "" ? "" : " owner " R_owner[i]), (R_sec[i] == "" ? "" : " · " R_sec[i]), (sd == "" ? "" : " (started " sd ", " (days(today) - days(sd)) "d)")
+    printf "  %-6s %-24s [%s]%s%s%s%s\n", u, R_cid[i], tag, (R_owner[i] == "" ? "" : " owner " R_owner[i]), (R_sec[i] == "" ? "" : " · " R_sec[i]), (sd == "" ? "" : " (started " sd ", " (days(today) - days(sd)) "d)"), (O_c[u] == "" ? "" : " · critical path")
   }
   printf "%s", dues
 }
@@ -237,5 +277,12 @@ fi
 if [ "$mode" = --tsv ]; then
   [ -z "$rows" ] || printf '%s\n' "$rows"
 else
+  # --text reads the order (next, waits on, the critical path) from roadmap_order, the one reading
+  # panel-suggest.sh shares, never a second walk of Deps here.
+  RQ_ORDER=""
+  if [ "$mode" = --text ] && [ -n "$rows" ]; then
+    RQ_ORDER=$(printf '%s\n' "$rows" | roadmap_order) || { echo "ERROR: the roadmap queue is UNKNOWN; its order could not be read"; exit 1; }
+  fi
+  export RQ_ORDER
   parse "$mode"
 fi

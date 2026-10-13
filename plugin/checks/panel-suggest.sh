@@ -2,7 +2,8 @@
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
 # panel-suggest.sh offers, per lane template, exactly what the roadmap's current phase allows:
 # build = queued change rows whose proposal exists; propose = the first queued change row, and
-# nothing while one is already proposed ahead; ops = queued ops rows by name. Its output is the
+# nothing while one is already proposed ahead; ops = queued ops rows by name; each only once its
+# dependencies are met (OPS-39). Its output is the
 # panel's JSON. Also: the project's preset panel config, when present, names only scripts that exist.
 . "$(dirname "$0")/lib.sh"
 need jq
@@ -37,6 +38,30 @@ mkdir -p "$F/changes/add-next"
 sug propose | jq -e 'type == "array"' >/dev/null && ok "output is a JSON array" || fail "output is not a JSON array"
 case "$(sug build)" in *'"title":"the next one"'*) ok "a row's title is its summary" ;; *) fail "title: $(sug build)" ;; esac
 (cd "$F" && sh .claude/panel-suggest.sh nonsense >/dev/null 2>&1) && fail "an unknown kind exited 0" || ok "an unknown kind exits non-zero"
+# Only rows whose dependencies are met (OPS-39): a dependency on a merged row is met; one on an open
+# row, or on #N (outside work), is not.
+cat > "$F/docs/roadmap.md" <<'EOF'
+## Phase 1 — Done
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-old` — old | s | — | ✅ merged (#1) |
+## Phase 2 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2.1 | `add-built` — being built | s | — | ⬜ in flight (#9) |
+| 2.2 | `add-waits` — waits on the build | s | 2.1 | ⬜ queued |
+| 2.3 | `add-met` — waits on a merged row | s | 1.1 | ⬜ queued |
+| 2.4 | `ops/outside` — outside work | s | #12 | ⬜ queued |
+| 2.5 | `ops/ready` — ready | s | — | ⬜ queued |
+| 2.6 | `ops/after` — after ready | s | 2.5 | ⬜ queued |
+EOF
+rm -rf "$F/changes/add-next"
+[ "$(names propose)" = "add-met" ] && ok "propose skips a row waiting on an open row, and offers one waiting on a merged row" || fail "propose offered: $(names propose)"
+[ "$(names ops)" = "ready" ] && ok "ops offers only rows whose dependencies are met (not one on #N, not one on an open row)" || fail "ops offered: $(names ops)"
+mkdir -p "$F/changes/add-waits"
+[ "$(names build)" = "" ] && ok "build does not offer a proposed row whose dependencies are open" || fail "build offered: $(names build)"
+mkdir -p "$F/changes/add-met"
+[ "$(names build)" = "add-met" ] && ok "build offers a proposed row once its dependencies are met" || fail "build offered: $(names build)"
 printf 'not a roadmap | x |\n| # | Change | Scope | Deps | State |\n' > "$F/docs/roadmap.md"
 (cd "$F" && sh .claude/panel-suggest.sh build >/dev/null 2>&1) && fail "a malformed roadmap gave a list" || ok "a malformed roadmap exits non-zero (the panel keeps the last list)"
 
