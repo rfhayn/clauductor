@@ -26,7 +26,8 @@
 #                        place, on any failure or when there are none
 # quota_read             one line per window, "<key>\t<pct>\t<resetsAt>", "-" for no reading or no
 #                        reset time; exit 1 with no output when there is no readable file
-# quota_pct KEY          the window's current percentage, or exit 1 when it has no reading
+# quota_pct KEY          the window's current percentage, or exit 1 when it has no reading; it can
+#                        be a decimal (12.5, or 40.0 under jq 1.7), so compare it with awk, not -ge
 # quota_at               when the reading was saved (`at`, unix ms), or exit 1
 # QUOTA_NOW              the clock the reader uses, in unix seconds (default: now), for a caller's test
 
@@ -44,9 +45,9 @@ quota_save() (
   old=$(jq -c . "$f" 2>/dev/null) || old=""
   new=$(printf '%s' "$1" | jq -ec --arg old "$old" --argjson at "$(date +%s)000" '
     (.rate_limits | if type == "object" then . else {} end | to_entries
-      | map(select((.key | test("^[A-Za-z0-9_]{1,64}$")) and (.value | type) == "object"
+      | map(select((.key | test("^[A-Za-z0-9_]{1,64}\\z")) and (.value | type) == "object"
                    and (.value.used_percentage | type) == "number"
-                   and (.value.resets_at | type == "null" or (type == "number" and . == floor)))
+                   and (.value.resets_at | type == "null" or (type == "number" and (tostring | test("^-?[0-9]+\\z")))))
         | {key, pct: .value.used_percentage}
           + (if .value.resets_at == null then {} else {resetsAt: .value.resets_at} end))) as $new
     | if ($new | length) == 0 then empty else

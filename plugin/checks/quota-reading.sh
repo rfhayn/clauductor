@@ -48,7 +48,7 @@ H="$d/home1"; mkdir -p "$H"; F="$H/.clauductor/quota-reading.json"
 rl=$(jq -cn --argjson f "$future" --argjson l "$later" \
   '{five_hour:{used_percentage:12.5, resets_at:$f}, seven_day:{used_percentage:40, resets_at:$l}, nimbus:{used_percentage:3, resets_at:null},
     broken:"yes", no_pct:{resets_at:1}, "five-hour":{used_percentage:1}, ("k" * 65):{used_percentage:1},
-    frac:{used_percentage:1, resets_at:1.5}, str:{used_percentage:1, resets_at:"soon"}}')
+    frac:{used_percentage:1, resets_at:1.5}, str:{used_percentage:1, resets_at:"soon"}, "nl_key\n":{used_percentage:1}}')
 res=$(status "$H" "$(in_json "$rl")")
 [ "$(echo "$res" | head -1)" = "0 0" ] && ok "the status line exits 0, nothing on stderr" || fail "status line: $(echo "$res" | head -1)"
 case "$(echo "$res" | sed -n 2p)" in *"30% ctx"*) ok "...and prints its line" ;; *) fail "no line: $res" ;; esac
@@ -100,17 +100,24 @@ HOME="$H" quota_save "$(in_json "$rl2")"
 [ ! -e "$H/.clauductor/.quota-reading.stale" ] && [ -e "$H/.clauductor/.quota-reading.fresh" ] \
   && ok "a save clears a temp file older than 5 minutes, and leaves a fresh one" || fail "temp files: $(ls -a "$H/.clauductor")"
 rm -f "$H/.clauductor/.quota-reading.fresh"
+# A reset time written as a whole-number decimal (1700000000.0) fails the panel's *int64 decode:
+# never saved as a decimal a shell `-gt` would choke on. Raw text, so no jq in between rewrites it.
+HOME="$H" quota_save '{"rate_limits":{"dec":{"used_percentage":1,"resets_at":1700000000.0}}}'
+grep -q '1700000000\.0' "$F" && fail "a decimal reset time was saved: $(cat "$F")" || ok "a reset time written as 1700000000.0 is never saved as a decimal"
 
 # ── 3b. The save never holds the line ───────────────────────────────────────────────────────────
-# A save that takes 5s (a mktemp that sleeps) must not delay the printed line: the status line
+# A save that takes 3s (a mktemp that sleeps) must not delay the printed line: the status line
 # backgrounds it AND gives it no copy of the stdout Claude Code reads, or $(…) would wait for it.
+# Waiting 3s shows as at least 2 in whole seconds; then the slow save is waited out, so it never
+# outlives the check or races the scratch directory's removal.
 H="$d/home-slow"; mkdir -p "$H" "$d/slowbin"
-printf '#!/bin/sh\nsleep 5\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"
+printf '#!/bin/sh\nsleep 3\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"
 t0=$(date +%s)
 line=$(printf '%s' "$(in_json "$rl")" | HOME="$H" PATH="$d/slowbin:$PATH" sh "$sl" 2>/dev/null)
 t1=$(date +%s)
-case "$line" in *"30% ctx"*) [ $((t1 - t0)) -lt 3 ] && ok "a 5s save does not delay the line ($((t1 - t0))s)" || fail "the line waited $((t1 - t0))s for the save" ;;
+case "$line" in *"30% ctx"*) [ $((t1 - t0)) -lt 2 ] && ok "a 3s save does not delay the line ($((t1 - t0))s)" || fail "the line waited $((t1 - t0))s for the save" ;;
   *) fail "slow save: no line: $line" ;; esac
+settle "$H/.clauductor/quota-reading.json" && ok "...and the slow save still lands" || fail "the slow save never landed"
 
 # ── 4. A write that cannot happen still prints the line ─────────────────────────────────────────
 for c in file ro; do
@@ -124,9 +131,11 @@ for c in file ro; do
     "0 0 "*"30% ctx"*) ok "$why: the line still prints, exit 0, nothing on stderr" ;;
     *) fail "$why: $res" ;;
   esac
-  sleep 0.5
   if [ "$c" = ro ]; then
-    # Root writes through a read-only mode, so there the old file's survival is not this case's to show.
+    # The status line's save is backgrounded, so the old file's survival is shown on quota_save
+    # itself, in the foreground. Root writes through a read-only mode, so there it is not this
+    # case's to show (the rename test in 2 catches an in-place write).
+    HOME="$H2" quota_save "$(in_json "$rl")"
     if [ "$(cat "$H2/.clauductor/quota-reading.json")" = old ]; then ok "...and the old file is left in place"
     elif [ "$(id -u)" = 0 ]; then ok "...(as root a read-only directory is writable: the file case above holds the line)"
     else fail "$why: the old file changed"; fi
