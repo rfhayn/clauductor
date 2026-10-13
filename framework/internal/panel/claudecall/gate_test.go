@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -30,9 +31,7 @@ func fakeProgram(t *testing.T, name, script string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, path, "#!/bin/sh\n"+script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if got, err := exec.LookPath(name); err != nil || got != path {
 		t.Fatalf("%s on PATH is %q (%v), not the fake", name, got, err)
