@@ -87,15 +87,15 @@ What this change alters is documented, not specified, in `docs/panel.md`:
 
 This change adds the capability spec `panel-attach` and updates those sections to match.
 
-**Scope.** The row names the page's Attach choice. D1 recommends moving that choice to a new row,
-PANEL-43, queued right after this one, so this change ships the command and everything serving
+**Scope.** The row names the page's Attach choice. D1 (approved by the owner, 2026-10-13) moves
+that choice to a new row, PANEL-43, queued right after this one, so this change ships the command and everything serving
 needs. This proposal's PR updates the roadmap to match: it narrows the PANEL-42 row, adds
 `framework/internal/panel` to its scope (for `run.go` and the git poll), and adds PANEL-43.
 
 ## Out of scope
 
 - **The page's Attach choice in + Add a project…** (the preview, the button and its routes):
-  PANEL-43, if the owner agrees with D1. Until then the page serves, trusts and removes an attached
+  PANEL-43 (D1, approved). Until then the page serves, trusts and removes an attached
   project like any other. It shows the trust report with its marks and names the config in the
   project menu.
 - **Standing Tee's own attach**: ST-7. That includes its sidecar's cards (`infra/roadmap-queue.mjs`,
@@ -103,7 +103,7 @@ needs. This proposal's PR updates the roadmap to match: it narrows the PANEL-42 
   Applying it to the installed panel waits for the owner's go.
 - **What a lane, RUN or Close lane writes.** Starting a lane creates a worktree and a branch.
   RUN takes the gate lease under git's common dir. These are the owner's own actions, and they
-  write as they would in any repository; `docs/panel.md` says so. The proof in D8 covers
+  write as they would in any repository; `docs/panel.md` will say so (task 5.1). The proof in D8 covers
   attaching and serving.
 - **What the repository's own scripts write** when a card or queue runs them. They are the
   repository's commands, by D5's rule.
