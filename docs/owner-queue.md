@@ -11,7 +11,7 @@ the work. The printer is `.claude/owner-queue.sh`; `.claude/checks/owner-queue.s
 printing every open item and nothing else.
 
 ## Open
-- [ ] 2026-10-13 — Three cloud sessions ran overnight (OPS-40 build on `change/ops-40-build`, OPS-39 on `ops/ops-39-roadmap-order`, OPS-67 on `ops/ops-67-quota-reading`): read their PRs; the next session gates, reviews and merges them. Check OPS-40 added no `prac` node (its prompt was corrected mid-run; OPS-69 owns that).
+- [ ] 2026-10-13 — Three cloud sessions were started overnight from Claude desktop: the OPS-40 build (told to push `change/ops-40-build`), OPS-39 (`ops/ops-39-roadmap-order`) and OPS-67 (`ops/ops-67-quota-reading`, the only one pushed at close). Find what each pushed (`git ls-remote origin`, `gh pr list`; a cloud session may pick its own branch name); the next session gates, reviews and merges them. Check OPS-40 added no `prac` node (its prompt was corrected mid-run; OPS-69 owns that).
 - [ ] 2026-10-13 — PANEL-31 group 3, task 3.2 (the real-browser look at 175%): judge the two departures in its Decision log (the changed-state tooltip reuses the checking sentence; the version field is measured but never dropped from a crowded bar), and the " · " exemption in `TestPanelAvoidsTheTells`. Branch `change/panel-31-build`.
 - [ ] 2026-10-13 — OPS-42 (`change/ops-42-build`, WIP): read the daylight-saving note in its tasks.md Decision log (a slot in the spring-forward gap is read an hour early; a `skip` routine misses that day); it is kept as a named limit unless you say otherwise.
 
