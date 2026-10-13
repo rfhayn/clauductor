@@ -62,14 +62,21 @@
      `regs` lines `checks/hooks.sh` builds today. It exits non-zero when the file does not
      parse.
    - `refs_hook_scripts COMMAND`: each script path in a hook command, one per line. This is
-     `checks/hooks.sh`'s `scripts()`, moved unchanged together with the table that tests it.
-     It splits the command at blanks and shell operators, keeps a word only if a script
-     extension ends it, and drops URLs. `registers` reads a command through it:
-     - `"$CLAUDE_PROJECT_DIR"/` and `${CLAUDE_PROJECT_DIR}/` prefixes are read as the project
-       root;
-     - `${CLAUDE_PLUGIN_ROOT}/` is read as the plugin root;
+     `checks/hooks.sh`'s `scripts()`, moved unchanged. The table that tests it stays in
+     `hooks.sh` and runs against the moved function. It splits the command at blanks and shell
+     operators, keeps a word only if a script extension ends it, and drops URLs.
+   - `refs_project_dir_prefix`: `hooks.sh`'s own project-root pattern,
+     `^"?\$\{?CLAUDE_PROJECT_DIR(:-[^}]*)?\}?"?/`, moved with `scripts()`. `hooks.sh`'s
+     relative-path test and `registers` both use it, so neither keeps a copy. `registers` reads
+     a command through these two readers:
+     - each project-root form `hooks.sh` accepts is read as the project root:
+       `"$CLAUDE_PROJECT_DIR"/`, `$CLAUDE_PROJECT_DIR/`, `${CLAUDE_PROJECT_DIR}/`,
+       `"${CLAUDE_PROJECT_DIR}"/`, and the template's own status-line form
+       `"${CLAUDE_PROJECT_DIR:-.}"/`;
+     - after a leading quote is stripped, `${CLAUDE_PLUGIN_ROOT}/` is read as the plugin root;
      - for the plugin's `hooks/if-project.sh` wrapper, the hook is the wrapper's argument,
-       under the plugin's `hooks/`.
+       under the plugin's `hooks/`;
+     - an absolute path (`sh /opt/hooks/x.sh`) is outside the project: no link, and no error.
    - `refs_table_rows AGENTS_MD`: `LINE TAB ROW` per row under `### What executes each rule`,
      with the header and separator excluded. `ROW` is byte for byte the file's line, so
      `agents-md-budget.sh` measures `cut -f2-`, the same characters it measures today.
@@ -186,7 +193,8 @@ The spec states it as requirements, and `map.sh --validate` is its executable fo
 | A repository with no commit yet (a fresh install) | Resolves as usual. `commit` is null, every `changed` is null, and `--check` passes if every reference resolves. |
 | A model file in a plugin project | Its node's `path` is `${CLAUDE_PLUGIN_ROOT}/…`. It resolves against `CLAUDUCTOR_FW`, its `changed` is null, and its note says "the plugin's copy". |
 | A file under the plugin's `scaffold/` | Never a candidate. The project's own copy (`scripts/ci/run-local.sh`) is the one that runs, so a reference must resolve there (D5). |
-| `.claude/settings.local.json` named in a skill or AGENTS.md | Not a reference. It is per machine and gitignored, as `skills.sh` treats it today (D11). |
+| `.claude/settings.local.json` named in a skill, an agent, AGENTS.md's table or an ADR | Not a reference. It is per machine and gitignored, as `skills.sh` treats it today (D5, D11). |
+| A hook registered by an absolute path (`sh /opt/hooks/x.sh`) | Outside the project: no `registers` link, and no error. `checks/hooks.sh` already holds how a hook launches. |
 | A module that is not enabled | Not on the map. The map shows what runs, not what ships. |
 | A dangling reference in an ADR's Enforcement section | `--check` fails. The ADR is the owner's, so the build reports it and never edits the ADR to make the check pass. |
 
@@ -220,10 +228,13 @@ The spec states it as requirements, and `map.sh --validate` is its executable fo
     `cksum` call reads them all, so the cost does not grow with the table. The first cell is
     the key `clauductor update` already uses for a row, so reordering rows or inserting one
     keeps every id. Rewording a rule's cell makes a new control, which it is.
-  - Two controls that share an id fail closed: `--validate` refuses a duplicate id, so the gate
-    fails it. The message names both rows' lines and says "same first cell, or a checksum
-    collision". It never assumes the cells are equal, because a CRC collision between two
-    different cells also lands here.
+  - Two controls that share an id fail closed, and the gate fails it:
+    - `--check`, which reads AGENTS.md, names both rows' line numbers and says "same first
+      cell, or a checksum collision";
+    - `--validate`, which reads only JSON and has no lines, names the duplicate id.
+
+    Neither assumes the cells are equal, because a CRC collision between two different cells
+    also lands here.
 - **Alternatives:**
   - the row's position (`control:12`): every insertion renumbers the rows below it, and
     PANEL-36's animated transitions would fly the wrong nodes;
@@ -281,7 +292,9 @@ commands, globs, `.md` names and plugin projects.)*
       the project root (`framework/…`, `scripts/…`, `.github/…`, `.gitattributes`).
 
     A single-segment `.md` token (`AGENTS.md`, `SKILL.md`) is never path-shaped, by either
-    rule, even when a top-level entry has that name.
+    rule, even when a top-level entry has that name. Nor is `.claude/settings.local.json`:
+    it is per machine and gitignored, as `refs_named_paths` treats it for the skills and
+    agents.
     A token that ends in `/` or holds a glob character is path-shaped only by the second rule,
     so `BRANCH_*` and `docs/` in prose are not references unless their first segment is a
     top-level entry. `/name` and `/<namespace>:name` must name a skill (a plugin skill for the
@@ -407,11 +420,12 @@ the ids.)*
 
 **D11. Share the readers, or copy them.** *(Revised after review: formats, and lasting
 fixtures; the hook-script reader.)*
-- **Recommended:** move four readers into `.claude/lib/refs.sh`, with the output formats given
+- **Recommended:** move five readers into `.claude/lib/refs.sh`, with the output formats given
   in *The shape of the change*:
   - the named-path pattern, with its `settings.local.json` exclusion;
   - the hook-registration query;
   - the hook-command script reader (`scripts()`);
+  - the project-root prefix pattern;
   - the table anchor.
 
   `checks/skills.sh`, `checks/hooks.sh` and `checks/agents-md-budget.sh` then call them, and so
@@ -431,9 +445,9 @@ fixtures; the hook-script reader.)*
     - It passes when only `.claude/settings.local.json` is named and the file is absent.
   - **`hooks.sh`:** it fails when settings.json does not parse. It is also held by its own
     non-vacuity line (at least three registered hook commands) and its expectation table (a
-    registered script with no row fails, and so does a row with no registration). Those, and
-    the `scripts()` table at its foot, stay in `hooks.sh` and keep running against the moved
-    reader.
+    registered script with no row fails, and so does a row with no registration). Those, the
+    `scripts()` table at its foot and its relative-path cases stay in `hooks.sh` and keep
+    running against the moved readers.
   - **`agents-md-budget.sh`:** it passes a 320-character row, fails a 321-character one, and
     fails when the table is missing.
 - **Alternative: copy the three readers into `map.sh`.** It leaves three existing checks

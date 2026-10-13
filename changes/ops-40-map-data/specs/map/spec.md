@@ -95,12 +95,16 @@ The map SHALL hold one node for each of the following, each at its kind's layer:
 
 #### Scenario: [MAP-2-S3] Skills and agents in a plugin project
 - **GIVEN** a project that runs the model as a plugin (`CLAUDUCTOR_FW` is the plugin root), with
-  one skill of its own under `.claude/skills/`
+  one skill of its own under `.claude/skills/`, and a plugin skill whose SKILL.md names
+  `${CLAUDE_PLUGIN_ROOT}/x.sh`, which the plugin root holds
 - **WHEN** the map is printed
 - **THEN** it has a `skill` node for each of the plugin's skills and one for the project's own
   skill, at layer 3
 - **AND** a plugin skill's node has a `path` starting `${CLAUDE_PLUGIN_ROOT}/skills/`, `changed`
   null, and a note saying it is the plugin's copy
+- **AND** that skill has a `names` link to `script:${CLAUDE_PLUGIN_ROOT}/x.sh`
+- **AND** once `x.sh` is removed from the plugin root, `--check` exits 1 naming
+  `${CLAUDE_PLUGIN_ROOT}/x.sh`
 
 #### Scenario: [MAP-2-S4] Records, rows and changes
 - **GIVEN** a repository with:
@@ -178,13 +182,15 @@ agent's name.
 - **GIVEN**:
   - a SKILL.md that names `.claude/owner-queue.sh` and `.claude/settings.local.json`, which
     does not exist;
-  - a settings.json that registers the command
-    `sh "$CLAUDE_PROJECT_DIR"/.claude/hooks/pr-merge-guard.sh`;
+  - a settings.json that registers the commands
+    `sh "$CLAUDE_PROJECT_DIR"/.claude/hooks/pr-merge-guard.sh`,
+    `sh "${CLAUDE_PROJECT_DIR:-.}"/.claude/hooks/focus-staleness.sh` and `sh /opt/hooks/x.sh`;
   - a model-roles.json that gives the skill `propose` the role `planner`
 - **WHEN** the map is printed
 - **THEN** the map has these links:
   - a `names` link from that skill to `script:.claude/owner-queue.sh`;
-  - a `registers` link from `config:.claude/settings.json` to the hook;
+  - a `registers` link from `config:.claude/settings.json` to each of the two project hooks,
+    and none for `/opt/hooks/x.sh`, which `--check` does not report;
   - a `models` link from `config:.claude/model-roles.json` to `skill:propose`, whose note names
     `planner` with its model and effort
 - **AND** `.claude/settings.local.json` makes no link, and `--check` does not report it

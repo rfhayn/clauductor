@@ -15,7 +15,8 @@
 - [ ] 1.2 Add `template/.claude/lib/refs.sh` (D11) and switch `checks/skills.sh`, `checks/hooks.sh` and `checks/agents-md-budget.sh` to it. `checks/refs.sh` passes unchanged, and each of the three checks still passes on this repository. The functions:
   - `refs_named_paths`: `FILE TAB LINE TAB PATH`, with the `settings.local.json` exclusion inside it, and `${CLAUDE_PLUGIN_ROOT}/…` matched in a plugin project;
   - `refs_hook_registrations`: `EVENT TAB COMMAND`;
-  - `refs_hook_scripts`: `checks/hooks.sh`'s `scripts()`, its table in `hooks.sh` running against the moved function;
+  - `refs_hook_scripts`: `checks/hooks.sh`'s `scripts()`, moved; its test table stays in `hooks.sh` and runs against the moved function;
+  - `refs_project_dir_prefix`: `hooks.sh`'s project-root pattern, moved; `hooks.sh`'s relative-path test uses it, with its cases staying in `hooks.sh`;
   - `refs_table_rows`: `LINE TAB ROW`, with ROW byte for byte the line.
 - [ ] 1.3 Add `template/.claude/map.sh`'s three modes. `--validate` holds schema v1: keys, kinds, layers, rels, flags, unique ids, link ends and empty-layer notes. Tested in `template/.claude/checks/map.sh` citing [MAP-6-S1] and [MAP-6-S2], against a panel-built fixture written inline. The jq-missing exit is tested citing [MAP-1-S4].
 - [ ] 1.4 Print the skeleton map: schema v1's top level, the layers, kinds and areas, rule and control nodes with D2's ids, and the `instance` links. For the ids, one `cksum` call reads a `mktemp -d` scratch directory holding one file per cell, removed on exit. `map.sh` sets `ROOT` before it sources `lib/conf.sh`. Tested in `template/.claude/checks/map.sh` against a throwaway repository, citing [MAP-1-S1], [MAP-1-S2], [MAP-1-S3], [MAP-2-S1], [MAP-3-S7] and [MAP-5-S9].
@@ -23,7 +24,7 @@
 ## 2. Mechanisms, skills, agents and their links
 - [ ] 2.1 Normalise, classify and resolve references as D5 says: commands, line suffixes, `.md` names, globs, ties, `git ls-files -co --exclude-standard` relative to `ROOT`, and the plugin root without its `scaffold/`. Give each node its kind by path (D3). Tested in `template/.claude/checks/map.sh` citing [MAP-2-S2], [MAP-3-S1], [MAP-3-S2], [MAP-3-S3], [MAP-3-S8] and [MAP-3-S9].
 - [ ] 2.2 Build the `executes` links and the `unexecuted` and `by-hand` flags. Tested citing [MAP-2-S5].
-- [ ] 2.3 Add skill and agent nodes, the project's and the plugin's, and the `names`, `registers` and `models` links. `registers` reads each command through `refs_hook_scripts`, with the project-dir and plugin-root prefixes and the plugin's `if-project.sh` argument. Tested citing [MAP-2-S3] and [MAP-3-S4], with `CLAUDUCTOR_FW` pointed at a fixture plugin root.
+- [ ] 2.3 Add skill and agent nodes, the project's and the plugin's, and the `names`, `registers` and `models` links. `registers` reads each command through `refs_hook_scripts` and `refs_project_dir_prefix`: every project-root form `hooks.sh` accepts, `${CLAUDE_PLUGIN_ROOT}/` after a leading quote, the plugin's `if-project.sh` argument, and no link for an absolute path. `names` matches `${CLAUDE_PLUGIN_ROOT}/…` in a plugin project. Tested citing [MAP-2-S3] and [MAP-3-S4], with `CLAUDUCTOR_FW` pointed at a fixture plugin root.
 - [ ] 2.4 Add ADR nodes and `enforces` links, and module nodes (the enabled modules and `local`) with `extends` links from `ext_files` and `ext_dirs` over `MODULE_POINTS`. Tested citing [MAP-3-S5] and [MAP-2-S7].
 
 ## 3. Rows, changes, specs, dates and areas
