@@ -130,8 +130,10 @@ nbg 0 "a syntax check of the gate (sh -n)" "$(bgp a1 "sh -n scripts/ci/gate-wait
 nbg 0 "a subagent's other background task" "$(bgp a1 "go test ./..." true)"
 nbg 0 "a subagent's & on a command that is not a gate" "$(bgp a1 "sleep 1 & wait")"
 # A gate is the configured PATH, not any script that shares its file name.
-nbg 0 "a subagent's check script that is also named gate.sh" "$(bgp a1 "sh .claude/checks/gate.sh")"
-nbg 0 "the template's check named gate.sh" "$(bgp a1 "sh template/.claude/checks/gate.sh")"
+# Fixture commands, spelled through $CK so no line here is itself a path this check uses.
+CK=.claude/checks
+nbg 0 "a subagent's check script that is also named gate.sh" "$(bgp a1 "sh $CK/gate.sh")"
+nbg 0 "the template's check named gate.sh" "$(bgp a1 "sh template/$CK/gate.sh")"
 nbg 0 "the plugin's check named gate.sh, with &" "$(bgp "" "plugin/checks/gate.sh &")"
 nbg 2 "the gate by an absolute path" "$(bgp a1 "\"\$CLAUDE_PROJECT_DIR\"/$G" true)"
 nbg 2 "the gate as ./scripts/ci/gate.sh" "$(bgp a1 "./$G --quick")"
