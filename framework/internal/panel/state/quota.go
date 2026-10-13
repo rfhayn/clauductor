@@ -307,6 +307,23 @@ func (m *Model) Account() *signals.AuthStatus {
 	return &a
 }
 
+// AccountReading is the account reading (nil: none) and its source's status: a
+// project added live carries them, since adding one no longer reads the account
+// (PANEL-28, D5).
+func (m *Model) AccountReading() (*signals.AuthStatus, SourceStatus) {
+	return m.Account(), m.accountSrc
+}
+
+// RestoreAccount sets the account reading and its source's status as another
+// project's model holds them (AccountReading).
+func (m *Model) RestoreAccount(a *signals.AuthStatus, src SourceStatus) {
+	if a != nil {
+		c := *a
+		m.account = &c
+	}
+	m.accountSrc = src
+}
+
 // accountView derives the status bar's account and its quota mode.
 func (m *Model) accountView(q *Quota) AccountView {
 	v := AccountView{Mode: signals.ModeUnknown, Source: m.accountSrc}

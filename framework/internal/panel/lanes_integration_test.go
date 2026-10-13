@@ -86,7 +86,7 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	polls := newPollCounter()
-	o := Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: gitOnlyRunner,
+	o := Options{Project: root, Port: 0, NoOpen: true, Home: home, LookupEnv: testEnv, Runner: gitOnlyRunner,
 		// sh stands in for claude; the claude flags land in its ignored positional args.
 		TmuxSocket: sock, LaneProgram: []string{"/bin/sh", "-c", "exec /bin/sh", "lane"}, StopTimeout: 1500 * time.Millisecond,
 		// A (re)started lane must stay up FastExit to count as started: sh does.

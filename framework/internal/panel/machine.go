@@ -10,12 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -49,6 +51,10 @@ type Machine struct {
 	quotaPath, verifiedPath string
 	savedQuota              int64
 	savedVerified           string
+	// accountPath keeps the last account reading (PANEL-28: account.json); account
+	// is its source, which only start and Refresh run.
+	accountPath string
+	account     *source
 
 	// The account's quota alert: one OS notification for the machine, not one per
 	// project (each project's own notifier skips it).
@@ -94,11 +100,15 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 			m.notifier.Restore(st)
 		}
 	}
+	m.accountPath = filepath.Join(dir, "account.json")
 	t := ticks
+	// The account has no interval (PANEL-28, D5): it is read at start without a recent
+	// saved reading, and on Refresh; adding a project does not kick it (kickAdded).
+	m.account = &source{name: "account", kick: make(chan struct{}, 1), poll: m.pollAccount()}
 	m.sources = []*source{
 		// Kickable (PANEL-22): a project added live has them read at once.
 		{name: "version", every: t.Version, kick: make(chan struct{}, 1), poll: m.pollVersion()},
-		{name: "account", every: t.Version, kick: make(chan struct{}, 1), poll: m.pollAccount()},
+		m.account,
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
 		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
@@ -118,9 +128,15 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 	return m
 }
 
-// each applies an update to every project's model.
+// each applies an update to every project's model. It holds projMu (read) while it
+// does, so a project being added (addProject, which copies the default's machine
+// readings under the write lock) either copies a model this update reached, or is
+// listed and gets it. The lock order is projMu, then a hub's: an update never takes
+// projMu.
 func (m *Machine) each(up update) {
-	for _, r := range m.list() {
+	m.projMu.RLock()
+	defer m.projMu.RUnlock()
+	for _, r := range m.projects {
 		r.hub.Update(up)
 	}
 }
@@ -144,11 +160,22 @@ func (m *Machine) defRT() *Runtime {
 // its view carries them before the machine's next reads.
 func (m *Machine) addProject(r *Runtime) {
 	r.machine = m
-	def := m.defRT()
-	if def != nil {
+	// Copied and appended under one lock: an account read applied to every project
+	// (each) between the copy and the append would otherwise miss the new one, and
+	// nothing reads the account again until Refresh (PANEL-28, D5).
+	m.projMu.Lock()
+	defer m.projMu.Unlock()
+	if def := m.def; def != nil {
 		var q *state.Quota
 		verified := ""
-		def.hub.Read(func(md *state.Model, _ time.Time) { q, verified = md.QuotaReading(), md.AutoVerified() })
+		var acct *signals.AuthStatus
+		var acctSrc state.SourceStatus
+		var locks []types.LoginLock
+		def.hub.Read(func(md *state.Model, _ time.Time) {
+			q, verified = md.QuotaReading(), md.AutoVerified()
+			acct, acctSrc = md.AccountReading()
+			locks = md.LoginLocks()
+		})
 		r.hub.Update(func(md *state.Model, _ time.Time) {
 			if q != nil {
 				md.RestoreQuota(*q)
@@ -156,15 +183,17 @@ func (m *Machine) addProject(r *Runtime) {
 			if verified != "" {
 				md.RestoreAutoVerified(verified)
 			}
+			// The account is not read for it (PANEL-28, D5): it carries the default's.
+			md.RestoreAccount(acct, acctSrc)
+			// The login locks too (PANEL-28): the watch tells the models only of a change.
+			md.ApplyLoginLocks(locks)
 		})
 	}
-	m.projMu.Lock()
 	m.projects = append(m.projects, r)
 	if m.def == nil {
 		m.def = r
 	}
-	m.projMu.Unlock()
-	m.kickAll() // the version, the account, the hooks and remote control, read for it now
+	m.kickAdded() // the version, the hooks and remote control, read for it now
 }
 
 // removeProject stops routing anything to a runtime. The ingest's session table
@@ -189,10 +218,21 @@ func (m *Machine) setDefault(r *Runtime) {
 	m.projMu.Unlock()
 }
 
-// kickAll polls every machine source that can be kicked, now.
+// kickAll polls every machine source that can be kicked, now: the page's Refresh,
+// the account included.
 func (m *Machine) kickAll() {
 	for _, s := range m.sources {
 		if s.kick != nil {
+			kick(s.kick)
+		}
+	}
+}
+
+// kickAdded is kickAll for a project added: every kickable source but the account,
+// which only start and Refresh read (PANEL-28, D5).
+func (m *Machine) kickAdded() {
+	for _, s := range m.sources {
+		if s.kick != nil && s != m.account {
 			kick(s.kick)
 		}
 	}
@@ -231,9 +271,11 @@ func (m *Machine) pollOnce(ctx context.Context, s *source) (time.Duration, bool)
 	return next, true
 }
 
-// run runs argv through the Runner in the default project's root, with a timeout.
+// run runs argv through the Runner in the default project's root, with a timeout. The
+// machine's calls are polls (PANEL-28), marked here too, so a move off Runtime.exec
+// (PANEL-25) keeps the mark.
 func (m *Machine) run(ctx context.Context, timeout time.Duration, argv []string) ([]byte, error) {
-	return m.defRT().exec(ctx, timeout, argv)
+	return m.defRT().exec(signals.WithPoll(ctx), timeout, argv)
 }
 
 // pollVersion reads `claude --version`, and warns once per read when it is not the
@@ -241,6 +283,9 @@ func (m *Machine) run(ctx context.Context, timeout time.Duration, argv []string)
 func (m *Machine) pollVersion() func(context.Context, time.Time) (update, time.Duration) {
 	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
 		out, err := m.run(ctx, 10*time.Second, []string{"claude", "--version"})
+		if wait, held := claudecall.RetryAfter(err); held {
+			return heldUpdate("version", err), wait
+		}
 		v := ""
 		if err == nil {
 			v, err = signals.ParseClaudeVersion(out)
@@ -252,20 +297,89 @@ func (m *Machine) pollVersion() func(context.Context, time.Time) (update, time.D
 	}
 }
 
-// pollAccount reads `claude auth status --json` on the version's cadence (PANEL-15):
-// how the account signs in and its plan, which decide what the quota's place shows.
-// It runs with a lane's environment (no API key), so it names the login lanes use.
-// It costs no token; nothing personal it prints is kept (signals.ParseAuthStatus).
+// The account read (PANEL-28, D5): a saved reading younger than accountFresh stands
+// in for a read at start, and a failed read is retried once, accountRetry later.
+const (
+	accountFresh = 24 * time.Hour
+	accountRetry = time.Minute
+)
+
+// savedAccount is account.json: the last account reading, only the fields the panel
+// keeps (signals.AuthStatus), and when it was read.
+type savedAccount struct {
+	Status signals.AuthStatus `json:"status"`
+	At     int64              `json:"at"` // unix ms
+}
+
+// pollAccount reads `claude auth status --json` (PANEL-15): how the account signs in
+// and its plan, which decide what the quota's place shows. It runs with a lane's
+// environment (no API key), so it names the login lanes use. It costs no token;
+// nothing personal it prints is kept (signals.ParseAuthStatus).
+//
+// No timer runs it (PANEL-28, D5: #95822 names `auth status` as a command that can
+// start a login refresh and exit without saving it). It runs at start only when
+// account.json holds no reading under accountFresh old, and on Refresh; each reading
+// is saved. A failed read is retried once, accountRetry later, then shows its error
+// until Refresh. A busy or paused gate is no failure: it retries as any poll does.
 func (m *Machine) pollAccount() func(context.Context, time.Time) (update, time.Duration) {
 	argv := lanes.ScrubbedArgv("claude", "auth", "status", "--json")
-	return func(ctx context.Context, _ time.Time) (update, time.Duration) {
+	first, retryLeft := true, true // the source's goroutine only
+	return func(ctx context.Context, now time.Time) (update, time.Duration) {
+		var restore update
+		if first {
+			first = false
+			if sa, ok := m.loadAccount(); ok {
+				at := time.UnixMilli(sa.At)
+				restore = func(md *state.Model, _ time.Time) { md.ApplyAccount(sa.Status, nil, at) }
+				if age := now.Sub(at); age >= 0 && age < accountFresh {
+					return restore, 0
+				}
+			}
+		}
 		out, err := m.run(ctx, 10*time.Second, argv)
 		var a signals.AuthStatus
 		if err == nil {
 			a, err = signals.ParseAuthStatus(out)
 		}
-		return func(md *state.Model, now time.Time) { md.ApplyAccount(a, err, now) }, 0
+		if wait, held := claudecall.RetryAfter(err); held {
+			return both(restore, heldUpdate("account", err)), wait
+		}
+		next := time.Duration(0) // 0: until Refresh (the source has no interval)
+		if err != nil && retryLeft {
+			retryLeft, next = false, accountRetry
+		} else {
+			retryLeft = true
+		}
+		if err == nil && ctx.Err() == nil {
+			if b, merr := json.Marshal(savedAccount{Status: a, At: now.UnixMilli()}); merr == nil {
+				if werr := writePrivate(m.accountPath, b); werr != nil {
+					fmt.Fprintf(m.o.Out, "account reading not saved: %v\n", werr)
+				}
+			}
+		}
+		return both(restore, func(md *state.Model, now time.Time) { md.ApplyAccount(a, err, now) }), next
 	}
+}
+
+// loadAccount is account.json's reading, if one is saved.
+func (m *Machine) loadAccount() (savedAccount, bool) {
+	var sa savedAccount
+	b, err := os.ReadFile(m.accountPath)
+	if err != nil || json.Unmarshal(b, &sa) != nil || sa.At <= 0 {
+		return savedAccount{}, false
+	}
+	return sa, true
+}
+
+// both applies a, then b; either may be nil.
+func both(a, b update) update {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	return func(md *state.Model, now time.Time) { a(md, now); b(md, now) }
 }
 
 // savedVerification is verified.json: the Claude Code version the subagent pairing was
@@ -313,26 +427,27 @@ func writePrivate(path string, b []byte) error {
 	return config.WriteAtomic(path, b, 0o600)
 }
 
-// withoutQuota drops the account's quota alert: a project's notifier leaves it to
-// the machine.
+// withoutQuota drops the machine's alerts (the account's quota, and PANEL-28's login
+// locks): a project's notifier leaves them to the machine.
 func withoutQuota(as []state.AlertView) []state.AlertView {
 	out := as[:0:0]
 	for _, a := range as {
-		if a.Kind != state.AlertQuota {
+		if !state.MachineAlert(a.Kind) {
 			out = append(out, a)
 		}
 	}
 	return out
 }
 
-// pollQuotaAlert notifies the account's quota alert once for the machine. The alert
-// is derived in the default project's view, against its thresholds.
+// pollQuotaAlert notifies the machine's alerts (the account's quota, the login locks)
+// once for the machine. They are derived in the default project's view, against its
+// thresholds.
 func (m *Machine) pollQuotaAlert(ctx context.Context, now time.Time) (update, time.Duration) {
 	def := m.defRT()
 	v := def.hub.View()
 	var qa []state.AlertView
 	for _, a := range v.Alerts {
-		if a.Kind == state.AlertQuota {
+		if state.MachineAlert(a.Kind) {
 			qa = append(qa, a)
 		}
 	}

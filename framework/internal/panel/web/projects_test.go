@@ -28,7 +28,7 @@ func twoProjects(t *testing.T) (*Server, map[string]*atomic.Int64) {
 		n := &atomic.Int64{}
 		refreshed[id] = n
 		s.Projects = append(s.Projects, &Project{ID: id, Name: cfg.Name, Hub: NewHub(m, clock.Func(time.Now)), Lanes: lm,
-			Refresh: func() { n.Add(1) }})
+			Refresh: func(bool) { n.Add(1) }})
 	}
 	s.Default = "a"
 	return s, refreshed

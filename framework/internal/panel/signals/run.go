@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -16,21 +17,47 @@ type Runner func(ctx context.Context, dir string, argv []string) ([]byte, error)
 const maxCmdOutput = 1 << 20
 
 // ExecRunner runs argv directly (no shell) with a limited stdout.
+//
+// A `claude` (ClaudeArgs) is stopped, never killed outright (PANEL-28): when ctx is
+// done it gets SIGTERM, and SIGKILL only ClaudeStopGrace later, since a process
+// SIGKILLed while it holds the login-refresh lock strands it. Its process is reported
+// to WithProcessStart's callback. Every other command keeps exec.CommandContext's
+// SIGKILL at once.
 func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	claude := IsClaude(argv)
+	if claude {
+		sent := stopSignal(ctx)
+		cmd.Cancel = func() error {
+			err := cmd.Process.Signal(syscall.SIGTERM)
+			if err == nil && sent != nil {
+				sent(syscall.SIGTERM)
+			}
+			return err
+		}
+		cmd.WaitDelay = ClaudeStopGrace
+	}
 	cmd.Dir = dir
 	var out, errb limitedBuffer
 	out.max, errb.max = maxCmdOutput, 4096
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
+	err := cmd.Start()
+	if err == nil {
+		if f := processStart(ctx); claude && f != nil {
+			f(cmd.Process)
+		}
+		err = cmd.Wait()
+	}
+	if err != nil {
+		// %w: the gate reads how a stopped claude ended (its *exec.ExitError).
 		msg := strings.TrimSpace(errb.String())
 		if i := strings.IndexByte(msg, '\n'); i >= 0 {
 			msg = msg[:i]
 		}
 		if msg != "" {
-			return nil, fmt.Errorf("%s: %v: %s", argv[0], err, msg)
+			return nil, fmt.Errorf("%s: %w: %s", argv[0], err, msg)
 		}
-		return nil, fmt.Errorf("%s: %v", argv[0], err)
+		return nil, fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return out.Bytes(), nil
 }

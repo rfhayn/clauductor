@@ -1546,7 +1546,11 @@ function jumpTo(n) {
 }
 function needKey(n) { return "need:" + n.lane + ":" + n.session + ":" + n.kind; }
 function asOf() { return offline() && frozenAt ? ", as of " + hm(frozenAt) : ""; }
-const AGED = { waiting: true, idle: true };
+// A login lock's age is its own (PANEL-28): a live one's from its birth, a stranded
+// one's from its last modification.
+const AGED = { waiting: true, idle: true, login_lock: true, stranded_lock: true };
+// PANEL-28: a login-lock alert's row opens the Help section that says what to do.
+const LOCK_KINDS = { login_lock: true, stranded_lock: true, future_lock: true };
 // Alerts shown in the strip: every alert that belongs to no lane, and blocking ones of
 // any lane (a waiting alert already in Needs you is not repeated).
 // PANEL-19: an approval waiting too long, a change over its budget and a lane with no
@@ -1584,7 +1588,8 @@ function renderNeeds() {
       const sev = a.severity === "block" ? "crit" : "warn";
       const tr = el("tr", "abn-" + sev, null, [el("td", null, null, [el("span", "sq " + (sev === "crit" ? "block" : "waiting")), el("span", null, a.kind.replace("_", " "))]),
         el("td", null, a.name || "All lanes"), askCell(a.text), el("td", "num", null, AGED[a.kind] && a.since ? [age(a.since)] : []),
-        el("td", null, null, a.terminal || a.lane ? [button(a.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(a); }, null, "jump")] : [])]);
+        el("td", null, null, a.terminal || a.lane ? [button(a.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(a); }, null, "jump")]
+          : LOCK_KINDS[a.kind] ? [button("What to do", "small", (ev) => { ev.stopPropagation(); openHelpAt("help-locks"); }, null, "help")] : [])]);
       if (a.terminal || a.lane) on(tr, "click", () => jumpTo(a));
       return key(tr, "alert:" + a.key);
     }))]), "alerts:tbl"));
@@ -1768,6 +1773,7 @@ function feedList(items, withLane, k) {
 }
 function sourceNote(src, what, k) {
   if (!src) return null;
+  if (src.paused) return key(el("div", "empty", what + " " + src.paused), k);
   if (src.pending) return key(el("div", "empty", "reading " + what + "…"), k);
   if (!src.ok) return key(el("div", "srcerr", "cannot read " + what + ": " + src.error), k);
   return null;
@@ -3350,6 +3356,13 @@ function openHelp() {
   $("helpbtn").setAttribute("aria-expanded", "true");
   $("helpclose").focus();
 }
+// openHelpAt opens Help at one of its sections (PANEL-28: a login-lock alert's
+// "What to do").
+function openHelpAt(id) {
+  openHelp();
+  const h = $(id);
+  if (h) h.scrollIntoView({ block: "start" });
+}
 function closeHelp() {
   $("helpdlg").hidden = true;
   $("helpbtn").setAttribute("aria-expanded", "false");
@@ -3380,7 +3393,7 @@ $("helpdlg").addEventListener("keydown", (e) => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
-$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh"), { method: "POST" }).catch(() => {}); });
+$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh?machine=1"), { method: "POST" }).catch(() => {}); });
 
 // ---- The page's text size: Ctrl+Alt+= / − / 0, and the Size group of Appearance ------
 // theme.js owns the value (PanelScale); every size in panel.css is in rem. The keys need

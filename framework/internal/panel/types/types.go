@@ -3,6 +3,31 @@
 // code and no imports, so the reducer can take them without linking what makes them.
 package types
 
+// LoginLock is one of Claude Code's login-refresh locks as the panel's lock watch
+// last read it (PANEL-28): what the reducer derives its alerts from. Times are unix
+// ms, 0 when there is none.
+type LoginLock struct {
+	Which   string `json:"which"` // "current" or "legacy"
+	Path    string `json:"path"`
+	State   string `json:"state"` // "live", "stale" or "future"
+	ModTime int64  `json:"modTime"`
+	// LiveSince is when the watch first saw this lock, this identity, live in an
+	// unbroken run of live readings; 0 when it is not live.
+	LiveSince int64 `json:"liveSince"`
+	// StaleSince is when a stale lock went stale (its mtime plus Claude Code's 60 s);
+	// 0 when it is not stale.
+	StaleSince int64 `json:"staleSince"`
+	Birth      int64 `json:"birth"` // the owner record's lockBirthtimeMs
+	PID        int   `json:"pid,omitempty"`
+	// Command is the holder's `ps -o command=` when the watch first saw it running.
+	Command string `json:"command,omitempty"`
+	// HolderState is the holder as last checked: "running", "gone" or "gone (pid
+	// reused)"; "" when no record names one.
+	HolderState string `json:"holderState,omitempty"`
+	Holder      string `json:"holder"` // whose: "own", "other" or "unknown: <why>"
+	Call        string `json:"call,omitempty"`
+}
+
 // QueueConfig is one shared resource held as a lease on disk: a queue of panel.json.
 type QueueConfig struct {
 	ID    string `json:"id"`

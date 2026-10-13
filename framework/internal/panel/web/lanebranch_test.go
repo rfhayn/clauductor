@@ -73,7 +73,7 @@ func newBranchRepo(t *testing.T) *branchRepo {
 		}}
 	r.s, _ = newTestServer(t)
 	m := state.NewModel(cfg, r.root, t0)
-	r.s.Projects = []*Project{{ID: "a", Name: "A", Hub: NewHub(m, clock.Func(time.Now)), Lanes: r.lm, Refresh: func() {}}}
+	r.s.Projects = []*Project{{ID: "a", Name: "A", Hub: NewHub(m, clock.Func(time.Now)), Lanes: r.lm, Refresh: func(bool) {}}}
 	r.s.Default = "a"
 	return r
 }
