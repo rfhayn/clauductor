@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,6 +23,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // Prefix begins the name of every tmux socket a test makes.
@@ -101,7 +104,8 @@ func ownSockets() []string {
 // a tmux socket of this process is still there, or a helper process this run
 // started (the test binary run again, or any process whose command line names this
 // run's temp directory) is still alive. It reports and removes both, so a failing
-// run does not leak either.
+// run does not leak either. It fails the run too if a test launched `claude` from
+// PATH (guardClaude: #93).
 //
 // TMPDIR is pointed at a directory of this run's own, so t.TempDir and every command
 // line that names a path in it carry the run's mark. A timeout or an interrupt still
@@ -119,6 +123,11 @@ func Main(m *testing.M) int {
 	os.Setenv("TMPDIR", mark)
 	defer os.RemoveAll(mark)
 	defer os.Setenv("TMPDIR", base)
+	calls, err := guardClaude(mark)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "leakcheck:", err)
+		return 1
+	}
 	killOwn := func() {
 		if tmux != "" {
 			for _, s := range ownSockets() {
@@ -170,7 +179,57 @@ func Main(m *testing.M) int {
 		}
 		code = 1
 	}
+	// Read last: a lane or helper that called claude while it was being stopped is
+	// still reported.
+	if reportClaudeCalls(calls, os.Stderr) {
+		code = 1
+	}
 	return code
+}
+
+// reportClaudeCalls writes one line to w for each call guardClaude's claude recorded
+// in calls (one line each), and reports whether there was any.
+func reportClaudeCalls(calls string, w io.Writer) bool {
+	b, _ := os.ReadFile(calls)
+	if len(b) == 0 {
+		return false
+	}
+	lines := strings.Split(string(b), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1] // after the last call's newline; a call without arguments is an empty line too
+	}
+	for _, c := range lines {
+		fmt.Fprintf(w, "leakcheck: a test launched the real claude (#93): %s; fake it in the test's runner\n", strings.TrimSuffix("claude "+c, " "))
+	}
+	return true
+}
+
+// guardClaude puts a directory of this run's first on PATH, holding a `claude` that
+// records its arguments in the returned file, says why on stderr and exits 1. A test
+// that reaches the real claude runs it with this user's login (`claude auth status`
+// did, through a runner that refused only a bare argv[0] of "claude": #93), so a
+// fake in the test's runner is the only claude a test may meet. The test binary run
+// again as a helper, and a tmux server a test starts, inherit the PATH.
+//
+// It does not cover everything. A lane's PATH is rebuilt by lanes.SessionEnv, with
+// the tool directories (git, gh, node) before the panel's PATH, so a bare claude in
+// a lane can still resolve to a real one there: a test fakes a lane's claude through
+// Options.LaneProgram. And a claude named by an absolute path is never caught.
+func guardClaude(mark string) (string, error) {
+	dir := filepath.Join(mark, "claude-guard")
+	calls := filepath.Join(dir, "calls")
+	q := "'" + strings.ReplaceAll(calls, "'", `'\''`) + "'"
+	// printf, not echo: sh's echo reads \c in an argument, or a lone -n, as its own.
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + q + "\necho 'a test launched the real claude (#93)' >&2\nexit 1\n"
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		return "", err
+	}
+	// testbin's writer, though no test has forked yet in Main: a test that calls this
+	// itself could race a parallel test's fork into "text file busy" (#78).
+	if err := testbin.WriteFile(filepath.Join(dir, "claude"), script); err != nil {
+		return "", err
+	}
+	return calls, os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // settle waits up to 3 s for list to come back empty (a killed server or process
