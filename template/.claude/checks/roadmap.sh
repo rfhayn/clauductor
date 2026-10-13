@@ -172,6 +172,54 @@ bad "a near-miss owner line written as a gate label" '**Gate 2U owner:** Ben'
 printf '## Phase 1 — x\n**Stage 1 — the dry run. Owner: #116. ✅ MET.**\n' > "$d/prose.md"
 rq --check "$d/prose.md" >/dev/null 2>&1 && ok "bold prose that mentions an owner is not a near-miss owner line" || fail "bold prose naming an owner was refused as an owner line: $(rq --check "$d/prose.md")"
 
+# Deps (OPS-38): the row ids a row waits on, or #N outside the roadmap, as --tsv column 15. A Deps
+# cell the queue cannot follow is an error in every mode, never a row that silently waits on nothing.
+cat > "$d/deps.md" <<'EOF'
+## Phase 1 — Done
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `add-a` — a | s | — | ✅ merged (#3) |
+| 1.2 | `add-b` — b | s | — | ❌ cancelled — not needed |
+| 1.3 | `add-c` — c | s | 1.2 | ❌ cancelled — 1.2 was |
+## Phase 2 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 2.1 | `add-d` — d | s | 1.1 | ⬜ queued |
+| 2.2 | `add-e` — e | s | 2.1,  #45 ,1.1 | ⬜ planned |
+EOF
+out=$(rq --check "$d/deps.md"); expect_rc 0 $? "a roadmap whose Deps name rows and #N passes --check ($out)"
+tsv=$(rq --tsv "$d/deps.md")
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2.2"{print NF "|" $15}')" = "15|2.1,#45,1.1" ] && ok "Deps are --tsv column 15: ids and #N, comma-separated, no spaces" || fail "row 2.2's Deps read as: $(printf '%s\n' "$tsv" | grep '	2.2	' | cut -f4,14-)"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print NF "|" $15 "|"}')" = "15||" ] && ok "a Deps cell of — is an empty column 15" || fail "row 1.1's Deps read as: $(printf '%s\n' "$tsv" | grep '	1.1	' | cut -f4,14-)"
+(printf '%s\n' "$tsv" | roadmap_tsv_errors) >/dev/null && ok "the template parser's 15 columns meet the --tsv contract" || fail "the template parser's rows broke the contract: $(printf '%s\n' "$tsv" | roadmap_tsv_errors)"
+deps_bad() {  # deps_bad LABEL ROWS ERROR-TEXT: refused by --check, --text and --tsv alike
+  printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n%s\n' "$2" > "$d/dbad.md"
+  for m in --check --text --tsv; do
+    out=$(rq $m "$d/dbad.md"); rc=$?
+    if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q "^ERROR" || ! printf '%s' "$out" | grep -qF -- "$3"; then
+      fail "accepted $1 under $m (exit $rc, looked for '$3'): $out"; return
+    fi
+  done
+  ok "refuses $1 (--check, --text and --tsv): $3"
+}
+deps_bad "Deps naming no row" '| 1.1 | `add-a` — a | s | 9.9 | ⬜ queued |' 'line 4 (1.1): Deps name 9.9, which is no row'
+deps_bad "a freeform Deps cell" '| 1.1 | `add-a` — a | s | — | ✅ merged (#2) |
+| 1.2 | `add-b` — b | s | 1.1 (the way back only) | ⬜ queued |' '"1.1 (the way back only)" is not a row id or #N'
+deps_bad "a Deps token that is not #N" '| 1.1 | `add-a` — a | s | #4x | ⬜ queued |' '"#4x" is not a row id or #N'
+deps_bad "a row that waits on itself" '| 1.1 | `add-a` — a | s | 1.1 | ⬜ queued |' 'Deps cycle: 1.1 → 1.1'
+deps_bad "a Deps cycle across rows" '| 1.1 | `add-a` — a | s | 1.3 | ⬜ queued |
+| 1.2 | `add-b` — b | s | 1.1 | ⬜ queued |
+| 1.3 | `add-c` — c | s | 1.2 | ✅ merged (#4) |' 'Deps cycle: 1.1 → 1.3 → 1.2 → 1.1'
+deps_bad "an open row waiting on a cancelled row" '| 1.1 | `add-a` — a | s | — | ❌ cancelled — dropped |
+| 1.2 | `add-b` — b | s | 1.1 | ⬜ in flight (#5) |' 'Deps name 1.1, which is cancelled'
+[ "$(rq --check "$d/dbad.md" | grep -c 'cycle')" = 0 ] && ok "...and a cancelled dependency is not also read as a cycle" || fail "a cancelled dependency also read as a cycle: $(rq --check "$d/dbad.md")"
+# The contract holds a plugged parser's column 15 the same way (roadmap_tsv_errors).
+tsv15() { printf '1\t1\t\t1.1\tadd-a\tchange\tqueued\t\tAna\ta\t\t\t\t\t%s\n2\t1\t\t1.2\tadd-b\tchange\tcancelled\t\tAna\tb\t\t\t\t\t\n' "$1" | roadmap_tsv_errors; }
+tsv15 '1.2' | grep -q 'which is cancelled' && ok "the --tsv contract refuses a parser's open row waiting on a cancelled one" || fail "the contract accepted a wait on a cancelled row: $(tsv15 '1.2')"
+tsv15 '1.2, #3' | grep -q '"1.2, #3" is not a row id or #N' && ok "the --tsv contract refuses a column 15 that is not comma-separated ids" || fail "the contract accepted a spaced column 15: $(tsv15 '1.2, #3')"
+tsv15 '7.7' | grep -q 'Deps name 7.7, which is no row' && ok "the --tsv contract refuses a parser's Deps naming no row" || fail "the contract accepted an unknown dependency: $(tsv15 '7.7')"
+tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside the roadmap" || fail "the contract refused #N: $(tsv15 '#3')"
+
 # ── ROADMAP_PARSER: a project's own parser, plugged in through the contract ──────────────────────
 # A project shaped like one whose roadmap has its own grammar (phases with gates, owner lines per
 # gate, status words of its own): the template's parser refuses it; the project's parser, named
@@ -277,14 +325,15 @@ conf "sh infra/budget.sh" ""
 fq --tsv | grep -q 'column 11 (budget)' && ok "a budget that is not dollars breaks the contract" || fail "a non-dollar budget passed the contract"
 
 # ── Every consumer reads the queue through roadmap_queue (lib/conf.sh) ──────────────────────────
-# bypass DIR: each line in DIR's scripts that runs the parser by path or reads the roadmap file
-# itself. Allowed: the helper, the parser, this check (its grammar tests run the parser),
+# bypass DIR: each line in DIR's scripts that runs the parser by path, reads the roadmap file
+# itself, or matches its phase headings (a second parser, as currency.sh's was before OPS-38,
+# whatever path it read the file by). Allowed: the helper, the parser, this check (its grammar tests run the parser),
 # checks/panel-contract.sh (it holds the panel card's front-door call to the helper's output), and
 # a cp that copies the parser into a scratch project.
 bypass() {
   find "$1" \( -name '*.sh' -o -name '*.js' \) -type f | sort | while read -r f; do
     case $f in */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) continue ;; esac
-    grep -nE 'roadmap-queue\.sh|"\$ROOT/\$ROADMAP"|\$\{ROOT\}/\$\{?ROADMAP' "$f" \
+    grep -nE 'roadmap-queue\.sh|"\$ROOT/\$ROADMAP"|\$\{ROOT\}/\$\{?ROADMAP|\^#*## Phase' "$f" \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"
   done
@@ -293,7 +342,8 @@ fw=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$d/plant/skills/x"
 printf '#!/bin/sh\ntsv=$(sh .claude/%s --tsv)\n' roadmap-queue.sh > "$d/plant/skills/x/context.sh"
 printf '#!/bin/sh\nawk 1 "$ROOT/$ROADMAP"\n' > "$d/plant/second-parser.sh"
-[ "$(bypass "$d/plant" | wc -l | tr -d ' ')" = 2 ] && ok "the bypass scan finds a script that runs the parser by path, and one that reads the roadmap itself" || fail "the bypass scan missed a planted bypass: $(bypass "$d/plant")"
+printf '#!/bin/sh\nread_src | jq -R -s %s\n' "'split(\"\\\\n\")[] | select(test(\"^## Phase \\\\\\\\d+\"))'" > "$d/plant/phase-reader.sh"
+[ "$(bypass "$d/plant" | wc -l | tr -d ' ')" = 3 ] && ok "the bypass scan finds a script that runs the parser by path, one that reads the roadmap itself, and one that matches its phase headings" || fail "the bypass scan missed a planted bypass: $(bypass "$d/plant")"
 by=$(bypass "$fw")
 [ -z "$by" ] && ok "no consumer bypasses roadmap_queue (every reader follows ROADMAP_PARSER)" || fail "these read the queue without roadmap_queue (lib/conf.sh), so ROADMAP_PARSER cannot reach them: $by"
 nuse=$(grep -rlE --include='*.sh' '(^|[^_])roadmap_queue --' "$fw" | grep -vc '/lib/conf.sh$\|/checks/')

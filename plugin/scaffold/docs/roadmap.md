@@ -36,6 +36,9 @@ A phase is several changes. Decompose as you go, phase by phase.
 - `Change` starts with the change id in backticks: `` `add-thing` `` for a capability change
   (branch `change/add-thing`), `` `fix/<issue>-<slug>` `` or `` `ops/<name>` `` for the other
   lanes. Then a dash and what a user can now do.
+- `Deps` is `—` or what the row waits on, comma-separated: row ids of this file (`1.1, 1.2`), or
+  `#N` for an issue or PR outside it. An id that names no row, a cycle, or an open row waiting on a
+  cancelled one is an error. A note about a dependency goes in the Change cell, never in Deps.
 - `Status` leads with one of: `⬜ queued` · `⬜ in flight (#N)` · `✅ merged (#N)` ·
   `❌ cancelled — <why>`. Text may follow. `session-close` moves a row to in flight when its PR
   opens and to merged when it merges.
@@ -68,7 +71,7 @@ The contract a parser meets:
 |---|---|---|
 | `--text` | the current phase's open rows, for people (any layout) | 0 read; non-zero: the queue is UNKNOWN |
 | `--check` | one summary line, or one `ERROR` line per line it cannot parse | 0 valid; 1 not |
-| `--tsv` | one row per line, tab-separated, the 12 columns below, optionally the 13th and 14th; more are ignored | 0 read; non-zero: UNKNOWN |
+| `--tsv` | one row per line, tab-separated, the 12 columns below, optionally the 13th to the 15th; more are ignored | 0 read; non-zero: UNKNOWN |
 
 `--queued [change\|fix\|ops]` is derived from `--tsv` by the helper: a parser need not implement it.
 
@@ -88,6 +91,7 @@ The contract a parser meets:
 | 12 | due | `YYYY-MM-DD`, or empty |
 | 13 | started | optional: the row's section's start date, `YYYY-MM-DD`, or empty |
 | 14 | status (optional) | the row's raw status text (`⬜ deferred — trigger: …`), for a parser whose statuses say more than column 7; the `people` module skips a `⬜ deferred` row for **Next**. A parser that emits column 14 puts a date or nothing in column 13. |
+| 15 | deps (optional) | what the row waits on: row ids and `#N`, comma-separated with no spaces, or empty. An id that names no row, a cycle, or a queued, in-flight or open row waiting on a cancelled one breaks the contract. A parser that emits column 15 emits 13 and 14 too, empty if it has nothing for them. |
 
 Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
 queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as

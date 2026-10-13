@@ -13,6 +13,8 @@ d=$(scratch)
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/modules"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/modules.sh" "$R/.claude/lib/"
+# The roadmap's rows come through roadmap_queue, which runs the project's parser.
+cp "$ROOT/.claude/roadmap-queue.sh" "$R/.claude/"
 cp -R "$MOD" "$R/.claude/modules/artifacts"
 CUR="$R/.claude/modules/artifacts/bin/currency.sh"
 cur() { (cd "$R" && sh "$CUR" "$@") 2>&1; }
@@ -181,6 +183,7 @@ cur --stamp docs/page.html go-live --note "refreshed: a" >/dev/null; commit "sta
 K="$d/core"; new_repo "$K"
 mkdir -p "$K/.claude/lib" "$K/.claude/modules" "$K/docs"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/modules.sh" "$K/.claude/lib/"
+cp "$ROOT/.claude/roadmap-queue.sh" "$K/.claude/"
 cp -R "$MOD" "$K/.claude/modules/artifacts"
 kc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") 2>&1; }
 krc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") >/dev/null 2>&1; echo $?; }
@@ -238,6 +241,20 @@ l=$(line_for "$(kc --worktree)" docs/p.html)
 has yes "gate:Z names no row" "$l" "currency: a gate with no rows is CANNOT CHECK"
 has yes "bogus:x is not an authority kind" "$l" "currency: ...an unknown kind too"
 has yes "an authority is not a non-empty string: 5" "$l" "currency: ...and an authority that is not a string"
+# One parser (OPS-38): the rows are roadmap_queue's. Falsified by currency's own jq parser of the
+# phase tables, as it was before OPS-38: red on both. First, a project's own parser (ROADMAP_PARSER)
+# names a row the roadmap file has no table for.
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["row:9.1"],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
+printf 'ROADMAP_PARSER="sh own.sh"\n' > "$K/.claude/project.conf"
+printf '#!/bin/sh\n[ "$1" = --tsv ] && printf "1\\t1\\t\\t9.1\\tadd-own\\tchange\\tqueued\\t\\t\\town\\t\\t\\n"\n' > "$K/own.sh"
+l=$(line_for "$(kc --worktree)" docs/p.html)
+has yes "BEHIND  docs/p.html" "$l" "currency: a row comes from the project's own parser (ROADMAP_PARSER), never a second parser"
+rm "$K/.claude/project.conf" "$K/own.sh"
+# Then a queue the one parser refuses (Deps naming no row) is one currency cannot read either.
+printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 9.1 | `add-own` — own | s | 7.7 | ⬜ queued |\n' > "$K/docs/roadmap.md"
+l=$(line_for "$(kc --worktree)" docs/p.html)
+has yes "row:9.1: docs/roadmap.md does not parse" "$l" "currency: ...and a queue the parser refuses (Deps naming no row) is CANNOT CHECK, never a row read past it"
+git -C "$K" checkout -q docs/roadmap.md
 printf '{"pages":{"docs/p.html":{"published":"x"}}}\n' > "$K/docs/artifacts.json"
 o=$(kc --worktree --check); rc=$?
 expect_rc 1 "$rc" "currency: a registry with no artifact fails --check (never 'all 0 are current')"

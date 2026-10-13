@@ -171,9 +171,61 @@ EOF
 # roadmap_tsv_errors: stdin is --tsv output; prints one line per row that breaks the contract and
 # exits 1 if any did. 12 tab-separated columns: line phase section id change kind state pr owner
 # summary budget due; an optional 13th, started (the row's section's start date); an optional 14th,
-# the row's raw status, read by the people module (docs/roadmap.md); more are ignored.
-# Blank input is an empty queue, not an error.
+# the row's raw status, read by the people module; an optional 15th, deps (roadmap_deps_errors)
+# (docs/roadmap.md); more are ignored. Blank input is an empty queue, not an error.
 roadmap_tsv_errors() {
+  _rt_in=$(cat)
+  _rt_e=$(printf '%s\n' "$_rt_in" | roadmap_tsv_shape_errors); _rt_rc=$?
+  _rt_d=$(printf '%s\n' "$_rt_in" | roadmap_deps_errors) || _rt_rc=1
+  # Printed as is, never through sed: a row cut at 60 bytes may end mid-character.
+  [ -z "$_rt_e" ] || printf '%s\n' "$_rt_e"
+  [ -z "$_rt_d" ] || printf '%s\n' "$_rt_d"
+  return "$_rt_rc"
+}
+
+# roadmap_deps_errors: stdin is --tsv output; prints one line per Deps (column 15) the queue cannot
+# follow and exits 1 if any. Column 15 is empty or comma-separated tokens, no spaces: a row id of
+# the roadmap, or #N (an issue or PR outside it, never looked up: a parser touches no network). An
+# id that names no row, a cycle, or an open row (queued, in flight, open) waiting on a cancelled one
+# is an error: each would leave a row waiting on something that never comes, silently.
+roadmap_deps_errors() {
+  awk -F'\t' '
+    function bad(r, m) { printf "  line %s (%s): %s\n", L[r], I[r], m; nb++ }
+    # dfs: colour 1 while on the path, 2 when done; a dependency met on the path closes a cycle.
+    function dfs(u,   k, v, p, j) {
+      col[u] = 1; path[++depth] = u
+      for (k = 1; k <= nd[u]; k++) {
+        v = D[u, k]
+        if (!(v in row)) continue
+        if (col[v] == 1) {
+          p = ""; for (j = depth; j >= 1; j--) if (path[j] == v) break
+          for (; j <= depth; j++) p = p path[j] " → "
+          bad(row[v], "Deps cycle: " p v)
+        } else if (col[v] == 0) dfs(v)
+      }
+      depth--; col[u] = 2
+    }
+    $0 == "" || NF < 4 { next }
+    { n++; L[n] = $1; I[n] = $4; S[n] = $7; row[$4] = n; col[$4] = 0
+      if (NF < 15 || $15 == "") next
+      m = split($15, t, ",")
+      for (k = 1; k <= m; k++) {
+        if (t[k] ~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) D[$4, ++nd[$4]] = t[k]
+        else if (t[k] !~ /^#[0-9]+$/) { bad(n, "Deps \"" $15 "\" is not a row id or #N, comma-separated (a note goes in the Change cell)"); break }
+      }
+    }
+    END {
+      for (r = 1; r <= n; r++) for (k = 1; k <= nd[I[r]]; k++) {
+        v = D[I[r], k]
+        if (!(v in row)) bad(r, "Deps name " v ", which is no row in the roadmap")
+        else if (S[row[v]] == "cancelled" && (S[r] == "queued" || S[r] == "inflight" || S[r] == "open")) bad(r, "Deps name " v ", which is cancelled, so the row would wait forever")
+      }
+      for (r = 1; r <= n; r++) if (col[I[r]] == 0) dfs(I[r])
+      exit nb > 0
+    }'
+}
+
+roadmap_tsv_shape_errors() {
   awk -F'\t' '
     function bad(m) { printf "  tsv row %d (%s): %s\n", NR, substr($0, 1, 60), m; nb++ }
     $0 == "" { next }
