@@ -26,7 +26,9 @@
 #     `python3 -m fix`): the command carried no rewrite text, so a rewrite one file away walked
 #     through twice (#88). The file is read and judged as inline code is, with one narrowing: only
 #     a target that RESOLVES to a tracked file counts from a script's text, because refusing what
-#     it cannot resolve refused every scratch script editing "$tmp/x" (step 0). A check-only run
+#     it cannot resolve refused every scratch script editing "$tmp/x". And one widening: an editor
+#     a non-shell script runs from inside a string (`os.system("sed -i … f")`) is judged by the
+#     paths the script names (step 0 says when). A check-only run
 #     (`sh -n`, `node --check`, `perl -c`) executes nothing and reads nothing.
 #
 # WHICH SCRIPT FILES ARE READ: an UNTRACKED, unignored file in this repository (any worktree) or a
@@ -51,10 +53,17 @@
 #     RELATIVE literal is still judged against the command's directories and literal cds, even
 #     after the script's own cd to a variable (safe: it can only over-refuse), so a script that
 #     edits a scratch copy names it by an absolute path or a variable;
-#   - past the 32-base cap, a script's relative targets: only its absolute ones are judged then;
+#   - past the 32-base cap, a relative target under a cd composed from two of the script's own cds
+#     (each script cd is then resolved against the command's directories alone);
+#   - an editor a non-shell script runs from a string with no exec call the hook knows (perl
+#     backticks, a call it spells some other way);
 #   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`).
-# And one false refusal it shares with the inline path: a script that reads tracked source, uses
-# `.replace(`, and writes ELSEWHERE is refused when it names the tracked path.
+# And two false refusals:
+#   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
+#     ELSEWHERE is refused when it names the tracked path;
+#   - the price of reading an editor run from a string: a non-shell script that execs anything,
+#     names `sed -i` anywhere (a comment too) and names a tracked path is refused, even if it only
+#     reads that path.
 #
 # Checked by .claude/checks/hooks.sh, a payload → exit-code table in both directions.
 #
@@ -304,7 +313,7 @@ scan_awk() {
       if (cname ~ /^(grep|egrep|fgrep|rg|ag|ack|git|gh|echo|printf|man|which|type|whatis|apropos|help|info)$/) return ""
       return cname
     }
-    function endcmd(   c, k, j, name, tool, isinp, script, sawe, rest, sawc, r, pin) {
+    function endcmd(   c, k, j, name, tool, isinp, script, sawe, rest, sawc, r, pin, kind) {
       endword()
       # An empty command (the `(` of a subshell) runs nothing, and must not lose what a pipe
       # into it carries.
@@ -335,6 +344,7 @@ scan_awk() {
           sawc = 0
           for (j = k + 1; j <= n; j++) {
             if (W[j] ~ /^[-+][A-Za-z]*[oO]$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; j++; continue }
+            if (W[j] ~ /^--(rcfile|init-file)$/) { j++; continue }
             if (W[j] ~ /^--/) continue
             if (W[j] ~ /^[-+][A-Za-z]+$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; continue }
             break
@@ -349,18 +359,20 @@ scan_awk() {
         # a variable or a substitution is a known limit (the header), not a guess. The shell reads
         # a sourced file (. f, source f) itself; an interpreter given no file reads stdin (a `<`
         # redirect, or cat piping one in); `python3 -m name` runs name.py from the cwd first.
+        # A file a SHELL runs is SHSCRIPT: step 0 judges it by its scan alone (see there).
         if (k == c || runner(k, c) != "") {
-          j = 0
-          if (k == c && (name == "." || name == "source")) j = (k < n) ? k + 1 : 0
+          j = 0; kind = "SCRIPT\t"
+          if (k == c && (name == "." || name == "source")) { j = (k < n) ? k + 1 : 0; kind = "SHSCRIPT\t" }
           else if (name ~ INTERP) {
+            if (name ~ /^(sh|bash|zsh|dash|ksh)$/) kind = "SHSCRIPT\t"
             MODW = 0
             j = script_word(k, name)
-            if (j == 0 && RIN != "" && RIN !~ /[\t\n]/) print "SCRIPT\t" RIN
-            else if (j == 0 && pin != "") print "SCRIPT\t" pin
+            if (j == 0 && RIN != "" && RIN !~ /[\t\n]/) print kind RIN
+            else if (j == 0 && pin != "") print kind pin
             if (MODW && lit(MODW)) print "MODULE\t" W[MODW]
           }
-          else if (k == c && W[k] ~ /\// && W[k] ~ SCRIPTEXT) j = k
-          if (j > 0 && lit(j)) print "SCRIPT\t" W[j]
+          else if (k == c && W[k] ~ /\// && W[k] ~ SCRIPTEXT) { j = k; if (W[k] ~ /[.]sh$/) kind = "SHSCRIPT\t" }
+          if (j > 0 && lit(j)) print kind W[j]
         }
         tool = ""
         if (name ~ /^g?sed$/) tool = "sed"
@@ -408,6 +420,7 @@ scan_awk() {
         if (w == "-") return 0
         if (name ~ /^(sh|bash|zsh|dash|ksh)$/) {
           if (w !~ /^[-+]./) return j
+          if (w ~ /^--(rcfile|init-file)$/) { j++; continue }
           if (w ~ /^-[A-Za-z]*[cn]/) return -1
           # A cluster ending in o takes the next word as its value: -o pipefail, -euo pipefail.
           if (w ~ /^[-+][A-Za-z]*[oO]$/) j++
@@ -534,17 +547,40 @@ find_repo() {
 # not resolve against /tmp alone, and a union can only over-block.
 #
 # set_bases CDS DIR...: sets $bases. Fails as soon as they pass 32, before n cds can make 2^n.
-set_bases() {
-  cds=$1; shift
-  bases=$(printf '%s\n' "$@" | grep -v '^$' | sort -u)
-  [ -n "$cds" ] || return 0
+# cd_targets CDS: each cd resolved against $bases ALONE, not against each other (linear in n).
+# Both collapse `x/..` the way `cd` (logical, the default) does, so `cd a && cd ..` adds nothing.
+collapse() {
+  awk '{
+    n = split($0, p, "/"); k = 0
+    for (i = 1; i <= n; i++) {
+      if (p[i] == "." || (p[i] == "" && i > 1)) continue
+      if (p[i] == "..") {
+        if (k > 1 || (k == 1 && o[1] != "" && o[1] != "..")) { if (o[k] != "..") { k--; continue } }
+        else if (k == 1 && o[1] == "") continue
+      }
+      o[++k] = p[i]
+    }
+    s = o[1]; for (i = 2; i <= k; i++) s = s "/" o[i]
+    print (s == "" ? "/" : s)
+  }'
+}
+cd_targets() {
   while IFS= read -r t; do
     case "$t" in "~") t=$HOME ;; "~/"*) t=$HOME/${t#"~/"} ;; esac
     case "$t" in
-      /*) new=$t ;;
-      *) new=$(printf '%s\n' "$bases" | while IFS= read -r b; do printf '%s/%s\n' "$b" "$t"; done) ;;
+      /*) printf '%s\n' "$t" ;;
+      *) printf '%s\n' "$bases" | while IFS= read -r b; do printf '%s/%s\n' "$b" "$t"; done ;;
     esac
-    bases=$(printf '%s\n%s\n' "$bases" "$new" | grep -v '^$' | sort -u)
+  done <<EOF
+$1
+EOF
+}
+set_bases() {
+  cds=$1; shift
+  bases=$(printf '%s\n' "$@" | grep -v '^$' | collapse | sort -u)
+  [ -n "$cds" ] || return 0
+  while IFS= read -r t; do
+    bases=$(printf '%s\n%s\n' "$bases" "$(cd_targets "$t")" | grep -v '^$' | collapse | sort -u)
     [ "$(printf '%s\n' "$bases" | wc -l | tr -d ' ')" -le 32 ] || return 1
   done <<EOF
 $cds
@@ -578,17 +614,26 @@ show() { case "$1" in "$root"/*) printf '%s' "${1#"$root"/}" ;; *) printf '%s' "
 # target the hook cannot resolve (a variable, a cd to one, a quote it cannot close) is refused;
 # from a script that rule would refuse every scratch script that edits "$tmp/x" or "$1", tracked
 # source or not. So a script contributes only targets that RESOLVE to tracked files: the literal
-# and glob operands of its in-place editors (LIT, GLOB, with its literal cds), and, when it does a
-# `.replace(` or `re.sub(`, the paths it names (the loose extraction in step 3). Its OPAQUE, CDX
-# and UNCLOSED never leave this step.
+# and glob operands of its in-place editors (LIT, GLOB, with its literal cds), and the paths it
+# names (the loose extraction in step 3) in two cases:
+#  - it does a `.replace(` or `re.sub(`, as inline code does;
+#  - it is NOT a shell script, matches the in-place pattern, has an exec call (`system(`,
+#    `subprocess`, `popen`, `exec`, `spawn`, `qx`), and its own scan sees no in-place editor: the
+#    editor runs from inside a string (`os.system("sed -i … f")`). A shell script needs no such
+#    case, because the scan sees every command it runs; a comment or a grep pattern that merely
+#    names `sed -i` is not a run. The shared price: a non-shell script that execs anything, names
+#    `sed -i` anywhere and names a tracked path is refused, even if it only reads that path.
+# Its OPAQUE, CDX and UNCLOSED never leave this step.
 own=$cmd
 scanned=no
 scripts=""
 case "$cmd" in
   *python*|*pypy*|*node*|*tsx*|*perl*|*ruby*|*sh*|*source*|*". "*|*.py*|*.js*|*.mjs*|*.cjs*|*.pl*|*.rb*)
     scan_cmd
-    # `python3 -m a.b` runs a/b.py, or the package a/b, from the cwd before the standard library.
-    scripts=$(printf '%s\n' "$(facts SCRIPT)" "$(facts MODULE | tr . / | awk 'NF { print $0 ".py"; print $0 "/__main__.py" }')" | grep -v '^$')
+    # One "KIND<TAB>word" per script: SCRIPT, or SHSCRIPT for a file a shell runs. `python3 -m a.b`
+    # runs a/b.py, or the package a/b, from the cwd before the standard library.
+    scripts=$(printf '%s\n' "$scan" | grep -E "^(SH)?SCRIPT$TAB"
+      facts MODULE | tr . / | awk -v t="$TAB" 'NF { print "SCRIPT" t $0 ".py"; print "SCRIPT" t $0 "/__main__.py" }')
     ;;
 esac
 read_scripts=""
@@ -597,7 +642,7 @@ if [ -n "$scripts" ]; then
   find_repo
   set_bases "$(facts CD)" "$pcwd" "$PWD" || :
   tmpd=${TMPDIR:-/tmp}; tmpd=${tmpd%/}
-  while IFS= read -r f; do
+  while IFS="$TAB" read -r kind f; do
     [ -f "$f" ] && [ -r "$f" ] || continue
     case "$f" in */node_modules/*|*/site-packages/*) continue ;; esac
     sd=${f%/*}; sd=${sd:-/}
@@ -616,15 +661,20 @@ if [ -n "$scripts" ]; then
     cmd=$(printf '%s\n%s\n' "$cmd" "$body")
     bfacts=$(printf '%s\n' "$body" | scan_awk | grep -E "^(INPLACE\$|(LIT|GLOB|CD)$TAB)")
     sfacts=$(printf '%s\n%s\n' "$sfacts" "$bfacts")
-    # The paths it names decide for a `.replace(` script, and for an in-place editor the scan did
-    # not see as a command: one inside a string (`os.system("sed -i … f")`, `execSync(…)`).
+    # The two cases above in which the paths it names decide.
     case "$body" in *".replace("*|*"re.sub("*) binp=code ;; esac
-    if [ "$binp" = code ] || { [ "$binp" = yes ] && ! printf '%s\n' "$bfacts" | grep -qx INPLACE; }; then
-      codetext=$(printf '%s\n%s\n' "$codetext" "$body")
+    if [ "$binp" = yes ]; then
+      sed -n 1p "$f" | grep -Eq '^#!.*[/[:space:]](sh|bash|zsh|dash|ksh)([[:space:]]|$)' && kind=SHSCRIPT
+      [ "$kind" != SHSCRIPT ] \
+        && printf '%s\n' "$body" | grep -Eq 'system[[:space:]]*[(]|subprocess|[Pp]open|exec|spawn|qx' \
+        && ! printf '%s\n' "$bfacts" | grep -qx INPLACE && binp=code
     fi
+    [ "$binp" = code ] && codetext=$(printf '%s\n%s\n' "$codetext" "$body")
     read_scripts="$read_scripts $(show "$f")"
   done <<EOF
-$(printf '%s\n' "$scripts" | absolutes | sort -u)
+$(printf '%s\n' "$scripts" | while IFS="$TAB" read -r k w; do
+    [ -n "$w" ] && printf '%s\n' "$w" | absolutes | sed "s/^/$k$TAB/"
+  done | sort -u)
 EOF
 fi
 
@@ -697,18 +747,19 @@ if printf '%s\n' "$scan" | grep -qx CDX && printf '%s\n' "$scan" | grep -qx INPL
 fi
 
 # The repo root is a base too: the original only base, kept so nothing narrows.
-# The cap refuses only on the command's own cds. A script's cds widen the bases while they fit;
-# past the cap only the script's absolute targets are judged, since refusing for a script's cds
-# would refuse scripts that never touch tracked source (step 0).
+# The cap refuses only on the command's own cds: refusing for a script's cds would refuse scripts
+# that never touch tracked source (step 0). A script's cds compose with the command's while they
+# fit; past the cap each one is resolved against the command's bases ALONE, a linear set that
+# still holds `cd packages/a` for a codemod's `sed -i … src/index.ts`, though not a cd composed
+# from two of the script's own.
 set_bases "$(own_facts CD)" "$pcwd" "$PWD" "$root" || block_opaque "too many cd targets to resolve"
-script_abs_only=no
 if [ -n "$(script_facts CD)" ]; then
   own_bases=$bases
-  set_bases "$(facts CD)" "$pcwd" "$PWD" "$root" || { bases=$own_bases; script_abs_only=yes; }
+  set_bases "$(facts CD)" "$pcwd" "$PWD" "$root" || {
+    bases=$own_bases
+    bases=$(printf '%s\n%s\n' "$own_bases" "$(cd_targets "$(script_facts CD)")" | grep -v '^$' | collapse | sort -u)
+  }
 fi
-script_targets() {  # script_targets LIT|GLOB
-  if [ "$script_abs_only" = yes ]; then script_facts "$1" | grep -E '^(/|~)'; else script_facts "$1"; fi
-}
 
 # Docs and markdown are excluded on purpose: prose has no unique-anchor hazard worth a block, and
 # the first false positive was exactly a docs edit.
@@ -790,8 +841,9 @@ tracked_glob() {
 #    tracked `Makefile` counts); and
 #  - a loose extraction (any token that looks like a path with an extension), which is what
 #    sees a path inside `python3 -c "…"` or a `python3 <<PY` body, where no shell word is a target.
-#    Over the command itself, and over only those script files that `.replace(` or `re.sub(`
-#    (step 0): a shell script's `cp src/x.ts "$tmp"` names a path it never edits.
+#    Over the command itself, and over only those script files that `.replace(` or `re.sub(`, or
+#    run an editor from inside a string (step 0): a shell script's `cp src/x.ts "$tmp"` names a
+#    path it never edits.
 # Loose extraction is safe precisely BECAUSE git is the filter: a token that is not tracked is
 # discarded, so over-collecting costs nothing and under-describing costs everything.
 #
@@ -806,7 +858,7 @@ loose=$(printf '%s\n%s' "$own" "$codetext" \
   | tr -c 'A-Za-z0-9_./-' '\n' \
   | grep -E '\.[A-Za-z]+$' \
   | sed -e 's|^\./||')
-candidates=$(printf '%s\n%s\n%s\n' "$(own_facts LIT)" "$(script_targets LIT)" "$loose" | grep -v '^$' | sort -u)
+candidates=$(printf '%s\n%s\n' "$(facts LIT)" "$loose" | grep -v '^$' | sort -u)
 
 # `while read` over a heredoc, never `for x in $(…)`: an unquoted expansion would GLOB the glob
 # candidates in this hook's own directory, and split a path containing a space.
@@ -818,7 +870,7 @@ if [ -n "$candidates" ]; then
 $(printf '%s\n' "$candidates" | absolutes | grep -Ev '\.(md|mdx|txt|html)$' | sort -u | tracked_files)
 EOF
 fi
-globs=$(printf '%s\n%s\n' "$(own_facts GLOB)" "$(script_targets GLOB)" | grep -v '^$')
+globs=$(facts GLOB)
 if [ -n "$globs" ]; then
   gabs=$(printf '%s\n' "$globs" | absolutes | sort -u)
   while IFS= read -r g; do

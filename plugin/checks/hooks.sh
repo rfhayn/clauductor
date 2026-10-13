@@ -33,7 +33,8 @@ p = pathlib.Path('src/lib/app.ts')
 p.write_text(p.read_text().replace('x', 'y'))
 PY
 echo 'dist/' > "$R/.gitignore"
-git -C "$R" add src tools Makefile README.md .gitignore && git -C "$R" commit -qm seed
+for p in a b c; do mkdir -p "$R/packages/$p/src"; echo 'export const x = 1;' > "$R/packages/$p/src/index.ts"; done
+git -C "$R" add src tools packages Makefile README.md .gitignore && git -C "$R" commit -qm seed
 echo 'scratch' > "$R/src/lib/scratch.ts"            # untracked, beside a tracked file
 git -C "$R" worktree add -q "$d/wt" 2>/dev/null     # a second worktree of the same repo
 T=src/lib/app.ts
@@ -177,6 +178,26 @@ nb 0 "cat then || (not a pipe)" "cat rewrite.py || python3"
 # A flag cluster ending in o takes the next word as its value.
 nb 2 "bash -euo pipefail on a script file" "bash -euo pipefail sub.sh"
 nb 2 "bash -euo pipefail -c" "bash -euo pipefail -c \"cd src && sed -i '' s/a/b/ lib/app.ts\""
+nb 2 "bash --rcfile FILE on a script file" "bash --rcfile /dev/null sub.sh"
+# A script that only MENTIONS an in-place editor (a comment, a grep pattern) is not one that runs
+# it from a string: the editor-in-a-string rule needs a non-shell script with an exec call.
+printf 'grep -rn "sed -i" src/lib/app.ts\n' > "$R/greps.sh"
+printf '# sed -i is banned here\ncp src/lib/app.ts "$TMPDIR/app.ts"\n' > "$R/copies.sh"
+printf "# never use sed -i on source\nprint(open('src/lib/app.ts').read())\n" > "$R/reads.py"
+nb 0 "a shell script grepping for sed -i in tracked source" "sh greps.sh"
+nb 0 "a shell script copying tracked source under a sed -i comment" "sh copies.sh"
+nb 0 "a python script reading tracked source under a sed -i comment" "python3 reads.py"
+printf 'exec > "$TMPDIR/harness.log"\ngrep -n "sed -i" src/lib/app.ts\n' > "$R/harness.sh"
+nb 0 "a shell script with an exec, grepping for sed -i in tracked source" "sh harness.sh"
+# A multi-package codemod: its cds pass the cap when composed, and each one still resolves.
+printf "cd packages/%s && sed -i '' s/x/y/ src/index.ts && cd ../..\n" a b c > "$R/codemod.sh"
+nb 2 "a multi-package codemod script" "sh codemod.sh"
+# Past the cap, each script cd still resolves against the command's directories (linear).
+printf "${cds}cd packages/a && sed -i '' s/x/y/ src/index.ts\n" > "$R/pastcap.sh"
+nb 2 "a script past the cd cap editing tracked source by a relative path" "sh pastcap.sh"
+# Collapsing x/.. keeps composed cds under the cap: packages/c is reached only by composing two.
+printf "cd packages && cd a && cd .. && cd b && cd .. && cd c && sed -i '' s/x/y/ src/index.ts\n" > "$R/compose.sh"
+nb 2 "a script whose cds compose under the cap once .. collapses" "sh compose.sh"
 rc=0; printf '' | sh "$H/no-blind-source-rewrite.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than breaking every Bash call"
 
