@@ -80,12 +80,16 @@ func (l *Log) trim(keep int64) error {
 	if err != nil {
 		return err
 	}
-	if int64(len(b)) > keep {
-		b = b[int64(len(b))-keep:]
-		if i := bytes.IndexByte(b, '\n'); i >= 0 {
-			b = b[i+1:]
-		} else {
-			b = nil
+	if cut := int64(len(b)) - keep; cut > 0 {
+		// A cut that lands just after a newline is already at a whole line.
+		mid := b[cut-1] != '\n'
+		b = b[cut:]
+		if mid {
+			if i := bytes.IndexByte(b, '\n'); i >= 0 {
+				b = b[i+1:]
+			} else {
+				b = nil
+			}
 		}
 	}
 	return config.WriteAtomic(l.Path, b, 0o600)
@@ -122,7 +126,7 @@ type LockLine struct {
 }
 
 // Attribution is whose a lock is, decided once, at the sighting that first names
-// its holder.
+// its holder. The zero value is "not the panel's own".
 type Attribution struct {
 	Own  bool
 	Call string // which of the panel's calls, when Own
@@ -138,8 +142,9 @@ type Watch struct {
 	Every  time.Duration // 0 is WatchEvery
 	// Run runs `ps -o command=` for a holder (signals.ExecRunner in the panel).
 	Run signals.Runner
-	// Attribute decides whether a holder is one of the panel's own calls; nil is "not
-	// the panel's" (the gate's call history supplies it).
+	// Attribute decides whether a holder is one of the panel's own calls (the gate's
+	// call history supplies it). nil logs the holder "unknown: no call history", never
+	// "other": a lock the panel stranded must not read as someone else's.
 	Attribute func(h Holder) Attribution
 	// Out receives a failed log write, once per distinct error, so a log that
 	// cannot be written is said rather than silently empty.
@@ -149,10 +154,11 @@ type Watch struct {
 	lastErr string
 }
 
+// sighting is one lock's unbroken run of sightings. It is attributed once its line
+// has the record's birth time (line.Birth), and never again.
 type sighting struct {
-	id         string // the record's identity; "" while it is the path's unbroken run
-	line       LockLine
-	attributed bool
+	id   string // the record's identity; "" while it is the path's unbroken run
+	line LockLine
 }
 
 // Loop runs the watch until ctx ends, then logs each lock still present as
@@ -209,7 +215,7 @@ func (w *Watch) Tick(ctx context.Context) {
 			cur.line.LastModified = s.ModTime
 		}
 		cur.line.LastState = s.State
-		if !cur.attributed {
+		if cur.line.Birth == nil {
 			w.attribute(ctx, cur, s)
 		}
 	}
@@ -219,17 +225,19 @@ func (w *Watch) Tick(ctx context.Context) {
 // a lock stranded for hours keeps what it got while its call was still known.
 func (w *Watch) attribute(ctx context.Context, cur *sighting, s LockState) {
 	if s.Holder == nil {
-		if s.RecordUnreadable {
+		switch {
+		case s.RecordUnreadable:
 			cur.line.Holder = "unknown: owner record unreadable"
+		case s.NotInRecord:
+			cur.line.Holder = "unknown: the record names no " + s.Which + " lock"
 		}
 		return
 	}
-	cur.attributed = true
 	h := *s.Holder
 	birth := h.Birth
 	cur.line.PID, cur.line.Birth = h.PID, &birth
 	cur.line.Command, cur.line.HolderRunning = w.command(ctx, h.PID)
-	a := Attribution{}
+	a := Attribution{Unknown: "no call history"}
 	if w.Attribute != nil {
 		a = w.Attribute(h)
 	}

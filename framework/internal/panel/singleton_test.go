@@ -63,6 +63,9 @@ func runBounded(t *testing.T, o Options) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	if o.Getenv == nil {
+		o.Getenv = testEnv
+	}
 	return Run(ctx, o)
 }
 
@@ -155,7 +158,7 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 			done := make(chan error, 1)
 			ready := make(chan string, 1)
 			go func() {
-				done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root),
+				done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Getenv: testEnv, Runner: fakeRunner(root),
 					OnReady: func(u string) { ready <- u }})
 			}()
 			select {
@@ -185,6 +188,9 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	o.OnReady = func(u string) { ready <- u }
+	if o.Getenv == nil {
+		o.Getenv = testEnv
+	}
 	go func() { done <- Run(ctx, o) }()
 	var launch string
 	select {
@@ -405,7 +411,7 @@ func TestHelperPanelProcess(t *testing.T) {
 	root, home := os.Getenv("HELPER_ROOT"), os.Getenv("HELPER_HOME")
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
-	err := Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root), Out: os.Stdout,
+	err := Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Getenv: testEnv, Runner: fakeRunner(root), Out: os.Stdout,
 		TmuxSocket: noServerSocket(), OnReady: func(string) { fmt.Println("READY") }})
 	if err != nil {
 		fmt.Println("REFUSED:", err)
@@ -590,7 +596,7 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Launchd: true, Runner: fakeRunner(root),
+		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Getenv: testEnv, Launchd: true, Runner: fakeRunner(root),
 			Out: &syncWriter{w: &out, mu: &mu}, OpenBrowser: func(string) {}, OnReady: func(u string) { ready <- u }})
 	}()
 	waitFor(t, "the launchd start to say it waits", func() bool {

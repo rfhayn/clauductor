@@ -131,7 +131,7 @@ func TestReadBothLocksAndTheOwnerRecord(t *testing.T) {
 		t.Errorf("current birth: %v, want %v", c.Holder.Birth, want)
 	}
 	l := got.Legacy
-	if l.State != Stale || l.Holder == nil || !l.Holder.Birth.Equal(time.UnixMilli(1790935917124)) {
+	if l.State != Stale || l.Holder == nil || !l.Holder.Birth.Equal(time.UnixMilli(1790935917124)) || l.NotInRecord || c.NotInRecord {
 		t.Errorf("legacy: %+v holder %+v", l, l.Holder)
 	}
 	if c.ID() == "" || l.ID() == "" || c.ID() == l.ID() {
@@ -149,6 +149,10 @@ func TestReadLegacyHolderNeedsItsOwnBirthTime(t *testing.T) {
 	}
 	if got.Legacy.Holder != nil || got.Legacy.ID() != "" {
 		t.Errorf("legacy holder from a record that names no legacy lock: %+v", got.Legacy.Holder)
+	}
+	if !got.Legacy.NotInRecord || got.Legacy.RecordUnreadable {
+		t.Errorf("legacy: NotInRecord %v, RecordUnreadable %v; want a readable record that names no legacy lock",
+			got.Legacy.NotInRecord, got.Legacy.RecordUnreadable)
 	}
 	if got.Current.State != None || got.Current.Holder != nil {
 		t.Errorf("current: %+v, want none (a record with no lock names no holder)", got.Current)

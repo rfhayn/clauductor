@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clauductor/clauductor/internal/panel/claudecall"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
 
@@ -41,8 +42,12 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 			return err
 		}
 		scanned++
+		// The panel's own login-lock log (PANEL-28), in its own directory, is a
+		// .jsonl by design and no transcript: its one name is cut before the scan, so
+		// any other ".jsonl" still fails.
+		src := strings.ReplaceAll(string(b), claudecall.LogName, "")
 		for _, f := range forbidden {
-			if strings.Contains(string(b), f) {
+			if strings.Contains(src, f) {
 				t.Errorf("%s mentions %q: the panel must not read transcripts", path, f)
 			}
 		}
@@ -154,6 +159,8 @@ var fileReadSites = map[string]int{
 	"lanes/lifecycle.go":   1, // a .worktreeinclude file copied from the project root into a new worktree
 	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
 	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
+	"claudecall/lock.go":   1, // PANEL-28: Claude Code's refresh-lock owner record (<config dir>/.oauth_refresh.lock.owner), read only
+	"claudecall/log.go":    1, // PANEL-28: the panel's own login-lock.jsonl, re-read to trim it to its cap
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative

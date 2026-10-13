@@ -37,6 +37,10 @@ type Options struct {
 	Home   string // the user's home; injectable for tests
 	Out    io.Writer
 	Runner signals.Runner
+	// Getenv reads the environment where the panel follows it (PANEL-28: the Claude
+	// Code config dir whose login locks it watches). nil is os.Getenv; tests pin it so
+	// a developer's CLAUDE_CONFIG_DIR never points a test at their real config dir.
+	Getenv func(string) string
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
 	// OnPoll, if set, is called with a source's name each time one of its polls has
@@ -169,6 +173,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if o.Runner == nil {
 		o.Runner = signals.ExecRunner
+	}
+	if o.Getenv == nil {
+		o.Getenv = os.Getenv
 	}
 	if o.Home == "" {
 		return errors.New("cannot determine the home directory")
@@ -399,7 +406,7 @@ func Run(ctx context.Context, o Options) error {
 	m.start(ctx, start)
 	// The login refresh locks (PANEL-28): watched and logged from the start, so the
 	// log covers every refresh this panel lives beside. It only reads them.
-	lockWatch := &claudecall.Watch{Reader: claudecall.NewReader(os.Getenv, o.Home), Log: claudecall.NewLog(o.Home),
+	lockWatch := &claudecall.Watch{Reader: claudecall.NewReader(o.Getenv, o.Home), Log: claudecall.NewLog(o.Home),
 		Clock: clk, Every: ticks.LoginLock, Run: o.Runner, Out: o.Out}
 	start(func() { lockWatch.Loop(ctx) })
 	if !o.Only {

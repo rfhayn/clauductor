@@ -105,7 +105,7 @@ func TestRunEndToEnd(t *testing.T) {
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, TrustConfig: true,
+		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Getenv: testEnv, TrustConfig: true,
 			Runner: fakeRunner(root), OnReady: func(u string) { ready <- u }})
 	}()
 	var launch string
@@ -190,7 +190,7 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 	// serve instead of failing, and this test must fail rather than hang.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	err = Run(ctx, Options{Project: root, Port: port, NoOpen: true, Home: home, Runner: fakeRunner(root)})
+	err = Run(ctx, Options{Project: root, Port: port, NoOpen: true, Home: home, Getenv: testEnv, Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Fatalf("want a port-in-use error, got %v", err)
 	}
@@ -205,7 +205,7 @@ func TestRunRefusesATakenPortWithoutSideEffects(t *testing.T) {
 func TestRunNeedsAConfig(t *testing.T) {
 	t.Parallel()
 	root := signals.ResolvePath(t.TempDir())
-	err := Run(context.Background(), Options{Project: root, Port: 0, NoOpen: true, Home: t.TempDir(), Runner: fakeRunner(root)})
+	err := Run(context.Background(), Options{Project: root, Port: 0, NoOpen: true, Home: t.TempDir(), Getenv: testEnv, Runner: fakeRunner(root)})
 	if err == nil || !strings.Contains(err.Error(), "no panel config") {
 		t.Fatalf("got %v", err)
 	}
@@ -223,7 +223,7 @@ func TestLaunchdRunKeepsTheTokenOutOfTheLog(t *testing.T) {
 	ready := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Launchd: true, Out: &syncWriter{w: &out, mu: &mu},
+		done <- Run(ctx, Options{Project: root, Port: 0, Home: home, Getenv: testEnv, Launchd: true, Out: &syncWriter{w: &out, mu: &mu},
 			Runner: fakeRunner(root), TmuxSocket: noServerSocket(),
 			OpenBrowser: func(u string) { mu.Lock(); opened = append(opened, u); mu.Unlock() },
 			OnReady:     func(u string) { ready <- u }})

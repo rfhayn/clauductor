@@ -78,6 +78,9 @@ func TestWatchLogsALockHeldByAnotherProcess(t *testing.T) {
 	pid := otherHolder(t)
 	clk := clock.NewFake(t0)
 	w := newWatch(t, home, r, clk)
+	// The panel's call history holds no call with this pid (group 2's gate supplies it).
+	var asked []Holder
+	w.Attribute = func(h Holder) Attribution { asked = append(asked, h); return Attribution{} }
 	ctx := context.Background()
 
 	w.Tick(ctx) // no lock yet
@@ -121,6 +124,9 @@ func TestWatchLogsALockHeldByAnotherProcess(t *testing.T) {
 	if l.Own || l.Call != "" || l.Holder != "other" {
 		t.Errorf("attribution: own %v call %q holder %q, want not the panel's own", l.Own, l.Call, l.Holder)
 	}
+	if len(asked) != 1 || asked[0].PID != pid || !asked[0].Birth.Equal(birth) {
+		t.Errorf("attribution asked %+v, want once, for pid %d born %v", asked, pid, birth)
+	}
 	if !l.FirstSeen.Equal(firstSeen) || !l.LastModified.Equal(lastMod) {
 		t.Errorf("first seen %v (want %v), last modified %v (want %v)", l.FirstSeen, firstSeen, l.LastModified, lastMod)
 	}
@@ -149,6 +155,21 @@ func TestWatchLogsTheLegacyLock(t *testing.T) {
 	}
 	if got[0].Holder != "unknown: no owner record" || got[0].PID != 0 {
 		t.Errorf("holder: %+v", got[0])
+	}
+}
+
+// A legacy lock whose readable record names no legacy lock (no legacyLockBirthtimeMs)
+// is not logged as having no record: the record exists, and names another lock.
+func TestWatchLegacyLockTheRecordDoesNotName(t *testing.T) {
+	home, r := fakeConfig(t)
+	w := newWatch(t, home, r, clock.NewFake(t0))
+	makeLock(t, r.LegacyPath(), t0)
+	writeRecord(t, r, record(4242, t0))
+	w.Tick(context.Background())
+	w.Stop()
+	got := readLines(t, home)
+	if len(got) != 1 || got[0].Which != Legacy || got[0].Holder != "unknown: the record names no legacy lock" || got[0].PID != 0 {
+		t.Fatalf("lines: %+v", got)
 	}
 }
 
@@ -239,6 +260,21 @@ func TestWatchAttributesOnce(t *testing.T) {
 	}
 }
 
+// A watch with no call history to ask does not claim a holder is someone else's: a
+// lock the panel stranded would otherwise read as not the panel's.
+func TestWatchWithoutHistorySaysUnknown(t *testing.T) {
+	home, r := fakeConfig(t)
+	w := newWatch(t, home, r, clock.NewFake(t0))
+	makeLock(t, r.CurrentPath(), t0)
+	writeRecord(t, r, record(4242, t0))
+	w.Tick(context.Background())
+	w.Stop()
+	got := readLines(t, home)
+	if len(got) != 1 || got[0].Holder != "unknown: no call history" || got[0].Own || got[0].PID != 4242 {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
 func TestWatchUnreadableRecord(t *testing.T) {
 	home, r := fakeConfig(t)
 	w := newWatch(t, home, r, clock.NewFake(t0))
@@ -324,6 +360,31 @@ func TestLogIsCapped(t *testing.T) {
 	}
 	if len(lines) < 30 {
 		t.Errorf("kept %d lines; the trim should keep about half the cap", len(lines))
+	}
+}
+
+// The trim keeps every whole line that fits: a cut landing exactly at a line's start
+// keeps that line, and a cut inside a line drops only that line's remainder.
+func TestLogTrimKeepsALineTheCutStartsAt(t *testing.T) {
+	l := &Log{Path: filepath.Join(t.TempDir(), LogName)}
+	for _, c := range []struct {
+		keep int64
+		want string
+	}{
+		{5, "bbbb\n"}, // the cut lands just after "aaaa\n"
+		{6, "bbbb\n"}, // the cut lands inside "aaaa\n"
+		{4, ""},       // the cut lands inside the last line
+		{10, "aaaa\nbbbb\n"},
+	} {
+		if err := os.WriteFile(l.Path, []byte("aaaa\nbbbb\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.trim(c.keep); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := os.ReadFile(l.Path); string(b) != c.want {
+			t.Errorf("keep %d: %q, want %q", c.keep, b, c.want)
+		}
 	}
 }
 

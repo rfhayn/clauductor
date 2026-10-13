@@ -304,6 +304,16 @@ func fastTicks() Ticks {
 // runs no lane never touches the machine's real panel socket.
 func noServerSocket() string { return leakcheck.NoServerSocket() }
 
+// testEnv is the environment a test panel reads (Options.Getenv): the process's,
+// with CLAUDE_CONFIG_DIR blank, so the login-lock watch reads the temp home's .claude
+// and never a developer's real config dir.
+func testEnv(k string) string {
+	if k == "CLAUDE_CONFIG_DIR" {
+		return ""
+	}
+	return os.Getenv(k)
+}
+
 // TestMain fails the run if it leaves a tmux server or a helper process behind. A
 // helper panel (TestHelperPanelProcess) is only a panel: its parent stops it with
 // SIGTERM, which it must handle itself.

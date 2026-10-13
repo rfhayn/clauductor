@@ -20,9 +20,9 @@ import (
 	"time"
 )
 
-// The lock's names and timings, as Claude Code 2.1.288 has them (proper-lockfile's
-// options `stale: 60000, update: 5000`): the holder touches the lock every 5 s, and a
-// lock untouched for 60 s is stale.
+// The lock's names and timings, as Claude Code 2.1.288 has them, and 2.1.296 still
+// does (proper-lockfile's options `stale: 60000, update: 5000`): the holder touches
+// the lock every 5 s, and a lock untouched for 60 s is stale.
 const (
 	currentLockName = ".oauth_refresh.lock"
 	ownerRecordName = ".oauth_refresh.lock.owner"
@@ -88,6 +88,9 @@ type LockState struct {
 	// Code format, a partial write). The lock is still read by its mtime; its holder
 	// is "unknown".
 	RecordUnreadable bool
+	// NotInRecord: a readable owner record exists but names no holder of THIS lock (a
+	// legacy lock whose record carries no legacyLockBirthtimeMs). Its holder is unknown.
+	NotInRecord bool
 }
 
 // ID is the lock's identity as far as the reading tells it: the record's birth time
@@ -164,6 +167,8 @@ func (r Reader) Read(now time.Time) Reading {
 		// lock without it may be another process's.
 		if recOK && rec.LegacyLockBirthtimeMs != nil {
 			leg.Holder = &Holder{PID: rec.PID, ProcStart: rec.ProcStart, Birth: msTime(*rec.LegacyLockBirthtimeMs)}
+		} else if recOK {
+			leg.NotInRecord = true
 		}
 	}
 	return Reading{Current: cur, Legacy: leg}
