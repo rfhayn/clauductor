@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/template"
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // stubPath is a PATH holding only executables named tools, so the report sees exactly those.
@@ -15,9 +16,7 @@ func stubPath(t *testing.T, tools ...string) string {
 	t.Helper()
 	bin := t.TempDir()
 	for _, tool := range tools {
-		if err := os.WriteFile(filepath.Join(bin, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		testbin.Write(t, filepath.Join(bin, tool), "#!/bin/sh\nexit 0\n")
 	}
 	return bin
 }

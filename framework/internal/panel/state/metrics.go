@@ -90,6 +90,16 @@ func (m *Model) changeOf(branch string) *signals.Change {
 	return nil
 }
 
+// approvals is each change's approval by id; a change with no proposal is not read, so
+// it is absent.
+func (m *Model) approvals() map[string]bool {
+	out := make(map[string]bool, len(m.changes))
+	for _, c := range m.changes {
+		out[c.ID] = c.Approved
+	}
+	return out
+}
+
 // changeSpent is what every branch of a change has spent.
 func (m *Model) changeSpent(id string) float64 {
 	sum := 0.0

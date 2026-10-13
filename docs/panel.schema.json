@@ -473,7 +473,7 @@
         "additionalProperties": false,
         "properties": {
           "branch_pattern": {
-            "description": "The new branch, with `{name}` (required) and `{issue}`, e.g. `\"feature/{name}\"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one.",
+            "description": "The lane's branch (new, or the existing one: see *Where a template runs*), with `{name}` (required) and `{issue}`, e.g. `\"feature/{name}\"`. Empty means the lane type's prefix + `{name}`; a lane type with no prefix rule needs one.",
             "type": "string"
           },
           "effort": {
