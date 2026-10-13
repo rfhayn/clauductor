@@ -51,8 +51,9 @@ THE SYSTEM SHALL leave every file under an attached repository's root, its `.git
 - **THEN** every file and directory under the root, `.git` included, has the same path, mode, size, modification time and SHA-256 as before
 
 #### Scenario: [ATTACH-2-S2] Serving leaves the repository untouched
-- **GIVEN** an attached repository loaded as the panel loads it, with one tracked file touched so its bytes are unchanged and its modification time is newer
-- **WHEN** the panel polls the git state of the checkout its cards run in
+- **GIVEN** an attached repository loaded as the panel loads it, whose config has at least one card, so the panel polls the checkout its cards run in
+- **AND** one tracked file touched so its bytes are unchanged and its modification time is newer, and another tracked file modified, so the checkout is dirty
+- **WHEN** the panel polls the git state of the checkout its cards run in, its dirty-tree diff stat included
 - **THEN** every file and directory under the root, `.git/index` included, is as it was before the poll
 
 ### Requirement: A config outside its repository runs only the repository's commands
@@ -91,6 +92,17 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **THEN** the report's lines for the two commands are marked as outside the repository
 - **AND** the trust is refused and nothing is recorded
 
+#### Scenario: [ATTACH-3-S7] A bare `..`, and a script behind any shell's flags, are outside it
+- **GIVEN** an attached project whose sidecar has a queue running `make -C .. gate`, and a card running `bash -lc "sh ../other/gate.sh"`
+- **WHEN** the owner trusts it
+- **THEN** trust is refused, and both lines are marked as outside the repository: `..` is a path that leaves the root, and every argv word holding whitespace or a shell operator is split and checked as a script, whatever program and flags come before it
+
+#### Scenario: [ATTACH-3-S8] A redirection to an absolute path is outside it, `/dev/null` included
+- **GIVEN** an attached project whose sidecar has a card running `sh -c "sh .claude/owner-queue.sh 2>/dev/null"`
+- **WHEN** the owner trusts it
+- **THEN** trust is refused, and the line is marked as outside the repository with the word `/dev/null`: design.md D5 refuses every absolute path, and a redirection's target is a word like any other
+- **AND** the same card written with `2>&1` is trusted
+
 ### Requirement: The registry's config is the one every command reads
 THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.
 
@@ -124,3 +136,9 @@ WHEN an attached project is removed THE SYSTEM SHALL keep its `~/.clauductor/pro
 - **WHEN** the owner runs `clauductor panel remove <id>`
 - **THEN** `~/.clauductor/projects/<id>/panel.json` is unchanged, and the output names it and `clauductor panel add --project <repo> --config <file>`
 - **AND** running that `panel add` serves the project again from the same file, still trusted when its bytes were trusted
+
+#### Scenario: [ATTACH-5-S2] The page's Remove confirmation says how an attached project comes back
+- **GIVEN** a panel serving an attached project with no lanes, and a project with its own config
+- **WHEN** the page's Remove from panel… opens its confirmation for each
+- **THEN** the attached project's confirmation names its sidecar, says it stays, and gives `clauductor panel add --project <repo> --config <file>` as the way to serve it again, and does not say that adding it again from the page brings it back
+- **AND** the other project's confirmation reads as it does today

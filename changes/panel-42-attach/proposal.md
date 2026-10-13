@@ -29,8 +29,10 @@ the config itself:
   `framework/internal/panel/run.go`). So a project served from a config outside it could not be
   trusted by `panel trust`, and a bare `panel` inside it would refuse to start.
 - **Serving a repository can write into it today.** The panel's git poll runs `git status` in the
-  checkout the cards run in (`pollGit`, `runtime.go`). `git status` may rewrite `.git/index` to
-  refresh its stat cache unless told not to (`--no-optional-locks`). For an attached repository,
+  checkout the cards run in (`pollGit`, `runtime.go`), and `git diff HEAD --shortstat` there when
+  it is dirty. `git status` may rewrite `.git/index` to refresh its stat cache unless told not to
+  (`--no-optional-locks`), and on git 2.54 `git diff` rewrites it even when told not to (review of
+  #96; tasks.md 4.1 uses `git diff-index` instead). For an attached repository,
   "the panel never writes to it" has to hold for serving as well as for attaching.
 
 **Step 0a.** `changes/` holds approved proposals for PANEL-25, PANEL-28, PANEL-29, PANEL-30 and
@@ -63,7 +65,8 @@ approval and wait.
   (D6).
 - **A test proves the repository's files are untouched.** Every file under the repository's root,
   `.git` included, is identical before and after `panel attach`, and after the panel loads the
-  project and polls it. The panel's git reads pass `--no-optional-locks` so the poll does not
+  project and polls it, dirty checkout included. The panel's git reads pass
+  `--no-optional-locks`, and its dirty-tree stat uses `git diff-index`, so the poll does not
   rewrite `.git/index` (D8).
 - **The plugin's per-repository opt-out is documented.** `docs/plugin.md` says the plugin can be
   installed at user scope. It explains how a repository with a model of its own turns it off with
@@ -72,10 +75,12 @@ approval and wait.
 
 ## What the existing specs already guarantee
 
-This repo has no living specs yet: `specs/` holds only its README. The approved, unmerged changes
-(`panel-new-lane` in PANEL-29, `panel-version-check` in PANEL-31, and the others in `changes/`)
-don't touch the registry, `panel init` or trust. So nothing here modifies or contradicts a
-requirement.
+The one living spec is `specs/panel-new-lane` (PANEL-29, #99). It doesn't touch the registry,
+`panel init` or trust, and this change keeps what it guarantees: an untrusted config opens a plain
+lane with no template (NEWLANE-3-S4), and that holds for an attached project whose sidecar is not
+yet trusted, or cannot be trusted under D5. The approved, unmerged changes (`panel-version-check`
+in PANEL-31, and the others in `changes/`) don't touch these either. So nothing here modifies or
+contradicts a requirement.
 
 What this change alters is documented, not specified, in `docs/panel.md`:
 
@@ -87,7 +92,7 @@ What this change alters is documented, not specified, in `docs/panel.md`:
 
 This change adds the capability spec `panel-attach` and updates those sections to match.
 
-**Scope.** The row names the page's Attach choice. D1 (approved by the owner, 2026-10-13) moves
+**Scope.** The row names the page's Attach choice. D1 (approved by the owner, 2026-10-12) moves
 that choice to a new row, PANEL-43, queued right after this one, so this change ships the command and everything serving
 needs. This proposal's PR updates the roadmap to match: it narrows the PANEL-42 row, adds
 `framework/internal/panel` to its scope (for `run.go` and the git poll), and adds PANEL-43.
