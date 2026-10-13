@@ -182,13 +182,14 @@ cat > "$d/deps.md" <<'EOF'
 | 1.1 | `add-a` — a | s | — | ✅ merged (#3) |
 | 1.2 | `add-b` — b | s | — | ❌ cancelled — not needed |
 | 1.3 | `add-c` — c | s | 1.2 | ❌ cancelled — 1.2 was |
+| 1.4 | `add-f` — f | s | 1.2 | ✅ merged (#6) |
 ## Phase 2 — Now
 | # | Change | Scope | Deps | Status |
 |---|---|---|---|---|
 | 2.1 | `add-d` — d | s | 1.1 | ⬜ queued |
 | 2.2 | `add-e` — e | s | 2.1,  #45 ,1.1 | ⬜ planned |
 EOF
-out=$(rq --check "$d/deps.md"); expect_rc 0 $? "a roadmap whose Deps name rows and #N passes --check ($out)"
+out=$(rq --check "$d/deps.md"); expect_rc 0 $? "a roadmap whose Deps name rows and #N, and whose merged and cancelled rows waited on a cancelled one (history), passes --check ($out)"
 tsv=$(rq --tsv "$d/deps.md")
 [ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2.2"{print NF "|" $15}')" = "15|2.1,#45,1.1" ] && ok "Deps are --tsv column 15: ids and #N, comma-separated, no spaces" || fail "row 2.2's Deps read as: $(printf '%s\n' "$tsv" | grep '	2.2	' | cut -f4,14-)"
 [ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print NF "|" $15 "|"}')" = "15||" ] && ok "a Deps cell of — is an empty column 15" || fail "row 1.1's Deps read as: $(printf '%s\n' "$tsv" | grep '	1.1	' | cut -f4,14-)"

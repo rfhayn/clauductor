@@ -37,7 +37,8 @@ comments. Every entry with a `url` is an artifact:
 
 **Authorities** are what the artifact describes: path globs (`*` within a directory, `**` across),
 `row:<id>` (a roadmap row: its line as written, so its change, summary, scope, deps and status),
-`gate:<id>` (every row in a section headed `Gate <id>`, such as `### Gate 2A — …`), and
+`gate:<id>` (every row in a `### Gate <id>` section, three `#` or more, such as `### Gate 2A — …`,
+up to the next `###` or `##` heading; a `## Gate <id>` heading ends the phase and names no gate), and
 `registry:entries` (which artifacts exist and where, for a page that lists them). The rows are the
 change queue's own, read through `roadmap_queue` (`lib/conf.sh`, or the project's `ROADMAP_PARSER`),
 never a second parser. A glob matching no file, a row that is not there, a roadmap the queue cannot
@@ -95,7 +96,8 @@ the same exit codes and the same registry bytes after every stamp. Where they di
 
 - **Row and gate authorities hash differently** (OPS-38). The rows come from `roadmap_queue`, the
   change queue's one parser, and a row's value is its line as written, not Standing Tee's JSON of
-  its plain-text cells; a gate is a section headed `Gate <id>`. So a `row:` or `gate:` stamp
+  its plain-text cells; a gate is a `### Gate <id>` section, and a `## Gate <id>` heading, which
+  Standing Tee reads as a gate, ends the phase here. So a `row:` or `gate:` stamp
   written by either reads `BEHIND` in the other until it is stamped again; every other authority
   still hashes the same. A roadmap the queue refuses (a malformed row, Deps it cannot follow) makes
   every row authority `CANNOT CHECK`, as Standing Tee's parser does when it throws.

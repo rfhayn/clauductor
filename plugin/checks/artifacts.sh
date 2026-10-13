@@ -242,14 +242,29 @@ l=$(line_for "$(kc --worktree)" docs/p.html)
 has yes "gate:Z names no row" "$l" "currency: a gate with no rows is CANNOT CHECK"
 has yes "bogus:x is not an authority kind" "$l" "currency: ...an unknown kind too"
 has yes "an authority is not a non-empty string: 5" "$l" "currency: ...and an authority that is not a string"
+# A gate id ends at a word boundary: `### Gate A_b` is not gate A. Falsified by dropping the
+# boundary test after the id: red (gate:A reads the A_b section's rows).
+krow '⬜ queued' '⬜ queued' '### Gate A_b — not gate A'
+printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["gate:A"],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
+has yes "gate:A names no row" "$(line_for "$(kc --worktree)" docs/p.html)" "currency: a section headed Gate A_b is not gate A"
+git -C "$K" checkout -q docs/roadmap.md
 # One parser (OPS-38): the rows are roadmap_queue's. Falsified by currency's own jq parser of the
 # phase tables, as it was before OPS-38: red on both. First, a project's own parser (ROADMAP_PARSER)
-# names a row the roadmap file has no table for.
+# reads a row in a grammar of its own, with no phase or queue header (column 1 from LN).
 printf '{"pages":{"docs/p.html":{"url":"https://claude.ai/artifact/PPPPPPPPPPPP","authorities":["row:9.1"],"reviewedAt":"0000000000000000000000000000000000000000","reviewNote":"2026-01-01: x"}}}\n' > "$K/docs/artifacts.json"
 printf 'ROADMAP_PARSER="sh own.sh"\n' > "$K/.claude/project.conf"
-printf '#!/bin/sh\n[ "$1" = --tsv ] && printf "1\\t1\\t\\t9.1\\tadd-own\\tchange\\tqueued\\t\\t\\town\\t\\t\\n"\n' > "$K/own.sh"
+printf '#!/bin/sh\n[ "$1" = --tsv ] && printf "%%s\\t1\\t\\t9.1\\tadd-own\\tchange\\tqueued\\t\\t\\town\\t\\t\\n" "${LN:-2}"\n' > "$K/own.sh"
+printf '# Our roadmap\n| 9.1 | own row | ready |\n| 9.2 | the next row | later |\n' > "$K/docs/roadmap.md"
 l=$(line_for "$(kc --worktree)" docs/p.html)
 has yes "BEHIND  docs/p.html" "$l" "currency: a row comes from the project's own parser (ROADMAP_PARSER), never a second parser"
+# A column 1 that names another row's line, or no line, would hash the same forever (never BEHIND):
+# it is CANNOT CHECK. Falsified by reading txt[\$1] unchecked: red (BEHIND, read past it).
+for LN in 3 99; do
+  export LN
+  l=$(line_for "$(kc --worktree)" docs/p.html)
+  has yes "row:9.1: docs/roadmap.md does not parse" "$l" "currency: a parser whose column 1 names line $LN, not row 9.1's, is CANNOT CHECK"
+done
+unset LN
 rm "$K/.claude/project.conf" "$K/own.sh"
 # Then a queue the one parser refuses (Deps naming no row) is one currency cannot read either.
 printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 9.1 | `add-own` — own | s | 7.7 | ⬜ queued |\n' > "$K/docs/roadmap.md"

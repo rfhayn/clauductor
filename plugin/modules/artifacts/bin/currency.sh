@@ -12,8 +12,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 #
 # HOW. Each registry entry declares `authorities`: path globs (`*` within a directory, `**` across),
 # `row:<id>` or `gate:<id>` for rows of the roadmap (ROADMAP, read through roadmap_queue;
-# `gate:<id>` is every row in a section headed `Gate <id>`), and `registry:entries` for the
-# registry's own list of artifacts. `reviewedAt` holds a hash of those authorities' CONTENT at the last review, and
+# `gate:<id>` is every row in a `### Gate <id>` section, three # or more, which the next ### or
+# ## heading ends: a `## Gate <id>` heading ends the phase instead, and names no gate), and
+# `registry:entries` for the registry's own list of artifacts. `reviewedAt` holds a hash of those authorities' CONTENT at the last review, and
 # `reviewNote` says what the review was ("YYYY-MM-DD: <one line>"). BEHIND means the content now
 # hashes differently. An artifact clears it by being refreshed and stamped, or by being stamped
 # "reviewed, no change: <why>":
@@ -293,11 +294,16 @@ entries_hash() {
 # project's own (ROADMAP_PARSER): a second parser here would disagree with it silently (OPS-38).
 # A row's value is its line in the roadmap as written (--tsv column 1 names it), so any edit to the
 # row moves it, its scope, deps and status included. Its gate is <id> when its section (column 3)
-# reads `Gate <id>`, as the template's `### Gate 2A — …` sections do.
+# reads `Gate <id>`, as the template's `### Gate 2A — …` sections do. A column 1 that is not a
+# line of the file, or names a line that is not this row (`| <id> |`), fails the read: a wrong or
+# neighbour's line would hash the same forever, and the row would never read BEHIND.
 ROWS_AWK='
   BEGIN { while ((getline l < RMF) > 0) txt[++nl] = l }
   $0 == "" { next }
-  { g = ""
+  { if (!($1 in txt) || substr(txt[$1], 1, 1) != "|") exit 1
+    c = substr(txt[$1], 2); c = substr(c, 1, index(c, "|") - 1); gsub(/^[ \t]+|[ \t]+$/, "", c)
+    if (c != $4) exit 1
+    g = ""
     if (match($3, /^Gate [0-9A-Za-z]+(-[0-9A-Za-z]+)*/) && substr($3, RLENGTH + 1, 1) !~ /[0-9A-Za-z_]/) g = substr($3, 6, RLENGTH - 5)
     print $4 T g T txt[$1] }'
 
