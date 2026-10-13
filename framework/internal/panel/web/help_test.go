@@ -204,3 +204,45 @@ func TestHelpExplainsTheLoginLockAlerts(t *testing.T) {
 		}
 	}
 }
+
+// [VERCHECK-6-S1] Help has the Claude Code versions section, word for word from
+// design.md: only the subagent lists and counts are approximate while a version is
+// checked, three matched launches plus one per unmatched launch clear it, and nothing
+// needs a restart. It sits after "How to" and adds no how-to item (the count above).
+func TestVERCHECK6S1HelpHasTheClaudeCodeVersionsSection(t *testing.T) {
+	t.Parallel()
+	b, _ := webFS.ReadFile("index.html")
+	page := string(b)
+	i := strings.Index(page, `<h4 id="help-versions">Claude Code versions</h4>`)
+	if i < 0 {
+		t.Fatal(`Help has no "Claude Code versions" section`)
+	}
+	if how, locks := strings.Index(page, `<h4>How to</h4>`), strings.Index(page, `<h4 id="help-locks">`); !(how < i && i < locks) {
+		t.Errorf("the section is not between How to and Login lock alerts (%d, %d, %d)", how, i, locks)
+	}
+	sec := page[i:]
+	sec = sec[:strings.Index(sec, `<h4 id="help-locks">`)]
+	var paras []string
+	for _, p := range regexp.MustCompile(`(?s)<p>(.*?)</p>`).FindAllStringSubmatch(sec, -1) {
+		paras = append(paras, strings.Join(strings.Fields(p[1]), " "))
+	}
+	want := []string{
+		"The panel matches each subagent to the lane that started it using two details of Claude Code's hooks that aren't documented. " +
+			"When Claude Code updates, the panel re-checks them from the hooks your own sessions send, and the status bar shows \"Claude Code · checking, n of 3 (or 4)\". " +
+			"Three matched subagent launches clear it by itself, in every project, plus one more for each launch that didn't match. " +
+			"Nothing needs a restart, and the result is kept.",
+		"Until then, only the subagent lists and counts are approximate. Lane states, Needs you, the quota and the costs don't depend on it.",
+		"If the check finds the details changed, a warning bar says so, and subagent lists stay approximate until the panel is updated.",
+	}
+	if len(paras) != len(want) {
+		t.Fatalf("the section has %d paragraphs, want %d: %q", len(paras), len(want), paras)
+	}
+	for k := range want {
+		if paras[k] != want[k] {
+			t.Errorf("paragraph %d:\n got %q\nwant %q", k+1, paras[k], want[k])
+		}
+	}
+	if strings.Contains(sec, "<li>") {
+		t.Error("the section adds a list item; the how-to count is bounded")
+	}
+}

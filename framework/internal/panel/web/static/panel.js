@@ -1360,9 +1360,7 @@ function sideAgents(x) {
     ].filter((r) => r[0])), "sess:" + s.id));
   }
   if (!lv.sessions.length) out.push(key(el("div", "empty", x.t ? "No claude session reported yet." : "No session."), "ag:nosess"));
-  const vf = S.verification || {};
-  if (lv.subagentsApprox) out.push(key(el("div", "approx", "Approximate: agent pairing was verified on Claude Code " + S.observe.verifiedOn + ", and " + (S.observe.claudeVersion || "an unknown version") + " is running." +
-    (vf.broken ? " It changed on this version: " + vf.broken + "." : vf.version ? " Checking it against this project's hooks: " + vf.confirmed + " of " + vf.needed + " subagent launches confirmed." : "")), "ag:approx"));
+  if (lv.subagentsApprox) out.push(key(el("div", "approx", agentsApproxText(S.verification || {}, S.observe)), "ag:approx"));
   const all = lv.subagents.concat(lv.finishedSubagents || []);
   if (!all.length) { out.push(key(el("div", "empty", "No subagent has run in this lane yet."), "ag:none")); return out; }
   out.push(key(el("h3", null, lv.subagents.length + " running, " + (lv.finishedSubagents || []).length + " finished"), "ag:h"));
@@ -1700,12 +1698,100 @@ function renderStatus(ls) {
   patch($("procs"), tr.cpu == null ? [el("span", "more", tr.procsError ? "cannot read" : "read while in view")] :
     [num(Math.round(tr.cpu) + "%", "CPU"), num(Math.round(tr.memMb || 0), "MB"), spark(tr.cpuSpark, { lo: 0 })].filter(Boolean));
   setText($("intr"), String((S.observe.notifier || {}).interrupts || 0));
+  renderVersion();
   fitFields();
 }
+// ---- The Claude Code version check (PANEL-31) -----------------------------------------------
+// The view's verification carries the state (changed, unread, checking or verified: the
+// first that holds, decided in state/verify.go). The page words it and decides nothing.
+// The field is shown for checking and changed only: unread has its bar, verified says
+// nothing. These four return data and touch no DOM, so versioncheck_test.go runs them.
+function versionField(vf) {
+  if (!vf || (vf.state !== "checking" && vf.state !== "changed")) return null;
+  const tip = "Subagent lists are approximate until Claude Code " + vf.version + " is checked. Click for what that means.";
+  if (vf.state === "changed") return { head: vf.version + " · changed", count: "", warn: true, tip };
+  return { head: vf.version + " · checking, ", count: vf.confirmed + " of " + vf.needed, warn: false, tip };
+}
+// versionDialog is the text of the version dialog: paragraphs of parts, a part being a
+// string or { b } (bold). The changed state shows the break bar's own text instead of
+// both paragraphs.
+function versionDialog(vf, verifiedOn, warnItems) {
+  const title = "Claude Code " + vf.version;
+  if (vf.state === "changed") {
+    const bar = (warnItems || []).find((w) => w.key === "version:" + vf.version + ":broken");
+    return { title, paras: [[bar ? bar.text : vf.broken]] };
+  }
+  const word = { 3: "three", 4: "four" }[vf.needed] || String(vf.needed);
+  const clears = vf.orphans
+    ? vf.orphans + (vf.orphans === 1 ? " launch named" : " launches named") + " an agent Claude Code never announced, so it clears by itself at " + word + " instead of three."
+    : "It clears by itself after three.";
+  return { title, paras: [
+    ["The panel matches each subagent to the lane that started it using two details of Claude Code's hooks that aren't documented. They were checked on " + verifiedOn +
+      ". On " + vf.version + " the panel is checking them against the hooks your own sessions send: ", { b: vf.confirmed + " of " + vf.needed },
+      " subagent launches confirmed so far. " + clears + " Nothing needs a restart, and the result is kept across restarts."],
+    ["Until then, only the subagent lists and counts (a lane's Agents tab, the Agents column) are approximate. Lane states, Needs you, the quota and the costs don't depend on it."],
+  ] };
+}
+// agentsApproxText is the Agents tab's line while a lane's subagent list is approximate.
+// In the unread state the version last read is not current (Version is empty, Unread
+// carries the error), so it is not named as running.
+function agentsApproxText(vf, o) {
+  const base = "Approximate: agent pairing was verified on Claude Code " + o.verifiedOn;
+  if (vf.state === "changed") return base + ", and " + vf.version + " is running. It changed on this version: " + vf.broken + ".";
+  if (vf.state === "unread") return base + ", and the running version cannot be read (" + vf.unread + ").";
+  if (vf.state === "checking") return base + ", and " + vf.version + " is running. Checking it against this project's hooks: " + vf.confirmed + " of " + vf.needed + " subagent launches confirmed.";
+  return base + ", and " + (o.claudeVersion || "an unknown version") + " is running.";
+}
+// claudeCodeFooter is the Observe footer's Claude Code counter, worded from the state:
+// "verified" only where it is, so a break or a failed read is never read as one.
+function claudeCodeFooter(vf, o) {
+  const v = o.claudeVersion;
+  if (vf.state === "changed") return vf.version + " (changed: " + vf.broken + "; checked on " + o.verifiedOn + ")";
+  if (vf.state === "unread") return (v ? "last read " + v : "?") + " (cannot read it now)";
+  if (vf.state === "checking") return vf.version + " (verified on " + o.verifiedOn + "; checking: " + vf.confirmed + " of " + vf.needed + ")";
+  if (!v) return "?";
+  return v === o.verifiedOn ? v : v + " (verified from live hooks)";
+}
+let verReturn = null;
+function renderVersion() {
+  const fld = $("tm-ver"), f = versionField(S.verification);
+  fld.hidden = !f;
+  if (f) {
+    // The count is the field's point: a plain span in the value's ink, never .more,
+    // which the 140% layout and a tight bar hide.
+    patch($("verstate"), [el("span", f.warn ? "warn" : null, null, [document.createTextNode(f.head), f.count ? el("span", "vcount", f.count) : null].filter(Boolean))]);
+    fld.title = f.tip;
+  }
+  if (!$("verdlg").hidden) { if (f) renderVersionDlg(); else closeVersionDlg(); }
+}
+function renderVersionDlg() {
+  const d = versionDialog(S.verification, S.observe.verifiedOn, S.warningItems);
+  setText($("ver-title"), d.title);
+  patch($("ver-body"), d.paras.map((p, i) => key(el("p", null, null, p.map((x) => (typeof x === "string" ? document.createTextNode(x) : el("b", null, x.b)))), "vp:" + i)));
+}
+function openVersionDlg() {
+  if ($("tm-ver").hidden || !$("verdlg").hidden) return;
+  verReturn = $("tm-ver");
+  renderVersionDlg();
+  $("verdlg").hidden = false;
+  $("tm-ver").setAttribute("aria-expanded", "true");
+  $("ver-close").focus();
+}
+function closeVersionDlg() {
+  $("verdlg").hidden = true;
+  $("tm-ver").setAttribute("aria-expanded", "false");
+  const r = verReturn; verReturn = null;
+  if (r && r.isConnected && !r.hidden && r.focus) r.focus(); else $("helpbtn").focus();
+}
+$("tm-ver").addEventListener("click", openVersionDlg);
+$("ver-close").addEventListener("click", closeVersionDlg);
+$("verdlg").addEventListener("click", (e) => { if (e.target === $("verdlg")) closeVersionDlg(); });
+$("verdlg").addEventListener("keydown", (e) => trapTab(e, $("verbox"), closeVersionDlg));
 // The status bar keeps to one line on a desktop window: when its figures would wrap
 // (the CPU figure and a busy lane count arriving at 110%, say), the secondary ones go,
 // as they do from 140% (.big), rather than the whole page jumping down a line. It is
-// measured with them shown, in one pass, so nothing flickers.
+// measured with them shown, in one pass, so nothing flickers. The Claude Code field is
+// measured like the rest but never dropped: it is the only place the check shows.
 function fitFields() {
   const f = $("fields");
   f.classList.remove("tight");
@@ -3205,8 +3291,9 @@ function renderBanners() {
   patchInto("banners", kids);
 }
 // Closed warnings, by key, kept per browser (PANEL-13). A key names what the warning is
-// about ("version:2.1.285"), so the same warning stays closed while its text moves on
-// ("2 of 3 confirmed"), and a new version, or a break, shows again.
+// about ("version:2.1.285:broken"), so the same warning stays closed while its text moves
+// on, and a break on a new version shows again. The check in progress has no bar
+// (PANEL-31): it is the status bar's Claude Code field.
 let warnClosed = {};
 try { warnClosed = JSON.parse(localStorage.getItem("clauductor-panel-warn-closed") || "{}") || {}; } catch (e) {}
 function closeWarning(k) {
@@ -3243,9 +3330,7 @@ function renderObs() {
     kv("claude agents", (o.agentsPolls ? o.agentsPollMs + " ms (avg " + o.agentsPollAvgMs + ", max " + o.agentsPollMaxMs + ")" : "—") +
       " every " + (o.agentsIntervalMs ? o.agentsIntervalMs / 1000 + " s" : "—")),
     kv("filter", o.agentsFilter || "—", "wrap"),
-    kv("Claude Code", (o.claudeVersion || "?") + (!o.claudeVersion || o.claudeVersion === o.verifiedOn ? ""
-      : S.verification && S.verification.auto === o.claudeVersion ? " (verified from this project's hooks)"
-      : " (verified on " + o.verifiedOn + (S.verification && S.verification.version ? "; checking: " + S.verification.confirmed + " of " + S.verification.needed : "") + ")")));
+    kv("Claude Code", claudeCodeFooter(S.verification || {}, o)));
   // The footer wraps, and a counter too long for a line truncates: each says all of
   // itself in its tooltip, and the footer lists them all (PANEL-21).
   for (const x of kids.slice(1)) x.title = x.textContent + (x.title ? ". " + x.title : "");
@@ -3350,7 +3435,7 @@ const GUIDE_URL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md"
 $("helplink").href = GUIDE_URL;
 let helpReturn = null;
 function openHelp() {
-  if (!$("helpdlg").hidden) return;
+  if (!$("helpdlg").hidden || !$("verdlg").hidden) return;
   helpReturn = document.activeElement;
   $("helpdlg").hidden = false;
   $("helpbtn").setAttribute("aria-expanded", "true");

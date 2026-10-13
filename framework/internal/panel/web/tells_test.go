@@ -66,6 +66,12 @@ func TestPanelAvoidsTheTells(t *testing.T) {
 	}
 	// The page's words: no "A · B · C" strings and no arrows on buttons.
 	js := readWeb(t, "panel.js")
+	// The one exception is the Claude Code field's value, "2.1.288 · checking, 1 of 3",
+	// which the approved design (PANEL-31, panel-version-check VERCHECK-1-S1) words so.
+	// Exactly those two lines are allowed; any other " · " still fails.
+	for _, ok := range []string{`vf.version + " · changed"`, `vf.version + " · checking, "`} {
+		js = strings.ReplaceAll(js, ok, "")
+	}
 	if strings.Contains(js, " · ") {
 		t.Error(`panel.js joins words with " · "; use a column, a comma or a sentence`)
 	}

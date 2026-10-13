@@ -63,6 +63,9 @@
     <div class="f" id="f-lanes"><span class="k">Lanes</span><span class="v" id="lanecounts">—</span></div>
     <div class="f" id="f-attn"><span class="k">Needs you</span><span class="v" id="attn">—</span></div>
     <button class="f fbtn" id="tm-gate" type="button"><span class="k">Gate</span><span class="v" id="gatestate">—</span></button>
+    <!-- PANEL-31: shown only while a Claude Code version is being checked, or the check
+         found it changed; drawn by panel.js from the view's verification. -->
+    <button class="f fbtn" id="tm-ver" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="verdlg" hidden><span class="k">Claude Code</span><span class="v" id="verstate"></span></button>
     <div class="f" id="f-proc" title="CPU and memory of the lanes' claude processes, read while this page is in view"><span class="k">Claude processes</span><span class="v" id="procs">—</span></div>
     <div class="f" id="f-intr" title="OS notifications the panel sent today"><span class="k">Interruptions today</span><span class="v"><span class="num" id="intr">0</span></span></div>
     <div class="f hooks" title="Hook events accepted, status-line posts, and events from sessions in other projects (set aside). The footer has every counter."><span class="k">Hooks</span><span class="v num" id="hookn">0</span></div>
@@ -222,6 +225,10 @@
       <li>How the work flows and what it costs: Metrics, next to Activity. Each figure says whether the project's metrics command or the panel gave it, and "—" says why there is none.</li>
       <li>Another repository: Add a project…, at the foot of the project menu; a row's ⋯ trusts or removes one. clauductor panel add works too, live.</li>
     </ul>
+    <h4 id="help-versions">Claude Code versions</h4>
+    <p>The panel matches each subagent to the lane that started it using two details of Claude Code's hooks that aren't documented. When Claude Code updates, the panel re-checks them from the hooks your own sessions send, and the status bar shows "Claude Code · checking, n of 3 (or 4)". Three matched subagent launches clear it by itself, in every project, plus one more for each launch that didn't match. Nothing needs a restart, and the result is kept.</p>
+    <p>Until then, only the subagent lists and counts are approximate. Lane states, Needs you, the quota and the costs don't depend on it.</p>
+    <p>If the check finds the details changed, a warning bar says so, and subagent lists stay approximate until the panel is updated.</p>
     <h4 id="help-locks">Login lock alerts</h4>
     <p>Every Claude Code session shares one login, and refreshes it under a lock. While a refresh holds the lock, the panel starts no claude of its own, and its readings say paused.</p>
     <dl class="locks">
@@ -235,6 +242,15 @@
     <p>The panel never removes or writes a lock: one a live process holds, removed, would let two processes refresh the login at once. Every lock it sees is logged in ~/.clauductor/panel/login-lock.jsonl.</p>
     <p><a id="helplink" target="_blank" rel="noopener noreferrer">The guide</a>, on GitHub, opens in a new tab.</p>
     <div class="actions"><button type="button" class="btn" id="helpclose">Close</button></div>
+  </div>
+</div>
+<!-- The Claude Code version dialog (PANEL-31), from the status-bar field: what the check is,
+     what is approximate meanwhile, the count. Its text is set by panel.js from the view. -->
+<div class="modal" id="verdlg" hidden>
+  <div class="dlg" id="verbox" role="dialog" aria-modal="true" aria-labelledby="ver-title" tabindex="-1">
+    <h3 id="ver-title"></h3>
+    <div class="verbody" id="ver-body"></div>
+    <div class="actions"><button type="button" class="btn" id="ver-close">Close</button></div>
   </div>
 </div>
 <script src="/static/xterm-style.js"></script>
