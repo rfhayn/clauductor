@@ -15,6 +15,15 @@
   - a script file must exist when trusted;
   - known limits and accepted false refusals are named;
   - 3.1 to 3.3 are renumbered in order (3.2 is the card's stderr, 3.3 trust).
+- 2026-10-13 the last review round, by the owner's rule (the approval is recorded on its result):
+  - a single-dash piece is judged from its first `/` or `.`, which closes flag clusters (`-sC..`);
+  - program position walks past launchers' flags and their values, `env`'s `NAME=value` words and `timeout`'s duration, through chained launchers, and refuses an unknown launcher flag;
+  - a fetch-and-run subcommand is matched as any later word;
+  - `node` adds `--import`, `-r`/`--require` and the loaders to its code flags;
+  - interpreter names are matched exactly, and clusters are single-dash only;
+  - the `--name=` and `!` strips are dropped;
+  - a card's JSON stdout is parsed alone;
+  - the new false refusals and the symlink limit are named.
 
 ## Decision log
 - 2026-10-13 proposal review (#96): task 3.1's tokenizer is stricter than design.md D5's "What is checked" text, to hold D5's own requirement ("a word whose location cannot be known before it runs"): any argv word holding whitespace or a shell operator is split as a script whatever program precedes it (D5 names only `sh`, `bash`, `zsh` and `dash` with `-c`); `<`, `>` and `&` split too; a backslash is unescaped before a word is judged; a bare `..` is a path; and every shell expansion character (`*` `?` `[` `{` `}` `~` `$` backtick) is refused, as is each `:` entry of a leading assignment. design.md is unchanged, and this line is here so the owner sees the difference when re-approving
@@ -34,12 +43,17 @@
 
 ## 3. Commands stay in the repository
 - [ ] 3.1 A pure function in `framework/internal/panel/config` lists every command in a config, and every word in it, that a sidecar may not hold, by design.md D5's rule, with the word, why, and "move it into a script in the repository". It judges argv words only and parses no script. The rule has four parts:
-  - **Code flags, anywhere.** An interpreter's base name followed anywhere later in the argv by its code flag is refused at any position, so a launcher needs no list (`caffeinate -i bash -c …`, `sudo`, `stdbuf`, `arch`, `xcrun`):
-    - `sh`, `bash`, `zsh`, `dash`, `ksh` and `fish` with `-c`, or a flag cluster holding `c` (`-lc`);
-    - `python*` with `-c` or `-m`;
-    - `node`, `deno` and `bun` with `-e`, `-p`, `--eval` or `--print`;
+  - **Code flags, anywhere.** An interpreter's name, matched exactly (`sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python`, `python3`, `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `osascript`), followed anywhere later in the argv by its code flag, is refused at any position. So a launcher needs no list (`caffeinate -i bash -c …`, `sudo`, `stdbuf`, `arch`, `xcrun`):
+    - a shell with `-c`, or a single-dash cluster holding `c` (`-lc`);
+    - Python with `-c` or `-m`;
+    - `node`, `deno` and `bun` with `-e`, `-p`, `--eval` or `--print`, and `node` also with `--import`, `-r`, `--require`, `--loader` or `--experimental-loader`;
     - `perl` with `-e` or `-E`, `ruby` with `-e`, `php` with `-r`, `osascript` with `-e`.
-  - **Program position only:** `argv[0]`, or the word after a launcher `env`, `nice`, `nohup`, `time` or `timeout`, with the launcher's own flags skipped.
+  - **Program position only.** Program position is `argv[0]`. Behind a launcher (`env`, `nice`, `nohup`, `time`, `timeout`), it is the first word after the launcher's own words, following chained launchers. The launcher's own words are:
+    - its flags and their values: `env -u NAME`, `-C dir`, `-P path`; `nice -n N`; `timeout -s SIG`, `-k DUR`; `time -o file`, `-f fmt`;
+    - `env`'s `NAME=value` words;
+    - `timeout`'s duration.
+
+    A launcher flag outside that list is refused.
     - `.`, `eval` and `source`. Elsewhere `.` is a path, the root: `go test .` and `git add .` pass.
     - `env -S` and `--split-string`.
     - `awk` (and `gawk`, `mawk`, `nawk`) and `sed` without `-f <file>`.
@@ -50,7 +64,9 @@
       - `pnpm dlx`, `pnpm create`, `yarn dlx`, `yarn create`;
       - `bun x`, `bun create`;
       - `go run` with a word holding `@` after a `/`.
-    - A shell, `python*`, `node`, `deno`, `bun`, `perl`, `ruby` or `php` whose first operand (its first word that is not a flag) is not a script file inside the repository that exists when the config is trusted, or that has none. The exception is `bun run <bare word>`, a `package.json` script as with `npm run`.
+
+      The subcommand is matched as any later word of that program, so a flag or its value cannot hide it (`npm -y exec tool`, `pnpm -C sub dlx tool`).
+    - A shell, Python, `node`, `deno`, `bun`, `perl`, `ruby` or `php` whose first operand (its first word that is not a flag) is not a script file inside the repository that exists when the config is trusted, or that has none. The exception is `bun run <bare word>`, a `package.json` script as with `npm run`.
   - **Every word is literal.** These are refused in any word:
     - `*` `?` `[` `]` `{` `}` `~` `$`, a backtick;
     - `(` `)` `<` `>` `|` `&` `;`;
@@ -60,18 +76,19 @@
     No command key takes a placeholder (`{name}` and `{issue}` belong to `branch_pattern` and `first_prompt`, which are not commands and are not checked), so `{{.Dir}}`-style text is refused like any other `{`.
   - **Paths, piece by piece, with no flag list.**
     - A word holding `/` or `..` is split at every `=`, `:` and `,`.
-    - From each piece a leading `--name=` is stripped, then a single-dash flag letter (`-C`, `-I`, `-o`, `-p`), then a leading `!` or `@`.
+    - A piece that starts with a single `-` is judged from its first `/` or `.` onward, so a cluster of any length is caught (`-sC..` → `..`, `-sC/tmp/x` → `/tmp/x`, `-isystem/x` → `/x`). A leading `@` is stripped. There is no `!` strip, because `!` is a refused character.
     - A piece that is then absolute, holds a `/`, or is `..` or has a `..` segment must resolve inside the root once joined to it and resolved through symlinks as far as it exists.
     - A separate word (`-C ..`, `..`) is judged the same way, and so is an interpreter's script file.
     - Still allowed: `main..HEAD` (no `..` segment), `-j4` and `--format=%h` (neither `/` nor `..`), and `./...` (inside).
   - **Other bare words are allowed:** a program on `PATH`, or a literal argument (`gate`, `--text`).
 
   Tested in a new `framework/internal/panel/config/sidecar_test.go` with a table of cases:
-  - each code flag, refused, at `argv[0]` and behind `caffeinate -i` and `env`;
-  - each program-position form, refused; `.` allowed outside program position (`go test .`, `git add .`);
-  - each fetch-and-run form, refused: `npm exec tool`, `npm x tool`, `npm init pkg`, `npm create app`, `yarn create app`, `pnpm create app`, `go run example.com/tool@v1`, and the rest;
-  - each forbidden character, refused, `'` `"` `\` `!` included;
-  - each path shape, refused: `..`, `docs/../../x`, `-C..`, `-C ..`, `--prefix=..`, `--chdir=..`, `-p..`, `-I../lib`, `-o/tmp/x`, `@/abs`, `--exec-path=..`, `--manifest-path=../o`, `--require=../x.js`, `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`, `alias.x=!../gate.sh`, `https://host/x`, a symlink out;
+  - each code flag, refused, at `argv[0]` and behind `caffeinate -i` and `env`; `node --import x`, `node -r x`, `node --loader x` among them; `pythonic -c x` allowed (an exact name match only);
+  - each program-position form, refused, each row asserting its own reason: `env -S make` and `env --split-string=make` (reason: `env -S`, with no space in the row, so only that rule can refuse it); `.` allowed outside program position (`go test .`, `git add .`);
+  - behind launchers, refused: `timeout 9 npx tool`, `env FOO=1 npx tool`, `nice -n 5 xargs make`, `env nice npx tool`, `env -u HOME eval x`; an unknown launcher flag (`nice --weird npx tool`), refused;
+  - each fetch-and-run form, refused: `npm exec tool`, `npm -y exec tool`, `npm x tool`, `npm init pkg`, `npm create app`, `yarn create app`, `pnpm create app`, `pnpm -C sub dlx tool`, `go run example.com/tool@v1`, and the rest;
+  - each forbidden character, refused, `'` `"` `\` `!` included; `git -c alias.x=!../gate.sh x` refused with the reason "the character `!`";
+  - each path shape, refused: `..`, `docs/../../x`, `-C..`, `-C ..`, `-sC..` (`make -sC.. gate`), `-sC/tmp` (`make -sC/tmp gate`), `-isystem/x`, `-xf/tmp/a.tar`, `--prefix=..`, `--chdir=..`, `-p..`, `-I../lib`, `-o/tmp/x`, `@/abs`, `--exec-path=..`, `--manifest-path=../o`, `--require=../x.js`, `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`, `https://host/x`, a symlink out; `-Isrc/x` refused (the named false refusal) while `-I src/x` is allowed;
   - a symlink that stays in, allowed;
   - `sh` with no operand, `sh ../other/gate.sh`, and `sh .claude/missing.sh` (a file that does not exist), refused;
   - allowed rows:
@@ -84,7 +101,8 @@
   It cites [ATTACH-1-S2], [ATTACH-3-S3], [ATTACH-3-S5], [ATTACH-3-S7], [ATTACH-3-S8] and [ATTACH-3-S9].
 - [ ] 3.2 A sidecar's card shows its stderr with its stdout (design.md D5, Output). The merge is at the card's call site only, `runtime.go:441` (the card's `commandFetch`). It is not in the shared `commandFetch`, which also serves suggest (`runtime.go:469`), metrics (`metrics_source.go:58`), `gh pr list` (`runtime.go:224`) and `claude agents` (`runtime.go:556`), whose output is parsed. It applies to a config outside its repository, within today's output limit. An in-repository config keeps stdout alone. Tested in `framework/internal/panel/multiproject_integration_test.go`, citing [ATTACH-6-S1]:
   - a script that writes one line to each stream, run as a card in an attached project and in one with its own config, first run against today's code to see the sidecar's stderr line missing;
-  - the attached project's suggest command writing a line to stderr, its suggestions still parsed.
+  - the attached project's suggest command writing a line to stderr, its suggestions still parsed;
+  - a sidecar card whose stdout is JSON and which writes a line to stderr: still a JSON card. Its stdout is parsed alone first (`signals.ParseCardOutput`), and stderr lines are added, after stdout's, only to a text card.
 - [ ] 3.3 `install.CheckTrust` and `install.TrustedNow` refuse a config outside its repository whose list is not empty: no record is written, and an entry recorded earlier does not count. Both take only a path and a hash today, so to enforce this each reads the file at the config path, confirms its bytes hash to the hash it was given (a mismatch is untrusted), parses it, and runs 3.1's list against the resolved root; a file that does not read or parse is untrusted. The trust report (`TrustConfigReport` and `PrintTrusted`, `Inspect`'s `Runs`, the page's `trustReport`) marks each offending line `NOT ALLOWED IN A SIDECAR (<word>: <why>; move it into a script in the repository): …`, and `panel trust` prints them and exits non-zero. Tested in `framework/internal/panel/install/trust_test.go` citing [ATTACH-3-S1], [ATTACH-3-S3], [ATTACH-3-S4], [ATTACH-3-S5], [ATTACH-3-S7], [ATTACH-3-S8] and [ATTACH-3-S9], and in `framework/internal/panel/live_integration_test.go` citing [ATTACH-3-S2] (a hand-written trust entry; the project loads untrusted) and [ATTACH-3-S6] (the `/api/projects/{id}/trust` report and the trust, refused). Each of S1, S2 and S6 is first run against today's code to see the trust recorded or the commands on
 
 ## 4. Serving writes nothing
@@ -101,8 +119,17 @@
     - what the repository's own content does is not judged: a script file, a Makefile target, a `package.json` script;
     - the environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`) is outside the check;
     - a program that runs code from a flag of its own;
-    - and design.md D5's named limits: `ssh` runs elsewhere; `docker` runs an image's code, and `docker --mount` reaches any host path; an scp-style remote (`git@host:o/r.git`) passes to `git clone`, `rsync` or `scp`; a package install runs the scripts it fetches; two cards can download a file and then run it; `go test -exec <bare word>`; `flock -c <word>`; and the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`).
-  - They list the accepted false refusals (D5, "The cost"): `git diff HEAD~1`, `git log @{u}..`, `node --test`, `bun test`, `bash -o pipefail x.sh`, `python3 -W error x.py`, `pytest -k "not slow"`, and a URL, each moved into a script in the repository.
+    - and design.md D5's named limits: `ssh` runs elsewhere; `docker` runs an image's code, and `docker --mount` reaches any host path; an scp-style remote (`git@host:o/r.git`) passes to `git clone`, `rsync` or `scp`; a package install runs the scripts it fetches; two cards can download a file and then run it; `go test -exec <bare word>`; `flock -c <word>`; the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`); and a bare word naming a symlink out of the repository (`make -C outlink gate`), which is the repository's own content.
+  - They list the accepted false refusals (D5, "The cost"), each moved into a script in the repository:
+    - `git diff HEAD~1` and `git log @{u}..`;
+    - `node --test` and `bun test`;
+    - `bash -o pipefail x.sh` and `python3 -W error x.py`;
+    - `pytest -k "not slow"`;
+    - a URL;
+    - every `deno` command, and `bun run scripts/x.ts`;
+    - a script's own flag that matches a code flag (`python3 x.py -c cfg.yml`);
+    - `-Isrc/x`, to be written `-I src/x`;
+    - `npm run create`.
   - A sidecar's card shows its stderr with its stdout, and no `2>&1` is needed (ATTACH-6).
   - The attach subsection says what attaching and serving never write (D8), and what a lane, RUN and Close lane do write.
   - The attach subsection links to `docs/plugin.md`'s opt-out.

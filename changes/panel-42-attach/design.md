@@ -161,20 +161,35 @@
     another shell form that slipped through, and every such form is code the panel cannot read
     before it runs. Anything more than a program and literal words belongs in a script file in the
     repository, and every refusal says so: "move it into a script in the repository".
-  - **Code flags are refused anywhere in the argv.** An interpreter's name (matched on its base
-    name), followed anywhere later by its code flag, is refused wherever it stands. So a launcher
-    in front of it needs no list (`env`, `nice`, `sudo`, `caffeinate`, `stdbuf`, `arch`, `xcrun`):
-    - `sh`, `bash`, `zsh`, `dash`, `ksh` or `fish` with `-c`, or a flag cluster holding `c`
-      (`-lc`);
-    - `python*` with `-c`, or with `-m`. `-m` names a module, not a path, and Python finds the
-      module on its own path, which is mostly outside the repository (`pip`, `http.server`). A
-      module of the repository's own is run by its file instead.
-    - `node`, `deno` or `bun` with `-e`, `-p`, `--eval` or `--print`; `perl` with `-e` or `-E`;
-      `ruby` with `-e`; `php` with `-r`; `osascript` with `-e`.
+  - **Code flags are refused anywhere in the argv.** An interpreter's name, followed anywhere
+    later by its code flag, is refused wherever it stands. So a launcher in front of it needs no
+    list (`env`, `nice`, `sudo`, `caffeinate`, `stdbuf`, `arch`, `xcrun`).
+    - **Names are matched exactly:** `sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python`,
+      `python3`, `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php` and `osascript`.
+      They are not matched on a prefix.
+    - **A flag cluster is single-dash only.**
+    - **The code flags:**
+      - a shell with `-c`, or a single-dash cluster holding `c` (`-lc`);
+      - Python with `-c` or `-m`. `-m` names a module, not a path, and Python finds the module on
+        its own path, which is mostly outside the repository (`pip`, `http.server`). A module of
+        the repository's own is run by its file instead.
+      - `node`, `deno` or `bun` with `-e`, `-p`, `--eval` or `--print`; and `node` also with
+        `--import`, `-r`, `--require`, `--loader` or `--experimental-loader`, which load code and
+        accept a percent-encoded `data:` URL;
+      - `perl` with `-e` or `-E`; `ruby` with `-e`; `php` with `-r`; `osascript` with `-e`.
 
-    Their argument is a program, not a path.
-  - **These are refused in program position:** `argv[0]`, or the word after a launcher `env`,
-    `nice`, `nohup`, `time` or `timeout`, with that launcher's own flags skipped.
+    Their argument is a program, not a path. A flag of the script's own that matches is refused
+    too (`python3 x.py -c cfg.yml`), an accepted false refusal.
+  - **These are refused in program position.** Program position is `argv[0]`. When that is a
+    launcher (`env`, `nice`, `nohup`, `time` or `timeout`), it is the first word after the
+    launcher's own words, and so on through chained launchers (`env nice npx tool`). The
+    launcher's own words are:
+    - its flags and their values (`env -u NAME`, `env -C dir`, `env -P path`, `nice -n 5`,
+      `timeout -s SIG`, `timeout -k 5`, `time -o file`, `time -f fmt`);
+    - `env`'s `NAME=value` words (`env FOO=1 npx tool`);
+    - `timeout`'s duration (`timeout 9 npx tool`).
+
+    A launcher flag outside that list is refused, because the program cannot be found past it.
     - `.`, `eval` and `source`: they run text as shell code. (In any other position `.` is a path,
       the repository's root: `go test .` and `git add .` are allowed.)
     - `env -S` (or `--split-string`): it splits one word into a command line.
@@ -187,7 +202,11 @@
       - `pnpm dlx`, `yarn dlx` and `bun x`;
       - `npm init <package>`, and `npm create`, `yarn create`, `pnpm create` and `bun create`;
       - `go run` given a word with `@` after a `/` (`module@version`).
-    - **An interpreter with no script file of the repository's:** a shell, `python*`, `node`,
+
+      The subcommand is recognised as any later word of that program, so neither a flag nor a
+      flag's value can hide it (`npm -y exec tool`, `pnpm -C sub dlx tool`). A `package.json`
+      script named after one (`npm run create`) is an accepted false refusal.
+    - **An interpreter with no script file of the repository's:** a shell, Python, `node`,
       `deno`, `bun`, `perl`, `ruby` or `php` is allowed only when its first operand (its first
       word that is not a flag) is a script file inside the repository. That file must exist when
       the config is trusted. The one exception is `bun run <bare word>`: it runs the
@@ -203,15 +222,23 @@
     An argument with whitespace is almost always a command line or a program for another program
     to run (an `awk` program, a `git` alias, a command for `ssh`). Here-strings and redirections
     cannot exist without a shell, so they are refused by these characters.
-  - **Every path stays in the repository, judged piece by piece.** A word holding a `/` or `..`
-    is split at every `=`, `:` and `,`. From each piece a leading `--name=` is stripped, then a
-    single-dash flag letter (`-C`, `-I`, `-o`, `-p`), then a leading `!` or `@`. A piece that is
-    then absolute, holds a `/`, or is `..` or has a `..` segment must resolve inside the root,
-    once joined to it and resolved through symlinks as far as it exists.
-    - **Refused by this:** `-C..`, `-C ..`, `--prefix=..`, `--chdir=..`, `-p..`, `-I../lib`,
-      `-o/tmp/x`, `-d @/abs`, `--exec-path=..`, `--manifest-path=../o`, `--require=../x.js`,
-      `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`, `alias.x=!../gate.sh`.
+  - **Every path stays in the repository, judged piece by piece.**
+    - A word holding a `/` or `..` is split at every `=`, `:` and `,`.
+    - A piece that starts with a single `-` is judged from its first `/` or `.` onward. That
+      catches a flag cluster of any length: `-C..`, `-sC..` and `-sC/tmp/x` become `..`, `..` and
+      `/tmp/x`, and `-isystem/x` and `-xf/tmp/a.tar` become `/x` and `/tmp/a.tar`.
+    - A leading `@` is stripped (`@/abs`). There is no `!` to strip, because a word holding `!`
+      is refused as a character.
+    - A piece that is then absolute, holds a `/`, or is `..` or has a `..` segment must resolve
+      inside the root, once joined to it and resolved through symlinks as far as it exists.
+
+    Details:
+    - **Refused by this:** `-C..`, `-C ..`, `-sC..`, `-sC/tmp/x`, `--prefix=..`, `--chdir=..`,
+      `-p..`, `-I../lib`, `-o/tmp/x`, `-d @/abs`, `--exec-path=..`, `--manifest-path=../o`,
+      `--require=../x.js`, `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`.
     - **No flag list:** every flag's value is judged the same way.
+    - **A new false refusal:** `-Isrc/x` is judged from its first `/`, as `/x`, so it is refused.
+      Write it `-I src/x`.
     - **A URL is refused:** its `//host/path` piece is absolute (the cost, below).
     - **Still allowed:** `main..HEAD` (no `..` segment), `-j4` and `--format=%h` (no `/` or
       `..`), and `./...` (inside).
@@ -221,7 +248,9 @@
     literal argument (`gate`, `--text`), and is allowed.
   - **Output.** With no `2>&1`, a sidecar's card shows its stderr with its stdout: the panel
     merges them itself, at the card's call site only (`runtime.go`, the card's `commandFetch`), so
-    the generated commands need no shell. A queue already logs both. Every other command keeps
+    the generated commands need no shell. The card's stdout is parsed alone first
+    (`signals.ParseCardOutput`). If it is JSON, the card is a JSON card and its stderr is not
+    added. If it is text, the stderr lines are added after the stdout lines. A queue already logs both. Every other command keeps
     stdout alone, because the panel parses it, and shows its stderr on failure as today. That
     covers metrics, suggest, `gh pr list` and `claude agents`, which share `commandFetch`.
   - **The `/dev/null` exception is superseded.** The owner allowed `/dev/null` as a redirection's
@@ -257,7 +286,9 @@
     - `flock -c <word>` runs its word through a shell;
     - the program-position rules (`.`, `eval`, `xargs`, fetch-and-run, an interpreter's script
       file) are not applied behind a launcher outside their list (`sudo`, `caffeinate`), though
-      code flags still are.
+      code flags still are;
+    - a bare word naming a symlink in the repository that points out of it (`make -C outlink
+      gate`) is not judged as a path: the symlink is the repository's own content.
   - **In-repository configs:** unchanged. Their commands may still use `sh -c`, and `panel init`
     into a repository still writes them that way.
 - **Alternatives:**
@@ -285,7 +316,12 @@
     - `bash -o pipefail x.sh` and `python3 -W error x.py` (a flag's value is read as the first
       operand);
     - `pytest -k "not slow"` (a space and quotes);
-    - `curl https://…` (a URL).
+    - `curl https://…` (a URL);
+    - every `deno` command (its first operand is a subcommand, `run` or `task`, not a script
+      file), and `bun run scripts/x.ts` (not a bare word);
+    - a script's own flag that matches a code flag (`python3 x.py -c cfg.yml`);
+    - `-Isrc/x` (judged from its first `/`; write `-I src/x`);
+    - a `package.json` script named like a fetch-and-run subcommand (`npm run create`).
 
     Each goes in a script file in the repository, or in an in-repository config.
 
