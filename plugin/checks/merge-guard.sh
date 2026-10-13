@@ -370,6 +370,62 @@ guard 0 "another repo's merge, in the allowlisted shape" "gh pr merge 2 -R other
 guard 2 "another repo named outside the shape" "echo x | xargs gh pr merge 2 -R other/tool"
 guard 2 "this repo named by -R is still policed" "gh pr merge 5 -R acme/app --squash" GH_HEAD=0000000000000000000000000000000000000000
 
+# Non-ASCII in a UTF-8 locale (#100): BSD awk died on a byte of `✅` or `🤖` taken apart one at a
+# time, and the guard refused harmless commands as unreadable. Only a UTF-8 locale shows it (mawk
+# and the C locale read bytes), so these run in one where the machine has it. Each label names the
+# locale it ran in: under C they pass without having shown the crash cannot recur.
+U8=$(locale -a 2>/dev/null | grep -iE '^(en_US|C)\.utf-?8$' | head -n 1)
+U8=${U8:-C}
+in8="(LC_ALL=$U8)"
+# No evidence anywhere for these, the lane's receipt included; both come back after.
+mv "$R/.git/ci-receipt" "$d/receipt.main" 2>/dev/null || :
+mv "$lane_receipt" "$d/receipt.lane" 2>/dev/null || :
+guard 0 "#100: a read-only grep for 'merged' beside ✅ $in8" "grep -n '✅ merged\\|merge guard' docs/roadmap.md" LC_ALL="$U8"
+guard 0 "#100: 'merged' beside 🤖 in a printf body $in8" "printf '🤖 merged\\n' > /dev/null" LC_ALL="$U8"
+guard 0 "#100: gh pr create with 'merged' beside 🤖 in a printf body $in8" "gh pr create --title fix --body \"\$(printf '🤖 merged\\n')\"" LC_ALL="$U8"
+# A heredoc body is read whole, never one character at a time: this one passed before #100's fix too.
+guard 0 "#100: 'merge' beside 🤖 and ’ in a heredoc body $in8" "$(printf "cat <<'EOF'\n🤖 merged: the merge guard’s fix\\\\n\nEOF")" LC_ALL="$U8"
+guard 2 "#100: a real merge whose body path has 🤖 is still a merge (no evidence) $in8" "gh pr merge 5 --squash --body-file /tmp/🤖body.md" LC_ALL="$U8"
+grep -q 'PR #5 has no gate evidence' "$d/err" && ! grep -q 'could not read this command' "$d/err" \
+  && ok "#100: ...blocked by the evidence rule, not as unreadable" || fail "#100 merge block: $(cat "$d/err")"
+receipt "$MAINSHA"
+guard 0 "#100: the same merge with a receipt for its head is allowed (read as PR 5) $in8" "gh pr merge 5 --squash --body-file /tmp/✅\\ body.md" LC_ALL="$U8"
+rm -f "$R/.git/ci-receipt"
+# zsh in a UTF-8 locale takes a non-ASCII letter into a parameter name (#100 review): `$é` is an
+# expansion, so each of these runs a merge there. Read as a literal `$é`, they were ALLOWED.
+oddmerge() {  # oddmerge LABEL COMMAND: blocked as a form the reader cannot read
+  guard 2 "$1" "$2" LC_ALL="$U8"
+  [ "$rc" != 2 ] || grep -q 'may merge in a form this guard cannot read' "$d/err" \
+    || fail "$1: blocked, but not as a form it cannot read: $(head -n 1 "$d/err")"
+}
+oddmerge "#100: \$é splits merge, then an escaped g $in8" 'gh pr mer$é\ge 5 --squash'
+oddmerge "#100: \$é splits merge, then a quoted ge $in8" 'gh pr mer$é"ge" 5 --squash'
+oddmerge "#100: \$é splits pr, then an escaped r $in8" 'gh p$é\r merge 5 --squash'
+oddmerge "#100: pr held in \$é $in8" 'é=pr; gh $é merge 5'
+oddmerge "#100: pr held in \$xé (a non-ASCII byte after an ASCII start) $in8" 'xé=pr; gh $xé merge 5'
+oddmerge "#100: control: pr held in an ASCII \$X $in8" 'X=pr; gh $X merge 5'
+oddmerge "#100: \${é} splits merge $in8" 'gh pr mer${é}ge 5 --squash'
+oddmerge "#100: \${é:-} splits merge $in8" 'gh pr mer${é:-}ge 5 --squash'
+# The reader's own reason, not merge_hint's backstop: hits() reads `$é merge` inside a ${...}.
+oddmerge "#100: a \${...} default naming the merge through \$é $in8" '${GH:-$é merge 5}'
+grep -q 'a ${...} expansion names the merge' "$d/err" \
+  && ok "#100: ...as the reader's \${...} reason" || fail "#100 \${...} reason: $(head -n 1 "$d/err")"
+receipt "$MAINSHA"
+oddmerge "#100: a non-ASCII word before gh, with a receipt $in8" 'é=x gh pr merge 5 --squash'
+rm -f "$R/.git/ci-receipt"
+oddmerge "#100: a non-ASCII word before gh, without evidence $in8" 'é=x gh pr merge 5 --squash'
+guard 0 "#100: \$é in a command that names no merge is allowed $in8" 'echo $é done' LC_ALL="$U8"
+guard 0 "#100: \"\$é\" grepped for in a file named merge-notes is allowed $in8" 'grep -n "$é" docs/merge-notes.md' LC_ALL="$U8"
+mv "$R/.claude/hooks/lib/merge-reader.awk" "$d/reader.bak"
+guard 2 "#100: the reader missing still fails closed for a command naming a merge $in8" "grep -n '✅ merged\\|merge guard' docs/roadmap.md" LC_ALL="$U8"
+grep -q 'could not read this command to decide whether it merges' "$d/err" \
+  && ok "#100: ...with the unreadable message" || fail "#100 unreadable message: $(cat "$d/err")"
+guard 0 "#100: the reader missing still allows a command naming neither gh nor merge $in8" "echo ✅ done" LC_ALL="$U8"
+mv "$d/reader.bak" "$R/.claude/hooks/lib/merge-reader.awk"
+rm -f "$R/.git/ci-receipt"
+mv "$d/receipt.main" "$R/.git/ci-receipt" 2>/dev/null || :
+mv "$d/receipt.lane" "$lane_receipt" 2>/dev/null || :
+
 # Without jq: fails CLOSED for a merge, open for anything else.
 mkdir -p "$d/nojq"
 for t in sh cat git awk sed grep tr sort cut head tail wc dirname basename pwd printf env; do
@@ -381,6 +437,9 @@ nojq() {
 }
 nojq 2 "gh pr merge 5 --squash" "blocks a merge"
 nojq 0 "git status" "allows anything else"
+# merge_hint reads a non-ASCII parameter name too (#100 review): without jq it is the only test.
+nojq 2 'é=pr; gh $é merge 5' "#100: blocks pr held in \$é"
+nojq 2 'X=pr; gh $X merge 5' "#100: control: blocks pr held in an ASCII \$X"
 
 # raw_command is duplicated on purpose (a sourced lib's missing-file failure is shell-dependent);
 # the two copies must not drift.

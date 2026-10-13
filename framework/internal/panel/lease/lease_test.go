@@ -149,6 +149,23 @@ func (p *lockProc) wait(t *testing.T, d time.Duration) int {
 	return -1
 }
 
+// releaseOnCleanup ends a holder that loops until release exists, however the test
+// ends. startLockRunEnv's cleanup kills lock-run, but the command runs in a process
+// group of its own and would loop on (#83); this cleanup runs first, as it is
+// registered later. The wait is bounded so a stuck holder cannot hang the run.
+func releaseOnCleanup(t *testing.T, p *lockProc, release string) {
+	t.Cleanup(func() {
+		os.WriteFile(release, nil, 0o644)
+		if p.exited.Load() {
+			return
+		}
+		select {
+		case <-p.done:
+		case <-time.After(testwait.Scale(5 * time.Second)):
+		}
+	})
+}
+
 func waitUntil(t *testing.T, what string, d time.Duration, cond func() bool) {
 	t.Helper()
 	testwait.For(t, what, d, cond)
@@ -255,9 +272,11 @@ func TestLockRunTwoProcessesQueue(t *testing.T) {
 		return []string{"/bin/sh", "-c", "echo " + n + "-start >> " + log + "; sleep 0.2; echo " + n + "-end >> " + log}
 	}
 	// A holds until the test releases it, so B and C are both queued behind it
-	// however slowly they start.
+	// however slowly they start. The cap (~60 s) ends a holder orphaned by a test
+	// binary killed before its cleanup ran (#83).
 	a := startLockRun(t, lock, "lane-a", time.Minute, "/bin/sh", "-c",
-		"echo A-start >> "+log+"; while [ ! -e "+release+" ]; do sleep 0.02; done; echo A-end >> "+log)
+		"echo A-start >> "+log+"; i=0; while [ ! -e "+release+" ] && [ $i -lt 3000 ]; do sleep 0.02; i=$((i+1)); done; echo A-end >> "+log)
+	releaseOnCleanup(t, a, release)
 	waitUntil(t, "A holds the lease", 5*time.Second, func() bool { return len(readLog(t, log)) > 0 })
 	// The queue orders by arrival (the waiter file's name): C starts only once B's
 	// waiter file is there, so B arrived first.
@@ -531,7 +550,9 @@ func TestLockRunForwardsSignalAndReleases(t *testing.T) {
 	// "up" is written only once the trap is set. Written before it, a TERM that came
 	// right after the line found the shell without its trap and ended it with 143 (128
 	// + TERM): the command's own exit code was never in question, the test's order was.
-	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c", "trap 'exit 9' TERM; echo up >> "+log+"; while :; do sleep 0.05; done")
+	// The cap (~60 s) ends a command orphaned by a test binary killed before its TERM (#83).
+	p := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c",
+		"trap 'exit 9' TERM; echo up >> "+log+"; i=0; while [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done")
 	waitUntil(t, "running", 5*time.Second, func() bool { return len(readLog(t, log)) > 0 })
 	p.cmd.Process.Signal(syscall.SIGTERM)
 	if code := p.wait(t, 5*time.Second); code != 9 {
@@ -718,8 +739,9 @@ func TestLockRunPassesOnASignalFromBeforeTheCommandStarted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
+	// The cap (~60 s) ends a command orphaned by a test binary killed before its HUP (#83).
 	code, err := LockRun(ctx, LockRunOptions{Clock: clock.System, Lock: lock, TTL: time.Minute, Stderr: io.Discard,
-		Argv: []string{"/bin/sh", "-c", "trap 'echo HUP >> " + log + "; exit 9' HUP; while :; do sleep 0.05; done"}})
+		Argv: []string{"/bin/sh", "-c", "trap 'echo HUP >> " + log + "; exit 9' HUP; i=0; while [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done"}})
 	if err != nil {
 		t.Fatal(err)
 	}
