@@ -72,9 +72,9 @@ type Server struct {
 	Port    int
 	Token   string
 	Hub     *Hub
-	Hooks   chan<- []byte // raw hook bodies, processed after the 204
-	Status  chan<- []byte // raw status-line bodies
-	Refresh func()        // re-poll every source now
+	Hooks   chan<- []byte      // raw hook bodies, processed after the 204
+	Status  chan<- []byte      // raw status-line bodies
+	Refresh func(machine bool) // re-poll every source now (Project.Refresh)
 	// Lanes controls lanes (v1). Nil when tmux is unavailable: the panel still watches.
 	Lanes *lanes.LaneManager
 	// CookieMaxAge, when > 0, makes the session cookie persistent (seconds). Used when
@@ -186,7 +186,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if p.Refresh != nil {
-			p.Refresh()
+			// ?machine=1 is the owner's Refresh button: the machine's sources too,
+			// `claude auth status` among them (PANEL-28, D5). The page's own refresh
+			// after a lane start leaves it off, so a new session never starts beside one.
+			p.Refresh(r.URL.Query().Get("machine") == "1")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

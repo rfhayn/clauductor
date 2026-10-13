@@ -554,6 +554,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .help .keys td { padding: .15rem 0; }
 .help .howto { margin: 0; padding-left: 1.1rem; display: grid; gap: .2rem; }
 .help p { margin: 0; }
+/* PANEL-28: what each login-lock alert means and what to do. */
+.help dl.locks { margin: 0; display: grid; gap: .2rem; }
+.help dl.locks dt { font-weight: 700; }
+.help dl.locks dd { margin: 0 0 .2rem; }
 .help a { color: var(--act); }
 /* Up next (PANEL-12): what each suggesting template could start, a row a line. */
 .dlg .next { display: grid; align-content: start; border: 1px solid var(--rule); max-height: 15rem; overflow-y: auto; padding-bottom: .2rem; }

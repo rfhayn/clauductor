@@ -20,8 +20,9 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 | Hooks (async command hooks that curl) | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
 | Status line | the status-line script copies its stdin to `POST /status` | context %, est. cost, and the account's quota windows (from any session, in any project) |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
-| `claude --version` | at start, then every 10 min | whether the version-pinned heuristics apply |
-| `claude auth status --json` | at start, then every 10 min, with a lane's environment (no API key) | how the account signs in and its plan: what the quota's place shows (see *The account and its quota*) |
+| `claude --version` | at start, then every 10 min, and on **Refresh** | whether the version-pinned heuristics apply |
+| `claude auth status --json` | at start only when `account.json` holds no reading under 24 h old, and on **Refresh**; with a lane's environment (no API key) | how the account signs in and its plan: what the quota's place shows (see *The account and its quota*) |
+| Claude Code's login-refresh locks | a stat every 2 s (spawns nothing; `ps` once or twice for a holder newly seen: its command and its start time) | a stuck, stranded or future-dated lock (see *The login locks*) |
 | queue leases | read every 1 s from the git common dir; `ps` once per process (and every 30 s), else `kill -0` | who holds the gate, who waits |
 | `git worktree list --porcelain` | polled every 10 s, and within ~2 s of a worktree being added or removed | lanes, and the branch of each |
 | `gh pr list` | polled every 60 s | open PRs and their checks |
@@ -35,6 +36,18 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 
 Keeping the panel current costs **no model tokens**. It never reads transcripts or screens; the
 only text it types into a lane on its own is a template's first prompt, once.
+
+Every `claude` the panel runs goes through **one gate** (PANEL-28), a project card's or a
+suggest command's included:
+
+- **The slot:** one panel `claude` at a time, across every project, held until the process has
+  exited. A poll that finds it taken waits up to 2 s, then tries again 1 s later and changes
+  nothing on the page meanwhile; a lane action waits within its own timeout.
+- **The pause:** no `claude` starts while a login refresh holds a lock (*The login locks*). A poll
+  tries again 2 s later, and its source says "paused: a login refresh is in progress", neither
+  failed nor fresh.
+- **The stop:** a `claude` past its timeout gets SIGTERM, and SIGKILL only 15 s later (3 s when
+  the panel shuts down), so a refresh it holds can be let go. Its caller does not wait.
 
 New to the panel? [guide.md](guide.md) is a short how-to for the page; **?** in its header shows
 the keyboard shortcuts.
@@ -643,9 +656,12 @@ value just changed.
 - **The mouse and the terminal.** The wheel scrolls the lane's history: the panel's tmux has
   `mouse on`, so the first wheel-up enters tmux's copy mode, and the line above the terminal says
   "Scrolled back". It ends when you scroll back to the bottom, or with the first key that is not a
-  scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude,
-  so nothing you type is lost. Escape only leaves, since claude would read it as an interrupt. The
-  panel asks tmux about copy mode only after a wheel, never per keystroke. tmux binds no clicks
+  scroll key (arrows, Page Up/Down, Home, End): that key leaves copy mode and then reaches claude.
+  A key typed after wheels that end scrolled back waits for tmux to act on them, up to three
+  seconds after the last wheel, before it leaves copy mode. One known gap: a key typed while
+  already scrolled back, with a wheel-up tmux has not read yet, can be lost (OPS-62). Escape only
+  leaves, since claude would read it as an interrupt. The panel asks tmux about copy mode only
+  after a wheel, never per keystroke. tmux binds no clicks
   here, and an unbound click would go to claude if it asked for the mouse (its fullscreen TUI,
   `"tui": "fullscreen"`, does), so the page keeps presses for itself: a plain drag selects text
   in the browser (the page turns a plain press into xterm's Option-press), and the selection
@@ -754,9 +770,15 @@ receives:
 - The quota alert and the quota guard still read the 5-hour window, as their `five_hour_pct`
   keys say. A plan with no 5-hour window never trips either.
 
-To know what kind of account it is, the panel runs `claude auth status --json` at start and
-every 10 minutes (it costs no token), through `/usr/bin/env -u ANTHROPIC_API_KEY -u
-ANTHROPIC_AUTH_TOKEN …`, the environment a lane gets, so it names the login lanes use. It keeps
+To know what kind of account it is, the panel runs `claude auth status --json` (it costs no
+token), through `/usr/bin/env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN …`, the environment a
+lane gets, so it names the login lanes use. It runs it **only at start when no reading under 24
+hours old is saved, and on Refresh** (PANEL-28): a short-lived command like it can start a login
+refresh and exit before saving it ([#95822](https://github.com/anthropics/claude-code/issues/95822)),
+so no timer runs it. Each reading is saved in `account.json` beside `quota.json`; a read that
+fails is tried once more a minute later, then shows its error until **Refresh**. Adding a project
+does not read it, so a change of account shows after **Refresh** or the next start. It goes
+through the gate like every panel `claude`. It keeps
 only `loggedIn`, `authMethod`, `apiProvider` and `subscriptionType`. The command also prints your
 email, your organisation's name and its id: the first two are never decoded, and the id is kept
 only as a short one-way hash, stored with the quota in `quota.json` so a reading saved for one
@@ -1662,6 +1684,54 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
 | budget | a change whose branches have spent more than its proposal's `**Budget:** $N` (PANEL-19) | warn |
 | stale | a lane on a branch of its own with no commit for `stale_days` (PANEL-19) | warn |
+| login_lock | a login-refresh lock live, the same lock, for more than 2 min (PANEL-28; *The login locks*) | block |
+| stranded_lock | a lock stale (untouched for 60 s) and still there 2 min later (PANEL-28) | warn |
+| future_lock | a lock modified more than 5 s in the future (PANEL-28) | warn |
+
+### The login locks
+
+Every Claude Code session on the machine shares one login. Near its token's expiry a session
+refreshes it under a lock directory, and the others wait, then fail with "another Claude Code
+process is refreshing it". The lock is `.oauth_refresh.lock` in the lock directory
+(`$CLAUDE_SECURESTORAGE_CONFIG_DIR` when it is set, `~/.claude` when it is set but empty, else
+the config directory, `$CLAUDE_CONFIG_DIR` or `~/.claude`), with an owner record beside it naming
+the holder; a legacy lock, the lock directory's real path plus `.lock`, is taken as well. A
+holder touches its lock every 5 s; Claude Code counts one untouched for 60 s as stale.
+
+The panel watches both locks (a stat every 2 s) and says so when one looks wrong. Each alert's
+**What to do** opens the same advice in Help:
+
+| Alert | When | What to do |
+|---|---|---|
+| **login lock** (block) | live, the same lock, for more than 2 min | it names the holder (pid, command) and the lock's age. Run `/login` in any session; if it comes back, end that process. Unless the owner record's holder is gone (or its pid now names another process): then the record does not name the live holder, and the alert names no process to end |
+| **stranded lock** (warn) | stale, and still there 2 min later | it names the lock's path (current or legacy), its last holder and whether that process is gone (or its pid now names another process). If the holder is gone: if sessions fail to refresh, remove that path and run `/login`. If it still runs: end that pid first; if sessions still fail to refresh, remove that path and run `/login` |
+| **future lock** (warn) | modified more than 5 s in the future (the clock went back during a refresh) | Claude Code waits for real time to pass it ([#95739](https://github.com/anthropics/claude-code/issues/95739)). If sessions fail to refresh, remove that path and run `/login` |
+
+The panel **never removes or writes a lock**, or its owner record: one a live process holds,
+removed, would let two processes refresh the login at once, the very thing the lock prevents.
+For the same reason a stranded lock whose last holder still runs says to end that process
+before removing the lock. Claude Code's errors page names `~/.claude/token.lock` for this error, which is not the lock
+2.1.288 or 2.1.296 uses; the alert names the real path. These alerts are the machine's: every
+project shows them, and the machine notifies a blocking one once.
+
+While a lock is live the panel starts no `claude` of its own (the gate's pause, above). A card or
+suggest command that runs `claude` shares the gate's one slot and its pause.
+
+**The log.** Every lock the panel sees is a line in `~/.clauductor/panel/login-lock.jsonl`
+(capped at 1 MB), written when the lock goes: its path, its holder's pid and command, whether the
+holder is the panel's own `claude` call and which, when it was first seen and last modified, and
+how it ended. A holder is the panel's own only when its pid matches a call of the panel's whose
+run covers the lock's birth; a lock born before the panel started has an unknown holder. Each
+`claude` call the panel stopped is a line too: the call, the signals it sent and whether a lock
+existed then.
+
+**What stays Anthropic's.** The panel stops feeding these bugs; it fixes none of them:
+short-lived commands that start a refresh and exit before saving it
+([#95822](https://github.com/anthropics/claude-code/issues/95822)), a lock never reclaimed after
+its holder died ([#95236](https://github.com/anthropics/claude-code/issues/95236)), and a
+future-dated lock that blocks every refresh until real time passes it
+([#95739](https://github.com/anthropics/claude-code/issues/95739)). Whether the panel's own
+`claude agents` takes part in a refresh at all is PANEL-33's to find out, with a sandbox login.
 
 ### Current or stale
 
