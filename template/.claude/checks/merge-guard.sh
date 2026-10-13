@@ -395,6 +395,17 @@ cutrepo "a glued -R whose value is cut" 'gh pr merge 5 --squash -R$X'
 cutrepo "a glued -R whose value is cut after this repo's name" 'gh pr merge 5 --squash -Racme/app$X'
 cutrepo "a --repo= whose value is cut" 'gh pr merge 5 --squash --repo=acme/app$X'
 cutrepo "a --repo= whose value is all expansion" 'gh pr merge 5 --squash --repo=$X'
+# gh reads a cluster of its single-letter flags (-d -m -r -s on/off; -A -b -F -t and -R take a value)
+# as each flag in turn: a repo flag at the end of a cluster names a repo, and a value-taking one takes
+# the next word, which is then no PR.
+cutrepo "a repo flag after on/off flags in one word, its value separate" 'gh pr merge 5 -sR other/tool'
+cutrepo "a repo flag after on/off flags in one word, its value attached" 'gh pr merge 5 -dsRother/tool'
+cutrepo "a repo flag after on/off flags in one word, its value cut" 'gh pr merge 5 -sR$X'
+cutpr "a subject flag after an on/off flag in one word takes the next word" 'gh pr merge -st 5 feature --squash'
+guard 0 "OPS-57: a repo flag after on/off flags naming this repo is this repo's merge" "gh pr merge 5 -sR acme/app"
+guard 0 "OPS-57: -R with this repo attached still reads as this repo" "gh pr merge 5 -s -Racme/app"
+guard 0 "OPS-57: -R with this repo separate still reads as this repo" "gh pr merge 5 -R acme/app -s"
+guard 0 "OPS-57: on/off flags in one word with no repo flag stay this repo's merge" "gh pr merge 5 -sd"
 # What still reads exactly: each of these is PR 5, allowed on PR 5's evidence.
 guard 0 "OPS-57: a plain PR number still reads exactly" "gh pr merge 5 --squash --delete-branch"
 guard 0 "OPS-57: this repo's PR URL still reads exactly" "gh pr merge https://github.com/acme/app/pull/5 --squash"

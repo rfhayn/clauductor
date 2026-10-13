@@ -325,8 +325,8 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # `$`, a backtick or `(` is dropped, never kept cut short: its reading would be a shorter number than
 # the shell merges (OPS-57). A repo flag glued to such a word still reads as a repo, unconfirmed:
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
-#   - a repo named (-R X, -RX, --repo X, --repo=X, or a PR URL) that is not this repo, outside the
-#     allowlisted shape, BLOCKS and shows the shape;
+#   - a repo named (-R X, -RX, -sR X, --repo X, --repo=X, or a PR URL) that is not this repo,
+#     outside the allowlisted shape, BLOCKS and shows the shape;
 #   - the PR is the first positional word (values of gh's value-taking flags skipped, `--` ends
 #     flags): a number or this repo's PR URL. Anything else, including no PR at all (the
 #     current-branch form), BLOCKS. Reading only "the integer right after `merge`", with none
@@ -370,7 +370,7 @@ merge_argv() {
         if (q == "\047") { if (c == "\047") q = ""; else tok = tok c; continue }
         if (c == "$" || c == "`") {
           # A repo flag glued to a cut value still names a repo: one that cannot be confirmed.
-          if (tok ~ /^(-R|--repo=)/) t[++nt] = "-R"
+          if (tok ~ /^(-[dmrs]*R|--repo=)/) t[++nt] = "-R"
           have = 0; break
         }
         if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
@@ -380,7 +380,8 @@ merge_argv() {
         if (c == " " || c == "\t") { if (have) { t[++nt] = tok; tok = ""; have = 0 }; continue }
         if (c ~ /[\n;&|()<>]/) {
           if ((c == "<" || c == ">") && tok ~ /^[0-9]*$/) have = 0
-          # In zsh a `(` inside a word is a glob qualifier, which can empty or rewrite it.
+          # In zsh a `(` inside a word is a glob qualifier: dropping the word covers one that
+          # empties a PR word, not one that rewrites it into other words.
           if (c == "(" && have) have = 0
           break
         }
@@ -394,8 +395,19 @@ merge_argv() {
         if (!endopts && x ~ /^-/) {
           if (x == "-R" || x == "--repo") { if (k < nt) { y = t[++k]; gsub(/\n/, " ", y); print "R " y } else print "R ?"; continue }
           if (x ~ /^--repo=/) { print "R " substr(x, 8); continue }
-          if (x ~ /^-R/) { x = substr(x, 3); sub(/^=/, "", x); print "R " x; continue }
-          if (x ~ /^(-b|--body|-F|--body-file|-t|--subject|--match-head-commit|-A|--author-email)$/) k++
+          if (x ~ /^(--body|--body-file|--subject|--match-head-commit|--author-email)$/) { k++; continue }
+          if (x ~ /^--/) continue
+          # A cluster of shorthands, as gh reads it: on/off letters (-d -m -r -s) in turn, until one
+          # that takes a value (-R -A -b -F -t) takes the rest of the word, or the next word.
+          for (p = 2; p <= length(x); p++) {
+            ch = substr(x, p, 1)
+            if (ch ~ /[dmrs]/) continue
+            if (ch !~ /[RAbFt]/) break
+            v = substr(x, p + 1); sub(/^=/, "", v)
+            if (substr(x, p + 1) == "") { if (k < nt) { v = t[++k]; gsub(/\n/, " ", v) } else v = "?" }
+            if (ch == "R") print "R " v
+            break
+          }
           continue
         }
         if (!pos) { pos = 1; print "P " x }
