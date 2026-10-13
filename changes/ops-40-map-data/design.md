@@ -49,12 +49,27 @@
 
 1. **`.claude/lib/refs.sh`** (D11): the shared readers. Each is moved from its check, and its
    output format is stated here because the format is the contract:
-   - `refs_named_paths FILE…`: `FILE TAB LINE TAB PATH`, one line per `.claude/…` path matching
-     `checks/skills.sh`'s pattern. `skills.sh` takes the third column, `sort -u`, which is the
-     set it reads today. `map.sh` keeps the file and line.
+   - `refs_named_paths FILE…`: `FILE TAB LINE TAB PATH`, one line per path matching
+     `checks/skills.sh`'s pattern.
+     - `.claude/settings.local.json` is left out here, not after the call: it is per machine
+       and gitignored, named only as the place to loosen. `skills.sh` skips it after its grep
+       today, so the exclusion moves into the reader with the pattern.
+     - In a plugin project the pattern also matches `${CLAUDE_PLUGIN_ROOT}/…`, which `map.sh`
+       resolves in the plugin root. `skills.sh` keeps only the `.claude/…` paths (the third
+       column, `sort -u`), so its set is the one it reads today. `map.sh` keeps the file and
+       line.
    - `refs_hook_registrations SETTINGS`: `EVENT TAB COMMAND` per command hook, exactly the
      `regs` lines `checks/hooks.sh` builds today. It exits non-zero when the file does not
      parse.
+   - `refs_hook_scripts COMMAND`: each script path in a hook command, one per line. This is
+     `checks/hooks.sh`'s `scripts()`, moved unchanged together with the table that tests it.
+     It splits the command at blanks and shell operators, keeps a word only if a script
+     extension ends it, and drops URLs. `registers` reads a command through it:
+     - `"$CLAUDE_PROJECT_DIR"/` and `${CLAUDE_PROJECT_DIR}/` prefixes are read as the project
+       root;
+     - `${CLAUDE_PLUGIN_ROOT}/` is read as the plugin root;
+     - for the plugin's `hooks/if-project.sh` wrapper, the hook is the wrapper's argument,
+       under the plugin's `hooks/`.
    - `refs_table_rows AGENTS_MD`: `LINE TAB ROW` per row under `### What executes each rule`,
      with the header and separator excluded. `ROW` is byte for byte the file's line, so
      `agents-md-budget.sh` measures `cut -f2-`, the same characters it measures today.
@@ -74,8 +89,12 @@
      files that are not ignored. A fresh install resolves before its first commit.
    - **Dates** come only from git history.
    - **Bounds:** at most four git calls whatever the node count (`rev-parse`, `ls-files`,
-     `log`, and one shallow test), and one `cksum` call for every control id (D2).
-   - **Writes:** nothing.
+     `log`, and one shallow test), and one `cksum` call for every control id (D2). `map.sh`
+     sets `ROOT` from its own location before it sources `lib/conf.sh`. Otherwise conf.sh would
+     add a `git rev-parse --show-toplevel` of its own, and in a subdirectory project it would
+     pick the wrong root.
+   - **Writes:** nothing in the repository. Its only scratch is one temporary directory from
+     `mktemp -d` (one file per control cell, for `cksum`), removed on exit.
    - **Test seams:** `MAP_NOW` (unix seconds) and `PATH` (git, jq).
 3. **`.claude/checks/map.sh`** does two things:
    - runs `map.sh --check` on the project, and validates its `--json` output with
@@ -140,7 +159,7 @@ The spec states it as requirements, and `map.sh --validate` is its executable fo
 | `instance` | rules 1–3 and every control → rule 4 | AGENTS.md's own words: rules 1–3 are "instances" of rule 4, and the table is "rule 4 applied" (D4) |
 | `executes` | control → mechanism, skill or agent | the table's second column, *What executes it* (D5) |
 | `names` | skill or agent → mechanism | `refs_named_paths` per SKILL.md and agent file |
-| `registers` | `config:.claude/settings.json` → hook; in a plugin project, also the plugin's `hooks/hooks.json` → the hook its `if-project.sh` argument names | `refs_hook_registrations` |
+| `registers` | `config:.claude/settings.json` → hook; in a plugin project, also the plugin's `hooks/hooks.json` → the hook its `if-project.sh` argument names | `refs_hook_registrations`, each command read by `refs_hook_scripts` |
 | `models` | `config:.claude/model-roles.json` → skill or agent; the note is `role: model/effort` | `.skills`, `.agents` and `.roles` |
 | `extends` | module (or `module:local`) → each part it adds | `ext_files` and `ext_dirs` over `MODULE_POINTS` (`lib/modules.sh`) |
 | `enforces` | ADR → mechanism | its `## Enforcement` section, classified as in D5 |
@@ -166,6 +185,8 @@ The spec states it as requirements, and `map.sh --validate` is its executable fo
 | A shallow clone | Every `changed` is null. `notes` says the history is shallow (D8). |
 | A repository with no commit yet (a fresh install) | Resolves as usual. `commit` is null, every `changed` is null, and `--check` passes if every reference resolves. |
 | A model file in a plugin project | Its node's `path` is `${CLAUDE_PLUGIN_ROOT}/…`. It resolves against `CLAUDUCTOR_FW`, its `changed` is null, and its note says "the plugin's copy". |
+| A file under the plugin's `scaffold/` | Never a candidate. The project's own copy (`scripts/ci/run-local.sh`) is the one that runs, so a reference must resolve there (D5). |
+| `.claude/settings.local.json` named in a skill or AGENTS.md | Not a reference. It is per machine and gitignored, as `skills.sh` treats it today (D11). |
 | A module that is not enabled | Not on the map. The map shows what runs, not what ships. |
 | A dangling reference in an ADR's Enforcement section | `--check` fails. The ADR is the owner's, so the build reports it and never edits the ADR to make the check pass. |
 
@@ -195,11 +216,14 @@ The spec states it as requirements, and `map.sh --validate` is its executable fo
     (`row:OPS-40`), the change id, and the capability for a spec.
   - Rules are `rule:1` to `rule:4`.
   - A control is `control:` plus 8 hex digits of the POSIX `cksum` of its trimmed first cell.
-    One `cksum` call covers every cell, so the cost does not grow with the table. The first
-    cell is the key `clauductor update` already uses for a row, so reordering rows or
-    inserting one keeps every id. Rewording a rule's cell makes a new control, which it is.
-  - Two controls with the same first cell would share an id. `--validate` refuses a duplicate
-    id, so the gate fails it.
+    Each cell goes to its own file in a `mktemp -d` directory outside the repository, and one
+    `cksum` call reads them all, so the cost does not grow with the table. The first cell is
+    the key `clauductor update` already uses for a row, so reordering rows or inserting one
+    keeps every id. Rewording a rule's cell makes a new control, which it is.
+  - Two controls that share an id fail closed: `--validate` refuses a duplicate id, so the gate
+    fails it. The message names both rows' lines and says "same first cell, or a checksum
+    collision". It never assumes the cells are equal, because a CRC collision between two
+    different cells also lands here.
 - **Alternatives:**
   - the row's position (`control:12`): every insertion renumbers the rows below it, and
     PANEL-36's animated transitions would fly the wrong nodes;
@@ -256,6 +280,8 @@ commands, globs, `.md` names and plugin projects.)*
     - has a first segment that is `.claude`, `${CLAUDE_PLUGIN_ROOT}` or a top-level entry of
       the project root (`framework/…`, `scripts/…`, `.github/…`, `.gitattributes`).
 
+    A single-segment `.md` token (`AGENTS.md`, `SKILL.md`) is never path-shaped, by either
+    rule, even when a top-level entry has that name.
     A token that ends in `/` or holds a glob character is path-shaped only by the second rule,
     so `BRANCH_*` and `docs/` in prose are not references unless their first segment is a
     top-level entry. `/name` and `/<namespace>:name` must name a skill (a plugin skill for the
@@ -263,7 +289,11 @@ commands, globs, `.md` names and plugin projects.)*
     agent's name (`merge-pr`, `session-start`). Anything else is not a reference.
   - **How it resolves.** The candidates are the files under `ROOT` from
     `git ls-files -co --exclude-standard`, and in a plugin project the files under
-    `CLAUDUCTOR_FW`. First match wins:
+    `CLAUDUCTOR_FW` **except its `scaffold/`**. The scaffold holds the copies `init` gave the
+    project, and the project's own copies are the live ones. Without the exception, step 3
+    would match `${CLAUDE_PLUGIN_ROOT}/scaffold/scripts/ci/run-local.sh` before step 4 saw the
+    project's `scripts/ci/run-local.sh`, and deleting the project's file would leave the check
+    green. First match wins:
     1. the token as written, from `ROOT`. In a plugin project, `${CLAUDE_PLUGIN_ROOT}/X` is
        `$CLAUDUCTOR_FW/X`, and `.claude/X` that is not in the project is `$CLAUDUCTOR_FW/X`;
     2. `.claude/<token>` (and, in a plugin project, `$CLAUDUCTOR_FW/<token>`);
@@ -376,21 +406,36 @@ the ids.)*
   closes for `currency.sh`.
 
 **D11. Share the readers, or copy them.** *(Revised after review: formats, and lasting
-fixtures.)*
-- **Recommended:** move the named-path pattern, the hook-registration query and the table
-  anchor into `.claude/lib/refs.sh`, with the output formats given in *The shape of the
-  change*. `checks/skills.sh`, `checks/hooks.sh` and `checks/agents-md-budget.sh` then call it,
-  and so does `map.sh`. Two copies of one parser disagree silently, which is the rule
+fixtures; the hook-script reader.)*
+- **Recommended:** move four readers into `.claude/lib/refs.sh`, with the output formats given
+  in *The shape of the change*:
+  - the named-path pattern, with its `settings.local.json` exclusion;
+  - the hook-registration query;
+  - the hook-command script reader (`scripts()`);
+  - the table anchor.
+
+  `checks/skills.sh`, `checks/hooks.sh` and `checks/agents-md-budget.sh` then call them, and so
+  does `map.sh`. Two copies of one parser disagree silently, which is the rule
   `roadmap-queue.sh` exists for. The Go reader in `projectfiles.go` is another language's and
   stays. D2 keys controls the way it does.
   - **What holds the swap:** comparing old and new output once proves nothing after the old
     copies are deleted. A new `checks/refs.sh` instead runs each of the three checks with
-    `ROOT=<fixture>`, before the swap and from then on:
-    - `skills.sh` fails "named but missing: .claude/x.sh" for a skill naming a missing script,
-      and passes when the script exists;
-    - `hooks.sh` fails when settings.json does not parse;
-    - `agents-md-budget.sh` passes a 320-character row, fails a 321-character one, and fails
-      when the table is missing.
+    `ROOT=<fixture>`, before the swap and from then on.
+  - **`skills.sh`:** one case per input file kind and one per extension.
+    - It fails "named but missing" for a missing `.claude/` path named in:
+      - a SKILL.md (`.sh`);
+      - an agent file (`.js`);
+      - AGENTS.md (`.awk`);
+      - settings.json (`.json`).
+    - It passes once each path exists.
+    - It passes when only `.claude/settings.local.json` is named and the file is absent.
+  - **`hooks.sh`:** it fails when settings.json does not parse. It is also held by its own
+    non-vacuity line (at least three registered hook commands) and its expectation table (a
+    registered script with no row fails, and so does a row with no registration). Those, and
+    the `scripts()` table at its foot, stay in `hooks.sh` and keep running against the moved
+    reader.
+  - **`agents-md-budget.sh`:** it passes a 320-character row, fails a 321-character one, and
+    fails when the table is missing.
 - **Alternative: copy the three readers into `map.sh`.** It leaves three existing checks
   untouched, but it gives the codebase two of each.
 - **The risk:** `checks/hooks.sh` holds the merge guard's registration. If the swap changed what

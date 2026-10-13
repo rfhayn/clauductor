@@ -176,8 +176,10 @@ agent's name.
 
 #### Scenario: [MAP-3-S4] Skills name, settings register, and roles model
 - **GIVEN**:
-  - a SKILL.md that names `.claude/owner-queue.sh`;
-  - a settings.json that registers `.claude/hooks/pr-merge-guard.sh`;
+  - a SKILL.md that names `.claude/owner-queue.sh` and `.claude/settings.local.json`, which
+    does not exist;
+  - a settings.json that registers the command
+    `sh "$CLAUDE_PROJECT_DIR"/.claude/hooks/pr-merge-guard.sh`;
   - a model-roles.json that gives the skill `propose` the role `planner`
 - **WHEN** the map is printed
 - **THEN** the map has these links:
@@ -185,6 +187,7 @@ agent's name.
   - a `registers` link from `config:.claude/settings.json` to the hook;
   - a `models` link from `config:.claude/model-roles.json` to `skill:propose`, whose note names
     `planner` with its model and effort
+- **AND** `.claude/settings.local.json` makes no link, and `--check` does not report it
 
 #### Scenario: [MAP-3-S5] ADRs enforce, and modules extend
 - **GIVEN** an ADR whose `## Enforcement` names `checks/scenarios.sh`, and an enabled module
@@ -300,16 +303,21 @@ one node, or the roadmap queue cannot be read. It SHALL name each failure as
 #### Scenario: [MAP-5-S6] A plugin project resolves the model's names in the plugin
 - **GIVEN** a project that runs the model as a plugin, with:
   - an AGENTS.md in the shape `scripts/build-plugin.sh` writes, naming
-    `${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`, `checks/merge-guard.sh` and
-    `/clauductor:propose`;
+    `${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`, `checks/merge-guard.sh`,
+    `/clauductor:propose` and `run-local.sh`;
   - the plugin's `hooks/hooks.json` registering
     `sh "${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh" pr-merge-guard.sh`;
-  - each of those files only under `CLAUDUCTOR_FW`
+  - the hook, the check and the skill only under `CLAUDUCTOR_FW`;
+  - a plugin root that also holds `scaffold/scripts/ci/run-local.sh`, and the project's own
+    `scripts/ci/run-local.sh`
 - **WHEN** `--check` runs, and the map is printed
 - **THEN** `--check` reports none of them
 - **AND** the links reach `hook:${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`,
-  `check:${CLAUDE_PLUGIN_ROOT}/checks/merge-guard.sh` and the plugin's `propose` skill
+  `check:${CLAUDE_PLUGIN_ROOT}/checks/merge-guard.sh`, the plugin's `propose` skill, and the
+  project's `scripts/ci/run-local.sh`, never the scaffold's copy
 - **AND** a `registers` link runs from the plugin's `hooks/hooks.json` to the merge guard
+- **AND** once the project's `scripts/ci/run-local.sh` is deleted, `--check` exits 1 naming
+  `run-local.sh`
 
 #### Scenario: [MAP-5-S7] A fresh install passes before its first commit
 - **GIVEN** a repository where the model was just installed and nothing is committed yet
