@@ -151,6 +151,14 @@ for c in "tools/check.sh" "tools/run-all.sh --quick" "tools/gate-wait.sh"; do
   rc=0; bgp a1 "$c" true | (cd "$R" && CLAUDE_PROJECT_DIR="$d/own-gate" sh "$H/no-background-gate.sh") >/dev/null 2>&1 || rc=$?
   expect_rc 2 "$rc" "no-background-gate blocks a subagent's background '$c' where project.conf names tools/check.sh and tools/run-all.sh"
 done
+# A project.conf that names its gate through $ROOT (an absolute path) still matches the relative spelling.
+mkdir -p "$d/abs-gate/.claude"; printf 'GATE="$ROOT/tools/check.sh"\nGATE_RUN="$ROOT/tools/run-all.sh"\n' > "$d/abs-gate/.claude/project.conf"
+rc=0; bgp "" "tools/check.sh &" | (cd "$R" && CLAUDE_PROJECT_DIR="$d/abs-gate" sh "$H/no-background-gate.sh") >/dev/null 2>&1 || rc=$?
+expect_rc 2 "$rc" "no-background-gate blocks 'tools/check.sh &' where project.conf names GATE=\"\$ROOT/tools/check.sh\""
+# A substitution that starts with a subshell is not arithmetic; a path with // or /./ is the same path.
+nbg 2 "\$((gate) 2>&1): a command substitution of a subshell, not arithmetic" "$(bgp a1 "out=\$(($G --quick) 2>&1)")"
+nbg 2 "scripts/ci//gate.sh &" "$(bgp "" "scripts/ci//gate.sh &")"
+nbg 2 "scripts/ci/./gate.sh &" "$(bgp "" "scripts/ci/./gate.sh &")"
 # Without jq it fails CLOSED for a subagent call naming a gate, and only then.
 nbg 2 "without jq: a subagent call naming the gate" "$(bgp a1 "$G" "" 600000)" "$d/nojq"
 nbg 0 "without jq: the main session's gate" "$(bgp "" "$G" true)" "$d/nojq"

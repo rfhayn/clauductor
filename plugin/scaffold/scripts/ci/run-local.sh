@@ -86,9 +86,11 @@ gate_end() {
   rc=$?
   trap - EXIT
   cleanup || :
-  # Past the verdict, the verdict's code stands, even if a signal lands before the exit.
-  if [ -n "${VERDICT:-}" ]; then rc=$code
-  elif [ "$rc" -eq 0 ]; then rc=signal; fi
+  # Past the verdict, a signal ($? = 0) leaves the verdict's code standing; before it, the run was
+  # interrupted. A command that FAILS after the verdict (writing the receipt) keeps its own code.
+  if [ "$rc" -eq 0 ]; then
+    if [ -n "${VERDICT:-}" ]; then rc=$code; else rc=signal; fi
+  fi
   if command -v gate_state_end >/dev/null 2>&1; then
     gate_state_end "$rc" "${MODE:-full}" "${TESTED_SHA:-$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)}" \
       "$RUN_STARTED" "${lane:-$(basename "$ROOT")}" || true
@@ -173,6 +175,9 @@ if [ "$code" -eq 0 ] && [ -n "${CLAUDUCTOR_LOCK_HELD:-}" ] && [ -f "$HERE/lease.
   fi
 fi
 
+# The verdict is decided: a signal from here on (while the receipt is written or the status
+# published, a network call) must not record the run as interrupted (gate_end).
+VERDICT=1
 if [ "$code" -eq 0 ]; then
   echo
   echo "==> PASS ($MODE) on $(printf %.9s "$TESTED_SHA")"
@@ -197,5 +202,4 @@ else
   # changes, HEAD moved) did not run the commit, so it posts nothing either way.
   if [ "$MODE" = full ] && [ "$tested_commit" -eq 1 ]; then model_publish_status fail "$TESTED_SHA"; fi
 fi
-VERDICT=1
 exit "$code"

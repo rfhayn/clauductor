@@ -51,15 +51,23 @@ if [ -f "$(dirname "$0")/../lib/conf.sh" ]; then
   # shellcheck disable=SC1091
   . "$(dirname "$0")/../lib/conf.sh"
 fi
-run=${GATE_RUN:-scripts/ci/run-local.sh}; run=${run#./}
-wrap=${GATE:-scripts/ci/gate.sh}; wrap=${wrap#./}
+# Relative to the project, as a command names them: a project.conf may spell them "$ROOT/…".
+run=${GATE_RUN:-scripts/ci/run-local.sh}; run=${run#"$ROOT"/}; run=${run#./}
+wrap=${GATE:-scripts/ci/gate.sh}; wrap=${wrap#"$ROOT"/}; wrap=${wrap#./}
 waiter="$(dirname "$run")/gate-wait.sh"; waiter=${waiter#./}
 gates="$run $wrap $waiter"
 
-# names TEXT: a gate's path anywhere in TEXT (backslashes dropped: JSON may escape a slash).
+# names TEXT: a gate's path anywhere in TEXT, for the fallbacks (backslashes dropped: JSON may
+# escape a slash; `//` and `/./` collapsed, as the reader does).
 names() {
-  _t=$(printf '%s' "$1" | tr -d '\\')
+  _t=$(printf '%s' "$1" | tr -d '\\' | sed -e 's#//*#/#g' -e 's#/\./#/#g' -e 's#/\./#/#g')
   for g in $gates; do case "$_t" in *"$g"*) return 0 ;; esac; done
+  return 1
+}
+# mentions TEXT: a gate's FILE NAME anywhere in TEXT: the cheap pre-filter before the reader, so a
+# long command that names no gate is never read word by word (however a path to it is spelled).
+mentions() {
+  for g in $gates; do case "$1" in *"${g##*/}"*) return 0 ;; esac; done
   return 1
 }
 # amp TEXT: an `&` that backgrounds something (`&&`, `<&`, `>&`, `|&` and `&>` do not): the raw
@@ -81,13 +89,15 @@ if ! command -v jq >/dev/null 2>&1 || ! printf '%s' "$payload" | jq -e . >/dev/n
 fi
 
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // "" | tostring')
-# No gate path anywhere in the text: no gate, and no need to read a long command word by word.
-names "$cmd" || exit 0
+# No gate's file name anywhere in the text: no gate, and no need to read a long command word by word.
+mentions "$cmd" || exit 0
 # The reader failing (missing, or an awk that cannot run it) leaves the raw text: a gate's path
-# anywhere in it counts as an invocation, broader than the reader and never narrower.
-if ! verdict=$(printf '%s' "$cmd" | awk -v gates="$gates" -f "$(dirname "$0")/lib/gate-reader.awk" 2>/dev/null); then
-  verdict=GATE
-  amp "$cmd" && verdict="GATE AMP"
+# anywhere in it counts as an invocation, broader than the reader and never narrower. LC_ALL=C: a
+# multibyte locale can make awk reject a command's bytes (as merge-reader.awk's #100).
+if ! verdict=$(printf '%s' "$cmd" | LC_ALL=C awk -v gates="$gates" -f "$(dirname "$0")/lib/gate-reader.awk" 2>/dev/null); then
+  verdict=""
+  names "$cmd" && verdict=GATE
+  amp "$cmd" && verdict="$verdict AMP"
 fi
 case "$verdict" in *GATE*) ;; *) exit 0 ;; esac
 

@@ -22,7 +22,8 @@
 #
 # KNOWN LIMITS (not seen, so allowed): a computed command word (`$G`, `$(echo gate.sh)`), an alias
 # or a function, `find -exec`, a gate run as a script on a shell's stdin (`bash <<EOF`), and a gate
-# reached by a path relative to another directory (`cd scripts/ci && ./gate.sh`).
+# reached by a path relative to another directory (`cd scripts/ci && ./gate.sh`), and a path that
+# is partly computed (`D=scripts/ci; $D/gate.sh &`).
 # Checked by .claude/checks/hooks.sh.
 
 BEGIN {
@@ -44,6 +45,12 @@ function base(t) { sub(/.*\//, "", t); return t }
 
 # isgate T: T names a configured gate path: exactly, `./`-prefixed, or as the end of a longer path.
 function isgate(t,   p) {
+  # The same path however spelled: `//` and `/./` collapse, and `x/../` resolves lexically.
+  gsub(/\/\/+/, "/", t)
+  while (sub(/\/\.\//, "/", t)) ;
+  while (match(t, /(^|\/)[^\/]+\/\.\.\//) && substr(t, RSTART + (substr(t, RSTART, 1) == "/"), 3) != "../") {
+    t = substr(t, 1, RSTART - 1) (substr(t, RSTART, 1) == "/" ? "/" : "") substr(t, RSTART + RLENGTH)
+  }
   sub(/^\.\//, "", t)
   for (p in GATES) if (t == p || (length(t) > length(p) && substr(t, length(t) - length(p)) == "/" p)) return 1
   return 0
@@ -152,8 +159,12 @@ function close_tick(s, i,   n, c) {
 # subst S I: a `$(…)` (I at `$`) or a `…` (I at the backtick) read as commands of their own; returns
 # the index after it. The word keeps a placeholder, so `$(…)/scripts/ci/gate.sh` still names a gate.
 function subst(s, i,   j) {
-  # Arithmetic, `$(( … ))`, holds no command: its `&` is a bitwise and, its `<<` a shift.
-  if (substr(s, i, 3) == "$((") { j = close_paren(s, i + 1, 1); WB[D] = WB[D] "0"; HV[D] = 1; return j + 1 }
+  # Arithmetic, `$(( … ))`, holds no command: its `&` is a bitwise and, its `<<` a shift. It is
+  # arithmetic only when the inner `(` closes right before the outer `)`: `$((cmd) 2>&1)` is a
+  # command substitution that starts with a subshell.
+  if (substr(s, i, 3) == "$((" && substr(s, close_paren(s, i + 2, 1) + 1, 1) == ")") {
+    j = close_paren(s, i + 1, 1); WB[D] = WB[D] "0"; HV[D] = 1; return j + 1
+  }
   if (substr(s, i, 1) == "`") { j = close_tick(s, i + 1); scan(substr(s, i + 1, j - i - 1)) }
   else { j = close_paren(s, i + 1); scan(substr(s, i + 2, j - i - 2)) }
   WB[D] = WB[D] "$()"; HV[D] = 1

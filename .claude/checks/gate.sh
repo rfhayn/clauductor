@@ -115,6 +115,8 @@ gate_steps() {
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
   step "unit" sh -c '[ ! -f FAIL_UNIT ]' || return 1
+  # Leaves a directory the clean room's cleanup cannot remove (a step that chmods its own output).
+  if [ -f LOCK_CLEANUP ]; then mkdir -p locked/x && touch locked/x/f && chmod 555 locked/x; fi
   # Takes the lease away mid-run (another holder's nonce), as a reclaim by mistake would.
   if [ -f STEAL_LEASE ]; then
     sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
@@ -406,17 +408,47 @@ expect_rc 1 "$rc" "gate-wait on an interrupted gate: FAIL (1)"
 # A project.conf that names a variable the run state does not set ($ROOT, read before conf.sh runs)
 # still gates: recording the run must never stop the gate.
 printf 'PROJECT_NOTES="$ROOT/docs/notes"\n' >> "$R/.claude/project.conf"
-rm -f "$STATE"; run --quick; rc=$?
+# ROOT unset, as in a real gate: checks/run.sh exports it, which would hide the failure.
+rm -f "$STATE"; (unset ROOT; run --quick); rc=$?
 git -C "$R" checkout -q -- .claude/project.conf
 expect_rc 0 "$rc" "a project.conf naming \$ROOT does not stop the gate (the run state reads it without nounset)"
 grep -q '^started .* mode=quick ' "$STATE" && ok "...and the run is still recorded" || fail "no started line after a project.conf naming \$ROOT: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
+
+# gate-wait takes whole seconds only, and says so: anything else would never compare as elapsed.
+run --quick
+out=$(cd "$R" && PATH="$d/bin:$np" GATE_WAIT_SECONDS=abc GATE_WAIT_POLL=x sh "$WAIT_REL" 2>&1); rc=$?
+expect_rc 0 "$rc" "gate-wait with a non-numeric GATE_WAIT_SECONDS and GATE_WAIT_POLL still answers (PASS after the run above)"
+case "$out" in *"GATE_WAIT_SECONDS=abc is not whole seconds"*"GATE_WAIT_POLL=x is not whole seconds"*) ok "...and says which values it ignored" ;; *) fail "gate-wait did not name the ignored values: $out" ;; esac
+
+# A signal AFTER the verdict keeps it: TERM lands while a passing full run publishes its status (the
+# ci-status module, here a stub that waits), and the run is recorded as the pass it was.
+mkdir -p "$R/.claude/modules/ci-status/scripts" "$R/local"
+printf '#!/bin/sh\necho "$PPID" > local/gate.pid\nwhile [ -f local/PUBHOLD ]; do sleep 1; done\n' > "$R/.claude/modules/ci-status/scripts/publish-status.sh"
+printf 'MODULES="ci-status"\n' >> "$R/.claude/project.conf"
+git -C "$R" add -A && git -C "$R" commit -qm "a ci-status stub"
+rm -f "$R/local/gate.pid"; touch "$R/local/PUBHOLD"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+bg=$!
+n=0; while [ ! -s "$R/local/gate.pid" ] && [ "$n" -lt 60 ]; do sleep 1; n=$((n + 1)); done
+[ -s "$R/local/gate.pid" ] && kill -TERM "$(cat "$R/local/gate.pid")" 2>/dev/null
+rm -f "$R/local/PUBHOLD"; wait "$bg" 2>/dev/null
+grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$6 == "pass" && $7 == "0" { ok = 1 } END { exit !ok }' \
+  && ok "a signal after the verdict (while publishing) keeps the pass: code=0, not signal" || fail "signal after the verdict: state $(tr '\n' '|' < "$STATE"); log '$(tail -n 1 "$RUNS")'; $(grep '^==>' "$d/bg" | tr '\n' ' ')"
+
+# A cleanup that fails (a clean room the cleanup cannot remove) still writes the exit line.
+printf 'GATE_CLEAN_ROOM="archive"\nMODULES=""\n' >> "$R/.claude/project.conf"
+touch "$R/LOCK_CLEANUP"; git -C "$R" add -A && git -C "$R" commit -qm "a step that locks its output"
+mkdir -p "$d/tmp"; rm -f "$STATE"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check TMPDIR="$d/tmp" bash "$RUN_REL") > "$d/out" 2>&1
+chmod -R u+w "$d/tmp" 2>/dev/null; rm -rf "$d/tmp"
+grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && ok "a cleanup that fails still leaves the run's exit line" || fail "failing cleanup: state $(tr '\n' '|' < "$STATE" 2>/dev/null); $(grep '^==>' "$d/out" | tr '\n' ' ')"
 
 # Every place that tells an agent to run the gate says how to follow one the tool backgrounds. Read
 # from the model's own copy: the project's, or the plugin's (CLAUDUCTOR_FW).
 for f in workflows/build-change.js skills/apply-change/SKILL.md; do
   p="${CLAUDUCTOR_FW:-$ROOT/.claude}/$f"
   if [ ! -f "$p" ]; then fail "$p is missing: nothing tells its agents how to run the gate"
-  elif grep -q 'gate-wait.sh' "$p"; then ok "$f tells its agent to follow a backgrounded gate with gate-wait.sh"
-  else fail "$f never names gate-wait.sh: an agent whose gate the tool backgrounds is told nothing"; fi
+  elif grep -q 'gate-wait.sh' "$p" && grep -q 'exit 3 means call it again' "$p"; then ok "$f tells its agent to follow a backgrounded gate with gate-wait.sh, and to stop on any exit but 3"
+  else fail "$f does not name gate-wait.sh with 'exit 3 means call it again': an agent whose gate the tool backgrounds is told nothing, or waits forever on a 4"; fi
 done
 finish
