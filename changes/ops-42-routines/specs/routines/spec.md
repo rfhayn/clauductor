@@ -74,7 +74,7 @@ THE SYSTEM SHALL run an enabled routine once for each schedule slot it reaches, 
 - **GIVEN** an enabled routine that is not due
 - **WHEN** `routines.sh run <name>` runs
 - **THEN** the routine runs once, logged with the trigger `manual`
-- **AND** the caps, the quota, the lock and the subscription rule apply to it as to a scheduled run
+- **AND** the caps, the quota, the lock and the billing check apply to it as to a scheduled run
 
 ### Requirement: One routine at a time, under one lock
 THE SYSTEM SHALL hold one lock per registry while a tick or a run-now is deciding or running, SHALL run due routines one after another inside it, and WHEN the lock is held by a live process THE SYSTEM SHALL exit without running anything and without waiting.

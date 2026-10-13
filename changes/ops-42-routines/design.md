@@ -82,7 +82,7 @@
    | `list` | Each routine: schedule, kind, next due, last verdict, and which runner or machine it waits for when it is not this one's. |
    | `log [<name>] [--days N] [--json]` | The run records, newest first. `--json` is the form PANEL-37 and PANEL-38 read. |
    | `validate` | The registry's checks, shared by `tick` and `checks/routines.sh`. |
-   | `setup --billing subscription|api` | Records how this project's `claude -p` routines are paid for (D16). Run once by the user. |
+   | `setup --billing subscription\|api` | Records how this project's `claude -p` routines are paid for (D16). Run once by the user. |
    | `health` | The health lines (D10). `health/routines.sh` is a thin caller. |
    | `ticker [--launchd | --cron]` | Prints the panel-free ticker (D11). Installs nothing. |
 
@@ -124,7 +124,7 @@
 |---|---|
 | The registry does not parse, or any entry is invalid | Nothing runs. `tick` exits 2 naming each fault; the health line says FAILED for the registry. A malformed entry is an error, not a shorter list. |
 | Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. Nothing is logged. |
-| A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription|api`" (D16). Command routines need no `billing`. |
+| A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription\|api`" (D16). Command routines need no `billing`. |
 | `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (or a provider switch) is set | Each due `claude -p` routine is refused and logged `billing`, naming the variable: `-p` would bill it instead of the subscription (D16). Command routines run with both unset. `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
 | `billing` is `api` and no API credential is set | Each due `claude -p` routine is refused and logged `billing`: it would run on the subscription with no quota guard (D16). |
 | Subscription: a current reading of the 5-hour or 7-day window is at or above its cap | The `claude -p` routine is refused and logged `quota` with the window and the reading (D4). |
@@ -260,8 +260,9 @@
     --effort <e> --max-turns <n> --max-budget-usd <b> --no-session-persistence
     --setting-sources project --permission-mode dontAsk --tools <allowed> --allowedTools
     <allowed> --disallowedTools <disallowed> --strict-mcp-config`, run in the repository's root,
-    with stdin from `/dev/null` and both API key variables unset. Never `--bare`, which never
-    reads the subscription login.
+    with stdin from `/dev/null` and the environment D16 sets for the billing mode.
+    `--max-budget-usd` is passed in `api` mode always, and on a subscription only when the
+    routine sets `max_usd` (D4). Never `--bare`, which never reads the subscription login.
   - **Why each bound** (Claude Code's docs; sources and what is inferred below):
     - `--tools` "restricts which built-in tools Claude can use": a tool left out is not in the
       model's context, so a project's `permissions.allow` (say `Bash(git log *)`) cannot hand it
@@ -320,9 +321,8 @@
   sequence, so a `claude` refreshing the login gets the chance to finish. The docs say a
   SIGTERMed `claude -p` stops starting tool calls and model requests, kills its Bash process
   trees, runs its `SessionEnd` hooks and exits 143, writing no result
-  (code.claude.com/docs/en/headless). Its record therefore says `timeout`, cost unknown, counted
-  at its budget (D9). The runner never looks a
-  process up by name, argv or parent.
+  (code.claude.com/docs/en/headless). Its record therefore says `timeout` and cost unknown, counted
+  at its budget in `api` mode (D9). The runner never looks a process up by name, argv or parent.
   - **ADR-0005 is amended**, because its decision reads "No script in the model kills … a
     `claude` process … whatever its argv or parent says", and the timeout stops a `claude -p`.
     The amendment adds one sentence: *"Except a process the script started itself and holds by
@@ -338,9 +338,9 @@
 **D9. How cost is recorded.**
 - **Recommended:** from the JSON answer only: `total_cost_usd` and `num_turns`, with `is_error`
   and `subtype`. A run that gives no readable JSON is recorded with cost unknown and, in `api`
-  mode, counted at its budget (D4): a SIGTERMed run writes no result (exit 143), and on `error_max_budget_usd` the
-  docs say `total_cost_usd` still includes the call that crossed the budget. The run log is the only record: a headless run
-  has no status line, so it never reaches the panel's spend ledger, and with
+  mode, counted at its budget (D4): a SIGTERMed run writes no result (exit 143), and on
+  `error_max_budget_usd` the docs say `total_cost_usd` still includes the call that crossed the
+  budget. The run log is the only record: a headless run has no status line, so it never reaches the panel's spend ledger, and with
   `--no-session-persistence` it leaves no transcript for `change-cost.sh` either. PANEL-38 adds
   the run log to Today's cost.
 - **Alternatives:**
@@ -355,6 +355,8 @@
   - `CAPPED routine morning-digest — refused at 07:00: 7-day quota at 83% (cap 80%, read 02:10)`;
   - `RUNNING routine flake-watch — since 03:30 (pid 4211)`;
   - `NEVER RAN routine morning-digest — due since 2026-10-13 07:00`;
+  - `CANNOT CHECK routines quota — no reading since the window reset; 2 of 3 unknown-quota runs
+    used today` (D17);
   - `STALE routine nightly-checks — last ran 2026-10-10 02:30; 3 slots missed`;
   - a `show` routine's OK line names its latest output (`… ; digest <path>`).
   - **The ticker:** `OK routines ticker — last tick 02:35` while ticks arrive at least hourly,

@@ -25,7 +25,7 @@ A project can:
 
 - **name routines** in `.claude/routines.json`: a time (`02:30`, `Mon-Fri 18:15`, `every 30m`),
   and either a shell command, which costs no tokens, or a `claude -p` run with a role, read-only
-  tools, a turn limit and a dollar budget;
+  tools, a turn limit and, optionally, a per-run dollar ceiling;
 - **run them** with `sh .claude/routines.sh tick`, every 5 minutes from a launchd or cron line that
   `routines.sh ticker` prints (and, after PANEL-37, from the panel). Due routines run one at a
   time, a missed slot catches up once, and an overlapping tick leaves at once;
@@ -94,6 +94,6 @@ row gains the machine-wide cap across projects (D4). Both are revised to the own
 - **Signal:** with the ticker loaded, on at least 5 of the first 7 mornings the session start
   shows `OK` for `nightly-checks` and `morning-digest`, with a digest file the owner finds worth
   reading. No `CAPPED` line appears, and no `quota` refusal while the owner's windows are under
-  80%. Each digest's recorded cost (a list-price estimate on a subscription) is under $0.30. `flake-watch` either stays OK
-  or shows a FAILED line whose log holds the `fx` line OPS-35 needs.
+  80%. Each digest's recorded cost (a list-price estimate on a subscription) is under $0.30.
+  `flake-watch` either stays OK or shows a FAILED line whose log holds the `fx` line OPS-35 needs.
 - **Check after:** 14 days
