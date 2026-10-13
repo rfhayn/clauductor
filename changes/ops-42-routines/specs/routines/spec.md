@@ -194,9 +194,12 @@ THE SYSTEM SHALL run a `claude -p` routine only through the `claude` binary, wit
 - **THEN** claude's environment has that key as `ANTHROPIC_API_KEY`, and its record says `billing` `api` and `auth` `key-file`
 - **AND** no part of the key is in the run log, the output, the ticker line or any file the runner wrote, and the file's other lines were never run or passed on
 - **AND** a `context` command and a command routine in the same tick do not get the key
-- **AND** with argv-recording shims for `env`, `jq`, `sh`, `bash` and `printf` first on PATH (each records its argv, then execs the real one), no recorded argv, the fake claude's included, and no run-log line holds any part of the key
+- **AND** with a shim for every executable name found in the test's PATH directories first on PATH (each linked to one recorder that records its argv, then execs the real tool), no recorded argv, the fake claude's included, and no run-log line holds any part of the key; builtins such as `printf`, `echo` and `test` start no process, so they cannot put it on an argv
+- **AND** `routines.sh` invokes no tool by an absolute path and never uses `command -p`, so nothing it runs bypasses the shims
+- **AND** a runner that passes the key as `env ANTHROPIC_API_KEY=… claude` fails this scenario on every run of the check (a permanent negative case)
 - **AND** the same key is read from each accepted form of the line: `export ANTHROPIC_API_KEY=<key>`, leading blanks, `"<key>"` and `'<key>'`, a CRLF line ending, trailing blanks after the value, the line last in the file with no trailing newline, and with a `# ANTHROPIC_API_KEY=old` comment line beside it
-- **AND** an `api_key_file` recorded as `~/keys/anthropic` reads `$HOME/keys/anthropic`
+- **AND** an `api_key_file` recorded as `~/keys/anthropic` reads `$HOME/keys/anthropic`, and with `HOME` empty or unset the run is refused `billing`, "HOME is not set", never reading `/keys/anthropic`
+- **AND** a key file in a sibling directory sharing the repository's prefix (`<top>-keys/key`) is accepted by the run as by setup: one function decides "inside the repository" for both
 
 #### Scenario: [ROUTINES-6-S8] An api routine whose key file is not usable is refused
 - **GIVEN** `billing` is `api` and the key file is missing, empty, unreadable (mode 0000), holds an empty `ANTHROPIC_API_KEY=` or `ANTHROPIC_API_KEY=""`, holds two matching lines, holds the key only in a commented-out line, lies inside the repository, or is readable by group or others (mode 0640 or 0644)
@@ -290,7 +293,7 @@ THE SYSTEM SHALL print, at session start, one line per enabled routine for this 
 - **GIVEN** `billing` is `subscription`, an enabled `claude -p` routine, and no counting reading of the 5-hour window
 - **WHEN** the health line runs
 - **THEN** it prints `CANNOT CHECK — routines quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3 runs a day (N of 3 runs used today)`, N counting every `claude -p` run started today
-- **AND** `<when>` is the 5-hour window's `resetsAt` when the file has one, else the file's `at`; with no `quota.json` the clause reads `no reading ever of the 5-hour window`
+- **AND** `<when>` is the 5-hour window's `resetsAt` when it has passed, else the file's `at` (a null `pct` with a future `resetsAt`, or no `resetsAt`); with no `quota.json` the clause reads `no reading ever of the 5-hour window`
 - **AND** with `caps.subscription.daily_runs` 2, the line says 2 where it says 3: the limit that binds
 - **AND** the line passes the health-line contract's verdict check
 
@@ -352,7 +355,10 @@ THE SYSTEM SHALL record the registry's `billing` only through `routines.sh setup
 - **WHEN** `routines.sh setup --billing api --key-file <it>` runs
 - **THEN** the registry's `billing` is `api` and `api_key_file` is that path, and no part of the key is in the registry or in setup's output
 - **AND** `--key-file ~/keys/anthropic` is recorded as `~/keys/anthropic`, as written, never with the home directory expanded
-- **AND** a relative `--key-file` without `~/` is recorded made absolute against the directory setup ran in, its logical `pwd` (a symlinked directory's link path, not its target)
+- **AND** `--key-file "$HOME/keys/anthropic"`, already expanded by the user's shell, is recorded as `~/keys/anthropic`: any resolved path beginning with `$HOME/` is rewritten to `~/…`, so the registry never holds a home directory
+- **AND** a relative `--key-file` without `~/` is recorded made absolute against the directory setup ran in, its logical `pwd` (a symlinked directory's link path, not its target), and rewritten to `~/…` when that lies under `$HOME/`
+- **AND** with `HOME` empty or unset, setup refuses a `~/` path, "HOME is not set"
+- **AND** a prunable worktree (listed, its directory gone) neither refuses the key file nor breaks setup
 - **AND** a key file in a sibling directory sharing the repository's prefix (`<top>-keys/key`) is accepted: it is not under the repository
 - **AND** a key file that is missing, a symlink or otherwise not a regular file, unreadable, inside the repository (as ROUTINES-6-S8 defines it), readable by group or others, without a matching line, with an empty value, or with two matching lines is refused with that case's own reason, and the registry is unchanged
 - **AND** the accepted line forms of ROUTINES-6-S7 (export, quoted, CRLF, trailing blanks, no final newline, beside a comment) are accepted by setup too

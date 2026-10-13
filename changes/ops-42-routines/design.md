@@ -128,7 +128,7 @@
 | Another tick or run holds the lock | `tick` exits 0 at once, naming the holder and since when; `run` exits 75 with the same words. No run is logged; `last-tick` is still written. |
 | A registry with an enabled `claude -p` routine and no `billing` | Validation fails: "run `routines.sh setup --billing subscription\|api`" (D16). Command routines need no `billing`. |
 | `billing` is `subscription` and `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (or a provider switch) is set | Each due `claude -p` routine is refused and logged `billing`, naming the variable: `-p` would bill it instead of the subscription (D16). Command routines run with both unset. `CLAUDE_CODE_OAUTH_TOKEN` is the subscription and is allowed. |
-| `billing` is `api` and the key file is missing, not a regular file (a symlink included), unreadable, without exactly one matching `ANTHROPIC_API_KEY=` line, or with an empty value, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
+| `billing` is `api` and the key file is missing, not a regular file (a symlink included), unreadable, without exactly one matching `ANTHROPIC_API_KEY=` line, with an empty value, inside the repository, or readable by group or others; or `ANTHROPIC_AUTH_TOKEN` or a provider switch is set | Each due `claude -p` routine is refused and logged `billing`, naming the problem, never the key (D16). |
 | Subscription: a current reading of the 5-hour or 7-day window is at or above its cap | The `claude -p` routine is refused and logged `quota` with the window and the reading (D4). |
 | Subscription: no current reading of a window | Runs up to `unknown_quota_daily_runs` a day, then refused and logged `capped`; the health line says the quota is unknown (D17). |
 | API: a dollar cap or the run count is reached | The `claude -p` routine is refused and logged `capped` with the cap and the figure (D4). |
@@ -472,10 +472,13 @@ owner's direction of 2026-10-13.)*
     - `routines.sh setup --billing api --key-file <path>` records the path in the registry's
       `api_key_file`, never the key. The registry is committed and shared by machines
       (`machine: darwin|linux`), so it never holds a home directory: a path given with a leading
-      `~/` is recorded as written and expanded against `$HOME` each time it is read; any other
-      relative path is made absolute against the directory setup ran in (its logical `pwd`, not
-      `pwd -P`); an absolute path is recorded as given. A sidecar's directory is outside the
-      repository and allowed. The same on macOS and Linux.
+      `~/` is recorded as written; any other relative path is made absolute against the
+      directory setup ran in (its logical `pwd`, not `pwd -P`); an absolute path is kept. Then,
+      because the user's shell usually expands `~/` before setup sees it, **any resolved path
+      that begins with `$HOME/` is rewritten to `~/…` before it is recorded**. A recorded `~/`
+      is expanded against `$HOME` each time it is read; with `HOME` empty or unset, the run (or
+      setup) is refused `billing`, "HOME is not set", never expanded to `/…`. A sidecar's
+      directory is outside the repository and allowed. The same on macOS and Linux.
     - **Inside the repository** is decided by identity, not by comparing strings: the runner
       walks the key file's physical ancestors (its directory resolved with `cd -P`, then each
       parent up to `/`) and refuses when any of them `-ef` the top level of a worktree that
@@ -483,19 +486,29 @@ owner's direction of 2026-10-13.)*
       path components: the directory itself or one beneath it, so a sibling sharing a prefix
       (`<top>-keys/`) is outside. Identity handles case-insensitive file systems, symlinked
       parents, any shell, and WSL2's `/mnt/c` alike. A listed worktree whose directory no
-      longer exists (prunable) is skipped.
+      longer exists (prunable) is skipped. **One function decides it**, called by both `setup`
+      and every run, so the two can never disagree.
     - **The line format.** The file must hold exactly one line matching
-      `^[[:blank:]]*(export[[:blank:]]+)?ANTHROPIC_API_KEY=` (bracket classes, not `\t`, which
-      GNU grep reads literally inside brackets). Lines starting with `#` (after leading blanks)
+      `^[[:blank:]]*(export[[:blank:]]+)?ANTHROPIC_API_KEY=`, an extended expression (`grep -E`),
+      written with bracket classes, not `\t`, which POSIX bracket expressions read literally. Lines starting with `#` (after leading blanks)
       are comments and ignored; other lines are ignored; the last line may lack a trailing
       newline. The value is everything after the first `=`, with a trailing `\r` stripped, then
       trailing blanks stripped, then one pair of matching surrounding quotes (`"…"` or `'…'`)
       stripped. An empty value after that is no key. More than one matching line is refused as
       ambiguous. The file is never sourced, so nothing in it runs.
     - **The key reaches only claude**, by an `export` in the subshell that execs `claude -p`. It
-      is never on any process's argv (no `env ANTHROPIC_API_KEY=… claude`, no `jq --arg`), never
-      in a `context` command's or a command routine's environment, and never copied, printed
-      or logged.
+      is never on any process's argv (no `env ANTHROPIC_API_KEY=… claude`, no `jq --arg`, no
+      `awk -v`, `sed`, `expr`, `tr`, `cut` or `grep` given it as an argument), never in a
+      `context` command's or a command routine's environment, and never copied, printed or
+      logged. Handling it with shell builtins (`printf`, `echo`, `test`, parameter expansion)
+      cannot leak it to an argv by construction: a builtin starts no process.
+    - **How the check holds that** (rule 4: enumerate the authority, not a list of suspects):
+      it builds a shim directory from every executable name found in the test's `PATH`
+      directories, each linked to one recorder that writes its argv and then execs the real
+      tool, and puts that directory first on `PATH`. A second check reads `routines.sh` and
+      fails on any tool invoked by absolute path or through `command -p`, so nothing bypasses
+      the shims. A leaking runner (`env ANTHROPIC_API_KEY=… claude`) stays in the check as a
+      permanent negative case, which must fail on every run.
     - The run is refused, logged `billing` with its own reason, when the file is missing; is not
       a regular file (a symlink included, even one whose target is outside the repository);
       is unreadable; has no matching line, an empty value, or more than one matching line; lies
@@ -553,8 +566,8 @@ owner asked to decide.)*
   and the refusal names which limit refused. The health line adds `CANNOT CHECK — routines
   quota: no current reading of the 5-hour window since <when>; claude -p routines limited to 3
   runs a day (N of 3 runs used today)`, which the session summary repeats. `<when>` is the
-  5-hour window's `resetsAt` when the file has one (the reading stopped counting then), else
-  the file's `at`. With no file the clause reads `no reading ever of the 5-hour window` instead
+  5-hour window's `resetsAt` when it has passed (the reading stopped counting then), else the
+  file's `at` (a null `pct` with a future `resetsAt`, or no `resetsAt`). With no file the clause reads `no reading ever of the 5-hour window` instead
   of `no current reading … since <when>`. The `3` is the limit that binds: the
   smaller of `unknown_quota_daily_runs` and `daily_runs`, so with only the default it reads as
   above.
