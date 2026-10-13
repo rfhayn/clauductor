@@ -263,10 +263,10 @@ func TestStartPlan(t *testing.T) {
 		t.Errorf("issue: a branch pattern with no {issue} gives the plan the issue %q", i)
 	}
 
-	// While panel.json is untrusted, templates are off (409 untrusted-config), so "New
-	// lane here" opens a plain lane on the worktree, as before PANEL-29; trusted, it
-	// picks the build.
-	check("untrusted", "hereUntrusted", placed{"", "add-score-photo", "existing", "/repo/w/add-score-photo", "new,existing,root"})
+	// [NEWLANE-3-S4] While panel.json is untrusted, templates are off (409
+	// untrusted-config), so "New lane here" opens a plain lane on the worktree, as before
+	// PANEL-29; trusted, it picks the build.
+	check("[NEWLANE-3-S4]", "hereUntrusted", placed{"", "add-score-photo", "existing", "/repo/w/add-score-photo", "new,existing,root"})
 	check("untrusted", "hereTrusted", placed{"build", "add-score-photo", "existing", "/repo/w/add-score-photo", "existing"})
 
 	// A lane already runs in the branch's worktree: the server refuses a second (409

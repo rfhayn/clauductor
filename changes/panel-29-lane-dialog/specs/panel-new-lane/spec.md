@@ -57,7 +57,7 @@ WHEN a new branch is requested that already exists locally or on origin THE SYST
 - **THEN** "Its existing branch, in a new worktree" is chosen, with the refusal's sentence shown
 
 ### Requirement: New lane here picks the change it is on
-WHEN "New lane here" opens the dialog on a worktree whose branch matches a template's branch pattern THE SYSTEM SHALL pre-select that template, the name from the branch, and the worktree.
+WHEN "New lane here" opens the dialog on a worktree whose branch matches a template's branch pattern THE SYSTEM SHALL pre-select that template, the name from the branch, and the worktree, unless the project's panel.json is untrusted, when it SHALL open a plain lane on the worktree with no template (templates are refused while the config is untrusted; the owner's decision of 2026-10-13).
 
 #### Scenario: [NEWLANE-3-S1] A change's worktree pre-selects its build
 - **GIVEN** a worktree on `change/add-score-photo`
@@ -74,6 +74,12 @@ WHEN "New lane here" opens the dialog on a worktree whose branch matches a templ
 #### Scenario: [NEWLANE-3-S3] A worktree no template names opens with no template
 - **GIVEN** a worktree on a branch that matches no template's pattern
 - **WHEN** "New lane here" opens the dialog on it
+- **THEN** no template is selected, and the worktree is
+
+#### Scenario: [NEWLANE-3-S4] An untrusted config opens a plain lane
+- **GIVEN** a worktree on `change/add-score-photo`, which the build template's pattern names
+- **AND** the project's panel.json is not trusted
+- **WHEN** "New lane here" opens the dialog on that worktree
 - **THEN** no template is selected, and the worktree is
 
 ### Requirement: What is in a build's way is shown before it starts
