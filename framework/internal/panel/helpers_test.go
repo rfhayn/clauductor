@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -297,6 +298,67 @@ func fastTicks() Ticks {
 		Queues: 100 * time.Millisecond, Prompt: 50 * time.Millisecond, PromptKick: 100 * time.Millisecond,
 		Obs: 50 * time.Millisecond, Notify: 50 * time.Millisecond, Trust: 50 * time.Millisecond, Token: 50 * time.Millisecond,
 		Hub: 250 * time.Millisecond,
+	}
+}
+
+// envCommand is the command an argv runs: past a leading /usr/bin/env and env's own
+// options (-u NAME, -i, NAME=value, --). The account poll runs `claude auth status`
+// through lanes.ScrubbedArgv, and a runner that looked only at argv[0] for "claude"
+// passed it to the real one (#93): a runner fakes or refuses claude by this, not argv.
+// It is nil when it cannot tell (an env option it does not know, or no command): that
+// may be claude, so a runner refuses it (refuseUnreadEnv) rather than run it.
+func envCommand(argv []string) []string {
+	if len(argv) == 0 || argv[0] != "/usr/bin/env" {
+		return argv
+	}
+	for i := 1; i < len(argv); i++ {
+		switch a := argv[i]; {
+		case a == "--":
+			return argv[i+1:]
+		case a == "-u":
+			i++
+		case a == "-i", strings.HasPrefix(a, "-u"):
+		case strings.HasPrefix(a, "-"):
+			return nil // an env option this does not know
+		case strings.Contains(a, "="):
+		default:
+			return argv[i:]
+		}
+	}
+	return nil
+}
+
+// refuseUnreadEnv is the error a runner returns for an argv whose command envCommand
+// cannot tell (nil): it may be claude (#93).
+func refuseUnreadEnv(argv []string) error {
+	return fmt.Errorf("unexpected %v: cannot tell what /usr/bin/env runs", argv)
+}
+
+// The runners refuse what envCommand cannot read rather than run it: `env -S` would
+// split "claude agents" and run the claude on PATH (#93).
+func TestRunnersRefuseAnEnvCommandTheyCannotRead(t *testing.T) {
+	argv := []string{"/usr/bin/env", "-S", "claude agents"}
+	for name, run := range map[string]signals.Runner{
+		"v2Runner":        v2Runner("", "", "", "", new(atomic.Bool)),
+		"lifecycleRunner": lifecycleRunner,
+	} {
+		if _, err := run(context.Background(), t.TempDir(), argv); err == nil || !strings.Contains(err.Error(), "cannot tell what /usr/bin/env runs") {
+			t.Errorf("%s(%q): %v, want it refused", name, argv, err)
+		}
+	}
+}
+
+func TestEnvCommandSeesClaudeBehindEnv(t *testing.T) {
+	for _, tc := range []struct{ argv, want []string }{
+		{lanes.ScrubbedArgv("claude", "auth", "status", "--json"), []string{"claude", "auth", "status", "--json"}},
+		{[]string{"/usr/bin/env", "-i", "-uX", "A=b", "--", "claude", "agents"}, []string{"claude", "agents"}},
+		{[]string{"/usr/bin/env", "CLAUDUCTOR_LANE=one", "true"}, []string{"true"}},
+		{[]string{"/usr/bin/env", "-S", "claude agents"}, nil},
+		{[]string{"claude", "--version"}, []string{"claude", "--version"}},
+	} {
+		if got := envCommand(tc.argv); strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Errorf("envCommand(%q) = %q, want %q", tc.argv, got, tc.want)
+		}
 	}
 }
 
