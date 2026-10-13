@@ -5,13 +5,23 @@
 - 2026-10-13 revised after review (#96), design.md untouched: ATTACH-2-S2 needs a card and a dirty checkout, and `diff HEAD` becomes `diff-index` (4.1); D5's word rule covers a bare `..` and a script behind any program's flags (ATTACH-3-S7), and settles `/dev/null` as refused (ATTACH-3-S8); the snapshot helper moves to `internal/treesnap`; remove's output is tested through the command; the menu line and the Remove confirmation come from a pure JS function tested under node (2.3, 2.4, ATTACH-5-S2)
 - 2026-10-13 the owner allowed `/dev/null` as a redirection's target (design.md D5's one exception; its approval to be re-recorded by the owner's decision); ATTACH-3-S8 and 3.1 follow it
 - 2026-10-13 the owner made a sidecar's commands argv-only, with no shell text (design.md D5 rewritten; its approval to be re-recorded by the owner's decision): ATTACH-3-S1 to S9 are rewritten to the new rule, ATTACH-6-S1 is added (a sidecar's card shows its stderr), 1.1 writes argv-form commands for an attach, and 3.1's tokenizer is gone
+- 2026-10-13 review of the argv-only D5, applied by the owner's decision (design.md D5 edited; its approval to be re-recorded after one last review round, in which a program that runs code from a flag of its own counts as a named known limit unless the panel writes that command):
+  - paths are judged piece by piece, with no flag list;
+  - `'` `"` `\` `!` are refused;
+  - code flags are refused at any position, while `.`, `eval`, `source`, fetch-and-run and the script-file rule apply in program position;
+  - `bun run <bare word>` is allowed;
+  - fetch-and-run gains `npm exec`, `npm x`, `npm init`, the `create` forms and `go run module@version`;
+  - stderr is merged at the card's call site only;
+  - a script file must exist when trusted;
+  - known limits and accepted false refusals are named;
+  - 3.1 to 3.3 are renumbered in order (3.2 is the card's stderr, 3.3 trust).
 
 ## Decision log
 - 2026-10-13 proposal review (#96): task 3.1's tokenizer is stricter than design.md D5's "What is checked" text, to hold D5's own requirement ("a word whose location cannot be known before it runs"): any argv word holding whitespace or a shell operator is split as a script whatever program precedes it (D5 names only `sh`, `bash`, `zsh` and `dash` with `-c`); `<`, `>` and `&` split too; a backslash is unescaped before a word is judged; a bare `..` is a path; and every shell expansion character (`*` `?` `[` `{` `}` `~` `$` backtick) is refused, as is each `:` entry of a leading assignment. design.md is unchanged, and this line is here so the owner sees the difference when re-approving
 - 2026-10-13 the owner's decision, superseding the line above: a sidecar's commands are argv lists with no shell text (design.md D5). No script is parsed, so the tokenizer is dropped, and its rules with it. The owner's `/dev/null` redirection exception of the same day is superseded too: with no shell there are no redirections, and the panel merges a sidecar card's stderr itself (ATTACH-6-S1), so `2>&1` is not needed. Four review rounds each found another shell form the tokenizer missed (nested quoting, `eval`, extglob, backslash-newline, `export PATH=…`, brace expansion, globs), which is why the class is closed by having no shell text at all
 
 ## 1. The sidecar and `panel attach`
-- [ ] 1.1 `install.PlanInit` takes its target path, and whether a config already in the repository refuses the plan (`panel init`, the page's Create this config) or adds a note saying it will not be read (attach). The reading of the repository is unchanged: `panel init` and `/api/projects/init-preview` produce the same bytes and notes as before. For an attach, every command is written in argv form with no `sh -c` and no `2>&1` (design.md D5): `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh", "--text"]`, `["sh", ".claude/panel-suggest.sh", "<build|propose|fix|ops>"]`, `["scripts/ci/run-local.sh"]`, and the detected gate as it is today (`["npm", "run", "gate"]`, `["make", "gate"]`). The schema does not change: `command` is already an argv list the panel execs with no shell. Tested in `framework/internal/panel/install/init_test.go`, whose existing cases pass unchanged, plus a case pinning that the plan for an attach equals the in-repository plan except for those commands, and that 3.1's list is empty for it, citing [ATTACH-1-S2]
+- [ ] 1.1 `install.PlanInit` takes its target path, and whether a config already in the repository refuses the plan (`panel init`, the page's Create this config) or adds a note saying it will not be read (attach). The reading of the repository is unchanged: `panel init` and `/api/projects/init-preview` produce the same bytes and notes as before. For an attach, every command is written in argv form with no `sh -c` and no `2>&1` (design.md D5): `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh", "--text"]`, `["sh", ".claude/panel-suggest.sh", "<build|propose|fix|ops>"]`, `["scripts/ci/run-local.sh"]`, and the detected gate as it is today (`detectGates`: `["npm", "run", "gate"]`, `["pnpm", "run", "gate"]`, `["yarn", "run", "gate"]`, `["bun", "run", "gate"]`, `["make", "gate"]`, for each gate name). `bun run <bare word>` is allowed by D5's exception, so every one of these passes 3.1. The schema does not change: `command` is already an argv list the panel execs with no shell. Tested in `framework/internal/panel/install/init_test.go`, whose existing cases pass unchanged, plus a case pinning that the plan for an attach equals the in-repository plan except for those commands, and that 3.1's list is empty for it, citing [ATTACH-1-S2]
 - [ ] 1.2 `install.Attach` (new `framework/internal/panel/install/attach.go`) resolves the repository as `panel add` does, picks the id (the config name's slug, or `--id`), writes `~/.clauductor/projects/<id>/panel.json` with `O_EXCL` (folder 0700, file 0600), and registers it through `AddProject` with that config. It removes the file it wrote when registering fails. It attaches in place a registered project whose registry `config` is empty and whose `.clauductor/panel.json` does not exist, keeping its id, socket and lane registry (design.md D4). It refuses any other registered project, and a sidecar already at the path, with design.md's messages (D3). Tested in a new `framework/internal/panel/install/attach_test.go` citing [ATTACH-1-S1], [ATTACH-1-S2], [ATTACH-1-S3], [ATTACH-1-S4], [ATTACH-1-S5] and [ATTACH-1-S6]
 - [ ] 1.3 `clauductor panel attach [<repo>]` in `framework/internal/cmd/panel.go` (`--id`, `--default`; the repository defaults to the current directory's git toplevel) prints what it wrote, init's notes, and the `clauductor panel trust --project <repo>` line, and follows a running panel as `panel add` does (`followRunningPanel`). Tested in a new `framework/internal/cmd/panel_attach_test.go`, which drives the cobra command against a real git repository in a temporary directory with `HOME` pointed at another, citing [ATTACH-1-S1] and [ATTACH-1-S2] (the output carries init's notes for the repository, one per choice)
 - [ ] 1.4 The repository-untouched proof: a snapshot helper in a new test-support package, `framework/internal/treesnap` (beside `internal/testbin`), so the tests in `cmd` and `panel` can both import it. It records every file and directory under a root, `.git` included (path, mode, size, mtime, SHA-256), and a diff of two snapshots names what changed; `treesnap`'s own test pins that a rewritten file with the same bytes, a new file and a mode change each show. The test in `panel_attach_test.go` attaches a repository with commits, a branch, an untracked file and an ignored file, and compares. It cites [ATTACH-2-S1], and is first run against a version that writes into the repository (the in-repository target) to see it fail
@@ -24,36 +34,58 @@
 
 ## 3. Commands stay in the repository
 - [ ] 3.1 A pure function in `framework/internal/panel/config` lists every command in a config, and every word in it, that a sidecar may not hold, by design.md D5's rule, with the word, why, and "move it into a script in the repository". It judges argv words only and parses no script. The rule has four parts:
-  - **Code is refused** wherever the program appears in the argv, after a launcher (`env`, `nice`, `nohup`, `time`, `timeout`) too, matched on the program's base name:
+  - **Code flags, anywhere.** An interpreter's base name followed anywhere later in the argv by its code flag is refused at any position, so a launcher needs no list (`caffeinate -i bash -c …`, `sudo`, `stdbuf`, `arch`, `xcrun`):
     - `sh`, `bash`, `zsh`, `dash`, `ksh` and `fish` with `-c`, or a flag cluster holding `c` (`-lc`);
     - `python*` with `-c` or `-m`;
-    - `node`, `deno` and `bun` with `-e`, `-p` or `--eval`;
-    - `perl` with `-e` or `-E`, `ruby` with `-e`, `php` with `-r`, `osascript` with `-e`;
-    - `awk` (and `gawk`, `mawk`, `nawk`) and `sed` without `-f <file>`;
-    - `eval`, `source` and `.`;
-    - `env -S` and `--split-string`;
-    - `xargs`, and `find` with `-exec`, `-execdir`, `-ok` or `-okdir`;
-    - `npx`, `bunx`, `uvx`, `pnpm dlx`, `yarn dlx` and `pipx run`;
-    - a shell, `python*`, `node`, `deno`, `bun`, `perl`, `ruby` or `php` whose first operand (its first word that is not a flag) is not a script file inside the repository, or that has none.
-  - **Every word is literal.** A word holding `*` `?` `[` `]` `{` `}` `~` `$`, a backtick, `(` `)` `<` `>` `|` `&` `;`, a space, a tab or a newline is refused. No command key takes a placeholder (`{name}` and `{issue}` belong to `branch_pattern` and `first_prompt`, which are not commands and are not checked), so `{{.Dir}}`-style text is refused like any other `{`.
-  - **Every path stays inside the root**, once joined to it and resolved through symlinks as far as it exists. That covers:
-    - a word that is absolute, holds a `/`, or is `..` or has a `..` segment;
-    - the value of a `NAME=value` word, and each of its `:` entries;
-    - the value of `-C`, `--directory`, `--prefix`, `--cwd`, `--git-dir`, `--work-tree`, `-f`, `--file` and `--makefile`, attached (`-C..`, `--prefix=..`) or separate (`-C ..`);
-    - an interpreter's script file.
-  - **Other bare words are allowed:** a program on `PATH`, or a literal argument (`gate`, `--text`, `--format=%h`, `main..HEAD`, which has no `..` segment).
+    - `node`, `deno` and `bun` with `-e`, `-p`, `--eval` or `--print`;
+    - `perl` with `-e` or `-E`, `ruby` with `-e`, `php` with `-r`, `osascript` with `-e`.
+  - **Program position only:** `argv[0]`, or the word after a launcher `env`, `nice`, `nohup`, `time` or `timeout`, with the launcher's own flags skipped.
+    - `.`, `eval` and `source`. Elsewhere `.` is a path, the root: `go test .` and `git add .` pass.
+    - `env -S` and `--split-string`.
+    - `awk` (and `gawk`, `mawk`, `nawk`) and `sed` without `-f <file>`.
+    - `xargs`, and `find` with `-exec`, `-execdir`, `-ok` or `-okdir`.
+    - Fetch-and-run:
+      - `npx`, `bunx`, `uvx`, `pipx run`;
+      - `npm exec`, `npm x`, `npm init <package>`, `npm create`;
+      - `pnpm dlx`, `pnpm create`, `yarn dlx`, `yarn create`;
+      - `bun x`, `bun create`;
+      - `go run` with a word holding `@` after a `/`.
+    - A shell, `python*`, `node`, `deno`, `bun`, `perl`, `ruby` or `php` whose first operand (its first word that is not a flag) is not a script file inside the repository that exists when the config is trusted, or that has none. The exception is `bun run <bare word>`, a `package.json` script as with `npm run`.
+  - **Every word is literal.** These are refused in any word:
+    - `*` `?` `[` `]` `{` `}` `~` `$`, a backtick;
+    - `(` `)` `<` `>` `|` `&` `;`;
+    - `'` `"` `\` `!`;
+    - a space, a tab, a newline.
+
+    No command key takes a placeholder (`{name}` and `{issue}` belong to `branch_pattern` and `first_prompt`, which are not commands and are not checked), so `{{.Dir}}`-style text is refused like any other `{`.
+  - **Paths, piece by piece, with no flag list.**
+    - A word holding `/` or `..` is split at every `=`, `:` and `,`.
+    - From each piece a leading `--name=` is stripped, then a single-dash flag letter (`-C`, `-I`, `-o`, `-p`), then a leading `!` or `@`.
+    - A piece that is then absolute, holds a `/`, or is `..` or has a `..` segment must resolve inside the root once joined to it and resolved through symlinks as far as it exists.
+    - A separate word (`-C ..`, `..`) is judged the same way, and so is an interpreter's script file.
+    - Still allowed: `main..HEAD` (no `..` segment), `-j4` and `--format=%h` (neither `/` nor `..`), and `./...` (inside).
+  - **Other bare words are allowed:** a program on `PATH`, or a literal argument (`gate`, `--text`).
 
   Tested in a new `framework/internal/panel/config/sidecar_test.go` with a table of cases:
-  - each code form above, refused;
-  - each forbidden character, refused;
-  - each path shape, refused: absolute, `..`, `docs/../../x`, `-C..`, `-C ..`, `--prefix=..`, `--git-dir=/tmp/x`, `env PATH=x:..`, a symlink out;
+  - each code flag, refused, at `argv[0]` and behind `caffeinate -i` and `env`;
+  - each program-position form, refused; `.` allowed outside program position (`go test .`, `git add .`);
+  - each fetch-and-run form, refused: `npm exec tool`, `npm x tool`, `npm init pkg`, `npm create app`, `yarn create app`, `pnpm create app`, `go run example.com/tool@v1`, and the rest;
+  - each forbidden character, refused, `'` `"` `\` `!` included;
+  - each path shape, refused: `..`, `docs/../../x`, `-C..`, `-C ..`, `--prefix=..`, `--chdir=..`, `-p..`, `-I../lib`, `-o/tmp/x`, `@/abs`, `--exec-path=..`, `--manifest-path=../o`, `--require=../x.js`, `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`, `alias.x=!../gate.sh`, `https://host/x`, a symlink out;
   - a symlink that stays in, allowed;
-  - `sh` with no operand, and `sh ../other/gate.sh`, refused;
-  - one allowed row for each argv command 1.1 writes for an attach, plus `sh .claude/x.sh arg`, `node infra/roadmap-queue.mjs --text`, `git log --format=%h`, `git log main..HEAD` and `make -C sub gate`.
+  - `sh` with no operand, `sh ../other/gate.sh`, and `sh .claude/missing.sh` (a file that does not exist), refused;
+  - allowed rows:
+    - each argv command 1.1 writes for an attach, `bun run gate` among the detected gates;
+    - `sh .claude/x.sh arg` and `node infra/roadmap-queue.mjs --text`;
+    - `git log --format=%h`, `git log main..HEAD` and `git add .`;
+    - `go test .` and `go test ./...`;
+    - `make -j4 gate` and `make -C sub gate`.
 
   It cites [ATTACH-1-S2], [ATTACH-3-S3], [ATTACH-3-S5], [ATTACH-3-S7], [ATTACH-3-S8] and [ATTACH-3-S9].
-- [ ] 3.3 A sidecar's card shows its stderr with its stdout (design.md D5, Output): the card's run in `framework/internal/panel/runtime.go` (`commandFetch`) merges the two for a config outside its repository, within today's output limit, and keeps stdout alone for an in-repository config. Metrics and suggest keep stdout alone, as their output is parsed. Tested in `framework/internal/panel/multiproject_integration_test.go`: a script that writes one line to each stream, run as a card in an attached project and in one with its own config, citing [ATTACH-6-S1], and first run against today's code to see the sidecar's stderr line missing
-- [ ] 3.2 `install.CheckTrust` and `install.TrustedNow` refuse a config outside its repository whose list is not empty: no record is written, and an entry recorded earlier does not count. Both take only a path and a hash today, so to enforce this each reads the file at the config path, confirms its bytes hash to the hash it was given (a mismatch is untrusted), parses it, and runs 3.1's list against the resolved root; a file that does not read or parse is untrusted. The trust report (`TrustConfigReport` and `PrintTrusted`, `Inspect`'s `Runs`, the page's `trustReport`) marks each offending line `NOT ALLOWED IN A SIDECAR (<word>: <why>; move it into a script in the repository): …`, and `panel trust` prints them and exits non-zero. Tested in `framework/internal/panel/install/trust_test.go` citing [ATTACH-3-S1], [ATTACH-3-S3], [ATTACH-3-S4], [ATTACH-3-S5], [ATTACH-3-S7], [ATTACH-3-S8] and [ATTACH-3-S9], and in `framework/internal/panel/live_integration_test.go` citing [ATTACH-3-S2] (a hand-written trust entry; the project loads untrusted) and [ATTACH-3-S6] (the `/api/projects/{id}/trust` report and the trust, refused). Each of S1, S2 and S6 is first run against today's code to see the trust recorded or the commands on
+- [ ] 3.2 A sidecar's card shows its stderr with its stdout (design.md D5, Output). The merge is at the card's call site only, `runtime.go:441` (the card's `commandFetch`). It is not in the shared `commandFetch`, which also serves suggest (`runtime.go:469`), metrics (`metrics_source.go:58`), `gh pr list` (`runtime.go:224`) and `claude agents` (`runtime.go:556`), whose output is parsed. It applies to a config outside its repository, within today's output limit. An in-repository config keeps stdout alone. Tested in `framework/internal/panel/multiproject_integration_test.go`, citing [ATTACH-6-S1]:
+  - a script that writes one line to each stream, run as a card in an attached project and in one with its own config, first run against today's code to see the sidecar's stderr line missing;
+  - the attached project's suggest command writing a line to stderr, its suggestions still parsed.
+- [ ] 3.3 `install.CheckTrust` and `install.TrustedNow` refuse a config outside its repository whose list is not empty: no record is written, and an entry recorded earlier does not count. Both take only a path and a hash today, so to enforce this each reads the file at the config path, confirms its bytes hash to the hash it was given (a mismatch is untrusted), parses it, and runs 3.1's list against the resolved root; a file that does not read or parse is untrusted. The trust report (`TrustConfigReport` and `PrintTrusted`, `Inspect`'s `Runs`, the page's `trustReport`) marks each offending line `NOT ALLOWED IN A SIDECAR (<word>: <why>; move it into a script in the repository): …`, and `panel trust` prints them and exits non-zero. Tested in `framework/internal/panel/install/trust_test.go` citing [ATTACH-3-S1], [ATTACH-3-S3], [ATTACH-3-S4], [ATTACH-3-S5], [ATTACH-3-S7], [ATTACH-3-S8] and [ATTACH-3-S9], and in `framework/internal/panel/live_integration_test.go` citing [ATTACH-3-S2] (a hand-written trust entry; the project loads untrusted) and [ATTACH-3-S6] (the `/api/projects/{id}/trust` report and the trust, refused). Each of S1, S2 and S6 is first run against today's code to see the trust recorded or the commands on
 
 ## 4. Serving writes nothing
 - [ ] 4.1 The panel's git reads of a served checkout write nothing: `pollGit`'s `status` and `log` in `framework/internal/panel/runtime.go`, and the read-only `rev-parse` calls beside them, pass `--no-optional-locks`. The dirty-tree stat `git diff HEAD --shortstat` becomes `git --no-optional-locks diff-index --shortstat HEAD`: on git 2.54 `git diff` rewrites `.git/index` even with `--no-optional-locks` (or `GIT_OPTIONAL_LOCKS=0`), while `diff-index` leaves it alone and does not count a file whose stat alone changed. Tested in `framework/internal/panel/multiproject_integration_test.go` with `treesnap` from 1.4: an attached repository whose config has a card (without one, `CardsCheckout` is empty and the root is never polled), one tracked file touched with its bytes unchanged and one tracked file modified, then one git poll of the cards' checkout. It asserts the snapshot is unchanged and the dirty stat counts the modified file only, citing [ATTACH-2-S2]. The test is first run against today's `diff HEAD`, and against `status` without the flag, to see `.git/index` change. If it cannot be made to fail that way, the builder stops and records why in the decision log, rather than keeping a test that never failed
@@ -65,7 +97,13 @@
   - "Add, trust and remove from the page" says what Remove from panel… says for an attached project (2.4), and that + Add a project… does not attach until PANEL-43.
   - "`panel init`" says attach uses the same reading.
   - "Config trust" and "Security model" state D5's rule for a sidecar (argv only, no shell text: code forms, non-literal words and paths outside the repository are refused, with "move it into a script in the repository"), that an earlier trust entry does not count, that the `/dev/null` exception is superseded, and that in-repository configs are unchanged.
-  - They also state its limits (not a sandbox). What the repository's own content does is not judged: a script file, a Makefile target, a `package.json` script. The environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`) is outside the check. A program that runs code from an argument the rule does not name is a limit too, and is narrowed but not closed by the literal-word rule.
+  - They also state its limits (not a sandbox):
+    - what the repository's own content does is not judged: a script file, a Makefile target, a `package.json` script;
+    - the environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`) is outside the check;
+    - a program that runs code from a flag of its own;
+    - and design.md D5's named limits: `ssh` runs elsewhere; `docker` runs an image's code, and `docker --mount` reaches any host path; an scp-style remote (`git@host:o/r.git`) passes to `git clone`, `rsync` or `scp`; a package install runs the scripts it fetches; two cards can download a file and then run it; `go test -exec <bare word>`; `flock -c <word>`; and the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`).
+  - They list the accepted false refusals (D5, "The cost"): `git diff HEAD~1`, `git log @{u}..`, `node --test`, `bun test`, `bash -o pipefail x.sh`, `python3 -W error x.py`, `pytest -k "not slow"`, and a URL, each moved into a script in the repository.
+  - A sidecar's card shows its stderr with its stdout, and no `2>&1` is needed (ATTACH-6).
   - The attach subsection says what attaching and serving never write (D8), and what a lane, RUN and Close lane do write.
   - The attach subsection links to `docs/plugin.md`'s opt-out.
 - [ ] 5.2 `docs/plugin.md`: a section on installing at user scope. It says what loads in a repository that does not use the model (the namespaced skills and the SessionStart hook; not the guard hooks, which stand aside without `.claude/clauductor-plugin`), and gives the per-repository opt-out, `"enabledPlugins": {"clauductor@clauductor": false}` in the uncommitted `.claude/settings.local.json` (design.md D9). Project scope stays the recommendation for a repository that runs the model.

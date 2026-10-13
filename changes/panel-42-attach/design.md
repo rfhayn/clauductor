@@ -161,52 +161,78 @@
     another shell form that slipped through, and every such form is code the panel cannot read
     before it runs. Anything more than a program and literal words belongs in a script file in the
     repository, and every refusal says so: "move it into a script in the repository".
-  - **No word is code.** These are refused, wherever the program appears in the argv (after a
-    launcher such as `env`, `nice`, `nohup`, `time` or `timeout` too):
-    - a shell or interpreter given inline code: `sh`, `bash`, `zsh`, `dash`, `ksh` or `fish` with
-      `-c`; `python*` with `-c`; `node` (or `deno`, `bun`) with `-e`, `-p` or `--eval`; `perl`
-      with `-e` or `-E`; `ruby` with `-e`; `php` with `-r`; `osascript` with `-e`; `awk` and its
-      kin, and `sed`, with a program in an argument rather than `-f <file>`. Their argument is a
-      program, not a path.
-    - `python*` with `-m`: it names a module, not a path, and the module is found on Python's path,
-      which is mostly outside the repository (`pip`, `http.server`). A module of the repository's
-      own is run by its file instead.
-    - `eval`, `source` and `.`: they run text as shell code.
+  - **Code flags are refused anywhere in the argv.** An interpreter's name (matched on its base
+    name), followed anywhere later by its code flag, is refused wherever it stands. So a launcher
+    in front of it needs no list (`env`, `nice`, `sudo`, `caffeinate`, `stdbuf`, `arch`, `xcrun`):
+    - `sh`, `bash`, `zsh`, `dash`, `ksh` or `fish` with `-c`, or a flag cluster holding `c`
+      (`-lc`);
+    - `python*` with `-c`, or with `-m`. `-m` names a module, not a path, and Python finds the
+      module on its own path, which is mostly outside the repository (`pip`, `http.server`). A
+      module of the repository's own is run by its file instead.
+    - `node`, `deno` or `bun` with `-e`, `-p`, `--eval` or `--print`; `perl` with `-e` or `-E`;
+      `ruby` with `-e`; `php` with `-r`; `osascript` with `-e`.
+
+    Their argument is a program, not a path.
+  - **These are refused in program position:** `argv[0]`, or the word after a launcher `env`,
+    `nice`, `nohup`, `time` or `timeout`, with that launcher's own flags skipped.
+    - `.`, `eval` and `source`: they run text as shell code. (In any other position `.` is a path,
+      the repository's root: `go test .` and `git add .` are allowed.)
     - `env -S` (or `--split-string`): it splits one word into a command line.
+    - `awk` (and `gawk`, `mawk`, `nawk`) and `sed`, unless their program is a file (`-f <file>`).
     - `xargs`, and `find` with `-exec`, `-execdir`, `-ok` or `-okdir`: they build commands from
       data the check never sees.
-    - `npx`, `bunx`, `pnpm dlx`, `yarn dlx`, `uvx` and `pipx run`: they fetch and run a package
-      that is not in the repository.
-    - an interpreter with no script file: a shell, `python*`, `node`, `deno`, `bun`, `perl`,
-      `ruby` or `php` is allowed only when its first operand (its first word that is not a flag)
-      is a script file inside the repository, so it runs the repository's own code.
+    - **Fetch-and-run:** a package that is not in the repository, fetched and run:
+      - `npx`, `bunx`, `uvx` and `pipx run`;
+      - `npm exec` and `npm x`;
+      - `pnpm dlx`, `yarn dlx` and `bun x`;
+      - `npm init <package>`, and `npm create`, `yarn create`, `pnpm create` and `bun create`;
+      - `go run` given a word with `@` after a `/` (`module@version`).
+    - **An interpreter with no script file of the repository's:** a shell, `python*`, `node`,
+      `deno`, `bun`, `perl`, `ruby` or `php` is allowed only when its first operand (its first
+      word that is not a flag) is a script file inside the repository. That file must exist when
+      the config is trusted. The one exception is `bun run <bare word>`: it runs the
+      repository's `package.json` script, as `npm run` does, and `panel init` writes it for a
+      `bun` repository's gate.
   - **Every word is literal.** With no shell, these characters reach the program as they are, so
-    a word holding one is a mistake or a trick, and it is refused: `*` `?` `[` `]` `{` `}` `~` `$`
-    a backtick, `(` `)` `<` `>` `|` `&` `;`, and a newline. A word holding a space or a tab is
-    refused too. An argument with whitespace is almost always a command line or a program for
-    another program to run (an `awk` program, a `git` alias, a command for `ssh`). Here-strings
-    and redirections cannot exist without a shell, so they are refused by these characters.
-  - **Every path stays in the repository.** A word that is or holds a path must resolve inside
-    the root once joined to it and resolved through symlinks as far as it exists. That covers:
-    - a word that is absolute, holds a `/`, or is `..` or has a `..` segment (`git -C ..`);
-    - the value of a `NAME=value` word, and each of its `:` entries (`env PATH=x:.. gate`);
-    - the value of a flag that takes a directory or a file, whether attached or separate: `-C`,
-      `--directory`, `--prefix`, `--cwd`, `--git-dir`, `--work-tree`, `-f`, `--file` and
-      `--makefile` (`-C..`, `--prefix=..`, `-C ..`);
-    - an interpreter's script file.
-    A bare word with no `/` is a program found on `PATH` (`make`, `npm`, `git`) or a literal
-    argument (`gate`, `--text`, `main..HEAD`), and is allowed.
-  - **Output.** With no `2>&1`, a sidecar's card shows its stderr with its stdout: the panel merges
-    them itself, so the generated commands need no shell. A queue already logs both. Metrics and
-    suggest commands keep stdout alone, because the panel parses it, and their stderr is shown on
-    failure as today.
+    a word holding one is a mistake or a trick, and it is refused:
+    - `*` `?` `[` `]` `{` `}` `~` `$`, a backtick;
+    - `(` `)` `<` `>` `|` `&` `;`;
+    - `'` `"` `\` `!`;
+    - a space, a tab, a newline.
+
+    An argument with whitespace is almost always a command line or a program for another program
+    to run (an `awk` program, a `git` alias, a command for `ssh`). Here-strings and redirections
+    cannot exist without a shell, so they are refused by these characters.
+  - **Every path stays in the repository, judged piece by piece.** A word holding a `/` or `..`
+    is split at every `=`, `:` and `,`. From each piece a leading `--name=` is stripped, then a
+    single-dash flag letter (`-C`, `-I`, `-o`, `-p`), then a leading `!` or `@`. A piece that is
+    then absolute, holds a `/`, or is `..` or has a `..` segment must resolve inside the root,
+    once joined to it and resolved through symlinks as far as it exists.
+    - **Refused by this:** `-C..`, `-C ..`, `--prefix=..`, `--chdir=..`, `-p..`, `-I../lib`,
+      `-o/tmp/x`, `-d @/abs`, `--exec-path=..`, `--manifest-path=../o`, `--require=../x.js`,
+      `NODE_OPTIONS=--require=../x.js`, `env PATH=x:..`, `alias.x=!../gate.sh`.
+    - **No flag list:** every flag's value is judged the same way.
+    - **A URL is refused:** its `//host/path` piece is absolute (the cost, below).
+    - **Still allowed:** `main..HEAD` (no `..` segment), `-j4` and `--format=%h` (no `/` or
+      `..`), and `./...` (inside).
+    - **Judged whatever its form:** an interpreter's script file.
+
+    A bare word with no `/` and no `..` is a program found on `PATH` (`make`, `npm`, `git`) or a
+    literal argument (`gate`, `--text`), and is allowed.
+  - **Output.** With no `2>&1`, a sidecar's card shows its stderr with its stdout: the panel
+    merges them itself, at the card's call site only (`runtime.go`, the card's `commandFetch`), so
+    the generated commands need no shell. A queue already logs both. Every other command keeps
+    stdout alone, because the panel parses it, and shows its stderr on failure as today. That
+    covers metrics, suggest, `gh pr list` and `claude agents`, which share `commandFetch`.
   - **The `/dev/null` exception is superseded.** The owner allowed `/dev/null` as a redirection's
     target on 2026-10-13. With no shell there is no redirection, so the exception has nothing left
     to cover and is gone.
   - **`panel init` for an attached repository writes argv-form commands.** They have no `sh -c`
     and no `2>&1`: `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh",
-    "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]` and
-    `["npm", "run", "gate"]`. `panel init` into the repository writes exactly what it writes today.
+    "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]`, and
+    the detected gate as today (`["npm", "run", "gate"]`, `["pnpm", "run", "gate"]`, `["yarn",
+    "run", "gate"]`, `["bun", "run", "gate"]`, `["make", "gate"]`). Every one passes this rule.
+    `panel init` into the repository writes exactly what it writes today.
   - **How it shows:** the trust report (`panel trust`, the page's **Trust config…**, the
     **Config untrusted** banner) marks each line with the word and the reason, ending in the
     remedy: `NOT ALLOWED IN A SIDECAR (<word>: <why>; move it into a script in the repository):
@@ -218,7 +244,20 @@
     "its commands still run in the repository's root, against the repository's own scripts").
     What the repository's own content does is not judged: a script file, a Makefile target, a
     `package.json` script. Nor is the environment the panel inherits: `PATH`, `CDPATH`,
-    `OLDPWD`.
+    `OLDPWD`. Known limits, named rather than closed (a program that runs code from a flag of its
+    own is one of these, unless the panel itself writes that command):
+    - `ssh` runs its command on another machine;
+    - `docker` runs an image's code, and `docker --mount` reaches any host path;
+    - an scp-style remote (`git@host:o/r.git`, `host:path`) passes as words to `git clone`,
+      `rsync` or `scp`;
+    - a package install runs the scripts it fetches (`npm install`'s lifecycle scripts);
+    - two cards can cooperate, one downloading a file into the repository and the other running
+      it;
+    - `go test -exec <bare word>` runs a program of that name;
+    - `flock -c <word>` runs its word through a shell;
+    - the program-position rules (`.`, `eval`, `xargs`, fetch-and-run, an interpreter's script
+      file) are not applied behind a launcher outside their list (`sudo`, `caffeinate`), though
+      code flags still are.
   - **In-repository configs:** unchanged. Their commands may still use `sh -c`, and `panel init`
     into a repository still writes them that way.
 - **Alternatives:**
@@ -239,9 +278,16 @@
   - **Not a parser:** a shell's grammar is too large to judge word by word, and every miss runs
     code nobody reviewed. An argv list with literal words has nothing to miss: what is checked is
     exactly what runs.
-  - **The cost:** a sidecar cannot run a personal script from `~/bin`, a one-line pipeline, or a
-    command that needs a glob or a variable. Its logic belongs in a script file in the
-    repository, or in an in-repository config.
+  - **The cost:** a sidecar cannot run a personal script from `~/bin`, a one-line pipeline, a
+    URL, or a command that needs a glob or a variable. These false refusals are accepted:
+    - `git diff HEAD~1` (`~`) and `git log @{u}..` (`{`);
+    - `node --test` and `bun test` (an interpreter with no script file);
+    - `bash -o pipefail x.sh` and `python3 -W error x.py` (a flag's value is read as the first
+      operand);
+    - `pytest -k "not slow"` (a space and quotes);
+    - `curl https://…` (a URL).
+
+    Each goes in a script file in the repository, or in an in-repository config.
 
 **D6. `panel remove` and the sidecar.**
 - **Recommended:** keep `~/.clauductor/projects/<id>/`, as remove keeps the lane registry today.

@@ -73,7 +73,7 @@ trust recorded against the config's path and content hash, wherever that file li
 
 - **The command and the page:** `clauductor panel attach <repo>`, and an Attach choice in **+ Add a project…** beside
   today's init, which writes into the repository.
-- **The generator:** the sidecar config comes from `panel init`'s reading of the repository, unchanged, with a target
+- **The generator:** the sidecar config comes from `panel init`'s reading of the repository, with argv-form commands (D5), with a target
   outside it.
 - **Commands that resolve outside the repository:** how the trust prompt shows them, and refuses them.
 - **`panel remove`:** whether it keeps or deletes the sidecar folder. Recommendation: keep it, as the lane registry

@@ -72,7 +72,8 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **AND** the banner's trust report marks the command as not allowed in a sidecar
 
 #### Scenario: [ATTACH-3-S3] The repository's own argv commands are trusted
-- **GIVEN** an attached project whose sidecar runs each argv command `panel init` writes for an attached repository, `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh", "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]` and `["npm", "run", "gate"]`, and also `["sh", ".claude/x.sh", "arg"]`, `["node", "infra/roadmap-queue.mjs", "--text"]`, `["git", "log", "--format=%h"]`, `["git", "log", "main..HEAD"]` and `["make", "-C", "sub", "gate"]` with `sub` inside the repository
+- **GIVEN** an attached project whose sidecar runs each argv command `panel init` writes for an attached repository, `["sh", ".claude/owner-queue.sh"]`, `["sh", ".claude/roadmap-queue.sh", "--text"]`, `["sh", ".claude/panel-suggest.sh", "build"]`, `["scripts/ci/run-local.sh"]`, and each detected gate, `["npm", "run", "gate"]`, `["pnpm", "run", "gate"]`, `["yarn", "run", "gate"]`, `["bun", "run", "gate"]` and `["make", "gate"]`, and also `["sh", ".claude/x.sh", "arg"]`, `["node", "infra/roadmap-queue.mjs", "--text"]`, `["git", "log", "--format=%h"]`, `["git", "log", "main..HEAD"]`, `["go", "test", "."]`, `["go", "test", "./..."]`, `["git", "add", "."]`, `["make", "-j4", "gate"]` and `["make", "-C", "sub", "gate"]`
+- **AND** every script file named exists in the repository, and `sub` is a directory inside it
 - **WHEN** the owner trusts it
 - **THEN** it is trusted and recorded, and no line is marked
 
@@ -93,21 +94,22 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **AND** the trust is refused and nothing is recorded
 
 #### Scenario: [ATTACH-3-S7] Shell and interpreter code is refused
-- **GIVEN** attached projects whose sidecars each have one card, running `["sh", "-c", "sh .claude/x.sh"]`, `["bash", "-lc", "make gate"]`, `["env", "sh", "-c", "make"]`, `["eval", "make"]`, `["xargs", "make"]`, `["find", ".", "-exec", "make", ";"]`, `["python3", "-c", "print(1)"]`, `["python3", "-m", "http.server"]`, `["node", "-e", "1"]`, `["env", "-S", "make gate"]`, `["npx", "tool"]`, and `["sh"]` with no script file
+- **GIVEN** attached projects whose sidecars each have one card, running `["sh", "-c", "sh .claude/x.sh"]`, `["bash", "-lc", "make gate"]`, `["env", "sh", "-c", "make"]`, `["eval", "make"]`, `["xargs", "make"]`, `["find", ".", "-exec", "make", ";"]`, `["python3", "-c", "print(1)"]`, `["python3", "-m", "http.server"]`, `["node", "-e", "1"]`, `["caffeinate", "-i", "bash", "-c", "make"]`, `["env", "-S", "make gate"]`, `["npx", "tool"]`, `["npm", "exec", "tool"]`, `["npm", "create", "app"]`, `["go", "run", "example.com/tool@v1"]`, `["sh"]` with no script file, and `["sh", ".claude/missing.sh"]` naming a file that does not exist
 - **WHEN** the owner trusts each
 - **THEN** each is refused, its line marked as not allowed in a sidecar with the word, why, and "move it into a script in the repository"
+- **AND** a code flag after an interpreter is refused behind any launcher (`caffeinate` is on no list), while `.`, `eval`, `source`, fetch-and-run and the script-file rule are judged in program position, so `["go", "test", "."]` is trusted (ATTACH-3-S3)
 
 #### Scenario: [ATTACH-3-S8] A word that is not literal is refused, and so is a redirection
-- **GIVEN** attached projects whose sidecars each have one card, running `["ls", "$HOME"]`, `["ls", "*.go"]`, `["ls", "~"]`, `["git", "log", "--format=%h %s"]`, `["sh", ".claude/x.sh", "2>/dev/null"]` and `["sh", ".claude/x.sh", ">", "out.txt"]`
+- **GIVEN** attached projects whose sidecars each have one card, running `["ls", "$HOME"]`, `["ls", "*.go"]`, `["ls", "~"]`, `["git", "log", "--format=%h %s"]`, `["sh", ".claude/x.sh", "2>/dev/null"]`, `["sh", ".claude/x.sh", ">", "out.txt"]`, `["sh", ".claude/x.sh", "'a'"]`, `["sh", ".claude/x.sh", "a\\b"]` and `["git", "-c", "alias.x=!gate", "x"]`
 - **WHEN** the owner trusts each
-- **THEN** each is refused, its line marked as not allowed in a sidecar: with no shell, `$`, `*`, `~`, whitespace and a redirection would reach the program as they are
+- **THEN** each is refused, its line marked as not allowed in a sidecar: with no shell, `$`, `*`, `~`, whitespace, quotes, a backslash, `!` and a redirection would reach the program as they are
 - **AND** no `/dev/null` exception applies: the owner's exception of 2026-10-13 for a redirection to `/dev/null` is superseded, because a sidecar has no redirections
 
 #### Scenario: [ATTACH-3-S9] A path reached through `..`, a flag or an assignment stays inside
-- **GIVEN** attached projects whose sidecars each have one card, running `["make", "-C", "..", "gate"]`, `["make", "-C..", "gate"]`, `["npm", "--prefix=..", "run", "gate"]`, `["git", "--git-dir=/tmp/x", "log"]`, `["env", "PATH=x:..", "gate"]` and `["cat", "docs/../../x"]`
+- **GIVEN** attached projects whose sidecars each have one card, running `["make", "-C", "..", "gate"]`, `["make", "-C..", "gate"]`, `["npm", "--prefix=..", "run", "gate"]`, `["git", "--git-dir=/tmp/x", "log"]`, `["git", "--exec-path=..", "log"]`, `["env", "PATH=x:..", "gate"]`, `["env", "NODE_OPTIONS=--require=../x.js", "make"]`, `["cc", "-I../lib", "-o/tmp/x", "a.c"]`, `["cargo", "build", "--manifest-path=../o/Cargo.toml"]`, `["curl", "-d", "@/etc/hosts"]`, `["make", "-p.."]` and `["cat", "docs/../../x"]`
 - **WHEN** the owner trusts each
-- **THEN** each is refused, its line marked as not allowed in a sidecar with the word that resolves outside the repository
-- **AND** `["git", "log", "main..HEAD"]` and `["make", "-C", "sub", "gate"]` are trusted (ATTACH-3-S3)
+- **THEN** each is refused, its line marked as not allowed in a sidecar with the piece that resolves outside the repository: a word holding `/` or `..` is split at `=`, `:` and `,`, and each piece, stripped of a leading `--name=`, a single-dash flag letter, `!` or `@`, is checked as a path, with no list of flags
+- **AND** `["git", "log", "main..HEAD"]`, `["make", "-j4", "gate"]`, `["go", "test", "./..."]` and `["make", "-C", "sub", "gate"]` are trusted (ATTACH-3-S3)
 
 ### Requirement: The registry's config is the one every command reads
 THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.
@@ -157,3 +159,4 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL show e
 - **WHEN** the panel runs each card
 - **THEN** the attached project's card shows both lines
 - **AND** the other project's card shows the stdout line alone, as today
+- **AND** the attached project's suggest command, which writes its suggestions to stdout and a line to stderr, still parses: only a card's output is merged
