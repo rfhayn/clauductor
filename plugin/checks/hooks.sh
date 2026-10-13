@@ -26,7 +26,15 @@ mkdir -p "$R/src/lib"
 echo 'export const x = 1;' > "$R/src/lib/app.ts"
 printf 'all:\n' > "$R/Makefile"
 echo '# doc' > "$R/README.md"
-git -C "$R" add src Makefile README.md && git -C "$R" commit -qm seed
+mkdir -p "$R/tools"
+cat > "$R/tools/codemod.py" <<'PY'
+import pathlib
+p = pathlib.Path('src/lib/app.ts')
+p.write_text(p.read_text().replace('x', 'y'))
+PY
+echo 'dist/' > "$R/.gitignore"
+for p in a b c; do mkdir -p "$R/packages/$p/src"; echo 'export const x = 1;' > "$R/packages/$p/src/index.ts"; done
+git -C "$R" add src tools packages Makefile README.md .gitignore && git -C "$R" commit -qm seed
 echo 'scratch' > "$R/src/lib/scratch.ts"            # untracked, beside a tracked file
 git -C "$R" worktree add -q "$d/wt" 2>/dev/null     # a second worktree of the same repo
 T=src/lib/app.ts
@@ -80,6 +88,131 @@ PY"
 nb 0 "echo prose naming sed -i" "echo never use sed -i on source"
 nb 0 "git log --grep for the spelling" "git log --oneline --grep 'sed -i'"
 nb 0 "an empty command" ""
+
+# A SCRIPT FILE is code too (#88): the command names only the file, and the rewrite is inside it.
+# Untracked scripts in the repository or a temp dir, each the same hazard as an inline row above.
+cp "$R/tools/codemod.py" "$R/rewrite.py"
+sed "s|src/lib/app.ts|$R/$T|" "$R/rewrite.py" > "$d/rewrite-tmp.py"
+{ printf '#!/usr/bin/env python3\n'; cat "$R/rewrite.py"; } > "$R/fix.py"; chmod +x "$R/fix.py"
+cat > "$R/resub.py" <<'PY'
+import re
+s = open('src/lib/app.ts').read()
+open('src/lib/app.ts', 'w').write(re.sub(r'x', 'y', s))
+PY
+cat > "$R/fix.js" <<'JS'
+const fs = require('fs');
+const f = 'src/lib/app.ts';
+fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('x', 'y'));
+JS
+printf "sed -i '' s/x/y/ src/lib/app.ts\n" > "$R/sub.sh"
+# -0pi, not -pi: the literal `perl -pi` floor would catch -pi with no file read at all.
+printf '#!/usr/bin/perl -0pi\ns/x/y/;\n' > "$R/x.pl"
+cat > "$R/preview.py" <<'PY'
+print(open('src/lib/app.ts').read().replace('x', 'y'))
+PY
+sed 's|src/lib/app.ts|src/lib/scratch.ts|' "$R/rewrite.py" > "$R/scratch.py"
+{ cat "$R/fix.js"; awk 'BEGIN { for (i = 0; i < 2000; i++) print "// padding padding padding padding padding padding padding" }'; } > "$R/big.js"
+nb 2 "python3 on a script file" "python3 rewrite.py"
+nb 2 "a script file in a temp dir" "python3 $d/rewrite-tmp.py"
+nb 2 "a script run directly" "./fix.py"
+nb 2 "a script run through env" "env python3 rewrite.py"
+nb 2 "re.sub in a script file" "python3 -u resub.py"
+nb 2 "node on a script file" "node fix.js"
+nb 2 "sh on a script file" "sh sub.sh"
+nb 2 "perl with the script's own -pi switches" "perl x.pl $T"
+nb 0 "a script file that only reads" "python3 preview.py"
+nb 0 "a script file rewriting an untracked file" "python3 scratch.py"
+nb 0 "a TRACKED script (reviewed code, not a throwaway)" "python3 tools/codemod.py"
+nb 0 "a script file that does not exist" "python3 missing.py"
+nb 0 "grep reading a script file" "grep -n replace rewrite.py"
+nb 0 "a script file over the size bound (a program, not a throwaway)" "node big.js"
+# Other ways a shell or an interpreter is handed the file.
+nb 2 "a script sourced with ." ". ./sub.sh"
+nb 2 "a script sourced with source" "source sub.sh"
+nb 2 "a script on stdin by redirect" "python3 < rewrite.py"
+nb 2 "a script on stdin as -" "python3 - < rewrite.py"
+nb 2 "a script piped in by cat" "cat rewrite.py | python3"
+nb 2 "python3 -m running a module in the cwd" "python3 -m rewrite"
+# A check-only run executes nothing.
+nb 0 "bash -n" "bash -n sub.sh"
+nb 0 "sh -n" "sh -n sub.sh"
+nb 0 "node --check" "node --check fix.js"
+nb 0 "node -c" "node -c fix.js"
+nb 0 "perl -c" "perl -c x.pl $T"
+# Only a literal or glob target that resolves to a TRACKED file is judged in a script's text:
+# what the script cannot name (a variable, a cd to one) is not refused, unlike on the command line.
+printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"
+printf 'sed -i "" "s/^version=.*/version=$1/" "$VERSION_FILE"\n' > "$R/bump.sh"
+printf 'PROFILE="$HOME/.profile"\ncd "$HOME"\nsed -i "" /nvm/d "$PROFILE"\n' > "$d/install.sh"
+nb 0 "a scratch mutation script editing a copy" "sh $d/mut.sh"
+nb 0 "a script editing a file its argument names" "sh bump.sh 1.2"
+nb 0 "a script editing a file under a variable cd" "sh $d/install.sh"
+# Ignored build output is a program, not a throwaway script.
+mkdir -p "$R/dist"; cp "$R/fix.js" "$R/dist/cli.js"
+nb 0 "gitignored build output" "node dist/cli.js"
+nb 0 "gitignored build output through npm exec" "npm exec -- node dist/cli.js"
+# An editor shelled out to inside a string: the shell scan reads the string as one word, so the
+# paths the script names decide, as for a .replace( script.
+cat > "$R/shellout.py" <<'PY'
+import os
+os.system("sed -i '' s/x/y/ src/lib/app.ts")
+PY
+cat > "$R/shellout.js" <<'JS'
+require('child_process').execSync("sed -i '' s/x/y/ src/lib/app.ts");
+JS
+nb 2 "a python script shelling out to sed -i" "python3 shellout.py"
+nb 2 "a node script shelling out to sed -i" "node shellout.js"
+# A script's cds compose with the command's only while they fit the 32-base cap; past it, each
+# resolves against the command's directories alone, and nothing is refused for the script's cds.
+cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'
+printf "${cds}sed -i '' s/x/y/ \"\$TMPDIR/notes.txt\"\n" > "$d/cds.sh"
+printf "${cds}sed -i '' s/x/y/ $R/$T\n" > "$d/cds-abs.sh"
+nb 0 "a script with many cds editing a temp file" "sh $d/cds.sh"
+nb 2 "a script with many cds editing tracked source by absolute path" "sh $d/cds-abs.sh"
+# python3 -m pkg runs pkg/__main__.py.
+mkdir -p "$R/pkg"; cp "$R/rewrite.py" "$R/pkg/__main__.py"
+nb 2 "python3 -m running a package in the cwd" "python3 -m pkg"
+# Only a lone file piped by a single |: these are the cat-pipe rule's edges, both known limits.
+nb 0 "cat of two files piped in (a known limit)" "cat preview.py rewrite.py | python3"
+nb 0 "cat then || (not a pipe)" "cat rewrite.py || python3"
+# A flag cluster ending in o takes the next word as its value.
+nb 2 "bash -euo pipefail on a script file" "bash -euo pipefail sub.sh"
+nb 2 "bash -euo pipefail -c" "bash -euo pipefail -c \"cd src && sed -i '' s/a/b/ lib/app.ts\""
+nb 2 "bash --rcfile FILE on a script file" "bash --rcfile /dev/null sub.sh"
+# A script that only MENTIONS an in-place editor (a comment, a grep pattern) is not one that runs
+# it from a string: the editor-in-a-string rule needs a non-shell script with an exec call.
+printf 'grep -rn "sed -i" src/lib/app.ts\n' > "$R/greps.sh"
+printf '# sed -i is banned here\ncp src/lib/app.ts "$TMPDIR/app.ts"\n' > "$R/copies.sh"
+printf "# never use sed -i on source\nprint(open('src/lib/app.ts').read())\n" > "$R/reads.py"
+nb 0 "a shell script grepping for sed -i in tracked source" "sh greps.sh"
+nb 0 "a shell script copying tracked source under a sed -i comment" "sh copies.sh"
+nb 0 "a python script reading tracked source under a sed -i comment" "python3 reads.py"
+printf 'exec > "$TMPDIR/harness.log"\ngrep -n "sed -i" src/lib/app.ts\n' > "$R/harness.sh"
+nb 0 "a shell script with an exec, grepping for sed -i in tracked source" "sh harness.sh"
+# The same harness is a shell script however it is started: by its path, sourced, or by a perl
+# that hands a non-perl shebang to the interpreter it names.
+nb 0 "the harness run by its path" "./harness.sh"
+nb 0 "the harness sourced" ". ./harness.sh"
+{ printf '#!/bin/sh\n'; cat "$R/harness.sh"; } > "$R/shtool"
+nb 0 "a shell-shebang harness run by perl" "perl shtool"
+# An editor the script's own scan sees (backticks) is judged by its operands, not by the paths
+# the script names: this one edits only a temp file, though it reads tracked source.
+cat > "$R/ticks.pl" <<'PL'
+open(my $f, '<', 'src/lib/app.ts'); print <$f>;
+system("true");
+`sed -i '' s/x/y/ "$ENV{TMPDIR}/notes.txt"`;
+PL
+nb 0 "a perl script whose backtick sed -i edits a temp file" "perl ticks.pl"
+nb 2 "bash --rcfile FILE -c" "bash --rcfile /dev/null -c \"cd src && sed -i '' s/a/b/ lib/app.ts\""
+# A multi-package codemod: its cds pass the cap when composed, and each one still resolves.
+printf "cd packages/%s && sed -i '' s/x/y/ src/index.ts && cd ../..\n" a b c > "$R/codemod.sh"
+nb 2 "a multi-package codemod script" "sh codemod.sh"
+# Past the cap, each script cd still resolves against the command's directories (linear).
+printf "${cds}cd packages/a && sed -i '' s/x/y/ src/index.ts\n" > "$R/pastcap.sh"
+nb 2 "a script past the cd cap editing tracked source by a relative path" "sh pastcap.sh"
+# Collapsing x/.. keeps composed cds under the cap: packages/c is reached only by composing two.
+printf "cd packages && cd a && cd .. && cd b && cd .. && cd c && sed -i '' s/x/y/ src/index.ts\n" > "$R/compose.sh"
+nb 2 "a script whose cds compose under the cap once .. collapses" "sh compose.sh"
 rc=0; printf '' | sh "$H/no-blind-source-rewrite.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than breaking every Bash call"
 
@@ -93,6 +226,7 @@ nojq() {
   expect_rc "$1" "$rc" "no-blind-source-rewrite without jq: $3"
 }
 nojq 2 "sed -i '' s/a/b/ $T" "blocks a command it could police"
+nojq 2 "python3 rewrite.py" "blocks a script-file run it could police"
 nojq 0 "git status" "allows a command it could not"
 
 # ── no-background-gate ──────────────────────────────────────────────────────────────────

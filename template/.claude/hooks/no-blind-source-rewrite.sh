@@ -21,6 +21,57 @@
 #   - WHICH FILES is read the way sh will read the command: a quote-aware scan resolves a literal
 #     cd, a glob (via git ls-files) and any worktree of this repository, and FAILS CLOSED on what
 #     it cannot resolve (find -exec, xargs, a variable, a substitution, a brace list).
+#   - WHAT IS CODE includes a SCRIPT FILE an interpreter is given (`python3 fix.py`, `node x.mjs`,
+#     `sh sub.sh`, `perl x.pl`, `./fix.py`, `. sub.sh`, `python3 < fix.py`, `cat fix.py | python3`,
+#     `python3 -m fix`): the command carried no rewrite text, so a rewrite one file away walked
+#     through twice (#88). The file is read and judged as inline code is, with one narrowing: only
+#     a target that RESOLVES to a tracked file counts from a script's text, because refusing what
+#     it cannot resolve refused every scratch script editing "$tmp/x". And one widening: an editor
+#     a non-shell script runs from inside a string (`os.system("sed -i … f")`) is judged by the
+#     paths the script names (step 0 says when). A check-only run
+#     (`sh -n`, `node --check`, `perl -c`) executes nothing and reads nothing.
+#
+# WHICH SCRIPT FILES ARE READ: an UNTRACKED, unignored file in this repository (any worktree) or a
+# temp dir, up to 64 KiB, outside node_modules and site-packages. A throwaway rewrite script is all
+# of those. A tracked script is reviewed code whose writes are the project's intent (a build step,
+# a codemod that was committed); an ignored one is build output (dist/cli.js); a large one or a
+# dependency is a program. Reading those would turn their incidental `.replace(` and `.write(` into
+# refusals. A script that cannot be read is ALLOWED, the
+# direction the inline path takes for what it cannot see as a rewrite: a missing or unreadable file
+# is one the interpreter cannot run either, so nothing is rewritten. (Without jq the hook still
+# fails closed, now on an interpreter or a script name too: see unreadable() below.)
+#
+# KNOWN LIMITS of the script-file path, each allowed:
+#   - a script written and run in ONE command (`cat > f.py <<EOF … EOF && python3 f.py`): the file
+#     does not exist yet when the hook runs, and the heredoc body fed to cat is data, not code;
+#   - a script named by a variable or a substitution (`python3 "$S"`, `bash -c "$(cat f)"`), piped
+#     in by anything but a lone `cat f`, or kept in an ignored directory (`tmp/`, when ignored);
+#   - a runner the hook does not know (`uv run f.py`, `deno run f.ts`, `bun f.ts`, `make`), and a
+#     script run by its path with no script extension or behind a prefix (`./edsh`,
+#     `timeout 60 ./fix.py`): a path is read as a script only when it is the command word;
+#   - a script run by the script read (one level is read, not the tree it starts), including an
+#     interpreter a shell script hands an editor in a heredoc or a `-c` string;
+#   - a script's target it cannot resolve to a tracked file: a variable or an argument (`sed -i …
+#     "$1"`), or a path it builds or finds itself (`Path(__file__).parent / name`, `glob`). A
+#     RELATIVE literal is still judged against the command's directories and literal cds, even
+#     after the script's own cd to a variable (safe: it can only over-refuse), so a script that
+#     edits a scratch copy names it by an absolute path or a variable;
+#   - past the 32-base cap, a relative target under a cd composed from two of the script's own cds
+#     (each script cd is then resolved against the command's directories alone);
+#   - an editor a non-shell script runs from a string with no exec call the hook knows (a call it
+#     spells some other way), or as a LIST (`subprocess.run(["sed", "-i", …])`): no `sed -i` to
+#     match. One in backticks or qx IS read (the scan reads a backtick as a command), but only
+#     with a literal operand: a variable one is missed;
+#   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`).
+# And three false refusals:
+#   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
+#     ELSEWHERE is refused when it names the tracked path;
+#   - the price of reading an editor run from a string: a non-shell script that execs anything,
+#     names `sed -i` anywhere (a comment too) and names a tracked path is refused, even if it only
+#     reads that path;
+#   - a command that names the tracked original AND runs a script editing only a copy by absolute
+#     path (`cp src/x.ts /tmp/x.ts && python3 fix-copy.py`) is refused: the command's own words are
+#     read loosely for tracked paths, which is what catches `python3 argv.py src/x.ts`.
 #
 # Checked by .claude/checks/hooks.sh, a payload → exit-code table in both directions.
 #
@@ -32,8 +83,9 @@ payload=$(cat)
 # only then: when the payload cannot be read, the command's RAW JSON text (raw_command) decides,
 # against the words step 1 below gates on: `sed`, `perl`, `ruby`, `.replace(`, `re.sub(`. Every
 # command this hook can block contains one of them, and JSON encoding escapes none of their
-# characters, so the raw test is at least as broad as the decoded one. Anything else (`ls`, `git
-# status`) is still allowed. The price is a false block on a command merely containing one of
+# characters, so the raw test is at least as broad as the decoded one. A script-file run (#88) can
+# be blocked with none of them on the line, so an interpreter word or a script name decides too.
+# Anything else (`ls`, `git status`) is still allowed. The price is a false block on a command merely containing one of
 # those words while jq is broken, and the message says how to end it. A guard that ALLOWS when a
 # dependency is missing is a control silently absent wherever the dependency is.
 #
@@ -62,16 +114,22 @@ raw_command() {
 ') || return 1
   printf '%s\n' "$_raw"
 }
+# An interpreter that can be given a script file, as a word; and a script file's name.
+interp_re='python[0-9.]*|pypy[0-9.]*|node|nodejs|tsx|ts-node|perl|ruby|sh|bash|zsh|dash|ksh'
+script_ext_re='[.](py|js|mjs|cjs|pl|rb|sh)'
 unreadable() {
   raw=$(raw_command) || raw=$payload
   case "$raw" in
-    *sed*|*perl*|*ruby*|*".replace("*|*"re.sub("*)
-      echo "BLOCKED by no-blind-source-rewrite: $1, so this hook cannot read the command." >&2
-      echo "It could be an in-place rewrite of tracked source, and the hook refuses rather than guess." >&2
-      echo "Install jq (macOS: brew install jq; Debian/Ubuntu: apt-get install jq), check that 'jq --version' works, then retry." >&2
-      exit 2
-      ;;
+    *sed*|*perl*|*ruby*|*".replace("*|*"re.sub("*) policed=yes ;;
+    *) printf '%s' "$raw" | grep -Eq "(^|[^[:alnum:]_.-])($interp_re|source)([^[:alnum:]_.-]|\$)|$script_ext_re([^[:alnum:]_]|\$)" \
+         && policed=yes ;;
   esac
+  if [ "${policed:-}" = yes ]; then
+    echo "BLOCKED by no-blind-source-rewrite: $1, so this hook cannot read the command." >&2
+    echo "It could be an in-place rewrite of tracked source, and the hook refuses rather than guess." >&2
+    echo "Install jq (macOS: brew install jq; Debian/Ubuntu: apt-get install jq), check that 'jq --version' works, then retry." >&2
+    exit 2
+  fi
   exit 0
 }
 command -v jq >/dev/null 2>&1 || unreadable "jq is not installed (not on PATH)"
@@ -101,7 +159,11 @@ cmd=$(printf '%s\n' "$parsed" | sed 1d)
 # form most scripted edits actually take; stripping it would blind the hook to its own primary
 # target. The distinction is what the body is fed to: an interpreter runs it, `cat >` and
 # `git commit -F -` consume it.
-cmd=$(printf '%s\n' "$cmd" | awk '
+#
+# Each pass over the command is a function, because a script file's text (step 0 below) goes
+# through the same passes before it is judged.
+strip_heredocs() {
+  awk '
   /<<-?[ ]*'"'"'?[A-Za-z_][A-Za-z0-9_]*'"'"'?/ && !inbody {
     line = $0
     # NOTE: NO APOSTROPHES ANYWHERE IN THIS AWK PROGRAM, comments included. It sits inside a
@@ -129,7 +191,9 @@ cmd=$(printf '%s\n' "$cmd" | awk '
   inbody && $0 == term { inbody = 0; next }
   inbody { next }
   { print }
-')
+'
+}
+cmd=$(printf '%s\n' "$cmd" | strip_heredocs)
 
 # TRIPLE-QUOTED BODIES ARE DATA TOO.
 #
@@ -149,7 +213,8 @@ cmd=$(printf '%s\n' "$cmd" | awk '
 # how the real hazard is written (binding the path to a variable is the NORMAL shape of a
 # read-modify-write), and stripping that would make a hook that blocks nothing while looking
 # correct.
-cmd=$(printf '%s\n' "$cmd" | awk '
+strip_triple() {
+  awk '
   {
     line = $0
     if (inbody) {
@@ -168,7 +233,9 @@ cmd=$(printf '%s\n' "$cmd" | awk '
     }
     print line
   }
-')
+'
+}
+cmd=$(printf '%s\n' "$cmd" | strip_triple)
 
 # Empty once heredoc bodies and triple-quoted spans are gone: the command was only data.
 [ -z "$cmd" ] && exit 0
@@ -198,7 +265,8 @@ fi
 #
 # Safe: `-m` is a message or module flag in every command that takes it, and nothing writes a file
 # through one. Quoted forms only, so `python3 -m mymodule` is untouched.
-cmd=$(printf '%s\n' "$cmd" | sed -E 's/-m[[:space:]]+"[^"]*"/-m/g; s/-m[[:space:]]+'"'"'[^'"'"']*'"'"'/-m/g')
+strip_messages() { sed -E 's/-m[[:space:]]+"[^"]*"/-m/g; s/-m[[:space:]]+'"'"'[^'"'"']*'"'"'/-m/g'; }
+cmd=$(printf '%s\n' "$cmd" | strip_messages)
 
 # ── THE COMMAND AS THE SHELL WILL SEE IT ─────────────────────────────────────────────────────
 #
@@ -215,6 +283,7 @@ cmd=$(printf '%s\n' "$cmd" | sed -E 's/-m[[:space:]]+"[^"]*"/-m/g; s/-m[[:space:
 #   LIT <word>     a literal operand of that editor, resolved below against every cd
 #   GLOB <word>    a glob operand, expanded below against `git ls-files` (the authority)
 #   CD <dir>       a literal cd/pushd target;  CDX = one that is not a literal
+#   SCRIPT <word>  a literal script file an interpreter is given, or run by its path (step 0)
 # `sh -c`, `eval`, backticks and `$(…)` inside double quotes are scanned again as commands.
 #
 # FAIL CLOSED is deliberate. Resolving `find`, `xargs` and variables would mean re-implementing
@@ -222,20 +291,22 @@ cmd=$(printf '%s\n' "$cmd" | sed -E 's/-m[[:space:]]+"[^"]*"/-m/g; s/-m[[:space:
 # invocation is refused, and the message says why and what to do instead. The check pins the cost
 # as its own row: `find /tmp/x -exec sed -i` is blocked too.
 #
-# Scanned only when the command could hold an in-place editor; the python path asks for the cd
-# facts later, and only once steps 1 and 2 have already matched.
+# Scanned only when the command could hold an in-place editor or name a script file; the python
+# path asks for the cd facts later, and only once steps 1 and 2 have already matched.
 TAB=$(printf '\t')
 scan=""
-scan_cmd() {
-  scan=$(printf '%s\n' "$cmd" | awk '
+scan_awk() {
+  awk -v INTERP="^($interp_re)\$" -v SCRIPTEXT="$script_ext_re\$" '
     function reset_word() { word = ""; inword = 0; wglob = 0; wexp = 0; wbrace = 0; bopen = 0 }
     function endword() {
       if (inword) {
-        if (redir) redir = 0
+        # The word after a plain `<` is the file on stdin: a script, when an interpreter reads it.
+        if (redir) { if (rin && !wexp && !wglob && !wbrace) RIN = word; redir = 0; rin = 0 }
         else { n++; W[n] = word; G[n] = wglob; X[n] = wexp; BR[n] = wbrace }
       }
       reset_word()
     }
+    function lit(j) { return !X[j] && !G[j] && !BR[j] && W[j] !~ /[\t\n]/ }
     function clean(w) { gsub(/[\t\n]/, " ", w); return w }
     function queue(str, feed) { Q[++qn] = str; QF[qn] = feed }
     # WHO RUNS the word at k, when it is not the command word? "" means nobody: it is DATA to the
@@ -250,8 +321,14 @@ scan_cmd() {
       if (cname ~ /^(grep|egrep|fgrep|rg|ag|ack|git|gh|echo|printf|man|which|type|whatis|apropos|help|info)$/) return ""
       return cname
     }
-    function endcmd(   c, k, j, name, tool, isinp, script, sawe, rest, sawc, r) {
+    function endcmd(   c, k, j, name, tool, isinp, script, sawe, rest, sawc, r, pin, kind) {
       endword()
+      # An empty command (the `(` of a subshell) runs nothing, and must not lose what a pipe
+      # into it carries.
+      if (n == 0) { redir = 0; return }
+      # `cat f | python3`: the file the last command piped in, read when this one is an
+      # interpreter given no file of its own.
+      pin = PIPED; PIPED = ""
       c = 1
       while (c <= n && (W[c] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || W[c] ~ /^(!|[{]|then|do|else|elif|if|while|until|time)$/)) c++
       # `builtin cd`, `command sed`: the prefix runs the next word as the command itself.
@@ -274,7 +351,8 @@ scan_cmd() {
         if (name ~ /^(sh|bash|zsh|dash|ksh)$/) {
           sawc = 0
           for (j = k + 1; j <= n; j++) {
-            if (W[j] ~ /^[-+][oO]$/) { j++; continue }
+            if (W[j] ~ /^[-+][A-Za-z]*[oO]$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; j++; continue }
+            if (W[j] ~ /^--(rcfile|init-file)$/) { j++; continue }
             if (W[j] ~ /^--/) continue
             if (W[j] ~ /^[-+][A-Za-z]+$/) { if (W[j] ~ /^-[A-Za-z]*c/) sawc = 1; continue }
             break
@@ -283,6 +361,26 @@ scan_cmd() {
             if (k == c) queue(W[j], FEED)
             else { r = runner(k, c); if (r != "") queue(W[j], r) }
           }
+        }
+        # AN INTERPRETER GIVEN A SCRIPT FILE, or a script run by its path (#88): the rewrite is in
+        # the file, not on this line, so the file is named for step 0 to read. Only a literal name:
+        # a variable or a substitution is a known limit (the header), not a guess. The shell reads
+        # a sourced file (. f, source f) itself; an interpreter given no file reads stdin (a `<`
+        # redirect, or cat piping one in); `python3 -m name` runs name.py from the cwd first.
+        # A file a SHELL runs is SHSCRIPT: step 0 judges it by its scan alone (see there).
+        if (k == c || runner(k, c) != "") {
+          j = 0; kind = "SCRIPT\t"
+          if (k == c && (name == "." || name == "source")) { j = (k < n) ? k + 1 : 0; kind = "SHSCRIPT\t" }
+          else if (name ~ INTERP) {
+            if (name ~ /^(sh|bash|zsh|dash|ksh)$/) kind = "SHSCRIPT\t"
+            MODW = 0
+            j = script_word(k, name)
+            if (j == 0 && RIN != "" && RIN !~ /[\t\n]/) print kind RIN
+            else if (j == 0 && pin != "") print kind pin
+            if (MODW && lit(MODW)) print "MODULE\t" W[MODW]
+          }
+          else if (k == c && W[k] ~ /\// && W[k] ~ SCRIPTEXT) { j = k; if (W[k] ~ /[.]sh$/) kind = "SHSCRIPT\t" }
+          if (j > 0 && lit(j)) print kind W[j]
         }
         tool = ""
         if (name ~ /^g?sed$/) tool = "sed"
@@ -314,7 +412,42 @@ scan_cmd() {
           print (G[j] ? "GLOB\t" : "LIT\t") W[j]
         }
       }
-      n = 0; redir = 0
+      # Only a lone literal file: `cat a b | python3` and `cat -n f` are not a script.
+      if (cname == "cat" && SEP == "|" && n == c + 1 && lit(n)) PIPED = W[n]
+      n = 0; redir = 0; RIN = ""
+    }
+    # THE SCRIPT FILE the interpreter at k is given, as a word index. 0: none is named, so the
+    # script comes on stdin (also `-`). -1: nothing to read, because the code is inline (python3 -c,
+    # node -e or -p, perl -e, sh -c: read as inline code already) or the run only CHECKS it and
+    # executes nothing (sh -n, node --check, perl -c). `python3 -m name` is -1 with MODW set to
+    # the module word. Options that take a separate value skip it.
+    function script_word(k, name,   j, w) {
+      for (j = k + 1; j <= n; j++) {
+        w = W[j]
+        if (w == "--") return (j < n) ? j + 1 : 0
+        if (w == "-") return 0
+        if (name ~ /^(sh|bash|zsh|dash|ksh)$/) {
+          if (w !~ /^[-+]./) return j
+          if (w ~ /^--(rcfile|init-file)$/) { j++; continue }
+          if (w ~ /^-[A-Za-z]*[cn]/) return -1
+          # A cluster ending in o takes the next word as its value: -o pipefail, -euo pipefail.
+          if (w ~ /^[-+][A-Za-z]*[oO]$/) j++
+          continue
+        }
+        if (w !~ /^-./) return j
+        if (name ~ /^(python|pypy)/) {
+          if (w ~ /^-[A-Za-z]*c/) return -1
+          if (w ~ /^-[A-Za-z]*m/) { if (w ~ /m$/ && j < n) MODW = j + 1; return -1 }
+          if (w ~ /^-[WX]$/) j++
+        } else if (name ~ /^(perl|ruby)$/) {
+          if (w ~ /^-[IMmr]/) { if (length(w) == 2) j++ }
+          else if (w ~ /^-[A-Za-z0-9]*[eE]$/ || w ~ /^-[A-Za-z0-9]*c/) return -1
+        } else {
+          if (w ~ /^-[A-Za-z]*[epc]$/ || w ~ /^--(eval|print|check)/) return -1
+          if (w ~ /^(-[rC]|--(require|import|loader|experimental-loader|conditions))$/) j++
+        }
+      }
+      return 0
     }
     function grab(s, i, opn, cls,   depth, j, ch) {
       depth = 1
@@ -331,7 +464,7 @@ scan_cmd() {
     # spun forever, and a hook that hangs fails OPEN at Claude Code own timeout, minutes later.
     function isnext(set, s, i,   c) { c = substr(s, i + 1, 1); return c != "" && index(set, c) > 0 }
     function scan(s, feed,   i, L, ch, nx, q) {
-      n = 0; redir = 0; reset_word(); q = ""; FEED = feed
+      n = 0; redir = 0; rin = 0; RIN = ""; PIPED = ""; reset_word(); q = ""; FEED = feed
       L = length(s)
       for (i = 1; i <= L; i++) {
         ch = substr(s, i, 1)
@@ -358,11 +491,13 @@ scan_cmd() {
           # A bare number glued to the redirect is its FD (`2>/dev/null`), not a word — as the
           # first thing on a line it was being read as the command word.
           if (inword && word ~ /^[0-9]+$/) reset_word(); else endword()
+          rin = (ch == "<" && !isnext("<>&(", s, i))
           while (i < L && isnext("<>&|", s, i)) i++
           redir = 1; continue
         }
         if (ch == ";" || ch == "&" || ch == "|" || ch == "(" || ch == ")" || ch == "\n") {
           if (ch == "(" && inword && substr(word, length(word)) == "$") { wexp = 1 }
+          SEP = (ch == "|" && isnext("|", s, i)) ? "||" : ch
           endcmd(); continue
         }
         if (ch == "`") { wexp = 1; inword = 1; word = word "$"; i = grab(s, i + 1, "`", "`"); continue }
@@ -373,7 +508,7 @@ scan_cmd() {
         word = word ch; inword = 1
       }
       if (q != "") print "UNCLOSED"
-      endcmd()
+      SEP = ""; endcmd()
     }
     BEGIN {
       SQ = sprintf("%c", 39); DQ = "\""
@@ -386,14 +521,176 @@ scan_cmd() {
       # Past the re-scan cap the command was NOT read to the end: no SCANNED, so it fails closed.
       if (qn > 16) print "CAPPED"; else print "SCANNED"
     }
-  ')
-  scanned=yes
+  '
 }
+# The scan of the COMMAND ITSELF ($own: the command before step 0 adds any script text). What it
+# cannot read (OPAQUE, CDX, UNCLOSED, no SCANNED) fails closed, and only it: see step 0.
+scan_cmd() { scan=$(printf '%s\n' "$own" | scan_awk); scanned=yes; }
+# A fact of the command, or of a script file step 0 read ($sfacts: targets and cds only).
+sfacts=""
+facts() { printf '%s\n%s\n' "$scan" "$sfacts" | sed -n "s/^$1$TAB//p"; }
+own_facts() { printf '%s\n' "$scan" | sed -n "s/^$1$TAB//p"; }
+script_facts() { printf '%s\n' "$sfacts" | sed -n "s/^$1$TAB//p"; }
+
+# WHICH REPOSITORY. "Ours" is the git COMMON dir, so the main checkout and every worktree of it are
+# one repository: a subagent's absolute paths point into its worktree while this hook may run from
+# the main checkout, and asking `git ls-files` in the wrong tree answers "untracked".
+# Normalised with `pwd -P`, because macOS reaches `/var` through a symlink.
+common_of() {
+  _c=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  (cd "$_c" 2>/dev/null && pwd -P)
+}
+ours=""; root=""
+find_repo() {
+  for d in "$pcwd" "$PWD"; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    ours=$(common_of "$d") && [ -n "$ours" ] && root=$(git -C "$d" rev-parse --show-toplevel) && break
+  done
+}
+
+# THE BASES a relative path can be relative to: the directories given (the Bash tool's cwd from the
+# payload, this hook's own cwd, the repo root once known) and every literal cd/pushd in the command,
+# each resolved against every base before it, so `cd packages && cd db` composes.
+# A UNION, not a simulation of which cd is in force where: `(cd /tmp) && sed -i … src/x.ts` must
+# not resolve against /tmp alone, and a union can only over-block.
+#
+# set_bases CDS DIR...: sets $bases. Fails as soon as they pass 32, before n cds can make 2^n.
+# cd_targets CDS: each cd resolved against $bases ALONE, not against each other (linear in n).
+# Both collapse `x/..` the way `cd` (logical, the default) does, so `cd a && cd ..` adds nothing.
+collapse() {
+  awk '{
+    n = split($0, p, "/"); k = 0
+    for (i = 1; i <= n; i++) {
+      if (p[i] == "." || (p[i] == "" && i > 1)) continue
+      if (p[i] == "..") {
+        if (k > 1 || (k == 1 && o[1] != "" && o[1] != "..")) { if (o[k] != "..") { k--; continue } }
+        else if (k == 1 && o[1] == "") continue
+      }
+      o[++k] = p[i]
+    }
+    s = o[1]; for (i = 2; i <= k; i++) s = s "/" o[i]
+    print (s == "" ? "/" : s)
+  }'
+}
+cd_targets() {
+  while IFS= read -r t; do
+    case "$t" in "~") t=$HOME ;; "~/"*) t=$HOME/${t#"~/"} ;; esac
+    case "$t" in
+      /*) printf '%s\n' "$t" ;;
+      *) printf '%s\n' "$bases" | while IFS= read -r b; do printf '%s/%s\n' "$b" "$t"; done ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+set_bases() {
+  cds=$1; shift
+  bases=$(printf '%s\n' "$@" | grep -v '^$' | collapse | sort -u)
+  [ -n "$cds" ] || return 0
+  while IFS= read -r t; do
+    bases=$(printf '%s\n%s\n' "$bases" "$(cd_targets "$t")" | grep -v '^$' | collapse | sort -u)
+    [ "$(printf '%s\n' "$bases" | wc -l | tr -d ' ')" -le 32 ] || return 1
+  done <<EOF
+$cds
+EOF
+}
+
+# Every candidate as an absolute path, against every base. `~` and `~/…` are the shell's, so they
+# are expanded the way the shell will; `~user` never reaches here as a literal operand.
+absolutes() {
+  { printf '%s\n@@\n' "$bases"; cat; } | awk -v home="$HOME" '
+    $0 == "@@" { second = 1; next }
+    !second { if ($0 != "") base[++nb] = $0; next }
+    $0 == "" { next }
+    { c = $0 }
+    c == "~" { c = home }
+    substr(c, 1, 2) == "~/" { c = home substr(c, 2) }
+    substr(c, 1, 1) == "/" { print c; next }
+    { for (b = 1; b <= nb; b++) print base[b] "/" c }
+  '
+}
+show() { case "$1" in "$root"/*) printf '%s' "${1#"$root"/}" ;; *) printf '%s' "$1" ;; esac; }
+
+# ── 0. A SCRIPT FILE IS CODE TOO (#88) ────────────────────────────────────────────────────────
+# `python3 rewrite.py` carries no rewrite text, so every step below saw nothing to refuse. Each
+# script file the scan names (SCRIPT, MODULE) that is in scope (the header: untracked, unignored,
+# in this repository or a temp dir, up to 64 KiB, not a dependency) has its text appended to the
+# command after the same passes inline code went through, and steps 1 and 2 judge it as inline.
+# Its relative paths resolve against the same bases, which is where the interpreter resolves them.
+#
+# WHAT A SCRIPT'S TEXT CAN DECIDE IS NARROWER than what the command's can. From the command, a
+# target the hook cannot resolve (a variable, a cd to one, a quote it cannot close) is refused;
+# from a script that rule would refuse every scratch script that edits "$tmp/x" or "$1", tracked
+# source or not. So a script contributes only targets that RESOLVE to tracked files: the literal
+# and glob operands of its in-place editors (LIT, GLOB, with its literal cds), and the paths it
+# names (the loose extraction in step 3) in two cases:
+#  - it does a `.replace(` or `re.sub(`, as inline code does;
+#  - it is NOT a shell script, matches the in-place pattern, has an exec call (`system(`,
+#    `subprocess`, `popen`, `exec`, `spawn`, `qx`), and its own scan sees no in-place editor: the
+#    editor runs from inside a string (`os.system("sed -i … f")`). A shell script needs no such
+#    case: the scan sees every command it runs itself (not what it hands an interpreter in a
+#    heredoc or a -c string, a known limit), and a comment or a grep pattern that merely names
+#    `sed -i` is not a run. The shared price: a non-shell script that execs anything, names
+#    `sed -i` anywhere and names a tracked path is refused, even if it only reads that path.
+# Its OPAQUE, CDX and UNCLOSED never leave this step.
+own=$cmd
 scanned=no
+scripts=""
+case "$cmd" in
+  *python*|*pypy*|*node*|*tsx*|*perl*|*ruby*|*sh*|*source*|*". "*|*.py*|*.js*|*.mjs*|*.cjs*|*.pl*|*.rb*)
+    scan_cmd
+    # One "KIND<TAB>word" per script: SCRIPT, or SHSCRIPT for a file a shell runs. `python3 -m a.b`
+    # runs a/b.py, or the package a/b, from the cwd before the standard library.
+    scripts=$(printf '%s\n' "$scan" | grep -E "^(SH)?SCRIPT$TAB"
+      facts MODULE | tr . / | awk -v t="$TAB" 'NF { print "SCRIPT" t $0 ".py"; print "SCRIPT" t $0 "/__main__.py" }')
+    ;;
+esac
+read_scripts=""
+codetext=""
+if [ -n "$scripts" ]; then
+  find_repo
+  set_bases "$(facts CD)" "$pcwd" "$PWD" || :
+  tmpd=${TMPDIR:-/tmp}; tmpd=${tmpd%/}
+  while IFS="$TAB" read -r kind f; do
+    [ -f "$f" ] && [ -r "$f" ] || continue
+    case "$f" in */node_modules/*|*/site-packages/*) continue ;; esac
+    sd=${f%/*}; sd=${sd:-/}
+    case "$f" in
+      /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*|"$tmpd"/*) ;;
+      *) [ -n "$ours" ] && [ "$(common_of "$sd")" = "$ours" ] || continue ;;
+    esac
+    GIT_LITERAL_PATHSPECS=1 git -C "$sd" ls-files --error-unmatch -- "${f##*/}" >/dev/null 2>&1 && continue
+    # Ignored is build output or a dependency (dist/cli.js): a program, not a throwaway script.
+    git -C "$sd" check-ignore -q -- "${f##*/}" 2>/dev/null && continue
+    [ "$(wc -c < "$f" | tr -d ' ')" -le 65536 ] || continue
+    body=$(strip_heredocs < "$f" | strip_triple)
+    binp=no
+    printf '%s' "$body" | grep -Eq "$inplace_re" && { inplace=yes; binp=yes; }
+    body=$(printf '%s\n' "$body" | strip_messages)
+    cmd=$(printf '%s\n%s\n' "$cmd" "$body")
+    bfacts=$(printf '%s\n' "$body" | scan_awk | grep -E "^(INPLACE\$|(LIT|GLOB|CD)$TAB)")
+    sfacts=$(printf '%s\n%s\n' "$sfacts" "$bfacts")
+    # The two cases above in which the paths it names decide.
+    case "$body" in *".replace("*|*"re.sub("*) binp=code ;; esac
+    if [ "$binp" = yes ]; then
+      sed -n 1p "$f" | grep -Eq '^#!.*[/[:space:]](sh|bash|zsh|dash|ksh)([[:space:]]|$)' && kind=SHSCRIPT
+      [ "$kind" != SHSCRIPT ] \
+        && printf '%s\n' "$body" | grep -Eq 'system[[:space:]]*[(]|subprocess|[Pp]open|exec|spawn|qx' \
+        && ! printf '%s\n' "$bfacts" | grep -qx INPLACE && binp=code
+    fi
+    [ "$binp" = code ] && codetext=$(printf '%s\n%s\n' "$codetext" "$body")
+    read_scripts="$read_scripts $(show "$f")"
+  done <<EOF
+$(printf '%s\n' "$scripts" | while IFS="$TAB" read -r k w; do
+    [ -n "$w" ] && printf '%s\n' "$w" | absolutes | sed "s/^/$k$TAB/"
+  done | sort -u)
+EOF
+fi
+
 case "$cmd" in
   *sed*|*perl*|*ruby*)
-    scan_cmd
-    printf '%s\n' "$scan" | grep -qx INPLACE && inplace=yes
+    [ "$scanned" = yes ] || scan_cmd
+    printf '%s\n%s\n' "$scan" "$sfacts" | grep -qx INPLACE && inplace=yes
     ;;
 esac
 # THE SCANNER ITSELF MUST NOT FAIL OPEN. Its first draft named an awk parameter `close` — a builtin —
@@ -415,29 +712,16 @@ esac
 # ── 2. Does it WRITE? ─────────────────────────────────────────────────────────────────────────
 # A read-only preview — `print(open(f).read().replace(a, b))` — is how you SHOULD inspect a
 # candidate edit, and must not be blocked. The in-place flag is itself the write for sed/perl/ruby.
+# `writeFile` is node's (writeFileSync, fs.promises.writeFile): `node fix.js` brought it in (#88).
 case "$cmd" in
-  *"write_text("*|*".write("*|*"writelines("*) ;;
+  *"write_text("*|*".write("*|*"writelines("*|*"writeFile"*) ;;
   *"sed -i"*|*"perl -pi"*|*"perl -i"*|*"ruby -pi"*|*"ruby -i"*) ;;
   *) [ "$inplace" = yes ] || exit 0 ;;
 esac
 
 # ── 3. Which of the files it will write are TRACKED? ─────────────────────────────────────────
 [ "$scanned" = yes ] || scan_cmd
-facts() { printf '%s\n' "$scan" | sed -n "s/^$1$TAB//p"; }
-
-# WHICH REPOSITORY. "Ours" is the git COMMON dir, so the main checkout and every worktree of it are
-# one repository: a subagent's absolute paths point into its worktree while this hook may run from
-# the main checkout, and asking `git ls-files` in the wrong tree answers "untracked".
-# Normalised with `pwd -P`, because macOS reaches `/var` through a symlink.
-common_of() {
-  _c=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  (cd "$_c" 2>/dev/null && pwd -P)
-}
-ours=""
-for d in "$pcwd" "$PWD"; do
-  [ -n "$d" ] && [ -d "$d" ] || continue
-  ours=$(common_of "$d") && [ -n "$ours" ] && root=$(git -C "$d" rev-parse --show-toplevel) && break
-done
+[ -n "$ours" ] || find_repo
 # Not in a repository at all: there is no tracked source to protect. Fails open, as before.
 [ -n "$ours" ] || exit 0
 
@@ -471,26 +755,20 @@ if printf '%s\n' "$scan" | grep -qx CDX && printf '%s\n' "$scan" | grep -qx INPL
   block_opaque "a cd whose target is not a literal path moves every relative operand"
 fi
 
-# THE BASES a relative path can be relative to: the Bash tool's cwd (from the payload), this hook's
-# own cwd, the repo root (the original only base, kept so nothing narrows), and every literal cd/pushd in
-# the command — each resolved against every base before it, so `cd packages && cd db` composes.
-# A UNION, not a simulation of which cd is in force where: `(cd /tmp) && sed -i … src/x.ts` must
-# not resolve against /tmp alone, and a union can only over-block.
-bases=$(printf '%s\n' "$pcwd" "$PWD" "$root" | grep -v '^$' | sort -u)
-cds=$(facts CD)
-if [ -n "$cds" ]; then
-  while IFS= read -r t; do
-    case "$t" in "~") t=$HOME ;; "~/"*) t=$HOME/${t#"~/"} ;; esac
-    case "$t" in
-      /*) new=$t ;;
-      *) new=$(printf '%s\n' "$bases" | while IFS= read -r b; do printf '%s/%s\n' "$b" "$t"; done) ;;
-    esac
-    bases=$(printf '%s\n%s\n' "$bases" "$new" | grep -v '^$' | sort -u)
-  done <<EOF
-$cds
-EOF
+# The repo root is a base too: the original only base, kept so nothing narrows.
+# The cap refuses only on the command's own cds: refusing for a script's cds would refuse scripts
+# that never touch tracked source (step 0). A script's cds compose with the command's while they
+# fit; past the cap each one is resolved against the command's bases ALONE, a linear set that
+# still holds `cd packages/a` for a codemod's `sed -i … src/index.ts`, though not a cd composed
+# from two of the script's own.
+set_bases "$(own_facts CD)" "$pcwd" "$PWD" "$root" || block_opaque "too many cd targets to resolve"
+if [ -n "$(script_facts CD)" ]; then
+  own_bases=$bases
+  set_bases "$(facts CD)" "$pcwd" "$PWD" "$root" || {
+    bases=$own_bases
+    bases=$(printf '%s\n%s\n' "$own_bases" "$(cd_targets "$(script_facts CD)")" | grep -v '^$' | collapse | sort -u)
+  }
 fi
-[ "$(printf '%s\n' "$bases" | wc -l | tr -d ' ')" -le 32 ] || block_opaque "too many cd targets to resolve"
 
 # Docs and markdown are excluded on purpose: prose has no unique-anchor hazard worth a block, and
 # the first false positive was exactly a docs edit.
@@ -567,27 +845,14 @@ tracked_glob() {
     | grep -q .
 }
 
-# Every candidate as an absolute path, against every base. `~` and `~/…` are the shell's, so they
-# are expanded the way the shell will; `~user` never reaches here as a literal operand.
-absolutes() {
-  { printf '%s\n@@\n' "$bases"; cat; } | awk -v home="$HOME" '
-    $0 == "@@" { second = 1; next }
-    !second { if ($0 != "") base[++nb] = $0; next }
-    $0 == "" { next }
-    { c = $0 }
-    c == "~" { c = home }
-    substr(c, 1, 2) == "~/" { c = home substr(c, 2) }
-    substr(c, 1, 1) == "/" { print c; next }
-    { for (b = 1; b <= nb; b++) print base[b] "/" c }
-  '
-}
-show() { case "$1" in "$root"/*) printf '%s' "${1#"$root"/}" ;; *) printf '%s' "$1" ;; esac; }
-
 # CANDIDATES, two sources, as a UNION so the scan can never refuse less than the loose match:
 #  - the LITERAL operands of an in-place editor, from the scan (no extension required, so a
 #    tracked `Makefile` counts); and
 #  - a loose extraction (any token that looks like a path with an extension), which is what
 #    sees a path inside `python3 -c "…"` or a `python3 <<PY` body, where no shell word is a target.
+#    Over the command itself, and over only those script files that `.replace(` or `re.sub(`, or
+#    run an editor from inside a string (step 0): a shell script's `cp src/x.ts "$tmp"` names a
+#    path it never edits.
 # Loose extraction is safe precisely BECAUSE git is the filter: a token that is not tracked is
 # discarded, so over-collecting costs nothing and under-describing costs everything.
 #
@@ -596,7 +861,7 @@ show() { case "$1" in "$root"/*) printf '%s' "${1#"$root"/}" ;; *) printf '%s' "
 # matching globs brought the false positive straight back, because git happily confirms a path
 # quoted inside a sentence is tracked. Authority answers "is this source"; position answers "is
 # this being written", and both questions have to be asked.
-loose=$(printf '%s' "$cmd" \
+loose=$(printf '%s\n%s' "$own" "$codetext" \
   | tr -d '\\' \
   | sed -E 's/\.replace\([^)]*\)//g; s/re\.sub\([^)]*\)//g' \
   | tr -c 'A-Za-z0-9_./-' '\n' \
@@ -643,6 +908,7 @@ fi
 [ -z "$tracked" ] && exit 0
 
 echo "BLOCKED by no-blind-source-rewrite: this rewrites TRACKED source in place with a scripted find-replace:$tracked" >&2
+[ -z "$read_scripts" ] || echo "(The rewrite was read from the script file(s) this command runs:$read_scripts.)" >&2
 echo "" >&2
 echo "Use the Edit tool. It requires old_string to be UNIQUE and fails loudly when it is not —" >&2
 echo "the property this command lacks. Python's .replace() is all-occurrences and silent: it has" >&2
