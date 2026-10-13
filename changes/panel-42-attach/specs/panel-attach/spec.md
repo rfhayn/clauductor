@@ -103,6 +103,12 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **THEN** the two that redirect to `/dev/null` are trusted and recorded, with no line marked
 - **AND** `cat /dev/null` (an ordinary argument) and `2>/tmp/x` are refused, each line marked as outside the repository with the word `/dev/null` or `/tmp/x`
 
+#### Scenario: [ATTACH-3-S9] A word a shell would expand is refused, whatever the expansion
+- **GIVEN** attached projects whose sidecars each have one card, running `sh -c "sh .?/other/gate.sh"`, `bash -c "sh .{.,}/other/gate.sh"`, `bash -c "{/,}usr/local/bin/report"`, `sh -c "PATH=.:~/bin x"` and `sh -c "sh .[.]/x"`
+- **WHEN** the owner trusts each
+- **THEN** each is refused and its line marked as outside the repository: a word holding an unquoted `*`, `?`, `[`, `{`, `}`, `~`, `$` or backtick, or a `:` entry of a leading assignment's value holding one, is a word whose location cannot be known before it runs
+- **AND** every command `panel init` writes is trusted, with no line marked
+
 ### Requirement: The registry's config is the one every command reads
 THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.
 
