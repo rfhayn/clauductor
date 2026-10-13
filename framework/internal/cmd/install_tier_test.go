@@ -30,6 +30,8 @@ func TestClassifyFile(t *testing.T) {
 		"scripts/ci/run-local.sh":                                tierFramework,
 		"scripts/ci/lease.sh":                                    tierFramework,
 		"scripts/ci/lib/steps.sh":                                tierFramework,
+		"scripts/ci/gate-wait.sh":                                tierFramework,
+		"scripts/ci/lib/gate-state.sh":                           tierFramework,
 		"scripts/ci/lease-conformance/conformance.sh":            tierFramework,
 		"scripts/ci/lease-conformance/cases/dead-pid/owner.json": tierFramework,
 		".claude/extensions.sh":                                  tierFramework,

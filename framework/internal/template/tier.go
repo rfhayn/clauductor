@@ -28,6 +28,9 @@ var FrameworkScripts = map[string]bool{
 	"scripts/ci/lease.sh":     true,
 	// The model's gate steps as a library: a project's own runner calls them too (P1.6).
 	"scripts/ci/lib/steps.sh": true,
+	// The gate's run state and run log, and the foreground wait that reads them (OPS-41).
+	"scripts/ci/gate-wait.sh":      true,
+	"scripts/ci/lib/gate-state.sh": true,
 }
 
 // isModelScript: a shell script directly under .claude/.

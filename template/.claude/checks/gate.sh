@@ -104,6 +104,7 @@ mkdir -p "$R/$RUN_DIR/lib" "$R/$(dirname "$WRAP_REL")" "$R/$(dirname "$STEPS_REL
 cp "$ROOT/$RUN_REL" "$R/$RUN_REL"
 cp "$ROOT/$RUN_DIR/lease.sh" "$R/$RUN_DIR/lease.sh"
 cp "$LIB" "$R/$RUN_DIR/lib/steps.sh"
+for f in lib/gate-state.sh gate-wait.sh; do [ -f "$ROOT/$RUN_DIR/$f" ] && cp "$ROOT/$RUN_DIR/$f" "$R/$RUN_DIR/$f"; done
 if grep -q '^# gate.sh: run-local.sh for an AGENT' "$ROOT/$WRAP_REL" 2>/dev/null; then cp "$ROOT/$WRAP_REL" "$R/$WRAP_REL"; WRAP=yes; else WRAP=""; fi
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
@@ -111,7 +112,11 @@ printf 'GATE_RUN="%s"\nGATE="%s"\nGATE_STEPS="%s"\n' "$RUN_REL" "$WRAP_REL" "$ST
 cat > "$R/$STEPS_REL" <<'EOF'
 gate_steps() {
   step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
+  # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
+  step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
   step "unit" sh -c '[ ! -f FAIL_UNIT ]' || return 1
+  # Leaves a directory the clean room's cleanup cannot remove (a step that chmods its own output).
+  if [ -f LOCK_CLEANUP ]; then mkdir -p locked/x && touch locked/x/f && chmod 555 locked/x; fi
   # Takes the lease away mid-run (another holder's nonce), as a reclaim by mistake would.
   if [ -f STEAL_LEASE ]; then
     sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
@@ -301,4 +306,149 @@ touch "$R/STEAL_LEASE"; run; rc=$?; rm -f "$R/STEAL_LEASE"
 expect_rc 70 "$rc" "a gate whose lease was taken away mid-run fails (70)"
 grep -q '^==> FAIL: lease' "$d/out" && [ ! -f "$REC" ] && ok "...names the lost lease and writes no receipt (deletes the old one)" || fail "stolen lease: $(grep '^==>' "$d/out" | tr '\n' ' '); receipt $(cat "$REC" 2>/dev/null || echo none)"
 rm -rf "$LOCK" "$LOCK.waiters"
+
+# ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
+# Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says
+# PASS, FAIL, STILL RUNNING or NO RESULT for the tree in front of it, and never waits past its bound.
+WAIT_REL="$RUN_DIR/gate-wait.sh"; STATE="$R/.git/ci-gate.state"; RUNS="$R/.git/clauductor/gate-runs.log"
+if [ ! -f "$R/$WAIT_REL" ] || [ ! -f "$R/$RUN_DIR/lib/gate-state.sh" ]; then
+  fail "gate-wait.sh or lib/gate-state.sh is missing beside GATE_RUN ($RUN_DIR): no gate can be waited for, and no run is recorded"
+  finish
+fi
+gw() {  # gw [SECONDS] [PATH]: gate-wait in $R, its output in $d/gw
+  (cd "$R" && PATH="${2:-$d/bin:$np}" GATE_WAIT_POLL=1 GATE_WAIT_SECONDS="${1:-0}" sh "$WAIT_REL") > "$d/gw" 2>&1
+}
+lines() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+says() { grep -q "$1" "$d/gw" && ok "$2" || fail "$2: gate-wait said: $(tr '\n' ' ' < "$d/gw")"; }
+# A process that cannot be inspected: ps fails, as in a sandbox.
+mkdir -p "$d/nops"; printf '#!/bin/sh\necho "ps: operation not permitted" >&2\nexit 1\n' > "$d/nops/ps"; chmod +x "$d/nops/ps"
+
+rm -f "$STATE" "$REC"
+gw; rc=$?
+expect_rc 4 "$rc" "gate-wait: no gate has run here and no receipt names HEAD: NO RESULT (4)"
+says 'no gate has run in this checkout' "...and it says no gate has run, and names the foreground gate"
+
+n0=$(lines "$RUNS")
+run; rc=$?; SHA=$(git -C "$R" rev-parse HEAD)
+expect_rc 0 "$rc" "fixture: a full clean run passes"
+[ "$(lines "$RUNS")" = $((n0 + 1)) ] && ok "the run log gains one line per run ($RUNS)" || fail "run log: $(lines "$RUNS") lines after one run, $n0 before"
+last=$(tail -n 1 "$RUNS" 2>/dev/null)
+if printf '%s\n' "$last" | awk -F'\t' -v sha="$SHA" 'NF == 9 && $1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$/ && $2 == "check" && $3 == "main" && $4 == sha && $5 == "full" && $6 == "pass" && $7 == "0" && $8 ~ /^[0-9]+$/ && $9 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }'; then
+  ok "...a line of time, lane, branch, sha, mode, pass, exit code, run and queue seconds"
+else fail "run log line: '$last'"; fi
+grep -q "^started pid=[0-9]* at=[0-9]* mode=full subject=worktree head=$SHA tree=$SHA script=run-local.sh" "$STATE" && grep -q '^exit pid=[0-9]* code=0 ' "$STATE" \
+  && ok "the state file has the run's started line (a clean tree's id is HEAD) and its exit line" || fail "state: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
+gw; rc=$?
+expect_rc 0 "$rc" "gate-wait after a passing run: PASS (0)"
+says "PASS for HEAD $(printf %.9s "$SHA"). Receipt" "...naming HEAD and the receipt"
+
+touch "$R/FAIL_UNIT"; run --quick; rm -f "$R/FAIL_UNIT"
+tail -n 1 "$RUNS" | awk -F'\t' '$5 == "quick" && $6 == "fail" && $7 == "1" { ok = 1 } END { exit !ok }' \
+  && ok "a failed --quick run is logged as quick, fail, exit 1" || fail "run log after a failed --quick: '$(tail -n 1 "$RUNS")'"
+gw; rc=$?
+expect_rc 1 "$rc" "gate-wait after a failed run: FAIL (1), even with a passing receipt for HEAD on disk"
+says 'FAIL for HEAD .*exited 1' "...and says the gate exited 1"
+
+echo "edit" > "$R/new-file"
+gw; rc=$?
+expect_rc 4 "$rc" "gate-wait after an edit since the last run: NO RESULT (4), never that run's verdict"
+says 'tested an earlier state of this tree' "...and says the run tested an earlier state of the tree"
+run --dirty --quick; gw; rc=$?
+expect_rc 0 "$rc" "...and a run of the edited tree is its verdict: PASS (0)"
+says 'PASS (--quick) for HEAD .* + uncommitted changes' "...for HEAD plus the uncommitted changes, and says a quick run writes no receipt"
+rm -f "$R/new-file"
+
+# Running: a gate held in its hold step. gate-wait returns within its bound (3), then follows it to PASS.
+mkdir -p "$R/local"; touch "$R/local/HOLD"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+bg=$!
+n=0; while ! grep -q '^==> hold' "$d/bg" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 1; n=$((n + 1)); done
+s=$(date +%s); gw 1; rc=$?; took=$(( $(date +%s) - s ))
+expect_rc 3 "$rc" "gate-wait while a gate runs: STILL RUNNING (3), call again"
+[ "$took" -lt 10 ] && ok "...within its bound (GATE_WAIT_SECONDS=1: ${took}s), never a hang" || fail "gate-wait took ${took}s with GATE_WAIT_SECONDS=1"
+gw 1 "$d/nops:$d/bin:$np"; rc=$?
+expect_rc 3 "$rc" "...and where ps cannot inspect it (a sandbox), kill -0 still finds it running (3)"
+rm -f "$R/local/HOLD"
+gw 60; rc=$?
+expect_rc 0 "$rc" "gate-wait follows a running gate to its end: PASS (0)"
+wait "$bg" 2>/dev/null
+
+# Died: a started line whose process is gone, with or without ps.
+dead=$(sh -c 'echo $$')
+printf 'started pid=%s at=1 mode=full subject=worktree head=%s tree=%s script=run-local.sh\n' "$dead" "$SHA" "$SHA" > "$STATE"
+rm -f "$REC"
+gw; rc=$?
+expect_rc 4 "$rc" "gate-wait on a gate that died without a verdict: NO RESULT (4), not STILL RUNNING"
+says 'no longer running and wrote no verdict' "...and says it was killed or crashed"
+gw 0 "$d/nops:$d/bin:$np"; rc=$?
+expect_rc 4 "$rc" "...and the same where ps cannot run (kill -0: no such process)"
+printf 'started pid=%s at=1 mode=full subject=worktree head=%s tree=%s script=run-local.sh\n' "$$" "$SHA" "$SHA" > "$STATE"
+if ps -p $$ -o command= >/dev/null 2>&1; then
+  gw; rc=$?
+  expect_rc 4 "$rc" "...and a live pid that is not a gate (a reused pid) is not a running gate"
+else fail "cannot check that a reused pid is not read as a running gate: ps does not run here (a sandbox?); run the checks outside it"; fi
+
+# Interrupted: a signal mid-run is recorded as `signal` (a fail), never as the pass bash's $? = 0 implies.
+# The gate runs alone here (CLAUDUCTOR_LOCK_HELD names a lease made by hand), so its pid is the run's.
+mkdir -p "$LOCK" "$R/local"; touch "$R/local/HOLD"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$LOCK" exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+bg=$!
+n=0; while ! grep -q '^==> hold' "$d/bg" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 1; n=$((n + 1)); done
+kill -TERM "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
+rm -f "$R/local/HOLD"; rm -rf "$LOCK"
+grep -q '^exit pid=[0-9]* code=signal ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$6 == "fail" && $7 == "signal" { ok = 1 } END { exit !ok }' \
+  && ok "a gate killed mid-run is recorded as interrupted (code=signal, fail), not as a pass" || fail "after TERM: state $(tr '\n' '|' < "$STATE"); log '$(tail -n 1 "$RUNS")'"
+gw; rc=$?
+expect_rc 1 "$rc" "gate-wait on an interrupted gate: FAIL (1)"
+
+# Bounded: past GATE_RUNS_MAX_BYTES the log becomes gate-runs.log.1 and a new one starts.
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
+[ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES the run log rotates to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
+
+# A project.conf that names a variable the run state does not set ($ROOT, read before conf.sh runs)
+# still gates: recording the run must never stop the gate.
+printf 'PROJECT_NOTES="$ROOT/docs/notes"\n' >> "$R/.claude/project.conf"
+# ROOT unset, as in a real gate: checks/run.sh exports it, which would hide the failure.
+rm -f "$STATE"; (unset ROOT; run --quick); rc=$?
+git -C "$R" checkout -q -- .claude/project.conf
+expect_rc 0 "$rc" "a project.conf naming \$ROOT does not stop the gate (the run state reads it without nounset)"
+grep -q '^started .* mode=quick ' "$STATE" && ok "...and the run is still recorded" || fail "no started line after a project.conf naming \$ROOT: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
+
+# gate-wait takes whole seconds only, and says so: anything else would never compare as elapsed.
+run --quick
+out=$(cd "$R" && PATH="$d/bin:$np" GATE_WAIT_SECONDS=abc GATE_WAIT_POLL=x sh "$WAIT_REL" 2>&1); rc=$?
+expect_rc 0 "$rc" "gate-wait with a non-numeric GATE_WAIT_SECONDS and GATE_WAIT_POLL still answers (PASS after the run above)"
+case "$out" in *"GATE_WAIT_SECONDS=abc is not whole seconds"*"GATE_WAIT_POLL=x is not whole seconds"*) ok "...and says which values it ignored" ;; *) fail "gate-wait did not name the ignored values: $out" ;; esac
+
+# A signal AFTER the verdict keeps it: TERM lands while a passing full run publishes its status (the
+# ci-status module, here a stub that waits), and the run is recorded as the pass it was.
+mkdir -p "$R/.claude/modules/ci-status/scripts" "$R/local"
+printf '#!/bin/sh\necho "$PPID" > local/gate.pid\nwhile [ -f local/PUBHOLD ]; do sleep 1; done\n' > "$R/.claude/modules/ci-status/scripts/publish-status.sh"
+printf 'MODULES="ci-status"\n' >> "$R/.claude/project.conf"
+git -C "$R" add -A && git -C "$R" commit -qm "a ci-status stub"
+rm -f "$R/local/gate.pid"; touch "$R/local/PUBHOLD"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+bg=$!
+n=0; while [ ! -s "$R/local/gate.pid" ] && [ "$n" -lt 60 ]; do sleep 1; n=$((n + 1)); done
+[ -s "$R/local/gate.pid" ] && kill -TERM "$(cat "$R/local/gate.pid")" 2>/dev/null
+rm -f "$R/local/PUBHOLD"; wait "$bg" 2>/dev/null
+grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$6 == "pass" && $7 == "0" { ok = 1 } END { exit !ok }' \
+  && ok "a signal after the verdict (while publishing) keeps the pass: code=0, not signal" || fail "signal after the verdict: state $(tr '\n' '|' < "$STATE"); log '$(tail -n 1 "$RUNS")'; $(grep '^==>' "$d/bg" | tr '\n' ' ')"
+
+# A cleanup that fails (a clean room the cleanup cannot remove) still writes the exit line.
+printf 'GATE_CLEAN_ROOM="archive"\nMODULES=""\n' >> "$R/.claude/project.conf"
+touch "$R/LOCK_CLEANUP"; git -C "$R" add -A && git -C "$R" commit -qm "a step that locks its output"
+mkdir -p "$d/tmp"; rm -f "$STATE"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check TMPDIR="$d/tmp" bash "$RUN_REL") > "$d/out" 2>&1
+chmod -R u+w "$d/tmp" 2>/dev/null; rm -rf "$d/tmp"
+grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && ok "a cleanup that fails still leaves the run's exit line" || fail "failing cleanup: state $(tr '\n' '|' < "$STATE" 2>/dev/null); $(grep '^==>' "$d/out" | tr '\n' ' ')"
+
+# Every place that tells an agent to run the gate says how to follow one the tool backgrounds. Read
+# from the model's own copy: the project's, or the plugin's (CLAUDUCTOR_FW).
+for f in workflows/build-change.js skills/apply-change/SKILL.md; do
+  p="${CLAUDUCTOR_FW:-$ROOT/.claude}/$f"
+  if [ ! -f "$p" ]; then fail "$p is missing: nothing tells its agents how to run the gate"
+  elif grep -q 'gate-wait.sh' "$p" && grep -q 'exit 3 means call it again' "$p"; then ok "$f tells its agent to follow a backgrounded gate with gate-wait.sh, and to stop on any exit but 3"
+  else fail "$f does not name gate-wait.sh with 'exit 3 means call it again': an agent whose gate the tool backgrounds is told nothing, or waits forever on a 4"; fi
+done
 finish

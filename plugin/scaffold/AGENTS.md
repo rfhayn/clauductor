@@ -68,6 +68,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | The panel offers only what the roadmap allows next | **`${CLAUDE_PLUGIN_ROOT}/panel-suggest.sh`** over the one parser; **`checks/panel-suggest.sh`** |
 | Claude merges only once review has CONVERGED | **`merge-pr`** step 3: a skill step, **no hook checks it** |
 | No scripted find-replace against tracked source | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-blind-source-rewrite.sh`** (blocking) |
+| No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | The status-line focus says what this lane is doing | **`${CLAUDE_PLUGIN_ROOT}/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`${CLAUDE_PLUGIN_ROOT}/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |

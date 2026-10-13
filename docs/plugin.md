@@ -149,7 +149,8 @@ what exists:
   runner at the plugin's agent with `EVAL_AGENT_FILE`.
 - `docs/`, `changes/`, `specs/`, `.github/`, with framework paths in prose named as the plugin's
 - `scripts/ci/`: the gate (`steps.sh`, `run-local.sh`, `gate.sh`, `lease.sh`, the model's steps
-  in `lib/steps.sh`, which reach the plugin's scripts through the resolver, and the lease
+  in `lib/steps.sh`, which reach the plugin's scripts through the resolver, the run state and
+  run log in `lib/gate-state.sh` with `gate-wait.sh`, which reads them, and the lease
   conformance kit in `lease-conformance/`) and
   `clauductor-model.sh`, and `.claude/lib/conf.sh`: the gate runs in CI where no plugin is
   installed, and sources this one library

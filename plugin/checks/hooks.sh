@@ -95,6 +95,78 @@ nojq() {
 nojq 2 "sed -i '' s/a/b/ $T" "blocks a command it could police"
 nojq 0 "git status" "allows a command it could not"
 
+# ── no-background-gate ──────────────────────────────────────────────────────────────────
+G=scripts/ci/gate.sh
+bgp() {  # bgp AGENT COMMAND [BACKGROUND] [TIMEOUT]: a Bash payload, a subagent's when AGENT is set
+  jq -cn --arg a "$1" --arg c "$2" --arg b "${3:-}" --arg t "${4:-}" '{tool_name:"Bash", tool_input:{command:$c}}
+    | if $a == "" then . else .agent_id = $a end
+    | if $b == "" then . else .tool_input.run_in_background = ($b == "true") end
+    | if $t == "" then . else .tool_input.timeout = ($t | tonumber) end'
+}
+nbg() {  # nbg WANT LABEL PAYLOAD [PATH]
+  rc=0; printf '%s' "$3" | (cd "$R" && PATH="${4:-$PATH}" sh "$H/no-background-gate.sh") >/dev/null 2>&1 || rc=$?
+  expect_rc "$1" "$rc" "no-background-gate $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+}
+nbg 2 "a subagent's gate with run_in_background" "$(bgp a1 "$G" true 600000)"
+nbg 2 "a subagent's foreground gate at the default timeout (the tool backgrounds it at 120 s)" "$(bgp a1 "$G")"
+nbg 2 "a subagent's foreground gate under 600000 ms" "$(bgp a1 "$G --quick" false 300000)"
+nbg 2 "a subagent's gate-wait with run_in_background" "$(bgp a1 "scripts/ci/gate-wait.sh" true 600000)"
+nbg 2 "a subagent's run-local.sh behind cd, bash and env" "$(bgp a1 "cd sub && env X=1 bash ../scripts/ci/run-local.sh --quick")"
+nbg 2 "a subagent's gate inside \$( )" "$(bgp a1 "out=\$($G); echo \"\$out\"")"
+nbg 2 "the shell's & from a subagent, at timeout 600000" "$(bgp a1 "$G > log 2>&1 &" "" 600000)"
+nbg 2 "the shell's & from the MAIN session (nothing waits for it)" "$(bgp "" "nohup $G --quick > log 2>&1 &")"
+nbg 2 "( gate ) &" "$(bgp "" "( $G ) &")"
+nbg 2 "bash -c 'gate &'" "$(bgp "" "bash -c '$G &'")"
+nbg 0 "the main session's gate with run_in_background (it is woken when it ends)" "$(bgp "" "$G" true)"
+nbg 0 "the main session's foreground gate at the default timeout" "$(bgp "" "$G")"
+nbg 0 "a subagent's foreground gate at timeout 600000" "$(bgp a1 "$G --quick 2>&1 | tail -5" false 600000)"
+nbg 0 "a subagent's foreground gate-wait at timeout 600000" "$(bgp a1 "scripts/ci/gate-wait.sh" "" 600000)"
+nbg 0 "a subagent reading the gate in the background (cat)" "$(bgp a1 "cat $G" true)"
+nbg 0 "a subagent's git log naming run-local.sh" "$(bgp a1 "git log --oneline -- scripts/ci/run-local.sh")"
+nbg 0 "a commit message naming the gate and &" "$(bgp a1 "git commit -m \"run $G & wait for it\"")"
+nbg 0 "a heredoc body naming the gate and &" "$(bgp a1 "cat > notes.txt <<'EOF'
+$G &
+EOF")"
+nbg 0 "a syntax check of the gate (sh -n)" "$(bgp a1 "sh -n scripts/ci/gate-wait.sh")"
+nbg 0 "a subagent's other background task" "$(bgp a1 "go test ./..." true)"
+nbg 0 "a subagent's & on a command that is not a gate" "$(bgp a1 "sleep 1 & wait")"
+# A gate is the configured PATH, not any script that shares its file name.
+# Fixture commands, spelled through $CK so no line here is itself a path this check uses.
+CK=.claude/checks
+nbg 0 "a subagent's check script that is also named gate.sh" "$(bgp a1 "sh $CK/gate.sh")"
+nbg 0 "the template's check named gate.sh" "$(bgp a1 "sh template/$CK/gate.sh")"
+nbg 0 "the plugin's check named gate.sh, with &" "$(bgp "" "plugin/checks/gate.sh &")"
+nbg 2 "the gate by an absolute path" "$(bgp a1 "\"\$CLAUDE_PROJECT_DIR\"/$G" true)"
+nbg 2 "the gate as ./scripts/ci/gate.sh" "$(bgp a1 "./$G --quick")"
+# Arithmetic is not a background job, and a heredoc inside \$( ) does not end it early.
+nbg 0 "\$((3 & 1)) beside a foreground gate at 600000" "$(bgp a1 "echo \$((3 & 1)); $G" "" 600000)"
+nbg 0 "a heredoc inside \$( ) whose body has ')' and then names the gate with &" "$(bgp "" "x=\$(cat <<'EOF'
+)
+$G &
+EOF
+)")"
+# Without a working awk reader or jq, the shell's & still counts.
+nbg 2 "without jq: the main session's gate with &" "$(bgp "" "$G &")" "$d/nojq"
+nbg 0 "an empty payload" ""
+# The gate is the project's GATE and GATE_RUN (project.conf, read from CLAUDE_PROJECT_DIR as the plugin does).
+mkdir -p "$d/own-gate/.claude"; printf 'GATE="tools/check.sh"\nGATE_RUN="tools/run-all.sh"\n' > "$d/own-gate/.claude/project.conf"
+for c in "tools/check.sh" "tools/run-all.sh --quick" "tools/gate-wait.sh"; do
+  rc=0; bgp a1 "$c" true | (cd "$R" && CLAUDE_PROJECT_DIR="$d/own-gate" sh "$H/no-background-gate.sh") >/dev/null 2>&1 || rc=$?
+  expect_rc 2 "$rc" "no-background-gate blocks a subagent's background '$c' where project.conf names tools/check.sh and tools/run-all.sh"
+done
+# A project.conf that names its gate through $ROOT (an absolute path) still matches the relative spelling.
+mkdir -p "$d/abs-gate/.claude"; printf 'GATE="$ROOT/tools/check.sh"\nGATE_RUN="$ROOT/tools/run-all.sh"\n' > "$d/abs-gate/.claude/project.conf"
+rc=0; bgp "" "tools/check.sh &" | (cd "$R" && CLAUDE_PROJECT_DIR="$d/abs-gate" sh "$H/no-background-gate.sh") >/dev/null 2>&1 || rc=$?
+expect_rc 2 "$rc" "no-background-gate blocks 'tools/check.sh &' where project.conf names GATE=\"\$ROOT/tools/check.sh\""
+# A substitution that starts with a subshell is not arithmetic; a path with // or /./ is the same path.
+nbg 2 "\$((gate) 2>&1): a command substitution of a subshell, not arithmetic" "$(bgp a1 "out=\$(($G --quick) 2>&1)")"
+nbg 2 "scripts/ci//gate.sh &" "$(bgp "" "scripts/ci//gate.sh &")"
+nbg 2 "scripts/ci/./gate.sh &" "$(bgp "" "scripts/ci/./gate.sh &")"
+# Without jq it fails CLOSED for a subagent call naming a gate, and only then.
+nbg 2 "without jq: a subagent call naming the gate" "$(bgp a1 "$G" "" 600000)" "$d/nojq"
+nbg 0 "without jq: the main session's gate" "$(bgp "" "$G" true)" "$d/nojq"
+nbg 0 "without jq: a subagent call naming no gate" "$(bgp a1 "git status" true)" "$d/nojq"
+
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
 git init -q --bare "$d/origin.git"
 A="$d/main"; new_repo "$A"
@@ -149,10 +221,10 @@ expect_rc 0 "$rc" "format.sh is a silent no-op with FORMAT_CMD unset"
 # reads the config tests for it first. Run each hook from a checkout with no .claude/lib, under sh
 # and, where installed, under dash (Ubuntu's sh).
 N="$d/noconf"; new_repo "$N"; mkdir -p "$N/.claude/hooks"
-for h in focus-staleness format worktree-hook-drift; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
+for h in focus-staleness format worktree-hook-drift no-background-gate; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
 for shell in sh dash; do
   command -v "$shell" >/dev/null 2>&1 || continue
-  for h in focus-staleness format worktree-hook-drift; do
+  for h in focus-staleness format worktree-hook-drift no-background-gate; do
     rc=0; printf '%s' "$spawn" | (cd "$N" && "$shell" "$N/.claude/hooks/$h.sh") >/dev/null 2>&1 || rc=$?
     expect_rc 0 "$rc" "[$shell] $h.sh with conf.sh missing does not block (exit 0)"
   done
@@ -180,7 +252,7 @@ done
 # .claude/local/hook-expectations.tsv, the same five tab-separated columns. proof is `out:<ERE>`
 # (stdout and stderr together), `file:<path>` (it must exist after) or `exit` (the exit code and no
 # launch error: only for a hook with nothing else to show). @REPO@ in a payload or path is the
-# throwaway project; @TRACKED@ a tracked file in it.
+# throwaway project; @TRACKED@ a tracked file in it; @GATE_WAIT@ gate-wait.sh beside GATE_RUN.
 SETTINGS="$ROOT/.claude/settings.json"
 if [ ! -f "$SETTINGS" ]; then
   fail "no .claude/settings.json: the hooks are registered nowhere, so none of them runs"
@@ -223,6 +295,7 @@ plugin=""
 cat > "$d/core.tsv" <<'EOF'
 pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
 no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
+no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
@@ -263,7 +336,7 @@ while IFS="$TAB" read -r ev cmd; do
   row=$(awk -F'\t' -v s="$s" '$1 == s { print; exit }' "$d/expect.tsv")
   [ -n "$row" ] || continue
   want=$(printf '%s' "$row" | cut -f2); proof=$(printf '%s' "$row" | cut -f3)
-  pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g"); why=$(printf '%s' "$row" | cut -f5)
+  pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g; s|@GATE_WAIT@|$(dirname "$GATE_RUN")/gate-wait.sh|g"); why=$(printf '%s' "$row" | cut -f5)
   for where in "$P/src/sub" "$P"; do
     label="$ev $s from $( [ "$where" = "$P" ] && echo 'the project root' || echo 'a subdirectory'): $why"
     rm -f "$P/formatted.stamp"

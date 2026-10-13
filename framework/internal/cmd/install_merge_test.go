@@ -200,7 +200,8 @@ func TestInstallFollowsGateRun(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
 	for _, f := range []string{"tools/ci/run-local.sh", "tools/ci/gate.sh", "tools/ci/lease.sh", "tools/ci/steps.sh",
-		"tools/ci/lib/steps.sh", "tools/ci/lease-conformance/run.sh", "tools/ci/lease-conformance/VERSION"} {
+		"tools/ci/lib/steps.sh", "tools/ci/lib/gate-state.sh", "tools/ci/gate-wait.sh",
+		"tools/ci/lease-conformance/run.sh", "tools/ci/lease-conformance/VERSION"} {
 		if !fileExists(filepath.Join(dir, f)) {
 			t.Errorf("%s was not installed", f)
 		}
@@ -268,7 +269,7 @@ func TestInstallGateRunOwnRunnerAndAmbiguity(t *testing.T) {
 	}
 	// The project's own runner calls the model's steps from the library, and runs its own lease
 	// through the conformance kit: both still install (P1.6, P1.12).
-	for _, f := range []string{"scripts/ci/lib/steps.sh", "scripts/ci/lease-conformance/run.sh"} {
+	for _, f := range []string{"scripts/ci/lib/steps.sh", "scripts/ci/lib/gate-state.sh", "scripts/ci/gate-wait.sh", "scripts/ci/lease-conformance/run.sh"} {
 		if !fileExists(filepath.Join(dir, f)) {
 			t.Errorf("%s was not installed beside the project's own runner", f)
 		}

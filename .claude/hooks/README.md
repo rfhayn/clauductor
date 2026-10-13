@@ -10,6 +10,7 @@ subdirectory and the root, and needs each hook's own proof that it ran: register
 | Hook | Event | Blocks? | What it does |
 |---|---|---|---|
 | `no-blind-source-rewrite.sh` | PreToolUse `Bash` | yes | Refuses `sed -i`, `perl -pi`, python `.replace` read-modify-write and the like against files `git ls-files` tracks. Use the Edit tool. |
+| `no-background-gate.sh` | PreToolUse `Bash` | yes | Refuses a gate or `gate-wait.sh` sent where nobody hears it end: the shell's `&` from anyone, and from a subagent (`agent_id` in the payload) `run_in_background` or a timeout under 600000 ms. Reads the command with `lib/gate-reader.awk`, so a mention (`cat`, `git log`) is not a gate. |
 | `pr-merge-guard.sh` | PreToolUse `Bash` | yes | Refuses `gh pr merge --auto/--admin`, a merge with no gate evidence for the head SHA, and a duplicate journal session number. |
 | `worktree-hook-drift.sh` | PreToolUse `Agent\|Task` | yes | Refuses a worktree agent while the main checkout's hooks lack commits from `origin/main`. |
 | `focus-staleness.sh` | UserPromptSubmit | no | Nudges when the status-line focus is missing or stale. |
