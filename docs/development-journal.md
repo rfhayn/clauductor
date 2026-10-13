@@ -14,6 +14,67 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 2 — 2026-10-13 — Rich — MAPS planned and approved, attach mode, an overnight merge train
+
+**Rows**: OPS-33 to OPS-61, PANEL-28, PANEL-29, PANEL-42, OPS-40, OPS-42 and others · **Span**: 2026-10-12 afternoon to 2026-10-13 evening
+
+### What happened
+
+The session started from Pav Rusovs' "AI operating system" video (MAPS: Memory, Agent, Pulse, Screen). The owner wanted its look and its parts built into Clauductor through this repository's own process. That became the MAPS program (PRD-maps, OPS-37): a Map view, routines, a Today column and a skills deck in phase 1, and a clean-room study of the paid source in phase 2. A rollback checkpoint was tagged first (`checkpoint/2026-10-12-pre-maps`). Midway the owner chose **attach mode** over converging Standing Tee into the template (PRD-attach, OPS-49): Standing Tee stays independent, and the panel serves it from a sidecar config.
+
+**27 PRs merged on 2026-10-12/13.** By theme:
+- **The flaky gate fixed at its causes:**
+  - the Go 1.26.9 pin for the darwin race runtime (#90), and the guard against an affected toolchain (#106);
+  - the #78 flakes (#83);
+  - tests that launched the owner's real claude (#97, #98).
+- **The in-flight three:** PANEL-29, the new-lane dialog (#94, archived in #99), and PANEL-28, the login-refresh race (#104, archived in #122).
+- **The merge guard:**
+  - commands with non-ASCII characters read (#103);
+  - PR numbers read exactly (#112);
+  - the rewrite hook reads script files (#111).
+- **The gate:** a run log, a state file, `gate-wait.sh` and the background-gate hook (#119).
+- **Agents:** reports reach their own lead (#121).
+- **Records:**
+  - practice records beside ADRs (#115);
+  - the roadmap's Deps column, made strict (#117);
+  - this repository's drift cleanup (#108).
+- **The panel:** typing while scrolled back (#110), and tonight's lows (#116).
+- **Approved and on main as proposals:** OPS-42 routines (#105), PANEL-42 attach (#96), OPS-40 map data (#113).
+
+### Decisions the owner made (selected)
+- **Routines' caps follow the billing mode.**
+  - On a subscription, quota only, refusing at 80% of either window, and at most 3 runs a day while the quota is unknown.
+  - On an API key, dollar caps, with the key read from a file outside the repository.
+- **PANEL-42's sidecar commands are argv-only, with no shell text.** That ended a review arms race; the earlier `/dev/null` exception is superseded.
+- **Review-round caps.** The owner chose "keep going until clean" for OPS-42's proposal (7 rounds), and "round 4, then land" for OPS-54. The soft cap of 5 otherwise.
+- **Guard bypass families.** Two cheap ones were fixed; the rest are named as known limits, by class only, because the repository is public.
+- **The rewrite hook will cover `changes/`, `specs/` and `.html`** (OPS-68).
+- **A standing rule:** every template PR syncs this repository's own `.claude/` in its own branch.
+
+### What surprised us
+- **Reports kept landing in the top session.** In fork mode a subagent's spawns always run in the background, and a lead that hands back loses its children's results. The first fix, a foreground flag, was inert, and its fallback would have relaunched builders onto the same tree. A reviewer probed the real harness and caught it (#121).
+- **Pushes that never happened.** Two `git push -q` calls failed silently: one branch had no upstream, and one's upstream was `origin/main`. PRs sat on stale heads for hours. Explicit refspecs since then.
+- **Semantic conflicts.** #83's new testbin rule failed #97 and #104, though both merged cleanly as text. Merges behind main now test the merge-tree result first.
+- **A stale quota reading.** The panel's `quota.json` was 9 days old and was read as 93%. The owner's real figure was about 80% (OPS-67).
+- **Rule 11 checks nothing on a real archive**, because `git mv` shows renames, not adds (OPS-70).
+
+### Left in flight (handed off)
+- **PANEL-31:** groups 1–2 committed on `change/panel-31-build`; group 3 (docs and the 175% browser look) is next.
+- **OPS-42:** group 1 through review round 3, committed as a WIP on `change/ops-42-build`. Round 4 and the orchestrator's rulings are listed in its tasks.md Progress line.
+- **Three cloud sessions overnight,** on the owner's cloud credits: the OPS-40 build, OPS-39 and OPS-67. Each opens a PR for the next session to gate and merge (owner queue).
+- **Held for the 08:00 quota reset:** PANEL-42's build, OPS-44, OPS-58, OPS-62 and the flakes (OPS-53, OPS-60, OPS-65).
+
+### Flow and cost
+- **Flow (30 days):** approval wait 0.9h, review rounds 3.5, spend $478.27 a week, 58 in flight. Cycle time and merges per week: CANNOT CHECK, because gh could not list merged PRs from the sandbox.
+- **This session's cost** (usage-report.sh, list price, this machine): about **$554**.
+  - builder $163;
+  - the orchestrating session $158;
+  - OPS-42's build lead $98;
+  - reviewers $65;
+  - the proposal drafters $38;
+  - the rest small.
+- The reviewers caught a critical (#121), several highs (OPS-40's proposal, #104, #111) and many mediums for about an eighth of the spend. The Opus reviewer role is earning its cost. OPS-42's group 1 took 3+ rounds and about $100 of lead and builder time; its later groups should split work more finely.
+
 ## Session 1 — 2026-09-30 — Rich (Claude, OPS-8 lane) — Clauductor adopts its own operating model
 
 **Row**: OPS-8 · **Branch**: `feature/OPS-8-own-model`
