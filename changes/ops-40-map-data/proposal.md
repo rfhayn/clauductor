@@ -39,16 +39,19 @@ A project can:
 - **see which controls nothing executes.** A control whose cell names no mechanism carries the
   flag `unexecuted`. One that names a mechanism and also says "Nothing. You." carries `by-hand`
   (D6).
-- **have the gate fail a dangling reference.** `sh .claude/map.sh --check` names the file, the
-  line and the token of each reference that resolves to nothing, or to two files at once:
+- **have the gate fail a dangling reference.** `sh .claude/map.sh --check` names the file (and
+  the line, where there is one) and the token of each reference that resolves to nothing, or to
+  two files at once:
   - in a *What executes* cell or an ADR's Enforcement section;
   - a path a skill or agent names;
   - a hook settings.json registers;
   - a skill or agent model-roles.json assigns;
-  - a module part;
-  - a row's Deps.
+  - a module part.
 
-  `checks/map.sh` runs it in every gate, because the checks directory is the list.
+  A row's Deps are the roadmap parser's to hold (OPS-38). `--check` fails when the parser
+  refuses the queue (D10). `checks/map.sh` runs it in every gate, because the checks directory
+  is the list. That includes a plugin project's gate and a fresh install before its first
+  commit (D5).
 - **validate a map it did not make** with `sh .claude/map.sh --validate FILE`. An attached
   repository has no `map.sh`, so the panel will build a map from what it sees (PANEL-35). Schema
   v1 admits that map: it names its `source`, and an empty layer says why it is empty (D13).
@@ -72,11 +75,12 @@ It builds on what is documented but not specified:
   - the named-path pattern in `checks/skills.sh`;
   - the hook-registration query in `checks/hooks.sh`;
   - the table anchor in `checks/agents-md-budget.sh`;
-  - `extensions.sh list`;
-  - `clauductor update`'s merge of table rows, which keys each row by its first cell
-    (`framework/internal/template/projectfiles.go`).
+  - `ext_files` and `ext_dirs` in `lib/modules.sh`, as `checks/run.sh` reads them;
+  - `clauductor update`'s reading of table rows, which keys each row by its first cell and
+    suggests a missing one (`framework/internal/template/projectfiles.go`).
 
-  D11 moves the first three into one shared file instead of copying them.
+  D11 moves the first three into one shared file instead of copying them. A new
+  `checks/refs.sh` holds the three checks' behaviour across the move and after it.
 - **ADR-0006.** `map.sh` is POSIX sh, git and jq, and needs neither the binary nor the panel.
   `checks/no-clauductor.sh` already runs every check with `clauductor` off PATH.
 - **ADR-0007.** The plugin's copy finds the model's files through `CLAUDUCTOR_FW`, as
@@ -84,7 +88,7 @@ It builds on what is documented but not specified:
 
 **Scope, re-measured under step 0c.** The row names two files. The change writes:
 
-- **three new files:** `map.sh`, `checks/map.sh`, `lib/refs.sh`;
+- **four new files:** `map.sh`, `checks/map.sh`, `lib/refs.sh`, `checks/refs.sh`;
 - **three checks, each a one-line swap to the shared reader:** `checks/skills.sh`,
   `checks/hooks.sh`, `checks/agents-md-budget.sh`;
 - **one table row** in each AGENTS.md;
