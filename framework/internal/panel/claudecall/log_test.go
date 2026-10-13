@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -407,5 +408,154 @@ func TestWatchReportsALogItCannotWrite(t *testing.T) {
 	}
 	if n := strings.Count(out.String(), "login-lock log:"); n != 1 {
 		t.Errorf("reported %d times: %q", n, out.String())
+	}
+}
+
+// heldClaude runs `claude agents --json` through g with a fake claude that sleeps
+// until stopped (SIGTERM ends it), and returns its pid once it runs and the stop.
+func heldClaude(t *testing.T, g *Gate, timeout time.Duration) (pid int, stop func()) {
+	t.Helper()
+	fakeProgram(t, "claude", "exec sleep 30\n")
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
+	go func() { defer close(done); g.Run(ctx, t.TempDir(), agentsArgv) }()
+	n := len(g.calls())
+	cs := waitCalls(t, g, "the claude start", n+1, running)
+	stop = func() { cancel(); <-done }
+	t.Cleanup(stop)
+	return cs[n].pid, stop
+}
+
+// [CLAUDECALLS-4-S2] A lock whose owner record names the pid of a running claude call
+// of the panel's is logged as the panel's own, naming the call.
+// [CLAUDECALLS-4-S7] It is so too when the call took the lock before the watch's
+// first tick.
+func TestWatchAttributesALockToTheRunningCall(t *testing.T) {
+	home, r := fakeConfig(t)
+	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	pid, stop := heldClaude(t, g, time.Minute)
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Attribute: g.Attribute}
+	makeLock(t, r.CurrentPath(), time.Now())
+	writeRecord(t, r, record(pid, time.Now()))
+	w.Tick(context.Background()) // the watch's first tick: the lock was there before it
+	stop()
+	os.RemoveAll(r.CurrentPath())
+	w.Tick(context.Background())
+	got := readLines(t, home)
+	if len(got) != 1 || !got[0].Own || got[0].Holder != "own" || got[0].Call != "claude agents --json" || got[0].PID != pid {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
+// [CLAUDECALLS-4-S4] A lock left by a panel call that was stopped and reaped before
+// the watch first saw it is still the panel's: its birth falls within the call's
+// spawn and end.
+func TestWatchAttributesALockLeftByAReapedCall(t *testing.T) {
+	home, r := fakeConfig(t)
+	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	pid, stop := heldClaude(t, g, time.Minute)
+	makeLock(t, r.CurrentPath(), time.Now())
+	writeRecord(t, r, record(pid, time.Now()))
+	stop()
+	waitCalls(t, g, "the reap", 1, ended)
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Run: signals.ExecRunner, Attribute: g.Attribute}
+	w.Tick(context.Background())
+	w.Stop()
+	got := readLines(t, home)
+	if len(got) != 1 || !got[0].Own || got[0].Call != "claude agents --json" || got[0].HolderRunning {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
+// [CLAUDECALLS-4-S9] A lock taken during the SIGTERM grace is still inside its call:
+// the call's end is when it was reaped, not when it was stopped.
+func TestWatchAttributesALockTakenDuringTheGrace(t *testing.T) {
+	home, r := fakeConfig(t)
+	fakeProgram(t, "claude", `trap 'kill $P 2>/dev/null; sleep 3; exit 0' TERM
+sleep 60 & P=$!
+wait $P
+`)
+	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if _, err := g.Run(ctx, t.TempDir(), agentsArgv); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
+	}
+	time.Sleep(time.Second) // into the grace: SIGTERM went out a second ago
+	cs := g.calls()
+	if len(cs) != 1 || !running(cs[0]) {
+		t.Fatalf("history %+v", cs)
+	}
+	makeLock(t, r.CurrentPath(), time.Now())
+	writeRecord(t, r, record(cs[0].pid, time.Now()))
+	cs = waitCalls(t, g, "the reap", 1, ended)
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Attribute: g.Attribute}
+	w.Tick(context.Background())
+	w.Stop()
+	got := readLines(t, home)
+	if len(got) != 1 || !got[0].Own {
+		t.Fatalf("lines: %+v (call %+v)", got, cs[0])
+	}
+}
+
+// [CLAUDECALLS-4-S5] A lock created after a panel call ended is not the panel's,
+// whatever its pid.
+func TestWatchALockBornAfterItsPidsCallIsAnothers(t *testing.T) {
+	home, r := fakeConfig(t)
+	clk := clock.NewFake(t0)
+	g, _ := newGate(t, nil, r, clk)
+	pid := otherHolder(t)
+	end := t0.Add(time.Hour) // 10:00:00, as it were
+	simulated(t, g, clk, pid, end.Add(-time.Second), end)
+	clk.Advance(30 * time.Second)
+	makeLock(t, r.CurrentPath(), clk.Now())
+	writeRecord(t, r, record(pid, end.Add(30*time.Second))) // the pid reused 30 s later
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clk, Attribute: g.Attribute}
+	w.Tick(context.Background())
+	w.Stop()
+	if got := readLines(t, home); len(got) != 1 || got[0].Own || got[0].Holder != "other" {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
+// [CLAUDECALLS-4-S6] A lock born before the panel started has an unknown holder.
+func TestWatchALockBornBeforeThePanelHasAnUnknownHolder(t *testing.T) {
+	home, r := fakeConfig(t)
+	clk := clock.NewFake(t0)
+	g, _ := newGate(t, nil, r, clk) // the panel starts at t0
+	makeLock(t, r.CurrentPath(), t0)
+	writeRecord(t, r, record(4242, t0.Add(-10*time.Second)))
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clk, Attribute: g.Attribute}
+	w.Tick(context.Background())
+	w.Stop()
+	if got := readLines(t, home); len(got) != 1 || got[0].Own || got[0].Holder != "unknown: before this panel started" {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
+// [CLAUDECALLS-4-S8] A stranded lock keeps its attribution after its call ages out of
+// the history: an hour later, and when it finally goes, its line still says own.
+func TestWatchAStrandedLockKeepsItsAttribution(t *testing.T) {
+	home, r := fakeConfig(t)
+	clk := clock.NewFake(t0)
+	g, _ := newGate(t, nil, r, clk)
+	pid := otherHolder(t)
+	simulated(t, g, clk, pid, t0.Add(time.Second), t0.Add(3*time.Second))
+	birth := t0.Add(2 * time.Second)
+	makeLock(t, r.CurrentPath(), birth)
+	writeRecord(t, r, record(pid, birth))
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clk, Attribute: g.Attribute}
+	w.Tick(context.Background())
+	clk.Advance(time.Hour)
+	if a := g.Attribute(Holder{PID: pid, Birth: birth}); a.Own {
+		t.Fatalf("the call has not aged out of the history: %+v", g.calls())
+	}
+	w.Tick(context.Background())
+	os.RemoveAll(r.CurrentPath())
+	clk.Advance(WatchEvery)
+	w.Tick(context.Background())
+	got := readLines(t, home)
+	if len(got) != 1 || !got[0].Own || got[0].Call != "claude agents --json" || got[0].Ended != EndGone || got[0].LastState != Stale {
+		t.Fatalf("lines: %+v", got)
 	}
 }

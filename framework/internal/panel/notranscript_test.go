@@ -145,7 +145,7 @@ var fileReadSites = map[string]int{
 	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
 	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
 	"runtime.go":           1, // a project's notifier state (notifier.json)
-	"machine.go":           3, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state
+	"machine.go":           4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
 	"config/projects.go":   1, // the projects registry (projects.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
@@ -159,7 +159,7 @@ var fileReadSites = map[string]int{
 	"lanes/lifecycle.go":   1, // a .worktreeinclude file copied from the project root into a new worktree
 	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
 	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
-	"claudecall/lock.go":   1, // PANEL-28: Claude Code's refresh-lock owner record (<config dir>/.oauth_refresh.lock.owner), read only
+	"claudecall/lock.go":   1, // PANEL-28: Claude Code's refresh-lock owner record (<lock dir>/.oauth_refresh.lock.owner), read only
 	"claudecall/log.go":    1, // PANEL-28: the panel's own login-lock.jsonl, re-read to trim it to its cap
 }
 

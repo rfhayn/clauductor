@@ -304,14 +304,15 @@ func fastTicks() Ticks {
 // runs no lane never touches the machine's real panel socket.
 func noServerSocket() string { return leakcheck.NoServerSocket() }
 
-// testEnv is the environment a test panel reads (Options.Getenv): the process's,
-// with CLAUDE_CONFIG_DIR blank, so the login-lock watch reads the temp home's .claude
-// and never a developer's real config dir.
-func testEnv(k string) string {
-	if k == "CLAUDE_CONFIG_DIR" {
-		return ""
+// testEnv is the environment a test panel reads (Options.LookupEnv): the process's,
+// with CLAUDE_CONFIG_DIR and CLAUDE_SECURESTORAGE_CONFIG_DIR unset, so the login-lock
+// watch and the gate read the temp home's .claude and never a developer's real
+// config or lock dir.
+func testEnv(k string) (string, bool) {
+	if k == "CLAUDE_CONFIG_DIR" || k == "CLAUDE_SECURESTORAGE_CONFIG_DIR" {
+		return "", false
 	}
-	return os.Getenv(k)
+	return os.LookupEnv(k)
 }
 
 // TestMain fails the run if it leaves a tmux server or a helper process behind. A

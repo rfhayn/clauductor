@@ -15,8 +15,9 @@ func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }
 // t0 is a fixed "now" the readings are taken at; lock mtimes are set around it.
 var t0 = time.Date(2026, 10, 2, 10, 12, 0, 0, time.UTC)
 
-func envOf(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+// envOf is an environment of m alone: a key absent from m is unset.
+func envOf(m map[string]string) LookupEnv {
+	return func(k string) (string, bool) { v, ok := m[k]; return v, ok }
 }
 
 // fakeConfig is a temp home and a config dir inside it, as Claude Code lays it out.
@@ -64,17 +65,73 @@ func TestConfigDirFollowsClaudeConfigDir(t *testing.T) {
 	if got := ConfigDir(envOf(map[string]string{"CLAUDE_CONFIG_DIR": "/x/cfg/"}), home); got != "/x/cfg" {
 		t.Errorf("set: %q, want /x/cfg", got)
 	}
-	// The panel passes os.Getenv: the process environment is the one read.
+	// The panel passes os.LookupEnv: the process environment is the one read.
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "other"))
-	r := NewReader(os.Getenv, home)
+	t.Setenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", "") // restored after the test ...
+	os.Unsetenv("CLAUDE_SECURESTORAGE_CONFIG_DIR")  // ... and unset during it
+	r := NewReader(os.LookupEnv, home)
 	if r.Dir != filepath.Join(home, "other") {
-		t.Errorf("os.Getenv: %q", r.Dir)
+		t.Errorf("os.LookupEnv: %q", r.Dir)
 	}
 	if got, want := r.CurrentPath(), filepath.Join(home, "other", ".oauth_refresh.lock"); got != want {
 		t.Errorf("current lock: %q, want %q", got, want)
 	}
 	if got, want := r.OwnerPath(), filepath.Join(home, "other", ".oauth_refresh.lock.owner"); got != want {
 		t.Errorf("owner record: %q, want %q", got, want)
+	}
+}
+
+// Both locks follow the lock dir, as Claude Code 2.1.296 has it (Lw(), xks(), nC()):
+// $CLAUDE_SECURESTORAGE_CONFIG_DIR when it is set, ~/.claude when it is set but
+// empty, else the config dir; the current lock and its owner record in it, the
+// legacy lock beside it, named after its real path.
+func TestLockDirFollowsSecureStorageConfigDir(t *testing.T) {
+	home := t.TempDir()
+	cfg, secure := filepath.Join(home, "cfg"), filepath.Join(home, "secure")
+	in := func(dir string) (current, owner string) {
+		return filepath.Join(dir, ".oauth_refresh.lock"), filepath.Join(dir, ".oauth_refresh.lock.owner")
+	}
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		lock string
+	}{
+		"unset":            {map[string]string{"CLAUDE_CONFIG_DIR": cfg}, cfg},
+		"set but empty":    {map[string]string{"CLAUDE_CONFIG_DIR": cfg, "CLAUDE_SECURESTORAGE_CONFIG_DIR": ""}, filepath.Join(home, ".claude")},
+		"set":              {map[string]string{"CLAUDE_CONFIG_DIR": cfg, "CLAUDE_SECURESTORAGE_CONFIG_DIR": secure + "/"}, secure},
+		"set, no config":   {map[string]string{"CLAUDE_SECURESTORAGE_CONFIG_DIR": secure}, secure},
+		"unset, no config": {nil, filepath.Join(home, ".claude")},
+	} {
+		r := NewReader(envOf(tc.env), home)
+		cur, own := in(tc.lock)
+		if r.CurrentPath() != cur || r.OwnerPath() != own || r.LegacyPath() != tc.lock+".lock" {
+			t.Errorf("%s: %q, %q, %q; want them in and beside %s", name, r.CurrentPath(), r.OwnerPath(), r.LegacyPath(), tc.lock)
+		}
+	}
+	r := NewReader(envOf(map[string]string{"CLAUDE_CONFIG_DIR": cfg, "CLAUDE_SECURESTORAGE_CONFIG_DIR": secure}), home)
+	// The legacy lock is named after the lock dir's real path, as nC() does.
+	if err := os.MkdirAll(filepath.Join(home, "real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "real"), secure); err != nil {
+		t.Fatal(err)
+	}
+	realHome, _ := filepath.EvalSymlinks(home)
+	if got, want := r.LegacyPath(), filepath.Join(realHome, "real")+".lock"; got != want {
+		t.Errorf("legacy lock of a symlinked lock dir %q, want %q", got, want)
+	}
+	// Read and AnyLive look there: a live lock in the secure storage dir, none in the
+	// config dir.
+	if err := os.MkdirAll(secure, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	makeLock(t, r.CurrentPath(), t0.Add(-3*time.Second))
+	writeRecord(t, r, `{"pid":4242,"lockBirthtimeMs":1}`)
+	rd := r.Read(t0)
+	if rd.Current.State != Live || rd.Current.Holder == nil || rd.Current.Holder.PID != 4242 || !r.AnyLive(t0) {
+		t.Errorf("reading %+v", rd)
+	}
+	if NewReader(envOf(map[string]string{"CLAUDE_CONFIG_DIR": cfg}), home).AnyLive(t0) {
+		t.Error("the config dir's reader sees a lock that is in the secure storage dir")
 	}
 }
 

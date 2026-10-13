@@ -61,8 +61,8 @@ func StateAt(mod, now time.Time) State {
 
 // Which lock a reading is of.
 const (
-	Current = "current" // <config dir>/.oauth_refresh.lock
-	Legacy  = "legacy"  // <config dir>.lock, beside the config dir
+	Current = "current" // <lock dir>/.oauth_refresh.lock
+	Legacy  = "legacy"  // <realpath(lock dir)>.lock, beside the lock dir
 )
 
 // Holder is the process the owner record names as a lock's holder.
@@ -114,38 +114,79 @@ func (r Reading) Locks() []LockState { return []LockState{r.Current, r.Legacy} }
 // Reader reads Claude Code's refresh locks for one config dir. It never writes.
 type Reader struct {
 	Dir string // the Claude Code config dir
+	// LockDir holds the current lock and its owner record, and has the legacy lock
+	// beside it (LockDir names it). "" is Dir.
+	LockDir string
 }
 
+// LookupEnv reads one environment variable and whether it is set: os.LookupEnv in
+// the panel. Set-but-empty and unset differ for CLAUDE_SECURESTORAGE_CONFIG_DIR.
+type LookupEnv func(key string) (string, bool)
+
 // ConfigDir is the config dir Claude Code uses: $CLAUDE_CONFIG_DIR, else the
-// home's .claude. getenv is os.Getenv in the panel; a blank value counts as unset.
-func ConfigDir(getenv func(string) string, home string) string {
-	if d := strings.TrimSpace(getenv("CLAUDE_CONFIG_DIR")); d != "" {
+// home's .claude. A blank value counts as unset.
+func ConfigDir(lookup LookupEnv, home string) string {
+	if d, _ := lookup("CLAUDE_CONFIG_DIR"); strings.TrimSpace(d) != "" {
 		return filepath.Clean(d)
 	}
 	return filepath.Join(home, ".claude")
 }
 
-// NewReader is the Reader for the config dir ConfigDir names.
-func NewReader(getenv func(string) string, home string) Reader {
-	return Reader{Dir: ConfigDir(getenv, home)}
+// LockDir is the dir Claude Code keeps both refresh locks by, as 2.1.296's Lw() has
+// it: $CLAUDE_SECURESTORAGE_CONFIG_DIR when it is set (Claude Code passes it on to
+// the sessions it spawns), the home's .claude when it is set but empty, else the
+// config dir. (Lw() also NFC-normalizes the path; a path that NFC changes is not
+// matched here.)
+func LockDir(lookup LookupEnv, home, configDir string) string {
+	d, set := lookup("CLAUDE_SECURESTORAGE_CONFIG_DIR")
+	switch {
+	case !set:
+		return configDir
+	case d == "":
+		return filepath.Join(home, ".claude")
+	default:
+		return filepath.Clean(d)
+	}
 }
 
-// CurrentPath is <config dir>/.oauth_refresh.lock.
-func (r Reader) CurrentPath() string { return filepath.Join(r.Dir, currentLockName) }
+// NewReader is the Reader for the config dir ConfigDir names, and the lock dir
+// LockDir names.
+func NewReader(lookup LookupEnv, home string) Reader {
+	dir := ConfigDir(lookup, home)
+	return Reader{Dir: dir, LockDir: LockDir(lookup, home, dir)}
+}
 
-// OwnerPath is the owner record, <config dir>/.oauth_refresh.lock.owner.
-func (r Reader) OwnerPath() string { return filepath.Join(r.Dir, ownerRecordName) }
+func (r Reader) lockDir() string {
+	if r.LockDir != "" {
+		return r.LockDir
+	}
+	return r.Dir
+}
 
-// LegacyPath is the legacy lock beside the config dir. Claude Code names it after
-// the config dir's real path (realpath + ".lock"), so a symlinked config dir is
-// resolved the same way; a dir that does not resolve is used as it is, as Claude Code
-// does.
+// CurrentPath is <lock dir>/.oauth_refresh.lock.
+func (r Reader) CurrentPath() string { return filepath.Join(r.lockDir(), currentLockName) }
+
+// OwnerPath is the owner record, <lock dir>/.oauth_refresh.lock.owner.
+func (r Reader) OwnerPath() string { return filepath.Join(r.lockDir(), ownerRecordName) }
+
+// LegacyPath is the legacy lock beside the lock dir. Claude Code names it after the
+// lock dir's real path (nC(): realpath + ".lock"), so a symlinked dir is resolved the
+// same way; a dir that does not resolve is used as it is, as nC() does on an error.
 func (r Reader) LegacyPath() string {
-	dir := filepath.Clean(r.Dir)
+	dir := filepath.Clean(r.lockDir())
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = real
 	}
 	return dir + ".lock"
+}
+
+// AnyLive reports whether either lock is live at now: a stat of each, no more (the
+// gate asks before every claude it lets start).
+func (r Reader) AnyLive(now time.Time) bool {
+	if r.Dir == "" {
+		return false // no config dir: nothing to read
+	}
+	return statLock(Current, r.CurrentPath(), now).State == Live || statLock(Legacy, r.LegacyPath(), now).State == Live
 }
 
 // Read is both locks' state at now: a stat of each and a read of the owner record.

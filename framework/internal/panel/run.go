@@ -37,10 +37,12 @@ type Options struct {
 	Home   string // the user's home; injectable for tests
 	Out    io.Writer
 	Runner signals.Runner
-	// Getenv reads the environment where the panel follows it (PANEL-28: the Claude
-	// Code config dir whose login locks it watches). nil is os.Getenv; tests pin it so
-	// a developer's CLAUDE_CONFIG_DIR never points a test at their real config dir.
-	Getenv func(string) string
+	// LookupEnv reads the environment where the panel follows it (PANEL-28: the Claude
+	// Code config dir and lock dir whose login locks it watches and its gate reads; a
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR set but empty differs from one unset). nil is
+	// os.LookupEnv; tests pin it so a developer's CLAUDE_CONFIG_DIR or
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR never points a test at their real dirs.
+	LookupEnv claudecall.LookupEnv
 	// OnReady, if set, is called with the launch URL once serving (tests use it).
 	OnReady func(url string)
 	// OnPoll, if set, is called with a source's name each time one of its polls has
@@ -174,8 +176,8 @@ func Run(ctx context.Context, o Options) error {
 	if o.Runner == nil {
 		o.Runner = signals.ExecRunner
 	}
-	if o.Getenv == nil {
-		o.Getenv = os.Getenv
+	if o.LookupEnv == nil {
+		o.LookupEnv = os.LookupEnv
 	}
 	if o.Home == "" {
 		return errors.New("cannot determine the home directory")
@@ -185,6 +187,13 @@ func Run(ctx context.Context, o Options) error {
 		clk = clock.System // the one default: Run is where the clock is chosen
 	}
 	ticks := o.Ticks.withDefaults()
+	// Every `claude` the panel spawns goes through one gate (PANEL-28), wrapped here
+	// once, before any runtime, the machine or a lane manager receives the Runner: the
+	// stop policy, one call at a time, and no call while a login refresh holds a lock.
+	// The order is the project tag, the gate, PANEL-25's spawn counter, ExecRunner.
+	lockReader, lockLog := claudecall.NewReader(o.LookupEnv, o.Home), claudecall.NewLog(o.Home)
+	gate := claudecall.NewGate(o.Runner, lockReader, clk, lockLog)
+	o.Runner = gate.Run
 	if o.Project != "" {
 		// The project named on the command line must load: fail before touching
 		// anything, as a single-project panel always has.
@@ -406,8 +415,8 @@ func Run(ctx context.Context, o Options) error {
 	m.start(ctx, start)
 	// The login refresh locks (PANEL-28): watched and logged from the start, so the
 	// log covers every refresh this panel lives beside. It only reads them.
-	lockWatch := &claudecall.Watch{Reader: claudecall.NewReader(o.Getenv, o.Home), Log: claudecall.NewLog(o.Home),
-		Clock: clk, Every: ticks.LoginLock, Run: o.Runner, Out: o.Out}
+	lockWatch := &claudecall.Watch{Reader: lockReader, Log: lockLog, Clock: clk, Every: ticks.LoginLock, Run: o.Runner,
+		Attribute: gate.Attribute, Out: o.Out}
 	start(func() { lockWatch.Loop(ctx) })
 	if !o.Only {
 		watch := &source{name: "registry", every: ticks.Registry, fixedRate: true, waitFirst: true, poll: ls.pollRegistry}
@@ -467,6 +476,10 @@ func Run(ctx context.Context, o Options) error {
 	_ = httpSrv.Shutdown(shutCtx)
 	wg.Wait()
 	ls.stopAll() // every project's runtime, each waited for
+	// The claude calls still running had SIGTERM as the contexts ended: they get
+	// ShutdownGrace, not the 15 s, then SIGKILL, so the exit stays inside `panel
+	// install`'s wait for the old job.
+	gate.Close(claudecall.ShutdownGrace)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

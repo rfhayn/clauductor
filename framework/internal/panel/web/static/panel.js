@@ -1768,6 +1768,7 @@ function feedList(items, withLane, k) {
 }
 function sourceNote(src, what, k) {
   if (!src) return null;
+  if (src.paused) return key(el("div", "empty", what + " " + src.paused), k);
   if (src.pending) return key(el("div", "empty", "reading " + what + "…"), k);
   if (!src.ok) return key(el("div", "srcerr", "cannot read " + what + ": " + src.error), k);
   return null;
@@ -3295,7 +3296,7 @@ $("helpdlg").addEventListener("keydown", (e) => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
-$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh"), { method: "POST" }).catch(() => {}); });
+$("refresh").addEventListener("click", () => { if (!offline()) fetch(api("/refresh?machine=1"), { method: "POST" }).catch(() => {}); });
 
 // ---- The page's text size: Ctrl+Alt+= / − / 0, and the Size group of Appearance ------
 // theme.js owns the value (PanelScale); every size in panel.css is in rem. The keys need

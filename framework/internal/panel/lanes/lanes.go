@@ -1221,9 +1221,13 @@ func selectRestorable(recs []types.LaneRecord, running map[string]bool, live map
 	return out, skip
 }
 
-// liveSessions reads the session ids claude processes run now.
+// liveSessions reads the session ids claude processes run now. It has agentStatus's
+// 10 s timeout: RestoreAll calls it holding the lane lock with a context that has no
+// deadline, and the claude gate may hold the call back (PANEL-28).
 func (m *LaneManager) liveSessions(ctx context.Context) (map[string]bool, error) {
-	out, err := m.Run(ctx, m.Root, []string{"claude", "agents", "--json"})
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := m.Run(cctx, m.Root, []string{"claude", "agents", "--json"})
 	if err != nil {
 		return nil, err
 	}

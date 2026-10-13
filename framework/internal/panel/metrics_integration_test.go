@@ -58,7 +58,7 @@ func startMetricsPanel(t *testing.T, trust bool, payload func() []byte, tune ...
 		f(&ticks)
 	}
 	go func() {
-		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, Getenv: testEnv, TrustConfig: trust, Runner: run, Ticks: ticks,
+		done <- Run(ctx, Options{Project: root, Port: 0, NoOpen: true, Home: home, LookupEnv: testEnv, TrustConfig: trust, Runner: run, Ticks: ticks,
 			OnPoll: mp.polls.hook, OnReady: func(u string) { ready <- u }})
 	}()
 	t.Cleanup(func() {
