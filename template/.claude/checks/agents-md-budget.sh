@@ -8,6 +8,7 @@
 # in .claude/project.conf. Raising a ceiling is a decision; make it in a PR that says why.
 # Also checks CLAUDE.md imports AGENTS.md, so the two cannot diverge.
 . "$(dirname "$0")/lib.sh"
+. "$ROOT/.claude/lib/refs.sh"
 
 f="$ROOT/AGENTS.md"
 [ -f "$f" ] || { fail "AGENTS.md is missing at $f"; finish; }
@@ -17,9 +18,10 @@ bytes=$(wc -c < "$f" | tr -d ' ')
 if [ "$bytes" -le "$max" ]; then ok "AGENTS.md is $bytes bytes (ceiling $max)"; else fail "AGENTS.md is $bytes bytes, over the $max ceiling: move detail to docs/conventions.md and lessons to the insights log"; fi
 
 rowmax=${AGENTS_MD_MAX_ROW:-320}
-# Rows of the table under "What executes each rule", header and separator excluded. Counted in
-# characters, not bytes, where the locale allows: the table uses typographic symbols.
-rows=$(awk '/^### What executes each rule/{p=1; next} p && /^#/{p=0} p && /^\|/' "$f" | sed '1,2d')
+# Rows of the table under "What executes each rule", header and separator excluded, read by the
+# reader map.sh shares (lib/refs.sh). Counted in characters, not bytes, where the locale allows:
+# the table uses typographic symbols.
+rows=$(refs_table_rows "$f" | cut -f2-)
 [ -n "$rows" ] || fail "no 'What executes each rule' table found in AGENTS.md (the check reads the table under that heading)"
 long=$(printf '%s\n' "$rows" | awk -v m="$rowmax" 'length($0) > m { print length($0) ": " substr($0, 1, 60) "…" }')
 if [ -z "$long" ]; then ok "every what-executes row is at most $rowmax characters"; else fail "rows over $rowmax characters (one line per row; put the reasoning in docs/conventions.md):"; printf '%s\n' "$long" | sed 's/^/     /'; fi

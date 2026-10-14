@@ -5,6 +5,7 @@
 # and every context script runs to completion in this checkout. Also every script path a skill or
 # agent names under .claude/ exists.
 . "$(dirname "$0")/lib.sh"
+. "$ROOT/.claude/lib/refs.sh"
 
 for f in "$ROOT"/.claude/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
@@ -25,11 +26,9 @@ for f in "$ROOT"/.claude/skills/*/SKILL.md; do
   cat "$(scratch)/ctx"; _fails=$((_fails + $(grep -c '^FAIL' "$(scratch)/ctx")))
 done
 
-# Paths to scripts under .claude/ named in skills, agents, AGENTS.md and settings.json.
-for p in $(cat "$ROOT"/.claude/skills/*/SKILL.md "$ROOT"/.claude/agents/*.md "$ROOT/AGENTS.md" "$ROOT/.claude/settings.json" 2>/dev/null \
-  | grep -oE '\.claude/[A-Za-z0-9_./-]+\.(sh|js|awk|json)' | sort -u); do
-  # settings.local.json is per machine and gitignored: named as the place to loosen, never shipped.
-  [ "$p" = .claude/settings.local.json ] && continue
+# Paths to scripts under .claude/ named in skills, agents, AGENTS.md and settings.json, read by
+# the reader map.sh shares (lib/refs.sh: it leaves out the per-machine settings.local.json).
+for p in $(refs_named_paths "$ROOT"/.claude/skills/*/SKILL.md "$ROOT"/.claude/agents/*.md "$ROOT/AGENTS.md" "$ROOT/.claude/settings.json" | cut -f3 | grep '^\.claude/' | sort -u); do
   [ -e "$ROOT/$p" ] || fail "named but missing: $p"
 done
 [ "$_fails" -eq 0 ] && ok "every .claude/ script path named in skills, agents, AGENTS.md and settings exists"

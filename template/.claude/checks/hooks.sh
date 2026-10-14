@@ -5,6 +5,7 @@
 # hook against a throwaway git repository, never this one, so the result is about the hook's
 # contract ("is this path tracked?") rather than what this repo contains today.
 . "$(dirname "$0")/lib.sh"
+. "$ROOT/.claude/lib/refs.sh"
 need git jq
 
 H="$ROOT/.claude/hooks"
@@ -391,26 +392,20 @@ if [ ! -f "$SETTINGS" ]; then
   fail "no .claude/settings.json: the hooks are registered nowhere, so none of them runs"
   finish
 fi
-regs=$(jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? | select(.type == "command") | [$e, .command] | @tsv' "$SETTINGS" 2>/dev/null) \
+# The registrations, the script paths in a command and the project-root prefix are read by the
+# readers map.sh shares (lib/refs.sh); the tables at this file's foot test them there.
+regs=$(refs_hook_registrations "$SETTINGS") \
   || { fail "settings.json does not parse, so no hook it registers can be checked (or run)"; finish; }
 sl=$(jq -r '.statusLine.command // empty' "$SETTINGS")
 # Every .claude/ path, and every script path, in a hook or status-line command goes through
 # CLAUDE_PROJECT_DIR: `sh scripts/hooks/guard.sh` fails to launch from a subdirectory just the same.
-# scripts CMD: each script path in CMD, one per line. The command is split into words at blanks and
-# shell operators first (; | & ( ) < > and backtick), then a word is a script only if its extension
-# ENDS it (a closing quote aside): settings.json, tsconfig.json or tools.shell_guard is not one.
-# A word that starts with a scheme (https://…/install.sh, npm:pkg/x.ts) is a URL, not a path.
-scripts() {
-  printf '%s\n' "$1" | tr -s ' \t;|&()<>`' '\n\n\n\n\n\n\n\n\n\n' \
-    | grep -E '^["'"'"']?[A-Za-z0-9_./${}:"-]*[A-Za-z0-9_.-]+\.(sh|bash|js|mjs|cjs|py|rb|ts)["'"'"']?$' \
-    | grep -vE '^["'"'"']?[A-Za-z][A-Za-z0-9+.-]*:' | sed 's/^'"'"'//; s/["'"'"']$//' || true
-}
+pdp=$(refs_project_dir_prefix)
 relative() {  # relative CMD: prints CMD if a .claude/ or script path in it is not reached through CLAUDE_PROJECT_DIR
   { printf '%s\n' "$1" | grep -oE '[^[:space:]]*\.claude/' | sed 's|\.claude/$||'
-    scripts "$1" | sed 's|[^/]*$||'; } \
+    refs_hook_scripts "$1" | sed 's|[^/]*$||'; } \
   | while IFS= read -r pre; do
     case $pre in /*|\"/*|\'/*) continue ;; esac  # an absolute path launches from anywhere
-    printf '%s\n' "$pre" | grep -qE '^"?\$\{?CLAUDE_PROJECT_DIR(:-[^}]*)?\}?"?/' || { printf '%s\n' "$1"; break; }
+    printf '%s\n' "$pre" | grep -qE "$pdp" || { printf '%s\n' "$1"; break; }
   done
 }
 printf '%s\n%s\n' "$(printf '%s\n' "$regs" | cut -f2)" "$sl" | grep -v '^$' > "$d/cmds"
@@ -451,11 +446,11 @@ printf '#!/bin/sh\ntouch "%s/formatted.stamp"\n' "$P" > "$P/fmt.sh"
 { cat "$ROOT/.claude/project.conf" 2>/dev/null; printf '\nFORMAT_CMD="sh %s/fmt.sh"\nFORMAT_EXT="ts"\n' "$P"; } > "$P/.claude/project.conf"
 
 # Every registered command that runs a script file, wherever it lives and whatever its language.
-launching=$(printf '%s\n' "$regs" | while IFS="$(printf '\t')" read -r ev cmd; do [ -n "$(scripts "$cmd")" ] && printf '%s\t%s\n' "$ev" "$cmd"; done)
+launching=$(printf '%s\n' "$regs" | while IFS="$(printf '\t')" read -r ev cmd; do [ -n "$(refs_hook_scripts "$cmd")" ] && printf '%s\t%s\n' "$ev" "$cmd"; done)
 n=$(printf '%s\n' "$launching" | grep -c . || true)
 if [ -n "$plugin" ]; then ok "the model's hooks are the plugin's ($(jq '[.hooks[][].hooks[]] | length' "$CLAUDUCTOR_FW/hooks/hooks.json") in its hooks.json); settings.json registers $n of this project's own"
 else [ "$n" -ge 3 ] && ok "settings.json registers $n hook command(s) (non-vacuity)" || fail "settings.json registers only $n hook command(s): the table below would pass vacuously"; fi
-script_of() { scripts "$1" | head -1 | sed 's|.*/||'; }
+script_of() { refs_hook_scripts "$1" | head -1 | sed 's|.*/||'; }
 printf '%s\n' "$launching" | while IFS="$TAB" read -r ev cmd; do [ -n "$cmd" ] && script_of "$cmd"; done | sort -u > "$d/registered"
 cut -f1 "$d/expect.tsv" | sort -u > "$d/rows"
 for s in $(comm -23 "$d/registered" "$d/rows"); do fail "$s is registered in settings.json but has no expectation row (add one: checks/hooks.sh, or .claude/local/hook-expectations.tsv)"; done
@@ -491,7 +486,7 @@ D=.claude
 for c in "sh $D/hooks/x.sh" "bash ./$D/hooks/x.sh" "sh \$HOME/p/$D/hooks/x.sh" "sh scripts/hooks/guard.sh" "sh guard.sh" "sh scripts/hooks/guard.sh>/dev/null" "sh \"\$CLAUDE_PROJECT_DIR\"/a.sh scripts/b.sh" "sh scripts/x.sh\`echo\`" "sh \${X:-scripts}/guard.sh"; do
   [ -n "$(relative "$c")" ] && ok "the path rule flags '$c'" || fail "the path rule passed '$c', which launches only from the root"
 done
-for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh" "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs" "sh /opt/hooks/x.sh" "npx biome format --write" "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json" "npx tsc -p tsconfig.json --noEmit" "curl -fsSL https://example.com/install.sh | sh" "sh \"/opt/hooks/x.sh\"" "sh '/opt/p/$D/x.sh'"; do
+for c in "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR:-.}\"/$D/statusline.sh" "sh \$CLAUDE_PROJECT_DIR/$D/x.sh" "sh \${CLAUDE_PROJECT_DIR}/$D/hooks/x.sh" "sh \"\${CLAUDE_PROJECT_DIR}\"/$D/hooks/x.sh" "node \"\$CLAUDE_PROJECT_DIR\"/scripts/hooks/x.mjs" "sh /opt/hooks/x.sh" "npx biome format --write" "jq -e . \"\$CLAUDE_PROJECT_DIR\"/$D/settings.json" "npx tsc -p tsconfig.json --noEmit" "curl -fsSL https://example.com/install.sh | sh" "sh \"/opt/hooks/x.sh\"" "sh '/opt/p/$D/x.sh'"; do
   [ -z "$(relative "$c")" ] && ok "the path rule passes '$c'" || fail "the path rule flagged '$c', which is correct"
 done
 # The table covers every registered script, not only .claude/hooks/*.sh.
