@@ -163,3 +163,89 @@ func TestPanelAttachDefault(t *testing.T) {
 		}
 	}
 }
+
+// [ATTACH-4-S2] In an attached repository with no .clauductor/panel.json of its own,
+// `clauductor panel trust --project <repo>` without --config trusts the registry's
+// config, the sidecar, and names its path.
+func TestPanelTrustReadsTheRegistrysConfig(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	root := attachRepo(t)
+	if r := cli(t, home, "panel", "attach", root); r.code != 0 {
+		t.Fatalf("attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, config.DefaultConfigRel)); err == nil {
+		t.Fatal("the repository has a config of its own")
+	}
+	path := config.SidecarPath(home, "acme-web")
+	r := cli(t, home, "panel", "trust", "--project", root)
+	if r.code != 0 {
+		t.Fatalf("trust: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "Trusted panel config "+path+" ") {
+		t.Errorf("the output does not name the sidecar:\n%s", r.stdout)
+	}
+	_, raw, err := config.LoadConfigRaw(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !install.TrustedNow(home, root, path, install.ConfigHash(raw)) {
+		t.Fatal("the sidecar is not recorded as trusted")
+	}
+}
+
+// [ATTACH-5-S1] `clauductor panel remove <id>` of an attached project with no lanes
+// keeps its sidecar byte for byte, and says where it is and the `panel add --config`
+// line; running that line serves the project again from the same file, still trusted.
+func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	root := attachRepo(t)
+	if r := cli(t, home, "panel", "attach", root); r.code != 0 {
+		t.Fatalf("attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	path := config.SidecarPath(home, "acme-web")
+	if _, err := install.TrustConfig(home, root, path); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := cli(t, home, "panel", "remove", "acme-web")
+	if r.code != 0 {
+		t.Fatalf("remove: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
+		t.Fatalf("remove changed the sidecar (%v)", err)
+	}
+	line := "clauductor panel add --project " + root + " --config " + path
+	for _, want := range []string{path, filepath.Dir(path), line} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("remove does not say %q:\n%s", want, r.stdout)
+		}
+	}
+	if reg, _ := config.LoadProjects(home); reg.Find(root) != nil {
+		t.Fatal("the project is still registered")
+	}
+
+	// The line it printed serves it again, from the same file, still trusted.
+	r = cli(t, home, strings.Fields(strings.TrimPrefix(line, "clauductor "))...)
+	if r.code != 0 || strings.Contains(r.stdout, "is not trusted") {
+		t.Fatalf("add again: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	reg, err := config.LoadProjects(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := reg.Find(root); e == nil || e.ConfigPath() != path {
+		t.Fatalf("re-added: %+v", reg.Projects)
+	}
+	if !install.TrustedNow(home, root, path, install.ConfigHash(before)) {
+		t.Fatal("the re-added sidecar is no longer trusted")
+	}
+	if r := cli(t, home, "panel", "list"); r.code != 0 || !strings.Contains(r.stdout, "· trusted ·") || !strings.Contains(r.stdout, "config "+path) {
+		t.Fatalf("list after the re-add: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+}

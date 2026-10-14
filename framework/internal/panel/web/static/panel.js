@@ -3643,7 +3643,9 @@ function renderProjects() {
   // its actions. The ⋯ sits beside the option, never inside it: an option holds no control.
   const rows = (P || []).map((p) => {
     const need = p.needsYou ? el("span", "badge" + (p.blocking ? " crit" : ""), p.needsYou + " need" + (p.needsYou === 1 ? "s" : "") + " you") : el("span");
-    const e = el("div", "mi", null, [el("span", null, p.name || p.id, [el("small", p.ok ? null : "err", projectLine(p))]), need]);
+    // A config outside the repository (an attached project's sidecar) gets a line of its own.
+    const cfg = ProjectConfig.menuLine(p);
+    const e = el("div", "mi", null, [el("span", null, p.name || p.id, [el("small", p.ok ? null : "err", projectLine(p)), cfg ? el("small", "cfg", cfg) : null]), need]);
     e.setAttribute("role", "option");
     e.setAttribute("aria-selected", String(p.id === pid()));
     if (!p.ok) e.setAttribute("aria-disabled", "true");
@@ -3961,7 +3963,7 @@ async function openRemoveDlg(id) {
   if (pd.kind !== "remove" || pd.id !== id) return;
   if (!r.ok) { setText($("pd-err"), r.error); return; }
   const plan = pd.data = r.res, body = [];
-  body.push(el("div", null, "This only unregisters it. Nothing on disk is deleted: the repository, its config, its worktrees and its lane registry stay where they are, and adding it again brings it all back."));
+  body.push(el("div", null, ProjectConfig.removeNote(plan)));
   body.push(el("dl", "facts", null, [...fact("Root", plan.root), ...fact("Config", plan.configPath)]));
   if (plan.default && plan.nextDefault) body.push(el("div", null, "It is the default project: " + (plan.nextDefaultName || plan.nextDefault) + " becomes the default."));
   if (plan.lanes && plan.lanes.length) {

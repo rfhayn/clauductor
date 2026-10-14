@@ -78,17 +78,28 @@ func buildRuntime(o Options, clk clock.Clock, ticks Ticks, p loadedProject, trus
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
 	r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
 	r.raw = p.raw
+	// Once per runtime, not per push: a project whose config moves is started again.
+	r.outsideConfig = install.OutsideConfig(p.entry)
 	if lm != nil {
 		lm.Trusted = r.trusted // PANEL-20: worktree_setup and worktree_teardown are the config's commands
 	}
 	return r
 }
 
+// summary is the project's menu entry for view v: web.Summarize, plus its config's
+// path when that is outside the repository (PANEL-42, design.md D7). Every entry the
+// menu gets from a runtime is built here, so a hub's push never drops the path.
+func (r *Runtime) summary(v state.View) web.ProjectSummary {
+	s := web.Summarize(r.id, v)
+	s.Config = r.outsideConfig
+	return s
+}
+
 // wire connects a runtime to the server and the menu, and returns the server's view
 // of it.
 func (ls *liveSet) wire(r *Runtime) *web.Project {
 	r.srv.Store(ls.srv)
-	r.hub.OnPush = func(v state.View) { ls.sums.Set(web.Summarize(r.id, v)) }
+	r.hub.OnPush = func(v state.View) { ls.sums.Set(r.summary(v)) }
 	r.onTrusted = ls.refreshHosts
 	if r.lanes != nil {
 		// A lane action re-reads the worktrees at once, not through kickWorktrees'
@@ -185,7 +196,7 @@ func (ls *liveSet) startEntry(e config.ProjectEntry, isDefault bool) error {
 	}
 	if err != nil {
 		fmt.Fprintf(ls.o.Out, "project %s not loaded: %v\n", e.ID, err)
-		f := web.ProjectSummary{ID: e.ID, Name: e.ID, Error: signals.Clip(err.Error(), 200), Default: isDefault}
+		f := web.ProjectSummary{ID: e.ID, Name: e.ID, Error: signals.Clip(err.Error(), 200), Default: isDefault, Config: install.OutsideConfig(e)}
 		ls.failed[e.ID] = f
 		ls.sums.Add(f)
 		return err
@@ -196,7 +207,7 @@ func (ls *liveSet) startEntry(e config.ProjectEntry, isDefault bool) error {
 	ls.m.addProject(r) // sets r.machine before any of its sources runs
 	ls.launch(r, e)
 	ls.srv.AddProject(proj)
-	s := web.Summarize(r.id, r.hub.View())
+	s := r.summary(r.hub.View())
 	s.Default = isDefault
 	ls.sums.Add(s)
 	fmt.Fprintf(ls.o.Out, "project %s: serving %s (%s)\n", e.ID, r.cfg.Name, e.Root)
@@ -533,12 +544,16 @@ func (ls *liveSet) Add(ctx context.Context, req web.AddProjectRequest) (any, *la
 
 // removePlan is what the remove confirmation lists.
 type removePlan struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Root       string     `json:"root"`
-	ConfigPath string     `json:"configPath"`
-	Lanes      []planLane `json:"lanes"`
-	Default    bool       `json:"default"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Root       string `json:"root"`
+	ConfigPath string `json:"configPath"`
+	// ConfigOutside: the config is outside the repository (an attached project's
+	// sidecar, PANEL-42), so adding the repository again from the page would not find
+	// it; the confirmation says how to serve it again (design.md D6).
+	ConfigOutside bool       `json:"configOutside,omitempty"`
+	Lanes         []planLane `json:"lanes"`
+	Default       bool       `json:"default"`
 	// NextDefault is the project that becomes the default when this one goes.
 	NextDefault     string `json:"nextDefault,omitempty"`
 	NextDefaultName string `json:"nextDefaultName,omitempty"`
@@ -561,7 +576,8 @@ func (ls *liveSet) removePlan(id string) (removePlan, *lanes.LaneError) {
 	if e == nil || e.ID != id {
 		return removePlan{}, lerr(http.StatusNotFound, "no-project", "no registered project %s", id)
 	}
-	p := removePlan{ID: id, Name: id, Root: e.Root, ConfigPath: e.ConfigPath(), Lanes: []planLane{}, Default: reg.Default == id}
+	p := removePlan{ID: id, Name: id, Root: e.Root, ConfigPath: e.ConfigPath(), ConfigOutside: install.ConfigOutside(*e), Lanes: []planLane{},
+		Default: reg.Default == id}
 	seen := map[string]bool{}
 	if lr := ls.rts[id]; lr != nil {
 		p.Name = lr.r.cfg.Name

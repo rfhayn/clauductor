@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -103,6 +104,112 @@ func TestOnePanelServesSeveralProjects(t *testing.T) {
 	}
 	if code, _ := p.post(t, "/api/p/beta/lanes/same/stop", nil); code != 200 {
 		t.Fatalf("stop beta/same: %d", code)
+	}
+}
+
+// attachedRepo is a committed git repository attached as id under home: its sidecar,
+// ~/.clauductor/projects/<id>/panel.json, is written and registered, and the
+// repository has no .clauductor/panel.json unless own names one.
+func attachedRepo(t *testing.T, home, id, own string) (root, sidecar string) {
+	t.Helper()
+	root = signals.ResolvePath(t.TempDir())
+	gitRun(t, root, "init", "-q", "-b", "main")
+	if own != "" {
+		writeFile(t, filepath.Join(root, config.DefaultConfigRel), own)
+		gitRun(t, root, "add", ".")
+	}
+	gitRun(t, root, "commit", "-q", "--allow-empty", "-m", "init")
+	res, err := install.Attach(context.Background(), install.AttachOptions{Home: home, Project: root, ID: id, Run: gitOnlyRunner, Now: clock.System.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, res.Init.Path
+}
+
+// [ATTACH-4-S3] An attached project with no .clauductor/panel.json in its repository:
+// the panel started with --project <repo> and no --config starts, and serves the
+// project from its sidecar.
+func TestPanelServesAnAttachedProjectWithoutConfigFlag(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	root, sidecar := attachedRepo(t, home, "acme", "")
+	if _, err := os.Stat(filepath.Join(root, config.DefaultConfigRel)); err == nil {
+		t.Fatal("the repository has a config of its own")
+	}
+	cfg, err := config.LoadConfig(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := startPanel(t, root, home, sock) // Options.Project, and no ConfigPath
+	var v struct {
+		ProjectID string           `json:"projectId"`
+		Name      string           `json:"name"`
+		Trust     config.TrustView `json:"trust"`
+	}
+	get(t, p, "/api/state", &v)
+	if v.ProjectID != "acme" || v.Name != cfg.Name || v.Trust.Path != sidecar {
+		t.Fatalf("served %+v; want acme, %q, from %s", v, cfg.Name, sidecar)
+	}
+}
+
+// [ATTACH-4-S1] [ATTACH-4-S4] An attached project whose repository also has its own
+// .clauductor/panel.json: the panel serves the sidecar's name, cards and templates;
+// `panel list` names the sidecar as outside the repository and says the repository's
+// file is not read; and the project menu's entry carries the sidecar's path, while a
+// project reading its own config carries none.
+func TestAttachedProjectReadsItsSidecar(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	rootA := multiRepo(t, "Alpha", noServerSocket())
+	rootB, sidecar := attachedRepo(t, home, "side", `{"name":"Own file","lanes":{"main":"orchestrator"},
+		"cards":[{"id":"own","title":"Own card","command":["echo","own"],"refresh":"interval:60"}]}`)
+	// The owner edits the sidecar (design.md D2), and trusts it.
+	writeFile(t, sidecar, `{"name":"Sidecar","lanes":{"main":"orchestrator","change/":"build"},"tmux_socket":"`+noServerSocket()+`",
+		"cards":[{"id":"sc","title":"Sidecar card","command":["echo","side"],"refresh":"interval:60"}],
+		"templates":[{"id":"st","title":"Sidecar template","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"hello"}]}`)
+	if _, err := install.TrustConfig(home, rootB, sidecar); err != nil {
+		t.Fatal(err)
+	}
+	cr := &cardRunner{runs: map[string]int{}}
+	p := startPanelWith(t, rootA, home, sockA, func(o *Options) { o.Runner = cr.run })
+
+	var v struct {
+		Name  string `json:"name"`
+		Cards []struct {
+			ID string `json:"id"`
+		} `json:"cards"`
+		Templates []config.TemplateInfo `json:"templates"`
+	}
+	get(t, p, "/api/state?project=side", &v)
+	if v.Name != "Sidecar" || len(v.Cards) != 1 || v.Cards[0].ID != "sc" || len(v.Templates) != 1 || v.Templates[0].ID != "st" {
+		t.Fatalf("side serves %+v, not its sidecar", v)
+	}
+	waitFor(t, "the sidecar's card to run", func() bool { return cr.count("side") > 0 })
+	if cr.count("own") != 0 {
+		t.Fatal("the repository's own card ran")
+	}
+
+	var out strings.Builder
+	if err := install.ListProjects(&out, home); err != nil {
+		t.Fatal(err)
+	}
+	if want := "config " + sidecar + " (outside the repository)\n    " + filepath.Join(rootB, config.DefaultConfigRel) + " is not read"; !strings.Contains(out.String(), want) {
+		t.Errorf("panel list lacks %q:\n%s", want, out.String())
+	}
+
+	m := menu(t, p)
+	if m["side"].Config != sidecar || m["alpha"].Config != "" || !m["alpha"].OK {
+		t.Fatalf("menu: side %+v, alpha %+v", m["side"], m["alpha"])
+	}
+	// The rows the page renders from those entries.
+	if got, want := pageWords(t, "menuLine", m["side"]), "reads "+sidecar+", outside the repository"; got != want {
+		t.Errorf("side's row says %q, want %q", got, want)
+	}
+	if got := pageWords(t, "menuLine", m["alpha"]); got != "" {
+		t.Errorf("alpha's row says %q about its config", got)
 	}
 }
 

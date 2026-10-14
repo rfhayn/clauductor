@@ -100,7 +100,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 func init() {
 	panelCmd.Flags().StringVar(&panelProject, "project", "", "a project to serve and open on, registered if it is not (default: git toplevel of the current directory)")
 	panelCmd.Flags().BoolVar(&panelOnly, "only", false, "serve --project alone, not every registered project")
-	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 	panelCmd.Flags().IntVar(&panelPort, "port", 4393, "loopback port; the panel refuses to start if it is taken")
 	panelCmd.Flags().BoolVar(&panelNoOpen, "no-open", false, "print the URL instead of opening a browser")
 	panelCmd.Flags().BoolVar(&panelUninstall, "uninstall-hooks", false, "remove the panel's hooks from ~/.claude/settings.json and exit")
@@ -109,10 +109,10 @@ func init() {
 	_ = panelCmd.Flags().MarkHidden("launchd")
 	panelCmd.Flags().BoolVar(&panelTrust, "trust-config", false, "trust panel.json as it is now, even if it changed since it was last trusted")
 	panelTrustCmd.Flags().StringVar(&trustProject, "project", "", "project root (default: git toplevel of the current directory)")
-	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 
 	panelInstallCmd.Flags().StringVar(&installProject, "project", "", "add this project (trusting its config) and make it the default; without it the registry must hold one")
-	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 	panelInstallCmd.Flags().IntVar(&installPort, "port", 4393, "loopback port")
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	panelInstallCmd.Flags().StringVar(&installRemote, "remote-control", "", "all (every Claude session: remoteControlAtStartup), lanes (the panel's lanes start with --remote-control) or off; without it, asked once on a terminal")
@@ -276,7 +276,9 @@ var panelRemoveCmd = &cobra.Command{
 	Long: `Remove a project from ~/.clauductor/panel/projects.json. It never stops a lane and
 keeps the project's lane registry, so adding it again brings its lanes back. While
 lanes are registered it refuses unless --force. A running panel stops serving it
-within a second, with no restart.`,
+within a second, with no restart. A config outside the repository (an attached
+project's sidecar) stays too; remove prints the 'panel add --config' line that
+serves it again.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -291,6 +293,12 @@ within a second, with no restart.`,
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Removed %q (%s) from %s. Its lanes, worktrees and lane registry are untouched.\n", e.ID, e.Root, config.ProjectsPath(home))
+		if install.ConfigOutside(e) {
+			// design.md D6: a config outside the repository stays, and adding the
+			// repository by its path alone would not find it.
+			fmt.Fprintf(out, "Its config stays where it is, outside the repository: %s, in %s.\nTo serve it again: clauductor panel add --project %s --config %s\n",
+				e.ConfigPath(), filepath.Dir(e.ConfigPath()), e.Root, e.ConfigPath())
+		}
 		followRunningPanel(out, home, e.Root, false)
 		return nil
 	},
@@ -336,7 +344,7 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			if err != nil {
 				return err
 			}
-			h, runs, err := install.TrustConfigReport(home, res.Entry.Root, res.Entry.Config)
+			h, runs, err := install.TrustConfigReport(home, res.Entry.Root, res.Entry.ConfigPath())
 			if err != nil {
 				return err
 			}
@@ -508,19 +516,17 @@ within 5 s.`,
 			}
 			project = strings.TrimSpace(string(top))
 		}
-		h, runs, err := install.TrustConfigReport(home, project, trustConfig)
+		// One path, resolved here, is both the file trusted and the one printed: the
+		// registry's config for a project it holds (design.md D7).
+		cfgPath, err := install.ConfigPathOf(home, project, trustConfig)
 		if err != nil {
 			return err
 		}
-		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(project, trustConfig), h, runs)
+		h, runs, err := install.TrustConfigReport(home, project, cfgPath)
+		if err != nil {
+			return err
+		}
+		install.PrintTrusted(cmd.OutOrStdout(), cfgPath, h, runs)
 		return nil
 	},
-}
-
-// configPathOf is the config a --project/--config pair names.
-func configPathOf(project, cfg string) string {
-	if cfg != "" {
-		return cfg
-	}
-	return filepath.Join(project, config.DefaultConfigRel)
 }

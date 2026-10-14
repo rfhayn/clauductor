@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
@@ -127,6 +128,41 @@ func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
 	return AddResult{Entry: e, Cfg: cfg, Added: true}, nil
 }
 
+// ConfigPathOf is the config a --project/--config pair names (PANEL-42, design.md D7):
+// --config when given; else the registry's config for a project it holds, which may
+// sit outside the repository (a sidecar); else <root>/.clauductor/panel.json. The
+// registry is the machine's choice, so a repository's own file never displaces it.
+func ConfigPathOf(home, project, cfg string) (string, error) {
+	if cfg != "" {
+		return cfg, nil
+	}
+	root := signals.ResolvePath(project)
+	reg, err := config.LoadProjects(home)
+	if err != nil {
+		return "", err
+	}
+	if e := reg.Find(root); e != nil {
+		return e.ConfigPath(), nil
+	}
+	return filepath.Join(root, config.DefaultConfigRel), nil
+}
+
+// ConfigOutside reports whether a project's config resolves outside its repository
+// (design.md D5, D7): a sidecar, or any --config elsewhere. Both are resolved through
+// symlinks as far as they exist.
+func ConfigOutside(e config.ProjectEntry) bool {
+	return !under(resolveExisting(e.ConfigPath()), signals.ResolvePath(e.Root))
+}
+
+// OutsideConfig is the entry's config path when it is outside its repository, else
+// "": what the project menu and the remove confirmation name (design.md D6, D7).
+func OutsideConfig(e config.ProjectEntry) string {
+	if ConfigOutside(e) {
+		return e.ConfigPath()
+	}
+	return ""
+}
+
 // RemoveProject unregisters a project. It never stops a lane and keeps the lane
 // registry, so the project's lanes come back if it is added again; while lanes are
 // registered it refuses unless force.
@@ -197,11 +233,27 @@ func ListProjects(w io.Writer, home string) error {
 				trust = "trusted"
 			}
 		}
-		fmt.Fprintf(w, "%s %-16s %s\n    root %s\n    socket %s · %s · %d lane(s)\n", mark, e.ID, name, e.Root, e.Socket(cfg), trust, laneCount(home, e.Root))
+		fmt.Fprintf(w, "%s %-16s %s\n    root %s\n    config %s\n", mark, e.ID, name, e.Root, configLine(e))
+		fmt.Fprintf(w, "    socket %s · %s · %d lane(s)\n", e.Socket(cfg), trust, laneCount(home, e.Root))
 	}
 	fmt.Fprintln(w, "* the default: legacy routes and a page with no ?p= open on it.")
 	fmt.Fprintln(w, "Remote control: "+remoteLine(home))
 	return nil
+}
+
+// configLine is `panel list`'s config: its path, marked when it is outside the
+// repository, and, when the repository has a .clauductor/panel.json of its own as
+// well, that the panel does not read that one (design.md D7).
+func configLine(e config.ProjectEntry) string {
+	if !ConfigOutside(e) {
+		return e.ConfigPath()
+	}
+	s := e.ConfigPath() + " (outside the repository)"
+	own := filepath.Join(e.Root, config.DefaultConfigRel)
+	if _, err := os.Stat(own); err == nil {
+		s += "\n    " + own + " is not read: the registry names the config above"
+	}
+	return s
 }
 
 // remoteLine says where Remote Control is on (PANEL-19).

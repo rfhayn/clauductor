@@ -139,20 +139,23 @@ func polled[T any](f fetch[T], apply func(*state.Model, T, error, time.Time)) fu
 // project's periodic tasks. Since PANEL-16 a panel runs one per registered project;
 // what is the machine's (the account, the hooks, the ingest, the token) is Machine's.
 type Runtime struct {
-	id       string   // the project's id in projects.json
-	machine  *Machine // nil in tests that build a Runtime alone
-	o        Options
-	cfg      *config.Config
-	root     string
-	cfgPath  string
-	clock    clock.Clock
-	ticks    Ticks
-	run      signals.Runner
-	hub      *web.Hub
-	lanes    *lanes.LaneManager // nil when lanes are unavailable
-	registry *lanes.Registry    // the lanes' registry, nil with them
-	srv      atomic.Pointer[web.Server]
-	sources  []*source
+	id      string   // the project's id in projects.json
+	machine *Machine // nil in tests that build a Runtime alone
+	o       Options
+	cfg     *config.Config
+	root    string
+	cfgPath string
+	// outsideConfig is cfgPath when it is outside root (an attached project's sidecar,
+	// PANEL-42), else "": the project menu's entry carries it (summary).
+	outsideConfig string
+	clock         clock.Clock
+	ticks         Ticks
+	run           signals.Runner
+	hub           *web.Hub
+	lanes         *lanes.LaneManager // nil when lanes are unavailable
+	registry      *lanes.Registry    // the lanes' registry, nil with them
+	srv           atomic.Pointer[web.Server]
+	sources       []*source
 
 	kickWT, kickAgents, kickPRs, kickTmux chan struct{}
 	cardKicks                             []chan struct{}

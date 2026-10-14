@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -418,5 +419,87 @@ func TestInitFromThePageAndDefaultHandOver(t *testing.T) {
 	get(t, p, "/api/state", &v)
 	if v.ProjectID != id {
 		t.Fatalf("a page with no project opens on %q, want %q", v.ProjectID, id)
+	}
+}
+
+// pageWords runs the page's project-config.js (web/static) in node: fn on arg, as the
+// page calls it on what the panel served. It skips the test where node is missing, so
+// a caller asserts the served JSON first.
+func pageWords(t *testing.T, fn string, arg any) string {
+	t.Helper()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed; the page's words are untested here")
+	}
+	src, err := filepath.Abs(filepath.Join("web", "static", "project-config.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := json.Marshal(arg)
+	h := `const vm = require("vm"), fs = require("fs"); const window = {};
+vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), { window });
+process.stdout.write(JSON.stringify(window.ProjectConfig[process.argv[2]](JSON.parse(process.argv[3]))));`
+	b, err := exec.Command(node, "-e", h, src, fn, string(in)).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, b)
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatalf("node printed %s: %v", b, err)
+	}
+	return s
+}
+
+// [ATTACH-5-S2] A panel serving an attached project with no lanes and a project with
+// its own config: Remove from panel…'s confirmation, rendered from each project's
+// remove plan, names the sidecar, says it stays and gives the `panel add --config` line
+// for the attached project, never that adding it again brings it back; the other's
+// reads as today.
+func TestRemoveConfirmationForAnAttachedProject(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	rootA := multiRepo(t, "Alpha", noServerSocket())
+	rootB, sidecar := attachedRepo(t, home, "side", "")
+	// Its registry socket would be the historical one: give it a throwaway one.
+	written, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(written), "{\n") {
+		t.Fatalf("the sidecar does not open as expected: %.40q", written)
+	}
+	writeFile(t, sidecar, strings.Replace(string(written), "{\n", "{\n  \"tmux_socket\": \""+noServerSocket()+"\",\n", 1))
+	p := startPanel(t, rootA, home, sockA)
+	waitFor(t, "the panel to serve side", func() bool { return menu(t, p)["side"].OK })
+
+	plans := map[string]map[string]any{}
+	for _, id := range []string{"side", "alpha"} {
+		code, body := p.post(t, "/api/projects/"+id+"/remove", map[string]any{"dryRun": true})
+		var plan removePlan
+		result(t, body, &plan)
+		if code != 200 || plan.Refused != "" || len(plan.Lanes) != 0 {
+			t.Fatalf("%s's plan: %d %v", id, code, body)
+		}
+		plans[id] = body["result"].(map[string]any)
+	}
+	if plans["side"]["configOutside"] != true || plans["side"]["configPath"] != sidecar || plans["side"]["root"] != rootB {
+		t.Fatalf("side's plan: %v", plans["side"])
+	}
+	if v, ok := plans["alpha"]["configOutside"]; ok && v != false {
+		t.Fatalf("alpha's plan: %v", plans["alpha"])
+	}
+
+	side := pageWords(t, "removeNote", plans["side"])
+	for _, want := range []string{sidecar, "stay", "clauductor panel add --project " + rootB + " --config " + sidecar} {
+		if !strings.Contains(side, want) {
+			t.Errorf("side's confirmation lacks %q: %q", want, side)
+		}
+	}
+	if strings.Contains(side, "brings it") {
+		t.Errorf("side's confirmation says adding it again brings it back: %q", side)
+	}
+	if own := pageWords(t, "removeNote", plans["alpha"]); own != "This only unregisters it. Nothing on disk is deleted: the repository, its config, its worktrees and its lane registry stay where they are, and adding it again brings it all back." {
+		t.Errorf("alpha's confirmation changed: %q", own)
 	}
 }
