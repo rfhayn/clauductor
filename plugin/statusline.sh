@@ -41,6 +41,15 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 
+# THE QUOTA READING (OPS-67). The same stdin's rate_limits go to ~/.clauductor/quota-reading.json
+# on every refresh that carries them, panel or no panel, for routines and the orchestrating session
+# (lib/quota.sh: the file, and the reader that never reports a window past its reset). Backgrounded
+# with its output discarded, like the panel post: it never delays or changes the line below, and a
+# failure leaves the old file in place. Checked by .claude/checks/quota-reading.sh.
+# shellcheck disable=SC1091
+. "$CLAUDUCTOR_FW/lib/quota.sh"
+{ quota_save "$input"; } >/dev/null 2>&1 &
+
 branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
 
 focus=""
