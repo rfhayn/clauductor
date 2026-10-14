@@ -5,6 +5,36 @@
 Each capability row is still proposed just in time and approved on its own `design.md`. This PRD gives direction;
 it does not approve a design.
 
+**Reduced on 2026-10-14 to Pulse** (OPS-71; see *Rescope* below). What remains of this PRD is the routines
+section (OPS-42, PANEL-37) and Today (PANEL-38), now built on the redesigned panel (`PRD-ui.md`). The rest is kept
+as the record of what was decided on 2026-10-12.
+
+## Rescope (the owner, 2026-10-14)
+
+The owner weighed whether Clauductor was worth its cost against Pav Rusovs' AI OS itself, and chose **option B**:
+
+- **MAPS is a personal workspace layer with no code governance.** Clauductor's core (the gate, the merge guard,
+  the change process, lanes) is what neither MAPS nor a plain repository gives, and stays.
+- **The weight was elsewhere.** It came from three things: a second copy of Standing Tee's operating model kept in
+  step by porting, the Map's polish, and process rows that improve the process.
+- **Clauductor serves Standing Tee through attach mode** (PANEL-42, PANEL-43, `PRD-attach.md`) and stops porting its
+  practices.
+- **Pulse stays:** routines (OPS-42, PANEL-37) and a Today view (PANEL-38).
+- **The investment goes into the panel's UI** (PANEL-45, PANEL-46, `PRD-ui.md`).
+- **The work runs one lane at a time, on a limited budget.** Slower is accepted.
+
+What each decision below became:
+
+| Decision (2026-10-12) | On 2026-10-14 |
+|---|---|
+| 1. Build it into the panel | Kept for Pulse only |
+| 2. Phase 1 contents | The Map, the skills deck (parked) and the Standing Tee practices (OPS-44, OPS-45, OPS-47, PANEL-40) are cut; OPS-39 is parked after one review round (#125) |
+| 3. The Map's colour exception | Superseded: the Map is cancelled, and PANEL-45 chooses the whole panel's look |
+| 4. Review soft cap of 5 (OPS-44) | Cancelled with OPS-44 |
+| 5. The $15 Builder tier and the clean-room rule | Superseded: with no Map there is nothing to study (OPS-48 and PANEL-41 cancelled) |
+| 6. Order | Replaced by the roadmap's *UI and Pulse* section |
+| 7. Checkpoints | Kept: the next tag marks the end of *UI and Pulse* |
+
 ## Why
 
 On 2026-10-12 the owner reviewed Pav Rusovs' "Turn Claude Code Into Your AI Operating System (4 Layers)"
