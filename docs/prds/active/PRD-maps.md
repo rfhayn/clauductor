@@ -30,7 +30,7 @@ What each decision below became:
 | 1. Build it into the panel | Kept for Pulse only |
 | 2. Phase 1 contents | The Map, the skills deck (parked) and the Standing Tee practices (OPS-44, OPS-45, OPS-47, PANEL-40) are cut; OPS-39 is parked after one review round (#125) |
 | 3. The Map's colour exception | Superseded: the Map is cancelled, and PANEL-45 chooses the whole panel's look |
-| 4. Review soft cap of 5 (OPS-44) | Cancelled with OPS-44 |
+| 4. Review soft cap of 5 (OPS-44) | Cancelled with OPS-44, and so is the deep freeze of `build-change.js`'s role tables that OPS-44 carried from OPS-23: no row owns it now. A role table edited at run time becomes the trigger to queue it again |
 | 5. The $15 Builder tier and the clean-room rule | Superseded: with no Map there is nothing to study (OPS-48 and PANEL-41 cancelled) |
 | 6. Order | Replaced by the roadmap's *UI and Pulse* section |
 | 7. Checkpoints | Kept: the next tag marks the end of *UI and Pulse* |

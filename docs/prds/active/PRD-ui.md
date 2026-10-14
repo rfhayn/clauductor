@@ -18,7 +18,7 @@ The owner judged the panel's UI to be the weakest part of Clauductor, in both fu
   gradient or badge. The austerity was chosen, and it is now the owner's to choose again.
 - **Breadth.** Six themes in light and dark and six type systems: every visual change must pass contrast tests in
   twelve combinations.
-- **No eyes in the loop.** The Playwright UX harness (`testdata/ux/`, about 300 screenshots) runs by hand. Review
+- **No eyes in the loop.** The Playwright UX harness (`framework/internal/panel/testdata/ux/`, a screenshot matrix and scripted flows, generated per run) runs by hand. Review
   reads CSS as text, so nothing judges rendered pixels.
 
 ## Decisions (the owner, 2026-10-14)
