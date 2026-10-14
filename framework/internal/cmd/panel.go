@@ -123,9 +123,11 @@ func init() {
 	panelAddCmd.Flags().StringVar(&addConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
 	panelAddCmd.Flags().StringVar(&addID, "id", "", "the project's id in routes and the page (default: from its config's name)")
 	panelAddCmd.Flags().BoolVar(&addDefault, "default", false, "make it the default project")
+	panelAttachCmd.Flags().StringVar(&attachID, "id", "", "the project's id in routes, the page and the sidecar's folder (default: from the repository's name)")
+	panelAttachCmd.Flags().BoolVar(&attachDefault, "default", false, "make it the default project")
 	panelRemoveCmd.Flags().BoolVar(&removeForce, "force", false, "remove it even while lanes are registered (they keep running; their registry is kept)")
 	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd,
-		panelAddCmd, panelRemoveCmd, panelListCmd)
+		panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -143,7 +145,63 @@ var (
 	addID       string
 	addDefault  bool
 	removeForce bool
+
+	attachID      string
+	attachDefault bool
 )
+
+var panelAttachCmd = &cobra.Command{
+	Use:   "attach [<repo>]",
+	Short: "Serve a repository from a config outside it, writing nothing into it",
+	Long: `Read the repository as 'clauductor panel init' does, write the result to
+~/.clauductor/projects/<id>/panel.json (the sidecar) with every command an argv
+list and no shell text, and register the repository with that file as its config.
+Nothing is written into the repository. Like 'panel add', it does not trust the
+config: review it, then run 'clauductor panel trust --project <repo>'. An existing
+sidecar is never overwritten. A registered project is refused, unless its registry
+entry names no config and <repo>/.clauductor/panel.json does not exist (it is then
+attached in place, keeping its id, socket and lanes). <repo> defaults to the
+current directory's git toplevel.`,
+	Args:          cobra.MaximumNArgs(1),
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		project := ""
+		if len(args) == 1 {
+			project = args[0]
+		} else {
+			top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+			if err != nil {
+				return fmt.Errorf("not inside a git repository; pass the repository's path")
+			}
+			project = strings.TrimSpace(string(top))
+		}
+		res, err := install.Attach(context.Background(), install.AttachOptions{Home: home, Project: project, ID: attachID,
+			Run: signals.ExecRunner, Now: clock.System.Now(), MakeDefault: attachDefault})
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		e := res.Add.Entry
+		fmt.Fprintf(out, "Wrote %s:\n\n%s\n", e.ConfigPath(), res.Init.Body)
+		for _, n := range res.Init.Notes {
+			fmt.Fprintf(out, "  %s\n", n)
+		}
+		if res.InPlace {
+			fmt.Fprintf(out, "\nAttached %s in place: it keeps its id %q and tmux socket %s, and now reads this file.\n", e.Root, e.ID, e.Socket(res.Add.Cfg))
+		} else {
+			fmt.Fprintf(out, "\nRegistered %s as %q (%s), on tmux socket %s, reading this file.\n", e.Root, e.ID, res.Add.Cfg.Name, e.Socket(res.Add.Cfg))
+		}
+		fmt.Fprintf(out, "Nothing was written into %s. The file is yours to edit.\n", e.Root)
+		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n", e.Root)
+		followRunningPanel(out, home, e.Root, true)
+		return nil
+	},
+}
 
 var panelAddCmd = &cobra.Command{
 	Use:   "add",

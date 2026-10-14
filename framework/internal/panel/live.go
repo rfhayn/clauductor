@@ -444,7 +444,7 @@ func (ls *liveSet) plan(ctx context.Context, path string) (install.InitResult, *
 	if c.HasConfig {
 		return install.InitResult{}, lerr(http.StatusConflict, "config-exists", "%s has a panel config already", c.Root)
 	}
-	res, err := install.PlanInit(ctx, ls.o.Runner, c.Root)
+	res, err := install.PlanInit(ctx, ls.o.Runner, c.Root, install.InitTarget{})
 	if err != nil {
 		return res, refusal(err)
 	}

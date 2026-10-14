@@ -252,3 +252,124 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 		t.Fatalf("names a script the repository lacks:\n%s", res.Body)
 	}
 }
+
+// [ATTACH-1-S2] PANEL-42: the plan for an attach is init's reading of the repository,
+// unchanged, with the target moved and every command in argv form: no `sh -c`, no
+// `2>&1`. Its notes are init's. A config already in the repository does not refuse it
+// (the panel will read the sidecar, D7), and a sidecar already at the target does.
+func TestPlanInitForASidecar(t *testing.T) {
+	om := map[string]string{
+		".claude/owner-queue.sh":   "#!/bin/sh\n",
+		".claude/roadmap-queue.sh": "#!/bin/sh\n",
+		".claude/panel-suggest.sh": "#!/bin/sh\n",
+		"scripts/ci/run-local.sh":  "#!/bin/sh\n",
+	}
+	plain := map[string]string{"package.json": `{"scripts":{"gate":"x","test":"y"}}`, "bun.lock": ""}
+	for _, files := range []map[string]string{om, plain} {
+		root := newRepo(t, nil)
+		for name, body := range files {
+			os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o755)
+			testbin.Write(t, filepath.Join(root, name), body)
+		}
+		ctx := context.Background()
+		inRepo, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "projects", "acme-web", "panel.json")
+		side, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if side.Path != target || !side.Sidecar || inRepo.Sidecar {
+			t.Fatalf("path %s sidecar %v (in-repository %v)", side.Path, side.Sidecar, inRepo.Sidecar)
+		}
+		if !reflect.DeepEqual(side.Notes, inRepo.Notes) {
+			t.Errorf("the notes differ:\n%q\n%q", side.Notes, inRepo.Notes)
+		}
+		want, err := config.ParseConfig(inRepo.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := config.ParseConfig(side.Body)
+		if err != nil {
+			t.Fatalf("the sidecar does not validate: %v\n%s", err, side.Body)
+		}
+		// The one difference: the operating model's cards, in argv form.
+		argv := map[string][]string{
+			"owner-queue":  {"sh", ".claude/owner-queue.sh"},
+			"change-queue": {"sh", ".claude/roadmap-queue.sh", "--text"},
+		}
+		for i := range want.Cards {
+			want.Cards[i].Command = argv[want.Cards[i].ID]
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("the sidecar is not init's reading with argv commands:\n%s\nin the repository:\n%s", side.Body, inRepo.Body)
+		}
+		var cmds [][]string
+		for _, c := range got.Cards {
+			cmds = append(cmds, c.Command)
+		}
+		for _, q := range got.Queues {
+			cmds = append(cmds, q.Command)
+		}
+		for _, tp := range got.Templates {
+			if tp.Suggest != nil {
+				cmds = append(cmds, tp.Suggest.Command)
+			}
+		}
+		if len(cmds) == 0 {
+			t.Fatalf("no command to check:\n%s", side.Body)
+		}
+		for _, c := range cmds {
+			for _, w := range c {
+				if w == "-c" || strings.Contains(w, "2>&1") || strings.Contains(w, " ") {
+					t.Errorf("a shell form in %q", c)
+				}
+			}
+		}
+		if _, bun := files["bun.lock"]; bun {
+			if len(got.Queues) != 1 || !reflect.DeepEqual(got.Queues[0].Command, []string{"bun", "run", "gate"}) {
+				t.Errorf("the detected gate: %+v", got.Queues)
+			}
+		} else if len(got.Cards) != 2 || len(got.Templates) != 4 {
+			t.Errorf("the operating model's cards and templates: %+v %+v", got.Cards, got.Templates)
+		}
+
+		// The repository's own config is not a refusal for a sidecar, only a note.
+		own := filepath.Join(root, config.DefaultConfigRel)
+		os.MkdirAll(filepath.Dir(own), 0o755)
+		os.WriteFile(own, []byte(`{"name":"own"}`), 0o644)
+		if _, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
+			t.Fatalf("init over the repository's config: %v", err)
+		}
+		side2, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true})
+		if err != nil || !strings.Contains(strings.Join(side2.Notes, "\n"), own+" is here too, and the panel will not read it") {
+			t.Fatalf("attach beside the repository's config: %v %q", err, side2.Notes)
+		}
+		// A sidecar is the user's alone, and is never planned over.
+		if err := WriteInit(side); err != nil {
+			t.Fatal(err)
+		}
+		if fi, err := os.Stat(target); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("the sidecar's mode: %v %v", fi, err)
+		}
+		if fi, err := os.Stat(filepath.Dir(target)); err != nil || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("the sidecar's folder's mode: %v %v", fi, err)
+		}
+		if _, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true}); !errors.Is(err, ErrConfigExists) {
+			t.Fatalf("a plan over a sidecar: %v", err)
+		}
+		// A sidecar folder that is there already, looser, is tightened to 0700 (D2).
+		loose := filepath.Join(t.TempDir(), "projects", "loose", "panel.json")
+		os.MkdirAll(filepath.Dir(loose), 0o755)
+		os.Chmod(filepath.Dir(loose), 0o755)
+		side.Path = loose
+		if err := WriteInit(side); err != nil {
+			t.Fatal(err)
+		}
+		if fi, err := os.Stat(filepath.Dir(loose)); err != nil || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("an existing sidecar folder's mode: %v %v", fi.Mode(), err)
+		}
+	}
+}

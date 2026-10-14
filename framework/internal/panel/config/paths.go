@@ -11,6 +11,14 @@ import (
 // token, lock, logs) and one directory per project (ProjectDir).
 func PanelDir(home string) string { return filepath.Join(home, ".clauductor", "panel") }
 
+// SidecarPath is the config `panel attach` writes for a project, outside its
+// repository (PANEL-42, design.md D2): ~/.clauductor/projects/<id>/panel.json. A
+// readable folder per id, not ProjectDir's hash, because the owner edits it by hand.
+// The id must already match ProjectIDRe: it is a path segment here.
+func SidecarPath(home, id string) string {
+	return filepath.Join(home, ".clauductor", "projects", id, "panel.json")
+}
+
 // ProjectDir holds one project's panel files: the lane registry, trusted config
 // hashes, the notifier's state and queue logs. The hash keeps projects apart without
 // putting a path in a file name.
