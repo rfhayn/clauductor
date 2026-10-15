@@ -19,9 +19,15 @@ Its turn: the owner asked for PANEL-45 next after PANEL-42, ahead of PANEL-43 (2
 five changes already proposed are parked, waiting or cancelled by that day's rescope (OPS-71).
 
 ## What changes
-The owner can open two or three rendered directions for the panel, side by side in a browser,
-each drawn from the same real panel data and each stating its rules, and choose one. The choice
-becomes an ADR that PANEL-46 builds and tests against. The parked panel rows are each taken into
+The owner can open three rendered variants of the panel's new look side by side in a browser, and
+choose one.
+- **The direction is the owner's** (2026-10-15): a modern developer tool, with mission control's
+  terminal as a first-class pane.
+- **The variants differ** in how the terminal comes and goes: always the stage, overview first, or
+  split.
+- **Each variant** is drawn from the same real panel data and states its rules.
+
+The choice becomes an ADR that PANEL-46 builds and tests against. The parked panel rows are each taken into
 the redesign or dropped, by the owner's decision.
 
 Nothing in the shipped panel changes in this change: no Go, no `panel.js`, no CSS, no test.
@@ -31,7 +37,7 @@ No living spec covers the page's look (`specs/` holds panel-attach, panel-claude
 panel-new-lane, none of them about appearance). The rules live in `docs/panel.md` (*The page*,
 *Appearance*) and are held by `web/tells_test.go` and `themes_test.go`. This change adds and
 modifies no requirement (`.openspec.yaml`: `skip_specs: true`). PANEL-46 rewrites the rules and
-their tests to the chosen direction.
+their tests to the chosen variant.
 
 ## Out of scope
 - Rewriting `panel.js`, the CSS, `docs/panel.md`'s rules or `TestPanelAvoidsTheTells`: PANEL-46.
@@ -39,6 +45,6 @@ their tests to the chosen direction.
 - The terminal (xterm) and its tmux bridge.
 
 ## How we'll know
-- **Signal:** the owner has chosen a direction and the ADR records it as Accepted, and PANEL-46's
+- **Signal:** the owner has chosen a variant and the ADR records it as Accepted, and PANEL-46's
   proposal cites that ADR's rules rather than inventing its own.
 - **Check after:** 21 days
