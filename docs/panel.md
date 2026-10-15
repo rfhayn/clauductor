@@ -742,8 +742,14 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
   CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
 - **git**, every 30 s (and on **Refresh**), for each worktree a lane runs in and, for a project
   with cards, the main checkout the cards run in: one `git status --porcelain=v2 --branch`,
-  plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
-  HEAD moved. No `git fetch`: ahead and behind are as of the last fetch.
+  plus `git diff-index -M --shortstat HEAD -- <paths>` only when tracked files changed, and
+  `git log -1` only when HEAD moved. No `git fetch`: ahead and behind are as of the last
+  fetch. Each passes `--no-optional-locks` and `-c core.fsmonitor=false`, so a poll never
+  writes `.git/index` or starts git's fsmonitor daemon (PANEL-42). The stat is `diff-index`
+  because `git diff` rewrites the index even with that flag. `diff-index` does not refresh
+  the index, so a file whose modification time alone changed looks changed to it (and a
+  binary one counts); its paths are the tracked ones `status` listed, which re-hashed those
+  files and left them out. Past 64 KiB of paths it reads the whole tree.
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither

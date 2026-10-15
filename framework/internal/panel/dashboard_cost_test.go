@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,9 +30,15 @@ func TestDashboardReadsSpawnOnlyWhileAPageIsInView(t *testing.T) {
 	run := func(_ context.Context, _ string, argv []string) ([]byte, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		// A git read is keyed by its command, found in the whole argv, whatever
+		// global options precede it.
 		k := argv[0]
-		if argv[0] == "git" {
-			k = "git " + argv[3]
+		if j := " " + strings.Join(argv, " ") + " "; argv[0] == "git" {
+			for _, c := range []string{"status", "diff-index", "log"} {
+				if strings.Contains(j, " "+c+" ") {
+					k = "git " + c
+				}
+			}
 		}
 		calls[k]++
 		switch k {
@@ -43,7 +50,7 @@ func TestDashboardReadsSpawnOnlyWhileAPageIsInView(t *testing.T) {
 				out += "1 .M N... 100644 100644 100644 a b x.go\n"
 			}
 			return []byte(out), nil
-		case "git diff":
+		case "git diff-index":
 			return []byte(" 1 file changed, 4 insertions(+)\n"), nil
 		case "git log":
 			return []byte("1790600000\n"), nil
@@ -81,11 +88,11 @@ func TestDashboardReadsSpawnOnlyWhileAPageIsInView(t *testing.T) {
 	}
 	srv.MarkVisible(t0)
 	got := minute()
-	if got["ps"] != 6 || got["git status"] != 4 || got["git log"] != 2 || got["git diff"] != 0 {
+	if got["ps"] != 6 || got["git status"] != 4 || got["git log"] != 2 || got["git diff-index"] != 0 {
 		t.Fatalf("a clean tree in view for a minute spawned %v; want ps 6, git status 4, git log once a worktree (HEAD is new)", got)
 	}
 	dirty = true
-	if got := minute(); got["git status"] != 4 || got["git diff"] != 4 || got["git log"] != 0 {
+	if got := minute(); got["git status"] != 4 || got["git diff-index"] != 4 || got["git log"] != 0 {
 		t.Fatalf("a dirty tree spawned %v; want a diff stat with each status, and no log (HEAD unmoved)", got)
 	}
 	v := r.hub.View()

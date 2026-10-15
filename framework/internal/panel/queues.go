@@ -42,7 +42,7 @@ func (r *Runtime) gitCommonDir(ctx context.Context) (string, error) {
 	if d != "" {
 		return d, nil
 	}
-	out, err := r.run(ctx, r.root, []string{"git", "rev-parse", "--git-common-dir"})
+	out, err := r.run(ctx, r.root, servingGit("", "rev-parse", "--git-common-dir"))
 	if err != nil {
 		return "", err
 	}

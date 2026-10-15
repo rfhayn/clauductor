@@ -35,7 +35,7 @@ func ParsePS(out []byte) map[int]Proc {
 }
 
 // GitStat is a worktree's state from `git status --porcelain=v2 --branch`, and,
-// when it is dirty, `git diff HEAD --shortstat`.
+// when it is dirty, `git diff-index --shortstat HEAD`.
 type GitStat struct {
 	Head string `json:"head,omitempty"`
 	// Branch is the checked-out branch ("(detached)" when HEAD is detached), from
@@ -88,8 +88,64 @@ func ParseGitStatusV2(out []byte) (GitStat, error) {
 	return g, nil
 }
 
-// ParseShortstat parses `git diff --shortstat` (" 3 files changed, 10 insertions(+),
-// 2 deletions(-)"); empty output is no change.
+// TrackedChangedPaths is every tracked path `git status --porcelain=v2` lists as
+// changed, a rename's old path included, and conflicted; untracked paths are not.
+// Status re-hashed each file whose stat alone changed, so these are the paths whose
+// content differs (PANEL-42: the diff stat reads only them). ok is false when a quoted
+// path does not unquote: the caller then does not know the whole list.
+func TrackedChangedPaths(out []byte) (paths []string, ok bool) {
+	ok = true
+	add := func(p string) {
+		if strings.HasPrefix(p, `"`) {
+			// git C-quotes a path holding a control byte, a quote, a backslash or
+			// (core.quotePath) a byte over 0x7f: \t, \", \\ and \ooo, as Go does.
+			u, err := strconv.Unquote(p)
+			if err != nil {
+				ok = false
+				return
+			}
+			p = u
+		}
+		paths = append(paths, p)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		// The path follows a fixed count of space-separated fields, and may hold
+		// spaces itself: "1 XY sub mH mI mW hH hI <path>", "2 ... X<score>
+		// <path>\t<origPath>", "u XY sub m1 m2 m3 mW h1 h2 h3 <path>".
+		n := 0
+		switch {
+		case strings.HasPrefix(line, "1 "):
+			n = 9
+		case strings.HasPrefix(line, "2 "):
+			n = 10
+		case strings.HasPrefix(line, "u "):
+			n = 11
+		default:
+			continue
+		}
+		f := strings.SplitN(line, " ", n)
+		if len(f) != n {
+			ok = false
+			continue
+		}
+		last := f[len(f)-1]
+		if line[0] == '2' {
+			np, op, found := strings.Cut(last, "\t")
+			if !found {
+				ok = false
+				continue
+			}
+			add(np)
+			add(op)
+			continue
+		}
+		add(last)
+	}
+	return paths, ok
+}
+
+// ParseShortstat parses `git diff-index --shortstat` (" 3 files changed, 10
+// insertions(+), 2 deletions(-)"); empty output is no change.
 func ParseShortstat(out []byte) (files, ins, del int) {
 	for _, part := range strings.Split(strings.TrimSpace(string(out)), ",") {
 		f := strings.Fields(part)

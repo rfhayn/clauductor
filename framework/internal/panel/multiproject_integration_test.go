@@ -3,12 +3,15 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
@@ -17,6 +20,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
 // multiRepo is a git repository with a panel config, committed.
@@ -297,6 +301,169 @@ func TestSidecarCardShowsItsStderr(t *testing.T) {
 	if sg := b.Suggestions["st"]; len(sg.Items) != 1 || sg.Items[0].Name != "alpha" || sg.Skipped != 0 {
 		t.Errorf("the sidecar's suggestions: %+v", sg)
 	}
+}
+
+// [ATTACH-2-S2] An attached repository loaded as the panel loads it, whose sidecar has
+// a card (so the root is the checkout the cards run in, and the git poll reads it),
+// with one tracked text file and one tracked binary file touched (same bytes, a newer
+// mtime) and another file modified: one git poll of that checkout, its dirty-tree stat
+// included, leaves every file and directory under the root, .git/index included, as
+// it was, and the stat counts the modified file only. Once more with core.fsmonitor
+// set in the repository's own config: a read that honours it starts git's fsmonitor
+// daemon, which writes .git/fsmonitor--daemon/. Git runs with no global or system
+// config, so the developer's own settings neither cause a write nor hide one.
+func TestServingWritesNothing(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		local []string // a `git config` in the repository, just before the poll
+	}{
+		{name: "plain"},
+		{name: "fsmonitor", local: []string{"core.fsmonitor", "true"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home := signals.ResolvePath(t.TempDir())
+			root := signals.ResolvePath(t.TempDir())
+			isolatedGitRun(t, root, "init", "-q", "-b", "main")
+			writeFile(t, filepath.Join(root, "touched.txt"), "same\n")
+			writeFile(t, filepath.Join(root, "touched.bin"), "\x00\x01binary\x00")
+			writeFile(t, filepath.Join(root, "modified.txt"), "one\n")
+			isolatedGitRun(t, root, "add", ".")
+			isolatedGitRun(t, root, "commit", "-q", "-m", "files")
+			res, err := install.Attach(context.Background(), install.AttachOptions{Home: home, Project: root, ID: "acme", Run: isolatedGitRunner, Now: clock.System.Now()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, res.Init.Path, `{"name":"Acme","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
+				"cards":[{"id":"c","title":"C","command":["sh",".claude/card.sh"],"refresh":"interval:60"}]}`)
+			// The index's stat of the touched files goes stale with their bytes
+			// unchanged: a reader that may refresh the index re-hashes them and writes
+			// .git/index, and one that does not sees a binary pair it cannot compare.
+			later := time.Now().Add(time.Hour)
+			for _, f := range []string{"touched.txt", "touched.bin"} {
+				if err := os.Chtimes(filepath.Join(root, f), later, later); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeFile(t, filepath.Join(root, "modified.txt"), "one\ntwo\n")
+
+			reg, err := config.LoadProjects(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := reg.Find("acme")
+			if e == nil {
+				t.Fatal("acme is not registered")
+			}
+			o := Options{Home: home, Out: io.Discard, Runner: isolatedGitRunner}
+			lp, err := loadProject(context.Background(), o, *e, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clk := clock.NewFake(t0)
+			r := buildRuntime(o, clk, DefaultTicks(), lp, false)
+			srv := &web.Server{Clock: clk}
+			srv.MarkVisible(t0)
+			r.srv.Store(srv)
+			var checkout string
+			r.hub.Read(func(m *state.Model, _ time.Time) { checkout = m.CardsCheckout() })
+			if checkout != root {
+				t.Fatalf("the cards' checkout is %q, want the root %s", checkout, root)
+			}
+			if len(tc.local) > 0 {
+				isolatedGitRun(t, root, append([]string{"config"}, tc.local...)...)
+				// A daemon a read started would outlive the test. Stopping one that
+				// never started fails, which is the outcome this test wants.
+				t.Cleanup(func() {
+					cmd := exec.Command("git", "fsmonitor--daemon", "stop")
+					cmd.Dir, cmd.Env = root, isolatedGitEnv()
+					_ = cmd.Run()
+				})
+			}
+
+			before := treesnap.Take(t, root)
+			up, _ := r.pollGit(context.Background(), t0)
+			if up == nil {
+				t.Fatal("the git poll read nothing")
+			}
+			if d := treesnap.Diff(before, treesnap.Take(t, root)); len(d) > 0 {
+				t.Errorf("the git poll wrote into the repository:\n%s", strings.Join(d, "\n"))
+			}
+			r.hub.Update(up)
+			var g *state.GitView
+			v := r.hub.View()
+			for _, lv := range append(v.Lanes, v.QuietWorktrees...) {
+				if lv.Path == root {
+					g = lv.Git
+				}
+			}
+			if g == nil || g.Error != "" || g.Files != 1 || g.Insertions != 1 || g.Deletions != 0 {
+				t.Errorf("the root's git read is %+v, want the modified file alone: 1 file, 1 insertion", g)
+			}
+		})
+	}
+}
+
+// The dirty-tree stat counts a staged rename once, as `git diff HEAD` did, though its
+// pathspec is the paths status listed (the new one and the old).
+func TestGitStatCountsAStagedRenameOnce(t *testing.T) {
+	t.Parallel()
+	root := signals.ResolvePath(t.TempDir())
+	isolatedGitRun(t, root, "init", "-q", "-b", "main")
+	writeFile(t, filepath.Join(root, "old.txt"), "one\ntwo\nthree\n")
+	isolatedGitRun(t, root, "add", ".")
+	isolatedGitRun(t, root, "commit", "-q", "-m", "files")
+	isolatedGitRun(t, root, "mv", "old.txt", "new name.txt")
+	ctx := context.Background()
+	out, err := isolatedGitRunner(ctx, root, servingGit(root, "status", "--porcelain=v2", "--branch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := isolatedGitRunner(ctx, root, gitStatArgv(root, out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, i, del := signals.ParseShortstat(d); f != 1 || i != 0 || del != 0 {
+		t.Errorf("a staged rename's stat is %d files, +%d -%d (%q), want 1 file and no lines", f, i, del, d)
+	}
+}
+
+// isolatedGitEnv is the process's environment with no GIT_ variable, no global or
+// system git config, and a committer: git then reads the repository's config alone.
+func isolatedGitEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+}
+
+// isolatedGitRun is gitRun under isolatedGitEnv.
+func isolatedGitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir, cmd.Env = dir, isolatedGitEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
+}
+
+// isolatedGitRunner is gitOnlyRunner with git run under isolatedGitEnv.
+func isolatedGitRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
+	if argv[0] != "git" {
+		return gitOnlyRunner(ctx, dir, argv)
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir, cmd.Env = dir, isolatedGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return out, fmt.Errorf("%v: %w", argv, err)
+	}
+	return out, nil
 }
 
 func get(t *testing.T, p *panelRun, path string, v any) {

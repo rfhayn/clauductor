@@ -35,7 +35,7 @@ func fakeRunner(root string) signals.Runner {
 		switch strings.Join(argv, " ") {
 		case "git worktree list --porcelain":
 			return []byte(fmt.Sprintf("worktree %s\nHEAD abc\nbranch refs/heads/main\n\n", root)), nil
-		case "git rev-parse --git-common-dir":
+		case "git --no-optional-locks -c core.fsmonitor=false rev-parse --git-common-dir":
 			return []byte(".git\n"), nil
 		case "claude agents --json":
 			return []byte(fmt.Sprintf(`[{"pid":1,"cwd":%q,"kind":"interactive","sessionId":"s1","name":"lane-1","status":"busy"}]`, root)), nil

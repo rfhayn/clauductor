@@ -53,7 +53,7 @@ func (r *Runtime) pollReadiness(ctx context.Context, now time.Time) (update, tim
 		gd := c.gitDirs[l.Path]
 		c.mu.Unlock()
 		if gd == "" {
-			if out, err := r.exec(ctx, 10*time.Second, []string{"git", "-C", l.Path, "rev-parse", "--absolute-git-dir"}); err == nil {
+			if out, err := r.exec(ctx, 10*time.Second, servingGit(l.Path, "rev-parse", "--absolute-git-dir")); err == nil {
 				gd = strings.TrimSpace(string(out))
 				c.mu.Lock()
 				c.gitDirs[l.Path] = gd
