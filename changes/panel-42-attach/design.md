@@ -186,10 +186,17 @@
     launcher's own words are:
     - its flags and their values (`env -u NAME`, `env -C dir`, `env -P path`, `nice -n 5`,
       `timeout -s SIG`, `timeout -k 5`, `time -o file`, `time -f fmt`);
-    - `env`'s `NAME=value` words (`env FOO=1 npx tool`);
     - `timeout`'s duration (`timeout 9 npx tool`).
 
     A launcher flag outside that list is refused, because the program cannot be found past it.
+    - **No environment is set (the owner, 2026-10-14).** A `NAME=value` word in program position
+      or among `env`'s words is refused (`env FOO=1 npx tool`, `env NODE_OPTIONS=… npm run gate`).
+      Many variables load code into whatever runs next, whatever that program is named
+      (`NODE_OPTIONS`, `BASH_ENV`, `ENV`, `LD_PRELOAD`, `DYLD_*`, `PERL5OPT`, `RUBYOPT`,
+      `GIT_SSH_COMMAND`), and a list of them would never be finished. Refusing every assignment
+      closes the class at once. A setting a command needs belongs in a script in the repository,
+      and `env CI=1 make test` is an accepted false refusal. `env -u NAME` still only removes a
+      variable, and stays allowed.
     - `.`, `eval` and `source`: they run text as shell code. (In any other position `.` is a path,
       the repository's root: `go test .` and `git add .` are allowed.)
     - `env -S` (or `--split-string`): it splits one word into a command line.
@@ -286,7 +293,13 @@
     - `flock -c <word>` runs its word through a shell;
     - the program-position rules (`.`, `eval`, `xargs`, fetch-and-run, an interpreter's script
       file) are not applied behind a launcher outside their list (`sudo`, `caffeinate`), though
-      code flags still are;
+      code flags still are, and so is `env`'s `NAME=value` rule: an `env` is judged wherever it
+      stands (`caffeinate env FOO=1 make` is refused);
+    - an environment set by a program's own flag or word, rather than through `env`, is not
+      judged: `sudo NAME=value`, `arch -e NAME=value`, npm's `--node-options` (npm copies it into
+      `NODE_OPTIONS`, even on `npm run gate`, which `panel init` writes), and `make`'s `SHELL=` and
+      `.SHELLFLAGS=` (the owner, 2026-10-14: the rule is a second line of defence behind trust's
+      hash of the sidecar, and each review round found another such form);
     - a bare word naming a symlink in the repository that points out of it (`make -C outlink
       gate`) is not judged as a path: the symlink is the repository's own content.
   - **In-repository configs:** unchanged. Their commands may still use `sh -c`, and `panel init`
@@ -316,6 +329,7 @@
     - `bash -o pipefail x.sh` and `python3 -W error x.py` (a flag's value is read as the first
       operand);
     - `pytest -k "not slow"` (a space and quotes);
+    - `env CI=1 make test` (an environment setting, 2026-10-14);
     - `curl https://…` (a URL);
     - every `deno` command (its first operand is a subcommand, `run` or `task`, not a script
       file), and `bun run scripts/x.ts` (not a bare word);

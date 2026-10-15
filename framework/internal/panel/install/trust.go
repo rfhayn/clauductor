@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -69,9 +70,22 @@ func writeTrust(path string, t trustFile) error {
 // that adds panel.json, names commands nobody reviewed), nor is a changed one. Either
 // becomes trusted only when trustNow is set (`clauductor panel trust`,
 // --trust-config, `panel install`), which records it.
+//
+// A config outside its repository (a sidecar, design.md D5) is also judged by the
+// sidecar rule, on the bytes at cfgPath that hash to hash: while any command holds a
+// word the rule refuses, it is not trusted, nothing is recorded, and a record made
+// earlier (by hand, or before the rule) does not count. With trustNow that is an
+// error, a *SidecarRefusedError.
 func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.TrustView, error) {
 	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
 	tv := config.TrustView{Hash: hash, Path: cfgPath}
+	if err := sidecarCheck(project, cfgPath, hash); err != nil {
+		tv.Note = err.Error()
+		if trustNow {
+			return tv, err
+		}
+		return tv, nil
+	}
 	path := TrustPath(home, project)
 	t, err := readTrust(path)
 	if err != nil {
@@ -104,8 +118,9 @@ func TrustConfig(home, project, cfgPath string) (string, error) {
 	return h, err
 }
 
-// TrustConfigReport trusts the config and also returns what it runs
-// (config.RunList), for the command to print.
+// TrustConfigReport trusts the config and also returns what it runs (TrustRuns), for
+// the command to print. A refused sidecar returns its marked lines with the error, so
+// the command can print them (PrintRefused).
 func TrustConfigReport(home, project, cfgPath string) (string, []string, error) {
 	project = signals.ResolvePath(project)
 	if cfgPath == "" {
@@ -116,10 +131,70 @@ func TrustConfigReport(home, project, cfgPath string) (string, []string, error) 
 		return "", nil, err
 	}
 	h := ConfigHash(raw)
+	runs := TrustRuns(project, cfgPath, cfg)
 	if _, err := CheckTrust(home, project, cfgPath, h, true); err != nil {
+		var refused *SidecarRefusedError
+		if errors.As(err, &refused) {
+			return h, runs, err
+		}
 		return "", nil, err
 	}
-	return h, cfg.RunList(), nil
+	return h, runs, nil
+}
+
+// TrustRuns is a config's trust report: RunList, with each line the sidecar rule
+// refuses marked NOT ALLOWED IN A SIDECAR when the config is outside its repository
+// (design.md D5). Every report reads it: `panel trust`, the page's Trust config… and
+// the add dialog.
+func TrustRuns(project, cfgPath string, cfg *config.Config) []string {
+	if !configOutside(project, cfgPath) {
+		return cfg.RunList()
+	}
+	return cfg.SidecarRunList(signals.ResolvePath(project))
+}
+
+// SidecarRefusedError: a config outside its repository is not trusted, because its
+// commands hold words the sidecar rule refuses (Lines), or because the bytes at its
+// path cannot be judged: they do not read, do not hash to the hash given, or do not
+// parse (Err).
+type SidecarRefusedError struct {
+	Path  string
+	Lines []config.SidecarLine
+	Err   error
+}
+
+func (e *SidecarRefusedError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s is outside its repository, and its commands cannot be judged: %v", e.Path, e.Err)
+	}
+	return fmt.Sprintf("%s is outside its repository, and %d of its commands are NOT ALLOWED IN A SIDECAR (each is marked in its trust report): %s",
+		e.Path, len(e.Lines), config.SidecarRemedy)
+}
+
+func (e *SidecarRefusedError) Unwrap() error { return e.Err }
+
+// sidecarCheck is nil for a config inside its repository (resolved), and for one
+// outside it whose bytes at cfgPath hash to hash and hold only commands the sidecar
+// rule allows. project is resolved.
+func sidecarCheck(project, cfgPath, hash string) error {
+	if !configOutside(project, cfgPath) {
+		return nil
+	}
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return &SidecarRefusedError{Path: cfgPath, Err: err}
+	}
+	if ConfigHash(raw) != hash {
+		return &SidecarRefusedError{Path: cfgPath, Err: ErrConfigChanged}
+	}
+	cfg, err := config.ParseConfig(raw)
+	if err != nil {
+		return &SidecarRefusedError{Path: cfgPath, Err: err}
+	}
+	if lines := cfg.SidecarRefusals(project); len(lines) > 0 {
+		return &SidecarRefusedError{Path: cfgPath, Lines: lines}
+	}
+	return nil
 }
 
 // PrintTrusted says what was trusted: the hash and every command and prompt.
@@ -133,8 +208,20 @@ func PrintTrusted(w io.Writer, cfgPath, hash string, runs []string) {
 	}
 }
 
-// TrustedNow re-reads the trust file: has the loaded config been trusted since?
+// PrintRefused says why a config outside its repository was not trusted, with its
+// report: each line the sidecar rule refuses is marked.
+func PrintRefused(w io.Writer, cfgPath, hash string, runs []string) {
+	fmt.Fprintf(w, "NOT trusted: panel config %s (sha256 %s) is outside its repository, and the lines marked below hold commands a sidecar may not. It would run:\n",
+		cfgPath, config.ShortHash(hash))
+	for _, r := range runs {
+		fmt.Fprintln(w, "  "+r)
+	}
+}
+
+// TrustedNow re-reads the trust file: has the loaded config been trusted since? A
+// config outside its repository must also pass the sidecar rule (CheckTrust).
 func TrustedNow(home, project, cfgPath, hash string) bool {
-	t, err := readTrust(TrustPath(home, signals.ResolvePath(project)))
-	return err == nil && t.Configs[signals.ResolvePath(cfgPath)] == hash
+	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
+	t, err := readTrust(TrustPath(home, project))
+	return err == nil && t.Configs[cfgPath] == hash && sidecarCheck(project, cfgPath, hash) == nil
 }

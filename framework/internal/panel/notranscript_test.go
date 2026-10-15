@@ -149,7 +149,7 @@ var fileReadSites = map[string]int{
 	"config/projects.go":   1, // the projects registry (projects.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
-	"install/trust.go":     1, // the trusted-config record
+	"install/trust.go":     2, // the trusted-config record; a sidecar's config, judged by the sidecar rule (PANEL-42)
 	"install/init.go":      2, // the project's package.json and Makefile (`panel init`'s gate detection)
 	"lease/lease.go":       4, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat
 	"install/singleton.go": 6, // the pid file, owner.json (3: PANEL-22's wait for a live add) and port marker; settings.json (hook drift)

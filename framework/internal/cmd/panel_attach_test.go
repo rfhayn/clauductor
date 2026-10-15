@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +192,70 @@ func TestPanelTrustReadsTheRegistrysConfig(t *testing.T) {
 	}
 	if !install.TrustedNow(home, root, path, install.ConfigHash(raw)) {
 		t.Fatal("the sidecar is not recorded as trusted")
+	}
+}
+
+// [ATTACH-3-S1] An attached project whose sidecar has a card running
+// /usr/local/bin/report and a queue running `sh ../other/gate.sh`: `clauductor panel
+// trust --project <repo>` refuses (exit non-zero), prints each of the two lines marked
+// as not allowed in a sidecar with the word that resolves outside and the remedy, and
+// records nothing in the project's trusted-config.json.
+func TestPanelTrustRefusesASidecarCommandOutside(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	root := attachRepo(t)
+	if r := cli(t, home, "panel", "attach", root); r.code != 0 {
+		t.Fatalf("attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	path := config.SidecarPath(home, "acme-web")
+	if err := os.WriteFile(path, []byte(`{"name":"acme-web","lanes":{"main":"orchestrator"},
+		"cards":[{"id":"report","title":"Report","command":["/usr/local/bin/report"],"refresh":"interval:60"}],
+		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["sh","../other/gate.sh"]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := cli(t, home, "panel", "trust", "--project", root)
+	if r.code == 0 {
+		t.Fatalf("trust exited 0:\n%s", r.stdout)
+	}
+	for _, want := range []string{
+		`  NOT ALLOWED IN A SIDECAR ("/usr/local/bin/report": /usr/local/bin/report resolves outside the repository; move it into a script in the repository): card report runs `,
+		`  NOT ALLOWED IN A SIDECAR ("../other/gate.sh": ../other/gate.sh resolves outside the repository; move it into a script in the repository): queue gate runs `,
+	} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("the output lacks %q:\n%s", want, r.stdout)
+		}
+	}
+	if strings.Contains(r.stdout, "Trusted panel config") {
+		t.Errorf("the output says it trusted:\n%s", r.stdout)
+	}
+	if _, err := os.Stat(install.TrustPath(home, root)); !os.IsNotExist(err) {
+		t.Fatalf("trusted-config.json was written: %v", err)
+	}
+}
+
+// ATTACH-3's requirement, the trust report's words: `panel trust` prints "the lines
+// marked below" only for a sidecar refusal that marks lines. One that judged no line
+// (its bytes changed since they were read, or did not read) prints its error alone,
+// with no unmarked list under a sentence that names marks.
+func TestPrintTrustNamesMarksOnlyWhenThereAreSome(t *testing.T) {
+	t.Parallel()
+	h := strings.Repeat("a", 64)
+	runs := []string{`card report runs ["make","gate"] (interval:60)`}
+	changed := &install.SidecarRefusedError{Path: "/s/panel.json", Err: install.ErrConfigChanged}
+	var out strings.Builder
+	if err := printTrust(&out, "/s/panel.json", h, runs, changed); !errors.Is(err, install.ErrConfigChanged) {
+		t.Fatalf("the error: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a refusal with no marked line printed:\n%s", out.String())
+	}
+	marked := &install.SidecarRefusedError{Path: "/s/panel.json", Lines: []config.SidecarLine{{Line: runs[0]}}}
+	out.Reset()
+	if err := printTrust(&out, "/s/panel.json", h, runs, marked); err != marked {
+		t.Fatalf("the error: %v", err)
+	}
+	if !strings.Contains(out.String(), "the lines marked below") || !strings.Contains(out.String(), runs[0]) {
+		t.Errorf("a refusal with a marked line:\n%s", out.String())
 	}
 }
 

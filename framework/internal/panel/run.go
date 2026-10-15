@@ -531,7 +531,8 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 func checkConfigTrust(o Options, root, cfgPath string, raw []byte, trustNow bool) config.TrustView {
 	hash := install.ConfigHash(raw)
 	tv, err := install.CheckTrust(o.Home, root, cfgPath, hash, trustNow)
-	if err != nil {
+	// A sidecar the rule refuses keeps CheckTrust's view: untrusted, its Note why.
+	if sr := (*install.SidecarRefusedError)(nil); err != nil && !errors.As(err, &sr) {
 		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
 	trustState := "trusted"

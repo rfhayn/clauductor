@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
@@ -92,7 +91,7 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 	// and the registry beside it, under the root. Refused before anything is written:
 	// the file would be an in-repository config, which D5 judges differently.
 	for _, p := range []string{path, config.ProjectsPath(o.Home)} {
-		if r := resolveExisting(p); under(r, signals.ResolvePath(root)) {
+		if r := config.ResolveExisting(p); config.Within(r, signals.ResolvePath(root)) {
 			return AttachResult{}, fmt.Errorf("%s is inside the repository %s, and attach writes nothing in a repository; attach with HOME outside it",
 				r, signals.ResolvePath(root))
 		}
@@ -142,30 +141,4 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 		return AttachResult{}, err
 	}
 	return AttachResult{Init: plan, Add: add, InPlace: inPlace}, nil
-}
-
-// resolveExisting is p with symlinks evaluated as far as it exists: its deepest
-// existing ancestor resolved, and the rest joined on. A path that does not exist yet
-// is where it will be written, through any symlinked folder above it.
-func resolveExisting(p string) string {
-	p = filepath.Clean(p)
-	var rest []string
-	for d := p; ; d = filepath.Dir(d) {
-		if r, err := filepath.EvalSymlinks(d); err == nil {
-			for i := len(rest) - 1; i >= 0; i-- {
-				r = filepath.Join(r, rest[i])
-			}
-			return r
-		}
-		if d == filepath.Dir(d) {
-			return p
-		}
-		rest = append(rest, filepath.Base(d))
-	}
-}
-
-// under: p is root or inside it. Both are resolved.
-func under(p, root string) bool {
-	rel, err := filepath.Rel(root, p)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

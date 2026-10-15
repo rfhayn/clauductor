@@ -91,6 +91,10 @@ func TestAttachWritesInitsReading(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The sidecar command rule (design.md D5) marks no line of it.
+		if refused := cfg.SidecarRefusals(root); len(refused) != 0 {
+			t.Errorf("the sidecar holds commands a sidecar may not: %+v", refused)
+		}
 		if _, om := files[".claude/owner-queue.sh"]; om {
 			if len(cfg.Cards) != 2 || !reflect.DeepEqual(cfg.Cards[0].Command, []string{"sh", ".claude/owner-queue.sh"}) ||
 				!reflect.DeepEqual(cfg.Cards[1].Command, []string{"sh", ".claude/roadmap-queue.sh", "--text"}) {

@@ -1,6 +1,7 @@
 package signals
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,51 @@ func TestParseCardOutput(t *testing.T) {
 	long := strings.Repeat("line\n", maxCardLines+10)
 	if o := ParseCardOutput([]byte(long)); len(o.Lines) != maxCardLines+1 {
 		t.Fatalf("lines %d", len(o.Lines))
+	}
+}
+
+// ExecRunner keeps at most maxCmdOutput of a command's stdout, and of its stderr when
+// asked for it: exec copies each pipe with io.Copy, which must not reach around the
+// limit through bytes.Buffer's ReadFrom.
+func TestExecRunnerLimitsOutput(t *testing.T) {
+	t.Parallel()
+	var stderr []byte
+	ctx := WithStderr(context.Background(), func(b []byte) { stderr = b })
+	big := "head -c 1100000 /dev/zero; head -c 1100000 /dev/zero >&2"
+	out, err := ExecRunner(ctx, t.TempDir(), []string{"sh", "-c", big})
+	if err != nil || len(out) != maxCmdOutput || len(stderr) != maxCmdOutput {
+		t.Fatalf("kept %d bytes of stdout and %d of stderr, want %d each: %v", len(out), len(stderr), maxCmdOutput, err)
+	}
+}
+
+// ATTACH-6's requirement, a sidecar's card shows its stderr: ExecRunner hands a
+// successful command's stderr to WithStderr's sink, and a text card gains its lines
+// after stdout's, under the line limit, while a JSON card is left as it is.
+func TestCardOutputWithStderr(t *testing.T) {
+	t.Parallel()
+	var stderr []byte
+	ctx := WithStderr(context.Background(), func(b []byte) { stderr = b })
+	out, err := ExecRunner(ctx, t.TempDir(), []string{"sh", "-c", "echo out; echo err >&2"})
+	if err != nil || string(out) != "out\n" || string(stderr) != "err\n" {
+		t.Fatalf("stdout %q stderr %q: %v", out, stderr, err)
+	}
+	if got := ParseCardOutput(out).WithStderr(stderr); got.Kind != "text" || strings.Join(got.Lines, "|") != "out|err" {
+		t.Errorf("text card %+v", got)
+	}
+	// Within stdout's limit, not the 4 KiB kept for a failure's message.
+	long := "i=0; while [ $i -lt 600 ]; do echo stderr-line-$i >&2; i=$((i+1)); done"
+	if _, err := ExecRunner(ctx, t.TempDir(), []string{"sh", "-c", long}); err != nil || len(stderr) < 600*len("stderr-line-0\n") {
+		t.Errorf("a long stderr kept %d bytes: %v", len(stderr), err)
+	}
+	if got := ParseCardOutput([]byte(`{"a":1}`)).WithStderr(stderr); got.Kind != "json" || len(got.Lines) != 0 {
+		t.Errorf("JSON card %+v", got)
+	}
+	full := ParseCardOutput([]byte(strings.Repeat("x\n", maxCardLines+5)))
+	if got := full.WithStderr(stderr); len(got.Lines) != maxCardLines+1 || got.Lines[maxCardLines] != "… (truncated)" {
+		t.Errorf("a full card grew: %d lines", len(got.Lines))
+	}
+	near := ParseCardOutput([]byte(strings.Repeat("x\n", maxCardLines-1)))
+	if got := near.WithStderr([]byte("e1\ne2\n")); len(got.Lines) != maxCardLines+1 || got.Lines[maxCardLines-1] != "e1" {
+		t.Errorf("the limit holds with stderr: %d lines, %q", len(got.Lines), got.Lines[maxCardLines-1:])
 	}
 }

@@ -383,6 +383,9 @@ func refusal(err error) *lanes.LaneError {
 	if errors.As(err, &r) {
 		return lerr(http.StatusUnprocessableEntity, r.Code, "%s", r.Msg)
 	}
+	if sr := (*install.SidecarRefusedError)(nil); errors.As(err, &sr) && len(sr.Lines) > 0 {
+		return lerr(http.StatusUnprocessableEntity, "not-allowed-in-sidecar", "%v", err)
+	}
 	if errors.Is(err, install.ErrConfigChanged) {
 		return lerr(http.StatusConflict, "config-changed", "%v", err)
 	}
@@ -671,7 +674,7 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 	}
 	h := install.ConfigHash(raw)
 	tv, _ := install.CheckTrust(ls.o.Home, lr.entry.Root, path, h, false)
-	rep := trustReport{ID: id, Name: cfg.Name, Path: path, Hash: h, Runs: append([]string{}, cfg.RunList()...), Trusted: tv.Trusted, Prev: tv.Prev}
+	rep := trustReport{ID: id, Name: cfg.Name, Path: path, Hash: h, Runs: append([]string{}, install.TrustRuns(lr.entry.Root, path, cfg)...), Trusted: tv.Trusted, Prev: tv.Prev}
 	if dryRun {
 		return rep, nil
 	}

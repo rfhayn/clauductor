@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -345,10 +346,9 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 				return err
 			}
 			h, runs, err := install.TrustConfigReport(home, res.Entry.Root, res.Entry.ConfigPath())
-			if err != nil {
+			if err := printTrust(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs, err); err != nil {
 				return err
 			}
-			install.PrintTrusted(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs)
 		}
 		if installRemote != "" && installRemote != install.RemoteAll && installRemote != install.RemoteLanes && installRemote != install.RemoteOff {
 			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
@@ -523,10 +523,22 @@ within 5 s.`,
 			return err
 		}
 		h, runs, err := install.TrustConfigReport(home, project, cfgPath)
-		if err != nil {
-			return err
-		}
-		install.PrintTrusted(cmd.OutOrStdout(), cfgPath, h, runs)
-		return nil
+		return printTrust(cmd.OutOrStdout(), cfgPath, h, runs, err)
 	},
+}
+
+// printTrust prints what was trusted; or, for a config outside its repository that
+// the sidecar rule refuses (design.md D5), its report with each refused line marked,
+// and returns the refusal, so the command exits non-zero.
+func printTrust(w io.Writer, cfgPath, h string, runs []string, err error) error {
+	// Only a refusal with marked lines says "the lines marked below"; one with none
+	// (bytes changed, unreadable, unparseable) is its error alone, as live.go's refusal.
+	if sr := (*install.SidecarRefusedError)(nil); errors.As(err, &sr) && len(sr.Lines) > 0 && runs != nil {
+		install.PrintRefused(w, cfgPath, h, runs)
+	}
+	if err != nil {
+		return err
+	}
+	install.PrintTrusted(w, cfgPath, h, runs)
+	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -210,6 +211,91 @@ func TestAttachedProjectReadsItsSidecar(t *testing.T) {
 	}
 	if got := pageWords(t, "menuLine", m["alpha"]); got != "" {
 		t.Errorf("alpha's row says %q about its config", got)
+	}
+}
+
+// shRunner runs sh for real (the test's card and suggest scripts) and is
+// gitOnlyRunner otherwise: the panel's own runner, ExecRunner, sees each command.
+func shRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
+	if argv[0] == "sh" {
+		return signals.ExecRunner(ctx, dir, argv)
+	}
+	return gitOnlyRunner(ctx, dir, argv)
+}
+
+// writeScripts writes the test's repository scripts under root/.claude: one line to
+// each stream, a JSON card, and suggestions with a line of noise on stderr.
+func writeScripts(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, ".claude", "both.sh"), "echo out-line\necho err-line >&2\n")
+	writeFile(t, filepath.Join(root, ".claude", "json.sh"), "echo '{\"a\":1}'\necho err-line >&2\n")
+	writeFile(t, filepath.Join(root, ".claude", "suggest.sh"), "echo 'alpha First thing'\necho 'debug noise' >&2\n")
+}
+
+// [ATTACH-6-S1] An attached project, and a project with its own config, each with a
+// card running a repository script that writes one line to stdout and one to stderr
+// and exits 0: the attached project's card shows both lines, the other's the stdout
+// line alone; the attached project's suggest command, which writes a line to stderr
+// too, still parses to its suggestions alone; and its card whose stdout is JSON is
+// still a JSON card.
+func TestSidecarCardShowsItsStderr(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	rootA := signals.ResolvePath(t.TempDir())
+	gitRun(t, rootA, "init", "-q", "-b", "main")
+	writeScripts(t, rootA)
+	cfgA := filepath.Join(rootA, config.DefaultConfigRel)
+	writeFile(t, cfgA, `{"name":"Own","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
+		"cards":[{"id":"both","title":"Both","command":["sh",".claude/both.sh"],"refresh":"interval:60"}]}`)
+	gitRun(t, rootA, "add", ".")
+	gitRun(t, rootA, "commit", "-q", "-m", "init")
+	if _, err := install.TrustConfig(home, rootA, cfgA); err != nil {
+		t.Fatal(err)
+	}
+	rootB, sidecar := attachedRepo(t, home, "side", "")
+	writeScripts(t, rootB)
+	writeFile(t, sidecar, `{"name":"Side","lanes":{"main":"orchestrator","change/":"build"},"tmux_socket":"`+noServerSocket()+`",
+		"cards":[{"id":"both","title":"Both","command":["sh",".claude/both.sh"],"refresh":"interval:60"},
+		         {"id":"json","title":"JSON","command":["sh",".claude/json.sh"],"refresh":"interval:60"}],
+		"templates":[{"id":"st","title":"T","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"hello",
+		              "suggest":{"command":["sh",".claude/suggest.sh"],"refresh":"interval:60"}}]}`)
+	if _, err := install.TrustConfig(home, rootB, sidecar); err != nil {
+		t.Fatal(err)
+	}
+	p := startPanelWith(t, rootA, home, sockA, func(o *Options) { o.Runner = shRunner })
+
+	type view struct {
+		Cards       []state.CardState            `json:"cards"`
+		Suggestions map[string]state.SuggestView `json:"suggestions"`
+	}
+	cards := func(v view) map[string]*signals.CardOutput {
+		out := map[string]*signals.CardOutput{}
+		for _, c := range v.Cards {
+			if c.Output != nil {
+				out[c.ID] = c.Output
+			}
+		}
+		return out
+	}
+	var a, b view
+	waitFor(t, "every card and the suggestions to run", func() bool {
+		a, b = view{}, view{}
+		get(t, p, "/api/state?project=own", &a)
+		get(t, p, "/api/state?project=side", &b)
+		return len(cards(a)) == 1 && len(cards(b)) == 2 && b.Suggestions["st"].Source.OK
+	})
+	if got := cards(b)["both"]; got.Kind != "text" || strings.Join(got.Lines, "|") != "out-line|err-line" {
+		t.Errorf("the sidecar's card shows %+v, want its stdout line, then its stderr line", got)
+	}
+	if got := cards(a)["both"]; got.Kind != "text" || strings.Join(got.Lines, "|") != "out-line" {
+		t.Errorf("the in-repository card shows %+v, want its stdout line alone", got)
+	}
+	if got := cards(b)["json"]; got.Kind != "json" || string(got.JSON) != `{"a":1}` || len(got.Lines) != 0 {
+		t.Errorf("the sidecar's JSON card is %+v", got)
+	}
+	if sg := b.Suggestions["st"]; len(sg.Items) != 1 || sg.Items[0].Name != "alpha" || sg.Skipped != 0 {
+		t.Errorf("the sidecar's suggestions: %+v", sg)
 	}
 }
 

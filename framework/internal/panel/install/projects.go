@@ -151,7 +151,13 @@ func ConfigPathOf(home, project, cfg string) (string, error) {
 // (design.md D5, D7): a sidecar, or any --config elsewhere. Both are resolved through
 // symlinks as far as they exist.
 func ConfigOutside(e config.ProjectEntry) bool {
-	return !under(resolveExisting(e.ConfigPath()), signals.ResolvePath(e.Root))
+	return configOutside(e.Root, e.ConfigPath())
+}
+
+// configOutside is ConfigOutside for a root and a config path: what trust decides on,
+// since its callers hold paths, not an entry (design.md D5).
+func configOutside(root, cfgPath string) bool {
+	return !config.Within(config.ResolveExisting(cfgPath), signals.ResolvePath(root))
 }
 
 // OutsideConfig is the entry's config path when it is outside its repository, else

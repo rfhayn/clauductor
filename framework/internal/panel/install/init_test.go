@@ -321,6 +321,10 @@ func TestPlanInitForASidecar(t *testing.T) {
 		if len(cmds) == 0 {
 			t.Fatalf("no command to check:\n%s", side.Body)
 		}
+		// The sidecar command rule (design.md D5) marks no line of it.
+		if refused := got.SidecarRefusals(root); len(refused) != 0 {
+			t.Errorf("the attach plan holds commands a sidecar may not: %+v", refused)
+		}
 		for _, c := range cmds {
 			for _, w := range c {
 				if w == "-c" || strings.Contains(w, "2>&1") || strings.Contains(w, " ") {

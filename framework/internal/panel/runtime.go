@@ -457,10 +457,7 @@ func (r *Runtime) worktreeRegistryDir(ctx context.Context) string {
 // its watched path changes. An untrusted config runs no card.
 func (r *Runtime) cardSource(c config.CardConfig) *source {
 	rule, _ := config.ParseRefresh(c.Refresh) // validated at load
-	run := polled(commandFetch(r, 30*time.Second, c.Command, func(out []byte) (*signals.CardOutput, error) {
-		co := signals.ParseCardOutput(out)
-		return &co, nil
-	}), func(m *state.Model, co *signals.CardOutput, err error, now time.Time) {
+	run := polled(r.cardFetch(c.Command), func(m *state.Model, co *signals.CardOutput, err error, now time.Time) {
 		m.ApplyCard(c.ID, co, err, now)
 	})
 	s := &source{name: "card " + c.ID, kick: make(chan struct{}, 1),
@@ -478,6 +475,23 @@ func (r *Runtime) cardSource(c config.CardConfig) *source {
 		s.watchEvery = r.ticks.CardWatch
 	}
 	return s
+}
+
+// cardFetch runs a card's command. A sidecar's card (a config outside its repository)
+// shows its stderr after its stdout, since its argv cannot say 2>&1 (PANEL-42,
+// design.md D5, Output). The merge is here, at the card's call site, and not in
+// commandFetch, which suggest, metrics, gh and claude share: their stdout is parsed.
+func (r *Runtime) cardFetch(argv []string) fetch[*signals.CardOutput] {
+	return func(ctx context.Context) (*signals.CardOutput, error) {
+		var stderr []byte
+		if r.outsideConfig != "" {
+			ctx = signals.WithStderr(ctx, func(b []byte) { stderr = b })
+		}
+		return commandFetch(r, 30*time.Second, argv, func(out []byte) (*signals.CardOutput, error) {
+			co := signals.ParseCardOutput(out).WithStderr(stderr)
+			return &co, nil
+		})(ctx)
+	}
 }
 
 // suggestSource runs a template's suggest command on its refresh rule, exactly as a

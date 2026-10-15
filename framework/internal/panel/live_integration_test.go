@@ -18,6 +18,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
 
@@ -501,5 +502,121 @@ func TestRemoveConfirmationForAnAttachedProject(t *testing.T) {
 	}
 	if own := pageWords(t, "removeNote", plans["alpha"]); own != "This only unregisters it. Nothing on disk is deleted: the repository, its config, its worktrees and its lane registry stay where they are, and adding it again brings it all back." {
 		t.Errorf("alpha's confirmation changed: %q", own)
+	}
+}
+
+// [ATTACH-3-S2] An attached project whose sidecar names a command starting with ~/bin/,
+// and whose exact bytes are recorded as trusted in trusted-config.json (by hand): the
+// panel loads it with its cards, queue commands and templates off, under the Config
+// untrusted banner, and the banner's trust report marks the command.
+func TestSidecarRecordedEarlierIsServedUntrusted(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	rootA := multiRepo(t, "Alpha", noServerSocket())
+	rootB, sidecar := attachedRepo(t, home, "side", "")
+	body := `{"name":"Side","lanes":{"main":"orchestrator","change/":"build"},"tmux_socket":"` + noServerSocket() + `",
+		"cards":[{"id":"rep","title":"Report","command":["~/bin/report"],"refresh":"interval:1"}],
+		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["make","gate"]}],
+		"templates":[{"id":"st","title":"T","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"hello"}]}`
+	writeFile(t, sidecar, body)
+	b, _ := json.Marshal(map[string]any{"configs": map[string]string{sidecar: install.ConfigHash([]byte(body))}})
+	writeFile(t, install.TrustPath(home, rootB), string(b))
+	var mu sync.Mutex
+	ran := 0
+	p := startPanelWith(t, rootA, home, sockA, func(o *Options) {
+		o.Runner = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+			if argv[0] == "~/bin/report" {
+				mu.Lock()
+				ran++
+				mu.Unlock()
+				return []byte("report\n"), nil
+			}
+			return gitOnlyRunner(ctx, dir, argv)
+		}
+	})
+
+	var v struct {
+		Trust   config.TrustView   `json:"trust"`
+		Banners []state.BannerView `json:"bannerItems"`
+		Cards   []state.CardState  `json:"cards"`
+	}
+	waitFor(t, "the sidecar's card to be held back", func() bool {
+		v.Cards = nil
+		get(t, p, "/api/state?project=side", &v)
+		return len(v.Cards) == 1 && strings.Contains(v.Cards[0].Source.Error, "not run")
+	})
+	untrusted := false
+	for _, b := range v.Banners {
+		untrusted = untrusted || b.Kind == state.BannerUntrusted
+	}
+	if v.Trust.Trusted || !untrusted {
+		t.Fatalf("served %+v under banners %+v", v.Trust, v.Banners)
+	}
+	if m := menu(t, p)["side"]; m.Trusted {
+		t.Fatal("the menu says side is trusted")
+	}
+	if code, body := p.post(t, "/api/p/side/lanes", lanes.StartRequest{Template: "st", Name: "x"}); code != 409 || body["code"] != "untrusted-config" {
+		t.Fatalf("a template under the sidecar: %d %v", code, body)
+	}
+	// Queue commands are off too, even one whose own line the rule allows. The worktree
+	// named is not side's, so were the trust check gone the RUN would be refused for
+	// that instead, and nothing would start.
+	if code, body := p.post(t, "/api/p/side/queues/gate/run", map[string]any{"worktree": rootA}); code != 409 {
+		t.Fatalf("a queue RUN under the sidecar: %d %v", code, body)
+	} else if msg, _ := body["error"].(string); !strings.HasPrefix(msg, "not run:") {
+		t.Fatalf("a queue RUN under the sidecar, refused for another reason: %v", body)
+	}
+	code, resp := p.post(t, "/api/projects/side/trust", map[string]any{"dryRun": true})
+	var rep trustReport
+	result(t, resp, &rep)
+	want := `NOT ALLOWED IN A SIDECAR ("~/bin/report": the character ` + "`~`"
+	if code != 200 || rep.Trusted || len(rep.Runs) != 3 || !strings.HasPrefix(rep.Runs[0], want) || !strings.HasSuffix(rep.Runs[0], `card rep runs ["~/bin/report"] (interval:1)`) {
+		t.Fatalf("the banner's report: %d %+v", code, rep)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if ran != 0 {
+		t.Fatalf("the sidecar's command ran %d times", ran)
+	}
+}
+
+// [ATTACH-3-S6] The attached project whose `panel trust` is refused (a card running
+// /usr/local/bin/report, a queue running `sh ../other/gate.sh`), served untrusted:
+// the page's Trust config… report marks both lines as not allowed in a sidecar, and
+// trusting it with the report's hash is refused, with nothing recorded.
+func TestPageRefusesToTrustASidecarCommandOutside(t *testing.T) {
+	t.Parallel()
+	_, sockA := throwawaySocket(t)
+	home := signals.ResolvePath(t.TempDir())
+	rootA := multiRepo(t, "Alpha", noServerSocket())
+	rootB, sidecar := attachedRepo(t, home, "side", "")
+	writeFile(t, sidecar, `{"name":"Side","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
+		"cards":[{"id":"report","title":"Report","command":["/usr/local/bin/report"],"refresh":"interval:60"}],
+		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["sh","../other/gate.sh"]}]}`)
+	p := startPanel(t, rootA, home, sockA)
+
+	code, body := p.post(t, "/api/projects/side/trust", map[string]any{"dryRun": true})
+	var rep trustReport
+	result(t, body, &rep)
+	if code != 200 || rep.Trusted || len(rep.Runs) != 2 {
+		t.Fatalf("the report: %d %v", code, body)
+	}
+	for i, want := range []string{
+		`NOT ALLOWED IN A SIDECAR ("/usr/local/bin/report": /usr/local/bin/report resolves outside the repository; move it into a script in the repository): card report runs `,
+		`NOT ALLOWED IN A SIDECAR ("../other/gate.sh": ../other/gate.sh resolves outside the repository; move it into a script in the repository): queue gate runs `,
+	} {
+		if !strings.HasPrefix(rep.Runs[i], want) {
+			t.Errorf("line %d is %q, want it marked %q", i, rep.Runs[i], want)
+		}
+	}
+	if code, body := p.post(t, "/api/projects/side/trust", map[string]any{"hash": rep.Hash}); code != 422 || body["code"] != "not-allowed-in-sidecar" {
+		t.Fatalf("trusting it: %d %v", code, body)
+	}
+	if _, err := os.Stat(install.TrustPath(home, rootB)); !os.IsNotExist(err) {
+		t.Fatalf("trusted-config.json was written: %v", err)
+	}
+	if menu(t, p)["side"].Trusted {
+		t.Fatal("the menu says side is trusted")
 	}
 }
