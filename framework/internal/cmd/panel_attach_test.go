@@ -259,12 +259,28 @@ func TestPrintTrustNamesMarksOnlyWhenThereAreSome(t *testing.T) {
 	}
 }
 
+// shellWords is line as a POSIX shell splits it into words: what a reader who pastes
+// it runs.
+func shellWords(t *testing.T, line string) []string {
+	t.Helper()
+	out, err := exec.Command("sh", "-c", `printf '%s\0' `+line).Output()
+	if err != nil {
+		t.Fatalf("sh reading %q: %v", line, err)
+	}
+	return strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+}
+
 // [ATTACH-5-S1] `clauductor panel remove <id>` of an attached project with no lanes
 // keeps its sidecar byte for byte, and says where it is and the `panel add --config`
 // line; running that line serves the project again from the same file, still trusted.
+// The home holds a space and a quote, so the line runs as printed only if it is
+// shell-quoted: a shell splits it into the words that are run.
 func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
 	t.Parallel()
-	home := signals.ResolvePath(t.TempDir())
+	home := filepath.Join(signals.ResolvePath(t.TempDir()), "o'k home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	root := attachRepo(t)
 	if r := cli(t, home, "panel", "attach", root); r.code != 0 {
 		t.Fatalf("attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
@@ -285,8 +301,7 @@ func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
 	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
 		t.Fatalf("remove changed the sidecar (%v)", err)
 	}
-	line := "clauductor panel add --project " + root + " --config " + path
-	for _, want := range []string{path, filepath.Dir(path), line} {
+	for _, want := range []string{path, filepath.Dir(path), "To serve it again: clauductor panel add "} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("remove does not say %q:\n%s", want, r.stdout)
 		}
@@ -295,8 +310,15 @@ func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
 		t.Fatal("the project is still registered")
 	}
 
-	// The line it printed serves it again, from the same file, still trusted.
-	r = cli(t, home, strings.Fields(strings.TrimPrefix(line, "clauductor "))...)
+	// The line it printed, split by a shell, is the add command, and serves it again
+	// from the same file, still trusted.
+	_, line, _ := strings.Cut(r.stdout, "To serve it again: clauductor ")
+	line, _, _ = strings.Cut(line, "\n")
+	words := shellWords(t, line)
+	if want := []string{"panel", "add", "--project", root, "--config", path}; strings.Join(words, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("a shell reads the printed line %q as %q, want %q", line, words, want)
+	}
+	r = cli(t, home, words...)
 	if r.code != 0 || strings.Contains(r.stdout, "is not trusted") {
 		t.Fatalf("add again: exit %d: %s %s", r.code, r.stdout, r.stderr)
 	}

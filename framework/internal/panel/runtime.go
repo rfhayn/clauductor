@@ -1071,11 +1071,13 @@ func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Dura
 // servingGit is the argv of every git read the panel makes of a served checkout,
 // so no read can leave a flag out (PANEL-42, ATTACH-2: serving writes nothing).
 // --no-optional-locks: git takes no index.lock to write back a refreshed .git/index.
-// core.fsmonitor=false: a repository that sets it would have git start its fsmonitor
-// daemon, which writes .git/fsmonitor--daemon/ (or run the hook it names). dir is the
-// checkout (-C); "" runs in the runner's directory.
+// core.fsmonitor= (empty): a repository that sets it would have git start its fsmonitor
+// daemon, which writes .git/fsmonitor--daemon/ (or run the hook it names). Empty, not
+// `false`: before git 2.36 the value names a hook program, so `false` would run
+// /usr/bin/false on every poll (Ubuntu 22.04 ships 2.34); an empty value is off on
+// every version. dir is the checkout (-C); "" runs in the runner's directory.
 func servingGit(dir string, args ...string) []string {
-	argv := []string{"git", "--no-optional-locks", "-c", "core.fsmonitor=false"}
+	argv := []string{"git", "--no-optional-locks", "-c", "core.fsmonitor="}
 	if dir != "" {
 		argv = append(argv, "-C", dir)
 	}

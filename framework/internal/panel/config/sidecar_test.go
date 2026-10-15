@@ -207,7 +207,12 @@ func TestSidecarNoEnvironment(t *testing.T) {
 		{argv: []string{"caffeinate", "env", "-u", "HOME", "FOO=1", "make"}, word: "FOO=1", why: why, only: true},
 		// An unlisted env flag ends what the scan can read of env's words, so it is
 		// refused wherever env stands, as in program position (tasks.md's decision log).
-		{argv: []string{"caffeinate", "env", "-i", "NODE_OPTIONS=x", "npm", "run", "gate"}, word: "-i", why: "not a launcher flag"},
+		// only: the scan stops at -i, so NODE_OPTIONS=x past it is not judged as env's.
+		{argv: []string{"caffeinate", "env", "-i", "NODE_OPTIONS=x", "npm", "run", "gate"}, word: "-i", why: "not a launcher flag", only: true},
+		// env -S behind a launcher on no list keeps its own reason, so the -S case
+		// cannot regress behind the unknown-flag branch, which would refuse it too.
+		{argv: []string{"caffeinate", "env", "-SFOO=1", "make"}, word: "-SFOO=1", why: "`env -S`", only: true},
+		{argv: []string{"caffeinate", "env", "--split-string=make"}, word: "--split-string=make", why: "`env -S`", only: true},
 		{argv: []string{"caffeinate", "ENV", "FOO=1", "make"}, word: "FOO=1", why: why, only: true},
 		// D5's named limits, allowed and pinned so nobody mistakes them for gaps: an
 		// environment set by a program's own flag or word rather than through env

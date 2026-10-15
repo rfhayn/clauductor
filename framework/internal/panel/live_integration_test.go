@@ -492,7 +492,9 @@ func TestRemoveConfirmationForAnAttachedProject(t *testing.T) {
 	}
 
 	side := pageWords(t, "removeNote", plans["side"])
-	for _, want := range []string{sidecar, "stay", "clauductor panel add --project " + rootB + " --config " + sidecar} {
+	// "and so does its config": the attached note's own words for the sidecar staying;
+	// alpha's note says "stay" too, so the bare word would prove nothing.
+	for _, want := range []string{"and so does its config, " + sidecar, "clauductor panel add --project " + rootB + " --config " + sidecar} {
 		if !strings.Contains(side, want) {
 			t.Errorf("side's confirmation lacks %q: %q", want, side)
 		}

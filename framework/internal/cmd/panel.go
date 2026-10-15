@@ -296,9 +296,10 @@ serves it again.`,
 		fmt.Fprintf(out, "Removed %q (%s) from %s. Its lanes, worktrees and lane registry are untouched.\n", e.ID, e.Root, config.ProjectsPath(home))
 		if install.ConfigOutside(e) {
 			// design.md D6: a config outside the repository stays, and adding the
-			// repository by its path alone would not find it.
+			// repository by its path alone would not find it. The line's paths are
+			// shell-quoted, so it runs as printed.
 			fmt.Fprintf(out, "Its config stays where it is, outside the repository: %s, in %s.\nTo serve it again: clauductor panel add --project %s --config %s\n",
-				e.ConfigPath(), filepath.Dir(e.ConfigPath()), e.Root, e.ConfigPath())
+				e.ConfigPath(), filepath.Dir(e.ConfigPath()), install.ShellWord(e.Root), install.ShellWord(e.ConfigPath()))
 		}
 		followRunningPanel(out, home, e.Root, false)
 		return nil

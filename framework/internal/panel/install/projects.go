@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
@@ -155,9 +156,11 @@ func ConfigOutside(e config.ProjectEntry) bool {
 }
 
 // configOutside is ConfigOutside for a root and a config path: what trust decides on,
-// since its callers hold paths, not an entry (design.md D5).
+// since its callers hold paths, not an entry (design.md D5). Both sides go through
+// one resolver: signals.ResolvePath gives up on a root that does not exist, and would
+// leave its symlinked ancestor (/var for /private/var) unresolved beside the config's.
 func configOutside(root, cfgPath string) bool {
-	return !config.Within(config.ResolveExisting(cfgPath), signals.ResolvePath(root))
+	return !config.Within(config.ResolveExisting(cfgPath), config.ResolveExisting(root))
 }
 
 // OutsideConfig is the entry's config path when it is outside its repository, else
@@ -167,6 +170,16 @@ func OutsideConfig(e config.ProjectEntry) string {
 		return e.ConfigPath()
 	}
 	return ""
+}
+
+// ShellWord is s as one POSIX shell word, for a command line a person copies and runs:
+// bare when it holds only characters no shell reads, else single-quoted (shq). The
+// page's copy is project-config.js's shellWord.
+func ShellWord(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
+		return s
+	}
+	return shq(s)
 }
 
 // RemoveProject unregisters a project. It never stops a lane and keeps the lane

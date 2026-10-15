@@ -64,6 +64,7 @@ func TestProjectConfigLines(t *testing.T) {
 		{"menuLine", ProjectSummary{ID: "own", Name: "Own", OK: true}},
 		{"removeNote", map[string]any{"id": "acme", "root": "/src/acme", "configPath": side, "configOutside": true}},
 		{"removeNote", map[string]any{"id": "own", "root": "/src/own", "configPath": "/src/own/.clauductor/panel.json"}},
+		{"removeNote", map[string]any{"id": "acme", "root": "/src/my acme", "configPath": "/home/o'k/.clauductor/projects/acme/panel.json", "configOutside": true}},
 	})
 	if want := "reads " + side + ", outside the repository"; got[0] != want {
 		t.Errorf("the attached project's line: %q, want %q", got[0], want)
@@ -71,10 +72,16 @@ func TestProjectConfigLines(t *testing.T) {
 	if got[1] != "" {
 		t.Errorf("a project reading its own config has a line: %q", got[1])
 	}
-	for _, want := range []string{side, "stay", "clauductor panel add --project /src/acme --config " + side} {
+	// "and so does its config": the attached note's own words for the sidecar staying.
+	// Today's note says "stay" too, so the bare word would prove nothing.
+	for _, want := range []string{"and so does its config, " + side, "clauductor panel add --project /src/acme --config " + side} {
 		if !strings.Contains(got[2], want) {
 			t.Errorf("the attached project's remove note lacks %q: %q", want, got[2])
 		}
+	}
+	// A path a shell would split or unquote is quoted, so the line runs as printed.
+	if want := `run: clauductor panel add --project '/src/my acme' --config '/home/o'\''k/.clauductor/projects/acme/panel.json'`; !strings.HasSuffix(got[4], want) {
+		t.Errorf("the add line is not shell-quoted: %q, want it to end %q", got[4], want)
 	}
 	if strings.Contains(got[2], "brings it") {
 		t.Errorf("the attached project's remove note says adding it again brings it back: %q", got[2])

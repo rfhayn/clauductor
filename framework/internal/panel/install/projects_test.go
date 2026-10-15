@@ -147,6 +147,37 @@ func TestRemoveProject(t *testing.T) {
 // repository's own .clauductor/panel.json is there and not read. A config reached
 // through a symlink into the repository is inside it. (The scenario's test, which also
 // loads the project as the panel does, is TestAttachedProjectReadsItsSidecar.)
+// ATTACH-4's requirement, the outside mark (design.md D7): a root that does not exist
+// (yet, or any more) under a symlinked ancestor, as /var is to /private/var on macOS,
+// is resolved as its config is, so a config inside it is not marked outside. Both
+// sides go through one resolver; a root resolved as a whole falls back to the path as
+// given once a component is missing, while its config resolves the ancestor.
+func TestConfigOutsideResolvesAMissingRootAsItsConfig(t *testing.T) {
+	t.Parallel()
+	dir := signals.ResolvePath(t.TempDir())
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(link, "gone")
+	for _, e := range []config.ProjectEntry{
+		{ID: "own", Root: root},
+		{ID: "given", Root: root, Config: filepath.Join(link, "gone", "cfg", "panel.json")},
+		{ID: "real", Root: root, Config: filepath.Join(real, "gone", config.DefaultConfigRel)},
+	} {
+		if ConfigOutside(e) {
+			t.Errorf("%s: %s is marked outside %s", e.ID, e.ConfigPath(), e.Root)
+		}
+	}
+	if e := (config.ProjectEntry{ID: "side", Root: root, Config: filepath.Join(dir, "side", "panel.json")}); !ConfigOutside(e) {
+		t.Errorf("a config beside the root is not marked outside")
+	}
+}
+
 func TestListProjectsNamesEachConfig(t *testing.T) {
 	t.Parallel()
 	home := signals.ResolvePath(t.TempDir())

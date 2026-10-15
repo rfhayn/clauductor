@@ -13,15 +13,23 @@
     return p && p.config ? "reads " + p.config + ", outside the repository" : "";
   }
 
+  // shellWord is s as one POSIX shell word: bare when it holds only characters no shell
+  // reads, else single-quoted, as install.ShellWord quotes `panel remove`'s line.
+  function shellWord(s) {
+    s = String(s);
+    return /^[A-Za-z0-9_@%+=:,.\/-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'";
+  }
+
   // removeNote is the Remove from panel… confirmation's opening, from the remove plan
   // (live.go, removePlan). For a config outside the repository, adding the project
   // from the page would not find it (it reads only <root>/.clauductor/panel.json), so
-  // the note names the file and the command that serves it again.
+  // the note names the file and the command that serves it again, its paths quoted so
+  // it runs as printed.
   function removeNote(plan) {
     if (!plan || !plan.configOutside) return KEPT;
     return "This only unregisters it. Nothing on disk is deleted: the repository, its worktrees and its lane registry stay where they are, " +
       "and so does its config, " + plan.configPath + ", which is outside the repository. To serve it again from that config, run: " +
-      "clauductor panel add --project " + plan.root + " --config " + plan.configPath;
+      "clauductor panel add --project " + shellWord(plan.root) + " --config " + shellWord(plan.configPath);
   }
 
   root.ProjectConfig = { menuLine, removeNote };

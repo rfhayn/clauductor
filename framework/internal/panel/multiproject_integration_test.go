@@ -20,6 +20,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
@@ -310,16 +311,22 @@ func TestSidecarCardShowsItsStderr(t *testing.T) {
 // included, leaves every file and directory under the root, .git/index included, as
 // it was, and the stat counts the modified file only. Once more with core.fsmonitor
 // set in the repository's own config: a read that honours it starts git's fsmonitor
-// daemon, which writes .git/fsmonitor--daemon/. Git runs with no global or system
-// config, so the developer's own settings neither cause a write nor hide one.
+// daemon, which writes .git/fsmonitor--daemon/. That daemon is built only for macOS and
+// Windows: on Linux (Ubuntu CI) git cannot start it, so that case proves nothing there,
+// and guards on macOS, where the local gate runs. And once more with core.fsmonitor
+// naming a hook, which git runs on every platform: a read that honours it runs the
+// hook, which leaves a marker outside the repository. Git runs with no global or
+// system config, so the developer's own settings neither cause a write nor hide one.
 func TestServingWritesNothing(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		local []string // a `git config` in the repository, just before the poll
+		hook  bool     // local's value is a hook, written outside the repository
 	}{
 		{name: "plain"},
 		{name: "fsmonitor", local: []string{"core.fsmonitor", "true"}},
+		{name: "fsmonitor-hook", local: []string{"core.fsmonitor"}, hook: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -371,8 +378,15 @@ func TestServingWritesNothing(t *testing.T) {
 			if checkout != root {
 				t.Fatalf("the cards' checkout is %q, want the root %s", checkout, root)
 			}
-			if len(tc.local) > 0 {
-				isolatedGitRun(t, root, append([]string{"config"}, tc.local...)...)
+			marker := filepath.Join(t.TempDir(), "hook-ran")
+			local := tc.local
+			if tc.hook {
+				hook := filepath.Join(t.TempDir(), "fsmonitor-hook.sh")
+				testbin.Write(t, hook, "#!/bin/sh\n: > '"+marker+"'\n")
+				local = append(local, hook)
+			}
+			if len(local) > 0 {
+				isolatedGitRun(t, root, append([]string{"config"}, local...)...)
 				// A daemon a read started would outlive the test. Stopping one that
 				// never started fails, which is the outcome this test wants.
 				t.Cleanup(func() {
@@ -390,6 +404,9 @@ func TestServingWritesNothing(t *testing.T) {
 			if d := treesnap.Diff(before, treesnap.Take(t, root)); len(d) > 0 {
 				t.Errorf("the git poll wrote into the repository:\n%s", strings.Join(d, "\n"))
 			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Errorf("the git poll ran the repository's fsmonitor hook")
+			}
 			r.hub.Update(up)
 			var g *state.GitView
 			v := r.hub.View()
@@ -402,6 +419,30 @@ func TestServingWritesNothing(t *testing.T) {
 				t.Errorf("the root's git read is %+v, want the modified file alone: 1 file, 1 insertion", g)
 			}
 		})
+	}
+}
+
+// Every serving git read turns fsmonitor off with an empty core.fsmonitor, which reads
+// as off on every git version. `false` does not: before git 2.36 the value names a hook
+// program, so `false` would run /usr/bin/false as a failing hook on every poll (Ubuntu
+// 22.04 ships git 2.34). No git here is that old, so the argv is what is pinned; the
+// fsmonitor-hook case of TestServingWritesNothing shows the empty value off today.
+func TestServingGitTurnsFsmonitorOffOnEveryVersion(t *testing.T) {
+	t.Parallel()
+	for _, dir := range []string{"/repo", ""} {
+		argv := servingGit(dir, "status")
+		at := -1
+		for i := 0; i+1 < len(argv); i++ {
+			if argv[i] == "-c" && strings.HasPrefix(argv[i+1], "core.fsmonitor") {
+				if at >= 0 || argv[i+1] != "core.fsmonitor=" {
+					t.Errorf("%q: core.fsmonitor is not set once, empty", argv)
+				}
+				at = i
+			}
+		}
+		if at < 0 || argv[len(argv)-1] != "status" {
+			t.Errorf("%q: no empty core.fsmonitor before the subcommand", argv)
+		}
 	}
 }
 

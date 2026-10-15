@@ -97,10 +97,8 @@ func TrackedChangedPaths(out []byte) (paths []string, ok bool) {
 	ok = true
 	add := func(p string) {
 		if strings.HasPrefix(p, `"`) {
-			// git C-quotes a path holding a control byte, a quote, a backslash or
-			// (core.quotePath) a byte over 0x7f: \t, \", \\ and \ooo, as Go does.
-			u, err := strconv.Unquote(p)
-			if err != nil {
+			u, uok := unquoteC(p)
+			if !uok {
 				ok = false
 				return
 			}
@@ -142,6 +140,60 @@ func TrackedChangedPaths(out []byte) (paths []string, ok bool) {
 		add(last)
 	}
 	return paths, ok
+}
+
+// unquoteC reads a path git C-quoted (quote.c, unquote_c_style): it quotes one holding
+// a control byte, a quote, a backslash or (core.quotePath) a byte over 0x7f, escaping
+// \a \b \t \n \v \f \r \" \\ and \ooo. Every other byte is the path's own, copied as it
+// is: with core.quotePath=false a byte over 0x7f stays raw, and strconv.Unquote would
+// turn one that is not UTF-8 into U+FFFD, a path git does not have.
+func unquoteC(q string) (string, bool) {
+	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+		return "", false
+	}
+	s := q[1 : len(q)-1]
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"':
+			return "", false // a quote inside the path is escaped, so this one ended it early
+		case '\\':
+		default:
+			b = append(b, c)
+			continue
+		}
+		if i++; i >= len(s) {
+			return "", false
+		}
+		switch c = s[i]; c {
+		case 'a':
+			b = append(b, '\a')
+		case 'b':
+			b = append(b, '\b')
+		case 't':
+			b = append(b, '\t')
+		case 'n':
+			b = append(b, '\n')
+		case 'v':
+			b = append(b, '\v')
+		case 'f':
+			b = append(b, '\f')
+		case 'r':
+			b = append(b, '\r')
+		case '"', '\\':
+			b = append(b, c)
+		case '0', '1', '2', '3':
+			if i+2 >= len(s) || s[i+1] < '0' || s[i+1] > '7' || s[i+2] < '0' || s[i+2] > '7' {
+				return "", false
+			}
+			b = append(b, (c-'0')<<6|(s[i+1]-'0')<<3|(s[i+2]-'0'))
+			i += 2
+		default:
+			return "", false
+		}
+	}
+	return string(b), true
 }
 
 // ParseShortstat parses `git diff-index --shortstat` (" 3 files changed, 10

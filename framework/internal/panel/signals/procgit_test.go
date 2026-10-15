@@ -25,7 +25,14 @@ func TestParseGitStatusV2(t *testing.T) {
 	if p, ok := TrackedChangedPaths([]byte(quoted)); !ok || strings.Join(p, "|") != "spécial\tname|with space.go" {
 		t.Fatalf("quoted paths %q %v", p, ok)
 	}
-	for _, bad := range []string{"1 .M N... 100644 100644 100644 a b \"unterminated\n", "2 R. N... 100644 100644 100644 a b R100 no-tab\n", "1 .M short\n"} {
+	// With core.quotePath=false git leaves a byte over 0x7f raw inside the quotes of a
+	// path it quotes for another reason (a tab): the path is those bytes, not U+FFFD.
+	// An escaped one (\377) is the byte too, and \a \b \f \v are git's escapes as well.
+	raw := "1 .M N... 100644 100644 100644 a b \"r\xffw\\tname\"\n1 .M N... 100644 100644 100644 a b \"\\377\\a\\b\\f\\v\\\"\\\\\"\n"
+	if p, ok := TrackedChangedPaths([]byte(raw)); !ok || strings.Join(p, "|") != "r\xffw\tname|\xff\a\b\f\v\"\\" {
+		t.Fatalf("raw-byte paths %q %v", p, ok)
+	}
+	for _, bad := range []string{"1 .M N... 100644 100644 100644 a b \"unterminated\n", "1 .M N... 100644 100644 100644 a b \"bad\\qescape\"\n", "1 .M N... 100644 100644 100644 a b \"short\\37\"\n", "2 R. N... 100644 100644 100644 a b R100 no-tab\n", "1 .M short\n"} {
 		if p, ok := TrackedChangedPaths([]byte(bad)); ok {
 			t.Errorf("%q read as the whole list: %q", bad, p)
 		}
