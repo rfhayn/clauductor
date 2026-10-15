@@ -92,6 +92,7 @@ clauductor panel --uninstall-hooks            # remove the panel's hooks and exi
 clauductor panel --trust-config               # trust panel.json as it is now, then run
 clauductor panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
 clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`); a running panel serves it at once
+clauductor panel attach [<repo>] [--id x] [--default]   # serve a repository from a config outside it, writing nothing into it
 clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running; a running panel stops serving it at once
 clauductor panel list                         # id, name, root, socket, trust and lanes of each
 clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
@@ -104,6 +105,51 @@ clauductor panel uninstall                    # stop and remove the login agent
 
 One panel serves every registered project. Stop a hand-started panel with Ctrl-C. Stopping the
 panel never stops a lane: lanes belong to tmux.
+
+### Attach a repository without writing to it
+
+PANEL-42. `panel init` writes `.clauductor/panel.json` into the repository, for you to commit. For
+a repository you would rather not change (one that runs an operating model of its own, say),
+attach it instead:
+
+```bash
+clauductor panel attach [<repo>]          # write its config outside it, and register it
+clauductor panel trust --project <repo>   # after reviewing that config
+```
+
+- **What it writes.** `attach` reads the repository as `panel init` does (see
+  [`panel init`](#panel-init)) and writes the result to `~/.clauductor/projects/<id>/panel.json`,
+  the **sidecar** (folder 0700, file 0600, created with `O_EXCL`, never over a file). Then it
+  registers the repository in `projects.json` with that file as its config. It prints the file,
+  init's reason for each value, and the `panel trust` line. `<repo>` defaults to the current
+  directory's git toplevel, and `--id` and `--default` work as in `panel add`. The file is yours to
+  edit. What attach refuses is under [Projects](#projects).
+- **Adding is not trusting.** As after `panel add`, its cards, queue commands and templates stay
+  off until `clauductor panel trust --project <repo>`. A sidecar is held to a stricter rule than a
+  config in the repository: argv only, no shell text, nothing outside the repository (see
+  [A config outside its repository](#a-config-outside-its-repository)). The commands attach writes
+  pass it.
+- **What attaching and serving never write.** Attaching writes the sidecar and `projects.json`,
+  both under `~/.clauductor/`, and nothing under the repository, `.git` included. It refuses, before
+  it writes, a home that would put either file inside the repository. Serving reads git with
+  `--no-optional-locks` and an empty `core.fsmonitor`, so a poll never rewrites `.git/index`,
+  starts git's fsmonitor daemon or runs a repository's fsmonitor hook (see
+  [What the panel reads, and when](#what-the-panel-reads-and-when)). A test takes a snapshot of
+  every file and directory under the repository (path, mode, size, modification time, SHA-256)
+  before and after each, and they must match. A card's command is another matter: the panel runs
+  it, and it writes whatever it writes.
+- **What does write.** Starting a lane creates a worktree (under `worktree_dir`, inside the
+  repository by default) and a branch, and the lane's Claude works in it. A queue's **RUN** takes
+  its lease under the git common dir and runs its command. **Close lane** removes the worktree and
+  the branch. These write as in any repository.
+- **A sidecar's card shows its stderr** after its stdout, so its commands need no `2>&1` (and
+  with no shell, could not have one). The stdout is parsed first: a JSON card stays JSON, and its
+  stderr is not added. Only a text card gets the stderr lines, within its 200-line limit. A
+  queue's RUN log already holds both streams. Suggest and metrics commands, and every card of a
+  config in the repository, keep stdout alone, as before.
+- **Claude Code's plugin.** A repository with an operating model of its own may want Clauductor's
+  plugin kept out too: see [At user scope](plugin.md#at-user-scope) for the per-repository
+  opt-out.
 
 ### Projects
 
@@ -135,8 +181,42 @@ project, choose its socket, or make it the default.
   PANEL-16 reach. `panel --project p` (the login agent's plist from before PANEL-16 does this) and
   a bare `panel` inside a repository register it if needed and make it the default. `panel add
   --default` does too; removing the default makes the first remaining project the default.
-- **`remove`** never stops a lane and keeps the lane registry, so adding the project again brings
-  its lanes back; while lanes are registered it needs `--force`.
+- **`remove`** never stops a lane, deletes nothing on disk and keeps the lane registry, so adding
+  the project again brings its lanes back; while lanes are registered it needs `--force`. For a
+  project whose config is outside its repository (an attached one's sidecar), the file and its
+  folder stay too, and `remove` says where they are and prints the line that serves the project
+  again from that file, its paths shell-quoted: `clauductor panel add --project <repo> --config
+  <file>`. Adding the repository by its path alone would not find the file. Trust is kept by the
+  file's path and hash, so a sidecar unchanged since it was trusted is served trusted again.
+- **`attach`** (PANEL-42) registers a repository with a sidecar it writes, as in
+  [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it). It
+  resolves the repository as `add` does, and refuses with `add`'s message a path that is not a git
+  work tree, a linked worktree, or a repository registered under another path (the same common
+  dir). It also refuses:
+  - **a sidecar already at the path:** it never overwrites one. The message names the file, the
+    `panel add --project <repo> --config <file>` line that serves it as it is, and `--id <other>`,
+    which writes a new one. The folder may be another repository's of the same name, or a removed
+    project's;
+  - **a registered repository:** "registered already as <id>, reading <path>". Run `panel remove`
+    first, or `panel add --config` to switch its config on purpose. The one exception is a
+    project whose registry entry names no config and that has no `.clauductor/panel.json`, so it
+    cannot load. It is **attached in place**: its entry's `config` is set, and it keeps its id,
+    tmux socket and lane registry (an `--id` other than its own is refused there);
+  - **an id that is not valid, or taken** (pass `--id`), and a home that would put the sidecar or
+    `projects.json` inside the repository;
+  - **a socket another project has, or any failed registration:** the sidecar and the folders
+    attach made are removed, so a refused attach leaves no file and no entry.
+
+  A repository with its own `.clauductor/panel.json` is attached anyway. The output says the
+  panel will read the sidecar, not that file.
+- **The registry's config wins** (PANEL-42). For a project the registry holds, `panel trust` and a
+  bare `panel` or `panel --project` without `--config` read the config its entry names;
+  `<root>/.clauductor/panel.json` is read only for a project the registry does not hold, or one
+  whose entry names no config. A pull that adds a `.clauductor/panel.json` to an attached
+  repository therefore changes nothing the panel reads. `panel list` prints each project's
+  `config <path>`, marks one that resolves outside its repository `(outside the repository)`, and
+  then, when the repository's own `.clauductor/panel.json` exists, says it is not read. The
+  project menu's row says the same: `reads <path>, outside the repository`.
 - **No restart** (PANEL-22). A running panel follows `projects.json`: it looks at the file every
   second, and a project added there is served at once (its sources, its lane manager and its hub
   start, and it joins the menu, the routes and the ingest), a project removed stops being served
@@ -178,6 +258,13 @@ shows what `clauductor panel init` would write, with each reason `init` prints
 (`/api/projects/init`), never over an existing file. A config that **does not load** says why, and
 cannot be added until it does.
 
+**Add a project…** does not attach yet: that is PANEL-43. It reads only
+`<root>/.clauductor/panel.json`, so for a repository without one it offers only **Create this
+config**, which writes into the repository. To serve a repository without writing to it, run
+`clauductor panel attach` (see
+[Attach a repository without writing to it](#attach-a-repository-without-writing-to-it)). The page
+then serves, trusts (**Trust config…**) and removes the attached project like any other.
+
 A repository with a config shows its **trust report**, what `clauductor panel trust` prints: the
 SHA-256 of its exact bytes and every card command, queue command, template prompt, suggest
 command, metrics command, worktree hook and resume line it names. Nothing runs to make the report:
@@ -202,7 +289,12 @@ deleted (the repository, its config, its worktrees and its lane registry stay, a
 brings it all back). It is **refused while the project has lanes**, running or registered: the
 confirmation lists each, as a link that shows it, so you can stop or close it first (removing never
 stops a lane). Removing the default project makes the next project the panel serves (in the
-registry's order) the default, and the confirmation says which. A page showing a project that is removed (here, in another page, or
+registry's order) the default, and the confirmation says which. For a project whose config is
+outside its repository (an attached one's sidecar), "adding it again brings it all back" would be
+false, since **Add a project…** would not find that file. So the confirmation says instead that
+its config stays too, names the file, and gives the line that serves it again: `clauductor panel
+add --project <repo> --config <file>`, its paths shell-quoted. The project menu's row for such a
+project says `reads <file>, outside the repository`. A page showing a project that is removed (here, in another page, or
 by `panel remove`) moves to the default. The panel always serves one project, so the last one
 cannot be removed.
 
@@ -217,7 +309,10 @@ quota, and the quota alert notifies once, not once per project (against the defa
 
 ## Configuration reference
 
-The project keeps its config at `<project>/.clauductor/panel.json` (or pass `--config`). Unknown
+The project keeps its config at `<project>/.clauductor/panel.json` (or pass `--config`), unless
+the registry names another for it: an attached project reads its sidecar,
+`~/.clauductor/projects/<id>/panel.json` (see
+[Attach a repository without writing to it](#attach-a-repository-without-writing-to-it)). Unknown
 keys are an error, so a misspelt key fails loudly.
 
 ### `panel init`
@@ -255,6 +350,18 @@ Each addition is printed with its reason, like every other value, and none of th
 `clauductor panel trust`. Without those files, `init` prints one line more: cards and lane
 templates come with `clauductor install` (the operating model), or can be added by hand (see
 [Keys](#keys), [Pinned cards](#pinned-cards) and [Lane templates](#lane-templates)).
+
+**`panel attach` uses the same reading** (PANEL-42), with three differences. The file goes to
+`~/.clauductor/projects/<id>/panel.json`, outside the repository. A repository's own
+`.clauductor/panel.json` does not refuse it: a `config` note says the panel will not read that
+file. And every command is an argv list with no shell, so that it passes the rule for a config
+outside its repository (see [A config outside its repository](#a-config-outside-its-repository)).
+The two cards become `["sh", ".claude/owner-queue.sh"]` and `["sh", ".claude/roadmap-queue.sh",
+"--text"]`, with no `sh -c` and no `2>&1` (the panel adds a sidecar card's stderr itself). The
+other commands are argv already: `["sh", ".claude/panel-suggest.sh", "<template>"]`,
+`["scripts/ci/run-local.sh"]`, and the gate found, with its own name (`["npm", "run", "gate"]`,
+`["pnpm", "run", "ci"]`, `["yarn", "run", "check"]`, `["bun", "run", "verify"]`, `["make",
+"test"]`). `panel init` into the repository writes exactly what it wrote before.
 
 For a repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
 
@@ -742,8 +849,16 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
   CPU is ps's figure (the process's average since it started, on macOS and Linux alike).
 - **git**, every 30 s (and on **Refresh**), for each worktree a lane runs in and, for a project
   with cards, the main checkout the cards run in: one `git status --porcelain=v2 --branch`,
-  plus `git diff HEAD --shortstat` only when the tree has changes, and `git log -1` only when
-  HEAD moved. No `git fetch`: ahead and behind are as of the last fetch.
+  plus `git diff-index -M --shortstat HEAD -- <paths>` only when tracked files changed, and
+  `git log -1` only when HEAD moved. No `git fetch`: ahead and behind are as of the last
+  fetch. Each passes `--no-optional-locks` and `-c core.fsmonitor=` (empty, which is off on
+  every git version; before 2.36 `false` named a hook program), so a poll never writes
+  `.git/index`, starts git's fsmonitor daemon or runs a repository's fsmonitor hook
+  (PANEL-42). The stat is `diff-index`
+  because `git diff` rewrites the index even with that flag. `diff-index` does not refresh
+  the index, so a file whose modification time alone changed looks changed to it (and a
+  binary one counts); its paths are the tracked ones `status` listed, which re-hashed those
+  files and left them out. Past 64 KiB of paths it reads the whole tree.
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
@@ -2441,6 +2556,20 @@ send requests to `127.0.0.1`.
   --porcelain` reports them. That list is the authority, never a hand-kept list. It is re-read
   every 10 s, and early when a worktree is added or removed or when an event arrives from an
   unknown `cwd`.
+- **A config outside its repository runs only the repository's own scripts** (PANEL-42). A
+  sidecar from `panel attach`, or any config whose resolved path is not under its repository, is
+  a file nobody reviewed with the repository. So beyond the hash of its bytes, trust requires its
+  commands to be argv lists of literal words with no shell text. Code given in the command, a
+  word a shell would read (a glob, a variable, a quote, a redirection, whitespace), an
+  environment setting, and a path that resolves outside the repository are each refused, with
+  the word, why, and "move it into a script in the repository". The rule is enforced where every
+  trust decision passes (`CheckTrust`, `TrustedNow`), so an entry recorded earlier does not turn
+  the commands on. It is not a sandbox: a script in the repository can still run anything, and
+  its named limits and accepted false refusals are listed in
+  [A config outside its repository](#a-config-outside-its-repository). A config in its repository
+  is unchanged, and the `/dev/null` exception of 2026-10-13 is superseded.
+- **Attaching and serving write nothing into the repository** (PANEL-42): see
+  [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it).
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
@@ -2450,11 +2579,13 @@ send requests to `127.0.0.1`.
   - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
     a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
-  - `projects.json`, when a project is added (`panel add`, `install --project`, a panel
+  - `projects.json`, when a project is added (`panel add`, `panel attach`, `install --project`, a panel
     started on a project it does not list, or the page's Add a project…) or removed (`panel
     remove`, or Remove from panel…); a refused start writes nothing;
   - a project's `.clauductor/panel.json`, only when the page's **Create this config** is pressed,
     and never over a file (PANEL-22); and the trusted-config record when the page trusts one;
+  - a sidecar, `~/.clauductor/projects/<id>/panel.json` (0600, its folder 0700), only when
+    `clauductor panel attach` is run, and never over a file (PANEL-42);
   - `owner.json`'s list of projects, again whenever the projects served change (PANEL-22);
   - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
@@ -2487,6 +2618,142 @@ and add** in Add a project…, and **Trust config…** (in the untrusted banner 
 hash, checked again as the trust is recorded; an edit in between is refused and the report is read
 again. See [Add, trust and remove from the page](#add-trust-and-remove-from-the-page) and, for the
 routes, [Security model](#security-model).
+
+#### A config outside its repository
+
+PANEL-42. A config whose path, resolved through symlinks, is not under its repository's root is a
+file nobody reviewed with the repository: the sidecar `panel attach` writes, or any `--config`
+elsewhere. Trust still follows its exact bytes. On top of that, the panel trusts such a config
+only while every command it names runs the repository's own scripts, or a program on `PATH`, as
+an argv list of literal words.
+
+**What is judged.** The commands of cards, queues, suggest, metrics, `worktree_setup` and
+`worktree_teardown`. A template's first prompt and the resume line are text typed into Claude,
+not commands: the report lists them as before, unjudged. Every command is exec'd with no shell, as
+every command the panel runs is, so the words judged are exactly the words run. Nothing is parsed
+as a script.
+
+**What is refused.** A command is refused for any word that holds one of these:
+
+- **Code given in the command.** An interpreter's name followed anywhere later in the argv by
+  one of its code flags is refused wherever the name stands, so a launcher in front of it
+  (`caffeinate -i bash -c …`, `sudo python3 -c …`) changes nothing.
+  - The names are `sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python`, `python3`,
+    `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php` and `osascript`. They are matched
+    whole (`pythonic` is not Python), with case folded, since macOS runs `BASH` as bash.
+  - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`), and fish's `--command`;
+    Python's `-c` and `-m`; `-e`, `-p`, `--eval` and `--print` for node, deno and bun; node's
+    `--import`, `-r`, `--require`, `--loader` and `--experimental-loader`; perl's `-e` and `-E`,
+    ruby's `-e`, php's `-r` and osascript's `-e`.
+  - A cluster is single-dash, and its letters are read up to the first character that is not a
+    letter: `-Bc` and `-mhttp.server` are refused.
+- **A rule of program position.** Program position is `argv[0]`. Behind a launcher (`env`, `nice`,
+  `nohup`, `time`, `timeout`), it is the first word past the launcher's own words, through chained
+  launchers. Those words are its listed flags with their values (`env -u NAME`, `-C dir`,
+  `-P path`; `nice -n N`; `timeout -s SIG`, `-k DUR`; `time -o file`, `-f fmt`, each value a
+  separate word) and `timeout`'s duration. Any other launcher flag is refused, since the program
+  cannot be found past it. In program position, these are refused:
+  - `.`, `eval` and `source`. Anywhere else `.` is a path, the root: `go test .` and `git add .`
+    pass;
+  - `env -S` and `--split-string`;
+  - `awk` (and `gawk`, `mawk`, `nawk`) and `sed`, unless their program is a file: `-f <file>`,
+    with no `-e`, `--expression` or `--source` beside it;
+  - `xargs`, and `find` with `-exec`, `-execdir`, `-ok` or `-okdir`;
+  - fetching a package and running it: `npx`, `pnpx`, `bunx`, `uvx`, `uv tool run`, `pipx run`,
+    `npm exec`, `npm x`, `npm create`, `npm init <package>` and its alias `npm innit <package>`
+    (alone, as in `npm init -y`, it passes), `pnpm dlx`, `pnpm create`, `yarn dlx`, `yarn create`, `bun x`, `bun create`, and
+    `go run` given a word with `@` after a `/` (`module@version`). The subcommand is matched as any
+    later word, so a flag or its value cannot hide it (`npm -y exec tool`, `pnpm -C sub dlx tool`);
+  - a shell, Python, `node`, `deno`, `bun`, `perl`, `ruby` or `php` with no script file: its first
+    operand (its first word not starting with `-`) must be a regular file inside the repository
+    that exists when the config is trusted. The one exception is `bun run <bare word>`, a
+    `package.json` script, as `npm run` runs one.
+- **An environment setting.** No environment is set. A word holding `=` in program position, or
+  among the own words of an `env` wherever it stands, is refused: `env NODE_OPTIONS=… npm run
+  gate`, a bare `FOO=1 make`, `caffeinate env FOO=1 make`. Many variables load code into whatever
+  runs next, so none is allowed. The program after it is still judged. `env -u NAME` only removes
+  a variable, and passes. Past program position a word with `=` is the program's own (`make V=1
+  gate`, `go test -run=TestX ./...`). An `env` flag not listed above (`env -i`) is refused
+  wherever that `env` stands, since its own words cannot be told from its program's past it.
+- **A character no literal word needs:** `*` `?` `[` `]` `{` `}` `~` `$`, a backtick, `(` `)` `<`
+  `>` `|` `&` `;`, `'` `"` `\` `!`, a space, a tab or a newline. With no shell to read them they
+  would reach the program as they are, so a glob, a variable, a pipeline, a redirection or a
+  quoted argument is refused. No command key takes a placeholder: `{name}` belongs to
+  `branch_pattern` and `first_prompt`, which are not commands.
+- **A path outside the repository.** A word holding `/` or `..` is split at every `=`, `:` and
+  `,`. A piece starting with a single `-` is judged from its first `/` or `.` (so `-C..`, `-sC..`,
+  `-sC/tmp/x` and `-isystem/x` are caught), and a leading `@` is stripped. A piece that is then
+  absolute, holds a `/`, or is or has a `..` segment must resolve inside the root, joined to it
+  and resolved component by component through symlinks as far as they exist. There is no flag
+  list: every flag's value is judged the same way, as is a word on its own (`-C ..`) and an
+  interpreter's script file. Still allowed: `main..HEAD` (no `..` segment), `-j4` and
+  `--format=%h` (no `/` or `..`), and `./...` (inside). A bare word with no `/` and no `..` is a
+  program on `PATH` (`make`, `npm`, `git`) or a literal argument (`gate`, `--text`, the `sub` of
+  `make -C sub gate`), and passes.
+
+**How it shows.** The trust report (`panel trust`, the page's **Trust config…**, and the
+**Config untrusted** banner's report) marks each refused line, with every refused word in it:
+`NOT ALLOWED IN A SIDECAR ("<word>": <why>; move it into a script in the repository): card x
+runs …`. Every way of trusting refuses such a config, and nothing is recorded. `panel trust` and
+`panel install` print `NOT trusted: …` with the report and exit non-zero. The page answers 422
+(`not-allowed-in-sidecar`). `--trust-config` starts the panel with the project untrusted, and the
+start-up line says why. **A trust entry recorded earlier does not count** (one written by hand, or
+before PANEL-42): the rule is applied wherever trust is read, so the project is served with its
+commands off under the **Config untrusted** banner, whose report shows the marks.
+
+The `/dev/null` exception the owner allowed on 2026-10-13, for a redirection's target, is
+superseded: with no shell there is no redirection. **A config in its repository is unchanged:**
+its commands may still use `sh -c`, and `panel init` into the repository still writes them that
+way.
+
+**What it does not do.** It is not a sandbox. A script in the repository can still run anything;
+the rule only holds a sidecar to the repository's own scripts. These are outside it:
+
+- what the repository's own content does: a script file, a Makefile target, a `package.json`
+  script;
+- the environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`);
+- a program that runs code from a flag of its own, other than the interpreters above. These are
+  named, not closed:
+  - `ssh` runs its command on another machine;
+  - `docker` runs an image's code, and can reach the host past the path rule (`--privileged`, a
+    volume a compose file names). A literal host path in `--mount` or `-v` is judged as a path;
+  - an scp-style remote (`git@host:o/r.git`, `host:path`) passes as words to `git clone`, `rsync`
+    or `scp`;
+  - a package install runs the scripts it fetches (`npm install`'s lifecycle scripts);
+  - two cards can cooperate, one fetching a file into the repository and the other running it;
+  - `go test -exec <bare word>` runs a program of that name;
+  - `flock -c <word>` runs its word through a shell;
+- the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`): `sudo
+  npx tool` passes. Code flags are still judged there, and so is an `env`'s own words, wherever
+  it stands (`caffeinate env FOO=1 make` is refused);
+- an environment set by a program's own flag or word rather than through `env`: `sudo
+  NAME=value`, `arch -e NAME=value`, npm's `--node-options` (npm copies it into `NODE_OPTIONS`,
+  even for `npm run gate`, which attach writes for an npm gate), and make's `SHELL=` and `.SHELLFLAGS=` words. A
+  path in any of them is still judged as a path. The rule is a second line of defence behind the
+  trust hash of the sidecar's bytes;
+- a bare word naming a symlink in the repository that points out of it (`make -C outlink gate`):
+  the symlink is the repository's own content.
+
+**The cost: false refusals, accepted.** A sidecar cannot run a personal script from `~/bin`, a
+one-line pipeline, a URL, or a command that needs a glob or a variable. Each of these is refused,
+and each belongs in a script file in the repository (or in a config in the repository):
+
+- `git diff HEAD~1` (`~`) and `git log @{u}..` (`{`);
+- `node --test` and `bun test` (an interpreter with no script file);
+- `bash -o pipefail x.sh` and `python3 -W error x.py` (the flag's value is read as the first
+  operand);
+- `pytest -k "not slow"` (a space; the quotes are a shell's);
+- a URL (`curl https://…`: its `//host/path` piece is absolute);
+- every `deno` command (its first operand is `run` or `task`, not a script file), and `bun run
+  scripts/x.ts` (not a bare word);
+- a script's own flag that matches a code flag (`python3 x.py -c cfg.yml`);
+- `-Isrc/x`, judged from its first `/`: write `-I src/x`;
+- a value attached to a single-dash flag whose letters hold a code letter (`php -dmemory_limit=1G`,
+  `perl -Mfeature=say`, `python3 -Ximporttime`);
+- `npm run create` (a `package.json` script named like a fetch-and-run subcommand);
+- `env CI=1 make test` (an environment setting);
+- the word `env` as an argument followed by a flag or a word holding `=` (`go env -json`, `git log
+  --grep env -n 5`, `make env X=1`), because an `env` is judged wherever it stands.
 
 ### Remote control
 

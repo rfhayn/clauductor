@@ -372,7 +372,7 @@ func (c *claudeCounter) run(ctx context.Context, dir string, argv []string) ([]b
 	switch {
 	case j == "git worktree list --porcelain":
 		return []byte(fmt.Sprintf("worktree %s\nHEAD abc\nbranch refs/heads/main\n\n", dir)), nil
-	case j == "git rev-parse --git-common-dir":
+	case j == "git --no-optional-locks -c core.fsmonitor= rev-parse --git-common-dir":
 		return []byte(".git\n"), nil
 	case strings.HasPrefix(j, "gh pr list"):
 		return []byte(`[]`), nil

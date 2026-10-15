@@ -141,3 +141,102 @@ func TestRemoveProject(t *testing.T) {
 		t.Fatalf("list:\n%s %v", out.String(), err)
 	}
 }
+
+// ATTACH-4's requirement, `panel list`'s config line (design.md D7): every project's
+// config path; one outside its repository is marked so, with a line when the
+// repository's own .clauductor/panel.json is there and not read. A config reached
+// through a symlink into the repository is inside it. (The scenario's test, which also
+// loads the project as the panel does, is TestAttachedProjectReadsItsSidecar.)
+// ATTACH-4's requirement, the outside mark (design.md D7): a root that does not exist
+// (yet, or any more) under a symlinked ancestor, as /var is to /private/var on macOS,
+// is resolved as its config is, so a config inside it is not marked outside. Both
+// sides go through one resolver; a root resolved as a whole falls back to the path as
+// given once a component is missing, while its config resolves the ancestor.
+func TestConfigOutsideResolvesAMissingRootAsItsConfig(t *testing.T) {
+	t.Parallel()
+	dir := signals.ResolvePath(t.TempDir())
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(link, "gone")
+	for _, e := range []config.ProjectEntry{
+		{ID: "own", Root: root},
+		{ID: "given", Root: root, Config: filepath.Join(link, "gone", "cfg", "panel.json")},
+		{ID: "real", Root: root, Config: filepath.Join(real, "gone", config.DefaultConfigRel)},
+	} {
+		if ConfigOutside(e) {
+			t.Errorf("%s: %s is marked outside %s", e.ID, e.ConfigPath(), e.Root)
+		}
+	}
+	if e := (config.ProjectEntry{ID: "side", Root: root, Config: filepath.Join(dir, "side", "panel.json")}); !ConfigOutside(e) {
+		t.Errorf("a config beside the root is not marked outside")
+	}
+}
+
+func TestListProjectsNamesEachConfig(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	ctx := context.Background()
+	own, runOwn := projectDir(t, "Own", "")
+	both, runBoth := projectDir(t, "Both", "")     // its own panel.json, and a sidecar
+	sideOnly, runSide := projectDir(t, "Bare", "") // a sidecar, and no panel.json of its own
+	if err := os.Remove(filepath.Join(sideOnly, config.DefaultConfigRel)); err != nil {
+		t.Fatal(err)
+	}
+	linked, runLinked := projectDir(t, "Linked", "") // --config through a symlink into the repository
+	link := filepath.Join(t.TempDir(), "in")
+	if err := os.Symlink(filepath.Join(linked, ".clauductor"), link); err != nil {
+		t.Fatal(err)
+	}
+	sidecar := func(id, name string) string {
+		p := config.SidecarPath(home, id)
+		writeFile(t, p, `{"name":"`+name+`","lanes":{"main":"orchestrator"}}`)
+		return p
+	}
+	bothCfg, sideCfg := sidecar("both", "Both sidecar"), sidecar("bare", "Bare sidecar")
+	for _, a := range []AddOptions{
+		{Project: own, Run: runOwn},
+		{Project: both, Run: runBoth, Config: bothCfg, ID: "both"},
+		{Project: sideOnly, Run: runSide, Config: sideCfg, ID: "bare"},
+		{Project: linked, Run: runLinked},
+	} {
+		a.Home, a.Now = home, time.Now()
+		if _, err := AddProject(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// AddProject resolves a --config; a registry written by hand may not.
+	reg, err := config.LoadProjects(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.Find(linked).Config = filepath.Join(link, "panel.json")
+	if err := config.SaveProjects(home, reg); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := ListProjects(&out, home); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	ownFile := func(root string) string { return filepath.Join(root, config.DefaultConfigRel) }
+	for _, want := range []string{
+		"    config " + ownFile(own) + "\n",
+		"both             Both sidecar\n",
+		"    config " + bothCfg + " (outside the repository)\n    " + ownFile(both) + " is not read: the registry names the config above\n",
+		"    config " + sideCfg + " (outside the repository)\n    socket ",
+		"    config " + filepath.Join(link, "panel.json") + "\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("list lacks %q:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "outside the repository"); n != 2 {
+		t.Errorf("%d configs marked outside, want 2:\n%s", n, got)
+	}
+}

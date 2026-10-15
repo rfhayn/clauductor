@@ -41,9 +41,16 @@ type cliResult struct {
 // ~/.claude or ~/.clauductor, or a panel running on this machine.
 func cli(t *testing.T, home string, args ...string) cliResult {
 	t.Helper()
+	return cliIn(t, "", home, args...)
+}
+
+// cliIn is cli run from dir ("" for the test's own directory).
+func cliIn(t *testing.T, dir, home string, args ...string) cliResult {
+	t.Helper()
 	b, _ := json.Marshal(args)
 	c := exec.Command(os.Args[0], "-test.run=^$")
-	c.Env = append(os.Environ(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+home, "CLAUDUCTOR_LANE=", quickExit())
+	c.Dir = dir
+	c.Env = append(gitFreeEnv(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+home, "CLAUDUCTOR_LANE=", quickExit())
 	var stdout, stderr strings.Builder
 	c.Stdout, c.Stderr = &stdout, &stderr
 	err := c.Run()
@@ -55,6 +62,20 @@ func cli(t *testing.T, home string, args ...string) cliResult {
 		t.Fatal(err)
 	}
 	return cliResult{stdout.String(), stderr.String(), code}
+}
+
+// gitFreeEnv is this process's environment without the variables that point git at
+// a repository: run under a git hook, they would aim a test's git calls at the outer
+// repository instead of its temporary one.
+func gitFreeEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "GIT_DIR" && k != "GIT_WORK_TREE" && k != "GIT_INDEX_FILE" {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 func skipShortLockRun(t *testing.T) {

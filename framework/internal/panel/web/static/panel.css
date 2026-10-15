@@ -599,6 +599,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .mi:hover, .mi:focus { background: var(--pane-2); outline: none; }
 .mi:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .mi small { display: block; color: var(--text-2); font-size: .75rem; }
+.mi small.cfg { overflow-wrap: anywhere; } /* a sidecar's path (PANEL-42) is one long word */
 .mi .tick { color: var(--text-1); font-weight: 700; }
 .mi[aria-checked="false"] .tick { visibility: hidden; }
 .mi .face { font-family: var(--font-ui); }

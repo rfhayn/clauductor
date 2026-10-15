@@ -139,20 +139,23 @@ func polled[T any](f fetch[T], apply func(*state.Model, T, error, time.Time)) fu
 // project's periodic tasks. Since PANEL-16 a panel runs one per registered project;
 // what is the machine's (the account, the hooks, the ingest, the token) is Machine's.
 type Runtime struct {
-	id       string   // the project's id in projects.json
-	machine  *Machine // nil in tests that build a Runtime alone
-	o        Options
-	cfg      *config.Config
-	root     string
-	cfgPath  string
-	clock    clock.Clock
-	ticks    Ticks
-	run      signals.Runner
-	hub      *web.Hub
-	lanes    *lanes.LaneManager // nil when lanes are unavailable
-	registry *lanes.Registry    // the lanes' registry, nil with them
-	srv      atomic.Pointer[web.Server]
-	sources  []*source
+	id      string   // the project's id in projects.json
+	machine *Machine // nil in tests that build a Runtime alone
+	o       Options
+	cfg     *config.Config
+	root    string
+	cfgPath string
+	// outsideConfig is cfgPath when it is outside root (an attached project's sidecar,
+	// PANEL-42), else "": the project menu's entry carries it (summary).
+	outsideConfig string
+	clock         clock.Clock
+	ticks         Ticks
+	run           signals.Runner
+	hub           *web.Hub
+	lanes         *lanes.LaneManager // nil when lanes are unavailable
+	registry      *lanes.Registry    // the lanes' registry, nil with them
+	srv           atomic.Pointer[web.Server]
+	sources       []*source
 
 	kickWT, kickAgents, kickPRs, kickTmux chan struct{}
 	cardKicks                             []chan struct{}
@@ -439,7 +442,7 @@ func (r *Runtime) kickWorktrees() {
 // worktreeRegistryDir is git's own worktree registry, <git common dir>/worktrees:
 // it changes when a worktree is added or removed.
 func (r *Runtime) worktreeRegistryDir(ctx context.Context) string {
-	out, err := r.run(ctx, r.root, []string{"git", "rev-parse", "--git-common-dir"})
+	out, err := r.run(ctx, r.root, servingGit("", "rev-parse", "--git-common-dir"))
 	if err != nil {
 		return ""
 	}
@@ -454,10 +457,7 @@ func (r *Runtime) worktreeRegistryDir(ctx context.Context) string {
 // its watched path changes. An untrusted config runs no card.
 func (r *Runtime) cardSource(c config.CardConfig) *source {
 	rule, _ := config.ParseRefresh(c.Refresh) // validated at load
-	run := polled(commandFetch(r, 30*time.Second, c.Command, func(out []byte) (*signals.CardOutput, error) {
-		co := signals.ParseCardOutput(out)
-		return &co, nil
-	}), func(m *state.Model, co *signals.CardOutput, err error, now time.Time) {
+	run := polled(r.cardFetch(c.Command), func(m *state.Model, co *signals.CardOutput, err error, now time.Time) {
 		m.ApplyCard(c.ID, co, err, now)
 	})
 	s := &source{name: "card " + c.ID, kick: make(chan struct{}, 1),
@@ -475,6 +475,23 @@ func (r *Runtime) cardSource(c config.CardConfig) *source {
 		s.watchEvery = r.ticks.CardWatch
 	}
 	return s
+}
+
+// cardFetch runs a card's command. A sidecar's card (a config outside its repository)
+// shows its stderr after its stdout, since its argv cannot say 2>&1 (PANEL-42,
+// design.md D5, Output). The merge is here, at the card's call site, and not in
+// commandFetch, which suggest, metrics, gh and claude share: their stdout is parsed.
+func (r *Runtime) cardFetch(argv []string) fetch[*signals.CardOutput] {
+	return func(ctx context.Context) (*signals.CardOutput, error) {
+		var stderr []byte
+		if r.outsideConfig != "" {
+			ctx = signals.WithStderr(ctx, func(b []byte) { stderr = b })
+		}
+		return commandFetch(r, 30*time.Second, argv, func(out []byte) (*signals.CardOutput, error) {
+			co := signals.ParseCardOutput(out).WithStderr(stderr)
+			return &co, nil
+		})(ctx)
+	}
 }
 
 // suggestSource runs a template's suggest command on its refresh rule, exactly as a
@@ -981,6 +998,14 @@ func (r *Runtime) pollProcs(ctx context.Context, now time.Time) (update, time.Du
 
 // pollGit reads each lane's worktree with one `git status`; a second call only when
 // the tree is dirty (the diff stat) or HEAD moved (the commit's time) (PANEL-11).
+//
+// Serving writes nothing into a checkout (PANEL-42, ATTACH-2): every read is a
+// servingGit argv. The diff stat is `diff-index`, not `diff HEAD`: git 2.54's `diff`
+// refreshes and rewrites the index even with --no-optional-locks. diff-index does not
+// refresh, so it sees a file whose stat alone changed as changed, and counts a binary
+// one (it cannot compare a binary pair by lines, and the worktree side has no hash).
+// Its pathspec is therefore the tracked paths status found changed: status re-hashed
+// each stat-only file in memory and left it out (gitStatArgv).
 func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Duration) {
 	if !r.pageVisible(now) {
 		return nil, 0
@@ -1010,20 +1035,22 @@ func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Dura
 		if ctx.Err() != nil {
 			return nil, 0
 		}
-		out, err := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "status", "--porcelain=v2", "--branch"})
+		out, err := r.exec(ctx, 10*time.Second, servingGit(p, "status", "--porcelain=v2", "--branch"))
 		var g signals.GitStat
 		if err == nil {
 			g, err = signals.ParseGitStatusV2(out)
 		}
-		if err == nil && g.Dirty() > 0 {
-			if d, derr := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "diff", "HEAD", "--shortstat"}); derr == nil {
+		// Untracked files alone leave the stat at zero, as `diff HEAD` did: it never
+		// counted them.
+		if err == nil && g.Changed+g.Conflicts > 0 {
+			if d, derr := r.exec(ctx, 10*time.Second, gitStatArgv(p, out)); derr == nil {
 				g.Files, g.Insertions, g.Deletions = signals.ParseShortstat(d)
 			}
 		}
 		if err == nil && g.Head != "" && g.Head != "(initial)" {
 			if g.Head == heads[p] {
 				g.LastCommitAt = times[p]
-			} else if c, cerr := r.exec(ctx, 10*time.Second, []string{"git", "-C", p, "log", "-1", "--format=%ct"}); cerr == nil {
+			} else if c, cerr := r.exec(ctx, 10*time.Second, servingGit(p, "log", "-1", "--format=%ct")); cerr == nil {
 				if sec, perr := strconv.ParseInt(strings.TrimSpace(string(c)), 10, 64); perr == nil {
 					g.LastCommitAt = sec * 1000
 				}
@@ -1039,4 +1066,43 @@ func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Dura
 			m.ApplyGit(rd.path, rd.g, rd.err, now)
 		}
 	}, 0
+}
+
+// servingGit is the argv of every git read the panel makes of a served checkout,
+// so no read can leave a flag out (PANEL-42, ATTACH-2: serving writes nothing).
+// --no-optional-locks: git takes no index.lock to write back a refreshed .git/index.
+// core.fsmonitor= (empty): a repository that sets it would have git start its fsmonitor
+// daemon, which writes .git/fsmonitor--daemon/ (or run the hook it names). Empty, not
+// `false`: before git 2.36 the value names a hook program, so `false` would run
+// /usr/bin/false on every poll (Ubuntu 22.04 ships 2.34); an empty value is off on
+// every version. dir is the checkout (-C); "" runs in the runner's directory.
+func servingGit(dir string, args ...string) []string {
+	argv := []string{"git", "--no-optional-locks", "-c", "core.fsmonitor="}
+	if dir != "" {
+		argv = append(argv, "-C", dir)
+	}
+	return append(argv, args...)
+}
+
+// maxStatPathspec bounds the bytes of the paths gitStatArgv passes as arguments, well
+// under any OS's argument limit (macOS: 1 MiB, environment included).
+const maxStatPathspec = 64 << 10
+
+// gitStatArgv is the dirty-tree stat of checkout dir, given its `git status
+// --porcelain=v2` output: `diff-index -M --shortstat HEAD` over the tracked paths that
+// status found changed, taken literally. -M counts a staged rename once, as `diff
+// HEAD` did. When status lists more path bytes than maxStatPathspec, or a path that
+// does not unquote, it reads the whole tree, and a binary file whose stat alone
+// changed may then count.
+func gitStatArgv(dir string, status []byte) []string {
+	args := []string{"--literal-pathspecs", "diff-index", "-M", "--shortstat", "HEAD"}
+	paths, ok := signals.TrackedChangedPaths(status)
+	size := 0
+	for _, p := range paths {
+		size += len(p) + 1
+	}
+	if ok && len(paths) > 0 && size <= maxStatPathspec {
+		args = append(append(args, "--"), paths...)
+	}
+	return servingGit(dir, args...)
 }

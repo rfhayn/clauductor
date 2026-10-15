@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,10 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 	cmd.Dir = dir
 	var out, errb limitedBuffer
 	out.max, errb.max = maxCmdOutput, 4096
+	keepStderr := stderrSink(ctx)
+	if keepStderr != nil {
+		errb.max = maxCmdOutput
+	}
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Start()
 	if err == nil {
@@ -59,7 +64,25 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 		}
 		return nil, fmt.Errorf("%s: %w", argv[0], err)
 	}
+	if keepStderr != nil {
+		keepStderr(errb.Bytes())
+	}
 	return out.Bytes(), nil
+}
+
+type stderrKey struct{}
+
+// WithStderr asks ExecRunner for a successful command's stderr as well, within the
+// same limit as its stdout: f receives it before ExecRunner returns. Only a sidecar's
+// card asks (PANEL-42, design.md D5, Output): with no shell its command cannot say
+// 2>&1, and every other command's stdout is parsed alone.
+func WithStderr(ctx context.Context, f func([]byte)) context.Context {
+	return context.WithValue(ctx, stderrKey{}, f)
+}
+
+func stderrSink(ctx context.Context) func([]byte) {
+	f, _ := ctx.Value(stderrKey{}).(func([]byte))
+	return f
 }
 
 type limitedBuffer struct {
@@ -76,6 +99,12 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// ReadFrom hides bytes.Buffer's own: exec copies a pipe with io.Copy, which prefers
+// a ReaderFrom, and the embedded one would fill the buffer past max.
+func (b *limitedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
 // ResolvePath makes a path comparable with worktree paths: absolute, symlinks

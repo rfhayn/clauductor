@@ -30,7 +30,7 @@ type Options struct {
 	// Project is a project to serve and make the default, registered in
 	// projects.json first if it is not (PANEL-16). "" serves the registry as it is.
 	Project    string
-	ConfigPath string // "" → <Project>/.clauductor/panel.json
+	ConfigPath string // "" → the registered project's, else <Project>/.clauductor/panel.json
 	// Only serves Project alone, not the rest of the registry (--only; tests).
 	Only   bool
 	Port   int
@@ -198,10 +198,12 @@ func Run(ctx context.Context, o Options) error {
 	if o.Project != "" {
 		// The project named on the command line must load: fail before touching
 		// anything, as a single-project panel always has.
+		// Without --config, a registered project's config is the registry's, which
+		// may sit outside the repository (PANEL-42, design.md D7).
 		root := signals.ResolvePath(o.Project)
-		cfgPath := o.ConfigPath
-		if cfgPath == "" {
-			cfgPath = filepath.Join(root, config.DefaultConfigRel)
+		cfgPath, err := install.ConfigPathOf(o.Home, root, o.ConfigPath)
+		if err != nil {
+			return err
 		}
 		if _, err := config.LoadConfig(cfgPath); err != nil {
 			return err
@@ -359,7 +361,7 @@ func Run(ctx context.Context, o Options) error {
 	// not load with the reason.
 	byID := map[string]web.ProjectSummary{}
 	for _, r := range runtimes {
-		s := web.Summarize(r.id, r.hub.View())
+		s := r.summary(r.hub.View())
 		s.Default = r == def
 		byID[r.id] = s
 	}
@@ -529,7 +531,8 @@ func newLaneManager(o Options, cfg *config.Config, root string, clk clock.Clock)
 func checkConfigTrust(o Options, root, cfgPath string, raw []byte, trustNow bool) config.TrustView {
 	hash := install.ConfigHash(raw)
 	tv, err := install.CheckTrust(o.Home, root, cfgPath, hash, trustNow)
-	if err != nil {
+	// A sidecar the rule refuses keeps CheckTrust's view: untrusted, its Note why.
+	if sr := (*install.SidecarRefusedError)(nil); err != nil && !errors.As(err, &sr) {
 		tv = config.TrustView{Hash: hash, Path: signals.ResolvePath(cfgPath), Note: "cannot read the trust record: " + err.Error()}
 	}
 	trustState := "trusted"

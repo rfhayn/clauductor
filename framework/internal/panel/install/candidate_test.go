@@ -126,7 +126,7 @@ func TestInspectSaysWhatAddingWouldDo(t *testing.T) {
 func TestPlanInitWritesNothing(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t, nil)
-	res, err := PlanInit(context.Background(), signals.ExecRunner, root)
+	res, err := PlanInit(context.Background(), signals.ExecRunner, root, InitTarget{})
 	if err != nil || len(res.Body) == 0 || len(res.Notes) == 0 {
 		t.Fatalf("plan: %+v %v", res, err)
 	}
@@ -142,7 +142,7 @@ func TestPlanInitWritesNothing(t *testing.T) {
 	if err := WriteInit(res); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("a second write: %v", err)
 	}
-	if _, err := PlanInit(context.Background(), signals.ExecRunner, root); !errors.Is(err, ErrConfigExists) {
+	if _, err := PlanInit(context.Background(), signals.ExecRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("a plan over an existing config: %v", err)
 	}
 }

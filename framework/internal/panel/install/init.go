@@ -32,6 +32,22 @@ type InitResult struct {
 	Path  string
 	Body  []byte
 	Notes []string
+	// Sidecar: the plan is for a config outside the repository (InitTarget.Sidecar),
+	// so WriteInit keeps it private to the user (folder 0700, file 0600).
+	Sidecar bool
+}
+
+// InitTarget is where a plan goes. Its zero value is `panel init`'s: the
+// repository's own <root>/.clauductor/panel.json.
+type InitTarget struct {
+	// Path is the file the plan is for; "" for <root>/.clauductor/panel.json.
+	// PlanInit refuses one that exists (ErrConfigExists).
+	Path string
+	// Sidecar is a config outside the repository (`panel attach`, PANEL-42). Every
+	// command is written in argv form, with no `sh -c` and no `2>&1` (design.md D5),
+	// and a config already in the repository adds a note that it will not be read
+	// instead of refusing the plan (D7).
+	Sidecar bool
 }
 
 // ErrConfigExists is returned when the project already has a panel config.
@@ -75,8 +91,10 @@ const omHint = "cards and lane templates: none; they come with `clauductor insta
 
 // operatingModel adds the operating model's cards, lane templates and gate to s for
 // the files the repository has, with a note per addition. It reports whether the
-// repository has the model at all (either queue script).
-func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]string) bool {
+// repository has the model at all (either queue script). For a sidecar its cards are
+// argv with no shell and no `2>&1`: the panel is to merge a sidecar card's stderr
+// itself (ATTACH-6, task 3.2; until then such a card shows stdout alone).
+func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]string, sidecar bool) bool {
 	has := func(rel string) bool {
 		fi, err := os.Stat(filepath.Join(root, rel))
 		return err == nil && fi.Mode().IsRegular()
@@ -85,14 +103,20 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 	if !owner && !roadmap {
 		return false
 	}
+	ownerCmd := []string{"sh", "-c", "sh " + omOwnerQueue + " 2>&1"}
+	roadmapCmd := []string{"sh", "-c", "sh " + omRoadmapQueue + " --text 2>&1"}
+	if sidecar {
+		ownerCmd = []string{"sh", omOwnerQueue}
+		roadmapCmd = []string{"sh", omRoadmapQueue, "--text"}
+	}
 	if owner {
 		s.Cards = append(s.Cards, config.CardConfig{ID: "owner-queue", Title: "Owner queue", Pin: true,
-			Command: []string{"sh", "-c", "sh " + omOwnerQueue + " 2>&1"}, Refresh: "watch:docs/owner-queue.md"})
+			Command: ownerCmd, Refresh: "watch:docs/owner-queue.md"})
 		*notes = append(*notes, "cards         Owner queue, pinned: runs `sh "+omOwnerQueue+"` when docs/owner-queue.md changes (the operating model's "+omOwnerQueue+" is here)")
 	}
 	if roadmap {
 		s.Cards = append(s.Cards, config.CardConfig{ID: "change-queue", Title: "Change queue", Pin: true,
-			Command: []string{"sh", "-c", "sh " + omRoadmapQueue + " --text 2>&1"}, Refresh: "watch:docs/roadmap.md"})
+			Command: roadmapCmd, Refresh: "watch:docs/roadmap.md"})
 		*notes = append(*notes, "cards         Change queue, pinned: runs `sh "+omRoadmapQueue+" --text` when docs/roadmap.md changes (the operating model's "+omRoadmapQueue+" is here)")
 	}
 
@@ -153,7 +177,7 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 // InitConfig writes <git toplevel of dir>/.clauductor/panel.json. It refuses to
 // overwrite any file already there.
 func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult, error) {
-	res, err := PlanInit(ctx, run, dir)
+	res, err := PlanInit(ctx, run, dir, InitTarget{})
 	if err != nil {
 		return res, err
 	}
@@ -161,30 +185,49 @@ func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult
 }
 
 // WriteInit writes what PlanInit planned, creating the file: it never overwrites
-// one, a dangling symlink included, even one that appeared since the plan.
+// one, a dangling symlink included, even one that appeared since the plan. A
+// sidecar is the user's alone (design.md D2): folder 0700, a folder already there
+// tightened to it, file 0600. A write that fails removes the file it created, so a
+// half-written config never blocks the next init or attach as "exists already".
 func WriteInit(res InitResult) error {
-	if err := os.MkdirAll(filepath.Dir(res.Path), 0o755); err != nil {
+	fileMode := os.FileMode(0o644)
+	mkdir := func(dir string) error { return os.MkdirAll(dir, 0o755) }
+	if res.Sidecar {
+		fileMode, mkdir = 0o600, config.EnsurePrivateDir
+	}
+	if err := mkdir(filepath.Dir(res.Path)); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(res.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(res.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("%s %w; edit it, or remove it to start again", res.Path, ErrConfigExists)
 		}
 		return err
 	}
-	if _, err := f.Write(res.Body); err != nil {
-		f.Close()
-		return err
+	// O_EXCL made the file, so it is this write's to remove.
+	err = writeBody(f, res.Body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	return f.Close()
+	if err != nil {
+		os.Remove(res.Path)
+	}
+	return err
+}
+
+// writeBody writes a planned config's bytes; a test swaps it to fail the write.
+var writeBody = func(f *os.File, body []byte) error {
+	_, err := f.Write(body)
+	return err
 }
 
 // PlanInit is what `panel init` would write for the repository at dir, and why,
 // without writing it (PANEL-22: the page's "Add a project…" shows it first). It reads
 // the repository's files and git's read-only plumbing; it runs nothing the
-// repository names.
-func PlanInit(ctx context.Context, run signals.Runner, dir string) (InitResult, error) {
+// repository names. The target changes where the plan goes and how its commands are
+// written, never how the repository is read (PANEL-42: attach reads it as init does).
+func PlanInit(ctx context.Context, run signals.Runner, dir string, target InitTarget) (InitResult, error) {
 	git := func(args ...string) (string, error) {
 		out, err := run(ctx, dir, append([]string{"git"}, args...))
 		return strings.TrimSpace(string(out)), err
@@ -195,18 +238,22 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string) (InitResult, 
 	}
 	root = signals.ResolvePath(root)
 	dir = root
-	path := filepath.Join(root, config.DefaultConfigRel)
+	own := filepath.Join(root, config.DefaultConfigRel)
+	path := own
+	if target.Path != "" {
+		path = target.Path
+	}
 	if _, err := os.Lstat(path); err == nil {
-		return InitResult{Path: path}, fmt.Errorf("%s %w; edit it, or remove it to start again", path, ErrConfigExists)
+		return InitResult{Path: path, Sidecar: target.Sidecar}, fmt.Errorf("%s %w; edit it, or remove it to start again", path, ErrConfigExists)
 	}
 	var notes []string
 	s := starter{Schema: config.SchemaURL, Version: config.LatestVersion}
 
-	s.Name = filepath.Base(root)
-	if config.TypableText(s.Name, 80) != nil || strings.HasPrefix(s.Name, "-") {
-		s.Name = "My Project"
-	}
+	s.Name = InitName(root)
 	notes = append(notes, fmt.Sprintf("name          %q, shown in the top bar", s.Name))
+	if _, err := os.Lstat(own); err == nil && target.Sidecar {
+		notes = append(notes, fmt.Sprintf("config        %s is here too, and the panel will not read it: it reads %s, the config the registry names", own, path))
+	}
 
 	defBranch, base, why := detectBase(git)
 	s.Base = base
@@ -219,7 +266,7 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string) (InitResult, 
 	notes = append(notes, fmt.Sprintf("worktree_dir  %s (%s)", s.WorktreeDir, why))
 
 	gates := detectGates(root)
-	isOM := operatingModel(root, &s, gates, &notes)
+	isOM := operatingModel(root, &s, gates, &notes, target.Sidecar)
 	switch {
 	case len(s.Queues) > 0: // the operating model's gate, noted with what else was found
 	case len(gates) == 0:
@@ -252,7 +299,18 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string) (InitResult, 
 	if _, err := config.ParseConfig(buf.Bytes()); err != nil {
 		return InitResult{}, fmt.Errorf("the starter config does not validate (a bug): %w", err)
 	}
-	return InitResult{Path: path, Body: buf.Bytes(), Notes: notes}, nil
+	return InitResult{Path: path, Body: buf.Bytes(), Notes: notes, Sidecar: target.Sidecar}, nil
+}
+
+// InitName is the name init gives the repository at root: its directory's name, or
+// "My Project" when that is not typable. Attach slugs it into the project's id before
+// it plans, since the id names the sidecar's folder.
+func InitName(root string) string {
+	n := filepath.Base(root)
+	if config.TypableText(n, 80) != nil || strings.HasPrefix(n, "-") {
+		return "My Project"
+	}
+	return n
 }
 
 var baseOK = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)

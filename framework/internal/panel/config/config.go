@@ -966,31 +966,47 @@ func ValidHostName(n string) bool { return localhostNameRe.MatchString(n) }
 // print them.
 func (c *Config) RunList() []string {
 	var out []string
+	for _, e := range c.runEntries() {
+		out = append(out, e.line)
+	}
+	return out
+}
+
+// runEntry is one RunList line, with the argv it runs. A line that types text into
+// Claude (a first prompt, the resume line) has no argv: it is not a command, and the
+// sidecar rule does not judge it (design.md D5).
+type runEntry struct {
+	line    string
+	command []string
+}
+
+func (c *Config) runEntries() []runEntry {
+	var out []runEntry
 	for _, card := range c.Cards {
-		out = append(out, fmt.Sprintf("card %s runs %q (%s)", card.ID, card.Command, card.Refresh))
+		out = append(out, runEntry{fmt.Sprintf("card %s runs %q (%s)", card.ID, card.Command, card.Refresh), card.Command})
 	}
 	for _, q := range c.Queues {
 		if len(q.Command) > 0 {
-			out = append(out, fmt.Sprintf("queue %s runs %q on RUN", q.ID, q.Command))
+			out = append(out, runEntry{fmt.Sprintf("queue %s runs %q on RUN", q.ID, q.Command), q.Command})
 		}
 	}
 	for _, t := range c.Templates {
-		out = append(out, fmt.Sprintf("template %s types %q", t.ID, t.FirstPrompt))
+		out = append(out, runEntry{line: fmt.Sprintf("template %s types %q", t.ID, t.FirstPrompt)})
 		if t.Suggest != nil {
-			out = append(out, fmt.Sprintf("template %s suggests from %q (%s)", t.ID, t.Suggest.Command, t.Suggest.Refresh))
+			out = append(out, runEntry{fmt.Sprintf("template %s suggests from %q (%s)", t.ID, t.Suggest.Command, t.Suggest.Refresh), t.Suggest.Command})
 		}
 	}
 	if cmd := c.MetricsCommand(); len(cmd) > 0 {
-		out = append(out, fmt.Sprintf("metrics runs %q (%s)", cmd, c.MetricsRefresh()))
+		out = append(out, runEntry{fmt.Sprintf("metrics runs %q (%s)", cmd, c.MetricsRefresh()), cmd})
 	}
 	if h := c.WorktreeSetup; h != nil {
-		out = append(out, fmt.Sprintf("worktree_setup runs %q in each new lane's new worktree", h.Command))
+		out = append(out, runEntry{fmt.Sprintf("worktree_setup runs %q in each new lane's new worktree", h.Command), h.Command})
 	}
 	if h := c.WorktreeTeardown; h != nil {
-		out = append(out, fmt.Sprintf("worktree_teardown runs %q before Close lane removes a worktree", h.Command))
+		out = append(out, runEntry{fmt.Sprintf("worktree_teardown runs %q before Close lane removes a worktree", h.Command), h.Command})
 	}
 	if c.QuotaAutoResume {
-		out = append(out, fmt.Sprintf("quota_auto_resume types %q into a lane stopped by the usage limit, after the 5-hour reset", c.ResumeLine()))
+		out = append(out, runEntry{line: fmt.Sprintf("quota_auto_resume types %q into a lane stopped by the usage limit, after the 5-hour reset", c.ResumeLine())})
 	}
 	return out
 }

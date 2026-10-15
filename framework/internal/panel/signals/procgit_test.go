@@ -1,6 +1,9 @@
 package signals
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseGitStatusV2(t *testing.T) {
 	t.Parallel()
@@ -12,6 +15,27 @@ func TestParseGitStatusV2(t *testing.T) {
 	}
 	if g.Head != "1234abcd" || g.Branch != "change/x" || !g.HasUpstream || g.Ahead != 3 || g.Behind != 1 || g.Changed != 2 || g.Conflicts != 1 || g.Untracked != 2 || g.Dirty() != 5 {
 		t.Fatalf("%+v", g)
+	}
+	// The diff stat's pathspec: every tracked changed path, a rename's old one too,
+	// and no untracked one (PANEL-42).
+	if p, ok := TrackedChangedPaths([]byte(out)); !ok || strings.Join(p, "|") != "src/a.ts|new.ts|old.ts|x.ts" {
+		t.Fatalf("paths %q %v", p, ok)
+	}
+	quoted := "1 .M N... 100644 100644 100644 a b \"sp\\303\\251cial\\tname\"\n1 .M N... 100644 100644 100644 a b with space.go\n"
+	if p, ok := TrackedChangedPaths([]byte(quoted)); !ok || strings.Join(p, "|") != "spécial\tname|with space.go" {
+		t.Fatalf("quoted paths %q %v", p, ok)
+	}
+	// With core.quotePath=false git leaves a byte over 0x7f raw inside the quotes of a
+	// path it quotes for another reason (a tab): the path is those bytes, not U+FFFD.
+	// An escaped one (\377) is the byte too, and \a \b \f \v are git's escapes as well.
+	raw := "1 .M N... 100644 100644 100644 a b \"r\xffw\\tname\"\n1 .M N... 100644 100644 100644 a b \"\\377\\a\\b\\f\\v\\\"\\\\\"\n"
+	if p, ok := TrackedChangedPaths([]byte(raw)); !ok || strings.Join(p, "|") != "r\xffw\tname|\xff\a\b\f\v\"\\" {
+		t.Fatalf("raw-byte paths %q %v", p, ok)
+	}
+	for _, bad := range []string{"1 .M N... 100644 100644 100644 a b \"unterminated\n", "1 .M N... 100644 100644 100644 a b \"bad\\qescape\"\n", "1 .M N... 100644 100644 100644 a b \"short\\37\"\n", "2 R. N... 100644 100644 100644 a b R100 no-tab\n", "1 .M short\n"} {
+		if p, ok := TrackedChangedPaths([]byte(bad)); ok {
+			t.Errorf("%q read as the whole list: %q", bad, p)
+		}
 	}
 	g, err = ParseGitStatusV2([]byte("# branch.oid (initial)\n# branch.head main\n"))
 	if err != nil || g.HasUpstream || g.Dirty() != 0 {

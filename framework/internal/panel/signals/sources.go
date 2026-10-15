@@ -207,6 +207,29 @@ func ParseCardOutput(out []byte) CardOutput {
 	return CardOutput{Kind: "text", Lines: lines}
 }
 
+// WithStderr adds a command's stderr lines to a text card, after its stdout's, under
+// the same line limit. A JSON card is returned as it is: its stdout was parsed alone
+// first, and stderr would not be JSON (PANEL-42, design.md D5, Output).
+func (co CardOutput) WithStderr(stderr []byte) CardOutput {
+	if co.Kind != "text" || len(co.Lines) >= maxCardLines {
+		return co
+	}
+	lines := append([]string{}, co.Lines...)
+	for _, l := range strings.Split(string(bytes.TrimSpace(stderr)), "\n") {
+		l = strings.TrimRight(l, " \t\r")
+		if l == "" {
+			continue
+		}
+		lines = append(lines, l)
+		if len(lines) == maxCardLines {
+			lines = append(lines, "… (truncated)")
+			break
+		}
+	}
+	co.Lines = lines
+	return co
+}
+
 // AgentsFilterDir is the directory to pass as `claude agents --cwd`: the deepest
 // directory containing the project root and every worktree (worktrees may live
 // outside the root). "" when that is the filesystem root, where a filter would

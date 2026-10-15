@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -100,7 +101,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 func init() {
 	panelCmd.Flags().StringVar(&panelProject, "project", "", "a project to serve and open on, registered if it is not (default: git toplevel of the current directory)")
 	panelCmd.Flags().BoolVar(&panelOnly, "only", false, "serve --project alone, not every registered project")
-	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 	panelCmd.Flags().IntVar(&panelPort, "port", 4393, "loopback port; the panel refuses to start if it is taken")
 	panelCmd.Flags().BoolVar(&panelNoOpen, "no-open", false, "print the URL instead of opening a browser")
 	panelCmd.Flags().BoolVar(&panelUninstall, "uninstall-hooks", false, "remove the panel's hooks from ~/.claude/settings.json and exit")
@@ -109,10 +110,10 @@ func init() {
 	_ = panelCmd.Flags().MarkHidden("launchd")
 	panelCmd.Flags().BoolVar(&panelTrust, "trust-config", false, "trust panel.json as it is now, even if it changed since it was last trusted")
 	panelTrustCmd.Flags().StringVar(&trustProject, "project", "", "project root (default: git toplevel of the current directory)")
-	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 
 	panelInstallCmd.Flags().StringVar(&installProject, "project", "", "add this project (trusting its config) and make it the default; without it the registry must hold one")
-	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
 	panelInstallCmd.Flags().IntVar(&installPort, "port", 4393, "loopback port")
 	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
 	panelInstallCmd.Flags().StringVar(&installRemote, "remote-control", "", "all (every Claude session: remoteControlAtStartup), lanes (the panel's lanes start with --remote-control) or off; without it, asked once on a terminal")
@@ -123,9 +124,11 @@ func init() {
 	panelAddCmd.Flags().StringVar(&addConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
 	panelAddCmd.Flags().StringVar(&addID, "id", "", "the project's id in routes and the page (default: from its config's name)")
 	panelAddCmd.Flags().BoolVar(&addDefault, "default", false, "make it the default project")
+	panelAttachCmd.Flags().StringVar(&attachID, "id", "", "the project's id in routes, the page and the sidecar's folder (default: from the repository's name)")
+	panelAttachCmd.Flags().BoolVar(&attachDefault, "default", false, "make it the default project")
 	panelRemoveCmd.Flags().BoolVar(&removeForce, "force", false, "remove it even while lanes are registered (they keep running; their registry is kept)")
 	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd,
-		panelAddCmd, panelRemoveCmd, panelListCmd)
+		panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -143,7 +146,63 @@ var (
 	addID       string
 	addDefault  bool
 	removeForce bool
+
+	attachID      string
+	attachDefault bool
 )
+
+var panelAttachCmd = &cobra.Command{
+	Use:   "attach [<repo>]",
+	Short: "Serve a repository from a config outside it, writing nothing into it",
+	Long: `Read the repository as 'clauductor panel init' does, write the result to
+~/.clauductor/projects/<id>/panel.json (the sidecar) with every command an argv
+list and no shell text, and register the repository with that file as its config.
+Nothing is written into the repository. Like 'panel add', it does not trust the
+config: review it, then run 'clauductor panel trust --project <repo>'. An existing
+sidecar is never overwritten. A registered project is refused, unless its registry
+entry names no config and <repo>/.clauductor/panel.json does not exist (it is then
+attached in place, keeping its id, socket and lanes). <repo> defaults to the
+current directory's git toplevel.`,
+	Args:          cobra.MaximumNArgs(1),
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		project := ""
+		if len(args) == 1 {
+			project = args[0]
+		} else {
+			top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+			if err != nil {
+				return fmt.Errorf("not inside a git repository; pass the repository's path")
+			}
+			project = strings.TrimSpace(string(top))
+		}
+		res, err := install.Attach(context.Background(), install.AttachOptions{Home: home, Project: project, ID: attachID,
+			Run: signals.ExecRunner, Now: clock.System.Now(), MakeDefault: attachDefault})
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		e := res.Add.Entry
+		fmt.Fprintf(out, "Wrote %s:\n\n%s\n", e.ConfigPath(), res.Init.Body)
+		for _, n := range res.Init.Notes {
+			fmt.Fprintf(out, "  %s\n", n)
+		}
+		if res.InPlace {
+			fmt.Fprintf(out, "\nAttached %s in place: it keeps its id %q and tmux socket %s, and now reads this file.\n", e.Root, e.ID, e.Socket(res.Add.Cfg))
+		} else {
+			fmt.Fprintf(out, "\nRegistered %s as %q (%s), on tmux socket %s, reading this file.\n", e.Root, e.ID, res.Add.Cfg.Name, e.Socket(res.Add.Cfg))
+		}
+		fmt.Fprintf(out, "Nothing was written into %s. The file is yours to edit.\n", e.Root)
+		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n", e.Root)
+		followRunningPanel(out, home, e.Root, true)
+		return nil
+	},
+}
 
 var panelAddCmd = &cobra.Command{
 	Use:   "add",
@@ -218,7 +277,9 @@ var panelRemoveCmd = &cobra.Command{
 	Long: `Remove a project from ~/.clauductor/panel/projects.json. It never stops a lane and
 keeps the project's lane registry, so adding it again brings its lanes back. While
 lanes are registered it refuses unless --force. A running panel stops serving it
-within a second, with no restart.`,
+within a second, with no restart. A config outside the repository (an attached
+project's sidecar) stays too; remove prints the 'panel add --config' line that
+serves it again.`,
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -233,6 +294,13 @@ within a second, with no restart.`,
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Removed %q (%s) from %s. Its lanes, worktrees and lane registry are untouched.\n", e.ID, e.Root, config.ProjectsPath(home))
+		if install.ConfigOutside(e) {
+			// design.md D6: a config outside the repository stays, and adding the
+			// repository by its path alone would not find it. The line's paths are
+			// shell-quoted, so it runs as printed.
+			fmt.Fprintf(out, "Its config stays where it is, outside the repository: %s, in %s.\nTo serve it again: clauductor panel add --project %s --config %s\n",
+				e.ConfigPath(), filepath.Dir(e.ConfigPath()), install.ShellWord(e.Root), install.ShellWord(e.ConfigPath()))
+		}
 		followRunningPanel(out, home, e.Root, false)
 		return nil
 	},
@@ -278,11 +346,10 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			if err != nil {
 				return err
 			}
-			h, runs, err := install.TrustConfigReport(home, res.Entry.Root, res.Entry.Config)
-			if err != nil {
+			h, runs, err := install.TrustConfigReport(home, res.Entry.Root, res.Entry.ConfigPath())
+			if err := printTrust(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs, err); err != nil {
 				return err
 			}
-			install.PrintTrusted(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs)
 		}
 		if installRemote != "" && installRemote != install.RemoteAll && installRemote != install.RemoteLanes && installRemote != install.RemoteOff {
 			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
@@ -450,19 +517,29 @@ within 5 s.`,
 			}
 			project = strings.TrimSpace(string(top))
 		}
-		h, runs, err := install.TrustConfigReport(home, project, trustConfig)
+		// One path, resolved here, is both the file trusted and the one printed: the
+		// registry's config for a project it holds (design.md D7).
+		cfgPath, err := install.ConfigPathOf(home, project, trustConfig)
 		if err != nil {
 			return err
 		}
-		install.PrintTrusted(cmd.OutOrStdout(), configPathOf(project, trustConfig), h, runs)
-		return nil
+		h, runs, err := install.TrustConfigReport(home, project, cfgPath)
+		return printTrust(cmd.OutOrStdout(), cfgPath, h, runs, err)
 	},
 }
 
-// configPathOf is the config a --project/--config pair names.
-func configPathOf(project, cfg string) string {
-	if cfg != "" {
-		return cfg
+// printTrust prints what was trusted; or, for a config outside its repository that
+// the sidecar rule refuses (design.md D5), its report with each refused line marked,
+// and returns the refusal, so the command exits non-zero.
+func printTrust(w io.Writer, cfgPath, h string, runs []string, err error) error {
+	// Only a refusal with marked lines says "the lines marked below"; one with none
+	// (bytes changed, unreadable, unparseable) is its error alone, as live.go's refusal.
+	if sr := (*install.SidecarRefusedError)(nil); errors.As(err, &sr) && len(sr.Lines) > 0 && runs != nil {
+		install.PrintRefused(w, cfgPath, h, runs)
 	}
-	return filepath.Join(project, config.DefaultConfigRel)
+	if err != nil {
+		return err
+	}
+	install.PrintTrusted(w, cfgPath, h, runs)
+	return nil
 }

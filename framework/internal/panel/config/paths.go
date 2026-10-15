@@ -5,11 +5,94 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // PanelDir is ~/.clauductor/panel: the machine's panel files (port, pid, owner,
 // token, lock, logs) and one directory per project (ProjectDir).
 func PanelDir(home string) string { return filepath.Join(home, ".clauductor", "panel") }
+
+// SidecarPath is the config `panel attach` writes for a project, outside its
+// repository (PANEL-42, design.md D2): ~/.clauductor/projects/<id>/panel.json. A
+// readable folder per id, not ProjectDir's hash, because the owner edits it by hand.
+// The id must already match ProjectIDRe: it is a path segment here.
+func SidecarPath(home, id string) string {
+	return filepath.Join(home, ".clauductor", "projects", id, "panel.json")
+}
+
+// ResolveExisting is p with symlinks evaluated as far as it exists, component by
+// component as the kernel does: a symlink is followed before a later `..` applies, so
+// `link/..` is the link target's parent, not the link's (PANEL-42, design.md D5). From
+// the first component that does not exist, the rest is joined on lexically: a path not
+// there yet is where it will be written, through any symlinked folder above it. A `..`
+// that climbs back out of the missing part, to the folder that exists, resolves through
+// symlinks again: `mkdir -p x/../link/..` makes x, and the kernel then follows link. A
+// relative p is taken from the working directory. Never Clean p first: cleaning
+// applies `..` lexically, before the symlink under it is seen.
+func ResolveExisting(p string) string {
+	sep := string(filepath.Separator)
+	if !filepath.IsAbs(p) {
+		if wd, err := os.Getwd(); err == nil {
+			p = wd + sep + p
+		}
+	}
+	vol := filepath.VolumeName(p)
+	resolved := vol + sep
+	pending := strings.Split(p[len(vol):], sep)
+	// missing counts the components joined lexically past the last one that exists,
+	// so a `..` that brings it to 0 is back on a real, symlink-free folder.
+	missing, links := 0, 0
+	for len(pending) > 0 {
+		c := pending[0]
+		pending = pending[1:]
+		switch c {
+		case "", ".":
+			continue
+		case "..":
+			// resolved's existing part holds no symlink (each was followed), so its
+			// parent is the real one.
+			resolved = filepath.Dir(resolved)
+			if missing > 0 {
+				missing--
+			}
+			continue
+		}
+		next := filepath.Join(resolved, c)
+		if missing > 0 {
+			missing++
+			resolved = next
+			continue
+		}
+		fi, err := os.Lstat(next)
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			if err != nil {
+				missing = 1
+			}
+			resolved = next
+			continue
+		}
+		target, err := os.Readlink(next)
+		if links++; err != nil || links > 255 {
+			// A loop (the kernel's ELOOP) or an unreadable link: nothing past it opens.
+			// The link itself is the first missing component, so a `..` back over it
+			// leaves its (real) parent.
+			missing, resolved = 1, next
+			continue
+		}
+		if filepath.IsAbs(target) {
+			tv := filepath.VolumeName(target)
+			resolved, target = tv+sep, target[len(tv):]
+		}
+		pending = append(strings.Split(target, sep), pending...)
+	}
+	return resolved
+}
+
+// Within: p is root or inside it. Both are resolved.
+func Within(p, root string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
 
 // ProjectDir holds one project's panel files: the lane registry, trusted config
 // hashes, the notifier's state and queue logs. The hash keeps projects apart without

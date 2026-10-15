@@ -188,6 +188,9 @@ type ProjectSummary struct {
 	Blocking   int   `json:"blocking"`
 	OldestWait int64 `json:"oldestWait,omitempty"` // unix ms
 	Restorable int   `json:"restorable"`
+	// Config is the project's config path, set only when it is outside the
+	// repository (an attached project's sidecar, PANEL-42): the row says so.
+	Config string `json:"config,omitempty"`
 }
 
 // Summarize derives a project's menu entry from its view.

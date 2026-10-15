@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/web"
 )
@@ -43,7 +44,8 @@ func loadProjects(ctx context.Context, o Options, reg *config.Projects, primary 
 				return nil, nil, err
 			}
 			fmt.Fprintf(o.Out, "project %s not loaded: %v\n", e.ID, err)
-			failed = append(failed, web.ProjectSummary{ID: e.ID, Name: e.ID, Error: signals.Clip(err.Error(), 200), Default: e.ID == reg.Default})
+			failed = append(failed, web.ProjectSummary{ID: e.ID, Name: e.ID, Error: signals.Clip(err.Error(), 200), Default: e.ID == reg.Default,
+				Config: install.OutsideConfig(e)})
 			if firstErr == nil {
 				firstErr = err
 			}

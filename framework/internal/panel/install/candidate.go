@@ -210,7 +210,7 @@ func Inspect(ctx context.Context, o InspectOptions) (Candidate, error) {
 		} else {
 			c.Name = cfg.Name
 			c.Hash = ConfigHash(raw)
-			c.Runs = append(c.Runs, cfg.RunList()...)
+			c.Runs = append(c.Runs, TrustRuns(c.Root, c.ConfigPath, cfg)...)
 			tv, terr := CheckTrust(o.Home, c.Root, c.ConfigPath, c.Hash, false)
 			c.Trusted, c.Prev = terr == nil && tv.Trusted, tv.Prev
 		}

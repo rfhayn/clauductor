@@ -32,6 +32,34 @@ choice: an installed plugin's skills load in every repository in its scope. `/cl
 also writes `enabledPlugins` and `extraKnownMarketplaces` into the repository's
 `.claude/settings.json`, so a teammate who clones it is offered the plugin.
 
+## At user scope
+
+Project scope stays the recommendation for a repository that runs the model. A plugin installed
+at user scope (`claude plugin install clauductor@clauductor --scope user`) is enabled in every
+repository you open, the model's or not. In a repository that does not run the model (no
+`.claude/clauductor-plugin`), that means:
+
+- **What loads:** the `/clauductor:*` skills and the plugin's agents, namespaced so they never
+  collide with the repository's own; `clauductor-model` on the Bash tool's `PATH`; and the
+  SessionStart hook (`hooks/plugin-session.sh`). That hook records where the loaded plugin version
+  lives, in the plugin's own data directory outside the repository, and says nothing there.
+- **What does not:** the guard hooks (`pr-merge-guard`, `no-blind-source-rewrite`,
+  `no-background-gate`, `format`, `focus-staleness`). Each runs through `hooks/if-project.sh`,
+  which stands aside (exit 0, payload unread) in a repository without `.claude/clauductor-plugin`.
+  So they never judge a call there beside the repository's own guards.
+
+**The per-repository opt-out.** A repository with an operating model of its own (one the panel
+serves through `clauductor panel attach`, say: [docs/panel.md](panel.md#attach-a-repository-without-writing-to-it))
+can turn the plugin off, so its skills are not offered there at all. Put this in the repository's
+uncommitted `.claude/settings.local.json`:
+
+```json
+{ "enabledPlugins": { "clauductor@clauductor": false } }
+```
+
+The file is yours, never committed: where the repository's `.gitignore` does not cover it, list it
+in `.git/info/exclude`. Nothing checks that a repository has turned the plugin off.
+
 ## Install with the binary
 
 ```bash

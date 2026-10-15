@@ -2,6 +2,8 @@ package panel
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -23,7 +25,8 @@ func TestCardsStaleWhenTheirCheckoutIsBehind(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		ran = append(ran, argv)
-		if argv[0] == "git" && argv[3] == "status" && argv[2] == "/repo" {
+		// Matched on the whole argv, whatever global options precede -C.
+		if j := strings.Join(argv, " "); argv[0] == "git" && strings.Contains(j, " -C /repo status ") {
 			return []byte(status), nil
 		}
 		return nil, nil
@@ -66,7 +69,7 @@ func TestCardsStaleWhenTheirCheckoutIsBehind(t *testing.T) {
 	}
 	mu.Lock()
 	for _, argv := range ran {
-		if argv[0] == "git" && argv[3] == "fetch" {
+		if argv[0] == "git" && slices.Contains(argv, "fetch") {
 			t.Errorf("the stale check fetched: %v", argv)
 		}
 	}
