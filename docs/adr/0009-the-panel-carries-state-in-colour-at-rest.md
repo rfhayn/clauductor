@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-10-16
 - **Tags**: panel, design
-- **Source**: PANEL-45 (`changes/panel-45-ui-design/`): the owner's choice of variant 4, the hybrid,
+- **Source**: PANEL-45 (`changes/archive/2026-10-16-panel-45-ui-design/`): the owner's choice of variant 4, the hybrid,
   on 2026-10-16 (`tasks.md` 2.5); its rules panel (`mockups/4-hybrid.html`, `SHARED_RULES`,
   `tellsRules` and the variant's `rules`); `docs/prds/active/PRD-ui.md` decision 1
 
@@ -26,7 +26,7 @@ This record makes the hybrid's rules exact, so that PANEL-46 can build them and
 tested contract: the look is not re-decided by whoever next edits `panel.css`.
 
 ## Decision
-**The panel is drawn as `changes/panel-45-ui-design/mockups/4-hybrid.html`, under the rules
+**The panel is drawn as `changes/archive/2026-10-16-panel-45-ui-design/mockups/4-hybrid.html`, under the rules
 below.** Where the mockup and these rules disagree, the rules win; the mockup's rules panel is an
 annotation and is outside them. Sizes are CSS pixels at 100% (`panel.css` sets rem, at a 16 px
 root: 11 px is `.6875rem`).
@@ -274,6 +274,6 @@ harness's screenshots in the review of every UI row (PANEL-46). Until PANEL-46 m
 record: today's test holds the rules it supersedes.
 
 ## Related
-- `changes/panel-45-ui-design/` (the mockups, the inventory, the parked rows); PANEL-46, which
+- `changes/archive/2026-10-16-panel-45-ui-design/` (the mockups, the inventory, the parked rows); PANEL-46, which
   builds this; `docs/prds/active/PRD-ui.md`
 - PANEL-37, PANEL-38 (Pulse) and PANEL-50 (the top contributors), drawn into the layout above

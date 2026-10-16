@@ -39,7 +39,7 @@ The owner judged the panel's UI to be the weakest part of Clauductor, in both fu
 ## The choice (the owner, 2026-10-16)
 
 PANEL-45 drew one direction (a modern developer tool with mission control's terminal) in three terminal models, and
-the owner chose a mix of two: **variant 4, the hybrid** (`changes/panel-45-ui-design/mockups/4-hybrid.html`), with
+the owner chose a mix of two: **variant 4, the hybrid** (`changes/archive/2026-10-16-panel-45-ui-design/mockups/4-hybrid.html`), with
 Overview first's home of lane tiles and a lane opened as Stage lays it out, Context, Pull request and Run beneath the
 terminal. Its rules, and the lines of "grey at rest" they replace, are
 [ADR-0009](../../adr/0009-the-panel-carries-state-in-colour-at-rest.md). The nine parked rows went as PANEL-45

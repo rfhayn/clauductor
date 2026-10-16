@@ -1,6 +1,7 @@
 # Tasks: panel-45-ui-design
 
 ## Progress
+- 2026-10-16 archived: actual cost about $31.74 of budget $50: `change-cost.sh` reports $5.69, and the builder and reviewer agents it cannot see (their transcripts record the lead session's branch, `main`) add $26.05 priced directly at list price (claude-opus-5-5); the orchestrator's own share of this session is not attributed
 - 2026-10-15 proposed, then revised the same day by the owner's steer (D2, D3, D11): one modern direction with mission control's terminal, drawn in three terminal models; nothing built yet
 - 2026-10-15 group 1 done: `mockups/data.js` captured from the harness (by the orchestrator); `mockups/README.md` holds the inventory (135 functions, 11 groups) and the parked-row table with recommendations, the owner's column empty. Next: group 2, the three variants.
 - 2026-10-16 group 1 (The data and the inventory) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2)
