@@ -1,0 +1,1081 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview first: PANEL-45 mockup</title>
+<!-- PANEL-45, variant 2 of 3: Overview first. A still mockup of the panel's new look (changes/panel-45-ui-design,
+     design D1 to D3, D6, D11). Self-contained: its CSS, its script and the subset of mockups/data.js it draws are
+     inline, so it opens from disk with no network and no build. The terminal is a still of captured text.
+     Query parameters: mode=light|dark, view=home|lane (default home), screen=lane|menu|palette|rules, lane=<a lane's name> (default waiting, the lane that needs you). Clicking switches the same states; Escape closes, ⌘K opens the palette,
+     R opens the rules. -->
+<script>(function(){var m=new URLSearchParams(location.search).get("mode");document.documentElement.dataset.theme=m==="light"||m==="dark"?m:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")})()</script>
+<style>
+/* ONE theme, two modes, each set on its own (D3). Light lifts panes with soft shadow on a
+   grey page; dark lifts them with a one-pixel light ring on near-black, and keeps real
+   shadow for what floats. The terminal is dark in both. */
+:root{
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-data: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-term: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --r-ctl: 8px; --r-card: 10px; --r-pane: 14px;
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --term-bg:#0C0D11; --term-head:#121318; --term-line:rgba(255,255,255,.07);
+  --t-ink:#D5D8DF; --t-dim:#6B7080; --t-mid:#9AA0AD; --t-green:#5BD38F; --t-cyan:#6CC5EE;
+  --t-yellow:#E8C46B; --t-red:#FF7B80; --t-claude:#E38B63; --t-violet:#ABA8FF; --t-link:#80B8FF;
+  --side-w: 252px; --pulse-w: 304px;
+  color-scheme: light dark;
+}
+:root[data-theme=light]{
+  color-scheme: light;
+  --bg:#F2F2F4; --surface:#FFFFFF; --surface-2:#F8F8FA; --sunk:#EDEDF0;
+  --hover:rgba(18,20,30,.045); --hover-2:rgba(18,20,30,.075); --track:rgba(18,20,30,.08);
+  --line:rgba(18,20,30,.08); --line-2:rgba(18,20,30,.13);
+  --ink:#191A20; --ink-2:#555965; --ink-3:#71757F;
+  --shadow-1:0 0 0 1px rgba(18,20,30,.06), 0 1px 2px rgba(18,20,30,.05);
+  --shadow-2:0 0 0 1px rgba(18,20,30,.06), 0 2px 4px rgba(18,20,30,.04), 0 10px 24px -8px rgba(18,20,30,.12);
+  --shadow-pop:0 0 0 1px rgba(18,20,30,.09), 0 4px 10px rgba(18,20,30,.06), 0 24px 56px -12px rgba(18,20,30,.28);
+  --shadow-term:0 0 0 1px rgba(18,20,30,.10), 0 12px 32px -10px rgba(18,20,30,.38);
+  --scrim:rgba(24,26,34,.28);
+  --accent:#5B5BD6; --accent-soft:rgba(91,91,214,.10); --accent-ink:#4646C0; --on-accent:#fff;
+  --work:#18A058; --work-soft:rgba(24,160,88,.11); --work-ink:#12733F;
+  --wait:#D98307; --wait-soft:rgba(217,131,7,.13); --wait-ink:#9A5A00;
+  --need:#E5484D; --need-soft:rgba(229,72,77,.10); --need-ink:#C22A30; --need-ring:rgba(229,72,77,.32);
+  --idle:#A3A6B0; --idle-soft:rgba(110,114,126,.10); --idle-ink:#5D616C;
+  --seg1:#5B5BD6; --seg2:#7E7DE4; --seg3:#A1A0EE; --seg4:#C1C0F4; --seg5:#DAD9F9; --seg6:#E6E6EC;
+  --heat0:#EBEBEF; --heat1:#D7D6F7; --heat2:#ADABF0; --heat3:#8483E6; --heat4:#5B5BD6;
+}
+:root[data-theme=dark]{
+  color-scheme: dark;
+  --bg:#0A0A0D; --surface:#141519; --surface-2:#18191E; --sunk:#0F1013;
+  --hover:rgba(255,255,255,.04); --hover-2:rgba(255,255,255,.075); --track:rgba(255,255,255,.08);
+  --line:rgba(255,255,255,.065); --line-2:rgba(255,255,255,.11);
+  --ink:#ECEDEF; --ink-2:#A2A5AF; --ink-3:#7F838E;
+  --shadow-1:0 0 0 1px rgba(255,255,255,.06);
+  --shadow-2:0 0 0 1px rgba(255,255,255,.065), 0 1px 0 rgba(255,255,255,.03) inset;
+  --shadow-pop:0 0 0 1px rgba(255,255,255,.10), 0 28px 64px -12px rgba(0,0,0,.75), 0 4px 12px rgba(0,0,0,.4);
+  --shadow-term:0 0 0 1px rgba(255,255,255,.08);
+  --term-bg:#08090B; --term-head:#0E0F12;
+  --scrim:rgba(0,0,0,.52);
+  --accent:#8F8DFF; --accent-soft:rgba(143,141,255,.14); --accent-ink:#ADABFF; --on-accent:#0A0A0D;
+  --work:#3CD68A; --work-soft:rgba(60,214,138,.12); --work-ink:#5BE2A0;
+  --wait:#F4A62A; --wait-soft:rgba(244,166,42,.13); --wait-ink:#FFC25C;
+  --need:#FF6168; --need-soft:rgba(255,97,104,.12); --need-ink:#FF8A8F; --need-ring:rgba(255,97,104,.38);
+  --idle:#6E717C; --idle-soft:rgba(255,255,255,.06); --idle-ink:#A2A5AF;
+  --seg1:#8F8DFF; --seg2:#7270DE; --seg3:#5A58BE; --seg4:#47469C; --seg5:#38377C; --seg6:#26272F;
+  --heat0:#1B1C22; --heat1:#2A2958; --heat2:#3F3D8C; --heat3:#6260C8; --heat4:#8F8DFF;
+}
+*,*::before,*::after{box-sizing:border-box}
+b,strong,h1,h2,h3{font-weight:600}
+html,body{height:100%;margin:0}
+body{font:400 13px/1.45 var(--font-ui);color:var(--ink);background:var(--bg);overflow:hidden;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+.mono,.num{font-family:var(--font-data);font-variant-numeric:tabular-nums lining-nums slashed-zero;font-size:12px}
+.muted{color:var(--ink-2)} .faint{color:var(--ink-3)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s{width:14px;height:14px}
+
+/* ---- app frame ---- */
+#app{height:100vh;display:grid;grid-template-rows:minmax(0,1fr);grid-template-columns:var(--side-w) minmax(0,1fr);transition:grid-template-columns .32s var(--ease)}
+.main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:0 10px 10px 0}
+.body{flex:1;min-height:0;display:grid;gap:10px;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1fr) var(--pulse-w);transition:grid-template-columns .32s var(--ease)}
+.col{min-height:0;min-width:0;display:flex;flex-direction:column;gap:10px}
+.pane{background:var(--surface);border-radius:var(--r-pane);box-shadow:var(--shadow-2)}
+.scroll{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
+
+/* ---- sidebar ---- */
+.side{min-width:0;min-height:0;display:flex;flex-direction:column;padding:10px 10px 10px 10px;gap:4px;overflow:hidden}
+.proj{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:var(--r-card);width:100%}
+.proj:hover,.proj.on{background:var(--hover)}
+.ptile{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:600;font-size:13px;color:#fff;
+  background:#3A6FD8;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);flex:none;position:relative}
+.ptile.b{background:#0F8A7E} .ptile.z{background:#B5651D} .ptile.g{background:#7A7F8C}
+.ptile .badge{position:absolute;top:-4px;right:-5px}
+.pname{display:flex;flex-direction:column;min-width:0;flex:1;line-height:1.25}
+.pname b{font-weight:600;font-size:13.5px}
+.pname small{font-size:11.5px;color:var(--ink-3);font-family:var(--font-data)}
+.search{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 10px;margin:6px 0 4px;border-radius:var(--r-ctl);
+  background:var(--surface);box-shadow:var(--shadow-1);color:var(--ink-3);width:100%;font-size:12.5px}
+.search span.t{flex:1}
+.nav{display:flex;flex-direction:column;gap:1px;margin-bottom:6px}
+.nitem{display:flex;align-items:center;gap:9px;height:28px;padding:0 8px;border-radius:8px;color:var(--ink-2);font-size:12.5px;width:100%}
+.nitem:hover{background:var(--hover);color:var(--ink)}
+.nitem .kbd{margin-left:auto}
+.sh{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;margin-top:8px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.sh .grow{flex:1}
+.count{font-size:11.5px;font-weight:500;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.count.need{color:var(--need-ink)}
+.sbody{display:flex;flex-direction:column;gap:1px;min-height:0}
+.lanes{flex:1;min-height:0;overflow:auto;scrollbar-width:none;mask-image:linear-gradient(#000 calc(100% - 24px),transparent)}
+.lrow{position:relative;display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:8px;width:100%;color:var(--ink);font-size:13px;
+  transition:background .2s var(--ease)}
+.lrow:hover{background:var(--hover)}
+.lrow.sel{background:var(--surface);box-shadow:var(--shadow-1)}
+:root[data-theme=dark] .lrow.sel{background:var(--hover-2);box-shadow:none}
+.lrow .ln{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow .lm{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.lrow .lm.warn{color:var(--wait-ink)} .lrow .lm.crit{color:var(--need-ink)}
+.lrow.need{background:var(--need-soft);animation:breathe 2.8s ease-in-out infinite}
+.lrow.need .lm{color:var(--need-ink)}
+.lrow .more{opacity:0;margin-left:2px;color:var(--ink-3);display:grid;place-items:center;width:20px;height:20px;border-radius:6px}
+.lrow:hover .more,.lrow.sel .more{opacity:1}
+.ask{display:block;width:100%;padding:9px 10px 10px;border-radius:var(--r-card);background:var(--surface);box-shadow:var(--shadow-1);position:relative;overflow:hidden}
+.ask::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--need)}
+.ask .top{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
+.ask .top b{color:var(--ink);font-weight:600;font-size:13px}
+.ask .top .age{margin-left:auto;font-family:var(--font-data);font-size:11.5px;color:var(--need-ink)}
+.ask .what{margin-top:4px;font-family:var(--font-data);font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alert{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12px;color:var(--ink-2);line-height:1.35;width:100%}
+.alert:hover{background:var(--hover)}
+.alert svg{color:var(--wait);margin-top:1px}
+.alert b{color:var(--ink);font-weight:500}
+.alert>span:nth-child(2){flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lost{display:flex;align-items:center;gap:9px;padding:6px 6px 6px 8px;border-radius:8px;border:1px dashed var(--line-2);font-size:12.5px;margin-top:2px}
+.lost .ln{flex:1;min-width:0}
+.lost small{display:block;color:var(--ink-3);font-size:11.5px;line-height:1.3}
+.prow{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:8px;font-size:12.5px;width:100%;color:var(--ink-2)}
+.prow:hover{background:var(--hover)}
+.prow .ptile{width:18px;height:18px;border-radius:6px;font-size:11px}
+.prow .ln{flex:1}
+.prow .lm{font-size:11.5px;color:var(--ink-3)}
+.prow .lm.warn{color:var(--wait-ink)} .prow .lm.crit{color:var(--need-ink)}
+.side-foot{margin-top:auto;padding:8px 4px 0;display:flex;align-items:center;gap:8px;border-top:1px solid var(--line)}
+.live{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2);padding:4px 6px;border-radius:6px}
+.live:hover{background:var(--hover)}
+.ver{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3);display:inline-flex;align-items:center;gap:5px;padding:4px 6px;border-radius:6px}
+.ver:hover{background:var(--hover)}
+.seg{display:inline-flex;margin-left:auto;padding:2px;border-radius:8px;background:var(--sunk);box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{width:26px;height:22px;display:grid;place-items:center;border-radius:6px;color:var(--ink-3)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+:root[data-theme=dark] .seg button.on{background:var(--hover-2)}
+
+/* ---- state: dots and chips ---- */
+.dot{width:8px;height:8px;border-radius:50%;flex:none;position:relative;background:var(--idle)}
+.dot.work{background:var(--work)} .dot.wait{background:var(--wait)} .dot.need{background:var(--need)}
+.dot.idle{background:transparent;box-shadow:inset 0 0 0 1.5px var(--idle)}
+.dot.lost{background:transparent;border:1.5px dashed var(--ink-3)}
+.dot.work::after,.dot.need::after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;animation:ping 2s var(--ease) infinite}
+.dot.need::after{animation-duration:1.4s}
+.dot.ok{background:var(--work)} .dot.fail{background:var(--need)}
+@keyframes ping{0%{transform:scale(1);opacity:.6}75%,100%{transform:scale(2.7);opacity:0}}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 3px var(--need-ring)}}
+@keyframes enter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes forward{from{opacity:.4;transform:scale(.94)}to{opacity:1;transform:none}}
+.chip{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px 0 7px;border-radius:999px;font-size:11.5px;font-weight:500;
+  background:var(--idle-soft);color:var(--idle-ink);white-space:nowrap;transition:background .2s,color .2s}
+.chip .dot{width:6px;height:6px}
+.chip.work{background:var(--work-soft);color:var(--work-ink)}
+.chip.wait{background:var(--wait-soft);color:var(--wait-ink)}
+.chip.need{background:var(--need-soft);color:var(--need-ink)}
+.chip.lost{background:transparent;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--ink-2)}
+.chip.acc{background:var(--accent-soft);color:var(--accent-ink)}
+.chip.plain{background:var(--sunk);color:var(--ink-2)}
+.badge{min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--need);color:#fff;font-size:11px;font-weight:600;display:inline-grid;place-items:center;line-height:1}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;font-size:11.5px;color:var(--ink-2);background:var(--sunk);white-space:nowrap}
+.sample{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:500;color:var(--accent-ink);
+  box-shadow:inset 0 0 0 1px var(--accent-soft);background:repeating-linear-gradient(135deg,transparent 0 5px,var(--accent-soft) 5px 6px)}
+.kbd{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:6px;font:500 11.5px/1 var(--font-ui);color:var(--ink-3);
+  background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line-2)}
+
+/* ---- controls ---- */
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:var(--r-ctl);font-size:12.5px;font-weight:500;
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1);white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--ink);color:var(--bg);box-shadow:none}
+.btn.ghost{background:transparent;box-shadow:none;color:var(--ink-2)} .btn.ghost:hover{background:var(--hover);color:var(--ink)}
+.btn .kbd{height:18px;min-width:18px;background:transparent;box-shadow:inset 0 0 0 1px currentColor;color:inherit;opacity:.6}
+.ib{width:28px;height:28px;display:inline-grid;place-items:center;border-radius:var(--r-ctl);color:var(--ink-2)}
+.ib:hover{background:var(--hover);color:var(--ink)}
+.ib.sm{width:22px;height:22px;border-radius:6px}
+
+/* ---- top bar and its figure strip ---- */
+.top{height:52px;flex:none;display:flex;align-items:center;gap:12px;padding:0 2px 0 6px}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;flex:none;white-space:nowrap}
+.crumb .faint{display:inline-flex}
+.crumb b{font-weight:600}
+.figs{margin-left:auto;display:flex;align-items:stretch;height:34px;border-radius:10px;background:var(--surface);box-shadow:var(--shadow-1);overflow:hidden;flex:none}
+.fig{display:flex;align-items:center;gap:7px;padding:0 10px;font-size:12px;color:var(--ink-2);white-space:nowrap;position:relative}
+.fig+.fig::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:1px;background:var(--line)}
+.fig:hover{background:var(--hover)}
+.fig .k{color:var(--ink-3)}
+.fig .v{font-family:var(--font-data);font-size:12px;color:var(--ink)}
+.fig .v.warn{color:var(--wait-ink)} .fig .v.crit{color:var(--need-ink)}
+.mini{width:44px;height:5px;border-radius:999px;background:var(--track);position:relative;overflow:visible}
+.mini>i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--ink-2)}
+.mini>i.warn{background:var(--wait)} .mini>i.crit{background:var(--need)}
+.stack{display:flex;width:52px;height:6px;border-radius:999px;overflow:hidden;gap:2px}
+.stack i{display:block;height:100%;border-radius:3px}
+.stack .work{background:var(--work)} .stack .need{background:var(--need)} .stack .idle{background:var(--track)}
+.econ{display:inline-flex;align-items:center;gap:5px;color:var(--ink)}
+.tools{display:flex;align-items:center;gap:6px;flex:none}
+
+/* ---- the terminal (dark in both modes) ---- */
+.term{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--term-bg);border-radius:var(--r-pane);box-shadow:var(--shadow-term);overflow:hidden;color:var(--t-ink);position:relative;
+  transition:box-shadow .25s var(--ease)}
+.term.typing{box-shadow:0 0 0 1.5px var(--accent), 0 0 0 5px var(--accent-soft), var(--shadow-term)}
+.term.need{box-shadow:0 0 0 1px var(--need-ring), var(--shadow-term);animation:breatheT 2.8s ease-in-out infinite}
+@keyframes breatheT{0%,100%{box-shadow:0 0 0 1px var(--need-ring), var(--shadow-term)}50%{box-shadow:0 0 0 1px var(--need), 0 0 0 5px var(--need-soft), var(--shadow-term)}}
+.thead{height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 8px 0 14px;background:var(--term-head);border-bottom:1px solid var(--term-line);min-width:0}
+.thead .tn{font-weight:600;font-size:13px;color:#F1F2F4;white-space:nowrap}
+.thead .br{font-family:var(--font-data);font-size:12px;color:var(--t-mid);white-space:nowrap;flex:none}
+.thead .tts{display:flex;gap:6px;min-width:0;flex:0 1 auto;overflow:hidden}
+.thead .tts .tt[hidden]{display:none}
+.thead .tt{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;font-size:11.5px;color:var(--t-mid);background:rgba(255,255,255,.055);white-space:nowrap}
+.thead .grow{flex:1}
+.thead .hint{font-size:12px;color:var(--t-dim);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.thead .hint .kbd{background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);color:var(--t-mid)}
+.thead .hint.typing{color:var(--accent-ink)}
+.thead .ib{color:var(--t-mid)} .thead .ib:hover{background:rgba(255,255,255,.07);color:#fff}
+.thead .tbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;font-size:12px;color:var(--t-ink);background:rgba(255,255,255,.06);white-space:nowrap}
+.thead .tbtn:hover{background:rgba(255,255,255,.1)}
+.thead .tbtn .kbd{height:16px;min-width:16px;font-size:11px;background:transparent;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);color:var(--t-mid)}
+.thead .chip.work{background:rgba(60,214,138,.12);color:#5BE2A0}
+.thead .chip.need{background:rgba(255,97,104,.14);color:#FF8A8F}
+.thead .chip.idle{background:rgba(255,255,255,.07);color:#A2A5AF}
+.thead .dot.idle{box-shadow:inset 0 0 0 1.5px #6E717C}
+.tbody{flex:1;min-height:0;overflow:hidden;padding:14px 18px;font:400 12.5px/1.52 var(--font-term);white-space:pre;font-variant-numeric:normal;
+  -webkit-font-smoothing:auto;position:relative}
+.tbody.bottom{display:flex;flex-direction:column;justify-content:flex-end}
+.tfoot{flex:none;display:flex;align-items:center;gap:10px;height:32px;padding:0 14px;border-top:1px solid var(--term-line);font-size:12px;color:var(--t-dim);background:var(--term-head)}
+.tfoot .num{font-size:11.5px;color:var(--t-mid)}
+.c-dim{color:var(--t-dim)} .c-mid{color:var(--t-mid)} .c-g{color:var(--t-green)} .c-c{color:var(--t-cyan)} .c-y{color:var(--t-yellow)}
+.c-r{color:var(--t-red)} .c-cl{color:var(--t-claude)} .c-v{color:var(--t-violet)} .c-b{font-weight:600;color:#F2F3F5}
+.c-link{color:var(--t-link);text-decoration:underline;text-decoration-color:rgba(128,184,255,.4);text-underline-offset:2px}
+.c-sel{background:rgba(143,141,255,.22);color:#fff;border-radius:3px}
+.cur{display:inline-block;width:.6em;height:1.15em;vertical-align:-.2em;background:#E6E8EC}
+.cur.off{background:transparent;box-shadow:inset 0 0 0 1px rgba(230,232,236,.6)}
+
+/* ---- sections (a lane's cards) ---- */
+.card{background:var(--surface);border-radius:var(--r-pane);box-shadow:var(--shadow-2);padding:14px 16px;min-width:0}
+.ch{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:12px;font-weight:500;color:var(--ink-2);min-height:20px}
+.ch .grow{flex:1}
+.ch h3{margin:0;font-size:12.5px;font-weight:600;color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px}
+.kv dt{color:var(--ink-3)} .kv dd{margin:0;color:var(--ink);text-align:right;font-family:var(--font-data);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big{font-family:var(--font-data);font-size:20px;font-weight:500;letter-spacing:-.01em;color:var(--ink)}
+.big small{font-size:12px;color:var(--ink-3);font-weight:400;margin-left:4px}
+.ctxbar{position:relative;height:10px;border-radius:999px;background:var(--track);display:flex;overflow:visible;margin:8px 0 4px}
+.ctxbar i{display:block;height:100%}
+.ctxbar i:first-child{border-radius:999px 0 0 999px}
+.ctxbar .mark{position:absolute;top:-4px;bottom:-4px;width:2px;border-radius:3px;background:var(--ink-3)}
+.scale{display:flex;justify-content:space-between;font-family:var(--font-data);font-size:11px;color:var(--ink-3)}
+.contrib{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.crow{display:grid;grid-template-columns:10px minmax(0,1fr) auto 64px;align-items:center;gap:8px;font-size:12px;height:22px}
+.crow .sw{width:8px;height:8px;border-radius:3px}
+.crow .what{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.crow .what .tool{color:var(--ink-3);margin-right:6px}
+.crow .tok{font-family:var(--font-data);font-size:12px;color:var(--ink-2);text-align:right}
+.crow .tb{height:4px;border-radius:999px;background:var(--track);overflow:hidden}
+.crow .tb i{display:block;height:100%;background:var(--ink-3);border-radius:999px}
+.rrow{display:flex;align-items:center;gap:8px;font-size:12px;height:24px}
+.rrow .grow{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ok{color:var(--work-ink)} .no{color:var(--need-ink)} .pend{color:var(--wait-ink)} .unk{color:var(--ink-3)}
+.bar{height:6px;border-radius:999px;background:var(--track);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--ink-2)}
+.bar i.warn{background:var(--wait)} .bar i.crit{background:var(--need)}
+.agent{display:flex;align-items:center;gap:8px;font-size:12px;height:24px}
+.agent .grow{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gantt{position:relative;height:18px;border-radius:6px;background:var(--sunk);margin-top:6px;overflow:hidden}
+.gantt i{position:absolute;top:4px;bottom:4px;border-radius:3px;background:var(--idle)}
+.gantt i.run{background:var(--work)}
+.prline{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:8px;min-width:0}
+.prline b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prline .num{color:var(--ink-3)}
+
+/* ---- Pulse ---- */
+.pulse{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.pulse .ph{display:flex;align-items:center;gap:8px;padding:14px 16px 6px}
+.pulse .ph h2{margin:0;font-size:13.5px;font-weight:600}
+.pulse .pb{flex:1;min-height:0;overflow:auto;padding:4px 16px 16px;scrollbar-width:none;mask-image:linear-gradient(#000 calc(100% - 56px),transparent)}
+.pulse .pb.end{mask-image:none}
+.pulse{position:relative}
+.belowcue{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 8px;border-radius:999px;font-size:11.5px;font-weight:500;color:var(--ink-2);background:var(--surface);box-shadow:var(--shadow-1);white-space:nowrap}
+.belowcue[hidden]{display:none}
+.psec{padding:12px 0;border-top:1px solid var(--line)}
+.psec:first-child{border-top:0}
+.psh{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--ink)}
+.psh .grow{flex:1} .psh .faint{font-weight:400}
+.routine{display:grid;grid-template-columns:8px minmax(0,1fr) auto auto;gap:2px 10px;align-items:center;padding:6px 0}
+.routine .rn{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.routine .rc{font-family:var(--font-data);font-size:12px;color:var(--ink-2);text-align:right}
+.routine .rs{grid-column:2 / 5;display:flex;gap:10px;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden}
+.routine .rf{grid-column:2 / 5;font-size:11.5px;color:var(--need-ink)}
+.routine .rs .no{color:var(--need-ink)}
+.runs{display:flex;gap:2px}
+.runs i{width:5px;height:12px;border-radius:3px;background:var(--work);opacity:.75}
+.runs i.f{background:var(--need);opacity:1}
+.heat{display:grid;grid-template-columns:18px repeat(24,1fr);gap:2px;align-items:center}
+.heat .hl{font-size:11px;color:var(--ink-3)}
+.heat i{display:block;aspect-ratio:1;border-radius:3px;background:var(--heat0)}
+.heat i.h1{background:var(--heat1)} .heat i.h2{background:var(--heat2)} .heat i.h3{background:var(--heat3)} .heat i.h4{background:var(--heat4)}
+.heat i.fut{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.heat i.now{box-shadow:0 0 0 1.5px var(--ink)}
+.heat .today{font-weight:600;color:var(--ink)}
+.hscale{display:grid;grid-template-columns:18px repeat(4,1fr);font-size:11px;color:var(--ink-3);margin-top:4px}
+.days{display:grid;grid-template-columns:repeat(14,1fr);gap:3px}
+.day{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0 6px;border-radius:8px;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line);font-size:11px;color:var(--ink-3)}
+.day b{font-size:11.5px;font-weight:500;color:var(--ink);font-family:var(--font-data)}
+.day.today{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent-ink)}
+.day.we{background:transparent}
+.day .pips{display:flex;flex-direction:column;gap:2px;align-items:center;min-height:16px}
+.day .pips i{width:4px;height:4px;border-radius:50%;background:var(--ink-3)}
+.day .pips i.q{width:10px;height:3px;border-radius:3px;background:var(--accent)}
+.legend{display:flex;gap:12px;margin-top:8px;font-size:11.5px;color:var(--ink-3);flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:4px;height:4px;border-radius:50%;background:var(--ink-3)}
+.legend i.q{width:10px;height:3px;border-radius:3px;background:var(--accent)}
+.flow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ftile{padding:9px 10px;border-radius:var(--r-card);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line)}
+.ftile .k{font-size:11.5px;color:var(--ink-3)}
+.ftile .v{font-family:var(--font-data);font-size:15px;font-weight:500;margin-top:2px}
+.ftile .v small{font-size:11.5px;color:var(--ink-3);font-weight:400}
+.ftile svg{display:block;width:100%;height:22px;margin-top:4px;stroke:var(--accent);fill:none;stroke-width:1.5}
+.pcard{padding:10px 12px;border-radius:var(--r-card);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line);font-size:12px;margin-bottom:8px}
+.pcard .pt{display:flex;align-items:center;gap:6px;font-weight:600;font-size:12px;margin-bottom:4px}
+.pcard .pt .faint{font-weight:400;margin-left:auto;font-size:11.5px}
+.pcard p{margin:3px 0;color:var(--ink-2);line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+/* ---- floating: menus, palette, rules ---- */
+.scrim{position:fixed;inset:0;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:40}
+.anim .scrim{animation:fade .16s ease}
+@keyframes fade{from{opacity:0}}
+.pop{position:fixed;z-index:50;background:var(--surface);border-radius:10px;box-shadow:var(--shadow-pop)}
+.anim .pop{animation:enter .16s var(--ease)}
+:root[data-theme=dark] .pop{background:#1A1B20}
+.pmenu{top:54px;left:10px;width:368px;padding:6px}
+.pmenu .mh{display:flex;align-items:center;gap:8px;padding:6px 8px 8px;font-size:11.5px;color:var(--ink-3)}
+.mrow{display:flex;align-items:flex-start;gap:10px;padding:8px;border-radius:8px;width:100%;position:relative}
+.mrow:hover,.mrow.act{background:var(--hover-2)}
+.mrow .ptile{width:28px;height:28px}
+.mrow .mt{flex:1;min-width:0}
+.mrow .mt b{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
+.mrow .mt .p{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.mrow .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.mrow .err{margin-top:4px;font-size:12px;color:var(--need-ink)}
+.mrow .warnl{margin-top:4px;font-size:12px;color:var(--wait-ink)}
+.mrow .check{color:var(--accent-ink);margin-top:6px}
+.msep{height:1px;background:var(--line);margin:6px 4px}
+.mfoot{display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;width:100%;font-size:12.5px;color:var(--ink-2)}
+.mfoot:hover{background:var(--hover-2);color:var(--ink)}
+.mfoot .kbd{margin-left:auto}
+.submenu{position:absolute;left:calc(100% + 6px);top:212px;width:208px;padding:5px}
+.submenu .mi{display:flex;align-items:center;gap:8px;height:30px;padding:0 9px;border-radius:8px;font-size:12.5px;width:100%}
+.submenu .mi:hover,.submenu .mi.act{background:var(--hover-2)}
+.submenu .mi.danger{color:var(--need-ink)}
+.palette{top:11vh;left:50%;width:min(680px,calc(100vw - 40px));margin-left:calc(min(680px,calc(100vw - 40px)) / -2);overflow:hidden}
+.pin{display:flex;align-items:center;gap:10px;height:54px;padding:0 16px;border-bottom:1px solid var(--line);font-size:15px}
+.pin .q{flex:1;color:var(--ink)}
+.pin .q .cur2{display:inline-block;width:1.5px;height:18px;background:var(--accent);vertical-align:-3px;margin-left:1px}
+.pin .ctx{font-size:12px;color:var(--ink-3)}
+.plist{max-height:min(470px,62vh);overflow:auto;padding:6px;scrollbar-width:none}
+.pg{padding:8px 10px 4px;font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.pi{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;border-radius:8px;width:100%;font-size:13px;color:var(--ink)}
+.pi .ico{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;background:var(--sunk);color:var(--ink-2);flex:none}
+.pi .ico.need{background:var(--need-soft);color:var(--need-ink)} .pi .ico.work{background:var(--work-soft);color:var(--work-ink)}
+.pi>span:nth-child(2){flex:none;white-space:nowrap}
+.pi .sub{flex:1;min-width:0;color:var(--ink-3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pi .r{margin-left:auto;display:flex;gap:4px;align-items:center;color:var(--ink-3);font-size:12px;flex:none}
+.pi.act{background:var(--hover-2)}
+.pi.act .ico{background:var(--accent);color:var(--on-accent)}
+.pfoot{display:flex;align-items:center;gap:14px;height:38px;padding:0 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3);background:var(--surface-2)}
+:root[data-theme=dark] .pfoot{background:rgba(255,255,255,.02)}
+.pfoot span{display:inline-flex;align-items:center;gap:5px}
+.pfoot .kbd{height:18px;min-width:18px}
+.pfoot .grow{flex:1}
+
+/* the rules panel is the mockup's annotation, not product UI: drawn as a note */
+.rules{position:fixed;top:10px;right:10px;bottom:10px;width:440px;z-index:60;display:flex;flex-direction:column;overflow:hidden}
+.anim .rules{animation:slidein .22s var(--ease)}
+@keyframes slidein{from{opacity:0;transform:translateX(16px)}}
+.rules header{display:flex;align-items:flex-start;gap:10px;padding:16px 16px 12px;border-bottom:1px solid var(--line)}
+.rules header h2{margin:0;font-size:15px;font-weight:600}
+.rules header p{margin:3px 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.rules .rb{flex:1;overflow:auto;padding:4px 16px 16px;scrollbar-width:thin}
+.rules details{border-bottom:1px solid var(--line);padding:10px 0}
+.rules summary{cursor:pointer;font-size:13px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px}
+.rules summary::-webkit-details-marker{display:none}
+.rules summary .n{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:11.5px;background:var(--accent-soft);color:var(--accent-ink);flex:none}
+.rules summary::after{content:"";margin-left:auto;width:7px;height:7px;border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);transform:rotate(45deg);transition:transform .2s}
+.rules details[open] summary::after{transform:rotate(-135deg)}
+.rules ul{margin:8px 0 2px;padding-left:18px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.rules li{margin:3px 0} .rules li b{color:var(--ink);font-weight:600}
+.rules .states{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-top:1px solid var(--line);background:var(--surface-2)}
+.rules .states a{font-size:12px;color:var(--ink-2);text-decoration:none;padding:4px 8px;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line-2)}
+.rules .states a.on{color:var(--accent-ink);box-shadow:inset 0 0 0 1px var(--accent)}
+.legendrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+@media (min-width:1700px){:root{--side-w:268px;--pulse-w:340px}}
+.figs.compact .fig{padding:0 8px}
+.sample.sm{height:16px;padding:0 5px;font-size:11px;flex:none}
+
+/* Overview first: tiles are home; opening a lane brings its terminal forward */
+.home{min-height:0;overflow:auto;padding:4px 6px 20px;scrollbar-width:none}
+.hh{display:flex;align-items:baseline;gap:10px;margin:2px 0 4px}
+.hh h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.gl{display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:12px;font-weight:500;color:var(--ink-3)}
+.gl .count{color:var(--ink-3)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:10px}
+.tiles.idle{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.tile{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;background:var(--surface);box-shadow:var(--shadow-1);min-width:0;
+  transition:transform .2s var(--ease),box-shadow .2s var(--ease)}
+.tile:hover{transform:translateY(-1px);box-shadow:var(--shadow-2)}
+.tile .th{display:flex;align-items:center;gap:8px;min-width:0}
+.tile .th b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.tile .tb2{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px}
+.tile .tl{font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prev{background:var(--term-bg);border-radius:8px;padding:8px 10px;font:400 11.5px/1.5 var(--font-term);color:var(--t-ink);white-space:pre;overflow:hidden;height:calc(4 * 1.5em + 16px);
+  box-shadow:inset 0 0 0 1px var(--term-line)}
+.tile .tf{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.tile .tf .mini{width:56px}
+.tile .tf .num{font-size:11.5px;color:var(--ink-2)}
+.tile .tf .grow{flex:1}
+.tile.compact{padding:10px 12px;gap:4px}
+.tile.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--line-2);border:0;align-items:center;justify-content:center;flex-direction:row;color:var(--ink-3);font-size:12.5px}
+.tile.ghost:hover{background:var(--hover);color:var(--ink)}
+.tile.lostt{background:transparent;box-shadow:none;border:1px dashed var(--line-2)}
+.spot{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(0,1.4fr);gap:18px;padding:16px;border-radius:14px;background:var(--surface);
+  box-shadow:0 0 0 1px var(--need-ring), var(--shadow-2);animation:breatheS 2.8s ease-in-out infinite}
+@keyframes breatheS{0%,100%{box-shadow:0 0 0 1px var(--need-ring), var(--shadow-2)}50%{box-shadow:0 0 0 1px var(--need), 0 0 0 5px var(--need-soft), var(--shadow-2)}}
+.spot .sl{display:flex;flex-direction:column;gap:8px;min-width:0}
+.spot .sl h2{margin:0;display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600}
+.spot .q{font-size:13px;color:var(--ink-2);line-height:1.5}
+.spot .q code{font-family:var(--font-data);font-size:12.5px;color:var(--ink);background:var(--sunk);padding:1px 6px;border-radius:6px}
+.spot .acts{display:flex;gap:8px;margin-top:auto;flex-wrap:wrap}
+.spot .why{font-size:12px;color:var(--ink-3)}
+.spot .prev{height:auto;min-height:0;font-size:12px;padding:12px 14px;box-shadow:inset 0 0 0 1px rgba(255,97,104,.25)}
+.lanecol{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
+.lanecol .term{flex:1}
+.anim .lanecol .term{animation:forward .26s var(--ease)}
+.film{display:flex;gap:6px;overflow-x:auto;padding:2px;flex:none;scrollbar-width:none;mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent)}
+.ft{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 11px;border-radius:8px;background:var(--surface);box-shadow:var(--shadow-1);font-size:12.5px;white-space:nowrap;flex:none}
+.ft:hover{background:var(--surface-2)}
+.ft.sel{box-shadow:0 0 0 1.5px var(--accent), var(--shadow-1)}
+.ft.need{animation:breathe 2.8s ease-in-out infinite}
+.ft .lm{font-family:var(--font-data);font-size:11.5px;color:var(--ink-3)}
+.ft .lm.warn{color:var(--wait-ink)} .ft .lm.crit{color:var(--need-ink)}
+.insp{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;scrollbar-width:none}
+.insp .card{flex:none}
+.colswitch{display:flex;align-items:center;gap:8px;padding:4px;border-radius:10px;background:var(--surface);box-shadow:var(--shadow-1);flex:none}
+.colswitch button{flex:1;height:28px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--ink-2);display:flex;align-items:center;justify-content:center;gap:6px}
+.colswitch button.on{background:var(--sunk);color:var(--ink)}
+:root[data-theme=dark] .colswitch button.on{background:var(--hover-2)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="over"></div>
+<script>
+// The captured harness data this variant draws (a subset of mockups/data.js, D4).
+const D = {"now":1792064140007,"projects":[{"id":"alpha","name":"Alpha","ok":true,"error":"","trusted":true,"working":3,"waiting":1,"idle":5,"needsYou":1,"blocking":1,"restorable":1},{"id":"beta","name":"Beta","ok":true,"error":"","trusted":true,"working":0,"waiting":0,"idle":1,"needsYou":0,"blocking":0,"restorable":0},{"id":"gamma","name":"gamma","ok":false,"error":"panel config: unexpected EOF","trusted":false,"working":0,"waiting":0,"idle":0,"needsYou":0,"blocking":0,"restorable":0},{"id":"zeta","name":"Zeta","ok":true,"error":"","trusted":false,"working":0,"waiting":0,"idle":0,"needsYou":0,"blocking":0,"restorable":0}],"alpha":{"name":"Alpha","root":"~/dev/alpha","quota":[{"key":"five_hour","label":"5-hour","pct":42,"resetsAt":1792071339},{"key":"seven_day","label":"7-day","pct":61,"resetsAt":1792323339}],"account":{"mode":"subscription","plan":"Max"},"estCostUsd":60.550000000000004,"needsYou":[{"name":"waiting","label":"Permission","severity":"block","text":"Bash(npm run test:e2e)","at":1792064128571}],"alerts":[{"kind":"context","severity":"warn","name":"stream","text":"context at 88% (alert at 85%)","since":1792064138748},{"kind":"approval_wait","severity":"warn","name":"","text":"change add-group-card has waited 3d for approval (no Approved line; alert at 1d)","since":1791804840000}],"prs":[{"number":41,"title":"Working: add the thing","author":"ux","isDraft":false,"checksPass":2,"checksFail":0,"checksPending":1,"review":"REVIEW_REQUIRED"},{"number":42,"title":"Waiting: needs a permission","author":"ux","isDraft":true,"checksPass":0,"checksFail":1,"checksPending":0,"review":""},{"number":43,"title":"deps: bump the routine group with 2 updates","author":"app/dependabot","isDraft":false,"checksPass":0,"checksFail":0,"checksPending":0,"review":"APPROVED"},{"number":44,"title":"Ready: all green","author":"ux","isDraft":false,"checksPass":2,"checksFail":0,"checksPending":0,"review":"APPROVED"}],"restore":["1 lane(s) lost their tmux session (a reboot, or the tmux server ended): orphan. RESTORE ALL resumes each on its own session id."],"orphan":{"name":"orphan","branch":"change/orphan","why":"its tmux session is gone (a reboot, or the tmux server ended)"},"hookEvents":35,"statusPosts":81,"dropped":0,"economy":{"active":true,"reason":"5-hour quota 42% ≥ 40%","roles":[{"role":"mechanic","to":"haiku, low"},{"role":"scribe","to":"sonnet, low"}]},"remoteControl":"lanes","gate":[{"title":"Gate","held":false,"waiters":0}],"observe":{"claudeVersion":"2.1.284","verifiedOn":"2.1.284","interrupts":0,"agentsPollMs":96},"verification":{"confirmed":0,"needed":3},"flow":[{"key":"flow.cycle_time","value":7.5,"series":[9,8,7,7,6,8,7,8,7,7],"source":"project"},{"key":"flow.merge_frequency","value":2.8,"series":[2.3,4.7,2.3,0,2.3,4.7,2.3,2.3,4.7,2.3],"source":"project"},{"key":"flow.change_fail_rate","value":8.3,"series":[0,0,50,0,0,0,0,0,0,0],"source":"project"},{"key":"cost.per_week","value":37.9,"series":[30,35,41,38,40,36,39,37,42,38],"source":"project"}],"autocompactPct":95,"suggestions":[{"name":"add-group-card","title":"one golfer enters the card","detail":"2C.27"},{"name":"fix-offline-sync","title":"sync after airplane mode","detail":"2C.31"}],"templates":[{"id":"propose","title":"Propose a roadmap row"},{"id":"fix","title":"Fix an issue"}],"laneTypes":[{"name":"build","prefix":"change/","model":"opus","effort":"high"},{"name":"fix","prefix":"fix/","model":"sonnet"},{"name":"orchestrator","prefix":""},{"name":"ship","prefix":"ship/","model":"sonnet"}],"cards":[{"title":"Founder queue","pin":true,"lines":["3 item(s) need the founder:","- **Box cleanup** (queued 2026-09-27). On the box, prune images and old volumes before the disk fills","- **Ideas page** open it once, then invite a designer","- **A deliberately long row title that keeps going to see how the pinned card box wraps or clips it at narrow widths**"]},{"title":"Change queue","pin":true,"lines":["2C.10 add-score-photo — photograph a scorecard — in flight","2C.27 add-group-card — one golfer enters the card — queued","2C.31 fix-offline-sync — sync after airplane mode — queued"]},{"title":"Health","pin":false,"lines":["gate: green","coverage: 81%"]}],"feed":[{"at":1792064138763,"name":"stream","event":"SubagentStart","detail":"general-purpose s8"},{"at":1792064138755,"name":"stream","event":"SubagentStop","detail":"general-purpose s4"},{"at":1792064128571,"name":"waiting","event":"PermissionRequest","detail":"Bash"},{"at":1792064128563,"name":"waiting","event":"Notification","detail":"permission_prompt Claude needs your permission to use Bash"},{"at":1792064128476,"name":"working","event":"SubagentStop","detail":"Explore a0a3449"},{"at":1792064128468,"name":"working","event":"PostToolUse","detail":"started (untyped) a0d75f6"},{"at":1792064128461,"name":"working","event":"SubagentStart","detail":"Explore a0d75f6"},{"at":1792064128453,"name":"working","event":"PreToolUse","detail":"Agent Explore: Survey the code"},{"at":1792064118654,"name":"stream","event":"SubagentStart","detail":"general-purpose s4"},{"at":1792064118646,"name":"stream","event":"SubagentStop","detail":"general-purpose s0"},{"at":1792064113389,"name":"working","event":"SubagentStop","detail":"Explore a1c7f62"},{"at":1792064113380,"name":"working","event":"PostToolUse","detail":"started (untyped) a0a3449"},{"at":1792064113371,"name":"working","event":"SubagentStart","detail":"Explore a0a3449"},{"at":1792064113363,"name":"working","event":"PreToolUse","detail":"Agent Explore: Survey the code"}],"lanes":[{"name":"idle","branch":"main","type":"orchestrator","status":"idle","waitingFor":"","path":"~/dev/alpha","ctxPct":12,"port":39100,"model":"Opus 4.1","pid":95828,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065938000,"costUsd":0.2,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":null,"lastEvent":"Stop","lastEventAt":1792064098134},{"name":"a-rather-long-lane-name-for-layout","branch":"change/a-rather-long-lane-name-for-layout","type":"build","status":"idle","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/a-rather-long-lane-name-for-layout","ctxPct":12,"port":39180,"model":"Opus 4.1","pid":97180,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065939000,"costUsd":0.2,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["no open pull request"],"pr":null,"rows":[{"name":"Pull request","text":"none open for change/a-rather-long-lane-name-for-layout","ok":false}]},"lastEvent":"Stop","lastEventAt":1792064099303},{"name":"budget","branch":"fix/budget","type":"fix","status":"busy","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/budget","ctxPct":71,"port":39190,"model":"Opus 4.1","pid":97410,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065939000,"costUsd":48.25,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":{"change":"budget","usd":20,"spent":0},"readiness":{"ready":false,"reasons":["no open pull request"],"pr":null,"rows":[{"name":"Pull request","text":"none open for fix/budget","ok":false}]},"lastEvent":"UserPromptSubmit","lastEventAt":1792064099439},{"name":"merged","branch":"change/merged","type":"build","status":"idle","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/merged","ctxPct":12,"port":39140,"model":"Opus 4.1","pid":96288,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065938000,"costUsd":0.2,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["no open pull request"],"pr":null,"rows":[{"name":"Pull request","text":"none open for change/merged","ok":false}]},"lastEvent":"Stop","lastEventAt":1792064098678},{"name":"quiet","branch":"change/quiet","type":"build","status":"idle","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/quiet","ctxPct":12,"port":39160,"model":"Opus 4.1","pid":96645,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065939000,"costUsd":0.2,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["no open pull request"],"pr":null,"rows":[{"name":"Pull request","text":"none open for change/quiet","ok":false}]},"lastEvent":"Stop","lastEventAt":1792064098985},{"name":"ready","branch":"change/ready","type":"build","status":"idle","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/ready","ctxPct":12,"port":39170,"model":"Opus 4.1","pid":96867,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065939000,"costUsd":0.2,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["review threads not read yet"],"pr":{"number":44,"title":"Ready: all green","isDraft":false},"rows":[{"name":"Pull request","text":"#44, open","ok":true},{"name":"Checks","text":"2 passed, 0 failed, 0 pending","ok":true},{"name":"Review","text":"approved","ok":true},{"name":"Review threads","text":"not read yet","ok":false,"unknown":true}]},"lastEvent":"Stop","lastEventAt":1792064099127},{"name":"stream","branch":"change/stream","type":"build","status":"busy","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/stream","ctxPct":88,"port":39130,"model":"Opus 4.1","pid":96202,"subagents":[{"type":"general-purpose","description":"","since":1792064138763}],"finished":2,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065938000,"costUsd":7.4,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["no open pull request"],"pr":null,"rows":[{"name":"Pull request","text":"none open for change/stream","ok":false}]},"lastEvent":"SubagentStart","lastEventAt":1792064138763},{"name":"waiting","branch":"change/waiting","type":"build","status":"waiting","waitingFor":"permission: Bash(npm run test:e2e)","path":"~/dev/alpha/.claude/worktrees/waiting","ctxPct":31,"port":39120,"model":"Opus 4.1","pid":96116,"subagents":[],"finished":0,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065938000,"costUsd":0.8,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":1,"stateSince":1792064102114},"budget":null,"readiness":{"ready":false,"reasons":["#42 is a draft","1 check(s) failed","review threads not read yet"],"pr":{"number":42,"title":"Waiting: needs a permission","isDraft":true},"rows":[{"name":"Pull request","text":"#42, a draft","ok":false},{"name":"Checks","text":"0 passed, 1 failed, 0 pending","ok":false},{"name":"Review","text":"no review decision","ok":true},{"name":"Review threads","text":"not read yet","ok":false,"unknown":true}]},"lastEvent":"PermissionRequest","lastEventAt":1792064128571},{"name":"working","branch":"change/working","type":"build","status":"busy","waitingFor":"","path":"~/dev/alpha/.claude/worktrees/working","ctxPct":64,"port":39110,"model":"Opus 4.1","pid":96046,"subagents":[{"type":"Explore","description":"Survey the code","since":1792064128461}],"finished":2,"m":{"ctxWindow":200000,"inputTokens":128000,"cacheHitRatio":0.92,"cacheExpiresAt":1792065938000,"costUsd":3.1,"durationMs":1800000,"apiDurationMs":600000,"linesAdded":412,"linesRemoved":97,"thinking":true,"fastMode":false,"turns":1,"asks":0,"stateSince":1792064102114},"budget":{"change":"working","usd":3.5,"spent":0},"readiness":{"ready":false,"reasons":["1 check(s) pending","a review is required","review threads not read yet"],"pr":{"number":41,"title":"Working: add the thing","isDraft":false},"rows":[{"name":"Pull request","text":"#41, open","ok":true},{"name":"Checks","text":"2 passed, 0 failed, 1 pending","ok":false},{"name":"Review","text":"review required","ok":false},{"name":"Review threads","text":"not read yet","ok":false,"unknown":true}]},"lastEvent":"SubagentStop","lastEventAt":1792064128476}]},"beta":{"lanes":[{"name":"beta-one","status":"idle"}]},"zeta":{"banner":"panel.json is not trusted yet (sha256 d6f62641d9f6). Its commands (cards, queue RUN) and templates are off until you review it and run `clauductor panel trust` (or restart with --trust-config)."},"term":{"working":"╭──────────────────────────────────────────────────────╮\n│ ✻ Welcome to Claude Code (UX harness fake)              │\n│   lane working              role busy                 │\n╰──────────────────────────────────────────────────────╯\n cwd: ~/dev/alpha/.claude/worktrees/working\n\nSelectable words on this row\nPR: https://github.com/o/r/pull/12 is open.\nDocs here and https://example.com/same\n  ⎿ Read(src/app.ts) · 212 lines\n  ✓ Tests: 128 passed, 0 failed (4.2s)\n\n────────────────────────────────────────────────────────\n>","waiting":"╭──────────────────────────────────────────────────────╮\n│ ✻ Welcome to Claude Code (UX harness fake)              │\n│   lane waiting              role waiting              │\n╰──────────────────────────────────────────────────────╯\n cwd: ~/dev/alpha/.claude/worktrees/waiting\n\nSelectable words on this row\nPR: https://github.com/o/r/pull/12 is open.\nDocs here and https://example.com/same\n  ⎿ Read(src/app.ts) · 212 lines\n  ✓ Tests: 128 passed, 0 failed (4.2s)\n\n╭─ Permission ─────────────────────────────────╮\n│ Bash(npm run test:e2e)                        │\n│ ❯ 1. Yes   2. Yes, and don't ask again   3. No │\n╰───────────────────────────────────────────────╯\n────────────────────────────────────────────────────────\n>","stream":"07:35:28 [build] step 00085 compiling module-085.ts … ok (595 ms)\n07:35:29 [build] step 00086 compiling module-086.ts … ok (602 ms)\n07:35:29 [build] step 00087 compiling module-087.ts … ok (609 ms)\n07:35:29 [build] step 00088 compiling module-088.ts … ok (616 ms)\n07:35:30 [build] step 00089 compiling module-089.ts … ok (623 ms)\n07:35:30 [build] step 00090 compiling module-090.ts … ok (630 ms)\n07:35:31 [build] step 00091 compiling module-091.ts … ok (637 ms)\n07:35:31 [build] step 00092 compiling module-092.ts … ok (644 ms)\n07:35:31 [build] step 00093 compiling module-093.ts … ok (651 ms)\n07:35:32 [build] step 00094 compiling module-094.ts … ok (658 ms)\n07:35:32 [build] step 00095 compiling module-095.ts … ok (665 ms)\n07:35:33 [build] step 00096 compiling module-096.ts … ok (672 ms)\n07:35:33 [build] step 00097 compiling module-097.ts … ok (679 ms)\n07:35:33 [build] step 00098 compiling module-098.ts … ok (686 ms)\n07:35:34 [build] step 00099 compiling module-099.ts … ok (693 ms)\n07:35:34 [build] step 00100 compiling module-100.ts … ok (700 ms)\n07:35:35 [build] step 00101 compiling module-101.ts … ok (707 ms)\n07:35:35 [build] step 00102 compiling module-102.ts … ok (714 ms)\n07:35:36 [build] step 00103 compiling module-103.ts … ok (721 ms)\n07:35:36 [build] step 00104 compiling module-104.ts … ok (728 ms)\n07:35:36 [build] step 00105 compiling module-105.ts … ok (735 ms)\n07:35:37 [build] step 00106 compiling module-106.ts … ok (742 ms)\n07:35:37 [build] step 00107 compiling module-107.ts … ok (749 ms)\n07:35:38 [build] step 00108 compiling module-108.ts … ok (756 ms)\n07:35:38 [build] step 00109 compiling module-109.ts … ok (763 ms)\n07:35:38 [build] step 00110 compiling module-110.ts … ok (770 ms)\n07:35:39 [build] step 00111 compiling module-111.ts … ok (777 ms)\n07:35:39 [build] step 00112 compiling module-112.ts … ok (784 ms)\n07:35:40 [build] step 00113 compiling module-113.ts … ok (791 ms)\n07:35:40 [build] step 00114 compiling module-114.ts … ok (798 ms)\n07:35:40 [build] step 00115 compiling module-115.ts … ok (805 ms)\n07:35:41 [build] step 00116 compiling module-116.ts … ok (812 ms)\n07:35:41 [build] step 00117 compiling module-117.ts … ok (819 ms)\n07:35:42 [build] step 00118 compiling module-118.ts … ok (826 ms)\n07:35:42 [build] step 00119 compiling module-119.ts … ok (833 ms)\n07:35:42 [build] step 00120 compiling module-120.ts … ok (840 ms)\n07:35:43 [build] step 00121 compiling module-121.ts … ok (847 ms)\n07:35:43 [build] step 00122 compiling module-122.ts … ok (854 ms)\n07:35:44 [build] step 00123 compiling module-123.ts … ok (861 ms)\n07:35:44 [build] step 00124 compiling module-124.ts … ok (868 ms)\n07:35:44 [build] step 00125 compiling module-125.ts … ok (875 ms)\n07:35:45 [build] step 00126 compiling module-126.ts … ok (882 ms)\n07:35:45 [build] step 00127 compiling module-127.ts … ok (889 ms)\n07:35:46 [build] step 00128 compiling module-128.ts … ok (896 ms)\n07:35:46 [build] step 00129 compiling module-129.ts … ok (3 ms)\n07:35:47 [build] step 00130 compiling module-130.ts … ok (10 ms)\n07:35:47 [build] step 00131 compiling module-131.ts … ok (17 ms)\n07:35:47 [build] step 00132 compiling module-132.ts … ok (24 ms)\n07:35:48 [build] step 00133 compiling module-133.ts … ok (31 ms)\n07:35:48 [build] step 00134 compiling module-134.ts … ok (38 ms)"}};
+// ---- shared by the three variants: helpers, the chrome, the terminal, the lane's sections, Pulse ----
+const A = D.alpha, NOW = D.now;
+const Q = new URLSearchParams(location.search);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ago = ms => { const s = Math.max(0, Math.round(ms / 1000)); if (s < 60) return s + "s"; const m = Math.floor(s / 60); if (m < 60) return m + "m"; const h = Math.floor(m / 60); if (h < 24) return h + "h " + (m % 60) + "m"; return Math.floor(h / 24) + "d"; };
+const usd = x => "$" + x.toFixed(2);
+const kt = n => Math.round(n / 1000) + "k";
+const mmss = ms => { const s = Math.max(0, Math.round(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+const P = { // the icon set: one stroke weight, 24-unit grid
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  updown: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  term: '<path d="m5 8 4 4-4 4"/><path d="M12 17h7"/>',
+  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M8 16v-5M13 16V8M18 16v-9"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .9-1 1.5v.6"/><path d="M12 17v.01"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  alert: '<path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  esc: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h5v5h-5z"/>',
+  restart: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  branch: '<circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="7.5" r="2"/><path d="M6 7.5v9M18 9.5c0 4-6 3.5-10.5 7.5"/>',
+  pr: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a2 2 0 0 0-2-2h-4"/><path d="m14 5-2 2 2 2"/>',
+  attach: '<path d="M14 4h6v6M20 4l-8 8"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+  shield: '<path d="M12 3 5 6v6c0 4 3 7.5 7 9 4-1.5 7-5 7-9V6Z"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7Z"/>',
+  type: '<path d="M4 7V5h16v2M12 5v14M9 19h6"/>',
+  cmd: '<path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3Z"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  remote: '<path d="M4.9 9.5a10 10 0 0 1 14.2 0"/><path d="M8 12.6a5.6 5.6 0 0 1 8 0"/><circle cx="12" cy="16.5" r="1.3"/>',
+  enter: '<path d="m9 10-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
+  tree: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M6 12h10"/>',
+  pulse: '<path d="M2 12h4l2-5 4 10 2-5h8"/>',
+  note: '<path d="M5 4h14v16H5z"/><path d="M9 9h6M9 13h6M9 17h3"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+};
+const I = (n, cls) => `<svg class="i${cls ? " " + cls : ""}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
+
+// ---- lanes and their state ----
+const BLOCKING = new Set(A.needsYou.filter(n => n.severity === "block").map(n => n.name));
+// The capture has no lane waiting without blocking, so one idle lane is drawn as waiting ("your move"), marked as a sample.
+const SAMPLE_WAIT = new Set(["quiet"]);
+const sampleTag = l => SAMPLE_WAIT.has(l.name) ? `<span class="sample sm" title="A sample state: the capture has no lane waiting without blocking">sample</span>` : "";
+const st = l => BLOCKING.has(l.name) ? "need" : SAMPLE_WAIT.has(l.name) ? "wait" : l.status === "busy" ? "work" : l.status === "waiting" ? "wait" : "idle";
+const STN = { work: "Working", wait: "Waiting", need: "Needs you", idle: "Idle", lost: "Lost" };
+const RANK = { need: 0, wait: 1, work: 2, idle: 3 };
+const LANES = A.lanes.slice().sort((a, b) => RANK[st(a)] - RANK[st(b)] || b.lastEventAt - a.lastEventAt);
+const lane = name => A.lanes.find(l => l.name === name);
+const counts = { work: 0, need: 0, wait: 0, idle: 0 };
+A.lanes.forEach(l => counts[st(l)]++);
+const chip = (s, label) => `<span class="chip ${s}"><span class="dot ${s}"></span>${esc(label || STN[s])}</span>`;
+const overBudget = l => l.budget && l.m.costUsd > l.budget.usd;
+function activity(l) {
+  if (SAMPLE_WAIT.has(l.name)) return "Your move: its turn ended with a question (a sample state)";
+  if (BLOCKING.has(l.name)) return "Asks: " + l.waitingFor.replace(/^permission: /, "");
+  if (l.subagents.length) return (l.subagents[0].description ? l.subagents[0].type + ": " + l.subagents[0].description : l.subagents[0].type + " agent running");
+  if (l.lastEvent === "UserPromptSubmit") return "Running your prompt";
+  if (l.readiness && l.readiness.pr) return "#" + l.readiness.pr.number + " " + l.readiness.pr.title;
+  return "Turn ended " + ago(NOW - l.lastEventAt) + " ago";
+}
+function laneMeta(l) {
+  const s = st(l);
+  if (overBudget(l)) return `<span class="lm crit">${usd(l.m.costUsd)}</span>`;
+  if (s === "need") { const n = A.needsYou.find(x => x.name === l.name); return `<span class="lm">${ago(NOW - n.at)}</span>`; }
+  if (s === "work") return `<span class="lm${l.ctxPct >= 85 ? " warn" : ""}">${l.ctxPct}%</span>`;
+  if (s === "wait") return `<span class="lm warn">your move</span>`;
+  if (l.readiness && l.readiness.pr) return `<span class="lm">#${l.readiness.pr.number}</span>`;
+  return "";
+}
+
+// ---- the left sidebar: the project, ⌘K, the inbox, the lanes, the other projects ----
+function sidebar(o) {
+  o = o || {};
+  const need = A.needsYou[0];
+  const rows = (o.laneRows || laneRow)(o);
+  return `<nav class="side" aria-label="Projects and lanes">
+    <button class="proj${S.screen === "menu" ? " on" : ""}" data-act="menu" aria-haspopup="listbox"><span class="ptile">A<span class="badge">1</span></span>
+      <span class="pname"><b>${esc(A.name)}</b><small>${esc(A.root)}</small></span><span class="faint">${I("updown", "s")}</span></button>
+    <button class="search" data-act="palette">${I("search", "s")}<span class="t">Search or run a command</span><span class="kbd">⌘K</span></button>
+    ${o.nav === false ? "" : `<div class="nav">
+      <button class="nitem" data-act="palette">${I("activity", "s")}Activity<span class="kbd">A</span></button>
+      <button class="nitem" data-act="palette">${I("chart", "s")}Metrics<span class="kbd">M</span></button>
+    </div>`}
+    <div class="sh">Needs you<span class="count need">1</span><span class="grow"></span><span class="faint mono" style="font-size:11.5px">oldest ${ago(NOW - need.at)}</span></div>
+    <div class="sbody">
+      <button class="ask" data-act="lane" data-arg="${esc(need.name)}">
+        <span class="top"><span class="dot need"></span><b>${esc(need.name)}</b>${esc(need.label)}<span class="age">${ago(NOW - need.at)}</span></span>
+        <span class="what">${esc(need.text)}</span></button>
+      ${A.alerts.map(a => `<button class="alert">${I("alert", "s")}<span><b>${esc(a.name || "All lanes")}</b> ${esc(a.text.replace(/ \(.*\)$/, ""))}</span><span class="faint mono" style="margin-left:auto;font-size:11.5px">${ago(NOW - a.since)}</span></button>`).join("")}
+    </div>
+    <div class="sh">Lanes<span class="count">${A.lanes.length}</span><span class="grow"></span><button class="ib sm" title="New lane" data-act="palette">${I("plus", "s")}</button></div>
+    <div class="lanes sbody">${rows}
+      <div class="lost"><span class="dot lost"></span><span class="ln">${esc(A.orphan.name)}<small>tmux session gone</small></span><button class="btn" style="height:24px;font-size:12px">Restore</button></div>
+    </div>
+    ${o.others === false ? "" : `<div class="sh">Other projects</div>
+    <div class="sbody">
+      <button class="prow" data-act="menu"><span class="ptile b">B</span><span class="ln">Beta</span><span class="lm">1 idle</span></button>
+      <button class="prow" data-act="menu"><span class="ptile z">Z</span><span class="ln">Zeta</span><span class="lm warn">untrusted</span></button>
+      <button class="prow" data-act="menu"><span class="ptile g">g</span><span class="ln">gamma</span><span class="lm crit">cannot load</span></button>
+    </div>`}
+    <div class="side-foot">
+      <button class="live" title="Live: the page hears the panel. Click for every counter"><span class="dot ok"></span>Live</button>
+      <button class="ver" title="PANEL-31's quiet version field: Claude Code ${esc(A.observe.claudeVersion)}, verified on ${esc(A.observe.verifiedOn)}">${I("check", "s")}${esc(A.observe.claudeVersion)}</button>
+      ${modeSeg()}
+    </div>
+  </nav>`;
+}
+function laneRow(o) {
+  return LANES.map(l => {
+    const s = st(l);
+    return `<button class="lrow ${s === "need" ? "need" : ""}${o.sel === l.name ? " sel" : ""}" data-act="lane" data-arg="${esc(l.name)}" title="${esc(STN[s] + ": " + activity(l))}">
+      <span class="dot ${s}"></span><span class="ln">${esc(l.name)}</span>${sampleTag(l)}${laneMeta(l)}<span class="more">${I("more", "s")}</span></button>`;
+  }).join("");
+}
+function modeSeg() {
+  return `<span class="seg" role="radiogroup" aria-label="Mode">
+    <button data-act="mode" data-arg="system" class="${S.mode === "system" ? "on" : ""}" title="Follow the system">${I("monitor", "s")}</button>
+    <button data-act="mode" data-arg="light" class="${S.mode === "light" ? "on" : ""}" title="Light">${I("sun", "s")}</button>
+    <button data-act="mode" data-arg="dark" class="${S.mode === "dark" ? "on" : ""}" title="Dark">${I("moon", "s")}</button></span>`;
+}
+
+// ---- the top bar: where you are, and the figures that hold across every lane ----
+function figures(o) {
+  o = o || {};
+  const [q5, q7] = A.quota;
+  const lvl = p => p >= 90 ? "crit" : p >= 75 ? "warn" : "";
+  const q = (w, short) => `<button class="fig" title="${esc(w.label)} quota, ${esc(A.account.plan)} plan; resets in ${ago(w.resetsAt * 1000 - NOW)}. Burn rate and the projection open here"><span class="k">${short}</span><span class="mini"><i class="${lvl(w.pct)}" style="width:${w.pct}%"></i></span><span class="v ${lvl(w.pct)}">${w.pct}%</span>${o.compact ? "" : `<span class="faint">${ago(w.resetsAt * 1000 - NOW)}</span>`}</button>`;
+  const tot = A.lanes.length;
+  return `<div class="figs${o.compact ? " compact" : ""}">
+    ${q(q5, "5h")}${q(q7, "7d")}
+    <button class="fig" title="Estimated spend at list price: tracked sessions today"><span class="k">Spend</span><span class="v">${usd(A.estCostUsd)}</span></button>
+    ${A.economy.active ? `<button class="fig" title="Economy: ${esc(A.economy.reason)}. ${esc(A.economy.roles.map(r => r.role + " to " + r.to).join("; "))}"><span class="econ">${I("zap", "s")}Economy</span></button>` : ""}
+    ${o.lanes === false ? "" : `<button class="fig" title="Lanes: ${counts.work} working, ${counts.need} need you, ${counts.idle} idle"><span class="k">Lanes</span><span class="stack"><i class="work" style="flex:${counts.work}"></i><i class="need" style="flex:${counts.need}"></i><i class="idle" style="flex:${counts.idle}"></i></span><span class="v">${tot}</span></button>`}
+    <button class="fig" title="Gate: no holder, no one waiting"><span class="k">Gate</span><span class="v">free</span></button>
+    <button class="fig" title="More figures: Claude processes, interruptions today, hooks, burn rate">${I("more", "s")}</button>
+  </div>`;
+}
+function topbar(crumb, o) {
+  return `<header class="top">${crumb}${figures(o)}
+    <div class="tools"><button class="btn ghost" data-act="rules" title="The rules of this variant (R)">${I("note", "s")}${o && o.compact ? "" : "Rules"}<span class="kbd">R</span></button>
+    ${o && o.compact ? "" : `<button class="btn primary" data-act="palette">${I("plus", "s")}New lane</button>`}</div></header>`;
+}
+const crumbFor = l => `<div class="crumb"><span class="faint">${esc(A.name)}</span><span class="faint">${I("right", "s")}</span><b>${esc(l.name)}</b>${sampleTag(l)}${chip(st(l))}</div>`;
+
+// ---- the terminal: a still of the captured text, drawn as a real one ----
+function termText(l) {
+  if (D.term[l.name]) return D.term[l.name];
+  // A lane with no capture of its own shows the harness's banner for that lane (the fake prints the same screen for every lane).
+  return D.term.working
+    .replace(/lane working(\s+)role busy(\s+)│/, (m, a, b) => { const left = ("lane " + l.name).padEnd(26) + "role " + (l.status === "busy" ? "busy" : l.status); return left.padEnd(m.length - 1) + "│"; })
+    .replace("~/dev/alpha/.claude/worktrees/working", l.path);
+}
+const TOK = /(https?:\/\/[^\s]+)|(Welcome to Claude Code)|([╭╮╰╯│─]+)|(✻)|(✓)|(⎿)|(^\d\d:\d\d:\d\d)|(\[build\])|(\bok\b)|(\(\d+ ms\))|(❯ 1\. Yes)|(\b(?:Read|Bash)\([^)]*\))|(^ cwd:)|(\d+ passed)/g;
+function hlLine(line, ctx) {
+  if (/^╭─ Permission/.test(line)) ctx.perm = true;
+  let out = "", i = 0, m;
+  TOK.lastIndex = 0;
+  while ((m = TOK.exec(line))) {
+    out += esc(line.slice(i, m.index));
+    const t = esc(m[0]);
+    const cls = m[1] ? "c-link" : m[2] ? "c-b" : m[3] ? (ctx.perm ? "c-y" : "c-dim") : m[4] ? "c-cl" : m[5] ? "c-g" : m[6] ? "c-dim" : m[7] ? "c-dim" : m[8] ? "c-c"
+      : m[9] ? "c-g" : m[10] ? "c-dim" : m[11] ? "c-sel" : m[12] ? "c-b" : m[13] ? "c-dim" : "c-g";
+    out += `<span class="${cls}">${t}</span>`;
+    i = m.index + m[0].length;
+  }
+  out += esc(line.slice(i));
+  if (/^╰/.test(line) && ctx.perm) ctx.perm = false;
+  return out;
+}
+function termBody(l, o) {
+  const ctx = {};
+  const lines = termText(l).split("\n");
+  const html = lines.map((ln, n) => {
+    if (n === lines.length - 1 && /^>\s*$/.test(ln)) {
+      const typed = o.typed ? esc(o.typed) : "";
+      return `<span class="c-v">&gt;</span> ${typed}<span class="cur${o.typing ? "" : " off"}"></span>`;
+    }
+    return hlLine(ln, ctx);
+  }).join("\n");
+  return `<div class="tbody${l.name === "stream" ? " bottom" : ""}">${l.name === "stream" ? `<div>${html}</div>` : html}</div>`;
+}
+function termPane(l, o) {
+  o = o || {};
+  const s = st(l);
+  const lt = A.laneTypes.find(t => t.name === l.type) || {};
+  const hint = o.typing ? `<span class="hint typing">${I("term", "s")}Typing into ${esc(l.name)}<span class="kbd">Ctrl ]</span>to leave</span>`
+    : `<span class="hint"><span class="kbd">↵</span>to type</span>`;
+  return `<section class="term${o.typing ? " typing" : ""}${s === "need" && !o.typing ? " need" : ""}${o.cls ? " " + o.cls : ""}" aria-label="Terminal: ${esc(l.name)}">
+    <div class="thead">
+      <span class="dot ${s}"></span><span class="tn">${esc(l.name)}</span>${sampleTag(l)}${chip(s)}
+      <span class="br">${esc(l.branch)}</span>
+      ${o.meta === false ? "" : `<span class="tts"><span class="tt">${esc(l.model)}${lt.effort ? ", " + esc(lt.effort) : ""}</span>${l.m.thinking ? '<span class="tt">thinking</span>' : ""}${A.remoteControl ? `<span class="tt">${I("remote", "s")}&nbsp;Remote</span>` : ""}<span class="tt">:${l.port}</span><span class="tt">up ${ago(l.m.durationMs)}</span></span>`}
+      <span class="grow"></span>${hint}
+      ${o.actions === false ? "" : `<button class="tbtn" title="Interrupt (Esc), at once">${I("esc", "s")}Interrupt</button>
+      <button class="ib" title="Attach in Terminal.app">${I("attach", "s")}</button>
+      <button class="ib" title="Lane actions: Restart, Remote control, Stop lane, Close lane">${I("more", "s")}</button>`}
+    </div>
+    ${termBody(l, o)}
+    ${o.foot === false ? "" : o.foot || `<div class="tfoot"><span>${esc(activity(l))}</span><span class="grow" style="flex:1"></span><span class="num">tmux ux-p45-1</span></div>`}
+  </section>`;
+}
+
+// ---- a lane's sections: context (with PANEL-50's contributors), pull request, agents, cost ----
+const CONTRIB = [ // SAMPLE rows for PANEL-50, scaled to each lane's real context size
+  { tool: "Read", what: "src/app.ts", k: 18 }, { tool: "Agent", what: "Explore results", k: 14 },
+  { tool: "File", what: "CLAUDE.md", k: 11 }, { tool: "Bash", what: "git diff", k: 9 }, { tool: "Read", what: "src/sync/queue.ts", k: 7 },
+];
+const BASE = { sys: 24, conv: 45 }; // system prompt and tools, and the conversation: the rest of 128k
+function contrib(l) {
+  const tot = l.ctxPct / 100 * l.m.ctxWindow / 1000, f = tot / 128;
+  const rows = CONTRIB.map(c => ({ ...c, k: Math.max(1, Math.round(c.k * f)) }));
+  return { tot: Math.round(tot), rows, sys: Math.round(BASE.sys * f), conv: Math.round(tot - rows.reduce((a, r) => a + r.k, 0) - BASE.sys * f) };
+}
+function secContext(l, o) {
+  o = o || {};
+  const c = contrib(l), win = l.m.ctxWindow / 1000;
+  const segs = [...c.rows.map((r, i) => ({ k: r.k, col: `var(--seg${i + 1})` })), { k: c.sys, col: "var(--seg6)" }, { k: c.conv, col: "var(--ink-3)" }];
+  const max = Math.max(...c.rows.map(r => r.k));
+  const lvl = l.ctxPct >= 85 ? "pend" : "";
+  return `<div class="card ctx${o.cls ? " " + o.cls : ""}">
+    <div class="ch"><h3>Context</h3><span class="grow"></span><span class="sample" title="Sample rows, marked as a sample: PANEL-50 fills them">Sample, PANEL-50</span></div>
+    <div style="display:flex;align-items:baseline;gap:10px;white-space:nowrap;min-width:0"><span class="big ${lvl}">${l.ctxPct}%</span><span class="faint mono">${c.tot}k of ${win}k</span>
+      <span class="faint" style="margin-left:auto;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis">Cache ${Math.round(l.m.cacheHitRatio * 100)}%, cold in ${mmss(l.m.cacheExpiresAt - NOW)}</span></div>
+    <div class="ctxbar" title="Context window ${win}k; auto-compact at ${A.autocompactPct}%">${segs.map(s => `<i style="width:${s.k / win * 100}%;background:${s.col}"></i>`).join("")}<span class="mark" data-l="compact" style="left:${A.autocompactPct}%"></span></div>
+    ${o.rows === 0 ? "" : `<div class="contrib">${c.rows.slice(0, o.rows || 5).map((r, i) => `<div class="crow"><span class="sw" style="background:var(--seg${i + 1})"></span><span class="what"><span class="tool">${esc(r.tool)}</span>${esc(r.what)}</span><span class="tok">${r.k}k</span><span class="tb"><i style="width:${r.k / max * 100}%"></i></span></div>`).join("")}
+      ${o.rest === false ? "" : `<div class="crow"><span class="sw" style="background:var(--seg6)"></span><span class="what faint">System and tools ${c.sys}k, conversation ${c.conv}k</span><span class="tok"></span><span></span></div>`}</div>`}
+  </div>`;
+}
+function secPR(l, o) {
+  o = o || {};
+  const r = l.readiness;
+  if (!r) return `<div class="card"><div class="ch"><h3>Pull request</h3></div><div class="faint">On ${esc(l.branch)}: no pull request reading for the orchestrator lane.</div></div>`;
+  const icon = x => x.unknown ? `<span class="unk">${I("clock", "s")}</span>` : x.ok ? `<span class="ok">${I("check", "s")}</span>` : `<span class="${/pending/.test(x.text) ? "pend" : "no"}">${/pending/.test(x.text) ? I("clock", "s") : I("x", "s")}</span>`;
+  return `<div class="card${o.cls ? " " + o.cls : ""}">
+    <div class="ch"><h3>Pull request</h3><span class="grow"></span>${r.ready ? chip("work", "Ready to merge") : `<span class="chip plain" title="${esc(r.reasons.join(", "))}">Not ready: ${r.reasons.length}</span>`}</div>
+    ${r.pr ? `<div class="prline">${I("pr", "s")}<span class="num">#${r.pr.number}</span><b>${esc(r.pr.title)}</b>${r.pr.isDraft ? '<span class="tag">draft</span>' : ""}</div>` : `<div class="prline faint">${I("branch", "s")}<span class="mono">${esc(l.branch)}</span></div>`}
+    ${r.rows.map(x => `<div class="rrow">${icon(x)}<span class="faint" style="width:92px;flex:none">${esc(x.name)}</span><span class="grow">${esc(x.text)}</span></div>`).join("")}
+    <div class="rrow"><span class="faint">${I("branch", "s")}</span><span class="faint" style="width:92px;flex:none">Diff</span><span class="grow mono"><span class="ok">+${l.m.linesAdded}</span> <span class="no">−${l.m.linesRemoved}</span></span></div>
+  </div>`;
+}
+function secAgents(l, o) {
+  o = o || {};
+  const tot = 45000; // the last 45 s: the harness run's span
+  const all = [...l.subagents.map(s => ({ ...s, run: true })), ...Array.from({ length: l.finished }, (_, i) => ({ type: l.subagents[0] ? l.subagents[0].type : "agent", since: NOW - 40000 + i * 15000, run: false }))];
+  return `<div class="card${o.cls ? " " + o.cls : ""}">
+    <div class="ch"><h3>Agents</h3><span class="grow"></span><span class="faint">${l.subagents.length} running, ${l.finished} finished</span></div>
+    ${l.subagents.length ? l.subagents.map(s => `<div class="agent"><span class="dot work"></span><span class="grow">${esc(s.type)}${s.description ? `<span class="faint">: ${esc(s.description)}</span>` : ""}</span><span class="mono faint">${ago(NOW - s.since)}</span></div>`).join("") : `<div class="agent faint">No subagent running</div>`}
+    ${all.length ? `<div class="gantt" title="The last 45 s">${all.map(s => { const x = Math.max(0, (s.since - (NOW - tot)) / tot * 100); const w = s.run ? 100 - x : 30; return `<i class="${s.run ? "run" : ""}" style="left:${x}%;width:${w}%"></i>`; }).join("")}</div>` : ""}
+    <div class="rrow" style="margin-top:6px"><span class="faint" style="width:56px">Session</span><span class="grow mono faint">pid ${l.pid}, ${l.m.turns} turn${l.m.turns === 1 ? "" : "s"}${l.m.asks ? ", " + l.m.asks + " ask" : ""}</span></div>
+  </div>`;
+}
+function secCost(l, o) {
+  o = o || {};
+  const b = l.budget, pct = b ? Math.round(l.m.costUsd / b.usd * 100) : 0;
+  const lv = pct > 100 ? "crit" : pct >= 80 ? "warn" : "";
+  return `<div class="card${o.cls ? " " + o.cls : ""}">
+    <div class="ch"><h3>Cost</h3><span class="grow"></span><span class="faint">est., list price</span></div>
+    <div style="display:flex;align-items:baseline;gap:8px"><span class="big">${usd(l.m.costUsd)}</span>${b ? `<span class="faint mono">of ${usd(b.usd)} budget</span>` : `<span class="faint">no budget</span>`}</div>
+    ${b ? `<div class="bar"><i class="${lv}" style="width:${Math.min(100, pct)}%"></i></div><div class="rrow"><span class="${lv === "crit" ? "no" : lv === "warn" ? "pend" : "faint"}">${pct}% of the budget for ${esc(b.change)}</span></div>` : ""}
+    <div class="rrow"><span class="faint" style="width:56px">Time</span><span class="grow mono faint">up ${ago(l.m.durationMs)}, API ${ago(l.m.apiDurationMs)}</span></div>
+  </div>`;
+}
+
+// ---- Pulse: routines and Today are SAMPLES (D11); Flow and the pinned cards are real ----
+const ROUTINES = [
+  { name: "Nightly gate", when: "daily 02:00", last: "9h ago", runs: "ffffffffffffff", cost: 0.84 },
+  { name: "Dependency audit", when: "Mondays 06:00", last: "3d ago", runs: "fffff" + "x", cost: 0.12, fail: "1 advisory open" },
+  { name: "Health lines", when: "hourly", last: "35m ago", runs: "ffffffffffffff", cost: 0.02 },
+  { name: "Journal digest", when: "weekdays 18:00", last: "17h ago", runs: "ffxffff", cost: 0.41, fail: "failed Tue: no session" },
+];
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function heatmap() {
+  const r = rng(45), nowH = new Date(NOW).getUTCHours(), days = ["F", "S", "S", "M", "T", "W", "T"];
+  let h = "";
+  days.forEach((d, row) => {
+    const today = row === 6, we = row === 1 || row === 2;
+    h += `<span class="hl${today ? " today" : ""}">${d}</span>`;
+    for (let x = 0; x < 24; x++) {
+      if (today && x > nowH) { h += `<i class="fut"></i>`; continue; }
+      const day = x >= 8 && x <= 22, v = r() * (day ? (we ? 2.2 : 4.6) : 1.1);
+      h += `<i class="h${Math.min(4, Math.floor(v))}${today && x === nowH ? " now" : ""}"></i>`;
+    }
+  });
+  return `<div class="heat">${h}</div><div class="hscale"><span></span><span>00</span><span>06</span><span>12</span><span>18</span></div>`;
+}
+function nextDays() {
+  const wd = ["S", "M", "T", "W", "T", "F", "S"], start = new Date(NOW), reset = A.quota[1].resetsAt * 1000;
+  let h = "";
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(NOW + i * 86400000), w = d.getUTCDay(), we = w === 0 || w === 6;
+    const pips = ["<i></i>"];
+    if (!we) pips.push("<i></i>");
+    if (w === 1) pips.push("<i></i>");
+    const q = Math.floor((reset - NOW) / 86400000) === i || Math.floor((reset + 7 * 86400000 - NOW) / 86400000) === i;
+    h += `<div class="day${i === 0 ? " today" : ""}${we ? " we" : ""}"><span>${wd[w]}</span><b>${d.getUTCDate()}</b><span class="pips">${q ? '<i class="q"></i>' : ""}${pips.join("")}</span></div>`;
+  }
+  void start;
+  return `<div class="days">${h}</div><div class="legend"><span><i></i>a routine runs</span><span><i class="q"></i>7-day quota resets (real)</span></div>`;
+}
+function spark(series) {
+  const max = Math.max(...series), min = Math.min(...series), w = 100, h = 22;
+  const pts = series.map((v, i) => [i / (series.length - 1) * w, h - 2 - (max === min ? .5 : (v - min) / (max - min)) * (h - 4)]);
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path vector-effect="non-scaling-stroke" d="M${pts.map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" L")}"/></svg>`;
+}
+function flowTiles() {
+  const f = Object.fromEntries(A.flow.map(x => [x.key, x]));
+  const t = (k, label, v, unit) => `<div class="ftile"><div class="k">${label}</div><div class="v">${v}<small> ${unit}</small></div>${spark(f[k].series)}</div>`;
+  return `<div class="flow">${t("flow.cycle_time", "Cycle time", f["flow.cycle_time"].value, "days")}${t("flow.merge_frequency", "Merges", f["flow.merge_frequency"].value, "a week")}
+    ${t("flow.change_fail_rate", "Change-fail rate", f["flow.change_fail_rate"].value + "%", "")}${t("cost.per_week", "Spend", "$" + f["cost.per_week"].value.toFixed(2), "a week")}</div>`;
+}
+function routinesList(n) {
+  return ROUTINES.slice(0, n || 4).map(r => {
+    const fails = [...r.runs].filter(c => c === "x").length;
+    return `<div class="routine"><span class="dot ${fails ? "fail" : "ok"}"></span><span class="rn">${esc(r.name)}</span><span class="runs" title="The last 7 runs">${[...r.runs].slice(-7).map(c => `<i class="${c === "x" ? "f" : ""}"></i>`).join("")}</span><span class="rc" title="Cost of the last run">${usd(r.cost)}</span>
+      <span class="rs"><span>${esc(r.when)}</span><span>last run ${esc(r.last)}</span></span>${r.fail ? `<span class="rf">${esc(r.fail)}</span>` : ""}</div>`;
+  }).join("");
+}
+function pulse(o) {
+  o = o || {};
+  return `<aside class="pulse pane${o.cls ? " " + o.cls : ""}" aria-label="Pulse">
+    <div class="ph">${I("pulse")}<h2>Pulse</h2><span class="grow" style="flex:1"></span><span class="sample" title="Routines, Today and the next 14 days are sample data: PANEL-37 and PANEL-38 fill them">Sample data</span></div>
+    <div class="pb">
+      <div class="psec"><div class="psh">${I("repeat", "s")}Routines<span class="grow"></span><span class="faint">4, 1 failing</span></div>${routinesList()}</div>
+      <div class="psec"><div class="psh">${I("clock", "s")}Today, by hour<span class="grow"></span><span class="faint">lane activity, 7 days</span></div>${heatmap()}</div>
+      <div class="psec"><div class="psh">${I("cal", "s")}Next 14 days<span class="grow"></span><span class="faint">Oct 15 to 28</span></div>${nextDays()}</div>
+      <div class="psec"><div class="psh">${I("chart", "s")}Flow, 30 days<span class="grow"></span><span class="faint">real, opens Metrics</span></div>${flowTiles()}</div>
+      <div class="psec"><div class="psh">${I("note", "s")}Pinned<span class="grow"></span><span class="faint">the project's cards</span></div>
+        ${A.cards.filter(c => c.pin).map(c => `<div class="pcard"><div class="pt">${esc(c.title)}<span class="faint">read ${ago(NOW - 1792064096957)} ago</span></div>${c.lines.slice(0, 3).map(x => `<p>${esc(x.replace(/\*\*/g, ""))}</p>`).join("")}</div>`).join("")}</div>
+    </div><span class="belowcue">${I("down", "s")}Flow and Pinned below</span></aside>`;
+}
+
+// ---- the project menu (MN-1, MN-2, MN-3), drawn open ----
+function projectMenu() {
+  const p = Object.fromEntries(D.projects.map(x => [x.id, x]));
+  return `<div class="scrim" data-act="close" style="background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none"></div>
+  <div class="pop pmenu" role="listbox" aria-label="Projects">
+    <div class="mh">Projects<span class="count">${D.projects.length}</span><span style="margin-left:auto">→ for its actions</span></div>
+    <button class="mrow act"><span class="ptile">A</span><span class="mt"><b>Alpha <span class="badge">${p.alpha.needsYou}</span></b><div class="p">~/dev/alpha</div>
+      <div class="chips">${chip("work", counts.work + " working")}${chip("need", counts.need + " needs you")}${chip("wait", counts.wait + " waiting")}${chip("idle", counts.idle + " idle")}<span class="chip lost"><span class="dot lost"></span>${p.alpha.restorable} to restore</span></div></span><span class="check">${I("check", "s")}</span></button>
+    <button class="mrow"><span class="ptile b">B</span><span class="mt"><b>Beta</b><div class="p">~/dev/beta</div><div class="chips">${chip("idle", p.beta.idle + " idle")}</div></span></button>
+    <button class="mrow act" style="background:var(--hover)"><span class="ptile z">Z</span><span class="mt"><b>Zeta</b><div class="p">~/dev/zeta</div><div class="warnl">Config untrusted: its cards, queue Run and templates are off</div></span><span class="ib sm" style="background:var(--hover-2)">${I("more", "s")}</span></button>
+    <button class="mrow"><span class="ptile g">g</span><span class="mt"><b>gamma</b><div class="p">~/dev/gamma</div><div class="err">Cannot load: ${esc(p.gamma.error)}</div></span></button>
+    <div class="msep"></div>
+    <button class="mfoot">${I("plus", "s")}Add a project…<span class="kbd">End</span></button>
+    <div class="pop submenu" role="menu" aria-label="Zeta actions" style="position:absolute">
+      <button class="mi act">${I("shield", "s")}Trust config…</button>
+      <button class="mi danger">${I("trash", "s")}Remove from panel…</button>
+    </div>
+  </div>`;
+}
+
+// ---- the ⌘K palette, drawn open ----
+function palette(l) {
+  const need = A.needsYou[0];
+  const g = (h, items) => `<div class="pg">${h}</div>` + items.join("");
+  const it = (ico, label, sub, r, cls) => `<button class="pi${cls ? " " + cls : ""}"><span class="ico${ico[1] ? " " + ico[1] : ""}">${ico[0]}</span><span>${label}</span>${sub ? `<span class="sub">${sub}</span>` : ""}<span class="r">${r || ""}</span></button>`;
+  const k = s => s.split(" ").map(x => `<span class="kbd">${x}</span>`).join("");
+  return `<div class="scrim" data-act="close"></div>
+  <div class="pop palette" role="dialog" aria-label="Commands">
+    <div class="pin">${I("search")}<span class="q"><span class="cur2"></span><span class="faint" style="margin-left:2px">Type a command, a lane or a project</span></span><span class="ctx">in ${esc(A.name)}, ${esc(l.name)}</span></div>
+    <div class="plist">
+      ${g("Needs you", [l.name === need.name
+        ? it([I("term", "s"), "need"], "Answer in the terminal", `${esc(need.label)}: ${esc(need.text)}; 1 Yes, 2 Yes and don't ask again, 3 No`, `<span class="mono">${ago(NOW - need.at)}</span>` + k("↵"), "act")
+        : it([I("term", "s"), "need"], `Open ${esc(need.name)}`, `${esc(need.label)}: ${esc(need.text)}`, `<span class="mono">${ago(NOW - need.at)}</span>` + k("↵"), "act")])}
+      ${g(`Lane: ${esc(l.name)}`, [
+        ...(l.name === need.name ? [] : [it([I("term", "s")], "Enter the terminal", "", k("↵"))]),
+        it([I("esc", "s")], "Interrupt", "at once", k("Esc")),
+        it([I("restart", "s")], "Restart…", "asks first", ""),
+        it([I("attach", "s")], "Attach in Terminal.app", "", ""),
+        it([I("remote", "s")], "Remote control…", "only into an idle claude", ""),
+        it([I("stop", "s")], "Stop lane…", "", ""),
+        it([I("x", "s")], "Close lane…", "shows what goes and what stays", ""),
+      ])}
+      ${g("Go to", [
+        it([`<span class="dot work"></span>`, "work"], "stream", "general-purpose agent running, context 88%", k("G S")),
+        it([I("grid", "s")], "Switch project…", "Alpha, Beta, Zeta, gamma", k("P")),
+        it([I("activity", "s")], "Activity", "queues, pull requests, every lane's events", k("A")),
+        it([I("chart", "s")], "Metrics", "flow, cost, quality, outcomes", k("M")),
+        it([I("tree", "s")], "Worktrees", "the tree: worktrees, sessions, agents", ""),
+      ])}
+      ${g("Create", [
+        it([I("plus", "s")], "New lane…", `Up next: ${esc(A.suggestions[0].name)}, ${esc(A.suggestions[0].title)}`, k("N")),
+        it([I("plus", "s")], "Add a project…", "", ""),
+      ])}
+      ${g("Panel", [
+        it([I("moon", "s")], "Appearance: Dark", "System, Light or Dark", ""),
+        it([I("type", "s")], "Text size…", "page 85 to 175%, terminal 11 to 24 px", k("Ctrl Alt =")),
+        it([I("refresh", "s")], "Refresh", "re-poll every source now", ""),
+        it([I("help", "s")], "Help", "keys, how-tos, the login lock", k("?")),
+      ])}
+    </div>
+    <div class="pfoot"><span>${k("↑")}${k("↓")} move</span><span>${k("↵")} run</span><span>${k("→")} options</span><span class="grow"></span><span>${k("Esc")} close</span></div>
+  </div>`;
+}
+
+// ---- the rules panel: the mockup's annotation (D3) ----
+const HEADER_RULE = "<b>The terminal's header</b> keeps its name, state chip, branch and actions. Its chips give way whole, never clipped, from the end: uptime first, then the port, then Remote, then thinking; the model and effort stay.";
+const SHARED_RULES = [
+  { h: "Colour at rest and on state", items: [
+    "<b>Lanes carry their state at rest</b>, as a dot and a chip wherever the lane appears (a lane row, a table row, a tile, the filmstrip, the terminal's header): working green, waiting amber, needs you red, idle a hollow grey ring, lost a dashed ring.",
+    "<b>Needs you adds red in four places:</b> the ask card's left edge and its age, the lane row's tint, the ring on its terminal, tile or spotlight, and the needs-you count (the badge and the heading's number). The Lanes figure's stacked bar and a running agent's bar use the state colours of what they count.",
+    "<b>Otherwise green, amber and red are verdicts only:</b> a figure past its threshold (amber from context 85%, a budget 80% and quota 75%; red past a budget's 100% and quota's 90%); a pass, pending or fail mark (a check, a routine's runs, Live); the diff's added and removed counts; an alert's mark (amber); a project that is untrusted (amber) or cannot load (red); a destructive menu item (red).",
+    "<b>One accent, indigo,</b> marks selection (the open lane in the filmstrip, the palette's active row, the current project, today), focus and the palette's caret, the typing ring, the sample badges, and data series that are not states: the heatmap, Flow's sparklines, the context bar's segments and the 7-day reset mark. It never marks a state.",
+    "<b>Each project's tile has a fixed hue</b>, its identity. Everything else is ink on neutral surfaces, Economy included.",
+    "<b>On a change of state</b> the chip crossfades to its new colour in 200 ms, and the lane moves to its state's place in every list.",
+  ] },
+  { h: "Motion", items: [
+    "A working dot pings every 2 s. A needs-you dot pings every 1.4 s, and its lane breathes a red ring every 2.8 s, until it is answered. Every other dot is still (a failed routine run, Live, idle, lost).",
+    "After an action, popovers, the palette and this panel enter in 160 to 220 ms (fade and a 4 px rise), and an opened lane comes forward in 260 ms. A page loaded from its address draws its final state.",
+    "Hovered tiles rise 1 px. Nothing else moves at rest. <code>prefers-reduced-motion</code> stops all of it; state still reads from colour and words.",
+  ] },
+  { h: "Mode and type", items: [
+    "<b>System by default,</b> with System, Light and Dark at the sidebar's foot (and in ⌘K). Each mode has its own tokens: light lifts panes with soft shadow on a grey page; dark lifts them with a one-pixel light ring on near-black, and keeps real shadow for what floats.",
+    "<b>The terminal is dark in both modes.</b>",
+    "<b>One type system:</b> a UI face (the system sans), a data face (the system mono: figures, branches, paths, tokens; tabular, slashed zero) and a terminal face (JetBrains Mono or SF Mono when installed). Nothing under 11 px; body 13 px. Weights 400, 500 and 600.",
+  ] },
+];
+function tellsRules(extra) {
+  return { h: "What TestPanelAvoidsTheTells would hold", items: [
+    "This panel is the mockup's annotation and is outside these rules.",
+    "No <code>text-transform: uppercase</code>. <code>letter-spacing</code> only negative, and only on a large figure (<code>.big</code>) and the home heading.",
+    "<code>font-weight</code> 400, 500 or 600 only, with <code>b</code>, <code>strong</code> and headings set to 600. No font size under 11 px. <code>transform: scale</code> only in the ping (a dot) and forward (an opened lane, for 260 ms) animations.",
+    "<code>border-radius</code> only from the scale: 3 px marks, 6 px small controls and tags, 8 px controls and rows, 10 px cards, tiles and popovers, 14 px panes, 999 px pills, 50% dots.",
+    "<code>box-shadow</code> only as the four elevation tokens (shadow-1, shadow-2, shadow-pop, shadow-term), or as a ring with no blur (spread only): a hairline outline, the idle dot's ring, the heatmap's now mark, the accent's selection and typing ring, the needs-you ring.",
+    "Gradients only as the sample badges' hatch (<code>repeating-linear-gradient</code>) and as <code>mask-image</code> fades where a list runs on: the lane list's foot, Pulse's foot, the filmstrip's end. <code>backdrop-filter</code> only on the palette's scrim.",
+    "<code>@keyframes</code> only ping, breathe, breatheT, breatheS, enter, fade, slidein and forward, each off under prefers-reduced-motion; transitions only on background, colour, box-shadow, transform and grid-template-columns. The terminal cursor never blinks.",
+    "<code>--work</code>, <code>--wait</code> and <code>--need</code> are read only by the selectors that draw the uses named under colour.",
+    ...(extra || []),
+  ] };
+}
+function rulesPanel(V) {
+  const secs = [...V.rules, ...SHARED_RULES, tellsRules(V.tells)];
+  const link = (q, label) => { const add = Object.fromEntries(new URLSearchParams(q)); const on = Object.entries(add).every(([k, v]) => (S[k] || "") === v); const u = new URLSearchParams(); for (const [k, v] of Object.entries({ ...S, screen: "lane", ...add })) if (v && !(k === "mode" && v === "system") && !(k === "screen" && v === "lane")) u.set(k, v); return `<a class="${on ? "on" : ""}" href="?${u}">${label}</a>`; };
+  return `<div class="scrim" data-act="close" style="background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none"></div>
+  <aside class="pop rules" aria-label="Rules of this variant">
+    <header><div style="flex:1"><h2>${esc(V.title)}: its rules</h2><p>${V.pitch}</p></div><button class="ib" data-act="close" title="Close (Esc)">${I("x")}</button></header>
+    <div class="legendrow" style="padding:10px 16px 0;margin:0">${chip("work")}${chip("wait")}${chip("need")}${chip("idle")}<span class="chip lost"><span class="dot lost"></span>Lost</span><span class="chip acc">Accent</span><span class="sample">Sample data</span></div>
+    <div class="rb">${secs.map((s, i) => `<details${i < V.openRules ? " open" : ""}><summary><span class="n">${i + 1}</span>${esc(s.h)}</summary><ul>${s.items.map(x => `<li>${x}</li>`).join("")}</ul></details>`).join("")}</div>
+    <div class="states">${V.links.map(([q, l]) => link(q, l)).join("")}</div>
+  </aside>`;
+}
+
+// ---- state, mode and mounting ----
+const S = { mode: Q.get("mode") || "system", screen: Q.get("screen") || "lane" };
+const mq = matchMedia("(prefers-color-scheme: dark)");
+function applyMode() { document.documentElement.dataset.theme = S.mode === "system" ? (mq.matches ? "dark" : "light") : S.mode; }
+mq.addEventListener && mq.addEventListener("change", applyMode);
+function syncURL() {
+  const u = new URLSearchParams();
+  for (const [k, v] of Object.entries(S)) if (v && !(k === "mode" && v === "system") && !(k === "screen" && v === "lane")) u.set(k, v);
+  history.replaceState(null, "", location.pathname + (u.toString() ? "?" + u : ""));
+}
+// Header chips give way whole, from the end (HEADER_RULE); Pulse shows a cue until its foot is in view.
+function fitChips() {
+  document.querySelectorAll(".thead .tts").forEach(t => { const cs = [...t.children]; cs.forEach(c => c.hidden = false); for (let i = cs.length - 1; i > 0 && t.scrollWidth > t.clientWidth + 1; i--) cs[i].hidden = true; });
+}
+function cue() {
+  document.querySelectorAll(".pulse .pb").forEach(pb => {
+    const c = pb.parentNode.querySelector(".belowcue"), upd = () => { const end = pb.scrollTop + pb.clientHeight >= pb.scrollHeight - 4; pb.classList.toggle("end", end); if (c) c.hidden = end; };
+    pb.onscroll = upd; upd();
+  });
+}
+addEventListener("resize", () => { if (document.querySelectorAll) fitChips(), cue(); });
+function mount() {
+  applyMode();
+  const html = V.render();
+  const over = S.screen === "menu" ? projectMenu() : S.screen === "palette" ? palette(V.current()) : S.screen === "rules" ? rulesPanel(V) : "";
+  document.getElementById("app").innerHTML = html;
+  document.getElementById("over").innerHTML = over;
+  if (document.querySelectorAll) fitChips(), cue();
+  document.title = `(1) ${A.name}: ${V.title}, PANEL-45 mockup`;
+  syncURL();
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  document.documentElement.classList.add("anim"); // entrance motion follows an action, never a load
+  const act = t.dataset.act, arg = t.dataset.arg;
+  if (act === "menu") S.screen = S.screen === "menu" ? "lane" : "menu";
+  else if (act === "palette") S.screen = "palette";
+  else if (act === "rules") S.screen = "rules";
+  else if (act === "close") S.screen = "lane";
+  else if (act === "mode") S.mode = arg;
+  else if (!V.act(act, arg)) return;
+  e.preventDefault();
+  mount();
+});
+document.addEventListener("keydown", e => {
+  document.documentElement.classList.add("anim");
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); S.screen = S.screen === "palette" ? "lane" : "palette"; mount(); }
+  else if (e.key === "Escape") { if (S.screen !== "lane") { S.screen = "lane"; mount(); } else if (V.escape && V.escape()) mount(); }
+  else if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey && S.screen === "lane") { S.screen = "rules"; mount(); }
+});
+function secRun(l, o) {
+  o = o || {};
+  const b = l.budget, pct = b ? Math.round(l.m.costUsd / b.usd * 100) : 0;
+  const lv = pct > 100 ? "crit" : pct >= 80 ? "warn" : "";
+  return `<div class="card${o.cls ? " " + o.cls : ""}">
+    <div class="ch"><h3>Run</h3><span class="grow"></span><span class="faint">up ${ago(l.m.durationMs)}, API ${ago(l.m.apiDurationMs)}</span></div>
+    <div style="display:flex;align-items:baseline;gap:8px"><span class="big">${usd(l.m.costUsd)}</span>${b ? `<span class="faint mono">of ${usd(b.usd)}</span>` : `<span class="faint">est., no budget</span>`}</div>
+    ${b ? `<div class="bar"><i class="${lv}" style="width:${Math.min(100, pct)}%"></i></div><div class="rrow"><span class="${lv === "crit" ? "no" : lv === "warn" ? "pend" : "faint"}">${pct}% of ${esc(b.change)}'s budget</span></div>` : `<div style="height:8px"></div>`}
+    <div class="ch" style="margin:8px 0 2px"><span>Agents</span><span class="grow"></span><span class="faint">${l.subagents.length} running, ${l.finished} finished</span></div>
+    ${l.subagents.length ? l.subagents.map(s => `<div class="agent"><span class="dot work"></span><span class="grow">${esc(s.type)}${s.description ? `<span class="faint">: ${esc(s.description)}</span>` : ""}</span><span class="mono faint">${ago(NOW - s.since)}</span></div>`).join("") : `<div class="agent faint">None running; pid ${l.pid}, ${l.m.turns} turn${l.m.turns === 1 ? "" : "s"}</div>`}
+  </div>`;
+}
+
+// ---- Variant 2, Overview first ----
+S.view = Q.get("view") || "home";
+S.lane = Q.get("lane") || A.needsYou[0].name;
+const tail = (l, n) => { const ls = termText(l).split("\n"); return ls.slice(-n); };
+const prevHTML = lines => { const ctx = {}; return lines.map(x => /^>\s*$/.test(x) ? '<span class="c-v">&gt;</span> <span class="cur off"></span>' : hlLine(x, ctx)).join("\n"); };
+function tile(l) {
+  const s = st(l), b = l.budget, pct = b ? Math.round(l.m.costUsd / b.usd * 100) : 0;
+  const lines = l.name === "stream" ? tail(l, 4) : (() => { const t = termText(l).split("\n"); const i = t.findIndex(x => /⎿/.test(x)); return [t[i], t[i + 1], t[t.length - 2], t[t.length - 1]]; })();
+  return `<button class="tile" data-act="open" data-arg="${esc(l.name)}">
+    <div class="th"><span class="dot ${s}"></span><b>${esc(l.name)}</b>${laneMeta(l)}</div>
+    <div class="tb2">${esc(l.branch)}</div>
+    <div class="prev">${prevHTML(lines)}</div>
+    <div class="tl">${esc(activity(l))}</div>
+    <div class="tf" title="Context ${l.ctxPct}%"><span class="mini"><i class="${l.ctxPct >= 85 ? "warn" : ""}" style="width:${l.ctxPct}%"></i></span><span class="num">${l.ctxPct}%</span><span class="grow"></span>
+      <span class="num ${pct > 100 ? "no" : pct >= 80 ? "pend" : ""}">${usd(l.m.costUsd)}${b ? " of " + usd(b.usd) : ""}</span></div>
+  </button>`;
+}
+function compactTile(l) {
+  const pr = l.readiness && l.readiness.pr;
+  return `<button class="tile compact" data-act="open" data-arg="${esc(l.name)}">
+    <div class="th"><span class="dot ${st(l)}"></span><b>${esc(l.name)}</b>${sampleTag(l)}${pr ? `<span class="chip ${l.readiness.rows.every(r => r.ok || r.unknown) ? "acc" : "plain"}">#${pr.number}</span>` : ""}</div>
+    <div class="tl ${st(l) === "wait" ? "pend" : "faint"}">${st(l) === "wait" ? esc(activity(l)) : esc(pr ? (l.readiness.rows.every(r => r.ok || r.unknown) ? "Approved, checks green" : l.readiness.reasons[0]) : l.readiness ? l.readiness.reasons[0] : "on " + l.branch)}</div></button>`;
+}
+function spotlight() {
+  const n = A.needsYou[0], l = lane(n.name), t = termText(l).split("\n"), i = t.findIndex(x => /⎿/.test(x));
+  return `<div class="spot">
+    <div class="sl"><h2><span class="dot need"></span>${esc(l.name)}${chip("need")}</h2>
+      <div class="tb2 mono faint">${esc(l.branch)}</div>
+      <div class="q">Asks for ${esc(n.label.toLowerCase())} to run <code>${esc(n.text)}</code>, ${ago(NOW - n.at)} ago.</div>
+      <div class="why">${l.readiness ? esc(l.readiness.reasons.join(", ")) : ""}</div>
+      <div class="acts"><button class="btn primary" data-act="open" data-arg="${esc(l.name)}">${I("term", "s")}Open terminal<span class="kbd">↵</span></button><button class="btn" data-act="open" data-arg="${esc(l.name)}">Show lane</button></div></div>
+    <div class="prev" data-act="open" data-arg="${esc(l.name)}">${prevHTML(t.slice(i))}</div>
+  </div>`;
+}
+function film(sel) {
+  return `<div class="film">${LANES.map(l => { const s = st(l); return `<button class="ft${l.name === sel ? " sel" : ""}${s === "need" && l.name !== sel ? " need" : ""}" data-act="open" data-arg="${esc(l.name)}"><span class="dot ${s}"></span>${esc(l.name)}${sampleTag(l)}${laneMeta(l).replace('class="lm', 'class="lm')}</button>`; }).join("")}</div>`;
+}
+const V = {
+  title: "Overview first",
+  pitch: "A grid of lane tiles is home. Opening one brings its terminal forward, and a lane that needs you surfaces itself, terminal ready.",
+  openRules: 3,
+  current: () => lane(S.lane) || lane("waiting"),
+  render() {
+    if (S.view === "lane") {
+      const l = V.current();
+      const crumb = `<div class="crumb"><button class="btn ghost" data-act="home" title="All lanes (Esc)" style="padding:0 8px 0 4px">${I("left", "s")}All lanes</button><span class="faint">${I("right", "s")}</span><b>${esc(l.name)}</b>${sampleTag(l)}${chip(st(l))}</div>`;
+      return sidebar({ sel: l.name }) + `<div class="main">${topbar(crumb, { lanes: false })}
+        <div class="body"><div class="lanecol">${film(l.name)}${termPane(l, { foot: st(l) === "need" ? `<div class="tfoot"><span style="color:var(--need-ink)">Answer in the terminal: 1 Yes, 2 Yes and don't ask again, 3 No</span><span style="flex:1"></span><span class="num">tmux ux-p45-1</span></div>` : undefined })}</div>
+        <div class="insp"><div class="colswitch"><button class="on">${I("term", "s")}Lane</button><button data-act="home">${I("pulse", "s")}Pulse</button></div>
+          ${secContext(l)}${secPR(l)}${secRun(l)}</div></div></div>`;
+    }
+    const work = LANES.filter(l => st(l) === "work"), wait = LANES.filter(l => st(l) === "wait"), idle = LANES.filter(l => st(l) === "idle");
+    const crumb = `<div class="crumb"><span class="faint">${esc(A.name)}</span><span class="faint">${I("right", "s")}</span><b>All lanes</b></div>`;
+    return sidebar({ sel: "" }) + `<div class="main">${topbar(crumb, { lanes: false })}
+      <div class="body"><div class="home">
+        <div class="hh"><h1>${esc(A.name)}</h1><span class="faint">${counts.work} working, ${counts.need} needs you, ${counts.wait} waiting, ${counts.idle} idle, 1 lost</span></div>
+        <div class="gl"><span class="dot need"></span>Needs you<span class="count">1</span></div>${spotlight()}
+        <div class="gl"><span class="dot work"></span>Working<span class="count">${work.length}</span></div><div class="tiles">${work.map(tile).join("")}</div>
+        <div class="gl"><span class="dot wait"></span>Waiting<span class="count">${wait.length}</span><span class="dot idle" style="margin-left:8px"></span>Idle<span class="count">${idle.length}</span></div><div class="tiles idle">${wait.concat(idle).map(compactTile).join("")}
+          <button class="tile compact lostt"><div class="th"><span class="dot lost"></span><b>${esc(A.orphan.name)}</b><span class="btn" style="height:22px;font-size:11.5px">Restore</span></div><div class="tl faint">Lost: its tmux session is gone</div></button>
+          <button class="tile ghost" data-act="palette">${I("plus", "s")}New lane</button></div>
+      </div>${pulse()}</div></div>`;
+  },
+  act(act, arg) {
+    if ((act === "open" || act === "lane") && lane(arg)) { S.view = "lane"; S.lane = arg; S.screen = "lane"; return true; }
+    if (act === "home") { S.view = "home"; S.screen = "lane"; return true; }
+    return false;
+  },
+  escape() { if (S.view === "lane") { S.view = "home"; return true; } return false; },
+  rules: [
+    { h: "Density", items: [
+      "<b>Figures in the top bar:</b> the same strip as every variant. On home the lanes figure leaves it, because the tiles are the count.",
+      "<b>Home groups tiles by state:</b> the lane that needs you as a wide spotlight with its terminal, working lanes as tiles with a four-line preview, waiting and idle lanes as compact tiles, the lost lane and New lane last.",
+      "<b>A lane opened:</b> a filmstrip of every lane above its terminal, and the lane's sections (Context, Pull request, Run) in the right column. Pulse keeps that column on home.",
+      HEADER_RULE,
+    ] },
+    { h: "When the terminal shows, grows, shrinks or hides", items: [
+      "<b>Hidden on home,</b> except as previews: the spotlight's (ready, the ask in view) and each working tile's last four lines. Previews are the pane's last lines, not a live terminal.",
+      "<b>Opening a lane</b> (a click, ↵ on a tile, or ⌘K) brings its terminal forward: it scales up from 94% in 260 ms and the tiles fold into the filmstrip. Esc or All lanes sends it back.",
+      "<b>A lane that needs you surfaces itself.</b> On home it takes the spotlight with its terminal ready. In another lane it is not opened for you: its filmstrip tile breathes red and it leads Needs you.",
+      "<b>Open, the terminal fills</b> the space between the filmstrip and the sections; it never shares the row with Pulse.",
+    ] },
+  ],
+  tells: ["Home holds no live terminal: a preview is drawn from the pane's last lines."],
+  links: [["view=home&screen=lane", "Home"], ["view=lane&screen=lane", "A lane opened"], ["screen=menu", "Project menu"], ["screen=palette", "⌘K open"], ["mode=light", "Light"], ["mode=dark", "Dark"]],
+};
+mount();
+</script>
+</body>
+</html>
