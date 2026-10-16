@@ -1,6 +1,6 @@
 # ADR 0009: The panel's look is the hybrid: state in colour at rest, one theme, one type system
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-10-16
 - **Tags**: panel, design
 - **Source**: PANEL-45 (`changes/panel-45-ui-design/`): the owner's choice of variant 4, the hybrid,

@@ -7,6 +7,7 @@
 - 2026-10-16 group 2 (Three terminal models of one direction) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2); the round-2 lows fixed and re-shot. Stopped at 2.5 for the owner's choice (D7).
 - 2026-10-16 2.5: the owner chose a hybrid, variant 4 (`4-hybrid.html`: Overview first's home, an opened lane laid out as Stage), and the parked rows as recommended; 20 screenshots kept. The hybrid was reviewed in round 3: converged, peak low; its lows fixed and re-shot. Next: group 3.
 - 2026-10-16 group 3 (The choice, written down) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2). ADR-0009 written Proposed; 3.3, the owner's acceptance, is open.
+- 2026-10-16 3.3: the owner accepted ADR-0009 ("accept ADR 9"); every task is ticked.
 - 2026-10-16 group 2: 2.1–2.3 done (`1-stage.html`, `2-overview.html`, `3-split.html`), with `index.html` and the README's per-variant placement (the file parts of 2.4). Left: 2.4's screenshots into `mockups/shots/` (the orchestrator: `index.html` lists all 56 names and the URL that draws each), then 2.5, the owner's choice.
 - 2026-10-16 group 3: 3.1 (ADR-0009, Proposed) and 3.2 (PRD-ui's choice, PANEL-46's row, the nine parked rows applied) done; the roadmap parser and the changes, roadmap, adr-numbering and agents-md-budget checks pass. Left: 3.3, the owner's acceptance of ADR-0009 in this PR, and the Slice line.
 
@@ -92,6 +93,7 @@
   - `docs/prds/active/PRD-ui.md` records the choice and links the ADR.
   - `docs/roadmap.md`'s PANEL-46 row names the chosen variant.
   - The owner's decision on each parked row from 1.3 is applied: queued, folded into PANEL-46, or cancelled with its reason. An approved proposal of a cancelled row is cancelled with it.
-- [ ] 3.3 The owner reads ADR-0009 and accepts it; its Status becomes Accepted with the date (D8). (manual: the owner's decision)
+- [x] 3.3 The owner reads ADR-0009 and accepts it; its Status becomes Accepted with the date (D8). (manual: the owner's decision)
+  - Accepted by the owner on 2026-10-16 ("accept ADR 9"); ADR-0009 and its index row now read Accepted.
 
 - [ ] Slice: an owner can open three rendered variants of the panel's new look at `changes/panel-45-ui-design/mockups/index.html` in a browser and choose one
