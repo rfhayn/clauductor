@@ -36,6 +36,15 @@ The owner judged the panel's UI to be the weakest part of Clauductor, in both fu
    OPS-64 is taken into the redesign or dropped. An approved proposal whose code moves under it goes back to the
    owner first.
 
+## The choice (the owner, 2026-10-16)
+
+PANEL-45 drew one direction (a modern developer tool with mission control's terminal) in three terminal models, and
+the owner chose a mix of two: **variant 4, the hybrid** (`changes/panel-45-ui-design/mockups/4-hybrid.html`), with
+Overview first's home of lane tiles and a lane opened as Stage lays it out, Context, Pull request and Run beneath the
+terminal. Its rules, and the lines of "grey at rest" they replace, are
+[ADR-0009](../../adr/0009-the-panel-carries-state-in-colour-at-rest.md). The nine parked rows went as PANEL-45
+recommended (`mockups/README.md`, *The parked rows*); `docs/roadmap.md` carries each one.
+
 ## Out of scope
 
 - The Go server and its endpoints, beyond what a view needs.
@@ -44,6 +53,8 @@ The owner judged the panel's UI to be the weakest part of Clauductor, in both fu
 
 ## Open
 
-- **Which direction.** The owner picks it in PANEL-45.
-- **How many themes and type systems survive.** Each direction proposes an answer.
+- **Which direction.** Decided: the hybrid (*The choice*, ADR-0009).
+- **How many themes and type systems survive.** Decided: one theme in two modes, and one type system (ADR-0009).
+- **Whether to vendor a component helper, whether the accent stays tunable, and whether the terminal face is
+  self-hosted.** Left open by ADR-0009 for PANEL-46's design.
 - **Whether the UX harness becomes a gate step.** It costs minutes per run, so PANEL-46's design decides.

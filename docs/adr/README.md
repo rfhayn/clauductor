@@ -54,3 +54,4 @@ that merges second takes the next free number.
 | [0006](0006-a-repository-works-without-clauductor.md) | A repository works without clauductor installed | Accepted |
 | [0007](0007-plugin-distribution.md) | The model also ships as a Claude Code plugin, generated from template/ | Accepted |
 | [0008](0008-provenance-and-attribution-policy.md) | Provenance and attribution trailers: on in the template, off here | Accepted |
+| [0009](0009-the-panel-carries-state-in-colour-at-rest.md) | The panel's look is the hybrid: state in colour at rest, one theme, one type system | Proposed |

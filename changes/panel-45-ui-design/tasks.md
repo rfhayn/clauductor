@@ -6,7 +6,9 @@
 - 2026-10-16 group 1 (The data and the inventory) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2)
 - 2026-10-16 group 2 (Three terminal models of one direction) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2); the round-2 lows fixed and re-shot. Stopped at 2.5 for the owner's choice (D7).
 - 2026-10-16 2.5: the owner chose a hybrid, variant 4 (`4-hybrid.html`: Overview first's home, an opened lane laid out as Stage), and the parked rows as recommended; 20 screenshots kept. The hybrid was reviewed in round 3: converged, peak low; its lows fixed and re-shot. Next: group 3.
+- 2026-10-16 group 3 (The choice, written down) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2). ADR-0009 written Proposed; 3.3, the owner's acceptance, is open.
 - 2026-10-16 group 2: 2.1–2.3 done (`1-stage.html`, `2-overview.html`, `3-split.html`), with `index.html` and the README's per-variant placement (the file parts of 2.4). Left: 2.4's screenshots into `mockups/shots/` (the orchestrator: `index.html` lists all 56 names and the URL that draws each), then 2.5, the owner's choice.
+- 2026-10-16 group 3: 3.1 (ADR-0009, Proposed) and 3.2 (PRD-ui's choice, PANEL-46's row, the nine parked rows applied) done; the roadmap parser and the changes, roadmap, adr-numbering and agents-md-budget checks pass. Left: 3.3, the owner's acceptance of ADR-0009 in this PR, and the Slice line.
 
 ## Decision log
 - 2026-10-15, group 1: the harness capture (1.1) was made by the orchestrator, outside this builder's sandbox; the builder checked `mockups/data.js` for a token and temp paths (none) and ticked 1.1 on that. Alternative: the builder runs the harness; not taken, as the sandbox would not start a panel or tmux.
@@ -36,12 +38,20 @@
 - 2026-10-16, group 2, 2.5 (the owner): after seeing the three, the owner asked for a named mix (D7): "I like the overview first, but in the stage view, I like the boxes at the bottom around context, pull requests, and run. Can we make a hybrid version of that and then see what it looks like?" It is drawn as `mockups/4-hybrid.html`; the three variants are left as they were.
 - 2026-10-16, group 2, 2.5: the hybrid's home is Overview first's, unchanged. A lane opened keeps Overview's filmstrip above the terminal (the way between lanes and back home), and under it lays out Stage's: the terminal as the main pane, Context, Pull request and Run beneath, Pulse in the right column. Overview's Lane / Pulse switch goes, since Pulse no longer gives up its column. Alternative: drop the filmstrip as Stage has none; not taken, as the owner kept Overview's way of going back.
 - 2026-10-16, group 2, 2.5: the hybrid's rules say the only terminal on home is the asking lane's (working tiles' previews are text, not terminals), and in a lane the terminal is the stage with the three boxes, folding as Stage's (Pulse first, then the boxes). Its shots: five screens in both modes at 1440x900, home and lane at 1920x1080 (14 names in `index.html`, whose cards now sit two by two).
-- 2026-10-16, group 2, 2.5 (the owner): "I'm good with the hybrid. Let's use that. The 9 parked rows: I'm good with them going as recommended." Variant 4 is the choice group 3 writes down; the README's parked-row table records each row as recommended, with OPS-64 kept after PANEL-46 because the hybrid keeps a lane tab strip (the filmstrip). Pulse's cue in the hybrid now names only Pinned and hides once Pinned is in view, since at 1920x1080 it covered Pinned's top.
+- 2026-10-16, group 2, 2.5 (the owner): "I'm good with the hybrid. Let's use that. The 9 parked rows: I'm good with them going as recommended." Variant 4 is the choice group 3 writes down; the README's parked-row table records each row as recommended, with OPS-64 kept after PANEL-46 because the hybrid keeps a lane tab strip (the filmstrip) (corrected in group 3's review: the filmstrip scrolls and has no "N more", so the recommendation's own clause cancels OPS-64). Pulse's cue in the hybrid now names only Pinned and hides once Pinned is in view, since at 1920x1080 it covered Pinned's top.
 - 2026-10-16, group 2 (the owner): only 20 screenshots are committed: all 14 of the hybrid's, and six of the alternatives (Stage's lane, Overview's home and Split's wide lane, each light and dark at 1440x900). `index.html`'s gallery lists those 20, in the same caption format, and says every other state is drawn live by its file's query parameters. Alternative: commit all 70; not taken, as the files draw every state themselves.
-- 2026-10-16, group 2 review round 3 (the hybrid): the filmstrip holds every live lane, and the lost lane stays in the sidebar and on home with Restore, so OPS-64's "N more" counts live lanes only. The folds are built rather than marked undrawn: ⌘J folds the three boxes and ⌘. folds Pulse in a lane, Pulse folds by itself below 1440 px wide and the boxes below 800 px high (the old "100 columns" line is dropped, as nothing holds it); the rule now also names the built sizes (1700 px wide, 960 px high). Working tiles' previews lose the prompt and cursor, so home's only terminal is the asking lane's.
+- 2026-10-16, group 2 review round 3 (the hybrid): the filmstrip holds every live lane, and the lost lane stays in the sidebar and on home with Restore, so OPS-64's "N more" counts live lanes only (corrected in group 3's review: the filmstrip has no "N more" count at all; OPS-64 is cancelled). The folds are built rather than marked undrawn: ⌘J folds the three boxes and ⌘. folds Pulse in a lane, Pulse folds by itself below 1440 px wide and the boxes below 800 px high (the old "100 columns" line is dropped, as nothing holds it); the rule now also names the built sizes (1700 px wide, 960 px high). Working tiles' previews lose the prompt and cursor, so home's only terminal is the asking lane's.
+
+- 2026-10-16, group 3: the ADR is `docs/adr/0009-the-panel-carries-state-in-colour-at-rest.md`, number 0009 as the orchestrator found it free on origin/main and in the open PRs (gh does not run in the builder's sandbox). Its Status is Proposed, not Accepted as 3.1's bullet says: D8 (approved) says Proposed until the owner accepts it in the same PR, and the orchestrator's brief says the same.
+- 2026-10-16, group 3: where the hybrid's rules panel is silent, the ADR settles the smallest thing that keeps PANEL-46 from guessing, each from today's panel or the mockup's CSS: `panel.css` names tokens, never a literal colour (today's token contract), and the project hues become tokens; the old tells the hybrid does not contradict stay (no uppercase, the figure features, no " · " joins, no arrow on a button, a cursor that never blinks); `font-size-adjust` goes with the six type systems it evened; a control on a state-tinted row takes that state's ink, as one on an abnormal row does today; the changed-figure flash stays (the README's PG-7); `themes_test.go`'s floors carry over to one theme in two modes; the terminal's ANSI palette stays the default theme's (Grey HMI) unless PANEL-46 changes it. Alternative: leave each to PANEL-46; not taken, as the brief asks for rules stated so they can be tested.
+- 2026-10-16, group 3: the ADR names a third open question beside the two in the brief (a component helper, a tunable accent): whether the terminal face is self-hosted, since the mockup takes JetBrains Mono or SF Mono only when installed and today's panel self-hosts every face. Alternative: decide it; not taken, as it is a trade (one cell on every machine against font weight in the binary) the owner has not weighed.
+- 2026-10-16, group 3: the approvals of PANEL-25, 30 and 31 in `changes/` are not revoked: an unapproved `changes/<id>/` on main fails `checks/changes.sh`. Each roadmap row's status carries the return to the owner instead ("its approved proposal returns to the owner before its build"), and its Deps add PANEL-46.
+- 2026-10-16, group 3 review round 1: OPS-64 is cancelled, not kept: the hybrid's filmstrip is a scroll strip with a fade and no "N more" count, so the owner's approved recommendation ("PANEL-46's chosen layout either keeps or cancels with its reason") cancels it. The 2.5 and round-3 lines above that said it is kept are marked corrected rather than rewritten.
+- 2026-10-16, group 3 review round 1: ADR-0009 adds an opacity rule in place of `TestPanelCSSFadesNothingButDisabledControls` (only in the ping, enter, fade and forward keyframes, on `:disabled`, and 0 or 1 on the lane row's ⋯ shown on hover or selection); the mockup's other two opacities (`.btn .kbd`, `.runs i`) become token colours in PANEL-46 rather than exceptions. Alternative: allow them; not taken, as a faded colour escapes the contrast floors. `slidein` leaves the tells (only the rules panel, an annotation, uses it), and the hybrid's Context fold moves to `max-height:959px` to match "below 960 px" and the other folds.
+- 2026-10-16, group 3: PANEL-44 is cancelled as folded into PANEL-31 (Deps `—`), as PANEL-26 and PANEL-27 were folded into PANEL-25, rather than kept with Deps PANEL-31; the parser allows both (PANEL-31 stays open), and one row for the work leaves nothing waiting on a second. PANEL-32 keeps its Deps, as a cancelled row may name any row. PANEL-33 stays parked on its observed condition and adds PANEL-46 to its Deps, since the owner's decision places it after PANEL-46.
 
 ## 1. The data and the inventory
-- [x] 1.1 Start the UX harness's throwaway panel (`framework/internal/panel/testdata/ux/up.sh`, its own `HOME`, port and tmux sockets, never the installed panel; D4).
+- [x] 1.1 Capture `changes/panel-45-ui-design/mockups/data.js` from the UX harness's throwaway panel (`framework/internal/panel/testdata/ux/up.sh`, its own `HOME`, port and tmux sockets, never the installed panel; D4).
   - Read `/api/state` and `/api/projects` once into `changes/panel-45-ui-design/mockups/data.js`, with the run's temp paths and token removed.
   - Capture one lane's terminal as plain text for the still image.
   - Tear the run down with `down.sh`.
@@ -51,20 +61,20 @@
 - [x] 1.3 In the same README, the parked-row table (D9): PANEL-25, 30, 31, 32, 33, 34 and 44, OPS-62 and OPS-64, each with what it fixes and a recommendation (into PANEL-46, a row after it, or dropped), left for the owner. (manual: a document)
 
 ## 2. Three terminal models of one direction
-- [x] 2.1 Variant 1, Stage: `mockups/1-stage.html`. The terminal is always the main pane, with the shared modern chrome around it (D2).
+- [x] 2.1 Variant 1, Stage: `changes/panel-45-ui-design/mockups/1-stage.html`. The terminal is always the main pane, with the shared modern chrome around it (D2).
   - It draws the selected-lane screen with the project menu open, in light and in dark (D3).
   - It has the Pulse column with sample data (D11) and its rules panel.
   - It reserves a place for the selected lane's top context contributors (PANEL-50), drawn with sample data marked as a sample (the owner, 2026-10-15; Decision log).
   - (manual: a design, judged by eye)
-- [x] 2.2 Variant 2, Overview first: `mockups/2-overview.html`, with the same screens, modes, Pulse, contributors place and rules panel.
+- [x] 2.2 Variant 2, Overview first: `changes/panel-45-ui-design/mockups/2-overview.html`, with the same screens, modes, Pulse, contributors place and rules panel.
   - Lane tiles are the home view, and opening one brings its terminal forward.
   - A lane that needs you surfaces with its terminal ready.
   - (manual: a design, judged by eye)
-- [x] 2.3 Variant 3, Split: `mockups/3-split.html`, with the same screens, modes, Pulse, contributors place and rules panel.
+- [x] 2.3 Variant 3, Split: `changes/panel-45-ui-design/mockups/3-split.html`, with the same screens, modes, Pulse, contributors place and rules panel.
   - The lane list and the terminal sit side by side.
   - The terminal widens while you type and narrows when its lane is idle; both states are drawn.
   - (manual: a design, judged by eye)
-- [x] 2.4 `mockups/index.html` links the three side by side.
+- [x] 2.4 `changes/panel-45-ui-design/mockups/index.html` links the three side by side.
   - Each variant is screenshotted at 1440×900 and 1920×1080, in light and in dark, with Playwright installed in the session's scratchpad (D5).
   - The PNGs go to `mockups/shots/`.
   - Each variant's README section says which inventory items it moved, hid or dropped (D6).
@@ -74,13 +84,14 @@
   - The owner chose variant 4, the hybrid (Overview first's home; an opened lane laid out as Stage with Context, Pull request and Run beneath the terminal), 2026-10-16.
 
 ## 3. The choice, written down
-- [ ] 3.1 The ADR (next number, through `new-adr`) records the chosen variant's rules and the parts of "grey at rest" they replace (D8).
+- [x] 3.1 The ADR (next number, through `new-adr`) records the chosen variant's rules and the parts of "grey at rest" they replace (D8).
   - The rules are D3's lines, made exact: colour tokens, motion, density, terminal behaviour, the one theme and type system, and what `TestPanelAvoidsTheTells` will hold.
-  - It is Accepted on the owner's word.
+  - It is written Proposed; the owner's acceptance is 3.3.
   - (manual: a record)
-- [ ] 3.2 Record the choice and the parked-row decisions (D9). (manual: records)
+- [x] 3.2 Record the choice and the parked-row decisions (D9). (manual: records)
   - `docs/prds/active/PRD-ui.md` records the choice and links the ADR.
   - `docs/roadmap.md`'s PANEL-46 row names the chosen variant.
   - The owner's decision on each parked row from 1.3 is applied: queued, folded into PANEL-46, or cancelled with its reason. An approved proposal of a cancelled row is cancelled with it.
+- [ ] 3.3 The owner reads ADR-0009 and accepts it; its Status becomes Accepted with the date (D8). (manual: the owner's decision)
 
 - [ ] Slice: an owner can open three rendered variants of the panel's new look at `changes/panel-45-ui-design/mockups/index.html` in a browser and choose one
