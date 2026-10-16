@@ -4,6 +4,9 @@
 - 2026-10-15 proposed, then revised the same day by the owner's steer (D2, D3, D11): one modern direction with mission control's terminal, drawn in three terminal models; nothing built yet
 - 2026-10-15 group 1 done: `mockups/data.js` captured from the harness (by the orchestrator); `mockups/README.md` holds the inventory (135 functions, 11 groups) and the parked-row table with recommendations, the owner's column empty. Next: group 2, the three variants.
 - 2026-10-16 group 1 (The data and the inventory) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2)
+- 2026-10-16 group 2 (Three terminal models of one direction) built and reviewed: converged in 2 round(s), peak medium (round 1), low (round 2); the round-2 lows fixed and re-shot. Stopped at 2.5 for the owner's choice (D7).
+- 2026-10-16 2.5: the owner chose a hybrid, variant 4 (`4-hybrid.html`: Overview first's home, an opened lane laid out as Stage), and the parked rows as recommended; 20 screenshots kept. The hybrid was reviewed in round 3: converged, peak low; its lows fixed and re-shot. Next: group 3.
+- 2026-10-16 group 2: 2.1–2.3 done (`1-stage.html`, `2-overview.html`, `3-split.html`), with `index.html` and the README's per-variant placement (the file parts of 2.4). Left: 2.4's screenshots into `mockups/shots/` (the orchestrator: `index.html` lists all 56 names and the URL that draws each), then 2.5, the owner's choice.
 
 ## Decision log
 - 2026-10-15, group 1: the harness capture (1.1) was made by the orchestrator, outside this builder's sandbox; the builder checked `mockups/data.js` for a token and temp paths (none) and ticked 1.1 on that. Alternative: the builder runs the harness; not taken, as the sandbox would not start a panel or tmux.
@@ -14,6 +17,28 @@
 - 2026-10-15, group 1: PANEL-33 is recommended with a condition to observe (a login-lock alert after PANEL-28) rather than a phase, per AGENTS.md rule 1. The alert is a blocking one that raises an OS notification, so something reaches the owner when the condition holds. PANEL-44 is recommended folded into PANEL-31's re-proposal, as a row after PANEL-46.
 - 2026-10-16, group 1 review round 1: PANEL-32 is recommended dropped as a scope cut, with no claim that it will come back (nothing would watch for that). Its review notes move into PANEL-31's re-proposal. Alternative: keep it parked until a version is seen not to clear, which nothing observes. PANEL-34 and OPS-64 are now rows after PANEL-46, not drops: D9 drops a row only when the redesign removes what it fixes, and neither one's problem is removed. PANEL-25 now goes back to the owner, because its task 1.5 changes `panel.js`.
 - 2026-10-16, group 1 review round 2: the owner's PANEL-50 place (the entry above) is carried into tasks 2.1–2.3 as a bullet, so group 2's builder, reviewer and verify-change see it.
+
+- 2026-10-16, group 2: each variant is assembled from shared parts (one CSS, one script) in the session's scratchpad into its self-contained file; the files are the source from here on, edited directly, and nothing else is committed. Alternative: commit the parts and an assembler; not taken, as D1 rules out a build.
+- 2026-10-16, group 2: the state colours are green working, amber waiting, red needs you, a hollow grey ring idle, a dashed ring lost; one indigo accent marks selection, focus and samples, never a state. A lane whose ask blocks (`severity: block`) reads as needs you, not waiting, so the captured `waiting` lane is red. Alternative: blue for working; not taken, as blue sits too near the accent.
+- 2026-10-16, group 2: each file takes `screen=rules` too (the rules panel open), and Stage and Overview take `lane=<name>`, so the rules panel can be screenshotted and any lane drawn. Default lanes: Stage `working`, Overview's opened lane `waiting` (the one that surfaces), Split `ready` when narrow (an idle lane) and `working` when wide (typing).
+- 2026-10-16, group 2: a lane with no terminal capture (only working, waiting and stream were captured) shows the harness's banner with its own name, role and path, since the fake prints the same screen for every lane. Split's wide state shows typed text after the prompt ("add a test for the empty queue case, then rerun the e2e suite"), written for the mockup; it is the only invented terminal text.
+- 2026-10-16, group 2: entrance motion (popovers, the palette, the rules panel, a lane brought forward) runs only after a click or a key, never on a load from the URL, so a screenshot draws the final state whatever its timing. Continuous motion (the working ping, the needs-you breathing) runs from load.
+- 2026-10-16, group 2: Pulse also carries two real sections under the samples, *Flow, 30 days* and *Pinned* (the project's cards), so the side panel's Flow card and pinned cards (SP-12 to SP-15) have a home. Alternative: leave them in Activity; not taken, as they are glanceable and Pulse is the glance column.
+- 2026-10-16, group 2: the README names proposed drops plainly for the owner (the column picker, sorting by column in Stage and Overview, the terminal tab strip in Stage and Split, manual pane widths in Split); PG-12 and MN-5's theme, Tuned and type are recorded as dropped by D3, the owner's decision, not proposed.
+- 2026-10-16, group 2: the builder checked its own layout with a throwaway WebKit snapshot in the scratchpad (not Playwright, and no PNG is committed), which found the body grid letting the terminal push the sections off the page; fixed. The shots of record are still the orchestrator's (2.4).
+- 2026-10-16, group 2 review round 1: Split draws Run as one line under the expanded row (cost against the budget bar, agents, time), and the typing strip adds agents running; the rest of Run (SP-3 to SP-5) sits behind a click, as in the shared placement. Alternative: a third card beside Context and Pull request; not taken, as three columns do not fit the table's width at 1440.
+- 2026-10-16, group 2 review round 1: the drawing was changed to fit the rules where a use had no reason (Economy and the 7-day reset mark leave state colour and the accent, the header chips' fade goes, radii move onto one scale of 3, 6, 8, 10 and 14 px, `b` and headings set to 600, the scaled badge goes), and the rules were rewritten to name every remaining use (green and red on the diff and on a destructive item as verdicts; the accent on data series; mask fades at the lane list, Pulse and the filmstrip). Alternative: strip all the colour from data series; not taken, as a grey heatmap and sparklines read worse and the accent rule stays testable by selector.
+- 2026-10-16, group 2 review round 1: the Rules button moves into the top bar, replacing the top bar's ⌘K button (the sidebar's search keeps ⌘K); in Split's narrow top bar it is an icon with R. Alternative: the sidebar's foot; not taken, as it is full at 252 px.
+- 2026-10-16, group 2 review round 1: the terminal header's chips give way whole, from the end: uptime, port, Remote, thinking; the model and effort stay (a script hides whole chips to fit, and each variant's density rule says so). Alternative: hide by breakpoint; not taken, as the header's width depends on the variant and the state.
+- 2026-10-16, group 2 review round 1: waiting amber is shown both ways: the rules panel's legend now heads it, and the idle `quiet` lane is drawn as waiting ("your move"), marked as a sample state, because the capture has none; the project menu's and home's counts follow the lanes as drawn. Alternative: the legend alone; not taken, as the reviewer and the owner should see amber on a lane.
+- 2026-10-16, group 2 review round 1: when the palette opens on the lane that is asking, its first item is "Answer in the terminal" (with the choices), and the lane group drops its duplicate "Enter the terminal".
+- 2026-10-16, group 2 review round 2: the sample `quiet` lane carries a hatched "sample" tag beside its name wherever the name is drawn (lane row, table row, tile, filmstrip, crumb, terminal header); a failed routine run gets a still red dot (`.dot.fail`), so only working and needs-you dots move; `enter` no longer scales, so only ping and forward use scale.
+- 2026-10-16, group 2, 2.5 (the owner): after seeing the three, the owner asked for a named mix (D7): "I like the overview first, but in the stage view, I like the boxes at the bottom around context, pull requests, and run. Can we make a hybrid version of that and then see what it looks like?" It is drawn as `mockups/4-hybrid.html`; the three variants are left as they were.
+- 2026-10-16, group 2, 2.5: the hybrid's home is Overview first's, unchanged. A lane opened keeps Overview's filmstrip above the terminal (the way between lanes and back home), and under it lays out Stage's: the terminal as the main pane, Context, Pull request and Run beneath, Pulse in the right column. Overview's Lane / Pulse switch goes, since Pulse no longer gives up its column. Alternative: drop the filmstrip as Stage has none; not taken, as the owner kept Overview's way of going back.
+- 2026-10-16, group 2, 2.5: the hybrid's rules say the only terminal on home is the asking lane's (working tiles' previews are text, not terminals), and in a lane the terminal is the stage with the three boxes, folding as Stage's (Pulse first, then the boxes). Its shots: five screens in both modes at 1440x900, home and lane at 1920x1080 (14 names in `index.html`, whose cards now sit two by two).
+- 2026-10-16, group 2, 2.5 (the owner): "I'm good with the hybrid. Let's use that. The 9 parked rows: I'm good with them going as recommended." Variant 4 is the choice group 3 writes down; the README's parked-row table records each row as recommended, with OPS-64 kept after PANEL-46 because the hybrid keeps a lane tab strip (the filmstrip). Pulse's cue in the hybrid now names only Pinned and hides once Pinned is in view, since at 1920x1080 it covered Pinned's top.
+- 2026-10-16, group 2 (the owner): only 20 screenshots are committed: all 14 of the hybrid's, and six of the alternatives (Stage's lane, Overview's home and Split's wide lane, each light and dark at 1440x900). `index.html`'s gallery lists those 20, in the same caption format, and says every other state is drawn live by its file's query parameters. Alternative: commit all 70; not taken, as the files draw every state themselves.
+- 2026-10-16, group 2 review round 3 (the hybrid): the filmstrip holds every live lane, and the lost lane stays in the sidebar and on home with Restore, so OPS-64's "N more" counts live lanes only. The folds are built rather than marked undrawn: ⌘J folds the three boxes and ⌘. folds Pulse in a lane, Pulse folds by itself below 1440 px wide and the boxes below 800 px high (the old "100 columns" line is dropped, as nothing holds it); the rule now also names the built sizes (1700 px wide, 960 px high). Working tiles' previews lose the prompt and cursor, so home's only terminal is the asking lane's.
 
 ## 1. The data and the inventory
 - [x] 1.1 Start the UX harness's throwaway panel (`framework/internal/panel/testdata/ux/up.sh`, its own `HOME`, port and tmux sockets, never the installed panel; D4).
@@ -26,25 +51,27 @@
 - [x] 1.3 In the same README, the parked-row table (D9): PANEL-25, 30, 31, 32, 33, 34 and 44, OPS-62 and OPS-64, each with what it fixes and a recommendation (into PANEL-46, a row after it, or dropped), left for the owner. (manual: a document)
 
 ## 2. Three terminal models of one direction
-- [ ] 2.1 Variant 1, Stage: `mockups/1-stage.html`. The terminal is always the main pane, with the shared modern chrome around it (D2).
+- [x] 2.1 Variant 1, Stage: `mockups/1-stage.html`. The terminal is always the main pane, with the shared modern chrome around it (D2).
   - It draws the selected-lane screen with the project menu open, in light and in dark (D3).
   - It has the Pulse column with sample data (D11) and its rules panel.
   - It reserves a place for the selected lane's top context contributors (PANEL-50), drawn with sample data marked as a sample (the owner, 2026-10-15; Decision log).
   - (manual: a design, judged by eye)
-- [ ] 2.2 Variant 2, Overview first: `mockups/2-overview.html`, with the same screens, modes, Pulse, contributors place and rules panel.
+- [x] 2.2 Variant 2, Overview first: `mockups/2-overview.html`, with the same screens, modes, Pulse, contributors place and rules panel.
   - Lane tiles are the home view, and opening one brings its terminal forward.
   - A lane that needs you surfaces with its terminal ready.
   - (manual: a design, judged by eye)
-- [ ] 2.3 Variant 3, Split: `mockups/3-split.html`, with the same screens, modes, Pulse, contributors place and rules panel.
+- [x] 2.3 Variant 3, Split: `mockups/3-split.html`, with the same screens, modes, Pulse, contributors place and rules panel.
   - The lane list and the terminal sit side by side.
   - The terminal widens while you type and narrows when its lane is idle; both states are drawn.
   - (manual: a design, judged by eye)
-- [ ] 2.4 `mockups/index.html` links the three side by side.
+- [x] 2.4 `mockups/index.html` links the three side by side.
   - Each variant is screenshotted at 1440×900 and 1920×1080, in light and in dark, with Playwright installed in the session's scratchpad (D5).
   - The PNGs go to `mockups/shots/`.
   - Each variant's README section says which inventory items it moved, hid or dropped (D6).
   - (manual: a capture)
-- [ ] 2.5 The owner opens the three variants and chooses one, chooses a named mix, or sends one back (D7). The build stops here until they do. (manual: the owner's decision)
+  - Done by the orchestrator on 2026-10-16: 56 PNGs (every gallery entry in index.html), Playwright from the scratchpad with the cached Chromium 1243; no page error and no network request in any of them.
+- [x] 2.5 The owner opens the three variants and chooses one, chooses a named mix, or sends one back (D7). The build stops here until they do. (manual: the owner's decision)
+  - The owner chose variant 4, the hybrid (Overview first's home; an opened lane laid out as Stage with Context, Pull request and Run beneath the terminal), 2026-10-16.
 
 ## 3. The choice, written down
 - [ ] 3.1 The ADR (next number, through `new-adr`) records the chosen variant's rules and the parts of "grey at rest" they replace (D8).

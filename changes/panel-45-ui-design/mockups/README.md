@@ -9,7 +9,10 @@ What this folder holds, and what each variant must keep.
 - **The inventory** (D6, below): every function the page offers today.
 - **The parked rows** (D9, at the end): nine rows waiting on this review, each with a
   recommendation for the owner.
-- The three variants, `index.html` and `shots/` come in group 2.
+- **The three variants** (group 2, D2): `1-stage.html`, `2-overview.html`, `3-split.html`, and the owner's
+  mix `4-hybrid.html` (2.5's redraw), linked side by side
+  from `index.html`, with `shots/` for the screenshots. Where each puts every inventory item is in
+  *The variants* below.
 
 ## The inventory: what the page offers today
 
@@ -222,12 +225,225 @@ approved proposal whose code the redesign moves goes back to the owner first.
 
 | Row | What it fixes | Inventory it touches | Where its work stands | Recommendation | Why | Owner's decision |
 |---|---|---|---|---|---|---|
-| PANEL-25 | An idle panel spawns about 35 processes a minute and calls GitHub every minute per project with no page open. The login agent opens a browser tab at every login | PG-10, SB-19, NY-3 (auto-close on merge), FT-1 and FT-2 (spawn rates in the footer, its task 1.5), DR-2 (the metrics command runs only while a page is in view, its task 3.7) | Proposal approved 2026-10-02; not built | A row after PANEL-46; its proposal goes back to the owner | Most of it is server polling, but task 1.5 changes `panel.js`, which PANEL-46 splits into modules, so PRD-ui decision 5 applies | |
-| PANEL-30 | Remove worktree speaks git, doesn't warn when a change is still in flight, and deletes ignored files without saying so | RAIL-11, BN-5, WS-24 (Close lane shares its rules) | Proposal approved 2026-10-02. Group 1 (a commit on no branch is kept) merged in #80, but its `tasks.md` on main still shows 1.1 and 1.2 unticked: the re-proposal must tick them. Groups 2–6 not built | A row after PANEL-46; its proposal goes back to the owner | The plain words and the in-flight warning are server side and still needed, but its group 5 lays the plan out on a page PANEL-46 redraws | |
-| PANEL-31 | A new Claude Code version puts an amber bar across the whole page until three subagent launches confirm it, and one project's verification doesn't reach the others | BN-3, FT-2, SP-2 (the Approximate note), DLG-5, and a new status field beside SB-12 | Proposal approved 2026-10-02. Groups 1–2 built on `change/panel-31-build` (2026-10-13), unmerged; group 3 not built | A row after PANEL-46; its proposal goes back to the owner and takes in PANEL-44 and PANEL-32's review notes | Group 1 (server: a verification holds everywhere) lands as built. Group 2's status field is drawn again on the new status bar, which each variant should leave room for | |
-| PANEL-32 | **Verify now**: a button that runs a throwaway session to confirm a new version on demand, at a stated cost | The PANEL-31 field, DLG-5 | Not proposed; it carries review notes from PANEL-28 and PANEL-31 | Dropped, as a scope cut: the redesign does not remove what it fixes | PANEL-31 makes the check clear by itself and turns the page-wide bar into a quiet field, so verifying on demand is not worth a probe that holds the panel's single `claude` slot for about 105 s. Its review notes move into PANEL-31's re-proposal, among them "revisit Accept this version (PANEL-31 D4) if the check proves too slow to clear" | |
-| PANEL-33 | Find out whether the panel's own `claude agents` and `auth status` calls take or spend a login refresh | NY-4, NY-5 (the login-lock alerts), DLG-5 (its login-lock section) | Not proposed | A row after PANEL-46, started on an observed condition | It is an investigation with no page in it. Run it when a login-lock alert, or "another Claude Code process is refreshing it", is seen again after PANEL-28 | |
-| PANEL-34 | A session cannot close its own lane: a `close-lane` skill and an authenticated `clauductor lane close` | WS-24, MN-4 (the page's Close lane, whose plan it reuses) | Not proposed | A row after PANEL-46 | The redesign neither does it nor removes the need: the page's Close needs the owner at the page, while a session closing itself is a CLI and skill change with no page in it. OPS-31's cancellation removed one user, not the need | |
-| PANEL-44 | A version break that one project found is lost when the panel restarts | BN-3, FT-2 | Not proposed; it depends on PANEL-31 | A row after PANEL-46, with PANEL-31 (folded into its re-proposal) | It is server-side state and a residual of PANEL-31's own code, so the redesign does not touch it | |
-| OPS-62 | A key typed while scrolled back can be lost to a wheel-up that tmux has not read yet | WS-16, WS-14 | Not proposed | A row after PANEL-46 | The terminal and its tmux bridge are outside PANEL-45 and PANEL-46 (proposal, *Out of scope*), so the redesign keeps the bug | |
-| OPS-64 | The tab strip's "N more" can count one more tab than is out of sight | WS-3, MN-7 | Not proposed | A row after PANEL-46, which PANEL-46's chosen layout either keeps or cancels with its reason | Today's page already has a left rail and a tab strip, and D2 does not remove the strip, so only the chosen layout can say whether the count survives | |
+| PANEL-25 | An idle panel spawns about 35 processes a minute and calls GitHub every minute per project with no page open. The login agent opens a browser tab at every login | PG-10, SB-19, NY-3 (auto-close on merge), FT-1 and FT-2 (spawn rates in the footer, its task 1.5), DR-2 (the metrics command runs only while a page is in view, its task 3.7) | Proposal approved 2026-10-02; not built | A row after PANEL-46; its proposal goes back to the owner | Most of it is server polling, but task 1.5 changes `panel.js`, which PANEL-46 splits into modules, so PRD-ui decision 5 applies | As recommended (2026-10-16): a row after PANEL-46, its proposal back to the owner |
+| PANEL-30 | Remove worktree speaks git, doesn't warn when a change is still in flight, and deletes ignored files without saying so | RAIL-11, BN-5, WS-24 (Close lane shares its rules) | Proposal approved 2026-10-02. Group 1 (a commit on no branch is kept) merged in #80, but its `tasks.md` on main still shows 1.1 and 1.2 unticked: the re-proposal must tick them. Groups 2–6 not built | A row after PANEL-46; its proposal goes back to the owner | The plain words and the in-flight warning are server side and still needed, but its group 5 lays the plan out on a page PANEL-46 redraws | As recommended (2026-10-16): a row after PANEL-46, its proposal back to the owner; group 5's plan is laid out on the hybrid's page (Remove sits behind ⌘K, Worktrees) |
+| PANEL-31 | A new Claude Code version puts an amber bar across the whole page until three subagent launches confirm it, and one project's verification doesn't reach the others | BN-3, FT-2, SP-2 (the Approximate note), DLG-5, and a new status field beside SB-12 | Proposal approved 2026-10-02. Groups 1–2 built on `change/panel-31-build` (2026-10-13), unmerged; group 3 not built | A row after PANEL-46; its proposal goes back to the owner and takes in PANEL-44 and PANEL-32's review notes | Group 1 (server: a verification holds everywhere) lands as built. Group 2's status field is drawn again on the new status bar, which each variant should leave room for | As recommended (2026-10-16): a row after PANEL-46, its proposal back to the owner, taking in PANEL-44 and PANEL-32's notes; its quiet version field goes where the hybrid places it, at the sidebar's foot beside Live |
+| PANEL-32 | **Verify now**: a button that runs a throwaway session to confirm a new version on demand, at a stated cost | The PANEL-31 field, DLG-5 | Not proposed; it carries review notes from PANEL-28 and PANEL-31 | Dropped, as a scope cut: the redesign does not remove what it fixes | PANEL-31 makes the check clear by itself and turns the page-wide bar into a quiet field, so verifying on demand is not worth a probe that holds the panel's single `claude` slot for about 105 s. Its review notes move into PANEL-31's re-proposal, among them "revisit Accept this version (PANEL-31 D4) if the check proves too slow to clear" | As recommended (2026-10-16): dropped as a scope cut; its notes move into PANEL-31's re-proposal |
+| PANEL-33 | Find out whether the panel's own `claude agents` and `auth status` calls take or spend a login refresh | NY-4, NY-5 (the login-lock alerts), DLG-5 (its login-lock section) | Not proposed | A row after PANEL-46, started on an observed condition | It is an investigation with no page in it. Run it when a login-lock alert, or "another Claude Code process is refreshing it", is seen again after PANEL-28 | As recommended (2026-10-16): a row after PANEL-46, started when a login-lock alert is seen again after PANEL-28 |
+| PANEL-34 | A session cannot close its own lane: a `close-lane` skill and an authenticated `clauductor lane close` | WS-24, MN-4 (the page's Close lane, whose plan it reuses) | Not proposed | A row after PANEL-46 | The redesign neither does it nor removes the need: the page's Close needs the owner at the page, while a session closing itself is a CLI and skill change with no page in it. OPS-31's cancellation removed one user, not the need | As recommended (2026-10-16): a row after PANEL-46 |
+| PANEL-44 | A version break that one project found is lost when the panel restarts | BN-3, FT-2 | Not proposed; it depends on PANEL-31 | A row after PANEL-46, with PANEL-31 (folded into its re-proposal) | It is server-side state and a residual of PANEL-31's own code, so the redesign does not touch it | As recommended (2026-10-16): folded into PANEL-31's re-proposal, after PANEL-46 |
+| OPS-62 | A key typed while scrolled back can be lost to a wheel-up that tmux has not read yet | WS-16, WS-14 | Not proposed | A row after PANEL-46 | The terminal and its tmux bridge are outside PANEL-45 and PANEL-46 (proposal, *Out of scope*), so the redesign keeps the bug | As recommended (2026-10-16): a row after PANEL-46 |
+| OPS-64 | The tab strip's "N more" can count one more tab than is out of sight | WS-3, MN-7 | Not proposed | A row after PANEL-46, which PANEL-46's chosen layout either keeps or cancels with its reason | Today's page already has a left rail and a tab strip, and D2 does not remove the strip, so only the chosen layout can say whether the count survives | As recommended (2026-10-16): kept, a row after PANEL-46. The hybrid keeps a lane tab strip (the filmstrip above an opened lane's terminal), so its "N more" count survives |
+
+## The variants (D2, D6)
+
+Each file is self-contained: its CSS, its script and the subset of `data.js` it draws are inline,
+so it opens from disk with no network. Query parameters draw every state without a click (the
+orchestrator's screenshots use them; `index.html` lists each shot's URL):
+
+| File | Parameters |
+|---|---|
+| `1-stage.html` | `mode=light\|dark` (default: the system's), `screen=lane\|menu\|palette\|rules`, `lane=<name>` (default `working`) |
+| `2-overview.html` | the same, and `view=home\|lane` (default `home`); `lane` defaults to `waiting`, the lane that needs you |
+| `3-split.html` | `mode`, `screen`, and `term=wide\|narrow` (default `narrow`, lane `ready`; `wide` types into `working`) |
+| `4-hybrid.html` | as `2-overview.html`: `mode`, `view=home\|lane`, `screen`, `lane` (default `waiting`) |
+
+`screen=rules` opens the variant's rules panel (D3); otherwise the **Rules** button in the top bar,
+or **R**, opens it. Clicking switches the same states; Escape closes.
+
+**Sample data, marked as samples.** Pulse's routines, Today and next 14 days (D11, for PANEL-37 and
+PANEL-38), and the per-lane top context contributors (for PANEL-50: rows such as *Read src/app.ts
+18k*, scaled to each lane's real context against its 200k window). Everything else is
+`data.js`: the projects, lanes, states, figures, alerts, pull requests, budget, quota, Flow and the
+pinned cards. Lanes with no terminal capture of their own show the harness's banner for that
+lane, which the fake prints for every lane. One more sample: the capture has no lane waiting
+without blocking, so the idle `quiet` lane is drawn as **waiting** ("your move", amber) and says it
+is a sample state; the project menu's and home's counts follow the lanes as drawn.
+
+### Shared placement (all four variants)
+
+What every variant does with the inventory. A variant's section below says only where it differs,
+and lists every status-bar figure in full.
+
+| Inventory | Where it goes |
+|---|---|
+| PG-1, PG-2, PG-3, PG-6, PG-8, PG-10 | Kept as they are; not drawn |
+| PG-4, PG-5 | Kept: the Live mark at the sidebar's foot turns to Disconnected, and the bar (as of, Retry now) slides under the top bar; not drawn |
+| PG-7 | Replaced by the motion rules: a chip crossfades on a change of state; a changed figure still flashes |
+| PG-9 | Kept, less what D3 removes (theme and type) |
+| PG-11 | Kept, restated per variant in its rules panel (what folds first) |
+| **PG-12** | **Dropped by D3** (the owner's decision): it belongs to the TUI theme |
+| NY-1, NY-2, NY-3 | Sidebar, *Needs you*: a card per ask (lane, kind, the ask, its age); a click shows the lane |
+| NY-4, NY-5 | Sidebar, under *Needs you*: one amber row per alert, with its lane or *All lanes* and its age; **What to do** stays on a login-lock row |
+| NY-6 | The lane itself turns waiting (amber, "your move"), drawn on the sample `quiet` lane; the capture has no *Your move* row |
+| NY-7 | Kept: headings say "as of" while disconnected |
+| BN-1, BN-3 | A notice under the top bar, one line each, with ×; not drawn (the capture has none) |
+| BN-2 | The project menu: Zeta's row says *Config untrusted*, and its ⋯ holds **Trust config…** |
+| BN-4 | Sidebar: the lost lane sits under the lanes with **Restore**; the project menu counts *1 to restore* |
+| BN-5 | A toast at the bottom left, with **Dismiss**; not drawn |
+| RAIL-1, RAIL-15 | Sidebar, *Lanes*: the count and **+** (New lane) |
+| RAIL-3 | Kept as a note under *Lanes*; not drawn |
+| RAIL-4 | Moved to Activity (⌘K or the sidebar's Activity), at its top |
+| RAIL-5 | Sidebar: one row per lane, sorted by state; the state's dot, the name, one figure (age of the ask, context %, cost past budget, or the PR) |
+| RAIL-7 | The lane's *Context* section: hit %, cold in mm:ss |
+| RAIL-8, MN-4 | The ⋯ on a lane's row (on hover and when selected), the ⋯ in the terminal's header, and ⌘K under *Lane* |
+| RAIL-9, RAIL-10, RAIL-11 | Behind ⌘K: **Worktrees** opens the tree as a sheet, with New lane here and Remove |
+| RAIL-12 | The lane list fades at its foot and scrolls |
+| RAIL-13 | Behind a key and ⌘K (⌘\\ hides the sidebar) |
+| WS-2, SB-16 | **New lane**: the top bar's one primary button, the sidebar's **+**, and ⌘K (N), which offers *Up next* first |
+| WS-4 to WS-8 | The terminal's header: name, state, branch, then model and effort, thinking, port, Remote, uptime |
+| WS-9, WS-10, WS-11 | The lane's sections: *Context* (bar, auto-compact mark, %), *Run* (cost, the budget bar amber from 80% and red past 100%) |
+| WS-13 to WS-19 | Kept: the terminal itself (outside PANEL-45 and PANEL-46) |
+| WS-14 | The terminal's header: *↵ to type*, *Typing into …, Ctrl ] to leave* |
+| WS-20, WS-21 | The terminal's header: **Interrupt** and Attach in Terminal.app |
+| WS-22, WS-23, WS-24, WS-26 | The terminal's ⋯ and ⌘K: Restart…, Stop lane…, Close lane… (its plan), Remote control… |
+| WS-25 | The lost lane: **Restore** in the sidebar; Resume, Forget and Close lane in its ⋯ |
+| WS-27 | The terminal's foot: one line (the lane's activity, a note, an action's result) |
+| WS-28, SP-17 | The terminal's empty state; not drawn |
+| SP-1 | Replaced: no tabs. The lane's sections are Context, Pull request and Run |
+| SP-2, SP-3 | *Run* (or *Agents*): what runs now, finished count, a 45 s strip; the full Gantt behind a click on it |
+| SP-4, SP-5 | *Context* and *Run* carry the figures that matter; the rest (busy ratio, rate table, CPU and memory) behind a click on *Run* |
+| SP-6, SP-7, SP-8 | *Pull request*: the PR, the merge-readiness verdict, a row per check, the diff (+412 −97) |
+| SP-9 | The top bar's Gate figure opens the queue: this lane's place, **Cancel wait**, **Run in …** |
+| SP-10 | The sidebar's alerts, filtered to the lane when one is selected |
+| SP-11 | Activity, filtered to the lane (⌘K: Activity) |
+| SP-12, SP-13, SP-14 | Pulse, *Pinned*: the project's pinned cards (real), read age, the stale note |
+| SP-15 | Pulse, *Flow, 30 days* (real), which opens Metrics |
+| DR-1, DR-2, SB-17, SB-18 | Activity and Metrics: the sidebar's nav (A, M) and ⌘K; each opens as a sheet |
+| DLG-1 to DLG-5 | Kept as dialogs, restyled; opened from ⌘K and their buttons |
+| MN-1, MN-2, MN-3 | The project menu, drawn open: from the project at the sidebar's top |
+| MN-5 | Mode (System, Light, Dark) at the sidebar's foot and in ⌘K; text size in ⌘K. **Theme, Tuned and Type are dropped by D3** (the owner's decision) |
+| FT-1, FT-2 | Behind a click on *Live* at the sidebar's foot: every counter |
+| K-1 to K-3, K-5 to K-9, K-12, K-13 | Kept |
+| K-11 | Only Metrics' tabs remain; the side tabs and card tabs are gone with SP-1 |
+| New keys | ⌘K the palette; R the rules (in the mockups); ⌘J fold the sections; ⌘\\ hide the sidebar |
+
+**PANEL-31's quiet version field** has its place at the sidebar's foot in every variant, beside
+*Live*: "✓ 2.1.284" (the Claude Code version, verified on 2.1.284). It replaces BN-3's page-wide
+amber bar for a version that is not yet verified.
+
+### Variant 1, Stage (`1-stage.html`)
+
+The terminal is always the main pane; the lane's three sections sit in a row beneath it, Pulse in
+a column at the right.
+
+- **Moved:** as the shared placement.
+- **Behind a click or ⌘K:** as the shared placement.
+- **Proposed drops (the owner's choice):**
+  - WS-1 the terminal tabs, with WS-3, MN-7 and K-4: the sidebar's lane list is the only switcher
+    (↑/↓ move in it). OPS-64 is then cancelled with its reason.
+  - RAIL-2 and MN-6 the column picker: each row shows one figure, chosen by the lane's state.
+  - RAIL-6 sorting by a column: the list sorts by state, then by last activity.
+  - SP-16 the side panel's edge: the sections strip folds (⌘J) rather than resizes. RAIL-14 and
+    K-10 stay for the sidebar's edge.
+
+| Status-bar figure | Where it went |
+|---|---|
+| SB-1 | The project at the sidebar's top; it opens the project menu |
+| SB-2 | The badge on the project's tile, and *Other projects* in the sidebar |
+| SB-3 | *Live* at the sidebar's foot |
+| SB-4 | The top bar's figure strip: *5h* and *7d*, each a bar, %, reset countdown; the plan and source on hover |
+| SB-5 | A mark on the 5h bar when a burn rate is known (none in the capture) |
+| SB-6 | The quota figures' empty state; not drawn |
+| SB-7 | The strip: *Economy* (only while on); the roles on hover |
+| SB-8 | Behind a click: the 5h figure and the strip's ⋯ |
+| SB-9 | The strip: *Spend $60.55* |
+| SB-10 | The strip: *Lanes*, a stacked bar and 9 |
+| SB-11 | The sidebar's *Needs you* heading: the count and the oldest wait |
+| SB-12 | The strip: *Gate free*; a click shows the holder's lane or the queue |
+| SB-13, SB-14, SB-15 | Behind the strip's ⋯ |
+| SB-16 | **New lane** in the top bar, **+** in the sidebar, ⌘K |
+| SB-17, SB-18 | The sidebar's Activity and Metrics, and ⌘K |
+| SB-19 | ⌘K only (Refresh) |
+| SB-20 | The mode switch at the sidebar's foot; ⌘K |
+| SB-21 | The ? key (K-1) and ⌘K (Help) |
+| SB-22 | The strip's rule: it gives up Gate, then Lanes, then Economy into its ⋯ before it would wrap |
+
+### Variant 2, Overview first (`2-overview.html`)
+
+Home is a grid of lane tiles grouped by state; opening one brings its terminal forward.
+
+- **Moved, beyond the shared placement:**
+  - RAIL-5 also to home's tiles: needs you as a spotlight with its terminal ready, working tiles
+    with a four-line preview, idle tiles compact, the lost lane and New lane last.
+  - WS-1 and K-4 to the filmstrip above an open lane's terminal (←/→ move in it); WS-3 and MN-7
+    become its scroll.
+  - The lane's sections take the right column when a lane is open; Pulse is home's, and one click
+    away (*Lane* / *Pulse*) in a lane.
+  - SB-10 leaves the strip on home and in a lane: the tiles and the filmstrip are the count.
+- **Behind a click or ⌘K:** as the shared placement.
+- **Proposed drops (the owner's choice):** RAIL-2 and MN-6 (the column picker), RAIL-6 (sorting),
+  and SP-16 (the side panel's edge), as in Stage.
+
+| Status-bar figure | Where it went |
+|---|---|
+| SB-1, SB-2, SB-3 | As in Stage: the sidebar's top, the tile badge and *Other projects*, *Live* at its foot |
+| SB-4, SB-5, SB-6, SB-7, SB-8, SB-9 | As in Stage: the figure strip, and its ⋯ for burn rate |
+| SB-10 | Out of the strip: home's heading ("3 working, 1 needs you, 5 idle, 1 lost") and the filmstrip |
+| SB-11 | The sidebar's *Needs you* heading, and home's spotlight |
+| SB-12 | The strip: *Gate free* |
+| SB-13, SB-14, SB-15 | Behind the strip's ⋯ |
+| SB-16 | **New lane** in the top bar, **+** in the sidebar, the New lane tile on home, ⌘K |
+| SB-17 to SB-21 | As in Stage |
+| SB-22 | As in Stage |
+
+### Variant 3, Split (`3-split.html`)
+
+The lane list and the terminal trade width: the terminal is wide while you type and narrow when
+its lane is idle. Both widths are drawn (`term=wide`, `term=narrow`).
+
+- **Moved, beyond the shared placement:**
+  - RAIL-5 to a table in the sidebar while the terminal is narrow: state, context, cost, PR, last
+    activity per lane; RAIL-6 sorting stays, by a column heading.
+  - The selected lane's sections open under its row in the table: Context and Pull request side by
+    side, and Run as one line beneath them (WS-10 and WS-11 cost against the budget bar, SP-2 the
+    agents running, time; SP-3 to SP-5 behind a click on it, as in the shared placement). While you
+    type they shrink to one line under the terminal: context with its top two contributors, cost
+    against budget, agents running, readiness.
+  - Pulse folds to a rail of icons while you type, and unfolds when you leave the terminal.
+  - *Other projects* leaves the sidebar while the table is shown; they stay in the project menu.
+  - SB-10 leaves the strip while the table is shown, and the countdowns move into the quota
+    figures' hover.
+- **Behind a click or ⌘K:** as the shared placement.
+- **Proposed drops (the owner's choice):**
+  - WS-1 the terminal tabs, with WS-3, MN-7 and K-4, as in Stage.
+  - RAIL-2 and MN-6 the column picker: the table's columns are fixed.
+  - RAIL-13, RAIL-14, SP-16 and K-10 manual pane widths: the widths follow typing and idleness.
+    ⌘\\ still hides the sidebar.
+
+| Status-bar figure | Where it went |
+|---|---|
+| SB-1, SB-2, SB-3 | As in Stage; *Other projects* only while the terminal is wide |
+| SB-4 | The strip: *5h* and *7d*; the reset countdowns on hover while the terminal is narrow |
+| SB-5 to SB-9 | As in Stage |
+| SB-10 | The strip while the terminal is wide; the table is the count while it is narrow |
+| SB-11 | The sidebar's *Needs you* heading |
+| SB-12 | The strip: *Gate free* |
+| SB-13, SB-14, SB-15 | Behind the strip's ⋯ |
+| SB-16 | **New lane** in the top bar while wide; the sidebar's **+** and ⌘K always |
+| SB-17, SB-18 | ⌘K (A, M) only: Split's sidebar has no nav rows, so the lanes get the room |
+| SB-19, SB-20, SB-21 | As in Stage |
+| SB-22 | As in Stage, and narrower still while the terminal is narrow |
+
+### Variant 4, Hybrid (`4-hybrid.html`): the owner's mix
+
+The owner's named mix (D7, 2026-10-16): "I like the overview first, but in the stage view, I like
+the boxes at the bottom around context, pull requests, and run." Home is Overview first's,
+unchanged; a lane opened is laid out as Stage lays it out. Placed relative to Overview first:
+
+- **Unchanged from Overview first:** home (RAIL-5's tiles and spotlight, SB-10 out of the strip,
+  the New lane tile), the filmstrip (WS-1, WS-3, MN-7, K-4), the way back home (the crumb's All
+  lanes, Esc, a filmstrip tile), and everything in the shared placement.
+- **Moved, from Overview first's right column to one row of three boxes under the terminal, as in
+  Stage:** WS-9 (Context, with the sample PANEL-50 contributors), WS-10 and WS-11 (Run: cost and
+  the budget bar), SP-2 and SP-3 (Run: agents), SP-4 and SP-5 (Context and Run, the rest behind a
+  click on Run), SP-6, SP-7 and SP-8 (Pull request), RAIL-7 (Context's cache line).
+- **Moved back into the right column in a lane:** Pulse (SP-12 to SP-15 and the samples), which
+  Overview first gave up to the lane's sections. Overview first's *Lane* / *Pulse* switch goes.
+- **WS-12 (hide details)** becomes Stage's fold: ⌘J folds the three boxes and the terminal grows.
+- **Proposed drops (the owner's choice):** as Overview first: RAIL-2 and MN-6 (the column picker),
+  RAIL-6 (sorting), and SP-16 (the side panel's edge; the boxes fold instead).
+
+| Status-bar figure | Where it went |
+|---|---|
+| SB-1 to SB-22 | As in Overview first: SB-10 stays out of the strip on home and in a lane |
