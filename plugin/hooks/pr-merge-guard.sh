@@ -144,10 +144,11 @@ raw_command() {
 # its global options first (`git -C "$WT" merge origin/main`) is read as `git merge` before the
 # match: a computed -C value before `merge` is not a gh (OPS-66; the reader's git_sub). Only a value
 # the shell cannot split is taken (GITV), judged BEFORE the quotes go: quoted, with no blank,
-# separator or substitution inside, or plain text with no expansion at all. So `git -C $X merge 5`
-# still matches, as git_sub refuses it: unquoted, $X could split into `-c alias.x='!gh pr' x`.
+# separator, substitution or `@` inside (`"$@"` and `"${a[@]}"` split even quoted), or plain text
+# with no expansion at all. So `git -C $X merge 5` still matches, as git_sub refuses it: unquoted,
+# $X could split into `-c alias.x='!gh pr' x`.
 HIBYTES=$(printf '\200-\377')
-GITV='("[^" ;&|()<>`\\]*"|'"'"'[^'"'"' ;&|()<>`\\]*'"'"'|[^ ;&|()<>`$"'"'"'\\{}*?[]+)'
+GITV='("[^" ;&|()<>`\\@]*"|'"'"'[^'"'"' ;&|()<>`\\]*'"'"'|[^ ;&|()<>`$"'"'"'\\{}*?[]+)'
 merge_hint() {
   printf '%s' "$1" | tr '\t\r\n' '   ' | tr -s ' ' \
     | LC_ALL=C sed -E 's/(^|[^A-Za-z0-9_-])git(( -P| --no-pager| --no-optional-locks| --no-replace-objects| --bare| (-C|--git-dir|--work-tree) '"$GITV"')+) merge([^A-Za-z0-9_-]|$)/\1git merge\6/g' \
@@ -209,8 +210,15 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #      word where gh, pr, merge or the api endpoint goes, and that could be one, is ODD and BLOCKS
 #      with the plain form — the rules below parse a merge from its text, and cannot parse one they
 #      cannot read. `pr merge` after anything but a plain gh (`$GH`, an alias) is ODD too.
-#      A redirection's operand (a file name, a here-string's text) is never a word of the command:
-#      `sed … > "$TMPDIR/$n"` hands sed no gh, and `gh pr >out merge 5` is the merge it runs.
+#      A REDIRECTION INSIDE A MERGE IS UNREADABLE (OPS-66, the owner's call): in a simple command
+#      where three words, redirection operands included, could be gh, pr and merge, a redirection
+#      operator of ANY form before the command's last word is ODD (inside()). The shell lifts a
+#      redirection out from anywhere and runs the rest (`gh pr >& x merge 5`, zsh `>!`, `{fd}>x`,
+#      `2>/dev/null`), and the operator's spellings are too many to read one by one, so this fails
+#      closed on all of them, listed or not. The accepted cost: a merge with a redirection in its
+#      middle is refused; put the redirection last (`gh pr merge 5 --squash 2>&1` is read).
+#      Elsewhere a redirection's operand (a file name, a here-string's text) is never a word of the
+#      command: `sed … > "$TMPDIR/$n"` hands sed no gh.
 #      NOT A MERGE, so never ODD (OPS-66, #120):
 #      a word that could be a path to gh (`template/$f`) handed to a command that runs none of its
 #      arguments (inert(): cp, cmp, cat, sed, …) with nothing after it that could be pr, api or

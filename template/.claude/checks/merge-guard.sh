@@ -430,7 +430,34 @@ unread "a computed path to gh run by xargs, merge after it" 'echo pr | xargs -I 
 unread "a computed gh with its output redirected" '$G pr merge 5 > "$TMPDIR/$x"'
 unread "git with an unquoted expansion that can split into -c alias...=!gh" 'git -C $X merge 5'
 unread "git with a computed -c (an alias defined in a variable)" 'git -c "$A" "$P" merge 5'
+# A redirection anywhere before the last word of a command naming gh, pr and merge is unreadable,
+# whatever its operator: the shell runs `gh pr merge 5` for each of these, and each operator form
+# below was once read as no merge at all and ALLOWED. Put the redirection last.
+unread "a redirection inside the merge: >& and a file" 'gh pr >& x merge 5'
+unread "a redirection inside the merge: >&file" 'gh pr >&x merge 5'
+unread "a redirection inside the merge: 1>& and a file" 'gh pr 1>& x merge 5'
+unread "a redirection inside the merge: zsh >!" 'gh pr >! x merge 5'
+unread "a redirection inside the merge: zsh >>!" 'gh pr >>! x merge 5'
+unread "a redirection inside the merge: zsh &>!" 'gh pr &>! x merge 5'
+unread "a redirection inside the merge: zsh >&!" 'gh pr >&! x merge 5'
+unread "a redirection inside the merge: bash >! (! is the file)" 'gh pr >! merge 5'
+unread "a redirection inside the merge: a named fd" 'gh pr {fd}>x merge 5'
+unread "a redirection inside the merge: a named fd duplicated" 'gh pr {fd}<&0 merge 5'
+unread "a redirection inside the merge: 2>/dev/null" 'gh pr 2>/dev/null merge 5'
+unread "a redirection inside the merge: a named fd between gh and pr" 'gh {fd}>x pr merge 5'
+guard 0 "OPS-66: a merge with its redirection last (2>&1), with evidence" 'gh pr merge 5 --squash --delete-branch 2>&1'
 rm -f "$R/.git/ci-receipt"
+# The backstop's git -C rewrite takes no value that "$@" or "${a[@]}" can split into several words
+# (`-c alias.x='!gh pr' x`). The reader refuses both first, so merge_hint is tested on its own.
+hint=$(sed -n '/^HIBYTES=/,/^}/p' "$ROOT/.claude/hooks/pr-merge-guard.sh")
+for v in '"$@"' '"${a[@]}"'; do
+  (eval "$hint"; merge_hint "git -C $v merge 5") \
+    && ok "OPS-66: merge_hint still matches git -C $v before merge" \
+    || fail "OPS-66: merge_hint read git -C $v merge as git's own merge"
+done
+(eval "$hint"; ! merge_hint 'git -C "$WT" merge origin/main') \
+  && ok "OPS-66: merge_hint reads git -C \"\$WT\" merge as git's own merge" \
+  || fail "OPS-66: merge_hint matched git -C \"\$WT\" merge origin/main"
 guard 2 "OPS-66: gh api PUT to this repo's merge endpoint, without evidence" 'gh api -X PUT repos/acme/app/pulls/5/merge'
 grep -q 'PR #5 has no gate evidence' "$d/err" && ok "OPS-66: ...read as PR 5's merge and held to its evidence" || fail "OPS-66: gh api merge: $(head -n 1 "$d/err")"
 guard 2 "OPS-66: a plain merge with its output redirected, without evidence" 'gh pr merge 5 --squash > "$TMPDIR/$x"'

@@ -49,7 +49,10 @@ function lit(s) { tok = tok s; sk = sk s; pat = pat rx(s); have = 1 }
 function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
+  # Every word, operands included, for inside(); MID: an argument after a redirection.
+  AWP[cid, ++AWN[cid]] = p
   if (TG) return
+  if (RD[cid]) MID[cid] = 1
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
 }
 # A word ends. After an output redirection it is the target: RO marks a command that writes a file
@@ -273,13 +276,13 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     if (c == "=" && !have && substr(S, i + 1, 1) ~ /[A-Za-z_]/) { wild(".*", "=", "d"); i++; continue }
     if (c == " " || c == "\t" || c == "\r") { flush(cid); i++; continue }
     if (c == "\n") { flush(cid); cid = newcmd(); i++; if (HN) i = bodies(i); continue }
-    if (c == "<" && substr(S, i, 2) == "<<" && substr(S, i + 2, 1) != "<") { flush(cid); i = heredoc(i + 2); continue }
+    if (c == "<" && substr(S, i, 2) == "<<" && substr(S, i + 2, 1) != "<") { flush(cid); RD[cid] = 1; i = heredoc(i + 2); continue }
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
       if (tok ~ /^[0-9]+$/ && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
       # The next word is the operand, never an argument. (`<(…)` starts a new command, whose
-      # newcmd() clears RF.)
-      RF = 1
+      # newcmd() clears RF.) RD: whatever the operator's form, inside() needs only that it is here.
+      RF = 1; RD[cid] = 1
       i++
       while (substr(S, i, 1) ~ /[<>|]/) i++
       if (substr(S, i, 1) == "&") { RF = 0; i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
@@ -330,11 +333,28 @@ function prose_safe(c,   w, k) {
 
 function could(c, k, x) { return match(x, "^(" P[c, k] ")$") }
 # could be gh, or a path ending in /gh
-function could_gh(c, k,   p, j, m) {
-  if (could(c, k, "gh")) return 1
-  p = P[c, k]; j = 0
+function could_gh(c, k) { return gh_p(P[c, k]) }
+function gh_p(p,   j, m) {
+  if (match("gh", "^(" p ")$")) return 1
+  j = 0
   while ((m = index(substr(p, j + 1), "[/]")) > 0) j += m + 2
   return j > 0 && match("gh", "^(" substr(p, j + 1) ")$")
+}
+# inside(c) — a redirection comes before the command's last word, and three of its words, operands
+# included, could be gh, pr and merge, in any order. The shell takes a redirection anywhere in a
+# command and hands the rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`,
+# and any nobody listed) are too many to read one by one, so such a command is unreadable (OPS-66,
+# the owner's call). Its cost: a merge with a redirection in its middle is refused; put it last.
+function inside(c,   i, j, nm) {
+  if (!MID[c]) return 0
+  nm = 0
+  for (i = 1; i <= AWN[c]; i++) {
+    IG[i] = gh_p(AWP[c, i]); IR[i] = match("pr", "^(" AWP[c, i] ")$")
+    IM[i] = match("merge", "^(" AWP[c, i] ")$") > 0; nm += IM[i]
+  }
+  for (i = 1; i <= AWN[c]; i++) if (IG[i]) for (j = 1; j <= AWN[c]; j++)
+    if (j != i && IR[j] && nm - IM[i] - IM[j] > 0) return 1
+  return 0
 }
 # provable: its text is exactly what runs (quotes and escapes allowed; no expansion, glob or brace)
 function provable(c, k) { return F[c, k] !~ /[dgb]/ }
@@ -507,6 +527,7 @@ END {
   MERGE_ANY = rel ~ /merg/
   for (c = 1; c <= NC; c++) {
     n = N[c]
+    if (inside(c)) odd("a redirection comes before the last word of a command naming gh, pr and merge: put the redirection last")
     for (k = 1; k <= n; k++) {
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
