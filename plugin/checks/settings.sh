@@ -127,6 +127,11 @@ selftest pass "a project's own runner (GATE_RUN=bin/ci.sh): gate-wait stays at s
 selftest pass "the template's runner moved (GATE_RUN=ci/run-local.sh): gate-wait moved with it" \
   '.sandbox.excludedCommands |= map(sub("^scripts/ci/(?<f>run-local|gate-wait)\\.sh"; "ci/\(.f).sh"))' ci/run-local.sh
 selftest fail "the template's runner moved, gate-wait's exclusion left at scripts/ci/" '.' ci/run-local.sh
+# A runner at the repository root puts gate-wait at ./gate-wait.sh (path.Dir is "."), as Go writes it.
+selftest pass "a runner at the repository root (GATE_RUN=run-local.sh): gate-wait at ./" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' run-local.sh
+selftest pass "a runner at the repository root (GATE_RUN=./run-local.sh): gate-wait at ./" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' ./run-local.sh
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))

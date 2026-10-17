@@ -265,10 +265,12 @@ focus_file() {
 # gate_wait_path: where install puts gate-wait.sh, by the rule Mapping applies
 # (framework/internal/template/conf.go): beside GATE_RUN while the runner keeps the template's
 # name, run-local.sh; a project's own runner (any other name) leaves it at scripts/ci/ (OPS-72).
+# A runner at the repository root puts it at ./gate-wait.sh, as Go's path.Dir (".") does: a bare
+# gate-wait.sh would not match the settings install wrote, nor run off PATH.
 gate_wait_path() {
   _gr=${GATE_RUN#./}
   case "$_gr" in
-    run-local.sh) echo gate-wait.sh ;;
+    run-local.sh) echo ./gate-wait.sh ;;
     */run-local.sh) echo "${_gr%/run-local.sh}/gate-wait.sh" ;;
     *) echo scripts/ci/gate-wait.sh ;;
   esac

@@ -3,6 +3,7 @@ package template
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -142,6 +143,50 @@ func TestMergeSettingsAddsGateExclusions(t *testing.T) {
 	for _, c := range changes {
 		if strings.Contains(c.Have, "Bash(scripts/ci/gate.sh *)") || strings.Contains(c.Want, "Bash(scripts/ci/gate.sh *)") {
 			t.Errorf("the merge reported a change to the project's own gate allow entry: %+v", c)
+		}
+	}
+}
+
+// OPS-72: install (Mapping), the rendered sandbox exclusion (RenderSettings) and the shell's
+// gate_wait_path (conf.sh, read by checks/settings.sh and project-config.sh's gateWait) put
+// gate-wait.sh on the same path for every shape of GATE_RUN. A disagreement fails the settings
+// check on every run of that project, or names a gate-wait the agent cannot run.
+func TestGateWaitPathAgrees(t *testing.T) {
+	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
+	files := []string{"scripts/ci/run-local.sh", "scripts/ci/gate-wait.sh", "scripts/ci/lib/gate-state.sh"}
+	for _, run := range []string{"", "scripts/ci/run-local.sh", "ci/run-local.sh", "./ci/run-local.sh", "run-local.sh", "./run-local.sh", "bin/ci.sh"} {
+		project := ""
+		if run != "" {
+			project = "GATE_RUN=\"" + run + "\"\n"
+		}
+		c := defaultsConf(t, project)
+		m, err := c.Mapping(files)
+		if err != nil {
+			t.Fatalf("GATE_RUN=%q: %v", run, err)
+		}
+		dest, _, skip := m.Resolve("scripts/ci/gate-wait.sh")
+		if skip != "" {
+			t.Fatalf("GATE_RUN=%q: install skips gate-wait.sh: %s", run, skip)
+		}
+		out, _, err := RenderSettings(templateSettings(t), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out), `"`+dest+` *"`) {
+			t.Errorf("GATE_RUN=%q: install puts gate-wait at %s, but the rendered settings do not exclude %q", run, dest, dest+" *")
+		}
+		want := run
+		if want == "" {
+			want = "scripts/ci/run-local.sh"
+		}
+		cmd := exec.Command("sh", "-c", `. "$1"; GATE_RUN=$2; gate_wait_path`, "sh", conf, want)
+		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		got, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("GATE_RUN=%q: gate_wait_path: %v", run, err)
+		}
+		if g := strings.TrimSpace(string(got)); g != dest {
+			t.Errorf("GATE_RUN=%q: conf.sh's gate_wait_path says %s, install puts it at %s", run, g, dest)
 		}
 	}
 }
