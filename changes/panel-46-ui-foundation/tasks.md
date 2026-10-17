@@ -8,7 +8,8 @@
 
 Built through `/apply-change`, group by group (design D11). Tasks marked *(the session)* are the
 orchestrating session's: it runs them outside the sandbox between the group's quick gate and its
-reviewer, writes the shots' folder (and `moved.sh`'s output) into the group's Progress line, which
+reviewer, writes the paths of the shots' folder (and of `moved.sh`'s output file, both outside
+the repository) into the group's Progress line, which
 the reviewer reads with the change's files, and ticks them once review converges. The builder
 leaves them. Each group's inventory IDs are design D16's.
 
@@ -21,7 +22,7 @@ leaves them. Each group's inventory IDs are design D16's.
   - no imported call and no browser global at a module's top level;
   - the pure modules import only pure modules;
   - `index.html` loads `/static/panel.js` as `type="module"` after the classic helpers, which stay as they are.
-- [ ] 1.4 `testdata/ux/moved.sh` (D2): the base's `panel.js` and the modules split into top-level declarations, `import` lines and the `export ` keyword dropped, the `store.` prefix normalised, matched by name whatever the file or order, and only changed, new and gone declarations printed; each one it prints is explained in the Decision log
+- [ ] 1.4 `testdata/ux/moved.sh` (D2): the base's `panel.js` split into top-level statements (declarations, and every listener, timer, observer and bare block); on the modules' side `import` lines and the `export ` keyword dropped and the `store.` prefix normalised; a declaration matched by name and any other statement by its text, at top level or inside an `init()`; printed are only a changed declaration, a base statement found nowhere or more than once, and what is new. Each one it prints is explained in the Decision log
 - [ ] 1.5 The `/static/` handler sets `Content-Type: text/javascript; charset=utf-8` on `.js` itself (D2)
 - [ ] 1.6 Add `readScript(t)` and switch every `readWeb(t, "panel.js")` call in `web` to it; give `machine_account_test.go` and `state/blocked_test.go` the same few lines; update `startdialog_test.go:95`, `project_config_test.go:109` and `terminal_test.go:128` as D13's table says. Every other assertion stays
 - [ ] 1.7 `TestModulesImportCleanly` in `web/modules_test.go`, citing [PAGE-1-S1]:
@@ -64,12 +65,12 @@ leaves them. Each group's inventory IDs are design D16's.
   - the project menu (MN-1 to MN-4, BN-2, SB-2's badges), whose button takes the 8 px control radius (`projectmenu_test.go`, D13);
   - *Other projects*, the projects that need you elsewhere (SB-2);
   - Needs you cards and the alerts (NY-1 to NY-7; CLAUDECALLS-5's words and **What to do** kept; SP-10 filtered to the lane when one is selected);
-  - the lane rows (RAIL-1, RAIL-3, RAIL-5: dot, name, one figure; RAIL-8's ⋯ on hover and when selected; RAIL-12's fade);
+  - the lane rows (RAIL-1, RAIL-3, RAIL-5: dot, name, one figure; RAIL-8's ⋯ on hover and when selected, its menu restyled; RAIL-12's fade);
   - the lost lane with Restore all, keeping BN-4's quota-guard override, its result line and **Dismiss**, and its ⋯ with Resume, Forget and Close lane (BN-4, WS-25; D9);
   - Activity and Metrics (SB-17, SB-18);
   - at the foot: Live, with every counter behind a click (PG-4, PG-5, FT-1, FT-2), and Mode.
 
-  The sidebar's edge drags, or moves with ←/→ and Home/End when focused, keeps its width per browser, resets on a double-click or Escape, and hides the sidebar on Enter (RAIL-14, K-10, D8). The rail's lane table, its column picker and its sorting go, and the Needs-you rows and the rail leave `legacySelectors`. The worktree tree returns as 7.2's sheet
+  The sidebar's edge drags, or moves with ←/→ and Home/End when focused, keeps its width per browser, resets on a double-click or Escape, and hides the sidebar on Enter (RAIL-14, K-10, D8). The rail's lane table, its column picker and its sorting go, and the Needs-you rows, the rail, the project menu and the lane row's ⋯ menu leave `legacySelectors`. The worktree tree returns as 7.2's sheet
 - [ ] 3.2 `js/status.js`, the top bar:
   - the figures as Variant 1's table places them, which variant 4 inherits (SB-1 to SB-22, less SB-2 and SB-10), with SB-13 to SB-15 behind its ⋯ and SB-22's give-way rule;
   - New lane as its one primary button (SB-16, WS-2);
@@ -97,7 +98,7 @@ leaves them. Each group's inventory IDs are design D16's.
 ## 5. Home
 - [ ] 5.1 `LaneManager.Tail(ctx, id, n)` in `lanes` (D7):
   - `capture-pane -p -J`, with no `-e`;
-  - the trailing blank rows dropped, then the four non-blank lines above the frame's upper rule: the second line of `─` only from the bottom among the last 40, or the only one, or no cut when there is none.
+  - the trailing blank rows dropped, then the four non-blank lines above the frame's upper rule: among the last 40 lines, the second rule from the bottom when a prompt line (`>` or `❯`) follows it above the lowest rule, else the lowest rule, or no cut when there is none.
 
   Tested in `lanes/tail_test.go` against a real tmux on a private socket, citing [PAGE-4-S3], [PAGE-4-S4] and [PAGE-4-S7]. The test skips under `-short`; the group runs it without `-short`, outside the sandbox, and records the result in Progress
 - [ ] 5.2 Record a capture of a real Claude Code lane's pane (working, with text typed at its prompt) in `lanes/testdata/`. Test the cut on it in `lanes/tail_test.go` (pure, no tmux), citing [PAGE-4-S6]
@@ -112,7 +113,7 @@ leaves them. Each group's inventory IDs are design D16's.
   - above them, the heading that counts the lanes by state (SB-10).
 
   A click, or ↵ on a focused tile, opens the lane. A tile rises 1 px on hover
-- [ ] 5.6 Tell 10's home half in `TestPanelAvoidsTheTells`: home creates a terminal only for the spotlight, and a tile's preview is drawn with `textContent` from the tail. Remove home's share of `legacySelectors`
+- [ ] 5.6 Tell 10's home half in `TestPanelAvoidsTheTells`: home creates a terminal only for the spotlight, and a tile's preview is drawn with `textContent` from the tail. The overview and the workspace's empty state leave `legacySelectors`
 - [ ] 5.7 *(the session)* Home in `matrix.cjs` (one, two and no lanes asking), with shots at 1440×900 and 1920×1080 in both modes for the review
 
 ## 6. The stage

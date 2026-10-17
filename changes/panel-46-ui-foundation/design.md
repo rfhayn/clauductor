@@ -90,17 +90,22 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - `no-blind-source-rewrite.sh` refuses a scripted move of tracked source, so the builder
       moves code with Edit. Group 1 is the costliest per line for that reason (D14).
     - The reviewer is not asked to read 4,151 moved lines. Group 1 commits
-      `testdata/ux/moved.sh`, which compares by declaration, not by position:
-      1. it splits the base's `panel.js` and the modules into top-level declarations (a
-         `function`, `const`, `let` or `class` and its body);
-      2. it drops `import` lines and only the `export ` keyword, and normalises the `store.`
-         prefix;
-      3. it matches declarations by name, whatever their file or order;
-      4. it prints only what differs: a declaration whose text changed, one that is new (each
-         `init()`, the store's fields), and one that is gone.
-    - The session runs it and records its output with the group's Progress line, beside
-      `git diff --color-moved` as the view of order. A declaration it prints that the Decision
-      log does not explain is a finding.
+      `testdata/ux/moved.sh`, which compares by statement, not by position:
+      1. it splits the base's `panel.js` into its top-level statements: each declaration (a
+         `function`, `const`, `let` or `class` and its body), and every other statement (a
+         listener registration, a `setInterval`, a `ResizeObserver`, a bare block);
+      2. on the modules' side it drops `import` lines and only the `export ` keyword, and
+         normalises the `store.` prefix;
+      3. it matches a declaration by name, whatever its file or order, and any other statement by
+         its normalised text, at a module's top level or inside some module's `init()`;
+      4. it prints only what differs:
+         - a declaration whose text changed;
+         - a base statement found nowhere, or found more than once (a dropped or doubled
+           listener);
+         - and what is new (the store's fields, each `init()`'s own lines).
+    - The session writes its output to a file outside the repository, beside the shots, and puts
+      the path in the group's Progress line, with `git diff --color-moved` as the view of order.
+      A statement it prints that the Decision log does not explain is a finding.
   - **Beat:**
     - a bundler or npm, which PRD-ui decision 2 rules out;
     - one module per `render*()` function: about 25 files, with cycles everywhere;
@@ -178,10 +183,13 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - A rule is a line made only of `─` (U+2500) and spaces. A box's bottom (`╰───╯`) holds
       corners, so it is not a rule.
     - The cut is the frame's **upper** rule:
-      - with two or more rules in the last 40 non-blank-trimmed lines, it is the second rule from
-        the bottom, so a long typed prompt or a completion list between the two rules stays out;
-      - with one rule, it is that rule;
-      - with none, nothing is cut.
+      - looking at the last 40 lines once the trailing blank rows are dropped: when the second
+        rule from the bottom is followed by a prompt line (its first non-blank line starts with
+        `>` or `❯`) above the lowest rule, the cut is that second rule. A long typed prompt or a
+        completion list between the two rules stays out;
+      - otherwise the cut is the lowest rule. That covers a frame drawn with one rule (the UX
+        harness's fake: a rule, then `>`) under output that holds a `─` line of its own;
+      - with no rule, nothing is cut.
     - The preview is the last four non-blank lines above the cut, with no prompt, no typed text,
       no status line and no cursor, as the mockup draws it (`4-hybrid.html:1008`).
     - Group 5 records a capture of a real Claude Code pane in `lanes/testdata/` as the
@@ -320,7 +328,7 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     1. it runs the quick gate;
     2. it runs `shots.sh` (and, in group 1, `moved.sh`), outside the sandbox, since they need a
        loopback port, tmux and Chromium, as PANEL-42's 5.3 did;
-    3. it writes the shots' folder (and `moved.sh`'s output) into the group's Progress line in
+    3. it writes the paths of the shots' folder (and of `moved.sh`'s output file) into the group's Progress line in
        `tasks.md`, which the reviewer reads with the change's files, so the reviewer is still
        spawned with only the change id and the group (`/apply-change` step 4);
     4. once review converges, it ticks the group's shots task.
@@ -456,12 +464,13 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     `panel.css` that is not legacy.
   - **Legacy is everything a later group replaces:** groups 3 to 7 replace or restyle these, so
     restyling them in group 2 would pay for the same CSS twice:
-    - the status bar (group 3);
+    - the status bar, the project menu and the lane row's ⋯ menu (group 3);
     - the Needs-you rows and the banners (3);
     - the rail (3);
     - the drawers (4);
+    - the overview and the workspace's empty state (5);
     - the tab strip, the workspace and the side panel (6);
-    - the menus and every dialog (7).
+    - the other menus and every dialog (7).
   - **How the list works:**
     - Their selectors go in one named list in `tells_test.go`, `legacySelectors`, which tells 1
       to 9 skip.
