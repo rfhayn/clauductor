@@ -65,20 +65,48 @@ If the line above shows as literal text instead of output, run
    - **No spec delta at all** (a refactor, tooling): write `changes/<id>/.openspec.yaml` with
      `skip_specs: true`.
    `sh .claude/checks/run.sh changes` checks every one of these; only the approval may fail yet.
+2b. **Review it to convergence BEFORE the owner reads it.** The approval covers `design.md` as
+   written, so a finding after it voids the approval and the owner approves again (PANEL-48 took
+   three). Spend the review rounds first:
+   - Register the draft as a diff, `git add -N changes/<id>`, and spawn the `reviewer` agent (a
+     proposal always carries a spec delta or `.openspec.yaml`, so it is never prose only).
+   - Tell it only the change id, and that it reviews a PROPOSAL, not a task group: all of
+     `changes/<id>/` as `git diff HEAD` shows it. It judges whether the design does what the
+     roadmap row asks and no more; whether each recommendation holds against the living specs and
+     the code it names, and beats its alternative; whether every path, script and key it names
+     exists; whether each scenario has a task naming a test that can drive it, or an honest
+     escape. Say: tests are the build's; an untested scenario is not a finding here.
+   - Fix every finding of medium or worse and review again, until a round finds nothing medium or
+     worse (the convergence rule of `merge-pr` step 3). If peak severity rises between rounds, or
+     after 3 rounds, stop fixing: it still goes to the owner, with the open findings listed.
+   - The spawn may come back as launched in the background (fork mode, the default, always does).
+     With nothing else to do, end your turn with no final report and without SubagentHandback:
+     Claude Code delivers its findings as your next turn. Never poll, sleep or re-spawn. If the
+     Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK), pass `false`.
+   - Commit the draft. Its short sha is what was reviewed, and `sh .claude/change-approval.sh
+     <id>` prints its design hash. The proposal PR's body carries exactly one `Review:` line:
+     `Review: converged in <n> round(s), peak <sev>, at <short sha> · design <hash>`, or, when the
+     rounds stopped first, `Review: NOT converged after <n> round(s), peak <sev>, open: <short
+     list> at <short sha> · design <hash>`. Only the first lets `merge-pr` skip its review. When
+     the owner approves, that hash must be the one in the Approved line. Nothing checks this line.
 3. **Put it in front of the owner, and STOP.**
-   - `REVIEW_PAGE="none"`: commit, push, and open the PR `proposal: <id>`, whose body lists every
-     decision awaiting the owner (recommendation and alternative) and the slice line.
+   - `REVIEW_PAGE="none"`: push, and open the PR `proposal: <id>`, whose body lists every
+     decision awaiting the owner (recommendation and alternative), the slice line and the
+     `Review:` line.
    - `REVIEW_PAGE="artifact"`: build and publish the review page as
      `.claude/modules/review-page/README.md` describes, and put its link on `proposal.md`'s first
      line.
    Then `PushNotification` the owner one line (the PR or page link, and "awaiting your approval"),
    and **stop**. Do not start building.
 4. **The owner adjusts; you revise in place** (the same PR, or the same page URL), and record every
-   decision in `design.md` **as they decided it**, not as recommended.
+   decision in `design.md` **as they decided it**, not as recommended. Review the revision as in
+   step 2b (the diff since the reviewed commit is enough) and replace the `Review:` line before
+   asking again, so what the owner approves is what was reviewed.
 5. **On approval**: `sh .claude/change-approval.sh <id> --record "<owner>"` (it writes
    `**Approved:** <date> by <owner> · design <hash>`: the approval covers `design.md` and the Risk
-   line exactly as they stand), run `sh .claude/checks/run.sh changes`, then land the proposal alone through `merge-pr` (a docs-only
-   diff takes the `reviewer-docs` lane). Its roadmap row stays `⬜ queued` with a note
+   line exactly as they stand), run `sh .claude/checks/run.sh changes`, then land the proposal alone through `merge-pr`
+   (under a review page, the PR's body carries the `Review:` line too). Step 2b reviewed it, so
+   merge-pr's step 3 reviews only what changed since. Its roadmap row stays `⬜ queued` with a note
    `proposed (#N)`: it goes in flight when the build PR opens. The build then starts from `main`
    (`/build-change {"change": "<id>"}`, or the panel's build template).
 
