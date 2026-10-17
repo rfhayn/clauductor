@@ -262,6 +262,18 @@ focus_file() {
   printf '%s/clauductor/focus-%s.txt' "$_ff" "$(printf '%s' "$1" | tr '/' '-')"
 }
 
+# gate_wait_path: where install puts gate-wait.sh, by the rule Mapping applies
+# (framework/internal/template/conf.go): beside GATE_RUN while the runner keeps the template's
+# name, run-local.sh; a project's own runner (any other name) leaves it at scripts/ci/ (OPS-72).
+gate_wait_path() {
+  _gr=${GATE_RUN#./}
+  case "$_gr" in
+    run-local.sh) echo gate-wait.sh ;;
+    */run-local.sh) echo "${_gr%/run-local.sh}/gate-wait.sh" ;;
+    *) echo scripts/ci/gate-wait.sh ;;
+  esac
+}
+
 # fetch_main: bring origin/<main> up to date for a context script; 0 when origin/<main> is then
 # readable. With CONTEXT_OFFLINE=1 (the checks set it) it fetches nothing and reports only
 # whether a ref is already there, so a check never touches the network or the remote refs.

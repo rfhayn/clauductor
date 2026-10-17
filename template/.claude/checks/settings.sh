@@ -81,8 +81,9 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     # The gate and gate-wait run outside the sandbox (OPS-72): their process checks use `ps`, tmux
     # and loopback, which the sandbox refuses. An entry lifts the sandbox only for the script run
     # ALONE, bare or with arguments, so both forms are listed: the receipt runs the gate bare and
-    # gate-wait takes no arguments.
-    for _g in "$GATE" "$(dirname "$GATE_RUN")/gate-wait.sh"; do
+    # gate-wait takes no arguments. gate-wait.sh is where install put it (gate_wait_path, conf.sh):
+    # beside the template's runner, but at scripts/ci/ beside a project's own runner.
+    for _g in "$GATE" "$(gate_wait_path)"; do
       for _p in "$_g" "$_g *"; do
         jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
           && echo "ok   sandbox.excludedCommands lists '$_p'" \
@@ -95,9 +96,9 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
 # Self-test: the template's settings pass; each broken shape fails.
 st="$ROOT/.claude/settings.json"
 d=$(scratch)
-selftest() {  # selftest WANT LABEL JQ-FILTER
+selftest() {  # selftest WANT LABEL JQ-FILTER [GATE_RUN]: the last, for a project whose runner moved
   jq "$3" "$st" > "$d/s.json"
-  n=$(check_settings "$d/s.json" | grep -c '^FAIL')
+  n=$(GATE_RUN=${4:-$GATE_RUN}; check_settings "$d/s.json" | grep -c '^FAIL')
   if [ "$1" = pass ] && [ "$n" -eq 0 ]; then ok "self-test: $2 passes"
   elif [ "$1" = fail ] && [ "$n" -gt 0 ]; then ok "self-test: $2 fails"
   else fail "self-test: $2 ($n FAIL line(s), want $1)"; fi
@@ -119,6 +120,12 @@ selftest fail "powershell.exe excluded from the sandbox" '.sandbox.excludedComma
 selftest fail "a /mnt/c binary excluded from the sandbox" '.sandbox.excludedCommands += ["/mnt/c/Windows/System32/cmd.exe *"]'
 selftest fail "gate-wait no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate-wait.sh *"]'
 selftest fail "the bare gate no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate.sh"]'
+# Where gate-wait.sh is depends on the runner, as install placed it (RenderSettings renders these).
+selftest pass "a project's own runner (GATE_RUN=bin/ci.sh): gate-wait stays at scripts/ci/" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/run-local\\.sh"; "bin/ci.sh"))' bin/ci.sh
+selftest pass "the template's runner moved (GATE_RUN=ci/run-local.sh): gate-wait moved with it" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/(?<f>run-local|gate-wait)\\.sh"; "ci/\(.f).sh"))' ci/run-local.sh
+selftest fail "the template's runner moved, gate-wait's exclusion left at scripts/ci/" '.' ci/run-local.sh
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))

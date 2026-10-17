@@ -1,6 +1,7 @@
 package template
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -118,6 +119,30 @@ func TestMergeSettingsAddsGateExclusions(t *testing.T) {
 	}
 	if !added[`"scripts/ci/gate-wait.sh *"`] {
 		t.Errorf("the gate-wait exclusion is not reported added: %+v", changes)
+	}
+	// The project's own allow entry for the gate survives, once: neither dropped nor duplicated
+	// by the template's copy of it, and no change touches it.
+	var m struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(merged, &m); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, a := range m.Permissions.Allow {
+		if a == "Bash(scripts/ci/gate.sh *)" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("permissions.allow holds Bash(scripts/ci/gate.sh *) %d times, want 1:\n%s", n, merged)
+	}
+	for _, c := range changes {
+		if strings.Contains(c.Have, "Bash(scripts/ci/gate.sh *)") || strings.Contains(c.Want, "Bash(scripts/ci/gate.sh *)") {
+			t.Errorf("the merge reported a change to the project's own gate allow entry: %+v", c)
+		}
 	}
 }
 

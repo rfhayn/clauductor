@@ -35,8 +35,9 @@ if (!change) throw new Error('build-change needs args.change (the change id)')
 // at run time from .claude/project-config.sh, in the Preflight phase below: a project that changes
 // one edits project.conf or model-roles.json, never this file, so `clauductor update` sees this file
 // as the template's (OPS-8 rehearsal: attribution off meant editing it, and update flagged it forever).
-// The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args.
-let CHANGES, BRANCH, GATE_CMD, QUICK, CFG
+// The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args,
+// and so does gate-wait.sh's path (gateWait: beside GATE_RUN, or scripts/ci/ for a project's own runner).
+let CHANGES, BRANCH, GATE_CMD, GATE_WAIT, QUICK, CFG
 const MAX_ROUNDS = args.maxRounds ?? 3
 const RESUME = args.resume == null ? null : Number(args.resume)
 const MAX_GATE_FIXES = 2
@@ -118,6 +119,7 @@ const projectSettings = (text, a) => {
     changesDir: String(a.changesDir || c.changesDir || 'changes').replace(/\/+$/, ''),
     branchPrefix: a.branchPrefix != null ? String(a.branchPrefix) : c.branch.change,
     gate: String(a.gate || c.gate || 'scripts/ci/gate.sh'),
+    gateWait: String(a.gateWait || c.gateWait || 'scripts/ci/gate-wait.sh'),
     // An empty GATE_QUICK_FLAGS is a project's choice (its gate has no quick mode), not a missing value.
     quickFlags: a.quickFlags != null ? String(a.quickFlags) : (typeof c.quickFlags === 'string' ? c.quickFlags : '--quick'),
     attribution: a.attribution != null ? String(a.attribution) : String(c.attribution || ''),
@@ -136,7 +138,8 @@ const trailerBlock = (cfg, change, role, model, session) => {
 // would be invisible to BOTH the gate and the reviewer, and a deleted-unstaged one breaks an
 // archive. Registering them makes all three see one set.
 const REGISTER = `First make the index match the working tree without staging content: for each path from \`git ls-files -z --others --exclude-standard\` run \`git add -N -- <path>\` (intent-to-add), and for each path from \`git ls-files -z --deleted\` run \`git rm -q --cached -- <path>\`. Report nothing about this step unless it fails.`
-const GATE_OUTPUT = 'It prints only stage markers, failure lines and the verdict tail, and names the full log: `grep` that log for more, never read it whole. If the tool moves the gate to the background, call `scripts/ci/gate-wait.sh` in the foreground (timeout 600000): exit 3 means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or 2: no result, run the gate again).'
+// A function: gate-wait's path (GATE_WAIT) is the project's, known only after the settings are read.
+const GATE_OUTPUT = () => `It prints only stage markers, failure lines and the verdict tail, and names the full log: \`grep\` that log for more, never read it whole. If the tool moves the gate to the background, call \`${GATE_WAIT}\` in the foreground (timeout 600000): exit 3 means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or 2: no result, run the gate again).`
 const NO_AGENT = 'if this is the first run since .claude/agents/ changed, the builder/reviewer types register only at SESSION START: restart Claude Code, then resume this run'
 
 const SETTINGS = {
@@ -259,8 +262,9 @@ if (CFG.error) return stop('preflight', CFG.error)
 CHANGES = CFG.changesDir
 BRANCH = `${CFG.branchPrefix}${change}`
 GATE_CMD = CFG.gate
+GATE_WAIT = CFG.gateWait
 QUICK = CFG.quickFlags
-log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD} (quick: ${QUICK || 'no flags'}), provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
+log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD} (quick: ${QUICK || 'no flags'}; wait: ${GATE_WAIT}), provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
 const pre = await agent(
   `Repo root is the cwd. Report, without changing anything:
 1. \`git rev-parse --abbrev-ref HEAD\` → branch.
@@ -296,7 +300,7 @@ const spawn = (prompt, opts) => agent(PIN + prompt, opts)
 // IS that script: `cd <root> && scripts/ci/gate.sh --quick` ran sandboxed, where `ps`, tmux and
 // loopback binding fail, so the gate's process checks failed whatever the code did (PANEL-48's
 // build, 2026-10-17). A lone `cd <root>` moves the shell there and the shell stays.
-const LONE = (cmd) => `Run \`${cmd}\` as a LONE Bash command, exactly as written, and \`scripts/ci/gate-wait.sh\` as a LONE Bash command whenever you call it: this is the one exception to the \`cd ${ROOT} &&\` rule above, because the sandbox exclusion for these two scripts applies only to a command that is the script alone. So no \`cd\`, \`&&\`, \`;\`, pipe or redirect around either, and no sandbox flag (never dangerouslyDisableSandbox). Run them from ${ROOT}: first run \`pwd\` on its own; if it does not print exactly ${ROOT}, run \`cd ${ROOT}\` on its own and \`pwd\` again; if it still does not, do not run the gate and report that as the failure.`
+const LONE = (cmd) => `Run \`${cmd}\` as a LONE Bash command, exactly as written, and \`${GATE_WAIT}\` as a LONE Bash command whenever you call it: this is the one exception to the \`cd ${ROOT} &&\` rule above, because the sandbox exclusion for these two scripts applies only to a command that is the script alone. So no \`cd\`, \`&&\`, \`;\`, pipe or redirect around either, and no sandbox flag (never dangerouslyDisableSandbox). Run them from ${ROOT}: first run \`pwd\` on its own; if it does not print exactly ${ROOT}, run \`cd ${ROOT}\` on its own and \`pwd\` again; if it still does not, do not run the gate and report that as the failure.`
 const gateCmd = (flags) => [GATE_CMD, flags].filter(Boolean).join(' ')
 
 // The risk tier the owner approved picks each role's variant; economy mode drops the roles it lists.
@@ -339,7 +343,7 @@ const LOG = `Keep ${CHANGES}/${change}/tasks.md's log current, so a resumed run 
 async function gateUntilGreen(g, entry) {
   for (let attempt = 0; ; attempt++) {
     const gate = await spawn(
-      `${REGISTER} Then the quick gate. ${LONE(gateCmd(QUICK))} Run it in the foreground (allow up to 15 minutes). ${GATE_OUTPUT} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
+      `${REGISTER} Then the quick gate. ${LONE(gateCmd(QUICK))} Run it in the foreground (allow up to 15 minutes). ${GATE_OUTPUT()} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
       { label: `gate:${g.n}#${attempt + 1}`, phase: 'Gate', schema: GATE, ...CHEAP },
     )
     if (!gate) return 'gate agent returned nothing'
@@ -455,7 +459,7 @@ phase('Receipt')
 const receipt = await spawn(
   `The receipt is keyed to the HEAD sha, so any commit AFTER the run voids it (pr-merge-guard rule 2). Order matters:
 1. FIRST tick any task in ${CHANGES}/${change}/tasks.md that asks for a full gate run, and commit only that file. Skip if there is none. Its message, via heredoc:\n\n${change}: full gate receipt${trailers('mechanic')}\n
-2. THEN the full gate on committed HEAD, with no flags. ${LONE(gateCmd(''))} Run it in the foreground; allow up to 30 minutes. ${GATE_OUTPUT} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
+2. THEN the full gate on committed HEAD, with no flags. ${LONE(gateCmd(''))} Run it in the foreground; allow up to 30 minutes. ${GATE_OUTPUT()} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
 3. If it FAILED and you ticked in step 1, untick it and commit that revert, so tasks.md never claims a run that did not pass.
 Do NOT push.`,
   { label: 'receipt', phase: 'Receipt', schema: GATE, ...CHEAP },
