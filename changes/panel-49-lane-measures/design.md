@@ -40,14 +40,27 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       write) and `speed` (absent: standard).
   - **What it never decodes:** prompt text, tool input, tool results, file paths and assistant
     text are never decoded or stored.
-  - **How:** every line is decoded into one declared Go type that holds only those fields.
+  - **How: every line, in two stages, each into a declared Go type that holds only its fields.**
     encoding/json keeps nothing a type does not declare, so the line's content is scanned and
-    dropped. There is no pre-filter, unlike the evidence tool's skip of lines without `"usage"`.
-    With one, a release that renamed `usage` would have every new line skipped, and the figures
-    would freeze with no error.
+    dropped.
+    - **Stage one** decodes `type` and `version` alone. A line of any other type stops there,
+      and a field of an unexpected JSON type in it is no error: a line the reader skips cannot
+      fail a session.
+    - **Stage two**, for an `assistant` line only, decodes `message`. There a field of the wrong
+      type is a D7 error.
+  - **No pre-filter:** unlike the evidence tool, which skips lines without `"usage"`, every line
+    is decoded. With a pre-filter, a release that renamed `usage` would have every new line
+    skipped, and the figures would freeze with no error.
+  - **The counts are checked against real data first.** Before the counts are made required, the
+    build counts, with the evidence tool, how many of the baseline week's calls lack each one. It
+    reads no content, and records the result in the Decision log. A field some calls omit
+    becomes optional, defaulting to 0, rather than failing every lane.
   - **Synthetic records:** an `assistant` record whose model is `<synthetic>` is one Claude Code
-    writes itself, for an API error or a rate-limit stop. It is left out of cost and of context,
-    and it is not UNPRICED, as the evidence tool skips it. Otherwise, after each rate-limit stop, a
+    writes itself, for an API error or a rate-limit stop.
+    - It is set aside before its usage is validated, so a missing count in it is no error.
+    - It is left out of cost and of context, and it is not UNPRICED, as the evidence tool skips
+      it.
+    - It still counts as an answer for D7's `Stop` condition. Otherwise, after each rate-limit stop, a
     lane would read 0% and its alert would clear.
   - **Beat:** decoding each line into a generic map. That would hold content in memory, and the
     allowlist could not be tested. PANEL-50 needs content to attribute context to its sources. It
@@ -56,7 +69,8 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 - **D3 Only an attached project's lanes are read, and there the transcript is the one source of
   cost, and of a windowed session's context.**
   - **Which projects:** a project whose config resolves outside its repository (PANEL-42's
-    `install.ConfigOutside`, already held by the runtime as `outsideConfig`).
+    `install.ConfigOutside`, which `live.go` records as the runtime's `outsideConfig`; D6 says
+    why it must be passed in earlier).
   - **Which sessions:** every session the state holds in that project, whether in a lane the
     panel launched or one that hooks place in its worktrees.
   - **A status post there** still moves the quota, and every figure a transcript does not carry,
@@ -91,7 +105,8 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     status line posts one (D3). That covers a lane launched before its sidecar had a `launch`
     object, and a session the panel did not launch, such as one a `/clear` started under a new id,
     or one the owner started in a terminal.
-    - The page warns once per project, worded for which case it is:
+    - While such a session shows no percentage, the page warns once per project, worded for
+      which case it is:
       - for a panel lane launched without a window, the warning names `launch.context_window`;
       - for a session the panel did not launch, it says the panel knows no window for it.
     - Standing Tee's sidecar predates PANEL-48, and its outcome step adds the `launch` object by
@@ -112,9 +127,12 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       tag (`[1m]`) is stripped. So `claude-opus-5-6` is not priced as Opus 5.5.
     - A cache write costs 1.25× input for 5 minutes and 2× for an hour.
     - The streamed lines of one message share an id, and the message is counted once, at its LAST
-      line's usage, as the evidence tool keeps the last. The cursor keeps the last message id and
-      what it booked for it, so a later line with that id replaces the booking, even in a later
-      read.
+      line's usage, as the evidence tool keeps the last.
+    - The cursor keeps, per file, the last `assistant` message id and what it booked for it:
+      the cost, or the unpriced call against its model. A later `assistant` line with that id
+      replaces the booking, even in a later read.
+    - Lines of other types written between a message's streamed lines, such as tool results,
+      do not reset it.
     - Haiku 5.5 joins the table only with its rate from the published pricing page, cited with the
       date as the tool's Sonnet 5.5 row is. Without it, it stays unpriced.
   - **UNPRICED:** a model not in the table, or fast mode on a model with no fast rate, is
@@ -161,7 +179,8 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 
 - **D7 A shape the reader does not know reads as "could not read", never 0.**
   - **What counts:**
-    - a complete line that is not JSON;
+    - a complete line that is not valid JSON (`json.Valid`). A valid line of a type the reader
+      skips never fails, whatever its fields hold (D2, stage one);
     - an `assistant` line with no `message.model`, no `message.usage`, or a required count (D2)
       absent or not a number;
     - a session that has finished a turn, when a reading that reached the end of its files after
@@ -170,8 +189,9 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     - a session with no transcript under `projects/` when a reading taken a minute or more after
       its first prompt still finds none.
   - **What then happens:**
-    - The session's context and cost become unknown, as before any reading: neither the last value
-      nor 0.
+    - What the transcript sets becomes unknown, as before any reading: neither the last value
+      nor 0. That is the session's cost and model, and a windowed session's context. A
+      window-less session's context from its status line (D3) is not the transcript's, and stays.
     - The project's `transcripts` source carries the error, naming the session, the line, and the
       line's Claude Code `version`. The source stays failed while any session's reading fails, so
       one session's good read does not clear another's error.
@@ -201,20 +221,23 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       - It fails if the exempt file is missing, or no longer reaches one. A stale exemption fails
         rather than exempting nothing.
       - The build shows it failing on a mention planted in a second file before trusting it.
-    - **A new test holds the reader's decode type to D2's allowlist.** It walks the type by
-      reflection, every nested struct included, so the type itself is the authority. It fails on:
+    - **A new test holds the reader's two decode types to D2's allowlist.** It walks both by
+      reflection, every nested struct included, so the types themselves are the authority. It fails on:
       - a json tag outside the allowlist;
       - an exported field with no tag, which encoding/json matches by its name;
       - an embedded struct;
       - a leaf that is not a scalar or a pointer to one, such as `json.RawMessage`, a map, a slice
         or an interface;
       - a type in it with its own `UnmarshalJSON`.
-      It also checks by AST that the reader's only JSON decode target is that type, and that it
+      It also checks by AST that the reader's only JSON decode targets are those two types, and that it
       opens files with `os.Open` alone.
     - **`fileReadSites`** lists the reader's read sites, as it lists every other. This is the wider
       net. The string and join scans see only literal forms: a second file joining
       `claudecall.ConfigDir(...)` with `"projects"` passes both. But any new `os.Open` or
       `os.ReadFile` in any file fails `fileReadSites` until a reviewer lists it.
+      - It does not see `os.OpenFile` or `os.ReadDir`, which it skips today as writes and
+        listings, nor reads through `os.DirFS` or `io/fs`.
+      - `docs/panel.md` states these limits rather than overstating the net.
     - **"For attached projects only"** is executed by task 3.1's integration test (MEASURES-1-S2),
       which runs the runtime through `live.go`'s path for both kinds of project.
     - **"A validated session id"** is executed by the reader's test of MEASURES-4-S3.

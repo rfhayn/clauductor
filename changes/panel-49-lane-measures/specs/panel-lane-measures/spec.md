@@ -52,7 +52,7 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL take t
 - **AND** no warning names `<synthetic>` as unpriced
 
 ### Requirement: A transcript the reader does not understand reads as "could not read", never 0
-WHEN a transcript holds a complete line that is not JSON, or an `assistant` line without `message.model`, without `message.usage`, or without one of `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` as a number; or a reading that reached the end of a session's files after its `Stop` hook holds no usage record; or a reading taken a minute or more after the session's first prompt finds no transcript, THE SYSTEM SHALL show that session's context and cost as unknown and SHALL report the project's `transcripts` source as failed while any session's reading fails, naming the session, and the line and its Claude Code version where there is one; a session that failed on a line SHALL stay unknown until the panel reads its files again from the start.
+WHEN a transcript holds a complete line that is not valid JSON, or an `assistant` line that is not `<synthetic>` without `message.model`, without `message.usage`, or without one of `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` as a number; or a reading that reached the end of a session's files after its `Stop` hook holds no usage record; or a reading taken a minute or more after the session's first prompt finds no transcript, THE SYSTEM SHALL show what the transcript sets for that session (its cost and model, and its context where it has a recorded window) as unknown and SHALL report the project's `transcripts` source as failed while any session's reading fails, naming the session, and the line and its Claude Code version where there is one; a session that failed on a line SHALL stay unknown until the panel reads its files again from the start.
 
 #### Scenario: [MEASURES-2-S1] An assistant line without usage, and a good line after it
 - **GIVEN** an attached project whose session's transcript has been read at 80% and $1.20
@@ -74,7 +74,7 @@ WHEN a transcript holds a complete line that is not JSON, or an `assistant` line
 - **AND** a reading at 59 s had not failed it, and the session's figures were absent
 
 #### Scenario: [MEASURES-2-S4] Lines of other types are skipped
-- **GIVEN** a transcript whose lines include `user`, `attachment`, `system` and a type the reader has never seen
+- **GIVEN** a transcript whose lines include `user`, `attachment`, `system`, and a type the reader has never seen whose `message` is a string and whose `version` is a number
 - **WHEN** the reader reads it
 - **THEN** it reports no error, and the figures come from its `assistant` records alone
 
@@ -127,7 +127,7 @@ THE SYSTEM SHALL read transcripts in one source file, read-only, by a session id
 - **AND** it fails as well when the reader's file is missing or no longer reaches a transcript
 
 #### Scenario: [MEASURES-4-S2] A field added to the reader's decoding fails the build
-- **GIVEN** the reader's declared decode type
+- **GIVEN** the reader's two declared decode types
 - **WHEN** a field outside the allowlist such as `message.content` is added to it, or an untagged exported field, an embedded struct, a `json.RawMessage`, map or interface field, or an `UnmarshalJSON` method, or a line is decoded into anything but that type
 - **THEN** the allowlist test fails, naming the field or the decode
 

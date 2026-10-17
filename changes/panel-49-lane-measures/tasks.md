@@ -6,9 +6,12 @@
 ## Decision log
 
 ## 1. The reader (D1, D2, D5, D7)
-- [ ] 1.1 `framework/internal/panel/signals/transcript.go`: find a session's transcript (D1), and walk its `subagents/` folder on every read. Decode every line into one declared type that holds D2's allowlist, with no pre-filter.
+- [ ] 1.0 Before the counts are made required (D2): with the evidence tool, count how many of the baseline week's calls lack each of the four counts, reading no content, and record the result in the Decision log. A count some calls lack becomes optional, defaulting to 0. (manual: a one-off measurement over the owner's transcripts, not shipped code)
+- [ ] 1.1 `framework/internal/panel/signals/transcript.go`: find a session's transcript (D1), and walk its `subagents/` folder on every read. Decode every line, with no pre-filter, in D2's two stages, each into a declared type that holds D2's allowlist.
+  - Stage one decodes `type` and `version`, and tolerates a type mismatch on any line that is not `assistant`. Stage two decodes `message` for an `assistant` line, where a mismatch is a D7 error.
+  - A `<synthetic>` record is set aside before its usage is validated.
   - The id must be a UUID before any path is built.
-  - Read from a cursor the caller keeps: per file, the offset and running totals, plus the last message id and what was booked for it.
+  - Read from a cursor the caller keeps: per file, the offset and running totals, plus the last `assistant` message id and what was booked for it, a cost or an unpriced call.
   - Read only appended bytes up to the last newline, at most 32 MiB per call. A file that shrank is read from the start. Report whether the reader reached the end.
   - A message's streamed lines are booked once, at the last line read, across reads too.
   - `<synthetic>` records count toward neither cost nor context. The context and the model come from the last non-synthetic main-thread record; subagent records count toward cost only.
@@ -52,7 +55,7 @@
   - Add `signals/transcript.go` to `fileReadSites`.
   - Keep the `HookEvent` and `StatusPayload` field check.
   - Citing [MEASURES-4-S1].
-- [ ] 3.3 A test in `notranscript_test.go` walks the reader's decode type by reflection, every nested struct included, and fails on each case D8 lists. It also checks by AST that `transcript.go` decodes JSON only into that type and opens files only with `os.Open`.
+- [ ] 3.3 A test in `notranscript_test.go` walks both of the reader's decode types by reflection, every nested struct included, and fails on each case D8 lists. It also checks by AST that `transcript.go` decodes JSON only into those two types and opens files only with `os.Open`.
   - It is shown failing first on an added `content` field and on a `json.RawMessage` field.
   - Citing [MEASURES-4-S2].
 - [ ] 3.4 The comments of the old rule: `signals/hooks.go` (`HookEvent`'s: the path is not declared because the reader builds it from a validated id) and `state/trends.go:13`.
