@@ -68,6 +68,12 @@ func RenderSettings(tmpl []byte, c *Conf) (rendered []byte, stale map[string][]s
 	for _, k := range []string{"GATE_RUN", "GATE"} {
 		if c != nil && c.Moved(k) {
 			if v, ok := cleanRel(c.Get(k)); ok {
+				// The gate is written as a command an agent runs alone (OPS-72): a gate at the
+				// repository root keeps ./, or the shell would look the bare name up on PATH.
+				// conf.sh's gate_cmd gives the same answer (TestGatePathAgrees).
+				if k == "GATE" && !strings.Contains(v, "/") {
+					v = "./" + v
+				}
 				pairs = append(pairs, c.Defaults[k], v)
 				// gate-wait.sh moves with the template's runner (Mapping), and its sandbox
 				// exclusion with it (OPS-72).

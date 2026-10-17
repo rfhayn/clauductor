@@ -58,7 +58,13 @@ if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
     [ "$_got" = "$2" ] && ok "project-config.sh --json: GATE_RUN=$1 puts gate-wait at $2" || fail "project-config.sh --json: GATE_RUN=$1 gave gateWait '$_got', want $2 (where install puts it)"
   done
   # The gate the workflow runs is GATE cleaned as install writes it into the sandbox exclusion.
-  for _gw in './infra/ci/gate.sh infra/ci/gate.sh' 'infra//ci/gate.sh infra/ci/gate.sh' 'x/../infra/ci/gate.sh/ infra/ci/gate.sh'; do
+  # A gate at the repository root keeps ./ (a bare name is looked up on PATH); an empty GATE stays
+  # empty, so the workflow runs its default.
+  printf 'GATE=""\n' > "$d/p/.claude/project.conf"
+  _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gate 2>&1)
+  [ -z "$_got" ] && ok "project-config.sh --json: an empty GATE gives an empty gate (the workflow's default applies)" || fail "project-config.sh --json: an empty GATE gave gate '$_got', want empty"
+  for _gw in './infra/ci/gate.sh infra/ci/gate.sh' 'infra//ci/gate.sh infra/ci/gate.sh' 'x/../infra/ci/gate.sh/ infra/ci/gate.sh' \
+    './gate.sh ./gate.sh' 'gate.sh ./gate.sh'; do
     set -- $_gw
     printf 'GATE="%s"\n' "$1" > "$d/p/.claude/project.conf"
     _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gate 2>&1)

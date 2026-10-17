@@ -84,8 +84,8 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     # ALONE, bare or with arguments, so both forms are listed: the receipt runs the gate bare and
     # gate-wait takes no arguments. gate-wait.sh is where install put it (gate_wait_path, conf.sh):
     # beside the template's runner, but at scripts/ci/ beside a project's own runner.
-    # Both cleaned (clean_rel), as install writes them.
-    for _g in "$(clean_rel "$GATE")" "$(gate_wait_path)"; do
+    # Both as install writes them: the gate as a command (gate_cmd), gate-wait where it put it.
+    for _g in "$(gate_cmd "$GATE")" "$(gate_wait_path)"; do
       for _p in "$_g" "$_g *"; do
         jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
           && echo "ok   sandbox.excludedCommands lists '$_p'" \
@@ -135,6 +135,11 @@ selftest pass "a runner at the repository root (GATE_RUN=./run-local.sh): gate-w
   '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' ./run-local.sh
 # Install writes the paths CLEANED (path.Clean), so the check reads GATE and GATE_RUN the same way.
 selftest pass "GATE written ./scripts/ci/gate.sh: the settings name it scripts/ci/gate.sh" '.' '' ./scripts/ci/gate.sh
+# A gate at the repository root keeps ./ (a bare gate.sh would be looked up on PATH), as install writes it.
+selftest pass "a gate at the repository root (GATE=./gate.sh): the settings name ./gate.sh" \
+  '(.sandbox.excludedCommands, .permissions.allow) |= map(sub("scripts/ci/gate\\.sh"; "./gate.sh"))' '' ./gate.sh
+selftest fail "a gate at the repository root, excluded only as a bare gate.sh" \
+  '(.sandbox.excludedCommands, .permissions.allow) |= map(sub("scripts/ci/gate\\.sh"; "gate.sh"))' '' ./gate.sh
 selftest pass "GATE written scripts/ci//gate.sh, GATE_RUN ci/../scripts/ci/run-local.sh/" '.' ci/../scripts/ci/run-local.sh/ scripts/ci//gate.sh
 
 check_settings "$st" > "$d/real"

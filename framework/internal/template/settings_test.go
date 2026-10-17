@@ -193,32 +193,49 @@ func TestGateWaitPathAgrees(t *testing.T) {
 }
 
 // OPS-72: the gate the settings check expects excluded, and the one project-config.sh hands the
-// build-change workflow, is GATE cleaned by conf.sh's clean_rel; install writes it cleaned by
-// path.Clean (RenderSettings). The two agree for every shape of GATE.
+// build-change workflow (conf.sh's gate_cmd), is the command install writes into the sandbox
+// exclusion and the allow list (RenderSettings): GATE cleaned as path.Clean cleans it, with ./
+// before a gate at the repository root, which a bare name would look up on PATH. The two agree
+// for every shape of GATE, and an empty GATE stays empty, so the workflow falls back to its default.
 func TestGatePathAgrees(t *testing.T) {
 	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
-	for _, gate := range []string{"scripts/ci/gate.sh", "./scripts/ci/gate.sh", "scripts/ci//gate.sh", "x/../scripts/ci/gate.sh",
-		"ci/gate.sh/", "./ci/./gate.sh", "a/b/../../ci/gate.sh", "gate.sh", "./gate.sh"} {
+	shell := func(fn, v string) string {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", `. "$1"; `+fn+` "$2"`, "sh", conf, v)
+		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		b, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s %q: %v", fn, v, err)
+		}
+		return strings.TrimSuffix(string(b), "\n")
+	}
+	for gate, want := range map[string]string{
+		"scripts/ci/gate.sh": "scripts/ci/gate.sh", "./scripts/ci/gate.sh": "scripts/ci/gate.sh", "scripts/ci//gate.sh": "scripts/ci/gate.sh",
+		"x/../scripts/ci/gate.sh": "scripts/ci/gate.sh", "ci/gate.sh/": "ci/gate.sh", "./ci/./gate.sh": "ci/gate.sh",
+		"a/b/../../ci/gate.sh": "ci/gate.sh", "gate.sh": "./gate.sh", "./gate.sh": "./gate.sh", "x/../gate.sh": "./gate.sh",
+	} {
 		c := defaultsConf(t, "GATE=\""+gate+"\"\n")
 		out, _, err := RenderSettings(templateSettings(t), c)
 		if err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("sh", "-c", `. "$1"; clean_rel "$2"`, "sh", conf, gate)
-		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
-		b, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("GATE=%q: clean_rel: %v", gate, err)
-		}
-		got := strings.TrimSpace(string(b))
-		want, _ := cleanRel(gate)
-		if got != want {
-			t.Errorf("GATE=%q: conf.sh's clean_rel says %q, install cleans it to %q", gate, got, want)
-		}
-		for _, e := range []string{`"` + want + ` *"`, `"Bash(` + want + ` *)"`} {
+		for _, e := range []string{`"` + want + `"`, `"` + want + ` *"`, `"Bash(` + want + ` *)"`} {
 			if !strings.Contains(string(out), e) {
 				t.Errorf("GATE=%q: the rendered settings lack %s", gate, e)
 			}
+		}
+		if got := shell("gate_cmd", gate); got != want {
+			t.Errorf("GATE=%q: conf.sh's gate_cmd says %q, install writes %q", gate, got, want)
+		}
+	}
+	for _, fn := range []string{"clean_rel", "gate_cmd"} {
+		if got := shell(fn, ""); got != "" {
+			t.Errorf("%s of an empty path says %q, want it empty (the workflow then runs its default gate)", fn, got)
+		}
+	}
+	for _, v := range []string{"-n", `a\tb`, `-e\c`} {
+		if got := shell("clean_rel", v); got != v {
+			t.Errorf("clean_rel %q says %q: the path is printed as data, never as an option or an escape", v, got)
 		}
 	}
 }

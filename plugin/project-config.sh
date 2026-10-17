@@ -16,7 +16,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                                                   (a skill's context line: the skills name branches
 #                                                   by these keys, never by a literal prefix)
 #
-# gate is GATE cleaned as install writes it into settings.json (conf.sh's clean_rel), so the
+# gate is GATE as install writes it into settings.json (conf.sh's gate_cmd: cleaned, ./ at the
+# repository root, empty when GATE is), so the
 # command the workflow runs is the one the sandbox exclusion names.
 # gateWait is where install put gate-wait.sh (conf.sh's gate_wait_path): beside GATE_RUN, or at
 # scripts/ci/ when the project runs its own gate runner (OPS-72).
@@ -46,7 +47,7 @@ case "${1:-}" in
     roles="$ROOT/.claude/model-roles.json"
     jq -e 'type == "object"' "$roles" >/dev/null 2>&1 || { echo "project-config.sh: $roles is missing or not JSON" >&2; exit 2; }
     jq -c --arg change "$BRANCH_CHANGE" --arg fix "$BRANCH_FIX" --arg ops "$BRANCH_OPS" --arg main "$MAIN_BRANCH" \
-      --arg changes "$CHANGES_DIR" --arg specs "$SPECS_DIR" --arg gate "$(clean_rel "$GATE")" --arg gatewait "$(gate_wait_path)" --arg quick "$GATE_QUICK_FLAGS" '
+      --arg changes "$CHANGES_DIR" --arg specs "$SPECS_DIR" --arg gate "$(gate_cmd "$GATE")" --arg gatewait "$(gate_wait_path)" --arg quick "$GATE_QUICK_FLAGS" '
       { branch: {change: $change, fix: $fix, ops: $ops, main: $main},
         changesDir: $changes, specsDir: $specs, gate: $gate, gateWait: $gatewait, quickFlags: $quick,
         attribution: (if (.attribution | type) == "object" then (if .attribution.enabled == true then (.attribution.trailer // "") else "" end)

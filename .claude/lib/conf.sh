@@ -265,8 +265,10 @@ focus_file() {
 # clean_rel PATH: PATH cleaned as Go's path.Clean cleans it, the form install (cleanRel,
 # framework/internal/template/conf.go) places files at and writes into settings.json for GATE and
 # GATE_RUN: no empty or "." element, "x/.." resolved, no trailing "/", "." when nothing is left.
+# An empty PATH stays empty: an unset key, so the caller's default applies, never ".".
 # Compare a project.conf path with what install wrote only through this (OPS-72).
 clean_rel() {
+  [ -n "$1" ] || { printf '\n'; return; }
   _cr_out=; _cr_root=; _cr_ifs=$IFS
   case "$1" in /*) _cr_root=/ ;; esac
   case $- in *f*) _cr_f=1 ;; *) _cr_f= ;; esac
@@ -283,7 +285,18 @@ clean_rel() {
     esac
   done
   IFS=$_cr_ifs; [ -n "$_cr_f" ] || set +f
-  if [ -n "$_cr_root" ]; then echo "/$_cr_out"; else echo "${_cr_out:-.}"; fi
+  if [ -n "$_cr_root" ]; then printf '/%s\n' "$_cr_out"; else printf '%s\n' "${_cr_out:-.}"; fi
+}
+
+# gate_cmd PATH: the gate as a command, as install writes it into the sandbox exclusion and the
+# allow list (RenderSettings): cleaned (clean_rel), with ./ before a gate at the repository root,
+# which a bare name would look up on PATH. Empty stays empty.
+gate_cmd() {
+  _gc=$(clean_rel "$1")
+  case "$_gc" in
+    '' | */*) printf '%s\n' "$_gc" ;;
+    *) printf './%s\n' "$_gc" ;;
+  esac
 }
 
 # gate_wait_path: where install puts gate-wait.sh, by the rule Mapping applies
@@ -294,9 +307,9 @@ clean_rel() {
 gate_wait_path() {
   _gr=$(clean_rel "$GATE_RUN")
   case "$_gr" in
-    run-local.sh) echo ./gate-wait.sh ;;
-    */run-local.sh) echo "${_gr%/run-local.sh}/gate-wait.sh" ;;
-    *) echo scripts/ci/gate-wait.sh ;;
+    run-local.sh) printf '%s\n' ./gate-wait.sh ;;
+    */run-local.sh) printf '%s\n' "${_gr%/run-local.sh}/gate-wait.sh" ;;
+    *) printf '%s\n' scripts/ci/gate-wait.sh ;;
   esac
 }
 

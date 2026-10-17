@@ -119,7 +119,7 @@ const projectSettings = (text, a) => {
     changesDir: String(a.changesDir || c.changesDir || 'changes').replace(/\/+$/, ''),
     branchPrefix: a.branchPrefix != null ? String(a.branchPrefix) : c.branch.change,
     // c.gate and c.gateWait are cleaned as install writes them into the sandbox exclusions
-    // (conf.sh's clean_rel), so the LONE command matches one; an args.gate is run as given.
+    // (conf.sh's gate_cmd, gate_wait_path), so the LONE command matches one; an args.gate is run as given.
     gate: String(a.gate || c.gate || 'scripts/ci/gate.sh'),
     gateWait: String(a.gateWait || c.gateWait || 'scripts/ci/gate-wait.sh'),
     // An empty GATE_QUICK_FLAGS is a project's choice (its gate has no quick mode), not a missing value.
