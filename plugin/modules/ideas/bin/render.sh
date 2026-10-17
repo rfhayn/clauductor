@@ -95,13 +95,16 @@ why_not() {
   [ -n "$h" ] || { echo "it does not begin with the generated header"; return; }
   [ "$(body_of "$1" | sha256)" = "${h#* }" ] || { echo "its body no longer matches the hash in its header: it was edited by hand"; return; }
   # The data-through stamp sits outside the hashed body (so the hash stays the reference's), so it
-  # is held to the body instead: "none" only when every listed idea renders "undated" (updatedAt
-  # falls back to createdAt), an ISO time otherwise.
+  # is held to the body instead: "none" only when every listed idea renders "undated", an ISO time
+  # otherwise. (The renderer writes none when no idea has an updatedAt, which falls back to
+  # createdAt; a line's date is createdAt's.)
   # Undated lines are counted, not dated ones: a note or text is free text and may hold ", <date>",
   # but every undated line the renderer writes ends ", undated" or has ", undated. Note: ", so its
-  # own output always passes. The one false pass, a forged none over a dated idea whose note ends
-  # ", undated" or whose text, name or note holds ", undated. Note: " (NULs removed), is loud: under
-  # none, --summary counts every idea as newer.
+  # own output always passes. There are two false passes, and both are loud: under none, --summary
+  # counts every idea as newer. A forged none over a dated idea whose note ends ", undated" or whose
+  # text, name, roadmap row or note holds ", undated. Note: " (NULs removed); and a forged none over
+  # ideas that have an updatedAt but no createdAt, whose lines read "undated" (the date shown is
+  # createdAt's) though their updatedAt would stamp data-through.
   # Both counts strip NULs first: jq writes a JSON \u0000 as a raw NUL, and greps disagree on one
   # (GNU ends a line there, BSD ends a match there, and either prints "Binary file ... matches" in
   # place of a line), so one in an idea's text, row or author would split or cut the line it is on.
