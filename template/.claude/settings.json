@@ -98,7 +98,6 @@
       "Read(*.key)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.config/gh/**)",
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(sudo *)",
@@ -119,6 +118,7 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
+    "enableWeakerNetworkIsolation": true,
     "excludedCommands": [
       "git *",
       "gh *",

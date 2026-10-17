@@ -252,11 +252,14 @@ if [ -n "$MODULES" ] || [ "$PROPOSALS" = openspec ] || [ "$REVIEW_PAGE" = artifa
   [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ] && . "$CLAUDUCTOR_FW/lib/modules.sh" && modules_defaults
 fi
 
-# focus_file BRANCH: the per-branch focus file the status line reads and status-write.sh
-# writes. Keyed by project AND branch, so two repos, or two lanes of one, never show each
-# other's focus.
+# focus_file BRANCH [DIR]: the per-branch focus file the status line reads and status-write.sh
+# writes, in the git directory of DIR's repository (default: the current one). Every worktree of a
+# repository shares it, and it is keyed by branch, so two repos, or two lanes of one, never show
+# each other's focus. Not under $HOME: the sandbox lets a command write the repository but not
+# ~/.claude (OPS-75). Fails outside a git repository.
 focus_file() {
-  printf '%s/.claude/%s-status-%s.txt' "$HOME" "$PROJECT_SLUG" "$(printf '%s' "$1" | tr '/' '-')"
+  _ff=$(git -C "${2:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  printf '%s/clauductor/focus-%s.txt' "$_ff" "$(printf '%s' "$1" | tr '/' '-')"
 }
 
 # fetch_main: bring origin/<main> up to date for a context script; 0 when origin/<main> is then
