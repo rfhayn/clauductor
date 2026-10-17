@@ -31,7 +31,7 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Version gating tested in `config/version_test.go`, citing [LANECTX-3-S2].
   - Regenerate `docs/panel.schema.json` and the reference table in `docs/panel.md`, as `config/generated_test.go` requires.
 - [ ] 2.2 `LaneCommand` in `framework/internal/panel/lanes/lanes.go` builds `--settings` from the lane's effective policy, with `json.Marshal` over the validated values, on every launch.
-  - `LaneCommand` stays a pure argv builder. The two launch sites, `StartLane` and `launchSession`, write the effective window to the lane's registry record on every launch (D7).
+  - `LaneCommand` stays a pure argv builder. `Start` (in the record passed to `Registry.Begin`) and `resumeLocked` (on `rec` before its `Registry.Begin`) set the effective window on the lane's record on every launch (D7).
   - Tested in `framework/internal/panel/lanes/lanes_test.go`, citing [LANECTX-1-S1], [LANECTX-1-S2], [LANECTX-1-S3], [LANECTX-1-S4], [LANECTX-1-S5] and [LANECTX-1-S6].
   - Also in `lanes_test.go`: a lane started at a 200000 window, its config edited to 300000, then restarted, has 300000 in its record; citing [LANECTX-2-S3].
 
@@ -51,6 +51,7 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Tested in `framework/internal/panel/state/alerts_test.go` and `state/metrics_test.go`, citing [LANECTX-2-S1], [LANECTX-2-S2], [LANECTX-2-S3] and [LANECTX-2-S5].
 - [ ] 4.2 The page draws the context warning colour from the alert threshold the state carries, not a hard-coded 85 (`panel.js:1118`, `:1401`).
   - The decision is a pure function in its own static file, which `panel.js` calls, as `term-links.js` is.
+  - `panel.js` draws each lane's own auto-compact tick from the state (task 4.1), falling back to `trends.autocompactPct`, in place of the page-wide value at `:1118` and `:1401`.
   - Tested under node, as `web/term_links_test.go` runs `term-links.js`, in a new `web/context_colour_test.go`, citing [LANECTX-2-S4].
 - [ ] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits: managed settings win, whether a repository's own `true` turns the connectors back on (P3's answer), and an attached lane with no status line shows no bar until PANEL-49.
 

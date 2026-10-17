@@ -75,11 +75,13 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     - leaving the option out, which the owner asked to keep (the roadmap row).
 
 - **D7 A lane's bar and context alert measure against the window it was launched with.**
-  - **Recording it:** the effective window is written to the lane's registry record by the two
-    launch sites, `StartLane` and `launchSession`, on every launch. `model` and `effort`, by
-    contrast, are written once, at creation (`withTemplate`). `LaneCommand` stays a pure argv
-    builder, since `launchSession`'s fast-exit retry calls it twice. A config edit therefore moves a
-    lane's bar only once the lane is relaunched.
+  - **Recording it:** the effective window is set on the lane's record by the two functions that
+    write it, on every launch: `Start`, in the record it passes to `Registry.Begin`, and
+    `resumeLocked` (Restart, Resume and Restore), on `rec` before its `Registry.Begin`. Both later
+    `Done` the same record whole, so a window set anywhere else would be overwritten. `model` and
+    `effort`, by contrast, are written once, at creation (`withTemplate`). `LaneCommand` stays a pure
+    argv builder, since `launchSession`'s fast-exit retry calls it twice. A config edit therefore
+    moves a lane's bar only once the lane is relaunched.
   - **The figure:** for a lane with a recorded window, context is `current_usage`'s input, cache
     creation and cache read tokens, divided by that window. Today the figure is Claude Code's
     `used_percentage`, which is measured against the model's whole window. With a 200k window on
