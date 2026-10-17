@@ -150,10 +150,16 @@ if git_ rev-parse -q --verify "$base" >/dev/null; then
       "refs/remotes/origin/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_FIX" "refs/remotes/origin/$BRANCH_OPS" \
     | while IFS= read -r ref; do
         short=${ref#refs/heads/}; short=${short#refs/remotes/origin/}
-        first=$(git_ rev-list --reverse "$base..$ref" | head -1)
+        # A branch left out because a git step failed says so on stderr (kept with METRICS_DEBUG=1):
+        # otherwise its only trace is an aging WIP one branch short (#62). No commits beyond the base
+        # is a merged branch, left out silently.
+        revs=$(git_ rev-list --reverse "$base..$ref" 2> "$tmp/git.err") \
+          || { echo "metrics.sh: $short left out of aging WIP: git rev-list $base..$ref failed: $(cat "$tmp/git.err")" >&2; continue; }
+        first=$(printf '%s\n' "$revs" | head -1)
         [ -n "$first" ] || continue
         jq -cn --arg name "$short" --arg first "$(git_ log -1 --format=%ct "$first")" --arg tip "$(git_ log -1 --format=%ct "$ref")" \
-          '{name: $name, first: ($first | tonumber), tip: ($tip | tonumber)}'
+          '{name: $name, first: ($first | tonumber), tip: ($tip | tonumber)}' \
+          || echo "metrics.sh: $short left out of aging WIP: its first or last commit's time could not be read" >&2
       done > "$tmp/branches.jsonl"
 fi
 

@@ -245,12 +245,17 @@ msg m1 2026-09-29T10:00:00 change/group-card claude-opus-5-5 '{"input_tokens":10
 msg m9 2026-09-29T10:00:00 main claude-opus-5-5 '{"input_tokens":25000000}' > "$P/$slug-other/sidx.jsonl"   # another repository: $100, ignored
 
 NOW=1790769600 # 2026-09-30T12:00:00Z
+# Both keep metrics.sh's stderr (METRICS_DEBUG=1) and FAIL on a branch it left out on a failing git
+# step, so a run short of fix/12-slow names why (#62).
 M() { # [ENV=…]…: run metrics.sh in the fixture with these settings, stdout to $d/m.json
-  (cd "$R" && env PATH="$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW "$@" sh .claude/metrics.sh) > "$d/m.json"
+  (cd "$R" && env PATH="$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW METRICS_DEBUG=1 "$@" sh .claude/metrics.sh) > "$d/m.json" 2> "$d/m.err"
+  _rc=$?; left_out; return $_rc
 }
 MA() { # ARGS: run metrics.sh in the fixture with these arguments, stdout to $d/m.json
-  (cd "$R" && env PATH="$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW sh .claude/metrics.sh "$@") > "$d/m.json"
+  (cd "$R" && env PATH="$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW METRICS_DEBUG=1 sh .claude/metrics.sh "$@") > "$d/m.json" 2> "$d/m.err"
+  _rc=$?; left_out; return $_rc
 }
+left_out() { _l=$(grep '^metrics.sh: .* left out of aging WIP' "$d/m.err") && fail "$_l"; return 0; }
 q() { jq -c "$1" "$d/m.json"; }
 is() { # LABEL JQ WANT
   got=$(q "$2" 2>&1)
@@ -297,6 +302,20 @@ grep -q '^OK flow 30d to 2026-09-30: cycle 24h median, lead 48h, 1.2 merges/wk, 
 
 MA --window 7d
 is "--window 7d reports that window alone" '.windows | keys' '["7d"]'
+
+# A git step that fails in metrics.sh's branch loop gives #62's signature word for word (aging WIP
+# and --line short one branch) with no fixture step failing: the loop must name what it left out.
+mkdir -p "$d/gitfail"
+cat > "$d/gitfail/git" <<SH
+#!/bin/sh
+case "\$*" in *--reverse*fix/12-slow*) echo "fatal: injected" >&2; exit 128 ;; esac
+exec "$(command -v git)" "\$@"
+SH
+chmod +x "$d/gitfail/git"
+(cd "$R" && env PATH="$d/gitfail:$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW METRICS_DEBUG=1 sh .claude/metrics.sh --line) > "$d/line" 2> "$d/m.err"
+grep -q '^metrics.sh: fix/12-slow left out of aging WIP: git rev-list .*fatal: injected' "$d/m.err" \
+  && ok "a branch the loop drops on a failing git step is named, with git's words, under METRICS_DEBUG=1" \
+  || fail "a branch dropped on a failing git step went unnamed (stderr: $(cat "$d/m.err"))"
 
 # ── Failing soft ──────────────────────────────────────────────────────────────────────────────
 soft() { # LABEL WANT-NOTE-SUBSTRING (after M …)
