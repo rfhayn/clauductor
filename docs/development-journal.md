@@ -14,6 +14,54 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 3 — 2026-10-16 — Rich — the rescope, attach mode built, the panel's new look chosen, a context policy proposed
+
+**Rows**: OPS-67, OPS-71, PANEL-42, PANEL-45, PANEL-48, OPS-70, OPS-74 · **Span**: 2026-10-14 to 2026-10-16
+
+### What happened
+
+The session opened on the owner's review of whether Clauductor was worth its cost, set against MAPS. The owner chose **option B** (OPS-71, #127): Clauductor serves Standing Tee through attach mode, porting Standing Tee's practices stops, the Map is cancelled, Pulse stays, and the investment goes into the panel's UI, one lane at a time.
+
+**Merged, in order:**
+- **OPS-67** (#124): the status line saves its quota reading per machine, and the reader never reports a window past its reset.
+- **OPS-71** (#127): the rescope itself. Map rows and practice ports cancelled, process follow-ups parked, PRD-ui added.
+- **PANEL-42** (#128, archived in #129): `panel attach` serves a repository without writing to it: the registry's config, the sidecar, and argv-only sidecar commands. PANEL-47, OPS-72 and OPS-73 were queued from its lows.
+- **PANEL-45** (#130 proposal, #132 build, #133 archive): four rendered mockups of the panel built on real `/api/state` data. The owner chose the hybrid: Overview as home, with Stage's Context, PR and Run boxes. **ADR-0009** (accepted) replaces "grey at rest" with colour that carries state. Cost about $31.74 of its $50 budget, priced from the agents' transcripts by hand (see *What surprised us*).
+- **The context review** (#131): what the panel, as the launcher of Standing Tee's sessions, decides about their context. Measured on Standing Tee's week of 2026-10-08..14 ($1,208 at list price, 86% context). Queued PANEL-48 (a context policy at launch), PANEL-49 (attached lanes' measures, replacing the no-transcripts invariant) and PANEL-50 (the per-lane contributors view).
+- **PANEL-48's proposal** (#134): a 200k window and connectors off, passed as `--settings` on every launch; the bar and alert measured against the window. Review took three rounds after the owner's first approval:
+  - **Round 1:** four mediums, two of them in `design.md`. D5's claim that a repository cannot re-enable connectors contradicted its own source, and D7 recorded the window in the wrong place.
+  - **Round 2:** three mediums. D7's write sites were still wrong: the record is saved whole by `Start` and `resumeLocked`. The per-lane tick was never drawn, and the sidecar step lacked `"version": 6`, which would have broken Standing Tee's panel.
+  - **Each design fix voided the approval** (the design hash), and the owner approved again each time.
+
+### Decisions the owner made
+- **Option B, Pulse kept, the UI redesigned from mockups, one lane at a time** (2026-10-14).
+- **The six stale lane worktrees of 2026-09-30: discarded** (2026-10-14); their branches are kept.
+- **The order after PANEL-42:** PANEL-48, then PANEL-49, then PANEL-50. The mockups reserve the contributors spot.
+- **PANEL-48's budget is $40, soft:** reaching it is reported and the build goes on.
+- **The hybrid look and ADR-0009 accepted;** the nine parked panel rows go as recommended (PANEL-25, 30, 31, 34 and OPS-62 queued after PANEL-46; PANEL-33 parked on its condition; PANEL-32, OPS-64 and PANEL-44 cancelled, PANEL-44 folded into PANEL-31). Twenty screenshots kept.
+- **PANEL-48 approved three times:** as proposed, then as revised after review rounds 1 and 2.
+
+### What surprised us
+- **The cost tracker missed most of PANEL-45.** Subagents record their lead's working-directory branch, and the lead sat in the main checkout, so every builder and reviewer recorded `main` (OPS-74).
+- **Rule 11 checked nothing on either archive this session** (#129, #133): the guard's own `git diff` reports a `git mv` archive as renames, with zero adds. That fired OPS-70's parking trigger, and it is queued again.
+- **Two TMPDIRs.** A keep-list written outside the sandbox was invisible inside it, and every screenshot was deleted (restored from HEAD).
+- **A builder ran a tool outside the sandbox unasked;** the owner was told.
+
+### Left in flight (handed off)
+- **PANEL-48 is NEXT,** approved and on main as a proposal. Its build starts with group 1's probes (P1–P5, at most $5), run by the orchestrator outside the sandbox on tmux socket `p48-probe`. The session enters the change's worktree before spawning any agent, so OPS-74's miss does not recur.
+- **`changes/ops-40-map-data/`** stays as the record, as its cancelled row says.
+- **Raw insights** "semantic conflicts" and "parsing shell text" (2026-10-13) stay Raw, still young; PANEL-42's fish `-C` question is one more instance of the second.
+
+### Flow and cost
+- **Flow (30 days):** approval wait 0.9h, review rounds 2.4, spend $513.55 a week, 62 in flight. Cycle time and merges per week: CANNOT CHECK, because gh could not list merged PRs from the sandbox.
+- **This session's cost** (usage-report.sh, list price, this machine): about **$147**.
+  - builder $57 (Opus 5.5);
+  - the orchestrating session $50;
+  - reviewers $31;
+  - the context-review agents $5;
+  - the rest under $2 each (Sonnet 5.5 for the docs reviewer and workflow steps, $1.66 in all).
+- The reviewers caught PANEL-48's two design errors before anything was built, and PANEL-45's mockup claims, for about a fifth of the spend.
+
 ## Session 2 — 2026-10-13 — Rich — MAPS planned and approved, attach mode, an overnight merge train
 
 **Rows**: OPS-33 to OPS-61, PANEL-28, PANEL-29, PANEL-42, OPS-40, OPS-42 and others · **Span**: 2026-10-12 afternoon to 2026-10-13 evening
