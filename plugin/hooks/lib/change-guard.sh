@@ -23,9 +23,10 @@ cg_show() {
 # change records (CHANGES_DIR, SPECS_DIR) and the two queues a proposal also edits (ROADMAP, for its
 # "proposed (#N)" note, and OWNER_QUEUE) is a build, not a proposal: every task of each change it
 # touches must be ticked (D7). A proposal PR passes with every task open. Any other doc counts: a
-# build that only edits docs is still a build.
+# build that only edits docs is still a build. --no-renames: a rename lists only its new path, so a
+# build whose only non-record edit is a `git mv` into CHANGES_DIR/<id>/ read as a proposal.
 cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
-  _other=$(git diff --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' \
+  _other=$(git diff --no-renames --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' \
     | grep -vxF -e "$ROADMAP" -e "$OWNER_QUEUE" | head -1)
   [ -n "$_other" ] || return 0
   for _d in $3; do
