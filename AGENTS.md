@@ -66,7 +66,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |
 | Review a change PER TASK GROUP, not per PR | **`.claude/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/apply-change`) |
 | The panel offers only what the roadmap allows next | **`.claude/panel-suggest.sh`** over the one parser; **`checks/panel-suggest.sh`** |
-| Claude merges only once review has CONVERGED | **`merge-pr`** step 3: a skill step, **no hook checks it** |
+| Claude merges only once review has CONVERGED; a proposal converges before the owner reads it | **`merge-pr`** step 3, **`propose`** step 2b: skill steps, **no hook checks them**; **`checks/change-process.sh`** holds the steps in place |
 | No scripted find-replace against tracked source | **`.claude/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`.claude/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |

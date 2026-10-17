@@ -23,9 +23,10 @@ cg_show() {
 # change records (CHANGES_DIR, SPECS_DIR) and the two queues a proposal also edits (ROADMAP, for its
 # "proposed (#N)" note, and OWNER_QUEUE) is a build, not a proposal: every task of each change it
 # touches must be ticked (D7). A proposal PR passes with every task open. Any other doc counts: a
-# build that only edits docs is still a build.
+# build that only edits docs is still a build. --no-renames: a rename lists only its new path, so a
+# build whose only non-record edit is a `git mv` into CHANGES_DIR/<id>/ read as a proposal.
 cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
-  _other=$(git diff --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' \
+  _other=$(git diff --no-renames --name-only "$1" "$2" 2>/dev/null | grep -v "^$CHANGES_DIR/" | grep -v "^$SPECS_DIR/" | grep -v '^openspec/' \
     | grep -vxF -e "$ROADMAP" -e "$OWNER_QUEUE" | head -1)
   [ -n "$_other" ] || return 0
   for _d in $3; do
@@ -57,8 +58,10 @@ cg_trace() {  # cg_trace HEAD
 # CHANGES_DIR/archive/: no open task, a spec delta or `skip_specs: true`, the actual cost recorded in
 # tasks.md, and, when the proposal says how we'll know, the outcome check queued in the roadmap.
 # `openspec archive -y` archives with no delta and with open tasks, printing only a warning.
+# --no-renames: archive-change MOVES the change (`git mv`), and git's default rename detection then
+# reports each file as renamed (R), never added, so the A filter alone found no archive (OPS-70).
 cg_archives() {  # cg_archives BASE HEAD
-  for _d in $(git diff --name-only --diff-filter=A "$1" "$2" 2>/dev/null | sed -n "s|^\($CHANGES_DIR/archive/[^/]*\)/.*|\1|p" | sort -u); do
+  for _d in $(git diff --no-renames --name-only --diff-filter=A "$1" "$2" 2>/dev/null | sed -n "s|^\($CHANGES_DIR/archive/[^/]*\)/.*|\1|p" | sort -u); do
     _id=$(basename "$_d" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//')
     _t=$(cg_show "$2" "$_d/tasks.md")
     if [ -z "$_t" ]; then echo "$_d has no tasks.md: an archived change keeps its record"; continue; fi

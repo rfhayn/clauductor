@@ -10,7 +10,9 @@
 # the sandbox is not enabled, or has no network allowlist. Add your own rules freely; remove one of
 # the required set only by editing this list in a PR that says why. A tool that fails in the
 # sandbox is loosened per machine in .claude/settings.local.json (sandbox.excludedCommands,
-# sandbox.network.allowedDomains merge across scopes), never by turning the sandbox off here. The keys are Claude Code's
+# sandbox.network.allowedDomains merge across scopes), never by turning the sandbox off here.
+# `~/.config/gh` is deliberately not denied: a sandboxed script's gh must read hosts.yml to find
+# its keyring account, so gh's token belongs in a keyring (docs/playbook.md; OPS-75). The keys are Claude Code's
 # (code.claude.com/docs/en/permissions, /docs/en/sandboxing; checked 2026-09-30).
 . "$(dirname "$0")/lib.sh"
 need jq
