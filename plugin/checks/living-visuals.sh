@@ -137,6 +137,9 @@ red "generated: a lost end marker FAILS" "has 1 generated:queue:begin and 0 gene
 out=$(lv --regen); rc=$?
 expect_rc 1 "$rc" "regen: refuses a block with no end marker..."
 has yes "left as it was" "$out" "regen: ...and leaves the page as it was"
+# Falsified by jq 1.7's `jq: error (at <file>:N): ` prefix surviving the strip: red.
+has yes "docs/page.html: has 1 \`generated:queue:begin\` and 0" "$out" "regen: ...naming the fault"
+has no "jq: error" "$out" "regen: ...without jq's own prefix"
 base; printf '<!-- generated:extra:begin -->\nx\n<!-- generated:extra:end -->\n' > "$d/x"; page "$(cat "$d/x")"
 red "generated: a block on the page that the registry does not declare FAILS" "carries a generated:extra block that its registry entry does not declare"
 base; reg '.pages["docs/page.html"].generated.queue.run = "exit 3"'
@@ -199,6 +202,18 @@ base; page '<p>Other <b data-claim=other>9</b></p>'
 red "claims: an unquoted annotation is not skipped" "data-claim attributes, but 3 were read"
 base; page '<p>Other <b data-claim = "other">9</b></p>'
 red "claims: an annotation with spaces round its = is not skipped" "data-claim attributes, but 3 were read"
+# A value is read to its closing tag, not to the first `<`: text followed by markup would be read
+# as the text alone and pass. Falsified by reading the value up to any `<`: green, as "Ann".
+base; page '<p>Also <b data-claim="owner-1">Ann <i>and Damian</i></b></p>'
+red "claims: an annotation whose value is text and then markup is not read as the text alone" "data-claim attributes, but 3 were read"
+# Only the page's text carries annotations: a selector in a style or a script, and an annotation
+# commented out, are not ones. Falsified by counting and reading over the whole page: each is red.
+base; page '<style>[data-claim=item-count] { font-weight: bold; }</style>'
+green "claims MIRROR: a data-claim selector in a style is not an annotation"
+base; page '<script>document.querySelectorAll("[data-claim=owner-1]");</script>'
+green "claims MIRROR: ...nor one in a script"
+base; page '<!-- <b data-claim="retired">9</b> -->'
+green "claims MIRROR: ...nor an annotation in a comment"
 # A value that is only whitespace claims nothing, even against a command that prints nothing.
 # Falsified by comparing the trimmed strings only: green.
 base; page '<p>Blank <b data-claim="blank-one">   </b></p>'
@@ -225,6 +240,24 @@ lv --regen docs/page.html >/dev/null
 grep -q '<li>omega</li>' "$R/docs/page.html" && grep -q '<p>café, naïve, 日本</p>' "$R/docs/page.html" \
   && ok "regen MIRROR: a UTF-8 page with non-ASCII text is regenerated, the rest kept byte for byte" || fail "regen: UTF-8 page"
 ls "$R/docs" | grep -q 'living-regen' && fail "regen: left a temporary file beside the page" || ok "regen: writes through a temporary file it removes"
+# --regen changes the page's content and nothing else about it. Falsified by renaming a fresh
+# temporary file over the page: the mode comes back from the umask, the link becomes a plain file,
+# and a TERM between the write and the rename leaves *.living-regen.<pid> beside the page.
+base; printf 'alpha\nbeta\nmode\n' > "$R/src/queue.txt"; chmod 600 "$R/docs/page.html"
+lv --regen docs/page.html >/dev/null
+m=$(ls -l "$R/docs/page.html" | cut -c1-10); chmod 644 "$R/docs/page.html"
+[ "$m" = "-rw-------" ] && ok "regen: keeps the page's mode" || fail "regen: the page's mode came back $m, not -rw-------"
+base; mv "$R/docs/page.html" "$R/docs/real.html"; ln -s real.html "$R/docs/page.html"
+printf 'alpha\nbeta\nlink\n' > "$R/src/queue.txt"; lv --regen docs/page.html >/dev/null
+[ -L "$R/docs/page.html" ] && grep -q '<li>link</li>' "$R/docs/real.html" \
+  && ok "regen: a symlinked page stays a link, and the file it names is regenerated" || fail "regen: replaced a symlinked page with a file"
+rm -f "$R/docs/page.html"; mv "$R/docs/real.html" "$R/docs/page.html"
+# A mv that is interrupted: it sends its caller TERM, as a ^C would, and moves nothing.
+mkdir -p "$d/termbin"; printf '#!/bin/sh\nkill -TERM "$PPID"\n' > "$d/termbin/mv"; chmod +x "$d/termbin/mv"
+base; printf 'alpha\nbeta\nterm\n' > "$R/src/queue.txt"
+(cd "$R" && PATH="$d/termbin:$PATH" sh "$LV" --regen docs/page.html) >/dev/null 2>&1
+left=$(ls "$R/docs" | grep 'living-regen'); rm -f "$R/docs/"*.living-regen.*
+[ -z "$left" ] && ok "regen: ...and a TERM before the rename leaves no temporary file" || fail "regen: a TERM before the rename left $left beside the page"
 
 # ── --list: currency, with how each page is refreshed ──────────────────────────────────────────
 base; git -C "$R" add -A && git -C "$R" commit -qm reset >/dev/null
