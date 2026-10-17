@@ -1,7 +1,7 @@
-**Approved:** 2026-10-17 by Rich · design 8bcd6850fbb2
+**Approved:** 2026-10-17 by Rich · design a9cfe603547a
 **Roadmap row:** PANEL-48
 **Risk:** normal
-**Budget:** $40
+**Budget:** $100
 
 ## Why
 On 2026-10-15 the owner reviewed how the panel shapes the cost of the Claude sessions it drives in

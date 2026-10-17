@@ -204,8 +204,9 @@ Each amended decision says so.
   - **Beat:** splitting the calibration into a row after this one, which ships the misleading bar
     in between.
 
-- **D10 Risk normal. Budget $40, soft (the owner, 2026-10-15): reaching it is reported to the
-  owner and the build goes on.**
+- **D10 Risk normal. Budget $100, soft (the owner: $40 on 2026-10-15, raised to $100 on
+  2026-10-17 at $63 measured, part of it other lanes started from this worktree): reaching it
+  is reported to the owner and the build goes on.**
   - **Why normal risk:** it changes the argv of every lane whose config opts in, and the owner's
     live lanes run on the panel.
   - **How the build runs:** through `apply-change` by hand. `build-change.js` stops on its budget,
@@ -272,4 +273,4 @@ Each amended decision says so.
 | A config sets `context_window` outside 100000–1000000, or a `subagent_model` that fails `LaunchOptRe` | The config does not load, and the error names the key, as an invalid `model` does today |
 | Managed settings on the machine set the same variable | Managed settings rank above `--settings`, so they win. That is Claude Code's precedence, and the panel does not try to override it |
 | An attached lane has no status line | No bar is shown (unchanged). Reading its transcript is PANEL-49 |
-| The build's cost reaches $40 | The owner is told at once, and the build goes on (soft budget) |
+| The build's cost reaches $100 | The owner is told at once, and the build goes on (soft budget) |
