@@ -3,7 +3,7 @@
 #
 # Renders:  "<mark> <focus> · <branch> <●|✓> <↑a↓b> · <N>% ctx"
 #   - <mark> is STATUS_MARK from .claude/project.conf, so parallel repos are unmistakable.
-#   - <focus> comes from a per-project, per-branch file written by status-write.sh; it falls back
+#   - <focus> comes from a per-repository, per-branch file written by status-write.sh; it falls back
 #     to "[<branch>]" when no focus has been set.
 #   - The git segment (branch, ● dirty / ✓ clean, ↑ahead ↓behind upstream) comes from git, so it
 #     stays accurate even when the focus text is stale.

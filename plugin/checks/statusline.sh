@@ -56,8 +56,11 @@ case "$line" in *"doing the thing"*) ok "shows the focus status-write.sh set" ;;
 # repository and refuses ~/.claude, so a focus kept there was never set from a sandboxed session
 # (OPS-75). A read-only HOME stands in for the sandbox.
 mkdir -p "$d/ro"; chmod 555 "$d/ro"
-( cd "$d/repo" && HOME="$d/ro" sh "$CLAUDUCTOR_FW/status-write.sh" "sandboxed focus" >/dev/null 2>&1 ) \
-  && ok "status-write sets the focus with HOME unwritable" || fail "status-write failed with HOME unwritable"
+( cd "$d/repo" && HOME="$d/ro" sh "$CLAUDUCTOR_FW/status-write.sh" "sandboxed focus" >/dev/null 2>&1 )
+# The file itself, not the exit code: the old script exited 0 whatever happened to its write.
+ff=$(cd "$d/repo" && HOME="$d/ro" ROOT="$ROOT" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && focus_file main')
+case "$ff" in "$d/ro"/*) fail "the focus file is under HOME: $ff" ;; esac
+[ "$(cat "$ff" 2>/dev/null)" = "sandboxed focus" ] && ok "status-write sets the focus with HOME unwritable" || fail "status-write did not write $ff with HOME unwritable"
 line=$(printf '%s' "$input" | HOME="$d/ro" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"sandboxed focus"*) ok "shows a focus set with HOME unwritable" ;; *) fail "focus set with HOME unwritable not shown: $line" ;; esac
 chmod 755 "$d/ro"
