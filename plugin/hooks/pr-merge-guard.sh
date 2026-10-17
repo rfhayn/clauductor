@@ -210,13 +210,16 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #      word where gh, pr, merge or the api endpoint goes, and that could be one, is ODD and BLOCKS
 #      with the plain form — the rules below parse a merge from its text, and cannot parse one they
 #      cannot read. `pr merge` after anything but a plain gh (`$GH`, an alias) is ODD too.
-#      A REDIRECTION INSIDE A MERGE IS UNREADABLE (OPS-66, the owner's call): in a simple command
-#      where three words, redirection operands included, could be gh, pr and merge, a redirection
-#      operator of ANY form before the command's last word is ODD (inside()). The shell lifts a
-#      redirection out from anywhere and runs the rest (`gh pr >& x merge 5`, zsh `>!`, `{fd}>x`,
-#      `2>/dev/null`), and the operator's spellings are too many to read one by one, so this fails
-#      closed on all of them, listed or not. The accepted cost: a merge with a redirection in its
-#      middle is refused; put the redirection last (`gh pr merge 5 --squash 2>&1` is read).
+#      A REDIRECTION INSIDE A gh COMMAND IS UNREADABLE (OPS-66, the owner's call): in a simple
+#      command where a word, redirection operands included, could be gh (literal, quoted, computed,
+#      `=gh`, a path, after any prefix), a redirection operator of ANY form before the command's
+#      last word is ODD (inside()). The shell lifts a redirection out from anywhere and runs the
+#      rest (`gh pr >& x merge 5`, `gh {fd}>x api -X PUT …/pulls/5/merge`, zsh `>!`, `2>/dev/null`),
+#      the operator's spellings are too many to read one by one, and `gh api` merges with no merge
+#      word to look for, so this fails closed on all of them, listed or not. The accepted cost: a
+#      gh command with a redirection in its middle is refused, a merge or not (`gh pr list
+#      2>/dev/null --json number`); put the redirection last (`gh pr merge 5 --squash 2>&1`,
+#      `gh pr list 2>/dev/null` are read). A command with no gh keeps the handling below.
 #      Elsewhere a redirection's operand (a file name, a here-string's text) is never a word of the
 #      command: `sed … > "$TMPDIR/$n"` hands sed no gh.
 #      NOT A MERGE, so never ODD (OPS-66, #120):

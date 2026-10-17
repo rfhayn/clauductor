@@ -340,20 +340,16 @@ function gh_p(p,   j, m) {
   while ((m = index(substr(p, j + 1), "[/]")) > 0) j += m + 2
   return j > 0 && match("gh", "^(" substr(p, j + 1) ")$")
 }
-# inside(c) — a redirection comes before the command's last word, and three of its words, operands
-# included, could be gh, pr and merge, in any order. The shell takes a redirection anywhere in a
-# command and hands the rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`,
-# and any nobody listed) are too many to read one by one, so such a command is unreadable (OPS-66,
-# the owner's call). Its cost: a merge with a redirection in its middle is refused; put it last.
-function inside(c,   i, j, nm) {
+# inside(c) — a redirection comes before the command's last word, and a word of it, operands
+# included, could be gh (literal, quoted, computed, `=gh`, a path, after any prefix). The shell
+# takes a redirection anywhere in a command and hands the rest over as the words; the forms of the
+# operator (`>&`, zsh `>!`, `{fd}>`, and any nobody listed) are too many to read one by one, and a
+# gh merges as `pr merge` or as `api` with no merge word to look for, so such a command is
+# unreadable (OPS-66, the owner's call). Its cost: a gh command with a redirection in its middle
+# is refused, a merge or not (`gh pr list 2>/dev/null --json number`); put the redirection last.
+function inside(c,   i) {
   if (!MID[c]) return 0
-  nm = 0
-  for (i = 1; i <= AWN[c]; i++) {
-    IG[i] = gh_p(AWP[c, i]); IR[i] = match("pr", "^(" AWP[c, i] ")$")
-    IM[i] = match("merge", "^(" AWP[c, i] ")$") > 0; nm += IM[i]
-  }
-  for (i = 1; i <= AWN[c]; i++) if (IG[i]) for (j = 1; j <= AWN[c]; j++)
-    if (j != i && IR[j] && nm - IM[i] - IM[j] > 0) return 1
+  for (i = 1; i <= AWN[c]; i++) if (gh_p(AWP[c, i])) return 1
   return 0
 }
 # provable: its text is exactly what runs (quotes and escapes allowed; no expansion, glob or brace)
@@ -527,7 +523,7 @@ END {
   MERGE_ANY = rel ~ /merg/
   for (c = 1; c <= NC; c++) {
     n = N[c]
-    if (inside(c)) odd("a redirection comes before the last word of a command naming gh, pr and merge: put the redirection last")
+    if (inside(c)) odd("a redirection comes before the last word of a command that may run gh: put the redirection last")
     for (k = 1; k <= n; k++) {
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function

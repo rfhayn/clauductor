@@ -445,8 +445,19 @@ unread "a redirection inside the merge: bash >! (! is the file)" 'gh pr >! merge
 unread "a redirection inside the merge: a named fd" 'gh pr {fd}>x merge 5'
 unread "a redirection inside the merge: a named fd duplicated" 'gh pr {fd}<&0 merge 5'
 unread "a redirection inside the merge: 2>/dev/null" 'gh pr 2>/dev/null merge 5'
+# A regression guard, not a failing-first case: main's reader already refused this one.
 unread "a redirection inside the merge: a named fd between gh and pr" 'gh {fd}>x pr merge 5'
+# Widened to ANY gh (OPS-66, round 3): `gh api` merges too, and names no pr or merge word.
+unread "a redirection inside a gh command: >& before api's merge endpoint" 'gh >& x api -X PUT repos/acme/app/pulls/5/merge'
+unread "a redirection inside a gh command: a named fd before api's merge endpoint" 'gh {fd}>x api -X PUT repos/acme/app/pulls/5/merge'
+unread "a redirection inside a gh command: 2>/dev/null before api graphql" 'gh 2>/dev/null api graphql -f query=x'
+# The accepted cost: a gh command that merges nothing is refused too. Put the redirection last.
+unread "a redirection inside a gh command: a list that merges nothing" 'gh pr list 2>/dev/null --json number'
+# A regression guard: refused since round 2 (pr and merge are words), so it did not fail first.
+unread "a redirection inside a gh command: >x between gh and pr" 'gh >x pr merge 5'
 guard 0 "OPS-66: a merge with its redirection last (2>&1), with evidence" 'gh pr merge 5 --squash --delete-branch 2>&1'
+guard 0 "OPS-66: gh pr view with its output redirected last" 'gh pr view 5 --json state > out.json'
+guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
 rm -f "$R/.git/ci-receipt"
 # The backstop's git -C rewrite takes no value that "$@" or "${a[@]}" can split into several words
 # (`-c alias.x='!gh pr' x`). The reader refuses both first, so merge_hint is tested on its own.
