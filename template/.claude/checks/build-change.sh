@@ -50,11 +50,19 @@ if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
   # gate-wait.sh is where install put it (Mapping): beside the template's runner, moved or not, and
   # at scripts/ci/ beside a project's own runner (OPS-72).
   for _gw in 'scripts/ci/run-local.sh scripts/ci/gate-wait.sh' './ci/run-local.sh ci/gate-wait.sh' 'bin/ci.sh scripts/ci/gate-wait.sh' \
-    'run-local.sh ./gate-wait.sh' './run-local.sh ./gate-wait.sh'; do
+    'run-local.sh ./gate-wait.sh' './run-local.sh ./gate-wait.sh' 'scripts/ci//run-local.sh scripts/ci/gate-wait.sh' \
+    'ci/../run-local.sh ./gate-wait.sh' 'ci/run-local.sh/ ci/gate-wait.sh'; do
     set -- $_gw
     printf "${conf}GATE_RUN=\"%s\"\n" "$1" > "$d/p/.claude/project.conf"
     _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gateWait 2>&1)
     [ "$_got" = "$2" ] && ok "project-config.sh --json: GATE_RUN=$1 puts gate-wait at $2" || fail "project-config.sh --json: GATE_RUN=$1 gave gateWait '$_got', want $2 (where install puts it)"
+  done
+  # The gate the workflow runs is GATE cleaned as install writes it into the sandbox exclusion.
+  for _gw in './infra/ci/gate.sh infra/ci/gate.sh' 'infra//ci/gate.sh infra/ci/gate.sh' 'x/../infra/ci/gate.sh/ infra/ci/gate.sh'; do
+    set -- $_gw
+    printf 'GATE="%s"\n' "$1" > "$d/p/.claude/project.conf"
+    _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gate 2>&1)
+    [ "$_got" = "$2" ] && ok "project-config.sh --json: GATE=$1 gives gate $2, as install writes it" || fail "project-config.sh --json: GATE=$1 gave gate '$_got', want $2 (the path install excludes from the sandbox)"
   done
   printf "${conf}GATE_RUN=\"infra/ci/run-local.sh\"\n" > "$d/p/.claude/project.conf"
   ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/off.json" 2>&1

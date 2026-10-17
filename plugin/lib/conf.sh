@@ -262,13 +262,37 @@ focus_file() {
   printf '%s/clauductor/focus-%s.txt' "$_ff" "$(printf '%s' "$1" | tr '/' '-')"
 }
 
+# clean_rel PATH: PATH cleaned as Go's path.Clean cleans it, the form install (cleanRel,
+# framework/internal/template/conf.go) places files at and writes into settings.json for GATE and
+# GATE_RUN: no empty or "." element, "x/.." resolved, no trailing "/", "." when nothing is left.
+# Compare a project.conf path with what install wrote only through this (OPS-72).
+clean_rel() {
+  _cr_out=; _cr_root=; _cr_ifs=$IFS
+  case "$1" in /*) _cr_root=/ ;; esac
+  case $- in *f*) _cr_f=1 ;; *) _cr_f= ;; esac
+  set -f; IFS=/
+  for _cr_e in $1; do
+    case "$_cr_e" in
+      '' | .) ;;
+      ..) case "$_cr_out" in
+            '' | .. | */..) [ -n "$_cr_root" ] || _cr_out=${_cr_out:+$_cr_out/}.. ;;
+            */*) _cr_out=${_cr_out%/*} ;;
+            *) _cr_out= ;;
+          esac ;;
+      *) _cr_out=${_cr_out:+$_cr_out/}$_cr_e ;;
+    esac
+  done
+  IFS=$_cr_ifs; [ -n "$_cr_f" ] || set +f
+  if [ -n "$_cr_root" ]; then echo "/$_cr_out"; else echo "${_cr_out:-.}"; fi
+}
+
 # gate_wait_path: where install puts gate-wait.sh, by the rule Mapping applies
 # (framework/internal/template/conf.go): beside GATE_RUN while the runner keeps the template's
 # name, run-local.sh; a project's own runner (any other name) leaves it at scripts/ci/ (OPS-72).
 # A runner at the repository root puts it at ./gate-wait.sh, as Go's path.Dir (".") does: a bare
 # gate-wait.sh would not match the settings install wrote, nor run off PATH.
 gate_wait_path() {
-  _gr=${GATE_RUN#./}
+  _gr=$(clean_rel "$GATE_RUN")
   case "$_gr" in
     run-local.sh) echo ./gate-wait.sh ;;
     */run-local.sh) echo "${_gr%/run-local.sh}/gate-wait.sh" ;;

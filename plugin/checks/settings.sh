@@ -84,7 +84,8 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     # ALONE, bare or with arguments, so both forms are listed: the receipt runs the gate bare and
     # gate-wait takes no arguments. gate-wait.sh is where install put it (gate_wait_path, conf.sh):
     # beside the template's runner, but at scripts/ci/ beside a project's own runner.
-    for _g in "$GATE" "$(gate_wait_path)"; do
+    # Both cleaned (clean_rel), as install writes them.
+    for _g in "$(clean_rel "$GATE")" "$(gate_wait_path)"; do
       for _p in "$_g" "$_g *"; do
         jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
           && echo "ok   sandbox.excludedCommands lists '$_p'" \
@@ -97,9 +98,9 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
 # Self-test: the template's settings pass; each broken shape fails.
 st="$ROOT/.claude/settings.json"
 d=$(scratch)
-selftest() {  # selftest WANT LABEL JQ-FILTER [GATE_RUN]: the last, for a project whose runner moved
+selftest() {  # selftest WANT LABEL JQ-FILTER [GATE_RUN] [GATE]: the last two, for a project whose gate moved
   jq "$3" "$st" > "$d/s.json"
-  n=$(GATE_RUN=${4:-$GATE_RUN}; check_settings "$d/s.json" | grep -c '^FAIL')
+  n=$(GATE_RUN=${4:-$GATE_RUN}; GATE=${5:-$GATE}; check_settings "$d/s.json" | grep -c '^FAIL')
   if [ "$1" = pass ] && [ "$n" -eq 0 ]; then ok "self-test: $2 passes"
   elif [ "$1" = fail ] && [ "$n" -gt 0 ]; then ok "self-test: $2 fails"
   else fail "self-test: $2 ($n FAIL line(s), want $1)"; fi
@@ -132,6 +133,9 @@ selftest pass "a runner at the repository root (GATE_RUN=run-local.sh): gate-wai
   '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' run-local.sh
 selftest pass "a runner at the repository root (GATE_RUN=./run-local.sh): gate-wait at ./" \
   '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' ./run-local.sh
+# Install writes the paths CLEANED (path.Clean), so the check reads GATE and GATE_RUN the same way.
+selftest pass "GATE written ./scripts/ci/gate.sh: the settings name it scripts/ci/gate.sh" '.' '' ./scripts/ci/gate.sh
+selftest pass "GATE written scripts/ci//gate.sh, GATE_RUN ci/../scripts/ci/run-local.sh/" '.' ci/../scripts/ci/run-local.sh/ scripts/ci//gate.sh
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))

@@ -154,7 +154,8 @@ func TestMergeSettingsAddsGateExclusions(t *testing.T) {
 func TestGateWaitPathAgrees(t *testing.T) {
 	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
 	files := []string{"scripts/ci/run-local.sh", "scripts/ci/gate-wait.sh", "scripts/ci/lib/gate-state.sh"}
-	for _, run := range []string{"", "scripts/ci/run-local.sh", "ci/run-local.sh", "./ci/run-local.sh", "run-local.sh", "./run-local.sh", "bin/ci.sh"} {
+	for _, run := range []string{"", "scripts/ci/run-local.sh", "ci/run-local.sh", "./ci/run-local.sh", "run-local.sh", "./run-local.sh", "bin/ci.sh",
+		"scripts/ci//run-local.sh", "ci/../run-local.sh", "ci/run-local.sh/", "./ci/./x/../run-local.sh"} {
 		project := ""
 		if run != "" {
 			project = "GATE_RUN=\"" + run + "\"\n"
@@ -187,6 +188,37 @@ func TestGateWaitPathAgrees(t *testing.T) {
 		}
 		if g := strings.TrimSpace(string(got)); g != dest {
 			t.Errorf("GATE_RUN=%q: conf.sh's gate_wait_path says %s, install puts it at %s", run, g, dest)
+		}
+	}
+}
+
+// OPS-72: the gate the settings check expects excluded, and the one project-config.sh hands the
+// build-change workflow, is GATE cleaned by conf.sh's clean_rel; install writes it cleaned by
+// path.Clean (RenderSettings). The two agree for every shape of GATE.
+func TestGatePathAgrees(t *testing.T) {
+	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
+	for _, gate := range []string{"scripts/ci/gate.sh", "./scripts/ci/gate.sh", "scripts/ci//gate.sh", "x/../scripts/ci/gate.sh",
+		"ci/gate.sh/", "./ci/./gate.sh", "a/b/../../ci/gate.sh", "gate.sh", "./gate.sh"} {
+		c := defaultsConf(t, "GATE=\""+gate+"\"\n")
+		out, _, err := RenderSettings(templateSettings(t), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("sh", "-c", `. "$1"; clean_rel "$2"`, "sh", conf, gate)
+		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		b, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("GATE=%q: clean_rel: %v", gate, err)
+		}
+		got := strings.TrimSpace(string(b))
+		want, _ := cleanRel(gate)
+		if got != want {
+			t.Errorf("GATE=%q: conf.sh's clean_rel says %q, install cleans it to %q", gate, got, want)
+		}
+		for _, e := range []string{`"` + want + ` *"`, `"Bash(` + want + ` *)"`} {
+			if !strings.Contains(string(out), e) {
+				t.Errorf("GATE=%q: the rendered settings lack %s", gate, e)
+			}
 		}
 	}
 }
