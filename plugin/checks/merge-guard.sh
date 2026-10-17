@@ -279,6 +279,39 @@ archive "$DONE" spec know
 guard 2 "rule 11: archiving a change that says how we'll know, with no outcome check queued" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
 archive "$DONE" spec know row
 guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+# An archive made the way archive-change makes it: the open change lands on main, then a PR moves it
+# with `git mv` and appends its cost. git diff reports each moved file as renamed (R), not added, so
+# a reader of added paths alone checked nothing on a real archive (OPS-70: #129 and #133).
+mv_archive() {  # mv_archive ID TASKS
+  git -C "$R" checkout -q main; mkdir -p "$R/changes/$1/specs/$1"
+  printf '%b' "$2" > "$R/changes/$1/tasks.md"
+  printf '# p\n' > "$R/changes/$1/proposal.md"
+  printf '## ADDED Requirements\n' > "$R/changes/$1/specs/$1/spec.md"
+  git -C "$R" add -A && git -C "$R" commit -qm "propose $1"
+  (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+  on "ops/archive-$1"; mkdir -p "$R/changes/archive"
+  git -C "$R" mv "changes/$1" "changes/archive/2026-01-06-$1"
+  printf -- '- 2026-01-06 archived: actual cost $2.40 of budget $15\n' >> "$R/changes/archive/2026-01-06-$1/tasks.md"
+  head_of "archive $1 with git mv"; at
+  # The case proves nothing unless git really reports the move as a rename. -M: porcelain diff
+  # honours the user's diff.renames, and with it false no move is ever a rename.
+  git -C "$R" diff -M --name-status "$(git -C "$R" merge-base origin/main "$(H)")" "$(H)" | grep -q "^R[0-9]*	changes/$1/tasks.md	changes/archive/2026-01-06-$1/tasks.md$" \
+    && ok "rule 11 fixture: git reports the git-mv archive of $1 as a rename" || fail "rule 11 fixture: the archive of $1 is not a rename: $(git -C "$R" diff -M --name-status origin/main "$(H)")"
+}
+MVT='## 1. Do it\n- [x] 1.1 the first task of the change\n- [x] 1.2 the second task of the change\n- [x] 1.3 the third task of the change\n'
+mv_archive add-mv-open "$MVT- [ ] 1.4 the fourth task, still open\n\n## Progress\n"
+guard 2 "rule 11: a change archived with git mv (a rename) and an open task" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive-add-mv-open
+grep -q "changes/archive/2026-01-06-add-mv-open is archived with 1 open task" "$d/err" && ok "rule 11: ...and names the renamed archive and its open task" || fail "rule 11 git-mv message: $(cat "$d/err")"
+mv_archive add-mv-done "$MVT- [x] 1.4 the fourth task, done\n\n## Progress\n"
+guard 0 "rule 11: a finished change archived with git mv (a rename)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive-add-mv-done
+# Rule 9 and a rename: a build that `git mv`s a file into its change directory. With rename
+# detection, --name-only lists only the new path (a record), and the build read as a proposal.
+git -C "$R" checkout -q main; mkdir -p "$R/src"; printf 'moved by the build\n' > "$R/src/z.txt"
+git -C "$R" add -A && git -C "$R" commit -qm "src/z.txt" && (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+on change/add-z; mkdir -p "$R/changes/add-z"
+printf '## 1. Do it\n- [ ] 1.1 thing\n\n- [ ] Slice: a user can z at /z\n' > "$R/changes/add-z/tasks.md"
+git -C "$R" mv src/z.txt changes/add-z/z.txt; head_of "a build whose only other edit is a git mv into its record"; at
+guard 2 "rule 9: a build whose only non-record edit is a git mv into changes/<id>/ (a rename)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-z
 
 # CHANGES_LEGACY (lib/records.sh): a grandfathered change keeps the format it was approved in, so
 # rules 9–11 do not ask it for the records this format added; finishing is still asked.
