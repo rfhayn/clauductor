@@ -1,4 +1,4 @@
-Review: NOT converged after 3 rounds, peak medium, at 3577579 · design bccca4e998c4
+Review: converged in 4 round(s), peak low, at e6e366d · design 2389c1a64d91
 
 Round 1 (f3895d7): peak high. 2 high, 15 medium, 4 low; all addressed in ff201db.
 Round 2 (ff201db): peak medium. 7 medium, 5 low; all addressed in f1bc538.
@@ -6,3 +6,5 @@ Round 3 (f1bc538): peak medium. 1 medium (moved.sh compared declarations only, m
 and timers), 3 low (D17's group assignments, moved.sh output in tasks.md, two edges of the tail
 cut). All four were fixed in 3577579. Those fixes were not re-reviewed, because the 3-round limit
 was reached. Nothing known remains open.
+Round 4 (8dc3917): peak low; 0 medium, 4 low, all fixed in e6e366d (wording only, checked by the
+lead, not re-reviewed). Renumber to OPS-84 verified.
