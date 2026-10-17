@@ -53,15 +53,19 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     skipped, and the figures would freeze with no error.
   - **The counts are checked against real data first.** Before the counts are made required, the
     build counts, with the evidence tool, how many of the baseline week's calls lack each one. It
-    reads no content, and records the result in the Decision log. A field some calls omit
-    becomes optional, defaulting to 0, rather than failing every lane.
+    reads no content, and records the result in the Decision log.
+    - A field some calls omit becomes optional, defaulting to 0, rather than failing every lane.
+    - The Decision log's result governs the required list above. A field moved from required to
+      optional changes this design, and goes back to the owner.
+    - If the baseline week's transcripts are gone by then, the most recent full week stands in.
   - **Synthetic records:** an `assistant` record whose model is `<synthetic>` is one Claude Code
     writes itself, for an API error or a rate-limit stop.
-    - It is set aside before its usage is validated, so a missing count in it is no error.
+    - Stage two reads `message.model` first. A `<synthetic>` record is set aside before its usage
+      is validated, and even when stage two finds a field of the wrong type in it, so a malformed
+      synthetic record is no error.
     - It is left out of cost and of context, and it is not UNPRICED, as the evidence tool skips
-      it.
-    - It still counts as an answer for D7's `Stop` condition. Otherwise, after each rate-limit stop, a
-    lane would read 0% and its alert would clear.
+      it. Otherwise, after each rate-limit stop, a lane would read 0% and its alert would clear.
+    - It still counts as an answer for D7's `Stop` condition.
   - **Beat:** decoding each line into a generic map. That would hold content in memory, and the
     allowlist could not be tested. PANEL-50 needs content to attribute context to its sources. It
     widens the type by its own decision, and D8's test makes the widening a reviewed diff.

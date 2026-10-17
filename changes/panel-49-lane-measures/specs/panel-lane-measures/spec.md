@@ -128,7 +128,7 @@ THE SYSTEM SHALL read transcripts in one source file, read-only, by a session id
 
 #### Scenario: [MEASURES-4-S2] A field added to the reader's decoding fails the build
 - **GIVEN** the reader's two declared decode types
-- **WHEN** a field outside the allowlist such as `message.content` is added to it, or an untagged exported field, an embedded struct, a `json.RawMessage`, map or interface field, or an `UnmarshalJSON` method, or a line is decoded into anything but that type
+- **WHEN** a field outside the allowlist such as `message.content` is added to it, or an untagged exported field, an embedded struct, a `json.RawMessage`, map or interface field, or an `UnmarshalJSON` method, or a line is decoded into anything but those two types
 - **THEN** the allowlist test fails, naming the field or the decode
 
 #### Scenario: [MEASURES-4-S3] An id that is not a UUID opens nothing
