@@ -291,6 +291,13 @@ if (inMainCheckout && !(args.allowMainCheckout && RESUME != null)) return stop('
 ROOT = norm(pre.toplevel)
 const PIN = `Repo root: ${ROOT}. Before anything else run \`cd ${ROOT} && git rev-parse --show-toplevel\`; if it does not print exactly ${ROOT}, change nothing and report that as the failure. Start every Bash command with \`cd ${ROOT} &&\`, and give Read/Edit/Write absolute paths under ${ROOT}.\n\n`
 const spawn = (prompt, opts) => agent(PIN + prompt, opts)
+// THE GATE RUNS AS A LONE COMMAND, the one exception to PIN's `cd` rule (OPS-72). settings.json's
+// sandbox.excludedCommands lifts the Bash sandbox for the gate and gate-wait only when the command
+// IS that script: `cd <root> && scripts/ci/gate.sh --quick` ran sandboxed, where `ps`, tmux and
+// loopback binding fail, so the gate's process checks failed whatever the code did (PANEL-48's
+// build, 2026-10-17). A lone `cd <root>` moves the shell there and the shell stays.
+const LONE = (cmd) => `Run \`${cmd}\` as a LONE Bash command, exactly as written, and \`scripts/ci/gate-wait.sh\` as a LONE Bash command whenever you call it: this is the one exception to the \`cd ${ROOT} &&\` rule above, because the sandbox exclusion for these two scripts applies only to a command that is the script alone. So no \`cd\`, \`&&\`, \`;\`, pipe or redirect around either, and no sandbox flag (never dangerouslyDisableSandbox). Run them from ${ROOT}: first run \`pwd\` on its own; if it does not print exactly ${ROOT}, run \`cd ${ROOT}\` on its own and \`pwd\` again; if it still does not, do not run the gate and report that as the failure.`
+const gateCmd = (flags) => [GATE_CMD, flags].filter(Boolean).join(' ')
 
 // The risk tier the owner approved picks each role's variant; economy mode drops the roles it lists.
 const RISK = pre.risk
@@ -332,7 +339,7 @@ const LOG = `Keep ${CHANGES}/${change}/tasks.md's log current, so a resumed run 
 async function gateUntilGreen(g, entry) {
   for (let attempt = 0; ; attempt++) {
     const gate = await spawn(
-      `${REGISTER} Then run \`${GATE_CMD} ${QUICK}\` from the repo root in the foreground (allow up to 15 minutes). ${GATE_OUTPUT} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
+      `${REGISTER} Then the quick gate. ${LONE(gateCmd(QUICK))} Run it in the foreground (allow up to 15 minutes). ${GATE_OUTPUT} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
       { label: `gate:${g.n}#${attempt + 1}`, phase: 'Gate', schema: GATE, ...CHEAP },
     )
     if (!gate) return 'gate agent returned nothing'
@@ -448,7 +455,7 @@ phase('Receipt')
 const receipt = await spawn(
   `The receipt is keyed to the HEAD sha, so any commit AFTER the run voids it (pr-merge-guard rule 2). Order matters:
 1. FIRST tick any task in ${CHANGES}/${change}/tasks.md that asks for a full gate run, and commit only that file. Skip if there is none. Its message, via heredoc:\n\n${change}: full gate receipt${trailers('mechanic')}\n
-2. THEN run \`${GATE_CMD}\` with no flags (the full gate on committed HEAD) from the repo root in the foreground; allow up to 30 minutes. ${GATE_OUTPUT} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
+2. THEN the full gate on committed HEAD, with no flags. ${LONE(gateCmd(''))} Run it in the foreground; allow up to 30 minutes. ${GATE_OUTPUT} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
 3. If it FAILED and you ticked in step 1, untick it and commit that revert, so tasks.md never claims a run that did not pass.
 Do NOT push.`,
   { label: 'receipt', phase: 'Receipt', schema: GATE, ...CHEAP },

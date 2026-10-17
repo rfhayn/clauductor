@@ -79,6 +79,17 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     _x=$(jq -r '(.sandbox.excludedCommands // [])[]' "$f" | grep -E "$INTEROP_RE")
     [ -z "$_x" ] && echo "ok   no Windows interop command (cmd.exe, powershell.exe, pwsh.exe, wsl.exe, /mnt/...) is excluded from the sandbox" \
       || echo "FAIL sandbox.excludedCommands runs Windows interop outside the sandbox: $(printf '%s' "$_x" | tr '\n' ' ')"
+    # The gate and gate-wait run outside the sandbox (OPS-72): their process checks use `ps`, tmux
+    # and loopback, which the sandbox refuses. An entry lifts the sandbox only for the script run
+    # ALONE, bare or with arguments, so both forms are listed: the receipt runs the gate bare and
+    # gate-wait takes no arguments.
+    for _g in "$GATE" "$(dirname "$GATE_RUN")/gate-wait.sh"; do
+      for _p in "$_g" "$_g *"; do
+        jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
+          && echo "ok   sandbox.excludedCommands lists '$_p'" \
+          || echo "FAIL sandbox.excludedCommands lacks '$_p': build-change's gate runs it sandboxed, where its process checks fail whatever the code did"
+      done
+    done
   fi
 }
 
@@ -107,6 +118,8 @@ selftest fail "clip.exe excluded from the sandbox" '.sandbox.excludedCommands +=
 selftest pass "an ordinary Linux mount (/mnt/data) excluded from the sandbox" '.sandbox.excludedCommands += ["/mnt/data/tool *"]'
 selftest fail "powershell.exe excluded from the sandbox" '.sandbox.excludedCommands += ["powershell.exe *"]'
 selftest fail "a /mnt/c binary excluded from the sandbox" '.sandbox.excludedCommands += ["/mnt/c/Windows/System32/cmd.exe *"]'
+selftest fail "gate-wait no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate-wait.sh *"]'
+selftest fail "the bare gate no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate.sh"]'
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))

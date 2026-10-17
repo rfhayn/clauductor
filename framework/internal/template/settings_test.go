@@ -96,6 +96,31 @@ func TestMergeSettingsRetiresDeny(t *testing.T) {
 	}
 }
 
+// OPS-72: a project installed before the gate and gate-wait were excluded from the sandbox as lone
+// commands gains those entries on update, added beside its own; nothing it had is lost.
+func TestMergeSettingsAddsGateExclusions(t *testing.T) {
+	tmpl := templateSettings(t)
+	have := []byte(`{"permissions":{"allow":["Bash(scripts/ci/gate.sh *)"]},"sandbox":{"excludedCommands":["scripts/ci/gate.sh *","make *"]}}`)
+	merged, changes, err := MergeSettings(have, tmpl, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"scripts/ci/gate.sh"`, `"scripts/ci/gate-wait.sh"`, `"scripts/ci/gate-wait.sh *"`, `"Bash(scripts/ci/gate-wait.sh)"`, `"make *"`} {
+		if !strings.Contains(string(merged), want) {
+			t.Errorf("merged settings lack %s:\n%s", want, merged)
+		}
+	}
+	added := map[string]bool{}
+	for _, c := range changes {
+		if c.Action == "add" && c.Path == "sandbox.excludedCommands" {
+			added[c.Want] = true
+		}
+	}
+	if !added[`"scripts/ci/gate-wait.sh *"`] {
+		t.Errorf("the gate-wait exclusion is not reported added: %+v", changes)
+	}
+}
+
 // Invalid JSON in the project's file is an error that names it, never an overwrite.
 func TestMergeSettingsRefusesInvalid(t *testing.T) {
 	if _, _, err := MergeSettings([]byte("{ not json"), templateSettings(t), nil); err == nil || !strings.Contains(err.Error(), "project's settings.json") {
@@ -111,7 +136,7 @@ func TestRenderSettingsGatePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(out)
-	for _, want := range []string{`"Bash(ci/gate.sh)"`, `"ci/run-local.sh *"`, `"ci/gate.sh *"`} {
+	for _, want := range []string{`"Bash(ci/gate.sh)"`, `"ci/run-local.sh *"`, `"ci/gate.sh"`, `"ci/gate.sh *"`, `"Bash(ci/gate-wait.sh)"`, `"ci/gate-wait.sh"`, `"ci/gate-wait.sh *"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered settings lack %s", want)
 		}

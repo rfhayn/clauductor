@@ -270,6 +270,15 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([])
   const later = afterPreflight(r.calls) || []
   t('every agent after preflight is pinned to the recorded root', r.report.stoppedAt === null && later.length > 3 && later.every((c) => /^Repo root: \/repo\/\.claude\/worktrees\/build-demo\./.test(c.prompt)), [r.report.stoppedAt, later.map((c) => c.prompt.slice(0, 60))])
+  // The gate runs as a LONE command (OPS-72): settings.json's sandbox exclusion for the gate and
+  // gate-wait applies only to the script run alone, so PIN's `cd <root> &&` before it ran the gate
+  // sandboxed, where its process checks fail whatever the code did (PANEL-48's build, 2026-10-17).
+  const chained = /(&&|;|\|)\s*(\S*\/)?scripts\/ci\/gate(-wait)?\.sh|scripts\/ci\/gate(-wait)?\.sh[^`\n]*(&&|;|\||>)/
+  const lone = (c, cmd) => c.prompt.includes(`\`${cmd}\` as a LONE Bash command`) && c.prompt.includes('`scripts/ci/gate-wait.sh` as a LONE Bash command')
+    && /the one exception to the `cd \/repo\/\.claude\/worktrees\/build-demo &&` rule/.test(c.prompt) && !chained.test(c.prompt)
+  const gate = later.find((c) => c.opts.label === 'gate:3#1'), receipt = later.find((c) => c.opts.label === 'receipt')
+  t('the quick gate agent runs `scripts/ci/gate.sh --quick` and gate-wait as LONE commands, exempt from PIN\'s cd rule, chained nowhere', !!gate && lone(gate, 'scripts/ci/gate.sh --quick'), gate && gate.prompt)
+  t('the receipt agent runs `scripts/ci/gate.sh` and gate-wait the same way', !!receipt && lone(receipt, 'scripts/ci/gate.sh'), receipt && receipt.prompt)
   // reportTo (OPS-43): the script cannot SendMessage, so the session it reports to rides back in
   // the report, for the session that launched it to send the outcome there.
   t('a run given no reportTo names none in its report', r.report.reportTo === null, r.report.reportTo)

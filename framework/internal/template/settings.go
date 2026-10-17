@@ -3,6 +3,7 @@ package template
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -68,6 +69,11 @@ func RenderSettings(tmpl []byte, c *Conf) (rendered []byte, stale map[string][]s
 		if c != nil && c.Moved(k) {
 			if v, ok := cleanRel(c.Get(k)); ok {
 				pairs = append(pairs, c.Defaults[k], v)
+				// gate-wait.sh moves with the template's runner (Mapping), and its sandbox
+				// exclusion with it (OPS-72).
+				if d := path.Dir(v); k == "GATE_RUN" && path.Base(v) == "run-local.sh" && d != path.Dir(c.Defaults[k]) {
+					pairs = append(pairs, path.Dir(c.Defaults[k])+"/gate-wait.sh", d+"/gate-wait.sh")
+				}
 			}
 		}
 	}
