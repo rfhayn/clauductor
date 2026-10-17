@@ -100,8 +100,9 @@ P="$d/projects"
 main=$(cd "$R" && pwd -P)
 slug=$(printf '%s' "$main" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p "$P/$slug/s1/subagents" "$P/$slug--claude-worktrees-lane" "$P/-elsewhere"
-msg() {  # msg ID MODEL BRANCH CWD IN OUT
-  printf '{"type":"assistant","gitBranch":"%s","cwd":"%s","message":{"id":"%s","model":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$3" "$4" "$1" "$2" "$5" "$6"
+msg() {  # msg ID MODEL BRANCH CWD IN OUT [SESSION TIMESTAMP]: without a session, one per file
+  st=""; [ -z "${7:-}" ] || st=$(printf '"sessionId":"%s","timestamp":"%s",' "$7" "$8")
+  printf '{"type":"assistant",%s"gitBranch":"%s","cwd":"%s","message":{"id":"%s","model":"%s","usage":{"input_tokens":%s,"output_tokens":%s,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$st" "$3" "$4" "$1" "$2" "$5" "$6"
 }
 B=change/add-greeting-name
 { msg m1 claude-opus-5-5 "$B" "$main" 1000000 0        # $4.00
@@ -171,6 +172,30 @@ cost --json
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
 git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
+# Votes by session (sessionId) and in time order, from the LEAD's records only. An agent records its
+# lead's CURRENT branch: the lead left lane v1 for v1-next and ops/next, its agent still in v1 then
+# recorded ops/next there. v1 stays the change's, and the agent's $1 counts.
+V="$main/.claude/worktrees/v"; T=2026-10-13T10:00
+{ msg v1 claude-haiku-4-5-20251001 "$B" "${V}1" 0 0 L1 "${T}:01Z"
+  msg v2 claude-haiku-4-5-20251001 "ops/next" "${V}1-next" 0 0 L1 "${T}:02Z"; } > "$P/$slug/L1.jsonl"
+mkdir -p "$P/$slug/L1/subagents"
+msg v3 claude-haiku-4-5-20251001 "ops/next" "${V}1" 1000000 0 L1 "${T}:03Z" > "$P/$slug/L1/subagents/agent-v.jsonl"  # $1.00
+# One session over two transcript files (a resume) ended on ops/two in v2: v2 is rejected.
+msg v4 claude-haiku-4-5-20251001 "$B" "${V}2" 0 0 L2 "${T}:01Z" > "$P/$slug/L2a.jsonl"
+msg v5 claude-haiku-4-5-20251001 "ops/two" "${V}2" 0 0 L2 "${T}:02Z" > "$P/$slug/L2b.jsonl"
+# Two sessions in v3: one ended on the branch, one on ops/three. One vote for the branch takes it.
+{ msg v6 claude-haiku-4-5-20251001 "ops/three" "${V}3" 0 0 L3 "${T}:01Z"
+  msg v7 claude-haiku-4-5-20251001 "$B" "${V}3" 0 0 L3 "${T}:02Z"; } > "$P/$slug/L3.jsonl"
+{ msg v8 claude-haiku-4-5-20251001 "$B" "${V}3" 0 0 L3b "${T}:03Z"
+  msg v9 claude-haiku-4-5-20251001 "ops/three" "${V}3" 0 0 L3b "${T}:04Z"; } > "$P/$slug/L3b.jsonl"
+# Time order, not file order: written last but recorded first, the branch is not v4's last vote.
+{ msg va claude-haiku-4-5-20251001 "ops/four" "${V}4" 0 0 L4 "${T}:05Z"
+  msg vb claude-haiku-4-5-20251001 "$B" "${V}4" 0 0 L4 "${T}:01Z"; } > "$P/$slug/L4.jsonl"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 33 ] && ok "change-cost: an agent left in the lane after its lead moved on does not take the lane from the change" || fail "change-cost, agent left behind: $(cat "$d/out")"
+# `live`, now removed, is rejected as well: its one session ended there on ops/foreign (a known limit).
+[ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\"]" ] && ok "change-cost: a lane is voted by session across its files and in time order; one session's vote for the branch takes it" || fail "change-cost, session votes: $(cat "$d/out")"
+cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another branch was recorded there last)"*) ok "change-cost names the rejected lanes in its one line" ;; *) fail "change-cost text, rejected lanes: $(cat "$d/out")" ;; esac
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"
