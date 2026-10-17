@@ -1,4 +1,4 @@
-**Approved:** 2026-10-16 by Rich · design bfe2e96714f1
+**Approved:** 2026-10-17 by Rich · design 8bcd6850fbb2
 **Roadmap row:** PANEL-48
 **Risk:** normal
 **Budget:** $40
@@ -31,8 +31,13 @@ week**, holding the repository's content fixed:
 | Propose lanes | $11.02 |
 | Subagents | $56.42 |
 
+*Amended 2026-10-17:* Claude Code compacts a window at the window less 33k (probe P1), so a 200k
+window acts as a cap of about 167k. Re-run at 167k, it saves **$153.79** a week; the figures above
+are a 233k window's (design D4).
+
 Turning claude.ai's connectors off at launch is bounded at about $2 a week per 1k of startup it
-removes. The connectors' actual share is not measured yet.
+removes. *Amended 2026-10-17:* probe P3 measured the connectors' share at 1.4k, about $2.80 a
+week (design D5).
 
 **Where it sits in the queue.** It is NEXT by the owner's order of 2026-10-15: PANEL-48, then
 PANEL-49 (attached lanes' measures), then PANEL-50 (the per-lane contributors view).
@@ -80,8 +85,10 @@ requirement.
 ## How we'll know
 - **Signal:** once the owner's lanes run on a panel built with this change, a week of the
   attached repository's transcripts, measured with `evidence/` as on 2026-10-15, shows:
-  - lane and subagent context at p90 near the 200k window (before: orchestrator 442k, ops lanes
-    563k);
+  - lane and subagent context at p90 near the 200k window's compaction point, about 167k
+    (before: orchestrator 442k, ops lanes 563k);
+  - compactions firing at the window less 33k (`compact_boundary`'s `preTokens`), where the
+    bar's tick is drawn (design D7, amended 2026-10-17);
   - cache read and write cost per class falling toward the simulated figures;
   - no rise in the flow line's review rounds or change-fail rate.
 - **Before the clock starts:** an existing sidecar gets none of this, because attach never

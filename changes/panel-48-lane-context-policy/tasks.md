@@ -2,23 +2,86 @@
 
 ## Progress
 - 2026-10-16 proposed; nothing built yet
+- 2026-10-17 group 1 built: probes P1–P5 run and recorded in `evidence/README.md` *Probe results*,
+  and the audit tool committed under `evidence/tool/`. The working tree is not yet committed.
+  - **Group 2 waits for the owner:** P1 contradicts the design's model of the tick, as the
+    Decision log's last entry says. D7 and LANECTX-2-S5 need the owner before group 4, and D4
+    may need them before group 2 or 3.
+- 2026-10-17 design amended for P1 (D4, D7, new D13; D1, D5 and D8 take in P2–P5), with
+  LANECTX-2-S1, S4 and S5 amended, S6 and S7 added, and tasks 4.1–4.3 to match. The approval of
+  2026-10-16 no longer covers the design: **groups 2–4 wait for the owner's re-approval**.
 
 ## Decision log
-- (none yet)
+- 2026-10-17, group 1: **The probes read the window from `/context`'s "Auto-compact window" and
+  "Autocompact buffer" lines, and filled a session to compaction only once, in P1.**
+  - **The alternative:** filling a session to compaction in P2, P5 and at each window.
+  - **Why:** in P1, `/context`'s buffer predicted where compaction fired, 67k against a
+    `preTokens` of 67,216. So it reads the effective window without spending a fill each time.
+- 2026-10-17, group 1: **P2 and P3 each got a control case beyond the task's.**
+  - **P2:** the repository's value was 300000, alone and against `--settings`.
+  - **P3:** the repository set `false` with no `--settings` key.
+  - **The alternative:** only the cases tasks.md names.
+  - **Why:** a repository value of 1000000 is indistinguishable from the 1M default. Without a
+    control, P2 and P3 could have passed without the repository's settings being read at all.
+- 2026-10-17, group 1: **`audit.mjs` takes the main checkout's transcript folder as a fourth
+  argument. It finds the worktree folders beside it, and lists scratchpad sessions by the folder
+  name's last segment.**
+  - **The alternative:** a home-relative default.
+  - **Why:** D12 says no home path is written in. Over 2026-10-14..15 its three output files were
+    byte-identical to the original's.
+  - **What stays:** `normPath`'s `~/Development/standingtee` pattern holds no one's home. Making it
+    general is not in 1.5, so the README names it as a limit.
+- 2026-10-17, group 1: **Not decided: raised to the owner as a design issue.** P1 shows that
+  compaction fires at the window minus a fixed 33k, not at a share of it.
+  - **The facts:** the same 33k buffer appeared at 100k, 200k, 300k and 1m. P1's share, 67%, holds
+    only at 100k. At the default 200k window, compaction fires at 83.5%.
+  - **What it breaks:**
+    - LANECTX-2-S5's "P1's share of its window" would draw a 200k lane's tick at 67%.
+    - The default 85% alert would sit above a 200k lane's compaction point, so it would never
+      fire.
+    - D4's $163.33 simulated compaction at 200k, but a 200k window compacts at about 167k.
+  - **The choices are the owner's:**
+    - the tick at `(window − 33000) / window`, or the percentage measured against the compaction
+      point;
+    - whether the alert's default changes;
+    - whether the default window stays 200k or becomes 233k, to keep D4's measured cap.
+- 2026-10-17, **the owner's decision** on the entry above: the tick sits at
+  `(window − 33000) / window` of the bar, the bar stays a share of the window, and the default
+  window stays 200k. design.md D7 and D4 are amended to it.
+  - **The alert, the owner's decision of the same day (D13):** a windowed lane's alert sits at
+    the lower of `alerts.context_pct` and its tick less 5 points. The alternative, a fixed
+    default of 80, was beaten: it never fires at a window of 165k or less.
+  - **D4 re-run:** the evidence tool's caps were run at the window less 33k, in a scratchpad copy
+    of `driver.mjs` whose cap list and combined cap were made settable; the committed tool is
+    unchanged. A 200k window saves $153.79 a week, not $163.33 (`evidence/README.md`, *The cap
+    re-run*).
+- 2026-10-17, after the amendment's review: **P1's buffer was read again under `--model opus`,
+  in print mode (`claude -p … "/context"`), not tmux.**
+  - **The alternative:** the interactive `/context` in tmux, as group 1 did.
+  - **Why:** the sandbox refused the tmux socket, and running outside it was refused. A Sonnet
+    control at 200k read P1's own 33k, so print mode reports the same figure.
+  - **Found:** 33k on Opus at 100k, 200k, 300k and 1m. D7 keeps one buffer, and cites the Opus
+    reading.
+- 2026-10-17, after the amendment's review: **two context figures are calibrated, not one.**
+  - `Session.CtxPct` feeds the alert, the lane row and the lane's detail. `Metrics.CtxPct` is
+    merged across sessions, drawn in the metrics view and read by the trends.
+  - Tasks 4.1 and 4.2 name both sites, and LANECTX-2-S1 asserts both figures.
+  - `alerts.context_pct` 0 keeps the alert off for a windowed lane too (LANECTX-2-S7). Without
+    that, the lower of 0 and the tick would read as "always warn".
 
 ## 1. The probes (D8)
 The orchestrator runs these outside the sandbox. It uses a throwaway git repository in the
 session's scratchpad, tmux socket `p48-probe`, Sonnet, a 100000 window, and at most $5. It
 records the results in `changes/panel-48-lane-context-policy/evidence/README.md` under
 *Probe results*, and in the Decision log.
-- [ ] 1.1 P1 and P4: start claude in the probe repository with `--settings '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"100000"}}'`, and a `statusLine` that appends its stdin to a file.
+- [x] 1.1 P1 and P4: start claude in the probe repository with `--settings '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"100000"}}'`, and a `statusLine` that appends its stdin to a file.
   - Fill the context past 100k, then record where compaction fires (the `PreCompact` moment against the last status post's tokens), and what `context_window_size` and `used_percentage` read.
   - If no compaction fires near the window, stop here and report to the owner (Refusals).
   - (manual: needs the owner's login and real spend)
-- [ ] 1.2 P2: put `"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"}` in the probe repository's `.claude/settings.json`, launch with the `--settings` of 1.1, and confirm the settings' 100000 applies. (manual: as 1.1)
-- [ ] 1.3 P3: `/context` at startup with connectors on, then with `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`; record both totals and the difference. Then put `"env": {"ENABLE_CLAUDEAI_MCP_SERVERS": "true"}` in the probe repository's `.claude/settings.json`, launch with the `false` settings, and record whether the connectors come back (D5). (manual: as 1.1)
-- [ ] 1.4 P5: exit the 1.1 session, relaunch it with `--resume <id>` and the same `--settings`, and confirm the window still applies. (manual: as 1.1)
-- [ ] 1.5 Commit the audit scripts the measurement ran into `changes/panel-48-lane-context-policy/evidence/tool/` (D12): `usage-report.mjs`, `audit.mjs` and `driver.mjs`.
+- [x] 1.2 P2: put `"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"}` in the probe repository's `.claude/settings.json`, launch with the `--settings` of 1.1, and confirm the settings' 100000 applies. (manual: as 1.1)
+- [x] 1.3 P3: `/context` at startup with connectors on, then with `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`; record both totals and the difference. Then put `"env": {"ENABLE_CLAUDEAI_MCP_SERVERS": "true"}` in the probe repository's `.claude/settings.json`, launch with the `false` settings, and record whether the connectors come back (D5). (manual: as 1.1)
+- [x] 1.4 P5: exit the 1.1 session, relaunch it with `--resume <id>` and the same `--settings`, and confirm the window still applies. (manual: as 1.1)
+- [x] 1.5 Commit the audit scripts the measurement ran into `changes/panel-48-lane-context-policy/evidence/tool/` (D12): `usage-report.mjs`, `audit.mjs` and `driver.mjs`.
   - The transcript folder becomes an argument; no home path is written in.
   - No transcript data or CSV is committed.
   - A README says how the outcome check re-runs them.
@@ -45,15 +108,25 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
 
 ## 4. The bar and the alert (D7)
 - [ ] 4.1 `framework/internal/panel/state/model.go` computes a lane's context against its recorded window: `current_usage`'s input, cache creation and cache read tokens over the window.
-  - Lanes with no recorded window keep `used_percentage`.
-  - The alert in `state/alerts.go` compares the new figure.
-  - The tick becomes a per-lane value: a lane with a recorded window carries P1's share, and a lane without one keeps `Trends.AutocompactPct` (`state/trends.go`).
-  - Tested in `framework/internal/panel/state/alerts_test.go` and `state/metrics_test.go`, citing [LANECTX-2-S1], [LANECTX-2-S2], [LANECTX-2-S3] and [LANECTX-2-S5].
-- [ ] 4.2 The page draws the context warning colour from the alert threshold the state carries, not a hard-coded 85 (`panel.js:1118`, `:1401`).
+  - Both of the state's context figures:
+    - the session's `CtxPct`, set from the status post in `model.go` (today `:629-632`), which the alert, the lane row and `panel.js:1118` read;
+    - the metrics' `CtxPct`, set in `Metrics.fold` (today `:958-962`), merged across a lane's sessions (`:1080`), drawn at `panel.js:1401` and read by `state/trends.go` (`:241`).
+  - The metrics' `CtxWindow` (set from `context_window_size` in `Metrics.fold`, today `:968`, merged at `:1081`, drawn at `panel.js:1401-1402`) carries the lane's recorded window (D7).
+  - Lanes with no recorded window keep `used_percentage` in both figures and `context_window_size` in `CtxWindow`.
+  - The tick becomes a per-lane value: a lane with a recorded window carries `(window − 33000) * 100 / window` (D7), computed in one division, so 83.5 and 89 come out exact (`0.89 * 100` would give 89.00000000000001). The 33000 is one named constant in `state` that cites P1, its Opus reading and Claude Code 2.1.302. A lane without one keeps `Trends.AutocompactPct` (`state/trends.go`).
+  - Tests compare the tick and the threshold against exactly representable values, or within a tolerance.
+  - The alert threshold becomes a per-lane value too (D13): a lane with a recorded window carries the lower of `alerts.context_pct` and its tick less 5; a lane without one carries `alerts.context_pct`. An `alerts.context_pct` of 0 is carried as 0, off, for every lane. The alert in `state/alerts.go` compares the new figure with the lane's own threshold.
+  - The alert's text (`alerts.go`, today `%.0f` at `:225`) shows the threshold to one decimal where it has one ("alert at 78.5%") and whole otherwise ("alert at 85%").
+  - Tested in `framework/internal/panel/state/alerts_test.go` and `state/metrics_test.go`, citing [LANECTX-2-S1] (both figures and the window), [LANECTX-2-S2], [LANECTX-2-S3], [LANECTX-2-S5], [LANECTX-2-S6] and [LANECTX-2-S7].
+- [ ] 4.2 The page draws the context warning colour from each lane's own alert threshold, which the state carries (task 4.1), not a hard-coded 85, at both draw sites: the lane's context at `panel.js:1118` (the session's figure) and the metrics view's at `:1401` (the metrics' figure).
+  - A threshold of 0 draws no warning colour.
   - The decision is a pure function in its own static file, which `panel.js` calls, as `term-links.js` is.
   - `panel.js` draws each lane's own auto-compact tick from the state (task 4.1), in place of the page-wide value at `:1118` and `:1401`. It falls back to `trends.autocompactPct` only for state from an older server, since 4.1 gives every lane a tick.
   - The tick's choice sits in the same pure file as the colour, and the same node test covers it.
-  - Tested under node, as `web/term_links_test.go` runs `term-links.js`, in a new `web/context_colour_test.go`, citing [LANECTX-2-S4].
-- [ ] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits: managed settings win, whether a repository's own `true` turns the connectors back on (P3's answer), and an attached lane with no status line shows no bar until PANEL-49.
+  - Tested under node, as `web/term_links_test.go` runs `term-links.js`, in a new `web/context_colour_test.go`, citing [LANECTX-2-S4], [LANECTX-2-S6] and [LANECTX-2-S7].
+- [ ] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits.
+  - The bar: the tick at the window less Claude Code's 33k buffer, and the alert below it (D13); the alerts table's `context` row says what a windowed lane compares.
+  - `alerts.context_pct`'s `Doc` in `framework/internal/panel/config/fields.go` (`:146-147`) says a windowed lane alerts at the lower of it and the tick less 5, and 0 is off. It is generated into `docs/panel.md`'s reference table and `docs/panel.schema.json`, so regenerate both. Also fix `AlertContext`'s comment in `state/alerts.go` (`:25`), which still says `used_percentage`.
+  - The limits: managed settings win; a repository's own `ENABLE_CLAUDEAI_MCP_SERVERS=true` does not turn the connectors back on, as observed on Claude Code 2.1.302 (P3); a Claude Code release that changes the 33k buffer moves compaction and not the tick (D7); a small window loses money, 150k by $31.73 a week in the simulation (D4); and an attached lane with no status line shows no bar until PANEL-49.
 
 - [ ] Slice: an owner can start a lane in an attached repository from the panel at http://127.0.0.1:<port> and see it launched with a 200k context window and connectors off

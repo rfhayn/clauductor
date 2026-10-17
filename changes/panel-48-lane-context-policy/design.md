@@ -3,6 +3,13 @@
 The evidence for every figure below is in `evidence/README.md`. It covers Standing Tee's week of
 2026-10-08..14, $1,208.28 at list price, and the Claude Code docs as read on 2026-10-15.
 
+**Amended 2026-10-17, after group 1's probes** (`evidence/README.md`, *Probe results* and
+*The cap re-run at the compaction point*). P1 showed that Claude Code compacts at the window less
+a fixed 33k buffer, not at a share of the window. The owner decided the tick that day (D7). D4's
+saving is re-stated at the point where a 200k window really compacts. D13, the alert below the
+tick, is new and is the owner's decision of the same day. D1, D5, D7 and D8 take in P2 to P5.
+Each amended decision says so.
+
 ## Decisions
 
 - **D1 The policy travels as `--settings '<json>'` on every launch, built in `LaneCommand`.**
@@ -15,6 +22,8 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
   - **Why `--settings`:** it ranks above the repository's project and local settings. A
     repository's own `env` block therefore cannot undo the policy, while it could undo an exported
     variable ("the settings file value applies in most sessions").
+  - **Confirmed 2026-10-17:** P2 saw `--settings`' 100000 beat the repository's own 1000000 and
+    300000. P5 saw a `--resume` keep the window only when `--settings` was passed again.
   - **Beat:**
     - an exported env var, which the repository's settings override;
     - a settings file written per lane under `~/.clauductor`, which means a file to write, name and
@@ -44,23 +53,47 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     each registered project's lanes run the moment the binary changes, with nothing in its config
     saying so.
 
-- **D4 The default window is 200k.**
-  - **The measurement:** it is the best of the three caps simulated on the baseline week: 150k saves
-    $133.20, **200k $163.33**, and 300k $134.17. Each cap's cost includes the compaction calls.
+- **D4 The default window is 200k. (Amended 2026-10-17: the saving is re-stated, and the window
+  stays 200k by the owner's decision of that day.)**
+  - **What a 200k window does:** Claude Code compacts it at about 167k, the window less its fixed
+    33k buffer (P1). The proposal simulated compaction AT the cap, so its $163.33 is what a 233k
+    window would save, not a 200k one.
+  - **The measurement, re-run at the compaction point:** the same simulation on the same week,
+    with each window's cap at the window less 33k (`evidence/README.md`, *The cap re-run*):
+
+    | Window | Compacts at | Net saving per week |
+    |---|---|---|
+    | 150k | 117k | −$31.73 (a loss) |
+    | 183k | 150k | $133.20 |
+    | **200k** | **167k** | **$153.79** |
+    | 233k | 200k | $163.33 |
+    | 300k | 267k | $145.48 |
+
+    Each cap's cost includes the compaction calls. Together with the lean startup, keep-alive and
+    batched wakes, the combined figure is $286.41 (23.7%), against $286.24 at a 200k cap.
+  - **Why 200k still:** it is within $9.54 a week (0.8% of the week) of the best simulated window,
+    233k, and the owner kept it. The 2026-10-15 reason holds: 150k and 300k windows save less.
   - **Named limits:**
     - On 2026-10-15's partial day, the cap lost money, because threads were cut at the window's
       edge.
     - The simulation does not model the quality cost of compaction, such as re-reading files it
       dropped. The outcome check watches review rounds and change-fail rate for that.
-  - **Beat:** 150k and 300k.
+    - A small window loses money: at 150k the compaction calls cost more than they save.
+      `docs/panel.md` says so where it lists the key (task 4.3).
+  - **Beat:**
+    - 233k, the best measured, which the owner declined on 2026-10-17;
+    - 150k and 300k.
 
 - **D5 Connectors go off through `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`.**
   - **Why this switch:** it is the one documented variable for claude.ai's connectors. MCP servers
     the repository configures itself (`.mcp.json`) are untouched.
-  - **What a repository can still do:** the docs say a `true` from any source wins. Read that way,
-    a repository's own `env` setting `ENABLE_CLAUDEAI_MCP_SERVERS=true` turns the connectors back
-    on despite `--settings`. Probe P3 tests exactly that (task 1.3), and `docs/panel.md` states the
-    result: either the repository cannot override it, or it can, as a named limit (task 4.3).
+  - **What a repository can still do (amended 2026-10-17 with P3):** the docs say a `true` from
+    any source wins, which read as letting a repository's own `env` turn the connectors back on.
+    P3 found it does not on 2.1.302: with `--settings` at `false`, the repository's `true` left all
+    six claude.ai connectors off. `docs/panel.md` states that, and the version it was observed on
+    (task 4.3).
+  - **What it saves (P3):** 1.4k tokens at startup, about $2.80 a week at section 3's $2 per 1k,
+    below the $4–10 first estimated. `/context` reads low, so the real figure may be larger.
   - **Beat:** `--strict-mcp-config` with an empty `--mcp-config`. It would drop the repository's
     own servers, and whether it drops connectors at all is not verified.
 
@@ -86,17 +119,46 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     creation and cache read tokens, divided by that window. Today the figure is Claude Code's
     `used_percentage`, which is measured against the model's whole window. With a 200k window on
     a 1M-token model, it would read 18% at 180k, and the alert would never fire.
-  - **The alert and the warning colour:** the alert (`alerts.context_pct`) compares the new figure.
-    The page's warning colour reads the configured threshold instead of the hard-coded 85
-    (`panel.js:1118`, `:1401`).
-  - **The tick:** the bar's auto-compact tick sits where probe P1 sees compaction fire, as a share
-    of the window. It is today's inferred 95% until the probe says otherwise. The tick becomes a
-    per-lane value: a lane launched with a window draws it at P1's share, and a lane without one
-    keeps today's page-wide 95 (`Trends.AutocompactPct`).
+    - **Three of the state's figures change (amended 2026-10-17):**
+      - the session's `CtxPct`, which the alert, the lane row and the lane's detail read;
+      - the metrics' `CtxPct`, which is merged across a lane's sessions, drawn in the metrics
+        view and read by the trends;
+      - the metrics' `CtxWindow`, which the metrics view draws as the window. It comes from
+        `context_window_size`, which P4 saw stay at 1000000 under a set window. For a lane with a
+        recorded window it carries that window, so a 200k lane at 180k reads "90% … 200k window"
+        and not "1000k window". A lane without one keeps `context_window_size`.
+    - **Confirmed by P4 (2026-10-17):** under a 100000 window the status line still read
+      `context_window_size` 1000000 and `used_percentage` 6 at 64,912 tokens. `current_usage`'s
+      three counts summed to 64,912, which reads 65% against the window. So the calibration is
+      needed, and the bar stays a share of the window the lane was launched with.
+  - **The alert and the warning colour (amended 2026-10-17):** the alert compares the new figure
+    with the lane's own alert threshold (D13), and the page's warning colour reads that threshold
+    from the state instead of the hard-coded 85 (`panel.js:1118`, `:1401`).
+  - **The tick (amended 2026-10-17, the owner's decision):** the bar's auto-compact tick sits at
+    `(window − 33000) / window` of the bar: 83.5% for a 200k window, 89% for 300k, 67% for 100k.
+    - **Why:** P1 saw compaction fire at the window less a fixed 33k buffer, the same 33k at 100k,
+      200k, 300k and 1m, not at one share of every window. The proposal's "P1's share" would
+      have drawn a 200k lane's tick at 67%.
+    - **The same on every model:** P1 ran on Sonnet, and this repository's lanes run Opus. Read
+      again under `--model opus`, the buffer was 33k at 100k, 200k, 300k and 1m, and a Sonnet
+      control read the same (`evidence/README.md`, *P1 on Opus*). So one buffer serves every lane.
+    - **Where the 33000 lives:** one named constant in `state`, with its source (P1 and its Opus
+      reading, Claude Code 2.1.302) beside it. The status line has no field for it.
+    - **Named limit:** a Claude Code release that changes the buffer moves compaction and not the
+      tick. The outcome check reads where compactions fired (`compact_boundary`'s `preTokens` in
+      the transcripts) against the window less 33k.
+    - **Named limit:** a lane whose model's own window is smaller than the configured window. Its
+      compaction point under the setting is not verified, so the panel does not clamp the window
+      to the model's. It draws the tick from the configured window as for any other lane.
+    - **Named limit:** compaction under Opus was inferred from `/context`'s buffer, not observed
+      by a fill as P1 observed it on Sonnet. The outcome check's `preTokens` reading covers it.
+    - **A lane without a window** keeps today's page-wide 95 (`Trends.AutocompactPct`). P1 puts a
+      1M window's compaction at 96.7%, so 95 stays a close approximation, and leaving it keeps
+      today's figures exactly.
+    - **Beat:** the percentage measured against the compaction point instead of the window, which
+      the owner declined: the bar would no longer read as a share of the window the lane was
+      launched with.
   - **Lanes without a window:** they keep today's figures exactly.
-  - **If the probe shows otherwise:** if P4 shows that Claude Code already reports
-    `context_window_size` and `used_percentage` against the set window, the panel uses those
-    figures, and the Decision log says so.
   - **Beat:**
     - reading the config at display time, which moves a running lane's bar on an edit it has not
       launched with;
@@ -113,6 +175,7 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
   - **The probes:**
     - **P1:** a window set through `--settings` env makes compaction fire near it on the installed
       Claude Code (2.1.300). It records at what share of the window, which places the tick (D7).
+      (Superseded: D7. P1 found a fixed 33k buffer, not a share.)
     - **P2:** `--settings` env beats the same key in the repository's `.claude/settings.json`
       `env`.
     - **P3:** `/context` at startup, with connectors on and then off. This measures D5's real
@@ -122,6 +185,10 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     - **P4:** what the status line reports as `context_window_size` and `used_percentage` under the
       window (D7).
     - **P5:** a `--resume` that passes `--settings` again keeps the window.
+  - **Results (2026-10-17, on Claude Code 2.1.302, for $0.25):** P1 fired, at the window less 33k
+    (D4, D7). P2 and P5 confirm D1. P3 confirms D5 and prices it. P4 confirms D7's calibration.
+    After the amendment's review, `/context` under `--model opus` reported the same 33k buffer
+    at 100k, 200k, 300k and 1m (D7).
   - **Beat:**
     - building on the docs alone, where `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is absent from
       `claude --help`;
@@ -145,8 +212,7 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     and its gate fails in the sandbox until OPS-72.
   - **How the cost is checked:** before each group, the build prices its agents' transcripts
     directly as well as running `change-cost.sh`, which misses agents spawned in a session whose
-    working directory is the main checkout. That is PANEL-45's finding, raised for a fix row at
-    session close.
+    working directory is the main checkout. That is PANEL-45's finding, owned by OPS-74 (#137).
   - **Beat:** a hard $40 stop, which the owner declined.
 
 - **D11 The policy needs no trust check, as `model` and `effort` need none today.**
@@ -168,6 +234,36 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     home.
   - **Why:** the outcome check re-runs the same measurement.
   - **Beat:** leaving the tool in a session scratchpad, which is deleted with the session.
+
+- **D13 A windowed lane's context alert sits at the lower of `alerts.context_pct` and its tick
+  less 5 points. (The owner's decision, 2026-10-17.)**
+  - **The problem:** `alerts.context_pct` defaults to 85, and a 200k lane compacts at 83.5% (D7).
+    Its context drops before it reaches 85, so the alert would never fire.
+  - **What it gives:** at the default 200k window, 78.5%: 157k, 10k before compaction at 167k.
+    At 300k, 84% (15k before). At 100k, 62% (5k before). At 1m, the 85 default, as today.
+  - **A set value still governs where it is earlier:** this repository's and the template's
+    `context_pct` of 80 give 78.5% at 200k and 80% at 300k.
+  - **Off stays off:** `alerts.context_pct` 0 turns the alert off (`AlertConfig`), and it stays
+    off for every lane. The lower of 0 and the tick would be 0, which the colour would read as
+    "always warn", so 0 is taken before the rule: no alert and no warning colour (LANECTX-2-S7).
+  - **A lane without a window** keeps `alerts.context_pct` exactly as today.
+  - **The alert's text** shows the lane's threshold to one decimal where it has one ("alert at
+    78.5%"), and as today where it is whole ("alert at 85%").
+  - **Why:** it fires before compaction at every window the config allows, with no new key and
+    no change for a config without a window.
+  - **What it costs:** the threshold becomes a per-lane value, like the tick, so the state
+    carries it per lane and the page's warning colour reads the lane's own (tasks 4.1, 4.2).
+  - **Under the cap, compaction becomes routine:** about 130 a week across the lanes at 167k
+    (D4's re-run), so the alert fires before most of them. Context alerts stay on the page and
+    never notify (`docs/panel.md`, *Notifications*), so this is a busier Alerts panel, not
+    interruptions.
+  - **Beat:**
+    - a fixed default of 80 for every lane (`DefaultContextPct` 85 → 80). It is one page-wide
+      figure and the value this repository and the template already set. But a window of 165k or
+      less compacts at or below 80% (the config allows 100k), so there the alert never fires:
+      the silence D7 exists to end;
+    - a margin in tokens rather than points, such as 20k before compaction. It gives the same
+      headroom at every window, but fires at 47% of a 100k window.
 
 ## Refusals
 | Situation | What happens instead |
