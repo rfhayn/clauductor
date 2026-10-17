@@ -26,7 +26,7 @@ The owner opens the panel and sees the hybrid, drawn from the live state, in lig
   - waiting and idle lanes are compact tiles;
   - then the lost lane, with Restore, and a New lane tile.
 - **A lane opened:** a filmstrip of the live lanes, the terminal as the stage, and Context, Pull
-  request and Run in three boxes beneath it, with Pulse (Pinned and Flow) at the right.
+  request and Run in three boxes beneath it, with Pulse (Flow and the pinned cards) at the right.
 - **⌘K:** a palette that reaches every function the buttons it replaces did.
 - **Colour:** a lane's state shows at rest, as a coloured dot and a chip that says it in words.
 - **Appearance:** one theme in two modes (System, Light, Dark) and one type system. The six
@@ -37,7 +37,9 @@ Underneath:
 - the design tokens are ADR-0009's;
 - `TestPanelAvoidsTheTells` holds ADR-0009's ten tells, shown failing on today's CSS first;
 - `docs/panel.md`'s *The page* and *Appearance* describe the page as drawn;
-- every UI group of this change is reviewed with the UX harness's screenshots.
+- every UI group of this change is reviewed with the UX harness's screenshots, so it is built
+  through `/apply-change`, where the session takes them between the gate and the reviewer
+  (design D11).
 
 Later rows plug into named places (design D12): PANEL-50 the Context box's contributors, PANEL-37
 and PANEL-38 Pulse's sections, PANEL-31 the version field beside Live, PANEL-30 the Worktrees
