@@ -51,7 +51,7 @@ to. It does not cover Clauductor's own development sessions.
 |---|---|---|---|---|
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (100000–1000000, a plain integer) | yes | yes; it beats a subagent's own `autoCompactWindow` | as an exported variable, yes: a settings file's `env` "applies in most sessions". Passed in `--settings`, no: `--settings` ranks above project and local settings | env-vars, model-config, sub-agents |
 | `--settings <json>` | yes; it lasts one session and writes no file | its hooks and permissions do | managed settings > `--settings` > local > project > user | settings, cli-reference |
-| `ENABLE_CLAUDEAI_MCP_SERVERS=false` | yes | n/a | a `true` from any source wins, so a project cannot turn connectors back on | env-vars, mcp |
+| `ENABLE_CLAUDEAI_MCP_SERVERS=false` | yes | n/a | the docs say a `true` from any source wins, which reads as: a repository's own `true` turns connectors back on. Unverified; probe P3 tests it | env-vars, mcp |
 | `CLAUDE_CODE_SUBAGENT_MODEL` (`_FORCE=1` overrides agent definitions) | yes | yes | an agent definition's own model wins unless forced | model-config, sub-agents |
 | `--resume` | — | — | — | sessions: `--settings`, `--mcp-config` and `--plugin-dir` are NOT restored and must be passed again |
 | The status line's `used_percentage` | — | — | — | statusline: measured against the model's whole window, input tokens only. There is no field for the compaction threshold |

@@ -55,8 +55,12 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
   - **Beat:** 150k and 300k.
 
 - **D5 Connectors go off through `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`.**
-  - **Why this switch:** the docs say a `true` from any source wins, so a repository cannot turn
-    them back on. MCP servers the repository configures itself (`.mcp.json`) are untouched.
+  - **Why this switch:** it is the one documented variable for claude.ai's connectors. MCP servers
+    the repository configures itself (`.mcp.json`) are untouched.
+  - **What a repository can still do:** the docs say a `true` from any source wins. Read that way,
+    a repository's own `env` setting `ENABLE_CLAUDEAI_MCP_SERVERS=true` turns the connectors back
+    on despite `--settings`. Probe P3 tests exactly that (task 1.3), and `docs/panel.md` states the
+    result: either the repository cannot override it, or it can, as a named limit (task 4.3).
   - **Beat:** `--strict-mcp-config` with an empty `--mcp-config`. It would drop the repository's
     own servers, and whether it drops connectors at all is not verified.
 
@@ -71,9 +75,11 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     - leaving the option out, which the owner asked to keep (the roadmap row).
 
 - **D7 A lane's bar and context alert measure against the window it was launched with.**
-  - **Recording it:** the effective window is recorded in the lane's registry record at each launch,
-    as `model` and `effort` are carried today. A config edit therefore moves a lane's bar only once
-    the lane is relaunched.
+  - **Recording it:** the effective window is written to the lane's registry record by the two
+    launch sites, `StartLane` and `launchSession`, on every launch. `model` and `effort`, by
+    contrast, are written once, at creation (`withTemplate`). `LaneCommand` stays a pure argv
+    builder, since `launchSession`'s fast-exit retry calls it twice. A config edit therefore moves a
+    lane's bar only once the lane is relaunched.
   - **The figure:** for a lane with a recorded window, context is `current_usage`'s input, cache
     creation and cache read tokens, divided by that window. Today the figure is Claude Code's
     `used_percentage`, which is measured against the model's whole window. With a 200k window on
@@ -82,7 +88,9 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     The page's warning colour reads the configured threshold instead of the hard-coded 85
     (`panel.js:1118`, `:1401`).
   - **The tick:** the bar's auto-compact tick sits where probe P1 sees compaction fire, as a share
-    of the window. It is today's inferred 95% until the probe says otherwise.
+    of the window. It is today's inferred 95% until the probe says otherwise. The tick becomes a
+    per-lane value: a lane launched with a window draws it at P1's share, and a lane without one
+    keeps today's page-wide 95 (`Trends.AutocompactPct`).
   - **Lanes without a window:** they keep today's figures exactly.
   - **If the probe shows otherwise:** if P4 shows that Claude Code already reports
     `context_window_size` and `used_percentage` against the set window, the panel uses those
@@ -106,7 +114,9 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
     - **P2:** `--settings` env beats the same key in the repository's `.claude/settings.json`
       `env`.
     - **P3:** `/context` at startup, with connectors on and then off. This measures D5's real
-      saving, in place of the $2-per-1k bound.
+      saving, in place of the $2-per-1k bound. Then, with the repository's `.claude/settings.json`
+      `env` setting `ENABLE_CLAUDEAI_MCP_SERVERS=true` against `--settings`' `false`: whether the
+      connectors come back (D5).
     - **P4:** what the status line reports as `context_window_size` and `used_percentage` under the
       window (D7).
     - **P5:** a `--resume` that passes `--settings` again keeps the window.

@@ -69,6 +69,12 @@ WHEN a lane was launched with a context window THE SYSTEM SHALL record that wind
 - **WHEN** the page draws a lane whose context reads 82%
 - **THEN** the context figure is drawn in the warning colour, though it is under 85
 
+#### Scenario: [LANECTX-2-S5] The auto-compact tick is placed per lane
+- **GIVEN** probe P1's recorded compaction share, and two lanes: one launched with a 200000 window and one launched with none
+- **WHEN** the state is computed
+- **THEN** the windowed lane's tick sits at P1's share of its window
+- **AND** the other lane's tick sits at today's 95
+
 ### Requirement: Init and attach write the default policy
 WHEN `panel init` or `panel attach` writes a config THE SYSTEM SHALL write `"launch": {"context_window": 200000, "claudeai_connectors": false}` and declare config version 6; and a config that declares an earlier version SHALL NOT use the policy's keys.
 
