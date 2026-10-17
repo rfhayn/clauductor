@@ -41,6 +41,13 @@ has .claude/skills/merge-pr/SKILL.md 'verify-change' "merge-pr runs the verify s
 
 # Approval (D8): recorded with the design's hash.
 has .claude/skills/propose/SKILL.md 'change-approval.sh <id> --record' "propose records approval over the design hash"
+# Review before approval (OPS-76): the rounds are spent before the owner reads it, so a finding does
+# not void an approval; merge-pr then reviews only what changed since. This holds the steps in
+# place; nothing checks that the review ran or that its PR-body line is true.
+has .claude/skills/propose/SKILL.md '2b. **Review it to convergence BEFORE the owner reads it.**' "propose reviews the proposal before the owner reads it"
+has .claude/skills/propose/SKILL.md 'sh .claude/skills/merge-pr/review-lane.sh' "propose picks the reviewer by merge-pr's review lane"
+has .claude/skills/propose/SKILL.md 'end your turn with no final report and without SubagentHandback' "propose waits for its reviewer by ending its turn"
+has .claude/skills/merge-pr/SKILL.md '`propose` step 2b reviewed it' "merge-pr reviews a proposal PR only since propose's review"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"

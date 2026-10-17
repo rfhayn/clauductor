@@ -97,6 +97,11 @@ Converged means **the last review round found nothing medium or worse.** By how 
   clean. Stop and notify if peak severity rises between rounds, or after 3 rounds.
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
+- **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it, and
+  its body carries `Review: … at <sha> · design <hash>`. When `git diff <sha> HEAD` changes only
+  the approval line in `proposal.md` and the change's roadmap row, and the Approved line names that
+  design hash, review has converged: carry the line over. Review anything else in that diff as a
+  delta; with no such line, or a `<sha>` git cannot find, review the whole PR.
 
 A reviewer spawn may come back as launched in the background (fork mode, the default, always
 does). Do any other work this step has. If there is none,
