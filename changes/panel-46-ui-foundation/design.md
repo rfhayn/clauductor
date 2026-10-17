@@ -92,8 +92,9 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - The reviewer is not asked to read 4,151 moved lines. Group 1 commits
       `testdata/ux/moved.sh`, which compares by statement, not by position:
       1. it splits the base's `panel.js` into its top-level statements: each declaration (a
-         `function`, `const`, `let` or `class` and its body), and every other statement (a
-         listener registration, a `setInterval`, a `ResizeObserver`, a bare block);
+         `function`, `const`, `let` or `class` and its body), and every other statement (for
+         example a listener registration, a `setInterval`, a `ResizeObserver`, a `try` block that
+         restores saved state, a loop, an assignment, a call or a bare block);
       2. on the modules' side it drops `import` lines and only the `export ` keyword, and
          normalises the `store.` prefix;
       3. it matches a declaration by name, whatever its file or order, and any other statement by
@@ -190,6 +191,10 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
       - otherwise the cut is the lowest rule. That covers a frame drawn with one rule (the UX
         harness's fake: a rule, then `>`) under output that holds a `─` line of its own;
       - with no rule, nothing is cut.
+      - Known limits: in Claude Code's bash (`!`) or memory (`#`) mode, and with a typed prompt
+        longer than about 36 lines, the cut falls to the lowest rule, so the preview shows the
+        prompt and its upper rule. `!` and `#` are not prompt glyphs here, since output can start
+        a line with either.
     - The preview is the last four non-blank lines above the cut, with no prompt, no typed text,
       no status line and no cursor, as the mockup draws it (`4-hybrid.html:1008`).
     - Group 5 records a capture of a real Claude Code pane in `lanes/testdata/` as the
@@ -468,9 +473,14 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - the Needs-you rows and the banners (3);
     - the rail (3);
     - the drawers (4);
-    - the overview and the workspace's empty state (5);
-    - the tab strip, the workspace and the side panel (6);
+    - the tab strip, the workspace, the terminal's empty state (`#termempty`,
+      `.termhost .empty`: WS-28 and SP-17, which D16 places in 6) and the side panel (6);
     - the other menus and every dialog (7).
+
+    Group 5 has no share. The page home replaces, which the UX harness shoots as its `overview`
+    view (`matrix.cjs:85`), is drawn by the rail's selectors (3) and the workspace's (6). The
+    terminal's empty state stays for its other two cases, a lane started outside the panel and a
+    blocked start, which show on the stage until group 6.
   - **How the list works:**
     - Their selectors go in one named list in `tells_test.go`, `legacySelectors`, which tells 1
       to 9 skip.

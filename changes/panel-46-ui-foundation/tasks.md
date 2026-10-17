@@ -22,7 +22,7 @@ leaves them. Each group's inventory IDs are design D16's.
   - no imported call and no browser global at a module's top level;
   - the pure modules import only pure modules;
   - `index.html` loads `/static/panel.js` as `type="module"` after the classic helpers, which stay as they are.
-- [ ] 1.4 `testdata/ux/moved.sh` (D2): the base's `panel.js` split into top-level statements (declarations, and every listener, timer, observer and bare block); on the modules' side `import` lines and the `export ` keyword dropped and the `store.` prefix normalised; a declaration matched by name and any other statement by its text, at top level or inside an `init()`; printed are only a changed declaration, a base statement found nowhere or more than once, and what is new. Each one it prints is explained in the Decision log
+- [ ] 1.4 `testdata/ux/moved.sh` (D2): the base's `panel.js` split into top-level statements (declarations, and every other top-level statement: listeners, timers, observers, `try` blocks that restore saved state, loops, assignments, calls and bare blocks); on the modules' side `import` lines and the `export ` keyword dropped and the `store.` prefix normalised; a declaration matched by name and any other statement by its text, at top level or inside an `init()`; printed are only a changed declaration, a base statement found nowhere or more than once, and what is new. Each one it prints is explained in the Decision log
 - [ ] 1.5 The `/static/` handler sets `Content-Type: text/javascript; charset=utf-8` on `.js` itself (D2)
 - [ ] 1.6 Add `readScript(t)` and switch every `readWeb(t, "panel.js")` call in `web` to it; give `machine_account_test.go` and `state/blocked_test.go` the same few lines; update `startdialog_test.go:95`, `project_config_test.go:109` and `terminal_test.go:128` as D13's table says. Every other assertion stays
 - [ ] 1.7 `TestModulesImportCleanly` in `web/modules_test.go`, citing [PAGE-1-S1]:
@@ -98,7 +98,7 @@ leaves them. Each group's inventory IDs are design D16's.
 ## 5. Home
 - [ ] 5.1 `LaneManager.Tail(ctx, id, n)` in `lanes` (D7):
   - `capture-pane -p -J`, with no `-e`;
-  - the trailing blank rows dropped, then the four non-blank lines above the frame's upper rule: among the last 40 lines, the second rule from the bottom when a prompt line (`>` or `❯`) follows it above the lowest rule, else the lowest rule, or no cut when there is none.
+  - the trailing blank rows dropped, then the four non-blank lines above the frame's upper rule: among the last 40 lines, the second rule from the bottom only when the first non-blank line after it starts with `>` or `❯`; otherwise the lowest rule; with no rule, no cut.
 
   Tested in `lanes/tail_test.go` against a real tmux on a private socket, citing [PAGE-4-S3], [PAGE-4-S4] and [PAGE-4-S7]. The test skips under `-short`; the group runs it without `-short`, outside the sandbox, and records the result in Progress
 - [ ] 5.2 Record a capture of a real Claude Code lane's pane (working, with text typed at its prompt) in `lanes/testdata/`. Test the cut on it in `lanes/tail_test.go` (pure, no tmux), citing [PAGE-4-S6]
@@ -113,7 +113,7 @@ leaves them. Each group's inventory IDs are design D16's.
   - above them, the heading that counts the lanes by state (SB-10).
 
   A click, or ↵ on a focused tile, opens the lane. A tile rises 1 px on hover
-- [ ] 5.6 Tell 10's home half in `TestPanelAvoidsTheTells`: home creates a terminal only for the spotlight, and a tile's preview is drawn with `textContent` from the tail. The overview and the workspace's empty state leave `legacySelectors`
+- [ ] 5.6 Tell 10's home half in `TestPanelAvoidsTheTells`: home creates a terminal only for the spotlight, and a tile's preview is drawn with `textContent` from the tail. The terminal's empty state (WS-28, SP-17) stays in `legacySelectors`, since a lane started outside the panel and a blocked start still show it on the stage; it leaves with 6.1 (D17)
 - [ ] 5.7 *(the session)* Home in `matrix.cjs` (one, two and no lanes asking), with shots at 1440×900 and 1920×1080 in both modes for the review
 
 ## 6. The stage
@@ -134,7 +134,7 @@ leaves them. Each group's inventory IDs are design D16's.
 - [ ] 6.5 A lane that asks while another is open: `js/stage-route.js`'s route keeps the open lane, and the lane that asks leads Needs you with its filmstrip tile marked to breathe. Tested under node in `web/stage_test.go`, citing [PAGE-5-S3]. The breathe itself is checked in the UX harness's flows with the fake's `waiting` lane (manual: an animation in a browser)
 - [ ] 6.6 State changes in motion: a chip crossfades in 200 ms, and a lane moves to its state's place in every list (PG-7, D17)
 - [ ] 6.7 Tell 10's stage half: the terminal is the stage's first track, and no rule sets its width to 0
-- [ ] 6.8 The tab strip, the workspace and the side panel leave `legacySelectors` (D17)
+- [ ] 6.8 The tab strip, the workspace, the terminal's empty state and the side panel leave `legacySelectors` (D17)
 - [ ] 6.9 *(the session)* The stage in `matrix.cjs` (working, needs you, a long name, boxes folded, Pulse folded), with shots at 1366×900, 1440×900, 1920×780 and 1920×1080 in both modes for the review
 
 ## 7. The palette and the rest of the inventory
