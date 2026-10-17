@@ -412,11 +412,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 3 | what's next: `templates[].suggest` (see *Suggestions*) and `cards[].pin` (see *Pinned cards*) |
 | 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
 | 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
+| 6 | the lane context policy (PANEL-48): `launch`, `lane_types.<key>.context_window`, `lane_types.<key>.subagent_model` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–5 (0 included) is refused.
+- A `version` outside 1–6 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -474,7 +475,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1 to 5 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 6 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -486,10 +487,15 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `tmux_socket` | string | `"clauductor"` | 1 | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. Matches `^[A-Za-z0-9_-]{1,64}$`. |
 | `worktree_dir` | string | `".claude/worktrees"` | 1 | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
 | `base` | string | `"origin/main"` | 1 | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. Matches `^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`. |
-| `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`. |
+| `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`, and the lane type's part of the context policy (see `launch`). |
 | `lane_types.<key>.model` | string |  | 1 | One argv element: `--model <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.effort` | string |  | 1 | One argv element: `--effort <value>`. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
 | `lane_types.<key>.auto_close` | string: "off" or "on_merge" |  | 5 | Overrides `lanes_auto_close` for this lane type. |
+| `lane_types.<key>.context_window` | integer: 100000 to 1000000 |  | 6 | Overrides `launch.context_window` for this lane type. |
+| `lane_types.<key>.subagent_model` | string |  | 6 | The model this lane type's subagents use, passed as `CLAUDE_CODE_SUBAGENT_MODEL` in the lane's `--settings`. An agent definition that names its own model keeps it, and the main model is untouched. Off unless set. Matches `^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$`. |
+| `launch` | object |  | 6 | The context policy every lane launches with, passed as `claude --settings '{"env":{…}}'` on every start, restart, resume and restore. `--settings` ranks above the repository's own settings, so a repository cannot undo it. Without it, and without a lane type's `context_window` or `subagent_model`, lanes launch with no `--settings`. |
+| `launch.context_window` | integer: 100000 to 1000000 |  | 6 | The context window a lane launches with, passed as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`: Claude Code compacts the conversation before it reaches it. A lane type's `context_window` overrides it. |
+| `launch.claudeai_connectors` | boolean |  | 6 | `false` turns claude.ai's connectors off in every lane, passed as `ENABLE_CLAUDEAI_MCP_SERVERS=false`. The repository's own MCP servers are untouched. `true`, or no key, leaves them as Claude Code has them. |
 | `templates` | array |  | 2 | Lane recipes offered by **New lane** (see *Lane templates*). |
 | `templates[].id` | string, **required** |  | 2 | Unique among the templates. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `templates[].title` | string |  | 2 | Shown in the dialog. |

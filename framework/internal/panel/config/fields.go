@@ -19,12 +19,14 @@ import (
 //	4  metrics (PANEL-19): metrics, alerts.approval_wait_hours, alerts.stale_days, quota_economy
 //	5  the lane lifecycle (PANEL-20): lanes_auto_close, lane_types.*.auto_close,
 //	   quota_auto_resume, quota_resume_line, worktree_setup, worktree_teardown, ports
+//	6  the lane context policy (PANEL-48): launch, lane_types.*.context_window,
+//	   lane_types.*.subagent_model
 //
 // A config with no "version" is read as LatestVersion, and the panel says once that
 // it should declare one.
 const (
 	MinVersion    = 1
-	LatestVersion = 5
+	LatestVersion = 6
 )
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
@@ -57,6 +59,13 @@ type Field struct {
 	Schema map[string]any
 }
 
+// A context window's type and schema, shared by launch.context_window and
+// lane_types.*.context_window: Claude Code's own range (MinContextWindow).
+var (
+	contextWindowType   = fmt.Sprintf("integer: %d to %d", MinContextWindow, MaxContextWindow)
+	contextWindowSchema = map[string]any{"minimum": MinContextWindow, "maximum": MaxContextWindow}
+)
+
 // pattern turns a validator's own regexp into a schema "pattern".
 func pattern(re *regexp.Regexp) map[string]any { return map[string]any{"pattern": re.String()} }
 
@@ -64,9 +73,9 @@ func pattern(re *regexp.Regexp) map[string]any { return map[string]any{"pattern"
 var Fields = []Field{
 	{Path: "$schema", Version: 1, Type: "string",
 		Doc: "The JSON Schema the file follows, for editors: `" + SchemaURL + "`. The panel ignores it. `clauductor panel init` writes it."},
-	{Path: "version", Version: 1, Type: "integer: 1 to 5",
+	{Path: "version", Version: 1, Type: "integer: 1 to 6",
 		Doc:    "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
-		Schema: map[string]any{"enum": []int{1, 2, 3, 4, 5}}},
+		Schema: map[string]any{"enum": []int{1, 2, 3, 4, 5, 6}}},
 	{Path: "name", Version: 1, Type: "string", Required: true,
 		Doc:   "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
 		Match: nameRe, Schema: map[string]any{"minLength": 1, "maxLength": 80}},
@@ -94,7 +103,7 @@ var Fields = []Field{
 	{Path: "base", Version: 1, Type: "string", Default: DefaultBase,
 		Doc: "What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so.", Match: baseRe},
 	{Path: "lane_types", Version: 1, Type: "object: lane type → options",
-		Doc:    "Launch options per lane type, passed as `claude --model <m> --effort <e>`.",
+		Doc:    "Launch options per lane type, passed as `claude --model <m> --effort <e>`, and the lane type's part of the context policy (see `launch`).",
 		Schema: map[string]any{"propertyNames": map[string]any{"minLength": 1, "pattern": `\S`}}},
 	{Path: "lane_types.*.model", Version: 1, Type: "string",
 		Doc: "One argv element: `--model <value>`.", Match: LaunchOptRe},
@@ -102,6 +111,16 @@ var Fields = []Field{
 		Doc: "One argv element: `--effort <value>`.", Match: LaunchOptRe},
 	{Path: "lane_types.*.auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"",
 		Doc: "Overrides `lanes_auto_close` for this lane type.", Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},
+	{Path: "lane_types.*.context_window", Version: 6, Type: contextWindowType,
+		Doc: "Overrides `launch.context_window` for this lane type.", Schema: contextWindowSchema},
+	{Path: "lane_types.*.subagent_model", Version: 6, Type: "string",
+		Doc: "The model this lane type's subagents use, passed as `CLAUDE_CODE_SUBAGENT_MODEL` in the lane's `--settings`. An agent definition that names its own model keeps it, and the main model is untouched. Off unless set.", Match: LaunchOptRe},
+	{Path: "launch", Version: 6, Type: "object",
+		Doc: "The context policy every lane launches with, passed as `claude --settings '{\"env\":{…}}'` on every start, restart, resume and restore. `--settings` ranks above the repository's own settings, so a repository cannot undo it. Without it, and without a lane type's `context_window` or `subagent_model`, lanes launch with no `--settings`."},
+	{Path: "launch.context_window", Version: 6, Type: contextWindowType,
+		Doc: "The context window a lane launches with, passed as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`: Claude Code compacts the conversation before it reaches it. A lane type's `context_window` overrides it.", Schema: contextWindowSchema},
+	{Path: "launch.claudeai_connectors", Version: 6, Type: "boolean",
+		Doc: "`false` turns claude.ai's connectors off in every lane, passed as `ENABLE_CLAUDEAI_MCP_SERVERS=false`. The repository's own MCP servers are untouched. `true`, or no key, leaves them as Claude Code has them."},
 	{Path: "templates", Version: 2, Type: "array",
 		Doc: "Lane recipes offered by **New lane** (see *Lane templates*)."},
 	{Path: "templates[].id", Version: 2, Type: "string", Required: true,

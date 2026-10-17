@@ -125,4 +125,8 @@ type LaneRecord struct {
 	// Port is the lane's own port (PANEL-20, ports in panel.json), exported to it as
 	// CLAUDUCTOR_PORT; 0 without one.
 	Port int `json:"port,omitempty"`
+	// ContextWindow is the context window the lane was last launched with (PANEL-48,
+	// launch.context_window in panel.json); 0 without one. It is set on every launch,
+	// so a config edit moves it only once the lane is relaunched.
+	ContextWindow int `json:"contextWindow,omitempty"`
 }

@@ -56,6 +56,8 @@ func validateRecord(l types.LaneRecord) string {
 		return "unknown first-prompt state"
 	case l.FirstPrompt != "" && config.TypableText(l.FirstPrompt, config.MaxFirstPrompt) != nil:
 		return "first prompt is not one line of plain text"
+	case l.ContextWindow != 0 && (l.ContextWindow < config.MinContextWindow || l.ContextWindow > config.MaxContextWindow):
+		return "context window is not one the panel would launch with"
 	}
 	return ""
 }

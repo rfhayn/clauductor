@@ -10,6 +10,10 @@
 - 2026-10-17 design amended for P1 (D4, D7, new D13; D1, D5 and D8 take in P2–P5), with
   LANECTX-2-S1, S4 and S5 amended, S6 and S7 added, and tasks 4.1–4.3 to match. The approval of
   2026-10-16 no longer covers the design: **groups 2–4 wait for the owner's re-approval**.
+- 2026-10-17 re-approved (design 8bcd6850fbb2). Group 2 built, uncommitted: config version 6 with
+  the four keys, `LaneCommand`'s `--settings`, and the window on the lane's record at `Start` and
+  `resumeLocked`. Its full gate and review are the orchestrator's. Groups 3 and 4 are left.
+- 2026-10-17 group 2 (The config and the launch (D1, D2, D6, D11)) built and reviewed: converged in 1 round(s), peak none; grades R1 pass
 
 ## Decision log
 - 2026-10-17, group 1: **The probes read the window from `/context`'s "Auto-compact window" and
@@ -68,6 +72,45 @@
   - Tasks 4.1 and 4.2 name both sites, and LANECTX-2-S1 asserts both figures.
   - `alerts.context_pct` 0 keeps the alert off for a windowed lane too (LANECTX-2-S7). Without
     that, the lower of 0 and the tick would read as "always warn".
+- 2026-10-17, group 2: **`launch.claudeai_connectors: true` puts nothing in `--settings`; only
+  `false` sets `ENABLE_CLAUDEAI_MCP_SERVERS`.**
+  - **The alternative:** passing `"true"`, which would override a repository's own `false`.
+  - **Why:** D5 defines only `false`. `true` is Claude Code's behaviour with no key, and D3 wants
+    a config that asks for nothing to launch as today.
+- 2026-10-17, group 2: **The window keys are `*int`, so an explicit `0` fails the load like
+  any other value outside 100000–1000000; an absent key sets nothing.**
+  - **The alternative:** a plain `int`, where `0` would silently mean "no window".
+  - **Why:** D2 says a value outside the range fails the load, naming the key.
+- 2026-10-17, group 2: **At version 5, `launch.context_window` is refused with an error naming
+  `"launch"` and version 6** (LANECTX-3-S2's "names the key").
+  - **The alternative:** changing `checkVersion` to name the deepest key set.
+  - **Why:** `launch` is new in version 6 as a whole. The gate already names the outermost new
+    key, as it does for `templates`, and the message tells the owner what to change.
+- 2026-10-17, group 2: **The registry reads a recorded `contextWindow` outside 100000–1000000 as
+  a corrupt record** (`validateRecord`), which is never launched.
+  - **The alternative:** trusting the field, since it never becomes argv.
+  - **Why:** group 4 divides by it. Every other record field is checked on load, and a value the
+    panel never writes means the file was edited.
+- 2026-10-17, group 2: **The policy is read in `config`, through `ContextWindowOf` and
+  `LaunchEnv`. `LaneCommand` marshals it and puts `--settings` after `--effort`, before
+  `--remote-control` and `-n`.**
+  - **The alternative:** building the env in `lanes`.
+  - **Why:** `Start` and `resumeLocked` need the same window that `LaneCommand` passes, so one
+    function gives both.
+- 2026-10-17, group 2: **The tests reach LANECTX-1-S1, S2 and LANECTX-2-S3 through the real
+  `Start`, `Restart`, `Resume` and `RestoreAll`, on a fake tmux that keeps each launch's argv.
+  They test S3 to S6 on `LaneCommand`.**
+  - **Why:** S2 depends on every launch path reaching `LaneCommand`. S3 to S6 are about the argv
+    alone.
+  - **Also:** `docs/panel.md`'s hand-written version table and its "outside 1–6" line moved to
+    version 6, beside the generated reference.
+- 2026-10-17, group 2 (review fix): **`TestLaneRecordsTheWindowOfEachLaunch` no longer cites
+  LANECTX-2-S3; it names itself that scenario's launch-side precondition, in a form the trace's
+  ID pattern does not match. Task 2.2's last line says so.**
+  - **The alternative:** keep the citation and rely on 4.1's test asserting the readings.
+  - **Why:** the scenario's THEN is a context reading (90% at 180000, then against 300000), and
+    this test asserts only the recorded window. Cited here, the trace would read CITED even if
+    group 4 never asserted the reading. Task 4.1 already lists S3, so the trace now waits for it.
 
 ## 1. The probes (D8)
 The orchestrator runs these outside the sandbox. It uses a throwaway git repository in the
@@ -88,15 +131,15 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - (manual: an evidence tool for the outcome check, not shipped code)
 
 ## 2. The config and the launch (D1, D2, D6, D11)
-- [ ] 2.1 Config version 6 in `framework/internal/panel/config/fields.go` and `config.go`.
+- [x] 2.1 Config version 6 in `framework/internal/panel/config/fields.go` and `config.go`.
   - New keys: `launch.context_window`, `launch.claudeai_connectors`, `lane_types.*.context_window` and `lane_types.*.subagent_model`, with their validation.
   - Tested in `framework/internal/panel/config/config_test.go`, citing [LANECTX-1-S7].
   - Version gating tested in `config/version_test.go`, citing [LANECTX-3-S2].
   - Regenerate `docs/panel.schema.json` and the reference table in `docs/panel.md`, as `config/generated_test.go` requires.
-- [ ] 2.2 `LaneCommand` in `framework/internal/panel/lanes/lanes.go` builds `--settings` from the lane's effective policy, with `json.Marshal` over the validated values, on every launch.
+- [x] 2.2 `LaneCommand` in `framework/internal/panel/lanes/lanes.go` builds `--settings` from the lane's effective policy, with `json.Marshal` over the validated values, on every launch.
   - `LaneCommand` stays a pure argv builder. `Start` (in the record passed to `Registry.Begin`) and `resumeLocked` (on `rec` before its `Registry.Begin`) set the effective window on the lane's record on every launch (D7).
   - Tested in `framework/internal/panel/lanes/lanes_test.go`, citing [LANECTX-1-S1], [LANECTX-1-S2], [LANECTX-1-S3], [LANECTX-1-S4], [LANECTX-1-S5] and [LANECTX-1-S6].
-  - Also in `lanes_test.go`: a lane started at a 200000 window, its config edited to 300000, then restarted, has 300000 in its record; citing [LANECTX-2-S3].
+  - Also in `lanes_test.go`: a lane started at a 200000 window, its config edited to 300000, then restarted, has 300000 in its record: the launch-side precondition of LANECTX-2's third scenario, which 4.1's test cites (Decision log).
 
 ## 3. Init, attach and the presets (D3, D4)
 - [ ] 3.1 `framework/internal/panel/install/init.go`'s starter writes `"launch": {"context_window": 200000, "claudeai_connectors": false}` and version 6.
