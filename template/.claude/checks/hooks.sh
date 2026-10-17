@@ -198,6 +198,31 @@ nb 0 "a python report writing only sys.stdout" "python3 report.py"
 nb 2 "a node script writing tracked source back beside a stdout write" "node report-write.mjs"
 nb 2 "a node script writing tracked source through a stream" "node report-stream.mjs"
 nb 2 "a python script rebinding sys.stdout to tracked source" "python3 report-rebind.py"
+cat > "$R/report-setattr.py" <<'PY'
+import sys
+s = open('src/lib/app.ts').read().replace('x', 'y')
+setattr(sys, 'stdout', open('src/lib/app.ts', 'w'))
+sys.stdout.write(s)
+PY
+cat > "$R/report-writesync.mjs" <<'JS'
+import { openSync, readFileSync, writeSync } from 'node:fs';
+const s = readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y');
+writeSync(openSync('src/lib/app.ts', 'w'), s);
+JS
+nb 2 "a python script rebinding sys.stdout by setattr" "python3 report-setattr.py"
+nb 2 "a node script writing tracked source with fs.writeSync" "node report-writesync.mjs"
+# A stream write still counts when the COMMAND sends stdout somewhere: the literal target after
+# `>`, mv, sponge or tee is then judged as any other (OPS-80's review).
+cat > "$R/rw.mjs" <<'JS'
+import { readFileSync } from 'node:fs';
+process.stdout.write(readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y'));
+JS
+nb 0 "a node report with its output discarded" "node report.mjs > /dev/null 2>&1"
+nb 2 "a stdout rewrite redirected to a temp file, then moved over tracked source" "node rw.mjs > $d/o && mv $d/o $T"
+nb 2 "a stdout rewrite piped into sponge on tracked source" "node rw.mjs | sponge $T"
+nb 2 "a stdout rewrite piped into tee on tracked source" "node rw.mjs | tee $T"
+nb 2 "an inline node stdout rewrite piped into sponge" "node -e \"process.stdout.write(require('fs').readFileSync('$T', 'utf8').replace('x', 'y'))\" | sponge $T"
+nb 2 "an inline python stdout rewrite piped into tee" "python3 -c \"import sys; sys.stdout.write(open('$T').read().replace('x', 'y'))\" | tee $T"
 # A script's cds compose with the command's only while they fit the 32-base cap; past it, each
 # resolves against the command's directories alone, and nothing is refused for the script's cds.
 cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'

@@ -63,11 +63,13 @@
 #     match. One in backticks or qx IS read (the scan reads a backtick as a command), but only
 #     with a literal operand: a variable one is missed;
 #   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`);
-#   - (OPS-80, inline too) a rewrite whose ONLY write is to a standard stream
-#     (`process.stdout.write(`, `sys.stdout.write(`) and whose stdout the command sends onto
-#     tracked source (`> tmp && mv tmp src/x.ts`, `| sponge src/x.ts`): judged as `print(` always
-#     was, so the redirect is not read. Nor is a stream rebound by a spelling other than
-#     `stdout =` or `redirect_stdout` (`os.dup2`).
+#   - (inline too, as before OPS-80) a rewrite that only PRINTS (`print(`, `console.log(`) while
+#     the command sends its output onto tracked source (`> tmp && mv tmp src/x.ts`,
+#     `| sponge src/x.ts`, `| tee src/x.ts`): a print was never a write. A stream write
+#     (`process.stdout.write(`, `sys.stdout.write(`) on such a command IS judged (step 2);
+#   - (OPS-80) a stream write whose output is moved onto tracked source by something other than
+#     the command's own `>`, tee, sponge, mv, cp or dd (a later command, a wrapper script), or
+#     whose stream is rebound by a spelling step 2 does not know (`os.dup2`).
 # And three false refusals:
 #   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
 #     ELSEWHERE is refused when it names the tracked path;
@@ -723,14 +725,24 @@ esac
 # a report script that .replace()s in-memory strings and names a tracked path in a comment was
 # refused as a rewrite while writing no file at all. Such writes are removed before the test, the
 # way `print(` was never in it, so any OTHER write in the same text (writeFileSync, a stream's
-# `.write(`, a handle's) still counts. Unless the text REBINDS a stream (`sys.stdout = open(…)`,
-# `redirect_stdout`): then a stream write may be a file write, and nothing is removed. Where the
-# command sends stdout (`> src/x.ts`) is not read, a known limit shared with `print(` (the header).
+# `.write(`, a handle's) still counts. Nothing is removed in two cases, where a stream write may be
+# a file write:
+#  - the text REBINDS a stream (`sys.stdout = open(…)`, `setattr(sys, 'stdout', …)`,
+#    `redirect_stdout(…) as sys.stdout`, `process.stdout.write = …`);
+#  - the COMMAND ITSELF sends output anywhere but the terminal: a `>` to anything but /dev/null or
+#    another fd, or a tee, sponge, mv, cp or dd. Step 3 then resolves the literal target it names
+#    (`| sponge src/x.ts`, `> /tmp/o && mv /tmp/o src/x.ts`), as it did before OPS-80. A `>` inside
+#    inline code (an arrow function) counts too: it can only refuse more.
+# `writeSync` is node's descriptor write (fs.writeSync(fs.openSync(f, 'w'), …)).
 wcmd=$cmd
-printf '%s\n' "$cmd" | grep -Eq '(stdout|stderr)[[:space:]]*=[^=]|redirect_std' \
-  || wcmd=$(printf '%s\n' "$cmd" | sed -E 's/(process|sys)[.](stdout|stderr)([.]buffer)?[.]write(lines)?[(]//g')
+if ! printf '%s\n' "$cmd" | grep -Eq '(stdout|stderr)([.]write)?[[:space:]]*=[^=]|redirect_std|setattr[(][^)]*std(out|err)|as[[:space:]]+sys[.]std(out|err)' \
+  && ! printf '%s\n' "$own" \
+    | sed -E 's/[0-9]*>>?[[:space:]]*\/dev\/null//g; s/&>>?[[:space:]]*\/dev\/null//g; s/[0-9]*>&[0-9-]+//g' \
+    | grep -Eq '>|(^|[^[:alnum:]_.-])(tee|sponge|mv|cp|dd)([^[:alnum:]_.-]|$)'; then
+  wcmd=$(printf '%s\n' "$cmd" | sed -E 's/(process|sys)[.](stdout|stderr)([.]buffer)?[.]write(lines)?[(]//g')
+fi
 case "$wcmd" in
-  *"write_text("*|*".write("*|*"writelines("*|*"writeFile"*) ;;
+  *"write_text("*|*".write("*|*"writelines("*|*"writeFile"*|*"writeSync"*) ;;
   *"sed -i"*|*"perl -pi"*|*"perl -i"*|*"ruby -pi"*|*"ruby -i"*) ;;
   *) [ "$inplace" = yes ] || exit 0 ;;
 esac
