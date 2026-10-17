@@ -10,8 +10,20 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # records its model, its token usage, the git branch and the working directory it ran in. The cost
 # of change <id> is the sum over every message whose branch is `<BRANCH_CHANGE><id>` and whose
 # directory is this repository or one of its worktrees: the proposal lane, the build lane, the
-# build-change workflow's builders, reviewers and mechanics, and any fix round on that branch. Each
-# message counts once (a streamed message repeats its id), priced at the list prices in
+# build-change workflow's builders, reviewers and mechanics, and any fix round on that branch.
+#
+# THE BRANCH IS NOT ENOUGH (OPS-74). A subagent records its LEAD session's branch, and a stale one:
+# the branch the lead started on, usually `main`, even while the lead and the agent both work in the
+# change's worktree. PANEL-45's seven builders and reviewers all recorded `main`. What does name the
+# change is the working directory: so a message also counts when it ran in one of the change's
+# worktrees, and an agent (a file under subagents/) counts WHOLE when any of its messages did, since
+# a builder may start in the main checkout and cd into the worktree. The change's worktrees are the
+# ones git has on the branch now, and every <repo>/.claude/worktrees/<lane> (the panel's and Claude
+# Code's place for a lane) in which some message recorded the branch, so a removed worktree is still
+# found once its lead recorded the branch there. A worktree directory later reused for another branch
+# would be counted for both; a removed one in which nothing ever recorded the branch is not found.
+#
+# Each message counts once (a streamed message repeats its id), priced at the list prices in
 # .claude/model-roles.json `.prices` (dollars per million tokens). It is an ESTIMATE at list price,
 # not a bill, and it covers only this machine: a lane run elsewhere is not in it.
 #
@@ -46,8 +58,21 @@ projects=${CLAUDE_PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}
 # Claude Code names a project's transcript directory after its path, every non-alphanumeric
 # character a '-'; a worktree's directory extends its repository's name.
 slug=$(printf '%s' "$main" | sed 's/[^A-Za-z0-9]/-/g')
-files=$(find "$projects" -maxdepth 1 -type d -name "$slug*" 2>/dev/null | while read -r p; do
-  grep -rlF --include='*.jsonl' "\"gitBranch\":\"$branch\"" "$p" 2>/dev/null; done)
+dirs=$(find "$projects" -maxdepth 1 -type d -name "$slug*" 2>/dev/null)
+bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$branch\"" "$p" 2>/dev/null; done)
+# The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
+# message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
+wt="$main/.claude/worktrees/"
+# shellcheck disable=SC2086
+roots=$( { git -C "$ROOT" worktree list --porcelain 2>/dev/null \
+             | awk -v b="branch refs/heads/$branch" '/^worktree /{p=substr($0,10)} $0==b{print p}'
+           [ -z "$bfiles" ] || jq -r --arg b "$branch" --arg w "$wt" 'select(.gitBranch == $b) | (.cwd // "")
+             | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' $bfiles 2>/dev/null
+         } | grep -vxF "$main" | sort -u)
+rootsjson=$(printf '%s\n' "$roots" | jq -Rsc 'split("\n") | map(select(. != ""))')
+wfiles=$(printf '%s\n' "$roots" | while read -r r; do [ -n "$r" ] || continue
+  for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$r" "$p" 2>/dev/null; done; done)
+files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 [ -n "$files" ] || cannot "no transcript on this machine ran on $branch (under $projects/$slug*)"
 
 budget=$(proposal_field "$ROOT/$CHANGES_DIR/$id/proposal.md" Budget | tr -d '$')
@@ -56,12 +81,15 @@ budget=$(proposal_field "$ROOT/$CHANGES_DIR/$id/proposal.md" Budget | tr -d '$')
 done
 
 # shellcheck disable=SC2086
-jq -c --arg b "$branch" --arg root "$main" '
-  select(.type == "assistant" and .gitBranch == $b and .message.usage != null
-         and ((.cwd // "") == $root or ((.cwd // "") | startswith($root + "/"))))
-  | {id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage}' $files 2>/dev/null \
+jq -c --arg b "$branch" --arg root "$main" --argjson wts "$rootsjson" '
+  select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
+  | {f: input_filename, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
+     onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))),
+     inwt: any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .)}' $files 2>/dev/null \
 | jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
+  | [ group_by(.f)[] | ((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) as $agent
+      | .[] | select(.onb or .inwt or $agent) ]
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
   | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd
     | { model: $x.model, priced: ($usd != null), usd: ($usd // 0) } ]

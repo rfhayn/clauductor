@@ -120,6 +120,24 @@ msg m6 claude-opus-5-5 "$B" "$main" 250000 0 >> "$P/$slug/s1.jsonl"
 cost; case "$(cat "$d/out")" in *"cost \$16 of budget \$15 — OVER BUDGET"*) ok "change-cost: past the budget it says OVER BUDGET" ;; *) fail "change-cost over budget: $(cat "$d/out")" ;; esac
 msg m7 mystery-model-1 "$B" "$main" 1000 0 >> "$P/$slug/s1.jsonl"
 cost; case "$(cat "$d/out")" in *"NOT priced"*mystery-model-1*) ok "change-cost names a model .prices cannot price" ;; *) fail "unpriced model not named: $(cat "$d/out")" ;; esac
+# OPS-74: an agent records its LEAD session's branch, often a stale `main`, never its own. Its cwd is
+# what names the change: the lane worktree (m2 above recorded the branch there). A builder that
+# started in the main checkout and cd'd into the worktree counts whole; one that never entered it,
+# or entered a worktree whose name merely begins with the lane's, does not.
+W="$P/$slug/s1/subagents/workflows/wf_1"; mkdir -p "$W"
+{ msg b1 claude-opus-5-5 main "$main/.claude/worktrees/lane" 1000000 0      # $4.00
+  msg b2 claude-opus-5-5 main "$main" 1000000 0; } > "$W/agent-b.jsonl"   # $4.00: the same agent, before its cd
+msg b3 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/lane/sub" 1000000 0 >> "$P/$slug/s1.jsonl"  # $1.00: the lead, in the lane
+msg c1 claude-opus-5-5 main "$main" 1000000 0 > "$W/agent-c.jsonl"                                       # never in the lane
+msg c2 claude-opus-5-5 main "$main/.claude/worktrees/lane-2" 1000000 0 > "$W/agent-d.jsonl"               # another lane
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: an agent recording main counts by its cwd in the change's worktree, whole; the main checkout and another lane do not" || fail "change-cost, agents recording main: $(cat "$d/out")"
+# A worktree on the branch that no transcript has recorded yet: git names it while it is live.
+git -C "$R" worktree add -q -f "$main/.claude/worktrees/live" "$B" 2>/dev/null
+msg e1 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/live" 1000000 0 > "$W/agent-e.jsonl"       # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 26 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
+git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"
