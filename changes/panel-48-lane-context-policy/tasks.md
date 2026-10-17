@@ -51,7 +51,8 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Tested in `framework/internal/panel/state/alerts_test.go` and `state/metrics_test.go`, citing [LANECTX-2-S1], [LANECTX-2-S2], [LANECTX-2-S3] and [LANECTX-2-S5].
 - [ ] 4.2 The page draws the context warning colour from the alert threshold the state carries, not a hard-coded 85 (`panel.js:1118`, `:1401`).
   - The decision is a pure function in its own static file, which `panel.js` calls, as `term-links.js` is.
-  - `panel.js` draws each lane's own auto-compact tick from the state (task 4.1), falling back to `trends.autocompactPct`, in place of the page-wide value at `:1118` and `:1401`.
+  - `panel.js` draws each lane's own auto-compact tick from the state (task 4.1), in place of the page-wide value at `:1118` and `:1401`. It falls back to `trends.autocompactPct` only for state from an older server, since 4.1 gives every lane a tick.
+  - The tick's choice sits in the same pure file as the colour, and the same node test covers it.
   - Tested under node, as `web/term_links_test.go` runs `term-links.js`, in a new `web/context_colour_test.go`, citing [LANECTX-2-S4].
 - [ ] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits: managed settings win, whether a repository's own `true` turns the connectors back on (P3's answer), and an attached lane with no status line shows no bar until PANEL-49.
 
