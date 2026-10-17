@@ -45,9 +45,12 @@ has .claude/skills/propose/SKILL.md 'change-approval.sh <id> --record' "propose 
 # not void an approval; merge-pr then reviews only what changed since. This holds the steps in
 # place; nothing checks that the review ran or that its PR-body line is true.
 has .claude/skills/propose/SKILL.md '2b. **Review it to convergence BEFORE the owner reads it.**' "propose reviews the proposal before the owner reads it"
-has .claude/skills/propose/SKILL.md 'sh .claude/skills/merge-pr/review-lane.sh' "propose picks the reviewer by merge-pr's review lane"
+has .claude/skills/propose/SKILL.md 'an untested scenario is not a finding here' "propose tells its reviewer that tests are the build's, so a proposal can converge"
 has .claude/skills/propose/SKILL.md 'end your turn with no final report and without SubagentHandback' "propose waits for its reviewer by ending its turn"
+has .claude/skills/propose/SKILL.md '`Review: NOT converged after <n> round(s)' "propose writes a distinct line for a review that did not converge"
 has .claude/skills/merge-pr/SKILL.md '`propose` step 2b reviewed it' "merge-pr reviews a proposal PR only since propose's review"
+has .claude/skills/merge-pr/SKILL.md 'Only a body line starting `Review: converged in`' "merge-pr skips review only on a converged line"
+has .claude/skills/merge-pr/SKILL.md 'the Approved line names that design hash' "merge-pr skips review only when the approval covers the reviewed design"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"

@@ -97,11 +97,16 @@ Converged means **the last review round found nothing medium or worse.** By how 
   clean. Stop and notify if peak severity rises between rounds, or after 3 rounds.
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
-- **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it, and
-  its body carries `Review: … at <sha> · design <hash>`. When `git diff <sha> HEAD` changes only
-  the approval line in `proposal.md` and the change's roadmap row, and the Approved line names that
-  design hash, review has converged: carry the line over. Review anything else in that diff as a
-  delta; with no such line, or a `<sha>` git cannot find, review the whole PR.
+- **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it.
+  Only a body line starting `Review: converged in` and ending `at <sha> · design <hash>` lets you
+  skip review; any other (`Review: NOT converged …`, or none) gets the whole PR reviewed as above.
+  With `<head>` the PR's head (`gh pr view <n> --json headRefOid`), review has converged when all
+  hold: `git diff --name-only origin/main...<head>` touches only `changes/<id>/` and `ROADMAP`;
+  `git diff <sha> <head> -- changes/<id>/ <ROADMAP>` changes only the approval line in `proposal.md`
+  and the status cell of the change's roadmap row; and the Approved line names that design hash.
+  Then replace the `Review:` line with one naming `<head>`, so the body holds one. Otherwise
+  (another line in that diff, a design hash that differs, a `<sha>` git cannot find) review the
+  whole PR.
 
 A reviewer spawn may come back as launched in the background (fork mode, the default, always
 does). Do any other work this step has. If there is none,
