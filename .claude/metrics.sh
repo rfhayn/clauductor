@@ -145,15 +145,25 @@ base="origin/$MAIN_BRANCH"
 git_ rev-parse -q --verify "$base" >/dev/null || base=$MAIN_BRANCH
 : > "$tmp/branches.jsonl"
 if git_ rev-parse -q --verify "$base" >/dev/null; then
-  git_ for-each-ref --format='%(refname)' \
+  # A branch left out of aging WIP is never silent on stderr (kept with METRICS_DEBUG=1): otherwise
+  # its only trace is an aging WIP one branch short (#62). A failing git step says "left out" with
+  # git's words; a branch with no commits beyond the base says "skipped" (merged, or empty).
+  refs=$(git_ for-each-ref --format='%(refname)' \
       "refs/heads/$BRANCH_CHANGE" "refs/heads/$BRANCH_FIX" "refs/heads/$BRANCH_OPS" \
-      "refs/remotes/origin/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_FIX" "refs/remotes/origin/$BRANCH_OPS" \
-    | while IFS= read -r ref; do
+      "refs/remotes/origin/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_FIX" "refs/remotes/origin/$BRANCH_OPS" 2> "$tmp/git.err") \
+    || echo "metrics.sh: every branch left out of aging WIP: git for-each-ref failed: $(cat "$tmp/git.err")" >&2
+  nl='
+'
+  printf '%s\n' "$refs" | while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
         short=${ref#refs/heads/}; short=${short#refs/remotes/origin/}
-        first=$(git_ rev-list --reverse "$base..$ref" | head -1)
-        [ -n "$first" ] || continue
+        revs=$(git_ rev-list --reverse "$base..$ref" 2> "$tmp/git.err") \
+          || { echo "metrics.sh: $short left out of aging WIP: git rev-list $base..$ref failed: $(cat "$tmp/git.err")" >&2; continue; }
+        first=${revs%%"$nl"*} # the oldest commit, without a fork that could itself fail
+        [ -n "$first" ] || { echo "metrics.sh: $short skipped in aging WIP: no commits beyond $base (merged, or empty)" >&2; continue; }
         jq -cn --arg name "$short" --arg first "$(git_ log -1 --format=%ct "$first")" --arg tip "$(git_ log -1 --format=%ct "$ref")" \
-          '{name: $name, first: ($first | tonumber), tip: ($tip | tonumber)}'
+          '{name: $name, first: ($first | tonumber), tip: ($tip | tonumber)}' \
+          || echo "metrics.sh: $short left out of aging WIP: its first or last commit's time could not be read" >&2
       done > "$tmp/branches.jsonl"
 fi
 
