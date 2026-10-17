@@ -45,7 +45,7 @@ WHEN the panel launches a lane (Start, Restart, Resume or Restore) and its confi
 - **THEN** the load fails, and the error names the key and the range 100000–1000000
 
 ### Requirement: A lane's context is measured against the window it was launched with
-WHEN a lane was launched with a context window THE SYSTEM SHALL record that window for the lane, report it as the lane's window, and compute the lane's context percentage, its context alert and its bar's auto-compact tick against it: the tick at the window less Claude Code's 33000-token autocompact buffer, as a share of the window, and the alert at the lower of `alerts.context_pct` and the tick less 5 points, unless `alerts.context_pct` is 0, which keeps the alert off; and WHEN a lane was launched with none THE SYSTEM SHALL keep Claude Code's `used_percentage`, the configured alert threshold and today's tick.
+WHEN a lane was launched with a context window THE SYSTEM SHALL record that window for the lane, report it as the lane's window, and compute the lane's context percentage, its context alert and its bar's auto-compact tick against it: the tick at the window less Claude Code's 33000-token autocompact buffer, as a share of the window, and the alert at the lower of `alerts.context_pct` and the tick less 5 points, unless `alerts.context_pct` is 0, which keeps the alert off. THE SYSTEM SHALL take a session's window from its status post's `auto_compact_window` when present, else from the lane record carrying the session's id, and never from a lane whose worktree the session merely runs in; and WHEN a lane was launched with none THE SYSTEM SHALL keep Claude Code's `used_percentage`, the configured alert threshold and today's tick.
 
 #### Scenario: [LANECTX-2-S1] A 200k window on a 1M-token model reads against 200k
 - **GIVEN** a lane launched with a 200000 window, and `alerts.context_pct` 85
@@ -89,6 +89,17 @@ WHEN a lane was launched with a context window THE SYSTEM SHALL record that wind
 - **WHEN** its status line posts a `current_usage` whose three token counts sum to 160000
 - **THEN** the lane's context reads 80%
 - **AND** no context alert fires for the lane, and the page does not draw its figure in the warning colour
+
+#### Scenario: [LANECTX-2-S8] A lane keeps its window after /clear
+- **GIVEN** a lane launched with a 200000 window, whose status line posts `"auto_compact_window": 200000`
+- **WHEN** the owner runs `/clear` in it, and its status line then posts under a session id that no lane record holds, with `"auto_compact_window": 200000` and a `current_usage` whose three token counts sum to 180000
+- **THEN** the session's context reads 90%
+
+#### Scenario: [LANECTX-2-S9] A session started by hand in a windowed lane's folder keeps Claude Code's figure
+- **GIVEN** a lane launched with a 200000 window in a worktree
+- **WHEN** a session the owner started by hand in that worktree posts, under a session id no lane record holds, with no `auto_compact_window`, `used_percentage` 42 and a `current_usage` whose three token counts sum to 420000
+- **THEN** that session's context reads 42%
+- **AND** no context alert fires for it
 
 ### Requirement: Init and attach write the default policy
 WHEN `panel init` or `panel attach` writes a config THE SYSTEM SHALL write `"launch": {"context_window": 200000, "claudeai_connectors": false}` and declare config version 6; and a config that declares an earlier version SHALL NOT use the policy's keys.

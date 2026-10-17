@@ -8,7 +8,8 @@ The evidence for every figure below is in `evidence/README.md`. It covers Standi
 a fixed 33k buffer, not at a share of the window. The owner decided the tick that day (D7). D4's
 saving is re-stated at the point where a 200k window really compacts. D13, the alert below the
 tick, is new and is the owner's decision of the same day. D1, D5, D7 and D8 take in P2 to P5.
-Each amended decision says so.
+Each amended decision says so. P6, run the same day during group 4's review, amends D7 on which
+window a session is measured against.
 
 ## Decisions
 
@@ -115,6 +116,32 @@ Each amended decision says so.
     `effort`, by contrast, are written once, at creation (`withTemplate`). `LaneCommand` stays a pure
     argv builder, since `launchSession`'s fast-exit retry calls it twice. A config edit therefore
     moves a lane's bar only once the lane is relaunched.
+  - **Which window a session is measured against.** *Amended 2026-10-17 (P6):*
+    - **Who reports it:** the session itself. The status line runs inside the session, so it
+      reads `CLAUDE_CODE_AUTO_COMPACT_WINDOW` from its own environment. When that is digits, it
+      adds `"auto_compact_window": <n>` at the top level of the JSON it posts. The field is
+      snake_case, like the rest of the post, and is named after the variable it reads.
+    - **Which window the panel uses:**
+      - first, the posted `auto_compact_window`, when present and within 100000–1000000;
+      - else, the window on the lane record carrying the post's session id;
+      - else, none, which keeps Claude Code's `used_percentage` as before.
+      - There is no fallback by folder. A session is never measured against another lane's window
+        because it runs in that lane's worktree.
+    - **Why:**
+      - `/clear` keeps the process and its environment while it changes the session id. P6 saw
+        the status line read 200000 both before and after `/clear`, under a new session id that
+        no record holds.
+      - A session the owner starts by hand in a windowed lane's folder has no such variable. P6's
+        control read it empty. So it keeps `used_percentage`, and cannot read over 100% or raise
+        an alert that never clears.
+      - The stdin JSON itself carries nothing usable. P6 saw `context_window_size` stay 1000000
+        under a 200000 window, as P4 did.
+    - **Named limit:** a repository whose own status line does not post the field gets the
+      record by id only. There, a lane after `/clear` reads `used_percentage` until it is
+      relaunched.
+    - **Named limit:** an attached lane with no status line shows no bar, as before (PANEL-49).
+    - **Beat:** the folder fallback, which measured a hand-started session against the lane's
+      window.
   - **The figure:** for a lane with a recorded window, context is `current_usage`'s input, cache
     creation and cache read tokens, divided by that window. Today the figure is Claude Code's
     `used_percentage`, which is measured against the model's whole window. With a 200k window on
@@ -185,10 +212,19 @@ Each amended decision says so.
     - **P4:** what the status line reports as `context_window_size` and `used_percentage` under the
       window (D7).
     - **P5:** a `--resume` that passes `--settings` again keeps the window.
+    - **P6 (added 2026-10-17, during group 4's review):** the status line sees the window the
+      session was launched with, before and after `/clear` (D7).
   - **Results (2026-10-17, on Claude Code 2.1.302, for $0.25):** P1 fired, at the window less 33k
     (D4, D7). P2 and P5 confirm D1. P3 confirms D5 and prices it. P4 confirms D7's calibration.
     After the amendment's review, `/context` under `--model opus` reported the same 33k buffer
     at 100k, 200k, 300k and 1m (D7).
+  - **P6's result (2026-10-17, Claude Code 2.1.302, on Haiku):** an interactive lane was launched
+    with the panel's argv shape and `--settings '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"200000"}}'`,
+    with a status line from the project's `.claude/settings.json`.
+    - The status line's environment read 200000 at startup, after a prompt, after `/clear` (new
+      session id), and after a prompt that followed it.
+    - A control launched without `--settings` read the variable empty.
+    - The stdin carried `context_window_size` 1000000 throughout, and no field for the window.
   - **Beat:**
     - building on the docs alone, where `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is absent from
       `claude --help`;
