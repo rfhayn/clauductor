@@ -132,11 +132,25 @@ msg c1 claude-opus-5-5 main "$main" 1000000 0 > "$W/agent-c.jsonl"              
 msg c2 claude-opus-5-5 main "$main/.claude/worktrees/lane-2" 1000000 0 > "$W/agent-d.jsonl"               # another lane
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: an agent recording main counts by its cwd in the change's worktree, whole; the main checkout and another lane do not" || fail "change-cost, agents recording main: $(cat "$d/out")"
+# A LEAD records a stale branch too: a session closing in lane `other` recorded $B there, and its own
+# ops/other. A lane where another non-main branch was recorded is not the change's: neither its
+# messages on $B, nor its other branch, nor an agent that ran in it counts.
+{ msg x1 claude-opus-5-5 "$B" "$main/.claude/worktrees/other" 1000000 0
+  msg x2 claude-opus-5-5 "ops/other" "$main/.claude/worktrees/other/framework" 1000000 0; } >> "$P/$slug/s1.jsonl"
+msg x3 claude-opus-5-5 main "$main/.claude/worktrees/other" 1000000 0 > "$W/agent-x.jsonl"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: a lane where another branch was also recorded is not the change's, though a stale lead recorded the branch there" || fail "change-cost, stale lead in another lane: $(cat "$d/out")"
+# The lane is the directory under .claude/worktrees/, not the cwd that recorded the branch: a
+# recording in lane `deep`'s subdirectory makes `deep` the root, so an agent at `deep` itself counts.
+msg y1 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/deep/framework" 1000000 0 >> "$P/$slug/s1.jsonl"  # $1.00
+msg y2 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/deep" 1000000 0 > "$W/agent-y.jsonl"              # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 27 ] && ok "change-cost: a branch recorded in a lane's subdirectory makes the whole lane the change's" || fail "change-cost, lane subdirectory: $(cat "$d/out")"
 # A worktree on the branch that no transcript has recorded yet: git names it while it is live.
 git -C "$R" worktree add -q -f "$main/.claude/worktrees/live" "$B" 2>/dev/null
 msg e1 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/live" 1000000 0 > "$W/agent-e.jsonl"       # $1.00
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 26 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 28 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
 git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?

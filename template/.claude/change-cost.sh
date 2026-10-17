@@ -18,9 +18,14 @@
 # worktrees, and an agent (a file under subagents/) counts WHOLE when any of its messages did, since
 # a builder may start in the main checkout and cd into the worktree. The change's worktrees are the
 # ones git has on the branch now, and every <repo>/.claude/worktrees/<lane> (the panel's and Claude
-# Code's place for a lane) in which some message recorded the branch, so a removed worktree is still
-# found once its lead recorded the branch there. A worktree directory later reused for another branch
-# would be counted for both; a removed one in which nothing ever recorded the branch is not found.
+# Code's place for a lane) in which some message recorded the branch and NO other branch but main
+# was recorded, so a removed worktree is still found once its lead recorded the branch there.
+# A LEAD's branch is stale too: a session closing in its own lane recorded PANEL-48's branch there,
+# beside its own. Such a lane is not the change's, and the messages that recorded the branch in it
+# do not count either. Known limits: a removed worktree whose lane also recorded another branch (a
+# reused directory, a switched branch) is not found, nor one in which nothing recorded the branch;
+# and an agent counts whole once ANY of its messages ran in the change's worktree, so an unrelated
+# agent passing through it (a reviewer of another PR, a session-close sweep) is billed whole.
 #
 # Each message counts once (a streamed message repeats its id), priced at the list prices in
 # .claude/model-roles.json `.prices` (dollars per million tokens). It is an ESTIMATE at list price,
@@ -63,10 +68,21 @@ bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$bran
 # message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
 wt="$main/.claude/worktrees/"
 # shellcheck disable=SC2086
+lanes=$( [ -z "$bfiles" ] || jq -r --arg b "$branch" --arg w "$wt" 'select(.gitBranch == $b) | (.cwd // "")
+           | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' $bfiles 2>/dev/null | sort -u)
+# A lead records a stale branch as well (see the header): a lane where any other branch but main was
+# also recorded belongs to that branch, not to this change.
+recorded_alone() {
+  # shellcheck disable=SC2086
+  for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$1" "$p" 2>/dev/null; done | sort -u \
+  | while read -r f; do jq -r --arg l "$1" 'select(.gitBranch != null) | select((.cwd // "") == $l
+      or ((.cwd // "") | startswith($l + "/"))) | .gitBranch' "$f" 2>/dev/null; done \
+  | grep -vxF -e "$branch" -e "$MAIN_BRANCH" -e HEAD -e '' | grep -q . && return 1
+  return 0
+}
 roots=$( { git -C "$ROOT" worktree list --porcelain 2>/dev/null \
              | awk -v b="branch refs/heads/$branch" '/^worktree /{p=substr($0,10)} $0==b{print p}'
-           [ -z "$bfiles" ] || jq -r --arg b "$branch" --arg w "$wt" 'select(.gitBranch == $b) | (.cwd // "")
-             | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' $bfiles 2>/dev/null
+           printf '%s\n' "$lanes" | while read -r l; do [ -n "$l" ] && recorded_alone "$l" && echo "$l"; done
          } | grep -vxF "$main" | sort -u)
 rootsjson=$(printf '%s\n' "$roots" | jq -Rsc 'split("\n") | map(select(. != ""))')
 wfiles=$(printf '%s\n' "$roots" | while read -r r; do [ -n "$r" ] || continue
@@ -80,11 +96,13 @@ budget=$(proposal_field "$ROOT/$CHANGES_DIR/$id/proposal.md" Budget | tr -d '$')
 done
 
 # shellcheck disable=SC2086
-jq -c --arg b "$branch" --arg root "$main" --argjson wts "$rootsjson" '
+jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" '
   select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
+  | any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .) as $inwt
   | {f: input_filename, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
-     onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))),
-     inwt: any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .)}' $files 2>/dev/null \
+     onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
+           and ($inwt or ($cwd | startswith($lanes) | not))),
+     inwt: $inwt}' $files 2>/dev/null \
 | jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
   | [ group_by(.f)[] | ((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) as $agent
