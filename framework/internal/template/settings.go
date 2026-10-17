@@ -38,6 +38,15 @@ var frameworkScalars = map[string]bool{
 	"sandbox.enabled": true, // checks/settings.sh fails without it; loosen per tool instead
 }
 
+// retiredEntries are list entries the template once shipped and has dropped on purpose, by path
+// and compact JSON, with the reason a merge reports. A merge keeps every project entry it does not
+// know, so without this an installed project keeps the old entry forever.
+var retiredEntries = map[string]map[string]string{
+	"permissions.deny": {
+		`"Read(~/.config/gh/**)"`: "retired by the template (OPS-75): a sandboxed script's gh must read hosts.yml to find its keyring account",
+	},
+}
+
 // hookScriptRe finds the model's hook script a registration runs, whatever form the command
 // takes (the old cwd-relative `sh .claude/hooks/x.sh` or the `"$CLAUDE_PROJECT_DIR"` one).
 var hookScriptRe = regexp.MustCompile(`\.claude/hooks/([A-Za-z0-9_.-]+\.sh)`)
@@ -214,6 +223,10 @@ func (m *merger) union(path string, have, want *node) *node {
 		c := it.compact()
 		if m.stale[path][c] {
 			m.note(SettingsChange{Path: path, Action: "remove", Have: c, Note: "the template's default path, which this project's project.conf moves"})
+			continue
+		}
+		if why := retiredEntries[path][c]; why != "" {
+			m.note(SettingsChange{Path: path, Action: "remove", Have: c, Note: why})
 			continue
 		}
 		seen[c] = true

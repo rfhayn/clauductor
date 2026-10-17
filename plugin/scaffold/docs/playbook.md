@@ -101,13 +101,18 @@ machine needs Claude Code, then:
 | Tool | Why | macOS | Linux, WSL2 (Ubuntu) |
 |---|---|---|---|
 | git, jq | the hooks, checks and gate | `brew install git jq` | `sudo apt-get install git jq` |
-| gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` | GitHub's apt repository (cli.github.com) |
+| gh, logged in (`gh auth login`) | PRs, the merge guard, health lines | `brew install gh` (the token goes to the keychain) | GitHub's apt repository (cli.github.com); keep the token in a keyring (`gnome-keyring` or another Secret Service), not in `~/.config/gh/hosts.yml`: `gh auth status` must say `(keyring)` (below) |
 | gitleaks | the gate's secret scan (skipped locally without it, fails under CI) | `brew install gitleaks` | a release binary from github.com/gitleaks/gitleaks/releases, on `PATH` |
 | bubblewrap, socat | Claude Code's Bash sandbox | nothing: macOS has Seatbelt | `sudo apt-get install bubblewrap socat` |
 | Node.js and npm | the seccomp filter below is an npm package | only if your project uses it | through nvm (github.com/nvm-sh/nvm): `nvm install --lts`, after which `npm install -g` writes under `~/.nvm` and needs no sudo (or keep the distro's `nodejs` and set `npm config set prefix ~/.local`, with `~/.local/bin` on `PATH`) |
 | the sandbox's seccomp filter | **required on WSL2**: without it a sandboxed command can launch Windows programs outside the sandbox (below) | not needed | `npm install -g @anthropic-ai/sandbox-runtime` |
 | python3 | `machine-quiet.sh` at session close | preinstalled | preinstalled on Ubuntu |
 | Docker | only if `scripts/ci/steps.sh` uses it | Docker Desktop | Docker Desktop with WSL integration on for the distro (Settings → Resources → WSL integration) |
+
+**Why gh's token belongs in a keyring.** The session-start context and the health lines run `gh`
+inside the sandbox, and there `gh` must read `~/.config/gh/` to find its account, so
+`settings.json` does not deny that folder (OPS-75). With a keyring the folder holds no secret.
+Without one, `gh` writes the token into `hosts.yml` in plain text, where an agent could read it.
 
 Add whatever else your gate's steps call. **The panel is macOS-only and optional**: it runs on
 tmux, launchd and Terminal.app. Nothing needs it (`checks/no-clauductor.sh`): lanes are plain git
