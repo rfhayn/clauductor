@@ -2,12 +2,21 @@
 
 ## Progress
 - 2026-10-17 proposed; nothing built yet. The build starts from `main` once PANEL-48 has merged.
+- 2026-10-17: 1.1–1.2 built in the cloud, reviewed in 2 rounds, peak medium (round 1: an unowned price check, now task 1.3; round 2: low); 1.0 pending on the Mac. Left open: a count of 2^63 or more wraps negative in `count()` (low). Groups 2–4 and the full gate run on the Mac after PANEL-48 merges.
 
 ## Decision log
+- 2026-10-17, group 1: task 1.0 is pending on the owner's Mac; the cloud build cannot reach the transcripts. Its result sets `usageCounts` in `signals/transcript.go`, the one table that marks a count `Optional` (absent reads 0). All four counts stay required until then, and `TestTranscriptEveryRequiredCountIsChecked` holds them there.
+- 2026-10-17, group 1: the evidence tool is not in the repository (PANEL-48 task 1.5 has not committed `evidence/tool/`), so `PRICES` and `FAST_MULTIPLIER` could not be copied. The table (`signals/prices.go`) is taken from PANEL-48 `evidence/README.md` and the pricing page (platform.claude.com/docs/en/about-claude/pricing, read 2026-10-17), and each row cites the page. Task 1.3 owns the comparison, and `/verify-change` holds the merge until it is ticked.
+- 2026-10-17, group 1: **Sonnet 5.5's cache read is $0.10/MTok on the pricing page (0.05× input), where PANEL-48 `evidence/README.md` lists $0.20.** The table uses the page's $0.10. If the tool also has $0.20, its subagent figures overstate cache reads, which bears on the outcome's 10% comparison.
+- 2026-10-17, group 1: Haiku 5.5 joins the table, at the pricing page's rates read 2026-10-17. Above a 100,000-token prompt (input, cache writes and cache reads all counted) the page's higher row applies to the whole call, so the row carries both. The alternative, leaving it unpriced, would warn on every Haiku subagent.
+- 2026-10-17, group 1: fast mode is priced for Opus 5.5 alone (the page's $8/$40, 2×, applied to every part of a call, caching included). The page also lists fast mode for Opus 5 and 4.8, which have no row. A `speed` other than absent, `standard` or `fast` is unpriced rather than priced at standard. A fast call on a priced model with no fast rate is counted as `<model> (fast)`.
+- 2026-10-17, group 1: a complete line longer than a whole call's 32 MiB budget is a D7 error. D7 does not list it, but the alternative is a session that never reaches the end of its files and never shows an error. A blank line is skipped: it holds no field that could be misread.
+- 2026-10-17, group 1: the price table lives in `signals/prices.go`, beside the reader, so `transcript.go` stays the one file that reads a transcript and the table holds no file access.
+- 2026-10-17, group 1: until 3.2 rewrites the invariant, `TestNoSourceReadsTranscripts` (`.jsonl` in `signals/transcript.go`) and `TestNoSourceReachesTranscriptsByJoinOrNewReadSite` (its unlisted `os.Open`) fail in `internal/panel`. That is the old rule catching the new reader, as it should. Groups 1 and 3 must land together.
 
 ## 1. The reader (D1, D2, D5, D7)
 - [ ] 1.0 Before the counts are made required (D2): with the evidence tool, count how many of the baseline week's calls lack each of the four counts, reading no content, and record the result in the Decision log. A count some calls lack becomes optional, defaulting to 0. (manual: a one-off measurement over the owner's transcripts, not shipped code)
-- [ ] 1.1 `framework/internal/panel/signals/transcript.go`: find a session's transcript (D1), and walk its `subagents/` folder on every read. Decode every line, with no pre-filter, in D2's two stages, each into a declared type that holds D2's allowlist.
+- [x] 1.1 `framework/internal/panel/signals/transcript.go`: find a session's transcript (D1), and walk its `subagents/` folder on every read. Decode every line, with no pre-filter, in D2's two stages, each into a declared type that holds D2's allowlist.
   - Stage one decodes `type` and `version`, and tolerates a type mismatch on any line that is not `assistant`. Stage two decodes `message` for an `assistant` line, where a mismatch is a D7 error.
   - A `<synthetic>` record is set aside before its usage is validated.
   - The id must be a UUID before any path is built.
@@ -17,11 +26,12 @@
   - `<synthetic>` records count toward neither cost nor context. The context and the model come from the last non-synthetic main-thread record; subagent records count toward cost only.
   - Report D7's errors, with the line's number, its `version` and the missing field. A required count that is absent is an error, and an optional one that is absent takes its default.
   - Tested in `framework/internal/panel/signals/transcript_test.go` over hand-written fixtures in `signals/testdata/transcripts/`, which hold no real transcript content. Citing [MEASURES-1-S5], [MEASURES-1-S7], [MEASURES-2-S1], [MEASURES-2-S4], [MEASURES-2-S5] and [MEASURES-4-S3].
-- [ ] 1.2 The price table in `signals` (D5): the evidence tool's `PRICES` and `FAST_MULTIPLIER`, each row with its source and date.
+- [x] 1.2 The price table in `signals` (D5): the evidence tool's `PRICES` and `FAST_MULTIPLIER`, each row with its source and date.
   - Exact version match, after a date suffix or a `[1m]` tag is stripped. Cache writes at 1.25× input for 5 minutes and 2× for an hour.
   - Unpriced calls are counted per model, never priced at $0.
   - Haiku 5.5 joins only with its rate from the published pricing page, cited with the date.
   - Tested in `signals/transcript_test.go`, citing [MEASURES-3-S1], [MEASURES-3-S2] and [MEASURES-3-S3].
+- [ ] 1.3 Once PANEL-48 has committed `evidence/tool/` (its task 1.5), compare `signals/prices.go` row by row with the tool's `PRICES` and `FAST_MULTIPLIER`, Sonnet 5.5's cache read above all ($0.10 here, $0.20 in PANEL-48 `evidence/README.md`). Record the result in the Decision log, and correct whichever is wrong before the outcome check compares the ledger with the tool. (manual: the tool is not in the repository yet)
 
 ## 2. The state (D3, D4, D5, D7)
 - [ ] 2.1 `framework/internal/panel/state`: an `ApplyTranscript` for one session's reading, and a switch that marks the project as measured from transcripts.
