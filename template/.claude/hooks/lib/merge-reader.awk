@@ -28,7 +28,7 @@ function hits(t,   l) {
 function odd(why) { if (!(why in SEEN)) { SEEN[why] = 1; ODDS[++NO] = why } }
 # A construct the reader could not follow. Reported only when the command could concern a merge.
 function broken(why) { if (!(why in SEEN)) { SEEN[why] = 1; BROKE[++NB] = why } }
-function newcmd() { N[++NC] = 0; return NC }
+function newcmd() { N[++NC] = 0; RF = 0; return NC }
 
 # rx — a regex matching exactly s.
 function rx(s,   o, i, c) {
@@ -50,14 +50,18 @@ function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
+  T[cid, N[cid]] = TG
 }
 # A word ends. After an output redirection it is the target: RO marks a command that writes a file
-# (anything but /dev/null) — prose written to a file can be run by the next command.
+# (anything but /dev/null) — prose written to a file can be run by the next command. After any
+# redirection but a here-string, T marks the word a FILE NAME, which no command runs (OPS-66:
+# `sed … > "$TMPDIR/$name"` was read as a gh that sed could run).
 function flush(cid,   e) {
   if (have) {
     # A mention is TEXT — a word with blanks in it. `repos/o/n/pulls/2/merge` alone is an argument.
     if (tok ~ /[ \t\n]/ && hits(tok)) MENTION = 1
     if (RT) { if (tok != "/dev/null" || fl != "") RO[RT] = 1; RT = 0 }
+    TG = RF; RF = 0
     if (index(pat, LB)) {
       NE = 0; XP = 0; expand(pat, sk, 0)
       if (NE > 64) { broken("a brace expansion too large to read"); addword(cid, tok, fl "b", ".*", "") }
@@ -66,6 +70,7 @@ function flush(cid,   e) {
         if (XP) addword(cid, ES[e], fl "b", EP[e], ES[e]); else addword(cid, tok, fl, EP[e], ES[e])
       }
     } else addword(cid, tok, fl, pat, sk)
+    TG = 0
   }
   reset()
 }
@@ -141,10 +146,10 @@ function ansi(i,   c, esc) {
 }
 # A command substitution: its own command list, read with the word being built set aside. The
 # word itself only records that something was computed.
-function subst(i, mode,   st, sf, sp, ss, sh, sb) {
-  st = tok; sf = fl; sp = pat; ss = sk; sh = have; sb = bd; reset()
+function subst(i, mode,   st, sf, sp, ss, sh, sb, sr) {
+  st = tok; sf = fl; sp = pat; ss = sk; sh = have; sb = bd; sr = RF; RF = 0; reset()
   i = scan(i, mode)
-  tok = st; fl = sf; pat = sp; sk = ss; have = sh; bd = sb
+  tok = st; fl = sf; pat = sp; sk = ss; have = sh; bd = sb; RF = sr
   wild(".*", "$()", "d")
   return i
 }
@@ -270,9 +275,12 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
       if (tok ~ /^[0-9]+$/ && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
+      # A here-string's word is text fed to the command, not a file name. (`<(…)` starts a new
+      # command, whose newcmd() clears RF.)
+      RF = (substr(S, i, 3) != "<<<")
       i++
       while (substr(S, i, 1) ~ /[<>|]/) i++
-      if (substr(S, i, 1) == "&") { i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
+      if (substr(S, i, 1) == "&") { RF = 0; i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
       else if (nx) RT = cid
       continue
     }
@@ -333,6 +341,43 @@ function flagskip(c, j, n) {
   while (j <= n && provable(c, j) && W[c, j] ~ /^-/) j += (W[c, j] == "-R" || W[c, j] == "--repo") ? 2 : 1
   return j
 }
+# cmdword(c) — the index of the command word: the first past the reserved words a loop or a
+# condition puts before it (`do cp …`).
+function cmdword(c,   x) {
+  for (x = 1; x < N[c]; x++) if (!(F[c, x] == "" && W[c, x] ~ /^(then|do|else|elif|if|while|until|!|\{)$/)) break
+  return x
+}
+# inert(c) — the command word runs none of its arguments and hands none to a program: each is a
+# file name or text (OPS-66: `cmp template/.claude/$f …` in a loop over files named merge-guard.sh
+# was refused as a gh that cmp could run). sed and grep run only their SCRIPT, never a file
+# argument; a computed script is the evaluator limit in the hook's header. Not here, because each
+# can run an argument: xargs, find, env, git (bisect run, rebase --exec), sort, awk, any shell, and
+# the commands whose output IS their arguments (echo, printf, basename), which a pipe hands to sh.
+function inert(c,   x) {
+  x = cmdword(c)
+  return F[c, x] == "" && W[c, x] ~ /^(cp|mv|cmp|diff|ls|cat|head|tail|wc|grep|egrep|fgrep|sed|mkdir|rm|touch|ln|chmod|stat)$/
+}
+# reach(c, k, n) — a word after k, other than a file a redirection names, could be pr, api or merge:
+# what makes a gh a merge.
+function reach(c, k, n,   j) {
+  for (j = k + 1; j <= n; j++) if (!T[c, j] && (could(c, j, "pr") || could(c, j, "api") || could(c, j, "merge"))) return 1
+  return 0
+}
+# git_sub(c, j) — word j is git's own subcommand `merge`, and every word before it is git or one
+# of its global options with its value (`git -C "$WT" merge origin/main`, OPS-66): git reads that
+# merge, and git cannot alias a builtin, so a computed option value is not a gh or a pr. A value
+# that could split (unquoted) is not taken: its pieces could add `-c alias.x='!gh pr' x`.
+function git_sub(c, j,   x, w) {
+  x = cmdword(c)
+  if (F[c, x] != "" || W[c, x] != "git" || !plainw(c, j) || W[c, j] != "merge") return 0
+  for (x++; x < j; x++) {
+    w = W[c, x]
+    if (F[c, x] != "") return 0
+    if (w == "-C" || w == "--git-dir" || w == "--work-tree") { if (++x >= j || F[c, x] ~ /[sb]/) return 0; continue }
+    if (w !~ /^(--no-pager|-P|--no-optional-locks|--no-replace-objects|--bare)$/) return 0
+  }
+  return 1
+}
 
 # A word that could be gh: its subcommand must be readable. `gh pr merge` is a site; `gh api` goes
 # to api(); a computed, globbed or brace-expanded word where the subcommand goes, that could be pr,
@@ -353,8 +398,10 @@ function heads(c, k,   x, w) {
 function ghword(c, k, n,   j, x, m) {
   # gh fed its words by another command (`echo merge 5 | xargs gh pr`, `parallel gh pr ::: merge`,
   # `find . -exec gh pr merge 5 \;`), or with no subcommand at all: where the command names a merge
-  # anywhere, its words cannot be read from here.
-  if (MERGE_ANY && !heads(c, k)) { odd("gh (" W[c, k] ") is an argument of " W[c, 1] ", which can add or substitute its words"); return }
+  # anywhere, its words cannot be read from here. Unless the command runs no argument and nothing
+  # after the word could make it a merge: then it is a file name (OPS-66).
+  if (!heads(c, k) && inert(c) && !reach(c, k, n)) return
+  if (MERGE_ANY && !heads(c, k)) { odd("gh (" W[c, k] ") is an argument of " W[c, cmdword(c)] ", which can add or substitute its words"); return }
   if (k == n) { if (MERGE_ANY) odd("gh has no subcommand here, and the command names a merge"); return }
   if (!provable(c, k + 1)) {
     # An unquoted expansion or glob can split into several words (`gh $X 5`, X="pr merge"): any
@@ -457,6 +504,8 @@ END {
   for (c = 1; c <= NC; c++) {
     n = N[c]
     for (k = 1; k <= n; k++) {
+      # A file a redirection names is never run, nor read as a word of the command (OPS-66).
+      if (T[c, k]) continue
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
       if (!could(c, k, "pr")) continue
@@ -464,6 +513,7 @@ END {
       j = flagskip(c, k + 1, n)
       if (j > n || !could(c, j, "merge")) continue
       if (K[c, k] == "" && K[c, j] == "") continue
+      if (git_sub(c, j)) continue
       odd("the merge reads as [" (k > 1 ? W[c, k - 1] " " : "") W[c, k] " " W[c, j] "], and what comes before pr is not a plain gh")
     }
   }

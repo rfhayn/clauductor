@@ -139,10 +139,15 @@ raw_command() {
 # because unreadable() uses it and runs first. Quotes and backslashes deleted, blank runs (newlines
 # too) squeezed, then: the words `pr merge`, flags allowed between; `merge` after a computed word;
 # `pr` before one. Exit 0 = may be a merge. A parameter name may hold bytes 0x80-0xFF, as zsh's
-# `$é` does (#100): HIBYTES is that range, matched as bytes under LC_ALL=C.
+# `$é` does (#100): HIBYTES is that range, matched as bytes under LC_ALL=C. Git's own merge with
+# its global options first (`git -C "$WT" merge origin/main`) is read as `git merge` before the
+# match: a computed -C value before `merge` is not a gh (OPS-66; the reader's git_sub). A value
+# holding a blank, a separator or a substitution is not taken, so `$(…) merge` still matches.
 HIBYTES=$(printf '\200-\377')
 merge_hint() {
-  printf '%s' "$1" | tr -d "\\\\'\"" | tr '\t\r\n' '   ' | tr -s ' ' | LC_ALL=C grep -Eq \
+  printf '%s' "$1" | tr -d "\\\\'\"" | tr '\t\r\n' '   ' | tr -s ' ' \
+    | LC_ALL=C sed -E 's/(^|[^A-Za-z0-9_-])git(( -P| --no-pager| --no-optional-locks| --no-replace-objects| --bare| -C [^ ;&|()<>`]+| --git-dir [^ ;&|()<>`]+| --work-tree [^ ;&|()<>`]+)+) merge([^A-Za-z0-9_-]|$)/\1git merge\4/g' \
+    | LC_ALL=C grep -Eq \
     -e '(^|[^A-Za-z0-9_-])pr( -[^ ]+( [^ -][^ ]*)?)* merge([^A-Za-z0-9_-]|$)' \
     -e '([)}`]|[$][A-Za-z0-9_@*#?!'"$HIBYTES"'-]+) merge([^A-Za-z0-9_-]|$)' \
     -e '(^|[^A-Za-z0-9_-])pr [$`]'
@@ -200,6 +205,11 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #      word where gh, pr, merge or the api endpoint goes, and that could be one, is ODD and BLOCKS
 #      with the plain form — the rules below parse a merge from its text, and cannot parse one they
 #      cannot read. `pr merge` after anything but a plain gh (`$GH`, an alias) is ODD too.
+#      NOT A MERGE, so never ODD (OPS-66, #120): a file a redirection names (`sed … > "$TMPDIR/$n"`);
+#      a word that could be a path to gh (`template/$f`) handed to a command that runs none of its
+#      arguments (inert(): cp, cmp, cat, sed, …) with nothing after it that could be pr, api or
+#      merge; and git's own merge after its global options (`git -C "$WT" merge origin/main`,
+#      git_sub(): git cannot alias a builtin), unless an option's value is unquoted and could split.
 #   2. THE TEXT MATCH IS A BACKSTOP, no longer a filter (merge_hint, and the old literal match, on the
 #      command with backslash-newlines removed): if it hits and the reader found neither a site nor a
 #      mention, the reader missed something, so the hook blocks. If the reader is missing or fails,
@@ -223,7 +233,10 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #     through this hook blocks (the expansion is a mention beside an unlisted command);
 #   - an evaluator whose PROGRAM is computed or piped (`sh -c "$(…)"`, `printf … | sh`,
 #     `eval "$(… | base64 -d)"`, `source <(…)`) unless its text names a merge: a hook that reads text
-#     cannot run arbitrary programs;
+#     cannot run arbitrary programs. That includes the OUTPUT of a command on inert()'s list whose
+#     computed path argument is gh (`ls -d bin/$G | sh`): since OPS-66 that word is a file name;
+#   - git with an alias defined in the same command (`git -c alias.y='!gh pr' y merge 5`): the
+#     alias's text names no `pr merge` and its name is not pr, so nothing reads it as a merge;
 #   - a merge through any other client (curl to the API, a GraphQL query in a file passed some
 #     other way), and a click on the website.
 # Checked by .claude/checks/merge-guard.sh, with jq and without.
