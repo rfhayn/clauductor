@@ -8,9 +8,13 @@ need jq
 
 d=$(scratch)
 mkdir -p "$d/bin" "$d/repo"
+# The stand-in takes two seconds before it records, longer than the old fixed wait: a run() that
+# guesses how long to wait, rather than waiting for the post to finish, fails here every time
+# instead of only under load.
 cat > "$d/bin/curl" <<EOF
 #!/bin/sh
 cat >/dev/null
+sleep 2
 echo "\$*" >> "$d/posts"
 EOF
 chmod +x "$d/bin/curl"
@@ -20,18 +24,30 @@ git -C "$d/repo" commit -q --allow-empty -m init
 input=$(jq -cn --arg c "$d/repo" '{session_id:"s", cwd:$c, context_window:{used_percentage:42.4}}')
 sl="$ROOT/.claude/statusline.sh"
 
-sleep 5 & live=$!
+# The live panel is this check's own shell: alive for as long as any case runs, where a `sleep 5`
+# was one more guess at how long the case would take.
+live=$$
 sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 
-run() {  # run PID_CONTENT (or "-" for no pid file): prints "<posts> <line>"
+# The post is backgrounded, so posts are counted only once everything the status line started has
+# exited. A fixed `sleep 1` guessed instead, and a guess can lose under a loaded gate ("0 posts",
+# OPS-73). The status line runs holding fd 3, the write end of a pipe, and everything it starts
+# inherits it (the post's `>/dev/null 2>&1` leaves fd 3 alone), so the reader sees end-of-file
+# only after the last of them exits: a post that was made has landed, and a "no post" case has
+# none still on its way. The deadline (10s, times CLAUDUCTOR_TEST_SLOW) only keeps a stray holder
+# of fd 3 from hanging the check, and reaching it fails the case.
+ticks=$(awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" 'BEGIN { f += 0; if (!(f >= 1)) f = 1; printf "%d", 100 * f }')
+run() {  # run PID_CONTENT (or "-" for no pid file): prints "<exit> <posts> <line>"
   home="$d/home.$1"; rm -rf "$home"; mkdir -p "$home/.clauductor/panel"
   echo 4999 > "$home/.clauductor/panel/port"
   [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.clauductor/panel/pid"
-  rm -f "$d/posts"
-  line=$(printf '%s' "$input" | HOME="$home" PATH="$d/bin:$PATH" sh "$sl"); rc=$?
-  sleep 1   # the post is backgrounded
+  rm -f "$d/posts" "$d/line" "$d/rc" "$d/eof"
+  ( printf '%s' "$input" | { HOME="$home" PATH="$d/bin:$PATH" sh "$sl" 3>&1 > "$d/line"; echo $? > "$d/rc"; } \
+      | cat > /dev/null; : > "$d/eof" ) > /dev/null &
+  i=0; while [ ! -f "$d/eof" ] && [ "$i" -lt "$ticks" ]; do sleep 0.1; i=$((i + 1)); done
+  rc=$(cat "$d/rc" 2>/dev/null); [ -f "$d/eof" ] || rc="still-running-after-$((ticks / 10))s"
   n=0; [ -f "$d/posts" ] && n=$(wc -l < "$d/posts" | tr -d ' ')
-  echo "$rc $n $line"
+  echo "$rc $n $(cat "$d/line" 2>/dev/null)"
 }
 
 set -- $(run "$live"); [ "$1" = 0 ] && [ "$2" = 1 ] && ok "posts once to a live panel" || fail "live panel: exit $1, $2 posts"
@@ -41,7 +57,6 @@ for c in "$dead:a dead pid (stale files)" "-:no pid file" "-1:pid -1" "0:pid 0" 
   set -- $(run "$p")
   [ "$1" = 0 ] && [ "$2" = 0 ] && ok "no post with $why" || fail "$why: exit $1, $2 posts"
 done
-kill "$live" 2>/dev/null
 
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"42% ctx"*) ok "renders the context %: $line" ;; *) fail "no context % in: $line" ;; esac
