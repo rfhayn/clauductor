@@ -223,6 +223,28 @@ nb 2 "a stdout rewrite piped into sponge on tracked source" "node rw.mjs | spong
 nb 2 "a stdout rewrite piped into tee on tracked source" "node rw.mjs | tee $T"
 nb 2 "an inline node stdout rewrite piped into sponge" "node -e \"process.stdout.write(require('fs').readFileSync('$T', 'utf8').replace('x', 'y'))\" | sponge $T"
 nb 2 "an inline python stdout rewrite piped into tee" "python3 -c \"import sys; sys.stdout.write(open('$T').read().replace('x', 'y'))\" | tee $T"
+# Only a DIRECT run is exempt (the second review): no pipe into anything, no wrapper shell script,
+# no launch from the script, no stream rebound. Each of these is judged as on main.
+nb 2 "a stdout rewrite piped into install" "node rw.mjs | install /dev/stdin $T"
+nb 2 "a stdout rewrite piped into patch" "node rw.mjs | patch -p1"
+nb 2 "a stdout rewrite piped into dd" "node rw.mjs | dd of=$T"
+nb 2 "a stdout rewrite piped into cp" "node rw.mjs | cp /dev/stdin $T"
+cat > "$R/doit.sh" <<'SH'
+node -e "process.stdout.write(require('fs').readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y'))" > /tmp/o && mv /tmp/o src/lib/app.ts
+SH
+cat > "$R/launch.py" <<'PY'
+import subprocess
+subprocess.run("node -e \"process.stdout.write(require('fs').readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y'))\" | sponge src/lib/app.ts", shell=True)
+PY
+cat > "$R/report-define.mjs" <<'JS'
+import { createWriteStream, readFileSync } from 'node:fs';
+const s = readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y');
+Object.defineProperty(process, 'stdout', { value: createWriteStream('src/lib/app.ts') });
+process.stdout.write(s);
+JS
+nb 2 "a wrapper shell script redirecting a stdout rewrite onto tracked source" "sh doit.sh"
+nb 2 "a python script launching a stdout rewrite piped into sponge" "python3 launch.py"
+nb 2 "a node script rebinding process.stdout by defineProperty" "node report-define.mjs"
 # A script's cds compose with the command's only while they fit the 32-base cap; past it, each
 # resolves against the command's directories alone, and nothing is refused for the script's cds.
 cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'

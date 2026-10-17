@@ -65,11 +65,12 @@
 #   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`);
 #   - (inline too, as before OPS-80) a rewrite that only PRINTS (`print(`, `console.log(`) while
 #     the command sends its output onto tracked source (`> tmp && mv tmp src/x.ts`,
-#     `| sponge src/x.ts`, `| tee src/x.ts`): a print was never a write. A stream write
-#     (`process.stdout.write(`, `sys.stdout.write(`) on such a command IS judged (step 2);
-#   - (OPS-80) a stream write whose output is moved onto tracked source by something other than
-#     the command's own `>`, tee, sponge, mv, cp or dd (a later command, a wrapper script), or
-#     whose stream is rebound by a spelling step 2 does not know (`os.dup2`).
+#     `| sponge src/x.ts`, `| tee src/x.ts`): a print was never a write;
+#   - (OPS-80) a stream write (`process.stdout.write(`, `sys.stdout.write(`) is not counted as a
+#     write ONLY on a direct, unpiped, unredirected run of a script (or inline code) that writes to
+#     its own standard streams, launches nothing and rebinds no stream (step 2). What still
+#     passes: that run's output moved onto tracked source by a LATER Bash call, or a stream
+#     rebound by a spelling step 2 does not know (`os.dup2`).
 # And three false refusals:
 #   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
 #     ELSEWHERE is refused when it names the tracked path;
@@ -654,6 +655,9 @@ case "$cmd" in
 esac
 read_scripts=""
 codetext=""
+# Step 2's exemption for standard-stream writes (OPS-80): cleared below by a shell script, or a
+# backtick launch in a non-JS script, and in step 2 by the rest of its conditions.
+stream_ok=yes
 if [ -n "$scripts" ]; then
   find_repo
   set_bases "$(facts CD)" "$pcwd" "$PWD" || :
@@ -674,6 +678,9 @@ if [ -n "$scripts" ]; then
     binp=no
     printf '%s' "$body" | grep -Eq "$inplace_re" && { inplace=yes; binp=yes; }
     body=$(printf '%s\n' "$body" | strip_messages)
+    [ "$kind" = SHSCRIPT ] && stream_ok=no
+    sed -n 1p "$f" | grep -Eq '^#!.*[/[:space:]](sh|bash|zsh|dash|ksh)([[:space:]]|$)' && stream_ok=no
+    case "$f" in *.js|*.mjs|*.cjs|*.ts) ;; *) case "$body" in *'`'*) stream_ok=no ;; esac ;; esac
     cmd=$(printf '%s\n%s\n' "$cmd" "$body")
     bfacts=$(printf '%s\n' "$body" | scan_awk | grep -E "^(INPLACE\$|(LIT|GLOB|CD)$TAB)")
     sfacts=$(printf '%s\n%s\n' "$sfacts" "$bfacts")
@@ -725,22 +732,30 @@ esac
 # a report script that .replace()s in-memory strings and names a tracked path in a comment was
 # refused as a rewrite while writing no file at all. Such writes are removed before the test, the
 # way `print(` was never in it, so any OTHER write in the same text (writeFileSync, a stream's
-# `.write(`, a handle's) still counts. Nothing is removed in two cases, where a stream write may be
-# a file write:
-#  - the text REBINDS a stream (`sys.stdout = open(…)`, `setattr(sys, 'stdout', …)`,
-#    `redirect_stdout(…) as sys.stdout`, `process.stdout.write = …`);
-#  - the COMMAND ITSELF sends output anywhere but the terminal: a `>` to anything but /dev/null or
-#    another fd, or a tee, sponge, mv, cp or dd. Step 3 then resolves the literal target it names
-#    (`| sponge src/x.ts`, `> /tmp/o && mv /tmp/o src/x.ts`), as it did before OPS-80. A `>` inside
-#    inline code (an arrow function) counts too: it can only refuse more.
+# `.write(`, a handle's) still counts.
+#
+# ONLY THE SHAPE THAT CAN BE PROVEN SAFE IS EXEMPT, and everything else is judged as before OPS-80
+# (*A check that reads source is a parser*). Listing where output can go (tee, sponge, mv, …) is a
+# sample of the sinks, and two reviews found sinks past each list. So the stream writes are removed
+# only on a DIRECT run whose standard streams reach the terminal and nothing else:
+#  1. the command has no `|` at all, and no `>` except to /dev/null or another fd (a `>` inside
+#     inline code, an arrow function, counts too: it can only refuse more);
+#  2. no script it runs is a shell script (a wrapper's own `>` or pipe is the same hazard);
+#  3. no text launches a process or a shell (child_process, exec, spawn, subprocess, os.system,
+#     popen, qx, a backtick outside JS), whose command string could redirect;
+#  4. no text REBINDS a stream (`sys.stdout = open(…)`, `setattr(sys, 'stdout', …)`,
+#     `redirect_stdout(…) as sys.stdout`, `process.stdout.write = …`, `defineProperty(process,
+#     'stdout', …)`).
 # `writeSync` is node's descriptor write (fs.writeSync(fs.openSync(f, 'w'), …)).
 wcmd=$cmd
-if ! printf '%s\n' "$cmd" | grep -Eq '(stdout|stderr)([.]write)?[[:space:]]*=[^=]|redirect_std|setattr[(][^)]*std(out|err)|as[[:space:]]+sys[.]std(out|err)' \
-  && ! printf '%s\n' "$own" \
-    | sed -E 's/[0-9]*>>?[[:space:]]*\/dev\/null//g; s/&>>?[[:space:]]*\/dev\/null//g; s/[0-9]*>&[0-9-]+//g' \
-    | grep -Eq '>|(^|[^[:alnum:]_.-])(tee|sponge|mv|cp|dd)([^[:alnum:]_.-]|$)'; then
-  wcmd=$(printf '%s\n' "$cmd" | sed -E 's/(process|sys)[.](stdout|stderr)([.]buffer)?[.]write(lines)?[(]//g')
-fi
+printf '%s\n' "$cmd" | grep -Eq 'child_process|exec|spawn|subprocess|system[[:space:]]*[(]|[Pp]open|qx' && stream_ok=no
+printf '%s\n' "$cmd" | grep -Eq '(stdout|stderr)([.]write)?[[:space:]]*=[^=]|redirect_std|setattr[(][^)]*std(out|err)|as[[:space:]]+sys[.]std(out|err)|defineProperty[(][^)]*std(out|err)' && stream_ok=no
+case "$own" in *"|"*) stream_ok=no ;; esac
+printf '%s\n' "$own" \
+  | sed -E 's/[0-9]*>>?[[:space:]]*\/dev\/null//g; s/&>>?[[:space:]]*\/dev\/null//g; s/[0-9]*>&[0-9-]+//g' \
+  | grep -q '>' && stream_ok=no
+[ "$stream_ok" = yes ] \
+  && wcmd=$(printf '%s\n' "$cmd" | sed -E 's/(process|sys)[.](stdout|stderr)([.]buffer)?[.]write(lines)?[(]//g')
 case "$wcmd" in
   *"write_text("*|*".write("*|*"writelines("*|*"writeFile"*|*"writeSync"*) ;;
   *"sed -i"*|*"perl -pi"*|*"perl -i"*|*"ruby -pi"*|*"ruby -i"*) ;;
