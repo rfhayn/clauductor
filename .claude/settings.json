@@ -98,7 +98,6 @@
       "Read(*.key)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.config/gh/**)",
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(sudo *)",
@@ -151,6 +150,7 @@
           "mode": "deny"
         }
       ]
-    }
+    },
+    "enableWeakerNetworkIsolation": true
   }
 }

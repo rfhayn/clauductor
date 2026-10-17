@@ -12,7 +12,7 @@ printing every open item and nothing else.
 
 ## Open
 - [ ] 2026-10-14 — OPS-42 (`changes/ops-42-routines/`): approve its design again once it is amended to read the quota through `lib/quota.sh` (OPS-67, #124) instead of the panel's `quota.json` (task 4.3, ROUTINES-7-S6/S7/S8 and 8-S6). The amendment is drafted before OPS-42's build resumes; this is your decision of 2026-10-14.
-- [ ] 2026-10-16 — PANEL-42's D5 (the code-running forms an untrusted repository's lane command may not use): should it also refuse fish's `-C` / `--init-command`? It runs code like `-c`, but is not an alias of a form D5 names, so it is a design call. Your answer goes into PANEL-47 (`ops/panel-47-panel-42-lows`), which is built after it.
+- [x] 2026-10-16 — PANEL-42's D5 (the code-running forms an untrusted repository's lane command may not use): should it also refuse fish's `-C` / `--init-command`? It runs code like `-c`, but is not an alias of a form D5 names, so it is a design call. Your answer goes into PANEL-47 (`ops/panel-47-panel-42-lows`), which is built after it.
 
 ## Done
 - [x] 2026-10-14 — Six lane worktrees from 2026-09-30 hold uncommitted work and were never merged: `.claude/worktrees/agent-*` on `feature/OPS-10-evals`, `feature/P1-records-parsers`, `feature/OPS-9-metrics`, `feature/P1-install-update-diff`, `ops/OPS-14-rehearsal-fixes` and `ux/harness-19-20`. Say keep or discard; removing them cannot be undone, so no session does it without you. Discarded on the owner's word of 2026-10-14; their branches are kept.
