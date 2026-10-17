@@ -12,7 +12,7 @@ THE SYSTEM SHALL serve the page's script as one `type="module"` entry whose ever
 - **THEN** each specifier is relative and names a file under `static/` that the embedded files hold
 - **AND** `index.html` loads exactly one `<script type="module">`, holds no inline `<script>` and no import map
 - **AND** no module calls an imported binding or reads `document`, `window`, `location`, `localStorage`, `navigator`, `matchMedia` or `ResizeObserver` at its own top level, while a top-level function that does so when called (`const f = () => g()`) passes
-- **AND** each pure module (`states`, `home`, `layout`, `boxes`, `chips`, `pulse`, `commands`) imports only pure modules
+- **AND** each pure module (`states`, `home-groups`, `layout`, `box-views`, `chips`, `stage-route`, `pulse-sections`, `commands`) imports only pure modules
 
 #### Scenario: [PAGE-1-S2] A module is served as JavaScript only with the cookie
 - **GIVEN** a running panel
@@ -94,10 +94,10 @@ WHEN no lane is opened THE SYSTEM SHALL show home: the lane whose ask is oldest 
 - **WHEN** its tail is asked for
 - **THEN** the answer is the last four lines of output, with no escape sequence, no rule, no prompt, no typed text and no status line
 
-#### Scenario: [PAGE-4-S4] A pane with no rule gives its last four lines with words
+#### Scenario: [PAGE-4-S4] A pane with no rule gives its last four non-blank lines
 - **GIVEN** a lane whose pane shows ten lines of build output, a box whose bottom is `╰────╯`, and two blank lines, and no line of `─` only
 - **WHEN** its tail is asked for
-- **THEN** the answer is the pane's last four lines with words in them, the box's bottom among them
+- **THEN** the answer is the pane's last four non-blank lines, the box's bottom among them
 
 #### Scenario: [PAGE-4-S5] The tail answers only for the project's own lanes, with the cookie
 - **GIVEN** a running panel serving a project with the lane `lane-a`
@@ -108,6 +108,11 @@ WHEN no lane is opened THE SYSTEM SHALL show home: the lane whose ask is oldest 
 - **GIVEN** the recorded capture of a working Claude Code lane's pane in `lanes/testdata/`
 - **WHEN** its tail is computed
 - **THEN** the answer holds the four output lines above the prompt frame's upper rule, and none of the frame's lines
+
+#### Scenario: [PAGE-4-S7] A pane that is not full yet, or holds a long prompt, is still cut above its frame
+- **GIVEN** a lane whose pane shows five lines of output, its prompt frame (a rule, the prompt, a rule, a status line), then thirty blank rows; and another whose frame holds a typed prompt of fifteen lines
+- **WHEN** each tail is asked for
+- **THEN** each answer is the four output lines above the frame's upper rule, with none of the frame's lines
 
 ### Requirement: An opened lane is a stage: filmstrip, terminal, then Context, Pull request and Run
 WHEN a lane is opened THE SYSTEM SHALL show the filmstrip of the live lanes, the lane's terminal as the stage's first track, and one row of the Context, Pull request and Run boxes beneath it, fold the boxes and Pulse by the keys and the window's size ADR-0009 sets, and SHALL never open a lane for the owner because it needs them.
@@ -150,7 +155,7 @@ THE SYSTEM SHALL offer every function in PANEL-45's inventory at the place its s
 - **GIVEN** the command registry
 - **WHEN** its entries are listed for a selected lane that runs in tmux, and for a lost lane
 - **THEN** the first holds Restart…, Stop lane…, Close lane…, Remote control…, Interrupt, Worktrees, Refresh, hide the sidebar, New lane, Activity, Metrics, Help, each mode, the text sizes and every project's switch
-- **AND** the second holds Restore, Resume, Forget and Close lane
+- **AND** the second holds Restore all, Resume, Forget and Close lane
 - **AND** the page's lane action requests are sent from one module only, and every ⋯ item and palette entry dispatches by the registry's id
 
 #### Scenario: [PAGE-6-S2] The functions the owner dropped are gone
@@ -168,6 +173,7 @@ THE SYSTEM SHALL offer every function in PANEL-45's inventory at the place its s
 - **WHEN** they are listed for a Mac and for any other platform
 - **THEN** the palette, the boxes' fold, Pulse's fold and the sidebar are ⌘K, ⌘J, ⌘. and ⌘\ on a Mac, and Ctrl+Alt+K, Ctrl+Alt+J, Ctrl+Alt+. and Ctrl+Alt+\ elsewhere
 - **AND** none of them is a plain Ctrl key the terminal uses
+- **AND** a key event with AltGraph held (Windows reports Ctrl and Alt together) runs none of them, nor K-5's text-size keys
 
 ### Requirement: Pulse holds only what exists
 THE SYSTEM SHALL draw Pulse's column from a list of sections in ADR-0009's order, holding Flow and the pinned cards, and SHALL draw no section, heading or sample row for a feature no row has built.

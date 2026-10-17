@@ -45,9 +45,9 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     JavaScript type under `nosniff`. The cookie rides a same-origin module fetch, so
     `requireAuth` is unchanged.
   - **The modules:** one per area of today's file, named for the section comments it already has.
-    Among them: `conn`, `time`, `graphics`, `lanes`, `states` (D6), `needs`, `status` (the top
-    bar), `sidebar`, `home`, `stage`, `boxes`, `terminals`, `dialogs`, `commands` and `palette`
-    (D9), `metrics`, `activity`, `projects`, `layout`, `pulse`.
+    Among them: `conn`, `time`, `graphics`, `lanes`, `needs`, `status` (the top bar), `sidebar`,
+    `home`, `stage`, `boxes`, `terminals`, `dialogs`, `actions` and `palette` (D9), `metrics`,
+    `activity`, `projects`, `pulse`, and the pure ones below.
   - **Shared state:** what the page holds today in top-level `let`s (`S`, `selKey`, `PID`, `P`,
     `conn`, …) moves into one exported object in `js/store.js`. An ES import binding cannot be
     assigned by its importer, so a setter per variable would multiply call sites.
@@ -59,9 +59,20 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
        `navigator`, `matchMedia`, `ResizeObserver`) at its top level. What today runs at load
        (`STYLE_NONCE`, `PID` from `location.search`, the listeners, `new ResizeObserver`) moves
        into each module's `init()`. The entry calls them in order, then connects.
-  - **Pure modules:** `states`, `home`, `layout`, `boxes`, `chips`, `pulse` and `commands` import
-    only one another. They are what node runs (D13). `TestModulesImportCleanly` holds both rules
-    and the pure set (PAGE-1-S1).
+  - **Pure modules decide; other modules draw.** The decisions node tests live in their own files,
+    which draw nothing and import only one another:
+    - `states.js` (D6);
+    - `home-groups.js` (`homeGroups`, D8);
+    - `layout.js`;
+    - `box-views.js` (`contextView` and the PR and Run rows);
+    - `chips.js`;
+    - `stage-route.js` (what stays opened, Needs you's order);
+    - `pulse-sections.js` (`SECTIONS`);
+    - `commands.js` (D9).
+
+    The modules that draw (`home`, `boxes`, `pulse`, `stage`, `palette`, …) import them along
+    with `graphics` (`el()`) and `store`. `TestModulesImportCleanly` holds both rules, and that a
+    pure module imports only pure modules (PAGE-1-S1).
   - **The classic helpers stay classic:** `theme.js`, `xterm-style.js`, `term-links.js`,
     `start-plan.js`, `project-config.js`, and PANEL-48's context-colour file (its task 4.2, D15)
     load before the module, as globals. Their node harnesses run each file in a `vm` context with
@@ -79,12 +90,17 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - `no-blind-source-rewrite.sh` refuses a scripted move of tracked source, so the builder
       moves code with Edit. Group 1 is the costliest per line for that reason (D14).
     - The reviewer is not asked to read 4,151 moved lines. Group 1 commits
-      `testdata/ux/moved.sh`. It joins the modules in a fixed order, drops `import`/`export`
-      lines and the `store.` prefix, and diffs the result against `git show <base>:…/panel.js`.
-      Every line that is not a pure move is printed: `init()` bodies, the store's fields and any
-      edit.
-    - The orchestrator runs it and gives the reviewer that list with `git diff --color-moved`.
-      A line the list shows that the Decision log does not explain is a finding.
+      `testdata/ux/moved.sh`, which compares by declaration, not by position:
+      1. it splits the base's `panel.js` and the modules into top-level declarations (a
+         `function`, `const`, `let` or `class` and its body);
+      2. it drops `import` lines and only the `export ` keyword, and normalises the `store.`
+         prefix;
+      3. it matches declarations by name, whatever their file or order;
+      4. it prints only what differs: a declaration whose text changed, one that is new (each
+         `init()`, the store's fields), and one that is gone.
+    - The session runs it and records its output with the group's Progress line, beside
+      `git diff --color-moved` as the view of order. A declaration it prints that the Decision
+      log does not explain is a finding.
   - **Beat:**
     - a bundler or npm, which PRD-ui decision 2 rules out;
     - one module per `render*()` function: about 25 files, with cycles everywhere;
@@ -157,12 +173,17 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
       `tmux capture-pane -p -J -t =<id>:`, with no `-e`, so it carries no escape sequences.
   - **Where it cuts:** Claude Code draws its prompt as a frame at the pane's foot: a rule, the
     prompt line(s), a rule, then a status line or two.
-    - The cut is the **uppermost** line, among the pane's last 12, made only of `─` (U+2500) and
-      spaces. A box's bottom (`╰───╯`) holds corners, so it is not a rule.
-    - The preview is the last four lines with words in them above that cut, with no prompt, no
-      typed text and no cursor, as the mockup draws it (`4-hybrid.html:1008`, which takes the
-      first rule too).
-    - With no rule in those 12 lines, it is the pane's last four lines with words in them.
+    - First the blank rows below the content go. A pane that is not full yet (a freshly started
+      lane, drawn inline) ends in them.
+    - A rule is a line made only of `─` (U+2500) and spaces. A box's bottom (`╰───╯`) holds
+      corners, so it is not a rule.
+    - The cut is the frame's **upper** rule:
+      - with two or more rules in the last 40 non-blank-trimmed lines, it is the second rule from
+        the bottom, so a long typed prompt or a completion list between the two rules stays out;
+      - with one rule, it is that rule;
+      - with none, nothing is cut.
+    - The preview is the last four non-blank lines above the cut, with no prompt, no typed text,
+      no status line and no cursor, as the mockup draws it (`4-hybrid.html:1008`).
     - Group 5 records a capture of a real Claude Code pane in `lanes/testdata/` as the
       scenario's fixture (PAGE-4-S6), so the cut is held to the real frame, not only the fake's.
   - **How it is drawn:** as text (`textContent`), never HTML.
@@ -180,12 +201,14 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     1. the lane whose ask is oldest is the spotlight, the only xterm on home;
     2. any other lane that needs you leads the tiles with its red ring;
     3. working tiles, each with its preview (D7);
-    4. waiting tiles, both compact;
+    4. waiting tiles, compact;
     5. idle tiles, compact: exited, orphaned and no hooks first, then idle;
-    6. the lost lane, with Restore;
+    6. the lost lane, with Restore all (D9);
     7. the New lane tile.
 
-    `homeGroups(lanes)` is a pure function.
+    Above them, home's heading counts the lanes by state ("3 working, 1 needs you, … 1 lost"),
+    which replaces the Lanes figure (SB-10) on home. `homeGroups(lanes)` is pure
+    (`home-groups.js`); `home.js` draws.
   - **The terminal's life:** today a visited running lane keeps its xterm and tmux client
     (`panel.js:2579-2586`). That stays.
     - The spotlight reuses the lane's xterm if it has one, refitted to the spotlight's frame.
@@ -205,10 +228,11 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - Activity → the Activity sheet, filtered to the lane.
   - **The Context box draws PANEL-48's measures through PANEL-48's own function.** PANEL-48 task
     4.2 puts the warning-colour and tick decision in a classic static file, tested in
-    `web/context_colour_test.go` and citing LANECTX-2-S4. `boxes.js`'s `contextView(lane,
+    `web/context_colour_test.go` and citing LANECTX-2-S4. `box-views.js`'s `contextView(lane,
     state, decide)` calls that function, which the entry passes in from its global. It holds no
     threshold or tick of its own, so the decision has one implementation and LANECTX-2-S4's test
-    stays on live code.
+    stays on live code. Its node test runs PANEL-48's file in a `vm` context with a `window`, as
+    the existing harnesses do, and passes the function in as `decide`.
   - **The terminal's header:** name, state chip, branch, the ↵ to type / Typing into … hint
     (WS-14), then the chips. The chips give way whole, from the end: uptime, the port, Remote,
     then thinking. The model and effort stay. `headerChips(lane, width)` is pure.
@@ -221,9 +245,9 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     (`TERM_COLS`, `panel.js:3434`) and the side panel's drag edge (SP-16, dropped by the owner
     in variant 4).
   - **The sidebar's edge stays draggable.** RAIL-14 and K-10 stay: variant 4 drops only SP-16's
-    edge, and only the owner drops a function. The drag sets a width kept per browser, as the
-    rail's is today. A double-click or Escape on the edge resets it to ADR-0009's 252 px, or 268
-    px from 1700 px.
+    edge, and only the owner drops a function. The drag, or ←/→ and Home/End on the focused
+    edge, sets a width kept per browser, as the rail's is today. A double-click or Escape resets
+    it to ADR-0009's 252 px, or 268 px from 1700 px, and Enter hides the sidebar.
   - **A lane that needs you while another is open** is not opened for you: its filmstrip tile
     breathes red, and it leads Needs you (ADR-0009). The route and the Needs-you order are pure
     functions (PAGE-5-S3).
@@ -238,6 +262,10 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
   - **What it holds:** every function the shared placement puts behind ⌘K, among them:
     - the lane actions (Restart…, Stop lane…, Close lane…, Remote control…, Interrupt), and the
       lost lane's Resume, Forget and Close lane (WS-25);
+    - **Restore all** (BN-4). The server restores lost lanes only together (`POST
+      …/lanes/restore-all`, `routes.go:298`), so the sidebar's and the lost tile's Restore is
+      Restore all. It keeps BN-4's quota-guard override, its result line and **Dismiss**. A
+      single lost lane comes back through its own Resume;
     - **Worktrees**, a sheet of the tree, with New lane here and Remove;
     - **Refresh** (SB-19, ⌘K only);
     - hide the sidebar (RAIL-13, ⌘\);
@@ -250,6 +278,10 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
       ⌘ key.
     - Off a Mac they are Ctrl+Alt+K, Ctrl+Alt+J, Ctrl+Alt+. and Ctrl+Alt+\, as K-5's text-size
       keys are. That leaves the terminal its Ctrl+K and Ctrl+J, and leaves the browser its own.
+    - Every Ctrl+Alt handler, K-5's included, ignores an event with
+      `getModifierState("AltGraph")`. On Windows AltGr reports Ctrl and Alt together. Today
+      AltGr+ß on a German layout (a `\`, code `Minus`) shrinks the page instead of typing
+      (`panel.js:2355`), and four more keys would copy that.
     - Esc leaves the stage only outside the terminal and fields, where `?` works too. In the
       terminal, Esc is claude's.
   - **Beat:** a row of its own for the palette, keeping today's buttons meanwhile. The hybrid
@@ -288,10 +320,13 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     1. it runs the quick gate;
     2. it runs `shots.sh` (and, in group 1, `moved.sh`), outside the sandbox, since they need a
        loopback port, tmux and Chromium, as PANEL-42's 5.3 did;
-    3. it hands the PNG paths to the reviewer;
+    3. it writes the shots' folder (and `moved.sh`'s output) into the group's Progress line in
+       `tasks.md`, which the reviewer reads with the change's files, so the reviewer is still
+       spawned with only the change id and the group (`/apply-change` step 4);
     4. once review converges, it ticks the group's shots task.
 
-    Each such task is marked *(the session)* in `tasks.md`.
+    Each such task is marked *(the session)* in `tasks.md`. The session carries eight groups'
+    orchestration this way, which D14's budget counts.
   - **For later UI rows:** the mechanism is a new row, **OPS-80**, which this proposal queues. It
     gives `build-change` a project review step that runs `shots.sh` when a group's diff touches
     `framework/internal/panel/web`, and hands the reviewer the shots. Until OPS-80 merges, each
@@ -309,7 +344,7 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
   | Row | Its place |
   |---|---|
   | PANEL-50 | the Context box's contributors list: `js/contributors.js` exports `drawContributors(box, lane)`, which draws nothing until PANEL-50 fills it; the box reserves no height for it |
-  | PANEL-37 | a routines section in Pulse: `js/pulse.js` draws the sections in its `SECTIONS` list, which holds Flow then Pinned here (ADR-0009's order: routines, Today, the next 14 days, Flow, the pinned cards); PANEL-37 adds routines at the top |
+  | PANEL-37 | a routines section in Pulse: `js/pulse.js` draws the sections in `pulse-sections.js`'s `SECTIONS` list, which holds Flow then Pinned here (ADR-0009's order: routines, Today, the next 14 days, Flow, the pinned cards); PANEL-37 adds routines at the top |
   | PANEL-38 | Today and the next 14 days: two more `SECTIONS` entries, after routines |
   | PANEL-31 | the version field at the sidebar's foot, beside Live; until then BN-3's notice shows under the top bar, restyled |
   | PANEL-30 | the Worktrees sheet's Remove (D9), whose request is today's |
@@ -360,13 +395,15 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
   - **Risk:** normal. It runs the opus/high builder and reviewer.
   - **The budget, from the actuals:**
     - PANEL-42 cost $70.87 over five groups, about $14 a group;
-    - PANEL-45's archive records about $31.74, while the owner counts it at $48.22. Its own line
-      says the tracker cannot see agent transcripts (OPS-74), so the higher figure is the safer
-      one;
-    - PANEL-48 is heading to about $90.
+    - PANEL-45's archive records about $31.74, while the owner, briefing this proposal on
+      2026-10-17, counted it at $48.22. Its own line says the tracker cannot see agent transcripts
+      (OPS-74), so the higher figure is the safer one;
+    - PANEL-48 is heading to about $90, by the same briefing.
 
-    Eight groups at about $14 is about $112. Group 1's moves by hand and the screenshot reviews
-    add to that, so $120 is the top of the owner's $100–120 range.
+    Eight groups at about $14 is about $112. Group 1's moves by hand, the screenshot reviews and
+    the session's own orchestration of eight groups under `/apply-change` (D11) add to that. So
+    $120 is the top of the $100–120 the owner said to expect in that briefing, with two
+    sessions.
   - **Soft:** reaching it is reported to the owner and the build goes on, as PANEL-48's is.
   - **Beat:**
     - high risk: the xhigh builder on eight groups would take the cost past the owner's range,
@@ -394,7 +431,9 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
   | Inventory | Group | Where |
   |---|---|---|
   | PG-1 to PG-11 (PG-12 dropped by the owner) | 1, 2, 4 | kept as they are; PG-4 and PG-5's Live and the connection bar in 3; PG-7 by the motion rules in 2 |
-  | SB-1 to SB-22 | 3 | the top bar's figures; SB-13 to SB-15 behind its ⋯; SB-22's rule (Gate, then Lanes, then Economy give way into the ⋯ before it would wrap); SB-16 New lane; SB-17, SB-18 in 4; SB-19 Refresh in 7 (⌘K only) |
+  | SB-2 | 3 | the badge on a project's row in the menu, and *Other projects* in the sidebar (the mockup's section, `4-hybrid.html:582`) |
+  | SB-10 | 5 | out of the strip on home and in a lane: home's heading counts the lanes by state, and the filmstrip is the count |
+  | SB-1 to SB-22 (less SB-2, SB-10) | 3 | the top bar's figures, as Variant 1's table places them (which variant 4 inherits through Overview first); SB-13 to SB-15 behind its ⋯; SB-22's rule (Gate, then Lanes, then Economy give way into the ⋯ before it would wrap); SB-16 New lane; SB-17, SB-18 in 4; SB-19 Refresh in 7 (⌘K only) |
   | NY-1 to NY-7 | 3 | the sidebar's Needs you and alerts |
   | BN-1 to BN-5 | 3 | BN-1, BN-3 notices under the top bar; BN-2 in the project menu; BN-4 the lost lane in the sidebar; BN-5 a toast at the bottom left with **Dismiss** |
   | RAIL-1, 3, 5, 7 to 15 | 3, 6, 7 | RAIL-5 the sidebar's lane rows; RAIL-8 the ⋯; RAIL-12 the fade; RAIL-13 ⌘\ (7); RAIL-14 the sidebar's edge (D8); RAIL-7 Context's cache line (6); RAIL-9 to 11 Worktrees (7) |
@@ -412,17 +451,25 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
   - **Beat:** relying on each group to remember. That is how a variant loses the functions
     nobody looks at (PANEL-45 D6), and round 1 of this proposal's review found ten such gaps.
 
-- **D17 The tells hold from group 2, over the selectors that survive (recommended).**
-  - **The tells:** group 2 rewrites the tells test and applies tells 1 to 9 to all of
-    `panel.css`.
-  - **The old layout's selectors:** the rail, the tab strip and the side panel are deleted by
-    groups 3 to 6, so restyling them first would be wasted work.
-    - Their selectors go in one named list in `tells_test.go`, `legacySelectors`, which the tells
-      skip.
-    - Each group deletes its share of the CSS and of that list. Task 6.8 asserts the list is
-      empty.
-    - The tokens and the floors hold over every selector from group 2 on, the legacy ones
-      included: a legacy rule names only tokens.
+- **D17 The tells hold from group 2, over the selectors no later group replaces (recommended).**
+  - **The tells:** group 2 rewrites the tells test and applies tells 1 to 9 to every selector of
+    `panel.css` that is not legacy.
+  - **Legacy is everything a later group replaces:** groups 3 to 7 replace or restyle these, so
+    restyling them in group 2 would pay for the same CSS twice:
+    - the status bar (group 3);
+    - the Needs-you rows and the banners (3);
+    - the rail (3);
+    - the drawers (4);
+    - the tab strip, the workspace and the side panel (6);
+    - the menus and every dialog (7).
+  - **How the list works:**
+    - Their selectors go in one named list in `tells_test.go`, `legacySelectors`, which tells 1
+      to 9 skip.
+    - Each group deletes or restyles its share and removes it from the list.
+    - Task 7.7 asserts the list is empty and stays so.
+  - **What holds the legacy rules meanwhile:** the tokens and the floors hold over every selector
+    from group 2 on, the legacy ones included. A legacy rule names only tokens.
+  - **Group 2 is tokens, motion, the face, the mode and the states.** It restyles no layout.
   - **Motion and colour are tokens and keyframes in group 2:**
     - the pings (2 s, 1.4 s), the breathe (2.8 s), `enter`, `fade`, `forward`;
     - `prefers-reduced-motion`;
@@ -430,8 +477,8 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
 
     Groups 5 and 6 use them: the tile's 1 px hover rise, the chip's 200 ms crossfade, and the
     lane moving to its state's place.
-  - **Beat:** restyling the old layout to pass every tell and then deleting it, which pays for
-    the same CSS twice.
+  - **Beat:** restyling the old layout to pass every tell and then replacing it, which pays for
+    the same CSS twice and makes group 2 a whole-page restyle too large for one review round.
 
 ## Refusals
 | Situation | What happens instead |
