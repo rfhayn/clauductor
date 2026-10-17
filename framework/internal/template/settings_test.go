@@ -69,6 +69,33 @@ func TestMergeSettingsIntoEmpty(t *testing.T) {
 	}
 }
 
+// OPS-75: a deny the template used to ship and retired leaves a project on update, reported as a
+// remove with its reason; the project's own denies stay. Without it, an installed project kept the
+// gh deny while gaining the sandbox key meant to pair with its removal.
+func TestMergeSettingsRetiresDeny(t *testing.T) {
+	tmpl := templateSettings(t)
+	have := []byte(`{"permissions":{"deny":["Read(~/.config/gh/**)","Read(./secrets/**)"]}}`)
+	merged, changes, err := MergeSettings(have, tmpl, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(merged), "~/.config/gh") {
+		t.Errorf("the retired gh deny survived the merge:\n%s", merged)
+	}
+	if !strings.Contains(string(merged), "Read(./secrets/**)") {
+		t.Errorf("the project's own deny was dropped:\n%s", merged)
+	}
+	removed := false
+	for _, c := range changes {
+		if c.Action == "remove" && strings.Contains(c.Have, "~/.config/gh") && c.Note != "" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Errorf("no remove with a reason reported for the gh deny: %+v", changes)
+	}
+}
+
 // Invalid JSON in the project's file is an error that names it, never an overwrite.
 func TestMergeSettingsRefusesInvalid(t *testing.T) {
 	if _, _, err := MergeSettings([]byte("{ not json"), templateSettings(t), nil); err == nil || !strings.Contains(err.Error(), "project's settings.json") {

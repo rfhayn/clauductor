@@ -170,7 +170,7 @@ func TestTemplateChecks(t *testing.T) {
 	}
 	root := repoRoot(t)
 	cmd := exec.Command("sh", filepath.Join(root, "template", ".claude", "checks", "run.sh"))
-	// A private HOME: the status-line and focus checks write per-branch focus files under it.
+	// A private HOME: the status-line check writes panel and quota files under it.
 	cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "TMPDIR="+t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
