@@ -16,7 +16,8 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       and kept for the session once found;
     - its subagents' transcripts, every `*.jsonl` under `projects/<that folder>/<id>/subagents/`,
       workflow agents' deeper folders included. The evidence tool's first version missed those and
-      reported half the cost.
+      reported half the cost. That folder is walked again on every poll, because a new subagent
+      adds a file.
   - **The id:** it must be a UUID, the shape `--session-id` takes, before any path is built. A
     session whose id is not one is never read.
   - **No path from a payload:** `HookEvent` still declares no `transcript_path`, and
@@ -30,27 +31,42 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       and the folder a long path gets is not its plain spelling.
 
 - **D2 The reader decodes an allowlist of fields, and nothing else.**
-  - **What it decodes:** each line's `type`, `timestamp` and `version`. For an `assistant` line,
-    also `message.id` and `message.model`, and `message.usage`'s `input_tokens`, `output_tokens`,
-    `cache_creation_input_tokens`, `cache_creation.ephemeral_1h_input_tokens`,
-    `cache_read_input_tokens` and `speed`.
+  - **What it decodes:** each line's `type` and `version`. For an `assistant` line, also
+    `message.id`, `message.model` and `message.usage`:
+    - **Required:** `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and
+      `cache_read_input_tokens`. An absent one is "could not read" (D7), never 0. A renamed count
+      must not read as an empty context.
+    - **Optional:** `cache_creation.ephemeral_1h_input_tokens` (absent: every write is a 5-minute
+      write) and `speed` (absent: standard).
   - **What it never decodes:** prompt text, tool input, tool results, file paths and assistant
     text are never decoded or stored.
-  - **How:** a line that does not contain `"usage"` is skipped before any decoding, as the evidence
-    tool does. The rest are decoded into one declared Go type that holds only those fields.
+  - **How:** every line is decoded into one declared Go type that holds only those fields.
+    encoding/json keeps nothing a type does not declare, so the line's content is scanned and
+    dropped. There is no pre-filter, unlike the evidence tool's skip of lines without `"usage"`.
+    With one, a release that renamed `usage` would have every new line skipped, and the figures
+    would freeze with no error.
+  - **Synthetic records:** an `assistant` record whose model is `<synthetic>` is one Claude Code
+    writes itself, for an API error or a rate-limit stop. It is left out of cost and of context,
+    and it is not UNPRICED, as the evidence tool skips it. Otherwise, after each rate-limit stop, a
+    lane would read 0% and its alert would clear.
   - **Beat:** decoding each line into a generic map. That would hold content in memory, and the
     allowlist could not be tested. PANEL-50 needs content to attribute context to its sources. It
     widens the type by its own decision, and D8's test makes the widening a reviewed diff.
 
 - **D3 Only an attached project's lanes are read, and there the transcript is the one source of
-  context and cost.**
+  cost, and of a windowed session's context.**
   - **Which projects:** a project whose config resolves outside its repository (PANEL-42's
     `install.ConfigOutside`, already held by the runtime as `outsideConfig`).
   - **Which sessions:** every session the state holds in that project, whether in a lane the
     panel launched or one that hooks place in its worktrees.
   - **A status post there** still moves the quota, and every figure a transcript does not carry,
-    such as cache warmth, lines changed and durations. It no longer sets the session's context or
-    cost, because one session must not have two sources.
+    such as cache warmth, lines changed and durations.
+    - It no longer sets the session's cost, the model or the context of a session with a recorded
+      window, because one session must not have two sources of them.
+    - It still sets the context of a session without a recorded window. This is LANECTX-2's
+      `used_percentage`, which a transcript cannot give. A context figure is not cumulative, so the
+      ledger's reason for one source does not apply to it, and LANECTX-2 holds unchanged in an
+      attached project.
   - **Projects with the config in the repository** read no transcript, and are measured exactly as
     today.
   - **Beat:**
@@ -62,7 +78,8 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 
 - **D4 Context: the last main-thread call, over the lane's recorded window, through PANEL-48's
   computation.**
-  - **The figure:** the last `assistant` record of the session's own transcript. Its
+  - **The figure:** the last `assistant` record of the session's own transcript that is not
+    synthetic (D2). Its
     `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` are the same three
     counts PANEL-48 D7 sums from the status line's `current_usage`. Their sum is divided by the
     window PANEL-48 recorded on the lane.
@@ -70,11 +87,17 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     session's and the metrics' context, `CtxWindow`, the tick and the alert threshold are PANEL-48's
     exactly. Subagent calls do not count toward the session's context, as they do not in Claude
     Code's.
-  - **A session without a recorded window** shows its cost but no percentage. That covers a lane
-    launched before its sidecar had a `launch` object, and a session the panel did not launch.
-    - The page warns once per project, naming `launch.context_window`.
+  - **A session without a recorded window** shows its cost. It shows a percentage only where its
+    status line posts one (D3). That covers a lane launched before its sidecar had a `launch`
+    object, and a session the panel did not launch, such as one a `/clear` started under a new id,
+    or one the owner started in a terminal.
+    - The page warns once per project, worded for which case it is:
+      - for a panel lane launched without a window, the warning names `launch.context_window`;
+      - for a session the panel did not launch, it says the panel knows no window for it.
     - Standing Tee's sidecar predates PANEL-48, and its outcome step adds the `launch` object by
-      hand. Until then, this warning is what the owner sees.
+      hand. Until then, the first warning is what the owner sees.
+  - **The alert's time** is the time of the reading that set the figure. Today it is the last
+    status post's, which a session measured from its transcript does not have.
   - **Beat:**
     - a table of each model's default window. It is a second table to keep current, and a wrong
       entry would draw the bar and fire the alert at the wrong point, silently;
@@ -87,8 +110,11 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     `FAST_MULTIPLIER`, each row with its source and date.
     - A model id matches its exact version only, after a date suffix (`-20251001`) or a context
       tag (`[1m]`) is stripped. So `claude-opus-5-6` is not priced as Opus 5.5.
-    - A cache write costs 1.25× input for 5 minutes and 2× for an hour. The streamed lines of one
-      message share an id, and the message is counted once.
+    - A cache write costs 1.25× input for 5 minutes and 2× for an hour.
+    - The streamed lines of one message share an id, and the message is counted once, at its LAST
+      line's usage, as the evidence tool keeps the last. The cursor keeps the last message id and
+      what it booked for it, so a later line with that id replaces the booking, even in a later
+      read.
     - Haiku 5.5 joins the table only with its rate from the published pricing page, cited with the
       date as the tool's Sonnet 5.5 row is. Without it, it stays unpriced.
   - **UNPRICED:** a model not in the table, or fast mode on a model with no fast rate, is
@@ -97,9 +123,14 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
     - A page warning names the lane, the model and how many calls were left out, as the evidence
       tool reports UNPRICED beside its total.
     - A session whose every call is unpriced shows no figure, not $0.
-  - **Where it goes:** into the same three places as the status line's `total_cost_usd`:
-    `costByID`, `countCost` and `observeSpend`. So est. $, cost today, the Metrics view's spend,
-    and a change's budget alert count an attached project's lanes.
+  - **Where it goes:** into the same four places as the status line's `total_cost_usd`.
+    - `costByID` feeds the project's est. $, `countCost` the cost today, and `observeSpend` the
+      ledger behind the Metrics view's spend and a change's budget alert.
+    - The session's `Stats.CostUSD` (`Metrics.CostUSD`) is what the lane's cost cell, its detail
+      and the Metrics view's lane rows draw, summed by `Metrics.add`.
+  - **The model:** the session's model is the last non-synthetic main-thread record's
+    `message.model`, as its id (`claude-opus-5-5`). The ledger books spend under it, where a
+    status post books the display name.
   - **Beat:**
     - no figure for a session with any unpriced call. One Haiku subagent would blank a lane's cost,
       and Haiku 5.5 was $0.13 of the $1,208 week;
@@ -112,6 +143,9 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 - **D6 The reader runs every 10 s, and reads only what was appended.**
   - **Where it runs:** one source in the runtime, added only for an attached project. It reads
     each session the state holds in the project.
+    - Whether the project is attached is passed into `newRuntime`, which builds the source table.
+    - Today `live.go` sets `outsideConfig` only after `newRuntime` returns. A check inside it would
+      never add the source, and attached lanes would show nothing, with no error.
   - **What it reads:**
     - It stats each file first, and reads only the bytes appended since its last read, up to the
       last newline. A partly written line waits for the next read.
@@ -128,18 +162,27 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 - **D7 A shape the reader does not know reads as "could not read", never 0.**
   - **What counts:**
     - a complete line that is not JSON;
-    - an `assistant` line with no `message.model`, no `message.usage`, or a count that is not a
-      number;
-    - a session that has finished a turn (a `Stop` hook), whose transcript holds no usage record;
-    - a session with no transcript under `projects/` a minute after its first prompt.
+    - an `assistant` line with no `message.model`, no `message.usage`, or a required count (D2)
+      absent or not a number;
+    - a session that has finished a turn, when a reading that reached the end of its files after
+      the `Stop` hook still holds no usage record. The `Stop` arrives at once, while the reader
+      polls every 10 s, so the hook alone would flag every first turn;
+    - a session with no transcript under `projects/` when a reading taken a minute or more after
+      its first prompt still finds none.
   - **What then happens:**
     - The session's context and cost become unknown, as before any reading: neither the last value
       nor 0.
     - The project's `transcripts` source carries the error, naming the session, the line, and the
-      line's Claude Code `version`.
+      line's Claude Code `version`. The source stays failed while any session's reading fails, so
+      one session's good read does not clear another's error.
     - The page shows it with the banner every failing source already gets, "Cannot read
       transcripts: …", so the page needs no change for it.
-    - A later read that succeeds clears it.
+  - **It stays failed.** A session whose reading failed on a line stays unknown for the rest of
+    the panel's run. A good line appended later does not bring the figures back: the reader would
+    have passed the bad line, and its call would be missing from the total. After a restart, the
+    reader reads the files from the start again. So a fixed panel reads them whole, or fails on
+    the same line again. The two conditions with no line (no usage record, no transcript) clear
+    on the first reading that finds one.
   - **Lines of other types** are skipped unread. The 2.1.302 transcripts already carry types the
     evidence tool never needed, among them `attachment`, `api-request` and `cost-state`.
   - **Beat:**
@@ -158,14 +201,27 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
       - It fails if the exempt file is missing, or no longer reaches one. A stale exemption fails
         rather than exempting nothing.
       - The build shows it failing on a mention planted in a second file before trusting it.
-    - **A new test holds the reader's decode type to D2's allowlist.** It walks every nested
-      field's json tag by reflection, so the type itself is the authority: an added field fails.
-      It also checks that the reader's only JSON decode target is that type, and that it opens
-      files with `os.Open` alone.
-    - **`fileReadSites`** lists the reader's read sites, as it lists every other.
+    - **A new test holds the reader's decode type to D2's allowlist.** It walks the type by
+      reflection, every nested struct included, so the type itself is the authority. It fails on:
+      - a json tag outside the allowlist;
+      - an exported field with no tag, which encoding/json matches by its name;
+      - an embedded struct;
+      - a leaf that is not a scalar or a pointer to one, such as `json.RawMessage`, a map, a slice
+        or an interface;
+      - a type in it with its own `UnmarshalJSON`.
+      It also checks by AST that the reader's only JSON decode target is that type, and that it
+      opens files with `os.Open` alone.
+    - **`fileReadSites`** lists the reader's read sites, as it lists every other. This is the wider
+      net. The string and join scans see only literal forms: a second file joining
+      `claudecall.ConfigDir(...)` with `"projects"` passes both. But any new `os.Open` or
+      `os.ReadFile` in any file fails `fileReadSites` until a reviewer lists it.
+    - **"For attached projects only"** is executed by task 3.1's integration test (MEASURES-1-S2),
+      which runs the runtime through `live.go`'s path for both kinds of project.
+    - **"A validated session id"** is executed by the reader's test of MEASURES-4-S3.
     - **The payload check is kept:** `HookEvent` and `StatusPayload` decode no transcript field.
     - **`docs/panel.md`'s four statements** of the old rule are rewritten to the new one (lines 37,
-      830, 844 and 2596 today). So is `signals/hooks.go`'s comment.
+      830, 844 and 2596 today). So are the comments in `signals/hooks.go` and `state/trends.go`
+      (`:13`, "nothing reads a transcript").
   - **Beat:**
     - deleting the test, which the row rules out: every other source keeps the old rule;
     - a check at run time of each path opened. The path is built in one function, and the test
@@ -202,10 +258,11 @@ transcripts on Claude Code 2.1.302. PANEL-48's D7 and D13 are cited as designed 
 |---|---|
 | The project's config is in its repository | No transcript is read. The status line measures its lanes, as today (D3) |
 | A session id that is not a UUID | It is never read, and no path is built from it (D1) |
-| A line the reader does not know (D7) | The session shows no context or cost, and the "Cannot read transcripts" banner names the session, the line and the version |
+| A line the reader does not know (D7) | The session shows no context or cost for the rest of the panel's run, and the "Cannot read transcripts" banner names the session, the line and the version |
+| A `<synthetic>` record (an API error, a rate-limit stop) | It is left out of cost and context, and it is not UNPRICED (D2) |
 | A model the price table does not know | Its calls are left out, a warning names them, and a session with no priced call shows no cost (D5) |
-| A lane launched without a context window | Cost shows, the percentage does not, and a warning names `launch.context_window` (D4) |
+| A lane launched without a context window | Cost shows. The percentage shows only where its status line posts one, and a warning names `launch.context_window` (D4) |
 | A machine where no status line posts | The quota stays unknown, and its note says why (D9) |
-| A status post from an attached project's session | It moves the quota and the figures transcripts do not carry, but not context or cost (D3) |
+| A status post from an attached project's session | It moves the quota and the figures transcripts do not carry, and the context of a session without a window. It does not move cost, the model, or a windowed session's context (D3) |
 | `$CLAUDE_CONFIG_DIR` set for the lanes but not for the panel | The transcript is not found, and after a minute the banner says so, naming the folder searched (D7) |
 | The build's cost reaches $60 | The owner is told at once, and the build goes on (soft budget) |

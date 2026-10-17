@@ -30,9 +30,9 @@ and its context alert, read from the lane's own transcript.
   lane. PANEL-48's tick and alert threshold apply unchanged.
 - **Cost:** priced per model from a table in the panel. A model the table does not know is
   UNPRICED: its calls are left out of the figure, never counted at $0, and the page says which.
-- **A shape it does not know** reads as "could not read", never 0. The lane shows no figure, and
-  the page shows a "Cannot read transcripts" banner naming the session, the line and Claude Code's
-  version.
+- **A shape it does not know** reads as "could not read", never 0. The lane shows no figure
+  until the panel restarts and reads it whole, and the page shows a "Cannot read transcripts"
+  banner naming the session, the line and Claude Code's version.
 - **The quota:** a transcript carries no rate limits, so it stays unknown on a machine where no
   status line posts. The page's quota note says so. This is the one `panel.js` change.
 - **The invariant changes.** "The panel never reads transcripts" becomes "the panel reads
@@ -55,15 +55,17 @@ A project whose config is in its repository, like this one, is measured exactly 
     tick at the window less 33k and the alert at the lower of `alerts.context_pct` and the tick
     less 5. It feeds that requirement's computation from a second source and changes none of its
     requirements.
-  - LANECTX-2 keeps Claude Code's `used_percentage` for a lane launched without a window. A
-    transcript carries no such figure, so such a lane shows no percentage here (D4). Nothing is
-    kept, because there is nothing to keep.
+  - LANECTX-2 keeps Claude Code's `used_percentage` for a lane launched without a window. It
+    holds in an attached project too: a status post still sets such a session's context (D3).
+    Where no status line posts, a transcript carries no such figure, so the lane shows no
+    percentage (D4).
 
 This change adds one capability, `panel-lane-measures` (MEASURES-1 to MEASURES-5), and modifies
 no requirement.
 
 **The row, re-measured:** it writes `signals`, `state`, the panel's runtime (one source in
-`runtime.go`, beside `notranscript_test.go`, which the row names), one string in `panel.js`, and
+`runtime.go`, and `live.go` passing it the project's kind, beside `notranscript_test.go`, which
+the row names), one string in `panel.js`, and
 `docs/panel.md`. That is three code surfaces of substance and no MODIFIED requirement, so it stays
 one row.
 
