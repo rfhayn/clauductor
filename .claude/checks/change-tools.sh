@@ -132,25 +132,43 @@ msg c1 claude-opus-5-5 main "$main" 1000000 0 > "$W/agent-c.jsonl"              
 msg c2 claude-opus-5-5 main "$main/.claude/worktrees/lane-2" 1000000 0 > "$W/agent-d.jsonl"               # another lane
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: an agent recording main counts by its cwd in the change's worktree, whole; the main checkout and another lane do not" || fail "change-cost, agents recording main: $(cat "$d/out")"
-# A LEAD records a stale branch too: a session closing in lane `other` recorded $B there, and its own
-# ops/other. A lane where another non-main branch was recorded is not the change's: neither its
-# messages on $B, nor its other branch, nor an agent that ran in it counts.
+# A LEAD records a stale branch too: a session closing in lane `other` recorded $B there, then its
+# own ops/other. A lane whose sessions all recorded another branch LAST there is not the change's:
+# neither its messages on $B, nor its other branch, nor an agent that ran in it counts.
 { msg x1 claude-opus-5-5 "$B" "$main/.claude/worktrees/other" 1000000 0
   msg x2 claude-opus-5-5 "ops/other" "$main/.claude/worktrees/other/framework" 1000000 0; } >> "$P/$slug/s1.jsonl"
 msg x3 claude-opus-5-5 main "$main/.claude/worktrees/other" 1000000 0 > "$W/agent-x.jsonl"
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: a lane where another branch was also recorded is not the change's, though a stale lead recorded the branch there" || fail "change-cost, stale lead in another lane: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 25 ] && ok "change-cost: a lane where a session recorded another branch last is not the change's, though a stale lead recorded the branch there" || fail "change-cost, stale lead in another lane: $(cat "$d/out")"
+[ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost --json names the lane it rejected" || fail "change-cost rejectedLanes: $(cat "$d/out")"
+# The other way round: a lead hopping in from another lane carries that lane's branch into its first
+# message here, then records $B. The lane is the change's, the hop's record and its agents included.
+{ msg h1 claude-haiku-4-5-20251001 "ops/previous" "$main/.claude/worktrees/hop" 1000000 0      # $1.00
+  msg h2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/hop" 1000000 0; } > "$P/$slug/s4.jsonl"  # $1.00
+msg h3 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/hop" 1000000 0 > "$W/agent-h.jsonl"     # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 28 ] && ok "change-cost: a lane a lead hopped into, carrying its previous branch for one message, is still the change's" || fail "change-cost, hop-in: $(cat "$d/out")"
 # The lane is the directory under .claude/worktrees/, not the cwd that recorded the branch: a
 # recording in lane `deep`'s subdirectory makes `deep` the root, so an agent at `deep` itself counts.
 msg y1 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/deep/framework" 1000000 0 >> "$P/$slug/s1.jsonl"  # $1.00
 msg y2 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/deep" 1000000 0 > "$W/agent-y.jsonl"              # $1.00
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 27 ] && ok "change-cost: a branch recorded in a lane's subdirectory makes the whole lane the change's" || fail "change-cost, lane subdirectory: $(cat "$d/out")"
-# A worktree on the branch that no transcript has recorded yet: git names it while it is live.
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 30 ] && ok "change-cost: a branch recorded in a lane's subdirectory makes the whole lane the change's" || fail "change-cost, lane subdirectory: $(cat "$d/out")"
+# A detached HEAD, or no branch at all, recorded last in the lane is not another branch.
+{ msg z1 claude-haiku-4-5-20251001 HEAD "$main/.claude/worktrees/deep" 1000000 0                  # $1.00
+  msg z2 claude-haiku-4-5-20251001 "" "$main/.claude/worktrees/deep" 1000000 0; } >> "$P/$slug/s1.jsonl"  # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 32 ] && ok "change-cost: a detached HEAD or an empty branch recorded in the lane does not reject it" || fail "change-cost, HEAD and empty: $(cat "$d/out")"
+# A worktree on the branch that no transcript has recorded yet: git names it while it is live, and
+# keeps naming it though a session recorded another branch there last.
 git -C "$R" worktree add -q -f "$main/.claude/worktrees/live" "$B" 2>/dev/null
 msg e1 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/live" 1000000 0 > "$W/agent-e.jsonl"       # $1.00
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 28 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 33 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
+{ msg e2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/live" 1000000 0                 # $1.00
+  msg e3 claude-haiku-4-5-20251001 "ops/foreign" "$main/.claude/worktrees/live" 1000000 0; } > "$P/$slug/s5.jsonl"  # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
 git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?

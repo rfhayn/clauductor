@@ -3,7 +3,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # change-cost.sh: what a change has cost so far, against its budget (item 12 of the change process).
 #
 #   sh .claude/change-cost.sh <id>          one line: "cost $12.34 of budget $40 …", or CANNOT CHECK
-#   sh .claude/change-cost.sh <id> --json   {"change","costUsd","budgetUsd","over","messages","unpriced","source"}
+#   sh .claude/change-cost.sh <id> --json   {"change","costUsd","budgetUsd","over","messages","rejectedLanes","unpriced","source"}
 #
 # WHERE THE FIGURE COMES FROM. Claude Code's transcripts on THIS machine
 # (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**/*.jsonl, subagents included). Every assistant message
@@ -19,14 +19,19 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # worktrees, and an agent (a file under subagents/) counts WHOLE when any of its messages did, since
 # a builder may start in the main checkout and cd into the worktree. The change's worktrees are the
 # ones git has on the branch now, and every <repo>/.claude/worktrees/<lane> (the panel's and Claude
-# Code's place for a lane) in which some message recorded the branch and NO other branch but main
-# was recorded, so a removed worktree is still found once its lead recorded the branch there.
-# A LEAD's branch is stale too: a session closing in its own lane recorded PANEL-48's branch there,
-# beside its own. Such a lane is not the change's, and the messages that recorded the branch in it
-# do not count either. Known limits: a removed worktree whose lane also recorded another branch (a
-# reused directory, a switched branch) is not found, nor one in which nothing recorded the branch;
-# and an agent counts whole once ANY of its messages ran in the change's worktree, so an unrelated
-# agent passing through it (a reviewer of another PR, a session-close sweep) is billed whole.
+# Code's place for a lane) in which some SESSION (a transcript and its agents) recorded the branch
+# LAST, main, a detached HEAD and an empty branch not counting; so a removed worktree is still found.
+# A LEAD's branch is stale too, both ways. A session closing in its own lane recorded PANEL-48's
+# branch there before its own, and ended on its own: that lane is not the change's, and the
+# messages that recorded the branch in it do not count either. A lead hopping in from another lane
+# carries that lane's branch into its first message, then records the change's: that lane is.
+# --json lists the lanes it rejected (rejectedLanes), so a collapse of the figure is visible.
+# Known limits: a lane reused by two sessions, one ending on the branch, counts whole for it; one
+# whose only session switched away from the branch is lost once removed; one in which nothing
+# recorded the branch is not found. An agent counts whole once ANY of its messages ran in the
+# change's worktree, so an unrelated agent passing through (a reviewer of another PR, a
+# session-close sweep) is billed whole. And a lead in the MAIN checkout that records the change's
+# stale branch counts, though its work there is not the change's.
 #
 # Each message counts once (a streamed message repeats its id), priced at the list prices in
 # .claude/model-roles.json `.prices` (dollars per million tokens). It is an ESTIMATE at list price,
@@ -71,20 +76,26 @@ wt="$main/.claude/worktrees/"
 # shellcheck disable=SC2086
 lanes=$( [ -z "$bfiles" ] || jq -r --arg b "$branch" --arg w "$wt" 'select(.gitBranch == $b) | (.cwd // "")
            | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' $bfiles 2>/dev/null | sort -u)
-# A lead records a stale branch as well (see the header): a lane where any other branch but main was
-# also recorded belongs to that branch, not to this change.
-recorded_alone() {
-  # shellcheck disable=SC2086
-  for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$1" "$p" 2>/dev/null; done | sort -u \
-  | while read -r f; do jq -r --arg l "$1" 'select(.gitBranch != null) | select((.cwd // "") == $l
-      or ((.cwd // "") | startswith($l + "/"))) | .gitBranch' "$f" 2>/dev/null; done \
-  | grep -vxF -e "$branch" -e "$MAIN_BRANCH" -e HEAD -e '' | grep -q . && return 1
-  return 0
-}
+# A lead records a stale branch as well (see the header). Each session (a transcript and its agents,
+# one sessionId) that worked in a lane votes with the branch it recorded LAST there, main, a detached
+# HEAD and an empty branch not counting: the lane is the change's when some session's vote is the
+# change's branch. "+lane" is taken, "-lane" rejected.
+lanesjson=$(printf '%s\n' "$lanes" | jq -Rsc 'split("\n") | map(select(. != ""))')
+lfiles=$(printf '%s\n' "$lanes" | while read -r l; do [ -n "$l" ] || continue
+  for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$l" "$p" 2>/dev/null; done; done | sort -u)
+# shellcheck disable=SC2086
+votes=$( [ -z "$lfiles" ] || jq -c --argjson ls "$lanesjson" 'select(.gitBranch != null) | (.cwd // "") as $c
+           | first($ls[] as $w | select($c == $w or ($c | startswith($w + "/"))) | $w) as $l
+           | {l: $l, s: (.sessionId // input_filename), t: (.timestamp // ""), b: .gitBranch}' $lfiles 2>/dev/null \
+         | jq -rs --arg b "$branch" --arg m "$MAIN_BRANCH" 'group_by(.l)[] | .[0].l as $l
+           | [ group_by(.s)[] | sort_by(.t) | map(.b | select(. != $m and . != "HEAD" and . != "")) | last ]
+           | (if any(.[]; . == $b) then "+" else "-" end) + $l' 2>/dev/null)
 roots=$( { git -C "$ROOT" worktree list --porcelain 2>/dev/null \
              | awk -v b="branch refs/heads/$branch" '/^worktree /{p=substr($0,10)} $0==b{print p}'
-           printf '%s\n' "$lanes" | while read -r l; do [ -n "$l" ] && recorded_alone "$l" && echo "$l"; done
+           printf '%s\n' "$votes" | sed -n 's/^+//p'
          } | grep -vxF "$main" | sort -u)
+rejected=$(printf '%s\n' "$votes" | sed -n 's/^-//p' | grep -vxF -e "$roots" -e '' | sort -u)
+rejectedjson=$(printf '%s\n' "$rejected" | jq -Rsc 'split("\n") | map(select(. != ""))')
 rootsjson=$(printf '%s\n' "$roots" | jq -Rsc 'split("\n") | map(select(. != ""))')
 wfiles=$(printf '%s\n' "$roots" | while read -r r; do [ -n "$r" ] || continue
   for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$r" "$p" 2>/dev/null; done; done)
@@ -104,7 +115,7 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
            and ($inwt or ($cwd | startswith($lanes) | not))),
      inwt: $inwt}' $files 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" "$USAGE_JQ_DEFS"'
+| jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" --argjson rej "$rejectedjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
   | [ group_by(.f)[] | ((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) as $agent
       | .[] | select(.onb or .inwt or $agent) ]
@@ -115,6 +126,7 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
       costUsd: ((map(.usd) | add // 0) * 100 | round / 100),
       budgetUsd: (if $budget == "" then null else ($budget | tonumber) end),
       messages: length,
+      rejectedLanes: $rej,
       unpriced: ([ .[] | select(.priced | not) | .model ] | unique | map(select(. != "<synthetic>"))),
       source: "transcripts on this machine, at list price" }
   | .over = (.budgetUsd != null and .costUsd > .budgetUsd)' > "${TMPDIR:-/tmp}/change-cost.$$" \
