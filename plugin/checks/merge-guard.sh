@@ -455,7 +455,28 @@ unread "a redirection inside a gh command: 2>/dev/null before api graphql" 'gh 2
 unread "a redirection inside a gh command: a list that merges nothing" 'gh pr list 2>/dev/null --json number'
 # A regression guard: refused since round 2 (pr and merge are words), so it did not fail first.
 unread "a redirection inside a gh command: >x between gh and pr" 'gh >x pr merge 5'
+# A `(` inside a word or after `<`/`>` is part of that word (OPS-66, round 5): it once started a new
+# command, so gh api lost its endpoint and each of these merged, allowed with no evidence.
+unread "a process substitution before api's merge endpoint" "gh api -X PUT --input <(echo '{}') repos/acme/app/pulls/5/merge"
+unread "a process substitution glued to --input= before the endpoint" 'gh api -XPUT --input=<(true) repos/acme/app/pulls/5/merge'
+unread "a process substitution, --method PUT and a leading /" 'gh api --method PUT --input <(true) /repos/acme/app/pulls/5/merge'
+unread "a process substitution before a quoted {owner}/{repo} endpoint" 'gh api -X PUT --input <(true) "repos/{owner}/{repo}/pulls/5/merge"'
+unread "an output process substitution before the endpoint" 'gh api -X PUT --input >(cat) repos/acme/app/pulls/5/merge'
+unread "a zsh glob qualifier before the endpoint" 'gh api x(N) -X PUT repos/acme/app/pulls/5/merge'
+# inside() judges the command word (OPS-66, round 5). Regression guards: each was refused before the
+# narrowing, and must stay refused after it, because gh still runs.
+unread "a redirection first, then gh api's merge" '>& x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "zsh >! first (bash: the file !), then gh api's merge" '>! x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "a named fd first, then gh api's merge" '{fd}>x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "env runs gh, a redirection inside" 'env >x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "a computed command word, a redirection inside" '$G >x api -X PUT repos/acme/app/pulls/5/merge'
 guard 0 "OPS-66: a merge with its redirection last (2>&1), with evidence" 'gh pr merge 5 --squash --delete-branch 2>&1'
+# The command word decides what runs: a redirection inside a command whose literal command word is
+# not gh and runs no argument is read as before (OPS-66, round 5; each was refused at round 4).
+guard 0 "OPS-66: echo with >&2 before a computed argument" 'echo >&2 "$msg"'
+guard 0 "OPS-66: jq with its output redirected before its input file" 'jq . > "$out" in.json'
+guard 0 "OPS-66: sed with 2>/dev/null before a computed file" 'sed -n 1p 2>/dev/null "$f"'
+guard 0 "OPS-66: a loop comparing files, its output redirected in the middle" 'for f in a b; do cmp "$f" > /dev/null "other/$f"; done'
 guard 0 "OPS-66: gh pr view with its output redirected last" 'gh pr view 5 --json state > out.json'
 guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
 rm -f "$R/.git/ci-receipt"

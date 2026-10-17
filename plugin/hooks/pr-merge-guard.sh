@@ -211,15 +211,20 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #      with the plain form — the rules below parse a merge from its text, and cannot parse one they
 #      cannot read. `pr merge` after anything but a plain gh (`$GH`, an alias) is ODD too.
 #      A REDIRECTION INSIDE A gh COMMAND IS UNREADABLE (OPS-66, the owner's call): in a simple
-#      command where a word, redirection operands included, could be gh (literal, quoted, computed,
-#      `=gh`, a path, after any prefix), a redirection operator of ANY form before the command's
-#      last word is ODD (inside()). The shell lifts a redirection out from anywhere and runs the
-#      rest (`gh pr >& x merge 5`, `gh {fd}>x api -X PUT …/pulls/5/merge`, zsh `>!`, `2>/dev/null`),
-#      the operator's spellings are too many to read one by one, and `gh api` merges with no merge
-#      word to look for, so this fails closed on all of them, listed or not. The accepted cost: a
-#      gh command with a redirection in its middle is refused, a merge or not (`gh pr list
-#      2>/dev/null --json number`); put the redirection last (`gh pr merge 5 --squash 2>&1`,
-#      `gh pr list 2>/dev/null` are read). A command with no gh keeps the handling below.
+#      command whose command word could be gh (literal, quoted, `=gh`, a path, or COMPUTED: `$cmd`
+#      counts as gh) or runs its arguments as a command (env, xargs, sudo, exec, …), a redirection
+#      operator of ANY form before the command's last word is ODD (inside()). The shell lifts a
+#      redirection out from anywhere and runs the rest (`gh pr >& x merge 5`, `gh {fd}>x api -X
+#      PUT …/pulls/5/merge`, zsh `>!`, `2>/dev/null`), the operator's spellings are too many to read
+#      one by one, and `gh api` merges with no merge word to look for, so this fails closed on all
+#      of them, listed or not. The command word decides what runs: a literal one that is neither
+#      (`jq . > "$out" in.json`, `echo >&2 "$msg"`) is read as before. The accepted cost: a gh
+#      command, or one whose command word is computed, with a redirection in its middle is refused,
+#      a merge or not (`gh pr list 2>/dev/null --json number`, `$cmd >&2 x`); put the redirection
+#      last (`gh pr merge 5 --squash 2>&1`, `gh pr list 2>/dev/null` are read).
+#      A `(` right after `<` or `>`, or inside a word (`<(…)`, `>(…)`, zsh `=(…)` and `x(N)`), is
+#      part of that word, its contents read as commands: only a `(` that starts a word starts a
+#      subshell, so `gh api --input <(…) …/pulls/5/merge` keeps its endpoint.
 #      Elsewhere a redirection's operand (a file name, a here-string's text) is never a word of the
 #      command: `sed … > "$TMPDIR/$n"` hands sed no gh.
 #      NOT A MERGE, so never ODD (OPS-66, #120):

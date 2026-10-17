@@ -50,7 +50,7 @@ function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
   # Every word, operands included, for inside(); MID: an argument after a redirection.
-  AWP[cid, ++AWN[cid]] = p
+  AWP[cid, ++AWN[cid]] = p; AWT[cid, AWN[cid]] = t
   if (TG) return
   if (RD[cid]) MID[cid] = 1
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
@@ -277,15 +277,29 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     if (c == " " || c == "\t" || c == "\r") { flush(cid); i++; continue }
     if (c == "\n") { flush(cid); cid = newcmd(); i++; if (HN) i = bodies(i); continue }
     if (c == "<" && substr(S, i, 2) == "<<" && substr(S, i + 2, 1) != "<") { flush(cid); RD[cid] = 1; i = heredoc(i + 2); continue }
+    # A `(` right after `<` or `>` (process substitution) or inside a word (zsh `=(…)` and `x(N)`,
+    # extglob `@(…)`) is a piece of the CURRENT word, read as `$(` is: its contents are commands,
+    # and the word is computed. Only a `(` that starts a word starts a subshell (OPS-66:
+    # `gh api --input <(…) repos/o/n/pulls/5/merge` was cut in two, and its endpoint never read).
+    if ((c == "<" || c == ">") && substr(S, i + 1, 1) == "(") { i = subst(i + 2, "paren"); fl = fl "s"; continue }
+    if (c == "(" && have) { i = subst(i + 1, "paren"); fl = fl "s"; continue }
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
-      if (tok ~ /^[0-9]+$/ && fl == "") reset(); else flush(cid)
+      # A fd number or a `{name}` before the operator belongs to it, never a word.
+      if ((tok ~ /^[0-9]+$/ || tok ~ /^\{[A-Za-z_][A-Za-z0-9_]*\}$/) && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
-      # The next word is the operand, never an argument. (`<(…)` starts a new command, whose
-      # newcmd() clears RF.) RD: whatever the operator's form, inside() needs only that it is here.
+      # The next word is the operand, never an argument. RD: whatever the operator's form,
+      # inside() needs only that it is here. zsh's `>!` and `>&!` are read as operators: in bash
+      # the `!` is the file and the next word an argument, which inside() covers by reading the
+      # command word both ways.
       RF = 1; RD[cid] = 1
       i++
-      while (substr(S, i, 1) ~ /[<>|]/) i++
-      if (substr(S, i, 1) == "&") { RF = 0; i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
+      while (substr(S, i, 1) ~ /[<>|!]/) i++
+      if (substr(S, i, 1) == "&") {
+        i++
+        # `>&2`, `>&-`: a duplication, with no operand. `>& file` names a file, as `>file` does.
+        if (substr(S, i, 1) ~ /[0-9-]/) { RF = 0; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
+        else { while (substr(S, i, 1) == "!") i++; if (nx) RT = cid }
+      }
       else if (nx) RT = cid
       continue
     }
@@ -340,17 +354,30 @@ function gh_p(p,   j, m) {
   while ((m = index(substr(p, j + 1), "[/]")) > 0) j += m + 2
   return j > 0 && match("gh", "^(" substr(p, j + 1) ")$")
 }
-# inside(c) — a redirection comes before the command's last word, and a word of it, operands
-# included, could be gh (literal, quoted, computed, `=gh`, a path, after any prefix). The shell
-# takes a redirection anywhere in a command and hands the rest over as the words; the forms of the
-# operator (`>&`, zsh `>!`, `{fd}>`, and any nobody listed) are too many to read one by one, and a
-# gh merges as `pr merge` or as `api` with no merge word to look for, so such a command is
-# unreadable (OPS-66, the owner's call). Its cost: a gh command with a redirection in its middle
-# is refused, a merge or not (`gh pr list 2>/dev/null --json number`); put the redirection last.
-function inside(c,   i) {
+# inside(c) — a redirection comes before the command's last word, and the command may run gh: its
+# command word could be gh (literal, quoted, computed, `=gh`, a path) or runs its arguments as a
+# command (env, xargs, sudo, …). The shell takes a redirection anywhere in a command and hands the
+# rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`, and any nobody
+# listed) are too many to read one by one, and a gh merges as `pr merge` or as `api` with no merge
+# word to look for, so such a command is unreadable (OPS-66, the owner's call). A literal command
+# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (an alias or a
+# function is the limit in the hook's header). The command word is read twice, with and without
+# the operands, so a word the shells disagree on (bash reads `>! x` as the file `!` and the word x)
+# is judged both ways. Its cost: a gh command, or one whose command word is computed, with a
+# redirection in its middle is refused, a merge or not (`gh pr list 2>/dev/null --json number`,
+# `$cmd >&2 x`); put the redirection last.
+function inside(c,   x) {
   if (!MID[c]) return 0
-  for (i = 1; i <= AWN[c]; i++) if (gh_p(AWP[c, i])) return 1
-  return 0
+  for (x = 1; x <= N[c] && lead(W[c, x]); x++) ;
+  if (x <= N[c] && (gh_p(P[c, x]) || runs(W[c, x]))) return 1
+  for (x = 1; x <= AWN[c] && lead(AWT[c, x]); x++) ;
+  return x <= AWN[c] && (gh_p(AWP[c, x]) || runs(AWT[c, x]))
+}
+# lead(w) — a word before the command word: an assignment or a reserved word.
+function lead(w) { return w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^(then|do|else|elif|if|while|until|!|\{)$/ }
+# runs(w) — a command word that runs its arguments as a command.
+function runs(w) {
+  return w ~ /^(command|builtin|exec|nohup|sudo|doas|env|nice|ionice|timeout|time|eval|noglob|nocorrect|stdbuf|xargs|parallel|find|watch|caffeinate|setsid|flock|unbuffer|chrt|taskset)$/
 }
 # provable: its text is exactly what runs (quotes and escapes allowed; no expansion, glob or brace)
 function provable(c, k) { return F[c, k] !~ /[dgb]/ }
@@ -523,7 +550,7 @@ END {
   MERGE_ANY = rel ~ /merg/
   for (c = 1; c <= NC; c++) {
     n = N[c]
-    if (inside(c)) odd("a redirection comes before the last word of a command that may run gh: put the redirection last")
+    if (inside(c)) odd("a redirection comes before the last word of a command that may run gh (its command word could be gh, a computed word included, or runs its arguments): put the redirection last")
     for (k = 1; k <= n; k++) {
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
