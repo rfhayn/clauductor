@@ -63,7 +63,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     spells some other way), or as a LIST (`subprocess.run(["sed", "-i", …])`): no `sed -i` to
 #     match. One in backticks or qx IS read (the scan reads a backtick as a command), but only
 #     with a literal operand: a variable one is missed;
-#   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`).
+#   - a rewrite the inline detection does not recognise either (perl `$^I`, ruby `gsub`);
+#   - (OPS-80, inline too) a rewrite whose ONLY write is to a standard stream
+#     (`process.stdout.write(`, `sys.stdout.write(`) and whose stdout the command sends onto
+#     tracked source (`> tmp && mv tmp src/x.ts`, `| sponge src/x.ts`): judged as `print(` always
+#     was, so the redirect is not read. Nor is a stream rebound by a spelling other than
+#     `stdout =` or `redirect_stdout` (`os.dup2`).
 # And three false refusals:
 #   - shared with the inline path: a script that reads tracked source, uses `.replace(`, and writes
 #     ELSEWHERE is refused when it names the tracked path;
@@ -714,7 +719,18 @@ esac
 # A read-only preview — `print(open(f).read().replace(a, b))` — is how you SHOULD inspect a
 # candidate edit, and must not be blocked. The in-place flag is itself the write for sed/perl/ruby.
 # `writeFile` is node's (writeFileSync, fs.promises.writeFile): `node fix.js` brought it in (#88).
-case "$cmd" in
+#
+# A WRITE TO A STANDARD STREAM IS NOT ONE (OPS-80). `process.stdout.write(` is how node PRINTS, so
+# a report script that .replace()s in-memory strings and names a tracked path in a comment was
+# refused as a rewrite while writing no file at all. Such writes are removed before the test, the
+# way `print(` was never in it, so any OTHER write in the same text (writeFileSync, a stream's
+# `.write(`, a handle's) still counts. Unless the text REBINDS a stream (`sys.stdout = open(…)`,
+# `redirect_stdout`): then a stream write may be a file write, and nothing is removed. Where the
+# command sends stdout (`> src/x.ts`) is not read, a known limit shared with `print(` (the header).
+wcmd=$cmd
+printf '%s\n' "$cmd" | grep -Eq '(stdout|stderr)[[:space:]]*=[^=]|redirect_std' \
+  || wcmd=$(printf '%s\n' "$cmd" | sed -E 's/(process|sys)[.](stdout|stderr)([.]buffer)?[.]write(lines)?[(]//g')
+case "$wcmd" in
   *"write_text("*|*".write("*|*"writelines("*|*"writeFile"*) ;;
   *"sed -i"*|*"perl -pi"*|*"perl -i"*|*"ruby -pi"*|*"ruby -i"*) ;;
   *) [ "$inplace" = yes ] || exit 0 ;;

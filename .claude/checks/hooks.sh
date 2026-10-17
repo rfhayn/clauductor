@@ -161,6 +161,43 @@ require('child_process').execSync("sed -i '' s/x/y/ src/lib/app.ts");
 JS
 nb 2 "a python script shelling out to sed -i" "python3 shellout.py"
 nb 2 "a node script shelling out to sed -i" "node shellout.js"
+# A script that writes only to its standard streams writes no file (OPS-80): a report that
+# .replace()s in-memory strings and names a tracked path in a comment was refused for its
+# process.stdout.write. Its twins that write a tracked file back, or rebind stdout to one, are not.
+cat > "$R/report.mjs" <<'JS'
+// Reports on the choices in src/lib/app.ts; writes nothing but stdout and stderr.
+const rows = ['a-1', 'b-2'].map((r) => r.replace(/-\d+$/, ''));
+process.stdout.write(`${rows.join('\n')}\n`);
+process.stderr.write('done\n');
+JS
+cat > "$R/report.py" <<'PY'
+import sys
+# Reports on src/lib/app.ts; writes nothing but stdout.
+sys.stdout.write('a-1'.replace('-1', '') + '\n')
+PY
+cat > "$R/report-write.mjs" <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs';
+const f = 'src/lib/app.ts';
+process.stdout.write(`rewriting ${f}\n`);
+writeFileSync(f, readFileSync(f, 'utf8').replace('x', 'y'));
+JS
+cat > "$R/report-stream.mjs" <<'JS'
+import { createWriteStream, readFileSync } from 'node:fs';
+const s = readFileSync('src/lib/app.ts', 'utf8').replace('x', 'y');
+process.stdout.write('ok\n');
+createWriteStream('src/lib/app.ts').write(s);
+JS
+cat > "$R/report-rebind.py" <<'PY'
+import sys
+s = open('src/lib/app.ts').read().replace('x', 'y')
+sys.stdout = open('src/lib/app.ts', 'w')
+sys.stdout.write(s)
+PY
+nb 0 "a node report writing only stdout and stderr" "node report.mjs --since 2026-10-01"
+nb 0 "a python report writing only sys.stdout" "python3 report.py"
+nb 2 "a node script writing tracked source back beside a stdout write" "node report-write.mjs"
+nb 2 "a node script writing tracked source through a stream" "node report-stream.mjs"
+nb 2 "a python script rebinding sys.stdout to tracked source" "python3 report-rebind.py"
 # A script's cds compose with the command's only while they fit the 32-base cap; past it, each
 # resolves against the command's directories alone, and nothing is refused for the script's cds.
 cds='cd a\ncd b\ncd c\ncd d\ncd e\ncd f\n'
