@@ -405,14 +405,14 @@ guard 2 "no PR named" "gh pr merge --squash"
 # No evidence anywhere, the lane's receipt included; both come back after.
 mv "$R/.git/ci-receipt" "$d/receipt.ops66" 2>/dev/null || :
 mv "$lane_receipt" "$d/receipt.ops66lane" 2>/dev/null || :
-guard 0 "OPS-66: git -C a literal path, merging main in a worktree" 'git -C /some/path merge origin/main'
+guard 0 "OPS-66: git -C a literal path, then a quoted --work-tree, merging main" 'git -C /some/path --work-tree "$WT" merge origin/main'
+guard 0 "OPS-66: git --no-pager -C a quoted variable, merging main" 'git --no-pager -C "$WT" merge origin/main'
 guard 0 "OPS-66: git -C a quoted variable, merging main in a worktree" 'git -C "$WT" merge origin/main'
 guard 0 "OPS-66: the same inside a loop over worktrees" 'for w in a b; do git -C "$w" merge --no-edit origin/main; done'
-guard 0 "OPS-66: a git merge-base loop" "for b in \$(git branch --format='%(refname:short)'); do git merge-base --is-ancestor \"\$b\" origin/main && echo \"\$b\"; done"
-guard 0 "OPS-66: a copy over a file named merge-guard.sh" 'cp x merge-guard.sh.bak'
+guard 0 "OPS-66: a copy of merge-guard.sh to a computed path" 'cp checks/merge-guard.sh backup/$f'
 guard 0 "OPS-66: a loop comparing files named merge-guard.sh" 'for f in hooks/pr-merge-guard.sh checks/merge-guard.sh; do cmp -s upstream/$f local/$f || echo $f; done'
 guard 0 "OPS-66: a loop copying files named merge-guard.sh" 'for f in merge-guard.sh hooks.sh; do cp upstream/checks/$f local/checks/$f; done'
-guard 0 "OPS-66: a sed into a scratch copy" "sed -n '1,40p' merge-guard.sh > \$TMPDIR/scratch"
+guard 0 "OPS-66: a head into an unquoted computed scratch path" 'head -n 40 merge-guard.sh > $TMPDIR/$name'
 guard 0 "OPS-66: a sed into a scratch copy named by a variable" "sed 's/a/b/' merge-guard.sh > \"\$TMPDIR/scratch/\$name\""
 # With evidence for PR 5's head, so that a block below is the reader refusing, not rule 2.
 receipt "$MAINSHA"
@@ -436,6 +436,10 @@ guard 2 "OPS-66: gh api PUT to this repo's merge endpoint, without evidence" 'gh
 grep -q 'PR #5 has no gate evidence' "$d/err" && ok "OPS-66: ...read as PR 5's merge and held to its evidence" || fail "OPS-66: gh api merge: $(head -n 1 "$d/err")"
 guard 2 "OPS-66: a plain merge with its output redirected, without evidence" 'gh pr merge 5 --squash > "$TMPDIR/$x"'
 grep -q 'PR #5 has no gate evidence' "$d/err" && ok "OPS-66: ...read as PR 5's merge and held to its evidence" || fail "OPS-66: redirected merge: $(head -n 1 "$d/err")"
+# A redirection's operand is not an argument: the shell runs `gh pr merge 5` for each of these, and
+# the reader once read the operand as the word after pr, so each was ALLOWED without evidence.
+guard 2 "OPS-66: a merge with a file redirection between pr and merge, without evidence" 'gh pr >"$TMPDIR/x" merge 5 --squash'
+guard 2 "OPS-66: a merge with a here-string between pr and merge, without evidence" 'gh pr <<<x merge 5 --squash'
 mv "$d/receipt.ops66" "$R/.git/ci-receipt" 2>/dev/null || :
 mv "$d/receipt.ops66lane" "$lane_receipt" 2>/dev/null || :
 # OPS-57: a PR word the reader cut short. merge_argv stops at a `$` or a backtick, and once kept the
@@ -562,6 +566,9 @@ nojq 0 "git status" "allows anything else"
 # merge_hint reads a non-ASCII parameter name too (#100 review): without jq it is the only test.
 nojq 2 'é=pr; gh $é merge 5' "#100: blocks pr held in \$é"
 nojq 2 'X=pr; gh $X merge 5' "#100: control: blocks pr held in an ASCII \$X"
+# merge_hint reads git's own merge only past an option value the shell cannot split, as git_sub does
+# (OPS-66): unquoted, $X could split into `-c alias.x='!gh pr' x`.
+nojq 2 'git -C $X merge 5' "OPS-66: blocks git -C with an unquoted, splitting value before merge"
 
 # raw_command is duplicated on purpose (a sourced lib's missing-file failure is shell-dependent);
 # the two copies must not drift.

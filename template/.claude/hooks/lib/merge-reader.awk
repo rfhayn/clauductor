@@ -49,13 +49,15 @@ function lit(s) { tok = tok s; sk = sk s; pat = pat rx(s); have = 1 }
 function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
+  if (TG) return
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
-  T[cid, N[cid]] = TG
 }
 # A word ends. After an output redirection it is the target: RO marks a command that writes a file
-# (anything but /dev/null) — prose written to a file can be run by the next command. After any
-# redirection but a here-string, T marks the word a FILE NAME, which no command runs (OPS-66:
-# `sed … > "$TMPDIR/$name"` was read as a gh that sed could run).
+# (anything but /dev/null) — prose written to a file can be run by the next command. After ANY
+# redirection the word is its operand (a file name, a here-string's text), which the command never
+# receives as an argument: TG keeps it out of the command's words, so gh's words and an inert
+# command's arguments are read as the shell hands them over (OPS-66: `sed … > "$TMPDIR/$name"` was
+# read as a gh that sed could run, and `gh pr >out merge 5`, which merges, as no merge at all).
 function flush(cid,   e) {
   if (have) {
     # A mention is TEXT — a word with blanks in it. `repos/o/n/pulls/2/merge` alone is an argument.
@@ -275,9 +277,9 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
       if (tok ~ /^[0-9]+$/ && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
-      # A here-string's word is text fed to the command, not a file name. (`<(…)` starts a new
-      # command, whose newcmd() clears RF.)
-      RF = (substr(S, i, 3) != "<<<")
+      # The next word is the operand, never an argument. (`<(…)` starts a new command, whose
+      # newcmd() clears RF.)
+      RF = 1
       i++
       while (substr(S, i, 1) ~ /[<>|]/) i++
       if (substr(S, i, 1) == "&") { RF = 0; i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
@@ -349,18 +351,20 @@ function cmdword(c,   x) {
 }
 # inert(c) — the command word runs none of its arguments and hands none to a program: each is a
 # file name or text (OPS-66: `cmp template/.claude/$f …` in a loop over files named merge-guard.sh
-# was refused as a gh that cmp could run). sed and grep run only their SCRIPT, never a file
-# argument; a computed script is the evaluator limit in the hook's header. Not here, because each
-# can run an argument: xargs, find, env, git (bisect run, rebase --exec), sort, awk, any shell, and
-# the commands whose output IS their arguments (echo, printf, basename), which a pipe hands to sh.
+# was refused as a gh that cmp could run). grep runs nothing. sed never runs a file NAME, but GNU
+# sed's `e` command and `s///e` flag run the TEXT it reads as shell: `sed e notes.txt` is an
+# evaluator whose program is in a file, the limit in the hook's header (`sh notes.txt` is the same,
+# and was allowed before OPS-66 too); a script naming the merge is a MENTION beside sed, which
+# prose_safe() does not list, so it blocks. Not here, because each can run an argument: xargs,
+# find, env, git (bisect run, rebase --exec), sort, awk, any shell, and the commands whose output
+# IS their arguments (echo, printf, basename), which a pipe hands to sh.
 function inert(c,   x) {
   x = cmdword(c)
   return F[c, x] == "" && W[c, x] ~ /^(cp|mv|cmp|diff|ls|cat|head|tail|wc|grep|egrep|fgrep|sed|mkdir|rm|touch|ln|chmod|stat)$/
 }
-# reach(c, k, n) — a word after k, other than a file a redirection names, could be pr, api or merge:
-# what makes a gh a merge.
+# reach(c, k, n) — a word after k could be pr, api or merge: what makes a gh a merge.
 function reach(c, k, n,   j) {
-  for (j = k + 1; j <= n; j++) if (!T[c, j] && (could(c, j, "pr") || could(c, j, "api") || could(c, j, "merge"))) return 1
+  for (j = k + 1; j <= n; j++) if (could(c, j, "pr") || could(c, j, "api") || could(c, j, "merge")) return 1
   return 0
 }
 # git_sub(c, j) — word j is git's own subcommand `merge`, and every word before it is git or one
@@ -504,8 +508,6 @@ END {
   for (c = 1; c <= NC; c++) {
     n = N[c]
     for (k = 1; k <= n; k++) {
-      # A file a redirection names is never run, nor read as a word of the command (OPS-66).
-      if (T[c, k]) continue
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
       if (!could(c, k, "pr")) continue
