@@ -328,6 +328,7 @@ writes, it reads from the repository:
 | `base` | origin's default branch (`origin/HEAD`); else `origin/main` or `origin/master`; else, with no `origin`, the branch the project root has checked out |
 | `lanes` | the default branch → `orchestrator`, and each prefix your local branches use (`feature/x` → `"feature/": "feature"`, up to five); with none, `feature/` and `fix/` as a starting point |
 | `worktree_dir` | the directory every linked worktree already shares; else the default |
+| `launch` | not read from the repository: always `{"context_window": 200000, "claudeai_connectors": false}`, the lane context policy (PANEL-48). Without the key, lanes launch with no `--settings` |
 | `queues` | one `gate` queue, only if the project itself names a gate: a `package.json` script (run with the package manager its lockfile names) or a `Makefile` target called `gate`, `ci`, `check`, `verify` or `test`, best name first |
 
 It invents **no card** (a card's command runs by itself on every refresh) and no template. The

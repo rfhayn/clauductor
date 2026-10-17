@@ -14,6 +14,10 @@
   the four keys, `LaneCommand`'s `--settings`, and the window on the lane's record at `Start` and
   `resumeLocked`. Its full gate and review are the orchestrator's. Groups 3 and 4 are left.
 - 2026-10-17 group 2 (The config and the launch (D1, D2, D6, D11)) built and reviewed: converged in 1 round(s), peak none; grades R1 pass
+- 2026-10-17 group 3 built, uncommitted: init and attach write the default `launch` object at
+  version 6, and both presets (and the plugin's scaffold) carry it. Its gate and review are the
+  orchestrator's. Group 4 is left.
+- 2026-10-17 group 3 (Init, attach and the presets (D3, D4)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
 
 ## Decision log
 - 2026-10-17, group 1: **The probes read the window from `/context`'s "Auto-compact window" and
@@ -111,6 +115,28 @@
   - **Why:** the scenario's THEN is a context reading (90% at 180000, then against 300000), and
     this test asserts only the recorded window. Cited here, the trace would read CITED even if
     group 4 never asserted the reading. Task 4.1 already lists S3, so the trace now waits for it.
+- 2026-10-17, group 3: **The starter's default is two named constants in `install`
+  (`starterContextWindow`, `starterClaudeaiConnectors`), and `launch` is written after `base`.**
+  - **The alternative:** an exported default in `config`.
+  - **Why:** D3 puts the default in the file init writes, never in what the panel reads, so
+    nothing in `config` may hold it. After `base` is where both presets put it too.
+- 2026-10-17, group 3: **LANECTX-3-S1's test attaches a real repository, reads the sidecar's raw
+  JSON, and builds each of its lane types' argv with `LaneCommand` under the loaded config. It
+  does not start a lane on tmux.**
+  - **The alternative:** a real `Start` on a fake tmux, as group 2's S2 test does.
+  - **Why:** group 2's S2 test already proves every launch path reaches `LaneCommand`, and its
+    fake tmux is the `lanes` package's own test code. The raw JSON is read so that a misspelt
+    key cannot pass as an absent one. Without the starter's `launch`, the test fails (run).
+- 2026-10-17, group 3: **`clauductor update` was run as `--dry-run --template-dir` this
+  worktree's `template/`, and not applied.**
+  - **The alternative:** the plain `framework/clauductor update` that 3.2 names.
+  - **Why:**
+    - Plain, it read the MAIN checkout's template (`CLAUDUCTOR_FRAMEWORK`), not this branch's.
+    - Against this branch's template it reports every skill, hook and template up to date. Its
+      only offers are `docs/practices/` and a `model-roles.json` key, which are missing on
+      `origin/main` too, so they predate this change and are not group 3's.
+    - It does not manage `.clauductor/panel.json`, which 3.2 edits by hand.
+    - Applying it writes `.claude/settings.json`, which the sandbox refuses.
 
 ## 1. The probes (D8)
 The orchestrator runs these outside the sandbox. It uses a throwaway git repository in the
@@ -142,10 +168,10 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Also in `lanes_test.go`: a lane started at a 200000 window, its config edited to 300000, then restarted, has 300000 in its record: the launch-side precondition of LANECTX-2's third scenario, which 4.1's test cites (Decision log).
 
 ## 3. Init, attach and the presets (D3, D4)
-- [ ] 3.1 `framework/internal/panel/install/init.go`'s starter writes `"launch": {"context_window": 200000, "claudeai_connectors": false}` and version 6.
+- [x] 3.1 `framework/internal/panel/install/init.go`'s starter writes `"launch": {"context_window": 200000, "claudeai_connectors": false}` and version 6.
   - Tested in `framework/internal/panel/install/attach_test.go`, citing [LANECTX-3-S1].
   - `install/init_test.go`'s expected configs and ATTACH-1-S2's test still pass.
-- [ ] 3.2 Add the same `launch` object, and version 6, to `.clauductor/panel.json` and `template/.clauductor/panel.json`.
+- [x] 3.2 Add the same `launch` object, and version 6, to `.clauductor/panel.json` and `template/.clauductor/panel.json`.
   - Rebuild the plugin with `scripts/build-plugin.sh`.
   - Run `framework/clauductor update` from the repository root with the checkout's binary.
 

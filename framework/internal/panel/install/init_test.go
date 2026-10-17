@@ -80,6 +80,11 @@ func TestInitConfigFromARepository(t *testing.T) {
 	if c.Name != "acme-web" || c.Base != "origin/main" || c.WorktreeDir != ".worktrees" {
 		t.Errorf("name %q base %q worktree_dir %q", c.Name, c.Base, c.WorktreeDir)
 	}
+	// PANEL-48 D3: init writes the lane context policy, as attach does (its scenario's
+	// test is TestAttachedLanesLaunchWithThePolicy).
+	if l := c.Launch; l == nil || l.ContextWindow == nil || *l.ContextWindow != 200000 || l.ClaudeaiConnectors == nil || *l.ClaudeaiConnectors {
+		t.Errorf("launch %+v, want context_window 200000 and claudeai_connectors false", l)
+	}
 	want := map[string]string{"main": "orchestrator", "feature/": "feature", "fix/": "fix"}
 	if !reflect.DeepEqual(c.Lanes, want) {
 		t.Errorf("lanes %v", c.Lanes)
@@ -93,7 +98,7 @@ func TestInitConfigFromARepository(t *testing.T) {
 		t.Errorf("init wrote cards or templates: %+v %+v", c.Cards, c.Templates)
 	}
 	notes := strings.Join(res.Notes, "\n")
-	for _, s := range []string{"only when you press RUN", "`pnpm run check`", "`pnpm run test`"} {
+	for _, s := range []string{"only when you press RUN", "`pnpm run check`", "`pnpm run test`", "launch        context_window 200000, claudeai_connectors false"} {
 		if !strings.Contains(notes, s) {
 			t.Errorf("the notes do not say %q:\n%s", s, notes)
 		}
