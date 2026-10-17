@@ -50,4 +50,23 @@ case "$line" in *"[main]"*) ok "falls back to [branch] with no focus set" ;; *) 
 ( cd "$d/repo" && HOME="$d/home.-" sh "$ROOT/.claude/status-write.sh" "doing the thing" >/dev/null )
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"doing the thing"*) ok "shows the focus status-write.sh set" ;; *) fail "focus not shown: $line" ;; esac
+
+# The focus lives in the repository, not under HOME: the sandbox lets a command write the
+# repository and refuses ~/.claude, so a focus kept there was never set from a sandboxed session
+# (OPS-75). A read-only HOME stands in for the sandbox.
+mkdir -p "$d/ro"; chmod 555 "$d/ro"
+( cd "$d/repo" && HOME="$d/ro" sh "$ROOT/.claude/status-write.sh" "sandboxed focus" >/dev/null 2>&1 ) \
+  && ok "status-write sets the focus with HOME unwritable" || fail "status-write failed with HOME unwritable"
+line=$(printf '%s' "$input" | HOME="$d/ro" PATH="$d/bin:$PATH" sh "$sl")
+case "$line" in *"sandboxed focus"*) ok "shows a focus set with HOME unwritable" ;; *) fail "focus set with HOME unwritable not shown: $line" ;; esac
+chmod 755 "$d/ro"
+
+# A focus that cannot be written is an error, never "focus set": a plain file where the focus's
+# folder belongs blocks the write.
+fdir=$(cd "$d/repo" && HOME="$d/home.-" ROOT="$ROOT" sh -c '. "$ROOT/.claude/lib/conf.sh" && dirname "$(focus_file blocked)"')
+rm -rf "$fdir"; mkdir -p "$(dirname "$fdir")"; : > "$fdir"
+rc=0; out=$(cd "$d/repo" && HOME="$d/home.-" sh "$ROOT/.claude/status-write.sh" "lost" blocked 2>&1) || rc=$?
+[ "$rc" != 0 ] && ok "status-write exits non-zero when it cannot write" || fail "status-write exited 0 on a failed write: $out"
+case "$out" in *"focus set"*) fail "status-write said 'focus set' on a failed write: $out" ;; *) ok "status-write does not claim a failed write" ;; esac
+rm -f "$fdir"
 finish

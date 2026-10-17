@@ -54,7 +54,7 @@ branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
 
 focus=""
 if [ -n "$branch" ]; then
-  file=$(focus_file "$branch")
+  file=$(focus_file "$branch" "$cwd")
   [ -f "$file" ] && focus=$(cat "$file")
   [ -z "$focus" ] && focus="[$branch]"
 fi
