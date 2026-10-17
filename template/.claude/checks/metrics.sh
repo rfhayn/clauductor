@@ -182,6 +182,7 @@ fx git -C "$R" checkout -q main
 fx git -C "$R" checkout -q -b ops/tidy && echo tidy > "$R/tidy" && at 2026-09-19T20:00:00Z "tidy"
 fx git -C "$R" checkout -q main
 fx git -C "$R" update-ref refs/remotes/origin/main main
+fx git -C "$R" branch ops/done main # no commits beyond main: skipped, and said so under METRICS_DEBUG=1
 for b in fix/12-slow ops/tidy; do
   n=$(git -C "$R" rev-list --count "main..$b" 2>&1)
   [ "$n" = 1 ] || fail "fixture: $b has '$n' commits beyond main, want 1, so its aging WIP figure would test nothing"
@@ -262,6 +263,9 @@ is() { # LABEL JQ WANT
 }
 
 M; expect_rc 0 $? "metrics.sh exits 0"
+grep -qx 'metrics.sh: ops/done skipped in aging WIP: no commits beyond origin/main (merged, or empty)' "$d/m.err" \
+  && ok "a branch with no commits beyond main is skipped, and METRICS_DEBUG=1 says so" \
+  || fail "the skipped branch ops/done went unnamed under METRICS_DEBUG=1 (stderr: $(cat "$d/m.err"))"
 v=$(validate "$d/m.json"); [ "$v" = valid ] && ok "metrics.sh's payload meets the contract" || fail "metrics.sh's payload breaks the contract: $v"
 is "it reports the three windows" '.windows | keys' '["30d","7d","90d"]'
 is "generated_at is now" '.generated_at' "$NOW"
@@ -307,14 +311,31 @@ is "--window 7d reports that window alone" '.windows | keys' '["7d"]'
 mkdir -p "$d/gitfail"
 cat > "$d/gitfail/git" <<SH
 #!/bin/sh
-case "\$*" in *--reverse*fix/12-slow*) echo "fatal: injected" >&2; exit 128 ;; esac
+# A git that fails the calls matching GITFAIL (a case pattern over its arguments), as git would.
+case "\$*" in \$GITFAIL) echo "fatal: injected" >&2; exit 128 ;; esac
 exec "$(command -v git)" "\$@"
 SH
 chmod +x "$d/gitfail/git"
-(cd "$R" && env PATH="$d/gitfail:$B:$PATH" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW METRICS_DEBUG=1 sh .claude/metrics.sh --line) > "$d/line" 2> "$d/m.err"
+GF() { # PATTERN [ARGS]: run metrics.sh with git failing the calls that match, stderr to $d/m.err
+  _p=$1; shift
+  (cd "$R" && env PATH="$d/gitfail:$B:$PATH" GITFAIL="$_p" CONTEXT_OFFLINE= CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW METRICS_DEBUG=1 sh .claude/metrics.sh "$@") > "$d/line" 2> "$d/m.err"
+}
+GF '*--reverse*fix/12-slow*' --line
 grep -q '^metrics.sh: fix/12-slow left out of aging WIP: git rev-list .*fatal: injected' "$d/m.err" \
-  && ok "a branch the loop drops on a failing git step is named, with git's words, under METRICS_DEBUG=1" \
-  || fail "a branch dropped on a failing git step went unnamed (stderr: $(cat "$d/m.err"))"
+  && ok "a branch the loop drops on a failing rev-list is named, with git's words, under METRICS_DEBUG=1" \
+  || fail "a branch dropped on a failing rev-list went unnamed (stderr: $(cat "$d/m.err"))"
+GF '* log -1 --format=%ct refs/heads/fix/12-slow' --line
+grep -q "^metrics.sh: fix/12-slow left out of aging WIP: its first or last commit's time could not be read" "$d/m.err" \
+  && ok "a branch the loop drops on an unreadable commit time is named" \
+  || fail "a branch dropped on an unreadable commit time went unnamed (stderr: $(cat "$d/m.err"))"
+GF '* for-each-ref *' --line
+grep -q '^metrics.sh: every branch left out of aging WIP: git for-each-ref failed: fatal: injected' "$d/m.err" \
+  && ok "a failing branch listing is named, never read as no branches in flight" \
+  || fail "a failing for-each-ref went unnamed (stderr: $(cat "$d/m.err"))"
+# The panel's preset folds stderr into stdout (sh -c '… 2>&1'): without METRICS_DEBUG, a dropped
+# branch's line must not reach it, or the payload stops being JSON (line 34's exec 2>/dev/null).
+(cd "$R" && env PATH="$d/gitfail:$B:$PATH" GITFAIL='*--reverse*fix/12-slow*' CLAUDE_PROJECTS_DIR="$P" METRICS_NOW=$NOW sh .claude/metrics.sh 2>&1) > "$d/m.json"
+v=$(validate "$d/m.json"); [ "$v" = valid ] && ok "a dropped branch with stderr folded into stdout, no METRICS_DEBUG: still valid JSON" || fail "a dropped branch with 2>&1: $v"
 
 # ── Failing soft ──────────────────────────────────────────────────────────────────────────────
 soft() { # LABEL WANT-NOTE-SUBSTRING (after M …)
