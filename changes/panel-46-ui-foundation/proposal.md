@@ -71,7 +71,7 @@ It keeps, and does not modify:
   cost (PANEL-25) and a session closing its own lane (PANEL-34): rows after this one.
 - **+ Add a project…** → Attach (PANEL-43): the menu item stays as today.
 - The terminal (xterm), its tmux bridge and OPS-62's lost key (PRD-ui, *Out of scope*).
-- A reviewer that runs the screenshots for every later UI row: OPS-80, queued by this proposal
+- A reviewer that runs the screenshots for every later UI row: OPS-84, queued by this proposal
   (design D11).
 
 ## How we'll know

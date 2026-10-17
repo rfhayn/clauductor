@@ -154,7 +154,7 @@ leaves them. Each group's inventory IDs are design D16's.
 
 ## 8. The docs and the final look
 - [ ] 8.1 Rewrite `docs/panel.md`'s *The page* and *Appearance* to the page as drawn: ADR-0009's layout, colour, motion, mode and type, and D9's keys. Replace every "grey at rest" line ADR-0009 lists. *What checks them* names the tests as they now stand
-- [ ] 8.2 ADR-0009's *Open for PANEL-46*: answer each question as the owner approved it (D3, D4, D5). *Enforcement* names the tests, `shots.sh` and OPS-80
+- [ ] 8.2 ADR-0009's *Open for PANEL-46*: answer each question as the owner approved it (D3, D4, D5). *Enforcement* names the tests, `shots.sh` and OPS-84
 - [ ] 8.3 `docs/ux-passes.md`: the areas, views, sizes and modes the harness now covers, `shots.sh` and `moved.sh`
 - [ ] 8.4 Walk all 135 inventory functions against the page, and write where each is (or the owner's drop) in `docs/ux-passes.md`. An unplaced one stops the group (Refusals)
 - [ ] 8.5 *(the session)* The final matrix:

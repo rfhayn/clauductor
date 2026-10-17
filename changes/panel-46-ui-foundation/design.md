@@ -306,7 +306,7 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     exists.
 
 - **D11 Eyes in the loop: screenshots in each UI group's review, run by the session through
-  `/apply-change`, and OPS-80 for later rows (recommended).**
+  `/apply-change`, and OPS-84 for later rows (recommended).**
   - **The harness:**
     - group 1 adds `testdata/ux/shots.sh`: `up.sh`, `matrix.cjs` over the views a group names, at
       the sizes it names in light and dark, then `down.sh`;
@@ -335,9 +335,9 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
 
     Each such task is marked *(the session)* in `tasks.md`. The session carries eight groups'
     orchestration this way, which D14's budget counts.
-  - **For later UI rows:** the mechanism is a new row, **OPS-80**, which this proposal queues. It
+  - **For later UI rows:** the mechanism is a new row, **OPS-84**, which this proposal queues. It
     gives `build-change` a project review step that runs `shots.sh` when a group's diff touches
-    `framework/internal/panel/web`, and hands the reviewer the shots. Until OPS-80 merges, each
+    `framework/internal/panel/web`, and hands the reviewer the shots. Until OPS-84 merges, each
     UI row is built through `/apply-change` with the same task: **Nothing. You.**
   - **The harness is not a gate step.** PRD-ui left that open. A run takes minutes and needs
     Chromium on every gate.
@@ -345,7 +345,7 @@ settle. Line numbers are `panel.js` at `f16c9e8`. They move once PANEL-48 and PA
     - build-change with no screenshots, which leaves ADR-0009's *Enforcement* item with no
       executor;
     - a gate step;
-    - building OPS-80's step here, which widens this change into the template and the plugin.
+    - building OPS-84's step here, which widens this change into the template and the plugin.
 
 - **D12 Later rows plug into named places, and none is drawn before its row (recommended).**
 
