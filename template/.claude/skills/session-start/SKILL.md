@@ -37,7 +37,11 @@ run `sh .claude/skills/session-start/context.sh` yourself and read the result be
 ## Rules
 - **From here the session runs hands-off to `session-close`**: build, review, merge through
   `merge-pr`, close. It interrupts the owner only through `PushNotification`, when an owner
-  decision or a block stops it (`session-close`, *Hands-off*).
+  decision or a block stops it (`session-close`, *Hands-off*). While a lane or anything else
+  runs, a question for the owner goes to the owner queue or a push, never a blocking
+  `AskUserQuestion`; and no agent ends its turn on a command it started that is still running.
+  `.claude/hooks/no-silent-wait.sh` refuses both for THIS session's agents, teammates and
+  background commands; a lane that is a session of its own (a panel lane) it cannot see.
 - **The main checkout stays on `main`.** Hooks run from it; a feature branch there makes
   `worktree-hook-drift.sh` refuse every worktree agent.
 - **Run as an orchestrator of lanes** (`docs/playbook.md`, *Lanes*): one build lane at a time in its

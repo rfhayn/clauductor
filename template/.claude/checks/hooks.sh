@@ -300,6 +300,118 @@ nbg 2 "without jq: a subagent call naming the gate" "$(bgp a1 "$G" "" 600000)" "
 nbg 0 "without jq: the main session's gate" "$(bgp "" "$G" true)" "$d/nojq"
 nbg 0 "without jq: a subagent call naming no gate" "$(bgp a1 "git status" true)" "$d/nojq"
 
+# ── no-silent-wait ──────────────────────────────────────────────────────────────────────
+# Payloads in the shapes Claude Code 2.1.302 sent (OPS-90's probe): background_tasks is the
+# SESSION's, so a subagent stop lists the main session's shell too; a task's output file sits in
+# <dirname scratchpad_dir>/tasks and ends "[exited with code N]" or "[killed]".
+W="$d/wait"; new_repo "$W"; S="$d/sess"; mkdir -p "$S/scratchpad" "$S/tasks"
+WS="$W/.git/clauductor-wait"
+swp() {  # swp EVENT SESSION AGENT [JSON to merge]: a payload for no-silent-wait
+  _x=${4:-}; [ -n "$_x" ] || _x='{}'
+  jq -cn --arg e "$1" --arg s "$2" --arg a "$3" --arg sp "$S/scratchpad" --argjson x "$_x" \
+    '{hook_event_name:$e, session_id:$s, scratchpad_dir:$sp} | if $a == "" then . else .agent_id = $a end | . + $x'
+}
+nsw() {  # nsw WANT LABEL PAYLOAD [PATH]: run it, keep its stderr in $nsw_out
+  rc=0; nsw_out=$(printf '%s' "$3" | (cd "$W" && CLAUDE_PROJECT_DIR="$W" PATH="${4:-$PATH}" NO_SILENT_WAIT_MAX_REFUSALS="${NSW_MAX:-20}" sh "$H/no-silent-wait.sh") 2>&1) || rc=$?
+  # Exit 2 alone is no proof: dash exits 2 when it cannot open the script.
+  [ "$1" = 2 ] && [ "$rc" = 2 ] && case $nsw_out in *"BLOCKED by no-silent-wait"*) ;; *) rc="2 without its refusal text";; esac
+  expect_rc "$1" "$rc" "no-silent-wait $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+}
+running() { printf 'partial output\n' > "$S/tasks/$1.output"; }
+ended() { printf 'done\n\n[exited with code %s]\n' "${2:-0}" > "$S/tasks/$1.output"; }
+bt() { printf '{"background_tasks":[{"id":"%s","type":"shell","status":"%s","command":"make check"}]}' "$1" "${2:-running}"; }
+bash_bg='{"tool_name":"Bash","tool_input":{"command":"make check","timeout":300000},"tool_response":{"stdout":"","backgroundTaskId":"t1","timedOutAfterMs":300000}}'
+nsw 0 "a subagent's Bash call that went to the background is recorded" "$(swp PostToolUse s1 a1 "$bash_bg")"
+grep -qx t1 "$WS/s1/tasks/a1" 2>/dev/null && ok "no-silent-wait recorded task t1 for agent a1" || fail "no-silent-wait: no record of a1's task t1 in $WS/s1/tasks/a1"
+running t1
+nsw 2 "a subagent's stop while the command it started runs" "$(swp SubagentStop s1 a1 "$(bt t1)")"
+case $nsw_out in *"$S/tasks/t1.output"*FOREGROUND*|*FOREGROUND*"$S/tasks/t1.output"*) ok "no-silent-wait: the refusal names the task's output file and says to wait in the foreground" ;;
+  *) fail "no-silent-wait: the refusal does not name $S/tasks/t1.output or the foreground wait: $nsw_out" ;; esac
+nsw 0 "a subagent's stop when the running shell is the MAIN session's (session-wide list)" "$(swp SubagentStop s1 a2 "$(bt t1)")"
+nsw 0 "a subagent's stop once its task is listed as completed" "$(swp SubagentStop s1 a1 "$(bt t1 completed)")"
+nsw 0 "a subagent's stop once its task is no longer listed" "$(swp SubagentStop s1 a1 '{"background_tasks":[]}')"
+[ -e "$WS/s1/tasks/a1" ] && fail "no-silent-wait: an allowed stop left a1's task record behind" || ok "no-silent-wait: an allowed stop clears the agent's record"
+nsw 0 "a subagent's Monitor is recorded" "$(swp PostToolUse s1 a3 '{"tool_name":"Monitor","tool_response":{"taskId":"m1","persistent":false}}')"
+nsw 2 "a subagent's stop while its Monitor runs" "$(swp SubagentStop s1 a3 "$(bt m1)")"
+nsw 0 "the main session's background Bash is recorded as its own" "$(swp PostToolUse s1 "" "$bash_bg")"
+[ "$(ls "$WS/s1/tasks" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" = "_main a3 " ] && grep -qx t1 "$WS/s1/tasks/_main" \
+  && ok "no-silent-wait records the main session's task as _main, no agent's" || fail "no-silent-wait: tasks/ holds $(ls "$WS/s1/tasks" 2>/dev/null | tr '\n' ' ')"
+nsw 0 "a subagent's foreground Bash that finished is not recorded" "$(swp PostToolUse s1 a4 '{"tool_name":"Bash","tool_response":{"stdout":"ok"}}')"
+[ -e "$WS/s1/tasks/a4" ] && fail "no-silent-wait recorded a call that made no background task" || ok "no-silent-wait records nothing for a call that made no background task"
+nsw 0 "a stop with nothing recorded" "$(swp SubagentStop s1 a4 "$(bt t1)")"
+# The output file's end line ends a task, whatever status background_tasks still shows.
+nsw 0 "a subagent's task is recorded" "$(swp PostToolUse s1 a7 '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"t5"}}')"
+ended t5 1
+nsw 0 "a subagent's stop once its task's file ends, though still listed 'running'" "$(swp SubagentStop s1 a7 "$(bt t5)")"
+# A task that never ends (a server) holds a turn a bounded number of times, and says how to end it.
+nsw 0 "a subagent's server is recorded" "$(swp PostToolUse s1 a8 '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"srv"}}')"
+running srv
+NSW_MAX=2
+nsw 2 "a stop while its server runs (refusal 1 of 2)" "$(swp SubagentStop s1 a8 "$(bt srv)")"
+case $nsw_out in *"Refusal 1 of 2"*"by its PID"*"never by pattern"*) ok "no-silent-wait: the refusal counts, and says to end the command by its PID, never by pattern" ;; *) fail "no-silent-wait: the refusal does not count or say how to end the command by PID: $nsw_out" ;; esac
+nsw 2 "the next stop (refusal 2 of 2)" "$(swp SubagentStop s1 a8 '{"stop_hook_active":true,"background_tasks":[{"id":"srv","status":"running"}]}')"
+nsw 0 "the stop after the last refusal" "$(swp SubagentStop s1 a8 '{"stop_hook_active":true,"background_tasks":[{"id":"srv","status":"running"}]}')"
+# A teammate never ends, so a released task must not hold its next idle all over again.
+nsw 0 "a teammate's server is recorded" "$(swp PostToolUse s1 tm2 '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"srv"}}')"
+NSW_MAX=1
+nsw 2 "a teammate going idle while its server runs (refusal 1 of 1)" "$(swp TeammateIdle s1 tm2)"
+nsw 0 "the teammate's next idle, past the bound" "$(swp TeammateIdle s1 tm2)"
+nsw 0 "the teammate's idle after that: the released server no longer holds it" "$(swp TeammateIdle s1 tm2)"
+NSW_MAX=20
+rm -f "$S/tasks/srv.output"
+# A subagent's shell `&` makes no task at all: refused before it runs, unless the command waits.
+shp() { jq -cn --arg a "$1" --arg c "$2" '{hook_event_name:"PreToolUse", session_id:"s1", tool_name:"Bash", tool_input:{command:$c}} | if $a == "" then . else .agent_id = $a end'; }
+nsw 2 "a subagent's 'make check > log 2>&1 &'" "$(shp a1 'make check > log 2>&1 &')"
+nsw 2 "a teammate's 'nohup go test ./... &'" "$(shp tm1 'nohup go test ./... &')"
+nsw 0 "a subagent's 'make a & make b & wait'" "$(shp a1 'make a & make b & wait')"
+nsw 2 "a subagent's 'sleep 100 & # wait' (a comment does not wait)" "$(shp a1 'sleep 100 & # wait')"
+nsw 2 "a subagent's 'make a & echo please wait'" "$(shp a1 'make a & echo please wait')"
+nsw 0 "a subagent's '&&', '2>&1' and \$((3 & 1))" "$(shp a1 'make a && make b 2>&1; echo $((3 & 1))')"
+nsw 0 "a subagent's quoted '&'" "$(shp a1 'git commit -m "a & b"')"
+nsw 0 "the main session's '&' (it is not a subagent)" "$(shp "" 'make check &')"
+nsw 2 "without jq: a subagent's '&'" "$(shp a1 'make check &')" "$d/nojq"
+nsw 0 "without jq: a subagent's '&&' and '2>&1'" "$(shp a1 'make a && make b 2>&1')" "$d/nojq"
+nsw 0 "without jq: the main session's '&'" "$(shp "" 'make check &')" "$d/nojq"
+nsw 0 "without jq: the main session's Bash naming AskUserQuestion" "$(shp "" 'grep -n AskUserQuestion settings.json')" "$d/nojq"
+# Another session's records are pruned once stale; this session's never, however old.
+mkdir -p "$WS/old/agents" "$WS/s1/agents" && : > "$WS/old/agents/x" && touch -t 202001010000 "$WS/old" "$WS/s1"
+nsw 0 "a subagent starts in session s1" "$(swp SubagentStart s1 a10)"
+[ -d "$WS/old" ] && fail "no-silent-wait kept another session's stale records" || ok "no-silent-wait pruned another session's stale records"
+[ -f "$WS/s1/agents/a10" ] && [ -f "$WS/s1/tasks/a3" ] && ok "no-silent-wait kept this session's records, however old" || fail "no-silent-wait pruned the live session's records"
+nsw 0 "that subagent's stop" "$(swp SubagentStop s1 a10 '{"background_tasks":[]}')"
+# A teammate's idle has no background_tasks: the output file says whether the task ended.
+nsw 0 "a teammate's background task is recorded" "$(swp PostToolUse s1 tm1 '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"t2"}}')"
+running t2
+nsw 2 "a teammate going idle while its task runs (output file has no end line)" "$(swp TeammateIdle s1 tm1)"
+ended t2 3
+nsw 0 "a teammate going idle once its task's file ends '[exited with code 3]'" "$(swp TeammateIdle s1 tm1)"
+# AskUserQuestion: the main session's question waits for the owner and reads nothing else meanwhile.
+ask='{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Queue OPS-89?"}]}}'
+rm -f "$S/tasks"/*.output
+nsw 0 "the main session's question with nothing running" "$(swp PreToolUse s2 "" "$ask")"
+nsw 0 "a subagent starts" "$(swp SubagentStart s3 a5)"
+nsw 2 "the main session's question while a subagent runs" "$(swp PreToolUse s3 "" "$ask")"
+case $nsw_out in *owner-queue.md*PushNotification*) ok "no-silent-wait: the refusal says to use the owner queue or a push" ;; *) fail "no-silent-wait: the refusal does not name the owner queue and PushNotification: $nsw_out" ;; esac
+nsw 0 "that subagent's stop with nothing of its own running" "$(swp SubagentStop s3 a5 '{"background_tasks":[]}')"
+nsw 0 "the main session's question once the subagent has ended" "$(swp PreToolUse s3 "" "$ask")"
+for t in t3 t4; do nsw 0 "the main session's background command $t is recorded" "$(swp PostToolUse s4 "" "{\"tool_name\":\"Bash\",\"tool_response\":{\"backgroundTaskId\":\"$t\"}}")"; done
+running t3; running t4
+nsw 2 "the main session's question while its background commands run" "$(swp PreToolUse s4 "" "$ask")"
+ended t3; printf '\n[killed]\n' > "$S/tasks/t4.output"
+# Only recorded tasks count: a foreground call that ran to its timeout can leave a file behind.
+printf 'a foreground call that ran to its timeout\nFAIL\n' > "$S/tasks/left.output"
+printf 'an agent transcript, never an end line\n' > "$S/transcript"; ln -sf "$S/transcript" "$S/tasks/a9.output"
+nsw 0 "the main session's question once its commands ended or were killed, beside a leftover file nothing recorded" "$(swp PreToolUse s4 "" "$ask")"
+nsw 0 "a subagent's own question (it returns to a session that is awake)" "$(swp PreToolUse s3 a6 "$ask")"
+nsw 0 "another tool from the main session" "$(swp PreToolUse s3 "" '{"tool_name":"Bash","tool_input":{"command":"ls"}}')"
+nsw 0 "an empty payload" ""
+# Without jq it fails closed for what it polices: the question, and a subagent's stop ONCE.
+nsw 2 "without jq: the main session's question" "$(swp PreToolUse s2 "" "$ask")" "$d/nojq"
+nsw 2 "without jq: a subagent's first stop" "$(swp SubagentStop s1 a1 '{"stop_hook_active":false}')" "$d/nojq"
+nsw 0 "without jq: a subagent's stop already refused once (stop_hook_active)" "$(swp SubagentStop s1 a1 '{"stop_hook_active":true}')" "$d/nojq"
+nsw 0 "without jq: a teammate going idle (no flag would ever end a refusal)" "$(swp TeammateIdle s1 tm1)" "$d/nojq"
+nsw 0 "without jq: a PostToolUse" "$(swp PostToolUse s1 a1 "$bash_bg")" "$d/nojq"
+
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
 git init -q --bare "$d/origin.git"
 A="$d/main"; new_repo "$A"
@@ -354,10 +466,10 @@ expect_rc 0 "$rc" "format.sh is a silent no-op with FORMAT_CMD unset"
 # reads the config tests for it first. Run each hook from a checkout with no .claude/lib, under sh
 # and, where installed, under dash (Ubuntu's sh).
 N="$d/noconf"; new_repo "$N"; mkdir -p "$N/.claude/hooks"
-for h in focus-staleness format worktree-hook-drift no-background-gate; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
+for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
 for shell in sh dash; do
   command -v "$shell" >/dev/null 2>&1 || continue
-  for h in focus-staleness format worktree-hook-drift no-background-gate; do
+  for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait; do
     rc=0; printf '%s' "$spawn" | (cd "$N" && "$shell" "$N/.claude/hooks/$h.sh") >/dev/null 2>&1 || rc=$?
     expect_rc 0 "$rc" "[$shell] $h.sh with conf.sh missing does not block (exit 0)"
   done
@@ -429,6 +541,7 @@ cat > "$d/core.tsv" <<'EOF'
 pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
 no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
 no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
+no-silent-wait.sh	0	file:@REPO@/.git/clauductor-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
@@ -472,7 +585,8 @@ while IFS="$TAB" read -r ev cmd; do
   pl=$(printf '%s' "$row" | cut -f4 | sed "s|@TRACKED@|$P/src/tracked.ts|g; s|@REPO@|$P|g; s|@GATE_WAIT@|$(dirname "$GATE_RUN")/gate-wait.sh|g"); why=$(printf '%s' "$row" | cut -f5)
   for where in "$P/src/sub" "$P"; do
     label="$ev $s from $( [ "$where" = "$P" ] && echo 'the project root' || echo 'a subdirectory'): $why"
-    rm -f "$P/formatted.stamp"
+    # A file proof made by an earlier launch would pass this one vacuously: remove it first.
+    case $proof in file:*) rm -f "$(printf '%s' "${proof#file:}" | sed "s|@REPO@|$P|g")" ;; esac
     rc=0; out=$(cd "$where" && printf '%s' "$pl" | jq -c --arg c "$where" '. + {cwd: $c}' | CLAUDE_PROJECT_DIR="$P" HOME="$P/home" sh -c "$cmd" 2>&1) || rc=$?
     if printf '%s' "$out" | grep -qE 'No such file|cannot open|not found'; then fail "$label: it did not launch: $(printf '%s' "$out" | head -2 | tr '\n' ' ')"; continue; fi
     [ "$rc" = "$want" ] || { fail "$label: exit $rc, want $want ($(printf '%s' "$out" | head -2 | tr '\n' ' '))"; continue; }

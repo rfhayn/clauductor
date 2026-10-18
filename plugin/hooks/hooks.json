@@ -10,6 +10,15 @@
             "type": "command"
           }
         ]
+      },
+      {
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -27,6 +36,19 @@
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-background-gate.sh",
             "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
           }
         ]
       }
@@ -36,6 +58,36 @@
         "hooks": [
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/plugin-session.sh\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
             "type": "command"
           }
         ]
