@@ -116,9 +116,11 @@ the text, the build stops and asks the owner rather than editing the approved wo
     alike, so D3 can tell "under a whole-set run" from "run alone".
   - **The markers are inherited.** `bare` overrides only `HOME`, `PATH`, `CI` and
     `CLAUDUCTOR_LOCK_HELD`, and passes every other exported variable through. So `CHECKS_BARE`,
-    `CHECKS_SET` and `CHECKS_DOUBLE_PASS` reach every check and every nested run. Anything that
-    starts a `run.sh` of its own (D3's re-run, D7's fixtures) sets or unsets all three
-    explicitly, and never inherits them.
+    `CHECKS_SET` and `CHECKS_DOUBLE_PASS` reach every check and every nested run. Whatever starts
+    a whole-set `run.sh` or a `no-clauductor.sh` of its own (D3's re-run, D7's fixtures) sets or
+    unsets all three explicitly, and never inherits them. Named runs ignore the markers, so the
+    checks that already start a named fixture `run.sh` (`ci-status.sh`, `ideas.sh`) need no
+    change.
   - **Beat:** wrapping each check on its own, which builds the mirror 44 times; and keeping
     `no-clauductor.sh`'s re-run while the gate skips the outer pass, which works only for gates
     that know to do that. Every project's gate calls `run.sh`, so `run.sh` is where the change
@@ -231,36 +233,45 @@ the text, the build stops and asks the owner rather than editing the approved wo
     now run without the caller's `HOME` (its gh login, ssh keys and git signing) and with `CI`
     empty. A check that needs any of these fails after `update`: set it up in the check's own
     scratch, as the template's checks do, or set `CHECKS_DOUBLE_PASS=1` while you fix it."
-  - **Where it goes, always:** a line of the build PR's body that starts `Slice: Release note:`,
-    followed by the item. On #25's branch, `scripts/changelog.sh` copies every PR body line that
-    starts `Slice:` into `[Unreleased]` as a bullet under its PR, and keeps doing so each time it
-    regenerates the section. So the item reaches the next release's notes whether or not REL-1
-    has merged, and whether or not a version section is being prepared. The merge guard's slice
-    rule reads `tasks.md`, not the PR body (`pr-merge-guard.sh` rule 3), so the extra line does
-    not interfere with it.
-  - **And, as well:**
-    - if `CHANGELOG.md` is on `main` and a version section is being prepared (not
-      `[Unreleased]`), the item goes in that section's *Changed* too;
-    - if `CHANGELOG.md` is not on `main`, the build appends the item to REL-1's roadmap row, so
-      the change that writes the first release notes owns it (AGENTS.md rule 1).
-  - **Beat:** a hand-written item under `[Unreleased]`, which the next regeneration deletes
-    without a word; and editing #25 from this change, which is REL-1's PR, not this change's.
+  - **Where it goes:** to the change that will write the release notes, as a roadmap row. That is
+    something the builder can do in a commit, and anyone can check it exists (AGENTS.md rules 1
+    and 2). The build PR does not exist while group 2 runs: build-change ends before the PR is
+    opened, and `merge-pr` opens it with `gh pr create --fill`. So no task can write to its body.
+    - **If REL-1's row is still open** (`⬜ queued` or `⬜ in flight`), the build appends the item
+      to REL-1's Change cell. REL-1 writes the first release notes, the `[0.1.0]` section, by
+      hand. This is the expected case: the owner placed OPS-93 before launch, and REL-1 is the
+      session plan's S12.
+    - **If REL-1 has merged,** no change owns the next release's notes, so the build creates one,
+      as rule 1 asks: a queued row in Phase 4, whose Change cell says the next release's
+      `CHANGELOG.md` section carries the item, in *Changed*.
+  - **And, as well:** if `CHANGELOG.md` is on `main` and a version section is being prepared (not
+    `[Unreleased]`), the item goes in that section's *Changed* in the build.
+  - **Beat:**
+    - a hand-written item under `[Unreleased]`, which the next regeneration deletes without a
+      word;
+    - a `Slice:` line in the build PR's body. On #25's branch, `scripts/changelog.sh` copies such
+      lines into `[Unreleased]` and keeps them across regenerations, but no process writes the
+      line: the PR is opened after the build, from commit info;
+    - editing #25 from this change, which is REL-1's PR, not this change's.
 
 - **D9 The amendment lands with the code, in group 2.** It is not inserted in the proposal PR.
   - Merged before group 1, it would describe a `run.sh` that does not build the environment and a
     `no-clauductor.sh` that cannot fail outside it. That is a stated control with nothing executing
     it (AGENTS.md rule 4).
   - Group 2 inserts it after group 1's code and fixtures have passed the gate.
-  - **AGENTS.md, this repo's copy:** its header says the file changes to add a mechanism, and the
-    mechanism gets its row. Group 2 edits the existing row "The repo works without clauductor"
-    rather than adding one. The cell becomes: `checks/run.sh` runs the checks inside the
-    environment; `checks/no-clauductor.sh` asserts that, and runs the gate, a context script and
-    the status line there; the weekly `checks-double-pass.yml` runs the old double pass on `main`,
-    held by `local:double-pass`. `checks/agents-md-budget.sh` must still pass.
-  - **AGENTS.md, the template's copy:** it stays as it is. Its cell still holds for a project
-    (`checks/no-clauductor.sh` still covers the gate, a context script and the status line, and
-    is what fails when the checks run outside the environment), and the weekly job is this repo's
-    alone (O5).
+  - **AGENTS.md:** its header says the file changes to add a mechanism, and the mechanism gets its
+    row. Group 2 edits the existing row "The repo works without clauductor" rather than adding
+    one, because after the change `checks/run.sh`, not `checks/no-clauductor.sh`, runs the checks
+    off `PATH`. The first cell stays. The second cell becomes, word for word:
+    - **the template's copy** (`template/AGENTS.md`): ``**`checks/run.sh`** runs the checks with
+      `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it, and runs the gate, a
+      context script and the status line there``. The whole row is 248 characters;
+    - **this repo's copy** (`AGENTS.md`): ``**`checks/run.sh`** runs the checks with `clauductor`
+      off `PATH`; **`checks/no-clauductor.sh`** asserts it and runs the gate there; weekly,
+      **`checks-double-pass.yml`** (`local:double-pass`)``. The whole row is 269 characters. The
+      weekly job is this repo's alone (O5), so only this copy names it.
+  - Both rows are under `checks/agents-md-budget.sh`'s 320-character row ceiling, and the two
+    files have about 4,000 bytes of headroom under its 16,000-byte ceiling.
 
 ## Open: the owner decides
 
