@@ -1,7 +1,7 @@
 **Approved:** 2026-10-18 by Rich · design c9d2de7c70b7
 **Roadmap row:** PANEL-51
 **Risk:** normal
-**Budget:** $80
+**Budget:** $80, soft
 
 ## Why
 Unattended work stopped silently three times, each time with the work done and nobody awake to
