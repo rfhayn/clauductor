@@ -210,6 +210,9 @@ number (`fix/<n>-<slug>`), and a find with no issue is an `ops/` lane.
 | OPS-77 | `ops/ops-77-merged-tree-evidence` — when a PR is behind main and the files it changes overlap files main changed since the merge base, the merge guard requires gate evidence on the MERGED tree (`git merge-tree --write-tree`), not only the head. The gate receipt covers the head SHA, never the merge result; that cost #97 and #104 (the insight of 2026-10-13). The owner chose blocking, limited to overlapping files (2026-10-17), with an ADR (Proposed) for the cost trade-off | `template/.claude/hooks/pr-merge-guard.sh`, `template/.claude/hooks/lib/change-guard.sh`, `template/.claude/checks/merge-guard.sh`, `docs/adr/` | OPS-66 | ⬜ queued |
 | OPS-78 | `ops/ops-78-enforce-pre-review` — a guard rule requires the `Review: converged in … · design <hash>` line (OPS-76) on the PR of a change approved after OPS-76 merged (a cut-off date, like RECORDS_BASELINE), so earlier changes are not failed. The owner's decision of 2026-10-17: the skill step now, enforcement later | `template/.claude/hooks/pr-merge-guard.sh`, `template/.claude/checks/merge-guard.sh` | OPS-77 | ⬜ queued |
 | OPS-80 | `ops/ops-80-rewrite-guard-false-positive` — the no-blind-source-rewrite hook no longer blocks a read-only report script that names a tracked path. Three review rounds on #141 (closed) showed the safe rule cannot allow a script that launches a process, and the real case resolved itself, because the hook skips tracked scripts | `template/.claude/hooks/no-blind-source-rewrite.sh`, `template/.claude/checks/hooks.sh` | — | ⬜ parked — a read-only script is blocked again in real work |
+| OPS-81 | `fix/143-shutdown-grace-flake` — `TestRunShutdownBoundsTheClaudeGrace` no longer fails under load (#143: no stopped-call line naming SIGTERM and SIGKILL): find why the line is missed, and fix it at that cause, never by a retry or a longer wait alone | `framework/internal/panel` | — | ⬜ queued |
+| OPS-82 | `ops/ops-82-cd-guard` — a `PreToolUse` hook refuses a Bash `cd` that leaves the worktree a running build-change workflow holds: the session's cwd moved out of it three times on 2026-10-17, and every agent the workflow spawns takes the session's cwd, so its builders and reviewers ran in the wrong checkout | `template/.claude/hooks/`, `template/.claude/settings.json`, `template/.claude/checks/hooks.sh` | — | ⬜ queued |
+| OPS-83 | `ops/ops-83-roadmap-tracker` — the owner's roadmap tracker (a private claude.ai dashboard) stays current by mechanism, not memory: this file's *Session plan* orders the sessions, `.claude/local/roadmap-tracker.sh` builds the tracker's data from it and `roadmap_queue`, session-start says when the tracker is stale and session-start and session-close refresh it, and `checks/roadmap-tracker.sh` (local) holds the state mapping and the staleness line | `docs/roadmap.md`, `.claude/local/`, `template/.claude/checks/roadmap.sh`, `plugin/`, `AGENTS.md` | — | ⬜ in flight (#144) |
 
 ### Cancelled at the rescope (2026-10-14)
 
@@ -276,6 +279,29 @@ keeps its own operating model: by the owner's decision of 2026-10-12 it does not
 | P2.11 | `ops/module-living-visuals` — derived pages kept current: a registry `refresh:` field, a close step that refreshes or stamps every page that is behind, and a generated-block check (Phase 2 wave 2, after P2.7) | `template/.claude/modules/living-visuals/` | #43 | ✅ merged (#61) |
 | P2.12b | `ops/module-ideas` — the ideas queue as a module: the skill, a session-start count, the close-time render, and a check that the rendered page is never hand-edited (Phase 2 wave 2, after P2.7; the risk register half of P2.12 is #41) | `template/.claude/modules/ideas/` | #43 | ✅ merged (#61) |
 | P2.11c | `ops/living-visuals-lows` — #57's round-2 lows in `living.sh`: a claim value is read only up to the first `<`, so `<b data-claim="owner">Rich <i>and Damian</i></b>` passes against `echo Rich`, and the README's "markup inside a value fails" is untrue for that shape (L1); `data-claim` is counted inside scripts, styles and comments, so a `[data-claim=owner]` selector fails a valid page with a misleading message (L2); `--regen`'s temp-file-and-rename drops the page's mode, replaces a symlinked page and leaves `*.living-regen.<pid>` behind when interrupted (L3); jq 1.7's `(at file:6)` defeats the `jq: error` prefix strip (L4); and from #57's last review, the ideas module's `render.sh` (around lines 101-103): its comment names "the one false pass" of the undated count, but there are two (also a forged none over ideas with `updatedAt` and no `createdAt`), and its list of free-text fields omits the roadmap row (L5) | `template/.claude/modules/{living-visuals,ideas}/` | P2.11 | ⬜ in flight (#142) |
+
+## Session plan
+
+The order of the coming sessions, agreed with the owner on 2026-10-17. The order is firm; the
+session boundaries are estimates, so a session that runs long moves the rest later and never
+reorders them. The rows stay in the tables above, which hold their state; this table only orders
+them, and its header is not the queue header, so the queue parser skips it. In *The owner
+decides*, `ID: decision` names the row a decision is about.
+
+The owner keeps a dashboard of this plan, refreshed at each session start and close:
+`.claude/local/roadmap-tracker.sh` builds its data from this table and the queue.
+
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S4 | 2026-10-17 (in progress) | Finish PANEL-48; land the merge queue; build OPS-66, OPS-72, OPS-73 and the PANEL-46 proposal in the cloud; close | PANEL-48, OPS-75, OPS-35, OPS-70, OPS-76, OPS-74, P2.11c, OPS-83, OPS-66, OPS-72, OPS-73 | Nothing more unless PANEL-48's review raises a design question |
+| S5 | next | Build PANEL-49; land the cloud lanes not merged today; OPS-81 and OPS-82 | PANEL-49, OPS-81, OPS-82 | PANEL-46: approve its design |
+| S6–7 | two sessions | Build PANEL-46, the new look; OPS-77 then OPS-78 on the merge guard; PANEL-47 | PANEL-46, OPS-77, OPS-78, PANEL-47 | OPS-77: accept or amend its ADR; PANEL-50: approve its design (drafted in S7) |
+| S8 | | Build PANEL-50; ready OPS-42; two panel flakes; draft PANEL-43 | PANEL-50, OPS-60, OPS-65 | OPS-42: re-approve once its quota amendment is drafted (S8); PANEL-43: approve its design (drafted in S8) |
+| S9 | | Build OPS-42 (routines), then PANEL-43 if there is room | OPS-42, PANEL-43 | — |
+| S10 | | Build PANEL-37 (routines view), then PANEL-38 (Today) | PANEL-37, PANEL-38 | PANEL-38: approve its design |
+| S11 | | The follow-on panel rows; re-check September designs first | PANEL-25, PANEL-30, PANEL-31, PANEL-34, OPS-62 | PANEL-25, PANEL-30, PANEL-31: re-approve if its September design changed |
+| S12 | | Release v0.1.0, then restore macOS PR CI | REL-1, OPS-28 | REL-1: give the release go |
+| S13 | | Standing Tee in attach mode, and the designer onboarding | ST-7, ST-6 | ST-7: give the go to apply it to the installed panel |
 
 ## Done before the model
 
