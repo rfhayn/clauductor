@@ -31,23 +31,29 @@ redesign (the owner's decision of 2026-10-18, over building it once on the new l
 carries the stalled state into the new look (design D11).
 
 ## What changes
-- **A lane can be stalled.** A lane is stalled when a session of it has waited on a question or
-  a permission prompt for the stall time, or when it is not working, has gone the stall time with
-  no movement, and has open work: an open pull request, a clean gate receipt for its HEAD with no
-  pull request after it, background work its turn ended on, or, for a lane the panel launched, a
-  claude that exited with work open. The stall time defaults to 30 minutes, and
-  `alerts.stall_minutes` changes it per project (D1, D3, D5).
+- **A lane can be stalled,** three ways, each once the party it belongs to has gone the stall
+  time with no movement and is not working: a session of it has waited on a question or a
+  permission prompt; a session of it ended its turn on background work that woke no one; or the
+  lane has open work (an open pull request, a clean gate receipt for its HEAD with no pull
+  request after it, or, for a lane the panel launched, a claude that exited with work open). A
+  session's two ways run on its own clock, so a busy or looping sibling cannot hide them. The
+  stall time defaults to 30 minutes, and `alerts.stall_minutes` changes it per project (D1, D3,
+  D5).
   - **Working:** a `claude agents` reading of `busy` (which holds while a background command
-    runs: E1), or holding (alive) or waiting for the gate's lease, or a background subagent or
-    workflow its turn ended on that has not yet ended (D3 (d)).
-  - **Movement:** a hook from any of the lane's sessions, a change in its `claude agents`
-    reading, a session starting, a lease taken or given up, or its pane dying.
+    runs: E1), or a background subagent or workflow its turn ended on that has not yet ended
+    (its `SubagentStop` carries the task's id: D3 (d)); and for the lane, holding (alive) or
+    waiting for the gate's lease.
+  - **Movement:** a hook from the session (a notification that reports the stop is not one), a
+    change in its `claude agents` reading, or its start; for the lane, any of its sessions'
+    movement, a lease taken or given up, or its pane dying.
   - **A lane with no live session** does not stall, unless the panel launched it and its claude
     exited (D1).
 - **It says what it last waited on.** That is the ask, or the in-flight work Claude Code's `Stop`
   hook lists (`background_tasks`, probed on 2.1.302: E1, E2), or "nothing in flight to wake it",
-  with the turn's last line. A session that scheduled its own wakeup (`session_crons`) is not
-  stalled until that wakeup is due (D4).
+  with the turn's last line. A session that scheduled its own wakeup (`session_crons`) holds off
+  its own background-work stall and its lane's open-work stall while a recurring wakeup is
+  listed, or until 5 minutes past a one-shot's fire time; it never holds off a sibling's stall,
+  nor its own question (D4).
 - **It shows on today's page.** The lane's row and its tab read **stalled**, tinted red, and a
   Needs-you row names the lane, how long it has been quiet, the open work and what it waited on
   (D11).
