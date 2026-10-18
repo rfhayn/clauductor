@@ -46,6 +46,22 @@ func (m *Model) MeasureFromTranscripts() {
 	m.transcripts = true
 }
 
+// TranscriptSessions are the ids of every session the state holds, sorted, for the
+// runtime's transcripts source to read (D3); none in a project not measured from
+// transcripts. The state, not the reader, says which sessions there are, and a
+// session it forgets is no longer read.
+func (m *Model) TranscriptSessions() []string {
+	if !m.transcripts {
+		return nil
+	}
+	ids := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // ApplyTranscript folds one reading of session id's transcripts, taken at now; err is
 // signals.ReadTranscript's. A session the state does not hold is ignored: the state,
 // not the reader, says which sessions there are.

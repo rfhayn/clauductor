@@ -46,16 +46,20 @@ var ErrNotUUID = errors.New("session id is not a UUID")
 
 var sessionUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// transcriptHead is stage one, decoded from every line. A line that is not an
+// TranscriptHead is stage one, decoded from every line. A line that is not an
 // assistant line stops here, and a field of the wrong JSON type in it is no error.
-type transcriptHead struct {
+//
+// TranscriptHead and TranscriptAssistant are the only types a line is decoded into.
+// They are exported for D8's allowlist test (notranscript_test.go), which walks them
+// by reflection: a field added to either, at any depth, is a reviewed diff.
+type TranscriptHead struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 }
 
-// transcriptAssistant is stage two, decoded from an assistant line only. Here a
+// TranscriptAssistant is stage two, decoded from an assistant line only. Here a
 // field of the wrong type is an error, except in a synthetic record.
-type transcriptAssistant struct {
+type TranscriptAssistant struct {
 	Message *transcriptMessage `json:"message"`
 }
 
@@ -430,13 +434,13 @@ func (f *transcriptFile) readLine(line []byte, main bool) *TranscriptError {
 	if !json.Valid(line) {
 		return &TranscriptError{Reason: "is not valid JSON"}
 	}
-	var head transcriptHead
+	var head TranscriptHead
 	if err := json.Unmarshal(line, &head); head.Type != "assistant" {
 		return nil
 	} else if err != nil {
 		return decodeError(head.Version, err)
 	}
-	var a transcriptAssistant
+	var a TranscriptAssistant
 	err := json.Unmarshal(line, &a)
 	// The model is read first: a synthetic record is set aside before anything else
 	// in it is validated, so a malformed one is no error (D2).
