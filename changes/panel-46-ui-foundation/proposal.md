@@ -1,7 +1,7 @@
 **Approved:** 2026-10-17 by Rich · design 2389c1a64d91
 **Roadmap row:** PANEL-46
 **Risk:** normal
-**Budget:** $120
+**Budget:** $120, soft
 
 ## Why
 The owner chose the panel's new look on 2026-10-16: variant 4, the hybrid

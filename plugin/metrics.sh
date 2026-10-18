@@ -121,7 +121,7 @@ for d in "$ROOT/$CHANGES_DIR"/*/ "$ROOT/$CHANGES_DIR"/archive/*/; do
   jq -cn --arg id "$id" --arg archived "$archived" \
     --arg approved "$(proposal_field "$p" Approved | cut -c1-10)" \
     --arg created "$created" --arg apc "$apc" \
-    --arg budget "$(proposal_field "$p" Budget | tr -d '$ ')" \
+    --arg budget "$(proposal_budget "$p" | sed -n 's/ .*//p')" \
     --arg signal "$(printf '%s\n' "$know" | sed -n 's/^[-* ]*\*\*Signal:\*\*[[:space:]]*//p' | head -1)" \
     --arg on "$(printf '%s\n' "$know" | sed -n 's/^.*\*\*Check on:\*\*[[:space:]]*\([0-9-]\{10\}\).*/\1/p' | head -1)" \
     --arg after "$(printf '%s\n' "$know" | sed -n 's/^.*\*\*Check after:\*\*[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)" \
