@@ -1033,7 +1033,7 @@ For a session with a window:
 - its context is the status line's `current_usage` (input, cache-creation and cache-read tokens)
   over that window. Claude Code's own `used_percentage` is measured against the model's whole
   window: a 200k window on a 1M-token model would read 18% at 180k, where the panel reads 90%.
-  The lane's metrics show the recorded window, not `context_window_size`;
+  The lane's metrics show that window, posted or recorded, not `context_window_size`;
 - its bar's tick sits where Claude Code compacts it: the window less Claude Code's 33k buffer, as
   a share of the window. 83.5% at 200k, 89% at 300k, 67% at 100k;
 - its context alert, and the bar's warning colour, sit at the lower of `alerts.context_pct` and

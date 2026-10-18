@@ -117,8 +117,9 @@ type session struct {
 	nest        nesting         // pending Agent calls, confirmed edges, workflow runs (nesting.go)
 	Note        *note
 	CtxPct      *float64
-	// ctxWindow is the window CtxPct is measured against: the lane record's window at
-	// the post that set it (PANEL-48, D7); 0 when it is Claude Code's used_percentage.
+	// ctxWindow is the window CtxPct is measured against at the post that set it: the
+	// post's auto_compact_window, else the lane record's (PANEL-48, D7); 0 when it is
+	// Claude Code's used_percentage.
 	ctxWindow int
 	Model     string
 	StatusAt  time.Time // last status-line post
@@ -928,8 +929,8 @@ type SessionView struct {
 // the hooks and `claude agents` state it already keeps.
 type Metrics struct {
 	CtxPct *float64 `json:"ctxPct,omitempty"`
-	// CtxWindow is the lane's recorded window for a lane launched with one (PANEL-48),
-	// else context_window_size; tokens.
+	// CtxWindow is the window the session's context is measured against when it has
+	// one, posted or recorded (PANEL-48, D7), else context_window_size; tokens.
 	CtxWindow int64 `json:"ctxWindow,omitempty"`
 	// CtxTick is where the bar marks auto-compaction, and CtxAlertPct the context
 	// alert's threshold (0: off), both for the window CtxPct is measured against (D7,
@@ -972,8 +973,8 @@ type Metrics struct {
 }
 
 // fold takes the figures a status post carries; a field it omits keeps its last value.
-// window is the session's recorded window (0: none), which its context is measured
-// against and shown as (D7).
+// window is the session's window, posted or recorded (0: none), which its context is
+// measured against and shown as (D7).
 func (x *Metrics) fold(p signals.StatusPayload, window int, now time.Time) {
 	x.StatusAt = ms(now)
 	cw := p.ContextWindow

@@ -225,8 +225,8 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Fill the context past 100k, then record where compaction fires (the `PreCompact` moment against the last status post's tokens), and what `context_window_size` and `used_percentage` read.
   - If no compaction fires near the window, stop here and report to the owner (Refusals).
   - (manual: needs the owner's login and real spend)
-- [x] 1.2 P2: put `"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"}` in the probe repository's `.claude/settings.json`, launch with the `--settings` of 1.1, and confirm the settings' 100000 applies. (manual: as 1.1)
-- [x] 1.3 P3: `/context` at startup with connectors on, then with `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`; record both totals and the difference. Then put `"env": {"ENABLE_CLAUDEAI_MCP_SERVERS": "true"}` in the probe repository's `.claude/settings.json`, launch with the `false` settings, and record whether the connectors come back (D5). (manual: as 1.1)
+- [x] 1.2 P2: put `"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"}` in the probe repository's settings file (.claude/settings.json there, not this repository's), launch with the `--settings` of 1.1, and confirm the settings' 100000 applies. (manual: as 1.1)
+- [x] 1.3 P3: the /context command at startup with connectors on, then with `ENABLE_CLAUDEAI_MCP_SERVERS=false` in the settings `env`; record both totals and the difference. Then put `"env": {"ENABLE_CLAUDEAI_MCP_SERVERS": "true"}` in the probe repository's settings file (as in 1.2), launch with the `false` settings, and record whether the connectors come back (D5). (manual: as 1.1)
 - [x] 1.4 P5: exit the 1.1 session, relaunch it with `--resume <id>` and the same `--settings`, and confirm the window still applies. (manual: as 1.1)
 - [x] 1.5 Commit the audit scripts the measurement ran into `changes/panel-48-lane-context-policy/evidence/tool/` (D12): `usage-report.mjs`, `audit.mjs` and `driver.mjs`.
   - The transcript folder becomes an argument; no home path is written in.
