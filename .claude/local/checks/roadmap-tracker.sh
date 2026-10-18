@@ -197,18 +197,24 @@ plan_err "an id planned twice" 's/| B-2, B-7, Z-9 |/| B-2, B-7, A-2 |/' "A-2 is 
 plan() { CONTEXT_OFFLINE=1 sh "$F/.claude/local/context.d/session-start/session-plan.sh" 2>&1; }
 cp "$(scratch)/fixture.md" "$F/docs/roadmap.md"
 case $(plan) in "session plan: S1 (today) — First things"*) ok "the section names the first session not done" ;; *) fail "the first session: $(plan)" ;; esac
-printf '# a comment\nB-1\tS1: B-1 routine\nA-2\tS1: A-2 routine\nB-2\n' > "$F/.claude/local/cloud-lanes.tsv"
-gen "$O" >/dev/null 2>&1
+printf '# a comment\n\nB-1\tS1: B-1 routine\nA-2\tS1: A-2 routine\nB-2\nB-3 spaces not a tab\nZ-8\tS1: no such row\n' > "$F/.claude/local/cloud-lanes.tsv"
+e=$(gen "$O" 2>&1 >/dev/null)
+printf '%s\n' "$e" | grep -q "cloud-lanes.tsv line 5 is not <id> TAB <routine name>" && printf '%s\n' "$e" | grep -q "cloud-lanes.tsv line 6 is not" \
+  && ok "a cloud-lanes line without a TAB-separated routine name is warned about, by line" || fail "malformed cloud-lanes lines: $e"
+printf '%s\n' "$e" | grep -q "cloud-lanes.tsv names Z-8, which is no roadmap row" && ok "...and one naming no roadmap row" || fail "an unknown cloud-lanes id: $e"
+[ -e "$O/.cloud" ] && fail "the generator left .cloud in its output" || ok "...and the generator leaves no .cloud behind"
 case $(jq -r '.[] | select(.id == "B-1") | .note' "$O/roadmap.json") in *"cloud: S1: B-1 routine") ok "a listed open row is noted as a cloud lane" ;; *) fail "B-1's note: $(jq -c '.[] | select(.id == "B-1")' "$O/roadmap.json")" ;; esac
 case $(jq -r '.[] | select(.id == "A-2") | .note' "$O/roadmap.json") in *cloud*) fail "a merged row is still noted as a cloud lane" ;; *) ok "...a merged one is not" ;; esac
 case $(jq -r '.[] | select(.id == "B-2") | .note' "$O/roadmap.json") in *cloud*) fail "a line without a routine name made a cloud lane" ;; *) ok "...nor a line without a routine name" ;; esac
 plan | grep -qF "cloud lanes, run their routines first (session-start step): B-1 (S1: B-1 routine)" && ok "the session-plan section names the session's cloud routines" || fail "the cloud line: $(plan)"
 rm "$F/.claude/local/cloud-lanes.tsv"
 plan | grep -q "cloud lanes" && fail "with no cloud lanes, the section still names some" || ok "...and none when there are none"
-sed 's/^| S1 | today |/| S1 | before (done) |/' "$(scratch)/fixture.md" > "$F/docs/roadmap.md"
+sed 's/^| S1 | today |/| S1 | before (done) |/; s/| B-2, B-7, Z-9 |/| B-7, B-2, Z-9 |/' "$(scratch)/fixture.md" > "$F/docs/roadmap.md"
 p=$(plan)
 case $p in "session plan: S2–3 — Then the rest"*) ok "...and skips a session marked (done)" ;; *) fail "S1 done: $p" ;; esac
-printf '%s\n' "$p" | grep -qF "rows, in the plan's order: B-2 [queued], B-7 [running]" && ok "...listing its rows in the plan's order, with their states" || fail "the rows line: $p"
+# B-7 before B-2 is neither the table's order nor the ids' sort: only the plan puts it there.
+printf '%s\n' "$p" | grep -qF "rows, in the plan's order: B-7 [running], B-2 [queued]" && ok "...listing its rows in the plan's order, with their states" || fail "the rows line: $p"
+printf '%s\n' "$p" | grep -qF "warning: the Session plan names Z-9, which is no roadmap row" && ok "...and saying which planned row it left out" || fail "the left-out row is not said: $p"
 sed 's/^| S1 | today |/| S1 | before (done) |/; s/^| S2–3 | |/| S2–3 | after (done) |/' "$(scratch)/fixture.md" > "$F/docs/roadmap.md"
 case $(plan) in "session plan: every planned session is done"*) ok "every session done -> it says so" ;; *) fail "all done: $(plan)" ;; esac
 sed 's/^| S1 | today | First things |/| S1 | today |/' "$(scratch)/fixture.md" > "$F/docs/roadmap.md"

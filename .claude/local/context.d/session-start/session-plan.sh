@@ -10,7 +10,7 @@ ROOT=$(cd "$(dirname "$0")/../../../.." 2>/dev/null && pwd)
 out=$(mktemp -d "${TMPDIR:-/tmp}/session-plan.XXXXXX") || { echo "session plan: CANNOT CHECK — no temporary directory"; exit 0; }
 trap 'rm -rf "$out"' EXIT
 if ! sh "$ROOT/.claude/local/roadmap-tracker.sh" "$out/data" >/dev/null 2>"$out/err"; then
-  echo "session plan: CANNOT CHECK — $(tail -n 1 "$out/err")"
+  echo "session plan: CANNOT CHECK — $(tr '\n' ' ' < "$out/err")"
   exit 0
 fi
 next=$(jq -r '[.[] | select(.when | test("\\(done\\)") | not)] | sort_by(.order) | .[0] // empty | .session' "$out/data/sessions.json")
@@ -27,4 +27,7 @@ jq -r --arg s "$next" --slurpfile rows "$out/data/roadmap.json" '
     "  the owner decides: \(if .owner == "" then "—" else .owner end)",
     "  Run the session in this order, not the change queue'"'"'s table order: it is the order the owner agreed."' \
   "$out/data/sessions.json"
+# A planned row the plan names but the roadmap lacks is left out of the rows line: say so, so the
+# line is never a shorter plan than the one the owner agreed.
+sed -n 's/^roadmap-tracker: warning: /  warning: /p' "$out/err"
 exit 0

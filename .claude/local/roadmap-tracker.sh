@@ -153,8 +153,15 @@ printf '%s\n' "$plan" > "$out/.plan"
 printf '%s\n' "$approved" > "$out/.approved"
 printf '%s\n' "$building" > "$out/.building"
 printf '%s\n' "$merges" > "$out/.merges"
-# The cloud lanes: comments and lines without a routine name are skipped.
-awk -F'\t' '!/^#/ && $1 != "" && $2 != "" { print $1 "\t" $2 }' "$ROOT/.claude/local/cloud-lanes.tsv" > "$out/.cloud" 2>/dev/null || : > "$out/.cloud"
+# The cloud lanes: comments and blank lines are skipped; any other line that is not exactly an id
+# and a routine name, TAB-separated, is warned about and left out, never dropped silently.
+: > "$out/.cloud"
+if [ -f "$ROOT/.claude/local/cloud-lanes.tsv" ]; then
+  awk -F'\t' '/^#/ || /^[[:space:]]*$/ { next }
+    NF == 2 && $1 != "" && $2 != "" { print $1 "\t" $2; next }
+    { printf "roadmap-tracker: warning: cloud-lanes.tsv line %d is not <id> TAB <routine name>; left out\n", NR > "/dev/stderr" }' \
+    "$ROOT/.claude/local/cloud-lanes.tsv" > "$out/.cloud"
+fi
 jq -n --arg since "$since" --rawfile cloud "$out/.cloud" \
   --rawfile tsv "$out/.tsv" --rawfile plan "$out/.plan" --rawfile approved "$out/.approved" \
   --rawfile building "$out/.building" --rawfile merges "$out/.merges" '
@@ -214,6 +221,10 @@ printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" || $1 == "D" { print $2 }' | sort 
   printf '%s\n' "$tsv" | awk -F'\t' -v id="$id" '$4 == id { f = 1 } END { exit !f }' \
     || echo "roadmap-tracker: warning: the Session plan names $id, which is no roadmap row; left out" >&2
 done
-rm -f "$out/.tsv" "$out/.plan" "$out/.approved" "$out/.building" "$out/.merges"
+cut -f1 "$out/.cloud" | while read -r id; do
+  printf '%s\n' "$tsv" | awk -F'\t' -v id="$id" '$4 == id { f = 1 } END { exit !f }' \
+    || echo "roadmap-tracker: warning: cloud-lanes.tsv names $id, which is no roadmap row; left out" >&2
+done
+rm -f "$out/.tsv" "$out/.plan" "$out/.approved" "$out/.building" "$out/.merges" "$out/.cloud"
 printf '%s\n' "$blob" > "$out/roadmap.blob"
 echo "roadmap-tracker: $(jq length "$out/roadmap.json") row(s), $(jq length "$out/sessions.json") session(s) in $out (merged since $since; roadmap ${blob%"${blob#???????}"})"

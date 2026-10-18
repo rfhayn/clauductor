@@ -109,7 +109,7 @@ The session ran PANEL-48's build in its worktree and, beside it, a merge lane (m
 
 ### Flow and cost
 - **Flow (30 days):** cycle 1.2h median, lead 2.4h, 22.4 merges a week, change-fail 7.8%, approval wait 0.9h, review rounds 2.4, spend $575.51 a week, 31 in flight (Haiku 5.5 unpriced).
-- **This session's cost** (usage-report.sh, list price, this machine, at the close before its gate): **$330.13**, of it Opus 5.5 $319.17 and Sonnet 5.5 $11.01:
+- **This session's cost** (usage-report.sh, list price, this machine, at the close before its gate): about **$330**, nearly all of it Opus 5.5 (about $319) and the rest Sonnet 5.5 (about $11):
   - merge-train $122.37 (the merge lane: gates, merges and its own fixes);
   - the orchestrating session $75.11;
   - general-purpose agents $61.84;

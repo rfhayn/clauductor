@@ -3,7 +3,8 @@
 # line per row: <row id> TAB <routine name>. Names only: a routine's id or address is never written
 # here (the repository is public). roadmap-tracker.sh notes each open row listed here as running in
 # the cloud, and session-start's session-plan line names the routines of the next session's rows.
-# Remove a row's line in the PR that merges it.
+# The PR that lands the lane's work removes its line (for PANEL-51, the proposal's PR: its build
+# runs on the Mac).
 OPS-90	S5: OPS-90 no silent wait
 OPS-85	S5: OPS-85 soft budget
 PANEL-51	S5: PANEL-51 proposal (stall alert)
