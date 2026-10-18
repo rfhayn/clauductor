@@ -4,8 +4,8 @@
 The panel tells the owner when work has stopped moving: a lane that waits on the owner, or has open work, and has gone a set time with no movement and nothing working, is marked stalled on the page, says what it last waited on, and interrupts the owner once, on the Mac and through a push command of the owner's. It judges every session on the machine the same way, whether or not the panel launched it.
 
 ## ADDED Requirements
-### Requirement: A lane that is not working, waits or has open work, and has not moved for the stall time is stalled
-THE SYSTEM SHALL mark a lane stalled WHEN a session of it waits on the owner and has itself not moved for the project's `alerts.stall_minutes` (default 30, 0 off), whatever its other sessions do; or WHEN no session of it is busy on a current `claude agents` reading, it neither holds nor waits for a queue's lease (a holder counting only while alive and not stale), the time since its last movement is at least the stall time, and either it has a live session and open work (an open pull request for its branch, a clean gate receipt for its HEAD with no pull request open or merged for its branch, or background work its last `Stop` listed), or the panel launched it and its claude exited or its tmux session is gone while it has an open pull request or such a receipt; a lane with no live session SHALL NOT otherwise be stalled. Movement SHALL be a hook from any of its sessions, a change in a session's `claude agents` reading, a session first listed after the panel's first successful `claude agents` poll, the lane taking or giving up a lease bound to it, or its pane dying, and SHALL clear the stall; the sessions that first poll lists SHALL NOT count as movement; each lane's last movement SHALL be kept across a restart, and a lane with none known SHALL count from the panel's start. Each way of stalling SHALL be judged only once the sources it rests on have succeeded since the start, a source not succeeded within 10 minutes SHALL be named in a warning, and every stall SHALL be approximate while the `claude agents` source is not current.
+### Requirement: A lane whose session waits on the owner, or that is not working and has open work, and has not moved for the stall time is stalled
+THE SYSTEM SHALL mark a lane stalled WHEN a session of it waits on the owner and has itself not moved for the project's `alerts.stall_minutes` (default 30, 0 off), whatever its other sessions do; or WHEN no session of it is busy on a current `claude agents` reading, it neither holds nor waits for a queue's lease (a holder counting only while alive and not stale), no live session's last `Stop` listed a running `subagent` or `workflow` task that the session has not since ended with a `SubagentStop`, the time since its last movement is at least the stall time, and either it has a live session and open work (an open pull request for its branch, a clean gate receipt for its HEAD with no pull request open or merged for its branch, or background work its last `Stop` listed), or the panel launched it and its claude exited or its tmux session is gone while it has an open pull request or such a receipt; a lane with no live session SHALL NOT otherwise be stalled. Movement SHALL be a hook from any of its sessions, a change in a session's `claude agents` reading, a session first listed after the panel's first successful `claude agents` poll, the lane taking or giving up a lease bound to it (its holder first seen dead or stale counting as giving it up), or its pane dying, and SHALL clear the stall; the sessions that first poll lists SHALL NOT count as movement; each lane's last movement, each waiting session's ask time, and each live session's kept `Stop` fields and `SubagentStop` count since that `Stop` SHALL be kept across a restart, for the sessions the first poll after it lists; a lane not stalled at the last save SHALL carry over the quiet time it had then and SHALL NOT count the time the panel was down; and a lane or a waiting session with no time known SHALL count from the panel's start. Each way of stalling SHALL be judged only once the sources it rests on have succeeded since the start, a source not succeeded within 10 minutes SHALL be named in a warning, and every stall SHALL be approximate while the `claude agents` source is not current.
 
 #### Scenario: [STALL-1-S1] An idle lane with an open pull request stalls at the stall time
 - **GIVEN** a project with `alerts.stall_minutes` 30, and a lane on branch `change/x` whose session `claude agents` reads `idle`, with pull request #152 open for `change/x`
@@ -106,18 +106,32 @@ THE SYSTEM SHALL mark a lane stalled WHEN a session of it waits on the owner and
 - **THEN** the lane is stalled, with `since` 00:00 and `waitedOn` naming the question
 
 #### Scenario: [STALL-1-S18] A stale lease holder does not keep its lane working
-- **GIVEN** an idle lane with pull request #7 open, the gate's lease naming it as holder with `alive` false, no waiter, and no movement for 40 minutes
-- **WHEN** the panel derives its view
-- **THEN** the lane is stalled
+- **GIVEN** an idle lane with pull request #7 open, the gate's lease naming it as holder, first read with `alive` false at 00:10, no waiter, and no other movement since
+- **WHEN** the panel derives its view at 00:39 and at 00:40
+- **THEN** at 00:39 the lane is not stalled
+- **AND** at 00:40 it is stalled, with `since` 00:10
 
-#### Scenario: [STALL-1-S19] A failed merged read is never a "none"
-- **GIVEN** a lane, idle for an hour, with no open pull request and a clean gate receipt for its HEAD, whose merged read has found #153 merged
-- **WHEN** the next merged read fails, and for a second lane in the same state whose first merged read fails
-- **THEN** the first lane is still not stalled
+#### Scenario: [STALL-1-S19] A failed merged read keeps the last result, and is never a "none"
+- **GIVEN** a lane, idle for an hour, with no open pull request and a clean gate receipt for its HEAD, stalled because its merged read found no pull request merged from its branch
+- **AND** a second lane in the same state whose first merged read has not yet succeeded
+- **WHEN** the first lane's next merged read fails, and the second lane's first merged read fails
+- **THEN** the first lane is still stalled, with the same `since`
 - **AND** the second lane is not stalled, its receipt not counted as open work until a read succeeds
 
+#### Scenario: [STALL-1-S20] A restart keeps a waiting session's stall
+- **GIVEN** the main checkout's session waiting on a question since 00:00, its lane stalled and notified at 00:30, and the panel restarted at 01:00
+- **WHEN** the first `claude agents` reading after the start lists the session still `waiting` with `waitingFor` "input needed", and every source has succeeded once
+- **THEN** the lane is stalled with `since` 00:00
+- **AND** no notification and no push go out for it
+
+#### Scenario: [STALL-1-S21] A restart keeps what a stalled turn ended waiting on
+- **GIVEN** the main checkout's session reading `idle`, whose last `Stop` listed one running subagent described "Review group 2", whose `SubagentStop` arrived at 00:00 with nothing after it, its lane stalled since 00:00 on that background work, and the panel restarted at 01:00
+- **WHEN** the first `claude agents` reading after the start lists the session `idle`, and every source has succeeded once
+- **THEN** the lane is stalled with `since` 00:00, its `waitedOn` naming 1 subagent, "Review group 2"
+- **AND** no notification and no push go out for it
+
 ### Requirement: A stall says what the lane last waited on, from the `Stop` hook's in-flight work, decoded to an allowlist
-WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHALL keep each task's `type`, `status` and `description`, each cron's `schedule` and `recurring`, and the turn's last line, on the session until its next `Stop`, SHALL keep nothing from a `SubagentStop`, and SHALL NOT decode a task's `command`, `server`, `tool`, `name` or `agent_type`, or a cron's `prompt`, from either; a lane whose live session has a recurring cron listed, or a one-shot wakeup not yet 5 minutes past its fire time, SHALL NOT be stalled, and the stall's `since` SHALL stay its last movement.
+WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHALL keep each task's `type`, `status` and `description`, each cron's `schedule` and `recurring`, and the turn's last line, on the session until its next `Stop`, across a restart included, SHALL keep nothing from a `SubagentStop`, and SHALL NOT decode a task's `command`, `server`, `tool`, `name` or `agent_type`, or a cron's `prompt`, from either; a lane whose live session has a recurring cron listed, or a one-shot wakeup not yet 5 minutes past its fire time, SHALL NOT be stalled on its open work, a session of it waiting on the owner still stalling, and the stall's `since` SHALL stay its last movement.
 
 #### Scenario: [STALL-2-S1] A turn that ended with a shell in flight says so
 - **GIVEN** a lane with pull request #152 open, whose last `Stop` carried `background_tasks` `[{"type":"shell","status":"running","description":"Run checks","command":"sh .claude/checks/run.sh"}]`
@@ -150,6 +164,17 @@ WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHAL
 - **GIVEN** a lane whose last `Stop` carried `"background_tasks":[]` and `last_assistant_message` "Done for now."
 - **WHEN** a `SubagentStop` arrives from the same session carrying one running shell and `last_assistant_message` "reviewer finished"
 - **THEN** the session's kept tasks are still empty, and its last line is still "Done for now."
+
+#### Scenario: [STALL-2-S7] A scheduled wakeup does not hold off a session waiting on the owner
+- **GIVEN** the main checkout's session, whose last `Stop` listed a recurring cron, waiting on an AskUserQuestion since 00:00
+- **WHEN** the panel derives its view at 00:30
+- **THEN** the main checkout's lane is stalled, with `since` 00:00 and `waitedOn` naming the question
+
+#### Scenario: [STALL-2-S8] A background subagent at work holds the stall off until it ends
+- **GIVEN** a lane with pull request #152 open, whose session reads `idle` and whose last `Stop`, at 00:00, listed one running subagent, with no hook since
+- **WHEN** the panel derives its view at 01:00, a `SubagentStop` arrives from the session at 01:10, and the panel derives its view at 01:39 and at 01:40
+- **THEN** at 01:00 and at 01:39 the lane is not stalled
+- **AND** at 01:40 it is stalled with `since` 01:10
 
 ### Requirement: A stall interrupts once per stretch, on the Mac and through the owner's push command
 WHEN a lane's `stalled` alert first becomes active and is not approximate THE SYSTEM SHALL send it through the notifier's rules (once per stretch, grouped per lane, at most once per lane per `min_interval_seconds`, never while the lane's terminal has focus in a visible page, and not again after a restart while it is still active) as a macOS notification and, WHERE `~/.clauductor/panel/push.json` holds a valid push command, by running that command's argv with the title and body as two more arguments, with no shell; THE SYSTEM SHALL NOT run a push command whose file is not the user's, is writable by group or others or sits in a folder that is, or names a program by a relative path, SHALL NOT push any alert but `stalled`, and SHALL build the push's title and body from the `stalled` alert's own fields alone.

@@ -38,7 +38,8 @@ carries the stalled state into the new look (design D11).
   claude that exited with work open. The stall time defaults to 30 minutes, and
   `alerts.stall_minutes` changes it per project (D1, D3, D5).
   - **Working:** a `claude agents` reading of `busy` (which holds while a background command
-    runs: E1), or holding (alive) or waiting for the gate's lease.
+    runs: E1), or holding (alive) or waiting for the gate's lease, or a background subagent or
+    workflow its turn ended on that has not yet ended (D3 (d)).
   - **Movement:** a hook from any of the lane's sessions, a change in its `claude agents`
     reading, a session starting, a lease taken or given up, or its pane dying.
   - **A lane with no live session** does not stall, unless the panel launched it and its claude
@@ -77,11 +78,19 @@ This change adds one capability, `panel-stall` (STALL-1 to STALL-4), and modifie
 
 **The row, re-measured:** its code lands in `state` (the rule, the alert, the view), the panel's
 runtime (the reads without a page, and the push), `signals` (the `Stop` fields), `config` (one
-key, version 7) and one change to `panel.js`, with `docs/panel.md`. Three surfaces of substance
-(state, the runtime, the page), no MODIFIED requirement, and the push in a group of its own, so it
-stays one row. The row names `framework/internal/panel/lanes`: the design needs nothing from it,
-because the state already holds each tmux lane's pane state (D2). Splitting the push into a row of
-its own is the alternative the owner can choose (D7).
+key, version 7) and the page (a new module, `stall-view.js`, which `panel.js` calls from the
+lane's state cell, tab, tree node and Needs you, and nothing else in `panel.js`), with
+`docs/panel.md`. Three surfaces of substance (state, the runtime, the page), no MODIFIED
+requirement, and the push in a group of its own, so it stays one row. The row names
+`framework/internal/panel/lanes`: the design needs nothing from it, because the state already
+holds each tmux lane's pane state (D2). Splitting the push into a row of its own is the
+alternative the owner can choose (D7).
+
+**What this PR carries for later rows:** one task appended to PANEL-46's `tasks.md` (2.9: a
+stalled lane in the new look) and one to PANEL-25's (3.8: the reads a stall rests on keep running
+with no page in view), so neither build can merge without them. Neither `design.md` changes, so
+both approvals stand (D10, D11). PANEL-46's roadmap row gains PANEL-51 in its Depends, so the
+panel does not offer it first.
 
 ## Out of scope
 - **Removing the causes** (a turn that ends while its command runs; a question nothing waits

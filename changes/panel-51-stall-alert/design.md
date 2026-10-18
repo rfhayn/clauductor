@@ -62,7 +62,8 @@ to `<id>` and `$PROBE`.
     async `Stop` hook. The command hook posts its stdin unchanged (`docs/panel.md`, *Hooks*), so
     the fields should arrive, but nothing has shown they do.
   - **P2** what `claude agents` reads for a session whose turn ended while a background
-    **subagent** runs (fork mode's reviewer, the build's workflow). E1 covers a shell only.
+    **subagent** runs (fork mode's reviewer, the build's workflow), and which `SubagentStop`
+    hooks the session sends until it ends (D3 (d) counts them). E1 covers a shell only.
   - **P3** a teammate (an agent team, as merge-train was): is it a session of its own in
     `claude agents` and in the hooks, and what does its turn's end with a background command
     look like? Does `TeammateIdle` fire, and in whose session?
@@ -73,7 +74,8 @@ to `<id>` and `$PROBE`.
 - **D1 A lane is stalled when it is not working, has not moved for the stall time, and either
   waits on the owner or has open work.**
   - **Working** (never stalled): a session of the lane is `busy` on a current `claude agents`
-    reading, or the lane holds or waits for a queue's lease (the gate). E1 shows a background
+    reading, or the lane holds or waits for a queue's lease (the gate), or a live session's last
+    `Stop` listed a running `subagent` or `workflow` task that has not yet ended (D3 (d)). E1 shows a background
     command keeps the reading `busy`, so a lane that waits correctly on its own command is
     working. A lease holder counts only while it is alive and not stale (`LeaseView.Alive`
     and not `Stale`): `lease.ReadQueue` keeps a dead holder as `Holder` until the next waiter
@@ -87,7 +89,10 @@ to `<id>` and `$PROBE`.
       subscribes to before its first prompt (there is no `SessionStart` among them), so without
       this the owner opening `claude` beside an old pull request would be pushed a stall at once;
     - the lane taking or giving up a lease. The lease is held through the gate's whole run, so
-      a gate is movement until it ends;
+      a gate is movement until it ends. The first queue poll that sees the lane's holder dead or
+      stale counts as giving the lease up, at that poll's time;
+    - a `SubagentStop` is a hook like any other, so the end of a background subagent is
+      movement.
     - the lane's tmux pane dying, or its tmux session going, as the tmux poll first sees it.
   - **Stalled,** two ways:
     - **a session waits on the owner** (the one `blocked` predicate Needs you reads, so the two
@@ -108,21 +113,42 @@ to `<id>` and `$PROBE`.
     terminal on.
   - **The clock's origin, and a restart.** The model is not saved, so after a restart the panel
     has seen no movement yet:
-    - each lane's last movement is saved in `~/.clauductor/panel/<project hash>/stall.json`
-      (beside `notifier.json`), and read back at start. A lane with no saved movement starts its
-      clock at the panel's start, never at the zero time;
+    - **`~/.clauductor/panel/<project hash>/stall.json`** (beside `notifier.json`, 0600) keeps
+      what a stall's clock and its text rest on, and is read back at start:
+      - each lane's last movement, and the time of the save. A lane stalled at the save keeps
+        its `since`. A lane not stalled at the save carries over the quiet time it had then, and
+        the time the panel was down does not count: its clock starts at the panel's start minus
+        that quiet time. Hooks sent while the panel was down reached no one, so counting the
+        outage would push a lane that kept working. A lane with no saved movement starts its
+        clock at the panel's start, never at the zero time;
+      - each waiting session's ask time (its clock's origin), by session id. The first poll after
+        a restart sets `WaitingSince` to its own time, so without it a stall notified before the
+        restart would clear, and come back 30 minutes later with a new `since`, notified again;
+      - each live session's kept `Stop` fields (D4's allowlist, clipped) and the count of its
+        `SubagentStop` hooks since that `Stop` (D3 (d)), by session id. They
+        live only in the model, so without them a lane stalled on (d) alone would read as having
+        no open work after a restart, and its stall would vanish unseen;
+      - a session's entries are used only when the first poll after start lists that session (a
+        waiting one still waiting), and dropped otherwise;
+      - it is written atomically, at most once every 30 s while it has changed and once at a
+        clean stop: a busy lane moves on every hook. A crash loses at most 30 s of movement,
+        which moves a clock back by as much, never forward;
     - the sessions the first successful `claude agents` poll after start lists are not movement:
       that poll sets their readings (an `IdleSince` it sets is not movement). A session first
       listed by a later poll is a session starting, which is;
     - **each way of stalling is judged from the sources it rests on,** once each has succeeded
-      since start: a waiting session on `claude agents`; (a) on the pull requests; (b) on the
-      receipt read and the merged read; (c) on tmux with (a) or (b); (d) on the hooks; and
-      working on `claude agents` and, where the project declares queues, the queues. So a
-      repository whose `gh pr list` never succeeds (no GitHub remote, `gh` logged out) still
-      stalls on a frozen question. A source a way rests on that has not succeeded within 10
-      minutes of start shows a warning bar naming it and what it leaves unjudged;
-    - **the notifier keeps the stalls' marks while they are not yet judged.** Until every source
-      the project has has succeeded once since start, or 10 minutes have passed, the view says
+      since start. The project's sources are `claude agents`; the pull requests (`gh pr list`);
+      the receipt read; the merged read (succeeded when no lane needs one); tmux, where the
+      project has lanes the panel launched; and the queues, where it declares any. A waiting
+      session rests on `claude agents`; (a) on the pull requests; (b) on the receipt read and the
+      merged read; (c) on tmux with (a) or (b); (d) on the session's kept `Stop`, received since
+      start or restored from `stall.json` (a session with neither has (d) unknown, which is not
+      open work); and working on `claude agents` and the queues. So a repository whose `gh pr
+      list` never succeeds (no GitHub remote, `gh` logged out) still stalls on a frozen question.
+      A source a way rests on that has not succeeded within 10 minutes of start shows a warning
+      bar naming it and what it leaves unjudged;
+    - **the notifier keeps the stalls' marks while they are not yet judged.** Until every one of
+      those sources has succeeded once since start, or 10 minutes have passed, the view says
       stalls are pending, and `Notifier.Process` keeps each `stalled:` mark it holds instead of
       deleting it as cleared. Once judged, a stall resting on the saved movement has the `Since`
       it was notified for, so a restart sends nothing again (STALL-3-S7). Without that, the
@@ -138,8 +164,10 @@ to `<id>` and `$PROBE`.
     (`runtime.go` polls queues only then), so working rests on the `claude agents` reading
     alone. That still holds a gate run in the foreground or the background, because both keep
     the session busy (E1).
-  - **The alert's `Since` is the last movement,** stable through the stretch. So the notifier's
-    "once per stretch" holds, and the page's age is the quiet time.
+  - **The alert's `Since` is the last movement,** stable through the stretch: for a waiting
+    session its own clock's origin, for the lane its last movement, and when both ways hold the
+    lane stalled, the earlier of the two. So the notifier's "once per stretch" holds (it sends
+    again whenever `Since` changes), and the page's age is the quiet time.
   - **A stall clears on movement.** The next stall is a new stretch, and notifies again.
   - **Beat:**
     - a timer per signal (since the last `Stop`, since the receipt was written). Several clocks
@@ -153,7 +181,8 @@ to `<id>` and `$PROBE`.
   - **A lane the panel launched:** its session, bound by `--session-id`:
     - `claude agents`: busy, idle or waiting, and `waitingFor`;
     - the hooks it already subscribes to: `Stop` (now with D4's fields), `UserPromptSubmit`,
-      `PermissionRequest`, `Notification`, `SessionEnd`, `StopFailure`;
+      `PermissionRequest`, `Notification`, `SessionEnd`, `StopFailure`, and `SubagentStop`
+      (counted for D3 (d));
     - its tmux pane: dead (exited) or its session gone (orphaned), as the state already
       holds it (`ApplyTmux`);
     - the queue leases (`pollQueues`).
@@ -187,6 +216,22 @@ to `<id>` and `$PROBE`.
       where a lane with no live session stalls (D1);
     - **(d) the last `Stop` listed background work** (D4), on any lane, the main checkout
       included. The turn ended expecting to be woken.
+      - **A running `subagent` or `workflow` task is working, not yet open work,** until the
+        session has sent as many `SubagentStop` hooks since that `Stop` as the `Stop` listed
+        such tasks. The panel hears a subagent's own tool calls not at all (its `PreToolUse`
+        and `PostToolUse` matchers are the agent tools alone, `signals.HookMatchers`), so a
+        background reviewer working quietly for 30 minutes would otherwise be pushed as stalled
+        while it works, and the operating model sends gates, merges and builds to background
+        agents by design. Each `SubagentStop` is movement (D1), so a stall follows only when
+        nothing wakes the session after its last subagent ends. A task id and a `SubagentStop`'s
+        agent id are not known to match, so the rule counts rather than pairs. P2 records whether
+        a background subagent's and a background workflow's ends each send exactly one
+        `SubagentStop` in the session, and none before they end (a workflow's own agents, a
+        subagent's nested ones); if not, the build stops for the owner before group 2 commits
+        with P2's evidence.
+      - **A `shell` or `monitor` task, or one of a type not listed above,** is open work. A
+        shell keeps a main session busy while it runs (E1), so it matters where that does not
+        hold (a teammate: P3).
   - **A waiting session needs no open work:** a question or a permission prompt is work waiting
     on the owner, on any lane (D1).
   - **The main checkout** has no branch of its own, so only (d) and a waiting session apply
@@ -194,7 +239,8 @@ to `<id>` and `$PROBE`.
   - **Not open work:** a branch of its own with commits and no pull request, and no receipt for
     its HEAD. A parked branch is not stalled work, and the `stale` alert (`stale_days`) already
     covers a branch with no commit for days. A running build is working (D1) while its session
-    is busy. When its turn has ended with the workflow in the background, it is (d).
+    is busy, and while the workflow its turn ended on has not ended (d). After that, quiet, it
+    is open work (d).
   - **Beat:**
     - counting commits ahead of the base: every parked branch would stall;
     - (a) alone: a gate that passed with no PR opened after it, and a lane whose claude
@@ -208,13 +254,18 @@ to `<id>` and `$PROBE`.
     of which only `AgentCall` decodes two fields (`subagent_type`, `description`).
   - **`session_crons`:** `schedule` and `recurring` of each. `prompt` is never decoded.
   - **Kept on the session from its `Stop` alone,** until its next `Stop`, with the turn's last
-    line, which the panel already decodes (`last_assistant_message`, clipped to 120 runes). A
+    line, which the panel already decodes (`last_assistant_message`, clipped to 120 runes), and
+    saved in `stall.json` so a restart keeps them (D1). That file is the machine's, 0600, like
+    `notifier.json`, and holds the allowlist alone. A
     `SubagentStop` carries the same fields (E2) for the subagent's own work, and this change
-    keeps nothing from it: a background subagent's last message is not the lane's "last said".
-    P2 records what a turn that ends with a subagent in flight lists in its `Stop`.
-  - **A live session that scheduled its own wakeup holds the stall off while the wakeup is
-    due.** A session that has ended, or whose pane died, wakes nothing, so its crons count for
-    nothing.
+    keeps nothing from it but its count (D3 (d)): a background subagent's last message is not
+    the lane's "last said". P2 records what a turn that ends with a subagent in flight lists in
+    its `Stop`.
+  - **A live session that scheduled its own wakeup holds the lane's open-work stall off while
+    the wakeup is due.** A session that has ended, or whose pane died, wakes nothing, so its
+    crons count for nothing. **A session waiting on the owner still stalls:** a cron does not
+    answer a question or a permission prompt, and the orchestrator that arms a stall-watcher
+    loop is the session most likely to freeze on one.
     - A recurring cron, or one whose fields are not all numbers: it will wake the session, so
       the lane is not stalled while that `Stop`'s list stands.
     - A one-shot wakeup (`recurring` false, minute, hour, day and month all numbers, read in the
@@ -361,10 +412,12 @@ to `<id>` and `$PROBE`.
     - A read that fails keeps the last result. With no result yet, (b) is unknown, which is not
       open work. An error never reads as "none".
   - **`gh pr list` and the queues** already poll with no page.
-  - **PANEL-25** (idle cost, queued after PANEL-46) must keep these reads while a lane has open
-    work. Its approved proposal returns to the owner before its build anyway (its roadmap row).
-    Task 5.3 opens the `ops/` pull request that adds this to its `tasks.md` (D11 says why not in
-    this change's own PR).
+  - **PANEL-25** (idle cost, queued after PANEL-46) must keep these reads while stalls are on and
+    a lane has a live session or open work: its task 3.1 and IDLE-3-S1 stop `gh pr list` with no
+    page in view. This proposal's PR appends task 3.8 to `changes/panel-25-idle-cost/tasks.md`
+    saying so, so PANEL-25's build cannot merge without it (`pr-merge-guard` rule 9). Its
+    `design.md` is not touched, so its approval stands; its proposal returns to the owner before
+    its build anyway (its roadmap row), which is where IDLE-3-S1 takes the exception.
   - **Beat:** reading only while a page is in view. Nobody would be told when nobody looks.
 
 - **D11 Today's page, kept small, and what PANEL-46 carries.**
@@ -391,14 +444,18 @@ to `<id>` and `$PROBE`.
     - a `NeedView` of kind `stalled`;
     - the `stalled` alert.
   - **What PANEL-46 must carry:** under ADR-0009 a stalled lane reads as *needs you*: the red
-    dot and ring, a chip that says "stalled" in words, and a place in Needs you. Task 5.3 opens
-    an `ops/` pull request that appends a task saying so to
-    `changes/panel-46-ui-foundation/tasks.md`, so PANEL-46's build cannot merge without it
-    (`pr-merge-guard` rule 9). Its `design.md` is not touched, so its approval stands.
-    - **Not in this change's own PR:** rule 3 of `pr-merge-guard.sh` collects every
-      `changes/<id>/` a PR's diff touches, and rule 9 then requires each of them fully ticked.
-      PANEL-46's and PANEL-25's open tasks would block PANEL-51's build from merging. Rule 9
-      runs only on change branches, so an `ops/` PR carries the two appended tasks.
+    dot and ring, a chip that says "stalled" in words, and a place in Needs you. This proposal's
+    PR appends task 2.9 saying so to `changes/panel-46-ui-foundation/tasks.md`, so PANEL-46's
+    build cannot merge without it (`pr-merge-guard` rule 9). Its `design.md` is not touched, so
+    its approval stands.
+    - **In the proposal's PR, not the build's:** rule 3 of `pr-merge-guard.sh` collects every
+      `changes/<id>/` a PR's diff touches, and rule 9 then requires each of them fully ticked
+      when the PR is a build. A build PR carrying the two appended tasks would be held to
+      PANEL-46's and PANEL-25's open tasks. The proposal's PR touches only change records, which
+      `cg_build_tasks` (`.claude/hooks/lib/change-guard.sh`) reads as a proposal, so it merges
+      with every task open. The owner approves the two appended tasks with this design.
+    - **Beat:** an `ops/` pull request the build opens. No agent of the build opens pull
+      requests, so the task would have no executor.
   - **Beat:** a new colour or a new state beside ADR-0009's five. A stall is the owner's move,
     which is what "needs you" means.
 
@@ -427,10 +484,11 @@ to `<id>` and `$PROBE`.
 | A `claude agents` reading is not current (the poll fails or is old) | A stall judged from it is approximate: shown, marked `≈`, never notified (D6) |
 | The `Stop` input has no `background_tasks` (an older Claude Code) | The stall is still judged. What it waited on reads "not reported by this Claude Code version" (D4) |
 | A repository whose settings turn hooks off | Judged from `claude agents` alone; what it waited on is "not reported" (D2) |
-| A session scheduled its own wakeup | Not stalled while a recurring cron is listed, or until 5 minutes past a one-shot's fire time (D4) |
+| A session scheduled its own wakeup | Its lane is not stalled on open work while a recurring cron is listed, or until 5 minutes past a one-shot's fire time; a session waiting on the owner still stalls (D4) |
+| A turn ended with a background subagent or workflow running | Working until its `SubagentStop`; quiet for the stall time after that, it stalls (D3 (d)) |
 | A branch with commits and no PR or receipt | Not open work. The `stale` alert covers it after `stale_days` (D3) |
 | A session the panel did not launch has ended, its PR still open | Its lane has no live session and is not stalled (D1) |
-| The panel restarts while a lane is stalled | The saved last movement keeps the stall's `Since`, and nothing is sent again (D1) |
+| The panel restarts while a lane is stalled | `stall.json`'s last movement, ask time and kept `Stop` fields keep the stall, its `Since` and its text, and nothing is sent again (D1) |
 | A lease whose lane names no lane of the project, or two | It is no lane's, and working rests on the `claude agents` reading (D1) |
 | The project declares no queue | No lease is read; a gate keeps its session busy, which is working (D1, E1) |
 | A lease's holder is dead or stale, with no waiter to reclaim it | It is not working; the lane can stall (D1) |

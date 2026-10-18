@@ -59,6 +59,7 @@ leaves them. Each group's inventory IDs are design D16's.
 - [ ] 2.6 `theme.js` keeps the mode and the text size and drops the theme, type and Tuned keys (D10). Tested under node in `web/theme_mode_test.go`, citing [PAGE-3-S5]
 - [ ] 2.7 `js/states.js` maps each lane to its look and word in D6's order. Today's lane table, tabs and Needs-you rows draw the dot and chip. Tested under node in `web/states_test.go`, citing [PAGE-2-S1], [PAGE-2-S2], [PAGE-2-S3] and [PAGE-2-S4]
 - [ ] 2.8 *(the session)* Shots of 1.1's views in both modes for the review
+- [ ] 2.9 (PANEL-51 design D11, appended by its proposal) A stalled lane reads as *needs you* under ADR-0009: the red dot and ring, a chip that says "stalled" in words, and its place in Needs you, from `/api/state`'s lane `stall` and the Needs-you item of kind `stalled`, drawn through `framework/internal/panel/web/static/stall-view.js` or the module that takes its place. Tested in `framework/internal/panel/web/states_test.go` beside 2.7's states, and held by `TestPanelAvoidsTheTells`
 
 ## 3. The sidebar and the top bar
 - [ ] 3.1 `index.html` and `js/sidebar.js`, from top to foot:
