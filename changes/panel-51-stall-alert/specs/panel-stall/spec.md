@@ -1,0 +1,187 @@
+# panel-stall Specification
+
+## Purpose
+The panel tells the owner when work has stopped moving: a lane that waits on the owner, or has open work, and has gone a set time with no movement and nothing working, is marked stalled on the page, says what it last waited on, and interrupts the owner once, on the Mac and through a push command of the owner's. It judges every session on the machine the same way, whether or not the panel launched it.
+
+## ADDED Requirements
+### Requirement: A lane that is not working, waits or has open work, and has not moved for the stall time is stalled
+THE SYSTEM SHALL mark a lane stalled WHEN no session of it is busy on a current `claude agents` reading, it neither holds nor waits for a queue's lease, the time since its last movement is at least the project's `alerts.stall_minutes` (default 30, 0 off), and either a session of it waits on the owner, or it has a live session and open work (an open pull request for its branch, a clean gate receipt for its HEAD with no pull request open or merged for its branch, or background work its last `Stop` listed), or the panel launched it and its claude exited or its tmux session is gone while it has an open pull request or such a receipt; a lane with no live session SHALL NOT otherwise be stalled. Movement SHALL be a hook from any of its sessions, a change in a session's `claude agents` reading after the first since the panel started, the lane taking or giving up a lease bound to it, or its pane dying, and SHALL clear the stall; each lane's last movement SHALL be kept across a restart, a lane with none known SHALL count from the panel's start, and no stall SHALL be judged until each source it reads has succeeded once since the start; every stall SHALL be approximate while the `claude agents` source is not current.
+
+#### Scenario: [STALL-1-S1] An idle lane with an open pull request stalls at the stall time
+- **GIVEN** a project with `alerts.stall_minutes` 30, and a lane on branch `change/x` whose session `claude agents` reads `idle`, with pull request #152 open for `change/x`
+- **AND** the lane's last movement was its `Stop` hook at 00:00
+- **WHEN** the panel derives its view at 00:29 and again at 00:30
+- **THEN** at 00:29 the lane is not stalled
+- **AND** at 00:30 the lane's `stall` has `since` 00:00 and `openWork` naming "#152 open", and a `stalled` alert of severity `block` is active for it
+
+#### Scenario: [STALL-1-S2] A busy lane is never stalled
+- **GIVEN** a lane with pull request #152 open whose session `claude agents` has read `busy` for two hours with no hook, its last `Stop` having listed one running shell
+- **WHEN** the panel derives its view
+- **THEN** the lane is not stalled, and no `stalled` alert is active
+
+#### Scenario: [STALL-1-S3] A lane that holds or waits for the gate is working, and its clock starts when it lets go
+- **GIVEN** a lane with pull request #152 open, its session idle, holding the gate's lease from 00:00 to 00:45
+- **WHEN** the panel derives its view at 00:40, at 01:14 and at 01:15
+- **THEN** it is not stalled at 00:40 or at 01:14
+- **AND** at 01:15 it is stalled, with `since` 00:45
+
+#### Scenario: [STALL-1-S4] An idle lane with no open work is not stalled
+- **GIVEN** a lane on a branch with two commits ahead of the base, no pull request, no gate receipt, and its session idle for three hours
+- **WHEN** the panel derives its view
+- **THEN** the lane is not stalled
+- **AND** only the `idle` alert is active for it, as before
+
+#### Scenario: [STALL-1-S5] A gate that passed with nothing after it is open work, and a merge ends it
+- **GIVEN** a lane, idle for 40 minutes, with no open pull request and a clean gate receipt for its HEAD
+- **WHEN** the merged read finds no pull request merged from its branch, and later finds #153 merged from it
+- **THEN** the lane is first stalled, with `openWork` naming the gate's pass for its HEAD and no pull request
+- **AND** once #153 is read as merged it is not stalled
+
+#### Scenario: [STALL-1-S6] A session on the main checkout that waits on a question stalls with no branch of its own
+- **GIVEN** the project's main checkout, whose session `claude agents` reads `waiting` with `waitingFor` "input needed", after a `PermissionRequest` hook for `AskUserQuestion` at 00:00
+- **WHEN** the panel derives its view at 00:30
+- **THEN** the main checkout's lane is stalled, its `waitedOn` naming the question
+- **AND** the `waiting` alert is active too, as before
+
+#### Scenario: [STALL-1-S7] Movement clears a stall, and the next one is a new stretch
+- **GIVEN** a lane stalled since 00:00
+- **WHEN** a `UserPromptSubmit` hook arrives from its session at 01:00, its turn ends with a `Stop` at 01:05, and the panel derives its view at 01:20 and at 01:35
+- **THEN** at 01:20 it is not stalled
+- **AND** at 01:35 it is stalled with `since` 01:05
+
+#### Scenario: [STALL-1-S8] The stall time is the project's, and 0 turns it off
+- **GIVEN** two projects, one with `alerts.stall_minutes` 10 and an attached one whose sidecar sets it to 0, each with an idle lane quiet for 20 minutes and an open pull request
+- **WHEN** the panel derives each project's view
+- **THEN** the first project's lane is stalled
+- **AND** the attached project's lane is not, and no `stalled` alert is active there
+
+#### Scenario: [STALL-1-S9] A session the panel did not launch is judged by the same rule
+- **GIVEN** a worktree on branch `fix/9-x` with pull request #160 open, where a claude session started by hand is bound by its `cwd`, reads `idle`, and has sent no hook for 30 minutes
+- **WHEN** the panel derives its view
+- **THEN** that worktree's lane is stalled, with `openWork` naming "#160 open"
+
+#### Scenario: [STALL-1-S10] A lane whose claude exited with open work is stalled
+- **GIVEN** a lane the panel launched, with pull request #152 open, whose pane died at 00:00 with exit status 1
+- **WHEN** the panel derives its view at 00:30
+- **THEN** the lane is stalled, its `openWork` naming "#152 open" and "claude exited", and its `waitedOn` naming exit status 1
+
+#### Scenario: [STALL-1-S11] A stall from a reading that is not current is approximate
+- **GIVEN** a lane with pull request #152 open, last read `idle` by a `claude agents` poll that has failed for the last 10 minutes, and no movement for 30 minutes
+- **WHEN** the panel derives its view, and again after the polls have failed for 40 minutes and its session has been forgotten while a lane the panel launched in the same project has a dead pane and pull request #153 open
+- **THEN** the first lane's `stall` has `approx` true, and its `stalled` alert is marked approximate
+- **AND** after 40 minutes the first lane is not stalled, and the launched lane's stall is approximate
+
+#### Scenario: [STALL-1-S12] A lane whose hand-started session has ended is not stalled
+- **GIVEN** a worktree on branch `fix/9-x` with pull request #160 open, whose claude session, started by hand and bound by its `cwd`, ended (`SessionEnd`) two hours ago
+- **WHEN** the panel derives its view
+- **THEN** that worktree's lane is not stalled, and no `stalled` alert is active for it
+
+#### Scenario: [STALL-1-S13] A restart keeps a stall's quiet time and starts an unknown clock at the start
+- **GIVEN** a lane stalled since 00:00 whose stall was notified, a second lane with an open pull request and no saved movement, and the panel restarted at 02:00
+- **WHEN** the first `claude agents` reading after the start reads both sessions `idle`, and every source has succeeded once
+- **THEN** the first lane is stalled with `since` 00:00
+- **AND** the second lane is not stalled until 02:30, when it stalls with `since` 02:00
+
+#### Scenario: [STALL-1-S14] A lease is bound to a lane by its tmux id or a unique worktree basename
+- **GIVEN** an idle lane with tmux id `t:second`, pull request #7 open and no movement for an hour, and in turn a gate lease whose `lane` is `t:second`, one whose `lane` is the lane's worktree basename, unique in the project, and one whose `lane` is a basename two worktrees share
+- **WHEN** the panel derives its view while each lease is held
+- **THEN** with the first two the lane is working and not stalled
+- **AND** with the third the lane is stalled, the lease being no lane's
+
+### Requirement: A stall says what the lane last waited on, from the `Stop` hook's in-flight work, decoded to an allowlist
+WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHALL keep each task's `type`, `status` and `description`, each cron's `schedule` and `recurring`, and the turn's last line, on the session until its next `Stop`, SHALL keep nothing from a `SubagentStop`, and SHALL NOT decode a task's `command`, `server`, `tool`, `name` or `agent_type`, or a cron's `prompt`, from either; a lane whose live session has a recurring cron listed, or a one-shot wakeup not yet 5 minutes past its fire time, SHALL NOT be stalled, and the stall's `since` SHALL stay its last movement.
+
+#### Scenario: [STALL-2-S1] A turn that ended with a shell in flight says so
+- **GIVEN** a lane with pull request #152 open, whose last `Stop` carried `background_tasks` `[{"type":"shell","status":"running","description":"Run checks","command":"sh .claude/checks/run.sh"}]`
+- **WHEN** the lane stalls
+- **THEN** its `waitedOn` reads that its turn ended waiting on 1 shell, "Run checks", running
+- **AND** no part of the view, the feed or `/api/state` contains "sh .claude/checks/run.sh"
+
+#### Scenario: [STALL-2-S2] A turn that ended with nothing in flight says so, with its last line
+- **GIVEN** a lane with pull request #152 open, whose last `Stop` carried `"background_tasks":[]`, `"session_crons":[]` and `last_assistant_message` "Waiting for merge-train's reply."
+- **WHEN** the lane stalls
+- **THEN** its `waitedOn` reads that its turn ended with nothing in flight to wake it, and that it last said "Waiting for merge-train's reply."
+
+#### Scenario: [STALL-2-S3] A scheduled wakeup holds the stall off until it is due
+- **GIVEN** a lane with pull request #152 open, quiet since 00:00, whose live session's last `Stop` listed a one-shot cron (`recurring` false) firing at 01:00 local time, and another lane with pull request #153 open, quiet as long, whose live session's last `Stop` listed a recurring cron
+- **WHEN** the panel derives its view at 01:04 and at 01:05
+- **THEN** at 01:04 neither lane is stalled
+- **AND** at 01:05 the first lane is stalled with `since` 00:00, and the second is not
+
+#### Scenario: [STALL-2-S6] A `SubagentStop` changes nothing the lane last waited on
+- **GIVEN** a lane whose last `Stop` carried `"background_tasks":[]` and `last_assistant_message` "Done for now."
+- **WHEN** a `SubagentStop` arrives from the same session carrying one running shell and `last_assistant_message` "reviewer finished"
+- **THEN** the session's kept tasks are still empty, and its last line is still "Done for now."
+
+#### Scenario: [STALL-2-S4] A Claude Code that sends no in-flight fields still stalls
+- **GIVEN** a lane with pull request #152 open, whose last `Stop` has neither `background_tasks` nor `session_crons`, quiet for 30 minutes
+- **WHEN** the panel derives its view
+- **THEN** the lane is stalled, and its `waitedOn` says what it waited on is not reported by this Claude Code version
+
+#### Scenario: [STALL-2-S5] The decoded hook types hold only the allowlist
+- **GIVEN** the Go types the panel decodes a hook's `background_tasks` and `session_crons` into
+- **WHEN** they are walked by reflection
+- **THEN** they declare `type`, `status`, `description`, `schedule` and `recurring`, and no `command`, `prompt`, `server`, `tool`, `name` or `agent_type`
+
+### Requirement: A stall interrupts once per stretch, on the Mac and through the owner's push command
+WHEN a lane's `stalled` alert first becomes active and is not approximate THE SYSTEM SHALL send it through the notifier's rules (once per stretch, grouped per lane, at most once per lane per `min_interval_seconds`, never while the lane's terminal has focus in a visible page, and not again after a restart while it is still active) as a macOS notification and, WHERE `~/.clauductor/panel/push.json` holds a valid push command, by running that command's argv with the title and body as two more arguments, with no shell; THE SYSTEM SHALL NOT run a push command whose file is not the user's, is writable by group or others or sits in a folder that is, or names a program by a relative path, SHALL NOT push any alert but `stalled`, and SHALL build the push's title and body from the `stalled` alert's own fields alone.
+
+#### Scenario: [STALL-3-S1] A new stall sends one notification and one push
+- **GIVEN** a valid `push.json` whose `argv` is a stand-in program that records its arguments, and a lane that stalls at 00:30
+- **WHEN** the notifier runs at 00:30, 00:31 and 00:45
+- **THEN** one macOS notification and one push go out at 00:30, and none after
+- **AND** the push's last two arguments are the title, naming the project and the lane, and a body naming the quiet time, "#152" and the kind of wait, and holding no task description and no last line
+- **AND** when the same notice also carries a `waiting` alert whose text is "wants to use Bash", the push's body does not contain it
+
+#### Scenario: [STALL-3-S2] A focused terminal suppresses the stall's notification and push
+- **GIVEN** a lane that stalls while its terminal has keyboard focus in a visible page
+- **WHEN** the notifier runs
+- **THEN** no notification and no push go out, and the stall counts as seen
+
+#### Scenario: [STALL-3-S3] An approximate stall never interrupts
+- **GIVEN** a lane whose `stalled` alert is approximate
+- **WHEN** the notifier runs
+- **THEN** no notification and no push go out
+
+#### Scenario: [STALL-3-S4] A push file that is unsafe or malformed never runs
+- **GIVEN** in turn a `push.json` writable by group, one in a folder writable by group, one whose `argv[0]` is `ntfy`, and one that is not a JSON object
+- **WHEN** a lane stalls
+- **THEN** the push program is never run, the macOS notification goes, and a warning names the file and why it was refused
+- **AND** with no `push.json` at all, the macOS notification goes and no warning shows
+
+#### Scenario: [STALL-3-S5] A failed push is counted and does not stop the notification
+- **GIVEN** a valid `push.json` whose program exits 1 with "no route"
+- **WHEN** a lane stalls
+- **THEN** the macOS notification goes, the notifier's failed count rises by one, and its error names "no route"
+
+#### Scenario: [STALL-3-S6] A waiting alert is not pushed, and a stall after it is
+- **GIVEN** a valid `push.json`, `waiting_seconds` 120 and `stall_minutes` 30, and a session that waits on a permission prompt from 00:00
+- **WHEN** the notifier runs at 00:02 and at 00:30
+- **THEN** at 00:02 a macOS notification goes for the waiting alert and no push
+- **AND** at 00:30 the lane's stall goes out as a notification and a push
+
+#### Scenario: [STALL-3-S7] A restart does not notify a stall still active
+- **GIVEN** a stall that was notified, and the panel restarted with the lane still stalled from the same last movement
+- **WHEN** the notifier runs
+- **THEN** no notification and no push go out
+
+### Requirement: Today's page shows a stalled lane, and `/api/state` carries it
+THE SYSTEM SHALL show a stalled lane as "stalled", in words and a red-tinted row, in its lane table row, its terminal tab and its worktree tree node, and as one Needs-you row per lane naming the lane, its quiet time, its open work and what it last waited on, with Open terminal, a waiting lane's own row being labelled stalled rather than joined by a second; `/api/state` SHALL carry the lane's `stall` (`since`, `waitedOn`, `openWork`, `approx`), a Needs-you item of kind `stalled`, and the `stalled` alert.
+
+#### Scenario: [STALL-4-S1] The page marks a stalled lane and lists it in Needs you
+- **GIVEN** a panel serving a project with a lane "second" that is stalled with pull request #7 open
+- **WHEN** the page loads
+- **THEN** the lane's row, its tab and its tree node read "stalled", and its row is tinted as a blocking row
+- **AND** a Needs-you row names "second", its quiet time, "#7 open" and what it last waited on, and its Open terminal selects the lane
+
+#### Scenario: [STALL-4-S2] `/api/state` carries the stall for the next page
+- **GIVEN** the same stalled lane
+- **WHEN** `/api/state` is read
+- **THEN** the lane's `stall` has `since`, `waitedOn`, `openWork` and `approx`
+- **AND** `needsYou` holds an item of kind `stalled` for it, and `alerts` a `stalled` alert of severity `block`
+
+#### Scenario: [STALL-4-S3] One Needs-you row per stalled lane
+- **GIVEN** a stalled lane with two live sessions, a stalled lane the panel launched whose claude exited, and a lane whose session waits on a permission prompt past the stall time
+- **WHEN** `/api/state` is read
+- **THEN** `needsYou` holds exactly one item for each of the first two lanes, of kind `stalled`
+- **AND** exactly one item for the third, its waiting item, labelled stalled
