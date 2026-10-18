@@ -42,8 +42,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # SubagentStart adds one, an allowed SubagentStop removes it, TeammateIdle adds a teammate.
 #
 # THE RECORD lives in the git common dir (every worktree shares it), per session:
-# <common dir>/clauductor-wait/<session_id>/{agents,tasks,refusals}/<agent_id>; outside a git
-# repository, under TMPDIR. Another session's records untouched for two days are pruned.
+# <common dir>/clauductor-wait/<session_id>/{agents,tasks,refusals,ended}/<agent_id>; outside a git
+# repository, under TMPDIR. Another session's records untouched for two days are pruned. ended/ is
+# written by an allowed SubagentStop: what a launcher waiting on that agent waits for.
 #
 # BOUNDED. A task that never ends (a server left running) would hold a turn forever, so after
 # NO_SILENT_WAIT_MAX_REFUSALS (default 20) refusals of one agent the end is allowed; every refusal
@@ -161,7 +162,11 @@ still_running() {
       | select((.status // "running" | tostring | ascii_downcase) | test("^(completed|failed|killed|stopped|exited|done|error|cancel)") | not)
       | [.id, (if .type == "subagent" then "agent" else "shell" end),
          (.command // .description // "" | tostring | gsub("[\t\n]"; " "))] | @tsv' \
-    | while IFS="$(printf '\t')" read -r _i _k _c; do [ "$(task_state "$_i")" = ended ] || printf '%s\t%s\t%s\n' "$_i" "$_k" "$_c"; done
+    | while IFS="$(printf '\t')" read -r _i _k _c; do
+        [ "$(task_state "$_i")" = ended ] && continue
+        { [ "$_k" = agent ] && [ -e "$STATE/ended/$_i" ]; } && continue
+        printf '%s\t%s\t%s\n' "$_i" "$_k" "$_c"
+      done
   else
     for _i in $_ids; do [ "$(task_state "$_i")" = running ] && printf '%s\tshell\t\n' "$_i"; done
   fi
@@ -183,7 +188,7 @@ refuse_end() {  # refuse_end LIST: the turn may not end while LIST's tasks run, 
     [ -n "$_id" ] || continue
     _f="$tasks_dir/$_id.output"
     _list="$_list ${_id}${_cmd:+ ($_cmd)};"
-    if [ "$_kind" = agent ]; then _agents="$_agents $STATE/agents/$_id"; continue; fi
+    if [ "$_kind" = agent ]; then _agents="$_agents $STATE/ended/$_id"; continue; fi
     _shells=1
     if [ -n "$tasks_dir" ] && [ -f "$_f" ]; then _wait="$_wait $_f"; fi
   done <<EOF
@@ -191,9 +196,12 @@ $1
 EOF
   _how="the output file the Bash tool named when it moved the command to the background"
   [ -n "$_wait" ] && _how="$(printf '%s' "$_wait" | sed 's/^ //')"
-  echo "BLOCKED by no-silent-wait: you started command(s) or agent(s) that are still running:${_list%;}. Nothing wakes you when one ends (on Claude Code 2.1.302 a command is killed as your turn ends, and an agent's report goes to the main session), so its result would reach nobody. Refusal $_n of $MAX." >&2
+  # printf, not echo: the list holds commands, and echo would read a backslash in one.
+  printf '%s\n' "BLOCKED by no-silent-wait: you started command(s) or agent(s) that are still running:${_list%;}. Nothing wakes you when one ends (on Claude Code 2.1.302 a command is killed as your turn ends, and an agent's report goes to the main session), so its result would reach nobody. Refusal $_n of $MAX." >&2
   [ -n "$_shells" ] && echo "Wait for each command in THIS turn, in the FOREGROUND (Bash timeout 600000), on $_how: until tail -n 1 FILE | grep -Eq '$END_LINE'; do sleep 5; done; tail -n 40 FILE  (call it again if the tool times out). Read the result, act on it, then end your turn." >&2
-  [ -n "$_agents" ] && echo "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its record is gone:$_agents (until [ ! -e RECORD ]; do sleep 5; done; call it again if the tool times out). Its report then reaches you as a notification: read it, act on it, then end your turn." >&2
+  # The marker, not the agent's record, is the wait: an agent not yet started has no record either.
+  # A stopped agent (TaskStop) never writes one, so the wait is bounded and the next stop re-checks.
+  [ -n "$_agents" ] && printf '%s\n' "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its end marker exists:$_agents (until [ -e MARKER ]; do sleep 5; done). Its report then reaches you as a notification: read it, act on it, then end your turn. If the wait times out with no marker, try to end your turn: this hook checks again, and refuses only while the agent still runs." >&2
   echo "If you no longer need a command's result (a server you started, say), end it yourself first: TaskStop if you have it, else kill it by its PID (find yours with ps -eo pid,ppid,args), never by pattern (pkill -f): another session may run the same command. After $MAX refusals your turn is allowed to end and the command's result is lost: say so in your final message." >&2
   exit 2
 }
@@ -206,6 +214,7 @@ case $event in
   SubagentStart)
     [ -n "$agent" ] || exit 0
     note agents "$agent"
+    rm -f "$STATE/ended/$agent"  # a resumed agent runs again
     find "$BASE" -mindepth 1 -maxdepth 1 -type d ! -name "$sid" -mtime +2 -exec rm -rf {} + 2>/dev/null
     exit 0 ;;
   SubagentStop|TeammateIdle)
@@ -216,7 +225,9 @@ case $event in
     [ -n "$running" ] && refuse_end "$running"
     rm -f "$STATE/refusals/$agent"
     # Free to end: a subagent's turn is over, so it no longer counts as running.
-    if [ "$event" = SubagentStop ]; then rm -f "$STATE/agents/$agent" "$STATE/tasks/$agent"; fi
+    # Its end marker tells a launcher waiting on it that it has ended (and that the background_tasks
+    # status a moment later may still lag).
+    if [ "$event" = SubagentStop ]; then rm -f "$STATE/agents/$agent" "$STATE/tasks/$agent"; note ended "$agent"; fi
     exit 0 ;;
   PreToolUse)
     # A subagent's question returns to the session that is awake to answer it.

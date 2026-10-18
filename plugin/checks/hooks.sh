@@ -345,14 +345,21 @@ nsw 0 "a stop with nothing recorded" "$(swp SubagentStop s1 a4 "$(bt t1)")"
 agent_bg='{"tool_name":"Agent","tool_input":{"run_in_background":true},"tool_response":{"isAsync":true,"status":"async_launched","agentId":"ab12"}}'
 abt() { printf '{"background_tasks":[{"id":"ab12","type":"subagent","status":"%s","description":"review the diff"}]}' "$1"; }
 nsw 0 "a subagent's background Agent call is recorded" "$(swp PostToolUse s1 a11 "$agent_bg")"
+# Before the launched agent's SubagentStart is recorded, it has not ended: the stop is refused.
+nsw 2 "a subagent's stop before the agent it launched has started" "$(swp SubagentStop s1 a11 "$(abt running)")"
 nsw 0 "the agent it launched starts" "$(swp SubagentStart s1 ab12)"
 nsw 2 "a subagent's stop while the agent it launched runs" "$(swp SubagentStop s1 a11 "$(abt running)")"
-case $nsw_out in *"Wait for each agent"*"$WS/s1/agents/ab12"*) ok "no-silent-wait: the refusal says to wait for the agent's record to go" ;;
-  *) fail "no-silent-wait: the refusal does not name $WS/s1/agents/ab12 as the agent's wait: $nsw_out" ;; esac
+case $nsw_out in *"Wait for each agent"*"$WS/s1/ended/ab12"*"try to end your turn"*) ok "no-silent-wait: the refusal says to wait for the agent's end marker, and to retry the end if the wait times out" ;;
+  *) fail "no-silent-wait: the refusal does not name $WS/s1/ended/ab12 as the agent's wait, or the retry: $nsw_out" ;; esac
 case $nsw_out in *"Wait for each command"*) fail "no-silent-wait: an agent-only refusal tells the agent to wait on a command's output file" ;; *) ok "no-silent-wait: an agent-only refusal gives no command wait" ;; esac
 nsw 0 "the launched agent's own stop (the list names it, but it started nothing)" "$(swp SubagentStop s1 ab12 "$(abt running)")"
-[ -e "$WS/s1/agents/ab12" ] && fail "no-silent-wait: the launched agent's allowed stop left its record" || ok "no-silent-wait: the launched agent's stop removes its record, which ends its launcher's wait"
-nsw 0 "the subagent's stop once the agent it launched completed" "$(swp SubagentStop s1 a11 "$(abt completed)")"
+{ [ ! -e "$WS/s1/agents/ab12" ] && [ -e "$WS/s1/ended/ab12" ]; } && ok "no-silent-wait: the launched agent's stop removes its record and writes its end marker" \
+  || fail "no-silent-wait: after the launched agent's stop, agents/ab12 exists=$([ -e "$WS/s1/agents/ab12" ] && echo y || echo n), ended/ab12 exists=$([ -e "$WS/s1/ended/ab12" ] && echo y || echo n)"
+# background_tasks can lag the agent's own stop: its end marker decides.
+nsw 0 "the subagent's stop once the agent it launched ended, though still listed 'running'" "$(swp SubagentStop s1 a11 "$(abt running)")"
+nsw 0 "a resumed agent starts again" "$(swp SubagentStart s1 ab12)"
+[ -e "$WS/s1/ended/ab12" ] && fail "no-silent-wait: a resumed agent kept its end marker" || ok "no-silent-wait: a resumed agent's start clears its end marker"
+nsw 0 "the resumed agent's stop" "$(swp SubagentStop s1 ab12 "$(abt completed)")"
 nsw 0 "a foreground Agent call that completed is not recorded" "$(swp PostToolUse s1 a12 '{"tool_name":"Agent","tool_response":{"status":"completed","agentId":"cd34"}}')"
 [ -e "$WS/s1/tasks/a12" ] && fail "no-silent-wait recorded a foreground Agent call" || ok "no-silent-wait records nothing for a foreground Agent call"
 # The output file's end line ends a task, whatever status background_tasks still shows.
