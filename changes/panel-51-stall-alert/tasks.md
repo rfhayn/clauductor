@@ -3,6 +3,21 @@
 ## Progress
 - 2026-10-18 proposed; nothing built yet. The build starts from `main` once approved, on the
   owner's Mac (session 5), beside PANEL-49's build.
+- 2026-10-18 pre-review (propose step 2b), for the proposal PR's body:
+  Review: NOT converged after 3 round(s), peak high, open: F1 verify-change paths in tasks
+  1.1/1.4/5.3 (high), F2 task 5.3 has no executor, F3 a waiting stall re-sent after a restart,
+  F4 background-work stall lost on a restart, F5 STALL-1-S19 guards the wrong read (medium),
+  F6 pending sources, F7 stall.json write rate, F8 wording (low) at 5a94976 · design c4683f6c5f18
+  - Rounds: 1 peak high (16 findings), 2 peak high (13), 3 peak high (8). Rounds 1 and 2 were
+    fixed in full. Round 3 was not, by the three-round limit.
+  - Round 3's proposed fixes: F1 name only paths the build changes (or unbacktick `/hook`,
+    `/loop`); F2 append the PANEL-46 and PANEL-25 tasks in this proposal's PR and drop 5.3
+    (`cg_build_tasks` skips a PR touching only `changes/`); F3 save each waiting session's ask
+    time in `stall.json`; F4 save each live session's decoded `Stop` allowlist there, or read
+    (d) as unknown after a restart; F5 reword S19 to a stalled lane whose re-read fails; F6 list
+    the project-level sources, the hooks by the install check, and keep a mark while its way is
+    unjudged; F7 the lease's release as movement, `stall.json` written at most every N seconds;
+    F8 align the requirement title, the lease wording and the proposal's `panel.js` line.
 
 ## Decision log
 
