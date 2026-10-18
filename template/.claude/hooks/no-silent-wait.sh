@@ -2,7 +2,7 @@
 # Refuses to let unattended work stop on a wait that will wake nobody. One script, registered for
 # six events and keyed by the payload's hook_event_name:
 #   PreToolUse (Bash)             refuses a subagent's or teammate's shell `&` (nothing tracks it)
-#   PostToolUse (Bash|Monitor)    records each background task a subagent or teammate starts
+#   PostToolUse (Bash|Monitor|Agent|Task)  records each background task or agent an agent starts
 #   SubagentStart                 records the subagent as running
 #   SubagentStop, TeammateIdle    refuse the agent's turn ending while a task IT started still runs
 #   PreToolUse (AskUserQuestion)  refuses the main session's blocking question while anything runs
@@ -28,6 +28,11 @@
 #   - A task's output is <dirname of scratchpad_dir>/tasks/<id>.output: a regular file for a shell
 #     (a symlink for an agent), whose last line is "[exited with code N]" or "[killed]" once it ended.
 #     That line is what ends a task here, whatever background_tasks' status says.
+#   - An Agent call launched in the background (a subagent has no foreground choice in an
+#     interactive session) has tool_response.isAsync true and agentId; SubagentStop lists that
+#     agent in background_tasks as type "subagent". Its report goes to whoever is still awake: with
+#     the launcher's turn ended, to the MAIN session (probed on the Mac, 2026-10-18). Held, the
+#     launcher waited for the agent's record here to go and then received the report itself.
 #   - TeammateIdle has agent_id but no background_tasks (code.claude.com/docs/en/hooks), so a
 #     teammate's tasks, and the shells AskUserQuestion counts, are read from those files.
 #   - A shell `&` makes no task at all, so it is refused up front (lib/gate-reader.awk reads the
@@ -48,8 +53,9 @@
 #     own (a panel lane) is not: a stall there is the panel's to show.
 #   - A teammate's end and a subagent stopped with TaskStop are not seen: its record stays, and
 #     AskUserQuestion is refused until it is removed. The refusal names the file: loud, not silent.
-#   - Without scratchpad_dir (an older Claude Code), a teammate's tasks and the session's shells
-#     cannot be read, and only the agent records count.
+#   - Without scratchpad_dir (an older Claude Code, or `claude -p` on macOS: 2.1.302 sent none
+#     there), a teammate's tasks and the session's shells cannot be read, and only the agent
+#     records count. A subagent's stop still holds: background_tasks lists what runs.
 #   - Teammates were not probed (no agent teams in the probing build): the owner verifies them.
 #
 # WITHOUT jq, for what it polices (as no-blind-source-rewrite): AskUserQuestion is refused, a
@@ -97,7 +103,7 @@ fi
 # Ids and session ids become file names: keep them to a safe alphabet.
 safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-' | sed 's/^\.*//'; }
 fields=$(printf '%s' "$payload" | jq -r '[.hook_event_name, .agent_id, .session_id, .scratchpad_dir, .tool_name,
-  (.tool_response | objects | .backgroundTaskId // .taskId)] | map(. // "" | tostring | gsub("[\n\u001f]"; " ")) | join("\u001f")')
+  (.tool_response | objects | .backgroundTaskId // .taskId // (if .isAsync == true then .agentId else null end))] | map(. // "" | tostring | gsub("[\n\u001f]"; " ")) | join("\u001f")')
 # A separator that is not IFS white space, so an empty field (no agent_id) is kept, not collapsed.
 IFS="$(printf '\037')" read -r event agent sid scratch tool task_id <<EOF
 $fields
@@ -140,9 +146,11 @@ task_state() {
   if tail -n 1 "$_f" | grep -Eq "$END_LINE"; then echo ended; else echo running; fi
 }
 recorded() { [ -n "$agent" ] && [ -f "$STATE/tasks/$agent" ] && grep -v '^$' "$STATE/tasks/$agent" | sort -u; }
-# still_running: the tasks THIS agent started that are still running, one "id<TAB>command" a line.
+# still_running: the tasks THIS agent started that are still running, one "id<TAB>kind<TAB>command"
+# a line, kind "agent" (a background Agent call) or "shell" (a command or a Monitor).
 # background_tasks, when the payload has it, names what is in flight; a task whose output file has
-# its end line has ended whatever its status says. Without the list, the output files decide.
+# its end line has ended whatever its status says. Without the list, the output files decide (an
+# agent's file is a symlink with no end line: a teammate's background agent is not seen).
 still_running() {
   _ids=$(recorded) || return 0
   [ -n "$_ids" ] || return 0
@@ -150,10 +158,11 @@ still_running() {
     printf '%s' "$payload" | jq -r --arg ids "$_ids" '($ids | split("\n")) as $mine
       | .background_tasks[]? | select((.id // "") as $i | $mine | index($i))
       | select((.status // "running" | tostring | ascii_downcase) | test("^(completed|failed|killed|stopped|exited|done|error|cancel)") | not)
-      | [.id, (.command // .description // "" | tostring | gsub("[\t\n]"; " "))] | @tsv' \
-    | while IFS="$(printf '\t')" read -r _i _c; do [ "$(task_state "$_i")" = ended ] || printf '%s\t%s\n' "$_i" "$_c"; done
+      | [.id, (if .type == "subagent" then "agent" else "shell" end),
+         (.command // .description // "" | tostring | gsub("[\t\n]"; " "))] | @tsv' \
+    | while IFS="$(printf '\t')" read -r _i _k _c; do [ "$(task_state "$_i")" = ended ] || printf '%s\t%s\t%s\n' "$_i" "$_k" "$_c"; done
   else
-    for _i in $_ids; do [ "$(task_state "$_i")" = running ] && printf '%s\t\n' "$_i"; done
+    for _i in $_ids; do [ "$(task_state "$_i")" = running ] && printf '%s\tshell\t\n' "$_i"; done
   fi
   return 0
 }
@@ -168,19 +177,22 @@ refuse_end() {  # refuse_end LIST: the turn may not end while LIST's tasks run, 
     return 0
   fi
   mkdir -p "$STATE/refusals" 2>/dev/null && printf '%s\n' "$_n" > "$STATE/refusals/$agent"
-  _list=""; _wait=""
-  while IFS="$(printf '\t')" read -r _id _cmd; do
+  _list=""; _wait=""; _shells=""; _agents=""
+  while IFS="$(printf '\t')" read -r _id _kind _cmd; do
     [ -n "$_id" ] || continue
     _f="$tasks_dir/$_id.output"
     _list="$_list ${_id}${_cmd:+ ($_cmd)};"
+    if [ "$_kind" = agent ]; then _agents="$_agents $STATE/agents/$_id"; continue; fi
+    _shells=1
     if [ -n "$tasks_dir" ] && [ -f "$_f" ]; then _wait="$_wait $_f"; fi
   done <<EOF
 $1
 EOF
   _how="the output file the Bash tool named when it moved the command to the background"
   [ -n "$_wait" ] && _how="$(printf '%s' "$_wait" | sed 's/^ //')"
-  echo "BLOCKED by no-silent-wait: you started command(s) that are still running:${_list%;}. Nothing wakes you when one ends (on Claude Code 2.1.302 it is killed as your turn ends), so its result would reach nobody. Refusal $_n of $MAX." >&2
-  echo "Wait for each in THIS turn, in the FOREGROUND (Bash timeout 600000), on $_how: until tail -n 1 FILE | grep -Eq '$END_LINE'; do sleep 5; done; tail -n 40 FILE  (call it again if the tool times out). Read the result, act on it, then end your turn." >&2
+  echo "BLOCKED by no-silent-wait: you started command(s) or agent(s) that are still running:${_list%;}. Nothing wakes you when one ends (on Claude Code 2.1.302 a command is killed as your turn ends, and an agent's report goes to the main session), so its result would reach nobody. Refusal $_n of $MAX." >&2
+  [ -n "$_shells" ] && echo "Wait for each command in THIS turn, in the FOREGROUND (Bash timeout 600000), on $_how: until tail -n 1 FILE | grep -Eq '$END_LINE'; do sleep 5; done; tail -n 40 FILE  (call it again if the tool times out). Read the result, act on it, then end your turn." >&2
+  [ -n "$_agents" ] && echo "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its record is gone:$_agents (until [ ! -e RECORD ]; do sleep 5; done; call it again if the tool times out). Its report then reaches you as a notification: read it, act on it, then end your turn." >&2
   echo "If you no longer need a command's result (a server you started, say), end it yourself first: TaskStop if you have it, else kill it by its PID (find yours with ps -eo pid,ppid,args), never by pattern (pkill -f): another session may run the same command. After $MAX refusals your turn is allowed to end and the command's result is lost: say so in your final message." >&2
   exit 2
 }

@@ -339,6 +339,21 @@ nsw 0 "the main session's background Bash is recorded as its own" "$(swp PostToo
 nsw 0 "a subagent's foreground Bash that finished is not recorded" "$(swp PostToolUse s1 a4 '{"tool_name":"Bash","tool_response":{"stdout":"ok"}}')"
 [ -e "$WS/s1/tasks/a4" ] && fail "no-silent-wait recorded a call that made no background task" || ok "no-silent-wait records nothing for a call that made no background task"
 nsw 0 "a stop with nothing recorded" "$(swp SubagentStop s1 a4 "$(bt t1)")"
+# A subagent's Agent call goes to the background (it has no foreground choice interactively), and
+# the report goes to whoever is still awake: with the launcher's turn over, the main session.
+agent_bg='{"tool_name":"Agent","tool_input":{"run_in_background":true},"tool_response":{"isAsync":true,"status":"async_launched","agentId":"ab12"}}'
+abt() { printf '{"background_tasks":[{"id":"ab12","type":"subagent","status":"%s","description":"review the diff"}]}' "$1"; }
+nsw 0 "a subagent's background Agent call is recorded" "$(swp PostToolUse s1 a11 "$agent_bg")"
+nsw 0 "the agent it launched starts" "$(swp SubagentStart s1 ab12)"
+nsw 2 "a subagent's stop while the agent it launched runs" "$(swp SubagentStop s1 a11 "$(abt running)")"
+case $nsw_out in *"Wait for each agent"*"$WS/s1/agents/ab12"*) ok "no-silent-wait: the refusal says to wait for the agent's record to go" ;;
+  *) fail "no-silent-wait: the refusal does not name $WS/s1/agents/ab12 as the agent's wait: $nsw_out" ;; esac
+case $nsw_out in *"Wait for each command"*) fail "no-silent-wait: an agent-only refusal tells the agent to wait on a command's output file" ;; *) ok "no-silent-wait: an agent-only refusal gives no command wait" ;; esac
+nsw 0 "the launched agent's own stop (the list names it, but it started nothing)" "$(swp SubagentStop s1 ab12 "$(abt running)")"
+[ -e "$WS/s1/agents/ab12" ] && fail "no-silent-wait: the launched agent's allowed stop left its record" || ok "no-silent-wait: the launched agent's stop removes its record, which ends its launcher's wait"
+nsw 0 "the subagent's stop once the agent it launched completed" "$(swp SubagentStop s1 a11 "$(abt completed)")"
+nsw 0 "a foreground Agent call that completed is not recorded" "$(swp PostToolUse s1 a12 '{"tool_name":"Agent","tool_response":{"status":"completed","agentId":"cd34"}}')"
+[ -e "$WS/s1/tasks/a12" ] && fail "no-silent-wait recorded a foreground Agent call" || ok "no-silent-wait records nothing for a foreground Agent call"
 # The output file's end line ends a task, whatever status background_tasks still shows.
 nsw 0 "a subagent's task is recorded" "$(swp PostToolUse s1 a7 '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"t5"}}')"
 ended t5 1
@@ -394,7 +409,11 @@ nsw 2 "the main session's question while a subagent runs" "$(swp PreToolUse s3 "
 case $nsw_out in *owner-queue.md*PushNotification*) ok "no-silent-wait: the refusal says to use the owner queue or a push" ;; *) fail "no-silent-wait: the refusal does not name the owner queue and PushNotification: $nsw_out" ;; esac
 nsw 0 "that subagent's stop with nothing of its own running" "$(swp SubagentStop s3 a5 '{"background_tasks":[]}')"
 nsw 0 "the main session's question once the subagent has ended" "$(swp PreToolUse s3 "" "$ask")"
-for t in t3 t4; do nsw 0 "the main session's background command $t is recorded" "$(swp PostToolUse s4 "" "{\"tool_name\":\"Bash\",\"tool_response\":{\"backgroundTaskId\":\"$t\"}}")"; done
+# The payload is built first: bash 3.2 (macOS sh) mangles \" inside "$(…)" inside "…".
+for t in t3 t4; do
+  tp=$(printf '{"tool_name":"Bash","tool_response":{"backgroundTaskId":"%s"}}' "$t")
+  nsw 0 "the main session's background command $t is recorded" "$(swp PostToolUse s4 "" "$tp")"
+done
 running t3; running t4
 nsw 2 "the main session's question while its background commands run" "$(swp PreToolUse s4 "" "$ask")"
 ended t3; printf '\n[killed]\n' > "$S/tasks/t4.output"

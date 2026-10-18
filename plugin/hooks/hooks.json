@@ -12,7 +12,7 @@
         ]
       },
       {
-        "matcher": "Bash|Monitor",
+        "matcher": "Bash|Monitor|Agent|Task",
         "hooks": [
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
