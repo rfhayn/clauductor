@@ -30,6 +30,8 @@
 # Rows: every row the plan names, except a merged one the filter drops and none it names that is
 # no roadmap row (warned); every open row (queued, in flight, parked) it does not name, as session
 # "Unplanned" (or "Parked"); and every merged row the filter keeps.
+# A row not merged that .claude/local/cloud-lanes.tsv lists (<id> TAB <routine name>) is noted
+# "cloud: <routine name>", so the owner sees which work runs in the cloud.
 #
 # The stamp, <git common dir>/clauductor/tracker-refreshed, holds the roadmap blob of the last
 # upload; context.d/session-start/roadmap-tracker.sh compares it with today's roadmap.
@@ -151,7 +153,16 @@ printf '%s\n' "$plan" > "$out/.plan"
 printf '%s\n' "$approved" > "$out/.approved"
 printf '%s\n' "$building" > "$out/.building"
 printf '%s\n' "$merges" > "$out/.merges"
-jq -n --arg since "$since" \
+# The cloud lanes: comments and blank lines are skipped; any other line that is not exactly an id
+# and a routine name, TAB-separated, is warned about and left out, never dropped silently.
+: > "$out/.cloud"
+if [ -f "$ROOT/.claude/local/cloud-lanes.tsv" ]; then
+  awk -F'\t' '/^#/ || /^[[:space:]]*$/ { next }
+    NF == 2 && $1 != "" && $2 != "" { print $1 "\t" $2; next }
+    { printf "roadmap-tracker: warning: cloud-lanes.tsv line %d is not <id> TAB <routine name>; left out\n", NR > "/dev/stderr" }' \
+    "$ROOT/.claude/local/cloud-lanes.tsv" > "$out/.cloud"
+fi
+jq -n --arg since "$since" --rawfile cloud "$out/.cloud" \
   --rawfile tsv "$out/.tsv" --rawfile plan "$out/.plan" --rawfile approved "$out/.approved" \
   --rawfile building "$out/.building" --rawfile merges "$out/.merges" '
   def lines($s): $s | split("\n") | map(select(length > 0) | split("\t"));
@@ -165,6 +176,7 @@ jq -n --arg since "$since" \
   (lines($plan)) as $p
   | ([$p[] | select(.[0] == "R") | {key: .[1], value: {session: .[2], order: (.[3] | tonumber), pos: (.[4] | tonumber)}}] | from_entries) as $where
   | ([$p[] | select(.[0] == "D") | {key: .[1], value: .[2]}] | from_entries) as $owner
+  | ([lines($cloud)[] | {key: .[0], value: .[1]}] | from_entries) as $cloudlane
   | ($approved | split("\n") | map(select(length > 0))) as $ok
   | ($building | split("\n") | map(select(length > 0))) as $built
   | ([$merges | split("\n")[] | select(length > 0) | split(" ") | {key: .[0], value: .[1]}] | reverse | from_entries) as $merged
@@ -194,7 +206,8 @@ jq -n --arg since "$since" \
        note: ([(if .deps != "" and ($state != "merged") then "after " + (.deps | gsub(","; ", ")) else empty end),
                (if .budget != "" then "budget $\(.budget)" else empty end),
                (if .due != "" then "due \(.due)" else empty end),
-               (if $state == "merged" then "merged \($md)" else empty end)] | join("; ")),
+               (if $state == "merged" then "merged \($md)" else empty end),
+               (if $state != "merged" and $cloudlane[.id] then "cloud: \($cloudlane[.id])" else empty end)] | join("; ")),
        _pos: ($w.pos // 0), _line: .line}]
   | sort_by(.order, ._pos, ._line) | map(del(._pos, ._line))' > "$out/roadmap.json" || die "cannot build roadmap.json"
 
@@ -208,6 +221,10 @@ printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" || $1 == "D" { print $2 }' | sort 
   printf '%s\n' "$tsv" | awk -F'\t' -v id="$id" '$4 == id { f = 1 } END { exit !f }' \
     || echo "roadmap-tracker: warning: the Session plan names $id, which is no roadmap row; left out" >&2
 done
-rm -f "$out/.tsv" "$out/.plan" "$out/.approved" "$out/.building" "$out/.merges"
+cut -f1 "$out/.cloud" | while read -r id; do
+  printf '%s\n' "$tsv" | awk -F'\t' -v id="$id" '$4 == id { f = 1 } END { exit !f }' \
+    || echo "roadmap-tracker: warning: cloud-lanes.tsv names $id, which is no roadmap row; left out" >&2
+done
+rm -f "$out/.tsv" "$out/.plan" "$out/.approved" "$out/.building" "$out/.merges" "$out/.cloud"
 printf '%s\n' "$blob" > "$out/roadmap.blob"
 echo "roadmap-tracker: $(jq length "$out/roadmap.json") row(s), $(jq length "$out/sessions.json") session(s) in $out (merged since $since; roadmap ${blob%"${blob#???????}"})"
