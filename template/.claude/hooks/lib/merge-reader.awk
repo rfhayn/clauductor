@@ -28,7 +28,7 @@ function hits(t,   l) {
 function odd(why) { if (!(why in SEEN)) { SEEN[why] = 1; ODDS[++NO] = why } }
 # A construct the reader could not follow. Reported only when the command could concern a merge.
 function broken(why) { if (!(why in SEEN)) { SEEN[why] = 1; BROKE[++NB] = why } }
-function newcmd() { N[++NC] = 0; return NC }
+function newcmd() { N[++NC] = 0; RF = 0; return NC }
 
 # rx — a regex matching exactly s.
 function rx(s,   o, i, c) {
@@ -49,15 +49,24 @@ function lit(s) { tok = tok s; sk = sk s; pat = pat rx(s); have = 1 }
 function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
+  # Every word, operands included, for inside(); MID: an argument after a redirection.
+  AWP[cid, ++AWN[cid]] = p; AWT[cid, AWN[cid]] = t; AWF[cid, AWN[cid]] = f; AWO[cid, AWN[cid]] = TG
+  if (TG) return
+  if (RD[cid]) MID[cid] = 1
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
 }
 # A word ends. After an output redirection it is the target: RO marks a command that writes a file
-# (anything but /dev/null) — prose written to a file can be run by the next command.
+# (anything but /dev/null) — prose written to a file can be run by the next command. After ANY
+# redirection the word is its operand (a file name, a here-string's text), which the command never
+# receives as an argument: TG keeps it out of the command's words, so gh's words and an inert
+# command's arguments are read as the shell hands them over (OPS-66: `sed … > "$TMPDIR/$name"` was
+# read as a gh that sed could run, and `gh pr >out merge 5`, which merges, as no merge at all).
 function flush(cid,   e) {
   if (have) {
     # A mention is TEXT — a word with blanks in it. `repos/o/n/pulls/2/merge` alone is an argument.
     if (tok ~ /[ \t\n]/ && hits(tok)) MENTION = 1
     if (RT) { if (tok != "/dev/null" || fl != "") RO[RT] = 1; RT = 0 }
+    TG = RF; RF = 0
     if (index(pat, LB)) {
       NE = 0; XP = 0; expand(pat, sk, 0)
       if (NE > 64) { broken("a brace expansion too large to read"); addword(cid, tok, fl "b", ".*", "") }
@@ -66,6 +75,7 @@ function flush(cid,   e) {
         if (XP) addword(cid, ES[e], fl "b", EP[e], ES[e]); else addword(cid, tok, fl, EP[e], ES[e])
       }
     } else addword(cid, tok, fl, pat, sk)
+    TG = 0
   }
   reset()
 }
@@ -141,10 +151,10 @@ function ansi(i,   c, esc) {
 }
 # A command substitution: its own command list, read with the word being built set aside. The
 # word itself only records that something was computed.
-function subst(i, mode,   st, sf, sp, ss, sh, sb) {
-  st = tok; sf = fl; sp = pat; ss = sk; sh = have; sb = bd; reset()
+function subst(i, mode,   st, sf, sp, ss, sh, sb, sr) {
+  st = tok; sf = fl; sp = pat; ss = sk; sh = have; sb = bd; sr = RF; RF = 0; reset()
   i = scan(i, mode)
-  tok = st; fl = sf; pat = sp; sk = ss; have = sh; bd = sb
+  tok = st; fl = sf; pat = sp; sk = ss; have = sh; bd = sb; RF = sr
   wild(".*", "$()", "d")
   return i
 }
@@ -266,18 +276,36 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     if (c == "=" && !have && substr(S, i + 1, 1) ~ /[A-Za-z_]/) { wild(".*", "=", "d"); i++; continue }
     if (c == " " || c == "\t" || c == "\r") { flush(cid); i++; continue }
     if (c == "\n") { flush(cid); cid = newcmd(); i++; if (HN) i = bodies(i); continue }
-    if (c == "<" && substr(S, i, 2) == "<<" && substr(S, i + 2, 1) != "<") { flush(cid); i = heredoc(i + 2); continue }
+    if (c == "<" && substr(S, i, 2) == "<<" && substr(S, i + 2, 1) != "<") { flush(cid); RD[cid] = 1; i = heredoc(i + 2); continue }
+    # A `(` right after `<` or `>` (process substitution) or inside a word (zsh `=(…)` and `x(N)`,
+    # extglob `@(…)`) is a piece of the CURRENT word, read as `$(` is: its contents are commands,
+    # and the word is computed. Only a `(` that starts a word starts a subshell (OPS-66:
+    # `gh api --input <(…) repos/o/n/pulls/5/merge` was cut in two, and its endpoint never read).
+    if ((c == "<" || c == ">") && substr(S, i + 1, 1) == "(") { i = subst(i + 2, "paren"); fl = fl "s"; continue }
+    if (c == "(" && have) { if (emptyp(i)) FDEF = 1; i = subst(i + 1, "paren"); fl = fl "s"; continue }
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
-      if (tok ~ /^[0-9]+$/ && fl == "") reset(); else flush(cid)
+      # A fd number or a `{name}` before the operator belongs to it, never a word.
+      if ((tok ~ /^[0-9]+$/ || tok ~ /^\{[A-Za-z_][A-Za-z0-9_]*\}$/) && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
+      # The next word is the operand, never an argument. RD: whatever the operator's form,
+      # inside() needs only that it is here. zsh's `>!` and `>&!` are read as operators; in bash
+      # the `!` is the file and the next word an ARGUMENT. BANG marks the command, and inside()
+      # then judges every word, operands included, as one the command may run.
+      RF = 1; RD[cid] = 1
       i++
-      while (substr(S, i, 1) ~ /[<>|]/) i++
-      if (substr(S, i, 1) == "&") { i++; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
+      while (substr(S, i, 1) ~ /[<>|!]/) { if (substr(S, i, 1) == "!") BANG[cid] = 1; i++ }
+      if (substr(S, i, 1) == "&") {
+        i++
+        # `>&2`, `>&-`: a duplication, with no operand. `>& file` names a file, as `>file` does.
+        if (substr(S, i, 1) ~ /[0-9-]/) { RF = 0; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
+        else { while (substr(S, i, 1) == "!") { BANG[cid] = 1; i++ }; if (nx) RT = cid }
+      }
       else if (nx) RT = cid
       continue
     }
     if (c == ";" || c == "&" || c == "|") { flush(cid); cid = newcmd(); i++; continue }
-    if (c == "(") { flush(cid); cid = newcmd(); depth++; i++; continue }
+    # `name ()`, and zsh's anonymous `() { … }`: a function definition (defines()).
+    if (c == "(") { if (emptyp(i) && substr(S, i - 2, 2) != "$(") FDEF = 1; flush(cid); cid = newcmd(); depth++; i++; continue }
     if (c == ")") {
       flush(cid)
       if (depth == 0 && mode == "paren") return i + 1
@@ -320,11 +348,62 @@ function prose_safe(c,   w, k) {
 
 function could(c, k, x) { return match(x, "^(" P[c, k] ")$") }
 # could be gh, or a path ending in /gh
-function could_gh(c, k,   p, j, m) {
-  if (could(c, k, "gh")) return 1
-  p = P[c, k]; j = 0
+function could_gh(c, k) { return gh_p(P[c, k]) }
+function gh_p(p,   j, m) {
+  if (match("gh", "^(" p ")$")) return 1
+  j = 0
   while ((m = index(substr(p, j + 1), "[/]")) > 0) j += m + 2
   return j > 0 && match("gh", "^(" substr(p, j + 1) ")$")
+}
+# inside(c) — a redirection comes before the command's last word, and the command may run gh: its
+# command word could be gh (literal, quoted, computed, `=gh`, a path) or runs its arguments as a
+# command (env, xargs, sudo, …). The shell takes a redirection anywhere in a command and hands the
+# rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`, and any nobody
+# listed) are too many to read one by one, and a gh merges as `pr merge` or as `api` with no merge
+# word to look for, so such a command is unreadable (OPS-66, the owner's call). A literal command
+# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (a name
+# defined in the command is refused by defines(); one from outside it is the header's limit).
+# The command word is read twice, with and without the operands. And where the operand itself is
+# in doubt, operands count too (OPS-66, round 6): a dropped operand that is gh as written (`>x gh`
+# is a file named gh only if the reader split it right), and, after an operator with a `!` (bash
+# reads `>! gh` as the file `!` and the word gh), every word that could be gh, computed included.
+# Its cost: a gh command, or one whose command word is computed, with a redirection in its middle
+# is refused, a merge or not (`gh pr list 2>/dev/null --json number`, `$cmd >&2 x`); put the
+# redirection last.
+function inside(c,   x) {
+  if (!MID[c]) return 0
+  for (x = 1; x <= N[c] && lead(W[c, x]); x++) ;
+  if (x <= N[c] && (gh_p(P[c, x]) || runs(W[c, x]))) return 1
+  for (x = 1; x <= AWN[c] && lead(AWT[c, x]); x++) ;
+  if (x <= AWN[c] && (gh_p(AWP[c, x]) || runs(AWT[c, x]))) return 1
+  for (x = 1; x <= AWN[c]; x++)
+    if (gh_p(AWP[c, x]) && (BANG[c] || (AWO[c, x] && AWF[c, x] !~ /[dgb]/))) return 1
+  return 0
+}
+# lead(w) — a word before the command word: an assignment or a reserved word.
+function lead(w) { return w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^(then|do|else|elif|if|while|until|!|\{)$/ }
+#
+# defines(c) — the command gives a name something to run: `alias`, `hash` (bash `hash -p
+# /usr/bin/gh jq`, zsh `hash jq=…`; a bare `hash -r` only forgets) or the `function` keyword, after
+# any prefix that runs its arguments. With FDEF (a `name()` anywhere), such a command is
+# unreadable, whatever the name runs (OPS-66): at the name's use, `jq api -X PUT …/pulls/5/merge`
+# reads as jq, and the round-5 rule that a literal command word decides what runs no longer holds.
+function defines(c,   x) {
+  for (x = 1; x <= N[c] && (lead(W[c, x]) || runs(W[c, x]) || (x > 1 && W[c, x] ~ /^-/)); x++) ;
+  if (x > N[c]) return 0
+  if (W[c, x] == "alias" || W[c, x] == "function") return 1
+  return W[c, x] == "hash" && !(N[c] == x || (N[c] == x + 1 && W[c, x + 1] == "-r"))
+}
+# emptyp(i) — the `(` at i is followed, past blanks, by `)`: a function definition's `()`.
+function emptyp(i) {
+  i++; while (substr(S, i, 1) ~ /[ \t]/) i++
+  return substr(S, i, 1) == ")"
+}
+# runs(w) — a command word that runs its arguments as a command, by name or by path
+# (`/usr/bin/env`), shells included (`sh -c '"$@"' sh gh …`).
+function runs(w) {
+  sub(/^.*\//, "", w)
+  return w ~ /^(command|builtin|exec|nohup|sudo|doas|env|nice|ionice|timeout|time|eval|noglob|nocorrect|stdbuf|xargs|parallel|find|watch|caffeinate|setsid|flock|unbuffer|chrt|taskset|sh|bash|zsh|dash|ksh)$/
 }
 # provable: its text is exactly what runs (quotes and escapes allowed; no expansion, glob or brace)
 function provable(c, k) { return F[c, k] !~ /[dgb]/ }
@@ -332,6 +411,45 @@ function plainw(c, k) { return F[c, k] == "" }
 function flagskip(c, j, n) {
   while (j <= n && provable(c, j) && W[c, j] ~ /^-/) j += (W[c, j] == "-R" || W[c, j] == "--repo") ? 2 : 1
   return j
+}
+# cmdword(c) — the index of the command word: the first past the reserved words a loop or a
+# condition puts before it (`do cp …`).
+function cmdword(c,   x) {
+  for (x = 1; x < N[c]; x++) if (!(F[c, x] == "" && W[c, x] ~ /^(then|do|else|elif|if|while|until|!|\{)$/)) break
+  return x
+}
+# inert(c) — the command word runs none of its arguments and hands none to a program: each is a
+# file name or text (OPS-66: `cmp template/.claude/$f …` in a loop over files named merge-guard.sh
+# was refused as a gh that cmp could run). grep runs nothing. sed never runs a file NAME, but GNU
+# sed's `e` command and `s///e` flag run the TEXT it reads as shell: `sed e notes.txt` is an
+# evaluator whose program is in a file, the limit in the hook's header (`sh notes.txt` is the same,
+# and was allowed before OPS-66 too); a script naming the merge is a MENTION beside sed, which
+# prose_safe() does not list, so it blocks. Not here, because each can run an argument: xargs,
+# find, env, git (bisect run, rebase --exec), sort, awk, any shell, and the commands whose output
+# IS their arguments (echo, printf, basename), which a pipe hands to sh.
+function inert(c,   x) {
+  x = cmdword(c)
+  return F[c, x] == "" && W[c, x] ~ /^(cp|mv|cmp|diff|ls|cat|head|tail|wc|grep|egrep|fgrep|sed|mkdir|rm|touch|ln|chmod|stat)$/
+}
+# reach(c, k, n) — a word after k could be pr, api or merge: what makes a gh a merge.
+function reach(c, k, n,   j) {
+  for (j = k + 1; j <= n; j++) if (could(c, j, "pr") || could(c, j, "api") || could(c, j, "merge")) return 1
+  return 0
+}
+# git_sub(c, j) — word j is git's own subcommand `merge`, and every word before it is git or one
+# of its global options with its value (`git -C "$WT" merge origin/main`, OPS-66): git reads that
+# merge, and git cannot alias a builtin, so a computed option value is not a gh or a pr. A value
+# that could split (unquoted) is not taken: its pieces could add `-c alias.x='!gh pr' x`.
+function git_sub(c, j,   x, w) {
+  x = cmdword(c)
+  if (F[c, x] != "" || W[c, x] != "git" || !plainw(c, j) || W[c, j] != "merge") return 0
+  for (x++; x < j; x++) {
+    w = W[c, x]
+    if (F[c, x] != "") return 0
+    if (w == "-C" || w == "--git-dir" || w == "--work-tree") { if (++x >= j || F[c, x] ~ /[sb]/) return 0; continue }
+    if (w !~ /^(--no-pager|-P|--no-optional-locks|--no-replace-objects|--bare)$/) return 0
+  }
+  return 1
 }
 
 # A word that could be gh: its subcommand must be readable. `gh pr merge` is a site; `gh api` goes
@@ -353,8 +471,10 @@ function heads(c, k,   x, w) {
 function ghword(c, k, n,   j, x, m) {
   # gh fed its words by another command (`echo merge 5 | xargs gh pr`, `parallel gh pr ::: merge`,
   # `find . -exec gh pr merge 5 \;`), or with no subcommand at all: where the command names a merge
-  # anywhere, its words cannot be read from here.
-  if (MERGE_ANY && !heads(c, k)) { odd("gh (" W[c, k] ") is an argument of " W[c, 1] ", which can add or substitute its words"); return }
+  # anywhere, its words cannot be read from here. Unless the command runs no argument and nothing
+  # after the word could make it a merge: then it is a file name (OPS-66).
+  if (!heads(c, k) && inert(c) && !reach(c, k, n)) return
+  if (MERGE_ANY && !heads(c, k)) { odd("gh (" W[c, k] ") is an argument of " W[c, cmdword(c)] ", which can add or substitute its words"); return }
   if (k == n) { if (MERGE_ANY) odd("gh has no subcommand here, and the command names a merge"); return }
   if (!provable(c, k + 1)) {
     # An unquoted expansion or glob can split into several words (`gh $X 5`, X="pr merge"): any
@@ -456,14 +576,20 @@ END {
   MERGE_ANY = rel ~ /merg/
   for (c = 1; c <= NC; c++) {
     n = N[c]
+    if (inside(c)) odd("a redirection comes before the last word of a command that may run gh (its command word could be gh, a computed word included, or runs its arguments): put the redirection last")
+    if (FDEF || defines(c)) odd("the command defines an alias, a hash entry or a function, so what that name runs cannot be read: run its body inline, or put it in a script file")
     for (k = 1; k <= n; k++) {
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
+      # A computed word that could be gh, then `api` (`$G api -X PUT …/pulls/5/merge`): api()
+      # holds a merge endpoint to a plain gh, so this one is ODD (OPS-66).
+      if (k < n && could_gh(c, k) && W[c, k + 1] == "api" && provable(c, k + 1)) { api(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
       if (!could(c, k, "pr")) continue
       if (k > 1 && K[c, k - 1] != "" && could_gh(c, k - 1)) continue
       j = flagskip(c, k + 1, n)
       if (j > n || !could(c, j, "merge")) continue
       if (K[c, k] == "" && K[c, j] == "") continue
+      if (git_sub(c, j)) continue
       odd("the merge reads as [" (k > 1 ? W[c, k - 1] " " : "") W[c, k] " " W[c, j] "], and what comes before pr is not a plain gh")
     }
   }
