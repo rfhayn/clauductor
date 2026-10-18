@@ -95,6 +95,12 @@ type Config struct {
 	// Ports gives each lane a stable port of its own, exported as CLAUDUCTOR_PORT.
 	Ports *PortsConfig `json:"ports"`
 
+	// The lane context policy: version 6 (PANEL-48).
+
+	// Launch is the context policy every lane launches with (LaunchEnv), passed as
+	// claude --settings; lane_types.<t>.context_window overrides its window.
+	Launch *LaunchConfig `json:"launch"`
+
 	// Notices are what loading the file has to say once (no version declared). The
 	// panel prints them at start.
 	Notices []string `json:"-"`
@@ -106,6 +112,74 @@ type LaneTypeConfig struct {
 	Effort string `json:"effort"`
 	// AutoClose overrides lanes_auto_close for this lane type (version 5).
 	AutoClose string `json:"auto_close"`
+	// ContextWindow overrides launch.context_window for this lane type, and
+	// SubagentModel sets CLAUDE_CODE_SUBAGENT_MODEL in its lanes (version 6).
+	ContextWindow *int   `json:"context_window"`
+	SubagentModel string `json:"subagent_model"`
+}
+
+// LaunchConfig is the context policy every lane launches with (version 6). A pointer
+// tells an absent key from a zero one: an absent key sets nothing (no hidden default),
+// and an explicit 0 window is out of range.
+type LaunchConfig struct {
+	ContextWindow      *int  `json:"context_window"`
+	ClaudeaiConnectors *bool `json:"claudeai_connectors"`
+}
+
+// Claude Code's own range for CLAUDE_CODE_AUTO_COMPACT_WINDOW: a context_window
+// outside it fails the config's load.
+const (
+	MinContextWindow = 100000
+	MaxContextWindow = 1000000
+)
+
+// The variables a lane's --settings env may hold; nothing else reaches it (D2, D11).
+const (
+	EnvAutoCompactWindow = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+	EnvClaudeaiMCP       = "ENABLE_CLAUDEAI_MCP_SERVERS"
+	EnvSubagentModel     = "CLAUDE_CODE_SUBAGENT_MODEL"
+)
+
+// ContextWindowOf is the context window a lane of this type launches with: its lane
+// type's own, else launch.context_window; 0 when neither sets one.
+func (c *Config) ContextWindowOf(laneType string) int {
+	if w := c.LaneTypes[laneType].ContextWindow; w != nil {
+		return *w
+	}
+	if c.Launch != nil && c.Launch.ContextWindow != nil {
+		return *c.Launch.ContextWindow
+	}
+	return 0
+}
+
+// LaunchEnv is the env a lane of this type launches with, in claude --settings: only
+// validated values, in the three named variables. Nil when the config sets no policy
+// for the lane type, which then launches with no --settings, as before version 6.
+func (c *Config) LaunchEnv(laneType string) map[string]string {
+	env := map[string]string{}
+	if w := c.ContextWindowOf(laneType); w > 0 {
+		env[EnvAutoCompactWindow] = strconv.Itoa(w)
+	}
+	// Only false sets anything: true is what Claude Code does without the key.
+	if c.Launch != nil && c.Launch.ClaudeaiConnectors != nil && !*c.Launch.ClaudeaiConnectors {
+		env[EnvClaudeaiMCP] = "false"
+	}
+	// The default for subagents, never ..._FORCE: an agent that names its own model keeps it.
+	if m := c.LaneTypes[laneType].SubagentModel; m != "" {
+		env[EnvSubagentModel] = m
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
+}
+
+// checkContextWindow refuses a window outside Claude Code's range, naming the key.
+func checkContextWindow(key string, w *int) error {
+	if w != nil && (*w < MinContextWindow || *w > MaxContextWindow) {
+		return fmt.Errorf("panel config: %s %d must be %d–%d (Claude Code's range for %s)", key, *w, MinContextWindow, MaxContextWindow, EnvAutoCompactWindow)
+	}
+	return nil
 }
 
 // HookCommand is a worktree setup or teardown command (version 5).
@@ -432,10 +506,18 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(name) == "" {
 			return fmt.Errorf("panel config: lane_types needs non-empty type names")
 		}
-		for key, v := range map[string]string{"model": lt.Model, "effort": lt.Effort} {
+		for key, v := range map[string]string{"model": lt.Model, "effort": lt.Effort, "subagent_model": lt.SubagentModel} {
 			if v != "" && !LaunchOptRe.MatchString(v) {
 				return fmt.Errorf("panel config: lane_types.%s.%s %q must match %s", name, key, v, LaunchOptRe)
 			}
+		}
+		if err := checkContextWindow("lane_types."+name+".context_window", lt.ContextWindow); err != nil {
+			return err
+		}
+	}
+	if l := c.Launch; l != nil {
+		if err := checkContextWindow("launch.context_window", l.ContextWindow); err != nil {
+			return err
 		}
 	}
 	seen := map[string]bool{}

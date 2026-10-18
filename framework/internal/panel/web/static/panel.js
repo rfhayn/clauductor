@@ -1098,7 +1098,7 @@ function renderLaneHead(x) {
     const where = el("span", "where", null, [document.createTextNode((x.branch || "detached") + " in " + relPath(x.path))]);
     where.title = x.path;
     kids.push(key(where, "where"));
-    const m = laneModel(x), lm = laneM(x), since = laneSince(x), ctx = laneCtx(x);
+    const m = laneModel(x), lm = laneM(x), since = laneSince(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
     // PANEL-20: the lane's own port, exported to it as CLAUDUCTOR_PORT.
@@ -1115,7 +1115,9 @@ function renderLaneHead(x) {
       kids.push(key(rc, "remote"));
     }
     if (since) kids.push(key(kv1("Up", el("span", "num", null, [age(since)])), "up"));
-    kids.push(key(kv1("Context", el("span", null, null, [bullet(ctx, { tick: S.trends.autocompactPct, cls: ctx >= 85 ? "w" : "" }), document.createTextNode(" "), num(pct(ctx))])), "ctx"));
+    // PANEL-48: the lane's own tick and alert threshold (context-colour.js).
+    const cm = ContextColour.laneMarks(x.lv, x.t);
+    kids.push(key(kv1("Context", el("span", null, null, [bullet(cm.ctx, { tick: ContextColour.tick(cm.tick, S.trends.autocompactPct), cls: ContextColour.warns(cm.ctx, cm.alertPct) ? "w" : "" }), document.createTextNode(" "), num(pct(cm.ctx))])), "ctx"));
     kids.push(key(kv1("Cost", el("span", null, null, [num(money(laneCost(x))), x.lv && x.lv.costPerH != null ? num(" " + money(x.lv.costPerH), "/h") : null])), "cost"));
     // PANEL-19: the budget of the change this lane builds, from its proposal; every branch
     // of the change counts toward it. Amber from 80%, red past it.
@@ -1398,7 +1400,7 @@ function sideFigures(x) {
   const cold = m.cacheExpiresAt ? (m.cacheExpiresAt - now() > 0 ? until(m.cacheExpiresAt, "cold in ", 120000) : el("span", null, "cold")) : null;
   const rows = [
     ["State", [stateMark(x), m.stateSince ? el("span", "num dim", null, [age(m.stateSince, "for ")]) : null]],
-    ["Context", [bullet(m.ctxPct, { tick: S.trends.autocompactPct, cls: m.ctxPct >= 85 ? "w" : "" }), num(pct(m.ctxPct)), m.inputTokens != null ? num(kilo(m.inputTokens), "in") : null,
+    ["Context", [bullet(m.ctxPct, { tick: ContextColour.tick(m.ctxTick, S.trends.autocompactPct), cls: ContextColour.warns(m.ctxPct, m.ctxAlertPct) ? "w" : "" }), num(pct(m.ctxPct)), m.inputTokens != null ? num(kilo(m.inputTokens), "in") : null,
       m.outputTokens != null ? num(kilo(m.outputTokens), "out") : null, m.ctxWindow ? num(kilo(m.ctxWindow), "window") : null]],
     ["Cache", [num(m.cacheHitRatio == null ? "—" : Math.round(m.cacheHitRatio * 100) + "%", "hits"), hitSp, cold]],
     m.lastMissCause ? ["Last miss", m.lastMissCause] : null,

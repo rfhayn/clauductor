@@ -96,9 +96,19 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 	if !strings.Contains(string(s.Properties["cards"]), `"pattern": "`+jsonQuote(refreshRe.String())+`"`) {
 		t.Errorf("cards[].refresh does not carry the validator's pattern %s", refreshRe)
 	}
-	if len(s.AllOf) != 4 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
-		s.AllOf[2].If.Properties.Version.Const != 3 || string(s.AllOf[2].Then.Properties["metrics"]) != "false" {
+	if len(s.AllOf) != 5 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
+		s.AllOf[2].If.Properties.Version.Const != 3 || string(s.AllOf[2].Then.Properties["metrics"]) != "false" ||
+		s.AllOf[4].If.Properties.Version.Const != 5 {
 		t.Fatalf("version gate %+v", s.AllOf)
+	}
+	// PANEL-48: version 5 bans the policy's keys, the lane type's inside lane_types.
+	v5 := s.AllOf[4].Then.Properties
+	if string(v5["launch"]) != "false" {
+		t.Errorf("version 5 does not ban launch: %s", v5["launch"])
+	}
+	const ltGate = `{"additionalProperties":{"properties":{"context_window":false,"subagent_model":false}}}`
+	if got := compact(t, v5["lane_types"]); got != ltGate {
+		t.Errorf("version 5: lane_types gate %s, want %s", got, ltGate)
 	}
 	v1, v2 := s.AllOf[0].Then.Properties, s.AllOf[1].Then.Properties
 	for _, k := range []string{"templates", "queues", "alerts", "quota_guard", "host_names"} {

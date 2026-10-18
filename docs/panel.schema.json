@@ -28,11 +28,14 @@
           "lane_types": {
             "additionalProperties": {
               "properties": {
-                "auto_close": false
+                "auto_close": false,
+                "context_window": false,
+                "subagent_model": false
               }
             }
           },
           "lanes_auto_close": false,
+          "launch": false,
           "metrics": false,
           "ports": false,
           "queues": false,
@@ -75,11 +78,14 @@
           "lane_types": {
             "additionalProperties": {
               "properties": {
-                "auto_close": false
+                "auto_close": false,
+                "context_window": false,
+                "subagent_model": false
               }
             }
           },
           "lanes_auto_close": false,
+          "launch": false,
           "metrics": false,
           "ports": false,
           "quota_auto_resume": false,
@@ -119,11 +125,14 @@
           "lane_types": {
             "additionalProperties": {
               "properties": {
-                "auto_close": false
+                "auto_close": false,
+                "context_window": false,
+                "subagent_model": false
               }
             }
           },
           "lanes_auto_close": false,
+          "launch": false,
           "metrics": false,
           "ports": false,
           "quota_auto_resume": false,
@@ -150,16 +159,44 @@
           "lane_types": {
             "additionalProperties": {
               "properties": {
-                "auto_close": false
+                "auto_close": false,
+                "context_window": false,
+                "subagent_model": false
               }
             }
           },
           "lanes_auto_close": false,
+          "launch": false,
           "ports": false,
           "quota_auto_resume": false,
           "quota_resume_line": false,
           "worktree_setup": false,
           "worktree_teardown": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 5
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lane_types": {
+            "additionalProperties": {
+              "properties": {
+                "context_window": false,
+                "subagent_model": false
+              }
+            }
+          },
+          "launch": false
         }
       }
     }
@@ -182,7 +219,7 @@
         },
         "context_pct": {
           "default": 85,
-          "description": "A context window at or above this percentage raises a context alert.",
+          "description": "A session's context at or above this percentage raises a context alert. A lane launched with a context window (`launch.context_window`) alerts at the lower of this and its auto-compact tick less 5 points, so it alerts before it compacts. `0` turns the alert off for every lane.",
           "minimum": 0,
           "type": "number"
         },
@@ -292,6 +329,12 @@
             ],
             "type": "string"
           },
+          "context_window": {
+            "description": "Overrides `launch.context_window` for this lane type.",
+            "maximum": 1000000,
+            "minimum": 100000,
+            "type": "integer"
+          },
           "effort": {
             "description": "One argv element: `--effort <value>`.",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
@@ -301,11 +344,16 @@
             "description": "One argv element: `--model <value>`.",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
             "type": "string"
+          },
+          "subagent_model": {
+            "description": "The model this lane type's subagents use, passed as `CLAUDE_CODE_SUBAGENT_MODEL` in the lane's `--settings`. An agent definition that names its own model keeps it, and the main model is untouched. Off unless set.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\[\\]-]{0,63}$",
+            "type": "string"
           }
         },
         "type": "object"
       },
-      "description": "Launch options per lane type, passed as `claude --model <m> --effort <e>`.",
+      "description": "Launch options per lane type, passed as `claude --model <m> --effort <e>`, and the lane type's part of the context policy (see `launch`).",
       "propertyNames": {
         "minLength": 1,
         "pattern": "\\S"
@@ -333,6 +381,23 @@
         "on_merge"
       ],
       "type": "string"
+    },
+    "launch": {
+      "additionalProperties": false,
+      "description": "The context policy every lane launches with, passed as `claude --settings '{\"env\":{…}}'` on every start, restart, resume and restore. `--settings` ranks above the repository's own settings, so a repository cannot undo it. Without it, and without a lane type's `context_window` or `subagent_model`, lanes launch with no `--settings`.",
+      "properties": {
+        "claudeai_connectors": {
+          "description": "`false` turns claude.ai's connectors off in every lane, passed as `ENABLE_CLAUDEAI_MCP_SERVERS=false`. The repository's own MCP servers are untouched. `true`, or no key, leaves them as Claude Code has them.",
+          "type": "boolean"
+        },
+        "context_window": {
+          "description": "The context window a lane launches with, passed as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`: Claude Code compacts the conversation before it reaches it. A lane type's `context_window` overrides it.",
+          "maximum": 1000000,
+          "minimum": 100000,
+          "type": "integer"
+        }
+      },
+      "type": "object"
     },
     "metrics": {
       "additionalProperties": false,
@@ -552,7 +617,8 @@
         2,
         3,
         4,
-        5
+        5,
+        6
       ],
       "type": "integer"
     },

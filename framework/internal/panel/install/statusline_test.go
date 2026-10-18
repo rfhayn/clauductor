@@ -55,21 +55,39 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 	if err := dead.Run(); err != nil {
 		t.Fatal(err)
 	}
+	// The test sets the session's window itself: a lane runs it under its own.
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "CLAUDE_CODE_AUTO_COMPACT_WINDOW=") {
+			env = append(env, e)
+		}
+	}
+	_, noJQ := exec.LookPath("jq")
+	live := strconv.Itoa(os.Getpid())
 	for _, tc := range []struct {
-		name  string
-		pid   string // "" writes no pid file
-		posts bool
+		name   string
+		pid    string // "" writes no pid file
+		posts  bool
+		window string // CLAUDE_CODE_AUTO_COMPACT_WINDOW; "" leaves it unset
+		adds   string // what the post adds to the input's fields
 	}{
-		{"live panel", strconv.Itoa(os.Getpid()), true},
-		{"killed panel (stale files)", strconv.Itoa(dead.Process.Pid), false},
-		{"no pid file", "", false},
+		{name: "live panel", pid: live, posts: true},
+		// PANEL-48 (D7): the session's window, which Claude Code's stdin lacks, joins the
+		// post when it is digits, and never otherwise.
+		{name: "live panel, a 200000 window", pid: live, posts: true, window: "200000", adds: `,"auto_compact_window":200000`},
+		{name: "live panel, a window that is not a number", pid: live, posts: true, window: "200k"},
+		{name: "killed panel (stale files)", pid: strconv.Itoa(dead.Process.Pid)},
+		{name: "no pid file"},
 		// kill -0 -1 signals every process the user owns, and kill -0 0 the process
 		// group: both succeed, so a pid must be digits only, and not 0, before kill -0.
-		{"pid file says -1", "-1", false},
-		{"pid file says 0", "0", false},
-		{"pid file is not a number", "12 34", false},
+		{name: "pid file says -1", pid: "-1"},
+		{name: "pid file says 0", pid: "0"},
+		{name: "pid file is not a number", pid: "12 34"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.adds != "" && noJQ != nil {
+				t.Skip("no jq")
+			}
 			home := t.TempDir()
 			dir := filepath.Join(home, ".clauductor", "panel")
 			os.MkdirAll(dir, 0o700)
@@ -78,7 +96,10 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 				os.WriteFile(filepath.Join(dir, "pid"), []byte(tc.pid+"\n"), 0o600)
 			}
 			cmd := exec.Command("bash", "-c", snippet)
-			cmd.Env = append(os.Environ(), "HOME="+home)
+			cmd.Env = append(env[:len(env):len(env)], "HOME="+home)
+			if tc.window != "" {
+				cmd.Env = append(cmd.Env, "CLAUDE_CODE_AUTO_COMPACT_WINDOW="+tc.window)
+			}
 			input := `{"session_id":"` + marker + `-` + strings.ReplaceAll(tc.name, " ", "_") + `"}`
 			cmd.Stdin = strings.NewReader(input)
 			if out, err := cmd.CombinedOutput(); err != nil || len(out) != 0 {
@@ -89,8 +110,8 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 				if !tc.posts {
 					t.Fatalf("posted to a panel that is not running: %s", p)
 				}
-				if p != "POST /status "+input {
-					t.Fatalf("posted %q", p)
+				if want := "POST /status " + strings.TrimSuffix(input, "}") + tc.adds + "}"; p != want {
+					t.Fatalf("posted %q, want %q", p, want)
 				}
 			case <-time.After(2 * time.Second):
 				if tc.posts {

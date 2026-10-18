@@ -130,7 +130,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":6`,
+		"future version":        `,"version":7`,
 		"metrics refresh alone": `,"metrics":{"refresh":"interval:60"}`,
 		"metrics empty command": `,"metrics":{"command":[]}`,
 		"metrics bad refresh":   `,"metrics":{"command":["true"],"refresh":"interval:0"}`,
@@ -195,6 +195,39 @@ func TestConfigRejectsBadLaneKeys(t *testing.T) {
 	if _, err := parseConfig([]byte(`{"name":"x","tmux_socket":"myproject","base":"origin/main","worktree_dir":"/abs/wt",
 		"lane_types":{"build":{"model":"claude-opus-4-5[1m]","effort":"high"}}}`)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// [LANECTX-1-S7] A context window outside Claude Code's range does not load, and the
+// error names the key and the range 100000–1000000.
+func TestContextWindowOutsideTheRangeDoesNotLoad(t *testing.T) {
+	t.Parallel()
+	for _, r := range []struct{ body, key string }{
+		{`"launch":{"context_window":99999}`, "launch.context_window"},
+		{`"lane_types":{"propose":{"context_window":1000001}}`, "lane_types.propose.context_window"},
+		// An explicit 0 is a window outside the range, not "no window".
+		{`"launch":{"context_window":0}`, "launch.context_window"},
+		{`"lane_types":{"fix":{"context_window":-200000}}`, "lane_types.fix.context_window"},
+	} {
+		_, err := parseConfig([]byte(`{"name":"T","version":6,` + r.body + `}`))
+		if err == nil || !strings.Contains(err.Error(), r.key) || !strings.Contains(err.Error(), "100000–1000000") {
+			t.Errorf("%s: %v, want an error naming %s and 100000–1000000", r.body, err, r.key)
+		}
+	}
+	// The range's own ends load, and a lane type's window overrides launch's.
+	c, err := parseConfig([]byte(`{"name":"T","version":6,"launch":{"context_window":100000},"lane_types":{"propose":{"context_window":1000000}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ContextWindowOf("fix") != 100000 || c.ContextWindowOf("propose") != 1000000 {
+		t.Errorf("windows fix %d, propose %d", c.ContextWindowOf("fix"), c.ContextWindowOf("propose"))
+	}
+	// subagent_model becomes one value in the lane's settings, held to LaunchOptRe as model is.
+	for _, bad := range []string{`"--dangerously"`, `"a b"`, `"opus\"}"`} {
+		if _, err := parseConfig([]byte(`{"name":"T","version":6,"lane_types":{"fix":{"subagent_model":` + bad + `}}}`)); err == nil ||
+			!strings.Contains(err.Error(), "lane_types.fix.subagent_model") {
+			t.Errorf("subagent_model %s: %v", bad, err)
+		}
 	}
 }
 

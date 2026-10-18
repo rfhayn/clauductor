@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -102,6 +103,76 @@ func TestAttachWritesInitsReading(t *testing.T) {
 			}
 		} else if len(cfg.Cards) != 0 || len(cfg.Queues) != 1 || !reflect.DeepEqual(cfg.Queues[0].Command, []string{"make", "gate"}) {
 			t.Fatalf("cards %+v queues %+v", cfg.Cards, cfg.Queues)
+		}
+	}
+}
+
+// [LANECTX-3-S1] An attached repository's lanes launch with the policy: the sidecar
+// declares version 6 and holds the default launch object, and a lane started under
+// it carries LANECTX-1-S5's --settings.
+func TestAttachedLanesLaunchWithThePolicy(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	root := newRepo(t, nil)
+	res, err := attach(t, home, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(res.Add.Entry.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The file as written, not the parsed config: the scenario is about the keys the
+	// sidecar holds, and a parse would not tell a missing key from a misspelt one.
+	var raw struct {
+		Version int                        `json:"version"`
+		Launch  map[string]json.RawMessage `json:"launch"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	wantLaunch := map[string]string{"context_window": "200000", "claudeai_connectors": "false"}
+	gotLaunch := map[string]string{}
+	for k, v := range raw.Launch {
+		gotLaunch[k] = string(v)
+	}
+	if raw.Version != 6 || !reflect.DeepEqual(gotLaunch, wantLaunch) {
+		t.Fatalf("LANECTX-3-S1: the sidecar declares version %d and launch %v, want 6 and %v:\n%s", raw.Version, gotLaunch, wantLaunch, b)
+	}
+
+	// A lane started in the attached repository, under the config the registry names.
+	cfg, _, err := config.LoadConfigRaw(res.Add.Entry.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := lanes.OpenRegistry(home, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &lanes.LaneManager{Clock: clock.System, TmuxPath: "/usr/bin/tmux", Socket: cfg.Socket(), Root: root, Cfg: cfg, Registry: reg,
+		Program: []string{"/usr/local/bin/claude"}, LookupEnv: func(string) (string, bool) { return "", false }}
+	for _, laneType := range cfg.Lanes {
+		argv := m.LaneCommand("x", laneType, sid, false)
+		settings := ""
+		for i, a := range argv {
+			if a == "--settings" && i+1 < len(argv) {
+				if settings != "" {
+					t.Fatalf("LANECTX-3-S1: --settings twice in %q", argv)
+				}
+				settings = argv[i+1]
+			}
+		}
+		var s struct {
+			Env map[string]string `json:"env"`
+		}
+		dec := json.NewDecoder(strings.NewReader(settings))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&s); err != nil {
+			t.Fatalf("LANECTX-3-S1: a %s lane's --settings %q is not an env object alone: %v", laneType, settings, err)
+		}
+		want := map[string]string{"ENABLE_CLAUDEAI_MCP_SERVERS": "false", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"}
+		if !reflect.DeepEqual(s.Env, want) {
+			t.Errorf("LANECTX-3-S1: a %s lane's settings env %v, want exactly %v (LANECTX-1-S5)", laneType, s.Env, want)
 		}
 	}
 }

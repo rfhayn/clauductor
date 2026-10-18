@@ -22,13 +22,24 @@ input=$(cat)
 # port must be digits too, since it goes into a URL. Backgrounded with its output discarded, so
 # it never delays or changes the line below; on a machine that never ran the panel it makes no
 # call at all. Checked by .claude/checks/statusline.sh.
+#
+# The post adds "auto_compact_window" when CLAUDE_CODE_AUTO_COMPACT_WINDOW is digits: the window
+# the panel launched this session with, which Claude Code's stdin does not carry. It is the
+# session's own environment, so it survives /clear's new session id, and a session started by
+# hand without it posts none (PANEL-48, D7). Otherwise, or if jq fails, the stdin goes unchanged.
+post=$input
+case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in
+  '' | *[!0-9]* | 0*) ;;
+  *) post=$(printf '%s' "$input" | jq -c --argjson w "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+       '. + {auto_compact_window: $w}' 2>/dev/null) && [ -n "$post" ] || post=$input ;;
+esac
 panel="$HOME/.clauductor/panel"
 panel_port=$(cat "$panel/port" 2>/dev/null)
 panel_pid=$(cat "$panel/pid" 2>/dev/null)
 case "$panel_port" in '' | *[!0-9]*) panel_port="" ;; esac
 case "$panel_pid" in '' | *[!0-9]* | 0*) panel_pid="" ;; esac
 if [ -n "$panel_port" ] && [ -n "$panel_pid" ] && kill -0 "$panel_pid" 2>/dev/null; then
-  { printf '%s' "$input" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
+  { printf '%s' "$post" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
     --data-binary @- "http://127.0.0.1:${panel_port}/status"; } >/dev/null 2>&1 &
 fi
 

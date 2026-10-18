@@ -55,15 +55,30 @@ var ErrConfigExists = errors.New("already exists")
 
 // starter is the file init writes, in the order a reader wants it.
 type starter struct {
-	Schema      string              `json:"$schema"`
-	Name        string              `json:"name"`
-	Version     int                 `json:"version"`
-	Lanes       map[string]string   `json:"lanes"`
-	WorktreeDir string              `json:"worktree_dir"`
-	Base        string              `json:"base"`
-	Templates   []starterTemplate   `json:"templates,omitempty"`
-	Queues      []types.QueueConfig `json:"queues,omitempty"`
-	Cards       []config.CardConfig `json:"cards,omitempty"`
+	Schema      string               `json:"$schema"`
+	Name        string               `json:"name"`
+	Version     int                  `json:"version"`
+	Lanes       map[string]string    `json:"lanes"`
+	WorktreeDir string               `json:"worktree_dir"`
+	Base        string               `json:"base"`
+	Launch      *config.LaunchConfig `json:"launch"`
+	Templates   []starterTemplate    `json:"templates,omitempty"`
+	Queues      []types.QueueConfig  `json:"queues,omitempty"`
+	Cards       []config.CardConfig  `json:"cards,omitempty"`
+}
+
+// The lane context policy init and attach write (PANEL-48, design.md D3). The panel
+// applies no policy to a config without one, so the default is written into the
+// file, where its reader sees it. 200k is D4's window; connectors are off (D5).
+const (
+	starterContextWindow      = 200000
+	starterClaudeaiConnectors = false
+)
+
+// starterLaunch is a fresh copy of the starter's launch object.
+func starterLaunch() *config.LaunchConfig {
+	w, c := starterContextWindow, starterClaudeaiConnectors
+	return &config.LaunchConfig{ContextWindow: &w, ClaudeaiConnectors: &c}
 }
 
 // starterTemplate is a lane template as init writes it: no empty keys.
@@ -247,7 +262,7 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string, target InitTa
 		return InitResult{Path: path, Sidecar: target.Sidecar}, fmt.Errorf("%s %w; edit it, or remove it to start again", path, ErrConfigExists)
 	}
 	var notes []string
-	s := starter{Schema: config.SchemaURL, Version: config.LatestVersion}
+	s := starter{Schema: config.SchemaURL, Version: config.LatestVersion, Launch: starterLaunch()}
 
 	s.Name = InitName(root)
 	notes = append(notes, fmt.Sprintf("name          %q, shown in the top bar", s.Name))
@@ -264,6 +279,7 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string, target InitTa
 
 	s.WorktreeDir, why = detectWorktreeDir(ctx, run, root)
 	notes = append(notes, fmt.Sprintf("worktree_dir  %s (%s)", s.WorktreeDir, why))
+	notes = append(notes, fmt.Sprintf("launch        context_window %d, claudeai_connectors %v: every lane launches with this context window and without claude.ai's connectors; remove the key to launch as before", starterContextWindow, starterClaudeaiConnectors))
 
 	gates := detectGates(root)
 	isOM := operatingModel(root, &s, gates, &notes, target.Sidecar)
