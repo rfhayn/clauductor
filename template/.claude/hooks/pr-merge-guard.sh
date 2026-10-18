@@ -266,8 +266,8 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #       - zsh's parameter tables: `functions[jq]='gh "$@"'`, `commands[jq]=/usr/bin/gh`, then
 #         `jq api …`, an assignment the reader takes for a plain one;
 #       - git's own aliases, below.
-#     The owner's call (OPS-66, #146 round 5): list these, and rethink the guard in a roadmap row
-#     of its own rather than close each form here;
+#     The owner's call (OPS-66, #146 round 5): list these, and rethink the guard in OPS-86
+#     rather than close each form here;
 #   - an evaluator whose PROGRAM is computed, piped or in a file (`sh -c "$(…)"`, `printf … | sh`,
 #     `eval "$(… | base64 -d)"`, `source <(…)`, `sh notes.sh`, and GNU sed's `e` command or `s///e`
 #     flag, which run the text sed reads: `sed e notes.txt`) unless its text names a merge: a hook
