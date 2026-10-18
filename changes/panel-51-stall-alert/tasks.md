@@ -111,6 +111,8 @@
   fixes with no round 3: STALL-2-S11's main-checkout cron `35 0 * * *` (within
   `ScheduleWakeup`'s 3600 s clamp); lane #154 listed `idle` by the first poll after its restart;
   D4's boundary in task 2.3 and the Refusals row; "before group 2 commits" in task 1.4.
+  For the amendment's PR body:
+  Review: converged in 2 round(s), peak low, at 032017b · design 1b4626a580ed
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
