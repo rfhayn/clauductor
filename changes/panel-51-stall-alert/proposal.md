@@ -31,12 +31,14 @@ redesign (the owner's decision of 2026-10-18, over building it once on the new l
 carries the stalled state into the new look (design D11).
 
 ## What changes
-- **A lane can be stalled,** three ways, each once the party it belongs to has gone the stall
-  time with no movement and is not working: a session of it has waited on a question or a
-  permission prompt; a session of it ended its turn on background work that woke no one; or the
-  lane has open work (an open pull request, a clean gate receipt for its HEAD with no pull
-  request after it, or, for a lane the panel launched, a claude that exited with work open). A
-  session's two ways run on its own clock, so a busy or looping sibling cannot hide them. The
+- **A lane can be stalled,** three ways: a session of it has waited on a question or a
+  permission prompt for the stall time since it asked; or, once the session or lane it belongs
+  to has gone the stall time with no movement and is not working, a session of it ended its
+  turn on background work that woke no one, or the lane has open work (an open pull request, a
+  clean gate receipt for its HEAD with no pull request after it, or, for a lane the panel
+  launched, a claude that exited with work open). A question is timed from the ask, and a
+  session's background work on its own clock, so a busy or looping sibling cannot hide them. A
+  session the owner opens or resumes counts as a start, so it is not stalled at once. The
   stall time defaults to 30 minutes, and `alerts.stall_minutes` changes it per project (D1, D3,
   D5).
   - **Working:** a `claude agents` reading of `busy` (which holds while a background command

@@ -73,14 +73,15 @@ to `<id>` and `$PROBE`.
 
 ## Decisions
 
-- **D1 A lane is stalled when one of its sessions waits on the owner, or one of its sessions
-  ended its turn on background work, or the lane has open work, and that party is not working
-  and has not moved for the stall time.**
-  - **Two kinds of clock.** A session's own clock is reset by its own movement; the lane's
-    clock by any movement in the lane. A way that belongs to one session (a question, the
-    background work its own turn ended on) is judged on that session's clock alone, so a busy or
-    looping sibling in the same checkout cannot hide it. A way that belongs to the lane (its
-    branch's pull request or receipt, its claude exiting) is judged on the lane's clock.
+- **D1 A lane is stalled when one of its sessions has waited on the owner for the stall time
+  since it asked, or when one of its sessions ended its turn on background work, or the lane
+  has open work, and that session or lane is not working and has not moved for the stall
+  time.**
+  - **Three clocks.** A question is timed from the ask alone. A session's own clock is reset by
+    its own movement; the lane's clock by any movement in the lane. The background work a
+    session's own turn ended on is judged on that session's clock alone, so a busy or looping
+    sibling in the same checkout cannot hide it. A way that belongs to the lane (its branch's
+    pull request or receipt, its claude exiting) is judged on the lane's clock.
   - **Working** (never stalled):
     - **a session** is working while it is `busy` on a current `claude agents` reading, or while
       its own last `Stop` listed a `subagent` or `workflow` task (running or pending) that has
@@ -102,24 +103,35 @@ to `<id>` and `$PROBE`.
       arriving after the `Stop` or the ask. A `SubagentStop` is movement, so the
       end of a background subagent is;
     - a change in its `claude agents` reading (`BusySince`, `IdleSince`, `WaitingSince`);
-    - its start: a session id that `claude agents` lists for the first time since the panel
-      started, after its first successful poll. A session started by hand sends none of the hooks
-      the panel subscribes to before its first prompt (there is no `SessionStart` among them), so
-      without this the owner opening `claude` beside an old pull request would be pushed a stall
-      at once. An id seen before (listed again after `forgetSessions` dropped it during a long
-      failing poll) is not a start, and keeps its saved clock.
+    - its start: `claude agents` listing, after the panel's first successful poll, a session
+      that was not live just before: a new id, or one that had ended (`SessionEnd`, or absent
+      from a successful poll). `claude --resume` and `-c` keep the session id (the panel's own
+      Resume and Restore run `claude --resume <id>`), so a resumed session is a start like a new
+      one. A session started by hand sends none of the hooks the panel subscribes to before its
+      first prompt (there is no `SessionStart` among them), so without this the owner opening or
+      resuming `claude` beside an old pull request would be pushed a stall at once. The one
+      exception: a session `forgetSessions` dropped while the `claude agents` polls failed is
+      kept aside with its clock, and when the polls recover and list it again it is not a
+      start and takes that clock back;
   - The lane's movement is any of its sessions' movement, and:
     - the lane taking or giving up a lease. The lease is held through the gate's whole run, so
       a gate is movement until it ends. The first queue poll that sees the lane's holder dead or
       stale counts as giving the lease up, at that poll's time;
-    - the lane's tmux pane dying, or its tmux session going, as the tmux poll first sees it.
+    - the lane's tmux pane dying, or its tmux session going, or its pane coming back (a Resume
+      or Restore), as the tmux poll first sees it.
   - **Stalled,** three ways:
     - **a session waits on the owner** (the one `blocked` predicate Needs you reads, so the two
-      cannot disagree) and has itself not moved for the stall time: its own clock, from the
-      ask's `Since` and its own hooks, whatever its lane's other sessions or lease do, and
-      whatever background work of its own still runs (a question blocks the session either way). In the
-      main checkout a busy sibling (another session, a teammate bound by its `cwd`) would
-      otherwise hide the orchestrator's question for as long as the sibling works;
+      cannot disagree) and its ask is at least the stall time old. The ask's time is `blocked`'s
+      `Since` (the `PermissionRequest`, the `permission_prompt` or elicitation `Notification`,
+      or the `claude agents` reading of `waiting`, whichever it reports), and nothing else
+      resets it: an answer ends the waiting itself, and a new ask sets a new `Since`. A
+      background subagent's or workflow's hooks arrive under the parent's session id
+      (`SubagentStart`, `SubagentStop`, the agent tools' `PreToolUse`), so a clock reset by the
+      session's own hooks would hold off an orchestrator's question for as long as its own
+      background build runs. Nothing holds this way off: not the lane's other sessions, its
+      lease, nor the session's own working. In the main checkout a busy sibling (another
+      session, a teammate bound by its `cwd`) would otherwise hide the orchestrator's question
+      for as long as the sibling works;
     - **a session's turn ended on background work** (D3 (d)): the session is live and not
       working, the lane holds and waits for no lease, the session has not itself moved for the
       stall time, and it has no wakeup of its own still due (D4). Its siblings' busy readings,
@@ -154,16 +166,18 @@ to `<id>` and `$PROBE`.
         the `agent_id`s of its last 64 `SubagentStop`s (D3 (d)), by session id.
         They live only in the model, so without them a session stalled on (d) would read as
         having no background work after a restart, and its stall would vanish unseen;
-      - the session ids seen, kept whatever the first poll after start lists, so a session listed
-        again by a later poll is not a start;
-      - a session's other entries are used only when the first poll after start lists that
-        session (a waiting one still waiting), and dropped otherwise;
+      - the same for each session kept aside after `forgetSessions` dropped it during failing
+        polls (D1's one exception to a start), until a successful poll lists it or does not;
+      - a session's entries are used only when the first poll after start lists that session (a
+        waiting one still waiting), and dropped otherwise, so the file holds no session that has
+        gone;
       - it is written atomically, at most once every 30 s while it has changed and once at a
         clean stop: a busy lane moves on every hook. A crash loses at most 30 s of movement,
         which moves a clock back by as much, never forward;
     - the sessions the first successful `claude agents` poll after start lists are not movement:
-      that poll sets their readings (an `IdleSince` it sets is not movement). A session first
-      listed by a later poll under an id not seen before is a session starting, which is;
+      that poll sets their readings (an `IdleSince` it sets is not movement). A session a later
+      poll lists that the first did not was not live just before, so it is a session starting,
+      which is;
     - **each way of stalling is judged from the sources it rests on,** once each has succeeded
       since start. The project's sources are `claude agents`; the pull requests (`gh pr list`);
       the receipt read; the merged read (succeeded when no lane needs one); tmux, where the
@@ -192,8 +206,9 @@ to `<id>` and `$PROBE`.
     (`runtime.go` polls queues only then), so working rests on the `claude agents` reading
     alone. That still holds a gate run in the foreground or the background, because both keep
     the session busy (E1).
-  - **The alert's `Since` is the last movement,** stable through the stretch: for a session's
-    way its own clock's origin, for the lane's way the lane's last movement, and when several
+  - **The alert's `Since` is the last movement,** stable through the stretch: for a question the
+    ask's time, for a session's background work its own clock's origin, for the lane's way the
+    lane's last movement, and when several
     ways hold the lane stalled, the earliest of them. So the notifier's "once per stretch" holds (it sends
     again whenever `Since` changes), and the page's age is the quiet time.
   - **A stall clears on movement.** The next stall is a new stretch, and notifies again.
@@ -259,9 +274,11 @@ to `<id>` and `$PROBE`.
         `idleClearsAgents` empties after 10 s idle.
       - **Order does not matter.** Each async hook posts on its own, so a `SubagentStop` can
         reach the panel before the `Stop` that still lists its task (spike line 5 shows a
-        stopping subagent listed `running`). The session keeps the `agent_id`s of the last 64
-        `SubagentStop`s it sent, whenever they arrived, and a listed task whose `id` is among
-        them has ended. Ids are unique, so the set is read whatever the order.
+        stopping subagent listed `running`). A paired stop marks the kept task ended on the task
+        itself, saved with it. For a stop that arrives before its `Stop`, the session keeps the
+        `agent_id`s of the last 64 `SubagentStop`s it sent, and a task a new `Stop` lists whose
+        `id` is among them is marked ended as the `Stop` is kept. Ids are unique, so the order
+        does not matter.
       - **A limit on a stop never heard.** A hook can be dropped, and one sent while the panel
         was down is lost. So an unpaired task holds its session working only while the session
         has moved within 4 × the stall time (2 hours by default; a background workflow's own
@@ -567,7 +584,8 @@ to `<id>` and `$PROBE`.
 | A source never succeeds (`gh pr list` with no GitHub remote) | The ways of stalling that rest on it are not judged, a warning bar names it after 10 minutes, and the others still are: a frozen question still stalls (D1) |
 | The merged read fails | The last result stands; with none, the receipt is not counted as open work (D10) |
 | The owner starts `claude` by hand in a worktree with an old open PR | Its first listing is a session starting, which is movement: no stall for the stall time (D1) |
-| A session waits on the owner while another session of its lane works | The waiting session stalls on its own clock (D1) |
+| A session waits on the owner while another session of its lane works, or while its own background agents start and stop | It stalls the stall time after its ask (D1) |
+| The owner resumes a session (`claude --resume`, `-c`, the panel's Resume) beside an old open PR | Its listing is a start, and a resumed pane is lane movement: no stall for the stall time (D1) |
 | `alerts.stall_minutes` is 0 | No lane is ever stalled. The waiting and idle alerts work as today |
 | `alerts.notify` is false | Stalls show on the page, and nothing is sent, the push included |
 | `push.json` is missing | The macOS notification only, and no warning: a push is optional (D7) |
