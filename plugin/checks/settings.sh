@@ -11,7 +11,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # the sandbox is not enabled, or has no network allowlist. Add your own rules freely; remove one of
 # the required set only by editing this list in a PR that says why. A tool that fails in the
 # sandbox is loosened per machine in .claude/settings.local.json (sandbox.excludedCommands,
-# sandbox.network.allowedDomains merge across scopes), never by turning the sandbox off here. The keys are Claude Code's
+# sandbox.network.allowedDomains merge across scopes), never by turning the sandbox off here.
+# `~/.config/gh` is deliberately not denied: a sandboxed script's gh must read hosts.yml to find
+# its keyring account, so gh's token belongs in a keyring (docs/playbook.md; OPS-75). The keys are Claude Code's
 # (code.claude.com/docs/en/permissions, /docs/en/sandboxing; checked 2026-09-30).
 . "$(dirname "$0")/lib.sh"
 need jq
@@ -77,15 +79,28 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     _x=$(jq -r '(.sandbox.excludedCommands // [])[]' "$f" | grep -E "$INTEROP_RE")
     [ -z "$_x" ] && echo "ok   no Windows interop command (cmd.exe, powershell.exe, pwsh.exe, wsl.exe, /mnt/...) is excluded from the sandbox" \
       || echo "FAIL sandbox.excludedCommands runs Windows interop outside the sandbox: $(printf '%s' "$_x" | tr '\n' ' ')"
+    # The gate and gate-wait run outside the sandbox (OPS-72): their process checks use `ps`, tmux
+    # and loopback, which the sandbox refuses. An entry lifts the sandbox only for the script run
+    # ALONE, bare or with arguments, so both forms are listed: the receipt runs the gate bare and
+    # gate-wait takes no arguments. gate-wait.sh is where install put it (gate_wait_path, conf.sh):
+    # beside the template's runner, but at scripts/ci/ beside a project's own runner.
+    # Both as install writes them: the gate as a command (gate_cmd), gate-wait where it put it.
+    for _g in "$(gate_cmd "$GATE")" "$(gate_wait_path)"; do
+      for _p in "$_g" "$_g *"; do
+        jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
+          && echo "ok   sandbox.excludedCommands lists '$_p'" \
+          || echo "FAIL sandbox.excludedCommands lacks '$_p': build-change's gate runs it sandboxed, where its process checks fail whatever the code did"
+      done
+    done
   fi
 }
 
 # Self-test: the template's settings pass; each broken shape fails.
 st="$ROOT/.claude/settings.json"
 d=$(scratch)
-selftest() {  # selftest WANT LABEL JQ-FILTER
+selftest() {  # selftest WANT LABEL JQ-FILTER [GATE_RUN] [GATE]: the last two, for a project whose gate moved
   jq "$3" "$st" > "$d/s.json"
-  n=$(check_settings "$d/s.json" | grep -c '^FAIL')
+  n=$(GATE_RUN=${4:-$GATE_RUN}; GATE=${5:-$GATE}; check_settings "$d/s.json" | grep -c '^FAIL')
   if [ "$1" = pass ] && [ "$n" -eq 0 ]; then ok "self-test: $2 passes"
   elif [ "$1" = fail ] && [ "$n" -gt 0 ]; then ok "self-test: $2 fails"
   else fail "self-test: $2 ($n FAIL line(s), want $1)"; fi
@@ -105,6 +120,27 @@ selftest fail "clip.exe excluded from the sandbox" '.sandbox.excludedCommands +=
 selftest pass "an ordinary Linux mount (/mnt/data) excluded from the sandbox" '.sandbox.excludedCommands += ["/mnt/data/tool *"]'
 selftest fail "powershell.exe excluded from the sandbox" '.sandbox.excludedCommands += ["powershell.exe *"]'
 selftest fail "a /mnt/c binary excluded from the sandbox" '.sandbox.excludedCommands += ["/mnt/c/Windows/System32/cmd.exe *"]'
+selftest fail "gate-wait no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate-wait.sh *"]'
+selftest fail "the bare gate no longer excluded from the sandbox" '.sandbox.excludedCommands -= ["scripts/ci/gate.sh"]'
+# Where gate-wait.sh is depends on the runner, as install placed it (RenderSettings renders these).
+selftest pass "a project's own runner (GATE_RUN=bin/ci.sh): gate-wait stays at scripts/ci/" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/run-local\\.sh"; "bin/ci.sh"))' bin/ci.sh
+selftest pass "the template's runner moved (GATE_RUN=ci/run-local.sh): gate-wait moved with it" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/(?<f>run-local|gate-wait)\\.sh"; "ci/\(.f).sh"))' ci/run-local.sh
+selftest fail "the template's runner moved, gate-wait's exclusion left at scripts/ci/" '.' ci/run-local.sh
+# A runner at the repository root puts gate-wait at ./gate-wait.sh (path.Dir is "."), as Go writes it.
+selftest pass "a runner at the repository root (GATE_RUN=run-local.sh): gate-wait at ./" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' run-local.sh
+selftest pass "a runner at the repository root (GATE_RUN=./run-local.sh): gate-wait at ./" \
+  '.sandbox.excludedCommands |= map(sub("^scripts/ci/gate-wait\\.sh"; "./gate-wait.sh"))' ./run-local.sh
+# Install writes the paths CLEANED (path.Clean), so the check reads GATE and GATE_RUN the same way.
+selftest pass "GATE written ./scripts/ci/gate.sh: the settings name it scripts/ci/gate.sh" '.' '' ./scripts/ci/gate.sh
+# A gate at the repository root keeps ./ (a bare gate.sh would be looked up on PATH), as install writes it.
+selftest pass "a gate at the repository root (GATE=./gate.sh): the settings name ./gate.sh" \
+  '(.sandbox.excludedCommands, .permissions.allow) |= map(sub("scripts/ci/gate\\.sh"; "./gate.sh"))' '' ./gate.sh
+selftest fail "a gate at the repository root, excluded only as a bare gate.sh" \
+  '(.sandbox.excludedCommands, .permissions.allow) |= map(sub("scripts/ci/gate\\.sh"; "gate.sh"))' '' ./gate.sh
+selftest pass "GATE written scripts/ci//gate.sh, GATE_RUN ci/../scripts/ci/run-local.sh/" '.' ci/../scripts/ci/run-local.sh/ scripts/ci//gate.sh
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))

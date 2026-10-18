@@ -1,7 +1,9 @@
 package template
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -69,6 +71,175 @@ func TestMergeSettingsIntoEmpty(t *testing.T) {
 	}
 }
 
+// OPS-75: a deny the template used to ship and retired leaves a project on update, reported as a
+// remove with its reason; the project's own denies stay. Without it, an installed project kept the
+// gh deny while gaining the sandbox key meant to pair with its removal.
+func TestMergeSettingsRetiresDeny(t *testing.T) {
+	tmpl := templateSettings(t)
+	have := []byte(`{"permissions":{"deny":["Read(~/.config/gh/**)","Read(./secrets/**)"]}}`)
+	merged, changes, err := MergeSettings(have, tmpl, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(merged), "~/.config/gh") {
+		t.Errorf("the retired gh deny survived the merge:\n%s", merged)
+	}
+	if !strings.Contains(string(merged), "Read(./secrets/**)") {
+		t.Errorf("the project's own deny was dropped:\n%s", merged)
+	}
+	removed := false
+	for _, c := range changes {
+		if c.Action == "remove" && strings.Contains(c.Have, "~/.config/gh") && c.Note != "" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Errorf("no remove with a reason reported for the gh deny: %+v", changes)
+	}
+}
+
+// OPS-72: a project installed before the gate and gate-wait were excluded from the sandbox as lone
+// commands gains those entries on update, added beside its own; nothing it had is lost.
+func TestMergeSettingsAddsGateExclusions(t *testing.T) {
+	tmpl := templateSettings(t)
+	have := []byte(`{"permissions":{"allow":["Bash(scripts/ci/gate.sh *)"]},"sandbox":{"excludedCommands":["scripts/ci/gate.sh *","make *"]}}`)
+	merged, changes, err := MergeSettings(have, tmpl, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"scripts/ci/gate.sh"`, `"scripts/ci/gate-wait.sh"`, `"scripts/ci/gate-wait.sh *"`, `"Bash(scripts/ci/gate-wait.sh)"`, `"make *"`} {
+		if !strings.Contains(string(merged), want) {
+			t.Errorf("merged settings lack %s:\n%s", want, merged)
+		}
+	}
+	added := map[string]bool{}
+	for _, c := range changes {
+		if c.Action == "add" && c.Path == "sandbox.excludedCommands" {
+			added[c.Want] = true
+		}
+	}
+	if !added[`"scripts/ci/gate-wait.sh *"`] {
+		t.Errorf("the gate-wait exclusion is not reported added: %+v", changes)
+	}
+	// The project's own allow entry for the gate survives, once: neither dropped nor duplicated
+	// by the template's copy of it, and no change touches it.
+	var m struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(merged, &m); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, a := range m.Permissions.Allow {
+		if a == "Bash(scripts/ci/gate.sh *)" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("permissions.allow holds Bash(scripts/ci/gate.sh *) %d times, want 1:\n%s", n, merged)
+	}
+	for _, c := range changes {
+		if strings.Contains(c.Have, "Bash(scripts/ci/gate.sh *)") || strings.Contains(c.Want, "Bash(scripts/ci/gate.sh *)") {
+			t.Errorf("the merge reported a change to the project's own gate allow entry: %+v", c)
+		}
+	}
+}
+
+// OPS-72: install (Mapping), the rendered sandbox exclusion (RenderSettings) and the shell's
+// gate_wait_path (conf.sh, read by checks/settings.sh and project-config.sh's gateWait) put
+// gate-wait.sh on the same path for every shape of GATE_RUN. A disagreement fails the settings
+// check on every run of that project, or names a gate-wait the agent cannot run.
+func TestGateWaitPathAgrees(t *testing.T) {
+	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
+	files := []string{"scripts/ci/run-local.sh", "scripts/ci/gate-wait.sh", "scripts/ci/lib/gate-state.sh"}
+	for _, run := range []string{"", "scripts/ci/run-local.sh", "ci/run-local.sh", "./ci/run-local.sh", "run-local.sh", "./run-local.sh", "bin/ci.sh",
+		"scripts/ci//run-local.sh", "ci/../run-local.sh", "ci/run-local.sh/", "./ci/./x/../run-local.sh"} {
+		project := ""
+		if run != "" {
+			project = "GATE_RUN=\"" + run + "\"\n"
+		}
+		c := defaultsConf(t, project)
+		m, err := c.Mapping(files)
+		if err != nil {
+			t.Fatalf("GATE_RUN=%q: %v", run, err)
+		}
+		dest, _, skip := m.Resolve("scripts/ci/gate-wait.sh")
+		if skip != "" {
+			t.Fatalf("GATE_RUN=%q: install skips gate-wait.sh: %s", run, skip)
+		}
+		out, _, err := RenderSettings(templateSettings(t), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out), `"`+dest+` *"`) {
+			t.Errorf("GATE_RUN=%q: install puts gate-wait at %s, but the rendered settings do not exclude %q", run, dest, dest+" *")
+		}
+		want := run
+		if want == "" {
+			want = "scripts/ci/run-local.sh"
+		}
+		cmd := exec.Command("sh", "-c", `. "$1"; GATE_RUN=$2; gate_wait_path`, "sh", conf, want)
+		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		got, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("GATE_RUN=%q: gate_wait_path: %v", run, err)
+		}
+		if g := strings.TrimSpace(string(got)); g != dest {
+			t.Errorf("GATE_RUN=%q: conf.sh's gate_wait_path says %s, install puts it at %s", run, g, dest)
+		}
+	}
+}
+
+// OPS-72: the gate the settings check expects excluded, and the one project-config.sh hands the
+// build-change workflow (conf.sh's gate_cmd), is the command install writes into the sandbox
+// exclusion and the allow list (RenderSettings): GATE cleaned as path.Clean cleans it, with ./
+// before a gate at the repository root, which a bare name would look up on PATH. The two agree
+// for every shape of GATE, and an empty GATE stays empty, so the workflow falls back to its default.
+func TestGatePathAgrees(t *testing.T) {
+	conf := filepath.Join(repoRoot(t), "template", ".claude", "lib", "conf.sh")
+	shell := func(fn, v string) string {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", `. "$1"; `+fn+` "$2"`, "sh", conf, v)
+		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		b, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s %q: %v", fn, v, err)
+		}
+		return strings.TrimSuffix(string(b), "\n")
+	}
+	for gate, want := range map[string]string{
+		"scripts/ci/gate.sh": "scripts/ci/gate.sh", "./scripts/ci/gate.sh": "scripts/ci/gate.sh", "scripts/ci//gate.sh": "scripts/ci/gate.sh",
+		"x/../scripts/ci/gate.sh": "scripts/ci/gate.sh", "ci/gate.sh/": "ci/gate.sh", "./ci/./gate.sh": "ci/gate.sh",
+		"a/b/../../ci/gate.sh": "ci/gate.sh", "gate.sh": "./gate.sh", "./gate.sh": "./gate.sh", "x/../gate.sh": "./gate.sh",
+	} {
+		c := defaultsConf(t, "GATE=\""+gate+"\"\n")
+		out, _, err := RenderSettings(templateSettings(t), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range []string{`"` + want + `"`, `"` + want + ` *"`, `"Bash(` + want + ` *)"`} {
+			if !strings.Contains(string(out), e) {
+				t.Errorf("GATE=%q: the rendered settings lack %s", gate, e)
+			}
+		}
+		if got := shell("gate_cmd", gate); got != want {
+			t.Errorf("GATE=%q: conf.sh's gate_cmd says %q, install writes %q", gate, got, want)
+		}
+	}
+	for _, fn := range []string{"clean_rel", "gate_cmd"} {
+		if got := shell(fn, ""); got != "" {
+			t.Errorf("%s of an empty path says %q, want it empty (the workflow then runs its default gate)", fn, got)
+		}
+	}
+	for _, v := range []string{"-n", `a\tb`, `-e\c`} {
+		if got := shell("clean_rel", v); got != v {
+			t.Errorf("clean_rel %q says %q: the path is printed as data, never as an option or an escape", v, got)
+		}
+	}
+}
+
 // Invalid JSON in the project's file is an error that names it, never an overwrite.
 func TestMergeSettingsRefusesInvalid(t *testing.T) {
 	if _, _, err := MergeSettings([]byte("{ not json"), templateSettings(t), nil); err == nil || !strings.Contains(err.Error(), "project's settings.json") {
@@ -84,7 +255,7 @@ func TestRenderSettingsGatePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(out)
-	for _, want := range []string{`"Bash(ci/gate.sh)"`, `"ci/run-local.sh *"`, `"ci/gate.sh *"`} {
+	for _, want := range []string{`"Bash(ci/gate.sh)"`, `"ci/run-local.sh *"`, `"ci/gate.sh"`, `"ci/gate.sh *"`, `"Bash(ci/gate-wait.sh)"`, `"ci/gate-wait.sh"`, `"ci/gate-wait.sh *"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered settings lack %s", want)
 		}

@@ -86,6 +86,8 @@
       "Bash(sh .claude/roadmap-queue.sh *)",
       "Bash(scripts/ci/gate.sh)",
       "Bash(scripts/ci/gate.sh *)",
+      "Bash(scripts/ci/gate-wait.sh)",
+      "Bash(scripts/ci/gate-wait.sh *)",
       "Bash(sh .claude/status-write.sh *)"
     ],
     "deny": [
@@ -98,7 +100,6 @@
       "Read(*.key)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.config/gh/**)",
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(sudo *)",
@@ -126,7 +127,10 @@
       "clauductor *",
       "docker *",
       "scripts/ci/run-local.sh *",
-      "scripts/ci/gate.sh *"
+      "scripts/ci/gate.sh",
+      "scripts/ci/gate.sh *",
+      "scripts/ci/gate-wait.sh",
+      "scripts/ci/gate-wait.sh *"
     ],
     "network": {
       "allowedDomains": [
@@ -151,6 +155,7 @@
           "mode": "deny"
         }
       ]
-    }
+    },
+    "enableWeakerNetworkIsolation": true
   }
 }

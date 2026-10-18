@@ -17,7 +17,7 @@
 #     exactly what the declared command prints. A derived copy cannot drift, only go stale, and this
 #     turns stale into red. An optional `"outside"` command lists strings (open change ids, the
 #     block's own markup) that must not appear in the page OUTSIDE the block: the hand-mirror leak.
-#   - CLAIMS: `data-claim="NAME">VALUE<` marks a number or name as CURRENT STATE (not history), and
+#   - CLAIMS: `data-claim="NAME">VALUE</` marks a number or name as CURRENT STATE (not history), and
 #     VALUE must equal what the claim's declared command prints. A claim with no command, and a
 #     declared claim the page no longer carries, both fail: a check over nothing is decoration.
 #   - DURATIONS: `data-days-since="YYYY-MM-DD"` is counted by the page's own script on load; a typed
@@ -63,7 +63,11 @@ REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 SECS=${LIVING_COMMAND_SECONDS:-60}
 [ -f "$ROOT/$REG" ] || die "$REG does not exist: the living pages are its entries (the artifacts module's README)"
 W=$(mktemp -d "${TMPDIR:-/tmp}/living.XXXXXX") || die "mktemp failed"
-trap 'rm -rf "$W"' EXIT
+# TMPF is --regen's temporary page while it exists. The signals are trapped so that an interrupt
+# exits through the EXIT trap, which a signal's default action skips: neither is left behind.
+TMPF=""
+trap 'rm -rf "$W"; [ -z "$TMPF" ] || rm -f "$TMPF"' EXIT
+trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 
 # JavaScript's whitespace, spelt out (Oniguruma's \s differs at U+0085 and U+FEFF): the reference
 # trimmed with String.prototype.trim.
@@ -180,7 +184,7 @@ if [ "$MODE" = regen ]; then
           elif test("<!-- generated:" + $n + ":begin[\\s\\S]*?-->\n[\\s\\S]*?<!-- generated:" + $n + ":end -->") | not
           then error("block \($n): its begin marker is not a comment followed by a newline, before its end marker; left as it was")
           else sub("(?<pre><!-- generated:" + $n + ":begin[\\s\\S]*?-->\n)[\\s\\S]*?(?<post><!-- generated:" + $n + ":end -->)"; "\(.pre)\($o)\(.post)") end' \
-        "$ROOT/$k" > "$W/new" 2> "$W/err" || { echo "$k: $(sed 's/^jq: error[^:]*: //' "$W/err" | head -n 1)"; rc=1; continue; }
+        < "$ROOT/$k" > "$W/new" 2> "$W/err" || { echo "$k: $(sed 's/^jq: error (at [^)]*): //; s/^jq: error: //' "$W/err" | head -n 1)"; rc=1; continue; }
       # Only the block may differ: the bytes before its begin marker and after its end marker must
       # come back exactly as they were.
       cp "$ROOT/$k" "$W/old"
@@ -192,11 +196,18 @@ if [ "$MODE" = regen ]; then
         echo "$k: block $n: regenerating it would change bytes outside the block; left as it was"; rc=1; continue
       fi
       if cmp -s "$W/new" "$ROOT/$k"; then echo "$k: block $n already current"
+      elif [ -L "$ROOT/$k" ]; then
+        # A symlinked page is written through its link: a file renamed over it would replace the link.
+        if cat "$W/new" > "$ROOT/$k"; then echo "$k: block $n regenerated"
+        else echo "$k: block $n could not be written"; rc=1; fi
       else
         # Through a temporary file beside the page, renamed over it: a reader never sees half a page.
-        tmp="$ROOT/$k.living-regen.$$"
-        if cat "$W/new" > "$tmp" && mv "$tmp" "$ROOT/$k"; then echo "$k: block $n regenerated"
-        else rm -f "$tmp"; echo "$k: block $n could not be written; left as it was"; rc=1; fi
+        # The temporary file starts as a copy of the page (cp -p), so the rename changes its content
+        # and not its mode.
+        TMPF="$ROOT/$k.living-regen.$$"
+        if cp -p "$ROOT/$k" "$TMPF" && cat "$W/new" > "$TMPF" && mv "$TMPF" "$ROOT/$k"; then echo "$k: block $n regenerated"
+        else rm -f "$TMPF"; echo "$k: block $n could not be written; left as it was"; rc=1; fi
+        TMPF=""
       fi
     done
   done < "$W/pages"
@@ -243,16 +254,20 @@ while IFS= read -r p; do
 
   jq -Rs "$JQ_DEFS"'
     def blank: gsub("(?i)<!--[\\s\\S]*?-->|<script\\b[\\s\\S]*?</script\\s*>|<style\\b[\\s\\S]*?</style\\s*>"; " ");
-    {html: test("(?i)<html\\b"),
+    # Annotations are read from the page text alone: a `[data-claim=…]` selector in a style or a
+    # script, or an annotation commented out, is not one. A value runs to its closing tag (`</`), so
+    # text followed by markup is not read as the text alone.
+    blank as $text
+    | {html: test("(?i)<html\\b"),
      complete: (sub(ws + "+\\z"; "") | endswith("</html>")),
      opens: ([match("(?i)<script\\b(?![^>]*\\bsrc=)"; "g")] | length),
      scripts: [match("(?i)<script\\b(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)</script\\s*>"; "g") | .captures[0].string],
-     attrs: ([match("data-claim\\s*="; "gi")] | length),
-     claims: [match("data-claim=[\"\\x27]([A-Za-z0-9_-]+)[\"\\x27][^>]*>([^<]+)<"; "g") | [.captures[0].string, (.captures[1].string | jstrim)]],
+     attrs: ([$text | match("data-claim\\s*="; "gi")] | length),
+     claims: [$text | match("data-claim=[\"\\x27]([A-Za-z0-9_-]+)[\"\\x27][^>]*>([^<]+)</"; "g") | [.captures[0].string, (.captures[1].string | jstrim)]],
      days: [match("data-days-since=\"([^\"]*)\""; "g") | .captures[0].string],
      begins: [match("<!-- generated:([A-Za-z0-9_.:-]+?):begin"; "g") | .captures[0].string],
      ends: [match("<!-- generated:([A-Za-z0-9_.:-]+?):end -->"; "g") | .captures[0].string],
-     text: blank}' "$W/page" > "$W/facts" 2> "$W/err" || { fail "$k: could not be read as text: $(head -n 1 "$W/err")"; continue; }
+     text: $text}' "$W/page" > "$W/facts" 2> "$W/err" || { fail "$k: could not be read as text: $(head -n 1 "$W/err")"; continue; }
 
   # Whole: an HTML page ends with its </html>; a fragment (no <html>) is not held to it.
   if [ "$(jq .html "$W/facts")" = true ]; then
@@ -331,11 +346,12 @@ while IFS= read -r p; do
   done < "$W/auth"
   : > "$W/used"; : > "$W/members"
   nc=$(jq '.claims | length' "$W/facts"); ci=0
-  # Every annotation is read, or the check says so: the reader takes data-claim="name">value< only,
+  # Every annotation is read, or the check says so: the reader takes data-claim="name">value</ only,
   # so one in any other shape (markup in its value, a name with a dot, no quotes, spaces round
-  # the =) would be skipped silently. Counted against a plain scan, as the scripts are.
+  # the =) would be skipped silently. Counted against a plain scan of the page text, as the
+  # scripts are.
   na=$(jq .attrs "$W/facts")
-  [ "$na" = "$nc" ] || fail "$k: carries $na data-claim attributes, but $nc were read. The reader takes data-claim=\"<name>\">value< (a name of letters, digits, _ and -, quoted; the value plain text, no markup inside): put each annotation in that shape, or nothing checks it"
+  [ "$na" = "$nc" ] || fail "$k: carries $na data-claim attributes, but $nc were read. The reader takes data-claim=\"<name>\">value</ (a name of letters, digits, _ and -, quoted; the value plain text up to its closing tag, no markup inside): put each annotation in that shape, or nothing checks it"
   while [ "$ci" -lt "$nc" ]; do
     ci=$((ci + 1))
     cn=$(jq -r --argjson i "$((ci - 1))" '.claims[$i][0]' "$W/facts"); cv=$(jq -r --argjson i "$((ci - 1))" '.claims[$i][1]' "$W/facts")

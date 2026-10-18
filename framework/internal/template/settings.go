@@ -3,6 +3,7 @@ package template
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -38,6 +39,15 @@ var frameworkScalars = map[string]bool{
 	"sandbox.enabled": true, // checks/settings.sh fails without it; loosen per tool instead
 }
 
+// retiredEntries are list entries the template once shipped and has dropped on purpose, by path
+// and compact JSON, with the reason a merge reports. A merge keeps every project entry it does not
+// know, so without this an installed project keeps the old entry forever.
+var retiredEntries = map[string]map[string]string{
+	"permissions.deny": {
+		`"Read(~/.config/gh/**)"`: "retired by the template (OPS-75): a sandboxed script's gh must read hosts.yml to find its keyring account",
+	},
+}
+
 // hookScriptRe finds the model's hook script a registration runs, whatever form the command
 // takes (the old cwd-relative `sh .claude/hooks/x.sh` or the `"$CLAUDE_PROJECT_DIR"` one).
 var hookScriptRe = regexp.MustCompile(`\.claude/hooks/([A-Za-z0-9_.-]+\.sh)`)
@@ -58,7 +68,18 @@ func RenderSettings(tmpl []byte, c *Conf) (rendered []byte, stale map[string][]s
 	for _, k := range []string{"GATE_RUN", "GATE"} {
 		if c != nil && c.Moved(k) {
 			if v, ok := cleanRel(c.Get(k)); ok {
+				// The gate is written as a command an agent runs alone (OPS-72): a gate at the
+				// repository root keeps ./, or the shell would look the bare name up on PATH.
+				// conf.sh's gate_cmd gives the same answer (TestGatePathAgrees).
+				if k == "GATE" && !strings.Contains(v, "/") {
+					v = "./" + v
+				}
 				pairs = append(pairs, c.Defaults[k], v)
+				// gate-wait.sh moves with the template's runner (Mapping), and its sandbox
+				// exclusion with it (OPS-72).
+				if d := path.Dir(v); k == "GATE_RUN" && path.Base(v) == "run-local.sh" && d != path.Dir(c.Defaults[k]) {
+					pairs = append(pairs, path.Dir(c.Defaults[k])+"/gate-wait.sh", d+"/gate-wait.sh")
+				}
 			}
 		}
 	}
@@ -214,6 +235,10 @@ func (m *merger) union(path string, have, want *node) *node {
 		c := it.compact()
 		if m.stale[path][c] {
 			m.note(SettingsChange{Path: path, Action: "remove", Have: c, Note: "the template's default path, which this project's project.conf moves"})
+			continue
+		}
+		if why := retiredEntries[path][c]; why != "" {
+			m.note(SettingsChange{Path: path, Action: "remove", Have: c, Note: why})
 			continue
 		}
 		seen[c] = true

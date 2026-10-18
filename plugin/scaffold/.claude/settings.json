@@ -35,6 +35,8 @@
       "Bash(clauductor-model roadmap-queue.sh *)",
       "Bash(scripts/ci/gate.sh)",
       "Bash(scripts/ci/gate.sh *)",
+      "Bash(scripts/ci/gate-wait.sh)",
+      "Bash(scripts/ci/gate-wait.sh *)",
       "Bash(clauductor-model status-write.sh *)"
     ],
     "deny": [
@@ -47,7 +49,6 @@
       "Read(*.key)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.config/gh/**)",
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(sudo *)",
@@ -68,6 +69,7 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
+    "enableWeakerNetworkIsolation": true,
     "excludedCommands": [
       "git *",
       "gh *",
@@ -75,7 +77,10 @@
       "clauductor *",
       "docker *",
       "scripts/ci/run-local.sh *",
-      "scripts/ci/gate.sh *"
+      "scripts/ci/gate.sh",
+      "scripts/ci/gate.sh *",
+      "scripts/ci/gate-wait.sh",
+      "scripts/ci/gate-wait.sh *"
     ],
     "network": {
       "allowedDomains": [

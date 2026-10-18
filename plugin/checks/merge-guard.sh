@@ -279,6 +279,39 @@ archive "$DONE" spec know
 guard 2 "rule 11: archiving a change that says how we'll know, with no outcome check queued" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
 archive "$DONE" spec know row
 guard 0 "rule 11: ...and with its outcome check queued in the roadmap" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive
+# An archive made the way archive-change makes it: the open change lands on main, then a PR moves it
+# with `git mv` and appends its cost. git diff reports each moved file as renamed (R), not added, so
+# a reader of added paths alone checked nothing on a real archive (OPS-70: #129 and #133).
+mv_archive() {  # mv_archive ID TASKS
+  git -C "$R" checkout -q main; mkdir -p "$R/changes/$1/specs/$1"
+  printf '%b' "$2" > "$R/changes/$1/tasks.md"
+  printf '# p\n' > "$R/changes/$1/proposal.md"
+  printf '## ADDED Requirements\n' > "$R/changes/$1/specs/$1/spec.md"
+  git -C "$R" add -A && git -C "$R" commit -qm "propose $1"
+  (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+  on "ops/archive-$1"; mkdir -p "$R/changes/archive"
+  git -C "$R" mv "changes/$1" "changes/archive/2026-01-06-$1"
+  printf -- '- 2026-01-06 archived: actual cost $2.40 of budget $15\n' >> "$R/changes/archive/2026-01-06-$1/tasks.md"
+  head_of "archive $1 with git mv"; at
+  # The case proves nothing unless git really reports the move as a rename. -M: porcelain diff
+  # honours the user's diff.renames, and with it false no move is ever a rename.
+  git -C "$R" diff -M --name-status "$(git -C "$R" merge-base origin/main "$(H)")" "$(H)" | grep -q "^R[0-9]*	changes/$1/tasks.md	changes/archive/2026-01-06-$1/tasks.md$" \
+    && ok "rule 11 fixture: git reports the git-mv archive of $1 as a rename" || fail "rule 11 fixture: the archive of $1 is not a rename: $(git -C "$R" diff -M --name-status origin/main "$(H)")"
+}
+MVT='## 1. Do it\n- [x] 1.1 the first task of the change\n- [x] 1.2 the second task of the change\n- [x] 1.3 the third task of the change\n'
+mv_archive add-mv-open "$MVT- [ ] 1.4 the fourth task, still open\n\n## Progress\n"
+guard 2 "rule 11: a change archived with git mv (a rename) and an open task" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive-add-mv-open
+grep -q "changes/archive/2026-01-06-add-mv-open is archived with 1 open task" "$d/err" && ok "rule 11: ...and names the renamed archive and its open task" || fail "rule 11 git-mv message: $(cat "$d/err")"
+mv_archive add-mv-done "$MVT- [x] 1.4 the fourth task, done\n\n## Progress\n"
+guard 0 "rule 11: a finished change archived with git mv (a rename)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/archive-add-mv-done
+# Rule 9 and a rename: a build that `git mv`s a file into its change directory. With rename
+# detection, --name-only lists only the new path (a record), and the build read as a proposal.
+git -C "$R" checkout -q main; mkdir -p "$R/src"; printf 'moved by the build\n' > "$R/src/z.txt"
+git -C "$R" add -A && git -C "$R" commit -qm "src/z.txt" && (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+on change/add-z; mkdir -p "$R/changes/add-z"
+printf '## 1. Do it\n- [ ] 1.1 thing\n\n- [ ] Slice: a user can z at /z\n' > "$R/changes/add-z/tasks.md"
+git -C "$R" mv src/z.txt changes/add-z/z.txt; head_of "a build whose only other edit is a git mv into its record"; at
+guard 2 "rule 9: a build whose only non-record edit is a git mv into changes/<id>/ (a rename)" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=change/add-z
 
 # CHANGES_LEGACY (lib/records.sh): a grandfathered change keeps the format it was approved in, so
 # rules 9–11 do not ask it for the records this format added; finishing is still asked.
@@ -365,6 +398,133 @@ guard 0 "a commit message that mentions a merge (prose)" 'git commit -m "then gh
 guard 2 "a quoted gh (cannot read the site)" '"gh" pr merge 5 --squash'
 guard 2 "a computed word" 'gh pr $(echo merge) 5'
 guard 2 "no PR named" "gh pr merge --squash"
+# OPS-66 (#120): commands that cannot reach a merge were refused as merges the reader could not
+# read, so agents routed around the guard. A redirect target, a computed path that is only an
+# argument, and a computed word inside git were each read as a gh, pr or merge that could run.
+# Each must pass; a gh word or a computed command word that can reach a merge must not.
+# No evidence anywhere, the lane's receipt included; both come back after.
+mv "$R/.git/ci-receipt" "$d/receipt.ops66" 2>/dev/null || :
+mv "$lane_receipt" "$d/receipt.ops66lane" 2>/dev/null || :
+guard 0 "OPS-66: git -C a literal path, then a quoted --work-tree, merging main" 'git -C /some/path --work-tree "$WT" merge origin/main'
+guard 0 "OPS-66: git --no-pager -C a quoted variable, merging main" 'git --no-pager -C "$WT" merge origin/main'
+guard 0 "OPS-66: git -C a quoted variable, merging main in a worktree" 'git -C "$WT" merge origin/main'
+guard 0 "OPS-66: the same inside a loop over worktrees" 'for w in a b; do git -C "$w" merge --no-edit origin/main; done'
+guard 0 "OPS-66: a copy of merge-guard.sh to a computed path" 'cp checks/merge-guard.sh backup/$f'
+guard 0 "OPS-66: a loop comparing files named merge-guard.sh" 'for f in hooks/pr-merge-guard.sh checks/merge-guard.sh; do cmp -s upstream/$f local/$f || echo $f; done'
+guard 0 "OPS-66: a loop copying files named merge-guard.sh" 'for f in merge-guard.sh hooks.sh; do cp upstream/checks/$f local/checks/$f; done'
+guard 0 "OPS-66: a head into an unquoted computed scratch path" 'head -n 40 merge-guard.sh > $TMPDIR/$name'
+guard 0 "OPS-66: a sed into a scratch copy named by a variable" "sed 's/a/b/' merge-guard.sh > \"\$TMPDIR/scratch/\$name\""
+# With evidence for PR 5's head, so that a block below is the reader refusing, not rule 2.
+receipt "$MAINSHA"
+unread() {  # unread LABEL COMMAND: refused as a merge the reader cannot read, or prose that may run
+  guard 2 "OPS-66: $1" "$2"
+  [ "$rc" != 2 ] || grep -qE 'may merge in a form this guard cannot read|inside text, beside' "$d/err" \
+    || fail "OPS-66: $1: blocked, but not by the reader: $(head -n 1 "$d/err")"
+}
+unread "gh pr merge held in a variable" 'X="gh pr merge 5 --squash"; $X'
+unread "gh pr merge held in an alias" 'alias m="gh pr merge"; m 5 --squash'
+unread "gh held in a variable" 'G=gh; $G pr merge 5 --squash'
+unread "every word but merge computed" '$A $B merge 5'
+unread "a computed path to gh run by find" 'find . -exec bin/$G pr merge 5 \;'
+unread "a computed path to gh run by xargs, pr after it" 'echo merge | xargs -I X bin/$G pr X 5'
+unread "a computed path to gh run by xargs, merge after it" 'echo pr | xargs -I X bin/$G X merge 5'
+unread "a computed gh with its output redirected" '$G pr merge 5 > "$TMPDIR/$x"'
+unread "git with an unquoted expansion that can split into -c alias...=!gh" 'git -C $X merge 5'
+unread "git with a computed -c (an alias defined in a variable)" 'git -c "$A" "$P" merge 5'
+# A redirection anywhere before the last word of a command naming gh, pr and merge is unreadable,
+# whatever its operator: the shell runs `gh pr merge 5` for each of these, and each operator form
+# below was once read as no merge at all and ALLOWED. Put the redirection last.
+unread "a redirection inside the merge: >& and a file" 'gh pr >& x merge 5'
+unread "a redirection inside the merge: >&file" 'gh pr >&x merge 5'
+unread "a redirection inside the merge: 1>& and a file" 'gh pr 1>& x merge 5'
+unread "a redirection inside the merge: zsh >!" 'gh pr >! x merge 5'
+unread "a redirection inside the merge: zsh >>!" 'gh pr >>! x merge 5'
+unread "a redirection inside the merge: zsh &>!" 'gh pr &>! x merge 5'
+unread "a redirection inside the merge: zsh >&!" 'gh pr >&! x merge 5'
+unread "a redirection inside the merge: bash >! (! is the file)" 'gh pr >! merge 5'
+unread "a redirection inside the merge: a named fd" 'gh pr {fd}>x merge 5'
+unread "a redirection inside the merge: a named fd duplicated" 'gh pr {fd}<&0 merge 5'
+unread "a redirection inside the merge: 2>/dev/null" 'gh pr 2>/dev/null merge 5'
+# A regression guard, not a failing-first case: main's reader already refused this one.
+unread "a redirection inside the merge: a named fd between gh and pr" 'gh {fd}>x pr merge 5'
+# Widened to ANY gh (OPS-66, round 3): `gh api` merges too, and names no pr or merge word.
+unread "a redirection inside a gh command: >& before api's merge endpoint" 'gh >& x api -X PUT repos/acme/app/pulls/5/merge'
+unread "a redirection inside a gh command: a named fd before api's merge endpoint" 'gh {fd}>x api -X PUT repos/acme/app/pulls/5/merge'
+unread "a redirection inside a gh command: 2>/dev/null before api graphql" 'gh 2>/dev/null api graphql -f query=x'
+# The accepted cost: a gh command that merges nothing is refused too. Put the redirection last.
+unread "a redirection inside a gh command: a list that merges nothing" 'gh pr list 2>/dev/null --json number'
+# A regression guard: refused since round 2 (pr and merge are words), so it did not fail first.
+unread "a redirection inside a gh command: >x between gh and pr" 'gh >x pr merge 5'
+# A `(` inside a word or after `<`/`>` is part of that word (OPS-66, round 5): it once started a new
+# command, so gh api lost its endpoint and each of these merged, allowed with no evidence.
+unread "a process substitution before api's merge endpoint" "gh api -X PUT --input <(echo '{}') repos/acme/app/pulls/5/merge"
+unread "a process substitution glued to --input= before the endpoint" 'gh api -XPUT --input=<(true) repos/acme/app/pulls/5/merge'
+unread "a process substitution, --method PUT and a leading /" 'gh api --method PUT --input <(true) /repos/acme/app/pulls/5/merge'
+unread "a process substitution before a quoted {owner}/{repo} endpoint" 'gh api -X PUT --input <(true) "repos/{owner}/{repo}/pulls/5/merge"'
+unread "an output process substitution before the endpoint" 'gh api -X PUT --input >(cat) repos/acme/app/pulls/5/merge'
+unread "a zsh glob qualifier before the endpoint" 'gh api x(N) -X PUT repos/acme/app/pulls/5/merge'
+# inside() judges the command word (OPS-66, round 5). Regression guards: each was refused before the
+# narrowing, and must stay refused after it, because gh still runs.
+unread "a redirection first, then gh api's merge" '>& x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "zsh >! first (bash: the file !), then gh api's merge" '>! x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "a named fd first, then gh api's merge" '{fd}>x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "env runs gh, a redirection inside" 'env >x gh api -X PUT repos/acme/app/pulls/5/merge'
+unread "a computed command word, a redirection inside" '$G >x api -X PUT repos/acme/app/pulls/5/merge'
+guard 0 "OPS-66: a merge with its redirection last (2>&1), with evidence" 'gh pr merge 5 --squash --delete-branch 2>&1'
+# The command word decides what runs: a redirection inside a command whose literal command word is
+# not gh and runs no argument is read as before (OPS-66, round 5; each was refused at round 4).
+guard 0 "OPS-66: echo with >&2 before a computed argument" 'echo >&2 "$msg"'
+guard 0 "OPS-66: jq with its output redirected before its input file" 'jq . > "$out" in.json'
+guard 0 "OPS-66: sed with 2>/dev/null before a computed file" 'sed -n 1p 2>/dev/null "$f"'
+guard 0 "OPS-66: a loop comparing files, its output redirected in the middle" 'for f in a b; do cmp "$f" > /dev/null "other/$f"; done'
+# A name defined in the command runs what the reader cannot see at the name's use: an alias, a
+# hash entry or a function makes the whole command unreadable, whatever it runs (OPS-66). With
+# evidence for PR 5's head, so a block here is the reader's.
+unread "an alias to gh, then gh api's merge through it" "$(printf 'alias jq=gh\njq api -X PUT repos/acme/app/pulls/5/merge')"
+unread "a function that runs a computed gh, called with api's merge" 'f() { $G "$@"; }; f api -X PUT repos/acme/app/pulls/5/merge'
+unread "a hash entry from a variable that makes jq run gh" 'hash -p "$P" jq; jq api -X PUT repos/acme/app/pulls/5/me$x'
+# A computed word that could be gh, then api, is held to the plain form as `pr merge` after one is.
+unread "a computed gh, then api's merge endpoint" '$G api -X PUT repos/acme/app/pulls/5/merge'
+# Regression guards: each was already refused, as a gh the reader saw beside a merge.
+unread "an alias to gh, then pr merge through it" "alias g='gh'; g pr merge 5"
+unread "a function that merges, then called" 'f() { gh pr merge 5; }; f'
+unread "a function named jq that runs gh, its endpoint computed at the call" 'jq() { gh "$@"; }; jq api -X PUT repos/acme/app/pulls/5/me$x'
+unread "a function defined with the function keyword" 'function f { gh pr merge 5; }; f'
+unread "a hash entry that makes jq run gh" 'hash -p /usr/bin/gh jq; jq api -X PUT repos/acme/app/pulls/5/merge'
+guard 0 "OPS-66: hash -r alone is not a definition" 'hash -r'
+guard 0 "OPS-66: an empty arithmetic expansion is not a function definition" 'echo $(()) $(( ))'
+# zsh reads `>!` as one operator; bash reads `!` as the file and the next word as an argument. A
+# command with an operator followed by `!` is judged with every word, operands included, as a word
+# (OPS-66, round 6): each of these ran gh's merge in bash, and was allowed.
+unread "<>! before gh, after /usr/bin/env" '/usr/bin/env <>! gh api -X PUT repos/acme/app/pulls/5/merge'
+unread ">! before gh, after /usr/bin/nohup" '/usr/bin/nohup >! gh api -X PUT repos/acme/app/pulls/5/merge'
+unread ">&! before gh api, handed to sh -c" "sh -c '\"\$@\"' sh >&! gh api -X PUT repos/acme/app/pulls/5/merge"
+# A regression guard: `pr merge` after sh was already refused.
+unread ">&! before gh pr merge, handed to sh -c" "sh -c '\"\$@\"' sh >&! gh pr merge 5"
+guard 0 "OPS-66: gh pr view with its output redirected last" 'gh pr view 5 --json state > out.json'
+guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
+rm -f "$R/.git/ci-receipt"
+# The backstop's git -C rewrite takes no value that "$@" or "${a[@]}" can split into several words
+# (`-c alias.x='!gh pr' x`). The reader refuses both first, so merge_hint is tested on its own.
+hint=$(sed -n '/^HIBYTES=/,/^}/p' "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh")
+for v in '"$@"' '"${a[@]}"'; do
+  (eval "$hint"; merge_hint "git -C $v merge 5") \
+    && ok "OPS-66: merge_hint still matches git -C $v before merge" \
+    || fail "OPS-66: merge_hint read git -C $v merge as git's own merge"
+done
+(eval "$hint"; ! merge_hint 'git -C "$WT" merge origin/main') \
+  && ok "OPS-66: merge_hint reads git -C \"\$WT\" merge as git's own merge" \
+  || fail "OPS-66: merge_hint matched git -C \"\$WT\" merge origin/main"
+guard 2 "OPS-66: gh api PUT to this repo's merge endpoint, without evidence" 'gh api -X PUT repos/acme/app/pulls/5/merge'
+grep -q 'PR #5 has no gate evidence' "$d/err" && ok "OPS-66: ...read as PR 5's merge and held to its evidence" || fail "OPS-66: gh api merge: $(head -n 1 "$d/err")"
+guard 2 "OPS-66: a plain merge with its output redirected, without evidence" 'gh pr merge 5 --squash > "$TMPDIR/$x"'
+grep -q 'PR #5 has no gate evidence' "$d/err" && ok "OPS-66: ...read as PR 5's merge and held to its evidence" || fail "OPS-66: redirected merge: $(head -n 1 "$d/err")"
+# A redirection's operand is not an argument: the shell runs `gh pr merge 5` for each of these, and
+# the reader once read the operand as the word after pr, so each was ALLOWED without evidence.
+guard 2 "OPS-66: a merge with a file redirection between pr and merge, without evidence" 'gh pr >"$TMPDIR/x" merge 5 --squash'
+guard 2 "OPS-66: a merge with a here-string between pr and merge, without evidence" 'gh pr <<<x merge 5 --squash'
+mv "$d/receipt.ops66" "$R/.git/ci-receipt" 2>/dev/null || :
+mv "$d/receipt.ops66lane" "$lane_receipt" 2>/dev/null || :
 # OPS-57: a PR word the reader cut short. merge_argv stops at a `$` or a backtick, and once kept the
 # digits before it as the PR, so the guard judged a shorter number than the shell merged. With
 # evidence for that shorter number's head, each of these was ALLOWED. The PR word is either read
@@ -489,6 +649,9 @@ nojq 0 "git status" "allows anything else"
 # merge_hint reads a non-ASCII parameter name too (#100 review): without jq it is the only test.
 nojq 2 'é=pr; gh $é merge 5' "#100: blocks pr held in \$é"
 nojq 2 'X=pr; gh $X merge 5' "#100: control: blocks pr held in an ASCII \$X"
+# merge_hint reads git's own merge only past an option value the shell cannot split, as git_sub does
+# (OPS-66): unquoted, $X could split into `-c alias.x='!gh pr' x`.
+nojq 2 'git -C $X merge 5' "OPS-66: blocks git -C with an unquoted, splitting value before merge"
 
 # raw_command is duplicated on purpose (a sourced lib's missing-file failure is shell-dependent);
 # the two copies must not drift.

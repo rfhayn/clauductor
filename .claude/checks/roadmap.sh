@@ -331,10 +331,24 @@ fq --tsv | grep -q 'column 11 (budget)' && ok "a budget that is not dollars brea
 # whatever path it read the file by). Allowed: the helper, the parser, this check (its grammar tests run the parser),
 # checks/panel-contract.sh (it holds the panel card's front-door call to the helper's output), and
 # a cp that copies the parser into a scratch project.
+# The roadmap path is caught however it is quoted or braced ($ROOT/$ROADMAP, $ROOT/"$ROADMAP",
+# "${ROOT}"/"${ROADMAP}"), and as a bare "$ROADMAP" on a line that cd's to $ROOT. Not caught: a cd
+# on one line and the read on a later one; a bare "$ROADMAP" is also a git path or a pattern
+# elsewhere (hooks/lib/change-guard.sh), so it cannot be refused alone.
+# Every allowance is a path in the case below, so allowing a reader is an edit to this guard, and
+# the green line names each file it skipped. No marker in a scanned file allows anything.
+# bypass DIR [SKIPS]: prints each bypassing line; appends each allowed file it skipped to SKIPS.
 bypass() {
   find "$1" \( -name '*.sh' -o -name '*.js' \) -type f | sort | while read -r f; do
-    case $f in */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) continue ;; esac
-    grep -nE 'roadmap-queue\.sh|"\$ROOT/\$ROADMAP"|\$\{ROOT\}/\$\{?ROADMAP|\^#*## Phase' "$f" \
+    case $f in
+      */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+      # Clauductor's roadmap tracker (OPS-83): it reads only the roadmap's `## Session plan`
+      # section, which is not a queue table; its rows come from roadmap_queue.
+      */local/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+      # ...and its check, which finds that section's line range and greps for a committed address.
+      */local/checks/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+    esac
+    grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' "$f" \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"
   done
@@ -345,8 +359,26 @@ printf '#!/bin/sh\ntsv=$(sh .claude/%s --tsv)\n' roadmap-queue.sh > "$d/plant/sk
 printf '#!/bin/sh\nawk 1 "$ROOT/$ROADMAP"\n' > "$d/plant/second-parser.sh"
 printf '#!/bin/sh\nread_src | jq -R -s %s\n' "'split(\"\\\\n\")[] | select(test(\"^## Phase \\\\\\\\d+\"))'" > "$d/plant/phase-reader.sh"
 [ "$(bypass "$d/plant" | wc -l | tr -d ' ')" = 3 ] && ok "the bypass scan finds a script that runs the parser by path, one that reads the roadmap itself, and one that matches its phase headings" || fail "the bypass scan missed a planted bypass: $(bypass "$d/plant")"
-by=$(bypass "$fw")
-[ -z "$by" ] && ok "no consumer bypasses roadmap_queue (every reader follows ROADMAP_PARSER)" || fail "these read the queue without roadmap_queue (lib/conf.sh), so ROADMAP_PARSER cannot reach them: $by"
+# The other spellings of the roadmap's path; a comment on the line allows nothing, a path in the
+# guard's own case does.
+mkdir -p "$d/plant2/local"
+printf '#!/bin/sh\nf=$ROOT/$ROADMAP\nawk 1 "$f"\n' > "$d/plant2/unquoted.sh"
+printf '#!/bin/sh\nawk 1 $ROOT/"$ROADMAP"\n' > "$d/plant2/mixed.sh"
+printf '#!/bin/sh\nawk 1 "${ROOT}"/"${ROADMAP}"\n' > "$d/plant2/braced.sh"
+printf '#!/bin/sh\ncd "$ROOT" && awk 1 "$ROADMAP"\n' > "$d/plant2/cd-then-read.sh"
+printf '#!/bin/sh\nf=$ROOT/$ROADMAP # roadmap-bypass-ok: reads only its own section\n' > "$d/plant2/marked.sh"
+printf '#!/bin/sh\nf=$ROOT/$ROADMAP\n' > "$d/plant2/local/roadmap-tracker.sh"
+printf '#!/bin/sh\nexport ROADMAP_PARSER; grep -vxF -e "$ROADMAP" list\n' > "$d/plant2/not-a-read.sh"
+: > "$d/skips2"
+p2=$(bypass "$d/plant2" "$d/skips2" | cut -d: -f1 | tr '\n' ' ')
+[ "$p2" = "braced.sh cd-then-read.sh marked.sh mixed.sh unquoted.sh " ] \
+  && ok "the bypass scan finds the roadmap's path unquoted, half-quoted, braced, after a cd and behind a comment marker; it passes a bare \"\$ROADMAP\" pattern" \
+  || fail "the bypass scan flagged [$p2], want [braced.sh cd-then-read.sh marked.sh mixed.sh unquoted.sh ]"
+[ "$(cat "$d/skips2")" = "local/roadmap-tracker.sh" ] && ok "...and skips a path its own case allows, naming it" || fail "the allowlisted plant was not skipped and named: [$(cat "$d/skips2")]"
+: > "$d/skips"
+by=$(bypass "$fw" "$d/skips")
+nskip=$(wc -l < "$d/skips" | tr -d ' ')
+[ -z "$by" ] && ok "no consumer bypasses roadmap_queue (every reader follows ROADMAP_PARSER); $nskip allowed file(s) skipped: $(tr '\n' ' ' < "$d/skips")" || fail "these read the queue without roadmap_queue (lib/conf.sh), so ROADMAP_PARSER cannot reach them: $by"
 nuse=$(grep -rlE --include='*.sh' '(^|[^_])roadmap_queue --' "$fw" | grep -vc '/lib/conf.sh$\|/checks/')
 [ "$nuse" -ge 5 ] && ok "$nuse consumer script(s) call roadmap_queue (the scan saw the real consumers)" || fail "only $nuse script(s) call roadmap_queue; the bypass scan is reading the wrong directory ($fw)"
 
