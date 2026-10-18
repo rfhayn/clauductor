@@ -22,7 +22,7 @@ const (
 	AlertRateLimit    = "rate_limit"     // StopFailure error_type rate_limit
 	AlertStopFailure  = "stop_failure"   // any other StopFailure
 	AlertNoAutoResume = "no_auto_resume" // quota_auto_resume_stale / _disabled: it will not continue by itself
-	AlertContext      = "context"        // a session's context at or above its lane's threshold: against its recorded window, else used_percentage (PANEL-48)
+	AlertContext      = "context"        // a session's context at or above its lane's threshold: against its window, posted or recorded, else used_percentage (PANEL-48)
 	AlertIdle         = "idle"           // a live session idle longer than N min
 	AlertQuota        = "quota"          // the 5-hour quota above the threshold
 	// PANEL-28: Claude Code's login-refresh locks, the machine's (like the quota).

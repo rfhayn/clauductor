@@ -9,8 +9,9 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
-// PANEL-48 (D7, D13): a lane launched with a context window (launch.context_window,
-// recorded on its lane record) is measured against that window, not the model's.
+// PANEL-48 (D7, D13): a session launched with a context window (launch.context_window)
+// is measured against that window, not the model's: the auto_compact_window its status
+// line posts, else the window on the lane record holding its session id.
 
 // compactBuffer is how far below its window Claude Code compacts a conversation, in
 // tokens. Probe P1 saw compaction fire at the window less 33k on Sonnet, and /context
