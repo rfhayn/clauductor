@@ -515,7 +515,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `queues[].command` | array of strings |  | 2 | Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it. |
 | `alerts` | object |  | 2 | Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off. |
 | `alerts.idle_minutes` | number | `30` | 2 | A live session idle longer than this raises an idle alert. |
-| `alerts.context_pct` | number | `85` | 2 | A context window at or above this percentage raises a context alert. |
+| `alerts.context_pct` | number | `85` | 2 | A session's context at or above this percentage raises a context alert. A lane launched with a context window (`launch.context_window`) alerts at the lower of this and its auto-compact tick less 5 points, so it alerts before it compacts. `0` turns the alert off for every lane. |
 | `alerts.five_hour_pct` | number | `90` | 2 | The 5-hour quota at or above this percentage raises a quota alert (block at 100%). |
 | `alerts.waiting_seconds` | number | `120` | 2 | A permission prompt, MCP elicitation or input request older than this raises a waiting alert. |
 | `alerts.notify` | boolean | `true` | 2 | Send macOS notifications for the alerts that interrupt. |
@@ -701,8 +701,10 @@ value just changed.
   once. Selecting a lane (a tab, a row, a tree node, a Needs-you row) never enters its terminal.
 - **The lane's header.** Its name and state, branch and worktree, model (as the status line
   reports it) with effort (its template's, else its lane type's), thinking and fast mode, uptime,
-  context as a bar with a mark where Claude Code compacts on its own (95%, inferred, not
-  documented), and cost with cost per hour; when the lane builds a change whose proposal has a
+  context as a bar with a mark where Claude Code compacts on its own (the lane's own, for a
+  lane launched with a context window: see [The context policy](#the-context-policy); else 95%,
+  inferred, not documented), drawn in the warning colour from the lane's context alert threshold,
+  and cost with cost per hour; when the lane builds a change whose proposal has a
   budget, a **Budget** bar beside it (PANEL-19, see *Needs you from the metrics*). **Hide
   details** folds the side panel; kept.
 - **The terminal.** The selected lane's live terminal, taking the space the workspace leaves.
@@ -960,7 +962,7 @@ Then it runs, as an argv list with no shell:
 ```
 tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
      -e PATH=… -e HOME=… -e LANG=… \
-     /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] -n <name> --session-id <uuid>
+     /usr/bin/env -u ANTHROPIC_API_KEY … claude [--model m] [--effort e] [--settings '{"env":{…}}'] -n <name> --session-id <uuid>
 ```
 
 - First, `tmux -L <socket> -f /dev/null start-server ; set-option -g exit-empty off`, run in
@@ -980,10 +982,82 @@ tmux -L <socket> -f /dev/null new-session -d -s <name> -c <dir> -x 200 -y 50 \
   nested.
 - `remain-on-exit` keeps a lane's last screen after `claude` exits. A lane that dies at start
   shows why, instead of vanishing. The tab's dot turns red.
+- `--settings` carries the lane's context policy, when its config has one (see *The context
+  policy*).
 
 **A new directory shows Claude's workspace-trust dialog.** In Claude Code 2.1.284 it defaults
 to **No, exit**. Press ↓, then Enter, in the lane's terminal. If you press Enter first, claude
 exits and the lane shows a dead pane; STOP it and start it again.
+
+### The context policy
+
+A lane's context costs money on every turn, so the panel can cap it (PANEL-48). The keys, in
+config version 6 (see *Keys*):
+
+- `launch.context_window`: the window a lane launches with, 100000 to 1000000, passed as
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. A lane type's `lane_types.<key>.context_window` overrides it.
+- `launch.claudeai_connectors`: `false` turns claude.ai's connectors off, passed as
+  `ENABLE_CLAUDEAI_MCP_SERVERS=false`. The repository's own MCP servers (`.mcp.json`) are untouched.
+- `lane_types.<key>.subagent_model`: the model that lane type's subagents run on, passed as
+  `CLAUDE_CODE_SUBAGENT_MODEL` (never `_FORCE`). An agent definition that names its own model
+  keeps it. Off by default.
+
+`panel init` and `panel attach` write `"launch": {"context_window": 200000,
+"claudeai_connectors": false}`. A config without these keys launches lanes exactly as before,
+with no `--settings`: the panel has no built-in default.
+
+**How it travels.** The panel builds one argv element, `--settings '{"env":{…}}'`, by
+`json.Marshal` over the validated values, never from repository text, and passes it on every
+start, restart, resume and restore (`--resume` does not restore `--settings` by itself). The keys
+need no trust check: they set only those three variables, to validated values.
+
+**What a repository cannot override.** `--settings` ranks above a repository's own project and
+local settings. A repository's `.claude/settings.json` `env` cannot change the lane's window, and
+a repository's own `ENABLE_CLAUDEAI_MCP_SERVERS=true` does not turn the connectors back on (both
+observed on Claude Code 2.1.302).
+
+**The bar and the alert.** A lane's window is recorded on its lane record at every launch, so a
+config edit moves a running lane's bar only once the lane is relaunched. Each status post is
+measured against the window its session reports, else its lane record's:
+
+- first, the post's `auto_compact_window`, when it is 100000 to 1000000. The status line adds it
+  from the session's own `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (see *The status line*), so a lane
+  keeps its window after `/clear`, which gives the same process a new session id no record holds;
+- else, the window on the lane record holding the post's session id;
+- else none, and Claude Code's `used_percentage` stays. There is no fallback by folder: a session
+  the owner starts by hand in a windowed lane's worktree runs without that window, and keeps
+  Claude Code's figure.
+
+For a session with a window:
+
+- its context is the status line's `current_usage` (input, cache-creation and cache-read tokens)
+  over that window. Claude Code's own `used_percentage` is measured against the model's whole
+  window: a 200k window on a 1M-token model would read 18% at 180k, where the panel reads 90%.
+  The lane's metrics show the recorded window, not `context_window_size`;
+- its bar's tick sits where Claude Code compacts it: the window less Claude Code's 33k buffer, as
+  a share of the window. 83.5% at 200k, 89% at 300k, 67% at 100k;
+- its context alert, and the bar's warning colour, sit at the lower of `alerts.context_pct` and
+  the tick less 5 points, so the alert fires before the lane compacts: 78.5% at 200k under the
+  default 85. `alerts.context_pct` 0 keeps the alert off, and draws no warning colour.
+
+A lane without a window keeps Claude Code's `used_percentage`, the 95% tick and
+`alerts.context_pct`, exactly as before.
+
+**Limits.**
+
+- Managed settings on the machine rank above `--settings`, so where they set the same variable
+  they win. The panel does not try to override them.
+- The 33k buffer is Claude Code 2.1.302's, read on Sonnet and on Opus at 100k, 200k, 300k and
+  1m. The status line does not report it, so a release that changes it moves compaction and not
+  the tick.
+- A lane whose model's own window is smaller than the configured window still draws its tick from
+  the configured window: its compaction point under the setting is not verified.
+- A small window loses money: the compaction calls cost more than they save. In the measured
+  week's simulation, a 150k window lost $31.73 a week, where 200k saved $153.79.
+- A repository whose own status line does not post `auto_compact_window` gets the record by
+  session id only: there, a lane after `/clear` reads `used_percentage` until it is relaunched.
+- An attached lane with no status line shows no bar (unchanged); reading its transcript is
+  PANEL-49.
 
 ### Merge readiness
 
@@ -1800,7 +1874,7 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | rate_limit | `StopFailure` with `error_type: rate_limit` | block |
 | stop_failure | any other `StopFailure` | warn |
 | no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
-| context | `context_window.used_percentage` ≥ `context_pct` | warn |
+| context | `context_window.used_percentage` ≥ `context_pct`; for a lane launched with a context window, its `current_usage` over that window ≥ the lower of `context_pct` and its tick less 5 points (PANEL-48; *The context policy*) | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
 | approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
@@ -2229,17 +2303,30 @@ succeed whatever runs, since they signal every process you own or your process g
 checks that the process is alive (`kill -0`) before it posts: a
 panel killed with `SIGKILL` leaves `port` behind, and another program may hold that port by now.
 It posts only then, never waits (background, 0.5 s cap), and prints nothing, so the status line
-is unaffected on a machine that has never run the panel, or whose panel is down:
+is unaffected on a machine that has never run the panel, or whose panel is down.
+
+The post adds one field of its own, `"auto_compact_window"`: the session's
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`, when it is digits, at the top level of the JSON (it uses
+`jq`, and posts the stdin unchanged without it). That is the context window the panel launched
+the lane with (see *The context policy*), and Claude Code's stdin carries no field for it. A
+status line that posts it keeps a lane's bar and context alert on the lane's window after
+`/clear`; one that does not leaves such a lane on Claude Code's `used_percentage` until it is
+relaunched:
 
 <!-- statusline begin -->
 ```bash
 input=$(cat)
+post=$input   # adds the session's window, which the stdin does not carry
+case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in ''|0*|*[!0-9]*) ;; *)
+  post=$(printf '%s' "$input" | jq -c --argjson w "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
+    '. + {auto_compact_window: $w}' 2>/dev/null) && [ -n "$post" ] || post=$input ;;
+esac
 panel="$HOME/.clauductor/panel"
 pid=$(cat "$panel/pid" 2>/dev/null)
 case "$pid" in ''|0*|*[!0-9]*) pid= ;; esac   # digits only, not 0: kill -0 -1 and kill -0 0 always succeed
 if [ -f "$panel/port" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   port=$(cat "$panel/port")
-  printf '%s' "$input" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
+  printf '%s' "$post" | curl -s --max-time 0.5 -X POST -H 'Content-Type: application/json' \
     --data-binary @- "http://127.0.0.1:$port/status" >/dev/null 2>&1 &
 fi
 # ...the script's existing output, reading "$input" instead of stdin...

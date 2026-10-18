@@ -163,7 +163,7 @@ var Fields = []Field{
 	{Path: "alerts.idle_minutes", Version: 2, Type: "number", Default: DefaultIdleMinutes,
 		Doc: "A live session idle longer than this raises an idle alert.", Schema: map[string]any{"minimum": 0}},
 	{Path: "alerts.context_pct", Version: 2, Type: "number", Default: DefaultContextPct,
-		Doc: "A context window at or above this percentage raises a context alert.", Schema: map[string]any{"minimum": 0}},
+		Doc: "A session's context at or above this percentage raises a context alert. A lane launched with a context window (`launch.context_window`) alerts at the lower of this and its auto-compact tick less 5 points, so it alerts before it compacts. `0` turns the alert off for every lane.", Schema: map[string]any{"minimum": 0}},
 	{Path: "alerts.five_hour_pct", Version: 2, Type: "number", Default: DefaultFiveHourPct,
 		Doc: "The 5-hour quota at or above this percentage raises a quota alert (block at 100%).", Schema: map[string]any{"minimum": 0}},
 	{Path: "alerts.waiting_seconds", Version: 2, Type: "number", Default: DefaultWaitingSeconds,

@@ -18,6 +18,14 @@
   version 6, and both presets (and the plugin's scaffold) carry it. Its gate and review are the
   orchestrator's. Group 4 is left.
 - 2026-10-17 group 3 (Init, attach and the presets (D3, D4)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
+- 2026-10-17 group 4 built, uncommitted: the calibrated figures, the per-lane tick and threshold
+  in `state` (`state/context.go`), the page's `context-colour.js`, and `docs/panel.md`'s *The
+  context policy*. Its gate and review are the orchestrator's. The Slice line is left.
+- 2026-10-17 task 4.4 built, uncommitted (D7 amended with P6): the status line posts
+  `auto_compact_window`, `signals.StatusPayload` reads it, `recordWindow` takes it first and
+  has no folder fallback, and tests cite LANECTX-2-S8 and S9. Group 4's gate and review are the
+  orchestrator's. The Slice line is left.
+- 2026-10-17 group 4 (The bar and the alert (D7)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
 
 ## Decision log
 - 2026-10-17, group 1: **The probes read the window from `/context`'s "Auto-compact window" and
@@ -137,6 +145,76 @@
       `origin/main` too, so they predate this change and are not group 3's.
     - It does not manage `.clauductor/panel.json`, which 3.2 edits by hand.
     - Applying it writes `.claude/settings.json`, which the sandbox refuses.
+- 2026-10-17, group 4: **The window is read at each status post, from the lane record holding
+  the post's session id, and the session keeps the window its figure was measured against.**
+  - **The alternative:** reading the record when the view is computed.
+  - **Why:** at view time a restart would divide the old process's tokens by the new window
+    before the relaunched lane posts. The cost: a post that arrives before the registry's first
+    poll (a panel restart) reads `used_percentage` until the next post.
+- 2026-10-17, group 4: **A windowed session's post without `current_usage` keeps its last
+  figure; it never falls back to `used_percentage`.**
+  - **Why:** `used_percentage` is against the model's whole window (P4), so a fallback would
+    flip the bar between two scales. A corrupt record counts as no window.
+- 2026-10-17, group 4: **The per-lane marks are `ctxTick` and `ctxAlertPct` on the lane row
+  (`LaneView`), the terminal lane (`TermLaneView`) and `Metrics`, taken from the session the
+  figure comes from.** A terminal lane that has not posted takes them from its record.
+  - **The alternative:** one pair per lane, from its record.
+  - **Why:** a worktree can hold more than one session, and the figure is the highest of them.
+    Its marks must be that session's.
+- 2026-10-17, group 4: **On the page, a missing threshold colours nothing; only the tick falls
+  back to `trends.autocompactPct`.** The lane row takes its figure and its marks from the same
+  view (`ContextColour.laneMarks`), as `laneCtx` picks the figure.
+  - **The alternative:** falling back to 85, as before.
+  - **Why:** the server sets a threshold wherever it sets a figure, and both come from the same
+    binary. Task 4.2 names a fallback for the tick alone.
+- 2026-10-17, group 4: **`docs/panel.md` gets a *The context policy* section under *Lanes*, and
+  the launch argv there gains `[--settings '{"env":{…}}']`**, which group 2 left out.
+- 2026-10-17, group 4: **LANECTX-2-S3's test uses a config whose window is already 300000,
+  with the lane's record at 200000.**
+  - **Why:** the state never reads the config's window. A test that edits the config would prove
+    nothing more. The restart is the record moving to 300000; group 2's test proves that.
+- 2026-10-17, group 4: **The `web` and `panel` packages' short tests ran outside the sandbox.**
+  - **Why:** the sandbox refuses local port binds (`bind: operation not permitted`). Both
+    passed there.
+- 2026-10-17, group 4 (review): **A status post's window is its session's lane record's, by
+  session id, else by the worktree the session is bound to; where several records share that
+  worktree, the smallest window.**
+  - **The alternative:** the session id alone, as first built. Or matching the lane's process
+    by PID (`claude agents` against the tmux pane), which is a new mechanism.
+  - **Why:** `/clear` gives the lane's process a new session id that no record holds. By id
+    alone, that session read against the model's window and its alert sat past compaction.
+    The status post carries no lane or PID. So a non-lane session in a windowed lane's
+    worktree is also measured against the window, as is the owner's own session in the root
+    when a windowed lane runs there. Those alert early. The smallest-window rule errs the
+    same way: a figure read high alerts early, and one read low never alerts.
+  - **Superseded** by the owner's amendment of D7 (P6) and task 4.4: the folder fallback is gone.
+- 2026-10-17, group 4 (4.4): **`auto_compact_window` decodes as `signals.PostedInt`, which reads
+  any value that is not a JSON integer (a string, a fraction, `null`) as 0 instead of failing the
+  decode.**
+  - **The alternative:** a plain `*int64`, where a status line that posts `"200000"` would fail
+    `ParseStatus` and cost the post its context, cost and quota.
+  - **Why:** the field comes from a project's own status line, not Claude Code; `RateLimits`
+    already decodes leniently for the same reason.
+- 2026-10-17, group 4 (4.4): **The status line posts the field only for digits with no leading
+  zero, through `jq -c --argjson`, and posts the stdin unchanged if jq fails or prints nothing.**
+  The docs snippet does the same.
+  - **The alternative:** any digits, or splicing the text without jq.
+  - **Why:** JSON forbids a leading zero, so `--argjson` would refuse one; splicing breaks on an
+    empty object. jq is already the template status line's dependency.
+- 2026-10-17, group 4 (4.4): **`.claude/statusline.sh` and `.claude/checks/statusline.sh` were
+  copied from `template/` by hand, not by applying `clauductor update`.**
+  - **The alternative:** `clauductor update --template-dir template`, applied.
+  - **Why:** as in group 3, applying it also adds `docs/practices/` and a `model-roles.json` key
+    that predate this change, and writes `.claude/settings.json`, which the sandbox refuses. Its
+    dry run, before the copy, named exactly these two files as modified; after it, none.
+- 2026-10-17, group 4 (4.4): **The status-line checks unset `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+  before their cases, and `install`'s snippet test strips it from the environment it passes.**
+  - **Why:** a lane runs them under its own window, which would add the field to every post and
+    fail the cases that expect none.
+  - **Also:** the snippet test gained cases for a 200000 window (posted) and `200k` (not posted).
+    The check's window cases use their own 30 s live pid, since the first one's 5 s have passed
+    by then. Against HEAD's status line, the check's 200000 case fails (run). With the posted
+    window ignored in `recordWindow`, S8's test fails at 18% (run).
 
 ## 1. The probes (D8)
 The orchestrator runs these outside the sandbox. It uses a throwaway git repository in the
@@ -176,7 +254,7 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - Run `framework/clauductor update` from the repository root with the checkout's binary.
 
 ## 4. The bar and the alert (D7)
-- [ ] 4.1 `framework/internal/panel/state/model.go` computes a lane's context against its recorded window: `current_usage`'s input, cache creation and cache read tokens over the window.
+- [x] 4.1 `framework/internal/panel/state/model.go` computes a lane's context against its recorded window: `current_usage`'s input, cache creation and cache read tokens over the window.
   - Both of the state's context figures:
     - the session's `CtxPct`, set from the status post in `model.go` (today `:629-632`), which the alert, the lane row and `panel.js:1118` read;
     - the metrics' `CtxPct`, set in `Metrics.fold` (today `:958-962`), merged across a lane's sessions (`:1080`), drawn at `panel.js:1401` and read by `state/trends.go` (`:241`).
@@ -187,15 +265,27 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - The alert threshold becomes a per-lane value too (D13): a lane with a recorded window carries the lower of `alerts.context_pct` and its tick less 5; a lane without one carries `alerts.context_pct`. An `alerts.context_pct` of 0 is carried as 0, off, for every lane. The alert in `state/alerts.go` compares the new figure with the lane's own threshold.
   - The alert's text (`alerts.go`, today `%.0f` at `:225`) shows the threshold to one decimal where it has one ("alert at 78.5%") and whole otherwise ("alert at 85%").
   - Tested in `framework/internal/panel/state/alerts_test.go` and `state/metrics_test.go`, citing [LANECTX-2-S1] (both figures and the window), [LANECTX-2-S2], [LANECTX-2-S3], [LANECTX-2-S5], [LANECTX-2-S6] and [LANECTX-2-S7].
-- [ ] 4.2 The page draws the context warning colour from each lane's own alert threshold, which the state carries (task 4.1), not a hard-coded 85, at both draw sites: the lane's context at `panel.js:1118` (the session's figure) and the metrics view's at `:1401` (the metrics' figure).
+- [x] 4.2 The page draws the context warning colour from each lane's own alert threshold, which the state carries (task 4.1), not a hard-coded 85, at both draw sites: the lane's context at `panel.js:1118` (the session's figure) and the metrics view's at `:1401` (the metrics' figure).
   - A threshold of 0 draws no warning colour.
   - The decision is a pure function in its own static file, which `panel.js` calls, as `term-links.js` is.
   - `panel.js` draws each lane's own auto-compact tick from the state (task 4.1), in place of the page-wide value at `:1118` and `:1401`. It falls back to `trends.autocompactPct` only for state from an older server, since 4.1 gives every lane a tick.
   - The tick's choice sits in the same pure file as the colour, and the same node test covers it.
   - Tested under node, as `web/term_links_test.go` runs `term-links.js`, in a new `web/context_colour_test.go`, citing [LANECTX-2-S4], [LANECTX-2-S6] and [LANECTX-2-S7].
-- [ ] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits.
+- [x] 4.3 `docs/panel.md` describes the launch policy (the keys, `--settings`, and what a repository cannot override) and the calibrated bar, and names the limits.
   - The bar: the tick at the window less Claude Code's 33k buffer, and the alert below it (D13); the alerts table's `context` row says what a windowed lane compares.
   - `alerts.context_pct`'s `Doc` in `framework/internal/panel/config/fields.go` (`:146-147`) says a windowed lane alerts at the lower of it and the tick less 5, and 0 is off. It is generated into `docs/panel.md`'s reference table and `docs/panel.schema.json`, so regenerate both. Also fix `AlertContext`'s comment in `state/alerts.go` (`:25`), which still says `used_percentage`.
   - The limits: managed settings win; a repository's own `ENABLE_CLAUDEAI_MCP_SERVERS=true` does not turn the connectors back on, as observed on Claude Code 2.1.302 (P3); a Claude Code release that changes the 33k buffer moves compaction and not the tick (D7); a small window loses money, 150k by $31.73 a week in the simulation (D4); and an attached lane with no status line shows no bar until PANEL-49.
+- [x] 4.4 The session reports its own window, and the folder fallback goes (D7, amended 2026-10-17 with P6).
+  - The status line posts the window: `template/.claude/statusline.sh` adds `"auto_compact_window": <n>` at the top level of the JSON it posts when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is digits, and posts the stdin unchanged otherwise. The line it prints does not change.
+    - Bring this repository's `.claude/statusline.sh` along with `framework/clauductor update`, and rebuild `plugin/` with `scripts/build-plugin.sh`.
+    - `docs/panel.md`'s status-line snippet (between `<!-- statusline begin -->` and its end marker) and its prose say what the field is and why a repository's own status line should post it.
+    - A case in `template/.claude/checks/statusline.sh` (and its plugin copy, through the rebuild): the curl stand-in records the posted body. With the variable set to 200000 the body holds `auto_compact_window` 200000; unset, and set to a non-number, it holds no such key.
+  - `signals.StatusPayload` (`framework/internal/panel/signals/hooks.go`) reads `auto_compact_window`.
+  - `framework/internal/panel/state/context.go`: the window a post is measured against is the posted `auto_compact_window` when it is within `config.MinContextWindow`–`MaxContextWindow`; else the record carrying the session id; else 0. `model.go` (today `:635`) passes the post's window in place of `s.Lane`.
+  - Remove `recordWindow`'s folder fallback (the loop over records by `rec.Path`, and the comment that defends it), and update its doc comment and the comment at the `model.go` call site.
+  - Tests in `framework/internal/panel/state/alerts_test.go`, replacing the `"cleared"` case at today's `:309`:
+    - a post under a new session id carrying `auto_compact_window` 200000 reads against 200000, citing [LANECTX-2-S8];
+    - a post under a session id no record holds, in a windowed lane's worktree and with no `auto_compact_window`, reads `used_percentage` and raises no context alert, citing [LANECTX-2-S9];
+    - a posted window outside the range is ignored, and the record by id applies.
 
 - [ ] Slice: an owner can start a lane in an attached repository from the panel at http://127.0.0.1:<port> and see it launched with a 200k context window and connectors off

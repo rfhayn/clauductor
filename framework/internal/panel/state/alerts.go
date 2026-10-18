@@ -22,7 +22,7 @@ const (
 	AlertRateLimit    = "rate_limit"     // StopFailure error_type rate_limit
 	AlertStopFailure  = "stop_failure"   // any other StopFailure
 	AlertNoAutoResume = "no_auto_resume" // quota_auto_resume_stale / _disabled: it will not continue by itself
-	AlertContext      = "context"        // context_window.used_percentage above the threshold
+	AlertContext      = "context"        // a session's context at or above its lane's threshold: against its recorded window, else used_percentage (PANEL-48)
 	AlertIdle         = "idle"           // a live session idle longer than N min
 	AlertQuota        = "quota"          // the 5-hour quota above the threshold
 	// PANEL-28: Claude Code's login-refresh locks, the machine's (like the quota).
@@ -221,8 +221,9 @@ func (m *Model) computeAlerts(v *View, th config.Thresholds, now time.Time) []Al
 		if s.Note != nil && (s.Note.Type == "quota_auto_resume_stale" || s.Note.Type == "quota_auto_resume_disabled") {
 			add(AlertNoAutoResume, signals.SevWarn, signals.ClassifyNotification(s.Note.Type).Label+": resume it yourself", s.Note.At)
 		}
-		if th.ContextPct > 0 && s.CtxPct != nil && *s.CtxPct >= th.ContextPct && s.HookStatus != "ended" {
-			add(AlertContext, signals.SevWarn, fmt.Sprintf("context at %.0f%% (alert at %.0f%%)", *s.CtxPct, th.ContextPct), s.StatusAt)
+		// The lane's own threshold (D13): a windowed lane's sits below its tick.
+		if at := ctxAlertPct(th.ContextPct, s.ctxWindow); at > 0 && s.CtxPct != nil && *s.CtxPct >= at && s.HookStatus != "ended" {
+			add(AlertContext, signals.SevWarn, fmt.Sprintf("context at %.0f%% (alert at %s%%)", *s.CtxPct, pctText(at)), s.StatusAt)
 		}
 		if r := m.agentReading(s, now); th.Idle > 0 && r != nil && r.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
 			add(AlertIdle, signals.SevInfo, "idle", s.IdleSince)

@@ -219,7 +219,7 @@
         },
         "context_pct": {
           "default": 85,
-          "description": "A context window at or above this percentage raises a context alert.",
+          "description": "A session's context at or above this percentage raises a context alert. A lane launched with a context window (`launch.context_window`) alerts at the lower of this and its auto-compact tick less 5 points, so it alerts before it compacts. `0` turns the alert off for every lane.",
           "minimum": 0,
           "type": "number"
         },

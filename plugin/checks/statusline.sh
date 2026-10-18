@@ -3,15 +3,20 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # The status line posts its stdin to the panel ONLY while ~/.clauductor/panel/pid names a live
 # process (a positive integer), and otherwise makes no call; in every case it prints its line and
 # exits 0. The post is observed with a curl stand-in on PATH that records its arguments, so no
-# server or network is needed. Also: status-write.sh writes the file the status line reads.
+# server or network is needed. Also: status-write.sh writes the file the status line reads, and
+# the post carries "auto_compact_window" only when CLAUDE_CODE_AUTO_COMPACT_WINDOW is digits
+# (PANEL-48, D7), with the stand-in recording the body it was sent.
 . "$(dirname "$0")/lib.sh"
 need jq
+
+# A lane runs this check under its own window: the cases below set the variable themselves.
+unset CLAUDE_CODE_AUTO_COMPACT_WINDOW
 
 d=$(scratch)
 mkdir -p "$d/bin" "$d/repo"
 cat > "$d/bin/curl" <<EOF
 #!/bin/sh
-cat >/dev/null
+cat > "$d/body"
 echo "\$*" >> "$d/posts"
 EOF
 chmod +x "$d/bin/curl"
@@ -42,7 +47,33 @@ for c in "$dead:a dead pid (stale files)" "-:no pid file" "-1:pid -1" "0:pid 0" 
   set -- $(run "$p")
   [ "$1" = 0 ] && [ "$2" = 0 ] && ok "no post with $why" || fail "$why: exit $1, $2 posts"
 done
+
 kill "$live" 2>/dev/null
+
+# The window the session runs under: posted as a number when the variable is digits, never
+# otherwise, and the line printed is the same either way. Its own live pid: the one above has
+# outlived its 5 s by now.
+sleep 30 & alive=$!
+plain=$(run "$alive")
+window() {  # window VALUE (or "-" for unset): prints the posted body's auto_compact_window, "none" or "no post"
+  rm -f "$d/body"
+  out=$(
+    [ "$1" = "-" ] || { CLAUDE_CODE_AUTO_COMPACT_WINDOW=$1; export CLAUDE_CODE_AUTO_COMPACT_WINDOW; }
+    run "$alive"
+  )
+  [ "$out" = "$plain" ] || echo "line changed: $out"
+  [ -f "$d/body" ] || { echo "no post"; return; }
+  jq -r 'if has("auto_compact_window") then (.auto_compact_window | tojson) else "none" end' "$d/body" 2>/dev/null || echo "bad json"
+}
+got=$(window 200000)
+[ "$got" = 200000 ] && ok "posts auto_compact_window 200000 under CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000" || fail "window 200000: $got"
+grep -q '"context_window"' "$d/body" 2>/dev/null && ok "the post keeps the stdin's own fields" || fail "the post lost the stdin: $(cat "$d/body" 2>/dev/null)"
+for c in "-:unset" "abc:not a number" "200k:digits and letters" "0200000:a leading zero" ":empty"; do
+  v=${c%%:*}; why=${c#*:}
+  got=$(window "$v")
+  [ "$got" = none ] && ok "no auto_compact_window with the variable $why" || fail "variable $why: $got"
+done
+kill "$alive" 2>/dev/null
 
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"42% ctx"*) ok "renders the context %: $line" ;; *) fail "no context % in: $line" ;; esac
