@@ -30,6 +30,8 @@
 # Rows: every row the plan names, except a merged one the filter drops and none it names that is
 # no roadmap row (warned); every open row (queued, in flight, parked) it does not name, as session
 # "Unplanned" (or "Parked"); and every merged row the filter keeps.
+# A row not merged that .claude/local/cloud-lanes.tsv lists (<id> TAB <routine name>) is noted
+# "cloud: <routine name>", so the owner sees which work runs in the cloud.
 #
 # The stamp, <git common dir>/clauductor/tracker-refreshed, holds the roadmap blob of the last
 # upload; context.d/session-start/roadmap-tracker.sh compares it with today's roadmap.
@@ -151,7 +153,9 @@ printf '%s\n' "$plan" > "$out/.plan"
 printf '%s\n' "$approved" > "$out/.approved"
 printf '%s\n' "$building" > "$out/.building"
 printf '%s\n' "$merges" > "$out/.merges"
-jq -n --arg since "$since" \
+# The cloud lanes: comments and lines without a routine name are skipped.
+awk -F'\t' '!/^#/ && $1 != "" && $2 != "" { print $1 "\t" $2 }' "$ROOT/.claude/local/cloud-lanes.tsv" > "$out/.cloud" 2>/dev/null || : > "$out/.cloud"
+jq -n --arg since "$since" --rawfile cloud "$out/.cloud" \
   --rawfile tsv "$out/.tsv" --rawfile plan "$out/.plan" --rawfile approved "$out/.approved" \
   --rawfile building "$out/.building" --rawfile merges "$out/.merges" '
   def lines($s): $s | split("\n") | map(select(length > 0) | split("\t"));
@@ -165,6 +169,7 @@ jq -n --arg since "$since" \
   (lines($plan)) as $p
   | ([$p[] | select(.[0] == "R") | {key: .[1], value: {session: .[2], order: (.[3] | tonumber), pos: (.[4] | tonumber)}}] | from_entries) as $where
   | ([$p[] | select(.[0] == "D") | {key: .[1], value: .[2]}] | from_entries) as $owner
+  | ([lines($cloud)[] | {key: .[0], value: .[1]}] | from_entries) as $cloudlane
   | ($approved | split("\n") | map(select(length > 0))) as $ok
   | ($building | split("\n") | map(select(length > 0))) as $built
   | ([$merges | split("\n")[] | select(length > 0) | split(" ") | {key: .[0], value: .[1]}] | reverse | from_entries) as $merged
@@ -194,7 +199,8 @@ jq -n --arg since "$since" \
        note: ([(if .deps != "" and ($state != "merged") then "after " + (.deps | gsub(","; ", ")) else empty end),
                (if .budget != "" then "budget $\(.budget)" else empty end),
                (if .due != "" then "due \(.due)" else empty end),
-               (if $state == "merged" then "merged \($md)" else empty end)] | join("; ")),
+               (if $state == "merged" then "merged \($md)" else empty end),
+               (if $state != "merged" and $cloudlane[.id] then "cloud: \($cloudlane[.id])" else empty end)] | join("; ")),
        _pos: ($w.pos // 0), _line: .line}]
   | sort_by(.order, ._pos, ._line) | map(del(._pos, ._line))' > "$out/roadmap.json" || die "cannot build roadmap.json"
 
