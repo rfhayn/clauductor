@@ -82,7 +82,15 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 				return fmt.Errorf("not inside a git repository, and no project is registered; pass --project <path>")
 			}
 		}
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+		// A closed terminal stops the panel the same way: its claude calls run in
+		// sessions of their own (signals.ExecRunner), so the hangup no longer reaches
+		// them, and the shutdown stops them instead. Not under nohup, which asked for
+		// the hangup to be ignored (Notify would undo that).
+		if !signal.Ignored(syscall.SIGHUP) {
+			sigs = append(sigs, syscall.SIGHUP)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), sigs...)
 		defer stop()
 		return panel.Run(ctx, panel.Options{
 			Project:     project,

@@ -353,11 +353,11 @@ while :; do sleep 1; done
 	}
 }
 
-// [CLAUDECALLS-1-S4] Close kills a call until it has ended: a child forked as the
-// group's SIGKILL lands can miss it (macOS), and would hold the call's output open
-// past Close's wait. This claude forks all the time: one kill alone missed about one
-// shutdown in thirteen here, so forty in a row passed about one run in twenty-five.
-// A short grace keeps the forty quick. Linux's fork does not lose the kill.
+// Close kills a call until it has ended (#143): a child forked as the group's SIGKILL
+// lands can miss it (macOS), and would hold the call's output open past Close's wait.
+// This claude forks all the time: one kill alone missed about one shutdown in
+// thirteen here, so forty in a row passed about one run in twenty-five. A short
+// grace keeps the forty quick. Linux's fork does not lose the kill.
 func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf("trap '' TERM\necho forking > %s\nwhile :; do sleep 2 & sleep 2 & sleep 2 & sleep 2 & sleep 0.005; done\n", shq(marks)))
@@ -377,6 +377,9 @@ func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 		if err := result(t, errc, "the stopped call"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("shutdown %d: err %v, want the cancellation", i, err)
 		}
+		// The caller returns before the gate has marked the call stopped and sent
+		// SIGTERM: a kill before those would leave no line naming both.
+		waitCalls(t, g, "the SIGTERM", 1, func(c call) bool { return c.stopped && c.term })
 		g.Close(20 * time.Millisecond)
 		if cs := g.calls(); len(cs) != 1 || !ended(cs[0]) {
 			t.Fatalf("shutdown %d: the call had not ended when Close returned: %+v", i, cs)

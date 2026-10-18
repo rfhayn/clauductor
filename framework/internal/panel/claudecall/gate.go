@@ -99,7 +99,8 @@ type call struct {
 	stoppedAt        time.Time
 	locks            []string // the locks present when it was stopped
 	term             bool     // SIGTERM reached its process (ExecRunner's report)
-	killedAtShutdown bool
+	killedAtShutdown bool     // the claude itself got the shutdown's SIGKILL
+	groupGone        bool     // nothing of its group was left to kill (signals.KillCall)
 }
 
 // NewGate wraps inner. r is the locks the pause reads; log receives a line per
@@ -423,10 +424,12 @@ func (g *Gate) killRunning() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	for _, c := range g.history {
-		// ErrProcessDone: nothing of the call was left to kill.
-		if c.ended.IsZero() && c.proc != nil && signals.KillCall(c.proc) == nil {
-			c.killedAtShutdown = true
+		if !c.ended.IsZero() || c.proc == nil || c.groupGone {
+			continue
 		}
+		claude, err := signals.KillCall(c.proc)
+		c.killedAtShutdown = c.killedAtShutdown || claude
+		c.groupGone = errors.Is(err, os.ErrProcessDone)
 	}
 }
 
