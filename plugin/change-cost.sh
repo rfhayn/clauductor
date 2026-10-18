@@ -3,7 +3,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # change-cost.sh: what a change has cost so far, against its budget (item 12 of the change process).
 #
 #   sh .claude/change-cost.sh <id>          one line: "cost $12.34 of budget $40 …", or CANNOT CHECK
-#   sh .claude/change-cost.sh <id> --json   {"change","costUsd","budgetUsd","over","messages","rejectedLanes","unpriced","source"}
+#   sh .claude/change-cost.sh <id> --json   {"change","costUsd","budgetUsd","budgetKind","over","messages","rejectedLanes","unpriced","source"}
+#                                           (budgetKind: hard, soft, none or unreadable; lib/change.sh proposal_budget)
 #
 # WHERE THE FIGURE COMES FROM. Claude Code's transcripts on THIS machine
 # (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**/*.jsonl, subagents included). Every assistant message
@@ -55,8 +56,21 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 
 id=${1:-}; [ -n "$id" ] || { echo "usage: change-cost.sh <change-id> [--json]" >&2; exit 64; }
 json=""; [ "${2:-}" = --json ] && json=1
+# The budget, read the one way (proposal_budget): the open change's proposal, else its archived one.
+# Read before anything can fail, so a CANNOT CHECK still reports it: build-change takes budgetUsd
+# and budgetKind (hard, soft, none or unreadable) from this script's --json (OPS-85).
+budget=$(proposal_budget "$ROOT/$CHANGES_DIR/$id/proposal.md")
+[ -n "$budget" ] || for a in "$ROOT/$CHANGES_DIR"/archive/*-"$id"/proposal.md; do
+  [ -f "$a" ] && budget=$(proposal_budget "$a")
+done
+case $budget in
+  '') budgetUsd=null budgetKind=none ;;
+  unreadable) budgetUsd=null budgetKind=unreadable ;;
+  *) budgetUsd=$(awk -v n="${budget% *}" 'BEGIN { print n + 0 }') budgetKind=${budget#* } ;;
+esac
 cannot() {
-  if [ -n "$json" ]; then jq -cn --arg c "$id" --arg r "$1" '{change:$c, costUsd:null, cannot:$r}' 2>/dev/null || echo "{\"change\":\"$id\",\"costUsd\":null}"
+  if [ -n "$json" ]; then jq -cn --arg c "$id" --arg r "$1" --argjson b "$budgetUsd" --arg k "$budgetKind" '{change:$c, costUsd:null, budgetUsd:$b, budgetKind:$k, cannot:$r}' 2>/dev/null \
+    || echo "{\"change\":\"$id\",\"costUsd\":null,\"budgetUsd\":$budgetUsd,\"budgetKind\":\"$budgetKind\"}"
   else echo "CANNOT CHECK — $1"; fi
   exit 2
 }
@@ -109,11 +123,6 @@ wfiles=$(printf '%s\n' "$roots" | while read -r r; do [ -n "$r" ] || continue
 files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 [ -n "$files" ] || cannot "no transcript on this machine ran on $branch (under $projects/$slug*)"
 
-budget=$(proposal_field "$ROOT/$CHANGES_DIR/$id/proposal.md" Budget | tr -d '$')
-[ -n "$budget" ] || for a in "$ROOT/$CHANGES_DIR"/archive/*-"$id"/proposal.md; do
-  [ -f "$a" ] && budget=$(proposal_field "$a" Budget | tr -d '$')
-done
-
 # shellcheck disable=SC2086
 jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" '
   select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
@@ -122,7 +131,7 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
            and ($inwt or ($cwd | startswith($lanes) | not))),
      inwt: $inwt}' $files 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --arg budget "${budget:-}" --argjson rej "$rejectedjson" "$USAGE_JQ_DEFS"'
+| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
   | [ group_by(.f)[] | ((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) as $agent
       | .[] | select(.onb or .inwt or $agent) ]
@@ -131,7 +140,8 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
     | { model: $x.model, priced: ($usd != null), usd: ($usd // 0) } ]
   | { change: $c,
       costUsd: ((map(.usd) | add // 0) * 100 | round / 100),
-      budgetUsd: (if $budget == "" then null else ($budget | tonumber) end),
+      budgetUsd: $budget,
+      budgetKind: $kind,
       messages: length,
       rejectedLanes: $rej,
       unpriced: ([ .[] | select(.priced | not) | .model ] | unique | map(select(. != "<synthetic>"))),
@@ -140,7 +150,10 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
   || { rm -f "${TMPDIR:-/tmp}/change-cost.$$"; cannot "jq could not read the transcripts"; }
 out=$(cat "${TMPDIR:-/tmp}/change-cost.$$"); rm -f "${TMPDIR:-/tmp}/change-cost.$$"
 if [ -n "$json" ]; then printf '%s\n' "$out"; exit 0; fi
-printf '%s' "$out" | jq -r '"cost $\(.costUsd) " + (if .budgetUsd == null then "(no budget)" else "of budget $\(.budgetUsd)" + (if .over then " — OVER BUDGET" else "" end) end)
+printf '%s' "$out" | jq -r '"cost $\(.costUsd) " + (if .budgetKind == "unreadable" then "(budget UNREADABLE: the **Budget:** line must read $N, $N, soft or $N, hard)"
+    elif .budgetUsd == null then "(no budget)"
+    else "of \(if .budgetKind == "soft" then "soft " else "" end)budget $\(.budgetUsd)"
+      + (if .over then " — OVER BUDGET" + (if .budgetKind == "soft" then " (soft: report it to the owner; the build goes on)" else "" end) else "" end) end)
   + " over \(.messages) message(s) on \(.change), \(.source)"
   + (if (.unpriced | length) > 0 then "; NOT priced (add to .prices): \(.unpriced | join(", "))" else "" end)
   + (if (.rejectedLanes | length) > 0 then "; rejected lanes: \(.rejectedLanes | map(split("/") | last) | join(", ")) (another branch was recorded there last)" else "" end)'

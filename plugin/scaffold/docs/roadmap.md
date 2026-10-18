@@ -52,7 +52,8 @@ A phase is several changes. Decompose as you go, phase by phase.
   since. One per section; a misspelled, misplaced, doubled or impossible one is an error.
 - The current phase is derived: the first phase with a queued, in-flight or open row.
 - **A budget**: `Budget: $N` anywhere in a row (the Scope cell, say) is the change's cost
-  appetite. Its `proposal.md` repeats it, `build-change` stops past it, archive records the actual.
+  appetite. Its `proposal.md` repeats it, `build-change` stops past it (or, for `**Budget:** $N,
+  soft` in the proposal, reports it and goes on), archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
 

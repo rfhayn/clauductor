@@ -7,8 +7,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
 #                       message id, at .prices; ignores another branch and another repo; says OVER
-#                       BUDGET past the proposal's budget; names a model it cannot price; and says
-#                       CANNOT CHECK, never $0, when no transcript ran on the branch.
+#                       BUDGET past the proposal's budget; reports the budget's kind (hard, soft,
+#                       unreadable); names a model it cannot price; and says CANNOT CHECK, never $0,
+#                       when no transcript ran on the branch, still reporting the budget.
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -120,6 +121,22 @@ expect_rc 0 "$rc" "change-cost reads the branch's transcripts"
 [ "$(jq -r .over "$d/out" 2>/dev/null)" = false ] && ok "change-cost: \$15 of a \$15 budget is not over" || fail "over: $(cat "$d/out")"
 msg m6 claude-opus-5-5 "$B" "$main" 250000 0 >> "$P/$slug/s1.jsonl"
 cost; case "$(cat "$d/out")" in *"cost \$16 of budget \$15 — OVER BUDGET"*) ok "change-cost: past the budget it says OVER BUDGET" ;; *) fail "change-cost over budget: $(cat "$d/out")" ;; esac
+# The budget's kind (OPS-85), which build-change acts on: the Budget line's own words, read by
+# lib/change.sh proposal_budget. Unmarked is hard; `, soft` is soft; anything else is UNREADABLE.
+budgetline() { sed "s/^\*\*Budget:\*\* .*/**Budget:** $1/" "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"; }
+cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[15,"hard",true]' ] && ok "change-cost --json: an unmarked '\$15' is a hard budget (budgetKind hard)" || fail "change-cost, unmarked budget: $(cat "$d/out")"
+budgetline '$15, soft'
+cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[15,"soft",true]' ] && ok "change-cost --json: '\$15, soft' is budgetKind soft, and over it is still over" || fail "change-cost, soft budget: $(cat "$d/out")"
+cost; case "$(cat "$d/out")" in *"cost \$16 of soft budget \$15 — OVER BUDGET (soft: report it to the owner; the build goes on)"*) ok "change-cost: past a soft budget it says so, and that the build goes on" ;; *) fail "change-cost over a soft budget: $(cat "$d/out")" ;; esac
+budgetline 'fifteen dollars, soft'
+cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[null,"unreadable",false]' ] && ok "change-cost --json: a Budget line it cannot read is budgetKind unreadable, neither hard nor soft" || fail "change-cost, unreadable budget: $(cat "$d/out")"
+cost; case "$(cat "$d/out")" in *"budget UNREADABLE"*) ok "change-cost: ...and its one line says the budget is UNREADABLE" ;; *) fail "change-cost text, unreadable budget: $(cat "$d/out")" ;; esac
+sed '/^\*\*Budget:\*\*/d' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
+cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[null,"none",false]' ] && ok "change-cost --json: no Budget line is budgetKind none, with no figure" || fail "change-cost, no budget: $(cat "$d/out")"
+cost; case "$(cat "$d/out")" in *"(no budget)"*) ok "change-cost: ...and its one line says (no budget)" ;; *) fail "change-cost text, no budget: $(cat "$d/out")" ;; esac
+sed 's/^\*\*Risk:\*\*.*/&\
+**Budget:** $15/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
+grep -qx '\*\*Budget:\*\* \$15' "$C/proposal.md" || fail "change-tools: could not restore the fixture's '**Budget:** \$15'"
 msg m7 mystery-model-1 "$B" "$main" 1000 0 >> "$P/$slug/s1.jsonl"
 cost; case "$(cat "$d/out")" in *"NOT priced"*mystery-model-1*) ok "change-cost names a model .prices cannot price" ;; *) fail "unpriced model not named: $(cat "$d/out")" ;; esac
 # OPS-74: an agent records its LEAD session's branch, often a stale `main`, never its own. Its cwd is
@@ -200,6 +217,9 @@ rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"
 case "$(cat "$d/out")" in "CANNOT CHECK"*) ok "...and says CANNOT CHECK, not \$0" ;; *) fail "no-transcript output: $(cat "$d/out")" ;; esac
+cost --json
+jq -e '.costUsd == null and .budgetUsd == 15 and .budgetKind == "hard" and (.cannot | length > 0)' "$d/out" >/dev/null 2>&1 \
+  && ok "...and its --json still reports the budget and its kind, so build-change knows what it cannot enforce" || fail "change-cost --json, CANNOT CHECK: $(cat "$d/out")"
 
 # CHANGE_RECORD_EXTRA (P1.7): the project's own required sections, as checks/changes.sh and rule 9
 # read them (lib/change.sh change_extra_missing).

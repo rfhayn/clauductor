@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome instead, and it notifies the owner: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -156,7 +156,8 @@ const PREFLIGHT = {
     clean: { type: 'boolean' },
     gitDir: { type: 'string', description: 'verbatim output of git rev-parse --absolute-git-dir' },
     risk: { type: 'string', description: 'the value of proposal.md\'s **Risk:** line, verbatim; empty if there is none' },
-    budgetUsd: { type: ['number', 'null'], description: 'the number in proposal.md\'s **Budget:** $N line; null if there is none' },
+    budgetUsd: { type: ['number', 'null'], description: 'budgetUsd from change-cost.sh --json, verbatim; null if it printed null or nothing' },
+    budgetKind: { type: ['string', 'null'], description: 'budgetKind from change-cost.sh --json, verbatim (hard, soft, none or unreadable); null if it printed no budgetKind' },
     costUsd: { type: ['number', 'null'], description: 'costUsd from change-cost.sh --json; null if it could not check' },
     economy: { type: 'boolean', description: 'true only if the economy file exists and parses with "economy": true' },
     today: { type: 'string', description: 'verbatim output of date +%Y-%m-%d' },
@@ -172,7 +173,7 @@ const PREFLIGHT = {
       },
     },
   },
-  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'costUsd', 'economy', 'today'],
+  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'budgetKind', 'costUsd', 'economy', 'today'],
 }
 const BUILD = {
   type: 'object',
@@ -238,7 +239,7 @@ const grades = (entry) => entry.rounds.map((r) => `R${r.round} ${r.grade}`).join
 // reportTo: the session that asked for this build (OPS-43). Every agent below returns its result to
 // this script, so none is lost here; but the script cannot SendMessage, so it hands the name back
 // in the report the launching session reads when the run returns, and that session sends it.
-const report = { change, reportTo: typeof args.reportTo === 'string' && args.reportTo.trim() ? args.reportTo.trim() : null, stoppedAt: null, reason: null, stopKind: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, costUsd: null, notify: null, warnings: [] }
+const report = { change, reportTo: typeof args.reportTo === 'string' && args.reportTo.trim() ? args.reportTo.trim() : null, stoppedAt: null, reason: null, stopKind: null, groups: [], receipt: null, verify: null, risk: null, economy: false, budgetUsd: null, budgetKind: null, costUsd: null, notify: null, warnings: [] }
 let ROOT = null
 
 // kind: 'stop' (an owner decision, an environment fault, a red gate, a limit) or 'stuck' (the
@@ -273,8 +274,8 @@ const pre = await agent(
 2. \`git status --porcelain\` → clean (true only if empty) and the dirty paths.
 3. Parse ${CHANGES}/${change}/tasks.md: every heading of the form "## <n>. <title>" is a group; count its "- [ ]" lines as openTasks.
 4. \`git rev-parse --absolute-git-dir\` → gitDir, \`git rev-parse --path-format=absolute --git-common-dir\` → commonDir, \`git rev-parse --show-toplevel\` → toplevel. Copy each output verbatim.
-5. From ${CHANGES}/${change}/proposal.md: the value of the \`**Risk:**\` line → risk (verbatim, empty if absent); the dollars in the \`**Budget:** $N\` line → budgetUsd (null if absent).
-6. \`sh .claude/change-cost.sh ${change} --json\` → its costUsd (null when it prints costUsd null or fails).
+5. From ${CHANGES}/${change}/proposal.md: the value of the \`**Risk:**\` line → risk (verbatim, empty if absent).
+6. \`sh .claude/change-cost.sh ${change} --json\` → from the JSON it prints, whatever its exit code: costUsd, budgetUsd and budgetKind, each copied verbatim (null for any it does not print, all three null if it prints no JSON). Do not read the budget from proposal.md yourself.
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
 Read the files; do not infer.`,
@@ -317,11 +318,31 @@ const pick = (role) => {
 const CHEAP = pick('mechanic')
 const BUILDER = { agentType: 'builder', ...pick('builder') }
 const REVIEWER = pick('reviewer') // for the log line only: the review itself is spawned by reviewSpawn
-Object.assign(report, { risk: RISK, economy: ECONOMY_ON, budgetUsd: pre.budgetUsd, costUsd: pre.costUsd })
+Object.assign(report, { risk: RISK, economy: ECONOMY_ON, budgetUsd: pre.budgetUsd, budgetKind: pre.budgetKind, costUsd: pre.costUsd })
 log(`Risk ${RISK}: builder ${BUILDER.model}/${BUILDER.effort}, reviewer ${REVIEWER.model}/${REVIEWER.effort}, mechanic ${CHEAP.model}/${CHEAP.effort}${ECONOMY_ON ? ' (economy mode)' : ''}`)
-// The budget (Shape Up's appetite): a change over it stops for the owner, who raises it or cuts scope.
+// The budget (Shape Up's appetite). Whether it is soft is the proposal's own **Budget:** line, read
+// ONE way by lib/change.sh proposal_budget and reported by change-cost.sh as budgetKind (OPS-85):
+//   `$N` or `$N, hard`  hard: a change over it stops for the owner, who raises it or cuts scope;
+//   `$N, soft`          soft: the overrun is reported (report.warnings, which the launching session
+//                       sends the owner with the outcome) and the build goes on;
+//   any other line      unreadable: the run stops here and says so, rather than guess either way.
+// A design's prose ("Budget $60, soft") is not read: the line is what the owner approved with it.
+const BUDGET_KIND = pre.budgetKind
+if (BUDGET_KIND === 'unreadable') return stop('budget', `proposal.md's **Budget:** line cannot be read: it must be \`$N\`, \`$N, soft\` or \`$N, hard\` (lib/change.sh proposal_budget); checks/changes.sh should have refused it`)
+if (BUDGET_KIND == null) report.warnings.push(pre.budgetUsd != null
+  ? `change-cost.sh reported a budget of $${pre.budgetUsd} but not its kind (no budgetKind): it is treated as HARD on this run`
+  : 'change-cost.sh did not report the proposal\'s budget (no budgetKind): any budget is NOT enforced on this run')
+const SOFT = BUDGET_KIND === 'soft'
 const overBudget = (cost) => pre.budgetUsd != null && cost != null && cost > pre.budgetUsd
-if (overBudget(pre.costUsd)) return stop('budget', `already $${pre.costUsd} against a budget of $${pre.budgetUsd}; the owner raises the budget (roadmap row and proposal.md) or cuts scope`)
+const softOver = (where, cost) => {
+  const w = `over its soft budget ${where}: $${cost} spent against a budget of $${pre.budgetUsd}; reported to the owner, and the build goes on`
+  report.warnings.push(w)
+  log(w)
+}
+if (overBudget(pre.costUsd)) {
+  if (!SOFT) return stop('budget', `already $${pre.costUsd} against a budget of $${pre.budgetUsd}; the owner raises the budget (roadmap row and proposal.md) or cuts scope`)
+  softOver('at preflight', pre.costUsd)
+}
 if (pre.budgetUsd != null && pre.costUsd == null) report.warnings.push('budget set, but change-cost.sh could not read the cost: the budget is NOT being enforced on this run')
 // Provenance trailers (model-roles.json provenance) and the attribution trailer, as ONE trailer block.
 const trailers = (role) => trailerBlock(CFG, change, role, pick(role).model, SESSION)
@@ -453,7 +474,10 @@ for (const g of todo) {
   entry.commit = c.sha
   entry.costUsd = c.costUsd
   if (c.costUsd != null) report.costUsd = c.costUsd
-  if (overBudget(c.costUsd)) return stop(`group ${g.n} budget`, `$${c.costUsd} spent against a budget of $${pre.budgetUsd} with group ${g.n} committed; the owner raises the budget or cuts scope, then re-run`)
+  if (overBudget(c.costUsd)) {
+    if (!SOFT) return stop(`group ${g.n} budget`, `$${c.costUsd} spent against a budget of $${pre.budgetUsd} with group ${g.n} committed; the owner raises the budget or cuts scope, then re-run`)
+    softOver(`with group ${g.n} committed`, c.costUsd)
+  }
 }
 
 // ── Receipt: the full gate on the committed HEAD, which is what pr-merge-guard rule 2 accepts ────
