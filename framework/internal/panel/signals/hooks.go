@@ -15,8 +15,10 @@ import (
 const DetailMax = 140
 
 // HookEvent is the subset of a Claude Code hook payload the panel uses. Unknown
-// fields are ignored by encoding/json and never stored: in particular the transcript
-// path is deliberately not declared, because the panel never reads transcripts.
+// fields are ignored by encoding/json and never stored: in particular the transcript's
+// path is deliberately not declared. The panel's one transcript reader
+// (transcript.go, PANEL-49 D1) builds it from a session id it has checked is a UUID,
+// so no process that can post a hook names the file the panel opens.
 type HookEvent struct {
 	SessionID            string `json:"session_id"`
 	Cwd                  string `json:"cwd"`

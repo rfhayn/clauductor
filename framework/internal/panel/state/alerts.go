@@ -223,7 +223,7 @@ func (m *Model) computeAlerts(v *View, th config.Thresholds, now time.Time) []Al
 		}
 		// The lane's own threshold (D13): a windowed lane's sits below its tick.
 		if at := ctxAlertPct(th.ContextPct, s.ctxWindow); at > 0 && s.CtxPct != nil && *s.CtxPct >= at && s.HookStatus != "ended" {
-			add(AlertContext, signals.SevWarn, fmt.Sprintf("context at %.0f%% (alert at %s%%)", *s.CtxPct, pctText(at)), s.StatusAt)
+			add(AlertContext, signals.SevWarn, fmt.Sprintf("context at %.0f%% (alert at %s%%)", *s.CtxPct, pctText(at)), s.ctxSince())
 		}
 		if r := m.agentReading(s, now); th.Idle > 0 && r != nil && r.Status == "idle" && !s.IdleSince.IsZero() && now.Sub(s.IdleSince) >= th.Idle {
 			add(AlertIdle, signals.SevInfo, "idle", s.IdleSince)

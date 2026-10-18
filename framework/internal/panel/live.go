@@ -76,10 +76,11 @@ func buildRuntime(o Options, clk clock.Clock, ticks Ticks, p loadedProject, trus
 	hub.TickEvery, hub.Coalesce = ticks.Hub, ticks.HubCoalesce
 	wts := p.wts
 	hub.Update(func(m *state.Model, now time.Time) { m.ApplyWorktrees(wts, nil, now) })
-	r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, trust, hub, lm, lanesWhy, clk, ticks)
-	r.raw = p.raw
 	// Once per runtime, not per push: a project whose config moves is started again.
-	r.outsideConfig = install.OutsideConfig(p.entry)
+	// It is decided before newRuntime, which builds the source table from it (PANEL-49
+	// D6): an attached project's lanes are measured from their transcripts.
+	r := newRuntime(p.entry.ID, o, p.cfg, p.entry.Root, p.cfgPath, install.OutsideConfig(p.entry), trust, hub, lm, lanesWhy, clk, ticks)
+	r.raw = p.raw
 	if lm != nil {
 		lm.Trusted = r.trusted // PANEL-20: worktree_setup and worktree_teardown are the config's commands
 	}

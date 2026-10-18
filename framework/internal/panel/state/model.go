@@ -121,9 +121,20 @@ type session struct {
 	// post's auto_compact_window, else the lane record's (PANEL-48, D7); 0 when it is
 	// Claude Code's used_percentage.
 	ctxWindow int
-	Model     string
-	StatusAt  time.Time // last status-line post
-	Stats     Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
+	// ctxAt is when a transcript reading set CtxPct (PANEL-49 D4), the context alert's
+	// time; zero when a status post set it, whose time is StatusAt.
+	ctxAt time.Time
+	// postedWindow is the last auto_compact_window the session's status line posted, so
+	// a transcript reading measures it against the same window a post would (D4).
+	postedWindow signals.PostedInt
+	Model        string
+	StatusAt     time.Time // last status-line post
+	Stats        Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
+	// tr is what its transcript readings found, in a project measured from transcripts
+	// (transcript.go). firstPromptAt and firstStopAt are D7's two conditions with no line.
+	tr            transcriptState
+	firstPromptAt time.Time
+	firstStopAt   time.Time
 	// From `claude agents --json`.
 	Agent     *signals.Agent
 	BusySince time.Time
@@ -234,6 +245,10 @@ type Model struct {
 	// (lane id → its session and tmux creation time).
 	endedIDs  map[string]time.Time
 	liveLanes map[string]liveLane
+	// PANEL-49 (transcript.go): the project is measured from its sessions' transcripts,
+	// and when a reading was last applied.
+	transcripts   bool
+	transcriptsAt time.Time
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -439,11 +454,17 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		s.Stats.Turns++
 		s.HookStatus = "busy"
 		s.LastPromptAt = now
+		if s.firstPromptAt.IsZero() {
+			s.firstPromptAt = now
+		}
 		s.Done, s.Failure = nil, nil
 		detail = signals.OneLine(ev.Prompt)
 	case "Stop":
 		s.HookStatus = "idle"
 		s.Compacting = ""
+		if s.firstStopAt.IsZero() {
+			s.firstStopAt = now
+		}
 		detail = signals.OneLine(ev.LastAssistantMessage)
 	case "StopFailure":
 		s.HookStatus = "idle"
@@ -635,18 +656,27 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 		// posted window is what keeps a session /clear started in the lane's process on
 		// the lane's window, under a session id no record holds.
 		w := m.recordWindow(p.SessionID, p.AutoCompactWindow)
-		if v := ctxReading(p, w); v != nil {
-			s.CtxPct, s.ctxWindow = v, w
+		if p.AutoCompactWindow != 0 {
+			s.postedWindow = p.AutoCompactWindow
 		}
-		if p.Model.DisplayName != "" {
+		// In a project measured from transcripts (PANEL-49 D3), the transcript is the one
+		// source of cost, the model and a windowed session's context. A post still sets
+		// a window-less session's context: used_percentage, which no transcript gives.
+		// Windowed is sessionWindow's answer, as ApplyTranscript asks it, not this post's
+		// window alone: a post without one must not take back a context the transcript set.
+		ctxOwn := !m.transcripts || m.sessionWindow(s) <= 0
+		if v := ctxReading(p, w); v != nil && ctxOwn {
+			s.CtxPct, s.ctxWindow, s.ctxAt = v, w, time.Time{}
+		}
+		if p.Model.DisplayName != "" && !m.transcripts {
 			s.Model = p.Model.DisplayName
 		}
-		if p.Cost.TotalCostUSD != nil {
+		if p.Cost.TotalCostUSD != nil && !m.transcripts {
 			m.costByID[p.SessionID] = *p.Cost.TotalCostUSD
 			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
 			m.observeSpend(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
-		s.Stats.fold(p, w, now)
+		s.Stats.fold(p, w, foldOwns{ctx: ctxOwn, cost: !m.transcripts}, now)
 	}
 	return true
 }
@@ -972,24 +1002,31 @@ type Metrics struct {
 	StateSince        int64    `json:"stateSince,omitempty"` // unix ms: when it entered that state (time in state)
 }
 
+// foldOwns says which of a status post's figures are the post's to set. In a project
+// measured from transcripts (PANEL-49 D3) cost is never, and the context only for a
+// session without a recorded window.
+type foldOwns struct{ ctx, cost bool }
+
 // fold takes the figures a status post carries; a field it omits keeps its last value.
 // window is the session's window, posted or recorded (0: none), which its context is
-// measured against and shown as (D7).
-func (x *Metrics) fold(p signals.StatusPayload, window int, now time.Time) {
+// measured against and shown as (D7). A figure own leaves to the transcript is untouched.
+func (x *Metrics) fold(p signals.StatusPayload, window int, own foldOwns, now time.Time) {
 	x.StatusAt = ms(now)
 	cw := p.ContextWindow
-	if v := ctxReading(p, window); v != nil {
-		x.CtxPct, x.ctxWindow = v, window
-	}
 	setI := func(dst *int64, v *int64) {
 		if v != nil {
 			*dst = *v
 		}
 	}
-	if window > 0 {
-		x.CtxWindow = int64(window)
-	} else {
-		setI(&x.CtxWindow, cw.ContextWindowSize)
+	if own.ctx {
+		if v := ctxReading(p, window); v != nil {
+			x.CtxPct, x.ctxWindow = v, window
+		}
+		if window > 0 {
+			x.CtxWindow = int64(window)
+		} else {
+			setI(&x.CtxWindow, cw.ContextWindowSize)
+		}
 	}
 	setI(&x.InputTokens, cw.TotalInputTokens)
 	setI(&x.OutputTokens, cw.TotalOutputTokens)
@@ -1001,7 +1038,7 @@ func (x *Metrics) fold(p signals.StatusPayload, window int, now time.Time) {
 	setI(&x.LinesRemoved, c.TotalLinesRemoved)
 	setI(&x.DurationMs, c.TotalDurationMs)
 	setI(&x.APIDurationMs, c.TotalAPIDurationMs)
-	if c.TotalCostUSD != nil {
+	if c.TotalCostUSD != nil && own.cost {
 		v := *c.TotalCostUSD
 		x.CostUSD = &v
 	}
@@ -1175,6 +1212,9 @@ func (m *Model) Snapshot(now time.Time) View {
 		Sources:   map[string]SourceStatus{"worktrees": m.worktreesSrc, "agents": m.agentsSrc, "prs": m.prsSrc, "tmux": m.tmuxSrc},
 		Terminals: []TermLaneView{}, LaneTypes: m.cfg.LaneTypeList(), StartBlocked: m.startBlocked, TmuxSocket: m.cfg.Socket(),
 		LaneBase: m.cfg.BaseRef(), WorktreeRoot: m.cfg.WorktreeRoot(m.root), AgentsReadAt: ms(m.agentsOKAt),
+	}
+	if m.transcripts {
+		v.Sources["transcripts"] = m.transcriptSource()
 	}
 	// A lane with a terminal is shown under the worktree it runs in.
 	terms := m.TerminalViews(now)
@@ -1840,6 +1880,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	v.Restorable = []string{}
 	v.Warnings, v.WarningItems = []string{}, []WarningView{}
 	m.hookBanners(v, now)
+	m.transcriptWarnings(v, now)
 	if v.Done == nil {
 		v.Done = []NeedView{}
 	}

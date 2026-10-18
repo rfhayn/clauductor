@@ -146,7 +146,8 @@ type Runtime struct {
 	root    string
 	cfgPath string
 	// outsideConfig is cfgPath when it is outside root (an attached project's sidecar,
-	// PANEL-42), else "": the project menu's entry carries it (summary).
+	// PANEL-42), else "": the project menu's entry carries it (summary), and it adds
+	// the transcripts source (PANEL-49 D3, D6). newRuntime takes it, never set later.
 	outsideConfig string
 	clock         clock.Clock
 	ticks         Ticks
@@ -207,9 +208,11 @@ type Runtime struct {
 }
 
 // newRuntime builds a project's runtime and its table of sources.
-func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, tv config.TrustView, hub *web.Hub,
+// outsideConfig is the config's path when it is outside root, else "" (live.go's
+// install.OutsideConfig): it decides whether the transcripts source is added.
+func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath, outsideConfig string, tv config.TrustView, hub *web.Hub,
 	lm *lanes.LaneManager, lanesWhy string, clk clock.Clock, ticks Ticks) *Runtime {
-	r := &Runtime{id: id, o: o, cfg: cfg, root: root, cfgPath: cfgPath, clock: clk, ticks: ticks, run: o.Runner, hub: hub, lanes: lm,
+	r := &Runtime{id: id, o: o, cfg: cfg, root: root, cfgPath: cfgPath, outsideConfig: outsideConfig, clock: clk, ticks: ticks, run: o.Runner, hub: hub, lanes: lm,
 		trustView: tv, runs: map[string]*types.QueueRun{},
 		kickWT: make(chan struct{}, 1), kickAgents: make(chan struct{}, 1), kickPRs: make(chan struct{}, 1), kickTmux: make(chan struct{}, 1)}
 	if lm != nil {
@@ -281,6 +284,13 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath string, 
 	}
 	if !tv.Trusted {
 		r.sources = append(r.sources, &source{name: "trust", every: t.Trust, fixedRate: true, waitFirst: true, poll: r.pollTrust})
+	}
+	if outsideConfig != "" {
+		// PANEL-49 D3: an attached project's status line does not post to the panel, so
+		// its sessions are measured from their transcripts; a project with its config in
+		// its repository never adds this source, and reads no transcript.
+		hub.Update(func(m *state.Model, _ time.Time) { m.MeasureFromTranscripts() })
+		r.sources = append(r.sources, r.transcriptsSource())
 	}
 	return r
 }

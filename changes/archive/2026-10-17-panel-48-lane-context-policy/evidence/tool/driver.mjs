@@ -356,8 +356,10 @@ p("|---|---|---|---|---|---|");
 for (const [key, x] of Object.entries(mc).sort((a, b) => b[1].cost - a[1].cost)) { if (x.cost < 1 && x.priced) continue; const [a, m] = key.split("|"); p(`| ${a} | ${m} | ${x.calls} | ${(x.ctxTok / 1e6).toFixed(1)}M | ${(x.out / 1e6).toFixed(2)}M | ${x.priced ? $(x.cost) : "UNPRICED"} |`); }
 p("(rows under $1 omitted; UNPRICED rows always shown)");
 p();
-const SON = { input: 2, output: 10, cacheRead: 0.2 };
-p("Repriced at Sonnet 5.5 list ($2 in / $10 out / $0.20 cache read / writes 1.25× and 2× input) and at Haiku 5.5's documented rate (≤100k prompt $0.10/$0.50, above $0.50/$2.50; reads 0.1×, writes 1.25×/2×). Same tokens: no tokenizer change (Haiku 5.5's tokenizer may count more), no change in turns, no quality claim. Note Opus 5.5's cache read ($0.20) equals Sonnet 5.5's, so a Sonnet swap saves only on writes and output.");
+// Sonnet 5.5's cache read is 0.05x input, $0.10 (pricing page footnote 2, read 2026-10-18; PANEL-49
+// task 1.3). The baseline was measured at $0.20.
+const SON = { input: 2, output: 10, cacheRead: 0.1 };
+p("Repriced at Sonnet 5.5 list ($2 in / $10 out / $0.10 cache read / writes 1.25× and 2× input) and at Haiku 5.5's documented rate (≤100k prompt $0.10/$0.50, above $0.50/$2.50; reads 0.1×, writes 1.25×/2×). Same tokens: no tokenizer change (Haiku 5.5's tokenizer may count more), no change in turns, no quality claim. Note Sonnet 5.5's cache read ($0.10) is half Opus 5.5's ($0.20), so a Sonnet swap saves on reads as well as on writes and output.");
 p();
 p("| class | actual $ | at Sonnet 5.5 | saving | at Haiku 5.5 | saving |");
 p("|---|---|---|---|---|---|");
