@@ -5,9 +5,14 @@
   owner's Mac (session 5), beside PANEL-49's build.
 - 2026-10-18 pre-review (propose step 2b), for the proposal PR's body (this replaces the
   earlier lines of 5a94976 and 52983b7):
-  REVIEWLINE
+  Review: NOT converged after 7 round(s), peak medium, open: M1 a waiting session's clock is
+  reset by its own background agents' hooks, M2 a resumed session (same id) is not a start, so
+  it stalls at once beside an open PR (medium); L1 the headlines' "not working" against a
+  question, L2 requirement 2 against the 64-id ring, L3 the ring can un-pair an ended task, L4
+  the seen ids grow without bound (low) at 7f5dce5 · design d5257196b98e
   - Rounds: 1 peak high (16 findings), 2 peak high (13), 3 peak high (8), 4 peak medium (8),
-    5 peak medium (10), 6 peak medium (6). ROUNDNOTE
+    5 peak medium (10), 6 peak medium (6), 7 peak medium (6). Rounds 1 to 6 were fixed in
+    full; round 7 was not, by the limit of two more rounds. Peak never rose after round 3.
   - Round 3's proposed fixes: F1 name only paths the build changes (or unbacktick `/hook`,
     `/loop`); F2 append the PANEL-46 and PANEL-25 tasks in this proposal's PR and drop 5.3
     (`cg_build_tasks` skips a PR touching only `changes/`); F3 save each waiting session's ask
@@ -59,6 +64,27 @@
   the stall time; STALL-2-S9, S10); L1 a pending task counts as a running one; L2 task 3.4's
   restart case has its paired stop; L3 the seen session ids survive a restart; L4 a question is
   never held off by working; L5 this record, and STALL-1-S21 before S22.
+- 2026-10-18 review round 7 (at 7f5dce5): peak medium, not fixed. Its findings and fixes:
+  - M1: a background subagent's `SubagentStart`/`SubagentStop` arrive under the parent's
+    session id, so an orchestrator asking a question while its own background workflow runs
+    has its clock reset at each agent start or stop, and stalls only 30 minutes after the
+    workflow's last agent. Fix: time the waiting way from the ask alone (`blocked`'s `Since`),
+    or at least exclude `SubagentStart`, `SubagentStop` and agent-tool `PreToolUse`/
+    `PostToolUse` from a waiting session's clock; add a scenario (waiting since 00:00, its
+    subagent starting at 00:10 and stopping at 00:20, stalled at 00:30 with `since` 00:00).
+  - M2: `claude --resume` and `-c` keep the session id (the panel's own Resume and Restore rely
+    on it), so a session resumed beside an old open PR is not a start and its lane stalls at
+    once; a panel-launched lane's pane coming back is not lane movement either. Fix: a start is
+    any listing of a session that was not live just before (ended, or gone from a successful
+    poll); keep "not a start" only for a session forgotten while the polls failed; a pane
+    coming back after Resume is lane movement; add a scenario (ended at 00:00 beside PR #160,
+    resumed under the same id at 03:00, not stalled at 03:01, stalled at 03:30 with `since`
+    03:00).
+  - L1 reword D1's title, the requirement title and the proposal so "not working" applies to
+    the two ways that are not a question; L2 requirement 2 keeps the last 64 `agent_id`s, not
+    only the one that ends a kept task; L3 mark a kept task ended on the task itself and save
+    it, using the ring only for stops that arrive before their `Stop`; L4 drop a seen id after
+    it has gone unlisted for a set age.
 
 ## Decision log
 
