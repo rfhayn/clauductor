@@ -126,7 +126,7 @@
   - Unpriced calls are counted per model, never priced at $0.
   - Haiku 5.5 joins only with its rate from the published pricing page, cited with the date.
   - Tested in `signals/transcript_test.go`, citing [MEASURES-3-S1], [MEASURES-3-S2] and [MEASURES-3-S3].
-- [x] 1.3 Once PANEL-48 has committed `evidence/tool/` (its task 1.5), compare `signals/prices.go` row by row with the tool's `PRICES` and `FAST_MULTIPLIER`, Sonnet 5.5's cache read above all ($0.10 here, $0.20 in PANEL-48 `evidence/README.md`). Record the result in the Decision log, and correct whichever is wrong before the outcome check compares the ledger with the tool. (manual: the tool is not in the repository yet)
+- [x] 1.3 Once PANEL-48 has committed `evidence/tool/` (its task 1.5), compare `framework/internal/panel/signals/prices.go` row by row with the tool's `PRICES` and `FAST_MULTIPLIER`, Sonnet 5.5's cache read above all ($0.10 here, $0.20 in PANEL-48 `evidence/README.md`). Record the result in the Decision log, and correct whichever is wrong before the outcome check compares the ledger with the tool. (manual: the tool is not in the repository yet)
 
 ## 2. The state (D3, D4, D5, D7)
 - [x] 2.1 `framework/internal/panel/state`: an `ApplyTranscript` for one session's reading, and a switch that marks the project as measured from transcripts.
@@ -136,7 +136,7 @@
   - **A partial reading:** one that has not reached the end of its files sets no figure.
   - **What it leaves alone:** a transcript reading leaves `statusPosts`, `StatusAt` and the quota's no-window count unchanged.
   - Tested in `framework/internal/panel/state/transcript_test.go`, citing [MEASURES-1-S1] and [MEASURES-3-S4].
-- [x] 2.2 In a project measured from transcripts, `ApplyStatus` and `Metrics.fold` still fold the quota and every figure a transcript does not carry.
+- [x] 2.2 In a project measured from transcripts, `ApplyStatus` and `Metrics.fold` (`framework/internal/panel/state/model.go`) still fold the quota and every figure a transcript does not carry.
   - They no longer set cost (`costByID`, `Stats.CostUSD`, `countCost`, `observeSpend`) or the model.
   - They no longer set the context of a session with a recorded window. They still set the context of a session without one (D3).
   - Tested in `state/transcript_test.go`, citing [MEASURES-1-S3] and [MEASURES-1-S6].
@@ -160,10 +160,10 @@
     - an attached project with a lane and a fixture transcript under a temporary config directory shows the lane's context and cost in `/api/state`;
     - an in-repository project with the same fixture opens nothing.
   - Citing [MEASURES-1-S1] and [MEASURES-1-S2].
-- [x] 3.3 A test in `notranscript_test.go` walks both of the reader's decode types by reflection, every nested struct included, and fails on each case D8 lists. It also checks by AST that `transcript.go` decodes JSON only into those two types and opens files only with `os.Open`.
+- [x] 3.3 A test in `framework/internal/panel/notranscript_test.go` walks both of the reader's decode types by reflection, every nested struct included, and fails on each case D8 lists. It also checks by AST that `transcript.go` decodes JSON only into those two types and opens files only with `os.Open`.
   - It is shown failing first on an added `content` field and on a `json.RawMessage` field.
   - Citing [MEASURES-4-S2].
-- [x] 3.4 The comments of the old rule: `signals/hooks.go` (`HookEvent`'s: the path is not declared because the reader builds it from a validated id) and `state/trends.go:13`.
+- [x] 3.4 The comments of the old rule: `framework/internal/panel/signals/hooks.go` (`HookEvent`'s: the path is not declared because the reader builds it from a validated id) and `framework/internal/panel/state/trends.go` (line 13).
 
 ## 4. The page and the docs (D8, D9)
 - [x] 4.1 `framework/internal/panel/web/static/panel.js`: the quota's "No reading yet" note says the quota comes only with a status-line post, and that a lane measured from its transcript brings none. That is the one string, and nothing else in the file changes.
