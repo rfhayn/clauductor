@@ -61,7 +61,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
 | A role's model or a trigger it declares (`evals.triggers`: its agent, the marked review prompt) changes only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
-| A change stays within its budget | **`build-change.js`** stops (`${CLAUDE_PLUGIN_ROOT}/change-cost.sh`); by hand, **Nothing. You.** |
+| A change stays within its budget; a soft one (`**Budget:** $N, soft`) reports its overrun and goes on | **`build-change.js`** stops or warns (`${CLAUDE_PLUGIN_ROOT}/change-cost.sh`); **`checks/build-change.sh`**; by hand, **Nothing. You.** |
 | No secret is committed, and agents cannot read the project's | **`run-local.sh`** secrets step (gitleaks; fails under CI without it); **`settings.json`** deny list and sandbox; **`checks/settings.sh`**, **`checks/gate.sh`** |
 | A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |
 | Review a change PER TASK GROUP, not per PR | **`${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/clauductor:apply-change`) |
@@ -69,6 +69,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Claude merges only once review has CONVERGED; a proposal converges before the owner reads it | **`merge-pr`** step 3, **`propose`** step 2b: skill steps, **no hook checks them**; **`checks/change-process.sh`** holds the steps in place |
 | No scripted find-replace against tracked source | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
+| No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
 | The status-line focus says what this lane is doing | **`${CLAUDE_PLUGIN_ROOT}/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`${CLAUDE_PLUGIN_ROOT}/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |

@@ -1,7 +1,7 @@
 **Approved:** 2026-10-17 by Rich · design c802ba9d5463
 **Roadmap row:** PANEL-49
 **Risk:** normal
-**Budget:** $60
+**Budget:** $60, soft
 
 ## Why
 An attached repository's lanes show no context, no cost and no context alert. The panel gets

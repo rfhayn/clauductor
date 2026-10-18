@@ -242,7 +242,7 @@ const fs = require('fs')
 const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
-async function run(round1, { where = WORKTREE, args = {}, cfg = {} } = {}) {
+async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null } = {}) {
   const calls = []
   const reviews = [{ findings: round1 }, { findings: [] }]
   let h = 0
@@ -250,12 +250,12 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {} } = {}) {
     calls.push({ prompt, opts })
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
-    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', budgetUsd: null, costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '',
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', ...budget,
       groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
     if (label.startsWith('review:')) return reviews.shift()
-    if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: null }
+    if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: commitCost }
     if (label === 'verify') return { passed: true, output: 'ok' }
     throw new Error(`unexpected agent label ${label}`)
   }
@@ -318,6 +318,33 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('a finished run hands args.reportTo back in its report, trimmed', r.report.stoppedAt === null && r.report.reportTo === 'lead', [r.report.stoppedAt, r.report.reportTo])
   r = await run([], { where: MAIN, args: { reportTo: 'lead' } })
   t('...and so does a stopped run, beside its notify line', r.report.stoppedAt === 'preflight' && r.report.reportTo === 'lead' && !!r.report.notify, [r.report.stoppedAt, r.report.reportTo, r.report.notify])
+  // The budget (OPS-85). change-cost.sh reads the proposal's **Budget:** line ONE way and reports its
+  // kind: a SOFT budget's overrun is reported in report.warnings and the build goes on; a hard one
+  // (`$N`, or `$N, hard`) stops as before; a line it cannot read stops the run at preflight.
+  const warned = (r, ...words) => r.report.warnings.some((w) => words.every((x) => w.includes(x)))
+  const built = (r) => r.calls.some((c) => c.opts.label.startsWith('build:'))
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: 'soft', costUsd: 12 } })
+  t('a SOFT budget already over at preflight warns, naming the spend, the budget and that it is soft, and the build goes on', r.report.stoppedAt === null && warned(r, '$12', '$10', 'soft'), [r.report.stoppedAt, r.report.reason, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: 'soft', costUsd: 4 }, commitCost: 15 })
+  t('a SOFT budget a group takes over warns the same way, and the build goes on to the receipt', r.report.stoppedAt === null && warned(r, '$15', '$10', 'soft', 'group 3') && !!r.report.receipt, [r.report.stoppedAt, r.report.reason, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: 'hard', costUsd: 12 } })
+  t('a HARD budget already over stops at preflight, as before', r.report.stoppedAt === 'budget' && /already \$12 against a budget of \$10/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: 'hard', costUsd: 4 }, commitCost: 15 })
+  t('a HARD budget a group takes over stops after that group\'s commit, as before', r.report.stoppedAt === 'group 3 budget' && /\$15 spent against a budget of \$10/.test(r.report.reason) && !r.report.receipt, [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: 'hard', costUsd: 4 }, commitCost: 9 })
+  t('a HARD budget not reached neither stops nor warns', r.report.stoppedAt === null && !r.report.warnings.some((w) => /budget/i.test(w)), [r.report.stoppedAt, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: null, budgetKind: 'unreadable', costUsd: 4 } })
+  t('a **Budget:** line change-cost.sh cannot read stops at preflight and says so, rather than being taken as hard or soft', r.report.stoppedAt === 'budget' && /cannot be read/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { budgetUsd: null, budgetKind: null, costUsd: null } })
+  t('change-cost.sh not reporting the budget at all is a warning that no budget is enforced, not silence', r.report.stoppedAt === null && warned(r, 'NOT enforced'), [r.report.stoppedAt, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: null, costUsd: 12 } })
+  t('a budget whose kind was not reported is treated as hard, and the warning says so', r.report.stoppedAt === 'budget' && warned(r, '$10', 'HARD'), [r.report.stoppedAt, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: null, budgetKind: 'none', costUsd: 4 } })
+  t('no **Budget:** line: no stop and no budget warning', r.report.stoppedAt === null && !r.report.warnings.some((w) => /budget/i.test(w)), [r.report.stoppedAt, r.report.warnings])
+  // The stub above answers budgetKind itself, so what makes it ONE reading is the preflight prompt:
+  // the budget comes from change-cost.sh's JSON, and the agent is told not to parse proposal.md.
+  const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
+  t('the preflight agent takes budgetUsd and budgetKind from change-cost.sh --json, never from proposal.md\'s **Budget:** line', /change-cost\.sh demo --json/.test(pf) && /budgetKind/.test(pf) && !/\*\*Budget:\*\*/.test(pf) && /Do not read the budget from proposal\.md/.test(pf), pf)
   console.log(out.join('\n'))
 })().catch((e) => { console.log(`FAIL driver: the script threw: ${e && e.message}`) })
 EOF

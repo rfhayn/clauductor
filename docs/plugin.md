@@ -44,7 +44,7 @@ repository you open, the model's or not. In a repository that does not run the m
   SessionStart hook (`hooks/plugin-session.sh`). That hook records where the loaded plugin version
   lives, in the plugin's own data directory outside the repository, and says nothing there.
 - **What does not:** the guard hooks (`pr-merge-guard`, `no-blind-source-rewrite`,
-  `no-background-gate`, `format`, `focus-staleness`). Each runs through `hooks/if-project.sh`,
+  `no-background-gate`, `no-silent-wait`, `format`, `focus-staleness`). Each runs through `hooks/if-project.sh`,
   which stands aside (exit 0, payload unread) in a repository without `.claude/clauductor-plugin`.
   So they never judge a call there beside the repository's own guards.
 
