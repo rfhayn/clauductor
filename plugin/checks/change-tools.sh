@@ -131,7 +131,12 @@ cost; case "$(cat "$d/out")" in *"cost \$16 of soft budget \$15 — OVER BUDGET 
 budgetline 'fifteen dollars, soft'
 cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[null,"unreadable",false]' ] && ok "change-cost --json: a Budget line it cannot read is budgetKind unreadable, neither hard nor soft" || fail "change-cost, unreadable budget: $(cat "$d/out")"
 cost; case "$(cat "$d/out")" in *"budget UNREADABLE"*) ok "change-cost: ...and its one line says the budget is UNREADABLE" ;; *) fail "change-cost text, unreadable budget: $(cat "$d/out")" ;; esac
-budgetline '$15'
+sed '/^\*\*Budget:\*\*/d' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
+cost --json; [ "$(jq -c '[.budgetUsd, .budgetKind, .over]' "$d/out" 2>/dev/null)" = '[null,"none",false]' ] && ok "change-cost --json: no Budget line is budgetKind none, with no figure" || fail "change-cost, no budget: $(cat "$d/out")"
+cost; case "$(cat "$d/out")" in *"(no budget)"*) ok "change-cost: ...and its one line says (no budget)" ;; *) fail "change-cost text, no budget: $(cat "$d/out")" ;; esac
+sed 's/^\*\*Risk:\*\*.*/&\
+**Budget:** $15/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
+grep -qx '\*\*Budget:\*\* \$15' "$C/proposal.md" || fail "change-tools: could not restore the fixture's '**Budget:** \$15'"
 msg m7 mystery-model-1 "$B" "$main" 1000 0 >> "$P/$slug/s1.jsonl"
 cost; case "$(cat "$d/out")" in *"NOT priced"*mystery-model-1*) ok "change-cost names a model .prices cannot price" ;; *) fail "unpriced model not named: $(cat "$d/out")" ;; esac
 # OPS-74: an agent records its LEAD session's branch, often a stale `main`, never its own. Its cwd is

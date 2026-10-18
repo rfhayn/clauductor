@@ -251,7 +251,7 @@ for c in "$dir"/*/; do
     if [ -n "$row" ] && [ -n "$roadmap_tsv" ]; then
       rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '$4 == r { print $11; exit }')
       if [ -n "$rb" ] && [ "$rb" != "$usd" ]; then fail "$id: roadmap row $row has 'Budget: \$$rb', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** \$$rb', with ', soft' if the owner made it soft)"
-      elif [ -n "$rb" ]; then ok "$id: budget $budget, as roadmap row $row says"; fi
+      elif [ -n "$rb" ]; then ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
     fi
     if grep -qE "^## How we.ll know" "$p"; then
       know=$(sed -n "/^## How we.ll know/,/^## /p" "$p")

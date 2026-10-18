@@ -329,7 +329,9 @@ log(`Risk ${RISK}: builder ${BUILDER.model}/${BUILDER.effort}, reviewer ${REVIEW
 // A design's prose ("Budget $60, soft") is not read: the line is what the owner approved with it.
 const BUDGET_KIND = pre.budgetKind
 if (BUDGET_KIND === 'unreadable') return stop('budget', `proposal.md's **Budget:** line cannot be read: it must be \`$N\`, \`$N, soft\` or \`$N, hard\` (lib/change.sh proposal_budget); checks/changes.sh should have refused it`)
-if (BUDGET_KIND == null) report.warnings.push('change-cost.sh did not report the proposal\'s budget (no budgetKind): any budget is NOT enforced on this run')
+if (BUDGET_KIND == null) report.warnings.push(pre.budgetUsd != null
+  ? `change-cost.sh reported a budget of $${pre.budgetUsd} but not its kind (no budgetKind): it is treated as HARD on this run`
+  : 'change-cost.sh did not report the proposal\'s budget (no budgetKind): any budget is NOT enforced on this run')
 const SOFT = BUDGET_KIND === 'soft'
 const overBudget = (cost) => pre.budgetUsd != null && cost != null && cost > pre.budgetUsd
 const softOver = (where, cost) => {

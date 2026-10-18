@@ -337,8 +337,14 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('a **Budget:** line change-cost.sh cannot read stops at preflight and says so, rather than being taken as hard or soft', r.report.stoppedAt === 'budget' && /cannot be read/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
   r = await run([], { budget: { budgetUsd: null, budgetKind: null, costUsd: null } })
   t('change-cost.sh not reporting the budget at all is a warning that no budget is enforced, not silence', r.report.stoppedAt === null && warned(r, 'NOT enforced'), [r.report.stoppedAt, r.report.warnings])
+  r = await run([], { budget: { budgetUsd: 10, budgetKind: null, costUsd: 12 } })
+  t('a budget whose kind was not reported is treated as hard, and the warning says so', r.report.stoppedAt === 'budget' && warned(r, '$10', 'HARD'), [r.report.stoppedAt, r.report.warnings])
   r = await run([], { budget: { budgetUsd: null, budgetKind: 'none', costUsd: 4 } })
   t('no **Budget:** line: no stop and no budget warning', r.report.stoppedAt === null && !r.report.warnings.some((w) => /budget/i.test(w)), [r.report.stoppedAt, r.report.warnings])
+  // The stub above answers budgetKind itself, so what makes it ONE reading is the preflight prompt:
+  // the budget comes from change-cost.sh's JSON, and the agent is told not to parse proposal.md.
+  const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
+  t('the preflight agent takes budgetUsd and budgetKind from change-cost.sh --json, never from proposal.md\'s **Budget:** line', /change-cost\.sh demo --json/.test(pf) && /budgetKind/.test(pf) && !/\*\*Budget:\*\*/.test(pf) && /Do not read the budget from proposal\.md/.test(pf), pf)
   console.log(out.join('\n'))
 })().catch((e) => { console.log(`FAIL driver: the script threw: ${e && e.message}`) })
 EOF
