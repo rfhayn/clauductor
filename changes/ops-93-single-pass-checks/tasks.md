@@ -3,6 +3,13 @@
 ## Progress
 - 2026-10-18 proposed; nothing built yet. No spec delta (`.openspec.yaml`): the tests are the
   checks' own fixtures and the plugin test named below.
+- 2026-10-18 pre-review (propose step 2b), for the proposal PR's body:
+  Review: converged in 3 round(s), peak low, at 9e98b38 · design 78e8b98101ab
+  - Rounds: 1 peak medium (2 medium, 4 low, fixed), 2 peak medium (2 medium, 4 low, fixed in
+    9e98b38), 3 peak low. Round 3's two lows are left open on purpose for the builder: L1 edit
+    `template/AGENTS.md` before the plugin rebuild; L2 `modules.sh`'s whole-set fixture inherits
+    the markers.
+- 2026-10-18 approved by the owner (design 78e8b98101ab).
 
 ## Decision log
 

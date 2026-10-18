@@ -1,4 +1,4 @@
-**Status:** awaiting approval
+**Approved:** 2026-10-18 by Rich · design 78e8b98101ab
 **Roadmap row:** OPS-93
 **Risk:** normal
 **Budget:** $40
