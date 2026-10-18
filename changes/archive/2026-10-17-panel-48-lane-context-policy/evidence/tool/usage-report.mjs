@@ -52,7 +52,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // $ per million tokens, standard speed. cacheRead is explicit rather than 0.1 × input because Opus
-// 5.5 and Fable 5.1 break that ratio. Cache writes: 5-minute TTL = 1.25 × input, 1-hour = 2 ×.
+// 5.5, Sonnet 5.5 and Fable 5.1 break that ratio. Cache writes: 5-minute TTL = 1.25 × input, 1-hour = 2 ×.
 // A key matches its EXACT version only — optionally followed by a date snapshot (`-20251001`) or a
 // context tag (`[1m]`). Family-prefix matching priced Opus 4.1 at a third of its real rate, and
 // would price any future version (`claude-opus-5-6`) at its family's rate with no warning; an
@@ -70,7 +70,9 @@ const PRICES = {
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25 },
   "claude-fable-5": { input: 10, output: 50, cacheRead: 1 },
   // Sonnet 5.5: the published pricing page, read 2026-10-07 (#390) — not inferred from Sonnet 5.
-  "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2 },
+  // Its cache read is 0.05x input, $0.10 (the page's footnote 2, read 2026-10-18; PANEL-49 task
+  // 1.3): the $0.20 this row held until then overstated every Sonnet 5.5 cache read twofold.
+  "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1 },
   "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2 },
   "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3 },
   "claude-sonnet-4-5": { input: 3, output: 15, cacheRead: 0.3 },

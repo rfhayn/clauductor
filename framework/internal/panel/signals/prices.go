@@ -1,12 +1,12 @@
 package signals
 
 // The price table the transcript reader prices calls with (PANEL-49 design D5).
-// D5 has it copied from the PANEL-48 evidence tool's PRICES and FAST_MULTIPLIER,
-// but the tool was not yet committed when this was built: the rows are the pricing
-// page's, and task 1.3 compares them with the tool's (tasks.md, Decision log). A model the
-// table does not know is UNPRICED: its calls are left out of a cost and counted by
-// model, never priced at $0. The table changes only when a model ships, so it is
-// code, not config.
+// Its rows are the PANEL-48 evidence tool's PRICES and FAST_MULTIPLIER, each checked
+// against the pricing page, plus Haiku 5.5, which the tool lacks. Where the two
+// differed the page won: Sonnet 5.5's cache read is $0.10, and the tool was corrected
+// to match (task 1.3, tasks.md Decision log). A model the table does not know is
+// UNPRICED: its calls are left out of a cost and counted by model, never priced at $0.
+// The table changes only when a model ships, so it is code, not config.
 
 import (
 	"regexp"
@@ -29,18 +29,41 @@ type modelPrice struct {
 
 // modelPrices is keyed by a model's exact version: claude-opus-5-6 is not Opus 5.5.
 var modelPrices = map[string]modelPrice{
-	"claude-opus-5-5":   {Input: 4, Output: 20, CacheRead: 0.20, Source: pricingPage + " (Model pricing), read 2026-10-17"},
-	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.10, Source: pricingPage + " (Model pricing), read 2026-10-17"},
+	"claude-fable-5-1":  {Input: 10, Output: 50, CacheRead: 0.25, Source: read1018},
+	"claude-fable-5":    {Input: 10, Output: 50, CacheRead: 1, Source: read1018},
+	"claude-opus-5-5":   {Input: 4, Output: 20, CacheRead: 0.20, Source: read1017},
+	"claude-opus-5":     {Input: 5, Output: 25, CacheRead: 0.50, Source: read1018},
+	"claude-opus-4-8":   {Input: 5, Output: 25, CacheRead: 0.50, Source: read1018},
+	"claude-opus-4-7":   {Input: 5, Output: 25, CacheRead: 0.50, Source: read1018},
+	"claude-opus-4-6":   {Input: 5, Output: 25, CacheRead: 0.50, Source: read1018},
+	"claude-opus-4-5":   {Input: 5, Output: 25, CacheRead: 0.50, Source: read1018},
+	"claude-opus-4-1":   {Input: 15, Output: 75, CacheRead: 1.50, Source: read1018},
+	"claude-opus-4-0":   {Input: 15, Output: 75, CacheRead: 1.50, Source: read1018},
+	"claude-opus-4":     {Input: 15, Output: 75, CacheRead: 1.50, Source: read1018},
+	"claude-sonnet-5-5": {Input: 2, Output: 10, CacheRead: 0.10, Source: read1017},
+	"claude-sonnet-5":   {Input: 2, Output: 10, CacheRead: 0.20, Source: read1018},
+	"claude-sonnet-4-6": {Input: 3, Output: 15, CacheRead: 0.30, Source: read1018},
+	"claude-sonnet-4-5": {Input: 3, Output: 15, CacheRead: 0.30, Source: read1018},
+	"claude-sonnet-4-0": {Input: 3, Output: 15, CacheRead: 0.30, Source: read1018},
+	"claude-sonnet-4":   {Input: 3, Output: 15, CacheRead: 0.30, Source: read1018},
 	"claude-haiku-5-5": {Input: 0.10, Output: 0.50, CacheRead: 0.01,
 		LongOver: 100000, LongInput: 0.50, LongOutput: 2.50, LongCacheRead: 0.05,
 		Source: pricingPage + " (Model pricing, for prompts up to and over 100,000 tokens), read 2026-10-17"},
+	"claude-haiku-4-5": {Input: 1, Output: 5, CacheRead: 0.10, Source: read1018},
 }
+
+const (
+	read1017 = pricingPage + " (Model pricing), read 2026-10-17"
+	read1018 = pricingPage + " (Model pricing), read 2026-10-18"
+)
 
 // fastMultiplier prices fast mode, on every part of a call (caching multipliers
 // apply on top of it). A model with no entry has no fast rate, and its fast calls are
 // unpriced.
 var fastMultiplier = map[string]float64{
 	"claude-opus-5-5": 2, // $8 / $40 against $4 / $20: pricingPage (Fast mode pricing), read 2026-10-17
+	"claude-opus-5":   2, // $10 / $50 against $5 / $25: pricingPage (Fast mode pricing), read 2026-10-18
+	"claude-opus-4-8": 2, // $10 / $50 against $5 / $25: pricingPage (Fast mode pricing), read 2026-10-18
 }
 
 var modelDateSuffix = regexp.MustCompile(`-[0-9]{8}$`)

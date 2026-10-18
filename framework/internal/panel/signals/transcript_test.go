@@ -648,7 +648,15 @@ func TestTranscriptPricesDatedTaggedAndFastIDs(t *testing.T) {
 		{"claude-sonnet-5-5", false, 2},
 		{"claude-sonnet-5-5", true, 0},
 		{"claude-opus-5-6", false, 0}, // an exact version only
-		{"claude-opus-5", false, 0},
+		{"claude-opus-5", false, 5},
+		{"claude-opus-5", true, 10},
+		{"claude-opus-4-7", true, 0}, // fast mode on Opus 5.5, Opus 5 and Opus 4.8 alone
+		{"claude-opus-4-8", true, 10},
+		{"claude-opus-4-1", false, 15},
+		{"claude-fable-5-1", false, 10},
+		{"claude-sonnet-5", false, 2},
+		{"claude-sonnet-4-6", false, 3},
+		{"claude-haiku-4-5-20251001", false, 1},
 		{"claude-opus-5-5-preview", false, 0},
 		{"claude-opus-5-5-2026", false, 0},
 		{"<synthetic>", false, 0},
@@ -685,6 +693,32 @@ func TestTranscriptPricesHaikuByPromptLength(t *testing.T) {
 		got, ok := priceCall("claude-haiku-5-5", tc.u)
 		if ok != (tc.want != 0) || !near(got, tc.want) {
 			t.Errorf("%+v: $%v priced %v, want $%v", tc.u, got, ok, tc.want)
+		}
+	}
+}
+
+// Each row's three rates, as the pricing page listed them on 2026-10-18: a second copy,
+// so a typo in either is caught. Haiku 5.5's longer-prompt rates are checked above.
+func TestTranscriptPriceRowsMatchThePricingPage(t *testing.T) {
+	t.Parallel()
+	page := map[string][3]float64{ // input, output, cache read
+		"claude-fable-5-1": {10, 50, 0.25}, "claude-fable-5": {10, 50, 1},
+		"claude-opus-5-5": {4, 20, 0.20}, "claude-opus-5": {5, 25, 0.50},
+		"claude-opus-4-8": {5, 25, 0.50}, "claude-opus-4-7": {5, 25, 0.50},
+		"claude-opus-4-6": {5, 25, 0.50}, "claude-opus-4-5": {5, 25, 0.50},
+		"claude-opus-4-1": {15, 75, 1.50}, "claude-opus-4-0": {15, 75, 1.50}, "claude-opus-4": {15, 75, 1.50},
+		"claude-sonnet-5-5": {2, 10, 0.10}, "claude-sonnet-5": {2, 10, 0.20},
+		"claude-sonnet-4-6": {3, 15, 0.30}, "claude-sonnet-4-5": {3, 15, 0.30},
+		"claude-sonnet-4-0": {3, 15, 0.30}, "claude-sonnet-4": {3, 15, 0.30},
+		"claude-haiku-5-5": {0.10, 0.50, 0.01}, "claude-haiku-4-5": {1, 5, 0.10},
+	}
+	if len(page) != len(modelPrices) {
+		t.Errorf("the table has %d rows, the page's copy %d", len(modelPrices), len(page))
+	}
+	for model, want := range page {
+		p, ok := modelPrices[model]
+		if !ok || !near(p.Input, want[0]) || !near(p.Output, want[1]) || !near(p.CacheRead, want[2]) {
+			t.Errorf("%s: %+v, want input %v, output %v, cache read %v", model, p, want[0], want[1], want[2])
 		}
 	}
 }

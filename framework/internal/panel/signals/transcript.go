@@ -87,11 +87,11 @@ type usageCount struct {
 	get      func(*transcriptUsage) *uint64
 }
 
-// usageCounts decides which counts an assistant line must carry. Task 1.0 counts,
-// over a real week of the owner's transcripts, how many calls lack each one; a count
-// some calls lack is marked Optional here, defaulting to 0, and that is a change to
-// design.md D2 for the owner. Until then all four are required: a renamed count must
-// not read as an empty context.
+// usageCounts decides which counts an assistant line must carry. Task 1.0 counted,
+// over a real week of the owner's transcripts, how many calls lack each one: none
+// did, so all four are required, and a renamed count cannot read as an empty context.
+// A count some calls come to lack is marked Optional here, defaulting to 0, and that
+// is a change to design.md D2 for the owner.
 var usageCounts = []usageCount{
 	{Name: "input_tokens", get: func(u *transcriptUsage) *uint64 { return u.InputTokens }},
 	{Name: "output_tokens", get: func(u *transcriptUsage) *uint64 { return u.OutputTokens }},
