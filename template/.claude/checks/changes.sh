@@ -58,6 +58,9 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk badrisk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** medium/'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a Risk tier that is not low, normal or high" "is not low, normal or high"
   mk budget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15/**Budget:** $25/'; case_bad "a proposal whose budget differs from its roadmap row's" "has 'Budget: \$15'"
   mk nobudget; edit $C/proposal.md '/^\*\*Budget:\*\*/d'; case_bad "a proposal that drops its roadmap row's budget" "proposal.md says 'nothing'"
+  mk softbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; case_ok "a soft budget the roadmap row's size ('\$15, soft')"
+  mk hardbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, hard/'; case_ok "a budget marked hard ('\$15, hard')"
+  mk vaguebudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15 (soft-ish)/'; case_bad "a Budget line that is not \$N, \$N, soft or \$N, hard" "must read '\$<dollars>', '\$<dollars>, soft'"
   mk noknow; edit $C/proposal.md '/^## How we.ll know/,$d'; case_bad "a proposal with no How we'll know section" "no '## How we'll know' section"
   mk nowhen; edit $C/proposal.md '/Check after/d'; case_bad "a How we'll know with no date or delay" "Check on:"
   mk noprogress; edit $C/tasks.md '/^## Progress/d'; case_bad "tasks.md with no Progress section" "no '## Progress' section"
@@ -240,13 +243,15 @@ for c in "$dir"/*/; do
       '') fail "$id: proposal.md needs '**Risk:** low | normal | high' (the tier picks the build's models)" ;;
       *) fail "$id: '**Risk:** $risk' is not low, normal or high" ;;
     esac
-    budget=$(proposal_field "$p" Budget)
-    [ -z "$budget" ] || printf '%s' "$budget" | grep -Eq '^\$[0-9]+(\.[0-9][0-9]?)?$' || fail "$id: '**Budget:** $budget' must read '\$<dollars>'"
+    # The one reading build-change acts on (proposal_budget): `$N`, `$N, soft` or `$N, hard`.
+    budget=$(proposal_budget "$p")
+    [ "$budget" != unreadable ] || fail "$id: '**Budget:** $(proposal_field "$p" Budget)' must read '\$<dollars>', '\$<dollars>, soft' or '\$<dollars>, hard'"
+    usd=""; case $budget in ''|unreadable) ;; *) usd=${budget% *} ;; esac
     row=$(proposal_field "$p" "Roadmap row")
     if [ -n "$row" ] && [ -n "$roadmap_tsv" ]; then
       rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '$4 == r { print $11; exit }')
-      if [ -n "$rb" ] && [ "\$$rb" != "$budget" ]; then fail "$id: roadmap row $row has 'Budget: \$$rb', proposal.md says '${budget:-nothing}' (repeat it as '**Budget:** \$$rb')"
-      elif [ -n "$rb" ]; then ok "$id: budget $budget, as roadmap row $row says"; fi
+      if [ -n "$rb" ] && [ "$rb" != "$usd" ]; then fail "$id: roadmap row $row has 'Budget: \$$rb', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** \$$rb', with ', soft' if the owner made it soft)"
+      elif [ -n "$rb" ]; then ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
     fi
     if grep -qE "^## How we.ll know" "$p"; then
       know=$(sed -n "/^## How we.ll know/,/^## /p" "$p")

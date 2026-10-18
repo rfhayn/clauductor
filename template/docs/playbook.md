@@ -226,7 +226,8 @@ is an earlier group lifts the group boundary for exactly that fix.
   `~/.clauductor/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
   tier; the reviewer and the planner never do.
 - **The budget**: after each committed group it reads `.claude/change-cost.sh` and stops once the
-  change's spend passes the proposal's `**Budget:**`.
+  change's spend passes the proposal's `**Budget:**`; a `**Budget:** $N, soft` is reported in the
+  run's warnings instead, and the build goes on.
 - **Each round is graded**: `pass` (gate green, nothing medium or worse), `concern` (the worst
   finding is medium) or `fail` (the gate red, or a high or critical finding); the grades go into the
   group's Progress line. **The stuck-loop breaker** stops the group, as `STUCK`, at the first sign
