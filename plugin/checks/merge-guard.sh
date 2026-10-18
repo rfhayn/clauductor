@@ -492,6 +492,15 @@ unread "a function named jq that runs gh, its endpoint computed at the call" 'jq
 unread "a function defined with the function keyword" 'function f { gh pr merge 5; }; f'
 unread "a hash entry that makes jq run gh" 'hash -p /usr/bin/gh jq; jq api -X PUT repos/acme/app/pulls/5/merge'
 guard 0 "OPS-66: hash -r alone is not a definition" 'hash -r'
+guard 0 "OPS-66: an empty arithmetic expansion is not a function definition" 'echo $(()) $(( ))'
+# zsh reads `>!` as one operator; bash reads `!` as the file and the next word as an argument. A
+# command with an operator followed by `!` is judged with every word, operands included, as a word
+# (OPS-66, round 6): each of these ran gh's merge in bash, and was allowed.
+unread "<>! before gh, after /usr/bin/env" '/usr/bin/env <>! gh api -X PUT repos/acme/app/pulls/5/merge'
+unread ">! before gh, after /usr/bin/nohup" '/usr/bin/nohup >! gh api -X PUT repos/acme/app/pulls/5/merge'
+unread ">&! before gh api, handed to sh -c" "sh -c '\"\$@\"' sh >&! gh api -X PUT repos/acme/app/pulls/5/merge"
+# A regression guard: `pr merge` after sh was already refused.
+unread ">&! before gh pr merge, handed to sh -c" "sh -c '\"\$@\"' sh >&! gh pr merge 5"
 guard 0 "OPS-66: gh pr view with its output redirected last" 'gh pr view 5 --json state > out.json'
 guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
 rm -f "$R/.git/ci-receipt"

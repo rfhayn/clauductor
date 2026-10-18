@@ -218,7 +218,11 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #      PUT …/pulls/5/merge`, zsh `>!`, `2>/dev/null`), the operator's spellings are too many to read
 #      one by one, and `gh api` merges with no merge word to look for, so this fails closed on all
 #      of them, listed or not. The command word decides what runs: a literal one that is neither
-#      (`jq . > "$out" in.json`, `echo >&2 "$msg"`) is read as before. The accepted cost: a gh
+#      (`jq . > "$out" in.json`, `echo >&2 "$msg"`) is read as before. A command word given by
+#      path (`/usr/bin/env`) or a shell (`sh -c '"$@"' sh …`) runs its arguments too. Where the
+#      operand is in doubt, operands count: one that is gh as written, and, after an operator
+#      with a `!` (zsh's `>!` clobbers; bash reads `!` as the file and the next word as an
+#      argument), every word that could be gh, computed included. The accepted cost: a gh
 #      command, or one whose command word is computed, with a redirection in its middle is refused,
 #      a merge or not (`gh pr list 2>/dev/null --json number`, `$cmd >&2 x`); put the redirection
 #      last (`gh pr merge 5 --squash 2>&1`, `gh pr list 2>/dev/null` are read).
@@ -256,7 +260,15 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #     unlisted command). A shell `alias`, a `hash` entry (but `hash -r`), the `function` keyword
 #     or a `name()` ANYWHERE in the command makes it unreadable, whatever the name runs
 #     (defines(), OPS-66): at the name's use, `jq api -X PUT …/pulls/5/merge` reads as jq. The
-#     cost: a command that defines a helper is refused; inline its body, or use a script file;
+#     cost: a command that defines a helper is refused, and so are a bare `alias` (a listing) and
+#     `hash jq` (a lookup); inline its body, or use a script file. defines() reads only the
+#     command's own words, so these definitions are NOT closed:
+#       - one inside quoted program text: `eval 'f() { gh "$@"; }'; f api …`, `sh -c 'alias …'`;
+#       - zsh's parameter tables: `functions[jq]='gh "$@"'`, `commands[jq]=/usr/bin/gh`, then
+#         `jq api …`, an assignment the reader takes for a plain one;
+#       - git's own aliases, below.
+#     The owner's call (OPS-66, #146 round 5): list these, and rethink the guard in a roadmap row
+#     of its own rather than close each form here;
 #   - an evaluator whose PROGRAM is computed, piped or in a file (`sh -c "$(…)"`, `printf … | sh`,
 #     `eval "$(… | base64 -d)"`, `source <(…)`, `sh notes.sh`, and GNU sed's `e` command or `s///e`
 #     flag, which run the text sed reads: `sed e notes.txt`) unless its text names a merge: a hook

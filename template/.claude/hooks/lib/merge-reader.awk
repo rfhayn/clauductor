@@ -50,7 +50,7 @@ function wild(p, t, f) { tok = tok t; pat = pat p; fl = fl f; have = 1 }
 function reset() { tok = ""; fl = ""; pat = ""; sk = ""; have = 0; bd = 0 }
 function addword(cid, t, f, p, s) {
   # Every word, operands included, for inside(); MID: an argument after a redirection.
-  AWP[cid, ++AWN[cid]] = p; AWT[cid, AWN[cid]] = t
+  AWP[cid, ++AWN[cid]] = p; AWT[cid, AWN[cid]] = t; AWF[cid, AWN[cid]] = f; AWO[cid, AWN[cid]] = TG
   if (TG) return
   if (RD[cid]) MID[cid] = 1
   N[cid]++; W[cid, N[cid]] = t; F[cid, N[cid]] = f; P[cid, N[cid]] = p; K[cid, N[cid]] = s
@@ -288,24 +288,24 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
       if ((tok ~ /^[0-9]+$/ || tok ~ /^\{[A-Za-z_][A-Za-z0-9_]*\}$/) && fl == "") reset(); else flush(cid)
       nx = (c != "<" || substr(S, i + 1, 1) == ">")
       # The next word is the operand, never an argument. RD: whatever the operator's form,
-      # inside() needs only that it is here. zsh's `>!` and `>&!` are read as operators: in bash
-      # the `!` is the file and the next word an argument, which inside() covers by reading the
-      # command word both ways.
+      # inside() needs only that it is here. zsh's `>!` and `>&!` are read as operators; in bash
+      # the `!` is the file and the next word an ARGUMENT. BANG marks the command, and inside()
+      # then judges every word, operands included, as one the command may run.
       RF = 1; RD[cid] = 1
       i++
-      while (substr(S, i, 1) ~ /[<>|!]/) i++
+      while (substr(S, i, 1) ~ /[<>|!]/) { if (substr(S, i, 1) == "!") BANG[cid] = 1; i++ }
       if (substr(S, i, 1) == "&") {
         i++
         # `>&2`, `>&-`: a duplication, with no operand. `>& file` names a file, as `>file` does.
         if (substr(S, i, 1) ~ /[0-9-]/) { RF = 0; while (substr(S, i, 1) ~ /[0-9-]/) i++ }
-        else { while (substr(S, i, 1) == "!") i++; if (nx) RT = cid }
+        else { while (substr(S, i, 1) == "!") { BANG[cid] = 1; i++ }; if (nx) RT = cid }
       }
       else if (nx) RT = cid
       continue
     }
     if (c == ";" || c == "&" || c == "|") { flush(cid); cid = newcmd(); i++; continue }
     # `name ()`, and zsh's anonymous `() { … }`: a function definition (defines()).
-    if (c == "(") { if (emptyp(i)) FDEF = 1; flush(cid); cid = newcmd(); depth++; i++; continue }
+    if (c == "(") { if (emptyp(i) && substr(S, i - 2, 2) != "$(") FDEF = 1; flush(cid); cid = newcmd(); depth++; i++; continue }
     if (c == ")") {
       flush(cid)
       if (depth == 0 && mode == "paren") return i + 1
@@ -361,22 +361,27 @@ function gh_p(p,   j, m) {
 # rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`, and any nobody
 # listed) are too many to read one by one, and a gh merges as `pr merge` or as `api` with no merge
 # word to look for, so such a command is unreadable (OPS-66, the owner's call). A literal command
-# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (a name defined
-# in the command is refused by defines(); one from outside it is the hook header's limit). The command word is read twice, with and without
-# the operands, so a word the shells disagree on (bash reads `>! x` as the file `!` and the word x)
-# is judged both ways. Its cost: a gh command, or one whose command word is computed, with a
-# redirection in its middle is refused, a merge or not (`gh pr list 2>/dev/null --json number`,
-# `$cmd >&2 x`); put the redirection last.
+# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (a name
+# defined in the command is refused by defines(); one from outside it is the header's limit).
+# The command word is read twice, with and without the operands. And where the operand itself is
+# in doubt, operands count too (OPS-66, round 6): a dropped operand that is gh as written (`>x gh`
+# is a file named gh only if the reader split it right), and, after an operator with a `!` (bash
+# reads `>! gh` as the file `!` and the word gh), every word that could be gh, computed included.
+# Its cost: a gh command, or one whose command word is computed, with a redirection in its middle
+# is refused, a merge or not (`gh pr list 2>/dev/null --json number`, `$cmd >&2 x`); put the
+# redirection last.
 function inside(c,   x) {
   if (!MID[c]) return 0
   for (x = 1; x <= N[c] && lead(W[c, x]); x++) ;
   if (x <= N[c] && (gh_p(P[c, x]) || runs(W[c, x]))) return 1
   for (x = 1; x <= AWN[c] && lead(AWT[c, x]); x++) ;
-  return x <= AWN[c] && (gh_p(AWP[c, x]) || runs(AWT[c, x]))
+  if (x <= AWN[c] && (gh_p(AWP[c, x]) || runs(AWT[c, x]))) return 1
+  for (x = 1; x <= AWN[c]; x++)
+    if (gh_p(AWP[c, x]) && (BANG[c] || (AWO[c, x] && AWF[c, x] !~ /[dgb]/))) return 1
+  return 0
 }
 # lead(w) — a word before the command word: an assignment or a reserved word.
 function lead(w) { return w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^(then|do|else|elif|if|while|until|!|\{)$/ }
-# runs(w) — a command word that runs its arguments as a command.
 #
 # defines(c) — the command gives a name something to run: `alias`, `hash` (bash `hash -p
 # /usr/bin/gh jq`, zsh `hash jq=…`; a bare `hash -r` only forgets) or the `function` keyword, after
@@ -394,8 +399,11 @@ function emptyp(i) {
   i++; while (substr(S, i, 1) ~ /[ \t]/) i++
   return substr(S, i, 1) == ")"
 }
+# runs(w) — a command word that runs its arguments as a command, by name or by path
+# (`/usr/bin/env`), shells included (`sh -c '"$@"' sh gh …`).
 function runs(w) {
-  return w ~ /^(command|builtin|exec|nohup|sudo|doas|env|nice|ionice|timeout|time|eval|noglob|nocorrect|stdbuf|xargs|parallel|find|watch|caffeinate|setsid|flock|unbuffer|chrt|taskset)$/
+  sub(/^.*\//, "", w)
+  return w ~ /^(command|builtin|exec|nohup|sudo|doas|env|nice|ionice|timeout|time|eval|noglob|nocorrect|stdbuf|xargs|parallel|find|watch|caffeinate|setsid|flock|unbuffer|chrt|taskset|sh|bash|zsh|dash|ksh)$/
 }
 # provable: its text is exactly what runs (quotes and escapes allowed; no expansion, glob or brace)
 function provable(c, k) { return F[c, k] !~ /[dgb]/ }
