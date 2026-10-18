@@ -69,6 +69,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Claude merges only once review has CONVERGED; a proposal converges before the owner reads it | **`merge-pr`** step 3, **`propose`** step 2b: skill steps, **no hook checks them**; **`checks/change-process.sh`** holds the steps in place |
 | No scripted find-replace against tracked source | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
+| No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
 | The status-line focus says what this lane is doing | **`${CLAUDE_PLUGIN_ROOT}/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`${CLAUDE_PLUGIN_ROOT}/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |
