@@ -431,6 +431,7 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 | `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
 | `no-blind-source-rewrite.sh` | every Bash call | blocks `sed -i`/`perl -pi`/python read-modify-write on tracked source: use the Edit tool |
 | `no-background-gate.sh` | every Bash call | blocks a gate sent to the background where nobody hears it end: `&` from anyone; `run_in_background` or a timeout under 600000 ms from a subagent. A subagent follows a long gate with `scripts/ci/gate-wait.sh` |
+| `no-silent-wait.sh` | an agent's Bash call and its turn's end, `AskUserQuestion` | blocks a subagent's or teammate's turn ending while a command it started still runs (it says how to wait in the foreground), its shell `&` that nothing waits for, and the main session's `AskUserQuestion` while an agent or a background command of the session runs: ask through the owner queue or a push instead |
 | `worktree-hook-drift.sh` | every agent spawn | blocks a worktree agent while the main checkout's hooks lag `origin/main` |
 | `focus-staleness.sh` | every prompt | nudges when the status-line focus is stale |
 | `format.sh` | every Write/Edit | runs the project's formatter, when configured |
