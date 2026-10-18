@@ -74,7 +74,7 @@ to `<id>` and `$PROBE`.
 ## Decisions
 
 - **D1 A lane is stalled when one of its sessions has waited on the owner for the stall time
-  since it asked, or when one of its sessions ended its turn on background work, or the lane
+  since it asked; or when one of its sessions ended its turn on background work, or the lane
   has open work, and that session or lane is not working and has not moved for the stall
   time.**
   - **Three clocks.** A question is timed from the ask alone. A session's own clock is reset by
