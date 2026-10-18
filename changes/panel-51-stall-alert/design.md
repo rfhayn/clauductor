@@ -65,11 +65,15 @@ to `<id>` and `$PROBE`.
     **subagent** runs (fork mode's reviewer, the build's workflow), and which `SubagentStop`
     hooks the session sends until it ends, and whether the one at its end carries the task's
     `id` as its `agent_id` (D3 (d) pairs them; the cloud spike's recorded payloads show it for a
-    subagent). Likewise a background workflow and a background `Monitor`. E1 covers a shell only.
+    subagent). Likewise a background workflow and a background `Monitor`, which the Mac's 2.1.303
+    binary lists as a `shell` (D3 (d)). E1 covers a shell only.
   - **P3** a teammate (an agent team, as merge-train was): is it a session of its own in
     `claude agents` and in the hooks, and what does its turn's end with a background command
     look like? Does `TeammateIdle` fire, and in whose session?
-  - **P4** a one-shot `ScheduleWakeup`: the `schedule` text it lists, and its time zone.
+  - **P4** a one-shot `ScheduleWakeup`: the `schedule` text it lists, and its time zone. Group
+    1's static reading of the Mac's 2.1.303 binary (`tasks.md`, Decision log) shows it armed as
+    `M H * * *` from the local clock and listed `recurring: false`, which D4 now reads. The live
+    run confirms that, and records what a wakeup that comes due before its turn ends does.
 
 ## Decisions
 
@@ -162,8 +166,9 @@ to `<id>` and `$PROBE`.
         origin), by session id, carried over as a lane's is. The first poll after a restart sets
         `WaitingSince` to its own time, so without it a stall notified before the restart would
         clear, and come back 30 minutes later with a new `since`, notified again;
-      - each live session's kept `Stop` fields (D4's allowlist, clipped, task ids included) and
-        the `agent_id`s of its last 64 `SubagentStop`s (D3 (d)), by session id.
+      - each live session's kept `Stop` fields (D4's allowlist, clipped, task ids included, and
+        each one-shot's resolved fire time) and the `agent_id`s of its last 64 `SubagentStop`s
+        (D3 (d)), by session id.
         They live only in the model, so without them a session stalled on (d) would read as
         having no background work after a restart, and its stall would vanish unseen;
       - the same for each session kept aside after `forgetSessions` dropped it during failing
@@ -299,12 +304,26 @@ to `<id>` and `$PROBE`.
         `stopSubagent` names), so whether the workflow task's own end carries its `id` is not
         shown yet. If either does not pair, the build stops for the owner before group 2 commits,
         with P2's evidence.
-      - **A `shell` or `monitor` task, or one of a type not listed above,** is open work. A
-        shell keeps a main session busy while it runs (E1), so it matters where that does not
-        hold (a teammate: P3). P2 records what `claude agents` reads while a background
-        `Monitor` runs; if it reads `idle`, a `monitor` task is treated as working, as a
-        subagent is, until the session's next `Stop` no longer lists it, and the Decision log
-        says so.
+      - **A `shell` task, a background `Monitor` among them, or a task of any other type,** is
+        open work. A shell keeps a main session busy while it runs (E1), so it matters where
+        that does not hold (a teammate: P3).
+      - **A background `Monitor` is read as a shell.** The 2.1.303 binary builds each listed
+        task from its registry entry's `type` alone: `id`, a label for the type, `status`,
+        `description`, and `command` for a `local_bash` task. The `Monitor` tool registers a
+        `local_bash` task of kind `monitor`, which is labelled `shell`, and its kind is not
+        sent. Only an MCP monitor (`monitor_mcp`, `monitor_ws`) arrives as `monitor`. Nothing D4
+        keeps tells the two apart: the `description` is the model's own words, with no marker
+        added, and the `command` is never decoded (D4). So a Monitor is worded as one
+        ("its turn ended waiting on 1 shell: Watch the gate's log (running)").
+        - **P2 decides on the Mac.** If a session reads `busy` while its background `Monitor`
+          runs, as it does for a shell, the Monitor is working through that reading and nothing
+          changes. If it reads `idle`, a session waiting correctly on a Monitor would stall at
+          the stall time, and the build stops for the owner before group 2 commits, with P2's
+          evidence: telling a Monitor from a shell needs a field D4 does not keep.
+        - **Beat:** a `monitor` task treated as working if a Monitor reads `idle` (this design
+          before group 1): it reaches only MCP monitors, never the `Monitor` tool. And a marker
+          read from `description` or `command`: the binary adds none, and a command can hold a
+          secret.
   - **A waiting session needs no open work:** a question or a permission prompt is work waiting
     on the owner, on any lane (D1).
   - **The main checkout** has no branch of its own, so only (d) and a waiting session apply
@@ -344,12 +363,31 @@ to `<id>` and `$PROBE`.
     count for nothing. **A session waiting on the owner still stalls:** a cron does not answer a
     question or a permission prompt, and the orchestrator that arms a stall-watcher loop is the
     session most likely to freeze on one.
-    - A recurring cron, or one whose fields are not all numbers: it will wake the session, so
-      the stall is held off while that `Stop`'s list stands.
-    - A one-shot wakeup (`recurring` false, minute, hour, day and month all numbers, read in the
-      panel's local time: P4): the stall is held off until 5 minutes after its fire time. The
-      wakeup only holds it off: after that D1 applies as it stands, and `since` is still the
-      last movement. A wakeup that fired is movement (its prompt is a `UserPromptSubmit`).
+    - A recurring cron, or a one-shot of neither shape below: it will wake the session, so the
+      stall is held off while that `Stop`'s list stands.
+    - A one-shot wakeup (`recurring` false) whose minute, hour, day and month are all numbers,
+      read in the panel's local time: the stall is held off until 5 minutes after its fire
+      time.
+    - **A one-shot `M H * * *`: minute and hour numbers; day, month and weekday `*`** (as
+      `ScheduleWakeup` arms it: P4). **(The owner decided, 2026-10-18.)** It is read as firing
+      at the next matching minute and hour after the `Stop` that listed it, in the panel's
+      local time: the first H:M at or after the minute the `Stop` arrived in, that day or the
+      next. The stall is held off until 5 minutes after then.
+      - The fire time is resolved once, from the time the panel received that `Stop`, and kept
+        with the cron (saved in `stall.json`), so a restart does not move it.
+      - `ScheduleWakeup` clamps its delay to 60–3600 s, so a wakeup armed late in the turn
+        fires within the hour after the `Stop`. One that came due before its turn ended (a turn
+        longer than its delay) reads as a day away: if it did not fire, its session's stall and
+        its lane's open-work stall would be held off silently for up to about 24 hours. So P4
+        (task 1.4) runs one, and if an overdue wakeup does not fire within a minute of its turn
+        ending, the build stops for the owner before group 2 commits.
+      - **Beat:** the next match after the cron's creation. `session_crons` carries no creation
+        time (`id`, `schedule`, `recurring`, `prompt` alone). And "held off while that `Stop`'s
+        list stands", which this shape fell to before group 1: a session whose wakeup never
+        fired would be held off until a next `Stop` that may never come.
+    - Either way a one-shot only holds the stall off: after that D1 applies as it stands, and
+      `since` is still the last movement. A wakeup that fired is movement (its prompt is a
+      `UserPromptSubmit`).
   - **The text, by case:**
     - waiting: the ask, as Needs you words it today ("input needed", "wants to use Bash");
     - turn ended with work in flight: "its turn ended waiting on 1 shell: Run checks (running)";
@@ -368,7 +406,7 @@ to `<id>` and `$PROBE`.
     - ignoring crons. A session that waits correctly, with `ScheduleWakeup`, would be marked
       stalled while it does the right thing;
     - parsing every cron expression for its next fire time. That is a five-field cron parser
-      for a case none of the three stalls had.
+      for a case none of the three stalls had; D4 reads the two one-shot shapes alone.
 
 - **D5 The stall time: 30 minutes by default, per project. (The owner decides both.)**
   - **The key:** `alerts.stall_minutes`, a number, 0 turns stalls off. Config version 7
@@ -571,7 +609,8 @@ to `<id>` and `$PROBE`.
 | A `claude agents` reading is not current (the poll fails or is old) | A stall judged from it is approximate: shown, marked `≈`, never notified (D6) |
 | The `Stop` input has no `background_tasks` (an older Claude Code) | The stall is still judged. What it waited on reads "not reported by this Claude Code version" (D4) |
 | A repository whose settings turn hooks off | Judged from `claude agents` alone; what it waited on is "not reported" (D2) |
-| A session scheduled its own wakeup | That session's background-work stall and its lane's open-work stall are held off while a recurring cron is listed, or until 5 minutes past a one-shot's fire time; a sibling session's stall is not, and a session waiting on the owner still stalls (D4) |
+| A session scheduled its own wakeup | That session's background-work stall and its lane's open-work stall are held off while a recurring cron is listed, or until 5 minutes past a one-shot's fire time (for `ScheduleWakeup`'s `M H * * *`, the fire time is the first local H:M at or after the minute the panel received its `Stop`, that day or the next); a sibling session's stall is not, and a session waiting on the owner still stalls (D4) |
+| A turn ended on a background `Monitor` | Listed as a `shell`, it is read as one: open work, worded "1 shell". If P2 finds a session reads `idle` while its Monitor runs, the build stops for the owner (D3 (d)) |
 | A turn ended with a background subagent or workflow running | Working until the `SubagentStop` whose `agent_id` is the task's `id`, in whatever order the two hooks arrive; an internal stop with an empty type ends nothing; quiet for the stall time after the paired stop, it stalls (D3 (d)) |
 | The paired `SubagentStop` was dropped, or sent while the panel was down | The task holds its session working only while the session has moved within 4 × the stall time; then it is open work, "whose end was never heard" (D3 (d)) |
 | A teammate's turn ends on a shell that woke no one while the orchestrator in the same checkout works or loops | The teammate stalls on its own clock (D1) |

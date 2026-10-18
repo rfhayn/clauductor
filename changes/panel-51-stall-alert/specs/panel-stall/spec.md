@@ -150,7 +150,7 @@ THE SYSTEM SHALL mark a lane stalled WHEN a session of it waits on the owner and
 - **AND** at 03:30 both are stalled with `since` 03:00, given no movement since
 
 ### Requirement: A stall says what the lane last waited on, from the `Stop` hook's in-flight work, decoded to an allowlist
-WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHALL keep each task's `id`, `type`, `status` and `description`, each cron's `schedule` and `recurring`, and the turn's last line, on the session until its next `Stop`, across a restart included, SHALL keep nothing from a `SubagentStop` but its `agent_id` (the last 64, to pair with a task a `Stop` lists before or after it), SHALL NOT show a task's `id`, and SHALL NOT decode a task's `command`, `server`, `tool`, `name` or `agent_type`, or a cron's `prompt`, from either; a live session with a recurring cron listed, or a one-shot wakeup not yet 5 minutes past its fire time, SHALL hold off its own background-work stall and its lane's open-work stall, but not another session's stall, and not its own while it waits on the owner; and the stall's `since` SHALL stay the last movement.
+WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHALL keep each task's `id`, `type`, `status` and `description`, each cron's `schedule` and `recurring`, and the turn's last line, on the session until its next `Stop`, across a restart included, SHALL keep nothing from a `SubagentStop` but its `agent_id` (the last 64, to pair with a task a `Stop` lists before or after it), SHALL NOT show a task's `id`, and SHALL NOT decode a task's `command`, `server`, `tool`, `name` or `agent_type`, or a cron's `prompt`, from either; SHALL read a task listed as a `shell`, a background `Monitor` among them, as a shell, which is open work; a live session with a recurring cron listed, or a one-shot wakeup not yet 5 minutes past its fire time (for a one-shot `M H * * *`, minute and hour numbers and day, month and weekday `*`, the first local H:M at or after the minute the `Stop` that listed it arrived in, that day or the next, resolved once and kept across a restart), SHALL hold off its own background-work stall and its lane's open-work stall, but not another session's stall, and not its own while it waits on the owner; and the stall's `since` SHALL stay the last movement.
 
 #### Scenario: [STALL-2-S1] A turn that ended with a shell in flight says so
 - **GIVEN** a lane with pull request #152 open, whose last `Stop` carried `background_tasks` `[{"type":"shell","status":"running","description":"Run checks","command":"sh .claude/checks/run.sh"}]`
@@ -164,7 +164,7 @@ WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHAL
 - **THEN** its `waitedOn` reads that its turn ended with nothing in flight to wake it, and that it last said "Waiting for merge-train's reply."
 
 #### Scenario: [STALL-2-S3] A scheduled wakeup holds the stall off until it is due
-- **GIVEN** a lane with pull request #152 open, quiet since 00:00, whose live session's last `Stop` listed a one-shot cron (`recurring` false) firing at 01:00 local time, and another lane with pull request #153 open, quiet as long, whose live session's last `Stop` listed a recurring cron
+- **GIVEN** a lane with pull request #152 open, quiet since 00:00, whose live session's last `Stop` listed a one-shot cron `0 1 18 10 *` (`recurring` false) firing at 01:00 local time on 2026-10-18, and another lane with pull request #153 open, quiet as long, whose live session's last `Stop` listed a recurring cron
 - **WHEN** the panel derives its view at 01:04 and at 01:05
 - **THEN** at 01:04 neither lane is stalled
 - **AND** at 01:05 the first lane is stalled with `since` 00:00, and the second is not
@@ -206,6 +206,24 @@ WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHAL
 - **WHEN** the panel derives its view at 01:59 and at 02:00
 - **THEN** at 01:59 neither lane is stalled
 - **AND** at 02:00 both are stalled with `since` 00:00, each `waitedOn` saying the end of "Review group 2" was never heard
+
+#### Scenario: [STALL-2-S11] A `ScheduleWakeup` one-shot holds its own session's stall off until 5 minutes past its next fire time
+- **GIVEN** `alerts.stall_minutes` 30, times in the panel's local time, and the main checkout with a teammate reading `idle` whose last `Stop`, received at 23:40, listed one running shell described "Run checks" and one cron `35 0 * * *` (`recurring` false), with no hook from it since
+- **AND** a lane with pull request #152 open whose live session reads `idle` and whose last `Stop`, received at 23:30, listed no task and one cron `20 0 * * *` (`recurring` false), quiet since then
+- **AND** a lane with pull request #153 open whose live session reads `idle` and whose last `Stop`, received at 00:05 after midnight, listed no task and one cron `40 0 * * *` (`recurring` false), quiet since then
+- **AND** a lane with pull request #154 open, restored from a `stall.json` saved at 00:22 after midnight by a panel restarted at once, whose session the first `claude agents` poll after the restart lists, reading `idle`, and whose kept `Stop`, received at 23:30, listed no task and one cron `20 0 * * *` (`recurring` false), the session's and the lane's last movement 23:30, every source having succeeded once since the restart
+- **WHEN** the panel derives its view after midnight at 00:24, 00:25, 00:35, 00:39, 00:40, 00:44 and 00:45
+- **THEN** at 00:24 none of the four lanes is stalled
+- **AND** at 00:25 the lanes of #152 and #154 are stalled, each with `since` 23:30
+- **AND** at 00:35 and at 00:44 the lane of #153 is not stalled, and at 00:45 it is, with `since` 00:05
+- **AND** at 00:39 the main checkout's lane is not stalled, and at 00:40 it is, with `since` 23:40 and its `waitedOn` naming the teammate's shell, "Run checks"
+
+#### Scenario: [STALL-2-S12] A background `Monitor`, listed as a shell, is read as one
+- **GIVEN** `alerts.stall_minutes` 30, and the main checkout with a teammate reading `idle` whose last `Stop`, at 00:00, carried `background_tasks` `[{"id":"b7","type":"shell","status":"running","description":"Watch the gate's log","command":"tail -f gate.log | grep --line-buffered FAIL"}]`, as Claude Code lists a running `Monitor`, with no hook from the teammate since (a main session's reading while its `Monitor` runs is P2's to confirm)
+- **WHEN** the panel derives its view at 00:29 and at 00:30
+- **THEN** at 00:29 the main checkout's lane is not stalled
+- **AND** at 00:30 it is stalled with `since` 00:00, its `waitedOn` reading that the teammate's turn ended waiting on 1 shell, "Watch the gate's log", running
+- **AND** no part of the view, the feed or `/api/state` contains "tail -f gate.log"
 
 ### Requirement: A stall interrupts once per stretch, on the Mac and through the owner's push command
 WHEN a lane's `stalled` alert first becomes active and is not approximate THE SYSTEM SHALL send it through the notifier's rules (once per stretch, grouped per lane, at most once per lane per `min_interval_seconds`, never while the lane's terminal has focus in a visible page, and not again after a restart while it is still active) as a macOS notification and, WHERE `~/.clauductor/panel/push.json` holds a valid push command, by running that command's argv with the title and body as two more arguments, with no shell; THE SYSTEM SHALL NOT run a push command whose file is not the user's, is writable by group or others or sits in a folder that is, or names a program by a relative path, SHALL NOT push any alert but `stalled`, and SHALL build the push's title and body from the `stalled` alert's own fields alone.

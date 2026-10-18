@@ -88,14 +88,95 @@
     only the one that ends a kept task; L3 mark a kept task ended on the task itself and save
     it, using the ring only for stops that arrive before their `Stop`; L4 drop a seen id after
     it has gone unlisted for a set age.
+- 2026-10-18 group 1 (build-change builder): no task ticked. Finished: a static reading of the
+  Mac's Claude Code binary (2.1.303, `~/.local/share/claude/versions/2.1.303`, `strings -n 8`),
+  recorded in the Decision log. It already meets 1.4's stop condition (D4's one-shot rule) and
+  shows teammates can be in-process (D9's stop condition, unconfirmed live). Left, for the owner:
+  the live runs of 1.1 to 1.4 in a throwaway lane on the owner's login, with a throwaway panel
+  built from this branch carrying an uncommitted debug log of the decoded `Stop` fields; and the
+  owner's amendment of D4's one-shot rule. The builder could not start a live session: its
+  sandbox denies writes to `~/.claude/projects` and `~/.claude/session-env`, and the tasks are
+  `manual:` on the owner's login.
+- 2026-10-18 design amended after group 1 (D4's one-shot rule, D3 (d)'s Monitor rule, the
+  Decision log's entries below): STALL-2-S3 and requirement 2 reworded, STALL-2-S11 and S12
+  added, tasks 1.2, 1.4, 2.3 and 3.3 follow. The approval is revoked: `design.md` changed, and
+  the owner approves the amended design before the build resumes. Nothing is built yet.
+- 2026-10-18 amendment review round 1: peak medium (3 medium, 5 low), all fixed: M1 and M2
+  STALL-2-S11 gains a same-day lane and a lane restored from `stall.json`; M3 an overdue
+  wakeup that does not fire within a minute stops the build (task 1.4, D4); L4 and L7 the
+  `M H * * *` shape and "the first H:M at or after the minute the `Stop` arrived in"; L5 the
+  Monitor assumption reworded to what the binary shows; L6 STALL-2-S12's Monitor runs in a
+  teammate; L8 D4's Beat.
+- 2026-10-18 amendment review round 2: converged, peak low (4 low), all applied as wording
+  fixes with no round 3: STALL-2-S11's main-checkout cron `35 0 * * *` (within
+  `ScheduleWakeup`'s 3600 s clamp); lane #154 listed `idle` by the first poll after its restart;
+  D4's boundary in task 2.3 and the Refusals row; "before group 2 commits" in task 1.4.
 
 ## Decision log
+- 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
+  starting a live `claude` from the builder (sandbox-denied, and `manual:` on the owner's
+  login). The reading is evidence about the code, not a probe: it does not tick 1.1 to 1.4.
+  What it shows:
+  - P1: `Stop` and `SubagentStop` inputs are built with `background_tasks` (the session's task
+    registry) and `session_crons` spread in, the schema unchanged from E2. Not yet shown: that
+    they reach the panel through its async command hook.
+  - P2: a task is listed while `running` or `pending` and not foreground (`isBackgrounded` not
+    false). A subagent task's `id` is its `agentId` (the registry entry is made with the agent
+    id), so the pairing D3 (d) needs holds for a subagent in code; a workflow's is not shown.
+    The `type` label map is `local_agent` subagent, `local_workflow` workflow, `local_bash`
+    shell, `monitor_mcp`/`monitor_ws` monitor, `mcp_task` "MCP task", `in_process_teammate`
+    teammate, `remote_agent` "cloud session", plus dream, auto-mode scan and memory import. **A
+    background `Monitor` tool is a `local_bash` task of kind `monitor`, so it is listed as type
+    `shell`:** D4's allowlist cannot tell it from a shell, and D3 (d)'s "a `monitor` task is
+    working" fallback would reach only MCP monitors. If the live P2 finds a running Monitor reads
+    `idle`, that is an owner decision (D3 (d), D4).
+  - P3: the registry has an `in_process_teammate` type, listed as `teammate` in a lead's
+    `background_tasks`, beside a tmux pane mode (`SwarmPaneError`). Teammates can be in-process,
+    D9's stop condition; which mode merge-train's team ran in needs the live probe.
+  - P4: `ScheduleWakeup` arms a one-shot with cron `` `${d.getMinutes()} ${d.getHours()} * * *` ``
+    (local time, day and month `*`) and no `recurring` field, which `session_crons` lists as
+    `recurring: false`; the fire time is the next match after the cron's creation
+    (`oneShot: true`). It is not five fields with day and month as numbers, so by D4 as written
+    it falls to "fields not all numbers: held off while that `Stop`'s list stands". Task 1.4
+    sends this to the owner: D4's one-shot rule is amended with them (for example, a one-shot
+    whose day and month are `*` fires at the next minute and hour after the `Stop` that listed
+    it, in local time; a `ScheduleWakeup` delay is clamped to 60 s to 3600 s).
+- 2026-10-18, the owner decided D4's amendment in session 5: "read a one-shot whose day and
+  month are `*` as firing at the next matching minute and hour after the `Stop` that listed it,
+  in local time". D4 now reads that shape so, resolving the fire time once from the time the
+  panel received the `Stop`; the full-number rule stays for a one-shot that carries a day and a
+  month. `session_crons` carries no creation time (the binary's builder maps each cron to `id`,
+  `schedule`, `recurring` and `prompt` alone), so the next match after the cron's creation was
+  not an option. A wakeup due before its turn ended would read as a day away: task 1.4 records
+  what one does.
+- 2026-10-18, D3 (d)'s Monitor rule, from the 2.1.303 strings
+  (`strings -n 8`, the builder's saved copy): the `background_tasks` builder makes each entry
+  `{id, type: <label of the registry type>, status, description}` and adds `command` for
+  `local_bash`, `agent_type` for `local_agent`, `server`/`tool` for `monitor_mcp` and
+  `mcp_task`, `name` for `local_workflow`. The label map is keyed on the registry type alone
+  (`local_bash` to `shell`), and the `Monitor` tool registers its task with `kind: "monitor"`
+  on a `local_bash` entry, so a Monitor arrives as `type: "shell"` and its kind is not sent.
+  Claude Code's own views do tell the two apart, on that `kind` (its "1 shell, 1 monitor"
+  summary, "Background monitor" reminders, "Monitor details"), but no hook field carries it.
+  So the design reads a Monitor as a shell (open work), drops the old "a `monitor` task is
+  working if a Monitor reads idle" fallback, which could reach only MCP monitors, and P2
+  decides: a Monitor that leaves its session `busy` changes nothing; one that reads `idle`
+  stops the build for the owner. Assumption, unproven until P2: a running Monitor keeps a main
+  session `busy` as a shell does (E1). The binary does not settle it: monitors and shells are
+  handled apart in print mode's wind-down (`holdForArmedMonitors`, `holdForBackgroundShells`),
+  and `claude agents`' busy comes from `isLoading` or `delegatedActive`, so which of a shell or
+  a Monitor holds `isLoading` interactively is unknown until P2. For P2: `delegatedActive`
+  counts only `local_agent`, `remote_agent`, `in_process_teammate` and `local_workflow` tasks,
+  so a running background subagent or workflow should read `busy` through it.
+- 2026-10-18, D9 left as it stands: the `in_process_teammate` registry type (P3 above) is its
+  stop condition, unconfirmed until the live P3 shows which mode a team runs in. If P3 confirms
+  in-process teammates, the build stops for the owner before group 2 commits, as D9 says.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [ ] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
-- [ ] 1.2 P2: in the same lane, a turn that ends while a background subagent runs (an Agent call with `run_in_background`). Record what `claude agents` reads until the subagent ends, what the `Stop` lists (each task's `id` and `status`, `pending` included), and every `SubagentStop` the session sends until then, with its `agent_id` and `agent_type`, the empty-type ones included; then the same for a background workflow, and what `claude agents` reads while a background `Monitor` runs. If a background subagent's or workflow's end sends no `SubagentStop` whose `agent_id` is the listed task's `id`, stop for the owner before group 2 commits: D3 (d)'s pairing rests on it. If a running monitor reads `idle`, record that D3 (d) treats a `monitor` task as working. (manual: a live session)
+- [ ] 1.2 P2: in the same lane, a turn that ends while a background subagent runs (an Agent call with `run_in_background`). Record what `claude agents` reads until the subagent ends, what the `Stop` lists (each task's `id` and `status`, `pending` included), and every `SubagentStop` the session sends until then, with its `agent_id` and `agent_type`, the empty-type ones included; then the same for a background workflow, and, for a background `Monitor`, what its `Stop` lists (its `type`, expected `shell`) and what `claude agents` reads while it runs. If a background subagent's or workflow's end sends no `SubagentStop` whose `agent_id` is the listed task's `id`, stop for the owner before group 2 commits: D3 (d)'s pairing rests on it. If a session reads `idle` while its `Monitor` runs, or the Monitor is listed as anything but a `shell`, stop for the owner before group 2 commits (D3 (d)). (manual: a live session)
 - [ ] 1.3 P3: a teammate (an agent team in the lane, one teammate told to start a background `sleep` and end its turn). Record whether it is a session of its own in `claude agents` and in the hooks, and whether `TeammateIdle` fires and in whose session. If it is not a session of its own, stop for the owner before group 2 commits (D9). (manual: a live agent team)
-- [ ] 1.4 P4: a one-shot `ScheduleWakeup` in a /loop. Record the `schedule` text its `Stop` lists, and whether the fire time is local time, in the Decision log (`changes/panel-51-stall-alert/tasks.md`). If it is not five fields with the minute, hour, day and month as numbers, D4's one-shot rule is amended with the owner. (manual: a live session)
+- [ ] 1.4 P4: a one-shot `ScheduleWakeup` in a /loop. Record the `schedule` text its `Stop` lists, and whether the fire time is local time, in the Decision log (`changes/panel-51-stall-alert/tasks.md`); then one armed with a 60 s delay in a turn that runs on past it, and whether it fires as that turn ends. If that overdue wakeup does not fire within a minute of its turn ending, stop for the owner before group 2 commits: D4 would read it as a day away, a silent hold of up to about 24 hours. If its `schedule` is neither `M H * * *` nor five fields with the minute, hour, day and month as numbers, or its fire time is not local, stop for the owner before group 2 commits: D4's one-shot rule (amended with the owner on 2026-10-18 for `M H * * *`) rests on it. (manual: a live session)
 
 ## 2. The rule (D1, D3, D4)
 - [ ] 2.1 `framework/internal/panel/signals/hooks.go`: `HookEvent` declares `background_tasks` and `session_crons`, each into a declared type that holds D4's allowlist alone (`id`, `type`, `status`, `description`; `schedule`, `recurring`), absent kept apart from empty. Tested in `framework/internal/panel/signals/hooks_stop_test.go` over E1's two `Stop` bodies, an older body with neither field, and a body whose task carries `command`, `server`, `tool`, `name` and `agent_type`. Citing [STALL-2-S5].
@@ -108,16 +189,18 @@
   - a session's background-work stall (D3 (d)) on its own clock, held off only by its own working and its own wakeups and by the lane's lease, never by a sibling's (D1, D4);
   - the live-session rule (D1): a lane with no live session stalls only on D3 (c);
   - the lane's open work (D3 (a) to (c)), held off by any live session's wakeup still due (D4);
-  - the session keeps its last `Stop`'s tasks (with their ids), crons and last line, clipped, until its next `Stop`, and the `agent_id`s of its last 64 `SubagentStop`s, restored at start for a session the first poll lists, and nothing else from a `SubagentStop` (D4);
+  - a wakeup's due time (D4): a recurring cron, or a one-shot of neither shape, while its `Stop`'s list stands; a one-shot with minute, hour, day and month as numbers, 5 minutes past that local time; a one-shot `M H * * *`, 5 minutes past the first local H:M at or after the minute the panel received its `Stop`, that day or the next, resolved once as the `Stop` is kept and kept with the cron;
+  - every listed task but a `subagent` or `workflow` is open work, a `shell` (a background `Monitor` among them) and a `monitor` included (D3 (d));
+  - the session keeps its last `Stop`'s tasks (with their ids), crons (with each one-shot's resolved fire time) and last line, clipped, until its next `Stop`, and the `agent_id`s of its last 64 `SubagentStop`s, restored at start for a session the first poll lists, and nothing else from a `SubagentStop` (D4);
   - `LaneView.Stall` (`since`, `waitedOn`, `openWork`, `approx`: D11) and the `stalled` alert (key `stalled:<lane path>`, severity `block`, `Since` the earliest origin among the ways that hold: D1, D6), every stall approximate while the `claude agents` source is not current;
   - the receipt and HEAD it reads are D10's (HEAD from the worktree list), the merged read's result and the saved state (D1's `stall.json`) arrive through `Apply` calls the runtime makes (group 3), and the model hands back the state to save.
-  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9] and [STALL-2-S10].
+  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9], [STALL-2-S10], [STALL-2-S11] and [STALL-2-S12].
 - [ ] 2.4 `framework/internal/panel/state`: the Needs-you item of kind `stalled`, built once per lane after the session loop, as `mergeNeeds` (`state/lifecycle.go`) builds the `merged` rows; a waiting lane that stalls keeps its one waiting item, labelled stalled, with the quiet time and open work (D11). Tested in `state/stall_test.go`, citing [STALL-4-S2] and [STALL-4-S3].
 
 ## 3. The config and the reads without a page (D1, D5, D10)
 - [ ] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8].
 - [ ] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR: only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none" (D10).
-- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
+- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
 - [ ] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
   - with the merged read's 5-minute wait shortened, `/api/state` shows the lane stalled while the fake `gh` lists no pull request for its branch, open or merged; still stalled when the next merged read fails; and not stalled once the fake `gh` has listed a pull request open for the branch and then lists it merged instead;
   - a second lane whose first merged read fails is not stalled until a read succeeds;
