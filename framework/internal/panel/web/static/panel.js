@@ -1617,7 +1617,7 @@ function quotaField(w, plan, proj, at) {
   if (at && now() - at > QUOTA_OLD_MS) kids.push(el("span", "more stale", null, [age(at, "as of ", " ago")]));
   const f = key(el("div", "f", null, [el("span", "k", w.label + " quota" + (plan ? " (" + plan + ")" : "")), el("span", "v", null, kids)]), "q:" + w.key);
   f.title = at ? "Last status-line post: " + hm(at) + ". The quota is the account's: any session's status line moves it."
-    : "No reading yet. The quota comes with a status-line post from any session (docs/panel.md, The status line).";
+    : "No reading yet. The quota comes only with a status-line post from any session (docs/panel.md, The status line). A lane measured from its transcript brings none.";
   return f;
 }
 // What stands in the quota's place, by the account's mode: the windows; a line saying

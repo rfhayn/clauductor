@@ -7,6 +7,8 @@
 - 2026-10-18: group 2 built (2.1–2.3), its scenarios cited in `state/transcript_test.go`, which drives the real reader over hand-written lines in a temporary config directory; review next. Nothing calls `MeasureFromTranscripts` or `ApplyTranscript` in production until group 3's runtime does.
 - 2026-10-18: build-change stopped at group 2's gate on the old transcript invariant catching group 1's reader. Task 3.2 moved into group 2 as 2.4 (Decision log) and is built: `notranscript_test.go` exempts exactly `signals/transcript.go`, shown failing first. Group 2 (2.1–2.4) is uncommitted, awaiting its gate and review.
 - 2026-10-18: group 3 built (3.1, 3.3, 3.4), uncommitted, awaiting its gate and review. `TestTranscriptsMeasureOnlyAnAttachedProjectsLanes` needs a port and tmux, so it skips under `-short`. It passed once outside this builder's sandbox; the sandbox refuses to bind a port, and running it outside the sandbox again was refused, so its falsifications ran on the no-port test (Decision log). The gate on the Mac runs it. Group 4 is next.
+- 2026-10-18: group 4 built (4.1, 4.2), uncommitted, awaiting its gate and review. MEASURES-5-S1 is cited in `web/quota_note_test.go`, and the trace finds all 21 scenarios cited. The Slice line is left unticked, for the verify step and the owner. In this builder's sandbox, the short suite's tests that bind a port or read `ps` fail for the sandbox alone. Every test this group touches passes.
+- 2026-10-18 group 4 (The page and the docs (D8, D9)) built and reviewed: converged in 2 round(s), peak low; grades R1 concern, R2 pass
 
 ## Decision log
 - *(Settled 2026-10-18 by task 1.0's entry below.)* 2026-10-17, group 1: task 1.0 is pending on the owner's Mac; the cloud build cannot reach the transcripts. Its result sets `usageCounts` in `signals/transcript.go`, the one table that marks a count `Optional` (absent reads 0). All four counts stay required until then, and `TestTranscriptEveryRequiredCountIsChecked` holds them there.
@@ -90,6 +92,22 @@
     - `unsafe`.
     
     Every accidental route is covered by a test: a decode at an unlisted site, a reference to another file, a renamed decoder, a method on a reader type, a shadowed built-in, and a hand-called `UnmarshalJSON` or `UnmarshalText`.
+- 2026-10-18, group 4: **the note keeps its old sentence and its pointer to *The status line*, adds "only", and adds one sentence**, "A lane measured from its transcript brings none." Rejected: a new wording. D9 asks for an addition to the existing note.
+- 2026-10-18, group 4: **MEASURES-5-S1 is cited by two tests in `web/quota_note_test.go`.**
+  - `TestQuotaNoteSaysATranscriptBringsNone` reads the embedded `panel.js`, as task 4.1 says. It checks the sentence is the no-reading branch of `quotaField`'s title, and it runs under `-short`.
+  - `TestQuotaFieldsWithNoReading` runs `panel.js`'s own `quotaField` and `quotaFields` in node over a stub document, as `TestContextColour` does. It covers an account not yet read and a subscription with no post. It asserts the THEN's first half: both fields show "—", which a string scan cannot see. It skips under `-short` or without node.
+  - Rejected: the string test alone. It asserts the note but not that the fields show no reading.
+  - Both were shown failing on `HEAD`'s old note, then the new note was restored.
+- 2026-10-18, group 4: **`docs/panel.md` also corrects four places the change made false that task 4.2 does not list:**
+  - the opening table of what the panel reads gains a transcripts row;
+  - *The context policy*'s limit "reading its transcript is PANEL-49";
+  - *The status line*'s opening "only the status line's stdin" carries cost and context;
+  - the quota table gains a row for a machine whose sessions post no status line, which is how the table "says the quota needs a status line".
+  
+  Rejected: leaving them. Each would contradict the new subsection on the same page.
+- 2026-10-18, group 4: **where the docs put things.**
+  - The new subsection is *Transcripts: an attached project's lanes*, the last under *Signals*. The section heading *Signals: hooks and the status line* is unchanged, so the page's nav link and its anchor still work.
+  - The invariant, its tests and what the scans cannot see are written once, as a bullet of *Security model* in the old statement's place. The other three statements point to it. Rejected: repeating the limits four times.
 
 ## 1. The reader (D1, D2, D5, D7)
 - [x] 1.0 Before the counts are made required (D2): with the evidence tool, count how many of the baseline week's calls lack each of the four counts, reading no content, and record the result in the Decision log. A count some calls lack becomes optional, defaulting to 0. (manual: a one-off measurement over the owner's transcripts, not shipped code)
@@ -148,9 +166,9 @@
 - [x] 3.4 The comments of the old rule: `signals/hooks.go` (`HookEvent`'s: the path is not declared because the reader builds it from a validated id) and `state/trends.go:13`.
 
 ## 4. The page and the docs (D8, D9)
-- [ ] 4.1 `framework/internal/panel/web/static/panel.js`: the quota's "No reading yet" note says the quota comes only with a status-line post, and that a lane measured from its transcript brings none. That is the one string, and nothing else in the file changes.
+- [x] 4.1 `framework/internal/panel/web/static/panel.js`: the quota's "No reading yet" note says the quota comes only with a status-line post, and that a lane measured from its transcript brings none. That is the one string, and nothing else in the file changes.
   - Tested in `framework/internal/panel/web/quota_note_test.go`, which reads the embedded `panel.js` for the sentence, citing [MEASURES-5-S1].
-- [ ] 4.2 `docs/panel.md`:
+- [x] 4.2 `docs/panel.md`:
   - Rewrite the old rule's four statements (*Keeping the panel current*, *Which agent started which*, *What the panel reads, and when*, *Security model*) to D8's invariant, including what its scans can and cannot see.
   - Add a subsection under *Signals*. It covers:
     - what the reader opens, decodes and keeps, and its cadence;
