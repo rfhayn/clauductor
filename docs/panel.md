@@ -47,7 +47,9 @@ suggest command's included:
   tries again 2 s later, and its source says "paused: a login refresh is in progress", neither
   failed nor fresh.
 - **The stop:** a `claude` past its timeout gets SIGTERM, and SIGKILL only 15 s later (3 s when
-  the panel shuts down), so a refresh it holds can be let go. Its caller does not wait.
+  the panel shuts down), so a refresh it holds can be let go. Its caller does not wait. Each
+  `claude` runs in a session of its own, and the shutdown's SIGKILL reaches every process left
+  in it, so no child of the call outlives the panel.
 
 New to the panel? [guide.md](guide.md) is a short how-to for the page; **?** in its header shows
 the keyboard shortcuts.
