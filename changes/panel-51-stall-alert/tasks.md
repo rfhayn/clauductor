@@ -3,13 +3,17 @@
 ## Progress
 - 2026-10-18 proposed; nothing built yet. The build starts from `main` once approved, on the
   owner's Mac (session 5), beside PANEL-49's build.
-- 2026-10-18 pre-review (propose step 2b), for the proposal PR's body:
-  Review: NOT converged after 3 round(s), peak high, open: F1 verify-change paths in tasks
-  1.1/1.4/5.3 (high), F2 task 5.3 has no executor, F3 a waiting stall re-sent after a restart,
-  F4 background-work stall lost on a restart, F5 STALL-1-S19 guards the wrong read (medium),
-  F6 pending sources, F7 stall.json write rate, F8 wording (low) at 5a94976 · design c4683f6c5f18
-  - Rounds: 1 peak high (16 findings), 2 peak high (13), 3 peak high (8). Rounds 1 and 2 were
-    fixed in full. Round 3 was not, by the three-round limit.
+- 2026-10-18 pre-review (propose step 2b), for the proposal PR's body (this replaces the
+  three-round line of 5a94976 · design c4683f6c5f18):
+  Review: NOT converged after 5 round(s), peak medium, open: F1 the SubagentStop count is
+  defeated by internal empty-type stops, F2 (d) judged on the lane's clock lets one session hide
+  another's stall (medium); F3 no scenario for the quiet-time carry-over, F4 a finished subagent
+  reads "running", F5 proposal.md's wakeup line, F6 a re-listed session reads as a start, F7
+  Notification hooks as movement, F8 `monitor` unprobed, F9 PANEL-46 task 2.9's chip and path,
+  F10 push.json's re-read poll (low) at 52983b7 · design deea003463c0
+  - Rounds: 1 peak high (16 findings), 2 peak high (13), 3 peak high (8), 4 peak medium (8),
+    5 peak medium (10). Rounds 1 to 4 were fixed in full; round 5 was not, by the lane's limit
+    of two more rounds. Peak never rose.
   - Round 3's proposed fixes: F1 name only paths the build changes (or unbacktick `/hook`,
     `/loop`); F2 append the PANEL-46 and PANEL-25 tasks in this proposal's PR and drop 5.3
     (`cg_build_tasks` skips a PR touching only `changes/`); F3 save each waiting session's ask
@@ -30,6 +34,22 @@
   holder first seen is the lease given up (S18); L2 `fileReadSites` in 3.3 and 4.2; L3 how 5.1's
   browser lane stalls; L4 the alert's `since` when both ways hold; L5 an outage is not quiet
   time; L6 PANEL-46 depends on PANEL-51 in the roadmap.
+- 2026-10-18 review round 5 (at 52983b7): peak medium, not fixed. Proposed fixes:
+  - F1: end a listed task only by a matching `SubagentStop` (`agent_id` equals the task's `id`,
+    `signals/testdata/spike-hooks.log` line 5), with `stopSubagent`'s rules for
+    `workflow-subagent`, never an empty-type stop (that log's events 9, 10 and 13); or drive it
+    from the model's `Subagents` set, with `idleClearsAgents` held off while a listed task is
+    open. Correct D3 (d)'s "not known to match", and D4's "the subagent's own work" (the list is
+    the session's). P2 records the empty-type stops.
+  - F2: judge (d) per session, as the waiting way is: its own busy flag, clock and wakeups; keep
+    the lane clock and lane-wide wakeup for (a) to (c). Add a scenario: a main-checkout
+    teammate's shell-in-flight stall while a sibling loops on a recurring cron.
+  - F3 add the carry-over to STALL-1-S13; F4 a text case for a listed task that has ended; F5
+    reword proposal.md's wakeup line to D4; F6 only a session id never seen since start is a
+    start; F7 waiting- and idle-kind Notifications are not movement (or P1 records them); F8 a
+    background Monitor in P1 or P2; F9 the stalled word overrides D6's "needs you" chip and
+    outranks "lost", with the test's full path; F10 a machine source re-reads `push.json` on
+    `pathSignature`, and how its warning reaches each project's page.
 
 ## Decision log
 
