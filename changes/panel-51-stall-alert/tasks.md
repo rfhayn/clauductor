@@ -6,7 +6,7 @@
 - 2026-10-18 pre-review (propose step 2b), for the proposal PR's body (this replaces the
   earlier lines of 5a94976 and 52983b7):
   Review: converged by the owner's decision after 7 round(s), peak medium; round 7's M1 and M2
-  (and L1 to L4) fixed without re-review at e196aab · design 112394039a7b (reviewed through 7f5dce5 ·
+  (and L1 to L4) fixed without re-review at 0714273 · design c9d2de7c70b7 (reviewed through 7f5dce5 ·
   design d5257196b98e). The build's group-1 probes on the Mac settle the hook-ordering cases.
   - Rounds: 1 peak high (16 findings), 2 peak high (13), 3 peak high (8), 4 peak medium (8),
     5 peak medium (10), 6 peak medium (6), 7 peak medium (6). Rounds 1 to 6 were fixed in
