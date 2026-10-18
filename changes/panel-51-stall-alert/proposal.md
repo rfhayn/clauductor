@@ -1,4 +1,4 @@
-**Status:** awaiting approval
+**Approved:** 2026-10-18 by Rich · design c9d2de7c70b7
 **Roadmap row:** PANEL-51
 **Risk:** normal
 **Budget:** $80
