@@ -251,8 +251,12 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)
 #   - a command whose EVERY word is computed (`$A $B $C 5`), or a merge assembled across commands
 #     without its words ever appearing (pieces written to a file one by one, then run);
 #   - an alias or function defined OUTSIDE the command: a `gh alias set m 'pr merge'` in an earlier
-#     session, a shell alias from a dotfile (`gh m 5` reads as subcommand `m`). Setting either
-#     through this hook blocks (the expansion is a mention beside an unlisted command);
+#     session, a shell alias, hash entry or function from a dotfile (`gh m 5` reads as subcommand
+#     `m`). Setting a gh alias through this hook blocks (the expansion is a mention beside an
+#     unlisted command). A shell `alias`, a `hash` entry (but `hash -r`), the `function` keyword
+#     or a `name()` ANYWHERE in the command makes it unreadable, whatever the name runs
+#     (defines(), OPS-66): at the name's use, `jq api -X PUT …/pulls/5/merge` reads as jq. The
+#     cost: a command that defines a helper is refused; inline its body, or use a script file;
 #   - an evaluator whose PROGRAM is computed, piped or in a file (`sh -c "$(…)"`, `printf … | sh`,
 #     `eval "$(… | base64 -d)"`, `source <(…)`, `sh notes.sh`, and GNU sed's `e` command or `s///e`
 #     flag, which run the text sed reads: `sed e notes.txt`) unless its text names a merge: a hook

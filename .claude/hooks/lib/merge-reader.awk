@@ -282,7 +282,7 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
     # and the word is computed. Only a `(` that starts a word starts a subshell (OPS-66:
     # `gh api --input <(…) repos/o/n/pulls/5/merge` was cut in two, and its endpoint never read).
     if ((c == "<" || c == ">") && substr(S, i + 1, 1) == "(") { i = subst(i + 2, "paren"); fl = fl "s"; continue }
-    if (c == "(" && have) { i = subst(i + 1, "paren"); fl = fl "s"; continue }
+    if (c == "(" && have) { if (emptyp(i)) FDEF = 1; i = subst(i + 1, "paren"); fl = fl "s"; continue }
     if (c == "<" || c == ">" || (c == "&" && substr(S, i + 1, 1) == ">")) {
       # A fd number or a `{name}` before the operator belongs to it, never a word.
       if ((tok ~ /^[0-9]+$/ || tok ~ /^\{[A-Za-z_][A-Za-z0-9_]*\}$/) && fl == "") reset(); else flush(cid)
@@ -304,7 +304,8 @@ function scan(i, mode,   cid, c, nx, j, depth, line) {
       continue
     }
     if (c == ";" || c == "&" || c == "|") { flush(cid); cid = newcmd(); i++; continue }
-    if (c == "(") { flush(cid); cid = newcmd(); depth++; i++; continue }
+    # `name ()`, and zsh's anonymous `() { … }`: a function definition (defines()).
+    if (c == "(") { if (emptyp(i)) FDEF = 1; flush(cid); cid = newcmd(); depth++; i++; continue }
     if (c == ")") {
       flush(cid)
       if (depth == 0 && mode == "paren") return i + 1
@@ -360,8 +361,8 @@ function gh_p(p,   j, m) {
 # rest over as the words; the forms of the operator (`>&`, zsh `>!`, `{fd}>`, and any nobody
 # listed) are too many to read one by one, and a gh merges as `pr merge` or as `api` with no merge
 # word to look for, so such a command is unreadable (OPS-66, the owner's call). A literal command
-# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (an alias or a
-# function is the limit in the hook's header). The command word is read twice, with and without
+# word that is neither decides what runs: no argument of `jq` or `cmp` makes it gh (a name defined
+# in the command is refused by defines(); one from outside it is the hook header's limit). The command word is read twice, with and without
 # the operands, so a word the shells disagree on (bash reads `>! x` as the file `!` and the word x)
 # is judged both ways. Its cost: a gh command, or one whose command word is computed, with a
 # redirection in its middle is refused, a merge or not (`gh pr list 2>/dev/null --json number`,
@@ -376,6 +377,23 @@ function inside(c,   x) {
 # lead(w) — a word before the command word: an assignment or a reserved word.
 function lead(w) { return w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^(then|do|else|elif|if|while|until|!|\{)$/ }
 # runs(w) — a command word that runs its arguments as a command.
+#
+# defines(c) — the command gives a name something to run: `alias`, `hash` (bash `hash -p
+# /usr/bin/gh jq`, zsh `hash jq=…`; a bare `hash -r` only forgets) or the `function` keyword, after
+# any prefix that runs its arguments. With FDEF (a `name()` anywhere), such a command is
+# unreadable, whatever the name runs (OPS-66): at the name's use, `jq api -X PUT …/pulls/5/merge`
+# reads as jq, and the round-5 rule that a literal command word decides what runs no longer holds.
+function defines(c,   x) {
+  for (x = 1; x <= N[c] && (lead(W[c, x]) || runs(W[c, x]) || (x > 1 && W[c, x] ~ /^-/)); x++) ;
+  if (x > N[c]) return 0
+  if (W[c, x] == "alias" || W[c, x] == "function") return 1
+  return W[c, x] == "hash" && !(N[c] == x || (N[c] == x + 1 && W[c, x + 1] == "-r"))
+}
+# emptyp(i) — the `(` at i is followed, past blanks, by `)`: a function definition's `()`.
+function emptyp(i) {
+  i++; while (substr(S, i, 1) ~ /[ \t]/) i++
+  return substr(S, i, 1) == ")"
+}
 function runs(w) {
   return w ~ /^(command|builtin|exec|nohup|sudo|doas|env|nice|ionice|timeout|time|eval|noglob|nocorrect|stdbuf|xargs|parallel|find|watch|caffeinate|setsid|flock|unbuffer|chrt|taskset)$/
 }
@@ -551,8 +569,12 @@ END {
   for (c = 1; c <= NC; c++) {
     n = N[c]
     if (inside(c)) odd("a redirection comes before the last word of a command that may run gh (its command word could be gh, a computed word included, or runs its arguments): put the redirection last")
+    if (FDEF || defines(c)) odd("the command defines an alias, a hash entry or a function, so what that name runs cannot be read: run its body inline, or put it in a script file")
     for (k = 1; k <= n; k++) {
       if (K[c, k] != "" && could_gh(c, k)) { ghword(c, k, n); continue }
+      # A computed word that could be gh, then `api` (`$G api -X PUT …/pulls/5/merge`): api()
+      # holds a merge endpoint to a plain gh, so this one is ODD (OPS-66).
+      if (k < n && could_gh(c, k) && W[c, k + 1] == "api" && provable(c, k + 1)) { api(c, k, n); continue }
       # `pr merge` after something that is not a literal-bearing gh: $GH, an alias, a function
       if (!could(c, k, "pr")) continue
       if (k > 1 && K[c, k - 1] != "" && could_gh(c, k - 1)) continue

@@ -477,6 +477,21 @@ guard 0 "OPS-66: echo with >&2 before a computed argument" 'echo >&2 "$msg"'
 guard 0 "OPS-66: jq with its output redirected before its input file" 'jq . > "$out" in.json'
 guard 0 "OPS-66: sed with 2>/dev/null before a computed file" 'sed -n 1p 2>/dev/null "$f"'
 guard 0 "OPS-66: a loop comparing files, its output redirected in the middle" 'for f in a b; do cmp "$f" > /dev/null "other/$f"; done'
+# A name defined in the command runs what the reader cannot see at the name's use: an alias, a
+# hash entry or a function makes the whole command unreadable, whatever it runs (OPS-66). With
+# evidence for PR 5's head, so a block here is the reader's.
+unread "an alias to gh, then gh api's merge through it" "$(printf 'alias jq=gh\njq api -X PUT repos/acme/app/pulls/5/merge')"
+unread "a function that runs a computed gh, called with api's merge" 'f() { $G "$@"; }; f api -X PUT repos/acme/app/pulls/5/merge'
+unread "a hash entry from a variable that makes jq run gh" 'hash -p "$P" jq; jq api -X PUT repos/acme/app/pulls/5/me$x'
+# A computed word that could be gh, then api, is held to the plain form as `pr merge` after one is.
+unread "a computed gh, then api's merge endpoint" '$G api -X PUT repos/acme/app/pulls/5/merge'
+# Regression guards: each was already refused, as a gh the reader saw beside a merge.
+unread "an alias to gh, then pr merge through it" "alias g='gh'; g pr merge 5"
+unread "a function that merges, then called" 'f() { gh pr merge 5; }; f'
+unread "a function named jq that runs gh, its endpoint computed at the call" 'jq() { gh "$@"; }; jq api -X PUT repos/acme/app/pulls/5/me$x'
+unread "a function defined with the function keyword" 'function f { gh pr merge 5; }; f'
+unread "a hash entry that makes jq run gh" 'hash -p /usr/bin/gh jq; jq api -X PUT repos/acme/app/pulls/5/merge'
+guard 0 "OPS-66: hash -r alone is not a definition" 'hash -r'
 guard 0 "OPS-66: gh pr view with its output redirected last" 'gh pr view 5 --json state > out.json'
 guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
 rm -f "$R/.git/ci-receipt"
