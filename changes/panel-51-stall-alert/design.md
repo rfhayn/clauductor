@@ -75,20 +75,30 @@ to `<id>` and `$PROBE`.
   - **Working** (never stalled): a session of the lane is `busy` on a current `claude agents`
     reading, or the lane holds or waits for a queue's lease (the gate). E1 shows a background
     command keeps the reading `busy`, so a lane that waits correctly on its own command is
-    working.
+    working. A lease holder counts only while it is alive and not stale (`LeaseView.Alive`
+    and not `Stale`): `lease.ReadQueue` keeps a dead holder as `Holder` until the next waiter
+    reclaims it, and a gate killed with no waiter behind it would otherwise keep its lane
+    working for ever. A waiter counts as listed, since only live waiters are listed.
   - **Movement** sets the stall clock back to zero:
     - a hook from any of the lane's sessions (`LastHookAt`);
     - a change in a session's `claude agents` reading (`BusySince`, `IdleSince`, `WaitingSince`);
+    - a session starting: one that `claude agents` lists for the first time after the panel's
+      first successful poll. A session started by hand sends none of the hooks the panel
+      subscribes to before its first prompt (there is no `SessionStart` among them), so without
+      this the owner opening `claude` beside an old pull request would be pushed a stall at once;
     - the lane taking or giving up a lease. The lease is held through the gate's whole run, so
       a gate is movement until it ends;
     - the lane's tmux pane dying, or its tmux session going, as the tmux poll first sees it.
-  - **Stalled:** not working, `now − last movement ≥ stall time`, and one of:
-    - a session of the lane waits (the one `blocked` predicate Needs you reads, so the two
-      cannot disagree);
-    - the lane has a live session, has open work (D3), and none of its live sessions has a
-      wakeup still due (D4);
-    - the lane is one the panel launched, and its claude exited or its tmux session is gone,
-      with open work (D3 (c)).
+  - **Stalled,** two ways:
+    - **a session waits on the owner** (the one `blocked` predicate Needs you reads, so the two
+      cannot disagree) and has itself not moved for the stall time: its own clock, from the
+      ask's `Since` and its own hooks, whatever its lane's other sessions do. In the main
+      checkout a busy sibling (another session, a teammate bound by its `cwd`) would otherwise
+      hide the orchestrator's question for as long as the sibling works;
+    - **the lane** is not working, `now − its last movement ≥ stall time`, and either it has a
+      live session, open work (D3) and no live session with a wakeup still due (D4), or the
+      panel launched it and its claude exited or its tmux session is gone, with open work
+      (D3 (c)).
   - **A lane with no live session otherwise never stalls. (The owner decides.)** A worktree
     whose hand-started session has ended, with its pull request waiting for review, is the owner
     having closed it, not work that stopped by itself. That is the commonest false stall the
@@ -101,13 +111,23 @@ to `<id>` and `$PROBE`.
     - each lane's last movement is saved in `~/.clauductor/panel/<project hash>/stall.json`
       (beside `notifier.json`), and read back at start. A lane with no saved movement starts its
       clock at the panel's start, never at the zero time;
-    - the first `claude agents` reading of a session after start sets its reading and is not
-      movement. Only a change after it is (an `IdleSince` set by that first reading is not);
-    - no stall is judged until each source it reads (the worktrees, `claude agents`, the pull
-      requests, tmux, and the queues where the project declares any) has succeeded once since
-      start. So the stall is not missing for the notifier's first poll, its key is not dropped,
-      and its `Since`, the saved movement, is the one it was notified for: a restart sends
-      nothing again (STALL-3-S7).
+    - the sessions the first successful `claude agents` poll after start lists are not movement:
+      that poll sets their readings (an `IdleSince` it sets is not movement). A session first
+      listed by a later poll is a session starting, which is;
+    - **each way of stalling is judged from the sources it rests on,** once each has succeeded
+      since start: a waiting session on `claude agents`; (a) on the pull requests; (b) on the
+      receipt read and the merged read; (c) on tmux with (a) or (b); (d) on the hooks; and
+      working on `claude agents` and, where the project declares queues, the queues. So a
+      repository whose `gh pr list` never succeeds (no GitHub remote, `gh` logged out) still
+      stalls on a frozen question. A source a way rests on that has not succeeded within 10
+      minutes of start shows a warning bar naming it and what it leaves unjudged;
+    - **the notifier keeps the stalls' marks while they are not yet judged.** Until every source
+      the project has has succeeded once since start, or 10 minutes have passed, the view says
+      stalls are pending, and `Notifier.Process` keeps each `stalled:` mark it holds instead of
+      deleting it as cleared. Once judged, a stall resting on the saved movement has the `Since`
+      it was notified for, so a restart sends nothing again (STALL-3-S7). Without that, the
+      notify source's first 2 s tick, before `gh pr list` or the 30 s receipt read have answered,
+      would find the stall missing, drop its mark, and send it again.
     - **Beat:** keying the notifier on the lane and its open work instead of `Since`. A stall
       that cleared and came back with the same pull request would never notify again.
   - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$CLAUDUCTOR_LANE` (the tmux
@@ -184,8 +204,8 @@ to `<id>` and `$PROBE`.
   allowlist.**
   - **`background_tasks`:** `type`, `status` and `description` of each task, clipped to one line
     of 120 runes. `command`, `server`, `tool`, `name` and `agent_type` are never decoded. A
-    shell command line can hold a secret, as `tool_input` can, which `HookEvent` already leaves
-    undeclared.
+    shell command line can hold a secret, as `tool_input` can, which `HookEvent` keeps raw and
+    of which only `AgentCall` decodes two fields (`subagent_type`, `description`).
   - **`session_crons`:** `schedule` and `recurring` of each. `prompt` is never decoded.
   - **Kept on the session from its `Stop` alone,** until its next `Stop`, with the turn's last
     line, which the panel already decodes (`last_assistant_message`, clipped to 120 runes). A
@@ -271,14 +291,15 @@ to `<id>` and `$PROBE`.
     "arg", …]}`. The panel runs it with two more arguments, the title and the body, with no
     shell, under a 10 s timeout, for each notice that carries a `stalled` alert. Examples in
     `docs/panel.md`: ntfy, and `curl` to Pushover.
+    - **The title** is the macOS notification's: `<project> · <lane>`, the project's `name` only
+      while its config is trusted (else "clauductor panel"), as `pollNotify` titles it today.
     - **Refused** (a warning bar says why, and it never runs): a file not owned by the user, or
       writable by group or others, or in a folder that is; an `argv[0]` that is not an absolute
       path; anything but one JSON object with a non-empty `argv` of strings.
     - **Read** at start and when the file's signature changes (the same poll as the config's).
     - **A failed push** counts in the notifier's failures and shows its error, as a failed
       `osascript` does today. The macOS notification still goes.
-    - **What the body carries:** the project, the lane's name, how long it has been quiet, the
-      open work (a PR's number) and the kind of wait ("a shell in flight", "nothing in flight",
+    - **What the body carries:** how long the lane has been quiet, the open work (a PR's number) and the kind of wait ("a shell in flight", "nothing in flight",
       "a question"). Never the last line or a task's description: those are the model's words,
       and the push goes to a service the owner chose outside this machine.
     - **The push's title and body are built from the `stalled` alert's own fields,** never from
@@ -327,16 +348,23 @@ to `<id>` and `$PROBE`.
     its git dir cached. `tasks.md` and the review threads stay page-only.
   - **HEAD comes from `git worktree list`,** which is always polled, not from the page-only git
     poll.
-  - **The merged read** for (b): `(*Runtime).mergedPR` in `autoclose.go` (one `gh pr list
-    --head <branch> --state merged`), for each lane with a clean receipt for HEAD and no open
-    PR. Only a merge found is cached, per branch and HEAD. "None" is read again when the branch
-    leaves the open-PR list (the transition `autoclose.go` already detects), and otherwise at
-    most every 5 minutes. A squash merge leaves the branch's HEAD as it was, so a cached "none"
-    from before the PR was opened would mark every merged lane stalled.
+  - **The merged read** for (b): the same `gh pr list --head <branch> --state merged` that
+    `(*Runtime).mergedPR` in `autoclose.go` runs, through a variant that returns its error
+    (`mergedPR` returns `(0, false)` for an error and for "none" alike), for each lane with a
+    clean receipt for HEAD and no open PR.
+    - Only a merge found is cached, per branch and HEAD. "None" is read again when the branch
+      leaves the open-PR list, and otherwise at most every 5 minutes. A squash merge leaves the
+      branch's HEAD as it was, so a cached "none" from before the PR was opened would mark every
+      merged lane stalled.
+    - The readiness source tracks that transition itself, from the view's `PRs` at each poll:
+      `pollAutoClose`'s own tracking exists only when auto-close is on, and only for tmux lanes.
+    - A read that fails keeps the last result. With no result yet, (b) is unknown, which is not
+      open work. An error never reads as "none".
   - **`gh pr list` and the queues** already poll with no page.
   - **PANEL-25** (idle cost, queued after PANEL-46) must keep these reads while a lane has open
     work. Its approved proposal returns to the owner before its build anyway (its roadmap row).
-    Group 5 adds this to its `tasks.md`.
+    Task 5.3 opens the `ops/` pull request that adds this to its `tasks.md` (D11 says why not in
+    this change's own PR).
   - **Beat:** reading only while a page is in view. Nobody would be told when nobody looks.
 
 - **D11 Today's page, kept small, and what PANEL-46 carries.**
@@ -344,23 +372,33 @@ to `<id>` and `$PROBE`.
     - the lane's state cell, its tab and its tree node read **stalled** (the word and the
       square), tinted red as a failed or stale lane is today;
     - one Needs-you row per stalled lane: its name, "quiet for 34m", the open work and what it
-      last waited on, with **Open terminal**. It is built once per lane after the session loop,
+      last waited on, with **Open terminal** where the lane has a terminal (a lane started by
+      hand has none, and its row only selects it). It is built once per lane after the session loop,
       as the `merged` and `restored` rows are (`mergeNeeds`, `state/lifecycle.go`), so a lane
       with no session (D3 (c)) gets one and a lane with two sessions does not get two;
     - **a waiting lane that stalls keeps one row:** its waiting row is labelled "Stalled" and
       gains the quiet time and open work, rather than a second row for the same ask;
     - the `stalled` alert in the lane's Alerts tab;
-    - nothing else changes in `panel.js`.
+    - **the words and rows are drawn by a small module, `web/static/stall-view.js`,** loaded
+      before `panel.js` as `context-colour.js` is, and tested under node through `vm` as
+      `web/context_colour_test.go` tests that module. `panel.js` only calls it from the lane
+      row, the tab, the tree node and Needs you; nothing else in `panel.js` changes. **Beat:**
+      drawing in `panel.js` itself. No test runs `panel.js` (it needs a DOM, xterm and an
+      event stream), so the scenario would be cited by a text grep that drives nothing.
   - **The contract, in `/api/state`:**
     - `LaneView.stall`: `since`, `waitedOn` (D4's text), `openWork` (a list of short strings:
       "#152 open", "gate passed for 1a2b3c4d5e, no PR", "claude exited"), and `approx`;
     - a `NeedView` of kind `stalled`;
     - the `stalled` alert.
   - **What PANEL-46 must carry:** under ADR-0009 a stalled lane reads as *needs you*: the red
-    dot and ring, a chip that says "stalled" in words, and a place in Needs you. Group 5 appends
-    a task saying so to `changes/panel-46-ui-foundation/tasks.md`, so its build cannot merge
-    without it (`pr-merge-guard` rule 9). Its `design.md` is not touched, so its approval
-    stands.
+    dot and ring, a chip that says "stalled" in words, and a place in Needs you. Task 5.3 opens
+    an `ops/` pull request that appends a task saying so to
+    `changes/panel-46-ui-foundation/tasks.md`, so PANEL-46's build cannot merge without it
+    (`pr-merge-guard` rule 9). Its `design.md` is not touched, so its approval stands.
+    - **Not in this change's own PR:** rule 3 of `pr-merge-guard.sh` collects every
+      `changes/<id>/` a PR's diff touches, and rule 9 then requires each of them fully ticked.
+      PANEL-46's and PANEL-25's open tasks would block PANEL-51's build from merging. Rule 9
+      runs only on change branches, so an `ops/` PR carries the two appended tasks.
   - **Beat:** a new colour or a new state beside ADR-0009's five. A stall is the owner's move,
     which is what "needs you" means.
 
@@ -395,6 +433,11 @@ to `<id>` and `$PROBE`.
 | The panel restarts while a lane is stalled | The saved last movement keeps the stall's `Since`, and nothing is sent again (D1) |
 | A lease whose lane names no lane of the project, or two | It is no lane's, and working rests on the `claude agents` reading (D1) |
 | The project declares no queue | No lease is read; a gate keeps its session busy, which is working (D1, E1) |
+| A lease's holder is dead or stale, with no waiter to reclaim it | It is not working; the lane can stall (D1) |
+| A source never succeeds (`gh pr list` with no GitHub remote) | The ways of stalling that rest on it are not judged, a warning bar names it after 10 minutes, and the others still are: a frozen question still stalls (D1) |
+| The merged read fails | The last result stands; with none, the receipt is not counted as open work (D10) |
+| The owner starts `claude` by hand in a worktree with an old open PR | Its first listing is a session starting, which is movement: no stall for the stall time (D1) |
+| A session waits on the owner while another session of its lane works | The waiting session stalls on its own clock (D1) |
 | `alerts.stall_minutes` is 0 | No lane is ever stalled. The waiting and idle alerts work as today |
 | `alerts.notify` is false | Stalls show on the page, and nothing is sent, the push included |
 | `push.json` is missing | The macOS notification only, and no warning: a push is optional (D7) |

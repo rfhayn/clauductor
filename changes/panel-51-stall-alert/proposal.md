@@ -31,15 +31,18 @@ redesign (the owner's decision of 2026-10-18, over building it once on the new l
 carries the stalled state into the new look (design D11).
 
 ## What changes
-- **A lane can be stalled.** A lane is stalled when it is not working, and has gone the stall
-  time with no movement while it waits on a question or a permission prompt, or has open work
-  (an open pull request, a clean gate receipt for its HEAD with no merge after it, an exited
-  claude). The stall time defaults to 30 minutes, and `alerts.stall_minutes` changes it per
-  project (D1, D3, D5).
+- **A lane can be stalled.** A lane is stalled when a session of it has waited on a question or
+  a permission prompt for the stall time, or when it is not working, has gone the stall time with
+  no movement, and has open work: an open pull request, a clean gate receipt for its HEAD with no
+  pull request after it, background work its turn ended on, or, for a lane the panel launched, a
+  claude that exited with work open. The stall time defaults to 30 minutes, and
+  `alerts.stall_minutes` changes it per project (D1, D3, D5).
   - **Working:** a `claude agents` reading of `busy` (which holds while a background command
-    runs: E1), or holding or waiting for the gate's lease.
+    runs: E1), or holding (alive) or waiting for the gate's lease.
   - **Movement:** a hook from any of the lane's sessions, a change in its `claude agents`
-    reading, or a lease taken or given up.
+    reading, a session starting, a lease taken or given up, or its pane dying.
+  - **A lane with no live session** does not stall, unless the panel launched it and its claude
+    exited (D1).
 - **It says what it last waited on.** That is the ask, or the in-flight work Claude Code's `Stop`
   hook lists (`background_tasks`, probed on 2.1.302: E1, E2), or "nothing in flight to wake it",
   with the turn's last line. A session that scheduled its own wakeup (`session_crons`) is not
