@@ -21,7 +21,7 @@ every open change against the shape below.
 **Approved:** YYYY-MM-DD by <owner> · design <hash>   ← or: **Status:** awaiting approval
 **Roadmap row:** <row id>
 **Risk:** low | normal | high
-**Budget:** $N                                         ← when the roadmap row has `Budget: $N`
+**Budget:** $N                                         ← when the roadmap row has `Budget: $N`; `$N, soft` if the owner made it soft
 
 ## Why
 <the problem, and why now>
@@ -48,7 +48,10 @@ every open change against the shape below.
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.
   `.claude/change-cost.sh <id>` measures spend from this machine's transcripts at list price;
-  `build-change` stops when a group takes it over, and archive records the actual cost.
+  `build-change` stops when a group takes it over, and archive records the actual cost. The line
+  itself says how hard it is, and it is the only place that is read: `$N` (or `$N, hard`) stops
+  the build; `$N, soft` reports the overrun to the owner and the build goes on. Any other wording
+  fails `checks/changes.sh` and stops `build-change` rather than being guessed at.
 - **How we'll know** is the outcome hypothesis: archive queues a roadmap row to check it then.
 
 With the review-page module on (`REVIEW_PAGE="artifact"`), line 1 is instead

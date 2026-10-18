@@ -105,6 +105,23 @@ proposal_field() {
   sed -n "s/^\*\*$2:\*\*[[:space:]]*//p" "$1" 2>/dev/null | head -1 | sed 's/[[:space:]]*$//'
 }
 
+# proposal_budget FILE: the `**Budget:**` line, read ONE way for every reader (change-cost.sh, and
+# through it build-change; checks/changes.sh; metrics.sh). Whether a budget is soft is the line's
+# own words, never the design's prose: `$N` and `$N, hard` print "N hard" (an overrun stops the
+# build), `$N, soft` prints "N soft" (an overrun is reported and the build goes on), no line prints
+# nothing, and any other line prints "unreadable": a budget nobody can read is said, never taken
+# as hard or soft (OPS-85).
+proposal_budget() {
+  _pb=$(proposal_field "$1" Budget)
+  [ -n "$_pb" ] || return 0
+  _pb=$(printf '%s\n' "$_pb" | sed -nE 's/^\$([0-9]+(\.[0-9][0-9]?)?)(,[[:space:]]*(soft|hard))?$/\1 \4/p')
+  case $_pb in
+    '') echo unreadable ;;
+    *' ') echo "${_pb% } hard" ;;
+    *) echo "$_pb" ;;
+  esac
+}
+
 # scenario_counts FILE: "<count>\t<requirement>" for EVERY requirement in FILE, in order, 0 included.
 # Standing Tee's archive step counted with an awk that printed only the requirements it saw a
 # scenario under, so a missing line there meant 0; this prints the 0, so no caller must remember.
