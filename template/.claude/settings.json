@@ -86,6 +86,8 @@
       "Bash(sh .claude/roadmap-queue.sh *)",
       "Bash(scripts/ci/gate.sh)",
       "Bash(scripts/ci/gate.sh *)",
+      "Bash(scripts/ci/gate-wait.sh)",
+      "Bash(scripts/ci/gate-wait.sh *)",
       "Bash(sh .claude/status-write.sh *)"
     ],
     "deny": [
@@ -126,7 +128,10 @@
       "clauductor *",
       "docker *",
       "scripts/ci/run-local.sh *",
-      "scripts/ci/gate.sh *"
+      "scripts/ci/gate.sh",
+      "scripts/ci/gate.sh *",
+      "scripts/ci/gate-wait.sh",
+      "scripts/ci/gate-wait.sh *"
     ],
     "network": {
       "allowedDomains": [

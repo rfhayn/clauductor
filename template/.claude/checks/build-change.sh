@@ -45,13 +45,37 @@ pc="$ROOT/.claude/project-config.sh"
 if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
   mkdir -p "$d/p/.claude/lib"
   cp "$ROOT/.claude/lib/conf.sh" "$d/p/.claude/lib/"; cp "$pc" "$d/p/.claude/"
-  printf 'BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\nGATE_QUICK_FLAGS="--fast"\n' > "$d/p/.claude/project.conf"
+  conf='BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\nGATE_QUICK_FLAGS="--fast"\n'
   printf '{"attribution": {"enabled": false, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": false}}\n' > "$d/p/.claude/model-roles.json"
+  # gate-wait.sh is where install put it (Mapping): beside the template's runner, moved or not, and
+  # at scripts/ci/ beside a project's own runner (OPS-72).
+  for _gw in 'scripts/ci/run-local.sh scripts/ci/gate-wait.sh' './ci/run-local.sh ci/gate-wait.sh' 'bin/ci.sh scripts/ci/gate-wait.sh' \
+    'run-local.sh ./gate-wait.sh' './run-local.sh ./gate-wait.sh' 'scripts/ci//run-local.sh scripts/ci/gate-wait.sh' \
+    'ci/../run-local.sh ./gate-wait.sh' 'ci/run-local.sh/ ci/gate-wait.sh'; do
+    set -- $_gw
+    printf "${conf}GATE_RUN=\"%s\"\n" "$1" > "$d/p/.claude/project.conf"
+    _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gateWait 2>&1)
+    [ "$_got" = "$2" ] && ok "project-config.sh --json: GATE_RUN=$1 puts gate-wait at $2" || fail "project-config.sh --json: GATE_RUN=$1 gave gateWait '$_got', want $2 (where install puts it)"
+  done
+  # The gate the workflow runs is GATE cleaned as install writes it into the sandbox exclusion.
+  # A gate at the repository root keeps ./ (a bare name is looked up on PATH); an empty GATE stays
+  # empty, so the workflow runs its default.
+  printf 'GATE=""\n' > "$d/p/.claude/project.conf"
+  _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gate 2>&1)
+  [ -z "$_got" ] && ok "project-config.sh --json: an empty GATE gives an empty gate (the workflow's default applies)" || fail "project-config.sh --json: an empty GATE gave gate '$_got', want empty"
+  for _gw in './infra/ci/gate.sh infra/ci/gate.sh' 'infra//ci/gate.sh infra/ci/gate.sh' 'x/../infra/ci/gate.sh/ infra/ci/gate.sh' \
+    './gate.sh ./gate.sh' 'gate.sh ./gate.sh'; do
+    set -- $_gw
+    printf 'GATE="%s"\n' "$1" > "$d/p/.claude/project.conf"
+    _got=$(ROOT= sh "$d/p/.claude/project-config.sh" --json 2>&1 | jq -r .gate 2>&1)
+    [ "$_got" = "$2" ] && ok "project-config.sh --json: GATE=$1 gives gate $2, as install writes it" || fail "project-config.sh --json: GATE=$1 gave gate '$_got', want $2 (the path install excludes from the sandbox)"
+  done
+  printf "${conf}GATE_RUN=\"infra/ci/run-local.sh\"\n" > "$d/p/.claude/project.conf"
   ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/off.json" 2>&1
   printf '{"attribution": {"enabled": true, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": true}}\n' > "$d/p/.claude/model-roles.json"
   ROOT= sh "$d/p/.claude/project-config.sh" --json > "$d/on.json" 2>&1
   [ "$(ROOT= sh "$d/p/.claude/project-config.sh" branch change add-x)" = "feature/add-x" ] && ok "project-config.sh branch change add-x follows BRANCH_CHANGE" || fail "project-config.sh branch does not follow BRANCH_CHANGE"
-  jq -e '.branch.change == "feature/" and .changesDir == "openspec/changes" and .gate == "infra/ci/gate.sh" and .quickFlags == "--fast" and .attribution == "" and .provenance == false' "$d/off.json" >/dev/null \
+  jq -e '.branch.change == "feature/" and .changesDir == "openspec/changes" and .gate == "infra/ci/gate.sh" and .gateWait == "infra/ci/gate-wait.sh" and .quickFlags == "--fast" and .attribution == "" and .provenance == false' "$d/off.json" >/dev/null \
     && ok "project-config.sh --json reads project.conf and model-roles.json (attribution and provenance off)" || fail "project-config.sh --json printed: $(cat "$d/off.json")"
 else
   ok "SKIPPED: no .claude/project-config.sh or no jq here"
@@ -93,6 +117,7 @@ if (off != null) {
   t('settings: the branch prefix is the project\'s', c.branchPrefix, 'feature/')
   t('settings: the changes directory is the project\'s', c.changesDir, 'openspec/changes')
   t('settings: the gate is the project\'s', c.gate, 'infra/ci/gate.sh')
+  t('settings: gate-wait is where install put it, beside the project\'s runner', c.gateWait, 'infra/ci/gate-wait.sh')
   t('settings: the quick flags are the project\'s', c.quickFlags, '--fast')
   t('settings: a quickFlags arg wins, even an empty one', projectSettings(off, { quickFlags: '' }).quickFlags, '')
   t('settings: attribution and provenance off give a commit no trailer', trailerBlock(c, 'add-x', 'builder', 'opus', 's1'), '')
@@ -217,14 +242,14 @@ const fs = require('fs')
 const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
-async function run(round1, { where = WORKTREE, args = {} } = {}) {
+async function run(round1, { where = WORKTREE, args = {}, cfg = {} } = {}) {
   const calls = []
   const reviews = [{ findings: round1 }, { findings: [] }]
   let h = 0
   const agent = async (prompt, opts) => {
     calls.push({ prompt, opts })
     const { label } = opts
-    if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', attribution: '', provenance: false }) }
+    if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
     if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', budgetUsd: null, costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '',
       groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
@@ -270,6 +295,22 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([])
   const later = afterPreflight(r.calls) || []
   t('every agent after preflight is pinned to the recorded root', r.report.stoppedAt === null && later.length > 3 && later.every((c) => /^Repo root: \/repo\/\.claude\/worktrees\/build-demo\./.test(c.prompt)), [r.report.stoppedAt, later.map((c) => c.prompt.slice(0, 60))])
+  // The gate runs as a LONE command (OPS-72): settings.json's sandbox exclusion for the gate and
+  // gate-wait applies only to the script run alone, so PIN's `cd <root> &&` before it ran the gate
+  // sandboxed, where its process checks fail whatever the code did (PANEL-48's build, 2026-10-17).
+  const chained = /(&&|;|\|)\s*(\S*\/)?gate(-wait)?\.sh|gate(-wait)?\.sh[^`\n]*(&&|;|\||>)/
+  // gate-wait is named, as a LONE command and in the backgrounded-gate note, at the path the
+  // project's settings give (gateWait), and at no other.
+  const lone = (c, cmd, wait = 'scripts/ci/gate-wait.sh') => c.prompt.includes(`\`${cmd}\` as a LONE Bash command`) && c.prompt.includes(`\`${wait}\` as a LONE Bash command`)
+    && c.prompt.includes(`call \`${wait}\` in the foreground`) && (c.prompt.match(/\S*gate-wait\.sh/g) || []).every((p) => p.replace(/^`/, '') === wait)
+    && /the one exception to the `cd \/repo\/\.claude\/worktrees\/build-demo &&` rule/.test(c.prompt) && !chained.test(c.prompt)
+  const gate = later.find((c) => c.opts.label === 'gate:3#1'), receipt = later.find((c) => c.opts.label === 'receipt')
+  t('the quick gate agent runs `scripts/ci/gate.sh --quick` and gate-wait as LONE commands, exempt from PIN\'s cd rule, chained nowhere', !!gate && lone(gate, 'scripts/ci/gate.sh --quick'), gate && gate.prompt)
+  t('the receipt agent runs `scripts/ci/gate.sh` and gate-wait the same way', !!receipt && lone(receipt, 'scripts/ci/gate.sh'), receipt && receipt.prompt)
+  // A project whose template runner moved (GATE_RUN=ci/run-local.sh) has gate-wait at ci/ (OPS-72).
+  r = await run([], { cfg: { gate: 'ci/gate.sh', gateWait: 'ci/gate-wait.sh' } })
+  const g2 = r.calls.find((c) => c.opts.label === 'gate:3#1'), r2 = r.calls.find((c) => c.opts.label === 'receipt')
+  t('with gateWait ci/gate-wait.sh, both gate agents name gate-wait there and only there', r.report.stoppedAt === null && !!g2 && !!r2 && lone(g2, 'ci/gate.sh --quick', 'ci/gate-wait.sh') && lone(r2, 'ci/gate.sh', 'ci/gate-wait.sh'), g2 && g2.prompt)
   // reportTo (OPS-43): the script cannot SendMessage, so the session it reports to rides back in
   // the report, for the session that launched it to send the outcome there.
   t('a run given no reportTo names none in its report', r.report.reportTo === null, r.report.reportTo)
