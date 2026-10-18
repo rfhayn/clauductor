@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -423,6 +424,16 @@ func (m *LaneManager) LaneCommand(id, laneType, sessionID string, resume bool) [
 	if lt.Effort != "" {
 		argv = append(argv, "--effort", lt.Effort)
 	}
+	// PANEL-48: the lane's context policy, on every launch, since --resume does not
+	// restore --settings. --settings ranks above the repository's own settings, so its
+	// env cannot undo it. One argv element, marshalled from validated config values.
+	if env := m.Cfg.LaunchEnv(laneType); env != nil {
+		// A map of strings always marshals.
+		settings, _ := json.Marshal(struct {
+			Env map[string]string `json:"env"`
+		}{env})
+		argv = append(argv, "--settings", string(settings))
+	}
 	if m.RemoteControl != nil && m.RemoteControl() {
 		// PANEL-19: remote control for the panel's lanes only (`panel install`). Its
 		// optional name argument is never given: -n names the session.
@@ -653,9 +664,11 @@ func (m *LaneManager) Start(ctx context.Context, req StartRequest) (StartResult,
 	}
 
 	// The intent is on disk before anything is created, so a crash from here on
-	// leaves a record the next start shows as an orphan.
+	// leaves a record the next start shows as an orphan. The window goes in this
+	// record, which Done later writes whole (PANEL-48).
 	rec, err := m.Registry.Begin(req.withTemplate(types.LaneRecord{ID: id, SessionID: sid, Path: res.Path, Type: req.Type,
-		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli(), Port: m.allocatePort(id)}), "start", m.now())
+		Branch: res.Branch, Mode: req.Mode, Created: m.now().UnixMilli(), Port: m.allocatePort(id),
+		ContextWindow: m.Cfg.ContextWindowOf(req.Type)}), "start", m.now())
 	if err != nil {
 		return res, laneErr(500, "registry", "cannot write the lane registry: %v", err)
 	}
@@ -1136,6 +1149,9 @@ func (m *LaneManager) resumeLocked(ctx context.Context, rec types.LaneRecord, ac
 	if fi, err := os.Stat(rec.Path); err != nil || !fi.IsDir() {
 		return laneErr(409, "no-worktree", "%s no longer exists; forget the lane instead", rec.Path)
 	}
+	// PANEL-48: the window this launch passes (LaneCommand reads the same config), set
+	// before Begin because Done writes this record whole.
+	rec.ContextWindow = m.Cfg.ContextWindowOf(rec.Type)
 	rec, err = m.Registry.Begin(rec, action, m.now())
 	if err != nil {
 		return laneErr(500, "registry", "cannot write the lane registry: %v", err)

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -211,5 +212,183 @@ func TestLoginLockAlertsAreTheMachines(t *testing.T) {
 	}
 	if MachineAlert(AlertWaiting) {
 		t.Error("a project's alert counts as the machine's")
+	}
+}
+
+// contextAlert is the view's context alert, if any.
+func contextAlert(v View) (AlertView, bool) {
+	for _, a := range v.Alerts {
+		if a.Kind == AlertContext {
+			return a, true
+		}
+	}
+	return AlertView{}, false
+}
+
+// alertPctOf is lane path's context alert threshold as the lane row, its metrics and
+// its terminal lane carry it to the page; -1 where one is missing.
+func alertPctOf(c ctxOf) [3]float64 {
+	f := func(p *float64) float64 {
+		if p == nil {
+			return -1
+		}
+		return *p
+	}
+	return [3]float64{f(c.lv.CtxAlertPct), f(c.lv.Metrics.CtxAlertPct), f(c.tv.CtxAlertPct)}
+}
+
+// [LANECTX-2-S6] A windowed lane's alert fires before it compacts: under
+// alerts.context_pct 85, a 200000 lane at 160000 tokens reads 80%, its threshold is
+// 78.5 (its tick, 83.5, less 5), and the context alert fires saying so. Under
+// context_pct 80, a 300000 lane's threshold is 80, the lower of the two. (The page's
+// warning colour from this threshold: web's TestContextColour.)
+func TestLANECTX2S6WindowedLaneAlertsBeforeItCompacts(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":85}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 16, 160000), t0)
+	v := m.Snapshot(t0)
+	c := readCtx(t, v, "/repo/w/x")
+	if c.session != 80 || c.metrics != 80 {
+		t.Fatalf("context %v / %v, want 80", c.session, c.metrics)
+	}
+	if got := alertPctOf(c); got != [3]float64{78.5, 78.5, 78.5} {
+		t.Fatalf("threshold (lane, metrics, terminal) %v, want 78.5 each", got)
+	}
+	a, ok := contextAlert(v)
+	if !ok || a.Severity != signals.SevWarn || a.Text != "context at 80% (alert at 78.5%)" {
+		t.Fatalf("context alert %+v (fired %v), want \"context at 80%% (alert at 78.5%%)\"", a, ok)
+	}
+
+	m = alertModel(t, `,"alerts":{"context_pct":80}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 300000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 16, 160000), t0)
+	if got := alertPctOf(readCtx(t, m.Snapshot(t0), "/repo/w/x")); got != [3]float64{80, 80, 80} {
+		t.Fatalf("300000 under context_pct 80: threshold %v, want 80 each", got)
+	}
+	// The other windows D13 names: 84 at 300000 and 62 at 100000 under 85; 85 at 1m.
+	for w, want := range map[int]float64{300000: 84, 100000: 62, 1000000: 85, 0: 85} {
+		if got := ctxAlertPct(85, w); got != want {
+			t.Errorf("ctxAlertPct(85, %d) = %v, want %v", w, got, want)
+		}
+	}
+}
+
+// withWindow is post p as a status line that adds "auto_compact_window": raw (a JSON
+// value) sends it, decoded through StatusPayload as the server decodes a post.
+func withWindow(t *testing.T, p signals.StatusPayload, raw string) signals.StatusPayload {
+	t.Helper()
+	if err := json.Unmarshal([]byte(`{"auto_compact_window":`+raw+`}`), &p); err != nil {
+		t.Fatalf("a post with auto_compact_window %s fails to decode: %v", raw, err)
+	}
+	return p
+}
+
+// [LANECTX-2-S8] A lane keeps its window after /clear: a lane launched with a 200000
+// window runs /clear, and its status line posts under a session id no lane record holds,
+// with "auto_compact_window": 200000 and 180000 tokens. The session's context reads 90%
+// (not used_percentage's 18), with the window's 83.5 tick, and its context alert fires.
+func TestLANECTX2S8LaneKeepsItsWindowAfterClear(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":85}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(withWindow(t, ctxPost(t, "s-cleared", "/repo/w/x", 18, 180000), "200000"), t0)
+	v := m.Snapshot(t0)
+	c := readCtx(t, v, "/repo/w/x")
+	if c.session != 90 || c.lane != 90 || c.metrics != 90 || c.window != 200000 {
+		t.Fatalf("cleared session: context %v / %v / %v against %d, want 90 against 200000", c.session, c.lane, c.metrics, c.window)
+	}
+	if c.lv.CtxTick != 83.5 || c.lv.CtxAlertPct == nil || *c.lv.CtxAlertPct != 78.5 {
+		t.Fatalf("cleared session: tick %v, threshold %v, want 83.5 and 78.5", c.lv.CtxTick, c.lv.CtxAlertPct)
+	}
+	if a, ok := contextAlert(v); !ok || a.Text != "context at 90% (alert at 78.5%)" {
+		t.Fatalf("context alert %+v (fired %v), want \"context at 90%% (alert at 78.5%%)\"", a, ok)
+	}
+}
+
+// [LANECTX-2-S9] A session started by hand in a windowed lane's folder keeps Claude
+// Code's figure: in the worktree of a lane launched with a 200000 window, a session no
+// lane record holds posts with no auto_compact_window, used_percentage 42 and 420000
+// tokens. Its context reads 42% (not 210% of the lane's window), and no context alert
+// fires for it.
+func TestLANECTX2S9HandStartedSessionKeepsClaudeCodesFigure(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":85}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "by-hand", "/repo/w/x", 42, 420000), t0)
+	v := m.Snapshot(t0)
+	c := readCtx(t, v, "/repo/w/x")
+	if c.session != 42 || c.lane != 42 || c.metrics != 42 || c.window != 1000000 {
+		t.Fatalf("hand-started session: context %v / %v / %v against %d, want used_percentage's 42 against the model's 1000000",
+			c.session, c.lane, c.metrics, c.window)
+	}
+	if a, ok := contextAlert(v); ok {
+		t.Fatalf("a context alert for a hand-started session at 42%%: %+v", a)
+	}
+}
+
+// A posted window outside Claude Code's range, or one that is not an integer, is
+// ignored: the post still decodes and folds, and the record holding its session id
+// applies (or, with none, used_percentage).
+func TestPostedWindowOutsideTheRangeIsIgnored(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"50000", "1000001", "0", "-200000", `"200000"`, "200000.5", "null"} {
+		m := alertModel(t, `,"alerts":{"context_pct":85}`)
+		m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}, {ID: "y", Path: "/repo"}},
+			[]types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000), windowRec("y", "sy", "/repo", 0)}, "", nil, t0)
+		m.ApplyStatus(withWindow(t, ctxPost(t, "s", "/repo/w/x", 16, 160000), raw), t0)
+		m.ApplyStatus(withWindow(t, ctxPost(t, "sy", "/repo", 16, 160000), raw), t0)
+		v := m.Snapshot(t0)
+		if c := readCtx(t, v, "/repo/w/x"); c.session != 80 || c.window != 200000 {
+			t.Errorf("posted %s: context %v against %d, want the record's 80 against 200000", raw, c.session, c.window)
+		}
+		if c := readCtx(t, v, "/repo"); c.session != 16 || c.window != 1000000 {
+			t.Errorf("posted %s, no windowed record: context %v against %d, want used_percentage's 16", raw, c.session, c.window)
+		}
+	}
+	// In range, the posted window wins over the record's.
+	m := alertModel(t, "")
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(withWindow(t, ctxPost(t, "s", "/repo/w/x", 16, 160000), "320000"), t0)
+	if c := readCtx(t, m.Snapshot(t0), "/repo/w/x"); c.session != 50 || c.window != 320000 {
+		t.Errorf("posted 320000: context %v against %d, want 50 against 320000", c.session, c.window)
+	}
+}
+
+// [LANECTX-2-S7] An alert turned off stays off for a windowed lane: under
+// alerts.context_pct 0, a 200000 lane at 160000 tokens reads 80%, no context alert
+// fires, and the threshold the page reads is 0, off (not the lower of 0 and the tick).
+func TestLANECTX2S7AlertOffStaysOffForAWindowedLane(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":0}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 16, 160000), t0)
+	v := m.Snapshot(t0)
+	c := readCtx(t, v, "/repo/w/x")
+	if c.session != 80 || c.metrics != 80 {
+		t.Fatalf("context %v / %v, want 80", c.session, c.metrics)
+	}
+	if a, ok := contextAlert(v); ok {
+		t.Fatalf("a context alert with context_pct 0: %+v", a)
+	}
+	if got := alertPctOf(c); got != [3]float64{0, 0, 0} {
+		t.Fatalf("threshold (lane, metrics, terminal) %v, want 0 (off) each", got)
+	}
+}
+
+// [LANECTX-2-S4] The state side: a lane launched with no window carries
+// alerts.context_pct (80) as its threshold, which the page's warning colour reads
+// (web's TestContextColour draws 82% in it); the alert says "alert at 80%".
+func TestLANECTX2S4LaneWithoutWindowCarriesTheConfiguredThreshold(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":80}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 0)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 82, 180000), t0)
+	v := m.Snapshot(t0)
+	if got := alertPctOf(readCtx(t, v, "/repo/w/x")); got != [3]float64{80, 80, 80} {
+		t.Fatalf("threshold (lane, metrics, terminal) %v, want 80 each", got)
+	}
+	if a, ok := contextAlert(v); !ok || a.Text != "context at 82% (alert at 80%)" {
+		t.Fatalf("context alert %+v (fired %v)", a, ok)
 	}
 }

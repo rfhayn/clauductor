@@ -78,9 +78,30 @@ func TestVersionGatesKeys(t *testing.T) {
 		t.Fatalf("a full version 1 config: %v %v", err, c)
 	}
 	// An explicit version outside the supported range is refused, 0 included.
-	for _, v := range []string{"0", "6", "-1"} {
+	for _, v := range []string{"0", "7", "-1"} {
 		if _, err := parseConfig([]byte(`{"name":"T","version":` + v + `}`)); err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("version %s: %v", v, err)
+		}
+	}
+}
+
+// [LANECTX-3-S2] A version-5 config cannot use the context policy's keys: the load
+// fails, naming the key and version 6. The same keys load at version 6.
+func TestContextPolicyKeysNeedVersion6(t *testing.T) {
+	t.Parallel()
+	for _, r := range []struct{ body, key string }{
+		// launch is version 6 as a whole, so the gate names it where the file sets it.
+		{`"launch":{"context_window":200000}`, `"launch"`},
+		{`"launch":{"claudeai_connectors":false}`, `"launch"`},
+		{`"lane_types":{"fix":{"context_window":300000}}`, `"lane_types.<key>.context_window"`},
+		{`"lane_types":{"fix":{"subagent_model":"sonnet"}}`, `"lane_types.<key>.subagent_model"`},
+	} {
+		_, err := parseConfig([]byte(`{"name":"T","version":5,` + r.body + `}`))
+		if err == nil || !strings.Contains(err.Error(), r.key) || !strings.Contains(err.Error(), `"version": 6`) {
+			t.Errorf("version 5 and %s: %v, want an error naming %s and version 6", r.body, err, r.key)
+		}
+		if _, err := parseConfig([]byte(`{"name":"T","version":6,` + r.body + `}`)); err != nil {
+			t.Errorf("version 6 and %s: %v", r.body, err)
 		}
 	}
 }
@@ -92,7 +113,7 @@ func TestMissingVersionReadsAsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 5`) || !strings.Contains(c.Notices[0], `Add "version": 5`) {
+	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 6`) || !strings.Contains(c.Notices[0], `Add "version": 6`) {
 		t.Fatalf("notices %q", c.Notices)
 	}
 	c, err = parseConfig([]byte(`{"name":"T","version":2,"templates":[]}`))

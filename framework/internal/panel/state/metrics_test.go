@@ -1,6 +1,8 @@
 package state
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,5 +145,159 @@ func TestFlowCardInTheView(t *testing.T) {
 	m.ApplyFlow(card)
 	if v := m.Snapshot(t0); v.Flow != nil {
 		t.Fatal("metrics.card false still shows the card")
+	}
+}
+
+// ctxPost is session sid's status post from /repo/w/x as Claude Code sends it on a
+// 1M-token model: used_percentage, context_window_size 1000000, and a current_usage
+// whose input, cache-creation and cache-read tokens sum to tokens. Its output tokens
+// are not context, so they are not in the sum.
+func ctxPost(t *testing.T, sid, cwd string, used float64, tokens int64) signals.StatusPayload {
+	t.Helper()
+	var p signals.StatusPayload
+	b := fmt.Sprintf(`{"session_id":%q,"cwd":%q,"context_window":{"used_percentage":%v,"context_window_size":1000000,`+
+		`"current_usage":{"input_tokens":2000,"output_tokens":7000,"cache_creation_input_tokens":8000,"cache_read_input_tokens":%d}}}`,
+		sid, cwd, used, tokens-10000)
+	if err := json.Unmarshal([]byte(b), &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// windowRec is lane id's registry record: session sid in path, launched with window
+// (0: none).
+func windowRec(id, sid, path string, window int) types.LaneRecord {
+	return types.LaneRecord{ID: id, SessionID: sid, Path: path, Type: "build", ActionDone: true, ContextWindow: window}
+}
+
+// ctxOf is lane path's context as the view shows it: the session's figure, the lane
+// row's, the terminal lane's and the lane's metrics', and the metrics' window.
+type ctxOf struct {
+	session, lane, term, metrics float64
+	window                       int64
+	lv                           LaneView
+	tv                           TermLaneView
+}
+
+func readCtx(t *testing.T, v View, path string) ctxOf {
+	t.Helper()
+	f := func(p *float64) float64 {
+		if p == nil {
+			return -1
+		}
+		return *p
+	}
+	var c ctxOf
+	found := false
+	for _, lv := range v.Lanes {
+		if lv.Path == path && len(lv.Sessions) > 0 {
+			c.lv, found = lv, true
+			c.session, c.lane, c.metrics, c.window = f(lv.Sessions[0].CtxPct), f(lv.CtxPct), f(lv.Metrics.CtxPct), lv.Metrics.CtxWindow
+		}
+	}
+	for _, tv := range v.Terminals {
+		if tv.Path == path {
+			c.tv, c.term = tv, f(tv.CtxPct)
+		}
+	}
+	if !found {
+		t.Fatalf("no lane with a session at %s: %+v", path, v.Lanes)
+	}
+	return c
+}
+
+// [LANECTX-2-S1] A lane launched with a 200000 window, on a 1M-token model whose
+// status line reads used_percentage 18 at 180000 tokens, reads 90% as the session's
+// figure and as the lane's metrics' figure, its metrics read a 200000 window, and the
+// context alert fires (alerts.context_pct 85).
+func TestLANECTX2S1WindowedLaneReadsAgainstItsWindow(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"alerts":{"context_pct":85}`)
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 18, 180000), t0)
+	v := m.Snapshot(t0)
+	c := readCtx(t, v, "/repo/w/x")
+	if c.session != 90 || c.lane != 90 || c.term != 90 || c.metrics != 90 {
+		t.Fatalf("context: session %v, lane %v, terminal %v, metrics %v; want 90 each", c.session, c.lane, c.term, c.metrics)
+	}
+	if c.window != 200000 {
+		t.Fatalf("metrics window %d, want 200000 (not context_window_size)", c.window)
+	}
+	if alertKinds(v)[AlertContext] != signals.SevWarn {
+		t.Fatalf("no context alert at 90%%: %+v", v.Alerts)
+	}
+}
+
+// [LANECTX-2-S2] A lane launched with no window keeps Claude Code's used_percentage:
+// 42 reads 42%, whatever its tokens sum to.
+func TestLANECTX2S2LaneWithoutWindowKeepsClaudeCodesFigure(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, "")
+	m.ApplyTmux([]types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 0)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 42, 180000), t0)
+	c := readCtx(t, m.Snapshot(t0), "/repo/w/x")
+	if c.session != 42 || c.lane != 42 || c.term != 42 || c.metrics != 42 {
+		t.Fatalf("context: session %v, lane %v, terminal %v, metrics %v; want 42 each", c.session, c.lane, c.term, c.metrics)
+	}
+	if c.window != 1000000 {
+		t.Fatalf("metrics window %d, want context_window_size 1000000", c.window)
+	}
+	// A session the registry does not hold is measured as Claude Code measures it too.
+	m.ApplyStatus(ctxPost(t, "other", "/repo", 7, 180000), t0)
+	if c := readCtx(t, m.Snapshot(t0), "/repo"); c.session != 7 || c.metrics != 7 {
+		t.Fatalf("an unregistered session reads %v / %v, want 7", c.session, c.metrics)
+	}
+}
+
+// [LANECTX-2-S3] A config edit does not move a running lane's measure: launched at
+// 200000 under a config now saying 300000, its 180000 tokens still read 90%; once
+// its record says 300000 (a restart), the next post reads against 300000.
+func TestLANECTX2S3ConfigEditDoesNotMoveARunningLane(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, `,"version":6,"launch":{"context_window":300000}`)
+	if m.cfg.ContextWindowOf("build") != 300000 {
+		t.Fatal("the config does not say 300000")
+	}
+	tl := []types.TmuxLane{{ID: "x", Path: "/repo/w/x"}}
+	m.ApplyTmux(tl, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 200000)}, "", nil, t0)
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 18, 180000), t0)
+	if c := readCtx(t, m.Snapshot(t0), "/repo/w/x"); c.session != 90 || c.metrics != 90 || c.window != 200000 {
+		t.Fatalf("before the restart: %v%% / %v%% of %d, want 90%% of 200000", c.session, c.metrics, c.window)
+	}
+	m.ApplyTmux(tl, []types.LaneRecord{windowRec("x", "s", "/repo/w/x", 300000)}, "", nil, t0.Add(time.Second))
+	m.ApplyStatus(ctxPost(t, "s", "/repo/w/x", 18, 180000), t0.Add(2*time.Second))
+	if c := readCtx(t, m.Snapshot(t0.Add(2*time.Second)), "/repo/w/x"); c.session != 60 || c.metrics != 60 || c.window != 300000 {
+		t.Fatalf("after the restart: %v%% / %v%% of %d, want 60%% of 300000", c.session, c.metrics, c.window)
+	}
+}
+
+// [LANECTX-2-S5] The auto-compact tick is per lane, where Claude Code compacts: a
+// 200000 lane's at 83.5, a 100000 lane's at 67, and a lane with no window keeps 95.
+// It is on the terminal lane from its record, and on the lane row and its metrics
+// once the lane posts.
+func TestLANECTX2S5TickSitsWhereClaudeCodeCompacts(t *testing.T) {
+	t.Parallel()
+	m := alertModel(t, "")
+	m.ApplyWorktrees([]signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x"}, {Path: "/repo/w/y", Branch: "change/y"}}, nil, t0)
+	m.ApplyTmux([]types.TmuxLane{{ID: "a", Path: "/repo/w/x"}, {ID: "b", Path: "/repo/w/y"}, {ID: "c", Path: "/repo"}},
+		[]types.LaneRecord{windowRec("a", "sa", "/repo/w/x", 200000), windowRec("b", "sb", "/repo/w/y", 100000), windowRec("c", "sc", "/repo", 0)}, "", nil, t0)
+	want := map[string]float64{"/repo/w/x": 83.5, "/repo/w/y": 67, "/repo": 95}
+	for _, tv := range m.Snapshot(t0).Terminals {
+		if tv.CtxTick != want[tv.Path] {
+			t.Errorf("terminal lane %s: tick %v before it posts, want %v", tv.Path, tv.CtxTick, want[tv.Path])
+		}
+	}
+	for sid, path := range map[string]string{"sa": "/repo/w/x", "sb": "/repo/w/y", "sc": "/repo"} {
+		m.ApplyStatus(ctxPost(t, sid, path, 5, 50000), t0)
+	}
+	v := m.Snapshot(t0)
+	for path, tick := range want {
+		c := readCtx(t, v, path)
+		if c.lv.CtxTick != tick || c.lv.Metrics.CtxTick != tick || c.tv.CtxTick != tick {
+			t.Errorf("%s: tick lane %v, metrics %v, terminal %v; want %v", path, c.lv.CtxTick, c.lv.Metrics.CtxTick, c.tv.CtxTick, tick)
+		}
+	}
+	if ctxTick(300000) != 89 || ctxTick(0) != AutocompactPct {
+		t.Errorf("ctxTick(300000) %v, want 89; no window %v, want %v", ctxTick(300000), ctxTick(0), AutocompactPct)
 	}
 }

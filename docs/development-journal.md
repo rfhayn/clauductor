@@ -14,6 +14,110 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 4 — 2026-10-17 — Rich — a day-long merge train, the merge guard's bypasses, PANEL-48's window re-approved
+
+**Rows**: PANEL-48, PANEL-49, PANEL-46, OPS-75, OPS-35, OPS-70, OPS-76, OPS-74, P2.11c, OPS-73, OPS-72, OPS-66, OPS-83, OPS-77, OPS-78, OPS-80, OPS-85 to OPS-90, PANEL-51 · **Span**: 2026-10-17 to 2026-10-18
+
+### What happened
+
+The session ran PANEL-48's build in its worktree and, beside it, a merge lane (merge-train) that landed the queue one gate at a time. By evening the gate lease, not review, set the pace.
+
+**Merged, in order:**
+- **OPS-75** (#136): a sandboxed script reaches `gh`, and the focus file moves into the git directory, so the status line's focus can be set from the sandbox.
+- **OPS-35** (#140): metrics.sh names a branch a failing git step leaves out; #62's cause stays with OPS-79.
+- **OPS-70** (#138): rule 11 checks an archive made with `git mv`.
+- **OPS-76** (#139): `propose` reviews a proposal to convergence before the owner reads it. Its gate hit flake #143 once and passed on the rerun.
+- **OPS-74** (#137): change-cost counts every agent of a build by the worktree it ran in. Four review rounds.
+- **PANEL-49's proposal** (#148) and **PANEL-46's proposal** (#149), both approved today.
+- **The roadmap catch-up** (#145): OPS-77 and OPS-78 queued, today's merges marked, the owner's cancellations recorded.
+- **P2.11c** (#142), once the owner's permission rule let the merge through (see *Decisions*).
+- **OPS-73** (#147): the status line's live-panel case waits for the post to finish. Two review rounds.
+- **OPS-72** (#150): build-change's gate runs as a lone command the sandbox exempts. Five review rounds. The proof that a workflow gate passes comes with PANEL-49's build in session 5.
+- **OPS-83** (#144, 9481acf): the owner's roadmap tracker is kept current from `docs/roadmap.md` by mechanism. Four review rounds; its gate hit flake #143 and passed on the one rerun allowed.
+- **OPS-66** (#146, 2cf60ac): the merge guard's reader refuses less where no `gh` can run, and refuses more where one can (below).
+- **PANEL-48** (#151, 66016c3; archived in #152, d27b771): every lane launches with its context policy, and its bar and alert read against its window (below).
+
+**OPS-66 (#146), the merge guard's false refusals,** became the session's longest thread. Making the reader refuse less meant first proving which cases it should still refuse, and that found bypasses on `main`:
+- **Round 1** was code-reading only, because the live guard blocked the reviewer's own commands. A failing-first pass then showed 4 of its 9 new allow cases also passed on `main` (3 replaced, 1 dropped), and found a HIGH: a redirection placed mid-command let a merge through with no evidence.
+- **Rounds 2 to 5,** with a stub `gh` on PATH, found more forms of the same class each time: other redirection shapes, a redirect in any `gh` command, a `(` from process substitution or a glob qualifier, then a regression from narrowing the rule. All were live on `main`.
+- **What is left** (definitions inside quoted text, zsh's `functions[]` and `commands[]`, git aliases) is OPS-86's: the guard as one allowlisted merge path instead of a parser of shell text, an ADR for the owner.
+- The guard also refused two harmless commands today: a `jq` update whose string held a merge command's words, and a heredoc appended to a notes file. Both are evidence for #146.
+
+**PANEL-48** built groups 1 to 3, then group 4 stuck at medium twice on the folder fallback: a session started by hand in a lane's folder was measured against the lane's window. Probe P6 showed that the status line sees `CLAUDE_CODE_AUTO_COMPACT_WINDOW` before and after `/clear`, so D7 was amended (the posted window, then the record by session id, then none), with LANECTX-2-S8/S9 and task 4.4. The workflow resumed at group 4, which converged in one round (peak low).
+- **Verify stopped once, falsely:** two probe tasks named the throwaway probe repository's `.claude/settings.json` and the `/context` command in backticks, which `verify-change` read as files the change claims. The task lines were reworded.
+- **Merging main** conflicted in `checks/statusline.sh` with OPS-73's per-case directories. merge-train adapted PANEL-48's window cases, and that resolution was reviewed on its own (peak low, deferred to OPS-88). The hold for that review reached merge-train after it had merged on the gate's pass, so the review converged after #151 landed, not before. The outcome stands; the order was wrong.
+- **The archive's gate failed once,** on `no-clauductor`: the new owner-queue item said "then run `clauductor panel …`", which the check reads as session-start telling the user to run clauductor. The item was reworded.
+- **Cost:** $280.47 against a $100 soft budget (D10: reported, not stopped), the largest overrun yet. Most of it went on group 4's stalled rounds and two re-approvals. The workflow stopped twice on that soft budget, which OPS-85 fixes.
+
+**PANEL-49** started in the cloud: tasks 1.1 and 1.2 were built and pushed to `change/panel-49-lane-measures` (ae94c11), and review converged (peak medium, then low). The rest builds on the Mac in session 5, after PANEL-48 merges.
+
+**#141 (OPS-80)** closed after three rounds: the safe rule cannot allow a script that launches a process, and the real case went away because the hook skips tracked scripts. The row is parked on its trigger.
+
+### Decisions the owner made
+- **OPS-75:** lift the sandbox's deny on `~/.config/gh` and its block on macOS's trust service, so sandboxed scripts reach `gh`.
+- **Cancelled:** OPS-39 (it mostly served the Map; draft #125 closed), OPS-29 (cosmetic lows) and OPS-63 (low value, unhit since the rescope; #118 closed).
+- **OPS-76:** review a proposal before approval, promoting the insight *review after approval*. **OPS-78:** the skill step now, a guard rule later.
+- **OPS-77:** when a PR is behind and overlaps, require gate evidence on the merged tree, blocking but limited to overlapping files, with a Proposed ADR.
+- **PANEL-47:** D5 also refuses fish's `-C` and `--init-command` (the owner queue's item from 2026-10-16).
+- **The session plan** (S4 to S13, in #144): its order is firm; the session boundaries are estimates.
+- **PANEL-46 approved** (budget $120) and **PANEL-49 approved** (budget $60, soft).
+- **PANEL-48:**
+  - the window stays 200k (233k, the best measured, declined);
+  - the budget was raised from $40 to $100, still soft;
+  - D7 amended after probe P6 (the posted window first) and the design re-approved at 0f6ba0f2c30c (about 7:45 PM);
+  - fix the folder fallback properly rather than narrow it.
+- **OPS-72:** a fourth review round (about 5 PM); then, when round 4 found a medium caused by round 3's fix, **"Fix it, round 5"** over narrowing the scope.
+- **OPS-66 (#146):**
+  - **"Fail closed, round 3":** a redirection before the last word of a `gh … pr … merge` command makes it unreadable, an allowlist instead of a list of forms;
+  - **"Any gh, fail closed, round 4":** the same for any `gh` command, after round 3 found the class through `gh api`;
+  - **round 5** allowed after round 4's HIGH; the fix also narrowed fail-closed to commands whose command word could be `gh`;
+  - **"Fix 1, verify narrowly, merge, add row":** round 5's HIGH fixed, a narrow verification, then merge, and OPS-86 queued for the rest.
+- **Auto mode:** the owner added `Bash(gh pr merge:*)` through `/permissions` (about 6 PM) after the classifier refused #142 inconsistently.
+- **"Run everything, late close"** (about 6 PM): land every queued PR tonight rather than PANEL-48 first; at 10:32 PM, **"Everything incl. archive"**, PANEL-48's archive too, for a close near 2 AM.
+- **Flake #143:** one gate rerun allowed on #144.
+- **OPS-89 queued:** speed up the gate, per-step timing first, then a lighter gate for docs-only PRs and no duplicate template check run.
+- **Stalls are built out of the product, not remembered** (2026-10-18, after coming back to a stalled merge for the third time): "If this happens with the actual panel or application itself, that's going to be a really bad user experience." OPS-90 removes the causes in the operating model; PANEL-51 makes any remaining stall visible on the panel and pushes it. Both in session 5, first, PANEL-51 on today's page before PANEL-46 (the owner's choice over building it once on the new look); PANEL-49 follows, and OPS-81 and OPS-82 may move to session 6.
+- **Cloud lanes for session 5, set up now and run then:** OPS-90, OPS-85 and PANEL-51's proposal as claude.ai routines, created disabled (no connectors) and run by hand when session 5 starts; each pushes a branch, and the Mac reviews, gates and merges. Kept on the Mac: OPS-81 (a macOS load flake), PANEL-49's build, PANEL-51's build (after approval) and OPS-82 (OPS-90's files). `.claude/local/cloud-lanes.tsv` names them, so the tracker notes them and session-start says to run them.
+- **OPS-85 pulled into session 5,** right after OPS-90, so neither build stops on its soft budget; OPS-89, OPS-87 and OPS-88 stay where they are, because each extra row costs a full gate (session 5 already needs about ten).
+
+### What surprised us
+- **The merge guard had HIGH bypasses on `main`** that its own review rounds had never run. The reviewer of round 1 could not run anything; requiring the run found them.
+- **The gate lease is the bottleneck.** A full gate took 32 to 45 minutes and one runs at a time, so a session lands about 1.5 PRs an hour, a PR waited about 20 minutes for the lease, and a docs-only proposal pays the same gate (OPS-89).
+- **Flake #143 hit twice** (#139's gate and #144's), each time right after a wait on the lease. The frequency is rising; OPS-81 owns it.
+- **The `cd` hazard slipped a fifth time:** a `cd` inside a compound command moved the session's working directory while PANEL-48's workflow ran (OPS-82).
+- **A resumed reviewer left its worktree:** #146's round-3 reviewer, resumed through SendMessage, ran read-only git commands in the session's checkout.
+- **The night's merges stalled twice, about 8.5 h in all, with the work done:**
+  - 11:51 PM to 4:48 AM: the orchestrator asked the owner whether to queue OPS-89, a question nothing waited on, and the prompt froze it, so merge-train's 12:05 AM request to reword #152 sat unread. At 4:50 AM the orchestrator blamed the machine sleeping without checking; the transcripts show the question.
+  - 4:55 AM to 8:24 AM: merge-train's pre-gate check run outlived its 300 s timeout, was moved to the background, and merge-train ended its turn to wait. The checks passed minutes later, and that woke no one. OPS-41's hook holds only gates in the foreground.
+  - The same failure as 2026-10-03's *silent lane*: OPS-90 and PANEL-51.
+- **merge-train seemed to drop messages, and did not:** a teammate reads its inbox only when its current task ends, so its "queue empty" reports came before it had read what was queued. Re-sending only duplicated work.
+- **The orchestrator told merge-train to add provenance trailers,** which `provenance.enabled=false` forbids; merge-train caught it.
+- **Sonnet 5.5's cache-read price:** PANEL-49's cloud run found $0.10 per million tokens on the pricing page against the $0.20 PANEL-48's evidence and audit tool use (PANEL-49 task 1.3). At $0.10:
+  - the week's $1,208.28 falls by $1.04 (10.35M Sonnet cache-read tokens);
+  - the window's $153.79 and $163.33 do not move, because no Sonnet thread passed 72k of context;
+  - lever 4, subagents on Sonnet, rises from $151.78 to about $255.92: each of the 1,041M cache-read tokens of subagents not already on Sonnet costs $0.10 less. The evidence's "Opus 5.5 and Sonnet 5.5 cost the same per cache read" would no longer hold.
+  - PANEL-48's archive adds a dated correction to its evidence README; PANEL-49's task 1.3 settles the price for the panel's table.
+
+### Compound
+- **Promoted or decided:** *semantic conflicts* → deferred to OPS-77; *parsing shell text* → an instance of *A check that reads source is a parser*, with the merge guard's case owned by OPS-86; *nobody awake* (2026-10-18) → OPS-90 and PANEL-51; the five pre-OPS-8 rows of 2026-03-30 archived (the lock-based model they describe is gone).
+- **New today, Raw:** eight rows (the shell parser, the unbounded input space, the reviewer that could not run, the `cd` hazard, the lease bottleneck, the resumed agent, the lost message, the classifier).
+
+### Left in flight (handed off)
+- **The owner's step for PANEL-48:** add the `launch` object and `"version": 6` to Standing Tee's sidecar, then `clauductor panel trust`. The 21 days of its outcome check (o.5) count from that step.
+- **PANEL-49** builds next on the Mac (session 5), from ae94c11, with task 1.3 settling the Sonnet price; its build is also OPS-72's proof that a workflow gate passes. OPS-90 goes first, then OPS-85 (the template's `build-change` still stops on a soft budget, and this session's patch does not carry over), with PANEL-51 (its proposal drafted at the start of S5 for the owner, then built) beside PANEL-49's build; then OPS-81 and OPS-82 if there is room, and OPS-89 later.
+- **OPS-86** waits on the owner's ADR; until it lands the merge guard keeps the limits its header lists.
+
+### Flow and cost
+- **Flow (30 days):** cycle 1.2h median, lead 2.4h, 22.4 merges a week, change-fail 7.8%, approval wait 0.9h, review rounds 2.4, spend $575.51 a week, 31 in flight (Haiku 5.5 unpriced).
+- **This session's cost** (usage-report.sh, list price, this machine, at the close before its gate): about **$330**, nearly all of it Opus 5.5 (about $319) and the rest Sonnet 5.5 (about $11):
+  - merge-train $122.37 (the merge lane: gates, merges and its own fixes);
+  - the orchestrating session $75.11;
+  - general-purpose agents $61.84;
+  - reviewers $35.21;
+  - builders $23.52;
+  - build-change's workflow steps about $12;
+  - a Haiku 5.5 reviewer UNPRICED (8 calls).
+
 ## Session 3 — 2026-10-16 — Rich — the rescope, attach mode built, the panel's new look chosen, a context policy proposed
 
 **Rows**: OPS-67, OPS-71, PANEL-42, PANEL-45, PANEL-48, OPS-70, OPS-74 · **Span**: 2026-10-14 to 2026-10-16

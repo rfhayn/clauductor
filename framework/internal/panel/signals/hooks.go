@@ -138,6 +138,25 @@ type StatusPayload struct {
 		Name string `json:"name"`
 	} `json:"output_style"`
 	RateLimits RateLimits `json:"rate_limits"`
+	// AutoCompactWindow is the CLAUDE_CODE_AUTO_COMPACT_WINDOW the session runs under,
+	// which the project's own status line adds from its environment (PANEL-48, D7):
+	// Claude Code's stdin carries no field for it. 0 when absent or not an integer.
+	AutoCompactWindow PostedInt `json:"auto_compact_window"`
+}
+
+// PostedInt is an integer a project's own status line adds to the post. A value that
+// is not an integer reads as 0 rather than failing the decode, so a status line that
+// gets the field wrong never costs the post its other figures.
+type PostedInt int64
+
+// UnmarshalJSON keeps an integer and reads anything else as 0.
+func (n *PostedInt) UnmarshalJSON(b []byte) error {
+	var v int64
+	if json.Unmarshal(b, &v) != nil {
+		v = 0
+	}
+	*n = PostedInt(v)
+	return nil
 }
 
 // RateLimit is one quota window from the status line.

@@ -117,9 +117,13 @@ type session struct {
 	nest        nesting         // pending Agent calls, confirmed edges, workflow runs (nesting.go)
 	Note        *note
 	CtxPct      *float64
-	Model       string
-	StatusAt    time.Time // last status-line post
-	Stats       Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
+	// ctxWindow is the window CtxPct is measured against at the post that set it: the
+	// post's auto_compact_window, else the lane record's (PANEL-48, D7); 0 when it is
+	// Claude Code's used_percentage.
+	ctxWindow int
+	Model     string
+	StatusAt  time.Time // last status-line post
+	Stats     Metrics   // the latest status-line figures, and the hook counters (PANEL-11)
 	// From `claude agents --json`.
 	Agent     *signals.Agent
 	BusySince time.Time
@@ -626,9 +630,13 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 	if p.SessionID != "" {
 		s := m.sess(p.SessionID, wt.Path, p.Cwd, now)
 		s.StatusAt = now
-		if p.ContextWindow.UsedPercentage != nil {
-			v := *p.ContextWindow.UsedPercentage
-			s.CtxPct = &v
+		// The window the session posts, else its lane record's, read at the post: a
+		// config edit moves the figure only once the lane is relaunched with it (D7). The
+		// posted window is what keeps a session /clear started in the lane's process on
+		// the lane's window, under a session id no record holds.
+		w := m.recordWindow(p.SessionID, p.AutoCompactWindow)
+		if v := ctxReading(p, w); v != nil {
+			s.CtxPct, s.ctxWindow = v, w
 		}
 		if p.Model.DisplayName != "" {
 			s.Model = p.Model.DisplayName
@@ -638,7 +646,7 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 			m.countCost(p.SessionID, *p.Cost.TotalCostUSD, now)
 			m.observeSpend(p.SessionID, *p.Cost.TotalCostUSD, now)
 		}
-		s.Stats.fold(p, now)
+		s.Stats.fold(p, w, now)
 	}
 	return true
 }
@@ -837,15 +845,19 @@ type View struct {
 
 // LaneView is one lane (a worktree) as rendered.
 type LaneView struct {
-	ID         string         `json:"id"`
-	Path       string         `json:"path"`
-	Branch     string         `json:"branch"`
-	Type       string         `json:"type"`
-	Name       string         `json:"name"`
-	Status     string         `json:"status"` // waiting | busy | idle | none
-	WaitingFor string         `json:"waitingFor,omitempty"`
-	CtxPct     *float64       `json:"ctxPct"`
-	Subagents  []SubagentView `json:"subagents"`
+	ID         string   `json:"id"`
+	Path       string   `json:"path"`
+	Branch     string   `json:"branch"`
+	Type       string   `json:"type"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"` // waiting | busy | idle | none
+	WaitingFor string   `json:"waitingFor,omitempty"`
+	CtxPct     *float64 `json:"ctxPct"`
+	// CtxTick and CtxAlertPct are the tick and alert threshold of the session CtxPct
+	// comes from (PANEL-48, D7, D13; Metrics.CtxTick); set with CtxPct.
+	CtxTick     float64        `json:"ctxTick,omitempty"`
+	CtxAlertPct *float64       `json:"ctxAlertPct,omitempty"`
+	Subagents   []SubagentView `json:"subagents"`
 	// FinishedSubagents are the lane's stopped subagents, newest first, at most
 	// maxFinished (PANEL-11: the page's "N finished" list).
 	FinishedSubagents []SubagentView `json:"finishedSubagents"`
@@ -916,8 +928,16 @@ type SessionView struct {
 // model token: every field is read from a post the panel already receives, or from
 // the hooks and `claude agents` state it already keeps.
 type Metrics struct {
-	CtxPct        *float64 `json:"ctxPct,omitempty"`
-	CtxWindow     int64    `json:"ctxWindow,omitempty"`    // context_window_size, tokens
+	CtxPct *float64 `json:"ctxPct,omitempty"`
+	// CtxWindow is the window the session's context is measured against when it has
+	// one, posted or recorded (PANEL-48, D7), else context_window_size; tokens.
+	CtxWindow int64 `json:"ctxWindow,omitempty"`
+	// CtxTick is where the bar marks auto-compaction, and CtxAlertPct the context
+	// alert's threshold (0: off), both for the window CtxPct is measured against (D7,
+	// D13). Set with CtxPct, when the view is computed.
+	CtxTick       float64  `json:"ctxTick,omitempty"`
+	CtxAlertPct   *float64 `json:"ctxAlertPct,omitempty"`
+	ctxWindow     int      // the window CtxPct is measured against; 0: used_percentage
 	InputTokens   int64    `json:"inputTokens,omitempty"`  // total_input_tokens
 	OutputTokens  int64    `json:"outputTokens,omitempty"` // total_output_tokens
 	CacheRead     int64    `json:"cacheReadTokens,omitempty"`
@@ -953,19 +973,24 @@ type Metrics struct {
 }
 
 // fold takes the figures a status post carries; a field it omits keeps its last value.
-func (x *Metrics) fold(p signals.StatusPayload, now time.Time) {
+// window is the session's window, posted or recorded (0: none), which its context is
+// measured against and shown as (D7).
+func (x *Metrics) fold(p signals.StatusPayload, window int, now time.Time) {
 	x.StatusAt = ms(now)
 	cw := p.ContextWindow
-	if cw.UsedPercentage != nil {
-		v := *cw.UsedPercentage
-		x.CtxPct = &v
+	if v := ctxReading(p, window); v != nil {
+		x.CtxPct, x.ctxWindow = v, window
 	}
 	setI := func(dst *int64, v *int64) {
 		if v != nil {
 			*dst = *v
 		}
 	}
-	setI(&x.CtxWindow, cw.ContextWindowSize)
+	if window > 0 {
+		x.CtxWindow = int64(window)
+	} else {
+		setI(&x.CtxWindow, cw.ContextWindowSize)
+	}
 	setI(&x.InputTokens, cw.TotalInputTokens)
 	setI(&x.OutputTokens, cw.TotalOutputTokens)
 	if u := cw.CurrentUsage; u != nil {
@@ -1078,7 +1103,7 @@ func (x *Metrics) add(o Metrics) {
 	}
 	x.Over200k = x.Over200k || o.Over200k
 	if o.CtxPct != nil && (x.CtxPct == nil || *o.CtxPct > *x.CtxPct) {
-		x.CtxPct, x.CtxWindow = o.CtxPct, o.CtxWindow
+		x.CtxPct, x.CtxWindow, x.CtxTick, x.CtxAlertPct, x.ctxWindow = o.CtxPct, o.CtxWindow, o.CtxTick, o.CtxAlertPct, o.ctxWindow
 		x.CacheHitRatio, x.CacheWarm, x.CacheExpires = o.CacheHitRatio, o.CacheWarm, o.CacheExpires
 		x.LastMissCause, x.RecacheTokens = o.LastMissCause, o.RecacheTokens
 		x.Thinking, x.FastMode, x.OutputStyle = o.Thinking, o.FastMode, o.OutputStyle
@@ -1209,6 +1234,9 @@ func (m *Model) Snapshot(now time.Time) View {
 				sv.EstCostUSD = &c
 			}
 			sv.Metrics = s.metrics(st)
+			if sv.Metrics.CtxPct != nil {
+				sv.Metrics.CtxTick, sv.Metrics.CtxAlertPct = m.ctxMarks(sv.Metrics.ctxWindow)
+			}
 			sv.Metrics.CPU, sv.Metrics.RSSMB = m.procOf(s, now)
 			lv.Sessions = append(lv.Sessions, sv)
 			lv.Metrics.add(sv.Metrics)
@@ -1219,6 +1247,7 @@ func (m *Model) Snapshot(now time.Time) View {
 			}
 			if s.CtxPct != nil && (lv.CtxPct == nil || *s.CtxPct > *lv.CtxPct) {
 				lv.CtxPct = s.CtxPct
+				lv.CtxTick, lv.CtxAlertPct = m.ctxMarks(s.ctxWindow)
 			}
 			if sv.Stale {
 				lv.Stale = true
@@ -1314,12 +1343,18 @@ type TermLaneView struct {
 	Status     string   `json:"status"` // busy | idle | waiting | running (no signal yet) | dead | orphaned
 	WaitingFor string   `json:"waitingFor,omitempty"`
 	CtxPct     *float64 `json:"ctxPct"`
-	Created    int64    `json:"created"`
-	Attached   int      `json:"attached"`
-	Running    bool     `json:"running"` // a tmux session exists
-	Dead       bool     `json:"dead"`    // the tmux session exists, the program exited
-	DeadStatus string   `json:"deadStatus,omitempty"`
-	Registered bool     `json:"registered"`
+	// CtxTick and CtxAlertPct are the lane's tick and context alert threshold
+	// (PANEL-48, D7, D13): for the window CtxPct is measured against, or before its
+	// session posts, the window its record was launched with. Unset for a tmux session
+	// the registry does not know.
+	CtxTick     float64  `json:"ctxTick,omitempty"`
+	CtxAlertPct *float64 `json:"ctxAlertPct,omitempty"`
+	Created     int64    `json:"created"`
+	Attached    int      `json:"attached"`
+	Running     bool     `json:"running"` // a tmux session exists
+	Dead        bool     `json:"dead"`    // the tmux session exists, the program exited
+	DeadStatus  string   `json:"deadStatus,omitempty"`
+	Registered  bool     `json:"registered"`
 	// Port is the lane's own port (PANEL-20), when panel.json allocates them.
 	Port int `json:"port,omitempty"`
 	// Orphan says what does not add up, e.g. a registered lane whose tmux session is
@@ -1394,11 +1429,15 @@ func (m *Model) TerminalViews(now time.Time) []TermLaneView {
 			tv.Orphan = "corrupt registry record (" + rec.Corrupt + "): it is never launched; stop or forget it"
 		}
 		place(&tv)
+		tv.CtxTick, tv.CtxAlertPct = m.ctxMarks(recWindow(rec))
 		if tl, ok := tmux[rec.ID]; ok {
 			tv.Running, tv.Attached, tv.Dead, tv.DeadStatus = true, tl.Attached, tl.Dead, tl.DeadStatus
 			if s := m.sessions[rec.SessionID]; s != nil {
 				tv.Status, tv.WaitingFor, tv.Approx = m.sessionStatus(s, now)
 				tv.CtxPct = s.CtxPct
+				if s.CtxPct != nil {
+					tv.CtxTick, tv.CtxAlertPct = m.ctxMarks(s.ctxWindow)
+				}
 			}
 			if tl.Dead {
 				tv.Status = "dead"
