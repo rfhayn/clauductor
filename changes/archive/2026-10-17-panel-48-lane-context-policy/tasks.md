@@ -26,6 +26,10 @@
   has no folder fallback, and tests cite LANECTX-2-S8 and S9. Group 4's gate and review are the
   orchestrator's. The Slice line is left.
 - 2026-10-17 group 4 (The bar and the alert (D7)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
+- 2026-10-17 archived: actual cost $280.47 of budget $100, over 3,624 messages
+  (`change-cost.sh`, this machine's transcripts at list price). Over the soft budget, reported
+  and not stopped (D10). The `claude-haiku-5-5` messages are not in the figure: `.prices` has
+  no entry for that model.
 
 ## Decision log
 - 2026-10-17, group 1: **The probes read the window from `/context`'s "Auto-compact window" and

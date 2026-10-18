@@ -21,6 +21,15 @@ to. It does not cover Clauductor's own development sessions.
 
   A cache write costs 1.25× input for 5 minutes and 2× for an hour.
 
+  *Corrected 2026-10-17:* Sonnet 5.5's cache read is $0.10 per million tokens, not $0.20.
+  PANEL-49's build found this on Anthropic's pricing page. The figures below are left as measured;
+  recomputed at $0.10:
+  - the week's total is about $1,207.24, not $1,208.28;
+  - the cap's savings ($163.33 for a cap at 200k, and $153.79 for a 200k window) do not change,
+    because the Sonnet threads peak at 71.6k and never reach a cap;
+  - lever 4, subagents on Sonnet 5.5, is worth about $255.92 a week, not $151.78. The line in §3
+    that says Opus 5.5 and Sonnet 5.5 cost the same per cache read is false: Sonnet's is half.
+
 ## 1. Where the panel touches a session (the code at main 43df973)
 
 - **One launch site.** `LaneManager.LaneCommand` (`framework/internal/panel/lanes/lanes.go`) builds
@@ -87,6 +96,8 @@ fixed, and quality is not modelled.
   measured (probe P3).
 - **Subagents on Sonnet 5.5: up to $151.78**, on price alone. Opus 5.5 and Sonnet 5.5 cost the same
   per cache read, so only writes and output fall. The effect on quality is not measured.
+  *Corrected 2026-10-17:* they do not; Sonnet 5.5's cache read is $0.10. At that price this lever
+  is worth about $255.92 (see *Prices*).
 - **Keep-alive pings through idle gaps: $71.28.** But 50 of the 101 cold subagent calls ($44.84)
   sat inside a foreground gate run, where nothing can ping, and those are the repository's own
   process.
