@@ -1169,7 +1169,11 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 		}
 		if attempt == 1 {
 			// Leave the dead pane: remain-on-exit keeps claude's own message on screen.
-			return resume, laneErr(409, "launch-failed", "claude did not stay up with --resume or with --session-id %s (the second exited with %s); the lane's terminal shows why", rec.SessionID, failed)
+			flag := "--session-id"
+			if resume {
+				flag = "--resume"
+			}
+			return resume, laneErr(409, "launch-failed", "claude did not stay up with --resume or with --session-id %s (%s, the second try, exited with %s); the lane's terminal shows why", rec.SessionID, flag, failed)
 		}
 		resume = !resume
 	}

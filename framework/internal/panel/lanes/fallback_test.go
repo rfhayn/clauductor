@@ -22,17 +22,25 @@ type fallbackTmux struct {
 	launches map[string][][]string // lane id -> each launch's lane command
 	cmds     []string              // every command, its first four words
 	allDie   bool                  // a --session-id launch dies the same way too
+	onKill   func()                // called as a kill-session arrives
 }
 
 func newFallbackTmux() *fallbackTmux {
 	return &fallbackTmux{paths: map[string]string{}, dead: map[string]bool{}, launches: map[string][][]string{}}
 }
 
-func (f *fallbackTmux) exec(_ context.Context, argv []string) ([]byte, error) {
+func (f *fallbackTmux) exec(ctx context.Context, argv []string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	args := argv[4:] // after -L <socket> -f /dev/null
+	args := argv[4:]                  // after -L <socket> -f /dev/null
+	if err := ctx.Err(); err != nil { // as exec.CommandContext refuses to start
+		f.cmds = append(f.cmds, "refused: "+strings.Join(args[:min(len(args), 4)], " "))
+		return nil, err
+	}
 	f.cmds = append(f.cmds, strings.Join(args[:min(len(args), 4)], " "))
+	if args[0] == "kill-session" && f.onKill != nil {
+		f.onKill()
+	}
 	target := func(a string) string { return strings.TrimSuffix(strings.TrimPrefix(a, "="), ":") }
 	switch args[0] {
 	case "new-session", "respawn-pane": // new-session -d -s <id> -c <path> …; respawn-pane -k -t =<id>: -c <path> …
@@ -166,7 +174,8 @@ func TestRestartWhoseLaunchesBothDieWithNoStatusFails(t *testing.T) {
 	if lerr == nil || lerr.Status != 409 || lerr.Code != "launch-failed" {
 		t.Fatalf("restart: %v, want a 409 launch-failed", lerr)
 	}
-	for _, want := range []string{"--resume or with --session-id " + res.SessionID, "no exit status"} {
+	// The start left no conversation, so --session-id went first and --resume second.
+	for _, want := range []string{"--resume or with --session-id " + res.SessionID, "(--resume, the second try, exited with no exit status"} {
 		if !strings.Contains(lerr.Error(), want) {
 			t.Errorf("the refusal %q does not say %q", lerr.Error(), want)
 		}
@@ -176,5 +185,36 @@ func TestRestartWhoseLaunchesBothDieWithNoStatusFails(t *testing.T) {
 	}
 	if !r.m.Exists(ctx, "fx") {
 		t.Fatal("the dead pane was not left on screen")
+	}
+}
+
+// [#102] A restart whose request ends mid-way (a browser that disconnects) still puts
+// exit-empty back on: left off, the server would outlive its last lane from then on.
+func TestRestartCancelledMidwayRestoresExitEmpty(t *testing.T) {
+	r := newCloseRepo(t)
+	tm := newFallbackTmux()
+	r.m.Exec = tm.exec
+	r.m.LookupEnv = func(string) (string, bool) { return "", false }
+	r.m.FastExit = 300 * time.Millisecond
+	if _, lerr := r.m.Start(context.Background(), StartRequest{Type: "fix", Mode: "root", Name: "fx"}); lerr != nil {
+		t.Fatal(lerr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tm.mu.Lock()
+	tm.onKill = cancel // the stop's kill-session is the last call the request lives for
+	tm.mu.Unlock()
+	if lerr := r.m.Restart(ctx, "fx"); lerr == nil {
+		t.Fatal("a restart whose request ended relaunched the lane")
+	}
+	_, cmds := tm.snapshot("fx")
+	var sent []string
+	for _, c := range cmds {
+		if !strings.HasPrefix(c, "refused: ") {
+			sent = append(sent, c)
+		}
+	}
+	if last := sent[len(sent)-1]; last != "set-option -g exit-empty on" {
+		t.Fatalf("the last command sent was %q, not exit-empty on: %q", last, cmds)
 	}
 }
