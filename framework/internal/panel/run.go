@@ -130,6 +130,9 @@ type Ticks struct {
 	// PANEL-28: Claude Code's login refresh locks, into login-lock.jsonl (no spawn: a
 	// stat; one or two `ps` per holder newly seen: its command and its start time).
 	LoginLock time.Duration
+	// PANEL-49: an attached project's session transcripts, read from where each read
+	// last stopped (no spawn: a stat per file, and only the bytes appended).
+	Transcripts time.Duration
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -144,7 +147,7 @@ func DefaultTicks() Ticks {
 		Hub: 5 * time.Second, HubCoalesce: 150 * time.Millisecond, Heartbeat: web.HeartbeatEvery,
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
 		Spend: time.Minute, Merged: 10 * time.Minute, Registry: time.Second,
-		LoginLock: claudecall.WatchEvery,
+		LoginLock: claudecall.WatchEvery, Transcripts: 10 * time.Second,
 	}
 }
 
@@ -158,7 +161,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.TmuxIdle, &d.TmuxIdle}, {&t.TmuxRecheck, &d.TmuxRecheck}, {&t.RegistryLoad, &d.RegistryLoad},
 		{&t.CardWatch, &d.CardWatch}, {&t.Queues, &d.Queues}, {&t.Prompt, &d.Prompt}, {&t.PromptKick, &d.PromptKick},
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
-		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat},
+		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat}, {&t.Transcripts, &d.Transcripts},
 		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged}, {&t.Registry, &d.Registry},
 		{&t.LoginLock, &d.LoginLock},
 	} {

@@ -10,7 +10,8 @@ import (
 // PANEL-11: what the lane dashboard shows over time, and two cheap reads (ps, git)
 // taken only while a page is open. Everything here is derived from inputs the panel
 // already has: the status line, hooks, `claude agents`, the gate lease, ps and git.
-// Nothing costs a model token and nothing reads a transcript.
+// Nothing costs a model token and nothing here reads a transcript: an attached
+// project's transcripts are read in signals/transcript.go alone (PANEL-49 D8).
 
 // TrendWindow is how far back the trends and the lane-state timeline reach.
 const TrendWindow = 2 * time.Hour

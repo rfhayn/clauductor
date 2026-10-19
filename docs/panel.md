@@ -19,6 +19,7 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 |---|---|---|
 | Hooks (async command hooks that curl) | pushed to `POST /hook` | prompt submitted, turn stopped, subagent start/stop, notifications, session end |
 | Status line | the status-line script copies its stdin to `POST /status` | context %, est. cost, and the account's quota windows (from any session, in any project) |
+| An attached project's transcripts | read every 10 s, only what was appended, by a validated session id under Claude Code's config directory; never for a project with its config in the repository | an attached lane's est. cost and model, and its context % when it was launched with a context window (see *Transcripts: an attached project's lanes*) |
 | `claude agents --json [--cwd <dir>]` | polled every 2 s, every 5 s while hooks flow, every 15 s with no lane and no hook for 5 min | which sessions exist, busy / waiting / idle |
 | `claude --version` | at start, then every 10 min, and on **Refresh** | whether the version-pinned heuristics apply |
 | `claude auth status --json` | at start only when `account.json` holds no reading under 24 h old, and on **Refresh**; with a lane's environment (no API key) | how the account signs in and its plan: what the quota's place shows (see *The account and its quota*) |
@@ -34,8 +35,11 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
 
-Keeping the panel current costs **no model tokens**. It never reads transcripts or screens; the
-only text it types into a lane on its own is a template's first prompt, once.
+Keeping the panel current costs **no model tokens**. It never reads screens. It reads transcripts
+in one file only, for an attached project's sessions, and decodes their token counts and model ids
+and nothing else (*Transcripts: an attached project's lanes*; what holds it to that is under
+*Security model*). The only text it types into a lane on its own is a template's first prompt,
+once.
 
 Every `claude` the panel runs goes through **one gate** (PANEL-28), a project card's or a
 suggest command's included:
@@ -47,7 +51,10 @@ suggest command's included:
   tries again 2 s later, and its source says "paused: a login refresh is in progress", neither
   failed nor fresh.
 - **The stop:** a `claude` past its timeout gets SIGTERM, and SIGKILL only 15 s later (3 s when
-  the panel shuts down), so a refresh it holds can be let go. Its caller does not wait.
+  the panel shuts down), so a refresh it holds can be let go. Its caller does not wait. Each
+  `claude` runs in a session of its own: the shutdown's SIGKILL, for a call still running when
+  the 3 s are up, reaches every process left in it, so the call ends and is logged before the
+  panel exits. A child that starts a session of its own escapes it.
 
 New to the panel? [guide.md](guide.md) is a short how-to for the page; **?** in its header shows
 the keyboard shortcuts.
@@ -836,7 +843,9 @@ call's `PostToolUse`. They are grouped under their session's newest run, always 
 because two runs overlapping in one session cannot be told apart. Subagents nest at most three
 levels below the session. The panel reads only the Agent call's `subagent_type` and
 `description`, and the response's `agentId`, `runId` and `workflowName`; the prompt and every
-other field are never decoded, and no transcript is read (not even its path).
+other field are never decoded. No hook names a file the panel opens: `transcript_path` is never
+decoded, and an attached lane's transcript is found by its session id alone (*Transcripts: an
+attached project's lanes*).
 
 - Workflow agents stop under a different `agent_id` and `agent_type` (`workflow-subagent`) than
   they started with in some versions, so a `workflow-subagent` stop with an unknown id retires the
@@ -849,9 +858,11 @@ other field are never decoded, and no transcript is read (not even its path).
 ### What the panel reads, and when
 
 Every figure on the page comes from what the panel already reads: the status-line posts, hooks,
-`claude agents`, `git worktree list`, `gh pr list` (now also asked for the review decision) and
-the gate's lease on disk. Nothing costs a model token and nothing reads a transcript. Two reads
-were added for the dashboard, and both run only while a page is in view: an open page that is
+`claude agents`, `git worktree list`, `gh pr list` (now also asked for the review decision), the
+gate's lease on disk and, for an attached project only, its sessions' transcripts (PANEL-49:
+every 10 s whether a page is in view or not, so the spend ledger misses nothing; *Transcripts: an
+attached project's lanes*). Nothing costs a model token, and no other read reaches a transcript.
+Two reads were added for the dashboard, and both run only while a page is in view: an open page that is
 visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after the last word.
 
 - **ps**, every 10 s: one `ps -o pid=,pcpu=,rss=` for the claude processes `claude agents` names.
@@ -914,6 +925,7 @@ account is dropped once the panel reads another. What stands in the quota's plac
 | A subscription that reports no windows | the same, and 3 status posts in a row with no `rate_limits` | "Quota: none reported", and no burn rate |
 | An API key, or a cloud provider (Bedrock, Vertex, Foundry, a gateway) | `authMethod` `api_key` or `api_key_helper`, or an `apiProvider` other than `firstParty` | no quota: **API spend (est.)** comes first, and **Spend rate** is its dollars per hour |
 | Not read yet, not logged in, or a method the panel does not know | | the 5-hour and 7-day fields with no reading, and where one comes from |
+| A subscription whose sessions post no status line, such as a machine serving only attached projects | `authMethod` `claude.ai` (or `oauth_token`) | the last reading saved, with its age, or the fields with no reading when none is saved. An attached project's lanes are measured from their transcripts (*Transcripts: an attached project's lanes*), which carry no quota: a new reading needs a status line in some session, and the fields' note says so. An API key or cloud provider still shows its spend: that row needs no status line |
 
 Lanes still start only on a subscription login (*Subscription only*).
 
@@ -1056,8 +1068,9 @@ A lane without a window keeps Claude Code's `used_percentage`, the 95% tick and
   week's simulation, a 150k window lost $31.73 a week, where 200k saved $153.79.
 - A repository whose own status line does not post `auto_compact_window` gets the record by
   session id only: there, a lane after `/clear` reads `used_percentage` until it is relaunched.
-- An attached lane with no status line shows no bar (unchanged); reading its transcript is
-  PANEL-49.
+- An attached lane is measured from its transcript (PANEL-49; *Transcripts: an attached
+  project's lanes*): one launched with a context window shows its bar and context alert with no
+  status line; one without shows its est. $ and no bar, and a page warning says why.
 
 ### Merge readiness
 
@@ -1874,7 +1887,7 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | rate_limit | `StopFailure` with `error_type: rate_limit` | block |
 | stop_failure | any other `StopFailure` | warn |
 | no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
-| context | `context_window.used_percentage` ≥ `context_pct`; for a lane launched with a context window, its `current_usage` over that window ≥ the lower of `context_pct` and its tick less 5 points (PANEL-48; *The context policy*) | warn |
+| context | `context_window.used_percentage` ≥ `context_pct`; for a lane launched with a context window, its `current_usage` over that window ≥ the lower of `context_pct` and its tick less 5 points (PANEL-48; *The context policy*). In an attached project, such a lane's figure is its transcript's last main-thread call over that window, by the same computation, timed at the reading that set it (PANEL-49) | warn |
 | idle | a live session idle longer than `idle_minutes` | info |
 | quota | the 5-hour quota window ≥ `five_hour_pct` (block at 100%); from any session's status line | warn |
 | approval_wait | a change's proposal with no `**Approved:**` line, last written longer than `approval_wait_hours` ago (PANEL-19) | warn |
@@ -2289,8 +2302,10 @@ What checks them:
 
 ### The status line
 
-Hooks carry no cost or context data; only the status line's stdin does. A project that wants
-quota, context % and est. $ on the panel adds this to its status-line script.
+Hooks carry no cost or context data; only the status line's stdin does and, in an attached
+project, the session's transcript (*Transcripts: an attached project's lanes*). The quota comes
+only from a status line, in every project: a transcript carries none. A project that wants quota,
+context % and est. $ on the panel adds this to its status-line script.
 
 `~/.clauductor/panel/port` holds the port and nothing else, because scripts read it as digits.
 The panel's PID is in `~/.clauductor/panel/pid` beside it, and `owner.json` records its start
@@ -2473,6 +2488,91 @@ sessions are found through `claude agents --json`.
   pairing only; the recorded fixtures and the other 2.1.284 observations (the missing
   `SessionStart` HTTP hook, the trust dialog's absence from `claude agents`) are re-recorded by
   hand when one of them breaks.
+
+### Transcripts: an attached project's lanes
+
+An attached repository (*A config outside its repository*) is one the panel writes nothing into,
+so its status line may never post to the panel. So the panel measures an attached project's sessions from
+their transcripts (PANEL-49). A project whose config is in its repository reads no transcript,
+and is measured from its status line as before. What holds the reader to what follows is under
+*Security model*.
+
+- **What it opens.** Files under Claude Code's config directory (`$CLAUDE_CONFIG_DIR`, else
+  `~/.claude`, which the lanes inherit), read-only:
+  - the session's own `projects/*/<id>.jsonl`, found by listing `projects/` once and kept for the
+    session once found. The folder is not built from the lane's path, because Claude Code's rule
+    for naming it is undocumented;
+  - every `*.jsonl` under that folder's `<id>/subagents/`, workflow agents' deeper folders
+    included. The folder is walked again on every read, because a new subagent adds a file.
+
+  The id must be a UUID, the shape `--session-id` takes, before any path is built. A session
+  whose id is not one is never read. No hook or status post names a file: their
+  `transcript_path` is never decoded.
+- **What it decodes and keeps.** Every line is decoded, with no pre-filter, in two stages. The
+  first decodes only `type` and `version`; a line of any other type stops there. The second, for
+  an `assistant` line, decodes only `message.id`, `message.model` and `message.usage`: the four
+  counts `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and
+  `cache_read_input_tokens`, which are required, and the optional
+  `cache_creation.ephemeral_1h_input_tokens` and `speed`. Prompt text, tool input and results,
+  file paths and assistant text are scanned past and never kept. What it keeps per session is its
+  place in each file, the running totals, and the last message id with what it booked for it.
+- **When.** Every 10 s, whether a page is in view or not, so the spend ledger and a change's
+  budget alert miss nothing. Each read stats each file and reads only the bytes appended since the
+  last read, up to the last newline; a partly written line waits for the next read. A file that
+  shrank is read again from the start, its totals reset. At most 32 MiB is read per session per
+  read, and a session shows no figure until the reader has reached the end of its files, so a
+  partial total never shows. A session the panel forgets is no longer read.
+- **What it sets.**
+  - **Context:** the last main-thread `assistant` call's `input_tokens`,
+    `cache_creation_input_tokens` and `cache_read_input_tokens`, over the window the lane was
+    launched with (*The context policy*). It is the computation a status post's `current_usage`
+    goes through, so the bar, its tick and the context alert are the same; subagent calls do not
+    count, as in Claude Code. A session with no recorded window shows its est. $ and no context %
+    unless its status line posts one. The page warns once per project: for a panel lane launched
+    without a window it names `launch.context_window`, and for a session the panel did not launch
+    (a `/clear`, a terminal) it says the panel knows no window for it.
+  - **Cost:** priced per model and summed over the session and its subagents. The streamed lines
+    of one message share an id, and the message counts once, at its last line's usage. It feeds
+    the project's est. $, the cost today, the spend ledger and the lane's cost cell, as a status
+    post's `total_cost_usd` does elsewhere.
+  - **Model:** the last main-thread call's model id (`claude-opus-5-5`), under which the ledger
+    books the spend.
+- **The price table.** `signals/prices.go`, copied from PANEL-48's evidence tool, each row with
+  its source and the date it was read from the pricing page. A model id matches its exact version
+  only, after a date suffix (`-20251001`) or a `[1m]` tag is stripped, so `claude-opus-5-6` is not
+  priced as Opus 5.5. A cache write costs 1.25× input for 5 minutes and 2× for an hour; fast mode
+  is priced by its multiplier. The table is code, changed when a model ships.
+  - **UNPRICED:** a model the table does not know, or fast mode on a model with no fast rate. Its
+    calls are left out of the figure, never priced at $0, and a page warning names the lane, the
+    model and how many calls were left out. A session whose every call is unpriced shows no
+    figure.
+  - **Synthetic records:** Claude Code writes an `assistant` record with the model `<synthetic>`
+    itself, for an API error or a rate-limit stop. It is left out of cost and context, so a
+    rate-limit stop does not read as 0% and clear the alert, and it is not UNPRICED. It still
+    counts as the session's answer for the check below, and a malformed one is no error.
+- **"Could not read".** A shape the reader does not know reads as unknown, never as 0:
+  - a complete line that is not valid JSON;
+  - an `assistant` line with no `message.model`, no `message.usage`, or a required count absent or
+    not a number;
+  - a session that has finished a turn, when a read that reached the end of its files after the
+    `Stop` hook still finds no usage record;
+  - a session with no transcript under `projects/` a minute or more after its first prompt.
+
+  The session's cost, its model and a windowed session's context then become unknown: neither the
+  last value nor 0. The project's `transcripts` source fails, naming the session, the file, the
+  line and the line's Claude Code `version`, and the page shows its "Cannot read" banner. The
+  source stays failed while any session's reading fails. **A session that failed on a line stays
+  unknown until the panel restarts**: a good line appended later does not bring its figures back,
+  because the bad line's call would be missing from its total. After a restart the reader reads
+  the files from the start, so a fixed panel reads them whole, or fails on the same line again.
+  The two conditions with no line clear on the first read that finds what was missing. Lines of
+  types the reader does not use (`attachment`, `api-request`, `cost-state`, …) are skipped
+  unread, whatever they hold.
+- **A status post in an attached project** still moves the quota, which a transcript never
+  carries, and every figure a transcript does not carry, such as cache warmth, lines changed and
+  durations. It no longer sets a session's cost, its model, or the context of a session with a
+  recorded window, so that no figure has two sources. It still sets the context of a session
+  without a recorded window, from `used_percentage`.
 
 ## Security model
 
@@ -2687,8 +2787,39 @@ send requests to `127.0.0.1`.
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
 
   Hook bodies include prompt text. The panel keeps only a short one-line summary per event, in a
-  200-event in-memory ring buffer. It never reads transcript files; a test fails if any panel
-  source mentions one.
+  200-event in-memory ring buffer.
+- **Transcripts are read in one file, and only their counts are kept** (PANEL-49). The panel
+  reads transcripts in `signals/transcript.go` alone, read-only (`os.Open`), for an attached
+  project's sessions, by a session id it has checked is a UUID, under Claude Code's config
+  directory. It decodes only each line's `type` and `version` and an `assistant` line's message
+  id, model and token counts. Prompt text, tool input and results, file paths and assistant text
+  are scanned past, never decoded or kept. A hook's `transcript_path` is never decoded, so no
+  process that can post a hook chooses the file the panel opens. What executes it:
+  - **`TestNoSourceReadsTranscripts`** scans every shipped source for `.jsonl`,
+    `transcript_path`, `TranscriptPath` and `/.claude/projects`, and for a path joined from
+    `.claude` and `projects`. Only the reader's file is exempt. The test also fails when that file
+    is missing or no longer reaches a transcript, so a stale exemption fails rather than
+    exempting nothing.
+  - **`TestTranscriptReaderDecodesOnlyTheAllowlist`** walks the reader's two decode types by
+    reflection, every nested struct included. It fails on a json tag outside the allowlist, an
+    exported field with no tag, an embedded struct, a leaf that is not a scalar or a pointer to
+    one (a `json.RawMessage`, a map, a slice, an interface) and a type with its own
+    `UnmarshalJSON`. It
+    also checks the reader's source: a line is decoded into those two types alone, a file is
+    opened with `os.Open` alone, and nothing from another file of the package is used that could
+    decode a line for it. **`TestSignalsDecodesOnlyTheAllowlist`** holds every JSON decode in
+    package `signals` to a reviewed list of sites.
+  - **`fileReadSites`** counts every `os.Open` and `os.ReadFile` in each file of the panel, so a
+    new one fails until a reviewer lists it.
+  - **What the scans cannot see.** The string and join scans see only literal forms: a second
+    file joining `claudecall.ConfigDir(...)` with `"projects"` passes both, and only
+    `fileReadSites` stops it, at its read. `fileReadSites` does not see `os.OpenFile` or
+    `os.ReadDir`, which it skips as writes and listings, nor a read through `os.DirFS` or `io/fs`.
+    A deliberate route out of the reader (a byte search of a line inside `transcript.go`,
+    reflection, `unsafe`) is left to code review.
+  - That only an attached project's lanes are read is held by the runtime's integration test,
+    which runs both kinds of project through the panel's own start; that only a UUID is read, by
+    the reader's test of an id such as `../../etc/x`.
 
 ### Config trust
 
@@ -3055,9 +3186,14 @@ loaded the hooks. Restart it.
 
 ### The page shows no context % or quota
 
-Only the status line carries them: add the [status-line snippet](#the-status-line). It posts
-nothing while `~/.clauductor/panel/pid` names no live process. Context % comes only from a
-session in the project; the quota from any session on the machine. With none running since the
+Only the status line carries the quota, in every project: add the
+[status-line snippet](#the-status-line). It posts nothing while `~/.clauductor/panel/pid` names no
+live process. Context % comes from a session in the project; the quota from any session on the
+machine. An attached project's lanes are measured from their transcripts instead (*Transcripts: an
+attached project's lanes*). There, a lane launched with a context window shows its context % with
+no status line, and one without shows none until its status line posts one. A transcript never
+brings the quota, so a machine serving only attached projects shows none until some session's
+status line posts. With none running since the
 panel started, the quota is the last one saved (with its age), or none on a first start. An API
 key or cloud account has no quota: the page shows its spend instead (see *The account and its
 quota*).

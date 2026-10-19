@@ -35,6 +35,8 @@ const (
 	// dropped). Every project's agents poll at its fastest is 30 a minute.
 	historyKeep = 10 * time.Minute
 	historyMax  = 2000
+	// killAgain is how often Close repeats its kill of the calls still running.
+	killAgain = 50 * time.Millisecond
 )
 
 var (
@@ -97,7 +99,8 @@ type call struct {
 	stoppedAt        time.Time
 	locks            []string // the locks present when it was stopped
 	term             bool     // SIGTERM reached its process (ExecRunner's report)
-	killedAtShutdown bool
+	killedAtShutdown bool     // the claude itself got the shutdown's SIGKILL
+	groupGone        bool     // nothing of its group was left to kill (signals.KillCall)
 }
 
 // NewGate wraps inner. r is the locks the pause reads; log receives a line per
@@ -392,23 +395,41 @@ func (g *Gate) Close(grace time.Duration) {
 		return
 	case <-t.C():
 	}
-	g.mu.Lock()
-	for _, c := range g.history {
-		if c.ended.IsZero() && c.proc != nil {
-			// ErrProcessDone: reaped in between, which is what the kill was for.
-			if err := c.proc.Kill(); err == nil {
-				c.killedAtShutdown = true
-			}
-		}
-	}
-	g.mu.Unlock()
-	// A SIGKILLed process is reaped at once; the bound only covers an inner Runner
-	// that ignores its context (no process to kill).
+	g.killRunning()
+	// A SIGKILLed call is reaped at once and its output closes. But a child forked
+	// as the kill lands can miss it (macOS) and hold the output open, so the kill is
+	// sent again until every call has ended. The bound covers an inner Runner that
+	// ignores its context (no process to kill).
 	r := g.clock.NewTimer(time.Second)
 	defer r.Stop()
-	select {
-	case <-done:
-	case <-r.C():
+	for {
+		again := g.clock.NewTimer(killAgain)
+		select {
+		case <-done:
+			again.Stop()
+			return
+		case <-r.C():
+			again.Stop()
+			return
+		case <-again.C():
+			g.killRunning()
+		}
+	}
+}
+
+// killRunning SIGKILLs every call still running, whole (signals.KillCall): a child
+// left running would hold the call's output open past Close's wait, and the call
+// would end, and log its line, only after the panel had exited (#143).
+func (g *Gate) killRunning() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, c := range g.history {
+		if !c.ended.IsZero() || c.proc == nil || c.groupGone {
+			continue
+		}
+		claude, err := signals.KillCall(c.proc)
+		c.killedAtShutdown = c.killedAtShutdown || claude
+		c.groupGone = errors.Is(err, os.ErrProcessDone)
 	}
 }
 

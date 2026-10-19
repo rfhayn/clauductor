@@ -311,6 +311,85 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 	}
 }
 
+// [CLAUDECALLS-1-S4] The shutdown's SIGKILL ends the call whole (#143): a child the
+// claude started dies with it, so the call ends, and logs its line, before Close
+// returns. Killing the claude alone left the child holding the call's output open
+// past Close's wait, and the panel exited before the line was written: under load
+// TestRunShutdownBoundsTheClaudeGrace's fake lost that race to the `sleep 1` its
+// loop was in. Here the child outlives any wait of Close's, so the race is certain.
+func TestGateCloseKillsTheCallsChildrenToo(t *testing.T) {
+	marks := filepath.Join(t.TempDir(), "marks")
+	fakeProgram(t, "claude", fmt.Sprintf(`trap 'echo TERM >> %[1]s' TERM
+sleep 5 &
+echo child >> %[1]s
+while :; do sleep 1; done
+`, shq(marks)))
+	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := goRun(g, ctx, agentsArgv)
+	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
+	for !strings.Contains(readMarks(t, marks), "child") {
+		if time.Now().After(deadline) {
+			t.Fatal("the claude never started its child")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel() // the panel's shutdown: the caller's context ends, then the gate closes
+	if err := result(t, errc, "the stopped call"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v, want the cancellation", err)
+	}
+	g.Close(ShutdownGrace)
+	cs := g.calls()
+	if len(cs) != 1 || !ended(cs[0]) {
+		t.Fatalf("the call had not ended when Close returned: %+v", cs)
+	}
+	if lines := stopLines(t, home); len(lines) != 1 || lines[0].PID != cs[0].pid ||
+		!slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) {
+		t.Fatalf("stopped-call lines when Close returned: %+v", lines)
+	}
+	if got := readMarks(t, marks); !strings.Contains(got, "TERM") {
+		t.Fatalf("SIGTERM never came first: marks %q", got)
+	}
+}
+
+// Close kills a call until it has ended (#143): a child forked as the group's SIGKILL
+// lands can miss it (macOS), and would hold the call's output open past Close's wait.
+// This claude forks all the time: one kill alone missed about one shutdown in
+// thirteen here, so forty in a row passed about one run in twenty-five. A short
+// grace keeps the forty quick. Linux's fork does not lose the kill.
+func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
+	marks := filepath.Join(t.TempDir(), "marks")
+	fakeProgram(t, "claude", fmt.Sprintf("trap '' TERM\necho forking > %s\nwhile :; do sleep 2 & sleep 2 & sleep 2 & sleep 2 & sleep 0.005; done\n", shq(marks)))
+	for i := 0; i < 40; i++ {
+		_ = os.Remove(marks)
+		g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+		ctx, cancel := context.WithCancel(context.Background())
+		errc := goRun(g, ctx, agentsArgv)
+		deadline := time.Now().Add(testwait.Scale(10 * time.Second))
+		for readMarks(t, marks) == "" {
+			if time.Now().After(deadline) {
+				t.Fatalf("shutdown %d: the claude never started forking", i)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+		if err := result(t, errc, "the stopped call"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("shutdown %d: err %v, want the cancellation", i, err)
+		}
+		// The caller returns before the gate has marked the call stopped and sent
+		// SIGTERM: a kill before those would leave no line naming both.
+		waitCalls(t, g, "the SIGTERM", 1, func(c call) bool { return c.stopped && c.term })
+		g.Close(20 * time.Millisecond)
+		if cs := g.calls(); len(cs) != 1 || !ended(cs[0]) {
+			t.Fatalf("shutdown %d: the call had not ended when Close returned: %+v", i, cs)
+		}
+		if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) {
+			t.Fatalf("shutdown %d: stopped-call lines when Close returned: %+v", i, lines)
+		}
+	}
+}
+
 // [CLAUDECALLS-1-S3] Other commands keep their behaviour: a git past its timeout is
 // SIGKILLed at once, as exec.CommandContext always did, and it passes the gate even
 // while a claude call holds the slot.

@@ -33,6 +33,10 @@ node driver.mjs "$OUT" > "$OUT/driver.md"
   ones where a 200k cap pays on its own.
 - **Comparing:** the baseline's headline is $1,208.28 over 76 sessions, 393 subagents and 18,378
   calls. Each figure in `evidence/README.md` section 3 is a line of `driver.md`.
+- **Sonnet 5.5's cache read:** on 2026-10-18 `usage-report.mjs`'s `PRICES` and `driver.mjs`'s
+  Sonnet repricing took the pricing page's $0.10 for it, in place of $0.20 (PANEL-49 task 1.3).
+  The baseline was measured at $0.20, so a re-run over the baseline week now prints about
+  $1,207.24, and lever 4 about $255.92, as `evidence/README.md`'s correction computes.
 
 ## Named limits
 - **Path normalisation:** `normPath` in `usage-report.mjs` shortens file paths only under a

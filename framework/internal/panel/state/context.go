@@ -63,8 +63,15 @@ func ctxReading(p signals.StatusPayload, window int) *float64 {
 	if u == nil {
 		return nil
 	}
-	v := float64(u.InputTokens+u.CacheCreationInputTokens+u.CacheReadInputTokens) * 100 / float64(window)
+	v := windowPct(u.InputTokens+u.CacheCreationInputTokens+u.CacheReadInputTokens, window)
 	return &v
+}
+
+// windowPct is a windowed session's context figure: its input, cache-creation and
+// cache-read tokens over the window it was launched with. A status post and a
+// transcript reading (PANEL-49 D4) both go through it, so the two never disagree.
+func windowPct(tokens int64, window int) float64 {
+	return float64(tokens) * 100 / float64(window)
 }
 
 // recordWindow is the window a status post is measured against (D7, amended with P6):
