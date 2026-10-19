@@ -14,6 +14,72 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 5 — 2026-10-18 — Rich — no silent stalls, PANEL-49 and OPS-81 merged, PANEL-51 amended for session 6
+
+**Rows**: OPS-90, OPS-85, PANEL-51, OPS-93, PANEL-49, OPS-81, OPS-95 · **Span**: 2026-10-18 to 2026-10-19
+
+### What happened
+
+The session opened on session 4's plan: no silent stalls first. Three cloud lanes ran at the start as claude.ai routines (OPS-90, OPS-85 and PANEL-51's proposal), each pushing a branch for the Mac to review, gate and merge, while PANEL-49's build ran on the Mac.
+
+**Merged, in order (times ET):**
+- **OPS-90** (#155, 2:06 PM): an agent's turn is held while work it started still runs, and a blocking question is refused while work runs. Built in the cloud; what the cloud could not probe is on the owner queue, and its three review lows and the teammate-reviewer evidence are #156.
+- **OPS-85** (#154, 3:28 PM): `build-change` honours a soft budget, warning on the overrun where a hard budget stops. PANEL-49's build was its first user.
+- **PANEL-51's proposal** (#157, 4:46 PM): the panel tells the owner when work has stopped moving. Seven review rounds before the owner ended them (below).
+- **OPS-93's proposal** (#158, 5:45 PM): every process check runs once, inside the no-clauductor environment. It came from the owner's handoff; the ADR-0006 amendment it needs is kept for the build.
+- **PANEL-49** (#159, 7:51 PM, `41dc1d0`; archived in this close): an attached repository's lanes show their context, cost and context alert, read from each lane's own transcript through one reader. It is also OPS-72's proof: the workflow's full gate passed, on `db3e8c6`. Cost $46.95 of a $60 soft budget.
+- **OPS-81** (#161, 8:32 PM, `0a98410`): #143's cause found and fixed. At shutdown the panel SIGKILLed the claude process alone, and a child it had started held the call's pipes open, so the stopped-call line came late or never. Each call now gets its own process group, and the kill is repeated every 50 ms, inside the existing 1 s bound, until every call has ended. Before: 7 of 600 trials under load missed the line. After: 0 of 1200. Its lows are #162.
+- **OPS-95** (#163, `2183248`, during this close): the bot team's team-queue issues listed at session start (below).
+
+**PANEL-51's build** started in the evening, once its proposal had merged, and stopped at group 1 by design. Group 1 is the probe group. A static reading of the Mac's Claude Code binary (2.1.303) showed the design's `ScheduleWakeup` assumption was wrong, which met task 1.4's stop condition within about 5 minutes, before any code. The owner amended D4 (the one-shot wakeup rule) and D3 (d) (Monitors), the amendment converged in 2 rounds, and the owner re-approved the design (`1b4626a580ed`, head `202acc8` of `change/panel-51-stall-alert`). The live probes P1 to P4 need the owner's login and a throwaway panel, so the build is session 6's first item.
+
+**The team queue** was first proposed as OPS-92 (`change/ops-92-team-queue`, never pushed). The owner corrected the approach, and the work was redone as **OPS-95** (#163, merged at the close as `2183248`): session start lists the bot team's team-queue issues as facts bound to their content. It has four write surfaces (the session-start script, the skill fragments, the check and the issue template) and a 43-assertion check against a fake `gh`, and its review converged in 3 rounds, peak medium. The labels `team-queue` and `approved` are the owner's to create, with the test issue (owner queue). It flags two choices for the owner: DONE reads a `Delivers team-queue #N` body line, and session close closes a delivered issue. Team queue: no item was worked this session (the labels do not exist yet).
+
+**The sandbox and the main checkout** cost the most friction of the day. A merged hook or settings change is not in force until the main checkout is fast-forwarded, and no lane can do that: worktree isolation refuses `git -C` on it, and the sandbox protects its `.claude/settings.json`, `hooks/` and `skills/`. The owner fast-forwarded it by hand four times. Meanwhile `worktree-hook-drift.sh` blocked worktree agents, and the same protection stopped a lane merging `origin/main` into PANEL-49's branch. #164 owns both the merge-pr step and the sandbox settings for the owner to decide.
+
+### Decisions the owner made
+- **PANEL-49: skip review round 5.** Group 3's review stopped after round 4. Each round had found one more route past the reader's decode guard, and round 4's two findings were fixed and shown failing first without re-review.
+- **PANEL-51: "fix M1 and M2, no round 8"**, after round 7 of the proposal's review (peak high to round 3, then medium).
+- **The ScheduleWakeup rule:** D4 amended for one-shot wakeups after group 1's binary reading, and the design re-approved at `1b4626a580ed`. The amendment PR is not opened yet. The owner chose to wait, so it is session 6's.
+- **Re-slot option A** (9:16 PM): OPS-93 and OPS-89's no-second-run item come before the R2 rename, the reverse of the earlier order. R2 becomes its own session, S8, before PANEL-46, at about +0.5 session. The session plan in `docs/roadmap.md` now reads S6 to S16.
+- **The team queue redone as OPS-95**, replacing the OPS-92 proposal.
+- **Standing Tee deferred:** the step that puts it on the new panel (and starts PANEL-48's and PANEL-49's outcome clocks) waits until the Clauductor work is done.
+
+### What surprised us
+- **Review loops on problems bounded by construction did not converge** (PANEL-51's 7 rounds, PANEL-49 group 3's 4). What closed a round for good was closing the class: an import allowlist, a package-wide decode allowlist, a reference allowlist, not one more refused form. With #146 and #150 that makes four, so the practice is drafted as **PRAC-0010 (Proposed)** for the owner.
+- **A subagent cannot run a workflow,** so `build-change` runs only from the main session. Teammate reviewers report to the main session, not to the teammate that spawned them (#156).
+- **Probe first paid:** PANEL-51's wrong assumption cost 5 minutes in group 1, not a rebuild in group 3.
+- **`verify-change` matches only full repository paths,** so a task naming a short path reads as missing work.
+- **The classifier refuses a lane's workaround of a sandbox limit,** and the main session must not run it for the lane: that launders the refusal. The step stops and goes to the owner.
+- **`PushNotification` is skipped while the terminal is active,** with no error, so a push sent while the owner is at the screen never reaches the phone.
+
+### Compound
+- **Promoted:** *shell parser never converges* and *unbounded input space* (2026-10-17) and *close the class* (today) → PRAC-0010 (Proposed; the owner queue asks for the decision). The merge guard's remaining forms stay with OPS-86.
+- **Decided:** *reviewer could not run* → an instance of AGENTS.md rule 2; *cd moves the session* → deferred to OPS-82; *resumed agent loses isolation* → not promoted (one read-only occurrence; Claude Code now refuses an isolated agent's git outside its worktree); *a busy teammate reads late* → technique; *classifier inconsistency* → not promoted (Claude Code's, fixed by the owner's `/permissions` rule).
+- **New today:** seven rows. *merged hook not in force* → #164; *a subagent runs no workflow* → #156; *probe first* → technique; *close the class* → PRAC-0010; *verify-change short paths*, *no laundered workaround* and *push skipped while active* stay Raw.
+
+### Left in flight (handed off)
+- **PANEL-51**: the amendment PR from `change/panel-51-stall-alert` (head `202acc8`, the owner's re-approval of `1b4626a580ed`), then the build's group-1 live probes with the owner at the computer (owner queue), then groups 2 onward. Session 6's first item.
+- **Two stale "repo is public" comments** remain, at `.claude/local/roadmap-tracker.sh:5` and `.claude/local/skills/session-start/session-plan.md:14`: outside this close's allowed edits, carried over.
+- **OPS-82**, not reached, moves to the front of S6 with PANEL-51.
+- **Follow-ups owned by issues:** #156 (OPS-90 lows, the teammate-reviewer evidence), #160 (PANEL-49's low), #162 (OPS-81's lows), #164 (merge-pr's main-checkout sync and the sandbox limits).
+- **Remote branches carried over, not this session's:** `change/ops-42-build`, `change/panel-25-idle-cost`, `change/panel-30-remove-worktree-guidance`, `change/panel-31-build`, `change/panel-31-version-check`, `ops/curtain-mod`, `ops/ops-80-rewrite-guard-false-positive`. `change/panel-49-lane-measures` was deleted remotely once merged; its local branch stays, checked out in `.claude/worktrees/panel-49`.
+- **The local branch `change/ops-92-team-queue`** was kept: a worktree (`.claude/worktrees/agent-ac610cbe26f417b42`, locked) still has it checked out.
+
+### Flow and cost
+- **Flow (30 days):** cycle 1.1h median, lead 2.6h, 25 merges a week, change-fail 6.9%, approval wait 4h, review rounds 2, spend $634.11 a week, 31 in flight (Haiku 5.5 unpriced).
+- **This session's cost** (usage-report.sh, list price, this machine, at the close before its gate): about **$167**, nearly all of it Opus 5.5 and about $5.60 Sonnet 5.5 (the workflow's steps). The cloud lanes run on claude.ai and are not counted here.
+  - the orchestrating session $22.80;
+  - builders $19.30, reviewers $7.46;
+  - merge-train $19.14, and the landing lanes (proposals-land $12.15, ops-85-land $3.38, panel-49-land $3.22, panel-51-amend-land $0.22);
+  - PANEL-51: converge $18.39, amend $6.72;
+  - OPS-95 $14.44, and the stopped team-queue proposal $4.83;
+  - OPS-93's proposal $11.56;
+  - OPS-81 $11.23 and its verify $1.29;
+  - PANEL-49's build lane $3.77;
+  - build-change's workflow steps about $5.50 (Sonnet 5.5);
+  - this close lane about $1.85.
+
 ## Session 4 — 2026-10-17 — Rich — a day-long merge train, the merge guard's bypasses, PANEL-48's window re-approved
 
 **Rows**: PANEL-48, PANEL-49, PANEL-46, OPS-75, OPS-35, OPS-70, OPS-76, OPS-74, P2.11c, OPS-73, OPS-72, OPS-66, OPS-83, OPS-77, OPS-78, OPS-80, OPS-85 to OPS-90, PANEL-51 · **Span**: 2026-10-17 to 2026-10-18
