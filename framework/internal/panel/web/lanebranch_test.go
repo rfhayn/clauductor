@@ -23,6 +23,12 @@ import (
 // PANEL-29: an existing branch is never a raw git error. The HTTP reply carries the
 // plain sentence and where the branch is; GET /lanes/branch says the same before Start.
 
+// gitDeadlineFloor is the least time branchRepo lets a git call start with. The panel
+// gives these calls 10 s or more (lanes.go's branchFacts and fetch, signals'
+// ReadWorktrees), so only a test's own tighter deadline falls under it (#109). Lower it
+// with any shorter git deadline the panel takes on.
+const gitDeadlineFloor = 5 * time.Second
+
 // branchRepo is a served project on a real git repository with an origin. tmux has no
 // server: nothing here gets as far as starting a session.
 type branchRepo struct {
@@ -70,12 +76,11 @@ func newBranchRepo(t *testing.T) *branchRepo {
 			if argv[0] != "git" {
 				return nil, fmt.Errorf("unexpected command %v", argv)
 			}
-			// #109: the panel gives each git call 10 s or more (none at all for a few).
-			// A tighter deadline from the test's own request kills git on a loaded race
-			// step ("git: signal: killed"), so any call left with less fails here,
-			// deterministically, rather than now and then under load.
-			if dl, ok := ctx.Deadline(); ok && time.Until(dl) < 5*time.Second {
-				t.Errorf("%s ran with %v left on its context, under the panel's own deadlines", strings.Join(argv, " "), time.Until(dl).Round(time.Millisecond))
+			// #109: a tighter deadline from the test's own request kills git on a
+			// loaded race step ("git: signal: killed"), so a call left with less than
+			// the floor fails here, deterministically, rather than now and then under load.
+			if dl, ok := ctx.Deadline(); ok && time.Until(dl) < gitDeadlineFloor {
+				t.Errorf("%s ran with %v left on its context, under gitDeadlineFloor (%v)", strings.Join(argv, " "), time.Until(dl).Round(time.Millisecond), gitDeadlineFloor)
 			}
 			return signals.ExecRunner(ctx, dir, argv)
 		}}
