@@ -45,4 +45,4 @@ older records as written). Never renumber a record on `main`; supersede it.
 ## Index
 | PRAC | Title | Status |
 |------|-------|--------|
-| [0010](0010-close-the-class-not-the-instance.md) | Close the class, not the instance, when review keeps finding the next one | Proposed |
+| [0010](0010-close-the-class-not-the-instance.md) | Close the class, not the instance, when review keeps finding the next one | Accepted |
