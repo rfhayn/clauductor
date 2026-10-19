@@ -21,6 +21,7 @@ type fallbackTmux struct {
 	dead     map[string]bool       // lane id -> its pane exited, with no status recorded
 	launches map[string][][]string // lane id -> each launch's lane command
 	cmds     []string              // every command, its first four words
+	allDie   bool                  // a --session-id launch dies the same way too
 }
 
 func newFallbackTmux() *fallbackTmux {
@@ -48,7 +49,7 @@ func (f *fallbackTmux) exec(_ context.Context, argv []string) ([]byte, error) {
 				}
 				cmd := append([]string(nil), args[i:end]...)
 				f.launches[id] = append(f.launches[id], cmd)
-				f.dead[id] = strings.Contains(strings.Join(cmd, " "), "--resume")
+				f.dead[id] = f.allDie || strings.Contains(strings.Join(cmd, " "), "--resume")
 				break
 			}
 		}
@@ -116,8 +117,9 @@ func TestRestartFallsBackWhenTmuxRecordsNoStatus(t *testing.T) {
 	if rec, _ := r.m.Registry.Get("fx"); rec.Conversation || !rec.ActionDone {
 		t.Fatalf("registry after the fallback: %+v", rec)
 	}
-	// The order on the socket: exit-empty off before the stop's kill-session; the
-	// fallback respawns the pane rather than killing its session; exit-empty back on last.
+	// The order on the socket: exit-empty off before the stop's kill-session, and not
+	// on again until the lane's new session exists; the fallback respawns the pane
+	// rather than killing its session; exit-empty back on last.
 	off, kill, launch, respawn, on := -1, -1, -1, -1, -1
 	for i, c := range cmds {
 		switch {
@@ -133,10 +135,46 @@ func TestRestartFallsBackWhenTmuxRecordsNoStatus(t *testing.T) {
 		case strings.HasPrefix(c, "respawn-pane"):
 			respawn = i
 		case c == "set-option -g exit-empty on":
+			if launch < 0 {
+				t.Fatalf("exit-empty on at %d, before the lane's new session: the server can exit there: %q", i, cmds)
+			}
 			on = i
 		}
 	}
 	if off < 0 || kill < off || launch < kill || respawn < launch || on < respawn {
 		t.Fatalf("exit-empty off %d, kill-session %d, new-session %d, respawn-pane %d, exit-empty on %d; want them in that order: %q", off, kill, launch, respawn, on, cmds)
+	}
+}
+
+// [#102] When both flags die with no status recorded, the restart is refused as a
+// failed launch, saying the status is unknown, and the dead pane is left to show why.
+func TestRestartWhoseLaunchesBothDieWithNoStatusFails(t *testing.T) {
+	r := newCloseRepo(t)
+	tm := newFallbackTmux()
+	r.m.Exec = tm.exec
+	r.m.LookupEnv = func(string) (string, bool) { return "", false }
+	r.m.FastExit = 300 * time.Millisecond
+	ctx := context.Background()
+	res, lerr := r.m.Start(ctx, StartRequest{Type: "fix", Mode: "root", Name: "fx"})
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	tm.mu.Lock()
+	tm.allDie = true
+	tm.mu.Unlock()
+	lerr = r.m.Restart(ctx, "fx")
+	if lerr == nil || lerr.Status != 409 || lerr.Code != "launch-failed" {
+		t.Fatalf("restart: %v, want a 409 launch-failed", lerr)
+	}
+	for _, want := range []string{"--resume or with --session-id " + res.SessionID, "no exit status"} {
+		if !strings.Contains(lerr.Error(), want) {
+			t.Errorf("the refusal %q does not say %q", lerr.Error(), want)
+		}
+	}
+	if launches, _ := tm.snapshot("fx"); len(launches) != 3 {
+		t.Fatalf("%d launches, want 3 (the start and both flags)", len(launches))
+	}
+	if !r.m.Exists(ctx, "fx") {
+		t.Fatal("the dead pane was not left on screen")
 	}
 }

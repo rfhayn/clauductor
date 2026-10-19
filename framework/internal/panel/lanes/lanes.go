@@ -1155,7 +1155,7 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 			if ok && l.Dead && l.DeadStatus != "0" {
 				failed = "status " + l.DeadStatus
 				if l.DeadStatus == "" {
-					failed = "an unknown status (tmux recorded none)"
+					failed = "no exit status (a signal, or none recorded by tmux)"
 				}
 				break
 			}
@@ -1169,7 +1169,7 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 		}
 		if attempt == 1 {
 			// Leave the dead pane: remain-on-exit keeps claude's own message on screen.
-			return resume, laneErr(409, "launch-failed", "claude exited with %s both with --resume and with --session-id %s; the lane's terminal shows why", failed, rec.SessionID)
+			return resume, laneErr(409, "launch-failed", "claude did not stay up with --resume or with --session-id %s (the second exited with %s); the lane's terminal shows why", rec.SessionID, failed)
 		}
 		resume = !resume
 	}
@@ -1253,9 +1253,12 @@ func (m *LaneManager) Restart(ctx context.Context, id string) *LaneError {
 	// server a moment after kill-session returns, and the relaunch's start-server can
 	// reach it while it exits ("server exited unexpectedly", #102). So the server stays
 	// up until the lane runs again, and exit-empty is back on either way, as newSession
-	// leaves it: a restart that fails leaves no empty server behind.
-	_, _ = m.tmux(ctx, "set-option", "-g", "exit-empty", "off")
-	defer func() { _, _ = m.tmux(ctx, "set-option", "-g", "exit-empty", "on") }()
+	// leaves it: a restart that fails leaves no empty server behind. The pair runs
+	// whether or not the request's context ends meanwhile (a browser that disconnects
+	// mid-restart), or exit-empty would stay off; tmuxIn bounds each call.
+	ectx := context.WithoutCancel(ctx)
+	_, _ = m.tmux(ectx, "set-option", "-g", "exit-empty", "off")
+	defer func() { _, _ = m.tmux(ectx, "set-option", "-g", "exit-empty", "on") }()
 	if lerr := m.stopLocked(ctx, id, rec.SessionID); lerr != nil && lerr.Status != 404 {
 		return lerr
 	}
