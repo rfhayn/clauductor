@@ -439,6 +439,76 @@ nsw 0 "without jq: a subagent's stop already refused once (stop_hook_active)" "$
 nsw 0 "without jq: a teammate going idle (no flag would ever end a refusal)" "$(swp TeammateIdle s1 tm1)" "$d/nojq"
 nsw 0 "without jq: a PostToolUse" "$(swp PostToolUse s1 a1 "$bash_bg")" "$d/nojq"
 
+# ── cd-guard ────────────────────────────────────────────────────────────────────────────
+# A build-change Workflow call recorded from a worktree holds it; the main session's `cd` out of
+# it is refused, a `cd` within it, in a subshell or from elsewhere is not. Every BLOCK row also
+# needs the refusal text: exit 2 alone is no proof (dash exits 2 when it cannot open the script).
+C="$d/cdg"; new_repo "$C"; git -C "$C" commit -q --allow-empty -m seed
+git -C "$C" worktree add -q -b build "$d/cdg-wt" 2>/dev/null; CW=$(cd "$d/cdg-wt" && pwd -P); mkdir -p "$CW/sub"
+CS="$d/cdg-sess"; mkdir -p "$CS/scratchpad" "$CS/tasks"
+CH="$C/.git/clauductor-cd-guard"
+cgp() {  # cgp EVENT CWD [JSON to merge]: a payload for cd-guard, session s1, main session
+  _x=${3:-}; [ -n "$_x" ] || _x='{}'
+  jq -cn --arg e "$1" --arg c "$2" --arg sp "$CS/scratchpad" --argjson x "$_x" \
+    '{hook_event_name:$e, session_id:"s1", cwd:$c, scratchpad_dir:$sp} + $x'
+}
+cdb() { cgp PreToolUse "${2:-$CW}" "$(jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}')"; }
+wf() { cgp PostToolUse "$CW" "$(jq -cn --argjson i "$1" --arg t "${2:-wf1}" '{tool_name:"Workflow", tool_input:$i, tool_response:{taskId:$t}}')"; }
+cdg() {  # cdg WANT LABEL PAYLOAD [PATH]
+  rc=0; cdg_out=$(printf '%s' "$3" | (cd "$C" && CLAUDE_PROJECT_DIR="$C" HOME="$d/cdg-home" PATH="${4:-$PATH}" sh "$H/cd-guard.sh") 2>&1) || rc=$?
+  [ "$1" = 2 ] && [ "$rc" = 2 ] && case $cdg_out in *"BLOCKED by cd-guard"*) ;; *) rc="2 without its refusal text";; esac
+  expect_rc "$1" "$rc" "cd-guard $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+}
+cdg 0 "a cd out with no build running" "$(cdb "cd $d && ls")"
+cdg 0 "another workflow's call records no hold" "$(wf '{"name":"review-changes"}' wf0)"
+[ -e "$CH/s1/holds/wf0" ] && fail "cd-guard recorded a hold for a workflow that is not build-change" || ok "cd-guard records no hold for a workflow that is not build-change"
+cdg 0 "build-change's Workflow call is recorded" "$(wf '{"name":"build-change","args":{"change":"x"}}')"
+[ "$(cat "$CH/s1/holds/wf1" 2>/dev/null)" = "$CW" ] && ok "cd-guard holds the worktree the build started from ($CW)" || fail "cd-guard: holds/wf1 is '$(cat "$CH/s1/holds/wf1" 2>/dev/null)', want $CW"
+cdg 2 "the session's cd to the main checkout" "$(cdb "cd $C")"
+case $cdg_out in *"rm $CH/s1/holds/wf1"*) ok "cd-guard: the refusal names the hold file to remove" ;; *) fail "cd-guard: the refusal does not name $CH/s1/holds/wf1: $cdg_out" ;; esac
+cdg 2 "a cd inside a compound command (the 2026-10-17 slip)" "$(cdb "git status && cd $d/cdg-sess/scratchpad && ls")"
+cdg 2 "cd .. from the worktree's root" "$(cdb "cd ..")"
+cdg 2 "a bare cd (home)" "$(cdb "cd")"
+cdg 2 "cd ~/x" "$(cdb "cd ~/x")"
+cdg 2 "pushd out" "$(cdb "pushd /")"
+cdg 2 "builtin cd out" "$(cdb "builtin cd /")"
+cdg 2 "a cd to a variable (unresolvable)" "$(cdb "cd \"\$TMPDIR\"")"
+cdg 2 "cd - (unresolvable)" "$(cdb "cd -")"
+cdg 2 "in, then out through a relative path" "$(cdb "cd sub && cd ../..")"
+cdg 2 "from a subdirectory of the worktree" "$(cdb "cd /" "$CW/sub")"
+cdg 0 "a cd within the worktree" "$(cdb "cd sub && ls")"
+cdg 0 "a cd to the worktree's own root by its absolute path" "$(cdb "cd $CW && git status")"
+cdg 0 "a cd to a directory not made yet, inside" "$(cdb "mkdir -p new/x && cd new/x")"
+cdg 0 "a cd out inside a subshell" "$(cdb "( cd $C && git log -1 )")"
+cdg 0 "a cd out inside \$( )" "$(cdb "x=\$(cd $C && pwd)")"
+cdg 0 "a cd out inside sh -c" "$(cdb "sh -c 'cd / && ls'")"
+cdg 0 "a mention of cd (echo, a commit message)" "$(cdb "echo cd / && git commit -m 'never cd /'")"
+cdg 0 "git -C instead of a cd" "$(cdb "git -C $C log -1")"
+cdg 0 "a cd out from a session already outside the worktree" "$(cdb "cd /" "$C")"
+cdg 0 "a subagent's cd out (build-change's agents cd into the root themselves)" "$(cgp PreToolUse "$CW" "$(jq -cn --arg c "cd /" '{tool_name:"Bash", agent_id:"a1", tool_input:{command:$c}}')")"
+cdg 0 "another session's cd out" "$(cdb "cd /" | jq -c '.session_id = "s2"')"
+# A run named by its script path or its inline meta holds too; each hold ends when its task's output
+# file ends, when its worktree is gone, or past CD_GUARD_MAX_HOURS.
+cdg 0 "build-change by scriptPath is recorded" "$(wf '{"scriptPath":".claude/workflows/build-change.js"}' wf2)"
+cdg 0 "build-change as an inline script is recorded" "$(wf "$(jq -cn '{script:"export const meta = { name: '"'"'build-change'"'"', description: \"x\" }"}')" wf3)"
+[ -f "$CH/s1/holds/wf2" ] && [ -f "$CH/s1/holds/wf3" ] && ok "cd-guard records build-change named by its scriptPath and by its inline meta" || fail "cd-guard: holds/ is $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' ')"
+rm -f "$CH/s1/holds/wf2" "$CH/s1/holds/wf3"
+printf 'partial\n' > "$CS/tasks/wf1.output"
+cdg 2 "while the run's output file has no end line" "$(cdb "cd /")"
+printf 'done\n[exited with code 0]\n' > "$CS/tasks/wf1.output"
+cdg 0 "once the run's output file ends" "$(cdb "cd /")"
+[ -e "$CH/s1/holds/wf1" ] && fail "cd-guard: an ended run's hold was left behind" || ok "cd-guard: an ended run's hold is removed"
+cdg 0 "a hold re-recorded with no task id" "$(cgp PostToolUse "$CW" '{"tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{}}')"
+ls "$CH/s1/holds" 2>/dev/null | grep -q '^run-' && ok "cd-guard keys a hold with no task id by time" || fail "cd-guard: no run-* hold in $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' ')"
+cdg 2 "a hold with no task id still holds" "$(cdb "cd /")"
+cdg 2 "without jq: a cd while a hold is recorded" "$(cdb "cd /")" "$d/nojq"
+cdg 0 "without jq: a command with no cd" "$(cdb "git status")" "$d/nojq"
+touch -t 200001010000 "$CH/s1/holds"/run-*
+cdg 0 "past CD_GUARD_MAX_HOURS" "$(cdb "cd /")"
+cdg 0 "build-change's call is recorded again" "$(wf '{"name":"build-change"}' wf4)"
+git -C "$C" worktree remove --force "$CW" 2>/dev/null
+cdg 0 "once the held worktree is gone" "$(cdb "cd /")"
+
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
 git init -q --bare "$d/origin.git"
 A="$d/main"; new_repo "$A"
@@ -493,10 +563,10 @@ expect_rc 0 "$rc" "format.sh is a silent no-op with FORMAT_CMD unset"
 # reads the config tests for it first. Run each hook from a checkout with no .claude/lib, under sh
 # and, where installed, under dash (Ubuntu's sh).
 N="$d/noconf"; new_repo "$N"; mkdir -p "$N/.claude/hooks"
-for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
+for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait cd-guard; do cp "$H/$h.sh" "$N/.claude/hooks/"; done
 for shell in sh dash; do
   command -v "$shell" >/dev/null 2>&1 || continue
-  for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait; do
+  for h in focus-staleness format worktree-hook-drift no-background-gate no-silent-wait cd-guard; do
     rc=0; printf '%s' "$spawn" | (cd "$N" && "$shell" "$N/.claude/hooks/$h.sh") >/dev/null 2>&1 || rc=$?
     expect_rc 0 "$rc" "[$shell] $h.sh with conf.sh missing does not block (exit 0)"
   done
@@ -570,6 +640,7 @@ no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name"
 no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
 no-silent-wait.sh	0	file:@REPO@/.git/clauductor-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
+cd-guard.sh	0	file:@REPO@/.git/clauductor-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
 EOF

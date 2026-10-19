@@ -19,6 +19,15 @@
             "type": "command"
           }
         ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" cd-guard.sh",
+            "type": "command"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -39,6 +48,10 @@
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" cd-guard.sh",
             "type": "command"
           }
         ]
