@@ -69,6 +69,7 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 		if skip != "" {
 			continue
 		}
+		dest = template.ProjectDest(targetDir, rel, dest)
 		pl := placed{rel: rel, dest: dest, key: key}
 		if !fileExists(filepath.Join(targetDir, filepath.FromSlash(dest))) {
 			x.docNew = append(x.docNew, pl)

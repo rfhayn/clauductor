@@ -17,20 +17,43 @@ import (
 func TestHookTargetFindsTheLegacyNamesTag(t *testing.T) {
 	tags := hookTags([]string{"newname", "clauductor"})
 	re := commandPortRe(tags)
-	want := hookURL(4393)
+	want := taggedURL(4393, "newname-panel")
 	for _, c := range []struct {
 		name string
 		hook map[string]any
 		want string
 	}{
+		{"new command hook", map[string]any{"type": "command", "command": taggedCommand(4393, "newname-panel"), "async": true}, want},
 		{"legacy command hook", map[string]any{"type": "command", "command": taggedCommand(4393, "clauductor-panel"), "async": true}, want},
 		{"legacy HTTP hook", map[string]any{"type": "http", "url": taggedURL(4393, "clauductor-panel")}, want},
+		{"legacy HTTP hook of another port", map[string]any{"type": "http", "url": taggedURL(4400, "clauductor-panel")}, taggedURL(4400, "newname-panel")},
+		{"legacy command not exactly the panel's", map[string]any{"type": "command", "command": taggedCommand(4393, "clauductor-panel") + " # mine"}, ""},
 		{"another name's command hook", map[string]any{"type": "command", "command": taggedCommand(4393, "other-panel")}, ""},
 		{"another name's HTTP hook", map[string]any{"type": "http", "url": taggedURL(4393, "other-panel")}, ""},
 	} {
 		raw, _ := json.Marshal(c.hook)
 		if got := hookTargetOf(raw, tags, re); got != c.want {
 			t.Errorf("%s: hookTargetOf = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// driftOf says an entry is outdated because of a legacy name's tag only when it carries one.
+func TestLegacyTaggedTellsTheLegacyTagFromAnOlderForm(t *testing.T) {
+	re := commandPortRe(hookTags([]string{"newname", "clauductor"}))
+	for _, c := range []struct {
+		name string
+		hook map[string]any
+		want bool
+	}{
+		{"legacy command hook", map[string]any{"type": "command", "command": taggedCommand(4393, "clauductor-panel")}, true},
+		{"legacy HTTP hook", map[string]any{"type": "http", "url": taggedURL(4393, "clauductor-panel")}, true},
+		{"new HTTP hook (an older form)", map[string]any{"type": "http", "url": taggedURL(4393, "newname-panel")}, false},
+		{"new command hook", map[string]any{"type": "command", "command": taggedCommand(4393, "newname-panel")}, false},
+	} {
+		raw, _ := json.Marshal(c.hook)
+		if got := legacyTaggedOf(raw, "newname-panel", re); got != c.want {
+			t.Errorf("%s: legacyTaggedOf = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

@@ -99,6 +99,8 @@ func hookTarget(raw json.RawMessage) string {
 	return hookTargetOf(raw, hookTags(brand.Names()), commandPort)
 }
 
+// hookTargetOf is hookTarget for tags (hookTags), whose first is this panel's own: the tag
+// every URL it returns is given under.
 func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp) string {
 	var h struct {
 		Type    string `json:"type"`
@@ -117,7 +119,7 @@ func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp
 		if err != nil || h.Command != taggedCommand(port, m[2]) {
 			return ""
 		}
-		return hookURL(port)
+		return taggedURL(port, tags[0])
 	}
 	if h.URL == "" {
 		return ""
@@ -128,14 +130,33 @@ func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp
 	}
 	q := u.Query()
 	switch src := q.Get("src"); {
-	case src == hookTag:
+	case src == tags[0]:
 		return h.URL
 	case slices.Contains(tags, src):
-		q.Set("src", hookTag)
+		q.Set("src", tags[0])
 		u.RawQuery = q.Encode()
 		return u.String()
 	}
 	return ""
+}
+
+// legacyTagged says whether a hook object of the panel's carries a legacy name's tag rather
+// than hookTag, so driftOf can say why it is outdated.
+func legacyTagged(raw json.RawMessage) bool { return legacyTaggedOf(raw, hookTag, commandPort) }
+
+func legacyTaggedOf(raw json.RawMessage, tag string, commandPort *regexp.Regexp) bool {
+	var h struct {
+		URL     string `json:"url"`
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(raw, &h) != nil {
+		return false
+	}
+	if m := commandPort.FindStringSubmatch(h.Command); m != nil {
+		return m[2] != tag
+	}
+	u, err := url.Parse(h.URL)
+	return h.URL != "" && err == nil && u.Query().Get("src") != tag
 }
 
 // SettingsPath is the user settings file the installer edits.
