@@ -82,7 +82,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 				return fmt.Errorf("not inside a git repository, and no project is registered; pass --project <path>")
 			}
 		}
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		ctx, stop := signal.NotifyContext(context.Background(), panelStopSignals(signal.Ignored)...)
 		defer stop()
 		return panel.Run(ctx, panel.Options{
 			Project:     project,
@@ -96,6 +96,20 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 			TrustConfig: panelTrust,
 		})
 	},
+}
+
+// panelStopSignals are the signals that stop the panel through its shutdown. A
+// closed terminal's hangup is one: the panel's claude calls run in sessions of their
+// own (signals.ExecRunner), so the hangup no longer reaches them, and the shutdown
+// stops them instead. Not under nohup, which asked for the hangup to be ignored
+// (Notify would undo that). ignored is signal.Ignored; a test passes its own, since
+// signal.Reset does not undo signal.Ignore.
+func panelStopSignals(ignored func(os.Signal) bool) []os.Signal {
+	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	return sigs
 }
 
 func init() {

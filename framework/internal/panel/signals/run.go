@@ -3,8 +3,10 @@ package signals
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -37,6 +39,9 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 			return err
 		}
 		cmd.WaitDelay = ClaudeStopGrace
+		// A session of its own, so KillCall reaches every process of the call. Without
+		// a terminal, as under launchd, it is never stopped by touching one.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	cmd.Dir = dir
 	var out, errb limitedBuffer
@@ -68,6 +73,28 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 		keepStderr(errb.Bytes())
 	}
 	return out.Bytes(), nil
+}
+
+// KillCall SIGKILLs a `claude` call ExecRunner started (WithProcessStart's process)
+// and every process left in its group. Killing the claude alone is not enough: a
+// child it started holds the call's output pipes open, so ExecRunner does not return
+// until that child exits, which can be after the panel's shutdown stopped waiting
+// (#143).
+//
+// claude says whether the claude itself got the SIGKILL, through its handle (never a
+// reused pid): a log names only signals it sent, and one that had exited got none.
+// The group's id is the claude's pid, which cannot be reused while any process of
+// the group lives. err is os.ErrProcessDone once none is left; from then the id is
+// free for reuse, so the caller must not kill the call again.
+func KillCall(p *os.Process) (claude bool, err error) {
+	claude = p.Kill() == nil
+	if err := syscall.Kill(-p.Pid, syscall.SIGKILL); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return claude, os.ErrProcessDone
+		}
+		return claude, err
+	}
+	return claude, nil
 }
 
 type stderrKey struct{}
