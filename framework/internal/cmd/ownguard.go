@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/clauductor/clauductor/internal/brand"
 	"github.com/clauductor/clauductor/internal/template"
 )
 
@@ -20,7 +21,23 @@ import (
 
 // installMarker records that clauductor installed the operating model here, so later installs and
 // updates may bring its files up to date.
-const installMarker = ".claude/clauductor-template"
+var installMarker = brand.InstallMarker(brand.Name)
+
+// markerIn is the marker targetDir holds, under the first of names that has one (brand.Names:
+// a repository marked under a legacy name is still recognised), or "" when it holds none.
+func markerIn(targetDir string, marker func(name string) string, names []string) string {
+	for _, n := range names {
+		if m := marker(n); fileExists(filepath.Join(targetDir, m)) {
+			return m
+		}
+	}
+	return ""
+}
+
+// hasInstallMarker says whether targetDir holds the install marker, under any of brand.Names.
+func hasInstallMarker(targetDir string) bool {
+	return markerIn(targetDir, brand.InstallMarker, brand.Names()) != ""
+}
 
 const markerNote = "The operating model in this repository was installed by `clauductor install` or `init`.\n" +
 	"`clauductor install` and `update` may bring its framework files up to date. Delete this file to\n" +
@@ -31,12 +48,12 @@ const markerNote = "The operating model in this repository was installed by `cla
 // tracked files (template.OldModelSigns): the old model's runtime state, orchestration/config.json,
 // is gitignored, so a fresh clone of an old-model repository looked foreign (OPS-8 rehearsal).
 func ownedByClauductor(targetDir string) bool {
-	return fileExists(filepath.Join(targetDir, installMarker)) || len(template.OldModelSigns(targetDir)) > 0
+	return hasInstallMarker(targetDir) || len(template.OldModelSigns(targetDir)) > 0
 }
 
 // announceOldModel says why a repository without the marker counts as clauductor's.
 func announceOldModel(out io.Writer, targetDir string) {
-	if fileExists(filepath.Join(targetDir, installMarker)) {
+	if hasInstallMarker(targetDir) {
 		return
 	}
 	signs := template.OldModelSigns(targetDir)
@@ -147,17 +164,18 @@ func refuseForeign(verb, targetDir string, overwrite, add []string) error {
 
 // pluginMarker is what the clauductor plugin's /clauductor:init writes: the repository runs the
 // model from the plugin (docs/plugin.md).
-const pluginMarker = ".claude/clauductor-plugin"
+var pluginMarker = brand.PluginMarker(brand.Name)
 
 // refusePluginModel refuses install and update in a repository that runs the model from the
 // plugin. Installing the framework files too would register every hook twice and give each
-// skill two copies that drift apart.
+// skill two copies that drift apart. A legacy name's marker counts too.
 func refusePluginModel(verb, targetDir string) error {
-	if !fileExists(filepath.Join(targetDir, pluginMarker)) {
+	marker := markerIn(targetDir, brand.PluginMarker, brand.Names())
+	if marker == "" {
 		return nil
 	}
 	return fmt.Errorf("%s refused: %s runs the operating model from the clauductor Claude Code plugin (%s).\n"+
 		"Run one or the other, not both (docs/plugin.md, Running both). To switch this repository to\n"+
 		"`clauductor install`, uninstall or disable the plugin here and delete %s, then run again;\n"+
-		"--force installs anyway", verb, targetDir, pluginMarker, pluginMarker)
+		"--force installs anyway", verb, targetDir, marker, marker)
 }

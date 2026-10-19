@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/brand"
 )
 
 // The projects one panel serves (PANEL-16): ~/.clauductor/panel/projects.json. It is
@@ -40,7 +42,20 @@ func (e ProjectEntry) ConfigPath() string {
 	if e.Config != "" {
 		return e.Config
 	}
-	return filepath.Join(e.Root, DefaultConfigRel)
+	return OwnConfigPath(e.Root)
+}
+
+// OwnConfigPath is the panel.json a project keeps in its own repository (DefaultConfigRel),
+// or a legacy name's while only that one exists (brand.Names). The panel and install both
+// find it here, so they never read two different files for one project.
+func OwnConfigPath(root string) string { return ownConfigPath(root, brand.Names()) }
+
+func ownConfigPath(root string, names []string) string {
+	ps := make([]string, len(names))
+	for i, n := range names {
+		ps[i] = filepath.Join(root, brand.Dir(n), "panel.json")
+	}
+	return brand.Existing(ps...)
 }
 
 // Socket is the tmux socket the project's lanes use: panel.json's tmux_socket when
