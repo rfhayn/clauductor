@@ -16,7 +16,7 @@ entries with one number on `main`.
 
 ## Session 5 — 2026-10-18 — Rich — no silent stalls, PANEL-49 and OPS-81 merged, PANEL-51 amended for session 6
 
-**Rows**: OPS-90, OPS-85, PANEL-51, OPS-93, PANEL-49, OPS-81, OPS-95 · **Span**: 2026-10-18
+**Rows**: OPS-90, OPS-85, PANEL-51, OPS-93, PANEL-49, OPS-81, OPS-95 · **Span**: 2026-10-18 to 2026-10-19
 
 ### What happened
 
