@@ -226,6 +226,20 @@ func firstChild(t *testing.T, pid int) string {
 	return ""
 }
 
+// gateRecorded: lock-run's command runs (its first line is in log) and lock-run has
+// finished recording it: owner.json names child_pid AND the reclaim mutex, which
+// updateOwner holds across that write, is released. A test that kills lock-run as the
+// record appears can catch it between the write and the release, and then tests a
+// mutex left behind (a 30 s wait), not a killed lock-run's gate (#92).
+func gateRecorded(lock, log string) bool {
+	o, err := readLeaseFile(filepath.Join(lock, ownerFileName))
+	if lineCount(log) != 1 || err != nil || o.ChildPID == 0 {
+		return false
+	}
+	_, err = os.Stat(reclaimDir(lock))
+	return os.IsNotExist(err)
+}
+
 // Round 2: a lock-run killed with SIGKILL leaves its gate running. The gate still
 // holds the lease: child_pid in owner.json keeps the record live, for Go and shell
 // readers alike, until the gate itself ends.
@@ -239,10 +253,7 @@ func TestKilledLockRunsGateKeepsTheLease(t *testing.T) {
 			lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 			holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c",
 				"echo A-start >> "+log+"; sleep 2; echo A-end >> "+log)
-			waitUntil(t, "the gate runs", 5*time.Second, func() bool {
-				o, err := readLeaseFile(filepath.Join(lock, ownerFileName))
-				return lineCount(log) == 1 && err == nil && o.ChildPID > 0
-			})
+			waitUntil(t, "the gate runs", 5*time.Second, func() bool { return gateRecorded(lock, log) })
 			holder.cmd.Process.Signal(syscall.SIGKILL)
 			holder.wait(t, 5*time.Second) // lock-run is gone; its gate runs on
 			var w *lockProc
@@ -393,6 +404,61 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 	}
 }
 
+// #92: a command that has ended but is not yet reaped (a zombie, as the gate of a
+// killed lock-run is until its reaper collects it) is dead to Go and to lease.sh, with
+// ps and without it; read as live, it held a waiter for as long as reaping took.
+func TestZombieIsDead(t *testing.T) {
+	t.Parallel()
+	leaseSh := docLeaseSh(t)
+	// The inner sh exits at once; its parent becomes sleep, which never reaps it.
+	parent := exec.Command("/bin/sh", "-c", `sh -c "exit 0" & echo $!; exec sleep 30`)
+	out, err := parent.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = parent.Process.Kill(); _ = parent.Wait() })
+	line := make([]byte, 32)
+	n, _ := out.Read(line)
+	zombie := strings.TrimSpace(string(line[:n]))
+	waitUntil(t, "the child is a zombie", 5*time.Second, func() bool {
+		st, _ := exec.Command("/bin/ps", "-o", "stat=", "-p", zombie).Output()
+		return strings.HasPrefix(strings.TrimSpace(string(st)), "Z")
+	})
+	zpid, _ := strconv.Atoi(zombie)
+	if alive, _ := LiveProc(zpid); alive {
+		t.Fatalf("LiveProc: zombie %d is alive", zpid)
+	}
+	if alive, _ := LiveProc(parent.Process.Pid); !alive {
+		t.Fatalf("LiveProc: the live parent %d is dead", parent.Process.Pid)
+	}
+	paths := map[string]string{"ps": os.Getenv("PATH")}
+	if _, err := os.Stat("/proc/self/stat"); err == nil {
+		paths["no ps"] = noPSPath(t) // without ps, only /proc tells a zombie apart
+	}
+	for name, path := range paths {
+		cmd := exec.Command("bash", "-c", `set -euo pipefail; . "$1"; for p in "$2" "$3"; do lease_alive "$p" && echo alive || echo dead; done`,
+			"alive", leaseSh, zombie, strconv.Itoa(parent.Process.Pid))
+		cmd.Env = []string{"PATH=" + path}
+		got, err := cmd.CombinedOutput()
+		if err != nil || strings.Join(strings.Fields(string(got)), " ") != "dead alive" {
+			t.Fatalf("lease.sh (%s): zombie, live parent = %q (want dead alive): %v", name, got, err)
+		}
+	}
+	// Linux ps reports a process stopped under a tracer (strace, gdb) as a lower-case t: only Z
+	// is dead, or a waiter would reclaim the lease from a gate being debugged.
+	traced := noPSPath(t)
+	testbin.Write(t, filepath.Join(traced, "ps"), "#!/bin/sh\necho ' t+'\n")
+	cmd := exec.Command("bash", "-c", `set -euo pipefail; . "$1"; lease_alive "$2" && echo alive || echo dead`,
+		"alive", leaseSh, strconv.Itoa(parent.Process.Pid))
+	cmd.Env = []string{"PATH=" + traced}
+	if got, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(got)) != "alive" {
+		t.Fatalf("lease.sh: a live process ps reports as t+ = %q (want alive): %v", got, err)
+	}
+}
+
 // Round 3: the gate leaves a daemon behind (a detached sleep), lock-run is killed
 // with SIGKILL, then the gate exits. Holder and command are both dead: Go and shell
 // waiters must BOTH take the lease promptly, not wait for the daemon.
@@ -414,10 +480,7 @@ func TestDaemonLeftByTheGateDoesNotHoldTheLease(t *testing.T) {
 					}
 				}
 			})
-			waitUntil(t, "the gate runs", 5*time.Second, func() bool {
-				o, err := readLeaseFile(filepath.Join(lock, ownerFileName))
-				return lineCount(log) == 1 && err == nil && o.ChildPID > 0
-			})
+			waitUntil(t, "the gate runs", 5*time.Second, func() bool { return gateRecorded(lock, log) })
 			holder.cmd.Process.Signal(syscall.SIGKILL)
 			waitUntil(t, "the gate ends", 5*time.Second, func() bool { return lineCount(log) == 2 })
 			start := time.Now()
