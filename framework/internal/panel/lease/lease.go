@@ -157,12 +157,27 @@ func SameSource(a, b string) bool {
 	return strings.HasPrefix(a, "proc:") == strings.HasPrefix(b, "proc:")
 }
 
-// LiveProc is the real ProcCheck.
+// LiveProc is the real ProcCheck. A zombie is dead, as lease.sh judges it: its process
+// has ended, and kill(pid, 0) answers for it only until its reaper collects it, which
+// for an orphan (the gate of a lock-run killed with SIGKILL) can take seconds on a
+// loaded machine (#92).
 func LiveProc(pid int) (bool, string) {
-	if !pidAlive(pid) {
+	if !pidAlive(pid) || procZombie(pid) {
 		return false, ""
 	}
 	return true, ProcStart(pid)
+}
+
+// procZombie reports whether pid is a zombie (state Z): field 3 of /proc/<pid>/stat,
+// or, where there is no /proc, `ps -o stat=`. Unknown is not a zombie.
+func procZombie(pid int) bool {
+	if b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
+		s := string(b)
+		i := strings.LastIndex(s, ") ")
+		return i >= 0 && strings.HasPrefix(s[i+2:], "Z")
+	}
+	out, err := exec.Command("/bin/ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }
 
 // ProcCache is a ProcCheck that reads each pid's start time once (PANEL-7). A
