@@ -1,4 +1,4 @@
-**Approved:** 2026-10-18 by Rich · design 1b4626a580ed
+**Approved:** 2026-10-19 by Rich · design 902e287ac2e2
 **Roadmap row:** PANEL-51
 **Risk:** normal
 **Budget:** $80, soft
@@ -43,7 +43,8 @@ carries the stalled state into the new look (design D11).
   D5).
   - **Working:** a `claude agents` reading of `busy` (which holds while a background command
     runs: E1), or a background subagent or workflow its turn ended on that has not yet ended
-    (its `SubagentStop` carries the task's id: D3 (d)); and for the lane, holding (alive) or
+    (a subagent's `SubagentStop` carries the task's id; a workflow ends when a later `Stop` no
+    longer lists it: D3 (d)); and for the lane, holding (alive) or
     waiting for the gate's lease.
   - **Movement:** a hook from the session (a notification that reports the stop is not one), a
     change in its `claude agents` reading, or its start; for the lane, any of its sessions'
