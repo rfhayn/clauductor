@@ -10,11 +10,27 @@
     `template/AGENTS.md` before the plugin rebuild; L2 `modules.sh`'s whole-set fixture inherits
     the markers.
 - 2026-10-18 approved by the owner (design 78e8b98101ab).
+- 2026-10-19 group 1: 1.1 done (baseline below). 1.2 to 1.6 not started: the builder's Edit of
+  `template/.claude/checks/lib.sh` was refused as a sensitive file (a permission prompt no one can
+  answer inside the workflow). Every group-1 file is under `.claude/`, so the group needs a run
+  that may edit `template/.claude/checks/` (and, for 1.6, `.claude/` via `clauductor update`).
+  Nothing else is edited. Notes for the resumed run, not yet decisions: the plugin builder keeps
+  comment lines verbatim (`rewrite.go` `shell`), so comment markers around run.sh's wrap let the
+  D7 fixture derive "run.sh with the wrap removed" with `sed`; `modules.sh:68,89,92` start
+  whole-set fixture runs and need the markers cleared (pre-review L2); a quick way to see the
+  fixtures fail first is `CHECKS_SET=whole sh template/.claude/checks/no-clauductor.sh` (part 2
+  fails fast, the rest runs).
 
 ## Decision log
+- 2026-10-19, group 1, task 1.1 baseline (worktree at bbc23074, Apple M5, 10 cores, before any
+  edit; one set at a time, nothing else of this build running): `sh template/.claude/checks/run.sh`
+  698 s, 44 checks; `run.sh no-clauductor` alone 354 s (51%). `sh .claude/checks/run.sh` 766 s,
+  47 checks; `run.sh no-clauductor` alone 358 s (47%). The share was measured as a separate named
+  run, not from inside the whole run (run.sh prints no per-check time), rather than adding timing
+  to run.sh for a one-off; it agrees with the amendment's "half the set".
 
 ## 1. The single pass (D1, D2, D3, D4, D6, D7)
-- [ ] 1.1 Before any edit, time a whole-set `sh template/.claude/checks/run.sh` and `sh .claude/checks/run.sh` on the owner's Mac, and record both totals and `no-clauductor`'s share in the Decision log as the baseline. (manual: a one-off measurement on the owner's machine, not shipped code)
+- [x] 1.1 Before any edit, time a whole-set `sh template/.claude/checks/run.sh` and `sh .claude/checks/run.sh` on the owner's Mac, and record both totals and `no-clauductor`'s share in the Decision log as the baseline. (manual: a one-off measurement on the owner's machine, not shipped code)
 - [ ] 1.2 `template/.claude/checks/lib.sh`: move `no-clauductor.sh:20-39` unchanged into one helper, which builds the `PATH` mirror, the fresh `HOME` with its `.gitconfig`, and `bare` (D2). Add D3's assertion as a function: `command -v clauductor` fails, `$HOME` is the environment's `HOME`, and `$HOME/.clauductor` is absent.
 - [ ] 1.3 `template/.claude/checks/run.sh`: for a whole-set run with no `CHECKS_DOUBLE_PASS=1`, source `lib.sh` after `ROOT` is set, build the environment, and run itself as a child under it with `CHECKS_BARE` set. Exit with the child's code, and let the `EXIT` trap remove the scratch. Export `CHECKS_SET=whole` for every whole-set run. A whole-set run that finds `CHECKS_BARE` set runs the checks directly: that is the child's stop condition. Named runs and `CHECKS_DOUBLE_PASS=1` do not wrap (D1, D4). Update the header comment to say so.
 - [ ] 1.4 `template/.claude/checks/no-clauductor.sh`: use the helper. Part 2 asserts under `CHECKS_BARE`, fails under `CHECKS_SET=whole` with no environment, and re-runs the set otherwise (D3). The re-run clears `CHECKS_SET` and sets `CHECKS_BARE` to its own environment. It runs `$dir/run.sh` (D6). Rewrite the header's step 2 to say all this.
