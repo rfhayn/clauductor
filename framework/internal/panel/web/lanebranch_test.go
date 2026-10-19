@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,13 @@ func newBranchRepo(t *testing.T) *branchRepo {
 			if argv[0] != "git" {
 				return nil, fmt.Errorf("unexpected command %v", argv)
 			}
+			// #109: the panel gives each git call 10 s or more (none at all for a few).
+			// A tighter deadline from the test's own request kills git on a loaded race
+			// step ("git: signal: killed"), so any call left with less fails here,
+			// deterministically, rather than now and then under load.
+			if dl, ok := ctx.Deadline(); ok && time.Until(dl) < 5*time.Second {
+				t.Errorf("%s ran with %v left on its context, under the panel's own deadlines", strings.Join(argv, " "), time.Until(dl).Round(time.Millisecond))
+			}
 			return signals.ExecRunner(ctx, dir, argv)
 		}}
 	r.s, _ = newTestServer(t)
@@ -107,6 +115,12 @@ func (r *branchRepo) originOnly(name string) {
 	r.branch(name)
 	r.git(r.root, "push", "-q", "origin", name)
 	r.git(r.root, "branch", "-q", "-D", name)
+}
+
+// do sends a request that runs real git under the test's own context, not do's one
+// second (#109).
+func (r *branchRepo) do(method, target, body string, opts ...reqOpt) *httptest.ResponseRecorder {
+	return doCtx(r.t.Context(), r.s, method, target, body, opts...)
 }
 
 func (r *branchRepo) commands() []string {
@@ -153,7 +167,7 @@ func TestNewBranchThatExistsIsRefusedPlainly(t *testing.T) {
 		} else {
 			r.branch("change/add-score-photo")
 		}
-		w := do(r.s, "POST", "/api/p/a/lanes", c.body, withCookie(r.s), origin)
+		w := r.do("POST", "/api/p/a/lanes", c.body, withCookie(r.s), origin)
 		got := decode(t, w.Body.Bytes())
 		msg, _ := got["error"].(string)
 		if w.Code != 409 || got["code"] != "branch-exists" || !strings.HasPrefix(msg, "A branch named change/add-score-photo already exists") {
@@ -203,7 +217,7 @@ func TestLaneBranchSaysWhereTheBranchIs(t *testing.T) {
 		{"template=fix&name=nowhere", lanes.BranchFacts{Branch: "fix/nowhere"}},
 	} {
 		for _, pre := range []string{"/api/p/a", "/api"} {
-			w := do(r.s, "GET", pre+"/lanes/branch?"+c.query, "", withCookie(r.s))
+			w := r.do("GET", pre+"/lanes/branch?"+c.query, "", withCookie(r.s))
 			var got struct {
 				OK bool `json:"ok"`
 				lanes.BranchFacts
@@ -214,18 +228,18 @@ func TestLaneBranchSaysWhereTheBranchIs(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"template=nope&name=x", "template=build&name=Bad%20Name", "name=x"} {
-		if w := do(r.s, "GET", "/api/p/a/lanes/branch?"+bad, "", withCookie(r.s)); w.Code != 400 {
+		if w := r.do("GET", "/api/p/a/lanes/branch?"+bad, "", withCookie(r.s)); w.Code != 400 {
 			t.Errorf("GET ?%s = %d %s, want 400", bad, w.Code, w.Body.String())
 		}
 	}
-	if w := do(r.s, "GET", "/api/p/a/lanes/branch?template=build&name=x", ""); w.Code != 401 {
+	if w := r.do("GET", "/api/p/a/lanes/branch?template=build&name=x", ""); w.Code != 401 {
 		t.Errorf("without the cookie: %d", w.Code)
 	}
 	// An untrusted panel.json's templates are off here as at Start: the same 409, and
 	// its branch pattern is not rendered or looked up.
 	before := len(r.commands())
 	r.s.Projects[0].Orch = &Orchestration{Trusted: func() bool { return false }}
-	w := do(r.s, "GET", "/api/p/a/lanes/branch?template=build&name=in-a-worktree", "", withCookie(r.s))
+	w := r.do("GET", "/api/p/a/lanes/branch?template=build&name=in-a-worktree", "", withCookie(r.s))
 	if got := decode(t, w.Body.Bytes()); w.Code != 409 || got["code"] != "untrusted-config" {
 		t.Errorf("untrusted: %d %s, want 409 untrusted-config", w.Code, w.Body.String())
 	}
@@ -233,7 +247,7 @@ func TestLaneBranchSaysWhereTheBranchIs(t *testing.T) {
 		t.Errorf("untrusted: ran %q", ran)
 	}
 	r.s.Projects[0].Orch = &Orchestration{Trusted: func() bool { return true }}
-	if w := do(r.s, "GET", "/api/p/a/lanes/branch?template=build&name=in-a-worktree", "", withCookie(r.s)); w.Code != 200 {
+	if w := r.do("GET", "/api/p/a/lanes/branch?template=build&name=in-a-worktree", "", withCookie(r.s)); w.Code != 200 {
 		t.Errorf("trusted: %d %s", w.Code, w.Body.String())
 	}
 	for _, cmd := range r.commands() {
@@ -269,18 +283,18 @@ func TestABusyBranchReachesThePage(t *testing.T) {
 	sentence := "A branch named change/add-score-photo is in the middle of a rebase in the worktree " + wt +
 		". Finish or abort it there, then start the lane on that worktree."
 
-	w := do(r.s, "POST", "/api/p/a/lanes", `{"template":"build","name":"add-score-photo","mode":"new"}`, withCookie(r.s), withHeader("Origin", "http://127.0.0.1:4393"))
+	w := r.do("POST", "/api/p/a/lanes", `{"template":"build","name":"add-score-photo","mode":"new"}`, withCookie(r.s), withHeader("Origin", "http://127.0.0.1:4393"))
 	got := decode(t, w.Body.Bytes())
 	if w.Code != 409 || got["code"] != "branch-exists" || got["error"] != sentence || got["busy"] != "rebase" || got["worktree"] != wt {
 		t.Errorf("POST new: %d %s", w.Code, w.Body.String())
 	}
-	w = do(r.s, "GET", "/api/p/a/lanes/branch?template=build&name=add-score-photo", "", withCookie(r.s))
+	w = r.do("GET", "/api/p/a/lanes/branch?template=build&name=add-score-photo", "", withCookie(r.s))
 	got = decode(t, w.Body.Bytes())
 	if w.Code != 200 || got["busy"] != "rebase" || got["worktree"] != wt {
 		t.Errorf("GET: %d %s", w.Code, w.Body.String())
 	}
 	// Not busy: no busy field at all.
-	w = do(r.s, "GET", "/api/p/a/lanes/branch?template=build&name=other", "", withCookie(r.s))
+	w = r.do("GET", "/api/p/a/lanes/branch?template=build&name=other", "", withCookie(r.s))
 	if _, has := decode(t, w.Body.Bytes())["busy"]; w.Code != 200 || has {
 		t.Errorf("GET a free branch: %d %s", w.Code, w.Body.String())
 	}
