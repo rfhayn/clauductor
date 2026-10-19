@@ -1,6 +1,6 @@
 # PRAC 0010: Close the class, not the instance, when review keeps finding the next one
 
-- **Status**: Proposed
+- **Status**: Accepted (by the owner, 2026-10-19)
 - **Date**: 2026-10-18
 - **Tags**: review, process
 - **Source**: insights-log rows *shell parser never converges* and *unbounded input space*
@@ -55,9 +55,10 @@ often, a gate.
 ## Enforcement
 None yet. `merge-pr` step 3 and `build-change` (`maxRounds`) cap the rounds of a review, but
 nothing recognises a second instance of one class or asks for the class to be closed. A candidate
-mechanism, for the owner to decide: a line in the reviewer's prompt (`.claude/agents/reviewer.md`)
-asking it to name the class of each finding and whether an earlier round found it, so the fixer
-and the cap can act on it.
+mechanism, which the owner chose on accepting this record (2026-10-19): a line in the reviewer's
+prompt (`.claude/agents/reviewer.md`) asking it to name the class of each finding and whether an
+earlier round found it, so the fixer and the cap can act on it. OPS-97 owns it; until it merges,
+nothing executes this record.
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)
