@@ -53,12 +53,21 @@ often, a gate.
   a design change mid-build.
 
 ## Enforcement
-None yet. `merge-pr` step 3 and `build-change` (`maxRounds`) cap the rounds of a review, but
-nothing recognises a second instance of one class or asks for the class to be closed. A candidate
-mechanism, which the owner chose on accepting this record (2026-10-19): a line in the reviewer's
-prompt (`.claude/agents/reviewer.md`) asking it to name the class of each finding and whether an
-earlier round found it, so the fixer and the cap can act on it. OPS-97 owns it; until it merges,
-nothing executes this record.
+Partial. The reviewer's prompt (`.claude/agents/reviewer.md`, and the template's: OPS-97, the
+mechanism the owner chose on accepting this record, 2026-10-19) asks it to name each finding's
+class in its summary and say whether an earlier round found one of that class. `merge-pr` step 3
+and `build-change` (`maxRounds`) cap the rounds. The prompt is an eval trigger, so a change to it
+needs a passing eval receipt (`pr-merge-guard.sh` rule 13).
+
+Known limits, so this is not read as full enforcement:
+- **The reviewer sees only part of the earlier rounds.** `build-change` passes it the findings the
+  builder DISPUTES (`REVIEW_DISPUTED`), not every earlier finding; beyond those it has the Decision
+  log in `tasks.md` and the commit messages of committed groups. A second instance of a class
+  whose first was fixed without a note in either reads as "first seen".
+- **No code reads the class.** It is prose in the finding's summary: the review schema has no
+  field for it, and neither the fixer's prompt nor the round cap acts on it mechanically. Closing
+  the class, and sending an unclosable one to the owner by round 3, are still the fixer's and the
+  session's judgment.
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)

@@ -51,4 +51,6 @@ code an earlier group wrote belongs to that earlier group (`git log` names each 
 cross the group boundary for exactly those, so a wrong tag either traps a real defect behind "stay
 inside the group" or invites the fixer into code it should not touch.
 
+**Name each finding's class in its summary, and say whether an earlier round found one of that class**: "one more X; the class is Y" (a shell form the guard does not parse, a decoder outside the reader's list), or "class Y, first seen". Earlier rounds reach you as the disputed findings in your prompt, the Decision log in `tasks.md` and the `git log` of committed groups. A second instance tells the fixer to close the class (allow only what is listed) instead of refusing one more form, and lets the round cap send a class that cannot be closed to the owner by round 3.
+
 Report only findings you verified against the code. No finding is a valid, good result.
