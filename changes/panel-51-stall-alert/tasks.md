@@ -113,6 +113,17 @@
   D4's boundary in task 2.3 and the Refusals row; "before group 2 commits" in task 1.4.
   For the amendment's PR body:
   Review: converged in 2 round(s), peak low, at 032017b · design 1b4626a580ed
+- 2026-10-19 merge-pr step 3 on #167, round 2 of the whole PR (reviewer, at 2bb98a2): peak
+  medium, NOT converged. M1 (confirmed from round 1): D3 (d)'s "a task of any other type is open
+  work" reads Claude Code's own housekeeping tasks (`dream`, `auto-mode scan`, `memory import`,
+  which end silently with no wake) as open work that never ends: a false push 30 minutes after
+  a turn that ended while a dream ran. Possibly also ambient `monitor_ws` tasks (unprobed). L2
+  task 1.4's overdue case untested (settled live below); L3 STALL-2-S11, S12 and the teammate
+  GIVEN at spec line 135 assume a teammate is a session of its own, which P3 refutes. M1's fix
+  edits `design.md`, which voids the approval: the owner's, in the re-amendment P2 and P3 force.
+- 2026-10-19 group 1's live probes (session 6, TRACK C): 1.1 and 1.4 ticked; **1.2 and 1.3
+  meet their stop conditions, so the build stops for the owner before group 2** (Decision log;
+  `docs/owner-queue.md`). Nothing is built.
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -173,12 +184,84 @@
 - 2026-10-18, D9 left as it stands: the `in_process_teammate` registry type (P3 above) is its
   stop condition, unconfirmed until the live P3 shows which mode a team runs in. If P3 confirms
   in-process teammates, the build stops for the owner before group 2 commits, as D9 says.
+- 2026-10-19, group 1's live probes, on the owner's Mac (Claude Code 2.1.303, local time EDT).
+  Each run: an interactive `claude --model haiku` in tmux on a socket of its own (`-L probe51`),
+  started with `env -u ANTHROPIC_API_KEY` and `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, its
+  `--settings` holding exactly the hooks a throwaway panel built from this branch installed under
+  a temporary HOME (plus `TeammateIdle`), with `--setting-sources project,local`. The panel
+  carried an uncommitted debug log in `Machine.ingest` decoding D4's allowlist alone (never
+  `command` or `prompt`); `claude agents --json` was polled every 3 s. Times are the panel's
+  receipt of each hook. Three runs: A 11:24 to 11:42 (from 202acc8; its log was read again for
+  this entry, which trusts it over that run's notes); B 16:17 to 16:22 (P1 and a subagent, its
+  `/status` not recorded); C 16:33 to 16:48 (from 2bb98a2, `/status`: "Login method: Claude Max
+  account"). C repeated the two probes whose stop conditions A met, and the overdue wakeup A did
+  not reach.
+  - **P1 (1.1): the fields arrive through the async command hook. Ticked.** E1 (A, repeated in
+    B): a background `sleep 70` with the turn ended at once. B's `Stop` 16:17:28 listed
+    `{id bhw834yhk, type shell, status running}` and `session_crons` `[]`; `claude agents` read
+    `busy` from 16:17:25; an `idle_prompt` Notification came 60 s after the `Stop`, still `busy`;
+    the shell's end woke the session (`UserPromptSubmit` 16:18:36), and the next `Stop` (16:18:37)
+    carried `[]` and `[]`, `idle` by 16:18:39. E3: an AskUserQuestion read `waiting`, `waitingFor`
+    "input needed", from 16:19:07 to its answer (`idle` 16:19:35), with `PermissionRequest`
+    (`tool_name` AskUserQuestion) 16:19:05 and a `permission_prompt` Notification 6 s later. Both
+    fields are on every `Stop` and `SubagentStop` and on no other event. D2 and D4's stop
+    condition is not met.
+  - **Empty-type `SubagentStop`s are frequent.** One to two seconds after nearly every `Stop`
+    comes a `SubagentStop` with an `agent_id` and no `agent_type` (an internal agent; the prompt
+    suggestion's, by its timing), carrying the session's `background_tasks`. None ever matched a
+    listed task's `id`: D3 (d)'s "an unpaired stop ends nothing" is what holds them off.
+  - **P2 (1.2), a background subagent: the pairing holds** (A and B). B: `Stop` 16:19:44 listed
+    `{id abc4cb1b3fc456a35, type subagent, status running}`; the `SubagentStop` with that
+    `agent_id` (`agent_type` general-purpose) arrived 16:19:48.539, the wake 7 ms later, then a
+    `Stop` with `[]`. A: the same for a99b57c1bf8b599da, `busy` on all 19 polls of its run.
+  - **P2 (1.2), a background workflow: NO `SubagentStop` carries the workflow task's `id`.
+    Task 1.2's stop condition is met, in A and again in C.** C: `Stop` 16:37:07.791 listed
+    `{id w0pu2v4gc, type workflow, status running}`. The workflow's one agent sent
+    `SubagentStart` 16:37:05.496 and `SubagentStop` 16:37:47.616, both with `agent_id`
+    a1a7d243b22c6eeb9 and `agent_type` workflow-subagent; the wake followed (`UserPromptSubmit`
+    16:37:50.209, `Stop` 16:37:51.960 with `[]`). `w0pu2v4gc` is in no hook's `agent_id`.
+    `claude agents` read `busy` on every poll from 16:37:03 to 16:37:50, `idle` from 16:37:53.
+    A: the same, for
+    `wvhvmjkd7` and agent a19d6155ed5db2d98. **D3 (d)'s pairing cannot end a workflow task: the
+    build stops for the owner before group 2 commits.** What C shows instead: the workflow's end
+    wakes its session, so the wake's `Stop` no longer lists it.
+  - **P2 (1.2), a background `Monitor`: listed as a shell, keeps the session busy** (A). `Stop`
+    11:31:33 listed `{id b8c6mol2r, type shell, status running, description "probe51
+    monitor"}`; `claude agents` read `busy` on all 14 polls while it ran; its one output line
+    woke the session at 11:32:12. Neither Monitor stop condition is met: the design's reading (a
+    Monitor is open work, as a shell) stands.
+  - **P3 (1.3), a teammate: in-process, not a session of its own. D9's stop condition is met, in
+    A and again in C.** C, default teammate mode inside tmux: the lead spawned `probe-mate`
+    in-process (one pane, no second process); `claude agents` listed the lead alone. The
+    teammate's hooks arrived under the LEAD's `session_id`, `agent_id`
+    aprobe-mate-7532800a6ad753fe, `agent_type` probe-mate (`SubagentStart` 16:38:13.500, its turn's
+    end as a `SubagentStop`); `TeammateIdle` fired 16:38:19.846 in the lead's session
+    (`teammate_name` probe-mate, `team_name` session-3ec14d00). The lead's `Stop` listed `{id
+    t4xa1miqt, type teammate, status running}` and the teammate's background shell `{id
+    b5pw25228, type shell, status running}`. The shell ended about 16:38:55 and **woke no one**:
+    `claude agents` read `idle` from 16:38:56 and the only hook after was the lead's
+    `idle_prompt` (16:39:22). The teammate task still read `running` on the lead's `Stop`s at
+    16:48, ten minutes after `TeammateIdle`: "running" on a teammate task does not mean working.
+    **The build stops for the owner before group 2 commits (D9).** Tmux pane mode
+    (`--teammate-mode tmux`) was not probed.
+  - **P4 (1.4), `ScheduleWakeup`: `M H * * *`, local time, rounded up; an overdue one fires as
+    its turn ends. Ticked.** A: a /loop with `delaySeconds` 120 listed `{schedule "37 11 * * *",
+    recurring false}` on a `Stop` at 11:34:53 (+120 s, rounded up to the next whole minute, local)
+    and fired at 11:37:00.313. A's overdue try had its `Stop` (11:41:57) in the fire minute
+    itself, which D4 resolves to the same day, so it did not test the risk; C did: armed with
+    `delaySeconds` 60 about 16:44:54, listed as `46 16 * * *` (`recurring` false) on the turn's
+    `Stop`, which came at 16:48:16.685, in a minute two past the fire time, where D4 resolves
+    the H:M to the next day. The wakeup fired 23 ms later (`UserPromptSubmit` 16:48:16.708), and
+    the next `Stop` (16:48:19.446) listed no crons, so the day-away reading is replaced within
+    seconds. None of 1.4's stop conditions is met.
+  - No `Stop` in the three runs (about 150 hooks) listed a task of a type other than `shell`,
+    `subagent`, `workflow` or `teammate`.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
-- [ ] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
+- [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
 - [ ] 1.2 P2: in the same lane, a turn that ends while a background subagent runs (an Agent call with `run_in_background`). Record what `claude agents` reads until the subagent ends, what the `Stop` lists (each task's `id` and `status`, `pending` included), and every `SubagentStop` the session sends until then, with its `agent_id` and `agent_type`, the empty-type ones included; then the same for a background workflow, and, for a background `Monitor`, what its `Stop` lists (its `type`, expected `shell`) and what `claude agents` reads while it runs. If a background subagent's or workflow's end sends no `SubagentStop` whose `agent_id` is the listed task's `id`, stop for the owner before group 2 commits: D3 (d)'s pairing rests on it. If a session reads `idle` while its `Monitor` runs, or the Monitor is listed as anything but a `shell`, stop for the owner before group 2 commits (D3 (d)). (manual: a live session)
 - [ ] 1.3 P3: a teammate (an agent team in the lane, one teammate told to start a background `sleep` and end its turn). Record whether it is a session of its own in `claude agents` and in the hooks, and whether `TeammateIdle` fires and in whose session. If it is not a session of its own, stop for the owner before group 2 commits (D9). (manual: a live agent team)
-- [ ] 1.4 P4: a one-shot `ScheduleWakeup` in a /loop. Record the `schedule` text its `Stop` lists, and whether the fire time is local time, in the Decision log (`changes/panel-51-stall-alert/tasks.md`); then one armed with a 60 s delay in a turn that runs on past it, and whether it fires as that turn ends. If that overdue wakeup does not fire within a minute of its turn ending, stop for the owner before group 2 commits: D4 would read it as a day away, a silent hold of up to about 24 hours. If its `schedule` is neither `M H * * *` nor five fields with the minute, hour, day and month as numbers, or its fire time is not local, stop for the owner before group 2 commits: D4's one-shot rule (amended with the owner on 2026-10-18 for `M H * * *`) rests on it. (manual: a live session)
+- [x] 1.4 P4: a one-shot `ScheduleWakeup` in a /loop. Record the `schedule` text its `Stop` lists, and whether the fire time is local time, in the Decision log (`changes/panel-51-stall-alert/tasks.md`); then one armed with a 60 s delay in a turn that runs on past it, and whether it fires as that turn ends. If that overdue wakeup does not fire within a minute of its turn ending, stop for the owner before group 2 commits: D4 would read it as a day away, a silent hold of up to about 24 hours. If its `schedule` is neither `M H * * *` nor five fields with the minute, hour, day and month as numbers, or its fire time is not local, stop for the owner before group 2 commits: D4's one-shot rule (amended with the owner on 2026-10-18 for `M H * * *`) rests on it. (manual: a live session)
 
 ## 2. The rule (D1, D3, D4)
 - [ ] 2.1 `framework/internal/panel/signals/hooks.go`: `HookEvent` declares `background_tasks` and `session_crons`, each into a declared type that holds D4's allowlist alone (`id`, `type`, `status`, `description`; `schedule`, `recurring`), absent kept apart from empty. Tested in `framework/internal/panel/signals/hooks_stop_test.go` over E1's two `Stop` bodies, an older body with neither field, and a body whose task carries `command`, `server`, `tool`, `name` and `agent_type`. Citing [STALL-2-S5].
