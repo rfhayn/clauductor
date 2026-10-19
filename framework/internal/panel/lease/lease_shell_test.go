@@ -447,6 +447,16 @@ func TestZombieIsDead(t *testing.T) {
 			t.Fatalf("lease.sh (%s): zombie, live parent = %q (want dead alive): %v", name, got, err)
 		}
 	}
+	// Linux ps reports a process stopped under a tracer (strace, gdb) as a lower-case t: only Z
+	// is dead, or a waiter would reclaim the lease from a gate being debugged.
+	traced := noPSPath(t)
+	testbin.Write(t, filepath.Join(traced, "ps"), "#!/bin/sh\necho ' t+'\n")
+	cmd := exec.Command("bash", "-c", `set -euo pipefail; . "$1"; lease_alive "$2" && echo alive || echo dead`,
+		"alive", leaseSh, strconv.Itoa(parent.Process.Pid))
+	cmd.Env = []string{"PATH=" + traced}
+	if got, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(got)) != "alive" {
+		t.Fatalf("lease.sh: a live process ps reports as t+ = %q (want alive): %v", got, err)
+	}
 }
 
 // Round 3: the gate leaves a daemon behind (a detached sleep), lock-run is killed

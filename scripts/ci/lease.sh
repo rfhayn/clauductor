@@ -23,7 +23,7 @@ lease_alive() {
     # inspecting other processes) answers nothing, and kill -0 below decides instead.
     _o=$(ps -o stat= -p "$1" 2>&1) && _x=0 || _x=$?
     _s=${_o#"${_o%%[![:space:]]*}"}
-    if [ "$_x" -eq 0 ]; then case $_s in Z*) return 1 ;; [A-Z]*) return 0 ;; esac; fi
+    if [ "$_x" -eq 0 ]; then case $_s in Z*) return 1 ;; ?*) return 0 ;; esac; fi
     { [ "$_x" -ne 0 ] && [ -n "$_o" ]; } || return 1
   fi
   _e=$(kill -0 "$1" 2>&1) || case $_e in *ermitted*) ;; *) return 1 ;; esac

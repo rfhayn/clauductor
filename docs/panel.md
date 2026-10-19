@@ -1500,11 +1500,12 @@ Only a stale holder may be removed.
   holder's) never expires.
 - **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
   start time is `proc:` + field 22 of `/proc/<pid>/stat`.
-- **A zombie is dead:** `ps -o stat=` or field 3 of `/proc/<pid>/stat` says `Z` (`lock-run`
-  reads `/proc` first, `lease.sh` `ps` first; a machine with neither cannot tell, and waits for the
-  reaper). The command of a `lock-run` killed with `SIGKILL` is an orphan, and until its reaper
-  collects it, which takes seconds on a loaded machine, `ps -p` and `kill -0` still answer for it;
-  read as live, it held a waiter for 10 s (#92).
+- **A zombie is dead:** `ps -o stat=` or field 3 of `/proc/<pid>/stat` says `Z`, and any other
+  state (`t`, a process stopped under a tracer, included) is alive (`lock-run` reads `/proc` first,
+  `lease.sh` `ps` first; a machine where neither answers cannot tell, and waits for the reaper).
+  The command of a `lock-run` killed with `SIGKILL` is an orphan, and until its reaper collects it,
+  which takes seconds on a loaded machine, `ps -p` and `kill -0` still answer for it, so a waiter
+  read it as live; it was one of two causes of #92's held waiter, with the reclaim mutex (#168).
 - **A record is valid** when it is one flat JSON object whose values are strings, integers,
   `true`, `false` or `null` (nothing nested, no fraction or exponent); `v`, `pid`, `child_pid`,
   `started`, `renewed` and `ttl` are integers; `nonce`, `pstart`, `child_pstart`, `host`, `lane`
@@ -1634,7 +1635,7 @@ lease_alive() {
     # inspecting other processes) answers nothing, and kill -0 below decides instead.
     _o=$(ps -o stat= -p "$1" 2>&1) && _x=0 || _x=$?
     _s=${_o#"${_o%%[![:space:]]*}"}
-    if [ "$_x" -eq 0 ]; then case $_s in Z*) return 1 ;; [A-Z]*) return 0 ;; esac; fi
+    if [ "$_x" -eq 0 ]; then case $_s in Z*) return 1 ;; ?*) return 0 ;; esac; fi
     { [ "$_x" -ne 0 ] && [ -n "$_o" ]; } || return 1
   fi
   _e=$(kill -0 "$1" 2>&1) || case $_e in *ermitted*) ;; *) return 1 ;; esac
