@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/brand"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -50,12 +51,27 @@ var parentSessionVars = []string{
 // Initial size of a detached lane; the first attached client resizes it.
 const laneCols, laneRows = 200, 50
 
-const tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}\t#{@clauductor_project}"
+var tmuxListFormat = listFormat(brand.Names())
+
+// listFormat is the list-panes format: seven fields of the pane, then a lane's type and
+// project options for each name, in brand.Names order, so a lane an earlier name's panel
+// started is still read as its type and project.
+func listFormat(names []string) string {
+	f := "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}"
+	for _, n := range names {
+		f += "\t#{" + brand.TmuxOption(n, "type") + "}\t#{" + brand.TmuxOption(n, "project") + "}"
+	}
+	return f
+}
 
 // parseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
 // session whose name is not a valid lane id was not started by the panel and is
 // ignored.
-func parseTmuxPanes(out []byte) []types.TmuxLane {
+func parseTmuxPanes(out []byte) []types.TmuxLane { return parseTmuxPanesOf(out, len(brand.Names())) }
+
+// parseTmuxPanesOf parses a listFormat of names names: the type and project are the
+// first name's whose type is set.
+func parseTmuxPanesOf(out []byte, names int) []types.TmuxLane {
 	seen := map[string]bool{}
 	var lanes []types.TmuxLane
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -75,6 +91,13 @@ func parseTmuxPanes(out []byte) []types.TmuxLane {
 			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]}
 		if len(f) > 8 {
 			l.Project = f[8]
+		}
+		for i := 1; i < names && l.Type == "" && len(f) > 7+2*i; i++ {
+			l.Type = f[7+2*i]
+			l.Project = ""
+			if len(f) > 8+2*i {
+				l.Project = f[8+2*i]
+			}
 		}
 		lanes = append(lanes, l)
 	}
@@ -498,11 +521,11 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
-		";", "set-option", "-t", "="+id+":", "@clauductor_type", laneType,
+		";", "set-option", "-t", "="+id+":", brand.TmuxOption(brand.Name, "type"), laneType,
 		";", "set-option", "-t", "="+id+":", "window-size", "latest",
 		";")
 	if m.Project != "" {
-		args = append(args, "set-option", "-t", "="+id+":", "@clauductor_project", m.Project, ";")
+		args = append(args, "set-option", "-t", "="+id+":", brand.TmuxOption(brand.Name, "project"), m.Project, ";")
 	}
 	args = append(args, hardenArgs...)
 	return m.TmuxArgv(args...)

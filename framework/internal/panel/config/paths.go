@@ -6,18 +6,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/brand"
 )
 
 // PanelDir is ~/.clauductor/panel: the machine's panel files (port, pid, owner,
-// token, lock, logs) and one directory per project (ProjectDir).
-func PanelDir(home string) string { return filepath.Join(home, ".clauductor", "panel") }
+// token, lock, logs) and one directory per project (ProjectDir). A legacy name's
+// directory is read while only that one exists (brand.Names).
+func PanelDir(home string) string { return panelDir(home, brand.Names()) }
+
+func panelDir(home string, names []string) string {
+	ps := make([]string, len(names))
+	for i, n := range names {
+		ps[i] = filepath.Join(home, brand.Dir(n), "panel")
+	}
+	return brand.Existing(ps...)
+}
 
 // SidecarPath is the config `panel attach` writes for a project, outside its
 // repository (PANEL-42, design.md D2): ~/.clauductor/projects/<id>/panel.json. A
 // readable folder per id, not ProjectDir's hash, because the owner edits it by hand.
-// The id must already match ProjectIDRe: it is a path segment here.
-func SidecarPath(home, id string) string {
-	return filepath.Join(home, ".clauductor", "projects", id, "panel.json")
+// The id must already match ProjectIDRe: it is a path segment here. A legacy name's
+// sidecar is read while only that one exists.
+func SidecarPath(home, id string) string { return sidecarPath(home, id, brand.Names()) }
+
+func sidecarPath(home, id string, names []string) string {
+	ps := make([]string, len(names))
+	for i, n := range names {
+		ps[i] = filepath.Join(home, brand.Dir(n), "projects", id, "panel.json")
+	}
+	return brand.Existing(ps...)
 }
 
 // ResolveExisting is p with symlinks evaluated as far as it exists, component by

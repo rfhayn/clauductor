@@ -252,14 +252,34 @@ if [ -n "$MODULES" ] || [ "$PROPOSALS" = openspec ] || [ "$REVIEW_PAGE" = artifa
   [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ] && . "$CLAUDUCTOR_FW/lib/modules.sh" && modules_defaults
 fi
 
+# _brand_env: the product's name for the shell, as framework/internal/brand holds it for Go
+# (OPS-101; TestShellBrandMatches holds the two to the same values). BRAND_NAME is the name now,
+# which the rename sweep (OPS-104) changes here; BRAND_LEGACY_NAME is the name before the rename
+# and never changes. BRAND_NAMES is the order a reader tries them in: the name, then the legacy
+# one while it differs, so what an earlier name left behind is still found.
+_brand_env() {
+  BRAND_NAME="clauductor"
+  BRAND_LEGACY_NAME="clauductor"
+  BRAND_NAMES=$BRAND_NAME
+  [ "$BRAND_LEGACY_NAME" = "$BRAND_NAME" ] || BRAND_NAMES="$BRAND_NAME $BRAND_LEGACY_NAME"
+}
+_brand_env
+
 # focus_file BRANCH [DIR]: the per-branch focus file the status line reads and status-write.sh
 # writes, in the git directory of DIR's repository (default: the current one). Every worktree of a
 # repository shares it, and it is keyed by branch, so two repos, or two lanes of one, never show
 # each other's focus. Not under $HOME: the sandbox lets a command write the repository but not
-# ~/.claude (OPS-75). Fails outside a git repository.
+# ~/.claude (OPS-75). It is under BRAND_NAME's folder, or a legacy name's while only that one has
+# the file. Fails outside a git repository.
 focus_file() {
   _ff=$(git -C "${2:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  printf '%s/clauductor/focus-%s.txt' "$_ff" "$(printf '%s' "$1" | tr '/' '-')"
+  _ff_key=$(printf '%s' "$1" | tr '/' '-')
+  _ff_out=
+  for _ff_n in $BRAND_NAMES; do
+    [ -n "$_ff_out" ] || _ff_out="$_ff/$_ff_n/focus-$_ff_key.txt"
+    if [ -f "$_ff/$_ff_n/focus-$_ff_key.txt" ]; then _ff_out="$_ff/$_ff_n/focus-$_ff_key.txt"; break; fi
+  done
+  printf '%s' "$_ff_out"
 }
 
 # clean_rel PATH: PATH cleaned as Go's path.Clean cleans it, the form install (cleanRel,
