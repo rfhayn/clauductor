@@ -401,6 +401,16 @@ to `<id>` and `$PROBE`.
     - **The cost:** a turn interrupted while background work really is in flight is not judged
       by (d) until the next `Stop`. An Esc means the owner was at the keyboard.
     - **Beat:** accepting the false push; probing Esc first (the fix holds whichever it sends).
+    - **Two costs the owner accepted on 2026-10-20** (#186's review, M1 and M2). Each is a late
+      or missed (d), never a false push:
+      - **A listed `workflow` still counts as working while the turn is unknown.** Working is
+        D1's, not (d)'s, so a lane's stall can come up to 4 × the stall time late when a
+        workflow's wake turn ends in a `StopFailure`. Treating the workflow as unknown too would
+        risk a false push while it really runs.
+      - **An out-of-order `UserPromptSubmit` leaves (d) unknown until the next `Stop`.** Hooks
+        post on their own, but a turn's `UserPromptSubmit` would have to arrive after that
+        turn's own `Stop`, across at least one model call, for this to matter. A wakeup that
+        fires 23 ms after a `Stop` (P4) is a new turn, so no timing rule is added.
   - **A live session's own wakeup holds off that session's background-work stall, and the
     lane's open-work stall, while it is due.** It does not hold off a sibling session's stall
     (D1): the orchestrator's stall-watcher loop would otherwise hide every other session in the
@@ -458,6 +468,13 @@ to `<id>` and `$PROBE`.
   - **The key:** `alerts.stall_minutes`, a number, 0 turns stalls off. Config version 7
     (`config/fields.go`: the version gate, `docs/panel.schema.json` and *Keys* follow it). An
     attached project sets it in its sidecar.
+  - **`panel init` and `panel attach` write the latest config version,** now 7. (Decided with
+    the owner on 2026-10-20, option A, as PANEL-48 did for 6.) This change MODIFIES the living
+    requirement LANECTX-3 (`specs/panel-lane-context/spec.md`) and its scenario S1 from "declare
+    config version 6" to "declare the latest config version", in a spec delta of its own, and
+    `TestAttachedLanesLaunchWithThePolicy` checks the latest version, not a literal 6.
+    **Beat:** keeping 6, which would leave a new project needing to raise its own version
+    before it could set `stall_minutes`.
   - **Why 30:**
     - it is the `idle_minutes` default, the owner's sense of "a while";
     - each stall would have been seen within 30 minutes, not after 3.5 to 5 hours;
