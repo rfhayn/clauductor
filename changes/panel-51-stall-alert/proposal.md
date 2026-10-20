@@ -1,4 +1,4 @@
-**Approved:** 2026-10-20 by Rich · design 00d4f27306b2
+**Approved:** 2026-10-20 by Rich · design 53fc8456ab6b
 **Roadmap row:** PANEL-51
 **Risk:** normal
 **Budget:** $80, soft

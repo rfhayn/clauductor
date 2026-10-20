@@ -389,6 +389,18 @@ to `<id>` and `$PROBE`.
     it but its `agent_id`, to pair with a kept task (D3 (d)): a background subagent's last
     message is not the lane's "last said". P2 records what a turn that ends with a subagent in
     flight lists in its `Stop`.
+  - **A turn that ends unreported leaves (d) unknown.** (Amended with the owner on 2026-10-20,
+    #186 option 1.) Once a session sends `UserPromptSubmit` and no `Stop` has followed, its kept
+    `Stop` is from an earlier turn: a turn interrupted with Esc, which Claude Code documents as
+    sending no `Stop`, or one that ended in a `StopFailure`, reports nothing. Until the
+    session's next `Stop`, D3 (d) is unknown for it, which is not open work. Its other ways
+    (a question, the lane's open work, a dead claude) are still judged. The kept `Stop` stays in
+    force for its wakeups (D4 below) and is still saved; only (d) stops resting on it.
+    - **Why:** without it, a shell the turn before listed, ended since, stalls the session one
+      stall time later with a false push naming it.
+    - **The cost:** a turn interrupted while background work really is in flight is not judged
+      by (d) until the next `Stop`. An Esc means the owner was at the keyboard.
+    - **Beat:** accepting the false push; probing Esc first (the fix holds whichever it sends).
   - **A live session's own wakeup holds off that session's background-work stall, and the
     lane's open-work stall, while it is due.** It does not hold off a sibling session's stall
     (D1): the orchestrator's stall-watcher loop would otherwise hide every other session in the
@@ -655,6 +667,7 @@ to `<id>` and `$PROBE`.
 | A turn ended on a background `Monitor` | Listed as a `shell`, it is read as one: open work, worded "1 shell". If P2 finds a session reads `idle` while its Monitor runs, the build stops for the owner (D3 (d)) |
 | A turn ended with a background subagent running | Working until the `SubagentStop` whose `agent_id` is the task's `id`, in whatever order the two hooks arrive; an internal stop with an empty type ends nothing; quiet for the stall time after the paired stop, it stalls (D3 (d)) |
 | A turn ended with a background workflow running | Working until a later `Stop` of the session no longer lists it (its end wakes the session); its agents' `workflow-subagent` hooks are movement and end nothing (D3 (d)) |
+| A turn ends with no `Stop` (interrupted with Esc, or a `StopFailure`) | The session's (d) is unknown from its `UserPromptSubmit` until its next `Stop`; its other ways are still judged; no false push for work the turn before listed (D4, #186) |
 | The paired `SubagentStop` was dropped, or sent while the panel was down | The task holds its session working only while the session has moved within 4 × the stall time; then it is open work, "whose end was never heard" (D3 (d)) |
 | A teammate's turn ends on a shell that woke no one | Not seen: the teammate is in the lead's session, and nothing reports its shell. The lead stalls on its own clock when the session stops moving, its listed teammate task open work (D9) |
 | A second session in the same checkout ends its turn on a shell that woke no one while the orchestrator works or loops | That session stalls on its own clock (D1) |
