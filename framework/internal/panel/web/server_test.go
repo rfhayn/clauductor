@@ -42,6 +42,13 @@ func do(s *Server, method, target, body string, opts ...reqOpt) *httptest.Respon
 	// test would hang instead of failing.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	return doCtx(ctx, s, method, target, body, opts...)
+}
+
+// doCtx is do under the caller's context, for a request that runs real git: do's one
+// second is a bound on a stream, not on work, and on a loaded race step it killed git
+// mid-request (#109). The panel's own deadlines on each call still apply.
+func doCtx(ctx context.Context, s *Server, method, target, body string, opts ...reqOpt) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body)).WithContext(ctx)
 	r.Host = "127.0.0.1:" + strconv.Itoa(testPort)
 	r.RemoteAddr = "127.0.0.1:50000"

@@ -112,6 +112,7 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 	for _, rel := range files {
 		tier := Classify(rel)
 		dest, key, skip := pm.Resolve(rel)
+		dest = ProjectDest(targetDir, rel, dest)
 		if dest != "" {
 			dests[dest] = true
 		}

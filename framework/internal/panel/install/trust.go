@@ -124,7 +124,7 @@ func TrustConfig(home, project, cfgPath string) (string, error) {
 func TrustConfigReport(home, project, cfgPath string) (string, []string, error) {
 	project = signals.ResolvePath(project)
 	if cfgPath == "" {
-		cfgPath = filepath.Join(project, config.DefaultConfigRel)
+		cfgPath = config.OwnConfigPath(project)
 	}
 	cfg, raw, err := config.LoadConfigRaw(cfgPath)
 	if err != nil {

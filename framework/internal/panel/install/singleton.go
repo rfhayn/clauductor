@@ -344,6 +344,7 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 	current, _ := marshalRaw(hookEntry(port))
 	foreign := map[string]bool{}
 	var missing, outdated []string
+	renamed, older := false, false // why an entry is outdated: a legacy name's tag, or another older form
 	for _, ev := range signals.HookEvents {
 		found, stale := false, false
 		for _, g := range doc.Hooks[ev] {
@@ -355,8 +356,13 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 					foreign[target] = true
 				case sameJSON(h, current):
 					found = true
-				default: // this panel's address in an older form (the HTTP hook before PANEL-23)
+				default: // this panel's address in an older form (the HTTP hook before PANEL-23, or a legacy name's tag)
 					stale = true
+					if legacyTagged(h) {
+						renamed = true
+					} else {
+						older = true
+					}
 				}
 			}
 		}
@@ -387,6 +393,10 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 		d.Text = "they had been removed"
 	case len(missing) > 0:
 		d.Text = "missing for " + strings.Join(missing, ", ")
+	case len(outdated) > 0 && renamed && older:
+		d.Text = "they were an older form (a synchronous HTTP hook, or an earlier name's tag)"
+	case len(outdated) > 0 && renamed:
+		d.Text = "they were an older form (an earlier name's tag)"
 	case len(outdated) > 0:
 		d.Text = "they were an older form (a synchronous HTTP hook)"
 	}
