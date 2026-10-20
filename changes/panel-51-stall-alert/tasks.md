@@ -211,6 +211,11 @@
   receipt, `QuietWorktrees` included) and the OPS-101 path constraint in 3.3 and 4.2. Open with
   the owner: #186 (an interrupted turn, D4; round 10's M1), #187 (a lenient decode), and #185,
   settled by amendment B, to close when PANEL-51 merges.
+- 2026-10-20 the owner amended D4 for #186 (option 1, re-approved at 53fc8456ab6b) and raised the
+  lane's ceiling to $310 for PANEL-51. Built into group 2 (session 6 TRACK D5) test-first
+  (Decision log); one review round over it before its commit, then group 3.
+- 2026-10-20 #186 in group 2 built and reviewed: converged in 2 round(s), peak medium (round 1:
+  M3, L4 and nit 5 fixed, M1 and M2 disputed for the owner, on #186; round 2: low).
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -476,7 +481,7 @@
 
   | Row | Transition | Clock | Kept `Stop` | `SubagentStop` ids | Ask time | Test |
   |---|---|---|---|---|---|---|
-  | L1 | a hook (heard, live, ended stay so; `SessionEnd` is L7) | moved, but by a `Notification` that reports a stop | the session's own `Stop` replaces each field it carries, an absent one keeping what was kept (a); one with an `agent_id` is never kept (b) | a `SubagentStop`'s id joins the ring and ends its task | `blocked`'s | `TestStallIdleLaneWithOpenPR` (the `Notification`), `TestStallAbsentFieldsKeepTheKeptStop`, `TestStallAgentStopIsNotTheSessions`, `TestStallStopBeforeItsStop` |
+  | L1 | a hook (heard, live, ended stay so; `SessionEnd` is L7) | moved, but by a `Notification` that reports a stop | the session's own `Stop` replaces each field it carries, an absent one keeping what was kept (a); one with an `agent_id` is never kept (b); its own `UserPromptSubmit` marks the turn unreported until its next `Stop` (#186), the mark kept, saved and merged with the `Stop` | a `SubagentStop`'s id joins the ring and ends its task | `blocked`'s | `TestStallIdleLaneWithOpenPR` (the `Notification`), `TestStallAbsentFieldsKeepTheKeptStop`, `TestStallAgentStopIsNotTheSessions`, `TestStallStopBeforeItsStop`, `TestStallUnreportedTurnLeavesWorkUnknown`, `TestStallUnreportedTurnAcrossTheLifecycle` |
   | L2 | heard or gone → live: the first successful poll after the start lists it | not moved: the panel's start, or its hooks' | kept | kept | the poll's | `TestStallLifeFirstPollIsBaseline` |
   | L3 | saved → live: that poll lists it, the same process | restored (carried) | restored, paired with the ids heard since | merged with the ids heard since | restored while still waiting | `TestStallRestartKeepsTurn`, `TestStallRestoredStopPairsEarlyStop`, `TestStallLifeRestoredRingPairs` (round 3's L1) |
   | L4 | heard, ended or gone → live: a later poll lists it | a start: moved | what was heard since its end | kept | the poll's | `TestStallHandStartIsMovement`, `TestStallResumeIsMovement` |
@@ -710,6 +715,69 @@
   session heard only by hooks whose `SessionEnd` came before any poll listed it is live again at
   that listing: one movement, which its `SessionEnd` had already given, leaning to no stall); L3
   round 9's L1 reason corrected above, and the lenient decode deferred to #187.
+- 2026-10-20, group 2, **#186 built** (the owner's option 1, D4 amended and re-approved at
+  53fc8456ab6b; session 6 TRACK D5), test-first in the one place (d) reads the kept `Stop`
+  (`judgeStalls`' turn loop), with the mark a field of the session's lifecycle:
+  - **The mark** is `stallSession.unreported`: set by the session's own `UserPromptSubmit`
+    (L1), cleared by its own next `Stop` (`keepStop`) alone (an end drops the kept `Stop`, so (d)
+    is not judged without one; clearing there too could clear a resumed process's own prompt);
+    kept aside, saved (`StallSessionMark.Unreported`) and restored with it (L3, L5, L9, L12), and
+    in L13's one merge the record's mark wins when it heard a `Stop` or a prompt. Rather than
+    clearing the kept tasks, which would drop the wakeups D4 keeps in force, or a mark on
+    `keptStop`, which a record that heard a prompt and no `Stop` (L13) could not carry. **Read
+    wider than D4's words:** `stall.json` gains the mark, which D1's list does not name, as it
+    gained `pid` and `startedAt`; without it a restart inside an unreported turn would bring the
+    false push back.
+  - **The lane's text** (D3 (a) to (c)) for a session whose turn went unreported reads "what it
+    waited on is not known: its last turn's Stop was not heard (interrupted, failed, or sent
+    while the panel was down)", not the kept `Stop`'s work, so no stall names a shell the turn
+    before listed.
+  - **Left as it was:** a `subagent` or `workflow` task the kept `Stop` lists still holds the
+    session working (D1), which leans to no stall; D4's amendment takes only (d) off the kept
+    `Stop`.
+  - **A `UserPromptSubmit` with an `agent_id` marks nothing**, as rule (b) keeps no such `Stop`:
+    a teammate's prompt under its lead's id would otherwise silence the lead's (d). A guard:
+    whether a teammate sends one is unprobed.
+  - **Shown failing first** (with only `StallSessionMark.Unreported` declared, so the tests
+    built): `TestStallUnreportedTurnLeavesWorkUnknown` ("00:35, the turn after the Stop
+    unreported: /repo is stalled", "the view names the shell the turn before listed") and
+    `TestStallUnreportedTurnAcrossTheLifecycle` (both restart cases stalled at 00:45, the save
+    without the mark, the lane's `waitedOn` naming the shell). Then each guard under its mutation
+    (`stall.go` copied aside and back, sha1 49bc4c46 restored): `keepStop` not clearing the mark
+    ("02:01, the next Stop listing the shell: /repo is not stalled"); L13's merge ignoring a
+    prompt with no `Stop` (the after-the-restart case stalled); the save dropping the mark (the
+    before-the-save case stalled); the `agent_id` guard removed ("00:35, a teammate's prompt:
+    /repo is not stalled").
+- 2026-10-20, group 2, #186's review round 1 (quick gate PASS on its tree, 3c6727611): peak
+  medium (3 medium, 1 low, 1 nit).
+  - **M3, fixed:** L13's merge clearing a set-aside or saved mark when the record heard a `Stop`
+    was untested. Two subtests (a `Stop` heard while set aside; one heard after a restart, before
+    the first poll), each failing under the reviewer's mutation (`if st.unreported {
+    k.unreported = true }`: "01:10, the Stop heard while set aside: /repo is not stalled";
+    "00:41, the Stop heard after the restart: /repo is not stalled"), sha1 49bc4c46 restored:
+    run before L4's and nit 5's edits below, which touch no line the subtests drive.
+  - **L4, fixed:** the text read "ended with no Stop", false when the `Stop` was sent while the
+    panel was down after a save that kept the mark; now "its last turn's Stop was not heard".
+  - **Nit 5, fixed:** the clear at `end` is gone (above).
+  - **M1, disputed, for the owner:** a `workflow` (or `subagent`) task the kept `Stop` lists
+    still holds the session working while its turn is unreported, delaying the lane's open-work
+    stall up to D3 (d)'s 4 × limit when a workflow's wake turn ends in a `StopFailure`. Kept:
+    working is D1's (design lines 89-93), and the amended requirement adds "with no
+    `UserPromptSubmit` from it since" to the (d) clause alone, leaving the working clause as it
+    was; dropping it would push a false stall on a lane whose workflow still runs after an Esc.
+    Noted on #186.
+  - **M2, disputed, for the owner:** the hooks are async, so a `UserPromptSubmit` that reached
+    the panel after its own turn's `Stop` would leave (d) unknown until the next `Stop`. No
+    reading tells that from a real new turn: P4's overdue wakeup sent its `UserPromptSubmit`
+    23 ms after a `Stop`, so a time window would misread it. Each hook's curl starts as it fires,
+    and a turn holds at least one model call, so the reorder needs one curl delayed past a whole
+    turn. Noted on #186.
+- 2026-10-20, group 2, #186's review round 2 (quick gate PASS on its tree, c2005e231):
+  converged, peak low (1 low, 1 nit); round 1's fixes held and both disputes' reasons stood.
+  L1 applied as a test alone, so `stall.go` is the code reviewed (sha1 25313a71): a turn that
+  ends in a `StopFailure` keeps (d) unknown, failing under a mutation that clears the mark on
+  `StopFailure` ("00:35, after a StopFailure: /repo is stalled"); the nit is round 1's hash note
+  above.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
@@ -732,11 +800,12 @@
   - an allowlist of task types (D3 (d) as amended 2026-10-19, [STALL-2-S15]): `shell` (a background `Monitor` among them), `monitor` and `teammate` are open work, `subagent` and `workflow` working, and a task of any other type (`dream`, `auto-mode scan`, `memory import`, "MCP task" and "cloud session", the labels the hook sends for the registry's `mcp_task` and `remote_agent`, or one not seen) is neither; a `teammate` task is never working, whatever its status, and a teammate's hooks, which arrive under its lead's `session_id`, are the lead's movement (D3 (d), D9 as amended 2026-10-19, [STALL-2-S14]);
   - the session keeps its last `Stop`'s tasks (with their ids), crons (with each one-shot's resolved fire time) and last line, clipped, until its next `Stop`, and the `agent_id`s of its last 64 `SubagentStop`s, restored at start for a session the first poll lists, and nothing else from a `SubagentStop` (D4);
   - the owner's two rules of 2026-10-20 (Decision log): (a) a `Stop` whose `background_tasks` field is absent (an older Claude Code) ends no workflow and changes no kept task, absent not being empty (2.1), and likewise an absent `session_crons` changes no kept cron; (b) a `Stop` that carries an `agent_id` is never the session's own `Stop`: it is never kept, so it ends no workflow, replaces no kept task or cron and changes no last line, and is still the session's movement (a teammate's hooks arrive under its lead's `session_id`, D9; a guard, since whether a teammate sends a `Stop` is unprobed);
+  - a turn that ends unreported (D4 as amended 2026-10-20, #186 option 1, [STALL-2-S16]): once a session sends `UserPromptSubmit` with no `Stop` since, its D3 (d) is unknown, not open work, until its next `Stop`, and the lane's text names none of the kept `Stop`'s work; its other ways are still judged, the kept `Stop` still holds its wakeups and is still saved, with the mark; a `UserPromptSubmit` carrying an `agent_id` (a teammate's, under its lead's id: D9) marks nothing, as rule (b) keeps no such `Stop`;
   - a session's stall state (its clock, kept `Stop`, `SubagentStop` ids and ask time) changes only by the lifecycle's transitions (the Decision log's table, L1 to L13), across its end, a resume (a process told apart by `claude agents`' `pid` and `startedAt`), `forgetSessions`, failing and recovering polls, and a restart;
   - a stall that begins across a restart (D1 as amended 2026-10-20, option B, [STALL-1-S25]): within the stall time of the panel's start, a way that holds is approximate (`≈`, never notified) unless `stall.json` marked the clock it rests on stalled at the save and the restart restored it; in one place, where `approx` is set (`judgeStalls`' `hold`), with the restored marks recorded as `ApplyStallState` and `restoreKeep` restore them; a way held only approximately (on a reading not current, or inside that window) is saved stalled and approximate, keeping its clock's time, and only a way held exact is carried exact; the row names the restart as why it is approximate, unless a reading is not current; the notifier is unchanged (an approximate alert keeps a mark it holds and never sends), so the stall notifies once when the window ends;
   - `LaneView.Stall` (`since`, `waitedOn`, `openWork`, `approx`: D11) and the `stalled` alert (key `stalled:<lane path>`, severity `block`, `Since` the earliest origin among the ways that hold: D1, D6), every stall approximate while the `claude agents` source is not current;
   - the receipt and HEAD it reads are D10's (HEAD from the worktree list), the merged read's result and the saved state (D1's `stall.json`) arrive through `Apply` calls the runtime makes (group 3), and the model hands back the state to save.
-  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-1-S25], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9], [STALL-2-S10], [STALL-2-S11], [STALL-2-S12], [STALL-2-S13], [STALL-2-S14] and [STALL-2-S15].
+  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-1-S25], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9], [STALL-2-S10], [STALL-2-S11], [STALL-2-S12], [STALL-2-S13], [STALL-2-S14], [STALL-2-S15] and [STALL-2-S16].
 - [x] 2.4 `framework/internal/panel/state`: the Needs-you item of kind `stalled`, built once per lane after the session loop, as `mergeNeeds` (`state/lifecycle.go`) builds the `merged` rows; a waiting lane that stalls keeps its one waiting item, labelled stalled, with the quiet time and open work (D11). Tested in `state/stall_test.go`, citing [STALL-4-S2] and [STALL-4-S3].
 
 ## 3. The config and the reads without a page (D1, D5, D10)
@@ -764,6 +833,6 @@
 - [ ] 5.1 `framework/internal/panel/web/static/stall-view.js` (new), loaded in `web/index.html` before `panel.js` as `context-colour.js` is: from a lane's `stall` and its Needs-you item, the word "stalled", the row's tint class, and the Needs-you row's text (quiet time, open work, what it waited on), with Open terminal only where the lane has a terminal, and a waiting row labelled stalled. `panel.js` calls it from the lane's state cell, tab, tree node and Needs you; nothing else in `panel.js` changes (D11).
   - Tested in `framework/internal/panel/web/stall_view_test.go`, which loads `stall-view.js` under node through `vm`, as `web/context_colour_test.go` loads `context-colour.js`, over lanes from a `/api/state` fixture: a stalled lane with a terminal, one started by hand, and a waiting lane that stalled. Citing [STALL-4-S1].
   - And in `framework/internal/panel/testdata/browser/stalled-lane.cjs`, which `testdata/browser/run.sh` runs against a panel of its own, started after the shared one with its own HOME, project and `panel.json` at version 7 with `stall_minutes` 0.05 (3 s), so no other script sees a stalled lane. Its fake `claude agents` lists one `idle` session whose `cwd` is lane "second"'s worktree, and its fake `gh` lists pull request #7 open for that lane's branch, so the lane stalls by D1 as it stands, not by a weakened rule. Its `SHOTS` screenshots go to the group's reviewer (OPS-84 is not merged yet). Citing [STALL-4-S1].
-- [ ] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9; and an MCP `monitor` task, open work by the allowlist, which stalls its lane if it never ends: unprobed, the Decision log of 2026-10-20) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
+- [ ] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9; and an MCP `monitor` task, open work by the allowlist, which stalls its lane if it never ends: unprobed, the Decision log of 2026-10-20; and a turn that ends with no `Stop`, interrupted with Esc or failed, whose background work is unknown until the session's next `Stop`: #186) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
 
 - [ ] Slice: an owner away from the Mac gets one push on their phone when a lane on the panel at http://127.0.0.1:<port> has stalled with work open, and sees the lane marked stalled, with what it last waited on, when they open the page

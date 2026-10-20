@@ -113,6 +113,10 @@ type stallSession struct {
 	moved time.Time
 	stop  *keptStop
 	stops []string
+	// unreported: the session sent UserPromptSubmit and no Stop has followed, so the
+	// kept Stop is an earlier turn's (a turn interrupted with Esc, or a StopFailure,
+	// sends none): (d) is unknown until its next Stop; its wakeups still hold (#186).
+	unreported bool
 }
 
 // stallLife is where a session the model holds is in its lifecycle. A session set
@@ -135,6 +139,7 @@ type stallKeep struct {
 	approx, askApprox bool
 	stop              *keptStop
 	stops             []string
+	unreported        bool
 	pid               int
 	started           int64
 }
@@ -224,8 +229,10 @@ func (m *Model) ApplyMergedReads(r map[string]MergedRead) {
 //	L1  a hook                          movement, but a Notification that reports a stop;
 //	                                    the session's own Stop replaces each field it
 //	                                    carries (an absent one keeps what was kept), a Stop
-//	                                    with an agent_id is never kept; a SubagentStop's id
-//	                                    joins the ring and ends its task; SessionEnd is L7
+//	                                    with an agent_id is never kept; its own
+//	                                    UserPromptSubmit marks its turn unreported until
+//	                                    its next Stop (#186); a SubagentStop's id joins the
+//	                                    ring and ends its task; SessionEnd is L7
 //	L2  the first successful poll       live, not movement: its clock is the panel's start
 //	    lists it                        or its hooks'
 //	L3  ... saved, the same process     live; clock, Stop, ring (merged with ids heard
@@ -270,6 +277,12 @@ func (m *Model) stallHook(s *session, ev signals.HookEvent, now time.Time) {
 		// under its lead's session id (D9). Unprobed whether one is ever sent: a guard.
 		if ev.AgentID == "" {
 			m.keepStop(s, ev, now)
+		}
+	case "UserPromptSubmit":
+		// A turn begins; until its Stop, the kept one is the turn before's (#186). A
+		// teammate's, under its lead's id, is not the lead's turn, as rule (b) reads a Stop.
+		if ev.AgentID == "" {
+			s.stall.unreported = true
 		}
 	case "SubagentStop":
 		s.stall.subagentStopped(ev.AgentID)
@@ -399,6 +412,10 @@ func (k stallKeep) merged(st stallSession) stallKeep {
 	// A copy: overlay may hand back k's own Stop or share its lists, and a save builds
 	// this merge from an entry it must leave as it is (StallState through continued).
 	k.stop = overlay(k.stop, st.stop).clone()
+	// The record's mark is the newer when it heard a Stop or a prompt (#186).
+	if st.stop != nil || st.unreported {
+		k.unreported = st.unreported
+	}
 	k.stops = append(append([]string(nil), k.stops...), st.stops...)
 	if n := len(k.stops); n > stallStopRing {
 		k.stops = k.stops[n-stallStopRing:]
@@ -413,7 +430,7 @@ func (k stallKeep) merged(st stallSession) stallKeep {
 // it pairs with, as keepStop pairs them.
 func (m *Model) restoreKeep(s *session, k stallKeep, waiting bool) {
 	k = k.merged(s.stall)
-	s.stall.moved, s.stall.stop, s.stall.stops = k.moved, k.stop, k.stops
+	s.stall.moved, s.stall.stop, s.stall.stops, s.stall.unreported = k.moved, k.stop, k.stops, k.unreported
 	// A way that held exact at the save is carried exact into the window (option B).
 	if k.stalled && !k.approx {
 		m.stall.carried[wayKey("turn", s.ID)] = true
@@ -444,7 +461,8 @@ func (m *Model) stallDropKept(id string) {
 
 // keepOf is the session's stall state, to keep aside or save, with its process.
 func (m *Model) keepOf(s *session, now time.Time) stallKeep {
-	k := stallKeep{moved: m.sessionMoved(s), stop: s.stall.stop, stops: append([]string(nil), s.stall.stops...)}
+	k := stallKeep{moved: m.sessionMoved(s), stop: s.stall.stop, stops: append([]string(nil), s.stall.stops...),
+		unreported: s.stall.unreported}
 	if s.Agent != nil {
 		k.pid, k.started = s.Agent.PID, s.Agent.StartedAt
 	}
@@ -469,6 +487,7 @@ func (m *Model) keepStop(s *session, ev signals.HookEvent, now time.Time) {
 			fireAt: fireTime(c.Schedule, c.Recurring, now, m.stall.loc)})
 	}
 	s.stall.stop = overlay(s.stall.stop, k)
+	s.stall.unreported = false
 	pairStops(s.stall.stop, s.stall.stops)
 }
 
@@ -861,6 +880,8 @@ func (m *Model) lastWaitedOn(s *session, now time.Time) string {
 	switch {
 	case st == nil:
 		return "what it waited on is not known: no turn of it has ended since the panel started"
+	case s.stall.unreported:
+		return "what it waited on is not known: its last turn's Stop was not heard (interrupted, failed, or sent while the panel was down)"
 	case !st.reported():
 		return "what it waited on is not reported by this Claude Code version"
 	}
@@ -1042,10 +1063,11 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 				}
 			}
 		}
-		// A session's turn ended on background work, on its own clock (D3 (d)).
+		// A session's turn ended on background work, on its own clock (D3 (d)); unknown
+		// while a turn after its kept Stop has gone unreported (#186).
 		if workJudged && !leased {
 			for _, s := range live {
-				if s.stall.stop == nil || !s.stall.stop.reported() || m.sessionWorking(s, now) || s.wakeupDue(now) {
+				if s.stall.stop == nil || !s.stall.stop.reported() || s.stall.unreported || m.sessionWorking(s, now) || s.wakeupDue(now) {
 					continue
 				}
 				notes := m.turnWork(s, now)
@@ -1280,13 +1302,15 @@ type StallSessionMark struct {
 	// Moved keeps its time; AskStalled: its question did, so AskAt does. Each clock is
 	// marked by the way that rests on it alone, or a restart would count the outage.
 	// Approx and AskApprox: that way held only approximately, as StallLaneMark's.
-	Stalled       bool       `json:"stalled,omitempty"`
-	Approx        bool       `json:"approx,omitempty"`
-	AskAt         int64      `json:"askAt,omitempty"`
-	AskStalled    bool       `json:"askStalled,omitempty"`
-	AskApprox     bool       `json:"askApprox,omitempty"`
-	Stop          *StallStop `json:"stop,omitempty"`
-	SubagentStops []string   `json:"subagentStops,omitempty"`
+	Stalled    bool       `json:"stalled,omitempty"`
+	Approx     bool       `json:"approx,omitempty"`
+	AskAt      int64      `json:"askAt,omitempty"`
+	AskStalled bool       `json:"askStalled,omitempty"`
+	AskApprox  bool       `json:"askApprox,omitempty"`
+	Stop       *StallStop `json:"stop,omitempty"`
+	// Unreported: a UserPromptSubmit came after Stop and no Stop since (#186).
+	Unreported    bool     `json:"unreported,omitempty"`
+	SubagentStops []string `json:"subagentStops,omitempty"`
 }
 
 // StallStop is a kept Stop: D4's allowlist, clipped, and what the panel resolved.
@@ -1319,7 +1343,7 @@ type StallCron struct {
 
 func (k stallKeep) mark() StallSessionMark {
 	sm := StallSessionMark{PID: k.pid, StartedAt: k.started, Moved: ms(k.moved), Stalled: k.stalled, Approx: k.approx,
-		AskAt: ms(k.askAt), AskStalled: k.askStalled, AskApprox: k.askApprox, SubagentStops: k.stops}
+		AskAt: ms(k.askAt), AskStalled: k.askStalled, AskApprox: k.askApprox, Unreported: k.unreported, SubagentStops: k.stops}
 	if st := k.stop; st != nil {
 		ss := &StallStop{At: ms(st.at), HasTasks: st.hasTasks, HasCrons: st.hasCrons, Last: st.last}
 		for _, t := range st.tasks {
@@ -1342,7 +1366,7 @@ func unixMs(v int64) time.Time {
 
 func (sm StallSessionMark) keep(carry func(int64, bool) time.Time) stallKeep {
 	k := stallKeep{moved: carry(sm.Moved, sm.Stalled), askAt: carry(sm.AskAt, sm.AskStalled), stalled: sm.Stalled,
-		approx: sm.Approx, askStalled: sm.AskStalled, askApprox: sm.AskApprox, pid: sm.PID, started: sm.StartedAt}
+		approx: sm.Approx, askStalled: sm.AskStalled, askApprox: sm.AskApprox, unreported: sm.Unreported, pid: sm.PID, started: sm.StartedAt}
 	if n := len(sm.SubagentStops); n > 0 {
 		if n > stallStopRing {
 			sm.SubagentStops = sm.SubagentStops[n-stallStopRing:]

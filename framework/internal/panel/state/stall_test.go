@@ -1215,6 +1215,141 @@ func TestStallTaskTypeAllowlist(t *testing.T) {
 	}
 }
 
+// [STALL-2-S16] A turn that ends with no Stop (interrupted with Esc, or a StopFailure)
+// leaves its session's background-work stall unknown until the next Stop (D4, #186).
+func TestStallUnreportedTurnLeavesWorkUnknown(t *testing.T) {
+	t.Parallel()
+	shell := `"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run checks"}],"session_crons":[]`
+	r := newStallRig(t, eve(23, 50), "")
+	r.list("o", "/repo", "idle")
+	r.poll(eve(23, 50))
+	r.prs(eve(23, 50))
+	r.hook(hm(0, 0), "Stop", "o", "/repo", shell)
+	r.hook(hm(0, 5), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+	for _, at := range []time.Time{hm(0, 35), hm(1, 30)} {
+		v := r.view(at)
+		notStalled(t, v, "/repo", clock(at)+", the turn after the Stop unreported")
+		if b, _ := json.Marshal(v); strings.Contains(string(b), "Run checks") {
+			t.Errorf("%s: the view names the shell the turn before listed", clock(at))
+		}
+	}
+	r.hook(hm(1, 31), "Stop", "o", "/repo", shell)
+	notStalled(t, r.view(hm(2, 0)), "/repo", "02:00")
+	st := stalledSince(t, r.view(hm(2, 1)), "/repo", hm(1, 31), "02:01, the next Stop listing the shell")
+	if st.WaitedOn != "its turn ended waiting on 1 shell: Run checks (running)" {
+		t.Errorf("waitedOn %q", st.WaitedOn)
+	}
+}
+
+// #186's mark is part of the kept Stop's lifecycle: a restart (L12, L3) and a record
+// heard while its id is saved (L13) keep it, so a restart in the middle of an unreported
+// turn does not bring the false push back; a lane stalled by its pull request names no
+// work the unreported turn's Stop listed; and a teammate's UserPromptSubmit, under its
+// lead's id (D9), leaves the lead's turn judged, as rule (b) leaves its Stop.
+func TestStallUnreportedTurnAcrossTheLifecycle(t *testing.T) {
+	t.Parallel()
+	shell := `"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run checks"}],"session_crons":[]`
+	for _, c := range []struct {
+		name  string
+		heard bool // the UserPromptSubmit is heard after the restart, before the first poll
+	}{{"before the save", false}, {"after the restart, before the first poll", true}} {
+		a := newStallRig(t, eve(23, 50), "")
+		a.list("o", "/repo", "idle")
+		a.poll(eve(23, 50))
+		a.prs(eve(23, 50))
+		a.hook(hm(0, 0), "Stop", "o", "/repo", shell)
+		if !c.heard {
+			a.hook(hm(0, 5), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+		}
+		a.poll(hm(0, 10))
+		b := newStallRig(t, hm(0, 10), "")
+		b.m.ApplyStallState(roundTrip(t, a.m.StallState(hm(0, 10))))
+		b.prs(hm(0, 10))
+		if c.heard {
+			b.hook(hm(0, 11), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+		}
+		b.list("o", "/repo", "idle")
+		b.poll(hm(0, 12))
+		notStalled(t, b.view(hm(0, 45)), "/repo", "00:45, "+c.name)
+		notStalled(t, b.view(hm(1, 30)), "/repo", "01:30, "+c.name)
+		if sm := roundTrip(t, b.m.StallState(hm(1, 30))).Sessions["o"]; !sm.Unreported || sm.Stop == nil || len(sm.Stop.Tasks) != 1 {
+			t.Errorf("%s: saved %+v, want the kept Stop and its turn unreported", c.name, sm)
+		}
+	}
+
+	p := newStallRig(t, eve(23, 50), "")
+	p.list("s", "/repo/w/x", "idle")
+	p.poll(eve(23, 50))
+	p.prs(eve(23, 50), prX(152))
+	p.hook(hm(0, 0), "Stop", "s", "/repo/w/x", shell)
+	p.hook(hm(0, 5), "UserPromptSubmit", "s", "/repo/w/x", `"prompt":"go on"`)
+	st := stalledSince(t, p.view(hm(0, 35)), "/repo/w/x", hm(0, 5), "00:35, the pull request open")
+	if strings.Contains(st.WaitedOn, "Run checks") || hasWork(st, "turn ended on") {
+		t.Errorf("the lane's stall names the unreported turn's shell: %+v", st)
+	}
+	if !strings.Contains(st.WaitedOn, "not known") {
+		t.Errorf("waitedOn %q does not say what it waited on is not known", st.WaitedOn)
+	}
+
+	// The other half of L13's merge: a Stop heard while the mark is set aside or saved
+	// ends the unreported turn, so (d) is judged on it once the session is listed again.
+	t.Run("a turn that ends in a StopFailure", func(t *testing.T) {
+		r := newStallRig(t, eve(23, 50), "")
+		r.list("o", "/repo", "idle")
+		r.poll(eve(23, 50))
+		r.prs(eve(23, 50))
+		r.hook(hm(0, 0), "Stop", "o", "/repo", shell)
+		r.hook(hm(0, 5), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+		r.hook(hm(0, 5), "StopFailure", "o", "/repo", `"error":"rate_limit"`)
+		notStalled(t, r.view(hm(0, 35)), "/repo", "00:35, after a StopFailure")
+		notStalled(t, r.view(hm(1, 30)), "/repo", "01:30, after a StopFailure")
+	})
+	t.Run("a Stop heard while set aside", func(t *testing.T) {
+		fail := errors.New("claude agents: timed out")
+		r := newStallRig(t, hm(0, 0), "")
+		r.list("o", "/repo", "idle")
+		r.poll(hm(0, 0))
+		r.prs(hm(0, 0))
+		r.hook(hm(0, 0), "Stop", "o", "/repo", `"background_tasks":[],"session_crons":[]`)
+		r.hook(hm(0, 1), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+		for at := hm(0, 2); !at.After(hm(0, 39)); at = at.Add(time.Minute) {
+			r.m.ApplyAgents(nil, fail, at)
+		}
+		if _, ok := r.m.sessions["o"]; ok {
+			t.Fatal("00:39: the session is still held; the test needs it set aside")
+		}
+		r.hook(hm(0, 40), "Stop", "o", "/repo", shell)
+		r.poll(hm(0, 41))
+		notStalled(t, r.view(hm(1, 9)), "/repo", "01:09")
+		stalledSince(t, r.view(hm(1, 10)), "/repo", hm(0, 40), "01:10, the Stop heard while set aside")
+	})
+	t.Run("a Stop heard after a restart, before the first poll", func(t *testing.T) {
+		a := newStallRig(t, eve(23, 50), "")
+		a.list("o", "/repo", "idle")
+		a.poll(eve(23, 50))
+		a.prs(eve(23, 50))
+		a.hook(hm(0, 0), "Stop", "o", "/repo", `"background_tasks":[],"session_crons":[]`)
+		a.hook(hm(0, 5), "UserPromptSubmit", "o", "/repo", `"prompt":"go on"`)
+		a.poll(hm(0, 10))
+		b := newStallRig(t, hm(0, 10), "")
+		b.m.ApplyStallState(roundTrip(t, a.m.StallState(hm(0, 10))))
+		b.prs(hm(0, 10))
+		b.hook(hm(0, 11), "Stop", "o", "/repo", shell)
+		b.list("o", "/repo", "idle")
+		b.poll(hm(0, 12))
+		notStalled(t, b.view(hm(0, 40)), "/repo", "00:40")
+		stalledSince(t, b.view(hm(0, 41)), "/repo", hm(0, 11), "00:41, the Stop heard after the restart")
+	})
+
+	m := newStallRig(t, eve(23, 50), "")
+	m.list("lead", "/repo", "idle")
+	m.poll(eve(23, 50))
+	m.prs(eve(23, 50))
+	m.hook(hm(0, 0), "Stop", "lead", "/repo", shell)
+	m.hook(hm(0, 5), "UserPromptSubmit", "lead", "/repo", `"agent_id":"aprobe-mate-1","agent_type":"probe-mate","prompt":"from the lead"`)
+	stalledSince(t, m.view(hm(0, 35)), "/repo", hm(0, 5), "00:35, a teammate's prompt")
+}
+
 // D1: a session forgetSessions dropped while the polls failed takes its clock back
 // when a poll lists it again; it is not a start.
 func TestStallAsideTakesItsClockBack(t *testing.T) {
