@@ -29,6 +29,8 @@ const (
 	AlertLoginLock    = "login_lock"    // a lock live, the same lock, for more than 2 min
 	AlertStrandedLock = "stranded_lock" // a stale lock still there 2 min after it went stale
 	AlertFutureLock   = "future_lock"   // a lock modified more than 5 s in the future
+	// PANEL-51: a lane that waited on you, or has open work, and stopped moving (stall.go).
+	AlertStalled = "stalled"
 )
 
 // loginLockAfter is how long a lock stays live, or stale, before the panel says so:

@@ -42,6 +42,7 @@ func TestAlertThresholds(t *testing.T) {
 	}
 	// A 0 threshold is off.
 	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0}`)
+	off.SetStallTime(0) // PANEL-51: alerts.stall_minutes 0 (the key arrives with task 3.1)
 	off.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
 	ctx, five = 99, 99
 	off.ApplyStatus(p, t0)

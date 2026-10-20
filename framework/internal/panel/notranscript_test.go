@@ -139,6 +139,60 @@ func TestNoSourceReadsTranscripts(t *testing.T) {
 	}
 }
 
+// stopFieldAllowlist is what PANEL-51's D4 lets the panel decode from a Stop's
+// background_tasks and session_crons, by the type each is decoded into. A task's
+// command, server, tool, name and agent_type, and a cron's prompt, are never among
+// them: a command line can hold a secret.
+var stopFieldAllowlist = map[reflect.Type]map[string]bool{
+	reflect.TypeOf(signals.BackgroundTask{}): {"id": true, "type": true, "status": true, "description": true},
+	reflect.TypeOf(signals.SessionCron{}):    {"schedule": true, "recurring": true},
+}
+
+// [STALL-2-S5] The decoded hook types hold only D4's allowlist: HookEvent's two new
+// fields are lists of exactly the two types above, and each type, walked by
+// reflection, declares every allowlisted field and nothing else.
+func TestStopFieldTypesHoldOnlyTheAllowlist(t *testing.T) {
+	t.Parallel()
+	hook := reflect.TypeOf(signals.HookEvent{})
+	elems := map[string]reflect.Type{}
+	for i := 0; i < hook.NumField(); i++ {
+		f := hook.Field(i)
+		switch tag := strings.Split(f.Tag.Get("json"), ",")[0]; tag {
+		case "background_tasks", "session_crons":
+			if f.Type.Kind() != reflect.Slice {
+				t.Errorf("HookEvent.%s decodes %q into a %s, not a list of an allowlisted type", f.Name, tag, f.Type)
+				continue
+			}
+			elems[tag] = f.Type.Elem()
+		}
+	}
+	for tag, want := range map[string]reflect.Type{"background_tasks": reflect.TypeOf(signals.BackgroundTask{}),
+		"session_crons": reflect.TypeOf(signals.SessionCron{})} {
+		if elems[tag] != want {
+			t.Errorf("HookEvent decodes %q into %v, want a list of %v", tag, elems[tag], want)
+		}
+	}
+	for typ, allowed := range stopFieldAllowlist {
+		for _, p := range decodeTypeProblems(typ, allowed) {
+			t.Error(p)
+		}
+		declared := map[string]bool{}
+		for i := 0; i < typ.NumField(); i++ {
+			declared[strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]] = true
+		}
+		for name := range allowed {
+			if !declared[name] {
+				t.Errorf("%s does not declare %q", typ.Name(), name)
+			}
+		}
+		for _, forbidden := range []string{"command", "prompt", "server", "tool", "name", "agent_type"} {
+			if declared[forbidden] {
+				t.Errorf("%s declares %q, which D4 never decodes", typ.Name(), forbidden)
+			}
+		}
+	}
+}
+
 // C15: no transcript is reachable by a path assembled from parts either, and every
 // file read in the package is at a reviewed call site.
 func transcriptReaches(fset *token.FileSet, f *ast.File) []string {
