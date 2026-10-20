@@ -201,6 +201,24 @@ to `<id>` and `$PROBE`.
       it was notified for, so a restart sends nothing again (STALL-3-S7). Without that, the
       notify source's first 2 s tick, before `gh pr list` or the 30 s receipt read have answered,
       would find the stall missing, drop its mark, and send it again.
+    - **A stall that begins across a restart is approximate until the panel has watched for one
+      stall time.** (Amended with the owner on 2026-10-20, option B, after the build's review
+      rounds 1 to 8.) After a start, a lane that was not stalled at the save, or has no saved
+      entry, and is now judged stalled, is approximate (D6: shown, marked `≈`, never notified)
+      until the panel has run for the stall time since its start with every source the stall
+      rests on succeeded. Then it is judged as usual, notified once, with the `since` its clock
+      gives. A lane stalled at the save keeps its `since` and its notifier mark, as above.
+      - **Why a class rule.** `stall.json` keeps the clocks, but not the readings the first
+        poll after a start compares against: the leases, the panes, each session's `claude
+        agents` status. Each such baseline either misses a change made while the panel was down
+        (a gate's lease given up) or invents one (a session busy at the save and idle at the
+        first poll, or resumed while the panel was down: #185). Review rounds 1 to 8 each found
+        a new case of this class and none twice. Bounding what a restart can do, rather than
+        saving each baseline, closes the class whatever reading is added later (PRAC-0010).
+      - **The cost:** a real stall that began while the panel was down is pushed up to one stall
+        time late (30 minutes by default). The page shows it at once, marked `≈`.
+      - **Beat:** saving every baseline in `stall.json` and comparing the first poll against it.
+        It is precise, but each reading added later reopens the class.
     - **Beat:** keying the notifier on the lane and its open work instead of `Since`. A stall
       that cleared and came back with the same pull request would never notify again.
   - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$CLAUDUCTOR_LANE` (the tmux
@@ -457,7 +475,8 @@ to `<id>` and `$PROBE`.
       agents` source is not current (its last good poll older than two intervals), whether or
       not a session is left: past 30 minutes of failing polls `forgetSessions` drops the
       sessions, and a lane the panel launched could otherwise stall on (c)'s terms. So a failing
-      poll cannot raise a false stall;
+      poll cannot raise a false stall. A stall that begins across a restart is approximate too,
+      until the panel has watched for one stall time (D1);
     - a restart does not send again for a stall still active (`notifier.json`).
   - **A waiting session** keeps today's waiting alert (a macOS banner after `waiting_seconds`)
     and, if still unanswered at the stall time, also stalls, which pushes (D7). That is the
@@ -642,6 +661,7 @@ to `<id>` and `$PROBE`.
 | A branch with commits and no PR or receipt | Not open work. The `stale` alert covers it after `stale_days` (D3) |
 | A session the panel did not launch has ended, its PR still open | Its lane has no live session and is not stalled (D1) |
 | The panel restarts while a lane is stalled | `stall.json`'s last movement, ask time and kept `Stop` fields keep the stall, its `Since` and its text, and nothing is sent again (D1) |
+| The panel restarts while a lane is not stalled, and it reads stalled after the restart (a lease given up, a session gone idle or resumed while the panel was down) | Approximate (`≈`, never notified) until the panel has watched for one stall time since its start; then judged as usual and notified once if still stalled (D1, amended 2026-10-20) |
 | A lease whose lane names no lane of the project, or two | It is no lane's, and working rests on the `claude agents` reading (D1) |
 | The project declares no queue | No lease is read; a gate keeps its session busy, which is working (D1, E1) |
 | A lease's holder is dead or stale, with no waiter to reclaim it | It is not working; the lane can stall (D1) |
