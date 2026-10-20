@@ -510,14 +510,7 @@ func (m *LaneManager) SessionEnv() []string {
 func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resume bool) []string {
 	args := []string{"new-session", "-d", "-s", id, "-c", path,
 		"-x", strconv.Itoa(laneCols), "-y", strconv.Itoa(laneRows)}
-	for _, kv := range m.SessionEnv() {
-		args = append(args, "-e", kv)
-	}
-	// A gate script run inside the lane names its lane in the queue (lock-run).
-	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
-	if port := m.LanePort(id); port > 0 {
-		args = append(args, "-e", "CLAUDUCTOR_PORT="+strconv.Itoa(port)) // PANEL-20
-	}
+	args = append(args, m.laneEnvArgs(id)...)
 	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
 	args = append(args,
 		";", "set-option", "-t", "="+id+":", "remain-on-exit", "on",
@@ -529,6 +522,35 @@ func (m *LaneManager) NewSessionArgv(id, path, laneType, sessionID string, resum
 	}
 	args = append(args, hardenArgs...)
 	return m.TmuxArgv(args...)
+}
+
+// laneEnvArgs are the -e flags of a lane's launch: the scrubbed session environment,
+// and the lane's own name and port.
+func (m *LaneManager) laneEnvArgs(id string) []string {
+	var args []string
+	for _, kv := range m.SessionEnv() {
+		args = append(args, "-e", kv)
+	}
+	// A gate script run inside the lane names its lane in the queue (lock-run).
+	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
+	if port := m.LanePort(id); port > 0 {
+		args = append(args, "-e", "CLAUDUCTOR_PORT="+strconv.Itoa(port)) // PANEL-20
+	}
+	return args
+}
+
+// respawnArgs are the tmux arguments that relaunch a lane's dead pane in place, with
+// NewSessionArgv's environment and command. launchSession's fallback respawns rather
+// than killing the session and starting another: a lane that is the server's only
+// session would leave it empty, and tmux exits an empty server while the new
+// session's start-server reaches it ("server exited unexpectedly", #102). The pane
+// keeps its remain-on-exit through a respawn; it is set again so the fallback's
+// message on screen does not rest on that.
+func (m *LaneManager) respawnArgs(id, path, laneType, sessionID string, resume bool) []string {
+	args := []string{"respawn-pane", "-k", "-t", "=" + id + ":", "-c", path}
+	args = append(args, m.laneEnvArgs(id)...)
+	args = append(args, m.LaneCommand(id, laneType, sessionID, resume)...)
+	return append(args, ";", "set-option", "-t", "="+id+":", "remain-on-exit", "on")
 }
 
 // AttachArgv is the argv (after the tmux path) of one viewer's client. -u forces
@@ -1103,14 +1125,21 @@ func (m *LaneManager) pathTaken(ctx context.Context, dir, except string) string 
 }
 
 // launchSession starts a registered lane's claude on its own session id and, when
-// claude exits within FastExit with a non-zero status, retries once with the other
-// flag. `--resume` exits 1 on a session with no conversation, and `--session-id`
-// exits 1 on one that has a conversation; the panel only learns which from hooks,
-// which can be dropped. It returns the mode that stayed up.
+// claude exits within FastExit with a non-zero or unknown status, retries once with
+// the other flag, in the same pane. `--resume` exits 1 on a session with no
+// conversation, and `--session-id` exits 1 on one that has a conversation; the panel
+// only learns which from hooks, which can be dropped. It returns the mode that stayed
+// up.
 func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (resume bool, lerr *LaneError) {
 	resume = rec.Conversation
 	for attempt := 0; attempt < 2; attempt++ {
-		if err := m.newSession(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)); err != nil {
+		var err error
+		if attempt == 0 {
+			err = m.newSession(ctx, m.NewSessionArgv(rec.ID, rec.Path, rec.Type, rec.SessionID, resume))
+		} else {
+			_, err = m.tmux(ctx, m.respawnArgs(rec.ID, rec.Path, rec.Type, rec.SessionID, resume)...)
+		}
+		if err != nil {
 			return resume, laneErr(500, "tmux", "starting claude failed: %v", err)
 		}
 		failed := ""
@@ -1119,8 +1148,15 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 		// started (one look takes a tmux call, slow on a loaded machine).
 		for deadline := m.now().Add(m.FastExit); ; {
 			l, ok := m.find(ctx, rec.ID)
-			if ok && l.Dead && l.DeadStatus != "" && l.DeadStatus != "0" {
-				failed = l.DeadStatus
+			// A dead pane with no status failed too: under load tmux can leave an exited
+			// pane with neither pane_dead_status nor pane_dead_signal, and reading that
+			// as a start reported a lane whose claude had refused its flag as restarted
+			// (#102). Only a 0 is a claude that ended on its own.
+			if ok && l.Dead && l.DeadStatus != "0" {
+				failed = "status " + l.DeadStatus
+				if l.DeadStatus == "" {
+					failed = "no exit status (a signal, or none recorded by tmux)"
+				}
 				break
 			}
 			if !m.now().Before(deadline) {
@@ -1133,9 +1169,12 @@ func (m *LaneManager) launchSession(ctx context.Context, rec types.LaneRecord) (
 		}
 		if attempt == 1 {
 			// Leave the dead pane: remain-on-exit keeps claude's own message on screen.
-			return resume, laneErr(409, "launch-failed", "claude exited with status %s both with --resume and with --session-id %s; the lane's terminal shows why", failed, rec.SessionID)
+			flag := "--session-id"
+			if resume {
+				flag = "--resume"
+			}
+			return resume, laneErr(409, "launch-failed", "claude did not stay up with --resume or with --session-id %s (%s, the second try, exited with %s); the lane's terminal shows why", rec.SessionID, flag, failed)
 		}
-		_, _ = m.tmux(ctx, "kill-session", "-t", "="+rec.ID)
 		resume = !resume
 	}
 	return resume, nil
@@ -1214,6 +1253,16 @@ func (m *LaneManager) Restart(ctx context.Context, id string) *LaneError {
 	if rec.Corrupt != "" {
 		return laneErr(409, "corrupt", "lane %q has a corrupt registry record (%s); stop and forget it", id, rec.Corrupt)
 	}
+	// The stop may take the server's last session. With exit-empty on, tmux exits the
+	// server a moment after kill-session returns, and the relaunch's start-server can
+	// reach it while it exits ("server exited unexpectedly", #102). So the server stays
+	// up until the lane runs again, and exit-empty is back on either way, as newSession
+	// leaves it: a restart that fails leaves no empty server behind. The pair runs
+	// whether or not the request's context ends meanwhile (a browser that disconnects
+	// mid-restart), or exit-empty would stay off; tmuxIn bounds each call.
+	ectx := context.WithoutCancel(ctx)
+	_, _ = m.tmux(ectx, "set-option", "-g", "exit-empty", "off")
+	defer func() { _, _ = m.tmux(ectx, "set-option", "-g", "exit-empty", "on") }()
 	if lerr := m.stopLocked(ctx, id, rec.SessionID); lerr != nil && lerr.Status != 404 {
 		return lerr
 	}
