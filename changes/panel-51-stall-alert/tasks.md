@@ -124,8 +124,42 @@
 - 2026-10-19 group 1's live probes (session 6, TRACK C): 1.1 and 1.4 ticked; **1.2 and 1.3
   meet their stop conditions, so the build stops for the owner before group 2** (Decision log;
   `docs/owner-queue.md`). Nothing is built.
+- 2026-10-19 the owner answered by chat (session 6): A and A, and the allowlist (Decision log
+  below). D3 (d) and D9 amended, STALL-2-S13 to S15 added, S11, S12 and STALL-1-S22 taken off
+  the teammate-as-session assumption; re-approved at design 902e287ac2e2 (head 8764dc7).
+- 2026-10-20 merge-pr step 3 on #167, round 1 of the whole PR after the re-approval (reviewer,
+  at b53bde9): peak high (1 high, 2 medium, 7 low, 2 nits). Fixed in `spec.md`, `tasks.md`,
+  `proposal.md` (outside its Risk line) and `docs/owner-queue.md`, so the approval stands: H1
+  STALL-2-S13 rebuilt so it fails if a workflow were read as anything but working (a view at
+  00:35 inside the quiet stretch, events in time order, a checkable AND, and a second lane with
+  no later `Stop` stalled at 4 × the stall time); M1 tasks 3.3 and 4.2 carry A-T8; M2 and L5
+  recorded below; L1 S13 to S15 in 2.3's test list; L4 S14 drops `TeammateIdle` and gives
+  `t1` a description; L6 the proposal names the allowlist and D9; L7 these entries; the nits.
+  L2 and L3 are `design.md` wording, left as written (Decision log).
 
 ## Decision log
+- 2026-10-19, the owner's answers to the two stop conditions and #167's round-2 finding (by
+  chat, session 6): (1) a workflow ends when a later `Stop` drops it (A); (2) a teammate is part
+  of its lead's session (A); (3) only `shell`, `monitor` and `teammate` are open work and
+  `subagent` and `workflow` working, any other type neither. Written into D3 (d) and D9.
+- 2026-10-20, from #167's merge review (round 1 after the re-approval):
+  - **An MCP `monitor` task that never ends (M2): accepted, not probed.** The owner chose the
+    allowlist with the question in front of them (the owner-queue item named "perhaps ambient
+    `monitor_ws`, unprobed"), keeping `monitor` as open work. No probe run saw a `monitor`
+    task. If one stays listed with no end, its lane stalls after each turn: a false push, but
+    a loud one, since its `waitedOn` names the monitor. `docs/panel.md` says so (task 5.2).
+    Reading it as neither is a `design.md` change, for the owner, if a push ever shows it.
+  - **A lead reads `busy` while its in-process teammate works (L5): assumed, on P3 and the
+    binary.** P3 read the lead `busy` while the teammate's shell ran and `idle` once it ended,
+    and `delegatedActive` counts `in_process_teammate` tasks (the 2.1.303 reading above). A
+    long-working teammate was not probed; if a lead read `idle` through it, the lead would
+    stall the stall time after the teammate's last hook.
+  - **L2 and L3, `design.md` wording, left as written.** D9's "a teammate's own background
+    shell is not seen" (P3 saw it listed on the lead's `Stop`; only its end goes unreported)
+    and D3's "after that, quiet, it is open work (d)" for a finished build (true now only past
+    4 × the stall time). Editing `design.md` voids the approval, the rules each states are
+    unaffected (D3 (d) and task 2.3 hold the workflow rule; task 5.2 words the teammate's shell
+    for the docs), and the archive keeps the design as approved.
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
   starting a live `claude` from the builder (sandbox-denied, and `manual:` on the owner's
   login). The reading is evidence about the code, not a probe: it does not tick 1.1 to 1.4.
@@ -275,17 +309,17 @@
   - the live-session rule (D1): a lane with no live session stalls only on D3 (c);
   - the lane's open work (D3 (a) to (c)), held off by any live session's wakeup still due (D4);
   - a wakeup's due time (D4): a recurring cron, or a one-shot of neither shape, while its `Stop`'s list stands; a one-shot with minute, hour, day and month as numbers, 5 minutes past that local time; a one-shot `M H * * *`, 5 minutes past the first local H:M at or after the minute the panel received its `Stop`, that day or the next, resolved once as the `Stop` is kept and kept with the cron;
-  - an allowlist of task types (D3 (d) as amended 2026-10-19, [STALL-2-S15]): `shell` (a background `Monitor` among them), `monitor` and `teammate` are open work, `subagent` and `workflow` working, and a task of any other type (`dream`, `auto-mode scan`, `memory import`, `mcp_task`, `remote_agent`, or one not seen) is neither; a `teammate` task is never working, whatever its status, and a teammate's hooks, which arrive under its lead's `session_id`, are the lead's movement (D3 (d), D9 as amended 2026-10-19, [STALL-2-S14]);
+  - an allowlist of task types (D3 (d) as amended 2026-10-19, [STALL-2-S15]): `shell` (a background `Monitor` among them), `monitor` and `teammate` are open work, `subagent` and `workflow` working, and a task of any other type (`dream`, `auto-mode scan`, `memory import`, "MCP task" and "cloud session", the labels the hook sends for the registry's `mcp_task` and `remote_agent`, or one not seen) is neither; a `teammate` task is never working, whatever its status, and a teammate's hooks, which arrive under its lead's `session_id`, are the lead's movement (D3 (d), D9 as amended 2026-10-19, [STALL-2-S14]);
   - the session keeps its last `Stop`'s tasks (with their ids), crons (with each one-shot's resolved fire time) and last line, clipped, until its next `Stop`, and the `agent_id`s of its last 64 `SubagentStop`s, restored at start for a session the first poll lists, and nothing else from a `SubagentStop` (D4);
   - `LaneView.Stall` (`since`, `waitedOn`, `openWork`, `approx`: D11) and the `stalled` alert (key `stalled:<lane path>`, severity `block`, `Since` the earliest origin among the ways that hold: D1, D6), every stall approximate while the `claude agents` source is not current;
   - the receipt and HEAD it reads are D10's (HEAD from the worktree list), the merged read's result and the saved state (D1's `stall.json`) arrive through `Apply` calls the runtime makes (group 3), and the model hands back the state to save.
-  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9], [STALL-2-S10], [STALL-2-S11] and [STALL-2-S12].
+  - Tested in `framework/internal/panel/state/stall_test.go` with a fixed clock, citing [STALL-1-S1], [STALL-1-S2], [STALL-1-S3], [STALL-1-S4], [STALL-1-S5], [STALL-1-S6], [STALL-1-S7], [STALL-1-S9], [STALL-1-S10], [STALL-1-S11], [STALL-1-S12], [STALL-1-S13], [STALL-1-S14], [STALL-1-S15], [STALL-1-S16], [STALL-1-S17], [STALL-1-S18], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21], [STALL-1-S22], [STALL-1-S23], [STALL-1-S24], [STALL-2-S1], [STALL-2-S2], [STALL-2-S3], [STALL-2-S4], [STALL-2-S6], [STALL-2-S7], [STALL-2-S8], [STALL-2-S9], [STALL-2-S10], [STALL-2-S11], [STALL-2-S12], [STALL-2-S13], [STALL-2-S14] and [STALL-2-S15].
 - [ ] 2.4 `framework/internal/panel/state`: the Needs-you item of kind `stalled`, built once per lane after the session loop, as `mergeNeeds` (`state/lifecycle.go`) builds the `merged` rows; a waiting lane that stalls keeps its one waiting item, labelled stalled, with the quiet time and open work (D11). Tested in `state/stall_test.go`, citing [STALL-4-S2] and [STALL-4-S3].
 
 ## 3. The config and the reads without a page (D1, D5, D10)
 - [ ] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8].
 - [ ] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR: only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none" (D10).
-- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
+- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (A-T8, OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
 - [ ] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
   - with the merged read's 5-minute wait shortened, `/api/state` shows the lane stalled while the fake `gh` lists no pull request for its branch, open or merged; still stalled when the next merged read fails; and not stalled once the fake `gh` has listed a pull request open for the branch and then lists it merged instead;
   - a second lane whose first merged read fails is not stalled until a read succeeds;
@@ -297,7 +331,7 @@
 ## 4. The notification and the push (D6, D7)
 - [ ] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].
 - [ ] 4.2 `framework/internal/panel/push.go`:
-  - read `~/.clauductor/panel/push.json` (as the next bullet says when), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
+  - read `~/.clauductor/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.clauductor` path and no new helper in `config/paths.go` (A-T8, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
   - for each notice that carries a stall, run its argv with a title and body built from the `stalled` alert's own fields (D7), never from `Notice.Body`, with no shell and a 10 s timeout; a failure counts in the notifier's failures with its error;
   - the machine (`machine.go`) reads the file once for every project, at start and from a machine source that checks its `pathSignature` every 10 s; each project's `pollNotify` (`runtime.go`) takes the machine's current command or refusal at each tick, runs the command, and adds a refusal to its view's `Warnings`; the machine's own notifier (the quota, the login locks) never pushes;
   - its read site goes in `fileReadSites` (`notranscript_test.go`), with a comment on what it reads.
@@ -307,6 +341,6 @@
 - [ ] 5.1 `framework/internal/panel/web/static/stall-view.js` (new), loaded in `web/index.html` before `panel.js` as `context-colour.js` is: from a lane's `stall` and its Needs-you item, the word "stalled", the row's tint class, and the Needs-you row's text (quiet time, open work, what it waited on), with Open terminal only where the lane has a terminal, and a waiting row labelled stalled. `panel.js` calls it from the lane's state cell, tab, tree node and Needs you; nothing else in `panel.js` changes (D11).
   - Tested in `framework/internal/panel/web/stall_view_test.go`, which loads `stall-view.js` under node through `vm`, as `web/context_colour_test.go` loads `context-colour.js`, over lanes from a `/api/state` fixture: a stalled lane with a terminal, one started by hand, and a waiting lane that stalled. Citing [STALL-4-S1].
   - And in `framework/internal/panel/testdata/browser/stalled-lane.cjs`, which `testdata/browser/run.sh` runs against a panel of its own, started after the shared one with its own HOME, project and `panel.json` at version 7 with `stall_minutes` 0.05 (3 s), so no other script sees a stalled lane. Its fake `claude agents` lists one `idle` session whose `cwd` is lane "second"'s worktree, and its fake `gh` lists pull request #7 open for that lane's branch, so the lane stalls by D1 as it stands, not by a weakened rule. Its `SHOTS` screenshots go to the group's reviewer (OPS-84 is not merged yet). Citing [STALL-4-S1].
-- [ ] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
+- [ ] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9; and an MCP `monitor` task, open work by the allowlist, which stalls its lane if it never ends: unprobed, the Decision log of 2026-10-20) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
 
 - [ ] Slice: an owner away from the Mac gets one push on their phone when a lane on the panel at http://127.0.0.1:<port> has stalled with work open, and sees the lane marked stalled, with what it last waited on, when they open the page

@@ -46,6 +46,10 @@ carries the stalled state into the new look (design D11).
     (a subagent's `SubagentStop` carries the task's id; a workflow ends when a later `Stop` no
     longer lists it: D3 (d)); and for the lane, holding (alive) or
     waiting for the gate's lease.
+  - **Only some listed tasks count:** a shell (a background `Monitor` among them), a monitor
+    and a teammate are open work, a subagent and a workflow working, and any other type, such
+    as Claude Code's own housekeeping, neither (D3 (d)). A teammate is part of its lead's
+    session: its hooks move the lead (D9).
   - **Movement:** a hook from the session (a notification that reports the stop is not one), a
     change in its `claude agents` reading, or its start; for the lane, any of its sessions'
     movement, a lease taken or given up, or its pane dying.
