@@ -132,34 +132,16 @@
   `proposal.md` (outside its Risk line) and `docs/owner-queue.md`, so the approval stands: H1
   STALL-2-S13 rebuilt so it fails if a workflow were read as anything but working (a view at
   00:35 inside the quiet stretch, events in time order, a checkable AND, and a second lane with
-  no later `Stop` stalled at 4 × the stall time); M1 tasks 3.3 and 4.2 carry A-T8; M2 and L5
-  recorded below; L1 S13 to S15 in 2.3's test list; L4 S14 drops `TeammateIdle` and gives
+  no later `Stop` stalled at 4 × the stall time); M1 tasks 3.3 and 4.2 carry OPS-101's path constraint; M2
+  and L5 recorded in the Decision log; L1 S13 to S15 in 2.3's test list; L4 S14 drops `TeammateIdle` and gives
   `t1` a description; L6 the proposal names the allowlist and D9; L7 these entries; the nits.
   L2 and L3 are `design.md` wording, left as written (Decision log).
+- 2026-10-20 round 2 (at 83d6acf): converged, peak low (4 low, 2 nits), all applied: "A-T8"
+  replaced by OPS-101's row, which exists; STALL-2-S13's WHEN in strict time order;
+  STALL-2-S14's title says open work, never working, and its THEN D4's teammate wording; the L5
+  entry reworded to what P3 shows; the Decision log in date order.
 
 ## Decision log
-- 2026-10-19, the owner's answers to the two stop conditions and #167's round-2 finding (by
-  chat, session 6): (1) a workflow ends when a later `Stop` drops it (A); (2) a teammate is part
-  of its lead's session (A); (3) only `shell`, `monitor` and `teammate` are open work and
-  `subagent` and `workflow` working, any other type neither. Written into D3 (d) and D9.
-- 2026-10-20, from #167's merge review (round 1 after the re-approval):
-  - **An MCP `monitor` task that never ends (M2): accepted, not probed.** The owner chose the
-    allowlist with the question in front of them (the owner-queue item named "perhaps ambient
-    `monitor_ws`, unprobed"), keeping `monitor` as open work. No probe run saw a `monitor`
-    task. If one stays listed with no end, its lane stalls after each turn: a false push, but
-    a loud one, since its `waitedOn` names the monitor. `docs/panel.md` says so (task 5.2).
-    Reading it as neither is a `design.md` change, for the owner, if a push ever shows it.
-  - **A lead reads `busy` while its in-process teammate works (L5): assumed, on P3 and the
-    binary.** P3 read the lead `busy` while the teammate's shell ran and `idle` once it ended,
-    and `delegatedActive` counts `in_process_teammate` tasks (the 2.1.303 reading above). A
-    long-working teammate was not probed; if a lead read `idle` through it, the lead would
-    stall the stall time after the teammate's last hook.
-  - **L2 and L3, `design.md` wording, left as written.** D9's "a teammate's own background
-    shell is not seen" (P3 saw it listed on the lead's `Stop`; only its end goes unreported)
-    and D3's "after that, quiet, it is open work (d)" for a finished build (true now only past
-    4 × the stall time). Editing `design.md` voids the approval, the rules each states are
-    unaffected (D3 (d) and task 2.3 hold the workflow rule; task 5.2 words the teammate's shell
-    for the docs), and the archive keeps the design as approved.
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
   starting a live `claude` from the builder (sandbox-denied, and `manual:` on the owner's
   login). The reading is evidence about the code, not a probe: it does not tick 1.1 to 1.4.
@@ -290,6 +272,29 @@
     seconds. None of 1.4's stop conditions is met.
   - No `Stop` in the three runs (about 150 hooks) listed a task of a type other than `shell`,
     `subagent`, `workflow` or `teammate`.
+- 2026-10-19, the owner's answers to the two stop conditions and #167's round-2 finding (by
+  chat, session 6): (1) a workflow ends when a later `Stop` drops it (A); (2) a teammate is part
+  of its lead's session (A); (3) only `shell`, `monitor` and `teammate` are open work and
+  `subagent` and `workflow` working, any other type neither. Written into D3 (d) and D9.
+- 2026-10-20, from #167's merge review (rounds 1 and 2 after the re-approval):
+  - **An MCP `monitor` task that never ends (M2): accepted, not probed.** The owner chose the
+    allowlist with the question in front of them (the owner-queue item named "perhaps ambient
+    `monitor_ws`, unprobed"), keeping `monitor` as open work. No probe run saw a `monitor`
+    task. If one stays listed with no end, its lane stalls after each turn: a false push, but
+    a loud one, since its `waitedOn` names the monitor. `docs/panel.md` says so (task 5.2).
+    Reading it as neither is a `design.md` change, for the owner, if a push ever shows it.
+  - **Whether a working teammate holds its lead `busy` (L5): unprobed.** P3 read the lead
+    `busy` while its teammate's shell ran, after `TeammateIdle`, so with the teammate itself
+    idle; and `idle` from 16:38:56 while the teammate task still read `running`, so
+    `delegatedActive` does not count a listed teammate task by its status. If a lead reads
+    `idle` while its teammate works, a teammate working longer than the stall time with no hook
+    pushes a false stall on its lead, naming the teammate.
+  - **L2 and L3, `design.md` wording, left as written.** D9's "a teammate's own background
+    shell is not seen" (P3 saw it listed on the lead's `Stop`; only its end goes unreported)
+    and D3's "after that, quiet, it is open work (d)" for a finished build (true now only past
+    4 × the stall time). Editing `design.md` voids the approval, the rules each states are
+    unaffected (D3 (d) and task 2.3 hold the workflow rule; task 5.2 words the teammate's shell
+    for the docs), and the archive keeps the design as approved.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
@@ -319,7 +324,7 @@
 ## 3. The config and the reads without a page (D1, D5, D10)
 - [ ] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8].
 - [ ] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR: only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none" (D10).
-- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (A-T8, OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
+- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (the owner's architect's constraint, in OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
 - [ ] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
   - with the merged read's 5-minute wait shortened, `/api/state` shows the lane stalled while the fake `gh` lists no pull request for its branch, open or merged; still stalled when the next merged read fails; and not stalled once the fake `gh` has listed a pull request open for the branch and then lists it merged instead;
   - a second lane whose first merged read fails is not stalled until a read succeeds;
@@ -331,7 +336,7 @@
 ## 4. The notification and the push (D6, D7)
 - [ ] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].
 - [ ] 4.2 `framework/internal/panel/push.go`:
-  - read `~/.clauductor/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.clauductor` path and no new helper in `config/paths.go` (A-T8, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
+  - read `~/.clauductor/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.clauductor` path and no new helper in `config/paths.go` (OPS-101's row, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
   - for each notice that carries a stall, run its argv with a title and body built from the `stalled` alert's own fields (D7), never from `Notice.Body`, with no shell and a 10 s timeout; a failure counts in the notifier's failures with its error;
   - the machine (`machine.go`) reads the file once for every project, at start and from a machine source that checks its `pathSignature` every 10 s; each project's `pollNotify` (`runtime.go`) takes the machine's current command or refusal at each tick, runs the command, and adds a refusal to its view's `Warnings`; the machine's own notifier (the quota, the login locks) never pushes;
   - its read site goes in `fileReadSites` (`notranscript_test.go`), with a comment on what it reads.

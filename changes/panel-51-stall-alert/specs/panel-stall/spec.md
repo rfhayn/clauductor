@@ -227,17 +227,17 @@ WHEN a `Stop` hook carries `background_tasks` or `session_crons` THE SYSTEM SHAL
 
 #### Scenario: [STALL-2-S13] A background workflow holds the stall off until a later `Stop` no longer lists it
 - **GIVEN** `alerts.stall_minutes` 30, and two lanes, with pull requests #152 and #153 open, each with one session reading `idle` whose last `Stop`, at 00:00, listed one running workflow: `w1` described "Build group 2" in #152's, `w2` described "Build group 3" in #153's
-- **WHEN** each workflow's one agent sends `SubagentStart` at 00:01 and `SubagentStop` at 00:40 under its lane's session, with `agent_type` `workflow-subagent` and `agent_id` `a7` for `w1`, `a8` for `w2`; the panel derives its view at 00:35 and, after those stops, at 00:40; #152's session sends a `Stop` at 00:41 that lists no task, and #153's sends nothing more; and the panel derives its view at 01:10, 01:11, 02:39 and 02:40
+- **WHEN**, in this order: each workflow's one agent sends `SubagentStart` at 00:01 under its lane's session, with `agent_type` `workflow-subagent` and `agent_id` `a7` for `w1`, `a8` for `w2`; the panel derives its view at 00:35; each agent sends its `SubagentStop` at 00:40, with the same `agent_type` and `agent_id`; the panel derives its view at 00:40; #152's session sends a `Stop` at 00:41 that lists no task, and #153's sends nothing more; and the panel derives its view at 01:10, 01:11, 02:39 and 02:40
 - **THEN** at 00:35 neither lane is stalled: each workflow holds off a 34-minute quiet stretch
 - **AND** at 00:40 each session still keeps its workflow task, not marked ended: a `workflow-subagent` stop ends nothing
 - **AND** at 01:10 #152's lane is not stalled, and at 01:11 it is, with `since` 00:41
 - **AND** at 02:39 #153's lane is not stalled, and at 02:40 it is, with `since` 00:40, its `waitedOn` saying the end of "Build group 3" was never heard
 
-#### Scenario: [STALL-2-S14] A teammate is part of its lead's session: its hooks move the lead, and its listed task is not work
+#### Scenario: [STALL-2-S14] A teammate is part of its lead's session: its hooks move the lead, and its listed task is open work, never working
 - **GIVEN** `alerts.stall_minutes` 30, and the main checkout with one session, the lead, reading `idle`, whose last `Stop`, at 00:00, listed one task `{"id":"t1","type":"teammate","status":"running","description":"Probe the stall rule"}` and nothing else
 - **WHEN** a `SubagentStop` with `agent_type` `probe-mate` and `agent_id` `aprobe-mate-1` arrives under the lead's `session_id` at 00:10, with no hook after (a `TeammateIdle` is not among the hooks the panel subscribes to); and the panel derives its view at 00:39 and at 00:40
 - **THEN** at 00:39 the main checkout's lane is not stalled
-- **AND** at 00:40 it is stalled with `since` 00:10, its `waitedOn` naming the teammate, "Probe the stall rule": the teammate's hook was the lead's movement, and its `running` task was open work that held nothing off
+- **AND** at 00:40 it is stalled with `since` 00:10, its `waitedOn` reading that the lead's turn ended waiting on 1 teammate, "Probe the stall rule", not that it finished: the teammate's hook was the lead's movement, and its `running` task was open work that held nothing off
 
 #### Scenario: [STALL-2-S15] Only the allowlisted task types count; Claude Code's own housekeeping is not open work
 - **GIVEN** `alerts.stall_minutes` 30, and the main checkout with one session reading `idle` whose last `Stop`, at 00:00, listed `{"id":"d1","type":"dream","status":"running"}` and `{"id":"m1","type":"memory import","status":"running"}` and no other task, with no hook from it since and no pull request or receipt for its lane
