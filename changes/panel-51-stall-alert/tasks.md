@@ -203,6 +203,14 @@
   (d2fe8be05); the three applied as wording only (two comments and the Decision log), with #187
   for the lenient decode.
 - 2026-10-20 group 2 (The rule (D1, D3, D4)) built and reviewed: converged in 11 round(s), peak high (round 7; rounds 9 to 11 of TRACK D4: medium, medium, low)
+- 2026-10-20 **the build stops before group 3 on the lane's budget** (session 6 TRACK D4): at most
+  $180 in total for PANEL-51, $137.05 after group 2's commit (`change-cost.sh`), and group 3
+  (four tasks, its integration test among them) estimated at $30 to $45 with one or two review
+  rounds, so it would likely pass the ceiling; groups 4 and 5 cannot fit. Resume with
+  apply-change at group 3 on this branch, carrying round 9's note for 3.2 (read every worktree's
+  receipt, `QuietWorktrees` included) and the OPS-101 path constraint in 3.3 and 4.2. Open with
+  the owner: #186 (an interrupted turn, D4; round 10's M1), #187 (a lenient decode), and #185,
+  settled by amendment B, to close when PANEL-51 merges.
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
