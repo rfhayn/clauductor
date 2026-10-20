@@ -475,6 +475,10 @@ to `<id>` and `$PROBE`.
     `TestAttachedLanesLaunchWithThePolicy` checks the latest version, not a literal 6.
     **Beat:** keeping 6, which would leave a new project needing to raise its own version
     before it could set `stall_minutes`.
+  - **The template's `panel.json` declares version 7 too.** (Decided with the owner on
+    2026-10-20, #189 option a, as PANEL-48 raised the presets for 6.) `template/.clauductor/panel.json`
+    is raised to the latest version, and `plugin/scaffold/.clauductor/panel.json` regenerated
+    from it (`scripts/build-plugin.sh`). A template edit ships to every project.
   - **Why 30:**
     - it is the `idle_minutes` default, the owner's sense of "a while";
     - each stall would have been seen within 30 minutes, not after 3.5 to 5 hours;
@@ -598,6 +602,11 @@ to `<id>` and `$PROBE`.
     `(*Runtime).mergedPR` in `autoclose.go` runs, through a variant that returns its error
     (`mergedPR` returns `(0, false)` for an error and for "none" alike), for each lane with a
     clean receipt for HEAD and no open PR.
+    - **A merge counts only when its head commit is the lane's HEAD.** (Decided with the owner
+      on 2026-10-20, #188 option a.) The read asks for `number,headRefOid` and ignores a merged
+      pull request whose `headRefOid` is not HEAD, as `lanes/close.go`'s `mergedBranch` already
+      does for Close. Without it, a branch name reused after a squash merge would have its old
+      merge counted for the new HEAD, and (b) would never hold there: a missed stall.
     - Only a merge found is cached, per branch and HEAD. "None" is read again when the branch
       leaves the open-PR list, and otherwise at most every 5 minutes. A squash merge leaves the
       branch's HEAD as it was, so a cached "none" from before the PR was opened would mark every
