@@ -65,7 +65,8 @@
           "alerts": {
             "properties": {
               "approval_wait_hours": false,
-              "stale_days": false
+              "stale_days": false,
+              "stall_minutes": false
             }
           },
           "cards": {
@@ -119,7 +120,8 @@
           "alerts": {
             "properties": {
               "approval_wait_hours": false,
-              "stale_days": false
+              "stale_days": false,
+              "stall_minutes": false
             }
           },
           "lane_types": {
@@ -156,6 +158,11 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "stall_minutes": false
+            }
+          },
           "lane_types": {
             "additionalProperties": {
               "properties": {
@@ -188,6 +195,11 @@
       },
       "then": {
         "properties": {
+          "alerts": {
+            "properties": {
+              "stall_minutes": false
+            }
+          },
           "lane_types": {
             "additionalProperties": {
               "properties": {
@@ -197,6 +209,27 @@
             }
           },
           "launch": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "version": {
+            "const": 6
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "alerts": {
+            "properties": {
+              "stall_minutes": false
+            }
+          }
         }
       }
     }
@@ -249,6 +282,12 @@
         "stale_days": {
           "default": 3,
           "description": "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.",
+          "minimum": 0,
+          "type": "number"
+        },
+        "stall_minutes": {
+          "default": 30,
+          "description": "A lane is stalled when one of its sessions has waited on you this long since it asked, or when it has open work (a pull request, a gate that passed with nothing after it, a turn that ended on background work) and nothing in it has moved for this long; a stall notifies once (see *Alerts*). An attached project sets it in its sidecar. `0` turns stalls off.",
           "minimum": 0,
           "type": "number"
         },
@@ -618,7 +657,8 @@
         3,
         4,
         5,
-        6
+        6,
+        7
       ],
       "type": "integer"
     },

@@ -631,6 +631,9 @@ type AlertConfig struct {
 	// with no commit for a while.
 	ApprovalWaitHours *float64 `json:"approval_wait_hours"`
 	StaleDays         *float64 `json:"stale_days"`
+	// PANEL-51 (version 7): a lane quiet with work open, or a question unanswered,
+	// this long is stalled (D5).
+	StallMinutes *float64 `json:"stall_minutes"`
 }
 
 // QuotaGuardConfig refuses new lanes at or above a 5-hour quota percentage.
@@ -650,6 +653,8 @@ const (
 	// PANEL-19.
 	DefaultApprovalWaitHours = 24
 	DefaultStaleDays         = 3
+	// PANEL-51 (D5).
+	DefaultStallMinutes = 30
 )
 
 // Thresholds are the resolved alert settings. A zero duration or percentage is off.
@@ -666,6 +671,9 @@ type Thresholds struct {
 	// PANEL-19: approval waiting (hours) and a stale lane (days); 0 is off.
 	ApprovalWaitHours float64 `json:"approvalWaitHours"`
 	StaleDays         float64 `json:"staleDays"`
+	// PANEL-51: the stall time (D5); 0 is off.
+	Stall        time.Duration `json:"-"`
+	StallMinutes float64       `json:"stallMinutes"`
 }
 
 func orDefault(p *float64, d float64) float64 {
@@ -690,8 +698,10 @@ func (c *Config) AlertThresholds() Thresholds {
 
 		ApprovalWaitHours: orDefault(a.ApprovalWaitHours, DefaultApprovalWaitHours),
 		StaleDays:         orDefault(a.StaleDays, DefaultStaleDays),
+		StallMinutes:      orDefault(a.StallMinutes, DefaultStallMinutes),
 	}
 	t.Idle = time.Duration(t.IdleMinutes * float64(time.Minute))
+	t.Stall = time.Duration(t.StallMinutes * float64(time.Minute))
 	t.Waiting = time.Duration(t.WaitingSecs * float64(time.Second))
 	t.MinInterval = time.Duration(orDefault(a.MinIntervalSeconds, DefaultNotifyInterval) * float64(time.Second))
 	if c.QuotaGuard != nil {
@@ -790,7 +800,7 @@ func (c *Config) validateV2() error {
 	if a := c.Alerts; a != nil {
 		for key, p := range map[string]*float64{"idle_minutes": a.IdleMinutes, "context_pct": a.ContextPct,
 			"five_hour_pct": a.FiveHourPct, "waiting_seconds": a.WaitingSeconds, "min_interval_seconds": a.MinIntervalSeconds,
-			"approval_wait_hours": a.ApprovalWaitHours, "stale_days": a.StaleDays} {
+			"approval_wait_hours": a.ApprovalWaitHours, "stale_days": a.StaleDays, "stall_minutes": a.StallMinutes} {
 			if p != nil && *p < 0 {
 				return fmt.Errorf("panel config: alerts.%s must be 0 (off) or positive", key)
 			}

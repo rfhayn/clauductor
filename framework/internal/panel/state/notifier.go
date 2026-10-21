@@ -14,6 +14,39 @@ type Notice struct {
 	Title string
 	Body  string
 	Keys  []string
+	// Stall is the notice's stalled alert, apart from the others it is grouped with,
+	// or nil (PANEL-51 D7): the push is built from its own fields alone (PushText),
+	// never from Body, which joins every new alert of the lane (a waiting alert's
+	// text included).
+	Stall *AlertView
+}
+
+// PushText is the push's title and body for a stalled alert (PANEL-51 D7), from the
+// alert's own fields: the title as the macOS notification's (<project> · <lane>), the
+// body how long the lane has been quiet, the kind of wait and the open work. Never its
+// Text: that carries what it waited on in the model's words (a task's description,
+// the turn's last line), and the push goes to a service outside this machine.
+func PushText(project string, a AlertView, now time.Time) (title, body string) {
+	title = a.Name
+	if project != "" {
+		title = project + " · " + a.Name
+	}
+	parts := []string{"stalled, quiet for " + mins(now.Sub(time.UnixMilli(a.Since)))}
+	if a.Wait != "" {
+		parts = append(parts, a.Wait)
+	}
+	// A lane whose claude exited has the exit as its kind of wait and as a piece of its
+	// open work (the page lists it there): the push names it once.
+	var open []string
+	for _, w := range a.OpenWork {
+		if w != a.Wait {
+			open = append(open, w)
+		}
+	}
+	if len(open) > 0 {
+		parts = append(parts, strings.Join(open, ", "))
+	}
+	return title, strings.Join(parts, " · ")
 }
 
 // Notifier decides which alerts interrupt you. It is pure: Process takes the active
@@ -36,6 +69,15 @@ type Notice struct {
 type Notifier struct {
 	MinInterval time.Duration
 	Project     string
+	// StallsPending is the view's flag (View.StallsPending: a source a stall rests on
+	// has not answered since the start, PANEL-51 D1). While it is set, Process keeps
+	// each stalled: mark it holds rather than deleting it as cleared, so a stall
+	// notified before a restart is not sent again once its sources answer.
+	StallsPending bool
+	// StallsUnjudged is the view's lanes whose merged read is due and unanswered
+	// (View.StallsUnjudged, PANEL-51 D1 and D10): Process keeps their stalled: marks,
+	// so the "none" that brings back a stall cleared only by the wait is not sent again.
+	StallsUnjudged []string
 
 	// notified maps an alert key to the Since of the stretch it was notified for: the
 	// same key with another Since is a new stretch, and notifies again.
@@ -98,6 +140,13 @@ func groupOf(a AlertView) string {
 	return "global"
 }
 
+// ProcessView is Process over a view: its alerts, with the stall flags the view sets
+// for the notifier (StallsPending, StallsUnjudged), so no caller forgets one.
+func (n *Notifier) ProcessView(v View, focused map[string]bool, now time.Time) []Notice {
+	n.StallsPending, n.StallsUnjudged = v.StallsPending, v.StallsUnjudged
+	return n.Process(v.Alerts, focused, now)
+}
+
 // Process returns the notifications to send now.
 func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time.Time) []Notice {
 	if n.notified == nil {
@@ -124,8 +173,13 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		g := groupOf(a)
 		pending[g] = append(pending[g], a)
 	}
+	unjudged := map[string]bool{}
+	for _, lane := range n.StallsUnjudged {
+		unjudged[AlertStalled+":"+lane] = true
+	}
 	for k := range n.notified {
-		if !active[k] {
+		kept := strings.HasPrefix(k, AlertStalled+":") && (n.StallsPending || unjudged[k])
+		if !active[k] && !kept {
 			delete(n.notified, k) // cleared: a recurrence notifies again
 		}
 	}
@@ -155,10 +209,15 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		}
 		lines := make([]string, 0, len(as))
 		keys := make([]string, 0, len(as))
+		var stall *AlertView
 		for _, a := range as {
 			lines = append(lines, noticeLine(a, now))
 			keys = append(keys, a.Key)
 			n.notified[a.Key] = a.Since
+			if a.Kind == AlertStalled {
+				a := a
+				stall = &a
+			}
 		}
 		n.lastSent[g] = now
 		n.stats.Interrupts++
@@ -166,7 +225,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		if n.Project != "" {
 			title = n.Project + " · " + name
 		}
-		out = append(out, Notice{Group: g, Title: title, Body: strings.Join(lines, "; "), Keys: keys})
+		out = append(out, Notice{Group: g, Title: title, Body: strings.Join(lines, "; "), Keys: keys, Stall: stall})
 	}
 	return out
 }

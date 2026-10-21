@@ -201,6 +201,24 @@ to `<id>` and `$PROBE`.
       it was notified for, so a restart sends nothing again (STALL-3-S7). Without that, the
       notify source's first 2 s tick, before `gh pr list` or the 30 s receipt read have answered,
       would find the stall missing, drop its mark, and send it again.
+    - **A stall that begins across a restart is approximate until the panel has watched for one
+      stall time.** (Amended with the owner on 2026-10-20, option B, after the build's review
+      rounds 1 to 8.) After a start, a lane that was not stalled at the save, or has no saved
+      entry, and is now judged stalled, is approximate (D6: shown, marked `≈`, never notified)
+      until the panel has run for the stall time since its start with every source the stall
+      rests on succeeded. Then it is judged as usual, notified once, with the `since` its clock
+      gives. A lane stalled at the save keeps its `since` and its notifier mark, as above.
+      - **Why a class rule.** `stall.json` keeps the clocks, but not the readings the first
+        poll after a start compares against: the leases, the panes, each session's `claude
+        agents` status. Each such baseline either misses a change made while the panel was down
+        (a gate's lease given up) or invents one (a session busy at the save and idle at the
+        first poll, or resumed while the panel was down: #185). Review rounds 1 to 8 each found
+        a new case of this class and none twice. Bounding what a restart can do, rather than
+        saving each baseline, closes the class whatever reading is added later (PRAC-0010).
+      - **The cost:** a real stall that began while the panel was down is pushed up to one stall
+        time late (30 minutes by default). The page shows it at once, marked `≈`.
+      - **Beat:** saving every baseline in `stall.json` and comparing the first poll against it.
+        It is precise, but each reading added later reopens the class.
     - **Beat:** keying the notifier on the lane and its open work instead of `Since`. A stall
       that cleared and came back with the same pull request would never notify again.
   - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$CLAUDUCTOR_LANE` (the tmux
@@ -371,6 +389,28 @@ to `<id>` and `$PROBE`.
     it but its `agent_id`, to pair with a kept task (D3 (d)): a background subagent's last
     message is not the lane's "last said". P2 records what a turn that ends with a subagent in
     flight lists in its `Stop`.
+  - **A turn that ends unreported leaves (d) unknown.** (Amended with the owner on 2026-10-20,
+    #186 option 1.) Once a session sends `UserPromptSubmit` and no `Stop` has followed, its kept
+    `Stop` is from an earlier turn: a turn interrupted with Esc, which Claude Code documents as
+    sending no `Stop`, or one that ended in a `StopFailure`, reports nothing. Until the
+    session's next `Stop`, D3 (d) is unknown for it, which is not open work. Its other ways
+    (a question, the lane's open work, a dead claude) are still judged. The kept `Stop` stays in
+    force for its wakeups (D4 below) and is still saved; only (d) stops resting on it.
+    - **Why:** without it, a shell the turn before listed, ended since, stalls the session one
+      stall time later with a false push naming it.
+    - **The cost:** a turn interrupted while background work really is in flight is not judged
+      by (d) until the next `Stop`. An Esc means the owner was at the keyboard.
+    - **Beat:** accepting the false push; probing Esc first (the fix holds whichever it sends).
+    - **Two costs the owner accepted on 2026-10-20** (#186's review, M1 and M2). Each is a late
+      or missed (d), never a false push:
+      - **A listed `workflow` still counts as working while the turn is unknown.** Working is
+        D1's, not (d)'s, so a lane's stall can come up to 4 × the stall time late when a
+        workflow's wake turn ends in a `StopFailure`. Treating the workflow as unknown too would
+        risk a false push while it really runs.
+      - **An out-of-order `UserPromptSubmit` leaves (d) unknown until the next `Stop`.** Hooks
+        post on their own, but a turn's `UserPromptSubmit` would have to arrive after that
+        turn's own `Stop`, across at least one model call, for this to matter. A wakeup that
+        fires 23 ms after a `Stop` (P4) is a new turn, so no timing rule is added.
   - **A live session's own wakeup holds off that session's background-work stall, and the
     lane's open-work stall, while it is due.** It does not hold off a sibling session's stall
     (D1): the orchestrator's stall-watcher loop would otherwise hide every other session in the
@@ -428,6 +468,17 @@ to `<id>` and `$PROBE`.
   - **The key:** `alerts.stall_minutes`, a number, 0 turns stalls off. Config version 7
     (`config/fields.go`: the version gate, `docs/panel.schema.json` and *Keys* follow it). An
     attached project sets it in its sidecar.
+  - **`panel init` and `panel attach` write the latest config version,** now 7. (Decided with
+    the owner on 2026-10-20, option A, as PANEL-48 did for 6.) This change MODIFIES the living
+    requirement LANECTX-3 (`specs/panel-lane-context/spec.md`) and its scenario S1 from "declare
+    config version 6" to "declare the latest config version", in a spec delta of its own, and
+    `TestAttachedLanesLaunchWithThePolicy` checks the latest version, not a literal 6.
+    **Beat:** keeping 6, which would leave a new project needing to raise its own version
+    before it could set `stall_minutes`.
+  - **The template's `panel.json` declares version 7 too.** (Decided with the owner on
+    2026-10-20, #189 option a, as PANEL-48 raised the presets for 6.) `template/.clauductor/panel.json`
+    is raised to the latest version, and `plugin/scaffold/.clauductor/panel.json` regenerated
+    from it (`scripts/build-plugin.sh`). A template edit ships to every project.
   - **Why 30:**
     - it is the `idle_minutes` default, the owner's sense of "a while";
     - each stall would have been seen within 30 minutes, not after 3.5 to 5 hours;
@@ -457,7 +508,8 @@ to `<id>` and `$PROBE`.
       agents` source is not current (its last good poll older than two intervals), whether or
       not a session is left: past 30 minutes of failing polls `forgetSessions` drops the
       sessions, and a lane the panel launched could otherwise stall on (c)'s terms. So a failing
-      poll cannot raise a false stall;
+      poll cannot raise a false stall. A stall that begins across a restart is approximate too,
+      until the panel has watched for one stall time (D1);
     - a restart does not send again for a stall still active (`notifier.json`).
   - **A waiting session** keeps today's waiting alert (a macOS banner after `waiting_seconds`)
     and, if still unanswered at the stall time, also stalls, which pushes (D7). That is the
@@ -550,6 +602,11 @@ to `<id>` and `$PROBE`.
     `(*Runtime).mergedPR` in `autoclose.go` runs, through a variant that returns its error
     (`mergedPR` returns `(0, false)` for an error and for "none" alike), for each lane with a
     clean receipt for HEAD and no open PR.
+    - **A merge counts only when its head commit is the lane's HEAD.** (Decided with the owner
+      on 2026-10-20, #188 option a.) The read asks for `number,headRefOid` and ignores a merged
+      pull request whose `headRefOid` is not HEAD, as `lanes/close.go`'s `mergedBranch` already
+      does for Close. Without it, a branch name reused after a squash merge would have its old
+      merge counted for the new HEAD, and (b) would never hold there: a missed stall.
     - Only a merge found is cached, per branch and HEAD. "None" is read again when the branch
       leaves the open-PR list, and otherwise at most every 5 minutes. A squash merge leaves the
       branch's HEAD as it was, so a cached "none" from before the PR was opened would mark every
@@ -636,12 +693,14 @@ to `<id>` and `$PROBE`.
 | A turn ended on a background `Monitor` | Listed as a `shell`, it is read as one: open work, worded "1 shell". If P2 finds a session reads `idle` while its Monitor runs, the build stops for the owner (D3 (d)) |
 | A turn ended with a background subagent running | Working until the `SubagentStop` whose `agent_id` is the task's `id`, in whatever order the two hooks arrive; an internal stop with an empty type ends nothing; quiet for the stall time after the paired stop, it stalls (D3 (d)) |
 | A turn ended with a background workflow running | Working until a later `Stop` of the session no longer lists it (its end wakes the session); its agents' `workflow-subagent` hooks are movement and end nothing (D3 (d)) |
+| A turn ends with no `Stop` (interrupted with Esc, or a `StopFailure`) | The session's (d) is unknown from its `UserPromptSubmit` until its next `Stop`; its other ways are still judged; no false push for work the turn before listed (D4, #186) |
 | The paired `SubagentStop` was dropped, or sent while the panel was down | The task holds its session working only while the session has moved within 4 × the stall time; then it is open work, "whose end was never heard" (D3 (d)) |
 | A teammate's turn ends on a shell that woke no one | Not seen: the teammate is in the lead's session, and nothing reports its shell. The lead stalls on its own clock when the session stops moving, its listed teammate task open work (D9) |
 | A second session in the same checkout ends its turn on a shell that woke no one while the orchestrator works or loops | That session stalls on its own clock (D1) |
 | A branch with commits and no PR or receipt | Not open work. The `stale` alert covers it after `stale_days` (D3) |
 | A session the panel did not launch has ended, its PR still open | Its lane has no live session and is not stalled (D1) |
 | The panel restarts while a lane is stalled | `stall.json`'s last movement, ask time and kept `Stop` fields keep the stall, its `Since` and its text, and nothing is sent again (D1) |
+| The panel restarts while a lane is not stalled, and it reads stalled after the restart (a lease given up, a session gone idle or resumed while the panel was down) | Approximate (`≈`, never notified) until the panel has watched for one stall time since its start; then judged as usual and notified once if still stalled (D1, amended 2026-10-20) |
 | A lease whose lane names no lane of the project, or two | It is no lane's, and working rests on the `claude agents` reading (D1) |
 | The project declares no queue | No lease is read; a gate keeps its session busy, which is working (D1, E1) |
 | A lease's holder is dead or stale, with no waiter to reclaim it | It is not working; the lane can stall (D1) |
