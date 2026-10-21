@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,7 +18,7 @@ import (
 // returns ::1 first, so the panel listens on [::1]:<port> as well as 127.0.0.1.
 // Both listeners serve one server and one state.
 //
-// The Host allow-list is EXACT: 127.0.0.1, localhost, [::1] and clauductor.localhost
+// The Host allow-list is EXACT: 127.0.0.1, localhost, [::1] and config.DefaultHostName
 // on the panel's port (and a legacy name's <name>.localhost, brandHosts), plus names a
 // config adds, each of the form <label>.localhost.
 // There are no wildcards: evil.localhost is refused. A *.localhost name can never
@@ -31,7 +32,7 @@ import (
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.Port)
 	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p}
-	for _, n := range brandHosts(config.DefaultHostName, brand.Names()) {
+	for _, n := range brandHosts(brand.Names()) {
 		hs = append(hs, n+":"+p)
 	}
 	for _, n := range s.hostNames() {
@@ -42,12 +43,14 @@ func (s *Server) allowedHosts() []string {
 	return hs
 }
 
-// brandHosts is the panel's own host name, then a legacy name's (<name>.localhost for each
-// of brand.Names after the first), so a bookmark from before the rename still opens it.
-func brandHosts(primary string, names []string) []string {
-	hs := []string{primary}
-	for _, n := range names[1:] {
-		if h := n + ".localhost"; h != primary {
+// brandHosts is <name>.localhost for each of names (brand.Names): the panel's own host name
+// (config.DefaultHostName), then a legacy name's, so a bookmark from before the rename still
+// opens it. Every entry is spelled from names, so the first is the new name's even where a
+// test passes names that differ from brand's.
+func brandHosts(names []string) []string {
+	hs := make([]string, 0, len(names))
+	for _, n := range names {
+		if h := n + ".localhost"; !slices.Contains(hs, h) {
 			hs = append(hs, h)
 		}
 	}

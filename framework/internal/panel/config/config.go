@@ -17,11 +17,17 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/clauductor/clauductor/internal/brand"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
-// DefaultConfigRel is where a project keeps its panel config, relative to the project root.
-const DefaultConfigRel = ".clauductor/panel.json"
+// DefaultConfigRel is where a project keeps its panel config, relative to the project root,
+// under the name now (brand.Name): where a new one is written. A project set up under a
+// legacy name keeps its own until it migrates, so a project's config is read through
+// OwnConfigPath (or ProjectEntry.ConfigPath), which takes the legacy name's while only that
+// one exists, never by joining DefaultConfigRel to the root (TestNoReadSiteJoinsDefaultConfigRel
+// fails such a join anywhere in the framework's non-test code).
+const DefaultConfigRel = "." + brand.Name + "/panel.json"
 
 // Config is the per-project panel configuration (.clauductor/panel.json).
 type Config struct {
@@ -1041,8 +1047,10 @@ func ValidLaneID(id string) bool { return LaneIDRe.MatchString(id) }
 // option (a leading "-") ever reaches git.
 var BranchRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 
-// DefaultHostName is the name the panel is opened at.
-const DefaultHostName = "clauductor.localhost"
+// DefaultHostName is the name the panel is opened at: <brand.Name>.localhost. Its Host
+// allow-list also takes a legacy name's <name>.localhost (web's brandHosts, over
+// brand.Names), so a bookmark from before the rename still opens it.
+const DefaultHostName = brand.Name + ".localhost"
 
 // localhostNameRe is the only shape an extra host name may have: one DNS label under
 // .localhost, lower case.
