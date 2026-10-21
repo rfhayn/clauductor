@@ -501,6 +501,7 @@ cdg 0 "a cd to a directory not made yet, inside" "$(cdb "mkdir -p new/x && cd ne
 # A worktree nested inside the held one is another checkout: moving there sends the run's agents to it.
 git -C "$C" worktree add -q -b nested "$CW/.claude/worktrees/x" 2>/dev/null
 cdg 2 "a cd into a worktree nested inside the held one" "$(cdb "cd .claude/worktrees/x")"
+cdg 2 "a cd into a directory made first inside the nested worktree" "$(cdb "mkdir -p .claude/worktrees/x/new && cd .claude/worktrees/x/new")"
 cdg 0 "a cd into the directory that holds it, still this checkout" "$(cdb "cd .claude/worktrees")"
 git -C "$C" worktree remove --force "$CW/.claude/worktrees/x" 2>/dev/null; rm -rf "$CW/.claude"
 cdg 0 "a cd out inside a subshell" "$(cdb "( cd $C && git log -1 )")"

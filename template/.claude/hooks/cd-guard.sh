@@ -185,7 +185,9 @@ while IFS= read -r t; do
   t=$(phys "$t")
   inside "$t" "$held" || block "this command moves the session to $t, outside $held. $WHY $FIX $END"
   # Inside by path is not inside by checkout: a worktree nested under the held one (.claude/worktrees/x).
-  if [ -d "$t" ] && tt=$(git -C "$t" rev-parse --show-toplevel 2>/dev/null) && [ -n "$tt" ] && [ "$(phys "$tt")" != "$held" ]; then
+  # Asked from the nearest directory that exists, for a target `mkdir -p` makes first.
+  e=$t; while [ ! -d "$e" ]; do e=$(dirname "$e"); done
+  if tt=$(git -C "$e" rev-parse --show-toplevel 2>/dev/null) && [ -n "$tt" ] && [ "$(phys "$tt")" != "$held" ]; then
     block "this command moves the session to $t, inside $held but in another checkout ($tt). $WHY $FIX $END"
   fi
   cur=$t
