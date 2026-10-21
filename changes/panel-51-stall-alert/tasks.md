@@ -287,6 +287,16 @@
   `gofmt`, `go vet`, `go test -short ./...` (with `ANTHROPIC_API_KEY` unset) and both check
   suites pass. Next: group 4's review; then group 5 (the page and the docs).
 - 2026-10-21 group 4 (The notification and the push) built and reviewed: converged in 1 round(s), peak low (8 low; quick gate PASS on its tree at a7e8d03 + the group's diff, 2026-10-21T04:22Z; session 6 TRACK D8). L1 left with a reason, L2 to L8 applied in group 5's diff so its review reads them (Decision log).
+- 2026-10-21 group 5 (builder): 5.1 and 5.2 built and ticked, uncommitted for review, with
+  group 4's L2 to L8 in the same diff (Decision log). `web/static/stall-view.js` draws a stalled
+  lane's row, tab, tree node and Needs-you row, called from `panel.js`'s four sites;
+  `stall_view_test.go` runs it under node over a fixture of the state's own types, and
+  `testdata/browser/stalled-lane.cjs` against a panel of its own (green on the Mac; screenshots
+  under `SHOTS`). `docs/panel.md`: *Stalled lanes*, the `stalled` row, the push command, the
+  decoded `Stop` fields, `stall.json`, the page. `gofmt`, `go vet` and `go test -short ./...`
+  pass. The Slice is ticked: the push (group 4) and the page (this group) hold end to end, by a
+  stand-in push program and a real browser; no live phone push was sent. Next: group 5's review.
+- 2026-10-21 group 5 (The page and the docs) built and reviewed: converged in 2 round(s), peak high (round 1 high: H1 STALL-4-S1's test read back its fixture, fixed with L3 and L4; round 2 low, 5 low, quick gate PASS on tree 82192e641; session 6 TRACK D8). Round 2's lows fixed in the next commit and reviewed there (Decision log).
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -1218,6 +1228,105 @@
     restart test with `push.json` present asserts no push (STALL-3-S7); L7 a failed push's
     output clipped to its last line in the log; L8 `TestStallAcrossRestartPushesOnceWatched`'s
     window scaled by `testwait`.
+- 2026-10-21, group 5 (builder), group 4's lows L2 to L8 as applied:
+  - **L2:** an open task (`shell`, `monitor`) listed with a status beyond running or pending has
+    the status itself as the push's kind of wait ("a shell failed"), when it is one plain word
+    (`[a-z_]`, at most 20 bytes, as Claude Code's own are); anything else reads "no longer in
+    flight" (`statusHow`, `state/stall.go`). **Chosen over** a fixed word for every ended status
+    (it would hide "failed" from the phone) and over the raw status (a free string would leave the
+    machine, D7). A teammate's task stays "in flight": it says nothing (P3).
+  - **L3:** `PushText` leaves out an open-work entry equal to the kind of wait, so "claude
+    exited" is named once. **Chosen over** dropping it from `openWork` or from `wait` in the
+    model: D11 lists "claude exited" in `openWork` for the page, and the kind of wait is the
+    push's own field; the doubling is the push's composition alone.
+  - **L4:** `pushDirs` (the path's folder and, through a link, the target's) is the one list
+    `readPush` judges and `pushWatch.signature` watches, which also adds the link's resolved path
+    (a link pointed at another file of the same size and time is read again).
+  - **L5, each failing first** (the guard removed, then restored):
+    `TestReadPushRefusesALinkIntoAnUnsafeFolder` with the target folder's check off ("a link into
+    a folder writable by group: argv ["/usr/bin/true"], want none to run");
+    `TestReadPushRefusesWhatIsNotAFile` with `IsRegular` off (a folder: refused only by the read's
+    "is a directory", not as "not a regular file"; a FIFO: "reading a FIFO at push.json's path
+    blocked: it was read, not refused"). L4's `TestPushWatchSeesTheLinkTargetsFolder` failed
+    before its fix ("{argv:[/usr/bin/true] refused:}, want it refused"), and L7's
+    `TestRunPushErrorIsItsLastLine` before its ("... > Authorization: Bearer tk_secret no route to
+    host, want its last line alone").
+  - **L6:** `TestStallRestartSendsNothingAgain` (STALL-3-S7) now has `push.json` throughout: the
+    first panel pushes once, the restarted one never. **Chosen over** a new test: it is the same
+    restart, and the push rides on the notice the test already asserts is not sent.
+  - **L7:** a failed push's error carries the last line it printed that is not blank, clipped to
+    200 runes (`lastLine`, `push.go`).
+  - **L8:** the window is `testwait.Scale(3 s)`, the stall time written from it, and the first
+    panel's watch five sixths of it; passes at `CLAUDUCTOR_TEST_SLOW=2`.
+- 2026-10-21, group 5 (builder), the page (D11 leaves these open):
+  - **`stall-view.js` takes the lane view (`x.lv`), not `lanesOf`'s row,** with four functions:
+    `mark(lv, base)` (the square's and word's class, the word, approx and its title; `base` while
+    not stalled), `tint(lv, cls)`, `status(lv, words)` (the row's and tab's accessible name and
+    title: "stalled: <what it waited on>"), and `need(n, lanes)` (a Needs-you row's parts, or null
+    for a row that is no stall's). **Chosen over** taking the row, so the test needs no copy of
+    `lanesOf`. `panel.js` gains one helper, `laneMark(x)`, the base marks passed once, which the
+    state cell, the tab and the tab menu's square call.
+  - **A stall reads over every other state** (an exited claude's, a waiting session's, "no
+    hooks") in the row, tab and tree node: it is the owner's move, and STALL-1-S10's lane is
+    stalled because its claude exited. The square and the word take the class `stalled`, styled
+    as the red of `dead` and `stale` in `panel.css`: no new colour (D11's beat).
+  - **The quiet time is the Needs-you row's time column, "quiet for 34m",** drawn by `panel.js`'s
+    ticking age from the stall's `since`. **Chosen over** words in the row's text: a stalled lane
+    sends no update, so a text would freeze at the render. The text stays the item's own (what
+    it waited on, then the open work).
+  - **A waiting row relabelled Stalled is drawn blocking (red),** like a stalled row, whatever its
+    severity: the lane is stalled either way.
+  - **A stalled item's row does not add " (≈ not a current reading)":** its label already says
+    why it is approximate ("Stalled (≈ since the panel's restart …)"). A relabelled waiting row
+    keeps the note, as the server sets its label to "Stalled" alone then.
+  - **The tree node is the worktree's** (a square before its type, "stalled" before its path); its
+    session nodes keep each session's own state.
+  - **Left as it is: the Alerts strip shows the `stalled` alert too,** beside its Needs-you row
+    (the strip lists every blocking alert of any lane, as today; only a waiting alert already in
+    Needs you is left out). Leaving it out would change `stripAlerts`, which D11's "nothing else
+    in `panel.js` changes" bars; raised to the caller for the owner.
+  - **The browser test's panel** has its own port (`PORT` + 1) and tmux socket (`$sock-3`, in
+    the cleanup), and `alerts.notify` false, so it sends no macOS notification on the machine
+    that runs it. Its fake `claude agents` prints `$HOME/agents.json`, written once lane "second"
+    exists, so the session is first seen in that lane's worktree, never bound to the root first.
+    It ran green on the owner's Mac (Playwright from the npx cache, `ONLY=stalled-lane`).
+  - **The docs' push examples:** ntfy's CLI straight from `push.json` (it joins the title and
+    body into the message), and for a real title or for Pushover a two-line `curl` wrapper of
+    the owner's. The panel judges `push.json`, not the wrapper it names: the docs say to keep
+    the wrapper the owner's and writable by them alone.
+- 2026-10-21, group 5, review round 1 (peak high), what was done with each:
+  - **H1, fixed as task 5.1 says:** `StallView.need()` now returns the row as the page draws it:
+    `text` (the label, then what the lane last waited on and its open work; a relabelled waiting
+    row's "not a current reading" note), `since` and `pre` (the ticking "quiet for …"), `sev` and
+    `action`; `mark()` returns `text`, the word as drawn ("≈ stalled" when approximate), for the
+    state cell, the tab's name and the tree node. `panel.js` draws them and nothing of its own
+    (`askCell(st ? st.text : …)`), which supersedes this group's earlier entry ("the text stays
+    the item's own"; the `approxSaid` flag is gone). `TestStallView`'s harness prints only what
+    the module returns (no echo of the item's text), and asserts each row's exact text, built in
+    the test from the fixture's `StallView` (what it waited on and each piece of open work), its
+    quiet time and its button. `TestStallViewCalledFromThePage` pins the state cell's
+    `stateMark`, the row's tint and name, the tab, the tree node, `needRow`'s cell, time and
+    button, and `jumpTo`'s selection of the lane (by its terminal, else its worktree). **Each
+    failing first** under the review's falsifying edits, made at once in `panel.js` and restored:
+    `askCell(n.label)` ("panel.js lacks "askCell(st ? st.text : needWords(n) …"), the jump
+    handler a no-op ("lacks "[button(st ? st.action : … jumpTo(n); }…"), `stateMark` reverted to
+    `const s = laneState(x)` ("lacks "function stateMark(x) {\n  const m = laneMark(x); …"); and
+    in the module, the row's text dropped (`TestStallView`: "second: Needs-you row got
+    {Sev:crit Text:Stalled …} want {… Text:Stalled: its turn ended … open work: #7 open …}").
+    Clicking Open terminal in a browser stays the browser test's (task 5.1, marked manual); it
+    ran green again after the fix.
+  - **L3, fixed:** `web/terminal_test.go`'s served-assets list has `/static/stall-view.js`.
+  - **L4, fixed at group 4's source:** `pushChain` (`push.go`) follows push.json's path one link
+    at a time with `os.Readlink`, at most 8 links (a longer chain is refused), and `pushDirs`
+    judges the folder of every path on the way; `readPush` and the push source's signature both
+    read that chain (the signature also holds each hop, so a retargeted link is read again).
+    `TestReadPushJudgesEveryHopOfALinkChain` (a two-hop chain whose middle folder is made
+    writable by group) failed first: "a chain through a folder writable by group:
+    {argv:[/usr/bin/true] refused:}, want it refused naming …", and the same from the push
+    source after its poll.
+  - **L1 and L2, the owner's under D11, not changed:** the stall shown in Needs you and again in
+    the Alerts strip; the sort, the top bar's counts, the durations and a second terminal reading
+    the underlying state.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
@@ -1271,9 +1380,9 @@
   - Tested in `framework/internal/panel/push_test.go` with a stand-in program written by `internal/testbin` that records its arguments, a notice carrying a stall and a `waiting` alert among them; and a stall that begins across a restart pushes nothing while it is approximate and once when the panel has watched for the stall time. Citing [STALL-1-S25], [STALL-3-S1], [STALL-3-S4], [STALL-3-S5] and [STALL-3-S6].
 
 ## 5. The page and the docs (D11)
-- [ ] 5.1 `framework/internal/panel/web/static/stall-view.js` (new), loaded in `web/index.html` before `panel.js` as `context-colour.js` is: from a lane's `stall` and its Needs-you item, the word "stalled", the row's tint class, and the Needs-you row's text (quiet time, open work, what it waited on), with Open terminal only where the lane has a terminal, and a waiting row labelled stalled. `panel.js` calls it from the lane's state cell, tab, tree node and Needs you; nothing else in `panel.js` changes (D11).
+- [x] 5.1 `framework/internal/panel/web/static/stall-view.js` (new), loaded in `web/index.html` before `panel.js` as `context-colour.js` is: from a lane's `stall` and its Needs-you item, the word "stalled", the row's tint class, and the Needs-you row's text (quiet time, open work, what it waited on), with Open terminal only where the lane has a terminal, and a waiting row labelled stalled. `panel.js` calls it from the lane's state cell, tab, tree node and Needs you; nothing else in `panel.js` changes (D11).
   - Tested in `framework/internal/panel/web/stall_view_test.go`, which loads `stall-view.js` under node through `vm`, as `web/context_colour_test.go` loads `context-colour.js`, over lanes from a `/api/state` fixture: a stalled lane with a terminal, one started by hand, and a waiting lane that stalled. Citing [STALL-4-S1].
-  - And in `framework/internal/panel/testdata/browser/stalled-lane.cjs`, which `testdata/browser/run.sh` runs against a panel of its own, started after the shared one with its own HOME, project and `panel.json` at version 7 with `stall_minutes` 0.05 (3 s), so no other script sees a stalled lane. Its fake `claude agents` lists one `idle` session whose `cwd` is lane "second"'s worktree, and its fake `gh` lists pull request #7 open for that lane's branch, so the lane stalls by D1 as it stands, not by a weakened rule. Its `SHOTS` screenshots go to the group's reviewer (OPS-84 is not merged yet). Citing [STALL-4-S1].
-- [ ] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9; and an MCP `monitor` task, open work by the allowlist, which stalls its lane if it never ends: unprobed, the Decision log of 2026-10-20; and a turn that ends with no `Stop`, interrupted with Esc or failed, whose background work is unknown until the session's next `Stop`: #186) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
+  - And in `framework/internal/panel/testdata/browser/stalled-lane.cjs`, which `testdata/browser/run.sh` runs against a panel of its own, started after the shared one with its own HOME, project and `panel.json` at version 7 with `stall_minutes` 0.05 (3 s), so no other script sees a stalled lane. Its fake `claude agents` lists one `idle` session whose `cwd` is lane "second"'s worktree, and its fake `gh` lists pull request #7 open for that lane's branch, so the lane stalls by D1 as it stands, not by a weakened rule. Its `SHOTS` screenshots go to the group's reviewer (OPS-84 is not merged yet). Citing [STALL-4-S1]; in the browser (the page's cells and Open terminal selecting the lane): [STALL-4-S1] (manual: Playwright, run.sh ONLY=stalled-lane; not part of `go test`).
+- [x] 5.2 `docs/panel.md`: the `stalled` row in *Alerts*; the stall rule, what it reads and what it does not see (a teammate's own background shell, whose end nothing reports: D9; and an MCP `monitor` task, open work by the allowlist, which stalls its lane if it never ends: unprobed, the Decision log of 2026-10-20; and a turn that ends with no `Stop`, interrupted with Esc or failed, whose background work is unknown until the session's next `Stop`: #186) in a new *Stalled lanes* section under *Alerts*; `push.json` in *Notifications* and in *Security model*, with an ntfy and a Pushover example; `stall.json` beside `notifier.json`; the two decoded `Stop` fields in *How signals are read*; "stalled" in *The page*'s lane rows and Needs you.
 
-- [ ] Slice: an owner away from the Mac gets one push on their phone when a lane on the panel at http://127.0.0.1:<port> has stalled with work open, and sees the lane marked stalled, with what it last waited on, when they open the page
+- [x] Slice: an owner away from the Mac gets one push on their phone when a lane on the panel at http://127.0.0.1:<port> has stalled with work open, and sees the lane marked stalled, with what it last waited on, when they open the page

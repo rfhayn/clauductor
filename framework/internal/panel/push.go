@@ -43,7 +43,7 @@ func pushPath(home string) string { return filepath.Join(config.PanelDir(home), 
 
 // readPush reads and judges push.json by D7's rules: refused when the file is not the
 // user's, is writable by group or others, or sits in a folder that is (the folder of
-// the path and, through a symbolic link, of the file it names); when its argv[0] is
+// the path and of every link on the way to the file, pushChain); when its argv[0] is
 // not an absolute path; and when it is anything but one JSON object with a non-empty
 // argv of strings. No file: no command and no refusal. owner is the user the file must
 // belong to (os.Getuid; a test stands in for a file another user owns, which it
@@ -62,11 +62,11 @@ func readPush(path string, owner int) pushCmd {
 	if why := unsafeFile(fi, owner); why != "" {
 		return refuse(why)
 	}
-	dirs := []string{filepath.Dir(path)}
-	if real, err := filepath.EvalSymlinks(path); err == nil && filepath.Dir(real) != dirs[0] {
-		dirs = append(dirs, filepath.Dir(real))
+	hops, err := pushChain(path)
+	if err != nil {
+		return refuse(err.Error())
 	}
-	for _, d := range dirs {
+	for _, d := range pushDirs(hops) {
 		di, err := os.Stat(d)
 		if err != nil {
 			return refuse(err.Error())
@@ -95,6 +95,54 @@ func readPush(path string, owner int) pushCmd {
 		return refuse("its program (argv[0]) is not an absolute path")
 	}
 	return pushCmd{argv: argv}
+}
+
+// pushMaxHops bounds a chain of symbolic links at push.json's path.
+const pushMaxHops = 8
+
+// pushChain is every path on the way from push.json's path to the file it names: the
+// path itself, then each link's target in turn, one hop at a time (os.Readlink), so a
+// link in the middle of a chain is seen; EvalSymlinks would name only the end. An error
+// when a hop cannot be read or the chain runs past pushMaxHops links.
+func pushChain(path string) ([]string, error) {
+	hops := []string{path}
+	for p := path; ; {
+		fi, err := os.Lstat(p)
+		if err != nil {
+			return hops, err
+		}
+		if fi.Mode()&fs.ModeSymlink == 0 {
+			return hops, nil
+		}
+		if len(hops) > pushMaxHops {
+			return hops, fmt.Errorf("it is a chain of more than %d symbolic links", pushMaxHops)
+		}
+		t, err := os.Readlink(p)
+		if err != nil {
+			return hops, err
+		}
+		if !filepath.IsAbs(t) {
+			t = filepath.Join(filepath.Dir(p), t)
+		}
+		p = t
+		hops = append(hops, p)
+	}
+}
+
+// pushDirs are the folders a push file is judged by: the folder of every path on its
+// chain (pushChain), each once. Anyone who can write one of them can point the chain
+// at a file of theirs. readPush judges them and the push source's signature watches
+// them, so the two never disagree on which they are.
+func pushDirs(hops []string) []string {
+	var dirs []string
+	seen := map[string]bool{}
+	for _, h := range hops {
+		if d := filepath.Dir(h); !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
 }
 
 // unsafeFile says why a push file may not be trusted to name a program: not the
@@ -128,12 +176,15 @@ func newPushWatch(home string) *pushWatch {
 	return p
 }
 
-// signature is the file's pathSignature, with the file's and its folder's mode and
-// owner: a chmod changes neither size nor mtime, and it can make the file safe or
-// unsafe.
+// signature is the file's pathSignature, with the file's and each folder's it is judged
+// by (pushDirs) mode and owner: a chmod changes neither size nor mtime, and it can
+// make the file safe or unsafe. Every hop of a link chain is in it too, so a link
+// pointed at another file is read again.
 func (p *pushWatch) signature() string {
 	sig := pathSignature(p.path)
-	for _, path := range []string{p.path, filepath.Dir(p.path)} {
+	hops, _ := pushChain(p.path)
+	sig += "|" + strings.Join(hops, ">")
+	for _, path := range append([]string{p.path}, pushDirs(hops)...) {
 		if fi, err := os.Stat(path); err == nil {
 			sig += fmt.Sprintf("|%o", fi.Mode())
 			if st, ok := fi.Sys().(*syscall.Stat_t); ok {
@@ -166,8 +217,8 @@ func (p *pushWatch) current() pushCmd {
 }
 
 // runPush runs the push command with the title and body as two more arguments, with
-// no shell, under timeout (pushTimeout; a test's shorter). Its error names what the
-// program printed, never its arguments: an argv can hold a token.
+// no shell, under timeout (pushTimeout; a test's shorter). Its error names the last
+// line the program printed (lastLine), never its arguments: an argv can hold a token.
 func runPush(ctx context.Context, timeout time.Duration, argv []string, title, body string) error {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -183,7 +234,15 @@ func runPush(ctx context.Context, timeout time.Duration, argv []string, title, b
 	if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf("push: no answer within %s", timeout)
 	}
-	return fmt.Errorf("push: %v: %s", err, strings.TrimSpace(string(out)))
+	return fmt.Errorf("push: %v: %s", err, lastLine(out, 200))
+}
+
+// lastLine is the last line of out that is not blank, clipped to n runes: why a
+// program failed, without what it printed before (a verbose request, a token in it),
+// for the panel's log and the page's notifier error.
+func lastLine(out []byte, n int) string {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return signals.Clip(strings.TrimSpace(lines[len(lines)-1]), n)
 }
 
 // pushNotice pushes a notice that carries a stalled alert (D7), its title and body

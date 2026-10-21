@@ -354,6 +354,15 @@ func TestStallClaudeExited(t *testing.T) {
 	if !strings.Contains(st.WaitedOn, "exited (status 1)") {
 		t.Errorf("waitedOn %q does not name exit status 1", st.WaitedOn)
 	}
+	// The push names the exit once: it is both the kind of wait and a piece of the
+	// open work (group 4's review round 1, L3).
+	a := stalledAlert(r.view(hm(0, 30)), "/repo/w/x")
+	if a == nil {
+		t.Fatal("no stalled alert at 00:30")
+	}
+	if _, body := PushText("P", *a, hm(0, 30)); strings.Count(body, "claude exited") != 1 || !strings.Contains(body, "#152 open") {
+		t.Errorf("the push body %q, want \"claude exited\" once, and #152 open", body)
+	}
 }
 
 // [STALL-1-S11] A stall from a reading that is not current is approximate.
@@ -2580,6 +2589,22 @@ func TestStalledAlertCarriesThePushFields(t *testing.T) {
 			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"last_assistant_message":"Checks are running.",`+
 				`"background_tasks":[{"type":"shell","status":"running","description":"Run checks","command":"sh .claude/checks/run.sh"}]`)
 		}, []string{"Run checks", "run.sh", "Checks are running"}},
+		// A task listed with a status beyond running or pending: the page appends it to
+		// the description, and the push's kind of wait follows it, never "in flight"
+		// (group 4's review round 1, L2); a status that is not one plain word is not
+		// carried at all.
+		{"a shell failed", "/repo/w/x", "a shell failed", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[{"type":"shell","status":"failed","description":"Run checks"}],"session_crons":[]`)
+		}, []string{"Run checks", "in flight"}},
+		{"a monitor of an odd status", "/repo/w/x", "a monitor no longer in flight", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[{"type":"monitor","status":"Watch the deploy log","description":"tail"}],"session_crons":[]`)
+		}, []string{"Watch the deploy", "tail"}},
 		{"nothing", "/repo/w/x", "nothing in flight", func(r *stallRig) {
 			r.list("s", "/repo/w/x", "idle")
 			r.poll(hm(0, 0))

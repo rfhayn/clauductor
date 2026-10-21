@@ -27,6 +27,9 @@
 #   Add a project… on a second repository: validation, the init preview, Create this
 #   config, a refused path, Trust and add (live, no restart), then removing it again.
 #
+# - stalled-lane.cjs (PANEL-51): a stalled lane's row, tab, tree node and Needs-you row,
+#   against a panel of its own (see stall_run below); SHOTS=<dir> keeps its screenshots.
+#
 #   framework/internal/panel/testdata/browser/run.sh
 #
 # Needs node and Playwright with Chromium. Set PLAYWRIGHT to the playwright package
@@ -55,7 +58,8 @@ done
 cleanup() {
   rc=$?
   [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null || true
-  for s in "$sock" "$sock-2"; do
+  [ -n "${pid2:-}" ] && kill "$pid2" 2>/dev/null || true
+  for s in "$sock" "$sock-2" "$sock-3"; do
     tmux -L "$s" kill-server 2>/dev/null || true
     # The server takes a moment to go; its file is removed once nothing answers.
     for _ in $(seq 50); do tmux -L "$s" ls >/dev/null 2>&1 || break; sleep 0.1; done
@@ -159,4 +163,56 @@ git -C "$other" init -q -b main
 git -C "$other" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
 other=$(cd "$other" && pwd -P)
 t project-menu "$base" "$tok" "$proj" "$other" "$sock-2"
+
+# PANEL-51: stalled-lane.cjs runs against a panel of its own, started after the shared
+# one with its own HOME, project, tmux socket and port, so no other script sees a
+# stalled lane. Its panel.json is at version 7 with alerts.stall_minutes 0.05 (3 s)
+# and notifications off (a stall would be a real macOS notification). Its `claude
+# agents` lists what $HOME/agents.json holds, written once lane "second" exists: one
+# idle session in that lane's worktree; its `gh` lists #7 open for change/second.
+stall_run() {
+  local h="$tmp/stall-home" sp="$tmp/stall-project" sb="$tmp/stall-bin" sport=$((port + 1))
+  mkdir -p "$h" "$sb" "$sp/.clauductor"
+  cat > "$sb/claude" <<'SH'
+#!/bin/sh
+case "$1" in
+  --version) echo "2.1.284 (Claude Code)" ;;
+  agents) cat "$HOME/agents.json" 2>/dev/null || echo "[]" ;;
+  *) stty raw -echo 2>/dev/null; exec cat > /dev/null ;;
+esac
+SH
+  cat > "$sb/gh" <<'SH'
+#!/bin/sh
+case "$*" in
+  "pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision --limit 1000")
+    echo '[{"number":7,"title":"Second","headRefName":"change/second","author":{"login":"t"},"isDraft":false,"reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[]}]' ;;
+  *) echo "[]" ;;
+esac
+SH
+  chmod +x "$sb/claude" "$sb/gh"
+  git -C "$sp" init -q -b main
+  cat > "$sp/.clauductor/panel.json" <<JSON
+{ "name": "Stall test", "version": 7, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock-3",
+  "alerts": { "stall_minutes": 0.05, "notify": false } }
+JSON
+  git -C "$sp" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
+  sp=$(cd "$sp" && pwd -P)
+  HOME="$h" PATH="$sb:$PATH" "$tmp/clauductor" panel --project "$sp" --port "$sport" --no-open --trust-config > "$tmp/stall-panel.log" 2>&1 &
+  pid2=$!
+  for _ in $(seq 100); do grep -q 't=' "$tmp/stall-panel.log" 2>/dev/null && break; sleep 0.1; done
+  local surl stok sbase
+  surl=$(grep -o 'http://[^ ]*t=[0-9a-f]*' "$tmp/stall-panel.log" | head -1)
+  [ -n "$surl" ] || { cat "$tmp/stall-panel.log"; echo "the stall panel did not start"; return 1; }
+  stok=${surl##*t=}
+  sbase="http://127.0.0.1:$sport"
+  curl -s -c "$tmp/cj2" -o /dev/null "$sbase/?t=$stok"
+  for body in '{"type":"orchestrator","mode":"root","name":"main"}' '{"type":"build","mode":"new","name":"second"}'; do
+    curl -sf -b "$tmp/cj2" -H "Origin: $sbase" -H 'Content-Type: application/json' -d "$body" "$sbase/api/lanes" > /dev/null \
+      || { cat "$tmp/stall-panel.log"; echo "could not start a lane: $body"; return 1; }
+  done
+  printf '[{"pid":4242,"cwd":"%s","kind":"interactive","startedAt":1700000000000,"sessionId":"s-second","status":"idle"}]\n' \
+    "$sp/.claude/worktrees/second" > "$h/agents.json"
+  node "$here/stalled-lane.cjs" "$sbase" "$stok"
+}
+if [ -z "${ONLY:-}" ] || [ "$ONLY" = stalled-lane ]; then stall_run || status=1; fi
 exit $status

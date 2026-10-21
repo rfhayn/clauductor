@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // PANEL-51 group 4 (D7): the owner's push command, push.json.
@@ -147,6 +150,160 @@ func TestReadPushRefusesByD7(t *testing.T) {
 	}
 }
 
+// pushLinkedInto makes home's push.json a symbolic link to a safe push.json (0600) in
+// a folder of its own, 0700, which it returns with the link's path.
+func pushLinkedInto(t *testing.T, home string) (link, dir string) {
+	t.Helper()
+	dir = filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "push.json")
+	if err := os.WriteFile(target, []byte(argvJSON("/usr/bin/true")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(target, 0o600); err != nil { // past the umask
+		t.Fatal(err)
+	}
+	link = writePush(t, home, "")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	return link, dir
+}
+
+// [STALL-3-S4] A push.json that is a symbolic link is judged by the folder of the file
+// it names too: a safe file in a folder writable by group is refused, naming that
+// folder (group 4's review round 1, L5).
+func TestReadPushRefusesALinkIntoAnUnsafeFolder(t *testing.T) {
+	t.Parallel()
+	link, dir := pushLinkedInto(t, t.TempDir())
+	if got := readPush(link, os.Getuid()); len(got.argv) == 0 {
+		t.Fatalf("the premise: a link to a safe file in a safe folder is accepted: %+v", got)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil { // it is: the guard sees a folder
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	got := readPush(link, os.Getuid())
+	if len(got.argv) > 0 {
+		t.Fatalf("a link into a folder writable by group: argv %q, want none to run", got.argv)
+	}
+	if !strings.Contains(got.refused, dir) || !strings.Contains(got.refused, "writable by group or others") {
+		t.Errorf("refused %q, want it to name the link's target folder %s and why", got.refused, dir)
+	}
+}
+
+// [STALL-3-S4] Something at push.json's path that is not a regular file is refused,
+// and a FIFO there is refused without being read: a read would block until something
+// writes to it (group 4's review round 1, L5).
+func TestReadPushRefusesWhatIsNotAFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	p := writePush(t, home, "")
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPush(p, os.Getuid()); len(got.argv) > 0 || !strings.Contains(got.refused, "not a regular file") {
+		t.Errorf("a folder at push.json's path: %+v, want it refused as not a regular file", got)
+	}
+	fifo := pushPath(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(fifo), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan pushCmd, 1)
+	go func() { done <- readPush(fifo, os.Getuid()) }()
+	select {
+	case got := <-done:
+		if len(got.argv) > 0 || !strings.Contains(got.refused, "not a regular file") {
+			t.Errorf("a FIFO at push.json's path: %+v, want it refused as not a regular file", got)
+		}
+	case <-time.After(testwait.Scale(2 * time.Second)):
+		// Unblock the read so the goroutine ends with the test.
+		if w, err := os.OpenFile(fifo, os.O_WRONLY, 0); err == nil {
+			_ = w.Close()
+		}
+		t.Fatal("reading a FIFO at push.json's path blocked: it was read, not refused")
+	}
+}
+
+// [STALL-3-S4] A chain of links is judged hop by hop: push.json links to a link in a
+// second folder, which links to a safe file in a third; with the second folder writable
+// by group, anyone in the group could point the chain at a file of theirs, so the file
+// is refused, naming that folder, by readPush and, once the folder's mode changes after
+// the start, by the push source (group 5's review round 1, L4).
+func TestReadPushJudgesEveryHopOfALinkChain(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	link, safe := pushLinkedInto(t, home) // push.json -> safe/push.json
+	mid := filepath.Join(t.TempDir(), "shared")
+	if err := os.MkdirAll(mid, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hop := filepath.Join(mid, "push.json")
+	if err := os.Symlink(filepath.Join(safe, "push.json"), hop); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hop, link); err != nil { // push.json -> shared/push.json -> safe/push.json
+		t.Fatal(err)
+	}
+	w := newPushWatch(home)
+	if got := readPush(link, os.Getuid()); len(got.argv) == 0 || len(w.current().argv) == 0 {
+		t.Fatalf("the premise: a chain through safe folders is accepted: %+v, at start %+v", got, w.current())
+	}
+	if err := os.MkdirAll(mid, 0o700); err != nil { // it is: the guard sees a folder
+		t.Fatal(err)
+	}
+	if err := os.Chmod(mid, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	got := readPush(link, os.Getuid())
+	if len(got.argv) > 0 || !strings.Contains(got.refused, mid) {
+		t.Errorf("a chain through a folder writable by group: %+v, want it refused naming %s", got, mid)
+	}
+	w.poll(context.Background(), time.Now())
+	if c := w.current(); len(c.argv) > 0 || !strings.Contains(c.refused, mid) {
+		t.Errorf("the push source after the middle folder was made writable by group: %+v, want it refused", c)
+	}
+}
+
+// The push source reads push.json again when the folder of the file a link names
+// changes mode: readPush judges that folder, so a chmod there makes the file unsafe
+// (or safe) with nothing else about it changed (group 4's review round 1, L4).
+func TestPushWatchSeesTheLinkTargetsFolder(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	_, dir := pushLinkedInto(t, home)
+	w := newPushWatch(home)
+	if c := w.current(); len(c.argv) == 0 {
+		t.Fatalf("the premise: the link is accepted at start: %+v", c)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil { // it is: the guard sees a folder
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	w.poll(context.Background(), time.Now())
+	if c := w.current(); len(c.argv) > 0 || !strings.Contains(c.refused, dir) {
+		t.Fatalf("after the link's target folder was made writable by group: %+v, want it refused", c)
+	}
+}
+
 // [STALL-3-S5] A push that fails names what it printed; one that does not answer is
 // stopped at its timeout, even with a child of it still holding its output open.
 func TestRunPushFailsAndTimesOut(t *testing.T) {
@@ -167,6 +324,24 @@ func TestRunPushFailsAndTimesOut(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "no answer within") {
 		t.Fatalf("a push past its timeout: %v, want a timeout error", err)
+	}
+}
+
+// [STALL-3-S5] A failed push's error, which the panel logs, carries the last line of
+// what it printed, clipped: a program run verbose can print its request, token
+// included, before the line that says why it failed (group 4's review round 1, L7).
+func TestRunPushErrorIsItsLastLine(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 500)
+	prog, _ := pushStandIn(t, "echo '> Authorization: Bearer tk_secret'; echo 'no route to host' >&2; echo; exit 1")
+	err := runPush(context.Background(), pushTimeout, []string{prog}, "T", "B")
+	if err == nil || !strings.Contains(err.Error(), "no route to host") || strings.Contains(err.Error(), "tk_secret") {
+		t.Fatalf("a push that printed a token, then why it failed: %v, want its last line alone", err)
+	}
+	prog, _ = pushStandIn(t, "echo "+long+"; exit 1")
+	err = runPush(context.Background(), pushTimeout, []string{prog}, "T", "B")
+	if err == nil || len(err.Error()) > 300 {
+		t.Fatalf("a push whose last line is 500 bytes: %d bytes of error, want it clipped", len(fmt.Sprint(err)))
 	}
 }
 
@@ -415,8 +590,11 @@ func TestStallPushFailureCounted(t *testing.T) {
 // pull request open throughout.
 func TestStallAcrossRestartPushesOnceWatched(t *testing.T) {
 	t.Parallel()
-	root, wt := stallRepoAt(t, "0.05", "a") // 3 s: the second panel's window
-	const down = 2500 * time.Millisecond
+	// The stall time, 3 s (scaled by CLAUDUCTOR_TEST_SLOW), is the second panel's
+	// window; the first watches the lane quiet for most of it.
+	window := testwait.Scale(3 * time.Second)
+	root, wt := stallRepoAt(t, strconv.FormatFloat(window.Minutes(), 'f', -1, 64), "a")
+	down := window * 5 / 6
 	home := t.TempDir()
 	prog, runs := pushStandIn(t, "")
 	writePush(t, home, argvJSON(prog))
@@ -456,7 +634,7 @@ func TestStallAcrossRestartPushesOnceWatched(t *testing.T) {
 	id := p2.state(t, "").ProjectID
 	p2.polls.more(t, id+"/notify", 2)
 	if s := laneStall(p2.state(t, ""), wt["a"]); s == nil || !s.Approx {
-		t.Fatalf("the restart window (3 s) ended before the notifier ticked twice on the approximate stall: %+v", s)
+		t.Fatalf("the restart window (%s) ended before the notifier ticked twice on the approximate stall: %+v", window, s)
 	}
 	if n, got := len(again.stalled()), pushRuns(t, runs); n != 0 || len(got) != 0 {
 		t.Fatalf("an approximate stall: %d notifications and %d pushes, want none", n, len(got))

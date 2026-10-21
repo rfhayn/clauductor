@@ -809,11 +809,14 @@ func TestStallSecondRestartBeforeGhAnswersSendsNothingAgain(t *testing.T) {
 // [STALL-3-S7] A stall resting on a gate receipt, notified, then the
 // panel restarted on the same home with `gh` answering only after the notifier's
 // first ticks: the second panel shows the same stall with the same since, sends
-// nothing, and notifier.json keeps the stall's mark throughout.
+// nothing, neither a notification nor a push (push.json is there throughout: group 4's
+// review round 1, L6), and notifier.json keeps the stall's mark throughout.
 func TestStallRestartSendsNothingAgain(t *testing.T) {
 	t.Parallel()
 	root, wt := stallRepo(t, "a")
 	home := t.TempDir()
+	prog, runs := pushStandIn(t, "")
+	writePush(t, home, argvJSON(prog))
 	writeReceipt(t, wt["a"])
 	w := newStallWorld()
 	w.set(func(w *stallWorld) { w.agents = []signals.Agent{agent("sa", wt["a"], "idle", "")} })
@@ -827,7 +830,7 @@ func TestStallRestartSendsNothingAgain(t *testing.T) {
 		}
 		got, ok := notifierMark(t, home, root, wt["a"])
 		since = s.Since
-		return ok && got == since
+		return ok && got == since && len(pushRuns(t, runs)) == 1
 	})
 	again := &noticeLog{}
 	p2 := restartHeld(t, p, root, home, w, again, map[string]int64{wt["a"]: since})
@@ -839,6 +842,9 @@ func TestStallRestartSendsNothingAgain(t *testing.T) {
 	p2.polls.more(t, id+"/notify", 3)
 	if got := again.stalled(); len(got) != 0 {
 		t.Fatalf("the restart sent the stall again: %v", got)
+	}
+	if got := pushRuns(t, runs); len(got) != 1 {
+		t.Fatalf("pushes across the restart %q, want the first panel's one alone", got)
 	}
 	if got, ok := notifierMark(t, home, root, wt["a"]); !ok || got != since {
 		t.Fatalf("after the restart notifier.json's mark is %d (held %v), want %d", got, ok, since)

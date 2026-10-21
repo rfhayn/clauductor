@@ -35,8 +35,16 @@ func PushText(project string, a AlertView, now time.Time) (title, body string) {
 	if a.Wait != "" {
 		parts = append(parts, a.Wait)
 	}
-	if len(a.OpenWork) > 0 {
-		parts = append(parts, strings.Join(a.OpenWork, ", "))
+	// A lane whose claude exited has the exit as its kind of wait and as a piece of its
+	// open work (the page lists it there): the push names it once.
+	var open []string
+	for _, w := range a.OpenWork {
+		if w != a.Wait {
+			open = append(open, w)
+		}
+	}
+	if len(open) > 0 {
+		parts = append(parts, strings.Join(open, ", "))
 	}
 	return title, strings.Join(parts, " · ")
 }

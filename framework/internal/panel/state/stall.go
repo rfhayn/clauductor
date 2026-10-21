@@ -825,7 +825,24 @@ const (
 	howInFlight = "in flight"
 	howFinished = "that ended and woke nothing"
 	howUnheard  = "whose end was not heard"
+	howNotNow   = "no longer in flight"
 )
+
+// statusHow is how an open task listed with a status beyond running or pending stands,
+// as the push words it: the status itself ("a shell failed") when it is one plain
+// word, as Claude Code's own statuses are; anything else is not carried (the push
+// leaves the machine, D7), only that the task is no longer in flight.
+func statusHow(status string) string {
+	if len(status) > 20 {
+		return howNotNow
+	}
+	for _, r := range status {
+		if (r < 'a' || r > 'z') && r != '_' {
+			return howNotNow
+		}
+	}
+	return strings.ReplaceAll(status, "_", " ")
+}
 
 // turnWork is the background work the session's last Stop listed that is open work
 // now (D3 (d)), in the words of D4's text.
@@ -849,6 +866,9 @@ func (m *Model) turnWork(s *session, now time.Time) []taskNote {
 			// in flight (P2), so a status beyond running or pending is shown, not dropped.
 			if t.typ != "teammate" && t.status != "" {
 				d += " (" + t.status + ")"
+				if !inFlight(t.status) {
+					how = statusHow(t.status)
+				}
 			}
 		case !taskWorking(t.typ) || !inFlight(t.status):
 			continue
