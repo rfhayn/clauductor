@@ -371,6 +371,7 @@ func TestStallWithNoPageReadsTheReceiptAndTheMergedRead(t *testing.T) {
 // merged pull request whose headRefOid is the branch's older commit, while the lane's
 // HEAD is a new commit with a clean receipt and no pull request open. The old merge is
 // not HEAD's, so the lane is stalled under D3 (b), its open work the gate's pass.
+// [STALL-1-S26]
 func TestStallReusedBranchCountsNoOlderMerge(t *testing.T) {
 	t.Parallel()
 	root, wt := stallRepo(t, "a")

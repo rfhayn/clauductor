@@ -298,7 +298,7 @@
   stand-in push program and a real browser; no live phone push was sent. Next: group 5's review.
 - 2026-10-21 group 5 (The page and the docs) built and reviewed: converged in 2 round(s), peak high (round 1 high: H1 STALL-4-S1's test read back its fixture, fixed with L3 and L4; round 2 low, 5 low, quick gate PASS on tree 82192e641; session 6 TRACK D8). Round 2's lows fixed in the next commit and reviewed there (Decision log).
 - 2026-10-21 group 5's round-2 lows fixed and reviewed: converged in 1 round, peak low (4 low, applied as wording; Decision log).
-- 2026-10-21 archived: actual cost $253.34 of budget $80 (soft), at list price over 3007 messages (`change-cost.sh`); merged in #192 (773cf60c)
+- 2026-10-21 archived: actual cost $253.34 of budget $80 (soft), at list price over 3007 messages (`change-cost.sh`, which rejected one lane, agent-a246b6ef10a087383, as another branch's, so it may undercount slightly); merged in #192 (773cf60c)
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
