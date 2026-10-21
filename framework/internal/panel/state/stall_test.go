@@ -1256,6 +1256,41 @@ func TestStallOneShotWakeup(t *testing.T) {
 	stalledSince(t, r.view(hm(0, 45)), "/repo/w/y", hm(0, 5), "00:45")
 }
 
+// [STALL-2-S21] A one-shot cron of neither shape fireTime resolves (`0 9 * 10 *`: a
+// day of `*` under a month that is a number) holds off its own session's
+// background-work stall and its lane's open-work stall while its Stop's list stands,
+// however long that is; a later Stop that lists no cron ends the hold, and the stall
+// counts from that Stop.
+func TestStallOneShotOfAnotherShapeHoldsOff(t *testing.T) {
+	t.Parallel()
+	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x", Head: headX}}
+	r := newStallRig(t, hm(0, 0), "", wts...)
+	r.list("o", "/repo", "busy")
+	r.list("h", "/repo", "idle")
+	r.list("sx", "/repo/w/x", "idle")
+	r.poll(hm(0, 0))
+	r.prs(hm(0, 0), prX(152))
+	const shell = `"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run checks"}]`
+	const cron = `"session_crons":[{"id":"c1","schedule":"0 9 * 10 *","recurring":false}]`
+	r.hook(hm(0, 0), "Stop", "h", "/repo", shell+","+cron)
+	r.hook(hm(0, 0), "Stop", "sx", "/repo/w/x", `"background_tasks":[],`+cron)
+	v := r.view(hm(5, 0))
+	notStalled(t, v, "/repo", "05:00, the second session's own cron listed")
+	notStalled(t, v, "/repo/w/x", "05:00, #152's session's own cron listed")
+
+	r.hook(hm(5, 0), "Stop", "h", "/repo", shell+`,"session_crons":[]`)
+	r.hook(hm(5, 0), "Stop", "sx", "/repo/w/x", `"background_tasks":[],"session_crons":[]`)
+	v = r.view(hm(5, 29))
+	notStalled(t, v, "/repo", "05:29")
+	notStalled(t, v, "/repo/w/x", "05:29")
+	v = r.view(hm(5, 30))
+	st := stalledSince(t, v, "/repo", hm(5, 0), "05:30, the main checkout")
+	if !strings.Contains(st.WaitedOn, "Run checks") {
+		t.Errorf("05:30: the main checkout's waitedOn %q does not name the second session's shell", st.WaitedOn)
+	}
+	stalledSince(t, v, "/repo/w/x", hm(5, 0), "05:30, #152")
+}
+
 // [STALL-2-S12] A background Monitor, listed as a shell, is read as one.
 func TestStallMonitorReadAsShell(t *testing.T) {
 	t.Parallel()
@@ -2157,7 +2192,7 @@ func TestStallPaneComingBackMoves(t *testing.T) {
 	}
 }
 
-// [STALL-1-S25] A lane stalled at the save keeps its since and its mark (D1 as amended
+// [STALL-1-S25] [STALL-1-S30] A lane stalled at the save keeps its since and its mark (D1 as amended
 // 2026-10-20, option B), even when its claude was resumed while the panel was down
 // (issue #185, review round 7's M1, which the amendment settles): the sessions of the
 // first `claude agents` poll after a start are not movement (D1), and the first tmux
@@ -2195,6 +2230,47 @@ func TestStallRestartResumedWhileDownKeepsSince(t *testing.T) {
 	n2.Restore(n.State())
 	if got := n2.Process(vb.Alerts, nil, hm(1, 0)); len(got) != 0 {
 		t.Errorf("01:00: %+v sent again", got)
+	}
+}
+
+// [STALL-1-S31] The first queue poll after a start is a baseline: a lane stalled at
+// the save, whose gate lease the first poll finds held by a dead holder (taken and
+// left while the panel was down), has not moved, so it stays stalled with its saved
+// since, exact, and nothing is sent again; a later poll that finds the same dead
+// holder is no movement either.
+func TestStallRestartFirstQueuePollIsNoMovement(t *testing.T) {
+	t.Parallel()
+	a := newStallRig(t, hm(0, 0), gateQueue)
+	a.list("sx", "/repo/w/x", "idle")
+	a.poll(hm(0, 0))
+	a.prs(hm(0, 0), prX(152))
+	a.m.ApplyQueues(gateFree(), nil, hm(0, 0))
+	va := a.view(hm(0, 45))
+	stalledSince(t, va, "/repo/w/x", hm(0, 0), "00:45")
+	n := &Notifier{MinInterval: time.Minute}
+	if got := n.Process(va.Alerts, nil, hm(0, 45)); len(got) != 1 {
+		t.Fatalf("00:45: %d notices, want 1", len(got))
+	}
+
+	b := newStallRig(t, hm(1, 0), gateQueue)
+	b.m.ApplyStallState(roundTrip(t, a.m.StallState(hm(0, 45))))
+	b.prs(hm(1, 0), prX(152))
+	b.list("sx", "/repo/w/x", "idle")
+	b.poll(hm(1, 0))
+	b.m.ApplyQueues(gateHeld("x", false), nil, hm(1, 0)) // its holder already dead
+	n2 := &Notifier{MinInterval: time.Minute}
+	n2.Restore(n.State())
+	for _, at := range []time.Time{hm(1, 0), hm(1, 1)} {
+		if at.After(hm(1, 0)) {
+			b.m.ApplyQueues(gateHeld("x", false), nil, at)
+		}
+		v := b.view(at)
+		if st := stalledSince(t, v, "/repo/w/x", hm(0, 0), clock(at)+", the dead holder the first queue poll found"); st.Approx {
+			t.Errorf("%s: x, stalled at the save, is approximate", clock(at))
+		}
+		if got := n2.Process(v.Alerts, nil, at); len(got) != 0 {
+			t.Errorf("%s: %+v sent again", clock(at), got)
+		}
 	}
 }
 

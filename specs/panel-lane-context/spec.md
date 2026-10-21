@@ -2,6 +2,7 @@
 
 ## Purpose
 The panel launches each lane with the context policy its config sets: a context window at which Claude Code compacts, claude.ai's connectors on or off, and optionally a model for the lane's subagents. It passes the policy at launch, so nothing is written in the repository. A lane's context bar and alert then measure against the window that lane was launched with.
+
 ## Requirements
 ### Requirement: A lane launches with its config's context policy
 WHEN the panel launches a lane (Start, Restart, Resume or Restore) and its config sets a context policy for the lane's type THE SYSTEM SHALL pass `--settings` with an `env` object holding exactly the policy's variables, built from validated config values; and WHEN the config sets no policy THE SYSTEM SHALL launch the lane with no `--settings`.
