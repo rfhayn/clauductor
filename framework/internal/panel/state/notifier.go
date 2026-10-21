@@ -14,6 +14,31 @@ type Notice struct {
 	Title string
 	Body  string
 	Keys  []string
+	// Stall is the notice's stalled alert, apart from the others it is grouped with,
+	// or nil (PANEL-51 D7): the push is built from its own fields alone (PushText),
+	// never from Body, which joins every new alert of the lane (a waiting alert's
+	// text included).
+	Stall *AlertView
+}
+
+// PushText is the push's title and body for a stalled alert (PANEL-51 D7), from the
+// alert's own fields: the title as the macOS notification's (<project> · <lane>), the
+// body how long the lane has been quiet, the kind of wait and the open work. Never its
+// Text: that carries what it waited on in the model's words (a task's description,
+// the turn's last line), and the push goes to a service outside this machine.
+func PushText(project string, a AlertView, now time.Time) (title, body string) {
+	title = a.Name
+	if project != "" {
+		title = project + " · " + a.Name
+	}
+	parts := []string{"stalled, quiet for " + mins(now.Sub(time.UnixMilli(a.Since)))}
+	if a.Wait != "" {
+		parts = append(parts, a.Wait)
+	}
+	if len(a.OpenWork) > 0 {
+		parts = append(parts, strings.Join(a.OpenWork, ", "))
+	}
+	return title, strings.Join(parts, " · ")
 }
 
 // Notifier decides which alerts interrupt you. It is pure: Process takes the active
@@ -176,10 +201,15 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		}
 		lines := make([]string, 0, len(as))
 		keys := make([]string, 0, len(as))
+		var stall *AlertView
 		for _, a := range as {
 			lines = append(lines, noticeLine(a, now))
 			keys = append(keys, a.Key)
 			n.notified[a.Key] = a.Since
+			if a.Kind == AlertStalled {
+				a := a
+				stall = &a
+			}
 		}
 		n.lastSent[g] = now
 		n.stats.Interrupts++
@@ -187,7 +217,7 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		if n.Project != "" {
 			title = n.Project + " · " + name
 		}
-		out = append(out, Notice{Group: g, Title: title, Body: strings.Join(lines, "; "), Keys: keys})
+		out = append(out, Notice{Group: g, Title: title, Body: strings.Join(lines, "; "), Keys: keys, Stall: stall})
 	}
 	return out
 }

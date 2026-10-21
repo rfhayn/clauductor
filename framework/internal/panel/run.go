@@ -138,6 +138,8 @@ type Ticks struct {
 	// (D1: at most once every 30 s). Each save writes: the state carries its save time.
 	MergedNone time.Duration
 	StallSave  time.Duration
+	// PANEL-51 D7: the machine's push.json, for a change (no spawn: a stat).
+	Push time.Duration
 }
 
 // DefaultTicks are the tick lengths the panel runs with.
@@ -153,7 +155,7 @@ func DefaultTicks() Ticks {
 		Trends: 5 * time.Second, Procs: 10 * time.Second, Git: 30 * time.Second,
 		Spend: time.Minute, Merged: 10 * time.Minute, Registry: time.Second,
 		LoginLock: claudecall.WatchEvery, Transcripts: 10 * time.Second,
-		MergedNone: 5 * time.Minute, StallSave: 30 * time.Second,
+		MergedNone: 5 * time.Minute, StallSave: 30 * time.Second, Push: 10 * time.Second,
 	}
 }
 
@@ -169,7 +171,7 @@ func (t Ticks) withDefaults() Ticks {
 		{&t.Obs, &d.Obs}, {&t.Notify, &d.Notify}, {&t.Trust, &d.Trust}, {&t.Token, &d.Token}, {&t.Hub, &d.Hub},
 		{&t.HubCoalesce, &d.HubCoalesce}, {&t.Heartbeat, &d.Heartbeat}, {&t.Transcripts, &d.Transcripts},
 		{&t.Trends, &d.Trends}, {&t.Procs, &d.Procs}, {&t.Git, &d.Git}, {&t.Spend, &d.Spend}, {&t.Merged, &d.Merged}, {&t.Registry, &d.Registry},
-		{&t.LoginLock, &d.LoginLock}, {&t.MergedNone, &d.MergedNone}, {&t.StallSave, &d.StallSave},
+		{&t.LoginLock, &d.LoginLock}, {&t.MergedNone, &d.MergedNone}, {&t.StallSave, &d.StallSave}, {&t.Push, &d.Push},
 	} {
 		if *f.v <= 0 {
 			*f.v = *f.def

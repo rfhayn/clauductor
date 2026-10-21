@@ -280,6 +280,13 @@
   quick gate PASS on tree 811c29d83; L3 applied as wording (the `Ticks.StallSave` comment), L1
   to the owner as #190, L2 and the nit left with a reason (Decision log).
 - 2026-10-20 group 3 (The config and the reads without a page) built and reviewed: converged in 3 round(s), peak medium (rounds 1 and 2 medium, round 3 low, after #188 and #189; session 6 TRACK D7)
+- 2026-10-20 group 4 (builder): 4.1 and 4.2 built test-first and ticked, uncommitted for
+  review. The stall's kind of wait is a field of its own (`Wait`, with `OpenWork`) on the
+  `stalled` alert; each `Notice` carries its stalled alert as `Stall`; `push.go` reads
+  `push.json` (machine source `push`, every 10 s) and `pollNotify` runs it per stalled notice.
+  `gofmt`, `go vet`, `go test -short ./...` (with `ANTHROPIC_API_KEY` unset) and both check
+  suites pass. Next: group 4's review; then group 5 (the page and the docs).
+- 2026-10-21 group 4 (The notification and the push) built and reviewed: converged in 1 round(s), peak low (8 low; quick gate PASS on its tree at a7e8d03 + the group's diff, 2026-10-21T04:22Z; session 6 TRACK D8). L1 left with a reason, L2 to L8 applied in group 5's diff so its review reads them (Decision log).
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -1133,6 +1140,84 @@
     sets them. A project's runtime calls `ProcessView` alone, which sets both at every tick; the
     machine's notifier (`machine.go`) calls `Process` on an instance of its own whose flags
     nothing sets, and a test sets what it needs.
+- 2026-10-20, group 4 (builder), what D6 and D7 do not settle:
+  - **The kind of wait is a field of its own on the stall** (`laneStall.wait`, judged with
+    `waitedOn` in `judgeStalls`), carried on the `stalled` alert as `Wait` beside `OpenWork`,
+    both `json:"-"`: the page reads the lane's `stall`, so `/api/state` is unchanged. Its words
+    are fixed: "a question" for any ask (D7's word; a permission prompt included), "nothing in
+    flight", "a shell in flight" (by task type and count: "2 shells in flight"), "a subagent
+    that ended and woke nothing", "a subagent whose end was not heard", "claude exited" or "tmux
+    session gone", and "what it waited on is not known" or "... is not reported" where D4's text
+    says so. `taskNote` gains `how` for it. **Chosen over** parsing `waitedOn` (it holds the
+    description) and over adding it to `StallView` (no reader). `OpenWork` holds no model words
+    ("#152 open", "gate passed for <short sha>, no PR", "turn ended on 1 shell", "claude exited").
+  - **The push's body** (`state.PushText`): "stalled, quiet for 30m · a shell in flight · #152
+    open, turn ended on 1 shell", clipped to 240 runes, the title to 80 as the macOS
+    notification's. The title is built from the alert's `Name` and the notifier's project (the
+    config's `name` only while trusted, as `pollNotify` titles the notice).
+  - **The macOS line** (`noticeLine`): "stalled, quiet for 30m: <what it waited on>; open work:
+    …". It stays on the Mac, so it keeps D4's words, as a waiting alert's line does.
+  - **A push failure counts in `NotifyFailed` and `NotifyError`; a push that succeeds does not
+    count in `NotifySent`,** which stays the count of notifications. A push runs only where the
+    macOS notification would (`alerts.notify` off sends neither), after it, whatever became of it.
+  - **Refusal details D7 leaves open:** an unknown key beside `argv` is allowed (a note to self
+    in the file); a file that is not regular (a FIFO would block the read) is refused; through a
+    symbolic link, both the link's folder and the file's own are checked; the owner is compared
+    with `os.Getuid()`, handed to `readPush` so a test stands in for another user's file. The
+    warning reads "Push command <path> refused, so stalls are not pushed: <why>." under the key
+    `push_refused`; it is set on each project's model by its `pollNotify` when the refusal
+    changes.
+  - **The push source's signature adds the file's and its folder's mode and owner to
+    `pathSignature`:** a `chmod` changes neither size nor mtime, so a file made safe (or unsafe)
+    would otherwise not be read again until its next edit. Every 10 s (`Ticks.Push`), a stat.
+  - **`runPush` sets `WaitDelay` 1 s:** a program killed at the timeout can leave a child
+    holding its output open, and `CombinedOutput` would wait for it. The timeout is a parameter
+    (`pushNotice` passes the 10 s const) so a test runs it at 200 ms with no shared variable for
+    parallel panels to race on. The program inherits the panel's environment, as any command
+    the owner configures; its error carries what it printed, never its argv (it can hold a
+    token).
+  - **The machine's own notifier never pushes:** `pollQuotaAlert` sends notices only, and no
+    machine alert is a stall. No test of its own; the code has no path there.
+  - **Each test of a control, failing first** (the control removed, then restored):
+    - 4.1, the stalled marks kept while pending (`n.StallsPending ||` removed):
+      `TestNotifierKeepsStalledMarksWhilePending`: "pending tick 0: the stall's mark is 0 (held
+      false), want 1790604000000". The notice's stall (not set): `TestNotifierCarriesTheStallApart`:
+      "the notice's stall: <nil>, want the stalled alert". Focus (`if focused[g]` off):
+      `TestNotifierFocusedStallIsSeen`: "focused: [{... Keys:[stalled:/repo/w/a] ...}], want no
+      notice". Approximate (`if a.Approx` off): `TestNotifierApproxStallNeverInterrupts`: "an
+      approximate stall at +30m0s: [...], want no notice".
+    - The push built from the alert's `Text` (appended in `PushText`):
+      `TestStalledAlertCarriesThePushFields`: "a shell: the push ... carries "Run checks"", and
+      the same for "merge-train", "Review group 2" and the question's "Bash".
+    - The body from `Notice.Body` (in `pushNotice`): `TestPushRidesOnTheStallAlone`: "the push's
+      body "waiting on you for 30m: wants to use Bash; stalled, …": want the stall's own fields,
+      not the waiting alert's text"; `TestStallPushEndToEnd`: "the push's body ... carries "Run
+      checks"".
+    - The refusal rules (each check made false): `TestReadPushRefusesByD7`: "writable by group:
+      argv ["/usr/bin/true"], want none to run", likewise writable by others, in a folder
+      writable by group, not the user's, a relative program (`["ntfy" "publish" "topic"]`), two
+      objects; "not a JSON object: refused "... its "argv" is not a non-empty list of strings.",
+      want it to name ... and "not one JSON object""; `TestStallPushRefusedEndToEnd`: "a
+      push.json writable by group ran: [["Stalls · a" "stalled, quiet for 1s · …"]]".
+    - No push while approximate (`if a.Approx` off): `TestStallAcrossRestartPushesOnceWatched`:
+      "an approximate stall: 1 notifications and 1 pushes, want none".
+    - The timeout (`WithCancel` for `WithTimeout`): `TestRunPushFailsAndTimesOut`: "a push that
+      never answers took 5.086698041s, want it stopped at its timeout".
+    - A failure counted (the count skipped): `TestStallPushFailureCounted`: "timed out after 10s
+      waiting for lane a stalled, notified and its push failed".
+- 2026-10-21, group 4, review round 1 (converged, peak low), what was done with each:
+  - **L1, left with a reason:** the push runs synchronously in the project's notify source, so
+    several stalls at once against a hung endpoint delay the later notices by up to about 11 s
+    each. Kept: the macOS send it follows is synchronous too, the notices are one lane's each
+    and rare, and a goroutine per push would let a push outlive the notice that built it and
+    race the next tick's for the same lane.
+  - **L2 to L8, applied in group 5's diff** (so group 5's review reads them): L2 a task's `how`
+    follows its status, not only its type; L3 an exited claude named once in the push body; L4
+    `push.json`'s re-read signature covers its symlink target's folder; L5 tests for a
+    `push.json` symlinked into a group-writable folder and for a non-regular file; L6 a
+    restart test with `push.json` present asserts no push (STALL-3-S7); L7 a failed push's
+    output clipped to its last line in the log; L8 `TestStallAcrossRestartPushesOnceWatched`'s
+    window scaled by `testwait`.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
@@ -1177,8 +1262,8 @@
   - Citing [STALL-1-S5], [STALL-1-S8], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21] and [STALL-3-S7].
 
 ## 4. The notification and the push (D6, D7)
-- [ ] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].
-- [ ] 4.2 `framework/internal/panel/push.go`:
+- [x] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].
+- [x] 4.2 `framework/internal/panel/push.go`:
   - read `~/.clauductor/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.clauductor` path and no new helper in `config/paths.go` (OPS-101's row, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
   - for each notice that carries a stall, run its argv with a title and body built from the `stalled` alert's own fields (D7), never from `Notice.Body`, with no shell and a 10 s timeout; a failure counts in the notifier's failures with its error;
   - the machine (`machine.go`) reads the file once for every project, at start and from a machine source that checks its `pathSignature` every 10 s; each project's `pollNotify` (`runtime.go`) takes the machine's current command or refusal at each tick, runs the command, and adds a refusal to its view's `Warnings`; the machine's own notifier (the quota, the login locks) never pushes;

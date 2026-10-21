@@ -816,8 +816,16 @@ func (s *session) wakeupDue(now time.Time) bool {
 	return false
 }
 
-// taskNote is one listed task as the stall words it.
-type taskNote struct{ typ, text string }
+// taskNote is one listed task as the stall words it: text for the page (its
+// description included), how in fixed words for the push (D7: never a description).
+type taskNote struct{ typ, text, how string }
+
+// The ways a listed task stands, as the push words them (waitKind).
+const (
+	howInFlight = "in flight"
+	howFinished = "that ended and woke nothing"
+	howUnheard  = "whose end was not heard"
+)
 
 // turnWork is the background work the session's last Stop listed that is open work
 // now (D3 (d)), in the words of D4's text.
@@ -833,6 +841,7 @@ func (m *Model) turnWork(s *session, now time.Time) []taskNote {
 		if d == "" {
 			d = "(no description)"
 		}
+		how := howInFlight
 		switch {
 		case taskOpen(t.typ):
 			// Open work whatever its status, as D3 (d) words it: a teammate's says
@@ -844,13 +853,13 @@ func (m *Model) turnWork(s *session, now time.Time) []taskNote {
 		case !taskWorking(t.typ) || !inFlight(t.status):
 			continue
 		case t.typ == "subagent" && t.ended:
-			d += ", which finished and woke nothing"
+			d, how = d+", which finished and woke nothing", howFinished
 		case past:
-			d += ", whose end was never heard"
+			d, how = d+", whose end was never heard", howUnheard
 		default:
 			continue // still working
 		}
-		out = append(out, taskNote{t.typ, d})
+		out = append(out, taskNote{t.typ, d, how})
 	}
 	return out
 }
@@ -897,25 +906,59 @@ func workSummary(notes []taskNote) string {
 	return "turn ended on " + strings.Join(parts, ", ")
 }
 
-// lastWaitedOn is what the session's last turn ended waiting on (D4's text).
-func (m *Model) lastWaitedOn(s *session, now time.Time) string {
+// waitKind words the kind of wait of a turn's open work for the push (D7): "a shell
+// in flight", "2 subagents whose end was not heard". Fixed words by task type and how
+// it stands, never a task's description: those are the model's words.
+func waitKind(notes []taskNote) string {
+	type kind struct{ typ, how string }
+	n := map[kind]int{}
+	var order []kind
+	for _, t := range notes {
+		k := kind{t.typ, t.how}
+		if n[k] == 0 {
+			order = append(order, k)
+		}
+		n[k]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, k := range order {
+		noun := "a " + k.typ
+		if n[k] > 1 {
+			noun = countOf(n[k], k.typ)
+		}
+		parts = append(parts, noun+" "+k.how)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// The kinds of wait the push names where no task does (D7).
+const (
+	waitQuestion    = "a question"
+	waitNothing     = "nothing in flight"
+	waitUnknown     = "what it waited on is not known"
+	waitNotReported = "what it waited on is not reported"
+)
+
+// lastWaitedOn is what the session's last turn ended waiting on (D4's text), and the
+// kind of that wait in the push's fixed words (D7).
+func (m *Model) lastWaitedOn(s *session, now time.Time) (text, kind string) {
 	st := s.stall.stop
 	switch {
 	case st == nil:
-		return "what it waited on is not known: no turn of it has ended since the panel started"
+		return "what it waited on is not known: no turn of it has ended since the panel started", waitUnknown
 	case s.stall.unreported:
-		return "what it waited on is not known: its last turn's Stop was not heard (interrupted, failed, or sent while the panel was down)"
+		return "what it waited on is not known: its last turn's Stop was not heard (interrupted, failed, or sent while the panel was down)", waitUnknown
 	case !st.reported():
-		return "what it waited on is not reported by this Claude Code version"
+		return "what it waited on is not reported by this Claude Code version", waitNotReported
 	}
 	if notes := m.turnWork(s, now); len(notes) > 0 {
-		return turnText(notes)
+		return turnText(notes), waitKind(notes)
 	}
 	t := "its turn ended with nothing in flight to wake it"
 	if st.last != "" {
 		t += "; last said: " + st.last
 	}
-	return t
+	return t, waitNothing
 }
 
 // questionText words a question that stalled: as Needs you words the ask.
@@ -1050,6 +1093,9 @@ func (m *Model) laneWayJudged(wt signals.Worktree) bool {
 type laneStall struct {
 	since    time.Time
 	waitedOn string
+	// wait is the kind of wait waitedOn words, in the push's fixed words (D7: "a shell
+	// in flight", "nothing in flight", "a question"), never the model's.
+	wait     string
 	openWork []string
 	approx   bool
 	// question is the session whose question stalled the lane, and its blocked kind,
@@ -1144,7 +1190,7 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 			ls.exact[key] = !approx && !begun
 			stalled = true
 		}
-		var qText, dText string
+		var qText, dText, dWait string
 		var qSince time.Time
 		// A session waits on the owner, its ask the stall time old: nothing holds it off.
 		if agentsOK {
@@ -1183,12 +1229,12 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 				ls.turns = append(ls.turns, s.ID)
 				open = append(open, workSummary(notes))
 				if dText == "" {
-					dText = turnText(notes)
+					dText, dWait = turnText(notes), waitKind(notes)
 				}
 			}
 		}
 		// The lane: open work and quiet, nothing working (D3 (a) to (c)).
-		var lText string
+		var lText, lWait string
 		if workJudged && !leased && !working && ab && now.Sub(m.laneMoved(wt.Path)) >= T {
 			wake := false
 			for _, s := range live {
@@ -1198,14 +1244,14 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 			case len(live) > 0 && !wake:
 				hold(wayKey("lane", wt.Path), m.laneMoved(wt.Path), !fresh, stale)
 				ls.laneWay = true
-				lText = m.lastWaitedOn(m.latestStop(live), now)
+				lText, lWait = m.lastWaitedOn(m.latestStop(live), now)
 				if exited {
-					lText = exitText
+					lText, lWait = exitText, exitWhat
 				}
 			case len(live) == 0 && exited:
 				hold(wayKey("lane", wt.Path), m.laneMoved(wt.Path), !fresh, stale)
 				ls.laneWay = true
-				lText = exitText
+				lText, lWait = exitText, exitWhat
 			}
 		}
 		if !stalled {
@@ -1213,11 +1259,11 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 		}
 		switch {
 		case qText != "":
-			ls.waitedOn = qText
+			ls.waitedOn, ls.wait = qText, waitQuestion
 		case dText != "":
-			ls.waitedOn = dText
+			ls.waitedOn, ls.wait = dText, dWait
 		default:
-			ls.waitedOn = lText
+			ls.waitedOn, ls.wait = lText, lWait
 		}
 		if open == nil {
 			open = []string{}
@@ -1363,7 +1409,8 @@ func (m *Model) applyStalls(v *View, now time.Time) []AlertView {
 			text += "; open work: " + strings.Join(ls.openWork, ", ")
 		}
 		alerts = append(alerts, AlertView{Key: AlertStalled + ":" + lv.Path, Kind: AlertStalled, Severity: signals.SevBlock,
-			Lane: lv.Path, Name: lv.Name, Terminal: lv.Terminal, Text: "stalled: " + text, Since: ms(ls.since), Approx: ls.approx})
+			Lane: lv.Path, Name: lv.Name, Terminal: lv.Terminal, Text: stalledPrefix + text, Since: ms(ls.since), Approx: ls.approx,
+			Wait: ls.wait, OpenWork: ls.openWork})
 		label := stallLabel(ls)
 		if ls.question != "" {
 			for i := range v.NeedsYou {

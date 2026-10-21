@@ -2562,3 +2562,69 @@ func TestStallsOffDueNoMergedRead(t *testing.T) {
 		}
 	}
 }
+
+// [STALL-3-S1] The push is built from the stalled alert's own fields (D7): how long
+// the lane has been quiet, the open work and the kind of wait, in fixed words, never a
+// task's description, the turn's last line or the question's words.
+func TestStalledAlertCarriesThePushFields(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, path, wait string
+		setup            func(r *stallRig)
+		never            []string
+	}{
+		{"a shell", "/repo/w/x", "a shell in flight", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"last_assistant_message":"Checks are running.",`+
+				`"background_tasks":[{"type":"shell","status":"running","description":"Run checks","command":"sh .claude/checks/run.sh"}]`)
+		}, []string{"Run checks", "run.sh", "Checks are running"}},
+		{"nothing", "/repo/w/x", "nothing in flight", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[],"session_crons":[],"last_assistant_message":"Waiting for merge-train's reply."`)
+		}, []string{"merge-train"}},
+		{"a subagent ended", "/repo/w/x", "a subagent that ended and woke nothing", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[{"id":"a1","type":"subagent","status":"running","description":"Review group 2"}],"session_crons":[]`)
+			r.hook(hm(0, 0), "SubagentStop", "s", "/repo/w/x", `"agent_id":"a1","agent_type":"general-purpose"`)
+		}, []string{"Review group 2"}},
+		{"a question", "/repo", "a question", func(r *stallRig) {
+			r.list("o", "/repo", "busy")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0))
+			r.hook(hm(0, 0), "PermissionRequest", "o", "/repo", `"tool_name":"Bash"`)
+			r.list("o", "/repo", "waiting", "wants to use Bash")
+		}, []string{"Bash"}},
+	} {
+		r := newStallRig(t, hm(0, 0), "")
+		c.setup(r)
+		v := r.view(hm(0, 30))
+		a := stalledAlert(v, c.path)
+		if a == nil {
+			t.Fatalf("%s: no stalled alert for %s: %+v", c.name, c.path, v.Alerts)
+		}
+		if a.Wait != c.wait {
+			t.Errorf("%s: the alert's kind of wait %q, want %q", c.name, a.Wait, c.wait)
+		}
+		title, body := PushText("P", *a, hm(0, 30))
+		if c.path == "/repo/w/x" && !strings.Contains(body, "#152") {
+			t.Errorf("%s: the push body %q does not name #152", c.name, body)
+		}
+		if !strings.Contains(body, "quiet for 30m") || !strings.Contains(body, c.wait) {
+			t.Errorf("%s: the push body %q, want the quiet time and %q", c.name, body, c.wait)
+		}
+		if !strings.HasPrefix(title, "P · ") {
+			t.Errorf("%s: the push title %q, want the project and the lane", c.name, title)
+		}
+		for _, w := range c.never {
+			if strings.Contains(title+body, w) {
+				t.Errorf("%s: the push (%q, %q) carries %q, the model's or the owner's words", c.name, title, body, w)
+			}
+		}
+	}
+}

@@ -1592,6 +1592,7 @@ type modelV2 struct {
 	suggest        map[string]*SuggestView // template id → its suggestions
 	autoVerified   string                  // a version verified from live hooks (verify.go)
 	verify         verifier
+	pushRefused    string // why the machine's push.json was refused (PANEL-51 D7), or ""
 }
 
 // ObsView is the observability footer.
@@ -1694,6 +1695,13 @@ func (m *Model) ApplyObs(o Obs) { m.v2.obs = o }
 
 // ApplyNotifier copies the notifier's counters.
 func (m *Model) ApplyNotifier(n NotifierStats) { m.v2.notifier = n }
+
+// WarnPushRefused keys the warning that the machine's push.json was refused.
+const WarnPushRefused = "push_refused"
+
+// ApplyPushRefused records why the machine's push command was refused, or "" (PANEL-51
+// D7): the view warns with it, so every project's page names the file and why.
+func (m *Model) ApplyPushRefused(why string) { m.v2.pushRefused = why }
 
 // ApplyTrust records whether the config is trusted.
 func (m *Model) ApplyTrust(t config.TrustView) { m.v2.trust = t }
@@ -1988,6 +1996,9 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			vf.Version, HeuristicsVerifiedOn, vf.Confirmed, vf.Needed))
 	case !m.v2.versionSrc.Pending && !m.v2.versionSrc.OK && m.v2.versionSrc.Error != "":
 		v.warn("version:unread", "cannot read `claude --version` ("+m.v2.versionSrc.Error+"); subagent lists are approximate.")
+	}
+	if m.v2.pushRefused != "" {
+		v.warn(WarnPushRefused, m.v2.pushRefused)
 	}
 	if m.v2.droppedUnknown > 0 {
 		v.warn("unknown-events", fmt.Sprintf("%d hook event(s) with an event name the panel does not subscribe to were ignored.", m.v2.droppedUnknown))
