@@ -979,7 +979,7 @@ func TestStallResumeIsMovement(t *testing.T) {
 	stalledSince(t, v, "/repo/w/x", hm(3, 0), "03:30, the resumed lane")
 }
 
-// [STALL-1-S24] A resumed session is a start like a new one: what the process that
+// [STALL-1-S24] [STALL-2-S19] A resumed session is a start like a new one: what the process that
 // exited listed in its last Stop (a recurring cron, a shell) died with it, so it holds
 // nothing off and is nobody's open work (D1, D4).
 func TestStallResumeDropsPreExitStop(t *testing.T) {
@@ -1430,6 +1430,8 @@ func TestStallUnreportedTurnAcrossTheLifecycle(t *testing.T) {
 		}
 	}
 
+	// [STALL-2-S20] A lane stalled on its pull request after an unreported turn names
+	// none of the work that turn's kept Stop listed.
 	p := newStallRig(t, eve(23, 50), "")
 	p.list("s", "/repo/w/x", "idle")
 	p.poll(eve(23, 50))
@@ -1494,6 +1496,8 @@ func TestStallUnreportedTurnAcrossTheLifecycle(t *testing.T) {
 		stalledSince(t, b.view(hm(0, 41)), "/repo", hm(0, 11), "00:41, the Stop heard after the restart")
 	})
 
+	// [STALL-1-S27] A teammate's UserPromptSubmit under its lead's id is the lead's
+	// movement and marks nothing: the lead's turn stays judged.
 	m := newStallRig(t, eve(23, 50), "")
 	m.list("lead", "/repo", "idle")
 	m.poll(eve(23, 50))
@@ -1589,7 +1593,7 @@ func TestStallRestoredStopPairsEarlyStop(t *testing.T) {
 	}
 }
 
-// The owner's rule (a), 2026-10-20: a Stop whose background_tasks field is absent (an
+// [STALL-2-S17] The owner's rule (a), 2026-10-20: a Stop whose background_tasks field is absent (an
 // older Claude Code) ends no workflow and changes no kept task; absent is not empty,
 // so an absent session_crons changes no kept cron either.
 func TestStallAbsentFieldsKeepTheKeptStop(t *testing.T) {
@@ -1623,7 +1627,7 @@ func TestStallAbsentFieldsKeepTheKeptStop(t *testing.T) {
 	}
 }
 
-// The owner's rule (b), 2026-10-20: a Stop that carries an agent_id is never the
+// [STALL-2-S18] The owner's rule (b), 2026-10-20: a Stop that carries an agent_id is never the
 // session's own Stop (a teammate's hooks arrive under its lead's session_id: D9), so
 // it ends no workflow, replaces no kept task or cron and changes no last line. It is
 // still the session's movement. A guard: P3 saw a teammate's turn end as a

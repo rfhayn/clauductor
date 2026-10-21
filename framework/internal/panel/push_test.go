@@ -417,7 +417,7 @@ func TestPushWatchSeesTheLinkTargetsFolder(t *testing.T) {
 	}
 }
 
-// [STALL-3-S5] A push that fails names what it printed; one that does not answer is
+// [STALL-3-S5] [STALL-3-S8] A push that fails names what it printed; one that does not answer is
 // stopped at its timeout, even with a child of it still holding its output open.
 func TestRunPushFailsAndTimesOut(t *testing.T) {
 	t.Parallel()
@@ -618,7 +618,7 @@ func TestStallPushEndToEnd(t *testing.T) {
 	}
 }
 
-// [STALL-3-S4] End to end: a push.json writable by group never runs, the macOS
+// [STALL-3-S4] [STALL-3-S9] End to end: a push.json writable by group never runs, the macOS
 // notification still goes, and a warning on the page names the file and why; once
 // the file is made safe the warning goes, and with the file removed none shows.
 func TestStallPushRefusedEndToEnd(t *testing.T) {

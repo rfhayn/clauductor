@@ -96,6 +96,7 @@ func TestLeaseConformanceKitVersion(t *testing.T) {
 // version it declares: a preset that fails to load would be every adopting project's first error.
 // It declares the latest config version, as `panel init` and `panel attach` write (PANEL-51 D5,
 // the owner's #189), so an adopting project can set the newest keys without raising it first.
+// [STALL-1-S29]
 func TestTemplatePanelConfigLoads(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "template", ".clauductor", "panel.json"))
 	if err != nil {
