@@ -14,6 +14,67 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 6 — 2026-10-19 — Rich — no CI, headless lanes on API credit, PANEL-51 rebuilt around its seams
+
+<!-- DRAFT by the orchestrating session (2026-10-21). The close finishes: D8's outcome (PANEL-51, R1b),
+     OPS-93/OPS-97/OPS-82/OPS-89/OPS-105 if reached, Compound, Flow and cost, and the Span's end. -->
+
+**Rows**: OPS-96, OPS-53, OPS-101, OPS-65, OPS-60, PANEL-51, OPS-82, OPS-97, OPS-93 · **Span**: 2026-10-19 to (the close)
+
+### What happened
+
+The session opened on a cleanup at the owner's request. Before it, 17 lane worktrees were left from session 5, nearly all emptied by a sandbox-refused checkout, and seven stale remote branches. All of it was bundled first (`.git/clauductor/branch-archive-2026-10-19.bundle`) and then removed by the owner. Three things then shaped the rest of the session:
+- **GitHub Actions ran out of minutes** until about 11-01, so every PR check failed on billing. The owner turned CI off for the month: `GATE_PR_CHECKS=""` and both workflows disabled (OPS-96 #166, with **OPS-98** to restore them). A merge has rested on the local gate receipt alone since.
+- **The owner's plan was at 85 to 90% of its week,** so most work ran as **headless `claude -p` lanes on promotional API credit**, plus three claude.ai cloud sessions. One session orchestrated them all: it wrote each lane's prompt into `~/s6-lanes/`, and the owner started each one in a Terminal window.
+- **Interactive Claude Code does not draw on promotional credit; `claude -p` and the Agent SDK do.** The first PANEL-51 lane, interactive on the API key, died at a $0 purchased balance. The credit ran out at 00:20 on 10-21, by which time PANEL-51 had groups 1 to 3 committed.
+
+**Merged, in order (times ET):**
+- **OPS-96** (#166, 10-19 12:29 PM): session 5's leftovers, PRAC-0010 accepted (OPS-97 queued as its enforcement), the CI switch.
+- **OPS-53** (#169, 3:45 PM): a zombie read as a live gate holder, in `lease.sh` and Go's `LiveProc`, and the test's sync point. Built by a cloud lane. Under a slow reaper, 100 of 100 runs failed before and 0 of 100 after. The production-side window is #168.
+- **The S6-start roadmap edit** (#175, 5:57 PM), from the owner's bot team, checked against `main` here. It adds OPS-99 to OPS-105 and PANEL-52 to PANEL-54, and re-slots S6 to S8 in the A-T8 order: R1a before PANEL-51's build, R1b after.
+- **OPS-65** (#176, 6:36 PM) and **OPS-60** (#183, 8:31 PM), from Track C. OPS-60 was diagnosed first by a Linux cloud lane (#102's comment): a restart could empty the tmux server, and a pane dead with no status was read as a good launch, which is a real panel bug.
+- **R1a**, OPS-101's first PR (#181, 7:23 PM): the brand package and the legacy-first readers.
+- **PANEL-51's design amendment** (#167, 10-20 1:15 AM).
+
+**PANEL-51 (the stall alert)** was the session's long pole:
+- **The probes (group 1)** came first. They ran live in a throwaway panel whose lanes used the owner's plan login (Haiku). P1 and P4 passed. P2 found that no `SubagentStop` ever carries a workflow task's id, and P3 found that a teammate is in-process, inside its lead's session. Both stopped the build before any code.
+- **The build then ran as Tracks D to D7, over about 30 hours.** Every stop was a design question the owner answered in chat, each written into `design.md` and re-approved. Group 2 took 11 review rounds and group 3 took about 6, each round peaking at medium. Almost every medium was a new edge at a boundary between parts of the design: restarts, resumed sessions, config versions, reused branch names. None was a defect in the core rule.
+- **What ended a run of rounds was closing the class** (PRAC-0010, accepted at this session's start). Amendment B made a stall that begins across a restart approximate for one stall time. That settled eight rounds of restart cases at once, along with #185 and every reading added later.
+
+(The close adds D8 here: group 4's review, group 5, the merge and archive, then R1b.)
+
+**Held, not merged:**
+- **OPS-82** (#171): the cd guard. A probe on the Mac showed PostToolUse fires for Workflow, but there is no end-of-run signal, so a hold would never end. It needs one before it merges.
+- **OPS-97** (#170): the gate passed, but there is one medium. `build-change`'s `findingKey` would read a leading "Class: …" as the finding's identity.
+- **OPS-93**: its edits are under `.claude/`, which headless runs cannot write.
+
+### Decisions the owner made
+- **CI off until about 11-01**, with merges on the local receipt; OPS-98 to undo it.
+- **PRAC-0010 accepted**, with the reviewer-prompt line as its enforcement (OPS-97).
+- **The cleanup:** delete the old worktrees and branches, `ops/curtain-mod` included; remove the cancelled OPS-40 proposal from `changes/` (archiving would have needed false ticks).
+- **The roadmap edit from the bot team** (#175), with the validation's fixes (OPS-101's Deps, OPS-103 and OPS-105's off-repo sources, OPS-96's status).
+- **Option (a), the A-T8 order:** R1a before PANEL-51's build.
+- **PANEL-51:**
+  - A and A plus the allowlist: a workflow ends when a later `Stop` drops it; a teammate is part of its lead's session; only `shell`, `monitor` and `teammate` are open work;
+  - B: the restart class;
+  - #186 option 1: a turn that ends with no `Stop` leaves (d) unknown; M1 and M2 accepted;
+  - LANECTX-3 A: init and attach write the latest config version;
+  - #188 (a): a merge counts only at HEAD;
+  - #189 (a): the template's `panel.json` goes to v7;
+  - the budget raised from the soft $80 to a $180, then a $310 ceiling.
+- **#168's fix is decided at S10,** on OPS-105's data (the roadmap edit).
+
+### What surprised us
+- **Headless runs cannot write `.claude/`.** Claude Code refuses it as a sensitive file, even with an allow rule and the sandbox off. So a row whose scope is `.claude/` (OPS-93, OPS-97's fix, OPS-82) needs an interactive session.
+- **A quick gate takes about 24 minutes, longer than an agent's shell can wait.** So `build-change`'s gate agent was killed. The lanes used `apply-change`, starting the gate with `run_in_background` and a 2-hour timeout and then waiting with `gate-wait.sh`.
+- **The panel tests fail when `ANTHROPIC_API_KEY` is set** (#184). Every gate on API credit ran with `env -u ANTHROPIC_API_KEY`.
+- **An exited process can look alive** in more than one way: a zombie answers `ps` and `kill -0` (OPS-53), and a tmux pane can be dead with no exit status (OPS-60).
+- **The auto-mode classifier** blocked the orchestrating session from deletions and from anything that read as a CI bypass: disabling workflows, reading gate logs after the switch, routines. The owner ran those steps. In the sandbox, a Bash `git worktree add` fails partway (`.claude/agents/` is protected), which is how session 5's worktrees were emptied; `EnterWorktree` works.
+- **`clauductor update` follows `CLAUDUCTOR_FRAMEWORK`,** so in a worktree it read the main checkout's template. It also showed `main` lags its own template (`roles.reviewer.eval.baseline`, `orchestration/config.json`), and three lanes hit that separately.
+- **The rising-peak rule was overridden once by the owner's own instruction** (D3's "fix and run one more round"). The lane flagged it, and D4 on followed the rule strictly.
+
+(The close adds Compound, Flow and cost, and Left in flight.)
+
 ## Session 5 — 2026-10-18 — Rich — no silent stalls, PANEL-49 and OPS-81 merged, PANEL-51 amended for session 6
 
 **Rows**: OPS-90, OPS-85, PANEL-51, OPS-93, PANEL-49, OPS-81, OPS-95 · **Span**: 2026-10-18 to 2026-10-19
