@@ -20,13 +20,23 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # worktree build-change's preflight then pins every agent to.
 #
 # WHAT IS A CD OUT. lib/gate-reader.awk (`-v cds=1`) lists each `cd` that moves THIS shell, in
-# order: one inside `( … )`, `$( … )` or `sh -c` moves a child and is not counted. Each target is
-# resolved from the payload's cwd (then from the last cd's), physically where it exists and
-# lexically where it does not yet (`mkdir x && cd x`). Refused when the command starts inside a held
-# root and any target lands outside it, or in another checkout under it (a nested worktree, where
-# git's top level differs from the held root). A target that cannot be resolved here (`$VAR`,
-# `$(…)`, a glob, `cd -`) is refused too while a hold stands: a refused command can always be
-# rewritten.
+# order: one inside `( … )`, `$( … )` or `sh -c` moves a child and is not counted. Refused when the
+# command starts inside a held root and any target lands outside it, or in another checkout under it
+# (a nested worktree, where git's top level differs from the held root).
+#
+# READING A PATH THE WAY THE SHELL WILL is the class of slip this hook keeps meeting (PRAC-0010): a
+# symlink, a `..` and a directory `mkdir -p` makes first each change where a `cd` lands. So every
+# target, from the payload's cwd and then from the last cd's, is read TWO ways, and passes only if
+# both land inside: as the shell's own `cd` reads it (`..` taken off the typed path first, then the
+# rest walked through its symlinks) and as the kernel walks it (each symlink followed before the `..`
+# after it). Bash and zsh try the first and fall back to the second, so either can be where the
+# session lands. Fixing one reading at a time was tried and rejected (OPS-82, review rounds 3 and 4):
+# a lexical reading let `mkdir -p lnk/new && cd lnk/new` out through a symlink, and the symlinks-first
+# reading that replaced it let `cd deep/../..` out. A component that does not exist yet is taken as
+# written and the walk goes on. A target that cannot be resolved here (`$VAR`, `$(…)`, a glob,
+# `cd -`, a directory the hook cannot enter) is refused while a hold stands: a refused command can
+# always be rewritten. One reading leaving is enough: `cd lnk/..`, with lnk a symlink out, is
+# refused, though the shell's own cd would stay in.
 #
 # WHEN A HOLD ENDS. No hook event marks a workflow's end (TaskCompleted never fires for one), so a
 # hold ends when the first of these is seen:
@@ -63,6 +73,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     before every command, and a workflow agent's `cd` was probed (headless) not to move the
 #     session's cwd.
 #   - A `cd` through `eval`, an alias or a function is not seen (lib/gate-reader.awk).
+#   - CDPATH is not read: with it set in the session's shell, `cd name` can jump to another
+#     directory. The hook cannot see that shell's CDPATH (it comes from the user's profile, loaded
+#     into Claude Code's shell, not into a hook's environment), and refusing every bare relative
+#     target would refuse the common `cd sub`. Claude Code's shell sets none by default.
 #
 # WITHOUT jq, for what it polices (as no-blind-source-rewrite): a Bash call whose raw text holds a
 # `cd` or `pushd` word is refused while any hold is recorded in this repository; anything else is
@@ -138,15 +152,24 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // "" | tostring')
 case $cmd in *cd*|*pushd*) ;; *) exit 0 ;; esac
 [ -d "$HOLDS" ] || exit 0
 
-# phys DIR: DIR's physical path where it exists. Where it does not yet (`mkdir -p x && cd x`), its
-# nearest existing ancestor's physical path (`cd -P`, as the kernel resolves it: a symlink, or a `..`
-# after one, leads where it points), then the rest added lexically, `.` and `..` resolved.
+# lex PATH: the absolute PATH with `.` and `..` taken off as text, as the shell's own `cd` does first.
+lex() {
+  printf '%s\n' "$1" | awk -F/ '{ n = 0; for (i = 2; i <= NF; i++) { if ($i == "" || $i == ".") continue; if ($i == "..") { if (n) n--; continue } p[++n] = $i } o = ""; for (i = 1; i <= n; i++) o = o "/" p[i]; print (o == "" ? "/" : o) }'
+}
+# phys PATH: the absolute PATH as the kernel walks it, one component at a time: a symlink leads where
+# it points before a `..` after it is taken. A component that does not exist yet (`mkdir -p x && cd
+# x`) is taken as written, and the walk goes on, so `new/../lnk` still follows lnk. Fails if an
+# existing directory cannot be entered: the caller refuses what it cannot resolve.
 phys() {
-  if [ -d "$1" ]; then (cd -P "$1" 2>/dev/null && pwd -P) && return; fi
-  _a=$1; _r=""
-  while [ ! -d "$_a" ]; do _r="/$(basename "$_a")$_r"; _a=$(dirname "$_a"); done
-  _a=$(cd -P "$_a" 2>/dev/null && pwd -P) || _a=$1 _r=""
-  printf '%s%s\n' "$_a" "$_r" | awk -F/ '{ n = 0; for (i = 2; i <= NF; i++) { if ($i == "" || $i == ".") continue; if ($i == "..") { if (n) n--; continue } p[++n] = $i } o = ""; for (i = 1; i <= n; i++) o = o "/" p[i]; print (o == "" ? "/" : o) }'
+  _o=/; _ifs=$IFS; IFS=/; set -f; set -- $1; set +f; IFS=$_ifs
+  for _c in "$@"; do
+    case $_c in
+      ''|.) continue ;;
+      ..) _o=$(dirname "$_o") ;;
+      *) _o="${_o%/}/$_c"; if [ -d "$_o" ]; then _o=$(cd -P "$_o" 2>/dev/null && pwd -P) || return 1; fi ;;
+    esac
+  done
+  printf '%s\n' "$_o"
 }
 inside() { case $1 in "$2"|"$2"/*) return 0 ;; esac; return 1; }
 # ended HOLD: the hold's state file says its run ended. No file (the run is going), another status,
@@ -161,7 +184,7 @@ ended() {
 
 MAXH=${CD_GUARD_MAX_HOURS:-24}
 case $MAXH in ''|*[!0-9]*) MAXH=24 ;; esac
-start=$(phys "$cwd")
+start=$(phys "$cwd") || start=$(lex "$cwd")
 held=""; hold=""
 for h in "$HOLDS"/*; do
   [ -f "$h" ] || continue
@@ -169,7 +192,7 @@ for h in "$HOLDS"/*; do
   if [ ! -d "$r" ] || [ -n "$(find "$h" -mmin +$((MAXH * 60)) 2>/dev/null)" ] || ended "$h"; then
     rm -f "$h"; continue
   fi
-  r=$(phys "$r")
+  r=$(phys "$r") || r=$(lex "$r")
   inside "$start" "$r" && { held=$r; hold=$h; break; }
 done
 [ -n "$held" ] || exit 0
@@ -178,7 +201,21 @@ targets=$(printf '%s' "$cmd" | LC_ALL=C awk -v gates="" -v cds=1 -f "$(dirname "
   || block "the command reader (lib/gate-reader.awk) could not read this command, and a build-change run holds $held. $FIX"
 WHY="A build-change run holds $held, and every agent it starts from now on takes the session's cwd, so moving the session sends its next builder, gate and commit into the wrong checkout."
 END="If that run has ended, remove the hold and retry: rm $hold"
-cur=$start
+# land PATH HOW: refuse unless PATH, the target read HOW, is inside the held root and in its checkout.
+# Inside by path is not inside by checkout: a worktree nested under the held one (.claude/worktrees/x),
+# asked from the nearest directory that exists, for a target `mkdir -p` makes first.
+land() {
+  inside "$1" "$held" || block "this command moves the session to $1 ($2), outside $held. $WHY $FIX $END"
+  _e=$1; while [ ! -d "$_e" ]; do _e=$(dirname "$_e"); done
+  if _t=$(git -C "$_e" rev-parse --show-toplevel 2>/dev/null) && [ -n "$_t" ] && [ "$(phys "$_t" || lex "$_t")" != "$held" ]; then
+    block "this command moves the session to $1 ($2), inside $held but in another checkout ($_t). $WHY $FIX $END"
+  fi
+}
+# Two readings of where the session is and where each cd takes it, and a cd passes only if BOTH stay
+# in: curl is the shell's logical cwd (its cd takes `..` off the typed path first, and follows a
+# symlink only after), curp the physical one (the kernel follows each symlink before the `..` after
+# it). Bash and zsh fall back from the first to the second, so either can be where the session lands.
+curl=$cwd; curp=$start
 # A heredoc, not a pipe: the loop runs in this shell, so its block() exits the hook.
 while IFS= read -r t; do
   [ -n "$t" ] || continue
@@ -187,16 +224,12 @@ while IFS= read -r t; do
     '~/'*) t="$HOME/${t#\~/}" ;;
     *'$'*|*'`'*|*'*'*|*'?'*|*'['*|-*|'~'*) block "this command runs 'cd $t', whose target cannot be resolved here. $WHY $FIX $END" ;;
   esac
-  case $t in /*) ;; *) t="$cur/$t" ;; esac
-  t=$(phys "$t")
-  inside "$t" "$held" || block "this command moves the session to $t, outside $held. $WHY $FIX $END"
-  # Inside by path is not inside by checkout: a worktree nested under the held one (.claude/worktrees/x).
-  # Asked from the nearest directory that exists, for a target `mkdir -p` makes first.
-  e=$t; while [ ! -d "$e" ]; do e=$(dirname "$e"); done
-  if tt=$(git -C "$e" rev-parse --show-toplevel 2>/dev/null) && [ -n "$tt" ] && [ "$(phys "$tt")" != "$held" ]; then
-    block "this command moves the session to $t, inside $held but in another checkout ($tt). $WHY $FIX $END"
-  fi
-  cur=$t
+  case $t in /*) tl=$t tp=$t ;; *) tl="$curl/$t" tp="$curp/$t" ;; esac
+  tl=$(lex "$tl")
+  l=$(phys "$tl") && p=$(phys "$tp") || block "this command runs 'cd $t', which enters a directory this hook cannot resolve. $WHY $FIX $END"
+  land "$l" "read as the shell's cd reads it, .. first"
+  land "$p" "read through its symlinks first"
+  curl=$tl; curp=$p
 done <<EOF
 $(printf '%s\n' "$targets" | sed -n 's/^CD	//p')
 EOF

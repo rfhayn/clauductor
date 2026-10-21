@@ -510,7 +510,15 @@ mkdir -p "$d/cdg-out/target"; ln -s "$d/cdg-out/target" "$CW/lnk"; ln -s sub "$C
 cdg 2 "a cd through a symlink out, into a directory made first" "$(cdb "mkdir -p lnk/new && cd lnk/new")"
 cdg 2 "a cd through a symlink out and up, into a directory made first" "$(cdb "mkdir -p lnk/../esc && cd lnk/../esc")"
 cdg 0 "a cd through a symlink that stays inside, into a directory made first" "$(cdb "mkdir -p lnk-in/new && cd lnk-in/new")"
-rm -f "$CW/lnk" "$CW/lnk-in"
+# Each target is read two ways, and a cd passes only if BOTH stay in the held checkout: as the shell's
+# own cd reads it (`..` taken off the typed path first) and through its symlinks first.
+mkdir -p "$CW/a/b/c"; ln -s a/b/c "$CW/deep"
+cdg 2 "cd deep/../.. (the shell takes .. first: the worktree's parent)" "$(cdb "cd deep/../..")"
+cdg 2 "a cd back through a symlink out (new/../lnk)" "$(cdb "mkdir -p new && cd new/../lnk")"
+cdg 2 "cd lnk/.. (the shell stays in, but through the symlink it leaves)" "$(cdb "cd lnk/..")"
+cdg 0 "cd deep/.. (the two readings differ, both inside)" "$(cdb "cd deep/..")"
+cdg 0 "cd lnk-in/.. (both readings inside)" "$(cdb "cd lnk-in/..")"
+rm -rf "$CW/lnk" "$CW/lnk-in" "$CW/deep" "$CW/a"
 cdg 0 "a cd out inside a subshell" "$(cdb "( cd $C && git log -1 )")"
 cdg 0 "a cd out inside \$( )" "$(cdb "x=\$(cd $C && pwd)")"
 cdg 0 "a cd out inside sh -c" "$(cdb "sh -c 'cd / && ls'")"
