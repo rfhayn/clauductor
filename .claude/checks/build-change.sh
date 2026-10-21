@@ -111,7 +111,17 @@ t('key: "class Y, first seen" with no colon', kc('class a control that silently 
 t('key: two findings of one class in one file differ', kc('Class: a control that silently does nothing (first seen). The signature check only logs a mismatch') === kc('Class: a control that silently does nothing (first seen). The retry loop swallows every error'), false)
 t('key: a dot inside the class (package.json) does not end it', kc('Class: package.json drift, first seen. Null check missing on the user id path'), k1)
 t('key: a summary that is only a class clause keys on itself', kc('Class: a control that silently does nothing (first seen).') === `src/a.ts|`, false)
-t('key: a summary that starts with the word "classes" keeps it', kc('Classes of user ids are never checked here'), 'src/a.ts|classes of user ids are never')
+// The class can sit anywhere in the summary (reviewer.md asks for it "in its summary"), and is
+// dropped wherever it carries its marker: "class:", "the class is", or "first seen".
+t('key: a "(class: …)" aside is dropped', kc('Null check missing (class: a control that silently does nothing, first seen) on the user id path'), k1)
+t('key: a "; the class is …" clause is dropped', kc('Null check missing; the class is a control that silently does nothing. On the user id path'), k1)
+t('key: a class clause ended by a colon', kc('Class: a control that silently does nothing (first seen): null check missing on the user id path'), k1)
+t('key: two findings of one class, the class mid-summary, differ', kc('Task untested (class: named behaviour with no test, first seen). Task 1.2 has no test') === kc('Task untested (class: named behaviour with no test, first seen). Task 1.3 has no test'), false)
+// No marker, no strip: a summary that only starts with a word like "class" keeps every word.
+t('key: "Classes …." keeps its first sentence', kc('Classes of user ids are unchecked. The handler trusts them.'), 'src/a.ts|classes of user ids are unchecked')
+t('key: "Classify …." keeps its first sentence', kc('Classify the input first. It drops every id.'), 'src/a.ts|classify the input first it drops')
+t('key: the noun "Class" with no marker keeps its sentence', kc('Class UserRepo does not close its connection. The pool runs dry.'), 'src/a.ts|class userrepo does not close its')
+t('key: "Class-level …." keeps its sentence', kc('Class-level lock is never released. The handler leaks it.'), 'src/a.ts|class level lock is never released')
 const R = (peak, actionable, keys, diffHash, disputedKeys) => ({ peak, actionable, keys, diffHash, disputedKeys })
 t('stuck: never in round 1', stuckReason([R('high', 2, [k1], 'h1')]), null)
 t('stuck: a fixed, undisputed finding back unchanged is recurring', (stuckReason([R('medium', 1, [k1], 'h1'), R('medium', 1, [k1], 'h2')]) || '').split(':')[0], 'recurring')

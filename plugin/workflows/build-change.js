@@ -80,16 +80,21 @@ const gradeRound = (gatePassed, findings) => {
   return peak >= RANK.high ? 'fail' : peak === RANK.medium ? 'concern' : 'pass'
 }
 // A finding's identity across rounds: its file and the first words of its summary, normalised.
-// Line numbers move under a fix, and a reworded summary still starts the same way. A leading class
-// clause ("Class: X (first seen).", "one more X; the class is Y.", OPS-97) is not the finding: two
-// findings of one class would share a key, and a recurrence reworded "first seen" -> "one more"
-// would not. It ends at the first full stop followed by a space; a summary that is nothing else
-// keeps it.
-const CLASS_CLAUSE = /^\s*(?:class\b|one more\b[^;]*;\s*the class is\b)[\s\S]*?\.(?=\s|$)/i
+// Line numbers move under a fix, and a reworded summary still starts the same way. The finding's
+// class (OPS-97: the reviewer names it "in its summary", anywhere) is not the finding: two findings
+// of one class would share a key. So each form it is written in is dropped wherever it carries its
+// marker ("class:", "the class is", "first seen"), and a word like "Classes" or the noun "Class"
+// with no marker stays. A summary that is nothing but its class keeps it.
+const CLASS_CLAUSES = [
+  /\(\s*class\s*:[^)]*\)/gi, // an aside: "(class: X, first seen)"
+  /(^|[.;:]\s+)class\s*:[\s\S]*?(?:\.(?=\s|$)|:(?=\s)|$)/gi, // a clause: "Class: X (first seen). " or "…: "
+  /(^\s*one more\b[^;.]*;\s*|;\s*)the class is\b[\s\S]*?(?:\.(?=\s|$)|$)/gi, // "one more X; the class is Y." or "; the class is Y"
+  /^\s*class\b[^.]*?\bfirst seen\b[^.]*?\.(?=\s|$)/i, // "class Y, first seen." with no colon
+]
 const findingWords = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 6).join(' ')
 const findingKey = (f) => {
   const s = String(f.summary || '')
-  return `${f.file}|${findingWords(s.replace(CLASS_CLAUSE, '')) || findingWords(s)}`
+  return `${f.file}|${findingWords(CLASS_CLAUSES.reduce((t, re) => t.replace(re, ' '), s)) || findingWords(s)}`
 }
 // THE STUCK-LOOP BREAKER (Ferment stops after three failures; this stops at the first sign the loop
 // cannot converge, instead of burning rounds to MAX_ROUNDS). `rounds` holds each round so far:
