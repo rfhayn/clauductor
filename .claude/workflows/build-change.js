@@ -81,11 +81,16 @@ const gradeRound = (gatePassed, findings) => {
 }
 // A finding's identity across rounds: its file and the first words of its summary, normalised.
 // Line numbers move under a fix, and a reworded summary still starts the same way. The finding's
-// class (OPS-97: the reviewer names it "in its summary", anywhere, in its own words) is not the
-// finding: two findings of one class would share a key. So the unit dropped is not a phrasing but
-// a piece: each aside in parentheses (whole, however it nests) and each clause (between ". ", "; "
-// and " — ") that carries a class marker. A word like "Classes" or the noun "Class" with no marker
-// stays, and a summary that is nothing but its class keeps it.
+// class (OPS-97, PRAC-0010) is not the finding: two findings of one class would share a key, and a
+// recurrence whose class wording changed ("first seen" to "one more") would get a new one. The
+// reviewer puts the class in the schema's own `class` field, which this never reads. A summary that
+// still carries class wording (a reviewer that disobeys, a spawn with no schema, an old receipt)
+// falls back to dropping the pieces that carry a class marker: each aside in parentheses (whole,
+// however it nests) and each clause (between ". ", "; ", " — " and " – "). A word like "Classes" or
+// the noun "Class" with no marker stays, and a summary that is nothing but its class keeps it.
+// Known limit of the fallback: a class joined to the finding inside one clause (by a comma, a
+// colon or a hyphen) drops that whole clause, finding included, so two such findings of one class
+// can share a key and read as recurring. The `class` field is the fix; the fallback is not chased.
 const CLASS_MARK = /\bclass\s*:|\bthe class is\b|\bthis class\b|\bfirst seen\b|^\W*one more\b|\bclass\b[^.;]*\bone more\b/i
 // A summary's top-level clauses; a parenthesised aside stays inside its clause.
 const summaryClauses = (s) => {
@@ -252,7 +257,7 @@ const GATE = {
 // <review-prompt>
 const REVIEW_PROMPT = "Review task group {n} (\"{title}\") of change \"{change}\" ({changes}/{change}/). The group's work is the current UNCOMMITTED working-tree diff."
 const REVIEW_DISPUTED = "\n\nThe builder DISPUTES these earlier findings. For each, re-check the code: re-raise it only if the builder's reason is wrong, and say why in the finding.\n"
-const REVIEW = {"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["critical","high","medium","low"]},"file":{"type":"string"},"line":{"type":"number"},"summary":{"type":"string"},"failure":{"type":"string","description":"concrete input/state -> wrong result"},"group":{"type":"number","description":"the task group whose code holds the defect's SOURCE (not where the symptom shows); 0 if the source predates this change"}},"required":["severity","file","summary","failure","group"]}}},"required":["findings"]}
+const REVIEW = {"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["critical","high","medium","low"]},"file":{"type":"string"},"line":{"type":"number"},"summary":{"type":"string"},"failure":{"type":"string","description":"concrete input/state -> wrong result"},"group":{"type":"number","description":"the task group whose code holds the defect's SOURCE (not where the symptom shows); 0 if the source predates this change"},"class":{"type":"string","description":"the finding's class and whether an earlier round found one of it: \"one more X; the class is Y\" or \"class Y, first seen\". Here, never in summary"}},"required":["severity","file","summary","failure","group","class"]}}},"required":["findings"]}
 const reviewPrompt = (g, change, disputed) =>
   REVIEW_PROMPT.replace(/\{(n|title|changes|change)\}/g, (_, k) => ({ n: String(g.n), title: g.title, changes: CHANGES, change })[k])
   + (disputed.length ? REVIEW_DISPUTED + disputed.map((d) => `- ${d}`).join('\n') : '')
@@ -490,12 +495,12 @@ for (const g of todo) {
       return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds (peak ${peak})${disputes}`)
     }
     const source = (f) => (!outside.includes(f) ? '' : f.group === 0 ? ' (source: predates this change)' : ` (source: group ${f.group}, already committed)`)
-    const list = actionable.map((f, i) => `${i + 1}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}${source(f)}: ${f.summary}\n   failure: ${f.failure}`).join('\n')
+    const list = actionable.map((f, i) => `${i + 1}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}${source(f)}: ${f.summary}\n   failure: ${f.failure}${f.class ? `\n   class: ${f.class}` : ''}`).join('\n')
     const scope = outside.length
       ? `Findings marked with a source live in code group ${g.n} did not write: fix those at that source anyway, in this uncommitted diff, where this group's review will check the fix; the group boundary does not apply to them. For everything else, stay inside group ${g.n}.`
       : `Stay inside group ${g.n}.`
     const fix = await spawn(
-      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. ${scope} Leave the work uncommitted.`,
+      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. A finding whose class is "one more" of one already found is a second instance: close the class (allow only what is listed) instead of refusing one more form (PRAC-0010). ${scope} Leave the work uncommitted.`,
       { label: `review-fix:${g.n}#${round}`, phase: 'Review', schema: BUILD, ...BUILDER },
     )
     if (!fix) return stop(`group ${g.n} review`, 'builder returned nothing while fixing findings')

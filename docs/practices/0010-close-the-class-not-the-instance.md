@@ -55,26 +55,30 @@ often, a gate.
 ## Enforcement
 Partial. The reviewer's prompt (`.claude/agents/reviewer.md`, and the template's: OPS-97, the
 mechanism the owner chose on accepting this record, 2026-10-19) asks it to name each finding's
-class in its summary and say whether an earlier round found one of that class. `merge-pr` step 3
-and `build-change` (`maxRounds`) cap the rounds. The prompt is an eval trigger, so a change to it
-needs a passing eval receipt (`pr-merge-guard.sh` rule 13).
+class, and whether an earlier round found one of that class, in the finding's own `class` field,
+which the review schema in `build-change.js` requires. `build-change` hands the class to the
+fixer with each finding and tells it to close the class on a second instance. `merge-pr` step 3
+and `build-change` (`maxRounds`) cap the rounds. The prompt and the schema are eval triggers, so a
+change to either needs a passing eval receipt (`pr-merge-guard.sh` rule 13).
 
 Known limits, so this is not read as full enforcement:
 - **The reviewer sees only part of the earlier rounds.** `build-change` passes it the findings the
   builder DISPUTES (`REVIEW_DISPUTED`), not every earlier finding; beyond those it has the Decision
   log in `tasks.md` and the commit messages of committed groups. A second instance of a class
   whose first was fixed without a note in either reads as "first seen".
-- **No code acts on the class.** It is prose in the finding's summary: the review schema has no
-  field for it, and neither the fixer's prompt nor the round cap acts on it mechanically. The one
-  code that reads it, `build-change`'s `findingKey`, drops each aside in parentheses and each
-  clause (between `. `, `; ` and ` — `) that carries a class marker (`class:`, `the class is`,
-  `this class`, `first seen`, a leading `one more`, `class … one more`), however it is worded, so a
-  finding's identity across rounds is what it says, not its class: two findings of one class in
-  one file stay two, and a recurrence whose class wording changes ("first seen" to "one more") is
-  still one, as long as its own words do not change. A class written with none of those markers
-  stays in the key. Closing
-  the class, and sending an unclosable one to the owner by round 3, are still the fixer's and the
-  session's judgment.
+- **Only a prompt acts on the class.** The fixer is asked to close it; no code compares classes
+  across rounds, and the round cap does not read them. Sending an unclosable class to the owner by
+  round 3 is the fixer's and the session's judgment. A review with no schema (`merge-pr` step 3,
+  `apply-change`) has no field: the reviewer is asked for a `class:` line of its own.
+- **A class written in the summary anyway** (a reviewer that disobeys, a review with no schema, an
+  old receipt) is dropped from a finding's identity across rounds by `build-change`'s `findingKey`,
+  which never reads the `class` field: each aside in parentheses and each clause (between `. `,
+  `; `, ` — ` and ` – `) that carries a class marker (`class:`, `the class is`, `this class`,
+  `first seen`, a leading `one more`, `class … one more`), and a leading `Class: X:` up to its
+  second colon. So two findings of one class in one file stay two. A class with none of those
+  markers stays in the key; a clause that uses "the class is" for something else is dropped with
+  it; and a class joined to the finding in one clause (by a comma, a colon or a hyphen) drops the
+  whole clause, finding included, so two such findings can share a key and read as recurring.
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)
