@@ -31,6 +31,8 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 | the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
 | `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
 | `gh api graphql` (review threads) | per lane with an open pull request, at most every 2 min, only while a page is in view | a lane's unresolved review threads (merge readiness, PANEL-20) |
+| the gate receipt (`<git dir>/ci-receipt`) | every 30 s for each worktree with a branch of its own, its git dir found once by `git rev-parse --absolute-git-dir` and cached; while a page is in view, and with none while `alerts.stall_minutes` is above 0 (PANEL-51) | whether the gate passed for HEAD (merge readiness; a stall's open work) |
+| `gh pr list --head <branch> --state merged --json number,headRefOid --limit 20` (the merged read) | per worktree with a clean receipt for HEAD and no open pull request, only while `alerts.stall_minutes` is above 0, page or no page: once per branch and HEAD for a merge found; a "none" read again when the branch leaves the open-PR list (and until that read answers, the old "none" counts for nothing), otherwise at most every 5 min, a failed read included (PANEL-51) | whether that HEAD was merged, so a gate that passed with nothing after it is a stall's open work |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -421,11 +423,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
 | 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
 | 6 | the lane context policy (PANEL-48): `launch`, `lane_types.<key>.context_window`, `lane_types.<key>.subagent_model` |
+| 7 | stalled lanes (PANEL-51): `alerts.stall_minutes` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–6 (0 included) is refused.
+- A `version` outside 1–7 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -483,7 +486,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1 to 6 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 7 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -529,6 +532,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.min_interval_seconds` | number | `300` | 2 | At most one notification per lane per interval. |
 | `alerts.approval_wait_hours` | number | `24` | 4 | A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*). |
 | `alerts.stale_days` | number | `3` | 4 | A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert. |
+| `alerts.stall_minutes` | number | `30` | 7 | A lane is stalled when one of its sessions has waited on you this long since it asked, or when it has open work (a pull request, a gate that passed with nothing after it, a turn that ended on background work) and nothing in it has moved for this long; a stall notifies once (see *Alerts*). An attached project sets it in its sidecar. `0` turns stalls off. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
@@ -882,7 +886,9 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
-spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
+spawns anything. With no page open the panel spawns exactly what it did before PANEL-11 and,
+while `alerts.stall_minutes` is above 0, the receipt read and the merged read (PANEL-51, D10):
+a stall matters most when nobody is looking.
 
 ### The account and its quota
 
@@ -1088,7 +1094,9 @@ receipt for HEAD"), then a line per check. It is read-only: the panel never merg
 | Gate receipt | `<the worktree's git dir>/ci-receipt` (OPS-7's `run-local.sh`: `<sha> TAB full TAB clean\|dirty TAB all`) | it is for another commit than HEAD, or for a dirty tree; with none, only when the project keeps receipts (it has `scripts/ci/run-local.sh` or a queue) |
 
 A check the panel cannot make yet (nothing read, or gh failed) is shown as such, in the dim tier,
-and counts as not ready. The reads run with the dashboard's, only while a page is in view. A lane
+and counts as not ready. The reads run with the dashboard's, only while a page is in view, and,
+while `alerts.stall_minutes` is above 0, the receipt read with no page too, with the merged read
+(PANEL-51, D10); `tasks.md` and the review threads stay page-only. A lane
 on the project root or the base branch has nothing to merge, and says so.
 
 ### Worktree setup, teardown and ports

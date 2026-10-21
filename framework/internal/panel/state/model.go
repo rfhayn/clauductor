@@ -275,7 +275,7 @@ func NewModel(cfg *config.Config, root string, now time.Time) *Model {
 		laneGone:     map[string]time.Time{},
 		endedIDs:     map[string]time.Time{},
 		liveLanes:    map[string]liveLane{},
-		stall:        newStallModel(),
+		stall:        newStallModel(cfg.AlertThresholds().Stall),
 	}
 	m.v2.versionSrc = SourceStatus{Pending: true}
 	m.v2.queuesSrc = SourceStatus{Pending: true}
@@ -791,6 +791,9 @@ func (m *Model) ApplyPRs(prs []signals.PR, err error, now time.Time) {
 	if err != nil {
 		m.prsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
+	}
+	if m.stall.prsRead {
+		m.notePRsLeft(m.prs, prs, now)
 	}
 	m.prs = prs
 	m.prsSrc = SourceStatus{OK: true, At: ms(now)}
@@ -1670,6 +1673,10 @@ type ViewOrchestration struct {
 	// start, and 10 minutes have not passed; the notifier keeps its stalls' marks
 	// meanwhile (PANEL-51 D1; stall.go).
 	StallsPending bool `json:"stallsPending,omitempty"`
+	// StallsUnjudged are the lanes (paths) whose open work hangs on a merged read not
+	// yet answered for their branch and HEAD: the notifier keeps their stalls' marks
+	// meanwhile (PANEL-51 D1, D10; stall.go). The notifier's, not the page's.
+	StallsUnjudged []string `json:"-"`
 }
 
 // ApplyClaudeVersion records `claude --version`.

@@ -92,7 +92,7 @@ SH
 cat > "$tmp/bin/gh" <<'SH'
 #!/bin/sh
 case "$*" in
-  "pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision")
+  "pr list --json number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision --limit 1000")
     echo '[{"number":7,"title":"Second","headRefName":"change/second","author":{"login":"t"},"isDraft":false,"reviewDecision":"REVIEW_REQUIRED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"FAILURE"}]}]' ;;
   "api graphql"*) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":2,"nodes":[{"isResolved":true},{"isResolved":false}]}}}}}' ;;
   *) echo "[]" ;;

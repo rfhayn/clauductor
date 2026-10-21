@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
@@ -24,8 +25,6 @@ import (
 
 // Tunables of the stall rule.
 const (
-	// DefaultStallTime is alerts.stall_minutes' default (D5).
-	DefaultStallTime = 30 * time.Minute
 	// stallUnheard × the stall time is how long an unpaired subagent or workflow task
 	// holds its session working with no movement: past it, its end was never heard
 	// (a dropped hook, one sent while the panel was down), and it is open work.
@@ -158,6 +157,12 @@ type stallModel struct {
 	launched bool
 	// merged is the merged read's last result per lane (D10), as the runtime keeps it.
 	merged map[string]MergedRead
+	// leftOpen is when each branch last left the open-PR list (a successful `gh pr
+	// list` that no longer lists it), so a "none" read before then is no result: D10's
+	// "none" is read again when the branch leaves the list, and until that read answers
+	// (b) is unknown, rather than standing on a "none" that may now be a merge
+	// (review round 1 of group 3, M1).
+	leftOpen map[string]time.Time
 	// leased is the lanes holding or waiting for a lease at the last queue poll, and
 	// deadSeen the dead or stale holders already seen, so each is given up once.
 	leased   map[string]bool
@@ -171,30 +176,42 @@ type stallModel struct {
 	// carried is each way whose clock stall.json marked stalled at the save and the
 	// restart restored (wayKey): only those are exact within a stall time of the start.
 	carried map[string]bool
+	// restored is each way stall.json marked stalled at the save (wayKey), with the clock
+	// the restart restored for it, so a save made before the way's sources have answered
+	// writes that mark again rather than "not stalled" (StallState).
+	restored map[string]restoredMark
+}
+
+// restoredMark is a way's stalled mark as a restart restored it: its clock, and whether
+// it held only approximately.
+type restoredMark struct {
+	moved  time.Time
+	approx bool
 }
 
 // wayKey names one way of stalling by the clock it rests on: "lane" a lane's own open
 // work (D3 (a) to (c)), "turn" a session's background work (D3 (d)), "ask" its question.
 func wayKey(way, id string) string { return way + ":" + id }
 
-func newStallModel() stallModel {
-	return stallModel{time: DefaultStallTime, loc: time.Local, laneMove: map[string]time.Time{},
-		merged: map[string]MergedRead{}, leased: map[string]bool{}, deadSeen: map[string]bool{}, panes: map[string]string{},
-		aside: map[string]stallKeep{}, carried: map[string]bool{}}
+// newStallModel starts the rule with the project's stall time (alerts.stall_minutes,
+// D5; 0 turns stalls off).
+func newStallModel(stall time.Duration) stallModel {
+	return stallModel{time: stall, loc: time.Local, laneMove: map[string]time.Time{},
+		merged: map[string]MergedRead{}, leftOpen: map[string]time.Time{}, leased: map[string]bool{}, deadSeen: map[string]bool{}, panes: map[string]string{},
+		aside: map[string]stallKeep{}, carried: map[string]bool{}, restored: map[string]restoredMark{}}
 }
-
-// SetStallTime sets the project's stall time; 0 turns stalls off (D5).
-func (m *Model) SetStallTime(d time.Duration) { m.stall.time = d }
 
 // MergedRead is the merged read's last result for one lane (D10): the branch and HEAD
 // it was for, whether a read has succeeded for them (a failed read keeps the last
-// result, so with none it is unknown, never "none"), and the pull request found
-// merged from the branch, 0 for none.
+// result, so with none it is unknown, never "none"), the pull request found merged
+// from the branch, 0 for none, and when that read was made (its poll's time), so a
+// "none" made before the branch left the open-PR list is no result (stallModel.leftOpen).
 type MergedRead struct {
 	Branch string
 	Head   string
 	Read   bool
 	PR     int
+	At     time.Time
 }
 
 // ApplyMergedReads records the merged read's results, by lane path (D10).
@@ -429,7 +446,13 @@ func (k stallKeep) merged(st stallSession) stallKeep {
 // a SubagentStop heard between, or kept before a Stop heard then, ends the kept task
 // it pairs with, as keepStop pairs them.
 func (m *Model) restoreKeep(s *session, k stallKeep, waiting bool) {
+	pre := k.moved
 	k = k.merged(s.stall)
+	// The turn's mark, for a save made before its sources answer; not once the record
+	// heard since has moved the clock, which ended that stall.
+	if k.stalled && k.moved.Equal(pre) {
+		m.stall.restored[wayKey("turn", s.ID)] = restoredMark{moved: pre, approx: k.approx}
+	}
 	s.stall.moved, s.stall.stop, s.stall.stops, s.stall.unreported = k.moved, k.stop, k.stops, k.unreported
 	// A way that held exact at the save is carried exact into the window (option B).
 	if k.stalled && !k.approx {
@@ -924,8 +947,10 @@ func (m *Model) openPR(branch string) *signals.PR {
 
 // receiptClean: the lane's gate receipt is a clean run of its HEAD (HEAD from the
 // worktree list, D10).
-func (m *Model) receiptClean(wt signals.Worktree) bool {
-	x, ok := m.laneExtras[wt.Path]
+func (m *Model) receiptClean(wt signals.Worktree) bool { return receiptCleanIn(wt, m.laneExtras) }
+
+func receiptCleanIn(wt signals.Worktree, extras map[string]LaneExtra) bool {
+	x, ok := extras[wt.Path]
 	return ok && wt.Head != "" && x.HasReceipt && x.Receipt.Clean && x.Receipt.SHA == wt.Head
 }
 
@@ -933,13 +958,92 @@ func (m *Model) receiptClean(wt signals.Worktree) bool {
 // for its HEAD and no open pull request, the pull requests read (D3 (b) rests on them
 // too: "no pull request after it, open or merged").
 func (m *Model) needsMerged(wt signals.Worktree) bool {
-	return m.ownBranch(wt.Path, wt.Branch) && m.stall.receiptRead && m.stall.prsRead && m.receiptClean(wt) && m.openPR(wt.Branch) == nil
+	return m.stall.receiptRead && m.mergedDue(wt, m.laneExtras)
 }
 
-// mergedKnown: the merged read has succeeded for the lane's branch and HEAD.
+// A branch gh is never asked about (outside config.BranchRe: the runtime's mergedPRRead
+// refuses it before gh runs) is due no merged read, so no result could ever come: its
+// receipt stays unknown, never open work (D10), and no source waits on it (D1).
+func (m *Model) mergedDue(wt signals.Worktree, extras map[string]LaneExtra) bool {
+	return !wt.Bare && m.ownBranch(wt.Path, wt.Branch) && config.BranchRe.MatchString(wt.Branch) && m.stall.prsRead &&
+		receiptCleanIn(wt, extras) && m.openPR(wt.Branch) == nil
+}
+
+// MergedReadsDue lists the worktrees whose open work hangs on the merged read (D10),
+// judged by needsMerged's rule with the receipts the runtime has just read (extras),
+// so a receipt read and the merged read it calls for land in one update.
+func (m *Model) MergedReadsDue(extras map[string]LaneExtra) []signals.Worktree {
+	if m.stall.time <= 0 {
+		// The merged read serves the stall rule alone: with stalls off no lane is due one.
+		return nil
+	}
+	var out []signals.Worktree
+	for _, wt := range m.worktrees {
+		if m.mergedDue(wt, extras) {
+			out = append(out, wt)
+		}
+	}
+	return out
+}
+
+// mergedKnown: the merged read has succeeded for the lane's branch and HEAD, and is a
+// merge, or a "none" made after the branch last left the open-PR list (D10). The
+// runtime hands the model its cached "none" until its next read, so a "none" from
+// before the pull request was opened would otherwise stand once it merged: a stall
+// pushed as "gate passed, no PR" for a merged pull request.
 func (m *Model) mergedKnown(wt signals.Worktree) (MergedRead, bool) {
 	r, ok := m.stall.merged[wt.Path]
-	return r, ok && r.Read && r.Branch == wt.Branch && r.Head == wt.Head
+	if !ok || !r.Read || r.Branch != wt.Branch || r.Head != wt.Head {
+		return r, false
+	}
+	if left, was := m.stall.leftOpen[r.Branch]; was && r.PR == 0 && !r.At.After(left) {
+		return r, false
+	}
+	return r, true
+}
+
+// notePRsLeft records when each branch leaves the open-PR list, between the last
+// successful `gh pr list` and this one (stallModel.leftOpen). A branch listed again,
+// or no longer a worktree's, is dropped, so the map holds only what can still matter.
+func (m *Model) notePRsLeft(was, now []signals.PR, at time.Time) {
+	open := map[string]bool{}
+	for _, pr := range now {
+		open[pr.HeadRef] = true
+		delete(m.stall.leftOpen, pr.HeadRef)
+	}
+	for _, pr := range was {
+		if !open[pr.HeadRef] {
+			m.stall.leftOpen[pr.HeadRef] = at
+		}
+	}
+	branches := map[string]bool{}
+	for _, wt := range m.worktrees {
+		branches[wt.Branch] = true
+	}
+	for b := range m.stall.leftOpen {
+		if !branches[b] {
+			delete(m.stall.leftOpen, b)
+		}
+	}
+}
+
+// workJudged: the sources working rests on, and with it a session's background-work way
+// (D3 (d)), have answered since the start: `claude agents`, and the queues where the
+// project declares any (D1).
+func (m *Model) workJudged() bool {
+	return !m.agentsOKAt.IsZero() && (len(m.cfg.Queues) == 0 || m.stall.queuesRead)
+}
+
+// laneWayJudged: every source the lane's own way (D3 (a) to (c)) rests on has answered
+// since the start, so judgeStalls's verdict on it is a verdict: working's sources, the
+// pull requests, the receipts, the lane's merged read when it needs one, and tmux where
+// the project has lanes the panel launched (D1).
+func (m *Model) laneWayJudged(wt signals.Worktree) bool {
+	if !m.workJudged() || !m.stall.prsRead || !m.stall.receiptRead || (m.stall.launched && !m.stall.tmuxRead) {
+		return false
+	}
+	_, known := m.mergedKnown(wt)
+	return known || !m.needsMerged(wt)
 }
 
 // laneStall is one stalled lane as judged.
@@ -976,7 +1080,7 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 	fresh := m.agentsFresh(now)
 	settling := now.Sub(m.startedAt) < T // the restart window (D1, option B; hold below)
 	agentsOK := !m.agentsOKAt.IsZero()
-	workJudged := agentsOK && (len(m.cfg.Queues) == 0 || m.stall.queuesRead)
+	workJudged := m.workJudged()
 	leases, _ := m.leases(now)
 	byLane := map[string][]*session{}
 	for _, s := range m.sessions {
@@ -1164,8 +1268,9 @@ type StallView struct {
 type stallSource struct{ key, text string }
 
 // stallSourcesMissing lists the sources not yet answered since the start, and what
-// each leaves unjudged (D1).
-func (m *Model) stallSourcesMissing() []stallSource {
+// each leaves unjudged (D1). unanswered is mergedUnanswered, computed once by
+// applyStalls so this warning and StallsUnjudged read the same lanes.
+func (m *Model) stallSourcesMissing(unanswered []signals.Worktree) []stallSource {
 	var out []stallSource
 	if m.agentsOKAt.IsZero() {
 		out = append(out, stallSource{"agents", "`claude agents` has not answered since the panel started: no lane can be judged stalled until it does."})
@@ -1177,13 +1282,9 @@ func (m *Model) stallSourcesMissing() []stallSource {
 		out = append(out, stallSource{"receipts", "the gate receipts are not read: a gate that passed cannot make a lane stalled until they are."})
 	}
 	var unread []string
-	for _, wt := range m.worktrees {
-		if !wt.Bare && m.needsMerged(wt) {
-			if _, ok := m.mergedKnown(wt); !ok {
-				_, name := m.cfg.LaneFor(wt.Branch)
-				unread = append(unread, name)
-			}
-		}
+	for _, wt := range unanswered {
+		_, name := m.cfg.LaneFor(wt.Branch)
+		unread = append(unread, name)
 	}
 	if len(unread) > 0 && !m.stall.mergedOnce {
 		out = append(out, stallSource{"merged", "the merged read has not answered for " + strings.Join(unread, ", ") +
@@ -1194,6 +1295,20 @@ func (m *Model) stallSourcesMissing() []stallSource {
 	}
 	if len(m.cfg.Queues) > 0 && !m.stall.queuesRead {
 		out = append(out, stallSource{"queues", "the queues' leases are not read: only a question can make a lane stalled until they are."})
+	}
+	return out
+}
+
+// mergedUnanswered lists the lanes whose open work hangs on a merged read that has not
+// answered for their branch and HEAD (D10), so their lane's way is not yet judged (D1).
+func (m *Model) mergedUnanswered() []signals.Worktree {
+	var out []signals.Worktree
+	for _, wt := range m.worktrees {
+		if !wt.Bare && m.needsMerged(wt) {
+			if _, ok := m.mergedKnown(wt); !ok {
+				out = append(out, wt)
+			}
+		}
 	}
 	return out
 }
@@ -1218,9 +1333,18 @@ func (m *Model) applyStalls(v *View, now time.Time) []AlertView {
 	if m.stall.time <= 0 {
 		return nil
 	}
-	missing := m.stallSourcesMissing()
+	unanswered := m.mergedUnanswered()
+	missing := m.stallSourcesMissing(unanswered)
 	waited := now.Sub(m.startedAt) >= stallSourceWait
 	v.StallsPending = len(missing) > 0 && !waited
+	// A lane whose merged read is due and unanswered after the start (its pull request
+	// closed or merged since the last read) is not yet judged either: the notifier
+	// keeps its mark until the read answers, so a "none" bringing back the stall it had
+	// is not a second notice for one stretch (D1, D6; group 3's review round 1, M1).
+	v.StallsUnjudged = nil
+	for _, wt := range unanswered {
+		v.StallsUnjudged = append(v.StallsUnjudged, wt.Path)
+	}
 	if waited {
 		for _, s := range missing {
 			v.warn("stall-source:"+s.key, "Stalled lanes: "+s.text)
@@ -1407,12 +1531,25 @@ func (m *Model) StallState(now time.Time) StallState {
 			exact[k] = v
 		}
 	}
+	// A way not yet judged since the start (its sources unanswered) is not judged ended:
+	// it keeps the mark the restart restored while its clock has not moved, or a save
+	// in that time would write the stall as over, and the next start would carry its
+	// quiet time instead, a new since notified again (review round 2, M1). A question
+	// rests on `claude agents` alone, which has answered once a poll lists the session.
+	keep := func(key string, moved time.Time, judged bool) (restoredMark, bool) {
+		r, ok := m.stall.restored[key]
+		return r, ok && !judged && r.moved.Equal(moved)
+	}
 	for _, wt := range m.worktrees {
 		if !wt.Bare {
 			ls := stalls[wt.Path]
+			moved := m.laneMoved(wt.Path)
 			held := ls != nil && ls.laneWay
-			st.Lanes[wt.Path] = StallLaneMark{Moved: ms(m.laneMoved(wt.Path)), Stalled: held,
-				Approx: held && !exact[wayKey("lane", wt.Path)]}
+			approx := held && !exact[wayKey("lane", wt.Path)]
+			if r, ok := keep(wayKey("lane", wt.Path), moved, m.laneWayJudged(wt)); ok && !held {
+				held, approx = true, r.approx
+			}
+			st.Lanes[wt.Path] = StallLaneMark{Moved: ms(moved), Stalled: held, Approx: approx}
 		}
 	}
 	for id, s := range m.sessions {
@@ -1421,6 +1558,9 @@ func (m *Model) StallState(now time.Time) StallState {
 			k.stalled, k.askStalled = turns[id], asks[id]
 			k.approx = k.stalled && !exact[wayKey("turn", id)]
 			k.askApprox = k.askStalled && !exact[wayKey("ask", id)]
+			if r, ok := keep(wayKey("turn", id), k.moved, m.workJudged()); ok && !k.stalled {
+				k.stalled, k.approx = true, r.approx
+			}
 			st.Sessions[id] = k.mark()
 		}
 	}
@@ -1467,6 +1607,9 @@ func (m *Model) ApplyStallState(st StallState) {
 				m.stall.laneMove[p] = t
 				if l.Stalled && !l.Approx {
 					m.stall.carried[wayKey("lane", p)] = true
+				}
+				if l.Stalled {
+					m.stall.restored[wayKey("lane", p)] = restoredMark{moved: t, approx: l.Approx}
 				}
 			}
 		}

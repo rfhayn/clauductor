@@ -116,26 +116,57 @@ func (r *Runtime) pollAutoClose(ctx context.Context, now time.Time) (update, tim
 
 // mergedPR asks gh whether the branch has a merged pull request; the newest one's number.
 func (r *Runtime) mergedPR(ctx context.Context, branch string) (int, bool) {
-	if !config.BranchRe.MatchString(branch) {
-		return 0, false
-	}
-	out, err := r.exec(ctx, 30*time.Second, []string{"gh", "pr", "list", "--head", branch, "--state", "merged", "--json", "number", "--limit", "5"})
-	if err != nil {
-		return 0, false
-	}
-	var prs []struct {
-		Number int `json:"number"`
-	}
-	if json.Unmarshal([]byte(strings.TrimSpace(string(out))), &prs) != nil || len(prs) == 0 {
-		return 0, false
-	}
+	prs, err := r.mergedPRList(ctx, branch, "number", "5")
 	n := 0
 	for _, p := range prs {
 		if p.Number > n {
 			n = p.Number
 		}
 	}
-	return n, true
+	return n, err == nil && n > 0
+}
+
+// mergedPRRead is mergedPR's read for D3 (b), with its error kept apart (PANEL-51
+// D10): the number of the merged pull request whose head commit is head, 0 for none,
+// and an error when gh could not say, so a failed read is never taken for "none". A
+// merge whose headRefOid is not head is not counted (#188): a branch name reused after
+// a squash merge would otherwise have its old merge counted for the new HEAD. It is
+// lanes/close.go's mergedBranch rule for Close, with that read's 20 rows, so a few
+// older merges of the branch cannot push HEAD's out of the list.
+func (r *Runtime) mergedPRRead(ctx context.Context, branch, head string) (int, error) {
+	prs, err := r.mergedPRList(ctx, branch, "number,headRefOid", "20")
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range prs {
+		if head != "" && p.HeadRefOid == head {
+			return p.Number, nil
+		}
+	}
+	return 0, nil
+}
+
+// mergedRow is the part of a `gh pr list --state merged` row the merged reads use.
+type mergedRow struct {
+	Number     int    `json:"number"`
+	HeadRefOid string `json:"headRefOid"`
+}
+
+// mergedPRList runs `gh pr list --head <branch> --state merged` for the fields given;
+// an error when gh could not say, or its answer could not be read.
+func (r *Runtime) mergedPRList(ctx context.Context, branch, fields, limit string) ([]mergedRow, error) {
+	if !config.BranchRe.MatchString(branch) {
+		return nil, fmt.Errorf("branch %q is not a name gh is asked about", signals.Clip(branch, 80))
+	}
+	out, err := r.exec(ctx, 30*time.Second, []string{"gh", "pr", "list", "--head", branch, "--state", "merged", "--json", fields, "--limit", limit})
+	if err != nil {
+		return nil, err
+	}
+	var prs []mergedRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &prs); err != nil {
+		return nil, fmt.Errorf("gh pr list --state merged: %w", err)
+	}
+	return prs, nil
 }
 
 func keptReasons(p lanes.ClosePlan) []string {

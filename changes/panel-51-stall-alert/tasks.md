@@ -216,6 +216,70 @@
   (Decision log); one review round over it before its commit, then group 3.
 - 2026-10-20 #186 in group 2 built and reviewed: converged in 2 round(s), peak medium (round 1:
   M3, L4 and nit 5 fixed, M1 and M2 disputed for the owner, on #186; round 2: low).
+- 2026-10-20 group 3 (builder): 3.1 to 3.4 built and ticked, uncommitted for the group's review;
+  `go test -short ./...`, `gofmt` and `go vet` clean but for one test, below. **Stopped for the
+  owner on one artifact conflict (design-issue):** config version 7 (D5) makes `panel init` and
+  `panel attach` write `"version": 7` (they write `config.LatestVersion`), while the living
+  requirement LANECTX-3 (`specs/panel-lane-context/spec.md` lines 105 and 110) says they "declare
+  config version 6", so `install/attach_test.go`'s LANECTX-3-S1 check (`raw.Version != 6`) fails.
+  Left failing on purpose, unchanged. The likely fix, the owner's: a MODIFIED delta of LANECTX-3
+  and S1 in this change ("declare the latest config version") and the check reading
+  `config.LatestVersion`. Group 3 also built 4.1's first clause (the notifier keeps `stalled:` marks
+  while stalls are pending), which 3.4's restart case tests (Decision log). For group 4: 4.1's
+  `Notifier.StallsPending` exists and is set by the notify source; its notifier_test.go cases,
+  the Notice's stalled alert and `noticeLine` are still 4.1's.
+- 2026-10-20 **the build stops in group 3 for the owner** (session 6 TRACK D5, apply-change: a
+  `design-issue` reply is a stop). D5 does not say what `panel init` and `panel attach` write,
+  and the choice changes another capability's living requirement: (A) they write the latest
+  version, 7, with a MODIFIED delta of LANECTX-3 and its S1 in this change; or (B) they keep
+  writing 6, LANECTX-3 standing as written, and a project raises its own version to set
+  `stall_minutes`. Group 3 is uncommitted, with no quick gate and no review round run on it; a
+  copy is the local ref `refs/clauductor/p51-d5-group3`. $146.63 spent before group 3's builder.
+  Resume with apply-change at group 3's review once the owner has chosen.
+- 2026-10-20 the owner chose option A (D5, re-approved at 1e365ec5ebf7) and accepted #186's M1
+  and M2 as built. Session 6 TRACK D6: the MODIFIED delta of LANECTX-3 and its S1 ("declare the
+  latest config version"), copied word for word with S2 unchanged; `TestAttachedLanesLaunchWithThePolicy`
+  checks `config.LatestVersion`, shown failing with `init.go` writing a literal 6 ("declares
+  version 6 ... want 7"). Group 3's review next.
+- 2026-10-20 group 3's review (session 6 TRACK D6, apply-change): **NOT converged after 3 rounds,
+  peak medium each round (never rising), so the build stops; group 3 stays uncommitted.** A copy
+  is the local ref `refs/clauductor/p51-d6-group3`, with this entry. Round 1, quick gate PASS on its
+  tree (bc34abf0c): 1 medium, 8 low; M1 (a stale `stall.json` restored when stalls are turned
+  back on) and L1 to L7 fixed (Decision log), L8 (the template's `panel.json` at version 6) left
+  for the owner, #189. Round 2, quick gate PASS (5b1c138f4): 1 medium, 3 low; M1 (a save before
+  the sources answer drops a restored stalled mark: the restart class) and L2 to L4 fixed. Round
+  3, quick gate PASS (686aa91a4): 1 medium, 2 low, open: M1 D10's merged read counts an older
+  merge on a reused branch as HEAD's, so D3 (b) never holds there (a missed stall, never a false
+  push; round 1 called it D10 as written), the owner's, #188, with L1 (a failed merged read with
+  no result retried every poll, lane after lane) and L2 (task 3.4 still cites STALL-1-S13, now
+  cited only by group 2's test). $179.72 spent at the stop. Resume: the owner rules on #188 (and
+  #189); then one review round of group 3; if it finds nothing medium or worse, commit and go on
+  to group 4.
+- 2026-10-20 group 3 (builder, session 6 after the owner's #188 and #189): #188, #189 and round
+  3's L1 and L2 built test-first (Decision log); 3.1 to 3.4 stay ticked, uncommitted for group 3's
+  next review round. `gofmt`, `go vet`, `go test -short ./...` (run with `ANTHROPIC_API_KEY`
+  unset: the builder's environment set it, and 14 lane-start tests refuse to start a lane while
+  it is set) and both check suites pass. Next:
+  one review round of group 3; if nothing medium or worse, commit and go on to group 4.
+- 2026-10-20 group 3 review round 1 (after #188 and #189): peak medium, 1 medium 2 low, quick
+  gate PASS on tree 8264c8678; fixed test-first (Decision log): M1 (a pull request closed
+  unmerged re-pushed its lane's stall; a "none" from before a pull request opened stood after it
+  merged) by a "none" counting for nothing once its branch has left the open-PR list and the
+  notifier keeping a lane's stalled mark while its merged read is due and unanswered; L1 a test
+  that `tasks.md` and the review threads stay page-only with stalls on; L2 `docs/panel.md`'s
+  reads table and its two no-page lines. 3.1 to 3.4 stay ticked, uncommitted. Next: the next
+  review round of group 3.
+- 2026-10-20 group 3 review round 2 (after #188 and #189): peak medium, 1 medium 1 low 1 nit,
+  quick gate PASS on tree b7d8ea862; fixed test-first (Decision log): M1 (the open-PR fetch had
+  no `--limit`, so gh's 30 rows read as every open pull request) by `--limit 1000`; L1 (the
+  merged read stamped with the poll's start, so an update landing meanwhile voided its "none"
+  for a wait) by stamping when it answers; the nit by computing `mergedUnanswered` once per
+  snapshot. 3.1 to 3.4 stay ticked, uncommitted. Next: the caller's decision on group 3 (the
+  last review round allowed).
+- 2026-10-20 group 3 review round 3 (after #188 and #189): converged, peak low (3 low, 1 nit),
+  quick gate PASS on tree 811c29d83; L3 applied as wording (the `Ticks.StallSave` comment), L1
+  to the owner as #190, L2 and the nit left with a reason (Decision log).
+- 2026-10-20 group 3 (The config and the reads without a page) built and reviewed: converged in 3 round(s), peak medium (rounds 1 and 2 medium, round 3 low, after #188 and #189; session 6 TRACK D7)
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -778,6 +842,297 @@
   ends in a `StopFailure` keeps (d) unknown, failing under a mutation that clears the mark on
   `StopFailure` ("00:35, after a StopFailure: /repo is stalled"); the nit is round 1's hash note
   above.
+- 2026-10-20, group 3 (builder):
+  - **3.1, the stall time comes from the config when the model is built**
+    (`newStallModel(cfg.AlertThresholds().Stall)`), and `SetStallTime` is gone (its one caller was
+    `alerts_test.go`, which now sets `"stall_minutes":0`). Rather than the runtime calling a setter:
+    the model's config is never replaced in place (a config change restarts the runtime), so the
+    model reads it as it reads every other threshold. `Thresholds` gains `Stall` and
+    `StallMinutes`; `docs/panel.md`'s hand-written versions table gains row 7 and "outside 1–7"
+    with the generated *Keys* row, since D5 says the version gate follows.
+  - **3.1, LANECTX-3 conflicts with version 7** (Progress, the design-issue): left for the owner,
+    the failing check unchanged.
+  - **3.2, the receipt read walks the model's worktree list** (every worktree with a branch, but
+    the main checkout and a bare one), `QuietWorktrees` included (round 9's note); tasks.md and the
+    review threads only for the page's lanes, while a page is in view. With no page, a worktree's
+    page-only fields are carried from the model's last extras, as they stood when the whole source
+    paused with no page; rather than dropping them, which would change what the page shows the
+    moment it opens.
+  - **3.2, which lanes are due a merged read is the model's rule** (`MergedReadsDue`, sharing
+    `needsMerged`'s rule through `mergedDue`), judged with the receipts just read so the receipt and
+    its merged read land in one update; rather than the runtime re-deriving "clean receipt, no open
+    PR", a second copy of the rule.
+  - **3.2, what D10 does not settle about retries:** a lane with no result for its branch and HEAD
+    is read at each poll (every 30 s) until one answers, so a first failure leaves (b) unknown for
+    one tick, not 5 minutes; a failed read after a result waits `MergedNone` as "none" does, but a
+    branch that left the open list stays marked (`again`) until a read answers, so a failed read at
+    the merge does not leave the old "none" standing for 5 minutes. A branch name `gh` is not asked
+    about is an error, never "none" (`mergedPRRead`). The wait and the save interval are new
+    `Ticks` fields (`MergedNone` 5 min, `StallSave` 30 s) so tests shorten them; not the existing
+    `Ticks.Merged`, which is the metrics' merged-PR read.
+  - **3.3, a save at each tick while the bytes differ, the save time included.** A lane's carried
+    quiet time is `savedAt − moved`, so skipping a save when only `savedAt` changed would let a
+    crash after a long quiet stretch understate it by that whole stretch: a clock moved forward,
+    against D1's "never forward". Rather than comparing without `savedAt` (fewer writes, wrong after
+    a crash). The cost is one small atomic write per project every 30 s while it has any worktree.
+  - **3.3, nothing is saved before the first worktree list is read** (`StallState` keeps only the
+    listed lanes, so a panel stopped in its first second would drop every restored lane clock), and
+    neither read nor save runs while `stall_minutes` is 0. The clean stop's save is a goroutine
+    counted with the runtime's sources, on the runtime's context, so `halt` and `stopAll` wait for
+    it and a runtime started again on the same project reads it.
+  - **3.4 needs 4.1's first clause, built here:** `Notifier.StallsPending`, set from the view by the
+    notify source before each `Process`, keeps each `stalled:` mark while stalls are pending (D1).
+    3.4's restart case cannot pass without it, and "failing first with the pending flag ignored"
+    presumes it. A field, not a `Process` parameter, so `machine.go` and the existing tests are
+    unchanged. 4.1 keeps its tests in `notifier_test.go`, the Notice's stalled alert and `noticeLine`.
+  - **3.4 shown failing first** with the flag ignored (`false &&` in `Process`'s delete, sha1
+    2f7e75c7 restored): `TestStallRestartSendsNothingAgain` failed with "notify tick 1 with gh held:
+    notifier.json's mark for …/w/a is 0 (held false), want 1792521122194".
+    `TestStallRestartKeepsTheQuestionAndTheTurn` passes with the flag ignored, as it should: both of
+    its stalls rest on `claude agents` and the kept `Stop` alone, so they are judged before `gh`
+    answers and hold their own marks; it fails without the `stall.json` load ("waiting for the
+    second panel shows both stalls"). Other mutations, each restored by its sha1: the receipt read
+    page-only again (the S5/S19 and restart tests time out unstalled); the open-list trigger removed
+    (`TestMergedReadCache`: "the branch left the open list: … PR:0 after 4 calls, want #153 read at
+    once"); the attached sidecar at 0.03 (`TestStallTimeIsTheProjects`: "shows a stall").
+  - **3.4's STALL-1-S8** runs both projects in one panel, each with an idle lane and an open pull
+    request, the stall time 1.8 s (`stall_minutes` 0.03) rather than the scenario's 10 minutes;
+    STALL-1-S5 and S19's lanes likewise. The pure rule's timings stay in `state/stall_test.go`.
+- 2026-10-20, group 3, review round 1 (the builder's fixes; each new test shown failing on the code
+  as it stood, then passing):
+  - **M1, a stale `stall.json` when stalls are turned back on: a runtime that starts with stalls
+    off removes it** (`newRuntime`, `runtime.go`), rather than keeping saving while they are off.
+    Why: D1 keeps `stall.json` for a restart of the stall rule, and D5's 0 turns the rule off; with
+    no file, turning stalls on is a start D1 already settles (a lane with no saved movement counts
+    from the panel's start, and amendment B holds a stall that begins across it approximate for a
+    stall time). Saving while off would run the rule's writer with the rule off, and every clock it
+    saved would rest on readings the panel judged under no rule; deleting the state is less
+    mechanism than keeping it fresh. Cost: turned on again, a lane quiet all week waits one stall
+    time to stall. `TestStallsTurnedOffForgetTheSavedClocks` (`stall_integration_test.go`: stalled
+    and notified, a panel with stalls off, a panel with them on, the notifier's interval short as
+    days between would make it) failed on the code as it stood: "stall.json kept by a panel with
+    stalls off", "lane a is stalled since 1792524669421 (approx false), want a clock from this
+    start, after 1792524669421" and, with its interval short, "the stall was sent for since
+    1792524847651, want after 1792524847651": the push the finding described.
+  - **L1**: LANECTX-3's requirement line now reads "a config that declares a version before 6 SHALL
+    NOT use the policy's keys"; nothing else in that delta changed.
+  - **L2**: the two restart tests start their first panel with `stopSaveTicks` (`StallSave` an
+    hour), and `restartHeld` checks there is no `stall.json` before the stop and one after it. With
+    the clean stop's save removed from `Runtime.start` both failed ("no stall.json after a clean
+    stop"); restored, both pass.
+  - **L3 (fixed)**: `TestStallTimeIsTheProjects` seeds a `stall.json` in the attached project's
+    directory and checks it is gone at the end: with the sidecar's 0 read as off, M1 removes it;
+    read as unset (30 minutes, stalls on) the runtime keeps and rewrites it. With the sidecar's
+    `stall_minutes` taken out it failed ("keeps stall.json … its 0 was not read as off").
+  - **L4: with stalls off, no page means no readiness reads, and no lane is ever due a merged
+    read.** The receipt read with no page serves the stall rule alone (its only other reader is
+    the page's merge-readiness checklist, `state/readiness.go`, which reads it again once a page
+    is in view), so `pollReadiness` returns at once with no page and stalls off, as it did before
+    PANEL-51; and `MergedReadsDue` lists nothing with the stall time 0, since the merged read's
+    one reader is the rule (`ApplyMergedReads` into `m.stall.merged`), page or no page.
+    `TestStallsOffReadNothingWithNoPage` failed on the code as it stood ("3 merged reads and 1 git
+    dir reads, want none"); `TestStallsOffDueNoMergedRead` (`state/stall_test.go`) failed with the
+    `MergedReadsDue` guard disabled ("stalls off: 1 lanes due a merged read, want 0").
+  - **L5**: `saveStall` takes `stallMu` before it reads the model, so a tick's save that read
+    before the clean stop's cannot write after it. No test: the interleaving needs a hook inside
+    `hub.Read`, and the change is the lock's position alone.
+  - **L6**: the readiness source's comment in `newRuntime` says what it reads with no page (D10).
+  - **L7 (fixed)**: `gitDirOf` stats the worktree first and spawns no `git rev-parse` for a
+    directory that is gone, and `pruneGitDirs` drops a worktree no longer listed from the cache
+    each poll. `TestGitDirOfSkipsAGoneWorktree` (`readiness_merged_test.go`) failed with the stat
+    disabled ("git dir … after 1 spawns, want none") and with the prune disabled ("keeps its cached
+    git dir"). A worktree whose directory exists but whose rev-parse fails still spawns at each
+    poll: rarer, and caching a failure would need a retry interval of its own.
+  - **L8**: not changed, as the fix prompt says (the template's `panel.json`, the owner's).
+- 2026-10-20, group 3, review round 2 (the builder's fixes; each new test shown failing on the code
+  as it stood, then passing):
+  - **M1: a save made before a way's sources have answered writes the mark the restart restored
+    for that way, while its clock has not moved** (`Model.StallState`, `state/stall.go`), rather
+    than skipping the save while sources are pending. Why: D1 judges each way from its own sources
+    and says a repository whose `gh pr list` never succeeds still stalls on a frozen question, so
+    holding every save until all sources answer would never save such a project's question and
+    turn clocks; and `View.StallsPending` ends after 10 minutes, so it would leave the defect for a
+    longer `gh` outage. The model keeps each stalled way's restored mark (`stall.restored`, by
+    `wayKey`: a lane's in `ApplyStallState`, a session's turn in `restoreKeep` unless the record
+    heard since moved its clock); `StallState` writes it, exact or approximate as restored, for a
+    lane while `laneWayJudged` is false (working's sources, the pull requests, the receipts, its
+    merged read if it needs one, tmux where launched) and for a turn while `workJudged` is false
+    (`claude agents`, the queues; `judgeStalls` now reads the same method). A clock moved since the
+    restart ended that stall, so it is saved not stalled. Sessions checked for the same defect:
+    before the first poll lists a session it is saved from `stall.saved`, its marks as restored
+    (unchanged); its ask rests on `claude agents` alone, judged once a poll lists it; its kept
+    `Stop` and ids are saved from the session whatever the sources. Not changed, and not the save
+    path's: a session set aside after 30 minutes of failing `claude agents` polls is saved with no
+    stalled mark, but the live panel already drops its stall then (group 2's set-aside rule).
+    `TestStallSecondRestartBeforeGhAnswersSendsNothingAgain` (`stall_integration_test.go`: a stall
+    notified, a restart with `gh` held, that panel stopped with `gh` still held after two tick
+    saves, a third panel, the notifier's interval short) failed on the code as it stood: "after the
+    second restart lane a is stalled since 1792527374170, want 1792527374064" and "the second
+    restart sent the stall again". `TestStallSaveBeforeItsSourcesKeepsRestoredMarks`
+    (`state/stall_test.go`) failed: "lane x saved before the pull requests answered:
+    {… Stalled:false …}", "session sy saved before the queues answered: stalled false", and the
+    third start's stalls "since Oct 18 00:59, want Oct 18 00:00", approximate; with the clock
+    check removed its lane w failed ("lane w, moved after the restart: {… Stalled:true …}").
+  - **L2**: `stallSaved` and its comparison are gone (the state carries `SavedAt`, so it always
+    differed); the comments on the stall source and `saveStall` say each call writes.
+  - **L3: a branch outside `config.BranchRe` is due no merged read** (`mergedDue`, so
+    `MergedReadsDue`, `needsMerged` and the merged source's warning), rather than a reworded warning.
+    Why: `mergedPRRead` refuses it before `gh` runs, so no result can ever come; leaving it due kept
+    a source "unanswered" for good. Its receipt stays unknown, never open work (D10).
+    `TestStallBranchGhIsNotAskedAboutIsDueNoMergedRead` failed on the code as it stood ("merged
+    reads due for [… change/x+y …]" and the warning "the merged read has not answered for x+y").
+  - **L4**: `TestStallRestartSendsNothingAgain` no longer cites STALL-1-S13, which
+    `TestStallRestartCarriesClocks` covers in full, with `StallState`'s `SavedAt` (it saves through
+    the model), rather than adding a timing-bound second lane to the integration test.
+- 2026-10-20, group 3, the owner's decisions and review round 3's lows (each new test shown
+  failing on the code as it stood, then passing):
+  - **#188 (D10 as amended: a merge counts only when its head commit is the lane's HEAD).**
+    `mergedPRRead` takes the lane's HEAD, asks `gh pr list --head <branch> --state merged --json
+    number,headRefOid --limit 20` and returns the number of the merged pull request whose
+    `headRefOid` is HEAD, 0 for none; `readMerged` passes `wt.Head`. Reused, not rewritten: the
+    rule and the 20 rows are `lanes/close.go`'s `branchVerdict` (`mergedBranch`'s read), and the
+    one `gh` call and its parse are now `mergedPRList`, shared with auto-close's `mergedPR`.
+    **Chosen over** changing auto-close too: `mergedPR` keeps its `number --limit 5` read and
+    "the newest merge" answer, since D10 rules on D3 (b) alone, and auto-close's Close plan
+    already refuses a merge not at the tip (`branchVerdict`). `TestStallReusedBranchCountsNoOlderMerge`
+    (`stall_integration_test.go`: the fake `gh` answers `"<number>@<head commit>"` with its
+    `headRefOid`; an old merge #77 at the branch's first commit, an empty commit after it, a
+    clean receipt for the new HEAD, no PR open) failed on the code as it stood: "timed out after
+    10s waiting for lane a, its branch's old merge not HEAD's, stalled on its gate's pass with no
+    pull request". `TestStallWithNoPageReadsTheReceiptAndTheMergedRead`'s merge of #153 now
+    carries the lane's HEAD; `TestMergedReadCache` asks for the new argv and gains the reused
+    branch's older merge (read as "none" for HEAD) and a list holding both. No other test's fake
+    answers the readiness read (`autoclose_integration_test.go` answers auto-close's unchanged argv).
+  - **#189 (D5 as amended: the template's `panel.json` declares version 7).** Raised
+    `template/.clauductor/panel.json` to 7 and regenerated `plugin/scaffold/.clauductor/panel.json`
+    (`scripts/build-plugin.sh`). No test or check pinned the preset's version (grepped
+    `framework` tests, `.claude/checks`, `template/.claude/checks`; `TestTemplatePanelConfigLoads`
+    and `TestScaffoldPanelConfigLoads` only parsed it), so both now require `config.LatestVersion`
+    rather than a literal: the next version raise fails them until the preset follows. Shown
+    failing at 6: "template/.clauductor/panel.json declares version 6, want the latest, 7: raise
+    it and rebuild the plugin (scripts/build-plugin.sh)" and "scaffold panel.json declares
+    version 6, want the latest, 7". This repository's own `.clauductor/panel.json` is its own
+    config and is not changed.
+  - **Round 3, L1: a failed merged read with no result waits `Ticks.MergedNone` (5 minutes), as
+    "none" does.** `mergedEntry` records the branch and HEAD the last read was tried for, and a
+    lane whose last try was for its branch and HEAD is not read again inside the wait, answered
+    or not; a merge found is still kept for good, and a new branch or HEAD is read at once. An
+    error still never reads as "none", and with no result (b) stays unknown. **Kept:** with a
+    "none" kept from before the branch left the open-PR list, a failed read leaves `again` set,
+    so it is tried at each poll until one answers: that "none" may now be a merge, and standing it
+    would be a false stall (a false push), which costs more than the reads of the one lane in that
+    transition. With no result for the branch and HEAD, a failure clears `again`, so the wait
+    applies. `TestMergedReadFailureWaitsLaneAfterLane` (`readiness_merged_test.go`: two lanes,
+    every read failing, a poll every 30 s) failed on the code as it stood: "10 polls inside the
+    wait, every read failing: map[change/a:10 change/b:10] merged reads, want 1 per lane".
+    `TestMergedReadCache`'s first steps now expect no second try inside the wait.
+  - **Round 3, L2:** task 3.4 no longer cites [STALL-1-S13]; 2.3 keeps it, and
+    `state/stall_test.go` cites it (`scenario-trace.sh --change panel-51-stall-alert --now`:
+    CITED there; every group-3 scenario CITED, the MISSING ones groups 4 and 5's).
+- 2026-10-20, group 3, review round 1 after #188 and #189 (each new test shown failing on the
+  code as it stood, then passing):
+  - **M1: two rules, both at the source, both within D1 and D10 as written.** The window is
+    the one between `gh pr list` dropping a branch (60 s source) and the readiness source's next
+    merged read (30 s): in it the model judged (b) on what it had.
+    - **A "none" counts for nothing once its branch has left the open-PR list** (D10: "'None' is
+      read again when the branch leaves the open-PR list"; with no result, (b) is unknown).
+      `MergedRead` carries `At`, its poll's time; the model records when each branch leaves the
+      list (`stallModel.leftOpen`, set by `ApplyPRs` from the last good list and this one,
+      dropped when the branch is listed again or no worktree has it), and `mergedKnown` refuses
+      a "none" whose `At` is not after it. A merge found still counts for good. A time, not a
+      deletion on the transition, because the runtime hands the model its cached "none" again
+      at every readiness poll, including one whose view was read before the pull request
+      closed. This closes the mirror case (a lane pushed as "gate passed, no PR" for a merged
+      pull request).
+    - **The notifier keeps a lane's `stalled:` mark while its merged read is due and
+      unanswered** (D1: "the notifier keeps the stalls' marks while they are not yet judged";
+      D6: once per stretch). `View.StallsUnjudged` (the notifier's, `json:"-"`) lists those lanes
+      (`mergedUnanswered`, which the merged source's warning now shares), `Notifier.Process`
+      keeps their marks as it keeps every stall's while `StallsPending`, and the runtime calls
+      the new `Notifier.ProcessView`, which takes both flags from the view, so no caller sets one
+      and forgets the other. The page shows the lane not stalled meanwhile ((b) unknown is not
+      open work, D10); a kept mark only stops a second notice for the same `since`, and a lane
+      that moved meanwhile stalls with a new one, which is sent.
+    - **Chosen over** the reviewer's fix (1), keeping the lane's last verdict in the model: the
+      page would show a stall on a (b) D10 calls unknown, and the model would need a memory of
+      verdicts, where the notifier already keeps marks for the start's case. **Over** fix (2), a
+      merged read while the pull request is open: D10 reads "for each lane with a clean receipt
+      for HEAD and no open PR", and a kick from the PR source only narrows the window.
+    - **Left, with the reason:** a pull request opened and closed between two readiness polls is
+      never seen by the readiness source's own tracking (D10 puts it there), so its "none" is
+      read again only after the 5-minute wait. The model, which saw it leave, counts the old
+      "none" for nothing and keeps the mark meanwhile: a stall up to 5 minutes late, never a
+      false or second push.
+    - `TestStallClosedPRUnmergedSendsNothingAgain` (`state/stall_test.go`, the reviewer's
+      timeline, the notifier at the config's default interval) failed: "01:40:02, the merged
+      read unanswered: the notifier's mark is 0 (held false), want 00:00's" and "01:40:32: the
+      stall since 00:00 sent again". `TestStallMergedPRStaleNoneIsNoResult` failed: "Oct 18
+      01:20, the merged read due again: /repo/w/x is stalled: {… OpenWork:[gate passed for
+      1a2b3c4d5e, no PR] …}" and "a merged pull request's lane pushed". End to end
+      (`stall_integration_test.go`, the notify source at its default 2 s tick and the default
+      `min_interval_seconds`, the merged read held): `TestStallClosedPRSendsNothingAgain` failed
+      "notify tick 1 with the merged read unanswered: notifier.json's mark is 0 (held false),
+      want 1792542486804"; `TestStallMergedPRNotPushedOnAnOldNone` failed "notify tick 2, #152
+      merged and its merged read unanswered: lane a stalled {… OpenWork:[gate passed for
+      996e1e15b2, no PR] …}". The `At` field was added before the run (it changes nothing
+      alone). Each rule is load-bearing: with the notifier's keep disabled the two closed-PR
+      tests fail again, and with the stale-"none" rule disabled the two merged ones.
+  - **L1:** `TestStallNoPageLeavesTasksAndThreadsPageOnly` (a no-page panel, stalls on, a lane
+    with #152 open and a `tasks.md`; four readiness polls, then `POST /api/seen`). `tasks.md` is
+    a direct file read, so its read is counted where it lands, the lane's readiness `Tasks` row;
+    the review threads by the fake `gh`'s `gh api graphql` calls. Passes as the code stands;
+    with `visible &&` deleted from `readiness_source.go` it failed: "with no page in view: 1
+    review-thread reads (gh api graphql), want 0" and "with no page in view: tasks.md read ("1 of
+    2 ticked in changes/a/tasks.md"), want it unread".
+  - **L2:** `docs/panel.md`: the reads table gains the receipt read and the merged read, each
+    with its cadence and the stalls-on condition; *What it costs* and *Merge readiness* say the
+    two run with no page while `alerts.stall_minutes` is above 0, `tasks.md` and the threads
+    page-only.
+- 2026-10-20, group 3, review round 2 after #188 and #189 (each new test shown failing on the
+  code as it stood, then passing):
+  - **M1: the open-PR fetch asks for `--limit 1000`** (`runtime.go`, the const `openPRLimit`).
+    gh lists 30 rows unless asked for more, and the stall rule reads the list as every open pull
+    request (D3 (a) and (b), `notePRsLeft`, the merged read's due list and `readMerged`'s own
+    open tracking). 1000 is past any real project's open count. **Chosen over** treating a list
+    at exactly the limit as cut short (an error to `ApplyPRs`, so the `prs` source is
+    unanswered and its ways unjudged, as D1 says): a few lines, but it would also turn the
+    page's pull-request list into an error for such a project, a change outside the stall rule;
+    a project with 1000 open pull requests is out of reach and stated so in the const's comment.
+    No other `gh pr list` is read as complete: the merged reads (`autoclose.go`'s
+    `mergedPRList`, `lanes/close.go`) ask per branch with their own `--limit`, and the metrics'
+    merged list (`signals/merged.go`) already has `MergedLimit`. The fake `gh` in
+    `stall_integration_test.go` now lists as gh does (newest first, `--limit` rows, 30 unless
+    given); `run_test.go`'s exact-match fake and `testdata/browser/run.sh` (run by hand, not
+    by `go test`) take the new argument list. `TestStallSeesAnOpenPRPastGhsDefaultLimit` (31
+    open pull requests, lane a's #1 the oldest) failed: "timed out after 10s waiting for lane a
+    stalled on #1 open, the oldest of 31 open pull requests".
+  - **L1: the merged read's `At` is the runtime clock after the read answers**
+    (`readiness_source.go`), not the poll's `now`, taken before the hub's view; the wait
+    (`e.at`) keeps the poll's `now`. The hub and the runtime share one clock (`live.go`), so
+    `At` and `leftOpen` are on the same clock. `TestMergedReadStampsWhenItAnswered`
+    (`readiness_merged_test.go`, a fake clock the read advances by 2 s) failed: "a "none"
+    answered at t0+2s, its branch leaving the open list at t0+1s: At 2026-10-20 00:00:00
+    +0000 UTC, want after 2026-10-20 00:00:01 +0000 UTC". `TestMergedReadCache` gains a fake
+    clock (a successful read now reads it).
+  - **Nit:** `applyStalls` computes `mergedUnanswered` once and hands it to
+    `stallSourcesMissing`, so the warning and `StallsUnjudged` read the same lanes. No new
+    test: a refactor with no behaviour to fail on; the existing stall tests pass.
+- 2026-10-20, group 3, review round 3 (converged, peak low), what was done with each:
+  - **L1, a design gap, to the owner as #190:** a clean receipt for a HEAD already on `main` (a
+    worktree reset to `origin/main` and gated) is open work by D3 (b), since no merged pull
+    request names that HEAD, so such a lane can be pushed with nothing to merge. Telling it
+    apart is a rule D3 (b) and D10 do not state; left open when PANEL-51 merges.
+  - **L2, left with a reason:** the open-PR fetch's `--limit 1000` asks for each row's checks, so
+    a repository with hundreds of open pull requests could pass the fetch's 30 s timeout, where
+    gh's 30 rows used to answer. Kept: 30 rows silently gave the stall rule a false "gate
+    passed, no PR" past the 30th pull request (round 2's M1), a failed fetch is a warning bar
+    rather than a wrong answer, and no project the panel serves has near that many open.
+  - **L3, applied as wording:** `Ticks.StallSave`'s comment (`run.go`) said `stall.json` is
+    saved only while it changes; each save writes, since the state carries its save time.
+  - **Nit, left:** `Notifier.StallsPending` and `StallsUnjudged` stay set after `ProcessView`
+    sets them. A project's runtime calls `ProcessView` alone, which sets both at every tick; the
+    machine's notifier (`machine.go`) calls `Process` on an instance of its own whose flags
+    nothing sets, and a test sets what it needs.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)
@@ -809,16 +1164,17 @@
 - [x] 2.4 `framework/internal/panel/state`: the Needs-you item of kind `stalled`, built once per lane after the session loop, as `mergeNeeds` (`state/lifecycle.go`) builds the `merged` rows; a waiting lane that stalls keeps its one waiting item, labelled stalled, with the quiet time and open work (D11). Tested in `state/stall_test.go`, citing [STALL-4-S2] and [STALL-4-S3].
 
 ## 3. The config and the reads without a page (D1, D5, D10)
-- [ ] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8].
-- [ ] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR: only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none" (D10).
-- [ ] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (the owner's architect's constraint, in OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
-- [ ] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
+- [x] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8]. `panel init` and `panel attach` write the latest version (D5, the owner's option A of 2026-10-20): the MODIFIED delta of LANECTX-3 in `changes/panel-51-stall-alert/specs/panel-lane-context/spec.md`, and `framework/internal/panel/install/attach_test.go` checks `config.LatestVersion`, citing [LANECTX-3-S1].
+- [x] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR, asking for `number,headRefOid` and counting a merge only when its `headRefOid` is the lane's HEAD, as `lanes/close.go`'s `mergedBranch` does (D10, the owner's #188): only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none", and the read waits the same 5 minutes (D10; review round 3, L1).
+- [x] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (the owner's architect's constraint, in OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
+- [x] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
   - with the merged read's 5-minute wait shortened, `/api/state` shows the lane stalled while the fake `gh` lists no pull request for its branch, open or merged; still stalled when the next merged read fails; and not stalled once the fake `gh` has listed a pull request open for the branch and then lists it merged instead;
   - a second lane whose first merged read fails is not stalled until a read succeeds;
+  - a branch reused after a squash merge, whose old merged pull request's `headRefOid` is an older commit, with a new HEAD, a clean receipt for it and no pull request open, is stalled (#188);
   - an attached project whose sidecar sets `stall_minutes` 0 shows no stall;
   - a second runtime started on the same home after the first stops, with a fake `gh` that answers only after the notifier's first ticks, shows the same stall with the same `since`, its notifier sends nothing, and `notifier.json` keeps the stall's mark throughout. Show this case failing first with the pending flag ignored, and record that in the Decision log;
   - the same restart with a fake `claude agents` that lists a session still waiting on a question, and with a session whose saved `Stop` listed a running subagent whose paired `SubagentStop` arrived before the restart, and which now reads `idle`: both lanes show their stalls with the `since` they had, and nothing is sent.
-  - Citing [STALL-1-S5], [STALL-1-S8], [STALL-1-S13], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21] and [STALL-3-S7].
+  - Citing [STALL-1-S5], [STALL-1-S8], [STALL-1-S19], [STALL-1-S20], [STALL-1-S21] and [STALL-3-S7].
 
 ## 4. The notification and the push (D6, D7)
 - [ ] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].

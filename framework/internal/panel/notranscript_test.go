@@ -304,7 +304,7 @@ var fileReadSites = map[string]int{
 	"config/config.go":     1, // the panel config
 	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
 	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime.go":           1, // a project's notifier state (notifier.json)
+	"runtime.go":           2, // a project's notifier state (notifier.json); PANEL-51: its stall clocks (stall.json: lane and session clocks, ask times, kept Stop allowlists, SubagentStop agent ids)
 	"machine.go":           4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
 	"config/projects.go":   1, // the projects registry (projects.json)
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token

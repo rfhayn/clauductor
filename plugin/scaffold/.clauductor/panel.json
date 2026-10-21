@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
   "name": "My Project",
-  "version": 6,
+  "version": 7,
   "lanes": {
     "change/": "build",
     "fix/": "fix",

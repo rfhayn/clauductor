@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
 )
@@ -450,6 +451,66 @@ func TestStallRestartCarriesClocks(t *testing.T) {
 	stalledSince(t, b.view(hm(2, 30)), "/repo/w/b", hm(2, 0), "02:30, the lane with no saved movement")
 }
 
+// [STALL-3-S7] Review round 2, M1 (D1): a save made after a restart, before the sources
+// a way rests on have answered (here `claude agents` has, the pull requests and the
+// queues have not), keeps what the restart restored for that way while its clock has
+// not moved: lane x's open-work stall and session sy's background-work stall, each with
+// its time. Lane w, whose session moved after the restart, is saved not stalled. The
+// next start then shows both stalls with the since they had, exact.
+func TestStallSaveBeforeItsSourcesKeepsRestoredMarks(t *testing.T) {
+	t.Parallel()
+	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x", Head: headX},
+		{Path: "/repo/w/y", Branch: "change/y", Head: headY}, {Path: "/repo/w/w", Branch: "change/w", Head: headY}}
+	prs := []signals.PR{prX(152), {Number: 153, HeadRef: "change/w"}}
+	shell := `"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run checks"}],"session_crons":[]`
+	a := newStallRig(t, hm(0, 0), gateQueue, wts...)
+	a.list("sx", "/repo/w/x", "idle")
+	a.list("sy", "/repo/w/y", "idle")
+	a.list("sw", "/repo/w/w", "idle")
+	a.poll(hm(0, 0))
+	a.prs(hm(0, 0), prs...)
+	a.m.ApplyQueues([]types.QueueView{}, nil, hm(0, 0))
+	a.hook(hm(0, 0), "Stop", "sy", "/repo/w/y", shell)
+	v := a.view(hm(1, 0))
+	stalledSince(t, v, "/repo/w/x", hm(0, 0), "before the restart, lane x")
+	stalledSince(t, v, "/repo/w/y", hm(0, 0), "before the restart, lane y")
+	stalledSince(t, v, "/repo/w/w", hm(0, 0), "before the restart, lane w")
+	saved := roundTrip(t, a.m.StallState(hm(1, 0)))
+
+	b := newStallRig(t, hm(2, 0), gateQueue, wts...)
+	b.m.ApplyStallState(saved)
+	b.list("sx", "/repo/w/x", "idle")
+	b.list("sy", "/repo/w/y", "idle")
+	b.list("sw", "/repo/w/w", "idle")
+	b.poll(hm(2, 0))
+	b.hook(hm(2, 0), "UserPromptSubmit", "sw", "/repo/w/w", `"prompt":"go on"`)
+	mid := roundTrip(t, b.m.StallState(hm(2, 1)))
+	if l := mid.Lanes["/repo/w/x"]; !l.Stalled || l.Approx || l.Moved != hm(0, 0).UnixMilli() {
+		t.Errorf("lane x saved before the pull requests answered: %+v, want stalled, exact, moved 00:00", l)
+	}
+	if sm := mid.Sessions["sy"]; !sm.Stalled || sm.Approx || sm.Moved != hm(0, 0).UnixMilli() {
+		t.Errorf("session sy saved before the queues answered: stalled %v, approx %v, moved %d; want stalled, exact, moved 00:00",
+			sm.Stalled, sm.Approx, sm.Moved)
+	}
+	if l := mid.Lanes["/repo/w/w"]; l.Stalled || l.Moved != hm(2, 0).UnixMilli() {
+		t.Errorf("lane w, moved after the restart: %+v, want not stalled, moved 02:00", l)
+	}
+
+	c := newStallRig(t, hm(3, 0), gateQueue, wts...)
+	c.m.ApplyStallState(mid)
+	c.list("sx", "/repo/w/x", "idle")
+	c.list("sy", "/repo/w/y", "idle")
+	c.poll(hm(3, 0))
+	c.prs(hm(3, 0), prs...)
+	c.m.ApplyQueues([]types.QueueView{}, nil, hm(3, 0))
+	v = c.view(hm(3, 1))
+	for _, p := range []string{"/repo/w/x", "/repo/w/y"} {
+		if st := stalledSince(t, v, p, hm(0, 0), "after the second restart"); st.Approx {
+			t.Errorf("after the second restart %s's stall is approximate: it was carried stalled", p)
+		}
+	}
+}
+
 // roundTrip writes the state as stall.json would hold it and reads it back.
 func roundTrip(t *testing.T, st StallState) StallState {
 	t.Helper()
@@ -675,6 +736,89 @@ func TestStallMergedReadUnknown(t *testing.T) {
 	reads["/repo/w/y"] = MergedRead{Branch: "change/y", Head: headY, Read: true}
 	r.m.ApplyMergedReads(reads)
 	stalledSince(t, r.view(hm(1, 2)), "/repo/w/y", hm(0, 0), "the control: its read succeeds")
+}
+
+// notifyTick is one tick of the runtime's notify source over the view (its
+// ProcessView), with no terminal focused.
+func notifyTick(n *Notifier, v View, at time.Time) []Notice { return n.ProcessView(v, nil, at) }
+
+// Group 3, review round 1, M1 (D6: once per stretch; D10): a pull request closed
+// unmerged leaves the lane's merged read due and unanswered for up to one readiness
+// interval (30 s). Its (b) is unknown meanwhile, so the lane is not shown stalled, but
+// the notifier keeps its mark (D1: a stall's mark is kept while it is not yet judged),
+// and the "none" that follows brings back the same stretch, sent once.
+func TestStallClosedPRUnmergedSendsNothingAgain(t *testing.T) {
+	t.Parallel()
+	r := newStallRig(t, hm(0, 0), "")
+	r.list("s", "/repo/w/x", "idle")
+	r.poll(hm(0, 0))
+	r.prs(hm(0, 0), prX(152))
+	r.m.ApplyLaneExtras(map[string]LaneExtra{"/repo/w/x": cleanReceipt(headX)}, true)
+	n := &Notifier{MinInterval: config.DefaultNotifyInterval * time.Second}
+	v := r.view(hm(0, 40))
+	stalledSince(t, v, "/repo/w/x", hm(0, 0), "00:40, #152 open")
+	if got := notifyTick(n, v, hm(0, 40)); len(got) != 1 {
+		t.Fatalf("00:40: %d notices, want 1", len(got))
+	}
+	// 01:40: #152 is closed unmerged; gh pr list no longer lists it. The lane was never
+	// due a merged read while its pull request was open, so it has no result.
+	r.prs(hm(1, 40))
+	at := hm(1, 40).Add(2 * time.Second) // the next notify tick
+	v = r.view(at)
+	notStalled(t, v, "/repo/w/x", "01:40:02, its merged read unanswered")
+	if got := notifyTick(n, v, at); len(got) != 0 {
+		t.Fatalf("01:40:02: %+v sent", got)
+	}
+	if since, ok := n.State().Notified[AlertStalled+":/repo/w/x"]; !ok || since != hm(0, 0).UnixMilli() {
+		t.Errorf("01:40:02, the merged read unanswered: the notifier's mark is %d (held %v), want 00:00's", since, ok)
+	}
+	// 01:40:30: the merged read answers "none".
+	r.m.ApplyMergedReads(map[string]MergedRead{"/repo/w/x": {Branch: "change/x", Head: headX, Read: true, At: hm(1, 40).Add(30 * time.Second)}})
+	at = hm(1, 40).Add(32 * time.Second)
+	v = r.view(at)
+	stalledSince(t, v, "/repo/w/x", hm(0, 0), "01:40:32, read none")
+	if got := notifyTick(n, v, at); len(got) != 0 {
+		t.Errorf("01:40:32: the stall since 00:00 sent again: %+v", got)
+	}
+}
+
+// Group 3, review round 1, M1, its mirror (D10: "none" is read again when the branch
+// leaves the open-PR list): a "none" read before the pull request was opened is no
+// result once the branch leaves the list, so a lane that reaches the stall time before
+// the merged read answers is not stalled, and not pushed, as "gate passed, no PR" for
+// a pull request that merged.
+func TestStallMergedPRStaleNoneIsNoResult(t *testing.T) {
+	t.Parallel()
+	r := newStallRig(t, hm(0, 0), "")
+	r.list("s", "/repo/w/x", "busy")
+	r.poll(hm(0, 0))
+	r.prs(hm(0, 0))
+	r.m.ApplyLaneExtras(map[string]LaneExtra{"/repo/w/x": cleanReceipt(headX)}, true)
+	r.m.ApplyMergedReads(map[string]MergedRead{"/repo/w/x": {Branch: "change/x", Head: headX, Read: true, At: hm(0, 0)}})
+	n := &Notifier{MinInterval: config.DefaultNotifyInterval * time.Second}
+	notStalled(t, r.view(hm(0, 5)), "/repo/w/x", "00:05, busy")
+	r.prs(hm(0, 10), prX(152))
+	r.list("s", "/repo/w/x", "idle")
+	r.poll(hm(0, 50)) // movement: the session goes idle
+	// 01:19:50: #152 merged; gh pr list no longer lists it. The runtime still hands the
+	// model its "none" of 00:00 until its next read.
+	r.prs(hm(1, 19).Add(50 * time.Second))
+	r.m.ApplyMergedReads(map[string]MergedRead{"/repo/w/x": {Branch: "change/x", Head: headX, Read: true, At: hm(0, 0)}})
+	for _, at := range []time.Time{hm(1, 20).Add(2 * time.Second), hm(1, 20).Add(4 * time.Second)} {
+		v := r.view(at)
+		notStalled(t, v, "/repo/w/x", clock(at)+", the merged read due again")
+		if got := notifyTick(n, v, at); len(got) != 0 {
+			t.Fatalf("%s: a merged pull request's lane pushed: %+v", clock(at), got)
+		}
+	}
+	// 01:20:20: the merged read finds #152.
+	r.m.ApplyMergedReads(map[string]MergedRead{"/repo/w/x": {Branch: "change/x", Head: headX, Read: true, PR: 152, At: hm(1, 20).Add(20 * time.Second)}})
+	at := hm(1, 20).Add(22 * time.Second)
+	v := r.view(at)
+	notStalled(t, v, "/repo/w/x", "01:20:22, #152 read merged")
+	if got := notifyTick(n, v, at); len(got) != 0 {
+		t.Errorf("01:20:22: %+v sent", got)
+	}
 }
 
 // [STALL-1-S20] A restart keeps a waiting session's stall.
@@ -1907,6 +2051,32 @@ func TestStallMergedWarningOnlyBeforeItAnswers(t *testing.T) {
 	}
 }
 
+// D10 (group 3's review round 2, L3): a branch gh is never asked about (outside
+// config.BranchRe, which mergedPRRead refuses before gh runs) is due no merged read,
+// so its receipt stays unknown: the lane is not stalled on it, and no warning says the
+// merged read has not answered for it, for good.
+func TestStallBranchGhIsNotAskedAboutIsDueNoMergedRead(t *testing.T) {
+	t.Parallel()
+	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/p", Branch: "change/x+y", Head: headX}}
+	r := newStallRig(t, hm(0, 0), "", wts...)
+	r.list("s", "/repo/w/p", "idle")
+	r.poll(hm(0, 0))
+	r.prs(hm(0, 0))
+	x := map[string]LaneExtra{"/repo/w/p": cleanReceipt(headX)}
+	if due := r.m.MergedReadsDue(x); len(due) != 0 {
+		t.Errorf("merged reads due for %+v, want none: gh is never asked about change/x+y", due)
+	}
+	r.m.ApplyLaneExtras(x, true)
+	r.m.ApplyMergedReads(map[string]MergedRead{}) // the read refused the branch: no result
+	v := r.view(hm(0, 45))
+	for _, w := range v.WarningItems {
+		if strings.HasPrefix(w.Key, "stall-source:") {
+			t.Errorf("00:45: warning %q, but no source a way rests on is unanswered", w.Text)
+		}
+	}
+	notStalled(t, v, "/repo/w/p", "00:45")
+}
+
 // D1 (review round 6): the first queue read and the first tmux poll after a restart are
 // baselines, so a dead holder or a dead pane they already see keeps the saved since.
 func TestStallRestartFirstReadsAreBaselines(t *testing.T) {
@@ -2373,5 +2543,22 @@ func TestStallOneNeedPerLane(t *testing.T) {
 	}
 	if c := items["/repo/w/c"]; len(c) != 1 || c[0].Kind == AlertStalled || !strings.HasPrefix(c[0].Label, "Stalled") {
 		t.Errorf("/repo/w/c: needsYou %+v, want exactly its waiting item, labelled stalled", c)
+	}
+}
+
+// Review round 1, L4 (D10): the merged read serves the stall rule alone, so with
+// stall_minutes 0 no lane is due one, page or no page; with stalls on, the lane with a
+// clean receipt for its HEAD and no pull request is.
+func TestStallsOffDueNoMergedRead(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, extra string
+		due         int
+	}{{"on", "", 1}, {"off", `,"alerts":{"stall_minutes":0}`, 0}} {
+		r := newStallRig(t, hm(0, 0), c.extra)
+		r.prs(hm(0, 0))
+		if got := r.m.MergedReadsDue(map[string]LaneExtra{"/repo/w/x": cleanReceipt(headX)}); len(got) != c.due {
+			t.Errorf("stalls %s: %d lanes due a merged read, want %d", c.name, len(got), c.due)
+		}
 	}
 }
