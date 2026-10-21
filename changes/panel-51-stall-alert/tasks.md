@@ -1365,8 +1365,11 @@
   it), so `pushChain`'s comment and the *Security model* sentence say so rather than "never
   lexically" (a link the owner writes themselves; resolving it physically is a rule D7 does not
   state); L2 *Notifications* names the folders the 10 s check watches as the *Security model*
-  does; L3 `stall_test.go`'s case comment names the allowlist; L4 a no-op `MkdirAll` dropped from
-  `TestReadPushFollowsARelativeLinkFromItsRealFolder`.
+  does; L3 `stall_test.go`'s case comment names the allowlist; L4, the "no-op" `MkdirAll` in
+  `TestReadPushFollowsARelativeLinkFromItsRealFolder`, was not one: it is how `testbin`'s
+  `TestNoTestWritesAnExecutableAnotherWay` reads the `Chmod(shared, 0o770)` after it as a
+  folder's. Dropping it failed the full gate at 2d1b26ee; the folder is now made by name where
+  it is created, with a comment saying why, so no line is a no-op.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)

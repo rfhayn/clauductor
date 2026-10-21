@@ -289,7 +289,7 @@ func TestReadPushFollowsARelativeLinkFromItsRealFolder(t *testing.T) {
 	t.Parallel()
 	home, real := t.TempDir(), t.TempDir()
 	panelDir := config.PanelDir(home)
-	for _, d := range []string{filepath.Dir(panelDir), filepath.Join(real, "panel"), filepath.Join(real, "shared")} {
+	for _, d := range []string{filepath.Dir(panelDir), filepath.Join(real, "panel")} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -297,7 +297,11 @@ func TestReadPushFollowsARelativeLinkFromItsRealFolder(t *testing.T) {
 	if err := os.Symlink(filepath.Join(real, "panel"), panelDir); err != nil {
 		t.Fatal(err)
 	}
+	// Made by name, so testbin's scan reads the Chmod below as a folder's, not an executable's.
 	shared := filepath.Join(real, "shared")
+	if err := os.MkdirAll(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(shared, "push.json"), []byte(argvJSON("/usr/bin/true")), 0o600); err != nil {
 		t.Fatal(err)
 	}
