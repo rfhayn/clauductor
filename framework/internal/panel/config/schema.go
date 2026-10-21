@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/brand"
 )
 
 //go:generate go test -run TestGeneratedFilesAreCurrent -update .
@@ -21,7 +23,7 @@ func jsonSchema() ([]byte, error) {
 	out := map[string]any{
 		"$schema":     "https://json-schema.org/draft/2020-12/schema",
 		"$id":         SchemaURL,
-		"title":       "clauductor panel config (.clauductor/panel.json)",
+		"title":       brand.Name + " panel config (" + DefaultConfigRel + ")",
 		"description": "Generated from the Go config types by `go generate ./internal/panel/config`; do not edit. The reference is docs/panel.md.",
 	}
 	for k, v := range root {
