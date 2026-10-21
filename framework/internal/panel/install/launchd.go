@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/clauductor/clauductor/internal/brand"
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
@@ -27,7 +28,25 @@ import (
 // after a crash, and needs no terminal. Only this file knows about launchd.
 
 // LaunchdLabel names the login agent.
-const LaunchdLabel = "com.clauductor.panel"
+var LaunchdLabel = brand.LaunchdLabel(brand.Name)
+
+// removeLegacyAgents unloads and deletes a login agent a legacy name installed (brand.Names
+// after the first), so it never runs beside this one on the same port. While the names are
+// equal there is none to look for.
+func removeLegacyAgents(home string, names []string, run func(argv ...string) ([]byte, error)) error {
+	for _, n := range names[1:] {
+		label := brand.LaunchdLabel(n)
+		plist := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
+		if _, err := os.Lstat(plist); err != nil {
+			continue
+		}
+		_, _ = run("/bin/launchctl", "bootout", guiDomain()+"/"+label) // "not loaded" is fine
+		if err := os.Remove(plist); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // AppName is the optional Dock/Spotlight launcher `install --app` creates.
 const AppName = "Clauductor Panel.app"
@@ -329,7 +348,7 @@ func Install(o InstallOptions) error {
 		if o.Config != "" {
 			cfg = signals.ResolvePath(o.Config)
 		} else {
-			cfg = filepath.Join(project, config.DefaultConfigRel)
+			cfg = config.OwnConfigPath(project)
 		}
 		// Fail now rather than in a crash loop under launchd.
 		if _, err := config.LoadConfig(cfg); err != nil {
@@ -348,6 +367,9 @@ func Install(o InstallOptions) error {
 	}
 	// Every install rotates the token, so reinstalling is also how to revoke it.
 	if _, err := RotateToken(o.Home); err != nil {
+		return err
+	}
+	if err := removeLegacyAgents(o.Home, brand.Names(), o.Exec); err != nil {
 		return err
 	}
 	plist := PlistPath(o.Home)
@@ -442,6 +464,9 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 	if b, err := run("/bin/launchctl", "bootout", guiDomain()+"/"+LaunchdLabel); err != nil {
 		fmt.Fprintf(out, "launchctl bootout: %s (fine if it was not loaded)\n", strings.TrimSpace(string(b)))
 	}
+	if err := removeLegacyAgents(home, brand.Names(), run); err != nil {
+		return err
+	}
 	dir := config.PanelDir(home)
 	// Everything the agent owns goes. port, pid and owner.json belong to a running
 	// panel, which bootout has just stopped.
@@ -515,7 +540,7 @@ func NewToken() (string, error) {
 }
 
 // MarkerPath is the file whose existence tells a status-line script the panel is up.
-func MarkerPath(home string) string { return filepath.Join(home, ".clauductor", "panel", "port") }
+func MarkerPath(home string) string { return filepath.Join(config.PanelDir(home), "port") }
 
 func openBrowser(url string) {
 	name := "xdg-open"

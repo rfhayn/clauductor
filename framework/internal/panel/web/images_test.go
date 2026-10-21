@@ -74,7 +74,9 @@ func TestDroppedImageIsTypedWithoutEnter(t *testing.T) {
 	// cat creating the file comes after the request.
 	// It is also past stty: keys sent before raw mode meet the line discipline.
 	testwait.For(t, "the lane recording its keys", 10*time.Second, func() bool { _, err := os.Stat(typed); return err == nil })
-	w := do(s, "POST", "/api/lanes/lane-a/image", pngBytes, withCookie(s), withHeader("Origin", "http://127.0.0.1:4393"),
+	// Real tmux (has-session, set-buffer, paste-buffer, send-keys): under the test's
+	// context, not do's one second, which a loaded race step runs out (#109).
+	w := doCtx(t.Context(), s, "POST", "/api/lanes/lane-a/image", pngBytes, withCookie(s), withHeader("Origin", "http://127.0.0.1:4393"),
 		withHeader("X-Filename", "..%2F..%2Fmy%20screen%20shot.jpeg"))
 	if w.Code != 200 {
 		t.Fatalf("drop: %d %s", w.Code, w.Body)

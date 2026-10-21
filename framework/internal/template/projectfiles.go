@@ -2,7 +2,11 @@ package template
 
 import (
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/brand"
 )
 
 // Project-owned files (doc tier) are never overwritten, which used to mean install and update
@@ -14,9 +18,45 @@ import (
 // ModelRolesPath and PanelPath are the two project-owned JSON files install and update touch.
 const (
 	ModelRolesPath = ".claude/model-roles.json"
-	PanelPath      = ".clauductor/panel.json"
+	PanelPath      = "." + brand.Name + "/panel.json"
 	AgentsPath     = "AGENTS.md"
 )
+
+// ProjectPanelPath is the panel.json a project holds, relative to targetDir: PanelPath, or a
+// legacy name's while only that one exists (brand.Names), so update still checks the file
+// the project's panel reads.
+func ProjectPanelPath(targetDir string) string { return projectPanelPath(targetDir, brand.Names()) }
+
+// ProjectDest is where the project holds the template file rel that the mapping places at
+// dest: dest, except the panel file, which is ProjectPanelPath. Install, update and survey
+// all decide whether the project has a file from this, so a project holding only a legacy
+// name's panel.json is never given a new one beside it that its panel would then read.
+func ProjectDest(targetDir, rel, dest string) string {
+	return projectDest(targetDir, rel, dest, brand.Names())
+}
+
+func projectDest(targetDir, rel, dest string, names []string) string {
+	if rel == PanelPath && dest == PanelPath {
+		return projectPanelPath(targetDir, names)
+	}
+	return dest
+}
+
+func projectPanelPath(targetDir string, names []string) string {
+	rels := make([]string, len(names))
+	paths := make([]string, len(names))
+	for i, n := range names {
+		rels[i] = path.Join(brand.Dir(n), "panel.json")
+		paths[i] = filepath.Join(targetDir, filepath.FromSlash(rels[i]))
+	}
+	found := brand.Existing(paths...)
+	for i, p := range paths {
+		if p == found {
+			return rels[i]
+		}
+	}
+	return rels[0]
+}
 
 // MergeAddOnly adds to the project's JSON (have) every key the template's (want) has and it
 // lacks, at any depth, and changes nothing else: an existing value, array or differing type is

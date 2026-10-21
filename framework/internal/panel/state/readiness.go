@@ -35,6 +35,7 @@ type LaneExtra struct {
 // keeps a gate receipt (so a missing one is a reason, not an irrelevance).
 func (m *Model) ApplyLaneExtras(x map[string]LaneExtra, gateReceipts bool) {
 	m.laneExtras, m.gateReceipts = x, gateReceipts
+	m.stall.receiptRead = true // PANEL-51: the receipt read has answered
 }
 
 // LaneExtraOf is one worktree's extra reads (the runtime keeps what it has).
@@ -63,7 +64,7 @@ type ReadyRow struct {
 
 // readiness is a lane's box, or nil for a lane with no branch of its own.
 func (m *Model) readiness(l LaneView) *Readiness {
-	if l.Branch == "" || l.Path == m.root || l.Branch == m.cfg.BaseRef() || "origin/"+l.Branch == m.cfg.BaseRef() {
+	if !m.ownBranch(l.Path, l.Branch) {
 		return nil
 	}
 	r := &Readiness{Reasons: []string{}, Rows: []ReadyRow{}}
@@ -73,12 +74,7 @@ func (m *Model) readiness(l LaneView) *Readiness {
 			r.Reasons = append(r.Reasons, reason)
 		}
 	}
-	var pr *signals.PR
-	for i := range m.prs {
-		if m.prs[i].HeadRef == l.Branch {
-			pr = &m.prs[i]
-		}
-	}
+	pr := m.openPR(l.Branch)
 	switch {
 	case !m.prsSrc.OK && m.prs == nil:
 		add("Pull request", "not read yet", false, true, "the pull requests are not read yet")

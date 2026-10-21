@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/clauductor/clauductor/internal/brand"
 	"github.com/clauductor/clauductor/internal/panel/config"
 )
 
@@ -16,8 +18,9 @@ import (
 // returns ::1 first, so the panel listens on [::1]:<port> as well as 127.0.0.1.
 // Both listeners serve one server and one state.
 //
-// The Host allow-list is EXACT: 127.0.0.1, localhost, [::1] and clauductor.localhost
-// on the panel's port, plus names a config adds, each of the form <label>.localhost.
+// The Host allow-list is EXACT: 127.0.0.1, localhost, [::1] and config.DefaultHostName
+// on the panel's port (and a legacy name's <name>.localhost, brandHosts), plus names a
+// config adds, each of the form <label>.localhost.
 // There are no wildcards: evil.localhost is refused. A *.localhost name can never
 // be an attacker's DNS name (browsers never ask DNS for it), so the list still
 // defeats DNS rebinding. Host names compare case-insensitively (RFC 9110 §4.2.3).
@@ -28,10 +31,27 @@ import (
 // allowedHosts is the exact Host allow-list, lower case.
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.Port)
-	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, config.DefaultHostName + ":" + p}
+	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p}
+	for _, n := range brandHosts(brand.Names()) {
+		hs = append(hs, n+":"+p)
+	}
 	for _, n := range s.hostNames() {
 		if config.ValidHostName(n) {
 			hs = append(hs, n+":"+p)
+		}
+	}
+	return hs
+}
+
+// brandHosts is <name>.localhost for each of names (brand.Names): the panel's own host name
+// (config.DefaultHostName), then a legacy name's, so a bookmark from before the rename still
+// opens it. Every entry is spelled from names, so the first is the new name's even where a
+// test passes names that differ from brand's.
+func brandHosts(names []string) []string {
+	hs := make([]string, 0, len(names))
+	for _, n := range names {
+		if h := n + ".localhost"; !slices.Contains(hs, h) {
+			hs = append(hs, h)
 		}
 	}
 	return hs

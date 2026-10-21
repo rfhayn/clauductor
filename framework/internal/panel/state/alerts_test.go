@@ -41,7 +41,7 @@ func TestAlertThresholds(t *testing.T) {
 		t.Fatalf("waiting did not fire: %+v", k)
 	}
 	// A 0 threshold is off.
-	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0}`)
+	off := alertModel(t, `,"alerts":{"idle_minutes":0,"context_pct":0,"five_hour_pct":0,"waiting_seconds":0,"stall_minutes":0}`)
 	off.ApplyAgents([]signals.Agent{{SessionID: "s", Cwd: cwd, Status: "waiting"}}, nil, t0)
 	ctx, five = 99, 99
 	off.ApplyStatus(p, t0)

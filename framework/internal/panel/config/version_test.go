@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The version means what it says: a key from a later version than the file
@@ -78,7 +79,7 @@ func TestVersionGatesKeys(t *testing.T) {
 		t.Fatalf("a full version 1 config: %v %v", err, c)
 	}
 	// An explicit version outside the supported range is refused, 0 included.
-	for _, v := range []string{"0", "7", "-1"} {
+	for _, v := range []string{"0", "8", "-1"} {
 		if _, err := parseConfig([]byte(`{"name":"T","version":` + v + `}`)); err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("version %s: %v", v, err)
 		}
@@ -106,6 +107,31 @@ func TestContextPolicyKeysNeedVersion6(t *testing.T) {
 	}
 }
 
+// [STALL-1-S8] [STALL-1-S28] alerts.stall_minutes is version 7: a version-6 config that sets it is
+// refused, naming the key and version 7; the same key loads at version 7, and with no
+// version declared (read as the latest).
+func TestStallMinutesNeedsVersion7(t *testing.T) {
+	t.Parallel()
+	_, err := parseConfig([]byte(`{"name":"T","version":6,"alerts":{"stall_minutes":10}}`))
+	if err == nil || !strings.Contains(err.Error(), `"alerts.stall_minutes"`) || !strings.Contains(err.Error(), `"version": 7`) {
+		t.Errorf("version 6 and alerts.stall_minutes: %v, want an error naming the key and version 7", err)
+	}
+	// The other alerts keys stay where they were: version 6 still loads them.
+	if _, err := parseConfig([]byte(`{"name":"T","version":6,"alerts":{"idle_minutes":10}}`)); err != nil {
+		t.Errorf("version 6 and alerts.idle_minutes: %v", err)
+	}
+	for _, body := range []string{`{"name":"T","version":7,"alerts":{"stall_minutes":10}}`, `{"name":"T","alerts":{"stall_minutes":10}}`} {
+		c, err := parseConfig([]byte(body))
+		if err != nil {
+			t.Errorf("%s: %v", body, err)
+			continue
+		}
+		if th := c.AlertThresholds(); th.Stall != 10*time.Minute {
+			t.Errorf("%s: the stall time is %v, want 10m", body, th.Stall)
+		}
+	}
+}
+
 // A file with no version is read as the latest, with one notice; nothing an existing
 // config uses is refused.
 func TestMissingVersionReadsAsLatest(t *testing.T) {
@@ -113,7 +139,7 @@ func TestMissingVersionReadsAsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 6`) || !strings.Contains(c.Notices[0], `Add "version": 6`) {
+	if len(c.Notices) != 1 || !strings.Contains(c.Notices[0], `read as version 7`) || !strings.Contains(c.Notices[0], `Add "version": 7`) {
 		t.Fatalf("notices %q", c.Notices)
 	}
 	c, err = parseConfig([]byte(`{"name":"T","version":2,"templates":[]}`))

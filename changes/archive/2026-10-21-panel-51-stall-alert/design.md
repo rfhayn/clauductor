@@ -65,11 +65,15 @@ to `<id>` and `$PROBE`.
     **subagent** runs (fork mode's reviewer, the build's workflow), and which `SubagentStop`
     hooks the session sends until it ends, and whether the one at its end carries the task's
     `id` as its `agent_id` (D3 (d) pairs them; the cloud spike's recorded payloads show it for a
-    subagent). Likewise a background workflow and a background `Monitor`. E1 covers a shell only.
+    subagent). Likewise a background workflow and a background `Monitor`, which the Mac's 2.1.303
+    binary lists as a `shell` (D3 (d)). E1 covers a shell only.
   - **P3** a teammate (an agent team, as merge-train was): is it a session of its own in
     `claude agents` and in the hooks, and what does its turn's end with a background command
     look like? Does `TeammateIdle` fire, and in whose session?
-  - **P4** a one-shot `ScheduleWakeup`: the `schedule` text it lists, and its time zone.
+  - **P4** a one-shot `ScheduleWakeup`: the `schedule` text it lists, and its time zone. Group
+    1's static reading of the Mac's 2.1.303 binary (`tasks.md`, Decision log) shows it armed as
+    `M H * * *` from the local clock and listed `recurring: false`, which D4 now reads. The live
+    run confirms that, and records what a wakeup that comes due before its turn ends does.
 
 ## Decisions
 
@@ -89,8 +93,8 @@ to `<id>` and `$PROBE`.
       `busy`. Working never holds off a session's question (the first way below);
     - **the lane** is working while any of its live sessions is, or while it holds or waits for
       a queue's lease (the gate). A lease is the lane's, not one session's, so it holds off
-      every way of the lane but a question: a gate run in a teammate's background shell would
-      otherwise read as that teammate's stall while the gate still runs. A lease holder counts
+      every way of the lane but a question: a gate run in a session's background shell would
+      otherwise read as that session's stall while the gate still runs. A lease holder counts
       only while it is alive and not stale (`LeaseView.Alive` and not `Stale`):
       `lease.ReadQueue` keeps a dead holder as `Holder` until the next waiter reclaims it, and a
       gate killed with no waiter behind it would otherwise keep its lane working for ever. A
@@ -130,13 +134,13 @@ to `<id>` and `$PROBE`.
       session's own hooks would hold off an orchestrator's question for as long as its own
       background build runs. Nothing holds this way off: not the lane's other sessions, its
       lease, nor the session's own working. In the main checkout a busy sibling (another
-      session, a teammate bound by its `cwd`) would otherwise hide the orchestrator's question
+      session bound by its `cwd`) would otherwise hide the orchestrator's question
       for as long as the sibling works;
     - **a session's turn ended on background work** (D3 (d)): the session is live and not
       working, the lane holds and waits for no lease, the session has not itself moved for the
       stall time, and it has no wakeup of its own still due (D4). Its siblings' busy readings,
       hooks and wakeups do not count: the orchestrator's stall-watcher loop in the main checkout
-      would otherwise hide a teammate's turn that ended on a shell that woke no one;
+      would otherwise hide a second session's turn that ended on a shell that woke no one;
     - **the lane** is not working, `now − the lane's last movement ≥ stall time`, and either it
       has a live session, open work (D3 (a) or (b)) and no live session with a wakeup still due
       (D4), or the panel launched it and its claude exited or its tmux session is gone, with
@@ -162,8 +166,9 @@ to `<id>` and `$PROBE`.
         origin), by session id, carried over as a lane's is. The first poll after a restart sets
         `WaitingSince` to its own time, so without it a stall notified before the restart would
         clear, and come back 30 minutes later with a new `since`, notified again;
-      - each live session's kept `Stop` fields (D4's allowlist, clipped, task ids included) and
-        the `agent_id`s of its last 64 `SubagentStop`s (D3 (d)), by session id.
+      - each live session's kept `Stop` fields (D4's allowlist, clipped, task ids included, and
+        each one-shot's resolved fire time) and the `agent_id`s of its last 64 `SubagentStop`s
+        (D3 (d)), by session id.
         They live only in the model, so without them a session stalled on (d) would read as
         having no background work after a restart, and its stall would vanish unseen;
       - the same for each session kept aside after `forgetSessions` dropped it during failing
@@ -196,6 +201,24 @@ to `<id>` and `$PROBE`.
       it was notified for, so a restart sends nothing again (STALL-3-S7). Without that, the
       notify source's first 2 s tick, before `gh pr list` or the 30 s receipt read have answered,
       would find the stall missing, drop its mark, and send it again.
+    - **A stall that begins across a restart is approximate until the panel has watched for one
+      stall time.** (Amended with the owner on 2026-10-20, option B, after the build's review
+      rounds 1 to 8.) After a start, a lane that was not stalled at the save, or has no saved
+      entry, and is now judged stalled, is approximate (D6: shown, marked `≈`, never notified)
+      until the panel has run for the stall time since its start with every source the stall
+      rests on succeeded. Then it is judged as usual, notified once, with the `since` its clock
+      gives. A lane stalled at the save keeps its `since` and its notifier mark, as above.
+      - **Why a class rule.** `stall.json` keeps the clocks, but not the readings the first
+        poll after a start compares against: the leases, the panes, each session's `claude
+        agents` status. Each such baseline either misses a change made while the panel was down
+        (a gate's lease given up) or invents one (a session busy at the save and idle at the
+        first poll, or resumed while the panel was down: #185). Review rounds 1 to 8 each found
+        a new case of this class and none twice. Bounding what a restart can do, rather than
+        saving each baseline, closes the class whatever reading is added later (PRAC-0010).
+      - **The cost:** a real stall that began while the panel was down is pushed up to one stall
+        time late (30 minutes by default). The page shows it at once, marked `≈`.
+      - **Beat:** saving every baseline in `stall.json` and comparing the first poll against it.
+        It is precise, but each reading added later reopens the class.
     - **Beat:** keying the notifier on the lane and its open work instead of `Since`. A stall
       that cleared and came back with the same pull request would never notify again.
   - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$CLAUDUCTOR_LANE` (the tmux
@@ -260,7 +283,13 @@ to `<id>` and `$PROBE`.
     - **(d) the session's own last `Stop` listed background work** (D4), on any lane, the main
       checkout included. The turn ended expecting to be woken. It is that session's open work,
       judged on its own clock (D1), not the lane's.
-      - **A listed `subagent` or `workflow` task is working, not yet open work,** whether its
+      - **A listed `workflow` task is working, not yet open work,** whether its status is
+        `running` or `pending`, until a later `Stop` from the same session no longer lists it.
+        (Amended with the owner on 2026-10-19, on P2's evidence: no `SubagentStop` carries a
+        workflow task's `id`, only its agents' own ids, `workflow-subagent`; the workflow's end
+        wakes its session, whose next `Stop` drops it, within about 4 s in runs A and C.) The
+        limit on an end never heard, below, applies to it as to a subagent.
+      - **A listed `subagent` task is working, not yet open work,** whether its
         status is `running` or `pending` (the binary lists in-flight work in both), until a
         `SubagentStop` from the session carries an `agent_id` equal to that task's `id`. The
         recorded payloads show the two match: in `signals/testdata/spike-hooks.log` the
@@ -293,18 +322,41 @@ to `<id>` and `$PROBE`.
         while it works, and the operating model sends gates, merges and builds to background
         agents by design. The paired `SubagentStop` is the session's movement (D1), so a stall
         follows only when nothing wakes the session after its last subagent ends.
-      - **P2 verifies the pairing on the owner's Mac** for a background subagent and a background
-        workflow: the end of each sends a `SubagentStop` whose `agent_id` is the listed task's
-        `id`. A workflow's agents stop under ids of their own (`workflow-subagent`, which
-        `stopSubagent` names), so whether the workflow task's own end carries its `id` is not
-        shown yet. If either does not pair, the build stops for the owner before group 2 commits,
-        with P2's evidence.
-      - **A `shell` or `monitor` task, or one of a type not listed above,** is open work. A
-        shell keeps a main session busy while it runs (E1), so it matters where that does not
-        hold (a teammate: P3). P2 records what `claude agents` reads while a background
-        `Monitor` runs; if it reads `idle`, a `monitor` task is treated as working, as a
-        subagent is, until the session's next `Stop` no longer lists it, and the Decision log
-        says so.
+      - **P2 verified this on the owner's Mac (2026-10-19):** a background subagent's end sends
+        the `SubagentStop` whose `agent_id` is the listed task's `id`; a background workflow's end
+        sends none, so a workflow ends by a later `Stop` dropping it, as above.
+      - **A listed `teammate` task is open work, never working.** P3 showed one listed `running`
+        ten minutes after its teammate went idle, so its status says nothing (D9).
+      - **A `shell` task, a background `Monitor` among them, a `monitor` task or a `teammate`
+        task** is open work. A shell keeps a main session busy while it runs (E1), so it matters
+        where that does not hold.
+      - **Only the listed types count: an allowlist.** (Amended with the owner on 2026-10-19,
+        from #167's merge review.) `subagent` and `workflow` are working; `shell`, `monitor` and
+        `teammate` are open work. A task of any other type is neither: Claude Code's own
+        housekeeping (`dream`, `auto-mode scan`, `memory import`) is listed in `Stop` and never
+        ends by any signal the panel reads, so reading it as open work would push a false stall,
+        and a type this design has not seen is treated the same way rather than guessed at
+        (PRAC-0010: close the class). **The cost:** a turn that ended waiting only on an
+        `mcp_task` or a `remote_agent` (cloud session) task is not judged by (d); its lane's
+        other ways still are. **Beat:** a denylist of the three housekeeping names, which the
+        next new type would reopen.
+      - **A background `Monitor` is read as a shell.** The 2.1.303 binary builds each listed
+        task from its registry entry's `type` alone: `id`, a label for the type, `status`,
+        `description`, and `command` for a `local_bash` task. The `Monitor` tool registers a
+        `local_bash` task of kind `monitor`, which is labelled `shell`, and its kind is not
+        sent. Only an MCP monitor (`monitor_mcp`, `monitor_ws`) arrives as `monitor`. Nothing D4
+        keeps tells the two apart: the `description` is the model's own words, with no marker
+        added, and the `command` is never decoded (D4). So a Monitor is worded as one
+        ("its turn ended waiting on 1 shell: Watch the gate's log (running)").
+        - **P2 decides on the Mac.** If a session reads `busy` while its background `Monitor`
+          runs, as it does for a shell, the Monitor is working through that reading and nothing
+          changes. If it reads `idle`, a session waiting correctly on a Monitor would stall at
+          the stall time, and the build stops for the owner before group 2 commits, with P2's
+          evidence: telling a Monitor from a shell needs a field D4 does not keep.
+        - **Beat:** a `monitor` task treated as working if a Monitor reads `idle` (this design
+          before group 1): it reaches only MCP monitors, never the `Monitor` tool. And a marker
+          read from `description` or `command`: the binary adds none, and a command can hold a
+          secret.
   - **A waiting session needs no open work:** a question or a permission prompt is work waiting
     on the owner, on any lane (D1).
   - **The main checkout** has no branch of its own, so only (d) and a waiting session apply
@@ -337,6 +389,28 @@ to `<id>` and `$PROBE`.
     it but its `agent_id`, to pair with a kept task (D3 (d)): a background subagent's last
     message is not the lane's "last said". P2 records what a turn that ends with a subagent in
     flight lists in its `Stop`.
+  - **A turn that ends unreported leaves (d) unknown.** (Amended with the owner on 2026-10-20,
+    #186 option 1.) Once a session sends `UserPromptSubmit` and no `Stop` has followed, its kept
+    `Stop` is from an earlier turn: a turn interrupted with Esc, which Claude Code documents as
+    sending no `Stop`, or one that ended in a `StopFailure`, reports nothing. Until the
+    session's next `Stop`, D3 (d) is unknown for it, which is not open work. Its other ways
+    (a question, the lane's open work, a dead claude) are still judged. The kept `Stop` stays in
+    force for its wakeups (D4 below) and is still saved; only (d) stops resting on it.
+    - **Why:** without it, a shell the turn before listed, ended since, stalls the session one
+      stall time later with a false push naming it.
+    - **The cost:** a turn interrupted while background work really is in flight is not judged
+      by (d) until the next `Stop`. An Esc means the owner was at the keyboard.
+    - **Beat:** accepting the false push; probing Esc first (the fix holds whichever it sends).
+    - **Two costs the owner accepted on 2026-10-20** (#186's review, M1 and M2). Each is a late
+      or missed (d), never a false push:
+      - **A listed `workflow` still counts as working while the turn is unknown.** Working is
+        D1's, not (d)'s, so a lane's stall can come up to 4 × the stall time late when a
+        workflow's wake turn ends in a `StopFailure`. Treating the workflow as unknown too would
+        risk a false push while it really runs.
+      - **An out-of-order `UserPromptSubmit` leaves (d) unknown until the next `Stop`.** Hooks
+        post on their own, but a turn's `UserPromptSubmit` would have to arrive after that
+        turn's own `Stop`, across at least one model call, for this to matter. A wakeup that
+        fires 23 ms after a `Stop` (P4) is a new turn, so no timing rule is added.
   - **A live session's own wakeup holds off that session's background-work stall, and the
     lane's open-work stall, while it is due.** It does not hold off a sibling session's stall
     (D1): the orchestrator's stall-watcher loop would otherwise hide every other session in the
@@ -344,18 +418,38 @@ to `<id>` and `$PROBE`.
     count for nothing. **A session waiting on the owner still stalls:** a cron does not answer a
     question or a permission prompt, and the orchestrator that arms a stall-watcher loop is the
     session most likely to freeze on one.
-    - A recurring cron, or one whose fields are not all numbers: it will wake the session, so
-      the stall is held off while that `Stop`'s list stands.
-    - A one-shot wakeup (`recurring` false, minute, hour, day and month all numbers, read in the
-      panel's local time: P4): the stall is held off until 5 minutes after its fire time. The
-      wakeup only holds it off: after that D1 applies as it stands, and `since` is still the
-      last movement. A wakeup that fired is movement (its prompt is a `UserPromptSubmit`).
+    - A recurring cron, or a one-shot of neither shape below: it will wake the session, so the
+      stall is held off while that `Stop`'s list stands.
+    - A one-shot wakeup (`recurring` false) whose minute, hour, day and month are all numbers,
+      read in the panel's local time: the stall is held off until 5 minutes after its fire
+      time.
+    - **A one-shot `M H * * *`: minute and hour numbers; day, month and weekday `*`** (as
+      `ScheduleWakeup` arms it: P4). **(The owner decided, 2026-10-18.)** It is read as firing
+      at the next matching minute and hour after the `Stop` that listed it, in the panel's
+      local time: the first H:M at or after the minute the `Stop` arrived in, that day or the
+      next. The stall is held off until 5 minutes after then.
+      - The fire time is resolved once, from the time the panel received that `Stop`, and kept
+        with the cron (saved in `stall.json`), so a restart does not move it.
+      - `ScheduleWakeup` clamps its delay to 60–3600 s, so a wakeup armed late in the turn
+        fires within the hour after the `Stop`. One that came due before its turn ended (a turn
+        longer than its delay) reads as a day away: if it did not fire, its session's stall and
+        its lane's open-work stall would be held off silently for up to about 24 hours. So P4
+        (task 1.4) runs one, and if an overdue wakeup does not fire within a minute of its turn
+        ending, the build stops for the owner before group 2 commits.
+      - **Beat:** the next match after the cron's creation. `session_crons` carries no creation
+        time (`id`, `schedule`, `recurring`, `prompt` alone). And "held off while that `Stop`'s
+        list stands", which this shape fell to before group 1: a session whose wakeup never
+        fired would be held off until a next `Stop` that may never come.
+    - Either way a one-shot only holds the stall off: after that D1 applies as it stands, and
+      `since` is still the last movement. A wakeup that fired is movement (its prompt is a
+      `UserPromptSubmit`).
   - **The text, by case:**
     - waiting: the ask, as Needs you words it today ("input needed", "wants to use Bash");
     - turn ended with work in flight: "its turn ended waiting on 1 shell: Run checks (running)";
-    - a listed subagent or workflow that has since ended (its paired `SubagentStop`): "its turn
+    - a listed subagent that has since ended (its paired `SubagentStop`): "its turn
       ended waiting on 1 subagent: Review group 2, which finished and woke nothing";
-    - a listed subagent or workflow past D3 (d)'s limit, unpaired: "its turn ended waiting on 1
+    - a listed teammate, by its description: "its turn ended waiting on 1 teammate: <description>";
+    - a listed subagent or workflow past D3 (d)'s limit, its end not heard: "its turn ended waiting on 1
       subagent: Review group 2, whose end was never heard";
     - turn ended with nothing in flight: "its turn ended with nothing in flight to wake it",
       then "last said: …";
@@ -368,12 +462,23 @@ to `<id>` and `$PROBE`.
     - ignoring crons. A session that waits correctly, with `ScheduleWakeup`, would be marked
       stalled while it does the right thing;
     - parsing every cron expression for its next fire time. That is a five-field cron parser
-      for a case none of the three stalls had.
+      for a case none of the three stalls had; D4 reads the two one-shot shapes alone.
 
 - **D5 The stall time: 30 minutes by default, per project. (The owner decides both.)**
   - **The key:** `alerts.stall_minutes`, a number, 0 turns stalls off. Config version 7
     (`config/fields.go`: the version gate, `docs/panel.schema.json` and *Keys* follow it). An
     attached project sets it in its sidecar.
+  - **`panel init` and `panel attach` write the latest config version,** now 7. (Decided with
+    the owner on 2026-10-20, option A, as PANEL-48 did for 6.) This change MODIFIES the living
+    requirement LANECTX-3 (`specs/panel-lane-context/spec.md`) and its scenario S1 from "declare
+    config version 6" to "declare the latest config version", in a spec delta of its own, and
+    `TestAttachedLanesLaunchWithThePolicy` checks the latest version, not a literal 6.
+    **Beat:** keeping 6, which would leave a new project needing to raise its own version
+    before it could set `stall_minutes`.
+  - **The template's `panel.json` declares version 7 too.** (Decided with the owner on
+    2026-10-20, #189 option a, as PANEL-48 raised the presets for 6.) `template/.clauductor/panel.json`
+    is raised to the latest version, and `plugin/scaffold/.clauductor/panel.json` regenerated
+    from it (`scripts/build-plugin.sh`). A template edit ships to every project.
   - **Why 30:**
     - it is the `idle_minutes` default, the owner's sense of "a while";
     - each stall would have been seen within 30 minutes, not after 3.5 to 5 hours;
@@ -403,7 +508,8 @@ to `<id>` and `$PROBE`.
       agents` source is not current (its last good poll older than two intervals), whether or
       not a session is left: past 30 minutes of failing polls `forgetSessions` drops the
       sessions, and a lane the panel launched could otherwise stall on (c)'s terms. So a failing
-      poll cannot raise a false stall;
+      poll cannot raise a false stall. A stall that begins across a restart is approximate too,
+      until the panel has watched for one stall time (D1);
     - a restart does not send again for a stall still active (`notifier.json`).
   - **A waiting session** keeps today's waiting alert (a macOS banner after `waiting_seconds`)
     and, if still unanswered at the stall time, also stalls, which pushes (D7). That is the
@@ -469,15 +575,22 @@ to `<id>` and `$PROBE`.
     without it), it would miss an attached repository that does not run the model, and it would
     send what the panel already has.
 
-- **D9 Teammates: probe first (P3), and stop for the owner if they are invisible.**
-  - **If a teammate is a `claude` session of its own** in `claude agents` and the hooks (a pane
-    in tmux mode), it is bound by its `cwd` and judged by D1 like any session. Nothing more is
-    built.
-  - **If it is in-process,** the panel cannot see its turn from what it reads, and the build
-    stops for the owner before group 2 commits, with P3's evidence. Recording `TeammateIdle`
-    would be a design change: what it means, and whose lane it marks.
-  - **Beat:** subscribing to `TeammateIdle` now. Whose session it fires in, and when, is
-    unprobed, and the panel would act on a guess.
+- **D9 Teammates are part of their lead's session.** (Amended with the owner on 2026-10-19, on
+  P3's evidence.) P3 found a teammate in-process: one pane, no second process, `claude agents`
+  listing the lead alone, the teammate's hooks arriving under the lead's `session_id` with the
+  teammate's own `agent_id` and `agent_type`, and `TeammateIdle` firing in the lead's session.
+  - **A teammate's hooks are the lead's movement** (D1), as any hook of the session is.
+  - **A listed `teammate` task is open work, never working** (D3 (d)): it read `running` ten
+    minutes after its teammate went idle, so its status means nothing. A lead whose last `Stop`
+    lists a teammate stalls on its own clock when nothing in the session moves.
+  - **A teammate's own background shell is not seen.** Its end woke no one in P3, and nothing
+    the panel reads reports it. `docs/panel.md` says so, under *Stalled lanes*. The lead's
+    clock still runs, so a team that falls silent stalls by its lead.
+  - **Not probed:** tmux pane mode (`--teammate-mode tmux`). If a teammate there is a `claude`
+    session of its own, it is bound by its `cwd` and judged by D1 like any session; nothing in
+    this design depends on which.
+  - **Beat:** leaving agent teams out of stall judging. A team that falls silent would then go
+    unseen, which is the failure this change exists to catch.
 
 - **D10 What runs with no page in view.** Today the receipt read (`pollReadiness`) and the git
   poll run only while a page is in view. A stall matters most when nobody is looking.
@@ -489,6 +602,11 @@ to `<id>` and `$PROBE`.
     `(*Runtime).mergedPR` in `autoclose.go` runs, through a variant that returns its error
     (`mergedPR` returns `(0, false)` for an error and for "none" alike), for each lane with a
     clean receipt for HEAD and no open PR.
+    - **A merge counts only when its head commit is the lane's HEAD.** (Decided with the owner
+      on 2026-10-20, #188 option a.) The read asks for `number,headRefOid` and ignores a merged
+      pull request whose `headRefOid` is not HEAD, as `lanes/close.go`'s `mergedBranch` already
+      does for Close. Without it, a branch name reused after a squash merge would have its old
+      merge counted for the new HEAD, and (b) would never hold there: a missed stall.
     - Only a merge found is cached, per branch and HEAD. "None" is read again when the branch
       leaves the open-PR list, and otherwise at most every 5 minutes. A squash merge leaves the
       branch's HEAD as it was, so a cached "none" from before the PR was opened would mark every
@@ -571,13 +689,18 @@ to `<id>` and `$PROBE`.
 | A `claude agents` reading is not current (the poll fails or is old) | A stall judged from it is approximate: shown, marked `≈`, never notified (D6) |
 | The `Stop` input has no `background_tasks` (an older Claude Code) | The stall is still judged. What it waited on reads "not reported by this Claude Code version" (D4) |
 | A repository whose settings turn hooks off | Judged from `claude agents` alone; what it waited on is "not reported" (D2) |
-| A session scheduled its own wakeup | That session's background-work stall and its lane's open-work stall are held off while a recurring cron is listed, or until 5 minutes past a one-shot's fire time; a sibling session's stall is not, and a session waiting on the owner still stalls (D4) |
-| A turn ended with a background subagent or workflow running | Working until the `SubagentStop` whose `agent_id` is the task's `id`, in whatever order the two hooks arrive; an internal stop with an empty type ends nothing; quiet for the stall time after the paired stop, it stalls (D3 (d)) |
+| A session scheduled its own wakeup | That session's background-work stall and its lane's open-work stall are held off while a recurring cron is listed, or until 5 minutes past a one-shot's fire time (for `ScheduleWakeup`'s `M H * * *`, the fire time is the first local H:M at or after the minute the panel received its `Stop`, that day or the next); a sibling session's stall is not, and a session waiting on the owner still stalls (D4) |
+| A turn ended on a background `Monitor` | Listed as a `shell`, it is read as one: open work, worded "1 shell". If P2 finds a session reads `idle` while its Monitor runs, the build stops for the owner (D3 (d)) |
+| A turn ended with a background subagent running | Working until the `SubagentStop` whose `agent_id` is the task's `id`, in whatever order the two hooks arrive; an internal stop with an empty type ends nothing; quiet for the stall time after the paired stop, it stalls (D3 (d)) |
+| A turn ended with a background workflow running | Working until a later `Stop` of the session no longer lists it (its end wakes the session); its agents' `workflow-subagent` hooks are movement and end nothing (D3 (d)) |
+| A turn ends with no `Stop` (interrupted with Esc, or a `StopFailure`) | The session's (d) is unknown from its `UserPromptSubmit` until its next `Stop`; its other ways are still judged; no false push for work the turn before listed (D4, #186) |
 | The paired `SubagentStop` was dropped, or sent while the panel was down | The task holds its session working only while the session has moved within 4 × the stall time; then it is open work, "whose end was never heard" (D3 (d)) |
-| A teammate's turn ends on a shell that woke no one while the orchestrator in the same checkout works or loops | The teammate stalls on its own clock (D1) |
+| A teammate's turn ends on a shell that woke no one | Not seen: the teammate is in the lead's session, and nothing reports its shell. The lead stalls on its own clock when the session stops moving, its listed teammate task open work (D9) |
+| A second session in the same checkout ends its turn on a shell that woke no one while the orchestrator works or loops | That session stalls on its own clock (D1) |
 | A branch with commits and no PR or receipt | Not open work. The `stale` alert covers it after `stale_days` (D3) |
 | A session the panel did not launch has ended, its PR still open | Its lane has no live session and is not stalled (D1) |
 | The panel restarts while a lane is stalled | `stall.json`'s last movement, ask time and kept `Stop` fields keep the stall, its `Since` and its text, and nothing is sent again (D1) |
+| The panel restarts while a lane is not stalled, and it reads stalled after the restart (a lease given up, a session gone idle or resumed while the panel was down) | Approximate (`≈`, never notified) until the panel has watched for one stall time since its start; then judged as usual and notified once if still stalled (D1, amended 2026-10-20) |
 | A lease whose lane names no lane of the project, or two | It is no lane's, and working rests on the `claude agents` reading (D1) |
 | The project declares no queue | No lease is read; a gate keeps its session busy, which is working (D1, E1) |
 | A lease's holder is dead or stale, with no waiter to reclaim it | It is not working; the lane can stall (D1) |
@@ -591,5 +714,5 @@ to `<id>` and `$PROBE`.
 | `push.json` is missing | The macOS notification only, and no warning: a push is optional (D7) |
 | `push.json` is writable by others, not the user's, not one JSON object, or names a relative program | It never runs, and a warning bar says why (D7) |
 | The push command fails or times out | Counted in the notifier's failures, its error shown. The macOS notification still goes (D7) |
-| A teammate is not a session of its own (P3) | The build stops for the owner before group 2 commits (D9) |
+| A teammate is not a session of its own (P3, confirmed 2026-10-19) | Its hooks move the lead; its listed task is open work, never working (D9) |
 | The build's cost reaches $80 | The owner is told, and the build goes on, once OPS-85 has merged (D12) |

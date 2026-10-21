@@ -79,15 +79,19 @@ func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
 }
 
 // The scaffold's panel.json runs the model's scripts through the resolver; it must still be a
-// config the panel accepts.
+// config the panel accepts, at the latest config version, as the template's ([STALL-1-S29]).
 func TestScaffoldPanelConfigLoads(t *testing.T) {
 	out, _ := build(t)
 	raw, err := os.ReadFile(filepath.Join(out, ScaffoldDir, ".clauductor", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.ParseConfig(raw); err != nil {
+	c, err := config.ParseConfig(raw)
+	if err != nil {
 		t.Fatalf("scaffold panel.json is not a valid panel config: %v", err)
+	}
+	if c.Version != config.LatestVersion { // the template's, PANEL-51 D5 (#189)
+		t.Errorf("scaffold panel.json declares version %d, want the latest, %d", c.Version, config.LatestVersion)
 	}
 	if strings.Contains(string(raw), `"sh", ".claude/`) {
 		t.Errorf("scaffold panel.json still runs a framework script from the project's .claude/")

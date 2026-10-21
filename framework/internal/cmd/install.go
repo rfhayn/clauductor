@@ -213,6 +213,7 @@ func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error
 			p.skipped[rel] = skip
 			continue
 		}
+		dest = template.ProjectDest(targetDir, rel, dest)
 		pl := placed{rel: rel, dest: dest, key: key}
 		destPath := filepath.Join(targetDir, filepath.FromSlash(dest))
 		if !fileExists(destPath) {

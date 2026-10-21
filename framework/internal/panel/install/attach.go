@@ -58,7 +58,7 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 	if e := reg.Find(root); e != nil {
 		// D4: only a project that cannot load is attached in place (Standing Tee's
 		// state); a working one keeps the config it reads.
-		_, ownErr := os.Lstat(filepath.Join(root, config.DefaultConfigRel))
+		_, ownErr := os.Lstat(config.OwnConfigPath(root))
 		if e.Config != "" || !errors.Is(ownErr, os.ErrNotExist) {
 			return AttachResult{}, fmt.Errorf("%s is registered already as %q, reading %s; `clauductor panel remove %s` first, or `clauductor panel add --project %s --config <file>` to switch its config on purpose",
 				root, e.ID, e.ConfigPath(), e.ID, root)

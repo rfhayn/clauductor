@@ -14,18 +14,21 @@
 # 124 if the wait outlasted CLAUDUCTOR_LEASE_MAX_WAIT (default 7200 s; 0 = none).
 # Liveness and start time need ps; without it, or where ps errors (a sandbox), kill -0 (EPERM still means alive)
 # and /proc/<pid>/stat field 22. A start time from one source is never compared
-# with one from the other, and an alive pid that cannot be verified is live.
+# with one from the other, and an alive pid that cannot be verified is live. A zombie
+# (state Z) is dead: its command has ended, and the reaper of an orphan (a gate whose
+# lock-run was killed) can take seconds to collect it on a loaded machine (#92).
 lease_alive() {
   if command -v ps >/dev/null 2>&1; then
-    # ps that ran answers; ps that errored (a sandbox that denies inspecting other
-    # processes) answers nothing, and kill -0 below decides instead.
-    _o=$(ps -o pid= -p "$1" 2>&1) && _x=0 || _x=$?
-    case $_o in *[0-9]*) [ "$_x" -eq 0 ] && return 0 ;; esac
+    # ps that ran answers with the state; ps that errored (a sandbox that denies
+    # inspecting other processes) answers nothing, and kill -0 below decides instead.
+    _o=$(ps -o stat= -p "$1" 2>&1) && _x=0 || _x=$?
+    _s=${_o#"${_o%%[![:space:]]*}"}
+    if [ "$_x" -eq 0 ]; then case $_s in Z*) return 1 ;; ?*) return 0 ;; esac; fi
     { [ "$_x" -ne 0 ] && [ -n "$_o" ]; } || return 1
   fi
-  _e=$(kill -0 "$1" 2>&1) && return 0
-  case $_e in *ermitted*) return 0 ;; esac
-  return 1
+  _e=$(kill -0 "$1" 2>&1) || case $_e in *ermitted*) ;; *) return 1 ;; esac
+  # kill -0 answers for a zombie too; /proc, where there is one, tells it apart.
+  [ "$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '{print $1}')" != Z ]
 }
 lease_pstart() {
   _v=""
