@@ -226,7 +226,7 @@ var leaseShMutants = []struct {
   _P="[[:space:]]*$_S[[:space:]]*:[[:space:]]*$_V[[:space:]]*"
   printf '%s\n' "$_j" | grep`,
 		cases: []string{"del-owner-live", "high-bytes-owner-live"}},
-	{"EPERM read as dead", "  case $_e in *ermitted*) return 0 ;; esac\n", "", []string{"no-ps-foreign-pid"}},
+	{"EPERM read as dead", "|| case $_e in *ermitted*) ;; *) return 1 ;; esac\n", "|| case $_e in *) return 1 ;; esac\n", []string{"no-ps-foreign-pid"}},
 	{"start times compared across ps and /proc",
 		"  if { [ \"$_a\" = proc ] && [ \"$_b\" = proc ]; } || { [ \"$_a\" != proc ] && [ \"$_b\" != proc ]; }; then",
 		"  if :; then", []string{"proc-format"}},

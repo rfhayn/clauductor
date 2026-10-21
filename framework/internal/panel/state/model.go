@@ -154,6 +154,9 @@ type session struct {
 	bindCwd string
 	boundAt time.Time
 	goneAt  time.Time
+
+	// PANEL-51 (stall.go): its own clock, its kept Stop, its last SubagentStops.
+	stall stallSession
 }
 
 // CardState is the last result of one card.
@@ -249,6 +252,8 @@ type Model struct {
 	// and when a reading was last applied.
 	transcripts   bool
 	transcriptsAt time.Time
+	// PANEL-51 (stall.go): the stall rule's clocks and the reads it rests on.
+	stall stallModel
 }
 
 // SetProjectID names the project the model is of; the view carries it.
@@ -270,6 +275,7 @@ func NewModel(cfg *config.Config, root string, now time.Time) *Model {
 		laneGone:     map[string]time.Time{},
 		endedIDs:     map[string]time.Time{},
 		liveLanes:    map[string]liveLane{},
+		stall:        newStallModel(cfg.AlertThresholds().Stall),
 	}
 	m.v2.versionSrc = SourceStatus{Pending: true}
 	m.v2.queuesSrc = SourceStatus{Pending: true}
@@ -441,6 +447,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	s.LastHookAt = now
 	s.LastEvent = ev.Event
 	s.LastEventAt = now
+	m.stallHook(s, ev, now) // PANEL-51: the session's stall lifecycle (stall.go, L1)
 	switch ev.Event {
 	case "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd":
 		// The turn moved on, so whatever the session was asking has been answered.
@@ -691,6 +698,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 		m.forgetSessions(now)
 		return
 	}
+	first := m.agentsOKAt.IsZero()
 	m.agentsSrc = SourceStatus{OK: true, At: ms(now)}
 	m.agentsOKAt = now
 	seen := map[string]bool{}
@@ -710,6 +718,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 		s := m.sess(a.SessionID, lanePath, a.Cwd, now)
 		wt := m.worktreeByPath(s.Lane)
 		s.goneAt = time.Time{}
+		was := s.Agent // PANEL-51: the reading before this one, for the stall lifecycle
 		prev := ""
 		if s.Agent != nil {
 			prev = s.Agent.Status
@@ -755,7 +764,9 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 			s.WaitingSince = time.Time{}
 		}
 		s.Agent = &a
+		m.stallListed(s, was, a, first, now) // stall.go, L2 to L8
 	}
+	m.stallPolled() // PANEL-51: what was saved or set aside is used by this poll or not at all
 	for id, s := range m.sessions {
 		if seen[id] {
 			continue
@@ -781,8 +792,12 @@ func (m *Model) ApplyPRs(prs []signals.PR, err error, now time.Time) {
 		m.prsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		return
 	}
+	if m.stall.prsRead {
+		m.notePRsLeft(m.prs, prs, now)
+	}
 	m.prs = prs
 	m.prsSrc = SourceStatus{OK: true, At: ms(now)}
+	m.stall.prsRead = true
 }
 
 // ApplyCard records one card run.
@@ -920,6 +935,8 @@ type LaneView struct {
 	SubagentsApprox bool `json:"subagentsApprox,omitempty"`
 	// Approx: Status comes from a session whose status is not a current reading.
 	Approx bool `json:"approx,omitempty"`
+	// Stall is set while the lane is stalled (PANEL-51 D11; stall.go).
+	Stall *StallView `json:"stall,omitempty"`
 }
 
 // SessionView is one Claude session inside a lane.
@@ -1247,13 +1264,7 @@ func (m *Model) Snapshot(now time.Time) View {
 		active := lv.Terminal != ""
 		var newest time.Time
 		for _, s := range ss {
-			live := s.Agent != nil
-			heard := s.LastHookAt
-			if s.StatusAt.After(heard) {
-				heard = s.StatusAt
-			}
-			recent := !heard.IsZero() && now.Sub(heard) < activeWindow && s.HookStatus != "ended"
-			if !live && !recent && s.Note == nil {
+			if !m.sessionShown(s, now) {
 				continue
 			}
 			active = true
@@ -1420,9 +1431,16 @@ func (m *Model) ApplyTmux(lanes []types.TmuxLane, recs []types.LaneRecord, block
 	m.startBlocked = blocked
 	if err != nil {
 		m.tmuxSrc.Error = err.Error()
+		// The registry read even though tmux did not (PANEL-51 D1): launched lanes
+		// make tmux a source the stalls wait for, and name in a warning.
+		if recs != nil {
+			m.stall.launched = len(recs) > 0
+		}
 		return
 	}
+	m.stall.launched = len(recs) > 0
 	m.tmuxLanes, m.laneRecords = lanes, recs
+	m.stallTmux(lanes, recs, now)
 	m.trackLaneEnds(lanes, recs, now)
 	m.rebind(now)
 	on := map[string]bool{}
@@ -1574,6 +1592,7 @@ type modelV2 struct {
 	suggest        map[string]*SuggestView // template id → its suggestions
 	autoVerified   string                  // a version verified from live hooks (verify.go)
 	verify         verifier
+	pushRefused    string // why the machine's push.json was refused (PANEL-51 D7), or ""
 }
 
 // ObsView is the observability footer.
@@ -1651,6 +1670,14 @@ type ViewOrchestration struct {
 	WarningItems []WarningView `json:"warningItems"`
 	// Verification is the live re-verification of the subagent pairing (verify.go).
 	Verification Verification `json:"verification"`
+	// StallsPending: a source a way of stalling rests on has not answered since the
+	// start, and 10 minutes have not passed; the notifier keeps its stalls' marks
+	// meanwhile (PANEL-51 D1; stall.go).
+	StallsPending bool `json:"stallsPending,omitempty"`
+	// StallsUnjudged are the lanes (paths) whose open work hangs on a merged read not
+	// yet answered for their branch and HEAD: the notifier keeps their stalls' marks
+	// meanwhile (PANEL-51 D1, D10; stall.go). The notifier's, not the page's.
+	StallsUnjudged []string `json:"-"`
 }
 
 // ApplyClaudeVersion records `claude --version`.
@@ -1669,6 +1696,13 @@ func (m *Model) ApplyObs(o Obs) { m.v2.obs = o }
 // ApplyNotifier copies the notifier's counters.
 func (m *Model) ApplyNotifier(n NotifierStats) { m.v2.notifier = n }
 
+// WarnPushRefused keys the warning that the machine's push.json was refused.
+const WarnPushRefused = "push_refused"
+
+// ApplyPushRefused records why the machine's push command was refused, or "" (PANEL-51
+// D7): the view warns with it, so every project's page names the file and why.
+func (m *Model) ApplyPushRefused(why string) { m.v2.pushRefused = why }
+
 // ApplyTrust records whether the config is trusted.
 func (m *Model) ApplyTrust(t config.TrustView) { m.v2.trust = t }
 
@@ -1680,6 +1714,7 @@ func (m *Model) ApplyQueues(qs []types.QueueView, err error, now time.Time) {
 	}
 	m.v2.queues = qs
 	m.v2.queuesSrc = SourceStatus{OK: true, At: ms(now)}
+	m.stallQueues(now)
 }
 
 // heuristicsApprox: the running Claude Code is not one the heuristics were verified
@@ -1917,7 +1952,8 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 					"types nothing into a restored lane, so continue it yourself."})
 		}
 	}
-	m.mergeNeeds(v) // PANEL-20
+	m.mergeNeeds(v)                  // PANEL-20
+	stalled := m.applyStalls(v, now) // PANEL-51: once per lane, after the session loop
 	sort.SliceStable(v.NeedsYou, func(i, j int) bool {
 		return sevRank(v.NeedsYou[i].Severity) > sevRank(v.NeedsYou[j].Severity)
 	})
@@ -1926,7 +1962,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			"RESTORE ALL resumes each on its own session id.", len(v.Restorable), strings.Join(v.Restorable, ", ")))
 	}
 
-	v.Alerts = append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...)
+	v.Alerts = append(append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...), stalled...)
 	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,
@@ -1960,6 +1996,9 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			vf.Version, HeuristicsVerifiedOn, vf.Confirmed, vf.Needed))
 	case !m.v2.versionSrc.Pending && !m.v2.versionSrc.OK && m.v2.versionSrc.Error != "":
 		v.warn("version:unread", "cannot read `claude --version` ("+m.v2.versionSrc.Error+"); subagent lists are approximate.")
+	}
+	if m.v2.pushRefused != "" {
+		v.warn(WarnPushRefused, m.v2.pushRefused)
 	}
 	if m.v2.droppedUnknown > 0 {
 		v.warn("unknown-events", fmt.Sprintf("%d hook event(s) with an event name the panel does not subscribe to were ignored.", m.v2.droppedUnknown))

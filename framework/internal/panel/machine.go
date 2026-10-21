@@ -64,6 +64,10 @@ type Machine struct {
 
 	// economy is economy mode (PANEL-19; economy.go).
 	economy *economy
+
+	// push is the owner's push command (PANEL-51 D7; push.go), read once for every
+	// project. The machine's own notifier (the quota, the login locks) never pushes.
+	push *pushWatch
 }
 
 // maxBound caps the dispatcher's session table; past it the table starts over, and
@@ -101,6 +105,7 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 		}
 	}
 	m.accountPath = filepath.Join(dir, "account.json")
+	m.push = newPushWatch(o.Home)
 	t := ticks
 	// The account has no interval (PANEL-28, D5): it is read at start without a recent
 	// saved reading, and on Refresh; adding a project does not kick it (kickAdded).
@@ -112,6 +117,8 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 		{name: "saved", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.saveReadings},
 		{name: "quota-alert", every: t.Notify, fixedRate: true, waitFirst: true, poll: m.pollQuotaAlert},
 		{name: "economy", every: t.Trends, fixedRate: true, waitFirst: true, poll: m.pollEconomy},
+		// push.json, read at start (newPushWatch) and again when it changes.
+		{name: "push", every: t.Push, fixedRate: true, waitFirst: true, poll: m.push.poll},
 		// Where Remote Control is on (PANEL-19): settings.json and the install's
 		// choice, re-read on the account's cadence (install restarts the agent anyway).
 		{name: "remote", every: t.Version, kick: make(chan struct{}, 1), poll: func(context.Context, time.Time) (update, time.Duration) {

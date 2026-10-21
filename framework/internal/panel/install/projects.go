@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -145,7 +144,7 @@ func ConfigPathOf(home, project, cfg string) (string, error) {
 	if e := reg.Find(root); e != nil {
 		return e.ConfigPath(), nil
 	}
-	return filepath.Join(root, config.DefaultConfigRel), nil
+	return config.OwnConfigPath(root), nil
 }
 
 // ConfigOutside reports whether a project's config resolves outside its repository
@@ -268,7 +267,7 @@ func configLine(e config.ProjectEntry) string {
 		return e.ConfigPath()
 	}
 	s := e.ConfigPath() + " (outside the repository)"
-	own := filepath.Join(e.Root, config.DefaultConfigRel)
+	own := config.OwnConfigPath(e.Root)
 	if _, err := os.Stat(own); err == nil {
 		s += "\n    " + own + " is not read: the registry names the config above"
 	}

@@ -198,7 +198,7 @@ func Inspect(ctx context.Context, o InspectOptions) (Candidate, error) {
 	if id := registeredAs(ctx, o.Run, reg, c.Root, c.CommonDir); id != "" {
 		return c, refuse("registered", "%s is registered already, as %q", c.Root, id)
 	}
-	c.ConfigPath = filepath.Join(c.Root, config.DefaultConfigRel)
+	c.ConfigPath = config.OwnConfigPath(c.Root)
 	var cfg *config.Config
 	if _, err := os.Lstat(c.ConfigPath); err == nil {
 		c.HasConfig = true
