@@ -21,8 +21,8 @@
         "high": { "model": "opus", "effort": "xhigh" }
       },
       "eval": {
-        "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-01.json", "recall": 1, "precision": 0.541, "fp_rate": 0.2, "severity_accuracy": 0.85, "cost_usd": 2.686,
-        "why": "The measured baseline (OPS-16, OPS-18), run with the prompt and schema read from build-change.js's marked review sections. Earlier runs the same day: fp_rate 0.4 (two clean controls held real defects, fixed in OPS-18), then a pass made stale by the review fixes. Its fp_rate sits exactly at the 0.2 ceiling: one clean case flagged (sh-clean-coverage-fails-closed: a high finding that its no-total path has no test)."
+        "receipt": ".claude/evals/receipts/reviewer-opus-high-2026-10-21.json", "recall": 1, "precision": 0.556, "fp_rate": 0.2, "severity_accuracy": 0.9, "cost_usd": 2.819,
+        "why": "OPS-97: the reviewer names each finding's class in the REVIEW schema's new `class` field (all 38 findings did, none in its summary). The run before it at the same hashes failed at fp_rate 0.4 ($2.666): one clean case beyond the usual one (py-clean-page-guard, a medium that no test shows the smallest legal page passing the guard); the one re-run allowed passed. It replaces the 2026-10-01 baseline (OPS-16, OPS-18: recall 1, precision 0.541, fp_rate 0.2, severity 0.85, $2.686). fp_rate still sits exactly at the 0.2 ceiling, on the clean case every run flags (sh-clean-coverage-fails-closed: a high finding that its no-total path has no test)."
       }
     },
     "reviewer-docs": { "model": "sonnet", "effort": "medium", "does": "reviews a prose-only PR (merge-pr, review-lane.sh); never edits" },

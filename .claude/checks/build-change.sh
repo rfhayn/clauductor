@@ -129,8 +129,8 @@ t('key: a stray close paren does not swallow the class clause after it', kc('Str
 t('key: a "one more" leading a later clause is dropped', kc('Null check missing; one more unchecked id. On the user id path'), k1)
 t('key: a "one more" inside a sentence keeps it', kc('The loop needs one more bound check. It reads past the end.'), 'src/a.ts|the loop needs one more bound')
 t('key: a summary that is only a class clause keys on itself', kc('Class: a control that silently does nothing (first seen).') === `src/a.ts|`, false)
-// The class can sit anywhere in the summary (reviewer.md asks for it "in its summary"), worded any
-// way: the clause or aside that carries a class marker is dropped, not a list of phrasings.
+// A reviewer that writes the class in the summary anyway may put it anywhere, worded any way: the
+// clause or aside that carries a class marker is dropped, not a list of phrasings.
 t('key: "This class (…) is first seen." leading', kc('This class (a control that silently does nothing) is first seen. Null check missing on the user id path'), k1)
 t('key: two "This class … is first seen." findings differ', kc('This class (a control that silently does nothing) is first seen. The signature check only logs a mismatch') === kc('This class (a control that silently does nothing) is first seen. The retry loop swallows every error'), false)
 t('key: "Another of this class (…)." with no other marker', kc('Another of this class (a control that silently does nothing). Null check missing on the user id path'), k1)

@@ -85,14 +85,17 @@ const gradeRound = (gatePassed, findings) => {
 // recurrence whose class wording changed ("first seen" to "one more") would get a new one. The
 // reviewer puts the class in the schema's own `class` field, whose words this never reads: a
 // finding that has one keys on its summary as written, where "This class never closes its
-// connection" is the finding. Only a finding with no class field (a reviewer that disobeys, an old
-// receipt) falls back to dropping the pieces of its summary that carry a class marker: each aside
-// in parentheses (whole, however it nests) and each clause (between ". ", "; ", " — " and " – ").
-// A word like "Classes" or the noun "Class" with no marker stays, and a summary that is nothing but
-// its class keeps it. Known limits of the fallback, not chased since the field exists: a class
-// joined to the finding inside one clause (by a comma, a colon or a hyphen) drops that whole
-// clause, finding included, and so does a marker used in the finding's own sense ("This class
-// never closes"), so two such findings can share a key and read as recurring.
+// connection" is the finding. Only a finding whose class field is blank (a reviewer that disobeys
+// the schema) falls back to dropping the pieces of its summary that carry a class marker: each
+// aside in parentheses (whole, however it nests) and each clause (between ". ", "; ", " — " and
+// " – "). A word like "Classes" or the noun "Class" with no marker stays, and a summary that is
+// nothing but its class keeps it. Known limits, not chased since the field exists: a reviewer that
+// fills the field AND repeats the class in the summary keys with it (the 2026-10-21 eval: 80
+// findings over two runs, every one with the field filled and none with class wording in its
+// summary); and in the fallback, a class joined to the finding inside one clause (by a comma, a
+// colon or a hyphen) drops that whole clause, finding included, as does a marker used in the
+// finding's own sense ("This class never closes"), so two such findings can share a key and read
+// as recurring.
 const CLASS_MARK = /\bclass\s*:|\bthe class is\b|\bthis class\b|\bfirst seen\b|^\W*one more\b|\bclass\b[^.;]*\bone more\b/i
 // A summary's top-level clauses; a parenthesised aside stays inside its clause.
 const summaryClauses = (s) => {

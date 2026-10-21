@@ -75,7 +75,7 @@ Known limits, so this is not read as full enforcement:
   agent, run by hand (`apply-change`, or `merge-pr` step 3), is asked for a `class:` line of its
   own, and the session passes it on to the fixer only if it chooses to. `/code-review` (which
   `merge-pr` step 3 offers first) and `reviewer-docs` are not asked for a class at all.
-- **A finding with no class field** (a reviewer that disobeys, an old receipt) has a class written
+- **A finding whose class field is blank** (a reviewer that disobeys the schema) has a class written
   in its summary dropped from its identity across rounds by `build-change`'s `findingKey`, which
   never reads the field's words: each aside in parentheses and each clause (between `. `, `; `,
   ` — ` and ` – `) that carries a class marker (`class:`, `the class is`, `this class`,
@@ -84,7 +84,9 @@ Known limits, so this is not read as full enforcement:
   those markers stays in the key. A clause that uses any marker in its own sense ("This class
   never closes its connection") is dropped with it, and so is a clause where the class is joined
   to the finding (by a comma, a colon or a hyphen), so two such findings can share a key and read
-  as recurring. A finding WITH a class field keys on its summary as written.
+  as recurring. A finding WITH a class field keys on its summary as written, so one that also
+  repeats its class there keys with it; the eval of 2026-10-21 saw none (80 findings over two
+  runs, every one with the field filled, none with class wording in its summary).
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)
