@@ -110,6 +110,9 @@ const FC = (summary, cls) => ({ ...F('medium', 'src/a.ts', summary), class: cls 
 t('key: the class field is not the finding', findingKey(FC('Null check missing', 'a control that silently does nothing')), 'src/a.ts|null check missing')
 t('key: a recurrence whose class field changes is one key', findingKey(FC('Null check missing on the user id path', 'one more unchecked id; the class is a control that silently does nothing')), k1)
 t('key: two findings sharing a class field differ', findingKey(FC('The signature check only logs a mismatch', 'class X, first seen')) === findingKey(FC('The retry loop swallows every error', 'class X, first seen')), false)
+// With the field filled, a marker word in the summary is the finding's own: no fallback drops it.
+t('key: with a class field, "This class …" is the finding', findingKey(FC('This class never closes its DB connection. The fix is a finally block.', 'class X, first seen')) === findingKey(FC('This class swallows every parse error. The fix is a finally block.', 'class X, first seen')), false)
+t('key: a blank class field is no class field', findingKey(FC('Class: unchecked id, first seen. Null check missing on the user id path', ' ')), k1)
 // The fallback, for a summary that still carries its class: one finding is one key however its
 // class clause is worded.
 const kc = (s) => findingKey(F('medium', 'src/a.ts', s))
@@ -120,6 +123,7 @@ t('key: "class Y, first seen" with no colon', kc('class a control that silently 
 t('key: two findings of one class in one file differ', kc('Class: a control that silently does nothing (first seen). The signature check only logs a mismatch') === kc('Class: a control that silently does nothing (first seen). The retry loop swallows every error'), false)
 // The class's only marker sits before its dot: a clause cut at "package." would leave "json drift" in the key.
 t('key: a dot inside the class (package.json) does not end it', kc('Class: package.json drift. Null check missing on the user id path'), k1)
+t('key: ...nor a "Class: X:" class that ends at its colon', kc('Class: package.json drift: Null check missing on the user id path'), k1)
 // A stray ")" must not take the depth below zero, where no clause would ever end again.
 t('key: a stray close paren does not swallow the class clause after it', kc('Stray paren) in the loop. Class: unchecked id, first seen. Null check missing on the user id path'), kc('Stray paren) in the loop. Null check missing on the user id path'))
 // "one more" marks a clause only where it leads one; inside a sentence it is the finding's own words.
@@ -320,7 +324,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('the reviewer is asked which group holds each finding\'s source', !!items && items.required.includes('group') && !!items.properties.group, items && items.required)
   t('the reviewer is asked for each finding\'s class in its own field (OPS-97)', !!items && items.required.includes('class') && !!items.properties.class, items && items.required)
   r = await run([{ ...finding(3), class: 'one more unannounced link; the class is a partial write with no report' }])
-  t('a finding\'s class reaches the fixer, with what to do with a second instance', r.fix.includes('\n   class: one more unannounced link; the class is a partial write with no report') && r.fix.includes('close the class'), r.fix)
+  t('a finding\'s class reaches the fixer, with what to do with a second instance', r.fix.includes('\n   class: one more unannounced link; the class is a partial write with no report') && r.fix.includes('close the class') && r.fix.includes('to the Decision log in changes/demo/tasks.md') && r.fix.includes('return design-issue naming it'), r.fix)
   r = await run([finding(3)])
   t('a finding of the group\'s own keeps "Stay inside group 3." and does not lift it', r.fix.includes('Stay inside group 3.') && !r.fix.includes(LIFTED) && r.report.groups[0].rounds[0].outside === 0, r.fix)
   r = await run([finding(2, 'packages/service/src/leagues.ts')])

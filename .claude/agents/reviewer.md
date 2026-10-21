@@ -58,7 +58,6 @@ reader's list), or "class Y, first seen". The summary is the finding alone: the 
 findings apart across rounds by it, so a class written there makes two findings of one class
 look like one. You see earlier rounds only in part: the disputed findings in your prompt, the
 Decision log in `tasks.md` and the `git log` of committed groups. A second instance tells the
-fixer to close the class (allow only what is listed) instead of refusing one more form; a class
-that cannot be closed is the owner's call by round 3, not another round's.
+fixer to close the class (allow only what is listed) instead of refusing one more form.
 
 Report only findings you verified against the code. No finding is a valid, good result.
