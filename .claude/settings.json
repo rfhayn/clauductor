@@ -140,6 +140,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
+          }
+        ]
+      }
     ]
   },
   "permissions": {

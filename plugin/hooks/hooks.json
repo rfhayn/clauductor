@@ -76,6 +76,16 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" cd-guard.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [

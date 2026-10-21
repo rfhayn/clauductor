@@ -445,15 +445,33 @@ nsw 0 "without jq: a PostToolUse" "$(swp PostToolUse s1 a1 "$bash_bg")" "$d/nojq
 # needs the refusal text: exit 2 alone is no proof (dash exits 2 when it cannot open the script).
 C="$d/cdg"; new_repo "$C"; git -C "$C" commit -q --allow-empty -m seed
 git -C "$C" worktree add -q -b build "$d/cdg-wt" 2>/dev/null; CW=$(cd "$d/cdg-wt" && pwd -P); mkdir -p "$CW/sub"
-CS="$d/cdg-sess"; mkdir -p "$CS/scratchpad" "$CS/tasks"
+CS="$d/cdg-sess"; mkdir -p "$CS/scratchpad"
 CH="$C/.git/clauductor-cd-guard"
+# The payloads and the state file below have the shapes Claude Code 2.1.306 sent and wrote in the
+# OPS-82 probe (2026-10-21): every payload carries transcript_path, and a run's state file is
+# <transcript_path minus .jsonl>/workflows/<runId>.json, written only as the run ends.
+CWF="$CS/s1/workflows"; mkdir -p "$CWF"
 cgp() {  # cgp EVENT CWD [JSON to merge]: a payload for cd-guard, session s1, main session
   _x=${3:-}; [ -n "$_x" ] || _x='{}'
-  jq -cn --arg e "$1" --arg c "$2" --arg sp "$CS/scratchpad" --argjson x "$_x" \
-    '{hook_event_name:$e, session_id:"s1", cwd:$c, scratchpad_dir:$sp} + $x'
+  jq -cn --arg e "$1" --arg c "$2" --arg tp "$CS/s1.jsonl" --argjson x "$_x" \
+    '{hook_event_name:$e, session_id:"s1", transcript_path:$tp, cwd:$c} + $x'
 }
 cdb() { cgp PreToolUse "${2:-$CW}" "$(jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}')"; }
-wf() { cgp PostToolUse "$CW" "$(jq -cn --argjson i "$1" --arg t "${2:-wf1}" '{tool_name:"Workflow", tool_input:$i, tool_response:{taskId:$t}}')"; }
+wf() {  # wf TOOL_INPUT [TASK_ID] [RUN_ID]: the Workflow call's PostToolUse, as it returns async_launched
+  cgp PostToolUse "$CW" "$(jq -cn --argjson i "$1" --arg t "${2:-wf1}" --arg r "${3:-wf_r1}" '{tool_name:"Workflow", tool_input:$i,
+    tool_response:{status:"async_launched", taskId:$t, taskType:"local_workflow", workflowName:"build-change", runId:$r, summary:"x"}}')"
+}
+wfstate() {  # wfstate RUN_ID STATUS: the state file as a run ends; STATUS "-garbled" writes one cut short
+  case $2 in
+    -garbled) printf '{"runId":"%s","status":"compl' "$1" ;;
+    *) jq -cn --arg r "$1" --arg s "$2" '{runId:$r, taskId:"t", workflowName:"build-change", status:$s, summary:"x",
+         startTime:0, durationMs:1, agentCount:1, totalTokens:0, totalToolCalls:0, logs:[], result:null, workflowProgress:[]}' ;;
+  esac > "$CWF/$1.json"
+}
+stop() {  # stop TASK_ID...: the session's Stop, its background_tasks listing each id as a running workflow
+  cgp Stop "$CW" "$(printf '%s\n' "$@" | jq -cRn '{stop_hook_active:false, last_assistant_message:"x", session_crons:[],
+    background_tasks:[inputs | select(. != "") | {id:., type:"workflow", status:"running", description:"x", name:"build-change"}]}')"
+}
 cdg() {  # cdg WANT LABEL PAYLOAD [PATH]
   rc=0; cdg_out=$(printf '%s' "$3" | (cd "$C" && CLAUDE_PROJECT_DIR="$C" HOME="$d/cdg-home" PATH="${4:-$PATH}" sh "$H/cd-guard.sh") 2>&1) || rc=$?
   [ "$1" = 2 ] && [ "$rc" = 2 ] && case $cdg_out in *"BLOCKED by cd-guard"*) ;; *) rc="2 without its refusal text";; esac
@@ -463,7 +481,7 @@ cdg 0 "a cd out with no build running" "$(cdb "cd $d && ls")"
 cdg 0 "another workflow's call records no hold" "$(wf '{"name":"review-changes"}' wf0)"
 [ -e "$CH/s1/holds/wf0" ] && fail "cd-guard recorded a hold for a workflow that is not build-change" || ok "cd-guard records no hold for a workflow that is not build-change"
 cdg 0 "build-change's Workflow call is recorded" "$(wf '{"name":"build-change","args":{"change":"x"}}')"
-[ "$(cat "$CH/s1/holds/wf1" 2>/dev/null)" = "$CW" ] && ok "cd-guard holds the worktree the build started from ($CW)" || fail "cd-guard: holds/wf1 is '$(cat "$CH/s1/holds/wf1" 2>/dev/null)', want $CW"
+[ "$(head -n 1 "$CH/s1/holds/wf1" 2>/dev/null)" = "$CW" ] && ok "cd-guard holds the worktree the build started from ($CW)" || fail "cd-guard: holds/wf1 starts '$(head -n 1 "$CH/s1/holds/wf1" 2>/dev/null)', want $CW"
 cdg 2 "the session's cd to the main checkout" "$(cdb "cd $C")"
 case $cdg_out in *"rm $CH/s1/holds/wf1"*) ok "cd-guard: the refusal names the hold file to remove" ;; *) fail "cd-guard: the refusal does not name $CH/s1/holds/wf1: $cdg_out" ;; esac
 cdg 2 "a cd inside a compound command (the 2026-10-17 slip)" "$(cdb "git status && cd $d/cdg-sess/scratchpad && ls")"
@@ -487,25 +505,57 @@ cdg 0 "git -C instead of a cd" "$(cdb "git -C $C log -1")"
 cdg 0 "a cd out from a session already outside the worktree" "$(cdb "cd /" "$C")"
 cdg 0 "a subagent's cd out (build-change's agents cd into the root themselves)" "$(cgp PreToolUse "$CW" "$(jq -cn --arg c "cd /" '{tool_name:"Bash", agent_id:"a1", tool_input:{command:$c}}')")"
 cdg 0 "another session's cd out" "$(cdb "cd /" | jq -c '.session_id = "s2"')"
-# A run named by its script path or its inline meta holds too; each hold ends when its task's output
-# file ends, when its worktree is gone, or past CD_GUARD_MAX_HOURS.
+# A run named by its script path or its inline meta holds too.
 cdg 0 "build-change by scriptPath is recorded" "$(wf '{"scriptPath":".claude/workflows/build-change.js"}' wf2)"
 cdg 0 "build-change as an inline script is recorded" "$(wf "$(jq -cn '{script:"export const meta = { name: '"'"'build-change'"'"', description: \"x\" }"}')" wf3)"
 [ -f "$CH/s1/holds/wf2" ] && [ -f "$CH/s1/holds/wf3" ] && ok "cd-guard records build-change named by its scriptPath and by its inline meta" || fail "cd-guard: holds/ is $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' ')"
 rm -f "$CH/s1/holds/wf2" "$CH/s1/holds/wf3"
-printf 'partial\n' > "$CS/tasks/wf1.output"
-cdg 2 "while the run's output file has no end line" "$(cdb "cd /")"
-printf 'done\n[exited with code 0]\n' > "$CS/tasks/wf1.output"
-cdg 0 "once the run's output file ends" "$(cdb "cd /")"
-[ -e "$CH/s1/holds/wf1" ] && fail "cd-guard: an ended run's hold was left behind" || ok "cd-guard: an ended run's hold is removed"
+# A hold ends when its run's state file says completed, failed or killed. Anything else keeps it: no
+# state file (the run is going), another status, a file that does not parse.
+[ "$(sed -n '2,3p' "$CH/s1/holds/wf1" 2>/dev/null | tr '\n' '|')" = "task wf1|state $CWF/wf_r1.json|" ] \
+  && ok "cd-guard records the run's task id and its state file beside the root" \
+  || fail "cd-guard: holds/wf1 is '$(tr '\n' '|' < "$CH/s1/holds/wf1" 2>/dev/null)', want the root, task wf1, state $CWF/wf_r1.json"
+cdg 2 "while the run has written no state file (it is still going)" "$(cdb "cd /")"
+for s in running paused -garbled; do
+  wfstate wf_r1 "$s"
+  cdg 2 "while the run's state file $( [ "$s" = -garbled ] && echo 'does not parse' || echo "says '$s'")" "$(cdb "cd /")"
+done
+[ -f "$CH/s1/holds/wf1" ] && ok "cd-guard keeps the hold through a missing, running, unknown or garbled state file" || fail "cd-guard: a run that has not ended lost its hold"
+rm -f "$CH/s1/holds/wf1" "$CWF/wf_r1.json"
+for s in completed failed killed; do
+  cdg 0 "a $s run's Workflow call is recorded" "$(wf '{"name":"build-change"}' "wf-$s" "wf_$s")"
+  cdg 2 "a $s run's hold, before its state file is written" "$(cdb "cd /")"
+  wfstate "wf_$s" "$s"
+  cdg 0 "once the run's state file says '$s'" "$(cdb "cd /")"
+  [ -e "$CH/s1/holds/wf-$s" ] && fail "cd-guard: a $s run's hold was left behind" || ok "cd-guard: a $s run's hold is removed"
+done
+# The session's Stop lists its running tasks in background_tasks: a hold whose task is no longer
+# listed is dropped. With no list at all (a Claude Code that sends none), every hold stays.
+cdg 0 "build-change's call is recorded (wf5)" "$(wf '{"name":"build-change"}' wf5 wf_r5)"
+cdg 0 "Stop while background_tasks lists the run" "$(stop b0kat3se2 wf5)"
+[ -f "$CH/s1/holds/wf5" ] && ok "cd-guard: Stop keeps a hold whose task background_tasks still lists" || fail "cd-guard: Stop dropped a hold whose task is still running"
+cdg 0 "Stop with no background_tasks" "$(cgp Stop "$CW" '{"stop_hook_active":false}')"
+[ -f "$CH/s1/holds/wf5" ] && ok "cd-guard: Stop with no background_tasks keeps every hold" || fail "cd-guard: Stop with no background_tasks dropped a hold"
+cdg 2 "the hold both Stops kept" "$(cdb "cd /")"
+cdg 0 "without jq: Stop never blocks" "$(stop)" "$d/nojq"
+cdg 0 "Stop once background_tasks no longer lists the run" "$(stop b0kat3se2)"
+[ -e "$CH/s1/holds/wf5" ] && fail "cd-guard: Stop left the hold of a task no longer running" || ok "cd-guard: Stop drops a hold whose task background_tasks no longer lists"
+cdg 0 "a cd out once Stop dropped the hold" "$(cdb "cd /")"
 cdg 0 "a hold re-recorded with no task id" "$(cgp PostToolUse "$CW" '{"tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{}}')"
 ls "$CH/s1/holds" 2>/dev/null | grep -q '^run-' && ok "cd-guard keys a hold with no task id by time" || fail "cd-guard: no run-* hold in $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' ')"
+cdg 0 "Stop with nothing running" "$(stop)"
+ls "$CH/s1/holds" 2>/dev/null | grep -q '^run-' && ok "cd-guard: Stop leaves a hold with no task id (nothing to match it by)" || fail "cd-guard: Stop dropped a hold with no task id"
 cdg 2 "a hold with no task id still holds" "$(cdb "cd /")"
 cdg 2 "without jq: a cd while a hold is recorded" "$(cdb "cd /")" "$d/nojq"
 cdg 0 "without jq: a command with no cd" "$(cdb "git status")" "$d/nojq"
+# The crash: claude killed mid-run writes no state file and sends no Stop, so only the age ends it.
+cdg 0 "a run's call is recorded, and then claude is killed" "$(wf '{"name":"build-change"}' wf6 wf_r6)"
 touch -t 200001010000 "$CH/s1/holds"/run-*
+cdg 2 "a crashed run's hold, inside CD_GUARD_MAX_HOURS" "$(cdb "cd /")"
+touch -t 200001010000 "$CH/s1/holds/wf6"
 cdg 0 "past CD_GUARD_MAX_HOURS" "$(cdb "cd /")"
-cdg 0 "build-change's call is recorded again" "$(wf '{"name":"build-change"}' wf4)"
+[ -z "$(ls "$CH/s1/holds" 2>/dev/null)" ] && ok "cd-guard: the age backstop removes a crashed run's hold and one with no task id" || fail "cd-guard: past CD_GUARD_MAX_HOURS, holds/ still has $(ls "$CH/s1/holds" | tr '\n' ' ')"
+cdg 0 "build-change's call is recorded again" "$(wf '{"name":"build-change"}' wf4 wf_r4)"
 git -C "$C" worktree remove --force "$CW" 2>/dev/null
 cdg 0 "once the held worktree is gone" "$(cdb "cd /")"
 
