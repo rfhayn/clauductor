@@ -81,20 +81,48 @@ const gradeRound = (gatePassed, findings) => {
 }
 // A finding's identity across rounds: its file and the first words of its summary, normalised.
 // Line numbers move under a fix, and a reworded summary still starts the same way. The finding's
-// class (OPS-97: the reviewer names it "in its summary", anywhere) is not the finding: two findings
-// of one class would share a key. So each form it is written in is dropped wherever it carries its
-// marker ("class:", "the class is", "first seen"), and a word like "Classes" or the noun "Class"
-// with no marker stays. A summary that is nothing but its class keeps it.
-const CLASS_CLAUSES = [
-  /\(\s*class\s*:[^)]*\)/gi, // an aside: "(class: X, first seen)"
-  /(^|[.;:]\s+)class\s*:[\s\S]*?(?:\.(?=\s|$)|:(?=\s)|$)/gi, // a clause: "Class: X (first seen). " or "…: "
-  /(^\s*one more\b[^;.]*;\s*|;\s*)the class is\b[\s\S]*?(?:\.(?=\s|$)|$)/gi, // "one more X; the class is Y." or "; the class is Y"
-  /^\s*class\b[^.]*?\bfirst seen\b[^.]*?\.(?=\s|$)/i, // "class Y, first seen." with no colon
-]
+// class (OPS-97: the reviewer names it "in its summary", anywhere, in its own words) is not the
+// finding: two findings of one class would share a key. So the unit dropped is not a phrasing but
+// a piece: each aside in parentheses (whole, however it nests) and each clause (between ". ", "; "
+// and " — ") that carries a class marker. A word like "Classes" or the noun "Class" with no marker
+// stays, and a summary that is nothing but its class keeps it.
+const CLASS_MARK = /\bclass\s*:|\bthe class is\b|\bthis class\b|\bfirst seen\b|^\W*one more\b|\bclass\b[^.;]*\bone more\b/i
+// A summary's top-level clauses; a parenthesised aside stays inside its clause.
+const summaryClauses = (s) => {
+  const out = []
+  let cur = ''
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (ch === '(') depth++
+    else if (ch === ')' && depth > 0) depth--
+    cur += ch
+    const ends = depth === 0 && ((/[.;]/.test(ch) && /\s/.test(s[i + 1] || ' ')) || /^\s[—–]\s/.test(s.slice(i, i + 3)))
+    if (ends) { out.push(cur); cur = '' }
+  }
+  return [...out, cur]
+}
+// A clause with each top-level aside that carries a class marker taken out.
+const dropMarkedAsides = (c) => {
+  let out = ''
+  let group = ''
+  let depth = 0
+  for (const ch of c) {
+    if (depth === 0 && ch !== '(') { out += ch; continue }
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    group += ch
+    if (depth === 0) { out += CLASS_MARK.test(group.slice(1, -1)) ? ' ' : group; group = '' }
+  }
+  return out + group
+}
+// "Class: X (first seen): the finding" ends its class at the colon, before any sentence ends.
+const withoutClass = (s) => summaryClauses(s.replace(/^\s*class\s*:(?:[^:.;]|\.(?!\s))*:\s+/i, ' '))
+  .map(dropMarkedAsides).filter((c) => !CLASS_MARK.test(c)).join(' ')
 const findingWords = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 6).join(' ')
 const findingKey = (f) => {
   const s = String(f.summary || '')
-  return `${f.file}|${findingWords(CLASS_CLAUSES.reduce((t, re) => t.replace(re, ' '), s)) || findingWords(s)}`
+  return `${f.file}|${findingWords(withoutClass(s)) || findingWords(s)}`
 }
 // THE STUCK-LOOP BREAKER (Ferment stops after three failures; this stops at the first sign the loop
 // cannot converge, instead of burning rounds to MAX_ROUNDS). `rounds` holds each round so far:

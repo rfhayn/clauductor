@@ -66,11 +66,13 @@ Known limits, so this is not read as full enforcement:
   whose first was fixed without a note in either reads as "first seen".
 - **No code acts on the class.** It is prose in the finding's summary: the review schema has no
   field for it, and neither the fixer's prompt nor the round cap acts on it mechanically. The one
-  code that reads it, `build-change`'s `findingKey`, drops the class wherever the summary marks it
-  (`class:`, `the class is`, `first seen`), so a finding's identity across rounds is what it says,
-  not its class: two findings of one class in one file stay two, and a recurrence whose class
-  wording changes ("first seen" to "one more") is still one, as long as its own words do not change.
-  Closing
+  code that reads it, `build-change`'s `findingKey`, drops each aside in parentheses and each
+  clause (between `. `, `; ` and ` — `) that carries a class marker (`class:`, `the class is`,
+  `this class`, `first seen`, a leading `one more`, `class … one more`), however it is worded, so a
+  finding's identity across rounds is what it says, not its class: two findings of one class in
+  one file stay two, and a recurrence whose class wording changes ("first seen" to "one more") is
+  still one, as long as its own words do not change. A class written with none of those markers
+  stays in the key. Closing
   the class, and sending an unclosable one to the owner by round 3, are still the fixer's and the
   session's judgment.
 

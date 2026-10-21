@@ -111,8 +111,16 @@ t('key: "class Y, first seen" with no colon', kc('class a control that silently 
 t('key: two findings of one class in one file differ', kc('Class: a control that silently does nothing (first seen). The signature check only logs a mismatch') === kc('Class: a control that silently does nothing (first seen). The retry loop swallows every error'), false)
 t('key: a dot inside the class (package.json) does not end it', kc('Class: package.json drift, first seen. Null check missing on the user id path'), k1)
 t('key: a summary that is only a class clause keys on itself', kc('Class: a control that silently does nothing (first seen).') === `src/a.ts|`, false)
-// The class can sit anywhere in the summary (reviewer.md asks for it "in its summary"), and is
-// dropped wherever it carries its marker: "class:", "the class is", or "first seen".
+// The class can sit anywhere in the summary (reviewer.md asks for it "in its summary"), worded any
+// way: the clause or aside that carries a class marker is dropped, not a list of phrasings.
+t('key: "This class (…) is first seen." leading', kc('This class (a control that silently does nothing) is first seen. Null check missing on the user id path'), k1)
+t('key: two "This class … is first seen." findings differ', kc('This class (a control that silently does nothing) is first seen. The signature check only logs a mismatch') === kc('This class (a control that silently does nothing) is first seen. The retry loop swallows every error'), false)
+t('key: "Another of this class (…)." with no other marker', kc('Another of this class (a control that silently does nothing). Null check missing on the user id path'), k1)
+t('key: "First seen: X." leading', kc('First seen: a control that silently does nothing. Null check missing on the user id path'), k1)
+t('key: a class aside after a dash, early', kc('Null check missing — class: unchecked id, first seen. On the user id path'), k1)
+t('key: a nested aside is one aside', kc('Null check missing (class: an input guard (refunds.ts validates it), first seen) on the user id path'), k1)
+t('key: a nested-aside recurrence reworded "one more" is one key', kc('Missing guard (class: an input guard (refunds.ts validates it), first seen). The total is unchecked'), kc('Missing guard (class: an input guard (refunds.ts validates it), one more). The total is unchecked'))
+t('key: "class Y, one more." keys as "class Y, first seen." does', kc('class a control that silently does nothing, one more. Null check missing on the user id path'), k1)
 t('key: a "(class: …)" aside is dropped', kc('Null check missing (class: a control that silently does nothing, first seen) on the user id path'), k1)
 t('key: a "; the class is …" clause is dropped', kc('Null check missing; the class is a control that silently does nothing. On the user id path'), k1)
 t('key: a class clause ended by a colon', kc('Class: a control that silently does nothing (first seen): null check missing on the user id path'), k1)
