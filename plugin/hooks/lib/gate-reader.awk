@@ -1,5 +1,5 @@
-# gate-reader.awk: reads ONE shell command (on stdin) for no-background-gate.sh, and answers two
-# questions. Not a shell: a tokenizer that knows quotes, escapes, `$(…)`, backticks, `${…}`,
+# gate-reader.awk: reads ONE shell command (on stdin) for no-background-gate.sh, no-silent-wait.sh
+# and cd-guard.sh, and answers up to three questions. Not a shell: a tokenizer that knows quotes, escapes, `$(…)`, backticks, `${…}`,
 # heredocs, comments, redirections and separators. POSIX awk only (BSD awk on a Mac, mawk on Debian).
 #
 #   awk -v gates="scripts/ci/run-local.sh scripts/ci/gate.sh scripts/ci/gate-wait.sh" -f gate-reader.awk
@@ -19,9 +19,14 @@
 #          background (`&&`, `>&2`, `2>&1`, `&>` and `|&` are not that). The hook counts ANY such
 #          `&` in a command that invokes a gate, so `sleep 1 & scripts/ci/gate.sh` is refused too:
 #          broader than the shell, never narrower.
+#   CD     only with `-v cds=1`, one line per `cd` or `pushd` that moves THIS shell, in order: a tab,
+#          then its target word as the shell would see it unexpanded (`~` for none; `$`, a glob or
+#          `-` left in for the caller to refuse as unresolvable). Only a top-level command counts: a
+#          `cd` inside `( … )`, `$( … )`, backticks or `sh -c "…"` moves a child shell, not this one.
+#          Through a wrapper that runs a program (env, nohup, timeout, xargs) there is no builtin to run.
 #
 # KNOWN LIMITS (not seen, so allowed): a computed command word (`$G`, `$(echo gate.sh)`), an alias
-# or a function, `find -exec`, a gate run as a script on a shell's stdin (`bash <<EOF`), and a gate
+# or a function, `find -exec`, a `cd` run through `eval` (read as a child here: CD misses it), a gate run as a script on a shell's stdin (`bash <<EOF`), and a gate
 # reached by a path relative to another directory (`cd scripts/ci && ./gate.sh`), and a path that
 # is partly computed (`D=scripts/ci; $D/gate.sh &`).
 # Checked by .claude/checks/hooks.sh.
@@ -36,6 +41,8 @@ BEGIN {
   # Wrapper options that take the next word as their argument.
   n = split("-u -C -a -I -d -E -s -k -w -n -P -L", g, " ")
   for (i = 1; i <= n; i++) OPTARG[g[i]] = 1
+  n = split("builtin command time ! { if then elif else while until do", g, " ")
+  for (i = 1; i <= n; i++) CDWRAP[g[i]] = 1
   D = 0
 }
 { src = src $0 "\n" }
@@ -56,8 +63,11 @@ function isgate(t,   p) {
   return 0
 }
 
+# cdend: a `cd` with no target word goes home.
+function cdend() { if (ST[D] == "cd") { print "CD\t~"; ST[D] = "rest" } }
+
 # A new simple command at this depth.
-function sep() { ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0 }
+function sep() { cdend(); ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0 }
 
 function endword(   t) {
   if (!HV[D]) return
@@ -71,6 +81,10 @@ function endword(   t) {
 function onword(t,   b, st) {
   st = ST[D]
   if (st == "rest") return
+  if (st == "cd") {
+    if (t == "--" || t ~ /^-[LPe@]+$/) return
+    print "CD\t" t; ST[D] = "rest"; return
+  }
   if (st == "eval") { scan(t); return }
   if (st == "src") { if (isgate(t)) G = 1; ST[D] = "rest"; return }
   if (st == "shell") {
@@ -101,6 +115,7 @@ function onword(t,   b, st) {
   }
   if (WK[D] != "" && t ~ /^[0-9.]+[smhd]?$/) return
   b = base(t)
+  if (cds && D == 1 && !SUB && (t == "cd" || t == "pushd") && (WK[D] == "" || WK[D] in CDWRAP)) { ST[D] = "cd"; return }
   if (b in WRAP) { WK[D] = b; return }
   if (isgate(t)) { G = 1; ST[D] = "rest"; return }
   if (b in SHELLS) { ST[D] = "shell"; return }
@@ -172,7 +187,7 @@ function subst(s, i,   j) {
 }
 
 function scan(s,   n, i, c, c2, j, k, line, e, dl) {
-  D++; sep(); WB[D] = ""; HV[D] = 0; HN[D] = 0; HP[D] = 0
+  D++; ST[D] = ""; sep(); WB[D] = ""; HV[D] = 0; HN[D] = 0; HP[D] = 0
   n = length(s); i = 1
   while (i <= n) {
     c = substr(s, i, 1); c2 = substr(s, i + 1, 1)
@@ -226,7 +241,8 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       A = 1; sep(); i++; continue
     }
     if (c == "|") { endword(); sep(); i += (c2 == "|" || c2 == "&") ? 2 : 1; continue }
-    if (c == "(" || c == ")") { endword(); sep(); i++; continue }
+    # SUB: inside a top-level `( … )` subshell, where a `cd` moves only the child.
+    if (c == "(" || c == ")") { endword(); sep(); if (D == 1) SUB += c == "(" ? 1 : (SUB > 0 ? -1 : 0); i++; continue }
     if (c == "<" || c == ">") {
       # A word of digits just before is the redirected descriptor (`2>`), not an argument.
       if (HV[D] && WB[D] ~ /^[0-9]+$/) { WB[D] = ""; HV[D] = 0 } else endword()
@@ -239,6 +255,6 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     }
     WB[D] = WB[D] c; HV[D] = 1; i++
   }
-  endword()
+  endword(); cdend()
   D--
 }

@@ -142,10 +142,10 @@ func TestInstallMergesSettings(t *testing.T) {
 	if !slices.Contains(post, `sh "$CLAUDE_PROJECT_DIR"/.claude/hooks/format.sh`) || !slices.Contains(post, "node scripts/our-hook.mjs") {
 		t.Errorf("PostToolUse should hold the model's format.sh and the project's hook: %v", post)
 	}
-	if !slices.Equal(hookCommands(s, "Stop"), []string{"sh scripts/on-stop.sh"}) {
+	if !slices.Contains(hookCommands(s, "Stop"), "sh scripts/on-stop.sh") {
 		t.Errorf("the project's Stop hook was dropped: %v", hookCommands(s, "Stop"))
 	}
-	for _, ev := range []string{"UserPromptSubmit", "PreToolUse"} {
+	for _, ev := range []string{"UserPromptSubmit", "PreToolUse", "Stop"} {
 		for _, c := range hookCommands(want, ev) {
 			if !slices.Contains(hookCommands(s, ev), c) {
 				t.Errorf("the model's %s hook %s is not registered", ev, c)
