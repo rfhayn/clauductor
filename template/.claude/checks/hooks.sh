@@ -456,9 +456,9 @@ cgp() {  # cgp EVENT CWD [JSON to merge]: a payload for cd-guard, session s1, ma
     '{hook_event_name:$e, session_id:"s1", transcript_path:$tp, cwd:$c} + $x'
 }
 cdb() { cgp PreToolUse "${2:-$CW}" "$(jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}')"; }
-wf() {  # wf TOOL_INPUT [TASK_ID] [RUN_ID]: the Workflow call's PostToolUse, as it returns async_launched
-  cgp PostToolUse "$CW" "$(jq -cn --argjson i "$1" --arg t "${2:-wf1}" --arg r "${3:-wf_r1}" '{tool_name:"Workflow", tool_input:$i,
-    tool_response:{status:"async_launched", taskId:$t, taskType:"local_workflow", workflowName:"build-change", runId:$r, summary:"x"}}')"
+wf() {  # wf TOOL_INPUT [TASK_ID] [RUN_ID] [WORKFLOW_NAME, "-" for none]: the Workflow call's PostToolUse, as it returns async_launched
+  cgp PostToolUse "$CW" "$(jq -cn --argjson i "$1" --arg t "${2:-wf1}" --arg r "${3:-wf_r1}" --arg n "${4:-build-change}" '{tool_name:"Workflow", tool_input:$i,
+    tool_response:({status:"async_launched", taskId:$t, taskType:"local_workflow", runId:$r, summary:"x"} + (if $n == "-" then {} else {workflowName:$n} end))}')"
 }
 wfstate() {  # wfstate RUN_ID STATUS: the state file as a run ends; STATUS "-garbled" writes one cut short
   case $2 in
@@ -477,7 +477,7 @@ cdg() {  # cdg WANT LABEL PAYLOAD [PATH]
   expect_rc "$1" "$rc" "cd-guard $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
 }
 cdg 0 "a cd out with no build running" "$(cdb "cd $d && ls")"
-cdg 0 "another workflow's call records no hold" "$(wf '{"name":"review-changes"}' wf0)"
+cdg 0 "another workflow's call records no hold" "$(wf '{"name":"review-changes"}' wf0 wf_r0 review-changes)"
 [ -e "$CH/s1/holds/wf0" ] && fail "cd-guard recorded a hold for a workflow that is not build-change" || ok "cd-guard records no hold for a workflow that is not build-change"
 cdg 0 "build-change's Workflow call is recorded" "$(wf '{"name":"build-change","args":{"change":"x"}}')"
 [ "$(head -n 1 "$CH/s1/holds/wf1" 2>/dev/null)" = "$CW" ] && ok "cd-guard holds the worktree the build started from ($CW)" || fail "cd-guard: holds/wf1 starts '$(head -n 1 "$CH/s1/holds/wf1" 2>/dev/null)', want $CW"
@@ -489,6 +489,7 @@ cdg 2 "a bare cd (home)" "$(cdb "cd")"
 cdg 2 "cd ~/x" "$(cdb "cd ~/x")"
 cdg 2 "pushd out" "$(cdb "pushd /")"
 cdg 2 "builtin cd out" "$(cdb "builtin cd /")"
+cdg 2 "time cd out (a keyword: the cd runs in this shell)" "$(cdb "time cd /")"
 cdg 2 "a cd to a variable (unresolvable)" "$(cdb "cd \"\$TMPDIR\"")"
 cdg 2 "cd - (unresolvable)" "$(cdb "cd -")"
 cdg 2 "in, then out through a relative path" "$(cdb "cd sub && cd ../..")"
@@ -496,6 +497,11 @@ cdg 2 "from a subdirectory of the worktree" "$(cdb "cd /" "$CW/sub")"
 cdg 0 "a cd within the worktree" "$(cdb "cd sub && ls")"
 cdg 0 "a cd to the worktree's own root by its absolute path" "$(cdb "cd $CW && git status")"
 cdg 0 "a cd to a directory not made yet, inside" "$(cdb "mkdir -p new/x && cd new/x")"
+# A worktree nested inside the held one is another checkout: moving there sends the run's agents to it.
+git -C "$C" worktree add -q -b nested "$CW/.claude/worktrees/x" 2>/dev/null
+cdg 2 "a cd into a worktree nested inside the held one" "$(cdb "cd .claude/worktrees/x")"
+cdg 0 "a cd into the directory that holds it, still this checkout" "$(cdb "cd .claude/worktrees")"
+git -C "$C" worktree remove --force "$CW/.claude/worktrees/x" 2>/dev/null; rm -rf "$CW/.claude"
 cdg 0 "a cd out inside a subshell" "$(cdb "( cd $C && git log -1 )")"
 cdg 0 "a cd out inside \$( )" "$(cdb "x=\$(cd $C && pwd)")"
 cdg 0 "a cd out inside sh -c" "$(cdb "sh -c 'cd / && ls'")"
@@ -504,9 +510,19 @@ cdg 0 "git -C instead of a cd" "$(cdb "git -C $C log -1")"
 cdg 0 "a cd out from a session already outside the worktree" "$(cdb "cd /" "$C")"
 cdg 0 "a subagent's cd out (build-change's agents cd into the root themselves)" "$(cgp PreToolUse "$CW" "$(jq -cn --arg c "cd /" '{tool_name:"Bash", agent_id:"a1", tool_input:{command:$c}}')")"
 cdg 0 "another session's cd out" "$(cdb "cd /" | jq -c '.session_id = "s2"')"
-# A run named by its script path or its inline meta holds too.
-cdg 0 "build-change by scriptPath is recorded" "$(wf '{"scriptPath":".claude/workflows/build-change.js"}' wf2)"
-cdg 0 "build-change as an inline script is recorded" "$(wf "$(jq -cn '{script:"export const meta = { name: '"'"'build-change'"'"', description: \"x\" }"}')" wf3)"
+# A run named by its script path or its inline meta holds too, with no workflowName in the result
+# ("-"); and a re-run or resume through the script Claude Code saved for an earlier run
+# (…/workflows/scripts/build-change-wf_<id>.js: 6 of 16 real calls on 2026-10-21), by its path alone
+# and by the result's workflowName alone.
+cdg 0 "a resume through build-change's saved script is recorded" "$(wf '{"args":{"change":"x","resume":2},"scriptPath":"/h/.claude/projects/p/s/workflows/scripts/build-change-wf_7190f406-97d.js"}' wf7 wf_r7 -)"
+cdg 0 "a run the result names build-change is recorded" "$(wf '{"scriptPath":"/h/.claude/projects/p/s/workflows/scripts/x.js"}' wf8 wf_r8)"
+cdg 0 "another workflow's saved script records no hold" "$(wf '{"scriptPath":"/h/.claude/projects/p/s/workflows/scripts/review-changes-wf_1a.js"}' wf9 wf_r9 review-changes)"
+[ -f "$CH/s1/holds/wf7" ] && [ -f "$CH/s1/holds/wf8" ] && [ ! -e "$CH/s1/holds/wf9" ] \
+  && ok "cd-guard records a run through build-change's saved script, or one the result names build-change, and not another workflow's" \
+  || fail "cd-guard: holds/ is $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' '), want wf7 and wf8 beside wf1, and no wf9"
+rm -f "$CH/s1/holds/wf7" "$CH/s1/holds/wf8"
+cdg 0 "build-change by scriptPath is recorded" "$(wf '{"scriptPath":".claude/workflows/build-change.js"}' wf2 wf_r2 -)"
+cdg 0 "build-change as an inline script is recorded" "$(wf "$(jq -cn '{script:"export const meta = { name: '"'"'build-change'"'"', description: \"x\" }"}')" wf3 wf_r3 -)"
 [ -f "$CH/s1/holds/wf2" ] && [ -f "$CH/s1/holds/wf3" ] && ok "cd-guard records build-change named by its scriptPath and by its inline meta" || fail "cd-guard: holds/ is $(ls "$CH/s1/holds" 2>/dev/null | tr '\n' ' ')"
 rm -f "$CH/s1/holds/wf2" "$CH/s1/holds/wf3"
 # A hold ends when its run's state file says completed, failed or killed. Anything else keeps it: no

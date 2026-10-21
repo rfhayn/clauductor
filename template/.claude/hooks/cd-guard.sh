@@ -11,8 +11,10 @@
 # moves the session"), and the next group's builders and reviewers ran in the wrong checkout. The
 # workflow's whenToUse already says to stay put: an instruction is not a control (AGENTS.md rule 4).
 #
-# WHAT IS A BUILD-CHANGE RUN. A Workflow call whose tool_input names it: `name` "build-change", a
-# `scriptPath` ending build-change.js, or an inline `script` whose meta says name: 'build-change'.
+# WHAT IS A BUILD-CHANGE RUN. A Workflow call whose result says workflowName "build-change", or whose
+# tool_input names it: `name` "build-change", a `scriptPath` ending build-change.js (or the copy
+# Claude Code saves per run, build-change-wf_<id>.js, which a re-run or a resume passes), or an
+# inline `script` whose meta says name: 'build-change'.
 # The held root is `git rev-parse --show-toplevel` of the payload's cwd as the call returns: the
 # worktree build-change's preflight then pins every agent to.
 #
@@ -20,8 +22,10 @@
 # order: one inside `( … )`, `$( … )` or `sh -c` moves a child and is not counted. Each target is
 # resolved from the payload's cwd (then from the last cd's), physically where it exists and
 # lexically where it does not yet (`mkdir x && cd x`). Refused when the command starts inside a held
-# root and any target lands outside it. A target that cannot be resolved here (`$VAR`, `$(…)`, a
-# glob, `cd -`) is refused too while a hold stands: a refused command can always be rewritten.
+# root and any target lands outside it, or in another checkout under it (a nested worktree, where
+# git's top level differs from the held root). A target that cannot be resolved here (`$VAR`,
+# `$(…)`, a glob, `cd -`) is refused too while a hold stands: a refused command can always be
+# rewritten.
 #
 # WHEN A HOLD ENDS. No hook event marks a workflow's end (TaskCompleted never fires for one), so a
 # hold ends when the first of these is seen:
@@ -86,8 +90,8 @@ safe() { printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-' | sed 's/^\.*//'; }
 fields=$(printf '%s' "$payload" | jq -r '[.hook_event_name, .tool_name, .agent_id, .session_id, .cwd, .transcript_path,
   (.tool_response | objects | .taskId // .task_id // .backgroundTaskId),
   (.tool_response | objects | .runId // .run_id),
-  (.tool_input | objects | (.name == "build-change")
-    or ((.scriptPath // "") | tostring | test("(^|/)build-change\\.js$"))
+  ((.tool_response | objects | .workflowName) // "") == "build-change" or (.tool_input | objects | (.name == "build-change")
+    or ((.scriptPath // "") | tostring | test("(^|/)build-change(-wf_[A-Za-z0-9_-]+)?\\.js$"))
     or ((.script // "") | tostring | test("name:[[:space:]]*[\u0027\"]build-change[\u0027\"]")))]
   | map(. // "" | tostring | gsub("[\n\u001f]"; " ")) | join("\u001f")')
 IFS="$(printf '\037')" read -r event tool agent sid cwd transcript task_id run_id is_build <<EOF
@@ -180,6 +184,10 @@ while IFS= read -r t; do
   case $t in /*) ;; *) t="$cur/$t" ;; esac
   t=$(phys "$t")
   inside "$t" "$held" || block "this command moves the session to $t, outside $held. $WHY $FIX $END"
+  # Inside by path is not inside by checkout: a worktree nested under the held one (.claude/worktrees/x).
+  if [ -d "$t" ] && tt=$(git -C "$t" rev-parse --show-toplevel 2>/dev/null) && [ -n "$tt" ] && [ "$(phys "$tt")" != "$held" ]; then
+    block "this command moves the session to $t, inside $held but in another checkout ($tt). $WHY $FIX $END"
+  fi
   cur=$t
 done <<EOF
 $(printf '%s\n' "$targets" | sed -n 's/^CD	//p')

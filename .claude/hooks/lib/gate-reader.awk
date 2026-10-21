@@ -41,7 +41,7 @@ BEGIN {
   # Wrapper options that take the next word as their argument.
   n = split("-u -C -a -I -d -E -s -k -w -n -P -L", g, " ")
   for (i = 1; i <= n; i++) OPTARG[g[i]] = 1
-  n = split("builtin command ! { if then elif else while until do", g, " ")
+  n = split("builtin command time ! { if then elif else while until do", g, " ")
   for (i = 1; i <= n; i++) CDWRAP[g[i]] = 1
   D = 0
 }
