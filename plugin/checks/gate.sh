@@ -334,9 +334,13 @@ run; rc=$?; SHA=$(git -C "$R" rev-parse HEAD)
 expect_rc 0 "$rc" "fixture: a full clean run passes"
 [ "$(lines "$RUNS")" = $((n0 + 1)) ] && ok "the run log gains one line per run ($RUNS)" || fail "run log: $(lines "$RUNS") lines after one run, $n0 before"
 last=$(tail -n 1 "$RUNS" 2>/dev/null)
-if printf '%s\n' "$last" | awk -F'\t' -v sha="$SHA" 'NF == 9 && $1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$/ && $2 == "check" && $3 == "main" && $4 == sha && $5 == "full" && $6 == "pass" && $7 == "0" && $8 ~ /^[0-9]+$/ && $9 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }'; then
-  ok "...a line of time, lane, branch, sha, mode, pass, exit code, run and queue seconds"
+if printf '%s\n' "$last" | awk -F'\t' -v sha="$SHA" 'NF == 10 && $1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$/ && $2 == "check" && $3 == "main" && $4 == sha && $5 == "full" && $6 == "pass" && $7 == "0" && $8 ~ /^[0-9]+$/ && $9 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }'; then
+  ok "...a line of time, lane, branch, sha, mode, pass, exit code, run and queue seconds, and the steps"
 else fail "run log line: '$last'"; fi
+# Each step's duration (OPS-89): every step that ran, in order, the model's two first.
+steps_re='^scenario trace=[0-9]+;secrets=[0-9]+;lease held=[0-9]+;hold=[0-9]+;unit=[0-9]+;slow=[0-9]+$'
+printf '%s\n' "$last" | awk -F'\t' -v re="$steps_re" '$10 ~ re { ok = 1 } END { exit !ok }' \
+  && ok "...the steps field names each step that ran, in order, with its seconds" || fail "run log steps field: '$(printf '%s' "$last" | cut -f10)'"
 grep -q "^started pid=[0-9]* at=[0-9]* mode=full subject=worktree head=$SHA tree=$SHA script=run-local.sh" "$STATE" && grep -q '^exit pid=[0-9]* code=0 ' "$STATE" \
   && ok "the state file has the run's started line (a clean tree's id is HEAD) and its exit line" || fail "state: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
 gw; rc=$?
@@ -344,8 +348,8 @@ expect_rc 0 "$rc" "gate-wait after a passing run: PASS (0)"
 says "PASS for HEAD $(printf %.9s "$SHA"). Receipt" "...naming HEAD and the receipt"
 
 touch "$R/FAIL_UNIT"; run --quick; rm -f "$R/FAIL_UNIT"
-tail -n 1 "$RUNS" | awk -F'\t' '$5 == "quick" && $6 == "fail" && $7 == "1" { ok = 1 } END { exit !ok }' \
-  && ok "a failed --quick run is logged as quick, fail, exit 1" || fail "run log after a failed --quick: '$(tail -n 1 "$RUNS")'"
+tail -n 1 "$RUNS" | awk -F'\t' '$5 == "quick" && $6 == "fail" && $7 == "1" && $10 ~ /;hold=[0-9]+;unit=[0-9]+$/ { ok = 1 } END { exit !ok }' \
+  && ok "a failed --quick run is logged as quick, fail, exit 1, its steps ending at the one that failed" || fail "run log after a failed --quick: '$(tail -n 1 "$RUNS")'"
 gw; rc=$?
 expect_rc 1 "$rc" "gate-wait after a failed run: FAIL (1), even with a passing receipt for HEAD on disk"
 says 'FAIL for HEAD .*exited 1' "...and says the gate exited 1"
@@ -373,6 +377,9 @@ rm -f "$R/local/HOLD"
 gw 60; rc=$?
 expect_rc 0 "$rc" "gate-wait follows a running gate to its end: PASS (0)"
 wait "$bg" 2>/dev/null
+# The step held for the gate-wait calls above (seconds) is logged with what it took, not a constant.
+held=$(tail -n 1 "$RUNS" | cut -f10 | tr ';' '\n' | sed -n 's/^hold=//p')
+[ "${held:-0}" -ge 1 ] 2>/dev/null && ok "a step's logged duration is what it took (the held step: ${held}s)" || fail "the held step's logged duration: '${held:-none}' in '$(tail -n 1 "$RUNS" | cut -f10)'"
 
 # Died: a started line whose process is gone, with or without ps.
 dead=$(sh -c 'echo $$')
