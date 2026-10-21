@@ -798,7 +798,9 @@ function renderTree(ls, cur) {
     const g = w.git;
     const sm = StallView.mark(w, null);
     const first = [sm ? el("span", "sq " + sm.state) : null, el("span", "tag", w.type), el("span", "nn", w.branch || "detached")];
-    const second = [sm ? el("span", "state-word " + sm.state, sm.text) : null, w.path === S.root ? "project root" : relPath(w.path)];
+    const sw = sm ? el("span", "state-word " + sm.state, sm.text) : null;
+    if (sw && sm.approx) sw.title = sm.title;
+    const second = [sw, w.path === S.root ? "project root" : relPath(w.path)];
     if (g && !g.error) {
       if (g.hasUpstream) second.push(el("span", "num", "↑" + g.ahead + " ↓" + g.behind));
       second.push(g.dirty ? g.dirty + " changed" : "clean");

@@ -297,6 +297,7 @@
   pass. The Slice is ticked: the push (group 4) and the page (this group) hold end to end, by a
   stand-in push program and a real browser; no live phone push was sent. Next: group 5's review.
 - 2026-10-21 group 5 (The page and the docs) built and reviewed: converged in 2 round(s), peak high (round 1 high: H1 STALL-4-S1's test read back its fixture, fixed with L3 and L4; round 2 low, 5 low, quick gate PASS on tree 82192e641; session 6 TRACK D8). Round 2's lows fixed in the next commit and reviewed there (Decision log).
+- 2026-10-21 group 5's round-2 lows fixed and reviewed: converged in 1 round, peak low (4 low, applied as wording; Decision log).
 
 ## Decision log
 - 2026-10-18, group 1: read the 2.1.303 binary statically before any live probe, rather than
@@ -1327,6 +1328,45 @@
   - **L1 and L2, the owner's under D11, not changed:** the stall shown in Needs you and again in
     the Alerts strip; the sort, the top bar's counts, the durations and a second terminal reading
     the underlying state.
+- 2026-10-21, group 5, review round 2 (converged, peak low; committed as fe7ac827), its five lows
+  fixed after the commit, each test failing first:
+  - **1, a relative link joined lexically:** `pushChain` now resolves the link's folder
+    (`EvalSymlinks(filepath.Dir(p))`) before joining a relative target, as the OS does.
+    `TestReadPushFollowsARelativeLinkFromItsRealFolder` (the panel folder itself a link, and
+    push.json -> ../shared/push.json) failed first: "a relative link the OS opens through the
+    linked panel folder: {argv:[] refused:Push command … }, want accepted".
+  - **2, a folder on the way that is itself a link:** **the docs narrowed, not the code
+    widened.** *Security model* and *Notifications* now say what the code judges: the folder of
+    the path and of each link's target at the file's own path, each judged where it leads, and
+    not the folder holding a directory link on the way (`/a` for `/a/dirlink/push.json`). The
+    `pushDirs` comment says so too. **Chosen over** walking every component of every hop: it
+    would judge every ancestor through each link (on macOS `/var` -> `/private/var` for any temp
+    path), which is a rule D7 does not state; the plain folder of the path is already all it
+    judges for a file that is no link.
+  - **3, the bound and the hops in the signature, untested:** `TestReadPushBoundsALinkChain`
+    (8 links read, 9 refused) failed with the bound removed ("a chain of 9 links:
+    {argv:[/usr/bin/true] refused:}, want it refused");
+    `TestPushWatchSeesALinkRetargeted` (the link pointed at another file of the same size, time
+    and folder, `os.Chtimes`) failed with the hops out of the signature ("{argv:[/bin/push-a]
+    refused:}, want push-b read"). Both restored.
+  - **4, the tree node's approximate stall had no title:** it sets `sm.title` as `stateMark` and
+    the tab do; `TestStallViewCalledFromThePage` pins it, and failed first ("panel.js lacks
+    "const sw = …\n    if (sw && sm.approx) sw.title = sm.title; …"").
+  - **5, any lowercase word reached the push:** `statusHow` names a status only from an
+    allowlist, `endedStatuses` (completed, failed, killed, stopped, cancelled); anything else is
+    "no longer in flight". This supersedes L2's one-plain-word rule above. The probes recorded no
+    status beyond running and pending (P2: a shell or monitor is listed only while in flight), so
+    the list is Claude Code's own background-task statuses, unprobed; an unknown word costs only
+    the wording. `TestStalledAlertCarriesThePushFields`'s new case (a monitor whose status is
+    "hunter") failed first: "the push body "… · a monitor hunter · …", want … "a monitor no
+    longer in flight"".
+- 2026-10-21, group 5, the review of round 2's fixes (converged, peak low, 4 low), applied as
+  wording: L1 a `..` inside a link's target is still taken lexically (`filepath.Join` cleans
+  it), so `pushChain`'s comment and the *Security model* sentence say so rather than "never
+  lexically" (a link the owner writes themselves; resolving it physically is a rule D7 does not
+  state); L2 *Notifications* names the folders the 10 s check watches as the *Security model*
+  does; L3 `stall_test.go`'s case comment names the allowlist; L4 a no-op `MkdirAll` dropped from
+  `TestReadPushFollowsARelativeLinkFromItsRealFolder`.
 
 ## 1. Probes on the owner's Mac (design E1 to E3, P1 to P4)
 - [x] 1.1 P1: on the Mac's Claude Code version, with the panel running, repeat E1 and E3 in a throwaway lane: a background `sleep` with the turn ended at once, then an AskUserQuestion. Record what `claude agents --json` reads at each step, and whether the `Stop` body the panel's hook endpoint receives carries `background_tasks` and `session_crons` (a debug log of the decoded fields, never committed). Record the result in this change's Decision log (`changes/panel-51-stall-alert/tasks.md`), as every probe of this group does. If the fields do not arrive through the async command hook, stop for the owner: D2 and D4 rest on them. (manual: a live Claude Code session on the owner's login, which no test can start)

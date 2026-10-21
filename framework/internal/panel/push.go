@@ -43,7 +43,7 @@ func pushPath(home string) string { return filepath.Join(config.PanelDir(home), 
 
 // readPush reads and judges push.json by D7's rules: refused when the file is not the
 // user's, is writable by group or others, or sits in a folder that is (the folder of
-// the path and of every link on the way to the file, pushChain); when its argv[0] is
+// the path and of each link's target at the file's own path, pushChain); when its argv[0] is
 // not an absolute path; and when it is anything but one JSON object with a non-empty
 // argv of strings. No file: no command and no refusal. owner is the user the file must
 // belong to (os.Getuid; a test stands in for a file another user owns, which it
@@ -122,7 +122,15 @@ func pushChain(path string) ([]string, error) {
 			return hops, err
 		}
 		if !filepath.IsAbs(t) {
-			t = filepath.Join(filepath.Dir(p), t)
+			// The OS resolves a relative target from the folder the link really sits in,
+			// which a link on the way to that folder can move ("../shared" from a panel
+			// folder that is itself a link): resolve the folder first. A ".." inside the
+			// target itself is still taken lexically (Join cleans it), as the docs say.
+			dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+			if err != nil {
+				return hops, err
+			}
+			t = filepath.Join(dir, t)
 		}
 		p = t
 		hops = append(hops, p)
@@ -130,7 +138,9 @@ func pushChain(path string) ([]string, error) {
 }
 
 // pushDirs are the folders a push file is judged by: the folder of every path on its
-// chain (pushChain), each once. Anyone who can write one of them can point the chain
+// chain (pushChain), each once, judged where it leads (os.Stat): a folder on the way
+// that is itself a link has its target judged, not the folder holding the link (the
+// docs say so). Anyone who can write one of them can point the chain
 // at a file of theirs. readPush judges them and the push source's signature watches
 // them, so the two never disagree on which they are.
 func pushDirs(hops []string) []string {

@@ -2591,14 +2591,23 @@ func TestStalledAlertCarriesThePushFields(t *testing.T) {
 		}, []string{"Run checks", "run.sh", "Checks are running"}},
 		// A task listed with a status beyond running or pending: the page appends it to
 		// the description, and the push's kind of wait follows it, never "in flight"
-		// (group 4's review round 1, L2); a status that is not one plain word is not
-		// carried at all.
+		// (group 4's review round 1, L2); a status outside the allowlist of ended
+		// statuses is not carried at all (group 5's review round 2, L5).
 		{"a shell failed", "/repo/w/x", "a shell failed", func(r *stallRig) {
 			r.list("s", "/repo/w/x", "idle")
 			r.poll(hm(0, 0))
 			r.prs(hm(0, 0), prX(152))
 			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[{"type":"shell","status":"failed","description":"Run checks"}],"session_crons":[]`)
 		}, []string{"Run checks", "in flight"}},
+		// One plain lowercase word, but not a status Claude Code is known to set: an MCP
+		// monitor's status was never probed and could be any word, so only an allowlisted
+		// status leaves the machine (group 5's review round 2, 5).
+		{"a monitor of a word not allowlisted", "/repo/w/x", "a monitor no longer in flight", func(r *stallRig) {
+			r.list("s", "/repo/w/x", "idle")
+			r.poll(hm(0, 0))
+			r.prs(hm(0, 0), prX(152))
+			r.hook(hm(0, 0), "Stop", "s", "/repo/w/x", `"background_tasks":[{"type":"monitor","status":"hunter","description":"tail"}],"session_crons":[]`)
+		}, []string{"hunter", "tail"}},
 		{"a monitor of an odd status", "/repo/w/x", "a monitor no longer in flight", func(r *stallRig) {
 			r.list("s", "/repo/w/x", "idle")
 			r.poll(hm(0, 0))

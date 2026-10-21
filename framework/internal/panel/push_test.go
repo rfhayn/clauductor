@@ -281,6 +281,115 @@ func TestReadPushJudgesEveryHopOfALinkChain(t *testing.T) {
 	}
 }
 
+// [STALL-3-S4] A relative link is followed from the folder it really sits in, as the
+// OS opens it: with the panel folder itself a link to another place, push.json ->
+// ../shared/push.json names the shared folder beside that place, and that folder is
+// the one judged (group 5's review round 2, 1).
+func TestReadPushFollowsARelativeLinkFromItsRealFolder(t *testing.T) {
+	t.Parallel()
+	home, real := t.TempDir(), t.TempDir()
+	panelDir := config.PanelDir(home)
+	for _, d := range []string{filepath.Dir(panelDir), filepath.Join(real, "panel"), filepath.Join(real, "shared")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(real, "panel"), panelDir); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(real, "shared")
+	if err := os.WriteFile(filepath.Join(shared, "push.json"), []byte(argvJSON("/usr/bin/true")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(shared, "push.json"), 0o600); err != nil { // past the umask
+		t.Fatal(err)
+	}
+	link := pushPath(home)
+	if err := os.Symlink(filepath.Join("..", "shared", "push.json"), link); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPush(link, os.Getuid()); len(got.argv) == 0 {
+		t.Fatalf("a relative link the OS opens through the linked panel folder: %+v, want accepted", got)
+	}
+	if err := os.Chmod(shared, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if got := readPush(link, os.Getuid()); len(got.argv) > 0 || !strings.Contains(got.refused, "writable by group or others") {
+		t.Errorf("the link's real target folder made writable by group: %+v, want it refused", got)
+	}
+}
+
+// pushLinkChain makes push.json, in home, the head of a chain of n links in a folder of
+// its own (0700), ending at a safe file there.
+func pushLinkChain(t *testing.T, home string, n int) string {
+	t.Helper()
+	link, dir := pushLinkedInto(t, home) // push.json -> dir/push.json
+	next := filepath.Join(dir, "push.json")
+	for i := 1; i < n; i++ {
+		hop := filepath.Join(dir, fmt.Sprintf("hop%d", i))
+		if err := os.Symlink(next, hop); err != nil {
+			t.Fatal(err)
+		}
+		next = hop
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(next, link); err != nil {
+		t.Fatal(err)
+	}
+	return link
+}
+
+// [STALL-3-S4] A chain of links is followed at most pushMaxHops links: 8 are read, 9
+// are refused (group 5's review round 2, 3).
+func TestReadPushBoundsALinkChain(t *testing.T) {
+	t.Parallel()
+	if got := readPush(pushLinkChain(t, t.TempDir(), pushMaxHops), os.Getuid()); len(got.argv) == 0 {
+		t.Errorf("a chain of %d links: %+v, want accepted", pushMaxHops, got)
+	}
+	got := readPush(pushLinkChain(t, t.TempDir(), pushMaxHops+1), os.Getuid())
+	if len(got.argv) > 0 || !strings.Contains(got.refused, "more than 8 symbolic links") {
+		t.Errorf("a chain of %d links: %+v, want it refused", pushMaxHops+1, got)
+	}
+}
+
+// The push source reads push.json again when its link is pointed at another file of
+// the same size, time and folder: only the chain's hops tell the two apart (group 5's
+// review round 2, 3).
+func TestPushWatchSeesALinkRetargeted(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	link, dir := pushLinkedInto(t, home)
+	a, b := filepath.Join(dir, "push.json"), filepath.Join(dir, "other.json")
+	when := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	for p, prog := range map[string]string{a: "/bin/push-a", b: "/bin/push-b"} {
+		if err := os.WriteFile(p, []byte(argvJSON(prog)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, 0o600); err != nil { // past the umask
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := newPushWatch(home)
+	if c := w.current(); len(c.argv) != 1 || c.argv[0] != "/bin/push-a" {
+		t.Fatalf("the premise: the link names push-a at start: %+v", c)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(b, link); err != nil {
+		t.Fatal(err)
+	}
+	w.poll(context.Background(), time.Now())
+	if c := w.current(); len(c.argv) != 1 || c.argv[0] != "/bin/push-b" {
+		t.Errorf("after the link was pointed at a file of the same size and time: %+v, want push-b read", c)
+	}
+}
+
 // The push source reads push.json again when the folder of the file a link names
 // changes mode: readPush judges that folder, so a chmod there makes the file unsafe
 // (or safe) with nothing else about it changed (group 4's review round 1, L4).

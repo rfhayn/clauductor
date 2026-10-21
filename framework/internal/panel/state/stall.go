@@ -828,20 +828,21 @@ const (
 	howNotNow   = "no longer in flight"
 )
 
+// endedStatuses are the statuses past running or pending that the push may name: the
+// ones Claude Code sets on its own background tasks. The probes (P1, P2) only ever saw
+// running and pending listed, so these are not recorded here, and an MCP monitor's
+// status was never probed: any word not here is not carried.
+var endedStatuses = map[string]bool{"completed": true, "failed": true, "killed": true, "stopped": true, "cancelled": true}
+
 // statusHow is how an open task listed with a status beyond running or pending stands,
-// as the push words it: the status itself ("a shell failed") when it is one plain
-// word, as Claude Code's own statuses are; anything else is not carried (the push
-// leaves the machine, D7), only that the task is no longer in flight.
+// as the push words it: the status itself ("a shell failed") when it is one of
+// endedStatuses; anything else is not carried (the push leaves the machine, D7), only
+// that the task is no longer in flight.
 func statusHow(status string) string {
-	if len(status) > 20 {
-		return howNotNow
+	if endedStatuses[status] {
+		return status
 	}
-	for _, r := range status {
-		if (r < 'a' || r > 'z') && r != '_' {
-			return howNotNow
-		}
-	}
-	return strings.ReplaceAll(status, "_", " ")
+	return howNotNow
 }
 
 // turnWork is the background work the session's last Stop listed that is open work

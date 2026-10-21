@@ -2141,7 +2141,7 @@ exec /usr/bin/curl -fsS --form-string "token=APP_TOKEN" --form-string "user=USER
   push leaves the machine. Only a stall is pushed; a waiting alert is pushed only when it has
   stalled.
 - **When it is read:** once for every project, at start and whenever the file changes (a check
-  every 10 s, its mode and owner included, and those of every folder a chain of links passes through).
+  every 10 s, its mode and owner included, and those of the folder of its path and of each link's target).
 - **A refused file** never runs, and a warning bar on every project's page names the file and why
   (see *Security model*).
 - **A failed push** counts in the notifier's failures with the last line it printed (never its
@@ -2933,8 +2933,12 @@ send requests to `127.0.0.1`.
 - **The push command runs only from a file only you can change** (PANEL-51; *Notifications*).
   `~/.clauductor/panel/push.json` names a program the panel runs with no shell, so it is refused,
   never run, and a warning bar names it and why, when it is not owned by you, is writable by group
-  or others, sits in a folder that is (the folder of its path and of every symbolic link on the
-  way to the file, followed one hop at a time, at most 8), is not a regular file, names its program (`argv[0]`) by a relative
+  or others, sits in a folder that is (the folder of its path and, where the file's own path is a
+  symbolic link, the folder of each link's target in turn, followed one hop at a time, at most 8;
+  a folder on the way that is itself a link, such as `/a/dirlink` in a target
+  `/a/dirlink/push.json`, is judged where it leads, and the folder holding that link is not; a
+  `..` inside a link's target is taken lexically), is
+  not a regular file, names its program (`argv[0]`) by a relative
   path, or is anything but one JSON object with a non-empty `argv` of strings. The push carries
   no word of the model's or of a question (only the quiet time, the kind of wait and the open
   work), and a failed push's error keeps only the last line it printed, never its arguments.

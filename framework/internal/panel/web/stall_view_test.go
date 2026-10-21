@@ -263,7 +263,7 @@ func TestStallViewCalledFromThePage(t *testing.T) {
 		// The tree node.
 		"const sm = StallView.mark(w, null);",
 		"const first = [sm ? el(\"span\", \"sq \" + sm.state) : null,",
-		"const second = [sm ? el(\"span\", \"state-word \" + sm.state, sm.text) : null,",
+		"const sw = sm ? el(\"span\", \"state-word \" + sm.state, sm.text) : null;\n    if (sw && sm.approx) sw.title = sm.title;\n    const second = [sw,",
 		// Needs you.
 		"const st = done ? null : StallView.need(n, S.lanes.concat(S.quietWorktrees));",
 		"const sev = done ? \"\" : st ? st.sev : n.severity === \"block\" ? \"crit\" : \"warn\";",
