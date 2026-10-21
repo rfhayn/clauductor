@@ -1256,11 +1256,12 @@ func TestStallOneShotWakeup(t *testing.T) {
 	stalledSince(t, r.view(hm(0, 45)), "/repo/w/y", hm(0, 5), "00:45")
 }
 
-// [STALL-2-S21] A one-shot cron of neither shape fireTime resolves (`0 9 * 10 *`: a
+// [STALL-2-S21] A one-shot cron of neither shape fireTime resolves (`0 1 * 10 *`: a
 // day of `*` under a month that is a number) holds off its own session's
 // background-work stall and its lane's open-work stall while its Stop's list stands,
 // however long that is; a later Stop that lists no cron ends the hold, and the stall
-// counts from that Stop.
+// counts from that Stop. Its next calendar match, 01:00 on the test day (18 October),
+// is past by 05:00, so a reading of it as that match would not hold the stall off.
 func TestStallOneShotOfAnotherShapeHoldsOff(t *testing.T) {
 	t.Parallel()
 	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x", Head: headX}}
@@ -1271,7 +1272,7 @@ func TestStallOneShotOfAnotherShapeHoldsOff(t *testing.T) {
 	r.poll(hm(0, 0))
 	r.prs(hm(0, 0), prX(152))
 	const shell = `"background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Run checks"}]`
-	const cron = `"session_crons":[{"id":"c1","schedule":"0 9 * 10 *","recurring":false}]`
+	const cron = `"session_crons":[{"id":"c1","schedule":"0 1 * 10 *","recurring":false}]`
 	r.hook(hm(0, 0), "Stop", "h", "/repo", shell+","+cron)
 	r.hook(hm(0, 0), "Stop", "sx", "/repo/w/x", `"background_tasks":[],`+cron)
 	v := r.view(hm(5, 0))
@@ -1289,6 +1290,68 @@ func TestStallOneShotOfAnotherShapeHoldsOff(t *testing.T) {
 		t.Errorf("05:30: the main checkout's waitedOn %q does not name the second session's shell", st.WaitedOn)
 	}
 	stalledSince(t, v, "/repo/w/x", hm(5, 0), "05:30, #152")
+}
+
+// stallLanesXYZ are the main checkout and three lanes, x, y and z, for #152, #153 and
+// #154.
+var stallLanesXYZ = []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x", Head: headX},
+	{Path: "/repo/w/y", Branch: "change/y", Head: headY}, {Path: "/repo/w/z", Branch: "change/z", Head: headX}}
+
+// listXYZ lists an idle session in each of x, y and z (sx, sy, sz), polls, and reads
+// #152, #153 and #154 open for them, all at at.
+func listXYZ(r *stallRig, at time.Time) {
+	r.list("sx", "/repo/w/x", "idle")
+	r.list("sy", "/repo/w/y", "idle")
+	r.list("sz", "/repo/w/z", "idle")
+	r.poll(at)
+	r.prs(at, prX(152), signals.PR{Number: 153, HeadRef: "change/y"}, signals.PR{Number: 154, HeadRef: "change/z"})
+}
+
+// [STALL-2-S22] #186's amendment leaves only (d) unknown while a turn is unreported:
+// the kept Stop still makes its session working through a listed workflow (x and y)
+// and still holds its stalls off through a listed cron (x and z). y has the workflow
+// alone and z the cron alone, so each rule is shown on its own.
+func TestStallUnreportedTurnKeepsWorkflowAndCron(t *testing.T) {
+	t.Parallel()
+	r := newStallRig(t, eve(23, 50), "", stallLanesXYZ...)
+	listXYZ(r, eve(23, 50))
+	const wf = `"background_tasks":[{"id":"w1","type":"workflow","status":"running","description":"Build group 2"}]`
+	const cron = `"session_crons":[{"id":"c1","schedule":"*/10 * * * *","recurring":true}]`
+	r.hook(hm(0, 0), "Stop", "sx", "/repo/w/x", wf+","+cron)
+	r.hook(hm(0, 0), "Stop", "sy", "/repo/w/y", wf+`,"session_crons":[]`)
+	r.hook(hm(0, 0), "Stop", "sz", "/repo/w/z", `"background_tasks":[],`+cron)
+	for _, s := range []string{"x", "y", "z"} {
+		r.hook(hm(0, 5), "UserPromptSubmit", "s"+s, "/repo/w/"+s, `"prompt":"go on"`)
+	}
+	for _, at := range []time.Time{hm(0, 40), hm(1, 30)} {
+		v := r.view(at)
+		notStalled(t, v, "/repo/w/x", clock(at)+", #152: a workflow and a recurring cron")
+		notStalled(t, v, "/repo/w/y", clock(at)+", #153: a workflow alone")
+		notStalled(t, v, "/repo/w/z", clock(at)+", #154: a recurring cron alone")
+	}
+}
+
+// [STALL-2-S23] A one-shot whose minute, hour, day and month are numbers resolves to
+// that date in the year nearest its Stop: armed at 23:50 on 31 December, `20 0 1 1 *`
+// fires the next morning, not a year back, and `0 9 31 12 *` fired that same morning,
+// not a year ahead; `0 9 31 11 *`, a date no year has, is of neither shape and holds
+// the stall off while its Stop's list stands.
+func TestStallOneShotYearNearestAndImpossibleDate(t *testing.T) {
+	t.Parallel()
+	dec := func(h, m int) time.Time { return time.Date(2026, time.December, 31, h, m, 0, 0, time.UTC) }
+	jan := func(h, m int) time.Time { return time.Date(2027, time.January, 1, h, m, 0, 0, time.UTC) }
+	r := newStallRig(t, dec(23, 0), "", stallLanesXYZ...)
+	listXYZ(r, dec(23, 0))
+	for s, sched := range map[string]string{"x": "20 0 1 1 *", "y": "0 9 31 12 *", "z": "0 9 31 11 *"} {
+		r.hook(dec(23, 50), "Stop", "s"+s, "/repo/w/"+s, `"background_tasks":[],"session_crons":[{"id":"c1","schedule":"`+sched+`","recurring":false}]`)
+	}
+	v := r.view(jan(0, 20))
+	stalledSince(t, v, "/repo/w/y", dec(23, 50), "Jan 1 00:20, #153: its wakeup that morning past")
+	notStalled(t, v, "/repo/w/x", "Jan 1 00:20, #152")
+	notStalled(t, v, "/repo/w/z", "Jan 1 00:20, #154")
+	notStalled(t, r.view(jan(0, 24)), "/repo/w/x", "Jan 1 00:24, #152: its wakeup due at 00:20")
+	stalledSince(t, r.view(jan(0, 25)), "/repo/w/x", dec(23, 50), "Jan 1 00:25, #152")
+	notStalled(t, r.view(jan(5, 0)), "/repo/w/z", "Jan 1 05:00, #154: 31 November")
 }
 
 // [STALL-2-S12] A background Monitor, listed as a shell, is read as one.
@@ -1429,7 +1492,7 @@ func TestStallUnreportedTurnLeavesWorkUnknown(t *testing.T) {
 	}
 }
 
-// #186's mark is part of the kept Stop's lifecycle: a restart (L12, L3) and a record
+// [STALL-1-S32] (the restart cases) #186's mark is part of the kept Stop's lifecycle: a restart (L12, L3) and a record
 // heard while its id is saved (L13) keep it, so a restart in the middle of an unreported
 // turn does not bring the false push back; a lane stalled by its pull request names no
 // work the unreported turn's Stop listed; and a teammate's UserPromptSubmit, under its
