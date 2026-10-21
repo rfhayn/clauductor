@@ -43,6 +43,7 @@ type extras struct {
 	roles         []byte             // model-roles.json with the template's new keys added (nil: nothing to add)
 	rolesAdded    []string           // the keys added
 	panelProblems []string           // panel.json disagrees with the BRANCH_* keys
+	panelRel      string             // the panel.json read (template.ProjectPanelPath)
 	agentsRows    []string           // AGENTS.md table rows the template has and the project lacks
 	old           []template.OldFile // the old model's files the current model replaced
 	oldStubs      []placed           // project skills that are the old model's unedited stubs: replaced
@@ -68,6 +69,7 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 		if skip != "" {
 			continue
 		}
+		dest = template.ProjectDest(targetDir, rel, dest)
 		pl := placed{rel: rel, dest: dest, key: key}
 		if !fileExists(filepath.Join(targetDir, filepath.FromSlash(dest))) {
 			x.docNew = append(x.docNew, pl)
@@ -90,7 +92,8 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 			}
 		}
 	}
-	if have, ok := read(targetDir, template.PanelPath); ok {
+	x.panelRel = template.ProjectPanelPath(targetDir)
+	if have, ok := read(targetDir, x.panelRel); ok {
 		x.panelProblems = template.PanelBranchProblems(have, conf)
 	}
 	if have, ok := read(targetDir, template.AgentsPath); ok {
@@ -125,7 +128,7 @@ func (x *extras) print(out io.Writer, showDocNew bool) {
 		fmt.Fprintln(out)
 	}
 	if len(x.panelProblems) > 0 {
-		fmt.Fprintf(out, "  PANEL — %s disagrees with the branch keys in .claude/project.conf (edit it; it is the project's):\n", template.PanelPath)
+		fmt.Fprintf(out, "  PANEL — %s disagrees with the branch keys in .claude/project.conf (edit it; it is the project's):\n", x.panelRel)
 		for _, p := range x.panelProblems {
 			fmt.Fprintf(out, "    ! %s\n", p)
 		}

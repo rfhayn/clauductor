@@ -253,7 +253,7 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string, target InitTa
 	}
 	root = signals.ResolvePath(root)
 	dir = root
-	own := filepath.Join(root, config.DefaultConfigRel)
+	own := config.OwnConfigPath(root)
 	path := own
 	if target.Path != "" {
 		path = target.Path

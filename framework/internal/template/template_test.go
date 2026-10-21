@@ -94,13 +94,19 @@ func TestLeaseConformanceKitVersion(t *testing.T) {
 // The template ships a preset panel config for its operating model (lanes, lane types, templates
 // with suggestions, the gate queue, pinned cards). It must be a config this panel accepts, at the
 // version it declares: a preset that fails to load would be every adopting project's first error.
+// It declares the latest config version, as `panel init` and `panel attach` write (PANEL-51 D5,
+// the owner's #189), so an adopting project can set the newest keys without raising it first.
 func TestTemplatePanelConfigLoads(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "template", ".clauductor", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.ParseConfig(raw); err != nil {
+	c, err := config.ParseConfig(raw)
+	if err != nil {
 		t.Fatalf("template/.clauductor/panel.json is not a valid panel config: %v", err)
+	}
+	if c.Version != config.LatestVersion {
+		t.Fatalf("template/.clauductor/panel.json declares version %d, want the latest, %d: raise it and rebuild the plugin (scripts/build-plugin.sh)", c.Version, config.LatestVersion)
 	}
 }
 

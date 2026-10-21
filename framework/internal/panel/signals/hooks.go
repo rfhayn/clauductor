@@ -46,6 +46,30 @@ type HookEvent struct {
 	ToolUseID    string          `json:"tool_use_id"`
 	ToolInput    json.RawMessage `json:"tool_input"`
 	ToolResponse json.RawMessage `json:"tool_response"`
+	// PANEL-51 D4: what a turn ended waiting on, on Stop and SubagentStop. Each is
+	// decoded into a type that declares D4's allowlist alone, so a task's command,
+	// server, tool, name and agent_type, and a cron's prompt, are never held: a
+	// command line can carry a secret. nil when the body has no such field (a Claude
+	// Code before the fields, or null), an empty slice for "[]": the two say different
+	// things, "not reported" and "nothing in flight".
+	BackgroundTasks []BackgroundTask `json:"background_tasks"`
+	SessionCrons    []SessionCron    `json:"session_crons"`
+}
+
+// BackgroundTask is one in-flight task a Stop lists (D4's allowlist). The id is an
+// opaque handle, kept only to pair a subagent task with its SubagentStop.
+type BackgroundTask struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+}
+
+// SessionCron is one session-scoped cron a Stop lists (D4's allowlist): when it
+// fires is read from its schedule; its prompt is never decoded.
+type SessionCron struct {
+	Schedule  string `json:"schedule"`
+	Recurring bool   `json:"recurring"`
 }
 
 // AgentCall is what an Agent/Task call's input says: the subagent type it asks for

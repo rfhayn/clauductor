@@ -96,10 +96,15 @@ func TestSchemaCarriesTheRules(t *testing.T) {
 	if !strings.Contains(string(s.Properties["cards"]), `"pattern": "`+jsonQuote(refreshRe.String())+`"`) {
 		t.Errorf("cards[].refresh does not carry the validator's pattern %s", refreshRe)
 	}
-	if len(s.AllOf) != 5 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
+	if len(s.AllOf) != 6 || s.AllOf[0].If.Properties.Version.Const != 1 || s.AllOf[1].If.Properties.Version.Const != 2 ||
 		s.AllOf[2].If.Properties.Version.Const != 3 || string(s.AllOf[2].Then.Properties["metrics"]) != "false" ||
-		s.AllOf[4].If.Properties.Version.Const != 5 {
+		s.AllOf[4].If.Properties.Version.Const != 5 || s.AllOf[5].If.Properties.Version.Const != 6 {
 		t.Fatalf("version gate %+v", s.AllOf)
+	}
+	// PANEL-51: version 6 bans alerts.stall_minutes alone, inside alerts.
+	const stallGate = `{"properties":{"stall_minutes":false}}`
+	if v6 := s.AllOf[5].Then.Properties; len(v6) != 1 || compact(t, v6["alerts"]) != stallGate {
+		t.Errorf("version 6: gate %s, want only alerts %s", compact(t, v6["alerts"]), stallGate)
 	}
 	// PANEL-48: version 5 bans the policy's keys, the lane type's inside lane_types.
 	v5 := s.AllOf[4].Then.Properties

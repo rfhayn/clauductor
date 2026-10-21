@@ -171,3 +171,112 @@ func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 		t.Fatal("premise: a fresh notifier notifies")
 	}
 }
+
+// stalledAt is a stalled alert of lane-a since since, as applyStalls raises it.
+func stalledAt(since time.Time, approx bool) AlertView {
+	return AlertView{Key: AlertStalled + ":/repo/w/a", Kind: AlertStalled, Severity: signals.SevBlock, Lane: "/repo/w/a",
+		Name: "a", Terminal: "lane-a", Text: "stalled: its turn ended waiting on 1 shell: Run checks (running); open work: #152 open",
+		Since: since.UnixMilli(), Approx: approx, Wait: "a shell in flight", OpenWork: []string{"#152 open"}}
+}
+
+// [STALL-3-S1] (the notice's part) A stalled alert goes out once per stretch, its
+// notice carrying the stalled alert apart from a waiting alert grouped with it, and
+// its line saying how long the lane has been quiet.
+func TestNotifierCarriesTheStallApart(t *testing.T) {
+	t.Parallel()
+	n := &Notifier{MinInterval: time.Minute, Project: "P"}
+	st := stalledAt(t0, false)
+	wait := AlertView{Key: "waiting:s1", Kind: AlertWaiting, Severity: signals.SevBlock, Lane: "/repo/w/a", Name: "a", Terminal: "lane-a",
+		Text: "waiting on you: wants to use Bash", Since: t0.UnixMilli()}
+	out := n.Process([]AlertView{wait, st}, nil, t0.Add(30*time.Minute))
+	if len(out) != 1 {
+		t.Fatalf("a waiting and a stalled alert of one lane: %d notices, want 1", len(out))
+	}
+	if out[0].Stall == nil || out[0].Stall.Key != st.Key || out[0].Stall.Wait != "a shell in flight" {
+		t.Fatalf("the notice's stall: %+v, want the stalled alert", out[0].Stall)
+	}
+	if !strings.Contains(out[0].Body, "stalled, quiet for 30m: its turn ended waiting on 1 shell") || !strings.Contains(out[0].Body, "wants to use Bash") {
+		t.Errorf("the macOS body %q: want the stall's line with its quiet time, and the waiting alert's", out[0].Body)
+	}
+	for _, at := range []time.Duration{31 * time.Minute, 45 * time.Minute} {
+		if got := n.Process([]AlertView{wait, st}, nil, t0.Add(at)); len(got) != 0 {
+			t.Fatalf("still stalled at +%s: %+v, want nothing (once per stretch)", at, got)
+		}
+	}
+	// A notice with no stall carries none.
+	n2 := &Notifier{MinInterval: time.Minute}
+	if got := n2.Process([]AlertView{wait}, nil, t0.Add(2*time.Minute)); len(got) != 1 || got[0].Stall != nil {
+		t.Fatalf("a waiting alert alone: %+v, want one notice with no stall", got)
+	}
+}
+
+// [STALL-3-S2] A lane that stalls while its terminal has keyboard focus in a visible
+// page: no notice (so no push: the push rides on the notice), and the stall counts as
+// seen, so losing focus sends nothing later.
+func TestNotifierFocusedStallIsSeen(t *testing.T) {
+	t.Parallel()
+	n := &Notifier{MinInterval: time.Minute}
+	st := stalledAt(t0, false)
+	if out := n.Process([]AlertView{st}, map[string]bool{"lane-a": true}, t0.Add(30*time.Minute)); len(out) != 0 {
+		t.Fatalf("focused: %+v, want no notice", out)
+	}
+	if n.Stats().Suppressed != 1 {
+		t.Errorf("suppressed %d, want 1", n.Stats().Suppressed)
+	}
+	if since, ok := n.State().Notified[st.Key]; !ok || since != st.Since {
+		t.Errorf("the focused stall's mark is %d (held %v), want %d: seen", since, ok, st.Since)
+	}
+	if out := n.Process([]AlertView{st}, nil, t0.Add(31*time.Minute)); len(out) != 0 {
+		t.Fatalf("after focus is lost: %+v, want nothing", out)
+	}
+}
+
+// [STALL-3-S3] An approximate stall never interrupts: no notice, so no push.
+func TestNotifierApproxStallNeverInterrupts(t *testing.T) {
+	t.Parallel()
+	n := &Notifier{MinInterval: time.Minute}
+	st := stalledAt(t0, true)
+	for _, at := range []time.Duration{30 * time.Minute, 40 * time.Minute} {
+		if out := n.Process([]AlertView{st}, nil, t0.Add(at)); len(out) != 0 {
+			t.Fatalf("an approximate stall at +%s: %+v, want no notice", at, out)
+		}
+	}
+	if n.Stats().Interrupts != 0 {
+		t.Errorf("interrupts %d, want 0", n.Stats().Interrupts)
+	}
+}
+
+// [STALL-3-S7] A restart while a notified stall is still active: while the view says
+// stalls are pending (its sources not yet answered), the stall is missing from the
+// alerts and its mark is kept, not deleted as cleared; once judged with the same
+// since, nothing is sent. With nothing pending, a stall gone from the alerts clears.
+func TestNotifierKeepsStalledMarksWhilePending(t *testing.T) {
+	t.Parallel()
+	st := stalledAt(t0, false)
+	first := &Notifier{MinInterval: time.Minute}
+	if out := first.Process([]AlertView{st}, nil, t0.Add(30*time.Minute)); len(out) != 1 {
+		t.Fatalf("the first panel: %d notices, want 1", len(out))
+	}
+	saved := first.State()
+
+	n := &Notifier{MinInterval: time.Minute}
+	n.Restore(saved)
+	n.StallsPending = true
+	for i := 0; i < 3; i++ {
+		if out := n.Process(nil, nil, t0.Add(time.Hour+time.Duration(i)*2*time.Second)); len(out) != 0 {
+			t.Fatalf("pending tick %d: %+v", i, out)
+		}
+		if since, ok := n.State().Notified[st.Key]; !ok || since != st.Since {
+			t.Fatalf("pending tick %d: the stall's mark is %d (held %v), want %d", i, since, ok, st.Since)
+		}
+	}
+	n.StallsPending = false
+	if out := n.Process([]AlertView{st}, nil, t0.Add(time.Hour+time.Minute)); len(out) != 0 {
+		t.Fatalf("judged again with the same since: %+v, want nothing sent", out)
+	}
+	// The premise: with nothing pending, the stall gone clears its mark.
+	n.Process(nil, nil, t0.Add(time.Hour+2*time.Minute))
+	if _, ok := n.State().Notified[st.Key]; ok {
+		t.Fatal("with nothing pending, a stall gone from the alerts kept its mark")
+	}
+}
