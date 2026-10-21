@@ -85,8 +85,8 @@ Known limits, so this is not read as full enforcement:
   never closes its connection") is dropped with it, and so is a clause where the class is joined
   to the finding (by a comma, a colon or a hyphen), so two such findings can share a key and read
   as recurring. A finding WITH a class field keys on its summary as written, so one that also
-  repeats its class there keys with it; the eval of 2026-10-21 saw none (80 findings over two
-  runs, every one with the field filled, none with class wording in its summary).
+  repeats its class there keys with it; the eval receipt of 2026-10-21 holds none (all 38
+  findings filled the field, none with class wording in its summary).
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)

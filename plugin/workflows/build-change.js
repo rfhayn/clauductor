@@ -90,9 +90,8 @@ const gradeRound = (gatePassed, findings) => {
 // aside in parentheses (whole, however it nests) and each clause (between ". ", "; ", " — " and
 // " – "). A word like "Classes" or the noun "Class" with no marker stays, and a summary that is
 // nothing but its class keeps it. Known limits, not chased since the field exists: a reviewer that
-// fills the field AND repeats the class in the summary keys with it (the 2026-10-21 eval: 80
-// findings over two runs, every one with the field filled and none with class wording in its
-// summary); and in the fallback, a class joined to the finding inside one clause (by a comma, a
+// fills the field AND repeats the class in the summary keys with it (the 2026-10-21 eval receipt:
+// all 38 findings filled the field, none with class wording in its summary); and in the fallback, a class joined to the finding inside one clause (by a comma, a
 // colon or a hyphen) drops that whole clause, finding included, as does a marker used in the
 // finding's own sense ("This class never closes"), so two such findings can share a key and read
 // as recurring.
