@@ -262,8 +262,14 @@ func runStallPanel(t *testing.T, root, home string, w *stallWorld, log *noticeLo
 
 func runStallPanelTicks(t *testing.T, root, home string, w *stallWorld, log *noticeLog, ticks Ticks) *stallPanel {
 	t.Helper()
+	return runStallPanelTrust(t, root, home, w, log, ticks, true)
+}
+
+// runStallPanelTrust is runStallPanelTicks with the config trusted or not.
+func runStallPanelTrust(t *testing.T, root, home string, w *stallWorld, log *noticeLog, ticks Ticks, trust bool) *stallPanel {
+	t.Helper()
 	polls := newPollCounter()
-	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: w.run, TrustConfig: true,
+	_, c, stop := runPanel(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: w.run, TrustConfig: trust,
 		Ticks: ticks, OnPoll: polls.hook, Notify: log.notify})
 	var once sync.Once
 	p := &stallPanel{c: c, polls: polls, stop: func() { once.Do(stop) }}
@@ -371,6 +377,7 @@ func TestStallWithNoPageReadsTheReceiptAndTheMergedRead(t *testing.T) {
 // merged pull request whose headRefOid is the branch's older commit, while the lane's
 // HEAD is a new commit with a clean receipt and no pull request open. The old merge is
 // not HEAD's, so the lane is stalled under D3 (b), its open work the gate's pass.
+// [STALL-1-S26]
 func TestStallReusedBranchCountsNoOlderMerge(t *testing.T) {
 	t.Parallel()
 	root, wt := stallRepo(t, "a")

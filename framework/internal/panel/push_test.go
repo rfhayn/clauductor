@@ -417,7 +417,7 @@ func TestPushWatchSeesTheLinkTargetsFolder(t *testing.T) {
 	}
 }
 
-// [STALL-3-S5] A push that fails names what it printed; one that does not answer is
+// [STALL-3-S5] [STALL-3-S8] A push that fails names what it printed; one that does not answer is
 // stopped at its timeout, even with a child of it still holding its output open.
 func TestRunPushFailsAndTimesOut(t *testing.T) {
 	t.Parallel()
@@ -618,7 +618,7 @@ func TestStallPushEndToEnd(t *testing.T) {
 	}
 }
 
-// [STALL-3-S4] End to end: a push.json writable by group never runs, the macOS
+// [STALL-3-S4] [STALL-3-S9] End to end: a push.json writable by group never runs, the macOS
 // notification still goes, and a warning on the page names the file and why; once
 // the file is made safe the warning goes, and with the file removed none shows.
 func TestStallPushRefusedEndToEnd(t *testing.T) {
@@ -694,6 +694,90 @@ func TestStallPushFailureCounted(t *testing.T) {
 	}
 	if o.NotifySent != 1 {
 		t.Errorf("notifications sent %d, want 1: the macOS notification still goes", o.NotifySent)
+	}
+}
+
+// [STALL-3-S10] End to end: with `alerts.notify` false, a lane with #152 open stalls
+// and is shown stalled, yet neither a macOS notification nor a push goes out, though
+// push.json is valid: the switch holds back the push as well as the notification.
+func TestStallNotifyOffSendsNothing(t *testing.T) {
+	t.Parallel()
+	root, wt := stallRepo(t, "a")
+	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Stalls","version":7,"lanes":{"main":"orchestrator","change/":"build"},
+		"base":"main","tmux_socket":"`+noServerSocket()+`","alerts":{"stall_minutes":`+stallMinutes+`,"notify":false}}`)
+	home := t.TempDir()
+	prog, runs := pushStandIn(t, "")
+	writePush(t, home, argvJSON(prog))
+	w := newStallWorld()
+	w.set(func(w *stallWorld) {
+		w.agents = []signals.Agent{agent("sa", wt["a"], "idle", "")}
+		w.open["change/a"] = 152
+	})
+	log := &noticeLog{}
+	p := runStallPanelTicks(t, root, home, w, log, pushTicks())
+	waitFor(t, "lane a shown stalled", func() bool { return laneStall(p.state(t, ""), wt["a"]) != nil })
+	p.polls.more(t, p.state(t, "").ProjectID+"/notify", 3)
+	if st := laneStall(p.state(t, ""), wt["a"]); st == nil {
+		t.Fatal("lane a is no longer shown stalled")
+	}
+	log.mu.Lock()
+	sent := len(log.ns)
+	log.mu.Unlock()
+	if got := pushRuns(t, runs); sent != 0 || len(got) != 0 {
+		t.Fatalf("with alerts.notify false: %d notifications and %d pushes (%q), want none", sent, len(got), got)
+	}
+}
+
+// [STALL-3-S11] End to end: a config that is not trusted names its project "Stalls",
+// and a lane with #152 open stalls: the notification and the push go out, each titled
+// "clauductor panel" and the lane, and neither title carries the untrusted name.
+func TestStallPushUntrustedTitle(t *testing.T) {
+	t.Parallel()
+	root, wt := stallRepo(t, "a")
+	home := t.TempDir()
+	prog, runs := pushStandIn(t, "")
+	writePush(t, home, argvJSON(prog))
+	w := newStallWorld()
+	w.set(func(w *stallWorld) {
+		w.agents = []signals.Agent{agent("sa", wt["a"], "idle", "")}
+		w.open["change/a"] = 152
+	})
+	log := &noticeLog{}
+	p := runStallPanelTrust(t, root, home, w, log, pushTicks(), false)
+	if p.state(t, "").Trust.Trusted {
+		t.Fatal("the config is trusted; the test needs one that is not")
+	}
+	waitFor(t, "lane a stalled, notified and pushed", func() bool {
+		return len(log.stalled()) == 1 && len(pushRuns(t, runs)) == 1
+	})
+	title := ""
+	log.mu.Lock()
+	for _, n := range log.ns {
+		if n.Stall != nil {
+			title = n.Title
+		}
+	}
+	log.mu.Unlock()
+	run := pushRuns(t, runs)[0]
+	if len(run) != 2 {
+		t.Fatalf("the push's arguments %q, want the title and the body", run)
+	}
+	for what, got := range map[string]string{"the notification's": title, "the push's": run[0]} {
+		if got != "clauductor panel · a" {
+			t.Errorf("%s title %q, want \"clauductor panel\" and the lane, never the untrusted name", what, got)
+		}
+	}
+}
+
+// [STALL-3-S8] [STALL-3-S9] The 10 s of STALL-3: a push is stopped past 10 s, and
+// push.json is read again within 10 s of a change.
+func TestPushBoundsAreTenSeconds(t *testing.T) {
+	t.Parallel()
+	if pushTimeout != 10*time.Second {
+		t.Errorf("pushTimeout %s, want 10s", pushTimeout)
+	}
+	if got := DefaultTicks().Push; got != 10*time.Second {
+		t.Errorf("the default push.json re-read %s, want 10s", got)
 	}
 }
 

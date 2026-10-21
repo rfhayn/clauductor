@@ -107,7 +107,7 @@ func TestContextPolicyKeysNeedVersion6(t *testing.T) {
 	}
 }
 
-// [STALL-1-S8] alerts.stall_minutes is version 7: a version-6 config that sets it is
+// [STALL-1-S8] [STALL-1-S28] alerts.stall_minutes is version 7: a version-6 config that sets it is
 // refused, naming the key and version 7; the same key loads at version 7, and with no
 // version declared (read as the latest).
 func TestStallMinutesNeedsVersion7(t *testing.T) {

@@ -79,7 +79,7 @@ func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
 }
 
 // The scaffold's panel.json runs the model's scripts through the resolver; it must still be a
-// config the panel accepts.
+// config the panel accepts, at the latest config version, as the template's ([STALL-1-S29]).
 func TestScaffoldPanelConfigLoads(t *testing.T) {
 	out, _ := build(t)
 	raw, err := os.ReadFile(filepath.Join(out, ScaffoldDir, ".clauductor", "panel.json"))
