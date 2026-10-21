@@ -26,8 +26,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #
 # READING A PATH THE WAY THE SHELL WILL is the class of slip this hook keeps meeting (PRAC-0010): a
 # symlink, a `..` and a directory `mkdir -p` makes first each change where a `cd` lands. So every
-# target, from the payload's cwd and then from the last cd's, is read TWO ways, and passes only if
-# both land inside: as the shell's own `cd` reads it (`..` taken off the typed path first, then the
+# target is read TWO ways, each from its own reading of the cwd (the payload's, then where that
+# reading put the last cd), and passes only if both land inside: as the shell's own `cd` reads it (`..` taken off the typed path first, then the
 # rest walked through its symlinks) and as the kernel walks it (each symlink followed before the `..`
 # after it). Bash and zsh try the first and fall back to the second, so either can be where the
 # session lands. Fixing one reading at a time was tried and rejected (OPS-82, review rounds 3 and 4):
@@ -73,6 +73,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     before every command, and a workflow agent's `cd` was probed (headless) not to move the
 #     session's cwd.
 #   - A `cd` through `eval`, an alias or a function is not seen (lib/gate-reader.awk).
+#   - Reading paths, still open (#196; OPS-82 review round 5 stopped here by the owner's rule):
+#     two cds in a row: the two readings are two chains from the start, but the shell lands in ONE
+#     after each cd and the next starts there, so mixed starting points are not checked:
+#     `cd lnk/.. && cd s/../zzz` (bash, zsh), and `cd -P lnk/.. && cd q/../r` (every shell: the
+#     reader drops `-P`) get out. And a directory the same command creates or links is taken as
+#     written: `git worktree add x -b y && cd x` (a nested worktree), `git clone … d && cd d`,
+#     `ln -s /elsewhere l && cd l`.
 #   - CDPATH is not read: with it set in the session's shell, `cd name` can jump to another
 #     directory. The hook cannot see that shell's CDPATH (it comes from the user's profile, loaded
 #     into Claude Code's shell, not into a hook's environment), and refusing every bare relative
@@ -215,6 +222,8 @@ land() {
 # in: curl is the shell's logical cwd (its cd takes `..` off the typed path first, and follows a
 # symlink only after), curp the physical one (the kernel follows each symlink before the `..` after
 # it). Bash and zsh fall back from the first to the second, so either can be where the session lands.
+# Each is a chain of its own; the mixed paths between them after a cd whose readings differ are not
+# followed (KNOWN LIMITS, #196).
 curl=$cwd; curp=$start
 # A heredoc, not a pipe: the loop runs in this shell, so its block() exits the hook.
 while IFS= read -r t; do
