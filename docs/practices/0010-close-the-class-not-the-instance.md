@@ -64,8 +64,11 @@ Known limits, so this is not read as full enforcement:
   builder DISPUTES (`REVIEW_DISPUTED`), not every earlier finding; beyond those it has the Decision
   log in `tasks.md` and the commit messages of committed groups. A second instance of a class
   whose first was fixed without a note in either reads as "first seen".
-- **No code reads the class.** It is prose in the finding's summary: the review schema has no
-  field for it, and neither the fixer's prompt nor the round cap acts on it mechanically. Closing
+- **No code acts on the class.** It is prose in the finding's summary: the review schema has no
+  field for it, and neither the fixer's prompt nor the round cap acts on it mechanically. The one
+  code that reads it, `build-change`'s `findingKey`, drops a leading class clause, so a finding's
+  identity across rounds is what it says, not its class: two findings of one class in one file stay
+  two, and a recurrence reworded from "first seen" to "one more" is still one. Closing
   the class, and sending an unclosable one to the owner by round 3, are still the fixer's and the
   session's judgment.
 
