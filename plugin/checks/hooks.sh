@@ -504,6 +504,13 @@ cdg 2 "a cd into a worktree nested inside the held one" "$(cdb "cd .claude/workt
 cdg 2 "a cd into a directory made first inside the nested worktree" "$(cdb "mkdir -p .claude/worktrees/x/new && cd .claude/worktrees/x/new")"
 cdg 0 "a cd into the directory that holds it, still this checkout" "$(cdb "cd .claude/worktrees")"
 git -C "$C" worktree remove --force "$CW/.claude/worktrees/x" 2>/dev/null; rm -rf "$CW/.claude"
+# A target not made yet is resolved through what exists of it: a symlink out of the worktree (to a
+# directory in no checkout) takes `mkdir -p lnk/new` and `lnk/../esc` outside it; one that stays in does not.
+mkdir -p "$d/cdg-out/target"; ln -s "$d/cdg-out/target" "$CW/lnk"; ln -s sub "$CW/lnk-in"
+cdg 2 "a cd through a symlink out, into a directory made first" "$(cdb "mkdir -p lnk/new && cd lnk/new")"
+cdg 2 "a cd through a symlink out and up, into a directory made first" "$(cdb "mkdir -p lnk/../esc && cd lnk/../esc")"
+cdg 0 "a cd through a symlink that stays inside, into a directory made first" "$(cdb "mkdir -p lnk-in/new && cd lnk-in/new")"
+rm -f "$CW/lnk" "$CW/lnk-in"
 cdg 0 "a cd out inside a subshell" "$(cdb "( cd $C && git log -1 )")"
 cdg 0 "a cd out inside \$( )" "$(cdb "x=\$(cd $C && pwd)")"
 cdg 0 "a cd out inside sh -c" "$(cdb "sh -c 'cd / && ls'")"

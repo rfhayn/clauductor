@@ -137,10 +137,15 @@ cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // "" | tostring')
 case $cmd in *cd*|*pushd*) ;; *) exit 0 ;; esac
 [ -d "$HOLDS" ] || exit 0
 
-# phys DIR: DIR's physical path where it exists; else its lexical form, `.` and `..` resolved.
+# phys DIR: DIR's physical path where it exists. Where it does not yet (`mkdir -p x && cd x`), its
+# nearest existing ancestor's physical path (`cd -P`, as the kernel resolves it: a symlink, or a `..`
+# after one, leads where it points), then the rest added lexically, `.` and `..` resolved.
 phys() {
-  if [ -d "$1" ]; then (cd "$1" 2>/dev/null && pwd -P) && return; fi
-  printf '%s\n' "$1" | awk -F/ '{ n = 0; for (i = 2; i <= NF; i++) { if ($i == "" || $i == ".") continue; if ($i == "..") { if (n) n--; continue } p[++n] = $i } o = ""; for (i = 1; i <= n; i++) o = o "/" p[i]; print (o == "" ? "/" : o) }'
+  if [ -d "$1" ]; then (cd -P "$1" 2>/dev/null && pwd -P) && return; fi
+  _a=$1; _r=""
+  while [ ! -d "$_a" ]; do _r="/$(basename "$_a")$_r"; _a=$(dirname "$_a"); done
+  _a=$(cd -P "$_a" 2>/dev/null && pwd -P) || _a=$1 _r=""
+  printf '%s%s\n' "$_a" "$_r" | awk -F/ '{ n = 0; for (i = 2; i <= NF; i++) { if ($i == "" || $i == ".") continue; if ($i == "..") { if (n) n--; continue } p[++n] = $i } o = ""; for (i = 1; i <= n; i++) o = o "/" p[i]; print (o == "" ? "/" : o) }'
 }
 inside() { case $1 in "$2"|"$2"/*) return 0 ;; esac; return 1; }
 # ended HOLD: the hold's state file says its run ended. No file (the run is going), another status,
