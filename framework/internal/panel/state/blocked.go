@@ -186,11 +186,13 @@ func (m *Model) forgetSessions(now time.Time) {
 			if !m.lanePaneDead(id) && now.Sub(heard) <= waitingNoteMaxAge {
 				continue
 			}
+			m.stallForgotten(id, s, now) // PANEL-51: set aside if live (stall.go, L9, L10)
 			delete(m.sessions, id)
 			delete(m.costByID, id)
 			continue
 		}
 		if now.Sub(s.LastHookAt) > forgetSessionAge && now.Sub(s.StatusAt) > forgetSessionAge {
+			m.stallForgotten(id, s, now) // PANEL-51: set aside if live (stall.go, L9, L10)
 			delete(m.sessions, id)
 			delete(m.costByID, id) // the est. $ sum covers tracked sessions only
 		}

@@ -47,10 +47,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 .sq.busy { background: var(--ok); }
 .sq.idle, .sq.none { background: transparent; box-shadow: inset 0 0 0 1px var(--text-3); }
 .sq.waiting { background: var(--warn); }
-.sq.dead, .sq.orphaned, .sq.stale, .sq.block { background: var(--crit); }
+.sq.dead, .sq.orphaned, .sq.stale, .sq.stalled, .sq.block { background: var(--crit); }
 .state-word { white-space: nowrap; }
 .state-word.waiting { color: var(--warn); font-weight: 700; }
-.state-word.dead, .state-word.orphaned, .state-word.stale { color: var(--crit); font-weight: 700; }
+.state-word.dead, .state-word.orphaned, .state-word.stale, .state-word.stalled { color: var(--crit); font-weight: 700; }
 .state-word.busy { color: var(--ok); }
 
 /* ---- Controls ------------------------------------------------------------------------ */

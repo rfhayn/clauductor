@@ -58,6 +58,10 @@ const (
 	tmuxRecheck = 30 * time.Second
 	// registryReload is how often the registry is re-read from disk.
 	registryReload = 30 * time.Second
+	// openPRLimit is the `--limit` of the open-PR fetch: gh's default is 30, and a
+	// list cut short reads as pull requests closed. 1000 is past any real project's
+	// open count; a list at exactly the limit is not treated as cut short.
+	openPRLimit = "1000"
 )
 
 // AgentsInterval is how long to wait before the next `claude agents` poll at the
@@ -197,6 +201,11 @@ type Runtime struct {
 	savedState string
 	gitDir     string
 	lastQ      string
+	// stallPath keeps the stall rule's clocks across a restart (PANEL-51 D1:
+	// stall.json, beside notifier.json). The stall source and the clean stop both save,
+	// so stallMu orders them.
+	stallPath string
+	stallMu   sync.Mutex
 
 	// mstore is the Metrics view's data (PANEL-19; metrics_source.go).
 	mstore *metricsStore
@@ -229,13 +238,33 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath, outside
 		}
 	}
 	hub.Update(func(m *state.Model, now time.Time) { m.SetProjectID(id); m.ApplyTrust(tv) })
+	// PANEL-51 (D1): the stall rule's saved clocks, handed to the model before any
+	// source runs, so before the first `claude agents` poll.
+	r.stallPath = filepath.Join(config.ProjectDir(o.Home, root), "stall.json")
+	stalls := cfg.AlertThresholds().Stall > 0
+	if stalls {
+		if b, err := os.ReadFile(r.stallPath); err == nil {
+			var st state.StallState
+			if json.Unmarshal(b, &st) == nil {
+				hub.Update(func(m *state.Model, _ time.Time) { m.ApplyStallState(st) })
+			}
+		}
+	} else {
+		// With stalls off nothing saves, so the last save would wait on disk until they
+		// are turned on, and restore a stall from then with its old since, exact, while
+		// the notifier has dropped its mark: a push for a stall the panel saw end. Off,
+		// the rule keeps no state, and turned on it starts as from no file (D1).
+		_ = os.Remove(r.stallPath)
+	}
 
 	t := ticks
 	worktrees := func(ctx context.Context) ([]signals.Worktree, error) {
 		return signals.ReadWorktrees(ctx, r.run, r.root)
 	}
-	prs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision"},
-		signals.ParsePRs)
+	// gh lists 30 rows unless asked for more, and the stall rule reads this list as every
+	// open pull request (D3, D10): a lane's pull request past the 30th would read as none.
+	prs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision",
+		"--limit", openPRLimit}, signals.ParsePRs)
 	// The table of sources. Each runs in its own goroutine, through Runtime.loop.
 	r.sources = []*source{
 		// Re-read within a watch tick of git's own worktree registry changing (a
@@ -253,7 +282,9 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath, outside
 		{name: "procs", every: t.Procs, fixedRate: true, waitFirst: true, poll: r.pollProcs},
 		// Refresh re-reads git too (PANEL-18): after a pull, the cards' stale note goes at once.
 		{name: "git", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollGit},
-		// PANEL-20: merge readiness, on git's cadence and while a page is in view.
+		// PANEL-20: merge readiness, on git's cadence. PANEL-51 (D10): with no page in
+		// view it still reads the receipts and the merged read, for the stall rule, while
+		// stalls are on; tasks.md and the review threads only while a page is in view.
 		{name: "readiness", every: t.Git, fixedRate: true, kick: make(chan struct{}, 1), poll: r.pollReadiness},
 	}
 	for _, c := range cfg.Cards {
@@ -274,6 +305,13 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath, outside
 	r.sources = append(r.sources, r.metricsSources()...)
 	if len(cfg.Queues) > 0 {
 		r.sources = append(r.sources, &source{name: "queues", every: t.Queues, fixedRate: true, poll: r.pollQueues})
+	}
+	if stalls {
+		// Once every StallSave (D1: at most every 30 s; the state carries the time of the
+		// save, so it has always changed since the last); start saves once more at a
+		// clean stop.
+		r.sources = append(r.sources, &source{name: "stall", every: t.StallSave, fixedRate: true, waitFirst: true,
+			poll: func(context.Context, time.Time) (update, time.Duration) { r.saveStall(); return nil, 0 }})
 	}
 	if lm != nil {
 		r.sources = append(r.sources, &source{name: "prompts", every: t.Prompt, fixedRate: true, waitFirst: true,
@@ -300,6 +338,40 @@ func (r *Runtime) start(ctx context.Context, start func(func())) {
 	for _, s := range r.sources {
 		s := s
 		start(func() { r.loop(ctx, s) })
+	}
+	if r.cfg.AlertThresholds().Stall > 0 {
+		// The clean stop's save of stall.json (D1), counted with the sources, so a
+		// runtime stopped and started again reads what this one last held.
+		start(func() { <-ctx.Done(); r.saveStall() })
+	}
+}
+
+// saveStall writes the stall rule's state to stall.json: 0600, atomically, as
+// notifier.json is (PANEL-51 D1). The state carries the time of the save, so each
+// call writes, and each tick's save keeps a lane's carried quiet time within a tick of
+// the truth: a crash then moves a clock back by at most a tick, never forward. A way
+// whose sources have not answered since the start is saved as the restart restored it
+// (Model.StallState).
+func (r *Runtime) saveStall() {
+	// Held across the read too: a tick's save that read before the clean stop's must not
+	// write after it, putting an older state on disk last.
+	r.stallMu.Lock()
+	defer r.stallMu.Unlock()
+	var st state.StallState
+	read := false
+	r.hub.Read(func(m *state.Model, now time.Time) {
+		// StallState keeps the lanes of the worktree list the model holds: saved before
+		// the first list is read, it would drop every lane's restored clock.
+		if read = len(m.Worktrees()) > 0; read {
+			st = m.StallState(now)
+		}
+	})
+	b, err := json.Marshal(st)
+	if !read || err != nil {
+		return
+	}
+	if config.EnsurePrivateDir(filepath.Dir(r.stallPath)) == nil {
+		_ = config.WriteAtomic(r.stallPath, b, 0o600)
 	}
 }
 
@@ -671,7 +743,19 @@ func (r *Runtime) pollObs(context.Context, time.Time) (update, time.Duration) {
 // panel's clock: the view it reads and the notifier's `now` are the same time.
 func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Duration) {
 	th := r.cfg.AlertThresholds()
+	refused := "" // the push refusal this project's model holds: the source's goroutine only
 	return func(ctx context.Context, now time.Time) (update, time.Duration) {
+		// The machine's push command, or its refusal, as it stands at this tick (D7).
+		var push pushCmd
+		if r.machine != nil {
+			push = r.machine.push.current()
+		}
+		var up update
+		if push.refused != refused {
+			refused = push.refused
+			why := refused
+			up = func(m *state.Model, _ time.Time) { m.ApplyPushRefused(why) }
+		}
 		send := r.o.Notify
 		if send == nil {
 			send = func(n state.Notice) error { return SendNotice(ctx, n) }
@@ -694,7 +778,8 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 		if r.trusted() {
 			r.notifier.Project = r.cfg.Name
 		}
-		notices := r.notifier.Process(v.Alerts, focused, now)
+		notices := r.notifier.ProcessView(v, focused, now)
+		project := r.notifier.Project
 		stats := r.notifier.Stats()
 		st, _ := json.Marshal(r.notifier.State())
 		r.mu.Unlock()
@@ -721,12 +806,21 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 			if err != nil {
 				fmt.Fprintf(r.o.Out, "notification failed: %v\n", err)
 			}
+			// A stall also goes to the owner's push command, after the macOS
+			// notification and whatever became of it (D7).
+			if pushed, perr := pushNotice(ctx, push, project, n, now); pushed && perr != nil {
+				r.setObs(func(o *state.Obs) {
+					o.NotifyFailed++
+					o.NotifyError = signals.Clip(perr.Error(), 160)
+				})
+				fmt.Fprintf(r.o.Out, "push failed: %v\n", perr)
+			}
 		}
 		if stats == r.notified {
-			return nil, 0
+			return up, 0
 		}
 		r.notified = stats
-		return func(m *state.Model, now time.Time) { m.ApplyNotifier(stats) }, 0
+		return both(up, func(m *state.Model, now time.Time) { m.ApplyNotifier(stats) }), 0
 	}
 }
 

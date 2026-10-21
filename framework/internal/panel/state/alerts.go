@@ -29,6 +29,8 @@ const (
 	AlertLoginLock    = "login_lock"    // a lock live, the same lock, for more than 2 min
 	AlertStrandedLock = "stranded_lock" // a stale lock still there 2 min after it went stale
 	AlertFutureLock   = "future_lock"   // a lock modified more than 5 s in the future
+	// PANEL-51: a lane that waited on you, or has open work, and stopped moving (stall.go).
+	AlertStalled = "stalled"
 )
 
 // loginLockAfter is how long a lock stays live, or stale, before the panel says so:
@@ -146,10 +148,19 @@ type AlertView struct {
 	// Approx: raised from data that is not current (see blocked). It is shown on the
 	// page and never interrupts.
 	Approx bool `json:"approx,omitempty"`
+	// Wait and OpenWork are a stalled alert's own fields, from which the push is built
+	// (PANEL-51 D7): the kind of wait and the open work, in fixed words, never a task's
+	// description or the turn's last line. Not in /api/state: the page reads the lane's
+	// stall.
+	Wait     string   `json:"-"`
+	OpenWork []string `json:"-"`
 }
 
-// waitingPrefix starts a waiting alert's text.
-const waitingPrefix = "waiting on you: "
+// waitingPrefix starts a waiting alert's text; stalledPrefix a stalled alert's.
+const (
+	waitingPrefix = "waiting on you: "
+	stalledPrefix = "stalled: "
+)
 
 // noticeLine is an alert's line in an OS notification: its text, with the age the
 // page computes for itself put back in.
@@ -165,6 +176,10 @@ func noticeLine(a AlertView, now time.Time) string {
 		return "idle for " + age
 	case AlertLoginLock:
 		return "login lock " + age + " old: " + a.Text
+	case AlertStalled:
+		// The Mac's own notification may carry what it waited on (D7: only the push
+		// leaves the machine), after how long the lane has been quiet.
+		return "stalled, quiet for " + age + ": " + strings.TrimPrefix(a.Text, stalledPrefix)
 	}
 	return a.Text
 }

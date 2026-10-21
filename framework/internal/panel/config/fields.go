@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/clauductor/clauductor/internal/brand"
 )
 
 // Config versions. A config declares the version it is written for, and may use
@@ -21,12 +23,13 @@ import (
 //	   quota_auto_resume, quota_resume_line, worktree_setup, worktree_teardown, ports
 //	6  the lane context policy (PANEL-48): launch, lane_types.*.context_window,
 //	   lane_types.*.subagent_model
+//	7  stalled lanes (PANEL-51): alerts.stall_minutes
 //
 // A config with no "version" is read as LatestVersion, and the panel says once that
 // it should declare one.
 const (
 	MinVersion    = 1
-	LatestVersion = 6
+	LatestVersion = 7
 )
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
@@ -72,10 +75,10 @@ func pattern(re *regexp.Regexp) map[string]any { return map[string]any{"pattern"
 // Fields is every key of panel.json, in the order the reference shows them.
 var Fields = []Field{
 	{Path: "$schema", Version: 1, Type: "string",
-		Doc: "The JSON Schema the file follows, for editors: `" + SchemaURL + "`. The panel ignores it. `clauductor panel init` writes it."},
-	{Path: "version", Version: 1, Type: "integer: 1 to 6",
+		Doc: "The JSON Schema the file follows, for editors: `" + SchemaURL + "`. The panel ignores it. `" + brand.Name + " panel init` writes it."},
+	{Path: "version", Version: 1, Type: "integer: 1 to 7",
 		Doc:    "The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start.",
-		Schema: map[string]any{"enum": []int{1, 2, 3, 4, 5, 6}}},
+		Schema: map[string]any{"enum": []int{1, 2, 3, 4, 5, 6, 7}}},
 	{Path: "name", Version: 1, Type: "string", Required: true,
 		Doc:   "Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`.",
 		Match: nameRe, Schema: map[string]any{"minLength": 1, "maxLength": 80}},
@@ -176,17 +179,19 @@ var Fields = []Field{
 		Doc: "A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*).", Schema: map[string]any{"minimum": 0}},
 	{Path: "alerts.stale_days", Version: 4, Type: "number", Default: DefaultStaleDays,
 		Doc: "A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert.", Schema: map[string]any{"minimum": 0}},
+	{Path: "alerts.stall_minutes", Version: 7, Type: "number", Default: DefaultStallMinutes,
+		Doc: "A lane is stalled when one of its sessions has waited on you this long since it asked, or when it has open work (a pull request, a gate that passed with nothing after it, a turn that ended on background work) and nothing in it has moved for this long; a stall notifies once (see *Alerts*). An attached project sets it in its sidecar. `0` turns stalls off.", Schema: map[string]any{"minimum": 0}},
 	{Path: "quota_guard", Version: 2, Type: "object",
 		Doc: "Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*)."},
 	{Path: "quota_guard.five_hour_pct", Version: 2, Type: "number", Default: DefaultQuotaGuardPct,
 		Doc: "Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
 	{Path: "host_names", Version: 2, Type: "array of strings",
-		Doc:    "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `clauductor.localhost` always works. No wildcards.",
+		Doc:    "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `" + DefaultHostName + "` always works. No wildcards.",
 		Schema: map[string]any{"items": pattern(localhostNameRe)}},
 	{Path: "quota_economy", Version: 4, Type: "object",
 		Doc: "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's."},
 	{Path: "quota_economy.five_hour_pct", Version: 4, Type: "number",
-		Doc: "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
+		Doc: "At or above this 5-hour quota the panel writes `~/" + brand.Dir(brand.Name) + "/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
 	{Path: "lanes_auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"", Default: AutoCloseOff,
 		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
 		Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},

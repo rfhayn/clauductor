@@ -130,7 +130,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
-		"future version":        `,"version":7`,
+		"future version":        `,"version":8`,
 		"metrics refresh alone": `,"metrics":{"refresh":"interval:60"}`,
 		"metrics empty command": `,"metrics":{"command":[]}`,
 		"metrics bad refresh":   `,"metrics":{"command":["true"],"refresh":"interval:0"}`,
@@ -146,6 +146,31 @@ func TestTemplateConfigValidation(t *testing.T) {
 	if th.Idle != 30*time.Second || th.ContextPct != 0 || th.FiveHourPct != DefaultFiveHourPct || !th.Notify || th.GuardPct != 0 ||
 		th.MinInterval != DefaultNotifyInterval*time.Second || th.Waiting != DefaultWaitingSeconds*time.Second {
 		t.Fatalf("thresholds %+v", th)
+	}
+}
+
+// [STALL-1-S8] The stall time is the project's: 30 minutes when alerts.stall_minutes
+// is absent (alerts absent too), the number it sets, 0 for off; a negative is refused.
+func TestStallMinutes(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		extra string
+		want  time.Duration
+	}{
+		{``, 30 * time.Minute},
+		{`,"alerts":{"idle_minutes":5}`, 30 * time.Minute},
+		{`,"alerts":{"stall_minutes":10}`, 10 * time.Minute},
+		{`,"alerts":{"stall_minutes":0.5}`, 30 * time.Second},
+		{`,"alerts":{"stall_minutes":0}`, 0},
+	} {
+		th := v2Config(t, c.extra).AlertThresholds()
+		if th.Stall != c.want || th.StallMinutes != float64(c.want)/float64(time.Minute) {
+			t.Errorf("%q: stall %v (%v minutes), want %v", c.extra, th.Stall, th.StallMinutes, c.want)
+		}
+	}
+	_, err := parseConfig([]byte(`{"name":"T","alerts":{"stall_minutes":-1}}`))
+	if err == nil || !strings.Contains(err.Error(), "alerts.stall_minutes must be 0 (off) or positive") {
+		t.Errorf("a negative stall_minutes: %v, want it refused by name", err)
 	}
 }
 

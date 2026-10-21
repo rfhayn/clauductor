@@ -429,11 +429,13 @@ function stateWord(x) {
   if (s === "none" && !x.t) return "no session";
   return STATE_WORD[s] || s;
 }
+// The lane's state cell, square and word: its state, or "stalled" (stall-view.js).
+function laneMark(x) { return StallView.mark(x.lv, { state: laneState(x), word: stateWord(x), approx: laneApprox(x), title: APPROX_TITLE }); }
 function stateMark(x) {
-  const s = laneState(x);
-  const w = el("span", "state-word " + s, (laneApprox(x) ? APPROX : "") + stateWord(x));
-  if (laneApprox(x)) w.title = APPROX_TITLE;
-  return el("span", "st", null, [el("span", "sq " + s), w]);
+  const m = laneMark(x);
+  const w = el("span", "state-word " + m.state, m.text);
+  if (m.approx) w.title = m.title;
+  return el("span", "st", null, [el("span", "sq " + m.state), w]);
 }
 function laneStatusText(x) {
   const a = laneApprox(x) ? APPROX : "";
@@ -611,7 +613,7 @@ function laneTable(ls, cur) {
   head.appendChild(key(ah, "th:acts"));
   const body = el("tbody");
   for (const x of rows) {
-    const ab = abnormal(x), sel = cur && x.key === cur.key;
+    const ab = StallView.tint(x.lv, abnormal(x)), sel = cur && x.key === cur.key;
     const tr = el("tr", (ab ? "abn-" + ab : "") + (sel ? " sel" : ""));
     if (cols.includes("state")) tr.appendChild(el("td", null, null, [stateMark(x)]));
     const nm = el("td", "lane-nm", x.name);
@@ -620,7 +622,7 @@ function laneTable(ls, cur) {
     for (const c of shown) if (c.id !== "state") tr.appendChild(el("td", c.num ? "num" : null, null, [c.cell(x)]));
     tr.appendChild(el("td", "acts", null, [actsButton(x, "ra:" + x.key)]));
     on(tr, "click", () => selectLane(x.key));
-    pressable(tr, x.name + ", " + laneStatusText(x));
+    pressable(tr, x.name + ", " + StallView.status(x.lv, laneStatusText(x)));
     if (sel) tr.setAttribute("aria-selected", "true");
     body.appendChild(key(tr, "row:" + x.key));
   }
@@ -794,8 +796,11 @@ function renderTree(ls, cur) {
     mine.forEach((x) => placed.add(x.key));
     const sel = cur && mine.some((x) => x.key === cur.key);
     const g = w.git;
-    const first = [el("span", "tag", w.type), el("span", "nn", w.branch || "detached")];
-    const second = [w.path === S.root ? "project root" : relPath(w.path)];
+    const sm = StallView.mark(w, null);
+    const first = [sm ? el("span", "sq " + sm.state) : null, el("span", "tag", w.type), el("span", "nn", w.branch || "detached")];
+    const sw = sm ? el("span", "state-word " + sm.state, sm.text) : null;
+    if (sw && sm.approx) sw.title = sm.title;
+    const second = [sw, w.path === S.root ? "project root" : relPath(w.path)];
     if (g && !g.error) {
       if (g.hasUpstream) second.push(el("span", "num", "↑" + g.ahead + " ↓" + g.behind));
       second.push(g.dirty ? g.dirty + " changed" : "clean");
@@ -954,8 +959,8 @@ window.addEventListener("resize", () => { if (rowMenu) closeRowMenu(false); });
 function renderTabs(ls, cur) {
   const tabs = ls.map((x) => {
     const selected = cur && x.key === cur.key;
-    const s = laneState(x);
-    const kids = [el("span", "sq " + s), el("span", null, x.name)];
+    const m = laneMark(x);
+    const kids = [el("span", "sq " + m.state), el("span", null, x.name)];
     if (x.type && x.type !== x.name) kids.push(el("span", "ty", x.type));
     const tab = el("div", "tab", null, kids);
     tab.setAttribute("role", "tab");
@@ -963,8 +968,8 @@ function renderTabs(ls, cur) {
     tab.setAttribute("aria-controls", "wsbody");
     tab.id = "tab-" + x.key.replace(/[^A-Za-z0-9_-]/g, "_");
     tab.tabIndex = selected ? 0 : -1;
-    tab.setAttribute("aria-label", x.name + ", " + (laneApprox(x) ? APPROX : "") + stateWord(x) + (x.t ? "" : ", no terminal here"));
-    tab.title = (x.branch || "") + ", " + x.path + ", " + laneStatusText(x) + (x.t && x.t.orphan ? ", " + x.t.orphan : "") + (laneApprox(x) ? ", " + APPROX_TITLE : "");
+    tab.setAttribute("aria-label", x.name + ", " + m.text + (x.t ? "" : ", no terminal here"));
+    tab.title = (x.branch || "") + ", " + x.path + ", " + StallView.status(x.lv, laneStatusText(x)) + (x.t && x.t.orphan ? ", " + x.t.orphan : "") + (m.approx ? ", " + m.title : "");
     on(tab, "click", () => selectLane(x.key));
     on(tab, "keydown", (ev) => {
       const i = ls.findIndex((y) => y.key === x.key);
@@ -981,7 +986,7 @@ function renderTabs(ls, cur) {
     return key(tab, "tab:" + x.key);
   });
   patchInto("tabs", tabs);
-  tabLanes = ls.map((x) => ({ key: x.key, name: x.name, type: x.type && x.type !== x.name ? x.type : "", state: laneState(x), sel: !!cur && x.key === cur.key,
+  tabLanes = ls.map((x) => ({ key: x.key, name: x.name, type: x.type && x.type !== x.name ? x.type : "", state: laneMark(x).state, sel: !!cur && x.key === cur.key,
     id: "tab-" + x.key.replace(/[^A-Za-z0-9_-]/g, "_") }));
   // A tab that changes width (a new face, a new size) can push the selected one out.
   for (const t of $("tabs").children) tabSizes.observe(t);
@@ -1563,13 +1568,14 @@ function stripAlerts() {
   return (S.alerts || []).filter((a) => !(a.kind === "waiting" && asked.has(a.session)) && (!(a.terminal || a.lane) || a.severity === "block" || NEEDS_KINDS[a.kind]));
 }
 function needRow(n, cls, k, done) {
-  const sev = done ? "" : n.severity === "block" ? "crit" : "warn";
+  const st = done ? null : StallView.need(n, S.lanes.concat(S.quietWorktrees));
+  const sev = done ? "" : st ? st.sev : n.severity === "block" ? "crit" : "warn";
   const tr = el("tr", sev ? "ask abn-" + sev : "done", null, [
     el("td", null, null, [el("span", "sq " + (done ? "idle" : sev === "crit" ? "block" : "waiting")), el("span", "who-waits", done ? "Your move" : sev === "crit" ? "Blocking" : "Needs you")]),
     el("td", null, n.name),
-    askCell(needWords(n) + (n.approx ? " (≈ not a current reading)" : "")),
-    el("td", "num", null, n.at ? [age(n.at, "", done ? " ago" : "")] : []),
-    el("td", null, null, [button(n.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(n); }, null, "jump")]),
+    askCell(st ? st.text : needWords(n) + (n.approx ? " (≈ not a current reading)" : "")),
+    el("td", "num", null, st ? [age(st.since, st.pre)] : n.at ? [age(n.at, "", done ? " ago" : "")] : []),
+    el("td", null, null, [button(st ? st.action : n.terminal ? "Open terminal" : "Show lane", "small jump", (ev) => { ev.stopPropagation(); jumpTo(n); }, null, "jump")]),
   ]);
   tr.children[2].title = tr.children[2].textContent;
   on(tr, "click", () => jumpTo(n));

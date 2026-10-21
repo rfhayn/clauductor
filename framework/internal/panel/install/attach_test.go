@@ -108,8 +108,9 @@ func TestAttachWritesInitsReading(t *testing.T) {
 }
 
 // [LANECTX-3-S1] An attached repository's lanes launch with the policy: the sidecar
-// declares version 6 and holds the default launch object, and a lane started under
-// it carries LANECTX-1-S5's --settings.
+// declares the latest config version and holds the default launch object, and a lane
+// started under it carries LANECTX-1-S5's --settings. (Modified by PANEL-51, design D5:
+// attach writes the latest version, 7 there, where it once wrote a literal 6.)
 func TestAttachedLanesLaunchWithThePolicy(t *testing.T) {
 	t.Parallel()
 	home := signals.ResolvePath(t.TempDir())
@@ -136,8 +137,8 @@ func TestAttachedLanesLaunchWithThePolicy(t *testing.T) {
 	for k, v := range raw.Launch {
 		gotLaunch[k] = string(v)
 	}
-	if raw.Version != 6 || !reflect.DeepEqual(gotLaunch, wantLaunch) {
-		t.Fatalf("LANECTX-3-S1: the sidecar declares version %d and launch %v, want 6 and %v:\n%s", raw.Version, gotLaunch, wantLaunch, b)
+	if raw.Version != config.LatestVersion || !reflect.DeepEqual(gotLaunch, wantLaunch) {
+		t.Fatalf("LANECTX-3-S1: the sidecar declares version %d and launch %v, want %d and %v:\n%s", raw.Version, gotLaunch, config.LatestVersion, wantLaunch, b)
 	}
 
 	// A lane started in the attached repository, under the config the registry names.

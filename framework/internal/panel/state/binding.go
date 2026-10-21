@@ -121,6 +121,7 @@ func (m *Model) retire(id string, now time.Time) {
 		return
 	}
 	m.endedIDs[id] = now
+	m.stallDropKept(id) // PANEL-51: L7, for what was set aside or saved (stall.go)
 	s := m.sessions[id]
 	if s == nil {
 		return
@@ -138,6 +139,7 @@ func (s *session) end(now time.Time) {
 	s.Note, s.Done, s.Compacting = nil, nil, ""
 	s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}
 	s.clearSubagents(now)
+	s.stall.end(time.Time{}) // PANEL-51: L7 (stall.go)
 }
 
 // trackLaneEnds compares the lanes live on tmux (a registry record with a running

@@ -31,6 +31,8 @@ locks. It reads only Claude Code's own signals, plus git and `gh`:
 | the project's metrics command | on its `metrics.refresh` (default every 15 min), at start and on **Refresh**, only while the config is trusted | the Metrics view's figures (see *Metrics*) |
 | `gh pr list --state merged` | at most every 10 min, on the PR source's cadence, and only while a page is in view | merge frequency and PR cycle time for the Metrics view |
 | `gh api graphql` (review threads) | per lane with an open pull request, at most every 2 min, only while a page is in view | a lane's unresolved review threads (merge readiness, PANEL-20) |
+| the gate receipt (`<git dir>/ci-receipt`) | every 30 s for each worktree with a branch of its own, its git dir found once by `git rev-parse --absolute-git-dir` and cached; while a page is in view, and with none while `alerts.stall_minutes` is above 0 (PANEL-51) | whether the gate passed for HEAD (merge readiness; a stall's open work) |
+| `gh pr list --head <branch> --state merged --json number,headRefOid --limit 20` (the merged read) | per worktree with a clean receipt for HEAD and no open pull request, only while `alerts.stall_minutes` is above 0, page or no page: once per branch and HEAD for a merge found; a "none" read again when the branch leaves the open-PR list (and until that read answers, the old "none" counts for nothing), otherwise at most every 5 min, a failed read included (PANEL-51) | whether that HEAD was merged, so a gate that passed with nothing after it is a stall's open work |
 | `tmux -L <socket> list-panes -a` | one call for every lane: polled every 2 s while lanes run, every 10 s with none, and right after a lane action | which lanes run, and whether their program exited |
 | `tmux -L <socket> show-environment -g` | when the lane set changes, every 30 s, and before every lane start | whether an API key there blocks lanes |
 | the lane registry | in memory, re-read from disk every 30 s | which lane owns which Claude session id, where, as which type |
@@ -421,11 +423,12 @@ earlier one. The **Since** column of the key table says which is which:
 | 4 | metrics (PANEL-19): `metrics` (see *Metrics*), `alerts.approval_wait_hours`, `alerts.stale_days` and `quota_economy` |
 | 5 | the lane lifecycle (PANEL-20): `lanes_auto_close`, `lane_types.<key>.auto_close`, `quota_auto_resume`, `quota_resume_line`, `worktree_setup`, `worktree_teardown`, `ports` |
 | 6 | the lane context policy (PANEL-48): `launch`, `lane_types.<key>.context_window`, `lane_types.<key>.subagent_model` |
+| 7 | stalled lanes (PANEL-51): `alerts.stall_minutes` |
 
 - A key from a later version than the file declares is refused, with an error that names the key
   and the version it needs: `panel config: "templates" needs "version": 2 or later (the file
   declares version 1); raise the version, or remove the key`.
-- A `version` outside 1–6 (0 included) is refused.
+- A `version` outside 1–7 (0 included) is refused.
 - A key can be newer than the key it sits in (`templates[].suggest` is version 3 inside version 2's
   `templates`). The error names it the same way, and the schema bans it where it sits.
 - A file with **no** `version` is read as the latest version, so no existing config breaks. The
@@ -483,7 +486,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
 | `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
-| `version` | integer: 1 to 6 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
+| `version` | integer: 1 to 7 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
 | `cards` | array |  | 1 | Commands whose output renders as a card in the Activity drawer (see *Card output*). |
@@ -529,6 +532,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.min_interval_seconds` | number | `300` | 2 | At most one notification per lane per interval. |
 | `alerts.approval_wait_hours` | number | `24` | 4 | A change's proposal with no `**Approved:**` line, waiting longer than this since it was last written, raises an approval alert (see *Needs you from the metrics*). |
 | `alerts.stale_days` | number | `3` | 4 | A lane on a branch of its own with no commit for this many days (counted from its start while it has none of its own) raises a stale alert. |
+| `alerts.stall_minutes` | number | `30` | 7 | A lane is stalled when one of its sessions has waited on you this long since it asked, or when it has open work (a pull request, a gate that passed with nothing after it, a turn that ended on background work) and nothing in it has moved for this long; a stall notifies once (see *Alerts*). An attached project sets it in its sidecar. `0` turns stalls off. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
@@ -666,9 +670,13 @@ value just changed.
 - **Needs you (rows under the status bar, only when something needs you).** First in the page at
   every width, across every lane, each row tinted amber (needs you) or red (blocking): sessions
   blocked on you (a permission, elicitation or input notification, or `claude agents` reporting
-  them waiting), quota auto-resume warnings, and stuck or restored template lanes. A row names the
+  them waiting), quota auto-resume warnings, stuck or restored template lanes, and stalled lanes
+  (PANEL-51, *Stalled lanes*). A row names the
   lane, the specific ask when `claude agents` names one (`Permission: Bash(npm run test:e2e)`), and
-  how long it has waited. **Open terminal** selects the lane and takes focus to its terminal's
+  how long it has waited. A stalled lane has one row, red: **Stalled**, what it last waited on,
+  its open work ("#7 open") and "quiet for 34m"; a lane whose question stalled keeps its waiting
+  row, labelled **Stalled** and red, rather than a second one. A lane with no terminal (started by
+  hand) offers **Show lane** in place of **Open terminal**. **Open terminal** selects the lane and takes focus to its terminal's
   frame, never inside; clicking the row selects the lane. **Alerts** follow (every alert that
   belongs to no lane, and every blocking alert of any lane), then **Your move** (finished turns,
   not blocked). The tab title reads `(N) <project>` while N items need you, the favicon carries
@@ -682,7 +690,8 @@ value just changed.
 - **The rail: Lanes.** A two-hour timeline of every lane's state, one line each, then the lane
   table: one row per lane (a tmux lane the panel started, or a worktree with a claude session
   started elsewhere). A row needing you is tinted amber; one exited, orphaned, stale (busy with no
-  hook for 60 s) or with a failure is tinted red. A status that is not a current `claude agents`
+  hook for 60 s) or with a failure is tinted red, and so is a stalled lane's, whose state reads
+  **stalled** over any other (an exited claude's included). A status that is not a current `claude agents`
   reading is marked `≈`, with how old the last good reading is. Click a column heading to sort by
   it (again to reverse). **Columns** chooses which columns show; the default is state, time in
   state, context, cache and cost per hour, and the others are cost, model, busy ratio, lines,
@@ -695,7 +704,8 @@ value just changed.
   panel started ends its row with **⋯**, its actions (see [From the lists](#from-the-lists)).
 - **The rail: Worktrees.** A tree, as the old control room's topology had it: the project, every
   worktree (its lane type, branch and path, and once read, ahead/behind and how many files
-  changed), each lane's claude session (state, uptime, context), and its agents, nested by which
+  changed; a red square and **stalled** while its lane is stalled), each lane's claude session
+  (state, uptime, context), and its agents, nested by which
   agent started which, with finished ones folded under "N finished". A worktree with no lane has
   **New lane here**, which opens the Start dialog on that worktree, to start a new claude session
   there, and (except the main checkout) **Remove** ([Remove a worktree](#remove-a-worktree)); a
@@ -703,7 +713,8 @@ value just changed.
   moves with ←/→; Home and End go to the limits, Escape or a double-click restores the theme's
   width, Enter hides the rail), and **Lanes** at the left of the tabs hides or shows it. The width
   and whether it shows are kept per browser; below 900 px it starts hidden.
-- **Terminal tabs.** One tab per lane, with its state square and name, then **+** (the Start
+- **Terminal tabs.** One tab per lane, with its state square (red while the lane is stalled) and
+  name, then **+** (the Start
   dialog). A tablist: Tab reaches the selected tab only, and ←, →, Home and End move and select at
   once. Selecting a lane (a tab, a row, a tree node, a Needs-you row) never enters its terminal.
 - **The lane's header.** Its name and state, branch and worktree, model (as the status line
@@ -882,7 +893,9 @@ visible says so once a minute (`POST /api/seen`), and the reads stop 90 s after 
 
 The trends (quota, cost, CPU and memory, each lane's cache hit ratio and cost) are sampled once a
 minute and kept for two hours, and each lane's state timeline is extended every 5 s; neither
-spawns anything. With no page open the panel spawns exactly what it did before PANEL-11.
+spawns anything. With no page open the panel spawns exactly what it did before PANEL-11 and,
+while `alerts.stall_minutes` is above 0, the receipt read and the merged read (PANEL-51, D10):
+a stall matters most when nobody is looking.
 
 ### The account and its quota
 
@@ -1088,7 +1101,9 @@ receipt for HEAD"), then a line per check. It is read-only: the panel never merg
 | Gate receipt | `<the worktree's git dir>/ci-receipt` (OPS-7's `run-local.sh`: `<sha> TAB full TAB clean\|dirty TAB all`) | it is for another commit than HEAD, or for a dirty tree; with none, only when the project keeps receipts (it has `scripts/ci/run-local.sh` or a queue) |
 
 A check the panel cannot make yet (nothing read, or gh failed) is shown as such, in the dim tier,
-and counts as not ready. The reads run with the dashboard's, only while a page is in view. A lane
+and counts as not ready. The reads run with the dashboard's, only while a page is in view, and,
+while `alerts.stall_minutes` is above 0, the receipt read with no page too, with the merged read
+(PANEL-51, D10); `tasks.md` and the review threads stay page-only. A lane
 on the project root or the base branch has nothing to merge, and says so.
 
 ### Worktree setup, teardown and ports
@@ -1893,6 +1908,7 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | Alert | When | Severity |
 |---|---|---|
 | waiting | a permission prompt, MCP elicitation or input request older than `waiting_seconds` | block |
+| stalled | a lane that has waited on you, or sat quiet with work open, for `stall_minutes` (PANEL-51; *Stalled lanes*) | block |
 | rate_limit | `StopFailure` with `error_type: rate_limit` | block |
 | stop_failure | any other `StopFailure` | warn |
 | no_auto_resume | `quota_auto_resume_stale` or `_disabled`: the lane will not continue by itself | warn |
@@ -1905,6 +1921,80 @@ Alerts are derived from the state, never stored, against the `alerts` thresholds
 | login_lock | a login-refresh lock live, the same lock, for more than 2 min (PANEL-28; *The login locks*) | block |
 | stranded_lock | a lock stale (untouched for 60 s) and still there 2 min later (PANEL-28) | warn |
 | future_lock | a lock modified more than 5 s in the future (PANEL-28) | warn |
+
+### Stalled lanes
+
+A lane is **stalled** (PANEL-51) when the next move is yours and nothing tells you so: a
+question nobody answered, or a lane that went quiet with work still open. The stall time is the
+project's `alerts.stall_minutes` (default 30; `0` turns stalls off, and with them the reads below
+that run only for stalls). A lane stalls in one of three ways:
+
+- **A question unanswered.** One of its sessions has waited on you (a permission, elicitation or
+  input request) for the stall time, timed from the ask alone: no hook resets it, and neither its
+  sibling sessions, the lane's lease nor its own background work hold it off. Its waiting row in
+  **Needs you** stays the one row, labelled **Stalled**.
+- **A turn that ended on background work.** A live session is not working, its last `Stop` (with
+  no prompt since) listed background work, it has not moved for the stall time, the lane neither
+  holds nor waits for a queue's lease, and it has no wakeup of its own still due. A `shell` task
+  (a background `Monitor` is listed as one), a `monitor` task or a `teammate` task is open work. A
+  `subagent` or `workflow` task is **working**: a subagent until a `SubagentStop` whose
+  `agent_id` is its `id` (before or after the `Stop`), a workflow until a later `Stop` no longer
+  lists it, and either only while the session has moved within 4 × the stall time; past that
+  it is open work, "whose end was never heard". Any other type (Claude Code's own housekeeping)
+  is neither.
+- **Open work, and quiet.** No live session of it is working, it neither holds nor waits for a
+  lease, nothing in it has moved for the stall time, no session of it has a wakeup due, and it has
+  open work: a pull request open for its branch, or a gate receipt that passed for its HEAD with
+  no pull request open or merged for that branch. A lane the panel launched whose claude exited
+  (or whose tmux session is gone) with such work is stalled too.
+
+**Movement** resets the clock and clears the stall; the next quiet stretch is a new stall. A
+session moves with any hook from it but a `Notification` that reports a stop, with a change in
+its `claude agents` reading, and when it starts (listed after the panel's first good poll, new or
+resumed). A lane moves with any of its sessions, when it takes or gives up a lease (a dead or
+stale holder, first seen, counts as given up), and when its pane dies or comes back. A recurring
+cron, or a one-shot wakeup not yet 5 minutes past its fire time, holds off its own session's
+stall and its lane's open-work stall, never a question.
+
+**What it shows.** The lane reads **stalled** in its row, tab and tree node, in red, and gets one
+**Needs you** row with its quiet time, its open work and what it last waited on: the question,
+"its turn ended waiting on 1 shell: Run checks (running)", "its turn ended with nothing in flight
+to wake it; last said: …", or "claude exited (status 1)". `/api/state` carries the lane's
+`stall` (`since`, the last movement; `waitedOn`; `openWork`, such as "#152 open", "gate passed
+for 1a2b3c4d5e, no PR", "turn ended on 1 shell", "claude exited"; and `approx`), a Needs-you item
+of kind `stalled`, and the `stalled` alert. A stall interrupts once per stretch (see
+*Notifications*), and is the one alert the push command sends.
+
+**Approximate.** A stall is marked `≈`, and never interrupts, while `claude agents` is not a
+current reading, and when it begins across a restart, until the panel has watched for one stall
+time: the first reading of each source after a start is a baseline that can miss a change made
+while the panel was down.
+
+**Across a restart.** `~/.clauductor/panel/<project hash>/stall.json` (0600, beside
+`notifier.json`) keeps each lane's and each live session's last movement and whether it was
+stalled, each waiting session's ask time, each live session's kept `Stop` fields (with each
+one-shot's resolved fire time) and the `agent_id`s of its last 64 `SubagentStop`s. It is written
+at most every 30 s while it has changed, and at a clean stop. A lane not stalled at the save
+carries over the quiet time it had, never the time the panel was down; one with nothing known
+counts from the start.
+
+**What it reads.** `claude agents`, the hooks (two `Stop` fields, `SubagentStop`'s `agent_id`:
+see *How signals are read*), the open pull requests (`gh pr list`), the gate receipt and the
+merged read (both page or no page while `stall_minutes` is above 0: *What the panel reads, and
+when*), tmux, and the queues' leases. A way of stalling is judged only once the sources it rests
+on have answered since the start; one that has not within 10 minutes is named in a warning bar
+("Stalled lanes: …").
+
+**What it does not see:**
+
+- **A teammate's own background shell.** A teammate is part of its lead's session: its hooks are
+  the lead's movement, and its listed task is open work. Nothing reports when a shell the
+  teammate itself started ends, so the lane cannot know.
+- **An MCP `monitor` task** is open work by the allowlist. That was never probed: one that never
+  ends stalls its lane once the session has been quiet for the stall time.
+- **A turn that ends with no `Stop`** (interrupted with Esc, or failed). Its background work is
+  unknown until the session's next `Stop`, so that session's background-work stall is not judged
+  until then (#186). Its lane's open-work stall still is.
 
 ### The login locks
 
@@ -1984,7 +2074,8 @@ alert marked approximate. A notification goes out:
 
 - once per stretch: an alert that clears and comes back notifies again. What was notified, and
   when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a
-  panel restart never re-notifies an alert that is still active, and the daily count survives it;
+  panel restart never re-notifies an alert that is still active, and the daily count survives it.
+  Beside it, `stall.json` keeps the stalls' clocks across a restart (*Stalled lanes*);
 - grouped: the new alerts of one lane make one notification;
 - rate-limited: at most one notification per lane per `min_interval_seconds`; later ones wait and
   go out when the interval ends, if still active;
@@ -1999,6 +2090,63 @@ arguments, so without it a title starting with `-e` would be read as more script
 the config's `name` only while the config is trusted; `name` must be one line of plain text that
 does not start with `-`. The first one may make macOS ask whether the panel may send
 notifications.
+
+**Stalls.** A `stalled` alert (*Stalled lanes*) interrupts by the same rules: once per stretch,
+grouped, rate-limited, never while its lane's terminal has focus, and never while approximate. A
+restart does not send it again while it is still active: until the sources the stalls rest on
+have answered since the start, the notifier keeps each stall's mark in `notifier.json` rather than
+reading the stall as cleared.
+
+**The push command (stalls only).** A Mac notification reaches nobody who is away from the Mac,
+which is when a stall matters. `~/.clauductor/panel/push.json` names a command of yours that
+reaches your phone:
+
+```json
+{"argv": ["/opt/homebrew/bin/ntfy", "publish", "my-private-topic"]}
+```
+
+The panel runs it for each notification that carries a stall, with two more arguments, the title
+and the body, with no shell and a 10 s timeout, so the argv ends where those two belong. ntfy's
+CLI joins every argument after the topic into the message, so the line above sends the title and
+the body as one message. For a real title, a two-line wrapper of your own (owned by you, and
+writable by you alone, as `push.json` is) does it with `curl`:
+
+```sh
+#!/bin/sh
+# ~/.clauductor/panel/push-ntfy.sh <title> <body>
+exec /usr/bin/curl -fsS -H "Title: $1" -d "$2" https://ntfy.sh/my-private-topic
+```
+
+```json
+{"argv": ["/Users/me/.clauductor/panel/push-ntfy.sh"]}
+```
+
+and for Pushover:
+
+```sh
+#!/bin/sh
+# ~/.clauductor/panel/push-pushover.sh <title> <body>
+exec /usr/bin/curl -fsS --form-string "token=APP_TOKEN" --form-string "user=USER_KEY" \
+  --form-string "title=$1" --form-string "message=$2" https://api.pushover.net/1/messages.json
+```
+
+```json
+{"argv": ["/Users/me/.clauductor/panel/push-pushover.sh"]}
+```
+
+- **What it sends:** the title is the notification's (`<project> · <lane>`), the body how long the
+  lane has been quiet, the kind of wait ("a shell in flight", "nothing in flight", "a question",
+  "claude exited") and the open work ("#152 open"), built from the stall's own fields. Never the
+  turn's last line, a task's description or a question's words: those are the model's, and the
+  push leaves the machine. Only a stall is pushed; a waiting alert is pushed only when it has
+  stalled.
+- **When it is read:** once for every project, at start and whenever the file changes (a check
+  every 10 s, its mode and owner included, and those of the folder of its path and of each link's target).
+- **A refused file** never runs, and a warning bar on every project's page names the file and why
+  (see *Security model*).
+- **A failed push** counts in the notifier's failures with the last line it printed (never its
+  arguments, which can hold a token); the Mac notification still goes. `alerts.notify` off sends
+  neither.
 
 ## Metrics
 
@@ -2446,6 +2594,15 @@ sessions are found through `claude agents --json`.
   **observes** `PermissionRequest`: `/hook` answers `204` with an empty body, which Claude Code
   documents as "no decision", so the permission dialog proceeds as usual. `/hook` takes no token,
   so it must never answer. Only subscribed event names are applied; others are counted.
+- **What a turn ended on** (PANEL-51; *Stalled lanes*). Two fields of `Stop` are decoded, each to
+  an allowlist: `background_tasks` (each task's `id`, `type`, `status` and `description`) and
+  `session_crons` (each cron's `schedule` and `recurring`). A task's `command`, `server`, `tool`,
+  `name` and `agent_type`, and a cron's `prompt`, are never decoded, and a task's `id` is never
+  shown; from `SubagentStop` the stall keeps only the `agent_id`, the last 64 per session, to end
+  the listed task it names. A session keeps its last `Stop`'s fields (with the turn's last line)
+  until its next `Stop`, across a restart included. A `Stop` with neither field (an older Claude
+  Code) still lets a lane stall on its open work. `TestStopFieldTypesHoldOnlyTheAllowlist` walks
+  these types and fails on any field the allowlist forbids.
 - **Binding.** A session is bound to its lane once. A lane the panel started is bound by the
   session id it assigned (`--session-id`), whatever the event's `cwd`. Any other session is bound
   by its `cwd` at first sight, and a later `cd` does not move it.
@@ -2773,6 +2930,18 @@ send requests to `127.0.0.1`.
   is unchanged, and the `/dev/null` exception of 2026-10-13 is superseded.
 - **Attaching and serving write nothing into the repository** (PANEL-42): see
   [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it).
+- **The push command runs only from a file only you can change** (PANEL-51; *Notifications*).
+  `~/.clauductor/panel/push.json` names a program the panel runs with no shell, so it is refused,
+  never run, and a warning bar names it and why, when it is not owned by you, is writable by group
+  or others, sits in a folder that is (the folder of its path and, where the file's own path is a
+  symbolic link, the folder of each link's target in turn, followed one hop at a time, at most 8;
+  a folder on the way that is itself a link, such as `/a/dirlink` in a target
+  `/a/dirlink/push.json`, is judged where it leads, and the folder holding that link is not; a
+  `..` inside a link's target is taken lexically), is
+  not a regular file, names its program (`argv[0]`) by a relative
+  path, or is anything but one JSON object with a non-empty `argv` of strings. The push carries
+  no word of the model's or of a question (only the quiet time, the kind of wait and the open
+  work), and a failed push's error keeps only the last line it printed, never its arguments.
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
@@ -2793,6 +2962,9 @@ send requests to `127.0.0.1`.
   - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
     the email or the organisation's name), and a Claude Code version verified from live hooks;
+  - `notifier.json` and, while `alerts.stall_minutes` is above 0, `stall.json` (0600, PANEL-51),
+    per project: what was notified, and the stalls' clocks with each live session's last `Stop`
+    tasks (their `id`, `type`, `status` and `description`) and wakeups (*Stalled lanes*);
   - under launchd, the token, the logs, the copied binary and a browser-opened timestamp.
 
   Hook bodies include prompt text. The panel keeps only a short one-line summary per event, in a
