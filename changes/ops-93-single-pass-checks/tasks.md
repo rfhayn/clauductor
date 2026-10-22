@@ -64,6 +64,25 @@
   The whole sets were not re-run after it.
 - 2026-10-21 group 1 (The single pass) built and reviewed: converged in 4 round(s), peak low
   (rounds 1 to 3 medium; round 4, approved by the owner, low). Quick gate passed on tree d9577b6ad.
+- 2026-10-21 group 2: 2.1 to 2.5 done, uncommitted, for review; 2.6 (the full gate) is left to the
+  caller, who runs it. Plugin rebuilt after the template edits, `.claude/` updated from a binary
+  built in this worktree (it changed nothing under `.claude/`; it reported `docs/conventions.md` and
+  `docs/playbook.md` as guidance drift, which update never overwrites), `model-roles.json` restored.
+  The workflow has not run on GitHub: Actions minutes are out until about 2026-11-01, so its first
+  run (scheduled or `workflow_dispatch`) is what tests it there, and `scheduled-workflows.sh` lists
+  it (`--list`) and says NEVER RAN until then.
+- 2026-10-21 group 2 review round 1's findings (M1, L2 to L4, the optional steps.sh header) done,
+  uncommitted (Decision log); plugin rebuilt, `.claude/` and `scripts/ci/lib/steps.sh` updated,
+  `model-roles.json` restored. 2.6 still the caller's.
+- 2026-10-22 group 2 review round 2's findings (M1, M2, L1, L2) done, uncommitted (Decision log);
+  plugin rebuilt, `scripts/ci/lib/steps.sh` updated, `model-roles.json` restored. 2.6 still the
+  caller's.
+- 2026-10-22 group 2 review round 3 converged (peak low); its two lows done in
+  `.claude/local/checks/double-pass.sh` alone, uncommitted (Decision log). No template/ change, so
+  no rebuild. 2.6 still the caller's.
+- 2026-10-22 group 2 (The weekly double pass and the record) built and reviewed: converged in 3
+  round(s), peak low (rounds 1 and 2 medium; round 3 low). Quick gate passed on tree b22911efe,
+  before round 3's two lows; the full gate (2.6) covers them.
 
 ## Decision log
 - 2026-10-19, group 1, task 1.1 baseline (worktree at bbc23074, Apple M5, 10 cores, before any
@@ -310,6 +329,195 @@
     child fails both signals (`the set ran on after INT` / `after TERM`); no scratch adoption leaves
     the environment (`FAIL INT left checks.1e9ap1 behind`, the same for TERM); the suffix from the
     marker alone earns it under a stale marker.
+- 2026-10-21, group 2, the owner's answers to O1 to O6: no separate record of them exists. The owner
+  approved the design as written (design e88f01d40f03), so its recommendations stand: O1 2026-10-18
+  (the amendment block's heading already carries it), O3 weekly, O4 D6 (built in group 1), O5 this
+  repo only, O6 the approved words unchanged. O2's order is recorded in `docs/roadmap.md`'s S6 row
+  (OPS-93 before the rename, the owner's decision of 2026-10-18). None changes a word of the block,
+  so task 2.3 inserts it verbatim and its `cmp` must show no difference.
+- 2026-10-21, group 2, task 2.1, the workflow's shape:
+  - cron `41 7 * * 2` (Tuesday, 07:41 UTC): weekly (O3), on another day and minute than
+    `dependency-audit.yml`'s Monday 06:17, so the two never queue together;
+  - `clauductor` is built into `$RUNNER_TEMP/bin` and that directory appended to `$GITHUB_PATH`, so
+    every later step has it. The run step starts with `command -v clauductor`, so a PATH that does
+    not reach the binary fails the job instead of running a double pass that hides nothing;
+  - both sets run in ONE step, each `|| failed=1`, so a failing first set still runs the second and
+    one run reports both. The alternative, two steps with `if: !cancelled()`, would also run the
+    second set when the build step failed, without the binary;
+  - `timeout-minutes: 60`: the handoff's 13 to 14 min per double pass, times two sets, with room;
+  - no `concurrency:` group: a weekly run and a manual one overlapping is harmless (read-only).
+- 2026-10-21, group 2, task 2.2, `local:double-pass`'s reading of the workflow: comment lines never
+  count (the header names `CHECKS_DOUBLE_PASS=1` and both paths); a set is run "whole" when nothing
+  but the end of the line, `||`, `&&` or `;` follows `sh <path>` (so `run.sh hooks` does not count);
+  "before the run" compares the line numbers of the `go build -o …/clauductor ./cmd/clauductor` line
+  and the `>> $GITHUB_PATH` line with the first set's line. Not checked: that the directory added to
+  PATH is the one built into. The workflow's `command -v clauductor` fails the job if it is not;
+  parsing the shell to compare the two was rejected as more code than the risk. The fixtures are
+  derived from the real workflow (`sed`, and `awk` for moving the build step after the run step),
+  each guarded by a `cmp` that fails when the derivation changed nothing, so a reworded workflow
+  cannot leave a fixture testing the real file. One fixture beyond the five pieces: the template's
+  set replaced by a named run (`run.sh hooks`).
+- 2026-10-21, group 2, task 2.2, each fixture failing first: each clause of `problems` removed in a
+  copy of the check (outside the tree), run against the real workflow; the fixture lines it printed:
+  - **missing** (the `[ -f ]` test gone): `FAIL falsified: a workflow that does not exist does not
+    fail with 'the workflow is missing' (got: no schedule: (with a cron) under on: …)`;
+  - **schedule**: `FAIL falsified: a workflow with no schedule: does not fail with 'no schedule:'
+    (got: nothing)`;
+  - **`CHECKS_DOUBLE_PASS=1`**: `FAIL falsified: a workflow that runs this repo's set without
+    CHECKS_DOUBLE_PASS=1 does not fail with 'runs .claude/checks/run.sh without
+    CHECKS_DOUBLE_PASS=1' (got: nothing)`, and the same for the template's set;
+  - **the build**: `FAIL falsified: a workflow that never builds clauductor does not fail with 'does
+    not build clauductor' (got: nothing)`;
+  - **PATH**: `FAIL falsified: a workflow that never puts it on PATH does not fail with 'does not put
+    the built clauductor on PATH' (got: nothing)`;
+  - **the order**: `FAIL falsified: a workflow that builds clauductor after the run does not fail
+    with 'after the first set runs' (got: nothing)`;
+  - **both sets**: `FAIL falsified: a workflow that runs only this repo's set does not fail with
+    'does not run the whole set template/.claude/checks/run.sh' (got: nothing)`, the same for "only
+    the template's set", and for the named run;
+  - **the whole-set anchor** (the end-of-command alternatives removed from the pattern): `FAIL
+    falsified: a workflow that runs one named check, not the template's whole set does not fail
+    with 'does not run the whole set template/.claude/checks/run.sh' (got: nothing)`.
+  With the check as written all 11 lines pass, under macOS sh and dash.
+- 2026-10-21, group 2, task 2.3, the proof: the fenced block extracted from design.md (`awk` between
+  the ```` ```markdown ```` fence and its close) and the ADR's section (from its `## Amendment — 2026-10-18`
+  heading to the line before `## Related`, the trailing blank line dropped): 34 lines each, `cmp`
+  identical.
+- 2026-10-21, group 2, task 2.4, the playbook bullet: both copies say a whole-set `run.sh` runs
+  every check once in the environment, that `no-clauductor.sh` asserts it and runs its own parts
+  there, that a check needing the caller's gh login, ssh keys, signing or `CI=true` sets them up in
+  its own scratch, and that `CHECKS_DOUBLE_PASS=1` is the switch back. Group 1's review L4 is the
+  bullet's last sentence: a gate calls one of `model_step_checks` and `model_step_no_clauductor`,
+  never both. This repo's copy adds one sentence naming `checks-double-pass.yml` and
+  `local:double-pass`, as D9 does for this repo's AGENTS.md row (O5: the weekly job is this repo's
+  alone). `template/AGENTS.md` was edited before the plugin rebuild (pre-review L1). The two rows
+  are 248 and 269 characters, as D9 says.
+- 2026-10-21, group 2, task 2.5: REL-1's row is still open (`⬜ in flight (#25)` on `origin/main` at
+  e6451daa; `gh pr view 25`: OPEN), so D8's item is appended to REL-1's Change cell, word for word
+  in quotes, for the `[0.1.0]` notes' *Changed*. `CHANGELOG.md` is not on `main`
+  (`git show origin/main:CHANGELOG.md`: does not exist), so nothing else is added.
+- 2026-10-21, group 2, review round 1 (peak medium):
+  - **M1, a set's failure swallowed:** the check never read the one-step script's closing `exit
+    "$failed"`, so `exit 0` kept the job green. Closed as a class, not a spelling: every line that
+    runs a set must be `run: CHECKS_DOUBLE_PASS=1 sh <path>`, its step's entire command, with no
+    continuation line (a plain scalar folds a deeper-indented next line into the command), so the
+    set's status is the step's. And nowhere in the workflow a `continue-on-error:`, a `shell:` (it
+    decides what a step's status is), or an `if:` other than `if: ${{ !cancelled() }}` (a skipped
+    step is green). The workflow changed to fit: a `clauductor is on PATH` step (`command -v`), then
+    one step per set; the template's carries `if: ${{ !cancelled() }}` so it still runs when this
+    repo's fails. That replaces task 2.1's one-step `|| failed=1` script above. A set's path now
+    ends at any character a path cannot hold, so `run.sh;` and `run.sh|` count as running it.
+    Rejected: requiring the script's `exit "$failed"`, which closes one spelling and leaves `set
+    +e`, a pipe or a later `true` open.
+  - **L2:** refused on purpose, and the header says so: `CHECKS_DOUBLE_PASS` in the step's `env:`
+    and `| tee` (whose status is tee's unless pipefail) are not accepted; reading shell-in-YAML for
+    equivalent forms is where such a check goes wrong.
+  - **L3:** the schedule test is `lib/health.sh`'s `health_on_trigger FILE schedule` plus a
+    non-empty `health_crons`, and the real workflow must be in `_health_workflows schedule`, the
+    list `scheduled-workflows.sh` reports from (its reader, checked by the reader's own code).
+  - **L4:** `fx`'s comment names its third argument.
+  - **The optional header:** `scripts/ci/lib/steps.sh`'s `model_step_no_clauductor` line now says a
+    gate calls it or `model_step_checks`, never both (the template's copy, the plugin's, and this
+    repo's via `clauductor update`, which asked before overwriting it and was answered `y`; the
+    two copies are identical). Within task 2.4's spirit: it is the playbook line's L4, at the place
+    a gate author reads.
+  - Fixtures: 10 new, derived from the real workflow, one per way of swallowing a failure (`||
+    true`, `; true`, `| tee`, a `run: |` script ending `exit 0`, a folded `|| true` line,
+    `continue-on-error` on the step and on the job, `if: false` on the step, a job-level `if:`, a
+    `shell:`), 22 lines in all. Failing first, each clause disabled in a copy outside the tree:
+    - the entire-command test: `FAIL falsified: a workflow whose repo set is a script ending 'exit
+      0' does not fail with 'runs .claude/checks/run.sh other than as its step's entire command'
+      (got: nothing)`, and the same `(got: nothing)` for `|| true`, `; true`, tee and the named run;
+    - the continuation test: `FAIL falsified: a workflow whose repo set's run: line folds in '||
+      true' on the next line does not fail with 'continues the run: line of .claude/checks/run.sh on
+      the next line' (got: nothing)`;
+    - `continue-on-error`: `FAIL falsified: a workflow with continue-on-error on the template set's
+      step does not fail with 'tolerates a failure: continue-on-error' (got: nothing)`, and on the job;
+    - `if:`: `FAIL falsified: a workflow that skips the template set's step (if: false) does not fail
+      with 'an if: other than' (got: nothing)`, and the job-level one;
+    - `shell:`: `FAIL falsified: a workflow whose repo set's step runs under a shell that swallows its
+      status does not fail with 'sets a shell:' (got: nothing)`;
+    - the `CHECKS_DOUBLE_PASS=1` test (reworked into the awk): `FAIL falsified: a workflow that runs
+      this repo's set without CHECKS_DOUBLE_PASS=1 does not fail with 'runs .claude/checks/run.sh
+      without CHECKS_DOUBLE_PASS=1' (got: runs .claude/checks/run.sh other than as its step's entire
+      command …)`, and the template's;
+    - the never-runs test: `FAIL falsified: a workflow that runs only this repo's set does not fail
+      with 'never runs template/.claude/checks/run.sh' (got: nothing)`, and the template's;
+    - the schedule test (now `health_on_trigger`): `FAIL falsified: a workflow with no schedule:
+      does not fail with 'no schedule:' (got: nothing)`;
+    - the reader test, run with `_health_workflows` reading an empty ROOT: `FAIL
+      scheduled-workflows.sh's reader (_health_workflows schedule) does not list
+      checks-double-pass.yml`.
+    The missing-file, build, PATH and order clauses are unchanged, and their earlier fail-first
+    lines stand. All 22 lines pass under macOS sh and dash.
+- 2026-10-22, group 2, review round 2 (peak medium):
+  - **M1, PATH is per job:** the check compared line numbers across the whole file, so the
+    template's set moved into a second job with no build passed. Now the workflow must have exactly
+    one job (the keys directly under `jobs:`, read by indentation), and a step whose `run:` is
+    exactly `command -v clauductor`, after the `$GITHUB_PATH` line and before the first set (it
+    fails the job when the directory added is not the one built into). Rejected: checking build,
+    PATH and `command -v` per job, which is more parsing for a workflow that needs one job.
+  - **M2, the gate wording:** `model_step_no_clauductor` runs fewer checks (no modules', no local),
+    so "one of" was wrong. Both playbooks and both `steps.sh` headers (and the plugin's copies)
+    now say a gate calls `model_step_checks`; `model_step_no_clauductor` is only for a gate that
+    cannot run the whole set, runs neither the modules' nor the local checks, and beside
+    `model_step_checks` pays for the double pass again. `clauductor update` again asked before
+    overwriting this repo's `scripts/ci/lib/steps.sh` and was answered `y`; the copies are identical.
+  - **L1, the bans scoped:** `continue-on-error:` and an `if:` are refused on a set's step and on
+    the job; `shell:` on a set's step and in any `defaults:` (workflow or job), since a default
+    shell decides every step's status. Setup steps may use all three. An `if:` may be `!cancelled()`
+    or `always()`, bare or in `${{ }}`. The steps are read by indentation (a step runs from its `- `
+    item to the next at the same indentation), in one awk with the job count.
+  - **L2:** any `CI:` key is refused (the outer pass is meant to see GitHub's `CI=true`).
+  - Fixtures: 30 lines. New: two jobs, no `command -v` step, `command -v` after the sets, a
+    `defaults:` shell, `CI: ""` in the job's `env:`; and three that must PASS: a setup step with
+    `shell: bash`, a setup step with `continue-on-error: true`, the template step with `if:
+    always()`. Failing first, each clause disabled in a copy outside the tree:
+    - jobs: `FAIL falsified: a workflow whose template set runs in a second job does not fail with
+      'has 2 jobs' (got: nothing)`;
+    - `command -v` missing: `FAIL falsified: a workflow that never runs command -v clauductor does
+      not fail with 'never checks that clauductor resolves' (got: nothing)`;
+    - its order: `FAIL falsified: a workflow that checks command -v clauductor after the sets does
+      not fail with 'checks command -v clauductor after the first set runs' (got: nothing)`;
+    - the step-scoped bans: `FAIL falsified: a workflow with continue-on-error on the template set's
+      step does not fail with 'tolerates a failure: continue-on-error' (got: nothing)`, and the same
+      `(got: nothing)` for the set step's `shell:` and `if: false`;
+    - the job-level bans: the same for `continue-on-error` on the job and the job-level `if:`;
+    - `defaults:`: `FAIL falsified: a workflow whose job's defaults give every step a shell that
+      swallows its status does not fail with 'sets a default shell:' (got: nothing)`;
+    - `CI`: `FAIL falsified: a workflow that empties CI for the job does not fail with 'sets CI in
+      an env:' (got: nothing)`;
+    - the scoping, reverted to round 1's blanket bans: `FAIL a workflow whose build step sets
+      shell: bash fails: sets a shell: on a set's step …`, `FAIL a workflow whose OpenSpec step may
+      fail (continue-on-error) fails: …`, and (only `!cancelled()` allowed) `FAIL a workflow whose
+      template set's step runs if: always() fails: …`.
+    All 30 lines pass under macOS sh and dash.
+- 2026-10-22, group 2, review round 3 (converged, peak low), its two lows:
+  - **L1:** a `working-directory:` on a set's step is refused (from `template/`, `sh
+    .claude/checks/run.sh` runs the template's set), and so is one in any `defaults:`, which moves
+    every step. Every banned key now counts quoted as well as bare: one awk function, `key`, reads a
+    line's mapping key (`if:`, `"if":`, `'if':`), and every structural test (`CI`, `defaults`,
+    `shell`, `working-directory`, `continue-on-error`, `if`, `jobs`, `steps`) compares against it.
+    Setup steps keep their `working-directory: framework`.
+  - **L2:** an `if:` may be `${{ !cancelled() }}`, `${{ always() }}` or bare `always()`; a bare
+    `!cancelled()` is a YAML tag, not an expression, and is refused. Header updated.
+  - Fixtures: 36 lines. New: `working-directory: template` on the repo set's step, a `defaults:`
+    `working-directory: template`, `'if': false` and `"continue-on-error": true` quoted, a bare
+    `if: !cancelled()`; and one that must pass, `if: ${{ always() }}`. Failing first, each clause
+    disabled in a copy outside the tree:
+    - the step's `working-directory`: `FAIL falsified: a workflow whose repo set's step runs in
+      template/ does not fail with 'sets a working-directory: on a set's step' (got: nothing)`;
+    - the `defaults:` one: `FAIL falsified: a workflow whose job's defaults run every step in
+      template/ does not fail with 'sets a default working-directory:' (got: nothing)`;
+    - quoted keys (`key`'s quote branch off): `FAIL falsified: a workflow that skips the template
+      set's step with a quoted 'if': false does not fail with 'an if: other than' (got: nothing)`
+      and `FAIL falsified: a workflow with a quoted "continue-on-error" on the template set's step
+      does not fail with 'tolerates a failure: continue-on-error' (got: nothing)`;
+    - the `${{ }}` requirement (round 2's optional wrapper back): `FAIL falsified: a workflow whose
+      template set's step has a bare if: !cancelled() does not fail with 'an if: other than' (got:
+      nothing)`.
+    Round 2's whole `shape_problems` in place of this one fails the same five lines. All 36 pass
+    under macOS sh and dash.
 
 ## 1. The single pass (D1, D2, D3, D4, D6, D7)
 - [x] 1.1 Before any edit, time a whole-set `sh template/.claude/checks/run.sh` and `sh .claude/checks/run.sh` on the owner's Mac, and record both totals and `no-clauductor`'s share in the Decision log as the baseline. (manual: a one-off measurement on the owner's machine, not shipped code)
@@ -327,16 +535,16 @@
   - `cd framework && go test -count=1 -run 'TestPluginChecksPassInScaffoldedProject|TestCommittedPluginIsCurrent' ./internal/plugin/ ./internal/cmd/` passes. This is the plugin layout's wrapped whole-set run (D6).
 
 ## 2. The weekly double pass and the record (D5, D8, D9)
-- [ ] 2.1 `.github/workflows/checks-double-pass.yml` (D5):
+- [x] 2.1 `.github/workflows/checks-double-pass.yml` (D5):
   - a weekly `schedule:` (the cadence the owner chose in O3) and `workflow_dispatch`, on Ubuntu, with `permissions: contents: read` and actions pinned to `test.yml`'s SHAs;
   - copy `test.yml`'s setup steps (Go, tmux and the OpenSpec CLI), and set `OPENSPEC_REQUIRED=1` and `NODE_REQUIRED=1` as its process-checks step does;
   - build `clauductor` from `framework/` onto `PATH`;
   - run `CHECKS_DOUBLE_PASS=1 sh .claude/checks/run.sh` and `CHECKS_DOUBLE_PASS=1 sh template/.claude/checks/run.sh`;
   - a header comment naming its reader, `.claude/health/scheduled-workflows.sh`.
-- [ ] 2.2 `.claude/local/checks/double-pass.sh` (D5): it fails when the workflow is missing, has no `schedule:`, does not set `CHECKS_DOUBLE_PASS=1`, does not put a built `clauductor` on `PATH` before the run, or does not run both sets. It is falsified on fixture copies of the workflow, one per missing piece, each shown failing first. `sh .claude/checks/run.sh local:double-pass` passes.
-- [ ] 2.3 Insert design.md's amendment block verbatim into `docs/adr/0006-a-repository-works-without-clauductor.md`, between `## Enforcement` and `## Related` (D9), with the heading date the owner chose in O1. Prove it word for word: extract the fenced block from design.md and from the ADR's amendment section, and `cmp` the two (they differ only where the owner's answers to O1, O2 or O6 changed a word). Run `sh .claude/checks/run.sh adr-numbering`.
-- [ ] 2.4 `template/docs/playbook.md` and `docs/playbook.md`: change the no-clauductor bullet to say the checks run once inside that environment, and name `CHECKS_DOUBLE_PASS=1` as the switch back to the double pass (D4, O5). Then rebuild the plugin and run `clauductor update` again. In `template/AGENTS.md` and this repo's `AGENTS.md`, replace the second cell of the row "The repo works without clauductor" with D9's words for that copy. `sh .claude/checks/run.sh agents-md-budget` and `sh template/.claude/checks/run.sh agents-md-budget` pass.
-- [ ] 2.5 The release-notes item (D8), in `docs/roadmap.md`: if REL-1's row is still open, append the item to its Change cell; if REL-1 has merged, add a queued Phase 4 row whose Change cell says the next release's `CHANGELOG.md` section carries the item, in *Changed*. Then `sh .claude/roadmap-queue.sh --check` passes. If `CHANGELOG.md` is on `main` and a version section is being prepared, add the item there too, never under `[Unreleased]`.
+- [x] 2.2 `.claude/local/checks/double-pass.sh` (D5): it fails when the workflow is missing, has no `schedule:`, does not set `CHECKS_DOUBLE_PASS=1`, does not put a built `clauductor` on `PATH` before the run, or does not run both sets. It is falsified on fixture copies of the workflow, one per missing piece, each shown failing first. `sh .claude/checks/run.sh local:double-pass` passes.
+- [x] 2.3 Insert design.md's amendment block verbatim into `docs/adr/0006-a-repository-works-without-clauductor.md`, between `## Enforcement` and `## Related` (D9), with the heading date the owner chose in O1. Prove it word for word: extract the fenced block from design.md and from the ADR's amendment section, and `cmp` the two (they differ only where the owner's answers to O1, O2 or O6 changed a word). Run `sh .claude/checks/run.sh adr-numbering`.
+- [x] 2.4 `template/docs/playbook.md` and `docs/playbook.md`: change the no-clauductor bullet to say the checks run once inside that environment, and name `CHECKS_DOUBLE_PASS=1` as the switch back to the double pass (D4, O5). Then rebuild the plugin and run `clauductor update` again. In `template/AGENTS.md` and this repo's `AGENTS.md`, replace the second cell of the row "The repo works without clauductor" with D9's words for that copy. `sh .claude/checks/run.sh agents-md-budget` and `sh template/.claude/checks/run.sh agents-md-budget` pass.
+- [x] 2.5 The release-notes item (D8), in `docs/roadmap.md`: if REL-1's row is still open, append the item to its Change cell; if REL-1 has merged, add a queued Phase 4 row whose Change cell says the next release's `CHANGELOG.md` section carries the item, in *Changed*. Then `sh .claude/roadmap-queue.sh --check` passes. If `CHANGELOG.md` is on `main` and a version section is being prepared, add the item there too, never under `[Unreleased]`.
 - [ ] 2.6 The full gate passes (`GATE`). The Mac's before and after totals stay in the Decision log, which the build PR carries.
 
 - [ ] Slice: a contributor runs `sh .claude/checks/run.sh` and every check runs once, inside the no-clauductor environment, in about half the time; `CHECKS_DOUBLE_PASS=1` brings back the double pass, which runs weekly on `main`

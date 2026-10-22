@@ -67,9 +67,17 @@ started from the panel's **New lane** (or by hand), on one branch:
   cards. Trust it once with `clauductor panel trust`.
 - **Nothing needs the panel or the `clauductor` binary.** The skills, hooks, checks, the gate and
   its lease (`lease.sh` when there is no binary), the merge guard and the records all run in Claude
-  Code alone; a panel that is not running is a normal state. `checks/no-clauductor.sh` holds this:
-  it runs the gate, the process checks, a skill context script and the status line with
-  `clauductor` off `PATH` and no panel, and fails on anything that errors or asks for either.
+  Code alone; a panel that is not running is a normal state. A whole-set `checks/run.sh` holds
+  this: it runs every check once (the modules' and `.claude/local/checks` included) with
+  `clauductor` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-clauductor.sh`, inside that
+  run, asserts it is there and runs the gate, a skill context script and the status line the same
+  way, failing on anything that errors or asks for the binary or the panel. So a check that needs
+  your gh login, ssh keys, git signing or `CI=true` sets them up in its own scratch.
+  `CHECKS_DOUBLE_PASS=1` switches back to the double pass (every check in your own environment, then
+  `no-clauductor.sh` running this directory's checks again without `clauductor`), as a stopgap
+  while you fix such a check. A gate calls `model_step_checks` (`scripts/ci/lib/steps.sh`).
+  `model_step_no_clauductor` is only for a gate that cannot run the whole set: it runs neither the
+  modules' checks nor `.claude/local/checks`, and calling both pays for the double pass again.
 - **The current quota is read from one file, panel or no panel.** On every refresh that carries
   Claude Code's `rate_limits`, the status line saves them to `~/.clauductor/quota-reading.json`
   (per machine, mode 0600, replaced atomically; a subset of the panel's `quota.json` fields, in its
