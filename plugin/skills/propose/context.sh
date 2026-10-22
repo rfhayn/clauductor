@@ -14,7 +14,8 @@ echo "- Proposed in this tree:"
 found=""
 for d in "$CHANGES_DIR"/*/; do
   [ -d "$d" ] || continue; n=$(basename "$d"); [ "$n" = archive ] && continue
-  echo "    $n"; found=1
+  st="awaiting the owner"; head -n 3 "$d/proposal.md" 2>/dev/null | grep -q '^\*\*Approved:\*\*' && st=approved
+  echo "    $n ($st)"; found=1
 done
 [ -n "$found" ] || echo "    none"
 echo "- Proposed on a branch (local or origin) and not on $MAIN_BRANCH:"

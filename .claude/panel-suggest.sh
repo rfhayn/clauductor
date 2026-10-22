@@ -12,9 +12,9 @@
 # Their order: when the roadmap has a `## Session plan` (.claude/roadmap-plan.sh, its one parser),
 # its queued rows in the plan's order, so Up next is the next session's work; with no plan, the
 # CURRENT phase's queued rows in table order, as the Change queue card shows them.
-# propose: with a plan, the first planned change row with no proposal, unless an earlier planned
-# row's proposal still waits for the owner (no **Approved:** line): then none, since that one is
-# ahead. With no plan, the first queued row, and none while any queued row has a proposal.
+# propose: none while a proposal awaits the owner (on a change branch, not yet on main); otherwise,
+# with a plan, the first planned change row with no proposal on main, approved ones passed; with no
+# plan, the first queued row, and none while any queued row has a proposal.
 #
 # WHY origin/<MAIN_BRANCH>: the panel runs this in the main checkout, which nothing pulls between
 # the owner's steps, while every lane's fetch moves the shared origin ref. So the roadmap and the
@@ -43,24 +43,34 @@ fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/panel-suggest.XXXXXX") || { echo "panel-suggest: no temporary directory" >&2; exit 1; }
 trap 'rm -rf "$tmp"' EXIT
 ref="origin/${MAIN_BRANCH:-main}"
-if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:$ROADMAP" 2>/dev/null; then
-  git show "$ref:$ROADMAP" > "$tmp/roadmap.md" || { echo "panel-suggest: cannot read $ROADMAP on $ref" >&2; exit 1; }
-  have=$(git ls-tree --name-only "$ref" "$CHANGES_DIR/" 2>/dev/null | sed "s|^$CHANGES_DIR/||")
-  proposal() { git show "$ref:$CHANGES_DIR/$1/proposal.md" 2>/dev/null; }
+# `./`: paths relative to ROOT (this script cd'd there), not to the top of the git repository.
+if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:./$ROADMAP" 2>/dev/null; then
+  git show "$ref:./$ROADMAP" > "$tmp/roadmap.md" || { echo "panel-suggest: cannot read $ROADMAP on $ref" >&2; exit 1; }
+  have=$(git ls-tree --name-only "$ref" "./$CHANGES_DIR/" 2>/dev/null | sed 's|.*/||')
+  done_ids=$(git ls-tree --name-only "$ref" "./$CHANGES_DIR/archive/" 2>/dev/null | sed 's|.*/||')
 else
-  ref=""
   cp "$ROADMAP" "$tmp/roadmap.md" 2>/dev/null || { echo "panel-suggest: $ROADMAP is missing" >&2; exit 1; }
   have=$(ls "$CHANGES_DIR" 2>/dev/null)
-  proposal() { cat "$CHANGES_DIR/$1/proposal.md" 2>/dev/null; }
+  done_ids=$(ls "$CHANGES_DIR/archive" 2>/dev/null)
 fi
 have=$(printf '%s\n' "$have" | grep -vx 'archive\|README.md' | tr '\n' ' ')
-# Proposals the owner approved: the Approved line change-approval.sh records, on its first lines.
-approved=""
-for cid in $have; do
-  proposal "$cid" | head -n 3 | grep -q '^\*\*Approved:\*\*' && approved="$approved $cid"
-done
-
+done_ids=$(printf '%s\n' "$done_ids" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//' | tr '\n' ' ')
 tsv=$(roadmap_queue --tsv "$tmp/roadmap.md") || { echo "panel-suggest: the roadmap queue could not be parsed" >&2; exit 1; }
+# Proposals not yet on main: on main a proposal is approved (checks/changes.sh refuses one that is
+# not), so one in progress lives on a change branch, local or origin, as propose's context finds
+# it. Only an open row's counts: an old branch still carries a merged, archived or cancelled one.
+# `branched` are proposed (propose never offers them again); `waiting`, the ones with no
+# **Approved:** line yet, await the owner and are the one ahead.
+open=" $(printf '%s\n' "$tsv" | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ') "
+branched=""; waiting=""
+for b in $(git for-each-ref --format='%(refname)' "refs/heads/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_CHANGE" 2>/dev/null); do
+  for cid in $(git ls-tree --name-only "$b" "./$CHANGES_DIR/" 2>/dev/null | sed 's|.*/||'); do
+    case " $have $done_ids $branched " in *" $cid "*) continue ;; esac
+    case "$open" in *" $cid "*) ;; *) continue ;; esac
+    branched="$branched $cid"
+    git show "$b:./$CHANGES_DIR/$cid/proposal.md" 2>/dev/null | head -n 3 | grep -q '^\*\*Approved:\*\*' || waiting="$waiting $cid"
+  done
+done
 plan=$(sh "$ROOT/.claude/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-suggest: the Session plan could not be parsed" >&2; exit 1; }
 printf '%s\n' "$tsv" > "$tmp/tsv"
 # The planned ids in the plan's order (the R records are printed in it).
@@ -81,17 +91,18 @@ fi
 
 # Fields: line phase section id change kind state pr owner summary. awk, not `read`: a tab is IFS
 # whitespace to the shell, so an empty field (no section) would collapse and shift the rest.
-awk -F'\t' -v kind="$kind" -v have=" $have " -v ok=" $approved " -v planned="$planned" '
+awk -F'\t' -v kind="$kind" -v have=" $have " -v branched=" $branched " -v waiting="$waiting" -v planned="$planned" '
+  BEGIN { ahead = (waiting != "") }
   {
     name = ""; proposed = index(have, " " $5 " ") > 0
     if (kind == "ops" && $6 == "ops") name = substr($5, 5)
     else if (kind == "build" && $6 == "change" && proposed) name = $5
     else if (kind == "propose" && $6 == "change") {
-      # Just in time, at most one ahead. With a plan, an earlier planned proposal awaiting the
-      # owner IS the one ahead, and an approved one is not. With no plan, any queued row with a
-      # proposal is, wherever it sits in the table.
-      if (proposed) { if (!planned) ahead = 1; else if (pick == "" && index(ok, " " $5 " ") == 0) ahead = 1 }
-      else if (pick == "") { pick = $5; pline = $0 }
+      # Just in time, at most one ahead: a proposal awaiting the owner always is (BEGIN). With a
+      # plan, an approved one on main is not: it waits for its build session. With no plan, any
+      # queued row with a proposal is, wherever it sits in the table.
+      if (proposed) { if (!planned) ahead = 1 }
+      else if (pick == "" && index(branched, " " $5 " ") == 0) { pick = $5; pline = $0 }
     }
     if (name == "") next
     emit(name, $0)

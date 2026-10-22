@@ -33,7 +33,9 @@ If the line above shows as literal text instead of output, run
    - **a. At most ONE change proposed ahead.** If the context lists a proposed change, in this tree
      or on a branch, that is not finished and awaiting archive, **stop and ask** before creating
      another. A proposal written before its turn goes stale invisibly, and a stale design is still
-     well-formed. To capture scope for later, add a roadmap row instead.
+     well-formed. To capture scope for later, add a roadmap row instead. **With a `## Session
+     plan`** in the roadmap, an approved proposal on main is not ahead (it waits for its build
+     session); one awaiting the owner is, wherever it is: the rule `panel-suggest.sh` applies.
    - **b. Read the specs this change touches** (`SPECS_DIR/<capability>/spec.md`) before drafting,
      and say in the proposal what they already guarantee and which requirements it adds to,
      modifies or contradicts.

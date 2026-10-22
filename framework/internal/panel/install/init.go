@@ -155,16 +155,16 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 	}
 	s.Templates = []starterTemplate{
 		{ID: "build", Title: "Build an approved change (its proposal is on main)", LaneType: "build", BranchPattern: "change/{name}",
-			FirstPrompt: `/build-change {"change": "{name}"}`, Suggest: sg("build", "watch:changes")},
+			FirstPrompt: `/build-change {"change": "{name}"}`, Suggest: sg("build", "interval:120")},
 		{ID: "propose", Title: "Propose the next roadmap row", LaneType: "build", BranchPattern: "change/{name}",
 			FirstPrompt: "/propose {name}: its row of the change queue (sh .claude/roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
-			Suggest:     sg("propose", "watch:docs/roadmap.md")},
+			Suggest:     sg("propose", "interval:120")},
 		{ID: "fix", Title: "Fix an issue", LaneType: "fix", BranchPattern: "fix/{name}",
 			FirstPrompt: "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
 			Suggest:     sg("fix", "interval:300")},
 		{ID: "ops", Title: "Ops task (tooling, docs or process; no change proposal)", LaneType: "ops", BranchPattern: "ops/{name}",
-			FirstPrompt: "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
-			Suggest:     sg("ops", "watch:docs/roadmap.md")},
+			FirstPrompt: "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+			Suggest:     sg("ops", "interval:120")},
 	}
 	why := "the operating model's queue scripts are here"
 	if suggest {
