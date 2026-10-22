@@ -129,7 +129,8 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
 # (check-sets.sh fails one that names any). Every other key must be the same in both.
-CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT"
+# GATE_PR_CHECKS among them: this repo turns it back on when Actions minutes return (OPS-98).
+CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS"
 
 # framework_verdict: reads `clauductor diff --json` on stdin; passes when every framework file is the
 # template's (an extra file passes only under .claude/checks/: a check of this repo's own, which this

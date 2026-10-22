@@ -158,12 +158,14 @@ printf 'GATE_RUN="infra/gate.sh"\n' >> "$C/b/.claude/project.conf"
 [ "$(conf_differs "$C/a" "$C/b")" = GATE_RUN ] && ok "...and any other key that differs is named (GATE_RUN)" || fail "project.conf: a GATE_RUN difference read as '$(conf_differs "$C/a" "$C/b")'"
 case $(conf_differs "$C/a" "$C/none") in *unreadable*) ok "...and a project.conf that cannot be read is a difference" ;; *) fail "an unreadable project.conf compared as equal" ;; esac
 # No CHECKS_ONCE check reads a key the comparison ignores.
+reads=""
 for n in $CHECKS_ONCE; do
   for k in $CONF_NOT_READ; do
-    grep -nE "\\\$\\{?$k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$n.sh" >/dev/null 2>&1 && fail "$n is in CHECKS_ONCE but reads $k, which the comparison ignores"
+    grep -nE "\\\$\\{?$k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$n.sh" >/dev/null 2>&1 && reads="$reads $n:$k"
   done
 done
-ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)"
+[ -z "$reads" ] && ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)" \
+  || fail "CHECKS_ONCE checks read keys the comparison ignores:$reads"
 
 # ── 4. run.sh's CHECKS_SKIP ──────────────────────────────────────────────────────────────────
 F="$S/fixture"
