@@ -188,9 +188,9 @@ check_sets() {
   CHECKS_LEFT=""
   if _why=$(framework_matches_template); then
     CHECKS_LEFT=$CHECKS_ONCE
-    echo "the framework matches the template: this repo's set leaves to the template's set:$(printf ' %s' $CHECKS_LEFT)"
+    echo "==> check sets: the framework matches the template; this repo's set leaves to the template's:$(printf ' %s' $CHECKS_LEFT)"
   else
-    echo "this repo's framework differs from the template ($_why): both sets run every check"
+    echo "==> check sets: this repo's framework differs from the template ($_why); both sets run every check"
   fi
 }
 

@@ -411,6 +411,11 @@ grep -q '^exit pid=[0-9]* code=signal ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\
 gw; rc=$?
 expect_rc 1 "$rc" "gate-wait on an interrupted gate: FAIL (1)"
 
+# A run that ends before any step (no GATE_STEPS) logs its steps field as `-`, never empty.
+mv "$R/$STEPS_REL" "$d/steps.away"; run --quick; mv "$d/steps.away" "$R/$STEPS_REL"
+tail -n 1 "$RUNS" | awk -F'\t' 'NF == 10 && $6 == "fail" && $10 == "-" { ok = 1 } END { exit !ok }' \
+  && ok "a run that ran no step logs its steps as '-'" || fail "run log with no step: '$(tail -n 1 "$RUNS")'"
+
 # Bounded: past GATE_RUNS_MAX_BYTES the log becomes gate-runs.log.1 and a new one starts.
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
 [ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES the run log rotates to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
