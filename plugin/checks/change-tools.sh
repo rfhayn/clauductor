@@ -242,10 +242,13 @@ cost --json
 { msg n7 claude-haiku-4-5-20251001 ops/hub "$main/.claude/worktrees/lane" 1000000 0; printf '{"type":"assistant","mess'; } > "$N/agent-aa.jsonl"  # $1.00
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 39 ] && ok "change-cost: a line cut off mid-write is skipped, and every transcript after it is still read" || fail "change-cost, cut-off line: $(cat "$d/out")"
-# Nor does a transcript that cannot be opened (deleted since it was listed; here, unreadable), or a
-# meta cut off mid-write: one awk read stops at a file it cannot open, one jq read at a broken meta.
-msg n8 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-a0.jsonl"
+# Nor does a meta cut off mid-write, or a transcript that cannot be opened (deleted since it was
+# listed; here, unreadable): one jq read stops at a broken meta, one awk read at a file it cannot
+# open. The meta case catches a regression only where find lists the broken meta before another.
+msg n8 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-a0.jsonl"                          # $1.00
 printf '{"parentAgentId":"tm"}\n' > "$N/agent-a0.meta.json"; printf '{"parentAg' > "$N/agent-a1.meta.json"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 40 ] && ok "change-cost: a meta cut off mid-write is skipped, and every meta after it is still read" || fail "change-cost, cut-off meta: $(cat "$d/out")"
 chmod 000 "$N/agent-a0.jsonl"
 if [ -r "$N/agent-a0.jsonl" ]; then ok "change-cost: (an unreadable transcript is not testable as root)"
 else cost --json

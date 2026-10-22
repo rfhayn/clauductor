@@ -98,8 +98,8 @@ bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$bran
 # $tagged undoing it into one record with $file in scope. A transcript still being written ends in a
 # cut-off line: jq reading the files stops there, dropping every file after it, and `jq -R` joins it
 # to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped. One
-# awk per file, since awk stops at a file it cannot open (one deleted since it was listed), and the
-# split is at the LAST tab: JSON on one line holds none raw, but a path may.
+# awk per file, since awk stops at a file it cannot open (one deleted since it was listed). The
+# split is at the LAST tab, since a JSON line holds none raw (the file lists split on blanks anyway).
 tag() { for f in "$@"; do awk '{ print FILENAME "\t" $0 }' "$f" 2>/dev/null; done; }
 tagged='split("\t") | (.[:-1] | join("\t")) as $file | .[-1] | fromjson? // empty'
 # The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
@@ -138,8 +138,8 @@ files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 # An agent's own agents count with it (OPS-120). A nested agent records its LEAD session's cwd and
 # branch, not its parent's: a teammate lane's reviewers, and their /code-review agents, recorded the
 # hub session's main checkout and branch, so neither test above saw them: OPS-93's pre-group check
-# read $22.13, and its archived $55.84 missed them too (it reads $85.30 with them). Claude Code writes each agent's parent beside its transcript
-# (agent-<id>.meta.json's parentAgentId), so every agent descended from one that counts whole (a
+# read $22.13, and its archived $55.84 missed them too (it reads $85.30 with them). Claude Code
+# writes each agent's parent beside its transcript (agent-<id>.meta.json's parentAgentId), so every agent descended from one that counts whole (a
 # message in the change's worktree) counts whole too. The walk covers each such agent's whole
 # session (its subagents/ directory, at any depth), as lib/usage.sh's rootrole does: a workflow's
 # agents sit in subagents/workflows/<run>/, their own agents in subagents/. An agent is named by
