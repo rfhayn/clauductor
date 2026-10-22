@@ -20,8 +20,10 @@
 #
 # THE RUN LOG, one per repository, beside the gate lease: <git common dir>/clauductor/gate-runs.log
 # One tab-separated line per finished run, appended by the run as it ends:
-#   <finished, UTC ISO-8601>  <lane>  <branch>  <head sha>  <full|quick>  <pass|fail>  <exit code|signal>  <run s>  <queued s>
-# `run s` is the run under the lease; `queued s` the wait for it. Append-only: a line is never
+#   <finished, UTC ISO-8601>  <lane>  <branch>  <head sha>  <full|quick>  <pass|fail>  <exit code|signal>  <run s>  <queued s>  <steps>
+# `run s` is the run under the lease; `queued s` the wait for it. `steps` (OPS-89) is each step that
+# ran, in order, as `<name>=<seconds>` joined by `;` (`scenario trace=2;secrets=9;…`), or `-` when
+# none ran; a line written before OPS-89 has nine fields and no `steps`. Append-only: a line is never
 # rewritten. Bounded: once it reaches GATE_RUNS_MAX_BYTES (default 1 MiB, some 10,000 runs) it
 # becomes gate-runs.log.1, replacing the one before, and a new log starts; a reader reads .1 first.
 
@@ -80,10 +82,11 @@ gate_state_start() {
   export CLAUDUCTOR_GATE_STATE CLAUDUCTOR_GATE_STATE_PID
 }
 
-# gate_state_end CODE MODE SHA RUN_STARTED LANE: the run's end. Appends the exit line (while the
-# started line is still this run's) and the run-log line. Never fails the caller.
+# gate_state_end CODE MODE SHA RUN_STARTED LANE [STEPS]: the run's end. Appends the exit line (while
+# the started line is still this run's) and the run-log line. Never fails the caller.
 gate_state_end() {
   _gs_code=$1 _gs_mode=$2 _gs_sha=$3 _gs_began=$4 _gs_lane=$5
+  _gs_steps=$(printf '%s' "${6:-}" | tr '\t\n' '  '); [ -n "$_gs_steps" ] || _gs_steps=-
   _gs_now=$(date +%s) _gs_queued_at=$4
   _gs_file=${CLAUDUCTOR_GATE_STATE:-}
   if [ -n "$_gs_file" ] && [ -f "$_gs_file" ]; then
@@ -100,9 +103,9 @@ gate_state_end() {
   fi
   case $_gs_queued_at in ''|*[!0-9]*) _gs_queued_at=$_gs_began ;; esac
   [ "$_gs_queued_at" -le "$_gs_began" ] || _gs_queued_at=$_gs_began
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_gs_lane" \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_gs_lane" \
     "$(git branch --show-current 2>/dev/null | grep . || echo detached)" "$_gs_sha" "$_gs_mode" \
     "$([ "$_gs_code" = 0 ] && echo pass || echo fail)" "$_gs_code" "$((_gs_now - _gs_began))" \
-    "$((_gs_began - _gs_queued_at))" >> "$_gs_log" 2>/dev/null
+    "$((_gs_began - _gs_queued_at))" "$_gs_steps" >> "$_gs_log" 2>/dev/null
   return 0
 }

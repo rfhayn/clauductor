@@ -5,6 +5,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   sh .claude/checks/run.sh                 # all checks
 #   sh .claude/checks/run.sh hooks roadmap   # just these (file names without .sh)
 #   sh .claude/checks/run.sh openspec:project local:ledger   # a module's or the local layer's
+#   CHECKS_SKIP="gate hooks" sh .claude/checks/run.sh        # all but these: another run covers them
 #
 # A check is any executable-by-sh `*.sh` here other than run.sh and lib.sh. Each prints `ok`
 # and `FAIL` lines and exits non-zero on any failure. The checks hold the operating model to
@@ -107,6 +108,19 @@ if [ $# -gt 0 ]; then
 else
   names="$(cd "$dir" && ls ./*.sh | sed 's|^\./||; s|\.sh$||' | grep -vx 'run\|lib') $(printf '%s\n' "$ext" | cut -d' ' -f1)"
 fi
+# CHECKS_SKIP: the checks a whole-set run leaves out because another run covers them (a repository
+# that runs two check sets over one model, as clauductor's own gate does). Named runs ignore it.
+# Read once and unset, so no check, and no fixture run a check starts, inherits it; every check it
+# left out is named below, before the verdict.
+skipped=""
+if [ $# -eq 0 ] && [ -n "${CHECKS_SKIP:-}" ]; then
+  kept=""
+  for n in $names; do
+    case " $CHECKS_SKIP " in *" $n "*) skipped="$skipped $n" ;; *) kept="$kept $n" ;; esac
+  done
+  names=$kept
+fi
+unset CHECKS_SKIP
 
 failed=""
 count=0
@@ -137,6 +151,7 @@ for n in $names; do
   fi
 done
 
+[ -z "$skipped" ] || echo "checks: left to another run by CHECKS_SKIP:$skipped"
 if [ -n "$failed" ]; then
   echo "checks: FAILED:$failed (of $count run, in $ROOT)"
   exit 1
