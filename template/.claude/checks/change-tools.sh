@@ -212,6 +212,48 @@ cost --json
 # `live`, now removed, is rejected as well: its one session ended there on ops/foreign (a known limit).
 [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\"]" ] && ok "change-cost: a lane is voted by session across its files and in time order; one session's vote for the branch takes it" || fail "change-cost, session votes: $(cat "$d/out")"
 cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another branch was recorded there last)"*) ok "change-cost names the rejected lanes in its one line" ;; *) fail "change-cost text, rejected lanes: $(cat "$d/out")" ;; esac
+# OPS-120: a teammate lane's own agents record the hub session's cwd (the main checkout) and branch,
+# never the lane's: OPS-93's reviewers and their /code-review agents did. Each names its parent in
+# its .meta.json, so a descendant of an agent that counts whole counts whole, at any depth; an agent
+# whose parent does not count, and a meta with no transcript, do not.
+N="$P/$slug/hub/subagents"; mkdir -p "$N"
+msg n1 claude-haiku-4-5-20251001 ops/hub "$main/.claude/worktrees/lane" 1000000 0 > "$N/agent-tm.jsonl"   # $1.00, the teammate
+msg n2 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-rv.jsonl"                          # $1.00, its reviewer
+printf '{"agentType":"reviewer","parentAgentId":"tm","spawnDepth":1}\n' > "$N/agent-rv.meta.json"
+msg n3 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-cr.jsonl"                          # $1.00, the reviewer's /code-review
+printf '{"agentType":"general-purpose", "parentAgentId": "rv", "spawnDepth":2}\n' > "$N/agent-cr.meta.json"
+msg n4 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-un.jsonl"                          # another agent's child
+printf '{"parentAgentId":"elsewhere"}\n' > "$N/agent-un.meta.json"
+printf '{"parentAgentId":"tm"}\n' > "$N/agent-gone.meta.json"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 36 ] && ok "change-cost: a teammate's reviewer and that reviewer's own agent count with the teammate, by parentAgentId; an unrelated agent does not" || fail "change-cost, nested agents: $(cat "$d/out")"
+# The walk is the session's, not one directory's: a workflow the teammate ran keeps its agents in
+# subagents/workflows/<run>/, and their own agents land back in subagents/.
+mkdir -p "$N/workflows/wf_1"
+msg n5 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/workflows/wf_1/agent-wb.jsonl"           # $1.00, the teammate's workflow agent
+printf '{"agentType":"workflow-subagent","parentAgentId":"tm"}\n' > "$N/workflows/wf_1/agent-wb.meta.json"
+msg n6 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-wc.jsonl"                          # $1.00, that agent's /code-review
+printf '{"parentAgentId":"wb"}\n' > "$N/agent-wc.meta.json"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 38 ] && ok "change-cost: a teammate's workflow agents and their own agents count, across the session's subagent directories" || fail "change-cost, nested across directories: $(cat "$d/out")"
+# A transcript still being written ends in a cut-off line. It is skipped, and the files read after it
+# still count (a strict jq read stopped there, silently, mid-build).
+{ msg n7 claude-haiku-4-5-20251001 ops/hub "$main/.claude/worktrees/lane" 1000000 0; printf '{"type":"assistant","mess'; } > "$N/agent-aa.jsonl"  # $1.00
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 39 ] && ok "change-cost: a line cut off mid-write is skipped, and every transcript after it is still read" || fail "change-cost, cut-off line: $(cat "$d/out")"
+# Nor does a meta cut off mid-write, or a transcript that cannot be opened (deleted since it was
+# listed; here, unreadable): one jq read stops at a broken meta, one awk read at a file it cannot
+# open. The meta case catches a regression only where find lists the broken meta before another.
+msg n8 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-a0.jsonl"                          # $1.00
+printf '{"parentAgentId":"tm"}\n' > "$N/agent-a0.meta.json"; printf '{"parentAg' > "$N/agent-a1.meta.json"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 40 ] && ok "change-cost: a meta cut off mid-write is skipped, and every meta after it is still read" || fail "change-cost, cut-off meta: $(cat "$d/out")"
+chmod 000 "$N/agent-a0.jsonl"
+if [ -r "$N/agent-a0.jsonl" ]; then ok "change-cost: (an unreadable transcript is not testable as root)"
+else cost --json
+  [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 39 ] && ok "change-cost: a transcript that cannot be opened is skipped, and every one after it is still read" || fail "change-cost, unreadable transcript: $(cat "$d/out")"
+fi
+chmod 644 "$N/agent-a0.jsonl"
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"

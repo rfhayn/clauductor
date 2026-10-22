@@ -126,7 +126,30 @@ rm -f "$F/.claude/project.conf"; inF git update-ref -d refs/remotes/origin/chg-a
 on_origin refs/remotes/origin/main "new row" sh -c 'awk "{ print } /add-gone/ { print \"| 2.4 | \`add-new\` — new | s | — | ⬜ queued |\" }" docs/roadmap.md > r.tmp && mv r.tmp docs/roadmap.md'
 on_origin refs/remotes/origin/change/add-new "new waiting" sh -c 'mkdir -p changes/add-new && echo "**Status:** awaiting approval" > changes/add-new/proposal.md'
 case "$(cd "$F" && sh .claude/skills/propose/context.sh 2>/dev/null)" in *"add-new on origin/change/add-new (awaiting the owner;"*) ok "propose's context reads the open rows as origin/main has them, as panel-suggest does" ;; *) fail "propose's context missed a row only origin/main has" ;; esac
+on_origin refs/remotes/origin/main "first merged, b budgeted" sh -c 'sed "s/first | s | — | ⬜ queued/first | s | — | ✅ merged (#5)/; s/— b | s/— b. Budget: \$7 | s/" docs/roadmap.md > r.tmp && mv r.tmp docs/roadmap.md'
+pctx=$(cd "$F" && sh .claude/skills/propose/context.sh 2>/dev/null)
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Change queue/,/^- Living specs/p')" in
+  *ops/first*) fail "propose's change queue read the working tree" ;;
+  *ops/second*) ok "...and so does its change queue (the current phase's rows)" ;;
+  *) fail "propose's change queue is empty" ;;
+esac
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Budgets on queued rows/,/^- Scenario IDs/p')" in *'add-b: $7'*) ok "...and its budgets" ;; *) fail "propose's budgets read the working tree" ;; esac
+on_origin refs/remotes/origin/main "a spec, a phase twice" sh -c 'mkdir -p specs/cap && printf "### Requirement: R\n#### Scenario: [CAP-3-S1] s\n" > specs/cap/spec.md && echo "## Phase 1 — Again" >> docs/roadmap.md'
+pctx=$(cd "$F" && sh .claude/skills/propose/context.sh 2>/dev/null)
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Living specs/,/^- Budgets on queued rows/p')" in *cap*) ok "...and its living specs" ;; *) fail "propose's living specs read the working tree" ;; esac
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Scenario IDs/,$p')" in *"CAP: 1 ID(s), highest requirement 3"*) ok "...and the scenario IDs they take" ;; *) fail "propose's scenario IDs read the working tree" ;; esac
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Change queue/,/^- Living specs/p')" in
+  *propose-*) fail "propose's change queue error names its temporary copy" ;;
+  *"origin/main:docs/roadmap.md:"*) ok "...and an error in that roadmap names it on origin/main" ;;
+  *) fail "propose's change queue showed no error for a phase heading twice" ;;
+esac
+mkdir -p "$d/ctxtmp"; (cd "$F" && TMPDIR="$d/ctxtmp" sh .claude/skills/propose/context.sh >/dev/null 2>&1)
+[ -z "$(ls -A "$d/ctxtmp")" ] && ok "propose's context removes its copy of origin/main's roadmap and specs" || fail "propose's context left $(ls "$d/ctxtmp")"
 inF git update-ref -d refs/remotes/origin/change/add-new
+om=$(cd "$F" && git rev-parse refs/remotes/origin/main); inF git update-ref -d refs/remotes/origin/main; : > "$d/victim"
+(cd "$F" && tmp="$d/victim" sh .claude/skills/propose/context.sh >/dev/null 2>&1)
+[ -f "$d/victim" ] && ok "with no origin/main, propose's context removes no file an inherited \$tmp names" || fail "propose's context removed an inherited \$tmp"
+inF git update-ref refs/remotes/origin/main "$om"
 on_origin refs/remotes/origin/main "no roadmap" git rm -q docs/roadmap.md
 [ "$(names ops)" = "third second first" ] && ok "with no roadmap on origin/main, the working tree's is read" || fail "ops with no roadmap on origin/main offered: $(names ops)"
 
