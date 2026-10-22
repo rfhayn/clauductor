@@ -122,6 +122,10 @@ inF git update-ref refs/remotes/origin/chg-add-b refs/heads/change/add-b && inF 
 printf 'BRANCH_CHANGE=chg-\n' > "$F/.claude/project.conf"
 [ "$(names propose)" = "" ] && ok "a change prefix with no trailing slash still finds its branches" || fail "propose with BRANCH_CHANGE=chg- offered: $(names propose)"
 rm -f "$F/.claude/project.conf"; inF git update-ref -d refs/remotes/origin/chg-add-b
+on_origin refs/remotes/origin/main "new row" sh -c 'awk "{ print } /add-gone/ { print \"| 2.4 | \`add-new\` — new | s | — | ⬜ queued |\" }" docs/roadmap.md > r.tmp && mv r.tmp docs/roadmap.md'
+on_origin refs/remotes/origin/change/add-new "new waiting" sh -c 'mkdir -p changes/add-new && echo "**Status:** awaiting approval" > changes/add-new/proposal.md'
+case "$(cd "$F" && sh .claude/skills/propose/context.sh 2>/dev/null)" in *"add-new on origin/change/add-new (awaiting the owner;"*) ok "propose's context reads the open rows as origin/main has them, as panel-suggest does" ;; *) fail "propose's context missed a row only origin/main has" ;; esac
+inF git update-ref -d refs/remotes/origin/change/add-new
 on_origin refs/remotes/origin/main "no roadmap" git rm -q docs/roadmap.md
 [ "$(names ops)" = "third second first" ] && ok "with no roadmap on origin/main, the working tree's is read" || fail "ops with no roadmap on origin/main offered: $(names ops)"
 

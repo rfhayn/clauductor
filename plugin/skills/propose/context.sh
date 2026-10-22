@@ -20,15 +20,19 @@ for d in "$CHANGES_DIR"/*/; do
   echo "    $n ($st)"; found=1
 done
 [ -n "$found" ] || echo "    none"
-# Main's ids, live or archived, as panel-suggest.sh reads them: from origin, else this tree.
+# Main's ids, live or archived, and its open rows, as panel-suggest.sh reads them: from origin, else
+# this tree (a main checkout lags what the lanes merged).
 main="origin/$MAIN_BRANCH"
+road="$ROADMAP"
 if git rev-parse -q --verify "$main^{commit}" >/dev/null 2>&1; then
   skip=$(git ls-tree --name-only "$main" "./$CHANGES_DIR/" "./$CHANGES_DIR/archive/" 2>/dev/null)
+  tmp=$(mktemp "${TMPDIR:-/tmp}/propose-roadmap.XXXXXX") && git show "$main:./$ROADMAP" > "$tmp" 2>/dev/null && road=$tmp
 else
   skip=$(ls "$CHANGES_DIR" "$CHANGES_DIR/archive" 2>/dev/null)
 fi
 skip=$(printf '%s\n' "$skip" | sed 's|.*/||; s/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//' | tr '\n' ' ')
-open=$(roadmap_queue --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ')
+open=$(roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ')
+[ -n "${tmp:-}" ] && rm -f "$tmp"
 echo "- Proposed on a branch (local or origin) for an open row, not on $MAIN_BRANCH (branch_proposals, panel-suggest.sh's reading):"
 props=$(branch_proposals "$skip" "$open")
 [ -n "$props" ] || echo "    none"
