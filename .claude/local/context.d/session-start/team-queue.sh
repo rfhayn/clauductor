@@ -8,13 +8,23 @@
 #
 # STATE, the first that holds:
 #   UNAPPROVED  not approved as the owner's rule defines it (below); <why> says which part failed
-#   NEEDS ROW   no single `Row: <ID>` line, or one roadmap_queue does not know (or reads cancelled)
+#   PROPOSES ROW  (OPS-100) a `new-row` item whose row is not on the roadmap yet: no `Row:` line,
+#               no row whose Change cell carries `(team-queue #N)`, and one `Proposed-Lane:` that
+#               is an existing id prefix (^[A-Z]{2,8}$); the row column reads `<LANE>-?`. The
+#               owner's session adds the row with `--next-id`; the proposed text is never printed
+#   NEEDS ROW   no single `Row: <ID>` line, or one roadmap_queue does not know (or reads cancelled);
+#               for a `new-row` item: a `Row:` line too, or two rows claiming it (row `conflict`),
+#               or no claiming row and a lane that is malformed or no id's prefix (row `?`)
 #   DONE        the row reads merged, or a commit body on origin/main has a line starting
 #               `Delivers team-queue #N` (the delivering PR's body line; never `Closes #N`, which
 #               closes the issue at merge, and never session close's `Team queue: #N → …` outcome
 #               line, which also records open and blocked items)
 #   STALE       its ```diff (or ```patch) block does not apply to origin/main
 #   APPLIES     none of the above: no patch, or a patch that applies to origin/main
+# A `new-row` item with exactly one roadmap row carrying `(team-queue #N)` in its Change cell is
+# read as naming that row, and goes on to DONE, STALE or APPLIES. The `new-row` label grants
+# nothing: approval is one rule for every item, and without the label `Proposed-*` lines mean
+# nothing (`Row: NEW` is an unknown row).
 # Approved means: both labels; exactly one `Content-SHA256: <hex>` line equal to the SHA-256 of the
 # body without it (the canon below; `--hash FILE` prints it); and the last `approved` label event
 # later than the body's last edit (lastEditedAt) and the last title change (RenamedTitleEvent).
@@ -37,7 +47,10 @@ ROOT=$(cd "$(dirname "$0")/../../../.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/change.sh"    # sha256_hex
 
-cannot() { echo "Team queue: CANNOT CHECK ($1). Learned NOTHING; treat the queue as unknown."; exit 0; }
+cannot() {
+  [ -z "${NEXT_ID:-}" ] || { echo "Next id: CANNOT CHECK ($1). Learned NOTHING; take no id."; exit 1; }
+  echo "Team queue: CANNOT CHECK ($1). Learned NOTHING; treat the queue as unknown."; exit 0
+}
 
 # The body the hash covers: CRs dropped, every line starting `Content-SHA256:` removed, the rest
 # joined by LF, trailing whitespace dropped. The template (.github/ISSUE_TEMPLATE/team-queue.md)
@@ -49,6 +62,17 @@ if [ "${1:-}" = --hash ]; then
   jq -Rsj "$CANON" "$2" | sha256_hex
   exit 0
 fi
+# --next-id PREFIX (OPS-100): the id a PROPOSES ROW item's row takes, PREFIX-<max+1>. The max is
+# over every id taken or claimed: the roadmap's rows (the working tree's and origin/main's), the
+# `Row:` lines of the open team-queue issues and the leading `PREFIX-N:` of open PR titles. Only
+# ids that are exactly PREFIX-<digits> count (OPS-92a is skipped, never read as 92); a reserved
+# placeholder row still counts, so its id is never handed out, and a gap is never filled. Unlike
+# the listing, any failure is one CANNOT CHECK line and exit 1: a guessed id is worse than none.
+NEXT_ID=""
+if [ "${1:-}" = --next-id ]; then
+  NEXT_ID=$(printf '%s' "${2:-}" | grep -xE '[A-Z][A-Z0-9]{0,15}') \
+    || { echo "usage: team-queue.sh --next-id PREFIX (capital letters and digits, e.g. OPS)" >&2; exit 2; }
+fi
 
 [ "${CONTEXT_OFFLINE:-}" = 1 ] && cannot offline
 command -v gh >/dev/null 2>&1 || cannot "gh is not installed"
@@ -57,6 +81,41 @@ cd "$ROOT" || cannot "cannot enter the project root"
 [ "$(printf x | sha256_hex)" = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881" ] || cannot "no SHA-256 tool"
 t=$(mktemp -d "${TMPDIR:-/tmp}/team-queue.XXXXXX") || cannot "no temporary directory"
 trap 'rm -rf "$t"' EXIT
+
+if [ -n "$NEXT_ID" ]; then
+  # One call, under the same deadline, for both lists; more than one page of either is refused,
+  # not read short (a missed id is a duplicate id later).
+  NQ='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+    issues(first: 100, states: OPEN, labels: ["team-queue"]) { totalCount nodes { body } }
+    pullRequests(first: 100, states: OPEN) { totalCount nodes { title } } } }'
+  with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" gh api graphql -f query="$NQ" -F owner='{owner}' -F name='{repo}' </dev/null >"$t/resp" 2>/dev/null
+  rc=$?
+  case $rc in
+    0) ;;
+    4) cannot "gh is not logged in" ;;
+    137 | 143) cannot "gh did not answer within ${TEAM_QUEUE_TIMEOUT:-10} s" ;;
+    *) cannot "gh exited $rc" ;;
+  esac
+  jq -e '(.errors // [] | length == 0) and (.data.repository.issues.nodes | type == "array")
+    and (.data.repository.pullRequests.nodes | type == "array")' "$t/resp" >/dev/null 2>&1 \
+    || cannot "GitHub's answer is an error or does not parse"
+  jq -e '.data.repository | (.issues.totalCount <= (.issues.nodes | length)) and (.pullRequests.totalCount <= (.pullRequests.nodes | length))' "$t/resp" >/dev/null 2>&1 \
+    || cannot "more than 100 open team-queue issues or PRs"
+  roadmap_queue --tsv > "$t/tsv" 2>/dev/null || cannot "the change queue is UNKNOWN"
+  with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" git fetch -q origin "$MAIN_BRANCH" </dev/null >/dev/null 2>&1 \
+    && git show "origin/$MAIN_BRANCH:$ROADMAP" > "$t/main.md" 2>/dev/null || cannot "origin/$MAIN_BRANCH's roadmap could not be read"
+  roadmap_queue --tsv "$t/main.md" >> "$t/tsv" 2>/dev/null || cannot "origin/$MAIN_BRANCH's change queue is UNKNOWN"
+  {
+    awk -F'\t' '{ print $4 }' "$t/tsv"
+    jq -r '.data.repository.issues.nodes[].body // "" | gsub("\r"; "") | split("\n")[]
+      | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")' "$t/resp"
+    jq -r '.data.repository.pullRequests.nodes[].title // ""' "$t/resp" | sed -n "s/^\($NEXT_ID-[0-9][0-9]*\):.*/\1/p"
+  } > "$t/ids" || cannot "the ids could not be read"
+  max=$(grep -xE "$NEXT_ID-[0-9]+" "$t/ids" | sed "s/^$NEXT_ID-//" | awk '$1 + 0 > m { m = $1 + 0 } END { print m + 0 }')
+  [ "${max:-0}" -gt 0 ] || cannot "no id is $NEXT_ID-<number>"
+  echo "$NEXT_ID-$((max + 1))"
+  exit 0
+fi
 
 # The one call. {owner} and {repo} are gh's placeholders for this checkout's repository.
 Q='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
@@ -102,7 +161,8 @@ while [ "$i" -lt "$n" ]; do
   i=$((i + 1))
   # One line of facts, fields split by US (\037; a TAB would collapse empty fields): the number,
   # the approved label and its last event (else ""), why the dates refuse it (else ""), the count
-  # of Content-SHA256 lines, the claimed hash, the count of Row lines and the row.
+  # of Content-SHA256 lines, the claimed hash, the count of Row lines and the row; then the
+  # new-row label (1 or 0), the count of Proposed-Lane lines and the lane.
   facts=$(jq -r '
     (.body // "" | gsub("\r"; "") | split("\n")) as $l
     | ([.timelineItems.nodes[] | select(.__typename == "LabeledEvent" and .label.name == "approved") | .createdAt] | max // "") as $at
@@ -114,11 +174,14 @@ while [ "$i" -lt "$n" ]; do
         ([$l[] | select(startswith("Content-SHA256:"))] | length | tostring),
         ([$l[] | select(startswith("Content-SHA256:")) | sub("^Content-SHA256:[ \t]*"; "") | sub("[ \t]+$"; "") | ascii_downcase] | .[0] // ""),
         ([$l[] | select(startswith("Row:"))] | length | tostring),
-        ([$l[] | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")] | .[0] // "") ]
+        ([$l[] | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")] | .[0] // ""),
+        (if [.labels.nodes[].name] | index("new-row") then "1" else "0" end),
+        ([$l[] | select(startswith("Proposed-Lane:"))] | length | tostring),
+        ([$l[] | select(startswith("Proposed-Lane:")) | sub("^Proposed-Lane:[ \t]*"; "") | sub("[ \t]+$"; "")] | .[0] // "") ]
     | map(gsub("[\\p{Cc}]"; " ")) | join("\u001f")' "$t/issue") || cannot "an issue does not parse"
   # Read from a file, not a here-document: a sandbox may refuse the shell its here-doc temp file.
   printf '%s\n' "$facts" > "$t/facts"
-  IFS=$(printf '\037') read -r num lab datewhy nh claimed nr row < "$t/facts"
+  IFS=$(printf '\037') read -r num lab datewhy nh claimed nr row newrow nl lane < "$t/facts"
   case $num in '' | *[!0-9]*) cannot "an issue has no number" ;; esac
   # Control, format and line/paragraph separators (U+2028, U+2029) all become spaces.
   title=$(jq -r '.title // "" | gsub("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]"; " ") | gsub("\""; "'"'"'") | gsub(" +"; " ") | sub("^ "; "") | .[0:60]' "$t/issue")
@@ -140,8 +203,27 @@ while [ "$i" -lt "$n" ]; do
     *) shown_row=$(printf '%.24s' "$row")
        [ "$nr" = 1 ] && rstate=$(printf '%s\n' "$tsv" | awk -F'\t' -v id="$row" '$4 == id { print $7; exit }') ;;
   esac
+  # A new-row item (OPS-100) names no row: its row is the one whose Change cell carries
+  # `(team-queue #N)`, once the owner's session has added it. Until then it proposes one, in a
+  # lane that must already be an id prefix; its proposed text is never read here.
+  proposes=""
+  if [ "$newrow" = 1 ]; then
+    rstate=""
+    if [ "$nr" != 0 ]; then shown_row=conflict
+    else
+      printf '%s\n' "$tsv" | awk -F'\t' -v tag="(team-queue #$num)" 'index($10, tag) { print $4; print $7 }' > "$t/claims"
+      nc=$(($(wc -l < "$t/claims") / 2))
+      if [ "$nc" -ge 2 ]; then shown_row=conflict
+      elif [ "$nc" = 1 ]; then shown_row=$(sed -n '1s/^\(.\{0,24\}\).*/\1/p' "$t/claims"); rstate=$(sed -n 2p "$t/claims")
+      elif [ "$nl" = 1 ] && printf '%s\n' "$lane" | grep -qxE '[A-Z]{2,8}' \
+        && printf '%s\n' "$tsv" | awk -F'\t' -v p="$lane-" 'index($4, p) == 1 { f = 1 } END { exit !f }'; then
+        proposes=1; shown_row="$lane-?"
+      else shown_row='?'; fi
+    fi
+  fi
 
   if [ "$why" != "$ok" ]; then state=UNAPPROVED
+  elif [ -n "$proposes" ]; then state="PROPOSES ROW"
   elif [ -z "$rstate" ] || [ "$rstate" = cancelled ]; then state="NEEDS ROW"
   elif [ "$rstate" = merged ] || grep -qx "$num" "$t/closed"; then state=DONE
   else

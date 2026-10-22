@@ -25,6 +25,8 @@ docs/prds/          ← the product requirements the rows come from
   one screen, is several rows.
 - **A team-queue issue is an input to a row, never a row itself**: the bot team's GitHub issues
   (`.claude/local/skills/session-start/team-queue.md`) feed rows, and only this file orders work.
+  A `new-row` issue proposes a row; only the owner's approval makes it one, added here with the
+  next free id and ` (team-queue #N)` (OPS-100).
 
 ## The grammar (the parser refuses anything else)
 
