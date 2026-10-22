@@ -14,6 +14,61 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 7 — 2026-10-22 — Rich — the parallel-gate spike: a pair costs little, but its tests' waits break
+
+**Rows**: OPS-105 · **Span**: 2026-10-22
+
+### What happened
+
+The first row run as one row, one session, and the first started from the panel, as a lane (`ops-105-parallel-gate-spike`):
+- **The spike ran from a plain Terminal, 8:38 to 11:00 AM ET**, by the owner queue's steps. It used two clones at `f9a5f396` in `~/spike`, three single gates, then five pairs, with a memory sampler every 5 s.
+- **The lane wrote it up** in `docs/plans/parallel-gate-spike.md` and judged it against G1–G5. It carried the S6 leftovers from the owner's notes into the records and reordered the session plan on the owner's word. **#203** merged at 12:18 PM (squash `eff00f1`).
+
+**What the spike found:**
+- **Singles:** all three passed, at 1027, 1018 and 1011 s.
+- **Pairs:** 7 of 10 runs failed. Every failure was a test's own fixed wait or race:
+  - `TestStallPushUntrustedTitle`, which reads its stand-in's file between the `>` that creates it and the write;
+  - the lease conformance kit, with `CONFORMANCE_WAIT=2` unscaled;
+  - `TestDaemonLeftByTheGateDoesNotHoldTheLease/shell`, with its 4 s bound;
+  - `TestShellLeaseInteroperatesWithLockRun`;
+  - a lane-prompt test.
+- **The machine held:**
+  - a pair ran 1.11–1.12× a single, which is 1.8× the throughput;
+  - peak memory was 11.0 GB of a 12 GB limit;
+  - swap never rose above its start;
+  - memory pressure never reached critical;
+  - the slowest race step took 471 s, well inside the 25-minute timeout.
+- **Verdicts:** **G2 fails.** G1 passes on the two valid pairs. G3 to G5 pass.
+- **What follows:** the tests are the work, not the machine. That work is **OPS-122** (closes #92 and #177), a new row not yet slotted in the plan.
+
+### Decisions the owner made
+- **OPS-111 to S8 and OPS-118 to S9, ahead of OPS-108**, now S10 (2026-10-22). The lane moved OPS-120 into S8 with OPS-111, so it still lands before OPS-118, the next hard-budget change. That move is the lane's judgment, open to the owner.
+- **Delete `~/spike` and the two leftover remote branches** (`fix/92-daemon-lease-flake`, `ops/ops-96-s6-tidy`). The lane did both after keeping the spike's logs (`.git/clauductor/spike-logs-2026-10-22.tgz`, no clones) and bundling the branches (`.git/clauductor/branches-2026-10-22-s7.bundle`, verified).
+
+### What went wrong
+- **The first gate ran inside the Bash sandbox.** It went red after about 16 minutes on seven process checks: git's `xcrun` could not write its cache, and `ps` would not run. The same commit passed in full outside the sandbox. Logged as an insight, with a candidate early probe.
+- **`gh pr merge --delete-branch` merged #203 and then failed** checking out `main`, which the main checkout holds. The remote branch was left, and the lane deleted it by hand.
+
+### What surprised us
+- **Running a second gate cost almost nothing in machine terms.** The case against parallel gates was the tests, not RAM or CPU.
+- **`clauductor panel install` failed with launchctl's error 5 and no explanation**, because launchd held the label disabled. The workaround is `launchctl enable gui/$(id -u)/com.clauductor.panel`. Filed as **#202**.
+
+### Compound
+- **Two rows logged today:** *a lane's gate fails late in the sandbox* (Raw, with a candidate mechanism: the gate probes `ps` and a git write before its first step) and *a pair breaks the tests' waits, not the machine* (deferred to OPS-122).
+- **PANEL-51's *archive finds the spec gaps*** stays Raw. It was logged today and is still young.
+
+### Left in flight (handed off)
+- **OPS-122** has no session in the plan. The owner slots it; Q28 (B or C, with #168) is decided at S10 on the spike's data.
+- **#203's review converged in 1 round at peak low.** Its four lows are left as they are: the "Decide by" dates are the owner's own, and the rest is history wording.
+- **`change/ops-42-build` and `change/panel-31-build`** (2026-10-13) are the started builds of the queued OPS-42 and PANEL-31. Each stays for its row's build to resume.
+- **Team queue:** no item was worked.
+
+### Flow and cost
+- **Flow (30 days, to 10-22):** cycle 1.3h median, lead 2.6h, 29.6 merges a week, change-fail 5.8%, approval wait 4.6h, review rounds 2.4, spend $814.37 a week, 25 in flight (Haiku 5.5 unpriced).
+- **This session's cost** (usage-report.sh, list price, this machine, before the close's gate; session `528323a1`): about **$5.68**:
+  - the lane, Opus 5.5: $5.43;
+  - reviewer-docs, Sonnet 5.5: $0.25.
+
 ## Session 6 — 2026-10-19 — Rich — no CI, headless lanes on API credit, PANEL-51 rebuilt around its seams, the gate cut to 17½ minutes
 
 **Rows**: OPS-96, OPS-53, OPS-101, OPS-65, OPS-60, PANEL-51, OPS-82, OPS-97, OPS-93, OPS-89 · **Span**: 2026-10-19 to 2026-10-22
