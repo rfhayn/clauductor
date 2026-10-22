@@ -1,9 +1,10 @@
 # change.sh: sourced (never run) by the scripts that read a change record: checks/changes.sh,
-# .claude/scenario-trace.sh, .claude/verify-change.sh, .claude/change-approval.sh and
-# pr-merge-guard. ONE reading of the change format (changes/README.md), so two scripts cannot
+# .claude/scenario-trace.sh, .claude/verify-change.sh, .claude/change-approval.sh,
+# .claude/panel-suggest.sh and pr-merge-guard. ONE reading of the change format (changes/README.md), so two scripts cannot
 # disagree about what a scenario ID or an open task is (*A check that reads source is a parser*).
 #
-# Every function reads a file on stdin or by path and prints plain lines; none of them exits.
+# Every function reads a file on stdin or by path (branch_proposals, the repository's refs) and
+# prints plain lines; none of them exits.
 
 # The scenario ID grammar (docs/prds, D3): <CAPABILITY>-<requirement n>-S<scenario n>. A capability
 # segment starts with a letter, so the numeric parts cannot be mistaken for it.
@@ -306,4 +307,27 @@ spec_merge() {
       while (gsub(/\n\n\n/, "\n\n", out)) {}
       printf "%s", out
     }' "$_sm_g" "$3" "$_sm_l"
+}
+
+# branch_proposals SKIP OPEN: the proposals in progress on change branches (local and origin), one
+# line per change id: "<id>\t<approved|waiting>\t<branch>". On main a proposal is approved
+# (checks/changes.sh refuses one that is not), so one in progress lives on a branch. SKIP lists the
+# ids main already has, live or archived; OPEN the change ids of the roadmap's open rows (queued, in
+# flight or open), since an old branch still carries a merged or cancelled one. An id is waiting
+# (for the owner) only while no ref carries its **Approved:** line, so a stale local copy never
+# hides an approval pushed since; <branch> is the first approved ref, else the first. Paths are
+# `./`-relative, so run it from the project root: a project in a subdirectory of its repository
+# reads its own. ONE reading for panel-suggest.sh and propose's context, so the two cannot disagree.
+branch_proposals() {
+  for _bp_ref in $(git for-each-ref --format='%(refname:short)' "refs/heads/${BRANCH_CHANGE}*" "refs/remotes/origin/${BRANCH_CHANGE}*" 2>/dev/null); do
+    for _bp_id in $(git ls-tree --name-only "$_bp_ref" "./$CHANGES_DIR/" 2>/dev/null | sed 's|.*/||'); do
+      case " $1 " in *" $_bp_id "*) continue ;; esac
+      case " $2 " in *" $_bp_id "*) ;; *) continue ;; esac
+      _bp_st=waiting
+      git show "$_bp_ref:./$CHANGES_DIR/$_bp_id/proposal.md" 2>/dev/null | head -n 3 | grep -q '^\*\*Approved:\*\*' && _bp_st=approved
+      printf '%s\t%s\t%s\n' "$_bp_id" "$_bp_st" "$_bp_ref"
+    done
+  done | awk -F'\t' '!($1 in st) { o[++n] = $1; st[$1] = $2; br[$1] = $3; next }
+    $2 == "approved" && st[$1] == "waiting" { st[$1] = "approved"; br[$1] = $3 }
+    END { for (i = 1; i <= n; i++) printf "%s\t%s\t%s\n", o[i], st[o[i]], br[o[i]] }'
 }

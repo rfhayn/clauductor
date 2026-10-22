@@ -5,6 +5,8 @@
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
+# shellcheck disable=SC1091
+. "$ROOT/.claude/lib/change.sh"
 cd "$ROOT" || exit 0
 ind() { sed 's/^/    /'; }
 
@@ -13,17 +15,31 @@ echo "- Proposed in this tree:"
 found=""
 for d in "$CHANGES_DIR"/*/; do
   [ -d "$d" ] || continue; n=$(basename "$d"); [ "$n" = archive ] && continue
-  echo "    $n"; found=1
+  st="awaiting the owner"; head -n 3 "$d/proposal.md" 2>/dev/null | grep -q '^\*\*Approved:\*\*' && st=approved
+  echo "    $n ($st)"; found=1
 done
 [ -n "$found" ] || echo "    none"
-echo "- Proposed on a branch (local or origin) and not on $MAIN_BRANCH:"
-git for-each-ref --format='%(refname:short)' "refs/heads/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_CHANGE" 2>/dev/null | sed 's#^origin/##' | sort -u | while read -r b; do
-  ref=$b; git rev-parse -q --verify "$ref" >/dev/null 2>&1 || ref="origin/$b"
-  git ls-tree -r --name-only "$ref" "$CHANGES_DIR" 2>/dev/null | grep -v "^$CHANGES_DIR/archive/" | cut -d/ -f2 | sort -u | while read -r i; do
-    git cat-file -e "origin/$MAIN_BRANCH:$CHANGES_DIR/$i" 2>/dev/null && continue
-    code=$(git diff --name-only "origin/$MAIN_BRANCH...$ref" -- . ":!$CHANGES_DIR" ':!docs' 2>/dev/null | wc -l | tr -d ' ')
-    echo "    $i on $b ($code non-doc file(s) changed)"
-  done
+# Main's ids, live or archived, and its open rows, as panel-suggest.sh reads them: from origin, else
+# this tree (a main checkout lags what the lanes merged).
+main="origin/$MAIN_BRANCH"
+road="$ROADMAP"
+if git rev-parse -q --verify "$main^{commit}" >/dev/null 2>&1; then
+  skip=$(git ls-tree --name-only "$main" "./$CHANGES_DIR/" "./$CHANGES_DIR/archive/" 2>/dev/null)
+  tmp=$(mktemp "${TMPDIR:-/tmp}/propose-roadmap.XXXXXX") && git show "$main:./$ROADMAP" > "$tmp" 2>/dev/null && road=$tmp
+else
+  skip=$(ls "$CHANGES_DIR" "$CHANGES_DIR/archive" 2>/dev/null)
+fi
+skip=$(printf '%s\n' "$skip" | sed 's|.*/||; s/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//' | tr '\n' ' ')
+open=$(roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ')
+[ -n "${tmp:-}" ] && rm -f "$tmp"
+echo "- Proposed on a branch (local or origin) for an open row, not on $MAIN_BRANCH (branch_proposals, panel-suggest.sh's reading):"
+props=$(branch_proposals "$skip" "$open")
+[ -n "$props" ] || echo "    none"
+printf '%s\n' "$props" | while IFS="$(printf '\t')" read -r i st b; do
+  [ -n "$i" ] || continue
+  [ "$st" = waiting ] && st="awaiting the owner"
+  code=$(git diff --name-only "$main...$b" -- . ":!$CHANGES_DIR" ':!docs' 2>/dev/null | wc -l | tr -d ' ')
+  echo "    $i on $b ($st; $code non-doc file(s) changed)"
 done
 echo "- Change queue:"
 roadmap_queue --text 2>&1 | ind
@@ -32,7 +48,6 @@ ls "$SPECS_DIR" 2>/dev/null | grep -v README.md | ind
 echo "- Budgets on queued rows (repeat the row's in proposal.md):"
 roadmap_queue --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
 echo "- Scenario IDs already taken (living specs and archived changes; never reuse one):"
-. "$ROOT/.claude/lib/change.sh"
 for s in "$SPECS_DIR"/*/spec.md "$CHANGES_DIR"/archive/*/specs/*/spec.md; do
   [ -f "$s" ] && spec_scenarios "$s" | awk -F'\t' '$3 != "-" { print $3 }'
 done | awk '{ id = $0; sub(/-S[0-9]+$/, "", id); cap = id; sub(/-[0-9]+$/, "", cap); req = id; sub(/^.*-/, "", req)

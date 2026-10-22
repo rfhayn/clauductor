@@ -14,8 +14,8 @@
 #
 # Rows and their states come from roadmap_queue (lib/conf.sh), never a second parser of the queue
 # tables. The sessions, their order and the owner's decision per row come from the roadmap's
-# "## Session plan" table, which this script reads and nothing else does: its header is not the
-# queue header, so the queue parser skips it. A row's track is its ### section (or "Phase N").
+# "## Session plan" table through .claude/roadmap-plan.sh, its one parser, which the panel's Up
+# next reads too: its header is not the queue header, so the queue parser skips it. A row's track is its ### section (or "Phase N").
 #
 # State mapping (roadmap -> tracker):
 #   merged -> merged, kept only when its squash commit "(#N)" on HEAD is dated SINCE or later
@@ -82,51 +82,9 @@ tsv=$(roadmap_queue --tsv "$rmfile") || die "the change queue is UNKNOWN: $tsv"
 
 # The plan, as tab-separated records:  S session order when focus owner  |  R id session order pos
 # |  D id decision.  Any shape it cannot read is an error, never a shorter plan.
-plan=$(awk '
-function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function err(m) { printf "%s:%d: %s\n", FILENAME, NR, m > "/dev/stderr"; bad = 1 }
-/^## / { insec = ($0 ~ /^## Session plan[ \t]*$/); if (insec) found = 1; next }
-!insec { next }
-/^\|/ && done { err("a second table in the Session plan section"); next }
-/^\|/ {
-  nc = split($0, c, "|")
-  if (!hdr) {
-    h = ""; for (i = 2; i < nc; i++) h = h "|" trim(c[i])
-    if (h != "|Session|When|Focus|Rows|The owner decides") err("the Session plan header must be | Session | When | Focus | Rows | The owner decides |")
-    hdr = 1; sep = 1; next
-  }
-  if (sep) { sep = 0; if ($0 !~ /^\|[ \t:|-]+\|?[ \t]*$/) err("the Session plan header is not followed by its |---| line"); next }
-  if (nc != 7) { err("a Session plan row needs exactly 5 cells, this has " (nc - 2)); next }
-  s = trim(c[2]); w = trim(c[3]); f = trim(c[4]); rows = trim(c[5]); o = trim(c[6])
-  if (o == "—" || o == "-") o = ""
-  if (!match(s, /[0-9]+/)) { err("session \"" s "\" has no number to order it by"); next }
-  ord = substr(s, RSTART, RLENGTH) + 0
-  if (s in seen) { err("session " s " is planned twice"); next }
-  seen[s] = 1
-  printf "S\t%s\t%d\t%s\t%s\t%s\n", s, ord, w, f, o
-  n = split(rows, r, ",")
-  for (i = 1; i <= n; i++) {
-    id = trim(r[i]); if (id == "") continue
-    if (id !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) { err("\"" id "\" is not a row id"); continue }
-    if (id in where) { err(id " is planned in " where[id] " and " s); continue }
-    where[id] = s; printf "R\t%s\t%s\t%d\t%d\n", id, s, ord, ++pos
-  }
-  n = split(o, d, ";")
-  for (i = 1; i <= n; i++) {
-    p = trim(d[i])
-    if (!match(p, /^[A-Za-z0-9][A-Za-z0-9._-]*(, *[A-Za-z0-9][A-Za-z0-9._-]*)*: /)) continue
-    ids = substr(p, 1, RLENGTH - 2); txt = substr(p, RLENGTH + 1)
-    m = split(ids, x, ",")
-    for (k = 1; k <= m; k++) printf "D\t%s\t%s\n", trim(x[k]), txt
-  }
-  next
-}
-hdr && !sep { done = 1 }
-END {
-  if (!found) err("no \"## Session plan\" section")
-  else if (!hdr) err("the Session plan section has no table")
-  exit bad
-}' "$rmfile") || die "the Session plan cannot be read (above)"
+plan=$(sh "$ROOT/.claude/roadmap-plan.sh" "$rmfile") || die "the Session plan cannot be read (above)"
+# The template's parser treats the section as optional; the tracker has nothing to show without it.
+printf '%s\n' "$plan" | grep -q '^S	' || die "no \"## Session plan\" section in $ROADMAP"
 
 # The approved queued changes: an **Approved:** line in their proposal or design.
 approved=$(printf '%s\n' "$tsv" | awk -F'\t' '$7 == "queued" { print $5 }' | while read -r cid; do

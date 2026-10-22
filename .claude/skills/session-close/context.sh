@@ -50,7 +50,7 @@ for d in "$CHANGES_DIR"/*/; do
 done
 [ -n "$found" ] || echo "    none"
 echo "- Proposed on an unmerged branch (invisible to the list above):"
-git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$BRANCH_CHANGE" "refs/heads/$BRANCH_CHANGE" 2>/dev/null | sed 's#^origin/##' | sort -u | while read -r b; do
+git for-each-ref --format='%(refname:short)' "refs/remotes/origin/${BRANCH_CHANGE}*" "refs/heads/${BRANCH_CHANGE}*" 2>/dev/null | sed 's#^origin/##' | sort -u | while read -r b; do
   git rev-parse -q --verify "$b" >/dev/null 2>&1 || b="origin/$b"
   git ls-tree -r --name-only "$b" "$CHANGES_DIR" 2>/dev/null | grep -v "^$CHANGES_DIR/archive/" | cut -d/ -f2 | sort -u | while read -r i; do
     git cat-file -e "origin/$MAIN_BRANCH:$CHANGES_DIR/$i" 2>/dev/null || echo "    $i on $b"

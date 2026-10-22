@@ -56,6 +56,14 @@ A phase is several changes. Decompose as you go, phase by phase.
   soft` in the proposal, reports it and goes on), archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
+- **A session plan (optional)**: a `## Session plan` section holding one table,
+  `| Session | When | Focus | Rows | The owner decides |`, whose Rows cell lists row ids,
+  comma-separated, each planned once. It orders the queued rows into working sessions;
+  `.claude/roadmap-plan.sh` is its one parser. With one, the panel's **Up next** offers its queued
+  rows in its order instead of the current phase's (propose passing a proposal approved on main),
+  as `origin/main` has them; a queued row it does not name is never offered, and a plan whose rows
+  have all merged offers nothing until the next session is planned. Its header is not the queue
+  header, so the queue parser skips it.
 
 ## Plugging in your own parser
 
