@@ -14,12 +14,9 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
-## Session 6 — 2026-10-19 — Rich — no CI, headless lanes on API credit, PANEL-51 rebuilt around its seams
+## Session 6 — 2026-10-19 — Rich — no CI, headless lanes on API credit, PANEL-51 rebuilt around its seams, the gate cut to 17½ minutes
 
-<!-- DRAFT by the orchestrating session (2026-10-21). The close finishes: D8's outcome (PANEL-51, R1b),
-     OPS-93/OPS-97/OPS-82/OPS-89/OPS-105 if reached, Compound, Flow and cost, and the Span's end. -->
-
-**Rows**: OPS-96, OPS-53, OPS-101, OPS-65, OPS-60, PANEL-51, OPS-82, OPS-97, OPS-93 · **Span**: 2026-10-19 to (the close)
+**Rows**: OPS-96, OPS-53, OPS-101, OPS-65, OPS-60, PANEL-51, OPS-82, OPS-97, OPS-93, OPS-89 · **Span**: 2026-10-19 to 2026-10-22
 
 ### What happened
 
@@ -41,12 +38,16 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
 - **The build then ran as Tracks D to D7, over about 30 hours.** Every stop was a design question the owner answered in chat, each written into `design.md` and re-approved. Group 2 took 11 review rounds and group 3 took about 6, each round peaking at medium. Almost every medium was a new edge at a boundary between parts of the design: restarts, resumed sessions, config versions, reused branch names. None was a defect in the core rule.
 - **What ended a run of rounds was closing the class** (PRAC-0010, accepted at this session's start). Amendment B made a stall that begins across a restart approximate for one stall time. That settled eight rounds of restart cases at once, along with #185 and every reading added later.
 
-(The close adds D8 here: group 4's review, group 5, the merge and archive, then R1b.)
+- **D8 finished it on 10-21.** Group 4 (the push) converged at peak low, and its lows went into group 5's diff. Group 5 (the page and the docs) peaked high in round 1, since STALL-4-S1's test read back its own fixture, and converged in round 2. **PANEL-51 merged as #192** (9:55 AM). Its archive (**#194**, 12:42 PM) took 5 review rounds, the owner approving the rounds past 3: each of the first four found one more rule the owner had decided in chat, and the code kept, that the spec delta never stated. Every such rule now has a scenario and a test, each shown failing first. Its cost was **$253.34**, against a soft $80 that the owner raised to a $310 ceiling during the build.
+- **R1b**, OPS-101's second PR (**#193**, 11:09 AM), followed as the A-T8 order had it. It converged in 2 rounds, peak medium. Its two round-2 lows wait for OPS-104's sweep, when they can first bite.
 
-**Held, not merged:**
-- **OPS-82** (#171): the cd guard. A probe on the Mac showed PostToolUse fires for Workflow, but there is no end-of-run signal, so a hold would never end. It needs one before it merges.
-- **OPS-97** (#170): the gate passed, but there is one medium. `build-change`'s `findingKey` would read a leading "Class: …" as the finding's identity.
-- **OPS-93**: its edits are under `.claude/`, which headless runs cannot write.
+**The interactive rows, 10-21 to 10-22.** The credit was gone, and three rows edit `.claude/`, which a headless run cannot write. So the last stretch ran as one interactive lead session with teammate lanes:
+- **OPS-82** (**#171**, 6:35 PM). The probe found a real end signal: a workflow's state file, written when it ends, and the `Stop` payload's `background_tasks`. A hold now ends on either. Review stopped at round 5 by the owner's rule, and the cases still open are the hook's KNOWN LIMITS, owned by #195 and #196.
+- **OPS-97** (**#170**, 8:44 PM). The class goes in a schema field of its own (option B), with a passing eval receipt. It merged carrying a follow-up row numbered OPS-106, an id the team had reserved, so **#197** (10:07 PM) renumbered it OPS-110.
+- **OPS-93** (**#199**, 10-22 5:51 AM). Every process check now runs once, inside the no-clauductor environment, with a weekly double pass on `main`. Archived in **#200** (7:23 AM).
+- **OPS-89 (a) and (c)** (**#198**, 6:46 AM). It records each gate step's time and runs each shared check in one set only. OPS-89 stays open for (b), the light gate for a docs-only PR, in S9.
+
+**The gate went from about 45 minutes to about 17½.** A full gate took 2694 s on 10-21. With #198 and #199 it took 1048 s, on #198's last head: process checks 810 → 268 s, template checks 894 → 335 s, race 956 → 412 s. The quick gate fell to about 12 minutes. OPS-105's overnight spike, S7, measures against that shorter gate.
 
 ### Decisions the owner made
 - **CI off until about 11-01**, with merges on the local receipt; OPS-98 to undo it.
@@ -63,6 +64,17 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
   - #189 (a): the template's `panel.json` goes to v7;
   - the budget raised from the soft $80 to a $180, then a $310 ceiling.
 - **#168's fix is decided at S10,** on OPS-105's data (the roadmap edit).
+- **OPS-93 `exec`s** (choice A, 2026-10-21, after group 1's round 2): `checks/run.sh` `exec`s itself into the no-clauductor environment and the inner run removes it. A child process would either hold a TERM until the whole set ended (foreground) or never pass a Ctrl-C to the running check (background). The window between the `exec` and the inner run's traps is OPS-121.
+- **OPS-97, option B:** a `class` field in the review schema that `findingKey` never reads, rather than a "Class: …" prefix in the finding's text.
+- **OPS-82:** a hold ends on the workflow's state file or a `Stop` that no longer lists it, and review stops at round 5 by the owner's rule, with the rest as known limits (#195, #196).
+- **Review caps by risk** (2026-10-21): low 2 rounds, normal 3, high 3. Past the cap, what is left goes to KNOWN LIMITS with an owner. Applied by hand until OPS-108 makes the scripts read it.
+- **The plan from S7 on:** short sessions of one row each, or of rows that share files. Records are kept by a daily close (OPS-108, its rule 7 and 8 change approved), and lanes are short-lived (PANEL-55). The plan rests on the team's lite v1 edit (D23, approved 2026-10-19). The owner's rulings of 2026-10-21: batched PRs only where rows share files; OPS-110 after launch; ids OPS-112 to OPS-118 for the launch scope that had none; #180 (closed) and #182 (closed as this plan lands) superseded. REL-1 lands centrally at S28.
+- **OPS-105's go/no-go criteria, G1 to G5** (2026-10-21), now on its row. They replace the slots design's drafts in the owner's workspace.
+
+### What went wrong
+- **Nested hand-backs were lost.** When a teammate lane spawned its own builder or reviewer, the report went to the lead session instead of the lane, about ten times on 10-21. Once, OPS-93's group 2 round-2 reviewer at about 02:18Z, it reached no one, and the lane sat idle about 6.5 hours. With no panel running, PANEL-51's stall alert could not fire. The workaround that held was for each agent to write its report to a scratchpad file, which the lane then reads. PANEL-55 and OPS-108 remove the dependency.
+- **OPS-97 merged with a reserved id.** Its follow-up row took OPS-106, which the team had reserved, despite the hold on it. #197 renumbered it. Ids are now minted only in the repo; OPS-100 gives the team a way to propose a row without one.
+- **OPS-93 ran over its hard budget unseen:** $55.84 of $40. `change-cost.sh` read $22.13 before group 1's rework and again before group 2, so build-change's pre-group stop never fired. The overrun showed only at the archive. OPS-120 owns the undercount, and the owner queue carries the overrun for the owner to note.
 
 ### What surprised us
 - **Headless runs cannot write `.claude/`.** Claude Code refuses it as a sensitive file, even with an allow rule and the sandbox off. So a row whose scope is `.claude/` (OPS-93, OPS-97's fix, OPS-82) needs an interactive session.
@@ -73,7 +85,29 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
 - **`clauductor update` follows `CLAUDUCTOR_FRAMEWORK`,** so in a worktree it read the main checkout's template. It also showed `main` lags its own template (`roles.reviewer.eval.baseline`, `orchestration/config.json`), and three lanes hit that separately.
 - **The rising-peak rule was overridden once by the owner's own instruction** (D3's "fix and run one more round"). The lane flagged it, and D4 on followed the rule strictly.
 
-(The close adds Compound, Flow and cost, and Left in flight.)
+- **The close's own merge of `origin/main` failed partway in the sandbox.** It stopped on `.claude/agents/reviewer.md`, the same protection that emptied session 5's worktrees. Run outside the sandbox, the merge went through.
+
+### Compound
+- **Decided:** *headless cannot write .claude* → not promoted (a Claude Code limit; `.claude/` rows run interactively); *promo credit is not interactive* → not promoted (billing; the owner queue's cloud-lanes decision); *quick gate outlives an agent's shell* → OPS-89; *exited looks alive* → technique; *worktree add in the sandbox* → technique, with the close's merge as a second instance; *update follows CLAUDUCTOR_FRAMEWORK* → OPS-119; *a large design converges at its seams* → an instance of PRAC-0010; *classifier blocks the orchestrator* → not promoted.
+- **New today:** seven rows. *nested hand-backs get lost* → PANEL-55 and OPS-108; *change-cost misses nested agents mid-build* → OPS-120; *ids minted in two places collide* → OPS-100; *a class key in prose loops* → fixed in #170; *a wrapper's traps wait for its child* → folded into OPS-93's design; *the gate's time was in the check sets* → shipped in #198 and #199; *archive finds the spec gaps* stays Raw, with a candidate check (a design amendment after approval must touch the spec delta).
+- Nothing reached the 3+ promotion trigger. `checks/compound.sh` passes, with one Raw row.
+
+### Left in flight (handed off)
+- **S7, OPS-105:** the overnight spike, from a plain Terminal (the owner queue's steps), then the panel brought up so S8 starts from it.
+- **New rows from this close:** OPS-119 (`clauductor update`'s drift, S12), OPS-120 (`change-cost.sh` and nested agents, S10, before S11 builds the next change), OPS-121 (OPS-93's `exec` window, S9). OPS-104 gains R1b's two lows.
+- **Outcome checks:** o.1 (PANEL-29's lane dialog), due 10-19 and never run because the owner has had no working panel, is re-dated to 10-30, for the first week of panel lanes. o.8 (OPS-93) needs Actions minutes (OPS-98).
+- **Follow-ups owned by issues:** #168 (OPS-105's data decides it at S10), #184 (OPS-89, S9), #187, #190 and #191 (PANEL-46's piece with the stalled state), #195 and #196 (S13).
+- **Remote branches carried over, not this session's:** `change/ops-42-build` and `change/panel-31-build` (WIP, as session 5 left them). The merged leftovers `fix/92-daemon-lease-flake` (#169) and `ops/ops-96-s6-tidy` (#166) are pruned at this close.
+
+### Flow and cost
+- **Flow (30 days, to 10-22):** cycle 1.3h median, lead 2.6h, 29.2 merges a week, change-fail 5.9%, approval wait 4.6h, review rounds 2.4, spend $808.25 a week, 26 in flight (Haiku 5.5 unpriced).
+- **The last hub session's cost** (usage-report.sh, list price, this machine, before the close's gate; session `2702ad1e`, 10-21 to 10-22): about **$335**, nearly all Opus 5.5.
+  - the teammate lanes (`ops`) $223.84;
+  - the lead $39.34;
+  - builders $30.43, reviewers $26.54;
+  - the plan revision $8.23 and $1.73;
+  - this close lane, so far, $3.04.
+- The session's earlier days ran as headless `claude -p` lanes and claude.ai cloud sessions, each a session of its own, so this table does not count them. By change, the archives record PANEL-51 at $253.34 and OPS-93 at $55.84.
 
 ## Session 5 — 2026-10-18 — Rich — no silent stalls, PANEL-49 and OPS-81 merged, PANEL-51 amended for session 6
 
