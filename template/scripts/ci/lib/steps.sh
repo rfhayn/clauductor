@@ -20,6 +20,11 @@
 # and bash or POSIX sh; returns non-zero on a failed step. The framework tier: `clauductor update`
 # refreshes this file, so a project edits its own runner, never this.
 
+# A gate runs every process check: a CHECKS_SKIP in the caller's environment (checks/run.sh leaves
+# out what it names) must never reach a gate's check run. A step that means to leave checks to another
+# run passes its own, on that command alone.
+unset CHECKS_SKIP
+
 # step NAME COMMAND [ARGS...]: one gate step, marked for the agent-facing filter (unless the runner
 # defined its own).
 if ! command -v step >/dev/null 2>&1; then
