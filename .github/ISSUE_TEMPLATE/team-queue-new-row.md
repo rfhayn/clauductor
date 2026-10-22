@@ -16,7 +16,8 @@ How Claude Code reads this issue (.claude/local/context.d/session-start/team-que
 - There is no `Row:` line: a `new-row` item with one reads NEEDS ROW (conflict). Once approved,
   session start lists it as PROPOSES ROW, and the owner's session adds the row in its next `ops/`
   PR with the next free id (`team-queue.sh --next-id <LANE>`, which never fills a gap and never
-  reuses a reserved id), the text below as written, ` (team-queue #<this issue>)` appended, and
+  reuses a reserved id), the text below as written (read by `team-queue.sh --row <this issue>`,
+  which checks the approval again first), ` (team-queue #<this issue>)` appended, and
   status `⬜ queued`. From then on the item reads as that row's.
 - `Proposed-Lane` is an existing id prefix, 2 to 8 capitals (OPS, PANEL, REL, ST); any other
   lane reads NEEDS ROW (?).

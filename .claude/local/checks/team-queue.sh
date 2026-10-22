@@ -6,8 +6,9 @@
 # edited after the label; 4 a title renamed after the label; 5 no Row line; 6 an unknown row; 7
 # DONE by a merged row; 8 STALE by a patch that does not apply to origin/main; 9 gh failing; 10
 # an injection-style title. OPS-100 adds a fixture of its own after them: `new-row` items
-# (PROPOSES ROW, conflict, a lane that is malformed or no prefix, a claiming row) and `--next-id`
-# (each source of ids, no gap filled, suffixes skipped, every failure CANNOT CHECK with exit 1).
+# (PROPOSES ROW, conflict, a lane that is malformed or no prefix, a claiming row), `--row`
+# (approval checked again in its own run) and `--next-id` (each source of ids, no gap filled,
+# suffixes skipped, every failure CANNOT CHECK with exit 1).
 . "${CHECKS_LIB:?}"
 need jq git
 # shellcheck disable=SC1091
@@ -254,6 +255,35 @@ case $out in *PROPOSED-MARKER* | *"ops/xy-?"* | *Proposed-*) fail "new-row: the 
   && ok "new-row: items keep the order GitHub returns them in" || fail "new-row: the order changed: $out"
 [ "$(wc -l < "$S/gh.log" | tr -d ' ')" = 1 ] && ok "new-row: session start still makes one gh call" || fail "new-row: gh was called $(wc -l < "$S/gh.log" | tr -d ' ') times"
 
+# --row N: the Proposed-* lines, only while the item reads PROPOSES ROW in that same run. #53 has
+# two Proposed-Change lines, #54 none for Proposed-Slot (both still list as PROPOSES ROW).
+{
+  jq -c '.data.repository.issues.nodes[]' "$S/d.json"
+  item 53 "two changes" "$(body "$(proposal 53 XY 'Proposed-Change: `ops/xy-?-other` — a second')")" "$NR" "$LA" "" ""
+  item 54 "no slot" "$(body "$(proposal 54 XY | grep -v '^Proposed-Slot:')")" "$NR" "$LA" "" ""
+} | answer > "$S/e.json"
+rowrun() { # rowrun N [ENV=VALUE...]: --row N's output in $_g, its exit code in $nrc
+  _n=$1; shift
+  : > "$S/gh.log"; : > "$S/gh.log.args"
+  _g=$(cd "$F" && env PATH="$S/bin:$PATH" CONTEXT_OFFLINE= FAKE_LOG="$S/gh.log" FAKE_JSON="$S/e.json" "$@" sh .claude/local/context.d/session-start/team-queue.sh --row "$_n" 2>&1)
+  nrc=$?
+}
+rowrun 41
+want=$(proposal 41 XY | grep '^Proposed-')
+[ "$nrc" = 0 ] && [ "$_g" = "$want" ] && ok "--row: an approved PROPOSES ROW item prints its six Proposed-* lines, and nothing else" \
+  || fail "--row 41 (exit $nrc): [$_g]"
+[ "$(wc -l < "$S/gh.log" | tr -d ' ')" = 1 ] && ok "--row: one gh call" || fail "--row: gh was called $(wc -l < "$S/gh.log" | tr -d ' ') times"
+rowcannot() { # rowcannot N REASON MSG
+  rowrun "$1"
+  if [ "$nrc" = 1 ] && [ "$_g" = "Row #$1: CANNOT CHECK ($2). Learned NOTHING; add no row." ]; then ok "$3"; else fail "$3 (exit $nrc): $_g"; fi
+}
+rowcannot 46 "#46 reads UNAPPROVED (body edited after the label), not PROPOSES ROW" "--row: a body edited after approval prints nothing (the approval is checked again, not trusted from the listing)"
+rowcannot 45 "#45 reads UNAPPROVED (no approved label), not PROPOSES ROW" "--row: an unapproved item prints nothing"
+rowcannot 42 "#42 reads APPLIES ($OK), not PROPOSES ROW" "--row: an item whose row exists prints nothing"
+rowcannot 53 "#53 needs one Proposed-Change line" "--row: two Proposed-Change lines print nothing"
+rowcannot 54 "#54 needs one Proposed-Slot line" "--row: a missing Proposed-Slot line prints nothing"
+rowcannot 99 "#99 is not among the open team-queue issues read" "--row: an issue not in the queue prints nothing"
+
 # --next-id: the working tree has rows X-1..3 (origin/main too); the answers add issue Row lines
 # and open PR titles.
 cp "$S/roadmap.md" "$F/docs/roadmap.md"
@@ -303,6 +333,14 @@ ncannot offline "--next-id: offline, CANNOT CHECK and exit 1" "$S/n1.json" CONTE
 ncannot "GitHub's answer is an error or does not parse" "--next-id: an answer without the PR list is CANNOT CHECK" "$S/a.json"
 jq '.data.repository.pullRequests.totalCount = 101' "$S/n1.json" > "$S/n101.json"
 ncannot "more than 100 open team-queue issues or PRs" "--next-id: a second page is refused, not read short" "$S/n101.json"
+jq '.data.repository.issues.totalCount = 101' "$S/n1.json" > "$S/i101.json"
+ncannot "more than 100 open team-queue issues or PRs" "--next-id: ...of issues too" "$S/i101.json"
+git -C "$F" remote set-url origin "$S/nowhere.git"
+ncannot "origin/main's roadmap could not be read" "--next-id: an origin that cannot be fetched is CANNOT CHECK, not its last-fetched roadmap" "$S/n0.json"
+git -C "$F" remote set-url origin "$S/origin.git"
+_g=$(cd "$F" && env PATH="$S/bin:$PATH" CONTEXT_OFFLINE= FAKE_LOG="$S/gh.log" FAKE_JSON="$S/n0.json" sh .claude/local/context.d/session-start/team-queue.sh --next-id QQ 2>&1); nrc=$?
+[ "$nrc" = 1 ] && [ "$_g" = "Next id: CANNOT CHECK (no id is QQ-<number>). Learned NOTHING; take no id." ] \
+  && ok "--next-id: a prefix no id has is CANNOT CHECK, never QQ-1" || fail "--next-id QQ (exit $nrc): $_g"
 ncannot "gh did not answer within 1 s" "--next-id: gh that does not answer in time" "$S/n1.json" TEAM_QUEUE_TIMEOUT=1 FAKE_SLEEP=8
 grep -q 'with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" gh api graphql -f query="$NQ"' "$F/.claude/local/context.d/session-start/team-queue.sh" \
   && ok "--next-id: its gh call is under a 10 s deadline by default" || fail "--next-id: its gh call is not under with_timeout with a 10 s default"

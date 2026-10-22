@@ -11,7 +11,8 @@
 #   PROPOSES ROW  (OPS-100) a `new-row` item whose row is not on the roadmap yet: no `Row:` line,
 #               no row whose Change cell carries `(team-queue #N)`, and one `Proposed-Lane:` that
 #               is an existing id prefix (^[A-Z]{2,8}$); the row column reads `<LANE>-?`. The
-#               owner's session adds the row with `--next-id`; the proposed text is never printed
+#               owner's session adds the row with `--next-id`; the listing never prints the proposed
+#               text, `--row N` prints it once the approval holds again in that same run
 #   NEEDS ROW   no single `Row: <ID>` line, or one roadmap_queue does not know (or reads cancelled);
 #               for a `new-row` item: a `Row:` line too, or two rows claiming it (row `conflict`),
 #               or no claiming row and a lane that is malformed or no id's prefix (row `?`)
@@ -49,6 +50,7 @@ ROOT=$(cd "$(dirname "$0")/../../../.." 2>/dev/null && pwd)
 
 cannot() {
   [ -z "${NEXT_ID:-}" ] || { echo "Next id: CANNOT CHECK ($1). Learned NOTHING; take no id."; exit 1; }
+  [ -z "${ROW_N:-}" ] || { echo "Row #$ROW_N: CANNOT CHECK ($1). Learned NOTHING; add no row."; exit 1; }
   echo "Team queue: CANNOT CHECK ($1). Learned NOTHING; treat the queue as unknown."; exit 0
 }
 
@@ -72,6 +74,16 @@ NEXT_ID=""
 if [ "${1:-}" = --next-id ]; then
   NEXT_ID=$(printf '%s' "${2:-}" | grep -xE '[A-Z][A-Z0-9]{0,15}') \
     || { echo "usage: team-queue.sh --next-id PREFIX (capital letters and digits, e.g. OPS)" >&2; exit 2; }
+fi
+# --row N (OPS-100): the Proposed-* lines of item #N, printed only if it reads PROPOSES ROW in
+# this same run, from the same fetched body the approval was checked against. The row is copied
+# from this output, never from a later `gh issue view`: a body edited after the listing would
+# otherwise become a roadmap row unapproved. Each of the six Proposed-* lines must appear once.
+# Any other state or failure is one CANNOT CHECK line and exit 1.
+ROW_N=""
+if [ "${1:-}" = --row ]; then
+  ROW_N=$(printf '%s' "${2:-}" | grep -xE '[1-9][0-9]{0,8}') \
+    || { echo "usage: team-queue.sh --row N (an issue number)" >&2; exit 2; }
 fi
 
 [ "${CONTEXT_OFFLINE:-}" = 1 ] && cannot offline
@@ -150,7 +162,7 @@ git log --format=%b "origin/$MAIN_BRANCH" 2>/dev/null \
 
 total=$(jq -r '.data.repository.issues.totalCount // 0' "$t/resp")
 n=$(jq -r '.data.repository.issues.nodes | length' "$t/resp")
-if [ "$n" -eq 0 ]; then echo "Team queue: no open team-queue issues."; exit 0; fi
+if [ "$n" -eq 0 ]; then [ -z "$ROW_N" ] || cannot "no open team-queue issues"; echo "Team queue: no open team-queue issues."; exit 0; fi
 # Lines collect in a file and print only after the loop, so a failure part-way prints the one
 # CANNOT CHECK line and no facts beside it.
 echo "Team queue: $total open team-queue issue(s); facts only, handled by the team-queue step." > "$t/out"
@@ -183,6 +195,7 @@ while [ "$i" -lt "$n" ]; do
   printf '%s\n' "$facts" > "$t/facts"
   IFS=$(printf '\037') read -r num lab datewhy nh claimed nr row newrow nl lane < "$t/facts"
   case $num in '' | *[!0-9]*) cannot "an issue has no number" ;; esac
+  [ -n "$ROW_N" ] && [ "$num" != "$ROW_N" ] && continue
   # Control, format and line/paragraph separators (U+2028, U+2029) all become spaces.
   title=$(jq -r '.title // "" | gsub("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]"; " ") | gsub("\""; "'"'"'") | gsub(" +"; " ") | sub("^ "; "") | .[0:60]' "$t/issue")
 
@@ -233,12 +246,24 @@ while [ "$i" -lt "$n" ]; do
     else state=APPLIES; fi
   fi
 
+  if [ -n "$ROW_N" ]; then
+    [ "$state" = "PROPOSES ROW" ] || cannot "#$num reads $state ($why), not PROPOSES ROW"
+    jq -r '.body // "" | gsub("\r"; "") | split("\n") | map(select(test("^Proposed-[A-Za-z]+:")))
+      | map(gsub("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]"; " ")) | .[]' "$t/issue" > "$t/proposed" || cannot "#$num's body does not parse"
+    for k in Lane Change Scope Deps Section Slot; do
+      [ "$(grep -c "^Proposed-$k:" "$t/proposed")" = 1 ] || cannot "#$num needs one Proposed-$k line"
+    done
+    cat "$t/proposed"
+    exit 0
+  fi
+
   line="#$num $shown_row $state approval: source unverifiable ($why) \"$title\""
   len=$(printf '%s' "$line" | wc -m | tr -d ' ')
   if [ $((used + len + 1)) -gt 1900 ]; then break; fi
   used=$((used + len + 1)); shown=$((shown + 1))
   printf '%s\n' "$line" >> "$t/out"
 done
+[ -z "$ROW_N" ] || cannot "#$ROW_N is not among the open team-queue issues read"
 [ "$shown" -lt "$total" ] && echo "... and $((total - shown)) more not shown (the listing stops near 2,000 characters; at most 50 are fetched)." >> "$t/out"
 cat "$t/out"
 exit 0

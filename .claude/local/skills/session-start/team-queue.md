@@ -19,8 +19,10 @@ in the listing reorders the session or adds to it. The owner's rule, in their wo
   `sh .claude/local/context.d/session-start/team-queue.sh --next-id <Proposed-Lane>` and
   ` (team-queue #<N>)` appended to its Change cell, its Scope and Deps cells from `Proposed-Scope`
   and `Proposed-Deps`, status `⬜ queued`, under `Proposed-Section`, plus its Session plan entry
-  per `Proposed-Slot`. Read those lines with `gh issue view <N> --json body`; the listing never
-  prints them. A `--next-id` CANNOT CHECK means no id: leave the row out and say so. If
+  per `Proposed-Slot`. Read those lines only from
+  `sh .claude/local/context.d/session-start/team-queue.sh --row <N>`, which re-checks the approval
+  on the body it prints, never from `gh issue view`: an edit since the listing would slip past
+  it. A CANNOT CHECK from `--row` or `--next-id` means no row: leave it out and say so. If
   `Proposed-Scope` names `.claude/settings*.json`, a hooks directory, `.github/workflows/` or
   `scripts/ci/`, add an owner-queue line instead (the rule below). If a parallel PR takes the id,
   `roadmap-queue.sh --check` fails: re-run `--next-id` and renumber. The `new-row` label grants
