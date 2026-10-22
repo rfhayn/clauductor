@@ -97,9 +97,11 @@ bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$bran
 # Every transcript is read tagged: each line as `<file>\t<json>`, every file's last line ended, and
 # $tagged undoing it into one record with $file in scope. A transcript still being written ends in a
 # cut-off line: jq reading the files stops there, dropping every file after it, and `jq -R` joins it
-# to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped.
-tag() { awk '{ print FILENAME "\t" $0 }' "$@" 2>/dev/null; }
-tagged='split("\t") as [$file, $line] | $line | fromjson? // empty'
+# to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped. One
+# awk per file, since awk stops at a file it cannot open (one deleted since it was listed), and the
+# split is at the LAST tab: JSON on one line holds none raw, but a path may.
+tag() { for f in "$@"; do awk '{ print FILENAME "\t" $0 }' "$f" 2>/dev/null; done; }
+tagged='split("\t") | (.[:-1] | join("\t")) as $file | .[-1] | fromjson? // empty'
 # The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
 # message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
 wt="$main/.claude/worktrees/"
@@ -135,8 +137,8 @@ files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 [ -n "$files" ] || cannot "no transcript on this machine ran on $branch (under $projects/$slug*)"
 # An agent's own agents count with it (OPS-120). A nested agent records its LEAD session's cwd and
 # branch, not its parent's: a teammate lane's reviewers, and their /code-review agents, recorded the
-# hub session's main checkout and branch, so neither test above saw them, and OPS-93 read $22.13 of
-# an actual $55.84 mid-build. Claude Code writes each agent's parent beside its transcript
+# hub session's main checkout and branch, so neither test above saw them: OPS-93's pre-group check
+# read $22.13, and its archived $55.84 missed them too (it reads $85.30 with them). Claude Code writes each agent's parent beside its transcript
 # (agent-<id>.meta.json's parentAgentId), so every agent descended from one that counts whole (a
 # message in the change's worktree) counts whole too. The walk covers each such agent's whole
 # session (its subagents/ directory, at any depth), as lib/usage.sh's rootrole does: a workflow's
@@ -151,7 +153,8 @@ whole=$( [ -z "$sub" ] || tag $sub | jq -rR --argjson wts "$rootsjson" "$tagged"
            | $file' 2>/dev/null | sort -u)
 wholejson=$(printf '%s\n' "$whole" | jq -Rsc 'split("\n") | map(select(. != ""))')
 nested=$( [ -z "$whole" ] || printf '%s\n' "$whole" | sed 's|/subagents/.*|/subagents|' | sort -u \
-  | while read -r s; do find "$s" -name 'agent-*.meta.json' -exec jq -c '{f: input_filename, p: (.parentAgentId // "")}' {} + 2>/dev/null; done \
+  | while read -r s; do find "$s" -name 'agent-*.meta.json' 2>/dev/null; done | while read -r m; do tag "$m"; done \
+  | jq -cR "$tagged"' | {f: $file, p: (.parentAgentId // "")}' 2>/dev/null \
   | jq -rs --argjson whole "$wholejson" '
       def ses: sub("/subagents/.*"; ""); def aid: sub(".*/agent-"; "") | sub("\\.(jsonl|meta\\.json)$"; "");
       def grow($m; $in): ([ $m[] | select(.p != null and $in[.p]) | {key: .k, value: true} ] | from_entries) as $add
