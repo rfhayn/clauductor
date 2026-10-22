@@ -14,6 +14,44 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 8 — 2026-10-22 — Rich — the panel runs the plan, and change-cost counts nested agents
+
+**Rows**: OPS-111, OPS-120 · **Span**: 2026-10-22
+
+### What happened
+
+Started from the panel's **ops** template as the lane `ops-111-panel-runs-the-plan`, with the task typed in (the owner queue's step 9):
+- **OPS-111 merged as #205** at 4:58 PM ET (squash `754a8cdb`). Up next now follows the session plan as `origin/main` has it, through `.claude/roadmap-plan.sh`. The propose template offers the first planned change row with no proposal, and reads waiting proposals from change branches too. The ops template builds the named row through merge. `.clauductor/panel.json` sets `lanes_auto_close: "on_merge"`. Review converged in 4 rounds at peak medium; round 4's three lows went into OPS-120's PR.
+- **OPS-120 merged as #206** at 6:07 PM ET (squash `f0768617`). `change-cost.sh` walks each session's `subagents/` tree by `parentAgentId` to a fixpoint, so an agent's own agents count with it. It reads each transcript and meta on its own, so a cut-off line or a vanished file drops nothing after it. OPS-93 now reads **$85.30**, against $64.88 before (and $22.13 when its build checked). Propose's context reads its roadmap, specs and scenario IDs from `origin/main`. Review converged in 4 rounds at peak medium (rounds 1 and 2 medium); the full gate passed on `7892787c`.
+
+### Decisions the owner made
+- **OPS-122 goes last in S11**, before any parallel gate slot is built.
+- **OPS-100 runs as a claude.ai cloud session beside S9**, on the owner's promotional Claude Code credit ($152 left, expiring 2026-11-05). It lands before S10's OPS-108, and the owner merges it (#178). The owner starts the session (owner queue).
+
+### What went wrong
+- **`gh pr merge --delete-branch` failed again after merging** #206 ("'main' is already used by worktree"), as it did for #203. The remote branch was deleted by hand. A known shape, not yet owned: it costs one command.
+
+### What surprised us
+- **A nested agent's transcript names the lead session's cwd and branch**, not its parent's. So the old filter missed every builder and reviewer a teammate lane spawned, and the only link is `parentAgentId` in the meta file.
+- **`jq -R` over several files is one stream.** A cut-off last line joins the next file's first and both are dropped. `lib/usage.sh` has the same shape: filed as **#207** (team-queue, bug).
+
+### Compound
+- **Logged:** *nested agents carry the lead's cwd* (Fixed → #206) and *`jq -R` over files joins a cut-off line* (Fixed → #206; `lib/usage.sh` owned by #207). *change-cost misses nested agents mid-build* is now Fixed → #206.
+- **Decided:** *a lane's gate fails late in the sandbox* and *archive finds the spec gaps*, both Not promoted (one occurrence each; reasons in their rows).
+
+### Left in flight (handed off)
+- **OPS-100** moves to S9, as a cloud session the owner starts (owner queue).
+- **#206's lows, left as stated in its PR:** one 145-column comment line; transcript lists split on blanks (older than the PR); the cut-off-meta test catches its mutant only in some directory orders; the last-tab split mutant survives (no fixture has a tab in a path).
+- **`change/ops-42-build` and `change/panel-31-build`** (2026-10-13) stay for their rows' builds to resume, as in session 7.
+- **Team queue:** no item was worked; #207 was filed.
+- **The owner's step after #205:** pull the main checkout, then `clauductor panel trust` (owner queue).
+
+### Flow and cost
+- **Flow (30 days, to 10-22):** cycle 1.2h median, lead 2.5h, 30.3 merges a week, change-fail 5.6%, approval wait 4.6h, review rounds 2.4, spend $821.2 a week, 25 in flight (Haiku 5.5 unpriced).
+- **This session's cost** (usage-report.sh, list price, this machine, before the close's gate; session `2651dcad`): about **$27.58**:
+  - the session, Opus 5.5: $17.85;
+  - reviewer, Opus 5.5: $9.73 (8 rounds over two PRs, peak medium in each).
+
 ## Session 7 — 2026-10-22 — Rich — the parallel-gate spike: a pair costs little, but its tests' waits break
 
 **Rows**: OPS-105 · **Span**: 2026-10-22
