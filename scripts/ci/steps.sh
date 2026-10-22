@@ -96,14 +96,15 @@ race_scope() {
 # ── One run of each shared check (OPS-89) ──────────────────────────────────────────────────────
 # The gate runs two check sets over one model: this repo's (.claude/checks, ROOT = this repo) and
 # the template's (template/.claude/checks, ROOT = template/). The template's set always runs whole.
-# The checks in CHECKS_ONCE read nothing from ROOT but the model's framework files (they build their
-# own fixtures from them), so while every framework file here is the template's byte for byte, the
-# template's run of one is a run of exactly what this repo's would be, and this repo's set leaves it
-# out (run.sh's CHECKS_SKIP). Every other check reads state that differs between the two ROOTs (the
-# records, project.conf, settings.json, model-roles.json, panel.json, steps.sh, .claude/local, git
-# history) and runs in both. The reason for each is beside it; .claude/checks/check-sets.sh holds
-# the rest: every check of either directory runs in at least one set, and only these are left out.
-# A check added to the model runs in both sets until someone reads it and adds it here.
+# The checks in CHECKS_ONCE read from ROOT only the model's framework files (they build their own
+# fixtures from them) and project.conf values that are the same in both, so while both hold
+# (framework_matches_template), the template's run of one is a run of exactly what this repo's would
+# be, and this repo's set leaves it out (run.sh's CHECKS_SKIP). Every other check reads state that
+# differs between the two ROOTs (the records, settings.json, model-roles.json, panel.json, steps.sh,
+# .claude/local, git history) and runs in both. The reason for each is beside it;
+# .claude/checks/check-sets.sh holds the rest: every check of either directory runs in at least one
+# set, and only these are left out. A check added to the model runs in both sets until someone reads
+# it and adds it here.
 # Each reads from ROOT only model files it copies into a fixture or greps (2026-10-21, OPS-89):
 #   archive-change   .claude/archive-change.sh and .claude/examples, run on fixture changes
 #   artifacts        modules/artifacts, run on fixture repos (its guard rule, its context sections)
@@ -126,19 +127,59 @@ race_scope() {
 # and health-lines read ROOT's records and workflows; the rest read the records themselves.
 CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register write-surfaces"
 
+# The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
+# (check-sets.sh fails one that names any). Every other key must be the same in both.
+CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT"
+
+# framework_verdict: reads `clauductor diff --json` on stdin; passes when every framework file is the
+# template's (an extra file passes only under .claude/checks/: a check of this repo's own, which this
+# set runs), else prints the ones that are not and fails. Fails closed: no report, or one without
+# its file list, fails.
+framework_verdict() {
+  # `dest` is the project's path (an extra file has only that); `path` the template's.
+  _fv=$(jq -er 'if (.files | type) != "array" then error("no file list") else
+    [.files[] | select(.tier == "framework")
+      | (if (.dest // "") != "" then .dest else .path end) as $p
+      | select(.status != "identical" and (.status != "extra" or ($p | startswith(".claude/checks/") | not)))
+      | "\(.status) \($p)"] | join(", ") end' 2>/dev/null) || { echo "the framework diff gave no report"; return 1; }
+  [ -z "$_fv" ] || { echo "$_fv"; return 1; }
+}
+
+# conf_values DIR: DIR's effective project.conf (over conf.sh's defaults), one KEY=value a line, but
+# ROOT and CONF_NOT_READ. conf_differs DIR DIR: the keys whose values differ; fails closed, naming
+# the directory, when either cannot be read.
+conf_values() {
+  _cv_root=$(cd "$1" 2>/dev/null && pwd) || return 1
+  _cv_skip="ROOT|PWD|OLDPWD|PPID|SHLVL|RANDOM|SECONDS|LINENO|BASH[A-Z_]*"
+  for _cv_k in $CONF_NOT_READ; do _cv_skip="$_cv_skip|$_cv_k"; done
+  # An empty environment, so the caller's variables (this function's own included) are not read.
+  env -i PATH="$PATH" HOME="${HOME:-/}" ROOT="$_cv_root" sh -c 'cd "$ROOT" && . ./.claude/lib/conf.sh >/dev/null 2>&1 && set' \
+    | LC_ALL=C grep -aE '^[A-Z][A-Z0-9_]*=' | LC_ALL=C grep -avE "^($_cv_skip)="
+}
+conf_differs() {
+  _cd_a=$(conf_values "$1") && [ -n "$_cd_a" ] || { echo "(unreadable in $1)"; return 0; }
+  _cd_b=$(conf_values "$2") && [ -n "$_cd_b" ] || { echo "(unreadable in $2)"; return 0; }
+  { printf '%s\n' "$_cd_a" | sed 's/^/a /'; printf '%s\n' "$_cd_b" | sed 's/^/b /'; } \
+    | LC_ALL=C awk '{ s = substr($0, 1, 1); l = substr($0, 3); k = l; sub(/=.*/, "", k); v[s, k] = l; keys[k] = 1 }
+        END { for (k in keys) if (v["a", k] != v["b", k]) print k }' | sort | tr '\n' ' ' | sed 's/ $//'
+}
+
 # framework_matches_template: every framework file of this repository is the template's, byte for
-# byte. The authority is `clauductor diff` (the tiers install and update use), built from this
-# checkout's source, as the plugin step runs it. Prints what differs when it does not match.
+# byte, and the project.conf values a CHECKS_ONCE check can read are the same. The authority on the
+# files is `clauductor diff` (the tiers install and update use), built from this checkout's source,
+# as the plugin step runs it. Prints what differs when they do not match.
 framework_matches_template() {
   _ft=$(mktemp -d "${TMPDIR:-/tmp}/framework.XXXXXX") || { echo "no temp directory"; return 1; }
   if ! (cd framework && go build -o "$_ft/clauductor" ./cmd/clauductor) >/dev/null 2>&1; then
     rm -rf "$_ft"; echo "the CLI does not build from framework/"; return 1
   fi
-  _fj=$(env -u CLAUDUCTOR_FRAMEWORK "$_ft/clauductor" diff --json --template-dir template 2>/dev/null); rm -rf "$_ft"
-  # identical, or extra (a check of this repo's own, such as race-scope.sh); anything else differs.
-  _fd=$(printf '%s' "$_fj" | jq -r '[.files[] | select(.tier == "framework" and .status != "identical" and .status != "extra") | "\(.status) \(.path)"] | join(", ")' 2>/dev/null) \
-    || { echo "the framework diff gave no report"; return 1; }
-  [ -z "$_fd" ] || { echo "$_fd"; return 1; }
+  if ! _fj=$(env -u CLAUDUCTOR_FRAMEWORK "$_ft/clauductor" diff --json --template-dir template 2>/dev/null); then
+    rm -rf "$_ft"; echo "the framework diff failed"; return 1
+  fi
+  rm -rf "$_ft"
+  _fd=$(printf '%s' "$_fj" | framework_verdict) || { echo "$_fd"; return 1; }
+  _fc=$(conf_differs . template)
+  [ -z "$_fc" ] || { echo "project.conf differs in $_fc"; return 1; }
 }
 
 # check_sets: sets CHECKS_LEFT, the checks this repo's set leaves to the template's, and says which.
@@ -165,8 +206,8 @@ gate_steps() {
   # many tests run sh checks over template/ in subprocesses, so a cached pass can be stale evidence.
   step "test (short)" sh -c 'cd framework && go test -short -count=1 ./...' || return 1
   # The template's checks, run in the template (they hold the model every project receives): all of
-  # them, CHECKS_ONCE included.
-  step "template checks" sh template/.claude/checks/run.sh || return 1
+  # them, CHECKS_ONCE included, and never a CHECKS_SKIP from the caller.
+  step "template checks" env CHECKS_SKIP= sh template/.claude/checks/run.sh || return 1
   # plugin/ is generated from template/; a template edit without a rebuild ships a stale plugin.
   step "plugin is current" sh -c 'root=$PWD; cd framework && go run ./cmd/clauductor plugin check --repo "$root"' || return 1
 

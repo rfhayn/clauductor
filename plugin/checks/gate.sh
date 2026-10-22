@@ -115,7 +115,8 @@ gate_steps() {
   step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
-  step "unit" sh -c '[ ! -f FAIL_UNIT ]' || return 1
+  # Fails if the caller's CHECKS_SKIP reached the steps (a checks/run.sh here would leave checks out).
+  step "unit" sh -c '[ ! -f FAIL_UNIT ] && [ -z "${CHECKS_SKIP+x}" ]' || return 1
   # Leaves a directory the clean room's cleanup cannot remove (a step that chmods its own output).
   if [ -f LOCK_CLEANUP ]; then mkdir -p locked/x && touch locked/x/f && chmod 555 locked/x; fi
   # Takes the lease away mid-run (another holder's nonce), as a reclaim by mistake would.
@@ -138,6 +139,8 @@ run; rc=$?
 expect_rc 0 "$rc" "a full clean run passes (steps saw the lease held)"
 [ "$(cat "$REC" 2>/dev/null)" = "$(printf '%s\tfull\tclean\tall' "$SHA")" ] && ok "it wrote '<sha> full clean all'" || fail "receipt after a clean run: $(cat "$REC" 2>/dev/null || echo none)"
 [ ! -e "$LOCK" ] && ok "the lease is released after the run" || fail "the lease directory is left behind: $LOCK"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CHECKS_SKIP="gate hooks" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+expect_rc 0 "$rc" "a CHECKS_SKIP in the caller's environment never reaches the gate's steps (no check is left out)"
 
 touch "$R/FAIL_SLOW"; run --quick; rc=$?
 expect_rc 0 "$rc" "--quick skips the full-only steps"
