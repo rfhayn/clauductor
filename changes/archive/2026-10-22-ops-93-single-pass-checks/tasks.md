@@ -83,6 +83,10 @@
 - 2026-10-22 group 2 (The weekly double pass and the record) built and reviewed: converged in 3
   round(s), peak low (rounds 1 and 2 medium; round 3 low). Quick gate passed on tree b22911efe,
   before round 3's two lows; the full gate (2.6) covers them.
+- 2026-10-22 merged (#199, 2baffde6), full gate PASS at 1ca79deb.
+- 2026-10-22 archived: actual cost $55.84 of budget $40 (OVER BUDGET by $15.84; the pre-group
+  check read $22.13 before group 1's rework, and the overrun came from group 1's four review rounds,
+  the owner's D1 amendment, and group 2's three)
 
 ## Decision log
 - 2026-10-19, group 1, task 1.1 baseline (worktree at bbc23074, Apple M5, 10 cores, before any
