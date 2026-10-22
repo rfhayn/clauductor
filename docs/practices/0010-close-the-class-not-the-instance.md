@@ -61,7 +61,7 @@ prompt's paragraph in place). `build-change` hands the class to the fixer with e
 tells it, on a second instance, to close the class, to name it in the Decision log, and to return
 `design-issue` for the owner when it cannot close it. `merge-pr` step 3 and `build-change`
 (`maxRounds`) cap the rounds. The prompt and the schema are eval triggers, so a change to either
-needs a passing eval receipt (`pr-merge-guard.sh` rule 13). OPS-106 owns what is left below.
+needs a passing eval receipt (`pr-merge-guard.sh` rule 13). OPS-110 owns what is left below.
 
 Known limits, so this is not read as full enforcement:
 - **The reviewer sees only part of the earlier rounds.** `build-change` passes it the findings the
