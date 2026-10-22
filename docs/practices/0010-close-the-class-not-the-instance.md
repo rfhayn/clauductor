@@ -53,12 +53,40 @@ often, a gate.
   a design change mid-build.
 
 ## Enforcement
-None yet. `merge-pr` step 3 and `build-change` (`maxRounds`) cap the rounds of a review, but
-nothing recognises a second instance of one class or asks for the class to be closed. A candidate
-mechanism, which the owner chose on accepting this record (2026-10-19): a line in the reviewer's
-prompt (`.claude/agents/reviewer.md`) asking it to name the class of each finding and whether an
-earlier round found it, so the fixer and the cap can act on it. OPS-97 owns it; until it merges,
-nothing executes this record.
+Partial. The reviewer's prompt (`.claude/agents/reviewer.md`, and the template's: OPS-97, the
+mechanism the owner chose on accepting this record, 2026-10-19) asks it to name each finding's
+class, and whether an earlier round found one of that class, in the finding's own `class` field,
+which the review schema in `build-change.js` requires (`checks/change-process.sh` holds the
+prompt's paragraph in place). `build-change` hands the class to the fixer with each finding and
+tells it, on a second instance, to close the class, to name it in the Decision log, and to return
+`design-issue` for the owner when it cannot close it. `merge-pr` step 3 and `build-change`
+(`maxRounds`) cap the rounds. The prompt and the schema are eval triggers, so a change to either
+needs a passing eval receipt (`pr-merge-guard.sh` rule 13). OPS-106 owns what is left below.
+
+Known limits, so this is not read as full enforcement:
+- **The reviewer sees only part of the earlier rounds.** `build-change` passes it the findings the
+  builder DISPUTES (`REVIEW_DISPUTED`), not every earlier finding; beyond those it has the Decision
+  log in `tasks.md` and the commit messages of committed groups. A second instance of a class
+  whose first was fixed with no Decision-log line reads as "first seen".
+- **Only prompts act on the class.** No code compares classes across rounds, and the round cap
+  does not read them: sending an unclosable class to the owner by round 3 is the fixer's and the
+  session's judgment.
+- **Only `build-change` asks for the field.** A review with no schema has none: the `reviewer`
+  agent, run by hand (`apply-change`, or `merge-pr` step 3), is asked for a `class:` line of its
+  own, and the session passes it on to the fixer only if it chooses to. `/code-review` (which
+  `merge-pr` step 3 offers first) and `reviewer-docs` are not asked for a class at all.
+- **A finding whose class field is blank** (a reviewer that disobeys the schema) has a class written
+  in its summary dropped from its identity across rounds by `build-change`'s `findingKey`, which
+  never reads the field's words: each aside in parentheses and each clause (between `. `, `; `,
+  ` — ` and ` – `) that carries a class marker (`class:`, `the class is`, `this class`,
+  `first seen`, a leading `one more`, `class … one more`), and a leading `Class: X:` up to the
+  colon that ends it. So two findings of one class in one file stay two. A class with none of
+  those markers stays in the key. A clause that uses any marker in its own sense ("This class
+  never closes its connection") is dropped with it, and so is a clause where the class is joined
+  to the finding (by a comma, a colon or a hyphen), so two such findings can share a key and read
+  as recurring. A finding WITH a class field keys on its summary as written, so one that also
+  repeats its class there keys with it; the eval receipt of 2026-10-21 holds none (all 38
+  findings filled the field, none with class wording in its summary).
 
 ## Related
 - OPS-86 (the merge path as one allowlisted command: the same practice applied to the merge guard)
