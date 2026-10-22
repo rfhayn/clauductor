@@ -107,6 +107,13 @@ for mode in full quick; do
     && ok "...and once the framework differs from the template, neither set leaves anything out" || fail "$mode, the framework differing: skips '$(cut -f2 "$S/differs.$mode" | tr '\n' ' ')' $(printf '%s' "$out" | tr '\n' ';')"
 done
 
+# The decision is a `==> ` line, so gate.sh's filtered output names what the gate left out.
+for m in 0 1; do
+  o=$(framework_matches_template() { return "$m"; }; check_sets)
+  case $o in "==> check sets: "*) ok "the check-sets decision is a step marker line (framework matching: $([ "$m" = 0 ] && echo yes || echo no))" ;;
+    *) fail "the check-sets decision is not a '==> check sets: ' line: $o" ;; esac
+done
+
 # ── 2. The judgement fails each breach ───────────────────────────────────────────────────────
 M="$S/match.full"
 once1=$(printf '%s\n' $CHECKS_ONCE | head -n 1)
@@ -158,12 +165,16 @@ printf 'GATE_RUN="infra/gate.sh"\n' >> "$C/b/.claude/project.conf"
 [ "$(conf_differs "$C/a" "$C/b")" = GATE_RUN ] && ok "...and any other key that differs is named (GATE_RUN)" || fail "project.conf: a GATE_RUN difference read as '$(conf_differs "$C/a" "$C/b")'"
 case $(conf_differs "$C/a" "$C/none") in *unreadable*) ok "...and a project.conf that cannot be read is a difference" ;; *) fail "an unreadable project.conf compared as equal" ;; esac
 # No CHECKS_ONCE check reads a key the comparison ignores.
-reads=""
-for n in $CHECKS_ONCE; do
-  for k in $CONF_NOT_READ; do
-    grep -nE "\\\$\\{?$k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$n.sh" >/dev/null 2>&1 && reads="$reads $n:$k"
+key_reads() {  # key_reads CHECKS KEYS: each `check:key` where a check names $KEY or ${KEY
+  for _n in $1; do
+    for _k in $2; do
+      grep -nE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$_n.sh" >/dev/null 2>&1 && printf ' %s:%s' "$_n" "$_k"
+    done
   done
-done
+}
+[ "$(key_reads modules MODULES)" = " modules:MODULES" ] && ok "falsified: the key-read scan finds a key a check reads (modules:MODULES)" \
+  || fail "the key-read scan misses modules reading MODULES: '$(key_reads modules MODULES)'"
+reads=$(key_reads "$CHECKS_ONCE" "$CONF_NOT_READ")
 [ -z "$reads" ] && ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)" \
   || fail "CHECKS_ONCE checks read keys the comparison ignores:$reads"
 
