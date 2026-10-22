@@ -101,6 +101,53 @@ t('grade: no findings is pass', gradeRound(true, []), 'pass')
 const k1 = findingKey(F('medium', 'src/a.ts', 'Null check missing on the user id path'))
 t('key: line numbers and punctuation do not matter', findingKey(F('medium', 'src/a.ts', 'Null-check missing on the user id path, again!')), k1)
 t('key: another file is another finding', findingKey(F('medium', 'src/b.ts', 'Null check missing on the user id path')) === k1, false)
+// The reviewer names each finding's class (OPS-97) in the schema's `class` field: the key never reads
+// it, so two findings of one class in one file are two findings, and a recurrence is one however its
+// class is reworded.
+const FC = (summary, cls) => ({ ...F('medium', 'src/a.ts', summary), class: cls })
+// A class with no marker word, so the summary fallback below cannot hide a key that reads the field.
+t('key: the class field is not the finding', findingKey(FC('Null check missing', 'a control that silently does nothing')), 'src/a.ts|null check missing')
+t('key: a recurrence whose class field changes is one key', findingKey(FC('Null check missing on the user id path', 'one more unchecked id; the class is a control that silently does nothing')), k1)
+t('key: two findings sharing a class field differ', findingKey(FC('The signature check only logs a mismatch', 'class X, first seen')) === findingKey(FC('The retry loop swallows every error', 'class X, first seen')), false)
+// With the field filled, a marker word in the summary is the finding's own: no fallback drops it.
+t('key: with a class field, "This class …" is the finding', findingKey(FC('This class never closes its DB connection. The fix is a finally block.', 'class X, first seen')) === findingKey(FC('This class swallows every parse error. The fix is a finally block.', 'class X, first seen')), false)
+t('key: a blank class field is no class field', findingKey(FC('Class: unchecked id, first seen. Null check missing on the user id path', ' ')), k1)
+// The fallback, for a summary that still carries its class: one finding is one key however its
+// class clause is worded.
+const kc = (s) => findingKey(F('medium', 'src/a.ts', s))
+t('key: a leading class clause is not the finding', kc('Class: a control that silently does nothing (first seen). Null check missing on the user id path'), k1)
+t('key: a class clause ended by a comma and "first seen"', kc('Class: a control that silently does nothing, first seen. Null check missing on the user id path'), k1)
+t('key: "one more X; the class is Y" is a class clause too', kc('One more unchecked id; the class is a control that silently does nothing. Null check missing on the user id path'), k1)
+t('key: "class Y, first seen" with no colon', kc('class a control that silently does nothing, first seen. Null check missing on the user id path'), k1)
+t('key: two findings of one class in one file differ', kc('Class: a control that silently does nothing (first seen). The signature check only logs a mismatch') === kc('Class: a control that silently does nothing (first seen). The retry loop swallows every error'), false)
+// The class's only marker sits before its dot: a clause cut at "package." would leave "json drift" in the key.
+t('key: a dot inside the class (package.json) does not end it', kc('Class: package.json drift. Null check missing on the user id path'), k1)
+t('key: ...nor a "Class: X:" class that ends at its colon', kc('Class: package.json drift: Null check missing on the user id path'), k1)
+// A stray ")" must not take the depth below zero, where no clause would ever end again.
+t('key: a stray close paren does not swallow the class clause after it', kc('Stray paren) in the loop. Class: unchecked id, first seen. Null check missing on the user id path'), kc('Stray paren) in the loop. Null check missing on the user id path'))
+// "one more" marks a clause only where it leads one; inside a sentence it is the finding's own words.
+t('key: a "one more" leading a later clause is dropped', kc('Null check missing; one more unchecked id. On the user id path'), k1)
+t('key: a "one more" inside a sentence keeps it', kc('The loop needs one more bound check. It reads past the end.'), 'src/a.ts|the loop needs one more bound')
+t('key: a summary that is only a class clause keys on itself', kc('Class: a control that silently does nothing (first seen).') === `src/a.ts|`, false)
+// A reviewer that writes the class in the summary anyway may put it anywhere, worded any way: the
+// clause or aside that carries a class marker is dropped, not a list of phrasings.
+t('key: "This class (…) is first seen." leading', kc('This class (a control that silently does nothing) is first seen. Null check missing on the user id path'), k1)
+t('key: two "This class … is first seen." findings differ', kc('This class (a control that silently does nothing) is first seen. The signature check only logs a mismatch') === kc('This class (a control that silently does nothing) is first seen. The retry loop swallows every error'), false)
+t('key: "Another of this class (…)." with no other marker', kc('Another of this class (a control that silently does nothing). Null check missing on the user id path'), k1)
+t('key: "First seen: X." leading', kc('First seen: a control that silently does nothing. Null check missing on the user id path'), k1)
+t('key: a class aside after a dash, early', kc('Null check missing — class: unchecked id, first seen. On the user id path'), k1)
+t('key: a nested aside is one aside', kc('Null check missing (class: an input guard (refunds.ts validates it), first seen) on the user id path'), k1)
+t('key: a nested-aside recurrence reworded "one more" is one key', kc('Missing guard (class: an input guard (refunds.ts validates it), first seen). The total is unchecked'), kc('Missing guard (class: an input guard (refunds.ts validates it), one more). The total is unchecked'))
+t('key: "class Y, one more." keys as "class Y, first seen." does', kc('class a control that silently does nothing, one more. Null check missing on the user id path'), k1)
+t('key: a "(class: …)" aside is dropped', kc('Null check missing (class: a control that silently does nothing, first seen) on the user id path'), k1)
+t('key: a "; the class is …" clause is dropped', kc('Null check missing; the class is a control that silently does nothing. On the user id path'), k1)
+t('key: a class clause ended by a colon', kc('Class: a control that silently does nothing (first seen): null check missing on the user id path'), k1)
+t('key: two findings of one class, the class mid-summary, differ', kc('Task untested (class: named behaviour with no test, first seen). Task 1.2 has no test') === kc('Task untested (class: named behaviour with no test, first seen). Task 1.3 has no test'), false)
+// No marker, no strip: a summary that only starts with a word like "class" keeps every word.
+t('key: "Classes …." keeps its first sentence', kc('Classes of user ids are unchecked. The handler trusts them.'), 'src/a.ts|classes of user ids are unchecked')
+t('key: "Classify …." keeps its first sentence', kc('Classify the input first. It drops every id.'), 'src/a.ts|classify the input first it drops')
+t('key: the noun "Class" with no marker keeps its sentence', kc('Class UserRepo does not close its connection. The pool runs dry.'), 'src/a.ts|class userrepo does not close its')
+t('key: "Class-level …." keeps its sentence', kc('Class-level lock is never released. The handler leaks it.'), 'src/a.ts|class level lock is never released')
 const R = (peak, actionable, keys, diffHash, disputedKeys) => ({ peak, actionable, keys, diffHash, disputedKeys })
 t('stuck: never in round 1', stuckReason([R('high', 2, [k1], 'h1')]), null)
 t('stuck: a fixed, undisputed finding back unchanged is recurring', (stuckReason([R('medium', 1, [k1], 'h1'), R('medium', 1, [k1], 'h2')]) || '').split(':')[0], 'recurring')
@@ -274,6 +321,10 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   let r = await run([finding(3)])
   const items = r.review && r.review.opts.schema.properties.findings.items
   t('the reviewer is asked which group holds each finding\'s source', !!items && items.required.includes('group') && !!items.properties.group, items && items.required)
+  t('the reviewer is asked for each finding\'s class in its own field (OPS-97)', !!items && items.required.includes('class') && !!items.properties.class, items && items.required)
+  r = await run([{ ...finding(3), class: 'one more unannounced link; the class is a partial write with no report' }])
+  t('a finding\'s class reaches the fixer, with what to do with a second instance', r.fix.includes('\n   class: one more unannounced link; the class is a partial write with no report') && r.fix.includes('close the class') && r.fix.includes('to the Decision log in changes/demo/tasks.md') && r.fix.includes('return design-issue naming it'), r.fix)
+  r = await run([finding(3)])
   t('a finding of the group\'s own keeps "Stay inside group 3." and does not lift it', r.fix.includes('Stay inside group 3.') && !r.fix.includes(LIFTED) && r.report.groups[0].rounds[0].outside === 0, r.fix)
   r = await run([finding(2, 'packages/service/src/leagues.ts')])
   t('a finding sourced in an EARLIER group lifts the boundary for it (source: group 2), and the run finishes', r.report.stoppedAt === null && r.fix.includes('source: group 2') && r.fix.includes(LIFTED) && r.report.groups[0].rounds[0].outside === 1, [r.report.stoppedAt, r.fix])

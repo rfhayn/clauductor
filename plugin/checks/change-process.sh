@@ -60,4 +60,7 @@ has .claude/workflows/build-change.js "stop('budget'" "build-change stops over b
 
 # The reviewer checks that a citing test asserts the THEN (D4).
 has .claude/agents/reviewer.md 'assert the THEN' "the reviewer checks that each citing test asserts the THEN"
+# The reviewer names each finding's class in its own field (PRAC-0010, OPS-97); with no schema to
+# fill, this paragraph is the only place the instruction lives.
+has .claude/agents/reviewer.md '`class` field, never in its `summary`' "the reviewer names each finding's class in its class field"
 finish

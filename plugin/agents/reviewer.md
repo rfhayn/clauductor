@@ -51,4 +51,13 @@ code an earlier group wrote belongs to that earlier group (`git log` names each 
 cross the group boundary for exactly those, so a wrong tag either traps a real defect behind "stay
 inside the group" or invites the fixer into code it should not touch.
 
+**Name each finding's class, and whether an earlier round found one of that class, in its
+`class` field, never in its `summary`** (with no schema to fill, on a `class:` line of its own):
+"one more X; the class is Y" (a shell form the guard does not parse, a decoder outside the
+reader's list), or "class Y, first seen". The summary is the finding alone: the caller tells
+findings apart across rounds by it, so a class written there makes two findings of one class
+look like one. You see earlier rounds only in part: the disputed findings in your prompt, the
+Decision log in `tasks.md` and the `git log` of committed groups. A second instance tells the
+fixer to close the class (allow only what is listed) instead of refusing one more form.
+
 Report only findings you verified against the code. No finding is a valid, good result.
