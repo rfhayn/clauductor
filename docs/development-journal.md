@@ -97,7 +97,8 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
 - **New rows from this close:** OPS-119 (`clauductor update`'s drift, S12), OPS-120 (`change-cost.sh` and nested agents, S10, before S11 builds the next change), OPS-121 (OPS-93's `exec` window, S9). OPS-104 gains R1b's two lows.
 - **Outcome checks:** o.1 (PANEL-29's lane dialog), due 10-19 and never run because the owner has had no working panel, is re-dated to 10-30, for the first week of panel lanes. o.8 (OPS-93) needs Actions minutes (OPS-98).
 - **Follow-ups owned by issues:** #168 (OPS-105's data decides it at S10), #184 (OPS-89, S9), #187, #190 and #191 (PANEL-46's piece with the stalled state), #195 and #196 (S13).
-- **Remote branches carried over, not this session's:** `change/ops-42-build` and `change/panel-31-build` (WIP, as session 5 left them). The merged leftovers `fix/92-daemon-lease-flake` (#169) and `ops/ops-96-s6-tidy` (#166) are pruned at this close.
+- **Remote branches carried over, not this session's:** `change/ops-42-build` and `change/panel-31-build` (WIP, as session 5 left them). The merged leftovers `fix/92-daemon-lease-flake` (#169) and `ops/ops-96-s6-tidy` (#166) still sit on the remote, each at its merged PR's head. The classifier refused this close's delete, so the owner deletes them.
+- **Machine:** the merged local branches of OPS-82, OPS-89, OPS-93 (its build and its archive), PANEL-51 (its build and its archive) and OPS-101's R1b were bundled into `.git/clauductor/branch-archive-2026-10-22.bundle` and verified, then deleted. Their four clean worktrees were removed.
 
 ### Flow and cost
 - **Flow (30 days, to 10-22):** cycle 1.3h median, lead 2.6h, 29.2 merges a week, change-fail 5.9%, approval wait 4.6h, review rounds 2.4, spend $808.25 a week, 26 in flight (Haiku 5.5 unpriced).
