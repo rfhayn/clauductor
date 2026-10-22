@@ -38,6 +38,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # change's worktree, so an unrelated agent passing through (a reviewer of another PR, a
 # session-close sweep) is billed whole. And a lead in the MAIN checkout that records the change's
 # stale branch counts, though its work there is not the change's.
+# AN AGENT'S OWN AGENTS (OPS-120) record the lead's cwd and branch too, never the parent's, so a
+# reviewer a teammate lane spawned may never touch the worktree: each agent descended (by its
+# .meta.json's parentAgentId) from one that counts whole counts whole.
 #
 # Each message counts once (a streamed message repeats its id), priced at the list prices in
 # .claude/model-roles.json `.prices` (dollars per million tokens). It is an ESTIMATE at list price,
@@ -122,6 +125,28 @@ wfiles=$(printf '%s\n' "$roots" | while read -r r; do [ -n "$r" ] || continue
   for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$r" "$p" 2>/dev/null; done; done)
 files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 [ -n "$files" ] || cannot "no transcript on this machine ran on $branch (under $projects/$slug*)"
+# An agent's own agents count with it (OPS-120). A nested agent records its LEAD session's cwd and
+# branch, not its parent's: a teammate lane's reviewers, and their /code-review agents, recorded the
+# hub session's main checkout and branch, so neither test above saw them, and OPS-93 read $22.13 of
+# an actual $55.84 mid-build. Claude Code writes each agent's parent beside its transcript
+# (agent-<id>.meta.json's parentAgentId), so every agent descended from one that counts whole (a
+# message in the change's worktree) counts whole too.
+sub=$(printf '%s\n' "$files" | grep '/subagents/')
+# shellcheck disable=SC2086
+whole=$( [ -z "$sub" ] || jq -r --argjson wts "$rootsjson" 'select(.type == "assistant" and .message.usage != null)
+           | (.cwd // "") as $c | select(any($wts[] as $w | $c == $w or ($c | startswith($w + "/")); .))
+           | input_filename' $sub 2>/dev/null | sort -u)
+nested=""; new=$whole
+while [ -n "$new" ]; do
+  new=$(printf '%s\n' "$new" | while read -r f; do
+          a=$(basename "$f" .jsonl)
+          grep -lE "\"parentAgentId\"[[:space:]]*:[[:space:]]*\"${a#agent-}\"" "$(dirname "$f")"/agent-*.meta.json 2>/dev/null
+        done | sed 's/\.meta\.json$/.jsonl/' | while read -r k; do [ -f "$k" ] && echo "$k"; done \
+        | grep -vxF -e "$whole" -e "$nested" -e '' | sort -u)
+  nested=$(printf '%s\n%s\n' "$nested" "$new" | grep -v '^$')
+done
+nestedjson=$(printf '%s\n' "$nested" | jq -Rsc 'split("\n") | map(select(. != ""))')
+files=$(printf '%s\n%s\n' "$files" "$nested" | grep -v '^$' | sort -u)
 
 # shellcheck disable=SC2086
 jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" '
@@ -131,9 +156,9 @@ jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$roo
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
            and ($inwt or ($cwd | startswith($lanes) | not))),
      inwt: $inwt}' $files 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" "$USAGE_JQ_DEFS"'
+| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson nested "$nestedjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
-  | [ group_by(.f)[] | ((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) as $agent
+  | [ group_by(.f)[] | (((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) or (.[0].f | IN($nested[]))) as $agent
       | .[] | select(.onb or .inwt or $agent) ]
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
   | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd

@@ -213,6 +213,21 @@ cost --json
 # `live`, now removed, is rejected as well: its one session ended there on ops/foreign (a known limit).
 [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\"]" ] && ok "change-cost: a lane is voted by session across its files and in time order; one session's vote for the branch takes it" || fail "change-cost, session votes: $(cat "$d/out")"
 cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another branch was recorded there last)"*) ok "change-cost names the rejected lanes in its one line" ;; *) fail "change-cost text, rejected lanes: $(cat "$d/out")" ;; esac
+# OPS-120: a teammate lane's own agents record the hub session's cwd (the main checkout) and branch,
+# never the lane's: OPS-93's reviewers and their /code-review agents did. Each names its parent in
+# its .meta.json, so a descendant of an agent that counts whole counts whole, at any depth; an agent
+# whose parent does not count, and a meta with no transcript, do not.
+N="$P/$slug/hub/subagents"; mkdir -p "$N"
+msg n1 claude-haiku-4-5-20251001 ops/hub "$main/.claude/worktrees/lane" 1000000 0 > "$N/agent-tm.jsonl"   # $1.00, the teammate
+msg n2 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-rv.jsonl"                          # $1.00, its reviewer
+printf '{"agentType":"reviewer","parentAgentId":"tm","spawnDepth":1}\n' > "$N/agent-rv.meta.json"
+msg n3 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-cr.jsonl"                          # $1.00, the reviewer's /code-review
+printf '{"agentType":"general-purpose", "parentAgentId": "rv", "spawnDepth":2}\n' > "$N/agent-cr.meta.json"
+msg n4 claude-haiku-4-5-20251001 ops/hub "$main" 1000000 0 > "$N/agent-un.jsonl"                          # another agent's child
+printf '{"parentAgentId":"elsewhere"}\n' > "$N/agent-un.meta.json"
+printf '{"parentAgentId":"tm"}\n' > "$N/agent-gone.meta.json"
+cost --json
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 36 ] && ok "change-cost: a teammate's reviewer and that reviewer's own agent count with the teammate, by parentAgentId; an unrelated agent does not" || fail "change-cost, nested agents: $(cat "$d/out")"
 rm -rf "$P/$slug" "$P/$slug--claude-worktrees-lane"
 cost; rc=$?
 expect_rc 2 "$rc" "change-cost with no transcript on the branch exits 2"

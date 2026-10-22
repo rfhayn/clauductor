@@ -20,10 +20,12 @@ for d in "$CHANGES_DIR"/*/; do
   echo "    $n ($st)"; found=1
 done
 [ -n "$found" ] || echo "    none"
-# Main's ids, live or archived, and its open rows, as panel-suggest.sh reads them: from origin, else
-# this tree (a main checkout lags what the lanes merged).
+# Main's ids, live or archived, and its roadmap (the open rows, the queue, the budgets), as
+# panel-suggest.sh reads them: from origin, else this tree (a main checkout lags what the lanes
+# merged). tmp is set here, so an inherited one is never the file the trap removes.
 main="origin/$MAIN_BRANCH"
-road="$ROADMAP"
+road="$ROADMAP"; tmp=""
+trap 'rm -f "$tmp"' EXIT
 if git rev-parse -q --verify "$main^{commit}" >/dev/null 2>&1; then
   skip=$(git ls-tree --name-only "$main" "./$CHANGES_DIR/" "./$CHANGES_DIR/archive/" 2>/dev/null)
   tmp=$(mktemp "${TMPDIR:-/tmp}/propose-roadmap.XXXXXX") && git show "$main:./$ROADMAP" > "$tmp" 2>/dev/null && road=$tmp
@@ -32,7 +34,6 @@ else
 fi
 skip=$(printf '%s\n' "$skip" | sed 's|.*/||; s/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//' | tr '\n' ' ')
 open=$(roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ')
-[ -n "${tmp:-}" ] && rm -f "$tmp"
 echo "- Proposed on a branch (local or origin) for an open row, not on $MAIN_BRANCH (branch_proposals, panel-suggest.sh's reading):"
 props=$(branch_proposals "$skip" "$open")
 [ -n "$props" ] || echo "    none"
@@ -43,11 +44,11 @@ printf '%s\n' "$props" | while IFS="$(printf '\t')" read -r i st b; do
   echo "    $i on $b ($st; $code non-doc file(s) changed)"
 done
 echo "- Change queue:"
-roadmap_queue --text 2>&1 | ind
+roadmap_queue --text "$road" 2>&1 | ind
 echo "- Living specs ($SPECS_DIR/):"
 ls "$SPECS_DIR" 2>/dev/null | grep -v README.md | ind
 echo "- Budgets on queued rows (repeat the row's in proposal.md):"
-roadmap_queue --tsv 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
+roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
 echo "- Scenario IDs already taken (living specs and archived changes; never reuse one):"
 for s in "$SPECS_DIR"/*/spec.md "$CHANGES_DIR"/archive/*/specs/*/spec.md; do
   [ -f "$s" ] && spec_scenarios "$s" | awk -F'\t' '$3 != "-" { print $3 }'
