@@ -1,0 +1,63 @@
+# The weekly double pass (OPS-93, ADR-0006's 2026-10-18 amendment). Every gate now runs the process
+# checks once, inside the no-clauductor environment; that gives up the case of a check that passes
+# without clauductor but fails WITH it on PATH, with the caller's HOME, or with CI set. This job runs
+# the old double pass (CHECKS_DOUBLE_PASS=1: every check in the runner's own environment, with a
+# freshly built clauductor on PATH and CI=true, then no-clauductor.sh's second run without it) over
+# both sets on main, so such a check is found days after merge instead of before it.
+#
+# Its reader: a scheduled run reaches no PR and no person, so .claude/health/scheduled-workflows.sh
+# lists this workflow (from its own `schedule:` key) and its last run at session start. What makes
+# this file exist and keep its parts: .claude/local/checks/double-pass.sh (local:double-pass).
+# The setup copies test.yml's (Go, tmux, the OpenSpec CLI, OPENSPEC_REQUIRED and NODE_REQUIRED), so
+# the job runs the same set a pull request does. Actions are pinned to test.yml's SHAs; no secrets.
+name: checks-double-pass
+
+on:
+  schedule:
+    - cron: "41 7 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  double-pass:
+    runs-on: ubuntu-latest
+    # Two sets, each run twice: about half an hour on a hosted runner.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: framework/go.mod
+          cache-dependency-path: framework/go.sum
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux && tmux -V
+      - name: Install the OpenSpec CLI
+        run: npm install -g @fission-ai/openspec@1.13.2 && openspec --version
+        env:
+          DO_NOT_TRACK: "1"
+          OPENSPEC_TELEMETRY: "0"
+      # The binary the single pass hides: built from this commit and put on PATH for every later step.
+      - name: Build clauductor onto PATH
+        working-directory: framework
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -o "$RUNNER_TEMP/bin/clauductor" ./cmd/clauductor
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: clauductor is on PATH
+        run: command -v clauductor
+      # Each set is its step's entire command, so the set's exit status is the step's and nothing in
+      # between can swallow it (local:double-pass refuses any other form). The template's set runs
+      # even when this repo's fails (!cancelled()), so one run reports both.
+      - name: The double pass, this repo's set
+        run: CHECKS_DOUBLE_PASS=1 sh .claude/checks/run.sh
+        env:
+          OPENSPEC_REQUIRED: "1"
+          NODE_REQUIRED: "1"
+      - name: The double pass, the template's set
+        if: ${{ !cancelled() }}
+        run: CHECKS_DOUBLE_PASS=1 sh template/.claude/checks/run.sh
+        env:
+          OPENSPEC_REQUIRED: "1"
+          NODE_REQUIRED: "1"

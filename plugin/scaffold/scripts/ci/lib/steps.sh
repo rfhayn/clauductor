@@ -6,8 +6,11 @@
 #   model_steps                      the two every gate runs: scenario trace, then secrets
 #   model_step_scenario_trace [SHA]  .claude/scenario-trace.sh --check (--rev SHA: at that commit)
 #   model_step_secrets               gitleaks over the tracked files and the branch's commits
-#   model_step_checks                the process checks (.claude/checks/run.sh)
-#   model_step_no_clauductor         checks/no-clauductor.sh on its own (D10), where it exists
+#   model_step_checks                the process checks (.claude/checks/run.sh): the step a gate calls
+#   model_step_no_clauductor         checks/no-clauductor.sh on its own (D10), where it exists: only
+#                                    for a gate that cannot run the whole set. It re-runs this
+#                                    directory's checks, never the modules' or .claude/local's, and
+#                                    beside model_step_checks it pays for the double pass again
 #   model_publish_status pass|fail SHA   after a FULL run: the ci-status module's commit status on
 #                                    SHA, DISPLAY only (a no-op unless MODULES names ci-status)
 #

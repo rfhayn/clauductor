@@ -4,6 +4,13 @@
 # expect_rc WANT GOT MSG compare exit codes
 # scratch                a fresh temp dir, removed on exit
 # payload CMD [CWD]      a Bash PreToolUse payload for CMD, as JSON (needs jq)
+# bare_env; bare CMD     build the no-clauductor environment (ADR-0006: BARE_DIR, BARE_PATH,
+#                        BARE_HOME), then run CMD inside it (bare_exec CMD: the same, replacing
+#                        this shell)
+# bare_assert            0 inside that environment, 1 (and why) outside it under a whole-set run,
+#                        2 run alone or under CHECKS_DOUBLE_PASS=1
+# bare_report            bare_assert reported as ok or fail (returns 0 or 1); 2: the caller re-runs
+# unmarked CMD           run CMD with CHECKS_BARE, CHECKS_SET and CHECKS_DOUBLE_PASS cleared
 #
 # A check that cannot run what it checks must FAIL, never pass: a skipped check reads exactly
 # like a passing one (*A control needs a named addressee*: a green result names its subject).
@@ -33,6 +40,7 @@ need() {
 # pwd -P: macOS reaches /var through a symlink, and git reports the resolved path.
 _scratch=$(mktemp -d "${TMPDIR:-/tmp}/checks.XXXXXX") && _scratch=$(cd "$_scratch" && pwd -P)
 # people.sh widens these two traps around its decoy and its #71 block, restoring them word for word: change all together.
+# They read $_scratch when they fire: run.sh's inner run points it at the environment to remove.
 trap 'rm -rf "$_scratch"' EXIT
 trap 'rm -rf "$_scratch"; exit 1' INT TERM
 scratch() { printf '%s' "$_scratch"; }
@@ -40,6 +48,79 @@ scratch() { printf '%s' "$_scratch"; }
 payload() {
   jq -cn --arg c "$1" --arg d "${2:-}" '{tool_name:"Bash", cwd:$d, tool_input:{command:$c}}'
 }
+
+# ── The no-clauductor environment (ADR-0006): PATH without clauductor, and a HOME with no panel ──
+# One helper for checks/run.sh (a whole-set run builds it once and runs every check inside it) and
+# checks/no-clauductor.sh (run alone, or under CHECKS_DOUBLE_PASS=1, it re-runs the set inside it),
+# so the two cannot drift. bare_env builds it in this script's scratch: BARE_DIR is its directory
+# (CHECKS_BARE's value), BARE_HOME ($BARE_DIR/home) its HOME, BARE_PATH its PATH; BARE_* names, so a
+# caller's own np, H or p is never overwritten. bare overrides only HOME, PATH, CI and
+# CLAUDUCTOR_LOCK_HELD; every other exported variable passes through, the CHECKS_* markers included.
+bare_env() {
+  BARE_DIR="$(scratch)/bare"; mkdir -p "$BARE_DIR"
+  # A directory that holds clauductor is replaced by a copy of it made of links to everything else,
+  # so dropping the binary never drops jq, git or node installed beside it.
+  BARE_PATH=""; _bi=0; _bifs=$IFS; IFS=:
+  for _bp in $PATH; do
+    if [ -n "$_bp" ] && [ -e "$_bp/clauductor" ]; then
+      _bi=$((_bi + 1)); _bf="$BARE_DIR/path$_bi"; mkdir -p "$_bf"
+      for _bx in "$_bp"/* "$_bp"/.[!.]*; do
+        [ -e "$_bx" ] || continue
+        [ "${_bx##*/}" = clauductor ] || ln -s "$_bx" "$_bf/${_bx##*/}" 2>/dev/null
+      done
+      _bp=$_bf
+    fi
+    BARE_PATH="$BARE_PATH${BARE_PATH:+:}$_bp"
+  done
+  IFS=$_bifs
+  BARE_HOME="$BARE_DIR/home"; mkdir -p "$BARE_HOME"
+  # A contributor without clauductor still has a git identity.
+  printf '[user]\n\tname = check\n\temail = check@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' > "$BARE_HOME/.gitconfig"
+}
+# bare_exec replaces the calling shell with CMD (run.sh `exec`s itself into the environment); bare
+# is the same in a subshell, for every other caller.
+bare_exec() { exec env HOME="$BARE_HOME" PATH="$BARE_PATH" CI= CLAUDUCTOR_LOCK_HELD= "$@"; }
+bare() { (bare_exec "$@"); }
+
+# bare_assert: where this check runs, from the real state, never the marker alone (a stale or
+# exported CHECKS_BARE must not pass a run that stripped nothing). With CHECKS_BARE set: 0 when
+# clauductor is off PATH, HOME is the environment's, and HOME has no ~/.clauductor; else 1. Under a
+# whole-set run with no environment (CHECKS_SET=whole, no CHECKS_BARE, no CHECKS_DOUBLE_PASS=1): 1.
+# Otherwise (run alone, or the double pass): 2. A 1 prints why.
+bare_assert() {
+  if [ -n "${CHECKS_BARE:-}" ]; then
+    if command -v clauductor >/dev/null 2>&1; then
+      echo "CHECKS_BARE is set, but clauductor is on PATH ($(command -v clauductor))"; return 1
+    fi
+    if [ "${HOME:-}" != "$CHECKS_BARE/home" ]; then
+      echo "CHECKS_BARE is set, but HOME is ${HOME:-unset}, not the environment's $CHECKS_BARE/home"; return 1
+    fi
+    if [ -e "$HOME/.clauductor" ]; then
+      echo "CHECKS_BARE is set, but $HOME/.clauductor exists"; return 1
+    fi
+    return 0
+  fi
+  if [ "${CHECKS_SET:-}" = whole ] && [ "${CHECKS_DOUBLE_PASS:-}" != 1 ]; then
+    echo "a whole-set run.sh ran the checks outside the no-clauductor environment (CHECKS_SET=whole, no CHECKS_BARE)"; return 1
+  fi
+  return 2
+}
+# bare_report: bare_assert's answer as a result, for no-clauductor.sh's part 2 and the fixture that
+# falsifies it, so both run this code: 0 reported ok (inside the environment), 1 reported fail (and
+# why), 2 reported nothing (run alone or the double pass: the caller re-runs the set).
+bare_report() {
+  _bw=$(bare_assert); _brc=$?
+  case $_brc in
+    0) ok "the process checks run inside the no-clauductor environment ($CHECKS_BARE), started by a whole-set run.sh: not run again" ;;
+    1) fail "$_bw" ;;
+  esac
+  return $_brc
+}
+
+# unmarked CMD: CMD with the run markers cleared (empty reads as unset everywhere), for a check that
+# starts a whole-set run.sh or a no-clauductor.sh of its own: it sets the ones its case needs after
+# this, and never inherits the run it is inside.
+unmarked() { env CHECKS_BARE= CHECKS_SET= CHECKS_DOUBLE_PASS= "$@"; }
 
 # new_repo DIR: an empty git repo with one commit, identity set, quiet.
 new_repo() {

@@ -276,7 +276,7 @@ build.
 
 | # | Change | Scope | Deps | Status |
 |---|--------|-------|------|--------|
-| REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
+| REL-1 | `feature/REL-1-release` — v0.1.0: public README, changelog, release builds and install paths. The `[0.1.0]` notes carry, in *Changed* (OPS-93, its design's D8): "A project's own process checks (a module's, or one in `.claude/local/checks`) now run without the caller's `HOME` (its gh login, ssh keys and git signing) and with `CI` empty. A check that needs any of these fails after `update`: set it up in the check's own scratch, as the template's checks do, or set `CHECKS_DOUBLE_PASS=1` while you fix it." | `README.md`, `CHANGELOG.md`, `.github/workflows/release*.yml`, `install.sh` | — | ⬜ in flight (#25) |
 | REL-2 | `ops/rel-2-install-kit` — release builds cross-compile with CGO_ENABLED=0 (and CI proves it per PR); install, init and the plugin's init report missing tools with per-OS hints; a starter `.gitleaks.toml` the project owns; install.sh offers, never installs unasked | `scripts/build-release.sh`, `.github/workflows/release-build.yml`, `template/.claude/prereqs.sh`, `template/.gitleaks.toml`, `install.sh` | REL-1 | ✅ merged (#60) |
 | OPS-28 | `ops/ops-28-restore-macos-pr-ci` — roll OPS-26 back: a pull request's CI runs macOS and Ubuntu again (keep the superseded-run cancel). OPS-26 was a temporary speed-up for getting the first release out; start this once REL-1 has merged and the owner says the release is settled | `.github/workflows/test.yml`, `CLAUDE.md`, `docs/panel.md`, `scripts/ci/steps.sh` | OPS-26, REL-1 | ⬜ queued |
 
