@@ -102,17 +102,25 @@ the text, the build stops and asks the owner rather than editing the approved wo
 
 - **D1 A whole-set `run.sh` builds the environment once, and runs itself again inside it.**
   - With no names and no `CHECKS_DOUBLE_PASS=1`, `run.sh` builds the environment with D2's helper.
-    It then runs itself as a child under that environment, with a marker set: `CHECKS_BARE`, the
-    environment's directory. The child enumerates and runs the checks as today, and the parent
-    exits with the child's code.
-  - It runs a child, not `exec`: an `exec` drops the parent's `EXIT` trap, and the mirror and the
-    `HOME` would be left behind.
-  - **The child does not wrap again:** a whole-set `run.sh` that finds `CHECKS_BARE` set runs the
+    It then `exec`s itself under that environment, with a marker set: `CHECKS_BARE`, the
+    environment's directory. The new process enumerates and runs the checks as today, so its exit
+    code is the run's.
+  - **It `exec`s, and the inner run removes the environment** (amended 2026-10-21, the owner's
+    choice A after group 1's review round 2; it was "a child, not `exec`"). An `exec` drops the
+    outer run's `EXIT` trap, so the inner run takes over the cleanup: it is told which directory
+    to remove (the outer run's scratch, which holds the mirror and the `HOME`) and removes it on
+    `EXIT`. The child the approved text chose had to run in the background for the parent's trap
+    to fire on a signal, and a background child ignores `INT` (POSIX, no job control), so a
+    Ctrl-C never reached the running check. With `exec` there is one process in the terminal's
+    foreground group, and `INT` and `TERM` reach it and its check as they do today.
+    **Beat:** a foreground child (a signal waits for the whole set to finish) and a background
+    child (a Ctrl-C does not reach the check).
+  - **The inner run does not wrap again:** a whole-set `run.sh` that finds `CHECKS_BARE` set runs the
     checks directly. That marker is the stop condition, and D3 checks the real state behind it,
     so a stale marker cannot pass a run that stripped nothing.
   - Named runs (`run.sh hooks roadmap`) keep running in the caller's environment, as today. The
     gate and CI call the whole set, and a named run is for working on one check.
-  - Every whole-set run exports `CHECKS_SET=whole`, in the wrapped child and in a double pass
+  - Every whole-set run exports `CHECKS_SET=whole`, in the wrapped inner run and in a double pass
     alike, so D3 can tell "under a whole-set run" from "run alone".
   - **The markers are inherited.** `bare` overrides only `HOME`, `PATH`, `CI` and
     `CLAUDUCTOR_LOCK_HELD`, and passes every other exported variable through. So `CHECKS_BARE`,

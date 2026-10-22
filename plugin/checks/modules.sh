@@ -9,6 +9,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     (PROPOSALS, REVIEW_PAGE) turn their modules on;
 #   - a section that fails or prints nothing says CANNOT CHECK, never nothing;
 #   - a failing module check fails checks/run.sh (so the run is not a silently shorter list).
+#   Those whole-set runs clear the CHECKS_* markers (lib.sh's unmarked), so each wraps itself in the
+#   no-clauductor environment as a real one does, never inheriting the run this check is inside.
 # Then this project's own modules: each shipped or vendored module's module.conf names its
 # directory, declares exactly the parts it has, and each script part parses under its #! line;
 # every module MODULES enables loads. The guard.d point is held by checks/merge-guard.sh.
@@ -66,7 +68,7 @@ has no "Fragment from demo." "$f" "fragments: a disabled module's fragment is no
 has yes "docs/locallayer.json" "$t" "conflicts: the local layer's row joins the table"
 has no "docs/demo.json" "$t" "conflicts: a disabled module's row does not"
 has no "demo" "$l" "list: a disabled module is not listed"
-r=$(cd "$R" && sh .claude/checks/run.sh 2>&1)
+r=$(cd "$R" && unmarked sh .claude/checks/run.sh 2>&1)
 has yes "PASS local:c" "$r" "checks/run.sh runs the local layer's check"
 has no "demo:c" "$r" "checks/run.sh does not run a disabled module's check"
 
@@ -87,10 +89,10 @@ has yes "module demo guard.d/rule.sh" "$l" "list: names the enabled module's gua
 # Module first, then local: the order the README promises.
 first=$(printf '%s\n' "$h" | grep -n 'health from' | head -1)
 case "$first" in *demo*) ok "a module's parts run before the local layer's" ;; *) fail "order: $first" ;; esac
-r=$(cd "$R" && sh .claude/checks/run.sh 2>&1)
+r=$(cd "$R" && unmarked sh .claude/checks/run.sh 2>&1)
 has yes "PASS demo:c" "$r" "checks/run.sh runs an enabled module's check"
 touch "$R/FAIL_demo"
-(cd "$R" && sh .claude/checks/run.sh >/dev/null 2>&1); expect_rc 1 $? "a failing module check fails checks/run.sh"
+(cd "$R" && unmarked sh .claude/checks/run.sh >/dev/null 2>&1); expect_rc 1 $? "a failing module check fails checks/run.sh"
 rm -f "$R/FAIL_demo"
 v=$(inr 'echo "$DEMO_KEY"')
 [ "$v" = from-module ] && ok "module.conf's default key applies when project.conf sets nothing" || fail "DEMO_KEY='$v'"
