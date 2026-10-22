@@ -94,7 +94,7 @@ want() {  # want DESC GOT-LINE WANT-PKGS [WANT-WHY-SUBSTRING]
 }
 
 change 'echo y >> template/a; echo y >> docs/roadmap.md'
-want "template/ and docs/ only" "$(scope)" "./internal/brand ./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template" "only docs/, template/ changed"
+want "template/ and docs/ only" "$(scope)" "./internal/brand ./internal/cmd ./internal/panel/install ./internal/panel/lease ./internal/plugin ./internal/template" "only docs/, template/ changed"
 
 change 'echo y >> template/a; echo y >> framework/a.go'
 want "a framework/ change" "$(scope)" "./..." "framework/a.go changed"
@@ -141,11 +141,11 @@ out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
   step() { [ "$1" = "test (race)" ] && { shift; echo "RAN $*"; }; return 0; }
   gate_steps full)
 case "$out" in
-  *"==> test (race): internal/brand internal/cmd internal/panel/lease internal/plugin internal/template (only template/ changed)"*) ok "the gate names the race scope and why" ;;
+  *"==> test (race): internal/brand internal/cmd internal/panel/install internal/panel/lease internal/plugin internal/template (only template/ changed)"*) ok "the gate names the race scope and why" ;;
   *) fail "the gate does not name the race scope: $(printf '%s' "$out" | grep 'test (race)')" ;;
 esac
 case "$out" in
-  *"RAN sh -c cd framework && go test -race -count=1 -timeout 25m \"\$@\" race ./internal/brand ./internal/cmd ./internal/panel/lease ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages, uncached" ;;
+  *"RAN sh -c cd framework && go test -race -count=1 -timeout 25m \"\$@\" race ./internal/brand ./internal/cmd ./internal/panel/install ./internal/panel/lease ./internal/plugin ./internal/template"*) ok "the race step runs the selected packages, uncached" ;;
   *) fail "the race step does not run the selected packages with -count=1: $(printf '%s' "$out" | grep '^RAN')" ;;
 esac
 # Both test steps bypass go's test cache: it keys on what the test process itself opens, and these

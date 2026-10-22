@@ -228,7 +228,7 @@ tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside
 # by ROADMAP_PARSER, reads it, and every consumer follows the key (the panel's suggestions here).
 need jq
 F="$d/own"; mkdir -p "$F/.claude/lib" "$F/docs" "$F/changes" "$F/infra"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$F/.claude/lib/"
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$F/.claude/lib/"
 cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$CLAUDUCTOR_FW/panel-suggest.sh" "$F/.claude/"
 cat > "$F/docs/roadmap.md" <<'EOF'
 # Roadmap

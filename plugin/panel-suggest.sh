@@ -26,6 +26,8 @@ set -u
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
+# shellcheck disable=SC1091
+. "$CLAUDUCTOR_FW/lib/change.sh"
 cd "$ROOT" || exit 1
 kind=${1:-}
 case "$kind" in build | propose | ops | fix) ;; *) echo "usage: panel-suggest.sh build|propose|ops|fix" >&2; exit 2 ;; esac
@@ -57,21 +59,13 @@ fi
 have=$(printf '%s\n' "$have" | grep -vx 'archive\|README.md' | tr '\n' ' ')
 done_ids=$(printf '%s\n' "$done_ids" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//' | tr '\n' ' ')
 tsv=$(roadmap_queue --tsv "$tmp/roadmap.md") || { echo "panel-suggest: the roadmap queue could not be parsed" >&2; exit 1; }
-# Proposals not yet on main: on main a proposal is approved (checks/changes.sh refuses one that is
-# not), so one in progress lives on a change branch, local or origin, as propose's context finds
-# it. Only an open row's counts: an old branch still carries a merged, archived or cancelled one.
-# `branched` are proposed (propose never offers them again); `waiting`, the ones with no
-# **Approved:** line yet, await the owner and are the one ahead.
-open=" $(printf '%s\n' "$tsv" | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ') "
-branched=""; waiting=""
-for b in $(git for-each-ref --format='%(refname)' "refs/heads/$BRANCH_CHANGE" "refs/remotes/origin/$BRANCH_CHANGE" 2>/dev/null); do
-  for cid in $(git ls-tree --name-only "$b" "./$CHANGES_DIR/" 2>/dev/null | sed 's|.*/||'); do
-    case " $have $done_ids $branched " in *" $cid "*) continue ;; esac
-    case "$open" in *" $cid "*) ;; *) continue ;; esac
-    branched="$branched $cid"
-    git show "$b:./$CHANGES_DIR/$cid/proposal.md" 2>/dev/null | head -n 3 | grep -q '^\*\*Approved:\*\*' || waiting="$waiting $cid"
-  done
-done
+# Proposals not yet on main, on change branches (branch_proposals, which propose's context reads
+# too): `branched` are proposed (propose never offers them again); `waiting`, the ones awaiting the
+# owner, are the one ahead.
+open=$(printf '%s\n' "$tsv" | awk -F'\t' '$7 == "queued" || $7 == "inflight" || $7 == "open" { print $5 }' | tr '\n' ' ')
+props=$(branch_proposals "$have $done_ids" "$open")
+branched=$(printf '%s\n' "$props" | awk -F'\t' 'NF { print $1 }' | tr '\n' ' ')
+waiting=$(printf '%s\n' "$props" | awk -F'\t' '$2 == "waiting" { print $1 }' | tr '\n' ' ')
 plan=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-suggest: the Session plan could not be parsed" >&2; exit 1; }
 printf '%s\n' "$tsv" > "$tmp/tsv"
 # The planned ids in the plan's order (the R records are printed in it).
