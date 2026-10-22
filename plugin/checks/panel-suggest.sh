@@ -134,8 +134,17 @@ case "$(printf '%s\n' "$pctx" | sed -n '/^- Change queue/,/^- Living specs/p')" 
   *) fail "propose's change queue is empty" ;;
 esac
 case "$(printf '%s\n' "$pctx" | sed -n '/^- Budgets on queued rows/,/^- Scenario IDs/p')" in *'add-b: $7'*) ok "...and its budgets" ;; *) fail "propose's budgets read the working tree" ;; esac
+on_origin refs/remotes/origin/main "a spec, a phase twice" sh -c 'mkdir -p specs/cap && printf "### Requirement: R\n#### Scenario: [CAP-3-S1] s\n" > specs/cap/spec.md && echo "## Phase 1 — Again" >> docs/roadmap.md'
+pctx=$(cd "$F" && sh .claude/skills/propose/context.sh 2>/dev/null)
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Living specs/,/^- Budgets on queued rows/p')" in *cap*) ok "...and its living specs" ;; *) fail "propose's living specs read the working tree" ;; esac
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Scenario IDs/,$p')" in *"CAP: 1 ID(s), highest requirement 3"*) ok "...and the scenario IDs they take" ;; *) fail "propose's scenario IDs read the working tree" ;; esac
+case "$(printf '%s\n' "$pctx" | sed -n '/^- Change queue/,/^- Living specs/p')" in
+  *propose-*) fail "propose's change queue error names its temporary copy" ;;
+  *"origin/main:docs/roadmap.md:"*) ok "...and an error in that roadmap names it on origin/main" ;;
+  *) fail "propose's change queue showed no error for a phase heading twice" ;;
+esac
 mkdir -p "$d/ctxtmp"; (cd "$F" && TMPDIR="$d/ctxtmp" sh .claude/skills/propose/context.sh >/dev/null 2>&1)
-[ -z "$(ls -A "$d/ctxtmp")" ] && ok "propose's context removes its copy of origin/main's roadmap" || fail "propose's context left $(ls "$d/ctxtmp")"
+[ -z "$(ls -A "$d/ctxtmp")" ] && ok "propose's context removes its copy of origin/main's roadmap and specs" || fail "propose's context left $(ls "$d/ctxtmp")"
 inF git update-ref -d refs/remotes/origin/change/add-new
 om=$(cd "$F" && git rev-parse refs/remotes/origin/main); inF git update-ref -d refs/remotes/origin/main; : > "$d/victim"
 (cd "$F" && tmp="$d/victim" sh .claude/skills/propose/context.sh >/dev/null 2>&1)

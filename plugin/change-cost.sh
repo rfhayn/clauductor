@@ -40,7 +40,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # stale branch counts, though its work there is not the change's.
 # AN AGENT'S OWN AGENTS (OPS-120) record the lead's cwd and branch too, never the parent's, so a
 # reviewer a teammate lane spawned may never touch the worktree: each agent descended (by its
-# .meta.json's parentAgentId) from one that counts whole counts whole.
+# .meta.json's parentAgentId, anywhere in its session's subagents/) from one that counts whole
+# counts whole. Known limit: so does everything an unrelated agent passing through spawned.
+# A line cut off mid-write (a transcript still being appended) is skipped, never the end of the read.
 #
 # Each message counts once (a streamed message repeats its id), priced at the list prices in
 # .claude/model-roles.json `.prices` (dollars per million tokens). It is an ESTIMATE at list price,
@@ -92,12 +94,18 @@ projects=${CLAUDE_PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}
 slug=$(printf '%s' "$main" | sed 's/[^A-Za-z0-9]/-/g')
 dirs=$(find "$projects" -maxdepth 1 -type d -name "$slug*" 2>/dev/null)
 bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$branch\"" "$p" 2>/dev/null; done)
+# Every transcript is read tagged: each line as `<file>\t<json>`, every file's last line ended, and
+# $tagged undoing it into one record with $file in scope. A transcript still being written ends in a
+# cut-off line: jq reading the files stops there, dropping every file after it, and `jq -R` joins it
+# to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped.
+tag() { awk '{ print FILENAME "\t" $0 }' "$@" 2>/dev/null; }
+tagged='split("\t") as [$file, $line] | $line | fromjson? // empty'
 # The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
 # message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
 wt="$main/.claude/worktrees/"
 # shellcheck disable=SC2086
-lanes=$( [ -z "$bfiles" ] || jq -r --arg b "$branch" --arg w "$wt" 'select(.gitBranch == $b) | (.cwd // "")
-           | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' $bfiles 2>/dev/null | sort -u)
+lanes=$( [ -z "$bfiles" ] || tag $bfiles | jq -rR --arg b "$branch" --arg w "$wt" "$tagged"' | select(.gitBranch == $b) | (.cwd // "")
+           | select(startswith($w)) | $w + (ltrimstr($w) | split("/")[0])' 2>/dev/null | sort -u)
 # A lead records a stale branch as well (see the header). Each session (one sessionId) whose LEAD
 # worked in a lane votes with the branch its lead recorded there LAST, main, a detached HEAD and an
 # empty branch not counting: the lane is the change's when some session's vote is the change's
@@ -107,10 +115,10 @@ lanesjson=$(printf '%s\n' "$lanes" | jq -Rsc 'split("\n") | map(select(. != ""))
 lfiles=$(printf '%s\n' "$lanes" | while read -r l; do [ -n "$l" ] || continue
   for p in $dirs; do grep -rlF --include='*.jsonl' "\"cwd\":\"$l" "$p" 2>/dev/null; done; done | sort -u)
 # shellcheck disable=SC2086
-votes=$( [ -z "$lfiles" ] || jq -c --argjson ls "$lanesjson" 'select(.gitBranch != null)
-           | select(input_filename | contains("/subagents/") | not) | (.cwd // "") as $c
+votes=$( [ -z "$lfiles" ] || tag $lfiles | jq -cR --argjson ls "$lanesjson" "$tagged"' | select(.gitBranch != null)
+           | select($file | contains("/subagents/") | not) | (.cwd // "") as $c
            | first($ls[] as $w | select($c == $w or ($c | startswith($w + "/"))) | $w) as $l
-           | {l: $l, s: (.sessionId // input_filename), t: (.timestamp // ""), b: .gitBranch}' $lfiles 2>/dev/null \
+           | {l: $l, s: (.sessionId // $file), t: (.timestamp // ""), b: .gitBranch}' 2>/dev/null \
          | jq -rs --arg b "$branch" --arg m "$MAIN_BRANCH" 'group_by(.l)[] | .[0].l as $l
            | [ group_by(.s)[] | sort_by(.t) | map(.b | select(. != $m and . != "HEAD" and . != "")) | last ]
            | (if any(.[]; . == $b) then "+" else "-" end) + $l' 2>/dev/null)
@@ -130,35 +138,43 @@ files=$(printf '%s\n%s\n' "$bfiles" "$wfiles" | grep -v '^$' | sort -u)
 # hub session's main checkout and branch, so neither test above saw them, and OPS-93 read $22.13 of
 # an actual $55.84 mid-build. Claude Code writes each agent's parent beside its transcript
 # (agent-<id>.meta.json's parentAgentId), so every agent descended from one that counts whole (a
-# message in the change's worktree) counts whole too.
+# message in the change's worktree) counts whole too. The walk covers each such agent's whole
+# session (its subagents/ directory, at any depth), as lib/usage.sh's rootrole does: a workflow's
+# agents sit in subagents/workflows/<run>/, their own agents in subagents/. An agent is named by
+# its session and its id. `whole` is the one test of an agent counting whole; the pricing below
+# bills exactly `$agents`, never a second copy of it.
 sub=$(printf '%s\n' "$files" | grep '/subagents/')
 # shellcheck disable=SC2086
-whole=$( [ -z "$sub" ] || jq -r --argjson wts "$rootsjson" 'select(.type == "assistant" and .message.usage != null)
+whole=$( [ -z "$sub" ] || tag $sub | jq -rR --argjson wts "$rootsjson" "$tagged"'
+           | select(.type == "assistant" and .message.usage != null)
            | (.cwd // "") as $c | select(any($wts[] as $w | $c == $w or ($c | startswith($w + "/")); .))
-           | input_filename' $sub 2>/dev/null | sort -u)
-nested=""; new=$whole
-while [ -n "$new" ]; do
-  new=$(printf '%s\n' "$new" | while read -r f; do
-          a=$(basename "$f" .jsonl)
-          grep -lE "\"parentAgentId\"[[:space:]]*:[[:space:]]*\"${a#agent-}\"" "$(dirname "$f")"/agent-*.meta.json 2>/dev/null
-        done | sed 's/\.meta\.json$/.jsonl/' | while read -r k; do [ -f "$k" ] && echo "$k"; done \
-        | grep -vxF -e "$whole" -e "$nested" -e '' | sort -u)
-  nested=$(printf '%s\n%s\n' "$nested" "$new" | grep -v '^$')
-done
-nestedjson=$(printf '%s\n' "$nested" | jq -Rsc 'split("\n") | map(select(. != ""))')
+           | $file' 2>/dev/null | sort -u)
+wholejson=$(printf '%s\n' "$whole" | jq -Rsc 'split("\n") | map(select(. != ""))')
+nested=$( [ -z "$whole" ] || printf '%s\n' "$whole" | sed 's|/subagents/.*|/subagents|' | sort -u \
+  | while read -r s; do find "$s" -name 'agent-*.meta.json' -exec jq -c '{f: input_filename, p: (.parentAgentId // "")}' {} + 2>/dev/null; done \
+  | jq -rs --argjson whole "$wholejson" '
+      def ses: sub("/subagents/.*"; ""); def aid: sub(".*/agent-"; "") | sub("\\.(jsonl|meta\\.json)$"; "");
+      def grow($m; $in): ([ $m[] | select(.p != null and $in[.p]) | {key: .k, value: true} ] | from_entries) as $add
+        | ($in + $add) as $n | if ($n | length) == ($in | length) then $in else grow($m; $n) end;
+      map({k: ((.f | ses) + " " + (.f | aid)), p: (if .p == "" then null else (.f | ses) + " " + .p end),
+           t: (.f | sub("\\.meta\\.json$"; ".jsonl"))}) as $m
+      | grow($m; $whole | map({key: ((. | ses) + " " + (. | aid)), value: true}) | from_entries) as $all
+      | $m[] | select($all[.k]) | .t' 2>/dev/null \
+  | while read -r k; do [ -f "$k" ] && echo "$k"; done | grep -vxF -e "$whole" -e '' | sort -u)
+agentsjson=$(printf '%s\n%s\n' "$whole" "$nested" | jq -Rsc 'split("\n") | map(select(. != ""))')
 files=$(printf '%s\n%s\n' "$files" "$nested" | grep -v '^$' | sort -u)
 
 # shellcheck disable=SC2086
-jq -c --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" '
-  select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
+tag $files | jq -cR --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" "$tagged"'
+  | select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
   | any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .) as $inwt
-  | {f: input_filename, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
+  | {f: $file, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
            and ($inwt or ($cwd | startswith($lanes) | not))),
-     inwt: $inwt}' $files 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson nested "$nestedjson" "$USAGE_JQ_DEFS"'
+     inwt: $inwt}' 2>/dev/null \
+| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson agents "$agentsjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
-  | [ group_by(.f)[] | (((.[0].f | contains("/subagents/")) and any(.[]; .inwt)) or (.[0].f | IN($nested[]))) as $agent
+  | [ group_by(.f)[] | (.[0].f | IN($agents[])) as $agent
       | .[] | select(.onb or .inwt or $agent) ]
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
   | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd
