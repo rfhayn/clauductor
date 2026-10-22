@@ -362,7 +362,9 @@ orders them, and its header is not the queue header, so the queue parser skips i
 decides*, `ID: decision` names the decision a row needs before it starts.
 
 The owner keeps a dashboard of this plan, refreshed at each session start and close:
-`.claude/local/roadmap-tracker.sh` builds its data from this table and the queue.
+`.claude/local/roadmap-tracker.sh` builds its data from this table and the queue. The panel's
+**Up next** follows it too (OPS-111): each template offers this table's queued rows in its order,
+as `origin/main` has them. Both read it through `.claude/roadmap-plan.sh`, its one parser.
 
 | Session | When | Focus | Rows | The owner decides |
 |---|---|---|---|---|

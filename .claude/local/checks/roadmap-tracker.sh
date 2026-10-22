@@ -10,7 +10,7 @@ F="$(scratch)/proj"
 new_repo "$F"
 mkdir -p "$F/.claude/lib" "$F/.claude/local/context.d/session-start" "$F/docs" "$F/changes/b-1-approved" "$F/changes/b-2-plain"
 cp "$ROOT/.claude/lib/conf.sh" "$F/.claude/lib/"
-cp "$ROOT/.claude/roadmap-queue.sh" "$F/.claude/"
+cp "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/roadmap-plan.sh" "$F/.claude/"
 cp "$ROOT/.claude/local/roadmap-tracker.sh" "$F/.claude/local/"
 cp "$ROOT/.claude/local/context.d/session-start/roadmap-tracker.sh" "$ROOT/.claude/local/context.d/session-start/session-plan.sh" "$F/.claude/local/context.d/session-start/"
 cat > "$F/docs/roadmap.md" <<'EOF'

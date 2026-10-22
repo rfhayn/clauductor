@@ -228,7 +228,7 @@ tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside
 need jq
 F="$d/own"; mkdir -p "$F/.claude/lib" "$F/docs" "$F/changes" "$F/infra"
 cp "$ROOT/.claude/lib/conf.sh" "$F/.claude/lib/"
-cp "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/panel-suggest.sh" "$F/.claude/"
+cp "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/roadmap-plan.sh" "$ROOT/.claude/panel-suggest.sh" "$F/.claude/"
 cat > "$F/docs/roadmap.md" <<'EOF'
 # Roadmap
 

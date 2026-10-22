@@ -25,7 +25,7 @@
       "lane_type": "build",
       "branch_pattern": "change/{name}",
       "first_prompt": "/build-change {\"change\": \"{name}\"}",
-      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "build"], "refresh": "watch:changes" }
+      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "build"], "refresh": "interval:120" }
     },
     {
       "id": "propose",
@@ -33,7 +33,7 @@
       "lane_type": "build",
       "branch_pattern": "change/{name}",
       "first_prompt": "/clauductor:propose {name}: its row of the change queue (sh scripts/ci/clauductor-model.sh roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
-      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "propose"], "refresh": "watch:docs/roadmap.md" }
+      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "propose"], "refresh": "interval:120" }
     },
     {
       "id": "fix",
@@ -48,8 +48,8 @@
       "title": "Ops task (fast path: tooling, docs or process; no change proposal)",
       "lane_type": "ops",
       "branch_pattern": "ops/{name}",
-      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. Say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /clauductor:merge-pr.",
-      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "ops"], "refresh": "watch:docs/roadmap.md" }
+      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /clauductor:merge-pr.",
+      "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "ops"], "refresh": "interval:120" }
     }
   ],
   "queues": [
