@@ -72,7 +72,7 @@ fi
 # aside): the worktree's state file (<git-dir>/ci-gate.state: started, then exit), which
 # gate-wait.sh reads to say PASS, FAIL or still running; and one line in the repository's run log
 # (<git common dir>/clauductor/gate-runs.log: when, lane, branch, sha, mode, result, exit code, run
-# and queue seconds).
+# and queue seconds, and each step's seconds, OPS-89).
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(git rev-parse --show-toplevel)
@@ -93,8 +93,9 @@ gate_end() {
   fi
   if command -v gate_state_end >/dev/null 2>&1; then
     gate_state_end "$rc" "${MODE:-full}" "${TESTED_SHA:-$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)}" \
-      "$RUN_STARTED" "${lane:-$(basename "$ROOT")}" || true
+      "$RUN_STARTED" "${lane:-$(basename "$ROOT")}" "$(command -v gate_step_times >/dev/null 2>&1 && gate_step_times)" || true
   fi
+  [ -z "${STEP_TIMES:-}" ] || rm -f "$STEP_TIMES"
   [ "$rc" = signal ] && exit 143
   exit "$rc"
 }
@@ -124,11 +125,20 @@ START_DIRTY=$([ -n "$(porcelain)" ] && echo 1 || echo 0)
 . "$ROOT/$GATE_STEPS"
 
 FAILED=""
-step() {  # step NAME COMMAND [ARGS...]: one gate step, marked for the agent-facing filter.
-  local name=$1; shift
+# Each step's duration, one `<name>=<seconds>` line per step, for the run log (gate_step_times). A
+# file, not a variable: the steps run in a subshell (below), and a variable set there is lost.
+STEP_TIMES=$(mktemp "${TMPDIR:-/tmp}/gate-steps.XXXXXX" 2>/dev/null) || STEP_TIMES=""
+step() {  # step NAME COMMAND [ARGS...]: one gate step, marked for the agent-facing filter, and timed.
+  local name=$1 began rc=0 took; shift
+  began=$(date +%s)
   echo "==> $name"
-  if "$@"; then echo "==> ok: $name"; else local rc=$?; echo "==> FAIL: $name (exit $rc)"; FAILED="$FAILED $name"; return 1; fi
+  "$@" || rc=$?
+  took=$(( $(date +%s) - began ))
+  [ -z "$STEP_TIMES" ] || printf '%s=%s\n' "$(printf '%s' "$name" | tr '\t\n;=' '  ,-')" "$took" >> "$STEP_TIMES" 2>/dev/null || :
+  if [ "$rc" -eq 0 ]; then echo "==> ok: $name (${took}s)"; else echo "==> FAIL: $name (exit $rc, ${took}s)"; FAILED="$FAILED $name"; return 1; fi
 }
+# gate_step_times: the steps that ran, in order, as one run-log field: `<name>=<s>;<name>=<s>…`.
+gate_step_times() { [ -s "${STEP_TIMES:-}" ] && paste -sd ';' "$STEP_TIMES"; }
 # The model's own steps (scenario trace, secrets) are a library a project's own runner can call
 # too: lib/steps.sh beside this file. Sourced after step() above, so they record into FAILED.
 [ -f "$HERE/lib/steps.sh" ] || { echo "==> FAIL: $HERE/lib/steps.sh (the model's gate steps) is missing" >&2; exit 1; }

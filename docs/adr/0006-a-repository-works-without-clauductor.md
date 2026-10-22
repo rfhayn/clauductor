@@ -35,5 +35,40 @@ Falsified in fixtures (a gate step and a context script that call it) and by han
 hard call in `steps.sh`, and in `statusline.sh`, each failed the check). Named in AGENTS.md's table
 and the playbook. This repo's own gate runs it, and its plugin step uses `go run`, not the binary.
 
+## Amendment — 2026-10-18: the checks run once, inside the no-clauductor environment
+- **Source**: OPS-93; the owner's decision R23 (2026-10-18). Measured the same day: in the template's
+  check set, `no-clauductor` took 201.9 s of 400.25 s, the other 43 checks 198.1 s together.
+
+The decision stands: everything a contributor needs runs in Claude Code alone, and the binary, the
+panel and the plugin stay conveniences. How the check proves it changes. This amendment replaces the
+first negative trade-off above and the Enforcement paragraph's "every other process check":
+- The check set no longer runs twice. `checks/run.sh`, run for the whole set, builds the
+  no-clauductor environment once and runs every check inside it: this directory's checks, the enabled
+  modules' and `.claude/local/checks`. That environment is unchanged: every `PATH` directory that
+  holds `clauductor` replaced by a mirror of links to everything else in it, a fresh `HOME` with no
+  `~/.clauductor` and only a git identity, and `CI` and `CLAUDUCTOR_LOCK_HELD` emptied. One helper in
+  `checks/lib.sh` builds it for `run.sh` and `no-clauductor.sh` alike, so the two cannot drift.
+- `no-clauductor.sh` keeps its own parts: the output scan, the gate in a throwaway repo and its
+  falsification, the `GATE_STEPS` scan, session-start's context script and the status line. Instead of
+  re-running the set, it asserts that it runs inside that environment, started by a whole-set
+  `run.sh`. Run on its own, it re-runs the set as before.
+- What the double pass caught and this does not: a check that passes without clauductor but fails
+  with it on `PATH`, with the caller's `HOME`, or with `CI` set. No check in the template reads any of
+  these from its caller today; each builds its own. A weekly job on `main` runs the old double pass
+  (`CHECKS_DOUBLE_PASS=1`) with a freshly built `clauductor` on `PATH`, so such a check is still found,
+  days after merge instead of before it.
+- The first trade-off's "about 45 s" was measured with 26 checks. With 44 the second pass cost 201.9 s
+  on an 8-core Linux machine, half the set. The single pass removes it. In its place, a module's or a
+  project's own check now also runs without the caller's `HOME` (its gh login, ssh keys, git signing).
+  A check that needs them sets them up in its own scratch, as the template's do.
+
+**Enforcement** (replacing the original's "every other process check" clause): `checks/run.sh` runs the
+whole set inside the environment `checks/lib.sh` builds. `checks/no-clauductor.sh` fails when it runs
+outside that environment under a whole-set `run.sh`, and when `clauductor` is still on the stripped
+`PATH`. Its gate, `GATE_STEPS`, context-script and status-line parts and their fixtures are unchanged.
+Falsified in fixtures: a check that calls `clauductor` fails the single pass; a `run.sh` that skips the
+environment fails `no-clauductor`. The scheduled double pass on `main` keeps the case the single pass
+gives up. `CHECKS_DOUBLE_PASS=1` restores the old behaviour in any run.
+
 ## Related
 - ADR-0007; Standing Tee gets the same check at convergence (roadmap ST-3)

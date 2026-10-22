@@ -56,6 +56,10 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
           }
         ]
       },
@@ -96,6 +100,15 @@
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh"
           }
         ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -124,6 +137,16 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
           }
         ]
       }

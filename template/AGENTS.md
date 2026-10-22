@@ -70,6 +70,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | No scripted find-replace against tracked source | **`.claude/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`.claude/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`.claude/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
+| A build-change run's agents work in its worktree: the session never `cd`s out while the run holds it | **`.claude/hooks/cd-guard.sh`** (blocking: the main session's Bash `cd`; the hold ends with the run's state file, a Stop not listing it, its worktree or its age); **`checks/hooks.sh`** |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |
 | The status-line focus says what this lane is doing | **`.claude/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`.claude/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
@@ -84,7 +85,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A project's history is never reformatted; records since adoption meet the format | `RECORDS_BASELINE`, `CHANGES_LEGACY` (`lib/records.sh`); **`checks/journal.sh`**, **`adr-numbering.sh`**, **`changes.sh`** |
 | An ADR or PRAC number is never taken twice (one space); each is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
-| The repo works without clauductor: nothing needs the binary or the panel | **`checks/no-clauductor.sh`**: the gate, the checks, a context script and the status line, `clauductor` off `PATH` |
+| The repo works without clauductor: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it, and runs the gate, a context script and the status line there |
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | **This file stays a budget, not an archive** | **`.claude/checks/agents-md-budget.sh`** |
