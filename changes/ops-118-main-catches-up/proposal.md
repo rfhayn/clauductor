@@ -40,8 +40,9 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
   own folder and checks the new binary runs. It keeps the old one as `clauductor.prev`, replaces
   the installed binary and the `clauductor` on its PATH, says so, and restarts under launchd. The
   token and the login agent stay as they are.
-- **`merge-pr` stops trying to pull the main checkout** from a lane. Its report names the owner's
-  step only when catch-up is off.
+- **`merge-pr` stops trying to pull the main checkout** from a lane, and leaves it to the panel
+  while catch-up is on; from the main checkout with catch-up off it still pulls. Its report names
+  the owner's step only when catch-up is off.
 
 ## What the existing specs already guarantee
 - **`panel-attach`:** ATTACH-2 (*Attaching and serving write nothing in the repository*) holds

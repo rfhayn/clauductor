@@ -100,11 +100,14 @@ Read on 2026-10-22, at `62fa18f0`.
   D4's preflight then runs `clauductor.new panel config-check --config <file>`, a new command that
   loads the file and prints its `alerts.notify` and run list, for (e) and (f) and the notice's
   lines. When it passes, the bytes are recorded as trusted before the swap, and the new binary
-  starts the runtime on them trusted. When the build or the preflight fails, nothing is trusted.
-  The runtime keeps the config it loaded when the running binary cannot load the new one, and the
-  notice names both the build's error and the config waiting for the owner.
+  starts the runtime on them trusted. When the build or the preflight fails, nothing is trusted,
+  and the new config is then handled as any arrival that is not trusted, by the running binary:
+  when it loads the new config, the runtime restarts on it untrusted with **Trust config…**
+  offered; when it cannot, the runtime keeps the config it loaded. Either way the notice names
+  both the build's error and the config waiting for the owner.
 
-  ((d) cannot fail after a fast-forward: D3 refuses to make one.) When (b) or (f) fails and the
+  ((d) cannot fail after a fast-forward: D3 merges only the commit C it checked, never the ref it
+  read C from, and refuses otherwise.) When (b) or (f) fails and the
   new config loads, the panel restarts the runtime on the new
   bytes untrusted. Its cards, queue commands and templates are off under the Config untrusted
   banner, and **Trust config…** is offered: the same state as a pull followed by a restart today.
@@ -175,22 +178,25 @@ Read on 2026-10-22, at `62fa18f0`.
   - no tracked change, and no merge, rebase or cherry-pick in progress;
   - the branch has no commit the remote lacks.
 
-  The panel then runs `git fetch <remote> <branch>`. Before it merges, every first-parent commit
-  in `HEAD..<remote>/<branch>` must be the merge commit of a pull request merged into `<branch>`
-  from the login `gh api user` names. The lookup goes through GitHub's commit-to-pull-request
-  route, not its search index, which can lag a fresh merge: `gh api
-  repos/{owner}/{repo}/commits/<sha>/pulls`, then `gh api repos/{owner}/{repo}/pulls/<n>` for
-  `merged_by`, `base.ref` and `merge_commit_sha`. Only then does it run `git merge --ff-only
-  <remote>/<branch>`. Each git and `gh` call has a 60 s timeout. A base not in `<remote>/<branch>`
-  form is refused. Untracked files stay; if the fast-forward would overwrite one, git refuses, and
-  so does the panel.
+  The panel then runs `git fetch <remote> <branch>` and reads the commit C that
+  `<remote>/<branch>` names once, with `git rev-parse`. Before it merges, every first-parent
+  commit in `HEAD..C` must be the merge commit of a pull request merged into `<branch>` from the
+  login `gh api user` names. The lookup goes through GitHub's commit-to-pull-request route, not
+  its search index, which can lag a fresh merge: `gh api repos/{owner}/{repo}/commits/<sha>/pulls`,
+  then `gh api repos/{owner}/{repo}/pulls/<n>` for `merged_by`, `base.ref` and
+  `merge_commit_sha`. Only then does it run `git merge --ff-only C`, the commit it checked, never
+  the ref by name: every worktree shares `<remote>/<branch>`, and a lane's fetch (or the panel's
+  own, E9) can move it while the lookups run. B, below and in D1 and D4, is C. Each git and `gh`
+  call has a 60 s timeout. A base not in `<remote>/<branch>` form is refused. Untracked files
+  stay; if the fast-forward would overwrite one, git refuses, and so does the panel.
 
   Each refusal sends one notice, keyed on the project, the reason and the remote's commit, once
   per panel run, and puts a line in the panel log. A commit that fails the pull-request check is
-  named, so the owner can pull past it by hand. A **transient** refusal (a git or `gh` call that
-  fails or times out) wakes the source again, at most 3 times, 1, 3 and 6 minutes after it. A
-  refusal of policy (the checkout's state, a commit that fails the check) waits for the next
-  trigger. The retries exist only while a transient refusal is pending, so the idle panel still
+  named, so the owner can pull past it by hand. A **transient** refusal wakes the source again, at
+  most 3 times, 1, 3 and 6 minutes after it: a `git fetch` or `gh` call that errors or times out,
+  or any git call that times out. A refusal of policy waits for the next trigger: the checkout's
+  state, a commit that fails the check, and git's own refusals (`merge --ff-only` over an
+  untracked file, a precondition read that finds a detached HEAD). The retries exist only while a transient refusal is pending, so the idle panel still
   makes no network call.
 
   The notices go through a catch-up notifier with its own keys, created with the source, under
@@ -245,9 +251,21 @@ Read on 2026-10-22, at `62fa18f0`.
     the shutdown it started.
   - The new binary's first start sends "now running <commit>".
 
-  If the merge's diff touches `framework/internal/panel/install/launchd.go` or `hooks.go` (what
+  If `R..B` touches `framework/internal/panel/install/launchd.go` or `hooks.go` (what
   `clauductor panel install` writes beyond the binary), the notice also says to run
-  `clauductor panel install` once. A failed build or preflight leaves the running binary and no
+  `clauductor panel install` once. The range is the build's, `R..B`, not the merge's `A..B`: a
+  merge that could not rebuild (an untracked file, a failed build) leaves its change for the next
+  rebuild to carry, and that rebuild's notice must still name the install.
+
+  **The rebuild's notices go whatever the project's `alerts.notify` says.** They are about the
+  panel, not the project: the refusals, the failed build, the restart and its rollback, and "now
+  running". They name no project, so they are titled "clauductor panel", and they go as a macOS
+  notification and through `push.json` (D6). A repository's config must not be able to silence
+  the one notice that says how to roll back a binary that replaced itself; and D5 drops the
+  owner's step from merge-pr's report once catch-up is on, so nothing else would say it.
+  **Alternative:** rebuild only while the project's `alerts.notify` is on, as D1 (f) trusts.
+  Rejected: with it off the binary would stay behind with no sign, while merge-pr's report says
+  nothing is left for the owner. A failed build or preflight leaves the running binary and no
   `.new` file, and sends one notice with the error. A panel of this source started by hand, or
   one whose build does not qualify, is not rebuilt, and one notice says how to update it. `go`
   joins `pathForAgent`'s
@@ -261,21 +279,34 @@ Read on 2026-10-22, at `62fa18f0`.
   - **Leave the binary to the owner and catch up only the checkout and the config.** It is
     smaller, but the reinstall step stays (D7).
 
-- **D5. merge-pr step 5 and its report.** **Recommended:** step 5 (`template/.claude/skills/merge-pr/SKILL.md`)
-  confirms the squash commit is on the remote's base (`git fetch` and `git log -1`). It no longer
-  pulls the main checkout, which fails from a lane (#164). The skill's report names the owner's
-  step (pull; after a `framework/` change, `./install.sh` and `clauductor panel install`; after a
-  `panel.json` change, `clauductor panel trust`) unless `clauductor panel catch-up` reports catch-up
-  on for the project. Without `clauductor` on PATH, it names the step, so the repository still works
-  without clauductor. This is a template change, so the plugin is rebuilt and this repository
-  updated (`clauductor update`). **Alternative:** leave the report to OPS-108's item (6). Rejected:
-  step 5 fails from a lane today, and this change is what decides when the owner's step applies.
+- **D5. merge-pr step 5 and its report.** **Recommended:** step 5
+  (`template/.claude/skills/merge-pr/SKILL.md`) first finds the main checkout, the first
+  `worktree` entry of `git worktree list --porcelain`, and asks `clauductor panel catch-up
+  --project <that root>` for its state. A lane's own worktree is never the root it asks about.
+  - **Catch-up on:** step 5 confirms the squash commit is on the remote's base (`git fetch` and
+    `git log -1`) and leaves the main checkout to the panel. A pull here would be a pull the panel
+    did not make, so a merged `panel.json` would not be trusted on arrival (D1 (b), (c)) and no
+    rebuild would follow.
+  - **Catch-up off, or `clauductor` not on PATH,** run from the main checkout itself (`git
+    rev-parse --git-dir` equals `--git-common-dir`): it pulls with `--ff-only`, as today.
+  - **Catch-up off, from a lane:** it confirms the squash commit and does not pull, which fails
+    from a lane today (#164).
+
+  The report names the owner's step (pull, unless step 5 pulled; after a `framework/` change,
+  `./install.sh` and `clauductor panel install`; after a `panel.json` change, `clauductor panel
+  trust`) unless catch-up is on, so a project without the panel works as before. This is a
+  template change, so the plugin is rebuilt and this repository updated (`clauductor update`).
+  **Alternatives:** drop the pull everywhere. Rejected: a project with no panel merging from its
+  main session is fast-forwarded today and would stay behind. Or leave the report to OPS-108's
+  item (6). Rejected: step 5 fails from a lane today, and this change is what decides when the
+  owner's step applies.
 
 - **D6. The notices go as a macOS notification and through the owner's push command.**
   **Recommended:** every catch-up notice goes through the catch-up notifier (D3) as a macOS
   notification and, when `push.json` holds a valid command, through it too. The same file, argv,
   timeout and `alerts.notify` rules apply, and the title names the project only while its config
-  is trusted. STALL-3 says the push carries no alert but `stalled`, so this modifies STALL-3 (the
+  is trusted. The rebuild's notices (D4) are the exception to `alerts.notify`: they go whatever it
+  says, titled "clauductor panel". STALL-3 says the push carries no alert but `stalled`, so this modifies STALL-3 (the
   delta in `specs/panel-stall/`) and adds STALL-3-S12. **Alternative:** a macOS notification
   only. That leaves STALL-3 untouched, but trust on arrival (D1) and the pre-restart warning (D4)
   would reach only a Mac someone is looking at. This Mac has no `push.json` today (E8), so until
