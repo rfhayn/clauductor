@@ -14,6 +14,53 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 9 — 2026-10-23 — Rich — main catches up after a merge, and a cloud session builds a row
+
+**Rows**: OPS-118, OPS-100 · **Span**: 2026-10-22 to 2026-10-23
+
+### What happened
+
+Started as the panel's propose lane `ops-118-main-catches-up`; the build ran in a second lane, `ops-118-build`, which reported back here:
+- **OPS-100 merged as #209** at 8:31 PM ET on 10-22 (squash `44097c12`). A claude.ai cloud session on the owner's promotional credit built it from its row and #178 and opened the PR; the Mac gated and reviewed it. A `new-row` team-queue issue now proposes a roadmap row through `--next-id`. The `new-row` label exists.
+- **OPS-118's proposal merged as #210** at 9:26 PM ET on 10-22 (squash `16075e31`): seven decisions, all approved as recommended, reviewed to convergence in 5 rounds before the owner read it.
+- **OPS-118's build merged as #213** at 2:22 PM ET on 10-23 (squash `b5bce1cf`), in four groups. With catch-up on, the panel fast-forwards the main checkout after a merge, trusts a changed `panel.json` that the owner's own merged PRs brought, and rebuilds and restarts itself when `framework/` changed. merge-pr's step 5 asks the panel instead of pulling. Review converged at `bbacccf9`; `Refs #164`, which stays open for its second item.
+- **Archived by the build lane as #215** at 2:47 PM ET on 10-23 (squash `a6e47df2`): the new living capability `specs/panel-catch-up/` (39 scenarios) and `specs/panel-stall/` with STALL-3's notices (70), the cost $200.24 of a soft $175, and the outcome check **o.9**.
+- **PANEL-56 (#212)**, a row for #211, merged from another session.
+
+### Decisions the owner made
+- **Build OPS-118 in S9, in its own lane**, and hold the close until it merged.
+- **OPS-118's budget went to $175, then soft** ("I want to see ops-118 get completed"). It spent **$200.24** by the build lane's reading: the overrun was warned, not stopped.
+- **Keep reviewing until no medium remains**, said to the build lane directly.
+- **OPS-100's lane rule** stays `^[A-Z]{2,8}$`; #178's `X` example was a placeholder.
+
+### What went wrong
+- **The first gate of #210 ran inside the sandbox** and failed seven checks on `ps` and xcrun, as session 7 logged; the owner's "run it yourself outside the sandbox" let the rerun pass.
+- **A refused `branch -D` in the sandbox left a `.git/config` section** that would have made a reused branch name track `main` (insights, *git/branch-config*).
+- **`change-cost.sh` reads $0 for OPS-118** once both lanes moved branches; the archive records build-change's $200.24 instead (#214, OPS-124).
+- **Two sessions archived the same change.** The build lane opened #215 to archive OPS-118, and filed its lows as #214, while this close did both. The close's review caught the duplicate. This session closed #215 as superseded, but the build lane, unaware, merged it 12 minutes later (its timeline shows the close at 18:35Z and the merge at 18:47Z, with no reopen between), so the close was rebuilt on top of it with its own archive dropped (#215's branch is bundled at `.git/clauductor/branch-archive-2026-10-23-s9-ops118-archive.bundle`, 4ec93442). OPS-124 takes #214's four lows as its source. Who archives a change built in another lane was never said; the build-change report says "on success, push and run merge-pr", and the lane went on to archive too.
+
+### What surprised us
+- **Review found one class at a time.** Group 3 closed the cancelled context one call site per round until the fix named the class; group 4 did the same with the step-5 guard (insights, *review/class-convergence*, owned by OPS-110).
+- **A build lane cannot reuse a running propose lane's name**: id, template and folder are one string.
+
+### Compound
+- **Logged today:** six rows. *gate/worktree-edit* is an instance of AGENTS.md's clean-tree rule; *git/branch-config* and *panel/lane-ids* are Technique; *review/class-convergence* is owned by OPS-110 and *cost/lane-attribution* by OPS-124. *archive/two-lanes* stays Raw for the next close to decide: it wants an owner (who archives a lane's build), and none exists yet.
+
+### Left in flight (handed off)
+- **The owner's step:** `./install.sh`, `clauductor panel install`, then `clauductor panel catch-up --project … on` (owner queue); o.9's 7 days start then.
+- **New rows:** OPS-123 (OPS-100's four lows) and OPS-124 (OPS-118's four lows, issue #214, which its PR closes).
+- **`change/ops-42-build` and `change/panel-31-build`** (2026-10-13) stay for their rows' builds to resume.
+- **Team queue:** #178 → OPS-100 merged (#209); #178 is closed.
+- **Q17**, OPS-81's flake watch, was due by S9 and still waits for the owner (owner queue).
+
+### Flow and cost
+- **Flow (30 days, to 10-23):** cycle 1.1h median, lead 2.5h, 31.5 merges a week, change-fail 5.4%, approval wait 4h, review rounds 2.4, spend $869.36 a week, 26 in flight (Haiku 5.5 unpriced).
+- **This session's cost** (usage-report.sh, list price, this machine, before the close's gate; session `300dd5aa`): about **$45.11**:
+  - the session, Opus 5.5: $29.08;
+  - reviewer, Opus 5.5: $12.22 (OPS-100's rounds and OPS-118's proposal rounds);
+  - gates and merge agents, Opus 5.5: $3.85.
+- **The build lane** (`ops-118-build`, its own session) spent about **$200.24** by its own reading, outside this table.
+
 ## Session 8 — 2026-10-22 — Rich — the panel runs the plan, and change-cost counts nested agents
 
 **Rows**: OPS-111, OPS-120 · **Span**: 2026-10-22
