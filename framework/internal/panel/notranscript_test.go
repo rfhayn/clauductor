@@ -301,29 +301,32 @@ func TestTranscriptExemptionIsExactlyTheReader(t *testing.T) {
 // fileReadSites are the reviewed places the package opens or reads a file. A new
 // one fails this test until it is added here, with what it reads.
 var fileReadSites = map[string]int{
-	"config/config.go":     1, // the panel config
-	"install/hooks.go":     2, // ~/.claude/settings.json, and its re-read before the rename
-	"install/launchd.go":   6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
-	"runtime.go":           2, // a project's notifier state (notifier.json); PANEL-51: its stall clocks (stall.json: lane and session clocks, ask times, kept Stop allowlists, SubagentStop agent ids)
-	"machine.go":           4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
-	"config/projects.go":   1, // the projects registry (projects.json)
-	"push.go":              1, // PANEL-51: the machine's push command (push.json: one JSON object, its argv alone), once its owner and modes are checked
-	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
-	"lanes/registry.go":    1, // the lane registry
-	"install/trust.go":     2, // the trusted-config record; a sidecar's config, judged by the sidecar rule (PANEL-42)
-	"install/init.go":      2, // the project's package.json and Makefile (`panel init`'s gate detection)
-	"lease/lease.go":       5, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat (2: start time, zombie)
-	"install/singleton.go": 6, // the pid file, owner.json (3: PANEL-22's wait for a live add) and port marker; settings.json (hook drift)
-	"install/candidate.go": 1, // PANEL-22: a directory the page names, opened to check the panel can read it
-	"metrics/ledger.go":    1, // the project's spend ledger (spend.json)
-	"economy.go":           2, // economy.json (the panel's own, at start); the project's .claude/model-roles.json
-	"lanes/lifecycle.go":   1, // a .worktreeinclude file copied from the project root into a new worktree
-	"lanes/lanes.go":       1, // PANEL-29: a listed worktree's git-dir rebase-merge/head-name, rebase-apply/head-name, BISECT_START
-	"install/remote.go":    2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
-	"signals/changes.go":   2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
-	"claudecall/lock.go":   1, // PANEL-28: Claude Code's refresh-lock owner record (<lock dir>/.oauth_refresh.lock.owner), read only
-	"claudecall/log.go":    1, // PANEL-28: the panel's own login-lock.jsonl, re-read to trim it to its cap
-	transcriptReader:       1, // PANEL-49: a session's transcript and its subagents', read-only (os.Open alone), by a UUID-checked id under the config directory
+	"config/config.go":      1, // the panel config
+	"install/hooks.go":      2, // ~/.claude/settings.json, and its re-read before the rename
+	"install/launchd.go":    6, // token (2), browser-opened stamp, binary copy, lane registries (uninstall)
+	"runtime.go":            2, // a project's notifier state (notifier.json); PANEL-51: its stall clocks (stall.json: lane and session clocks, ask times, kept Stop allowlists, SubagentStop agent ids)
+	"machine.go":            4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
+	"config/projects.go":    1, // the projects registry (projects.json)
+	"config/catchup.go":     1, // OPS-118: the catch-up record (catch-up.json under the panel's home: the roots catch-up is on for)
+	"push.go":               1, // PANEL-51: the machine's push command (push.json: one JSON object, its argv alone), once its owner and modes are checked
+	"install/open.go":       1, // the panel's pid file, checked before `panel open` sends the token
+	"lanes/registry.go":     1, // the lane registry
+	"install/trust.go":      3, // the trusted-config record; a sidecar's config, judged by the sidecar rule (PANEL-42); OPS-118: a config trusted on arrival, its bytes hashed against the blob catch-up judged
+	"catchup.go":            1, // OPS-118: the project's own panel.json, compared with its blob at the commit catch-up moved to (D1 (c))
+	"install/selfupdate.go": 3, // OPS-118 D4: framework/go.mod (ModuleOf); the rebuilt binary, copied over the PATH one (copyExecutable); the restart marker (TakeRestartMarker)
+	"install/init.go":       2, // the project's package.json and Makefile (`panel init`'s gate detection)
+	"lease/lease.go":        5, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat (2: start time, zombie)
+	"install/singleton.go":  6, // the pid file, owner.json (3: PANEL-22's wait for a live add) and port marker; settings.json (hook drift)
+	"install/candidate.go":  1, // PANEL-22: a directory the page names, opened to check the panel can read it
+	"metrics/ledger.go":     1, // the project's spend ledger (spend.json)
+	"economy.go":            2, // economy.json (the panel's own, at start); the project's .claude/model-roles.json
+	"lanes/lifecycle.go":    1, // a .worktreeinclude file copied from the project root into a new worktree
+	"lanes/lanes.go":        1, // PANEL-29: a listed worktree's git-dir rebase-merge/head-name, rebase-apply/head-name, BISECT_START
+	"install/remote.go":     2, // the remote-control choice (remote-control.json); settings.json's remoteControlAtStartup
+	"signals/changes.go":    2, // the project's .claude/project.conf (CHANGES_DIR); a change's proposal.md
+	"claudecall/lock.go":    1, // PANEL-28: Claude Code's refresh-lock owner record (<lock dir>/.oauth_refresh.lock.owner), read only
+	"claudecall/log.go":     1, // PANEL-28: the panel's own login-lock.jsonl, re-read to trim it to its cap
+	transcriptReader:        1, // PANEL-49: a session's transcript and its subagents', read-only (os.Open alone), by a UUID-checked id under the config directory
 }
 
 // panelSources lists every shipped Go file of the panel and its packages, relative

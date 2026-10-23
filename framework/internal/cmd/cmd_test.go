@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/clauductor/clauductor/internal/panel"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +25,16 @@ func TestMain(m *testing.M) {
 			os.Exit(2)
 		}
 		os.Args = append([]string{"clauductor"}, argv...)
+		if os.Getenv("CLAUDUCTOR_CMD_HELPER_RESTART") != "" {
+			// The panel's run as it ends after rebuilding itself (OPS-118 D4), under the
+			// login agent only: what `clauductor panel` does with that is the test.
+			runPanel = func(_ context.Context, o panel.Options) error {
+				if !o.Launchd {
+					return errors.New("the run was not told it is the login agent")
+				}
+				return &panel.RestartError{Code: panel.ExitRestart, From: strings.Repeat("a", 40), To: strings.Repeat("b", 40)}
+			}
+		}
 		if err := Execute(); err != nil { // as main does
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -47,10 +59,16 @@ func cli(t *testing.T, home string, args ...string) cliResult {
 // cliIn is cli run from dir ("" for the test's own directory).
 func cliIn(t *testing.T, dir, home string, args ...string) cliResult {
 	t.Helper()
+	return cliEnv(t, dir, home, nil, args...)
+}
+
+// cliEnv is cliIn with env added to the command's environment.
+func cliEnv(t *testing.T, dir, home string, env []string, args ...string) cliResult {
+	t.Helper()
 	b, _ := json.Marshal(args)
 	c := exec.Command(os.Args[0], "-test.run=^$")
 	c.Dir = dir
-	c.Env = append(gitFreeEnv(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+home, "CLAUDUCTOR_LANE=", quickExit())
+	c.Env = append(append(gitFreeEnv(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+home, "CLAUDUCTOR_LANE=", quickExit()), env...)
 	var stdout, stderr strings.Builder
 	c.Stdout, c.Stderr = &stdout, &stderr
 	err := c.Run()

@@ -3995,7 +3995,7 @@ async function openTrustDlg(id) {
   if (!r.ok) { setText($("pd-err"), r.error); return; }
   const rep = pd.data = r.res;
   const body = [
-    el("div", null, rep.trusted ? "These exact bytes are trusted already." : "Until you trust it, its cards, queue commands and templates stay off. Trusting records exactly these bytes; a change to the file asks again."),
+    el("div", null, rep.trusted ? "These exact bytes are trusted already" + (rep.note ? ": " + rep.note : "") + "." : "Until you trust it, its cards, queue commands and templates stay off. Trusting records exactly these bytes; a change to the file asks again."),
     el("dl", "facts", null, [...fact("Config", rep.path), ...fact("sha256", rep.hash)]),
     el("h4", null, "It runs"),
     rep.runs && rep.runs.length ? el("ul", "runs", null, rep.runs.map((x) => el("li", null, x))) : el("div", "sub", "nothing: no cards, queue commands or templates"),

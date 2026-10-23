@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/claudecall"
@@ -88,6 +89,14 @@ type Options struct {
 	// Ticks overrides the cadence of the sources and periodic tasks; a zero field
 	// keeps its default (DefaultTicks).
 	Ticks Ticks
+
+	// selfUpdate is the panel's rebuild of itself after catch-up fast-forwards its own
+	// source (OPS-118 D4, task 3.1): nil, or a nil result, when no rebuild follows.
+	// Unexported: a test of trust on arrival stands one in.
+	selfUpdate func(ctx context.Context, t catchUpTarget, res catchUpResult, cfgPath string) *rebuilt
+	// rebuild stands in for what the rebuild reads of the process (its build stamp,
+	// its path, go, the PATH's clauductor, the build's bound); nil reads the process's.
+	rebuild *rebuildEnv
 }
 
 // Ticks are the panel's tick lengths. Every process the panel spawns while it idles
@@ -409,6 +418,18 @@ func Run(ctx context.Context, o Options) error {
 	for _, e := range reg.Projects {
 		ls.order = append(ls.order, e.ID)
 	}
+	// Catch-up (OPS-118 D3) exists before any runtime is wired: wire hands each one's
+	// prs source its wake.
+	ls.cu = newCatchUp(o, clk, m.push.current, ls.catchUpTargets)
+	ls.cu.arrive = ls.arrive
+	// The rebuild and restart (OPS-118 D4): the restart waits for the panel's claude
+	// calls at the gate and ends this run like a SIGTERM, recording the exit status.
+	var restarted atomic.Pointer[RestartError]
+	if ls.cu.selfUpdate == nil {
+		su := newSelfUpdater(o, clk, ls.cu, gate.Quiesce, func(r *RestartError) { restarted.Store(r); cancel() })
+		su.canServe = ls.canServe
+		ls.cu.selfUpdate, ls.cu.atStart = su.selfUpdate, su.announce
+	}
 	for _, r := range runtimes {
 		p := ls.wire(r)
 		srv.Projects = append(srv.Projects, p)
@@ -427,6 +448,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 	start(func() { m.ingest(ctx, hooks, status) })
 	m.start(ctx, start)
+	// After every runtime is launched, so its first poll, the start trigger, sees them
+	// all; under --only too, where it sees the one project served.
+	start(func() { runLoop(ctx, clk, ls.cu.source(), m.pollOnce) })
 	// The login refresh locks (PANEL-28): watched and logged from the start, so the
 	// log covers every refresh this panel lives beside. It only reads them.
 	// What it reads of them goes to every project's model, where the alerts for a
@@ -497,6 +521,9 @@ func Run(ctx context.Context, o Options) error {
 	// ShutdownGrace, not the 15 s, then SIGKILL, so the exit stays inside `panel
 	// install`'s wait for the old job.
 	gate.Close(claudecall.ShutdownGrace)
+	if r := restarted.Load(); r != nil {
+		return r
+	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

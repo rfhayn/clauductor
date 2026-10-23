@@ -1,7 +1,7 @@
 **Approved:** 2026-10-22 by Rich · design 248b39b9be79
 **Roadmap row:** OPS-118
 **Risk:** high
-**Budget:** $120
+**Budget:** $175, soft
 
 ## Why
 After every merge the owner does by hand what no lane can: pulls the main checkout, runs
@@ -78,4 +78,7 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
 - **Signal:** in the 7 days after it merges, no merge needs the owner's pull, trust or install.
   The panel log has a catch-up line for each merge, and `go version -m
   ~/.clauductor/panel/bin/clauductor` names the last commit on `main` that changed `framework/`.
+  After the first such merge, `clauductor.prev` beside it is the binary it replaced, and the
+  page's token still opens the panel: CATCHUP-4-S1 on the owner's Mac, under the real login agent
+  and launchd's restart, which no test may touch (the owner, 2026-10-23: moved here from task 3.4).
 - **Check after:** 7 days

@@ -3,8 +3,10 @@ package panel
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -843,5 +845,149 @@ func TestStallAcrossRestartPushesOnceWatched(t *testing.T) {
 	p2.polls.more(t, id+"/notify", 3)
 	if n, got := len(again.stalled()), pushRuns(t, runs); n != 1 || len(got) != 1 {
 		t.Fatalf("after the window: %d notifications and %d pushes, want one of each", n, len(got))
+	}
+}
+
+// OPS-118 D6: a catch-up notice is a notification and a push; a waiting one (a config
+// left for the owner) only while the loaded config's alerts.notify is on.
+func TestSendCatchUpPushesItsNotice(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	prog, runs := pushStandIn(t, "")
+	cmd := pushCmd{argv: []string{prog, "--topic", "x"}}
+	var sent []state.Notice
+	notify := func(_ context.Context, n state.Notice) error { sent = append(sent, n); return nil }
+	var out strings.Builder
+
+	waits := catchUpNotice{root: "/r", key: "catch-up\x00/r\x00arrival\x00c", body: "did not trust #7", waits: true}
+	if sendCatchUp(ctx, notify, cmd, &out, waits, false) || len(sent) != 0 || len(pushRuns(t, runs)) != 0 {
+		t.Fatalf("a waiting notice with alerts.notify false went: %d notices, %d pushes", len(sent), len(pushRuns(t, runs)))
+	}
+	// alerts.notify false withholds only the notice that waits for the owner: a refusal
+	// or a failed rebuild still reaches the owner.
+	refusal := catchUpNotice{root: "/r", key: "catch-up\x00/r\x00refused", body: "Catch-up left /r as it was."}
+	if !sendCatchUp(ctx, notify, cmd, &out, refusal, false) {
+		t.Fatal("a refusal was withheld with alerts.notify false")
+	}
+	trusted := catchUpNotice{root: "/r", key: "catch-up\x00/r\x00arrival\x00d", body: "Catch-up trusted the new config on arrival from #7.",
+		trusted: strings.Repeat("P", 90)}
+	if !sendCatchUp(ctx, notify, cmd, &out, trusted, true) {
+		t.Fatal("a trust notice was withheld")
+	}
+	if len(sent) != 2 || sent[0].Title != catchUpTitle || sent[1].Title != trusted.trusted {
+		t.Fatalf("notices %+v: want a refusal titled %q, then the trust notice titled with the config's name", sent, catchUpTitle)
+	}
+	got := pushRuns(t, runs)
+	if len(got) != 2 || len(got[1]) != 4 || got[1][0] != "--topic" || got[1][3] != trusted.body {
+		t.Fatalf("pushes %q, want two, each its argv, then the title and the body", got)
+	}
+	if got[0][2] != catchUpTitle || got[1][2] != signals.Clip(trusted.trusted, 80) {
+		t.Errorf("push titles %q and %q: want %q, then the name clipped to 80", got[0][2], got[1][2], catchUpTitle)
+	}
+	if out.Len() != 0 {
+		t.Errorf("the panel log: %q", out.String())
+	}
+}
+
+// On the Mac, with no push.json the owner's one channel, a catch-up notice arrives
+// whole. It builds its bodies by hand and drives no fast-forward, so it cites no
+// scenario: the CATCHUP-3 tests in catchup_trust_integration_test.go drive them and
+// read each notice through catchUpNotifyArgv, as the Mac shows it. Review
+// 2026-10-22 found the trust notice of a checkout at /Users/rich/Development/clauductor
+// reaching osascript flattened and cut at 140 runes, its − line gone and its + line cut
+// mid-command, and a notice that waits, or names a load error, without its reason. The
+// catch-up source shows its notices with notifyCatchUp, never SendNotice's summary.
+func TestCatchUpNoticeReachesTheMacWhole(t *testing.T) {
+	t.Parallel()
+	c := newCatchUp(Options{}, nil, nil, nil)
+	if reflect.ValueOf(c.notify).Pointer() != reflect.ValueOf(notifyCatchUp).Pointer() {
+		t.Fatal("with no test recording its notices, catch-up does not show them with notifyCatchUp")
+	}
+	root := "/Users/rich/Development/clauductor"
+	x, y := `card x runs ["sh" ".claude/x.sh"] (interval:60)`, `card y runs ["sh" ".claude/y.sh"] (interval:60)`
+	trust := catchUpNotice{root: root, key: "catch-up\x00k1", trusted: "Clauductor", body: trustBody(
+		"Catch-up trusted the new .claude/panel.json in "+root+" on arrival from #7, merged by rhayn.", []string{x}, []string{y})}
+	reason := "the loaded config was not the file the fast-forward started from (0123abc); the new config turns notices off (alerts.notify is false)"
+	waits := catchUpNotice{root: root, key: "catch-up\x00k2", waits: true, body: catchUpBody("Catch-up moved " + root +
+		" to abc1234 (#7, merged by rhayn), and did not trust its new .claude/panel.json: " + reason +
+		". The config waits for the owner: Trust config… on the page, or `clauductor panel trust`.")}
+	loadErr := "panel config: card x: unknown field \"intervall\""
+	noLoad := catchUpNotice{root: root, key: "catch-up\x00k3", body: catchUpBody("Catch-up moved " + root +
+		" to abc1234 (#7, merged by rhayn), and its new .claude/panel.json does not load, so the panel keeps serving the config it had loaded: " + loadErr + ".")}
+	var sent []state.Notice
+	notify := func(_ context.Context, n state.Notice) error { sent = append(sent, n); return nil }
+	for _, n := range []catchUpNotice{trust, waits, noLoad} {
+		if !sendCatchUp(context.Background(), notify, pushCmd{}, io.Discard, n, true) {
+			t.Fatalf("%q was withheld", n.body)
+		}
+	}
+	mac := func(i int) (title, body string) {
+		argv := catchUpNotifyArgv(sent[i])
+		return argv[len(argv)-2], argv[len(argv)-1]
+	}
+	title, body := mac(0)
+	if title != "Clauductor" || body != trust.body {
+		t.Fatalf("the trust notice on the Mac: %q, %q; want the config's name and the whole notice %q", title, body, trust.body)
+	}
+	if !strings.Contains(body, "#7") || !strings.Contains(body, "rhayn") || !strings.Contains(body, "\n+ "+x) || !strings.Contains(body, "\n− "+y) {
+		t.Fatalf("the trust notice on the Mac lacks #7, the login, or a whole + or − line:\n%s", body)
+	}
+	if title, body = mac(1); title != catchUpTitle || !strings.Contains(body, reason) || !strings.Contains(body, "waits for the owner") {
+		t.Fatalf("the notice that waits on the Mac, %q: %q lacks its reason or that it waits for the owner", title, body)
+	}
+	if _, body = mac(2); !strings.Contains(body, loadErr) {
+		t.Fatalf("the notice of a config that does not load on the Mac: %q lacks the load's error", body)
+	}
+	// Past catchUpBodyMax the one text both ways carry is cut there, its lines kept.
+	long := catchUpNotice{root: root, key: "catch-up\x00k4", body: "head\n" + strings.Repeat("x", 2*catchUpBodyMax)}
+	sendCatchUp(context.Background(), notify, pushCmd{}, io.Discard, long, true)
+	if _, body = mac(3); len([]rune(body)) != catchUpBodyMax || !strings.HasPrefix(body, "head\nxxx") || !strings.HasSuffix(body, "…") {
+		t.Fatalf("a body over %d runes reached the Mac as %d runes: %.40q", catchUpBodyMax, len([]rune(body)), body)
+	}
+}
+
+// [STALL-3-S12] With push.json's argv a stand-in, a project named "Panel" with catch-up
+// on and a trusted config, and a session waiting on a permission prompt past
+// waiting_seconds: the owner's #7, changing panel.json, goes out once as a notification
+// and once as a push, titled "Panel", naming #7; the waiting alert goes out as a
+// notification and no push.
+func TestCatchUpNoticeIsPushedAndAWaitingAlertIsNot(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	cfg := cardCfg("Panel", true, ".claude/x.sh")
+	w := newTrustWorld(t, cardCfg("Panel", true, ".claude/y.sh"), true)
+	prog, runs := pushStandIn(t, "")
+	writePush(t, w.home, argvJSON(prog))
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	p := w.start(t, sock, &notices, &log, nil)
+	w.arrive(t, p, 7, config.DefaultConfigRel, cfg)
+	ns := catchUpNotices(&notices)
+	if len(ns) != 1 {
+		t.Fatalf("catch-up sent %d notices, want 1: %+v\n%s", len(ns), ns, log.String())
+	}
+	noticeSays(t, ns[0], "Panel", "#7")
+	got := pushRuns(t, runs)
+	// The stand-in records an argument a line, and the body has lines of its own (+, −).
+	if len(got) != 1 || len(got[0]) < 2 || got[0][0] != "Panel" || strings.Join(got[0][1:], "\n") != ns[0].Body {
+		t.Fatalf("pushes %q, want one titled Panel, its body the notice's\n%s", got, log.String())
+	}
+
+	// The waiting alert, past waiting_seconds, through the notifier and the push the
+	// panel runs on each notice it sends.
+	at := time.Now()
+	wait := state.AlertView{Key: "waiting:s1", Kind: state.AlertWaiting, Severity: signals.SevBlock, Lane: "/r/w/a", Name: "a",
+		Terminal: "lane-a", Text: "waiting on you: wants to use Bash", Since: at.Add(-2 * time.Minute).UnixMilli()}
+	n := &state.Notifier{MinInterval: time.Minute, Project: "Panel"}
+	sent := n.Process([]state.AlertView{wait}, nil, at)
+	if len(sent) != 1 {
+		t.Fatalf("the waiting alert: %d notifications, want 1", len(sent))
+	}
+	if pushed, err := pushNotice(context.Background(), pushCmd{argv: []string{prog}}, "Panel", sent[0], at); pushed || err != nil {
+		t.Fatalf("the waiting alert was pushed (%v, %v)", pushed, err)
+	}
+	if got := pushRuns(t, runs); len(got) != 1 {
+		t.Fatalf("pushes %q, want the catch-up notice's alone", got)
 	}
 }

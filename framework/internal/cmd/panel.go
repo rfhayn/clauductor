@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,7 +85,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), panelStopSignals(signal.Ignored)...)
 		defer stop()
-		return panel.Run(ctx, panel.Options{
+		err = runPanel(ctx, panel.Options{
 			Project:     project,
 			ConfigPath:  panelConfig,
 			Only:        panelOnly,
@@ -95,6 +96,52 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 			Launchd:     panelLaunchd,
 			TrustConfig: panelTrust,
 		})
+		// The rebuild's restart (OPS-118 D4): the run has shut down, and the exit status
+		// is what tells launchd to start the new binary. main turns a returned error into
+		// 1, so the status is set here, as lock-run does.
+		if rs := (*panel.RestartError)(nil); errors.As(err, &rs) {
+			fmt.Fprintf(out, "clauductor panel: %v\n", rs)
+			stop()
+			os.Exit(rs.Code)
+		}
+		return err
+	},
+}
+
+// runPanel is panel.Run; a test of the restart's exit status stands one in.
+var runPanel = panel.Run
+
+var panelConfigCheckConfig string
+
+// panelConfigCheckCmd is how the running panel asks a rebuilt binary to judge a
+// changed panel.json before it replaces itself (OPS-118 D1, D4): the new binary's
+// reading of the file, not the old one's, decides what the new one will run.
+var panelConfigCheckCmd = &cobra.Command{
+	Use:   "config-check --config <file>",
+	Short: "Load a panel config and print its name, alerts.notify, run list and tmux_socket as JSON",
+	Long: `Load a panel config as this binary would serve it and print, as one JSON object,
+its name, its alerts.notify, the commands and prompts it runs (the run list
+'panel trust' reports) and its tmux_socket as written ("" when it names none). A
+config that does not load is the command's error, and
+it exits non-zero. It trusts nothing and writes nothing: the panel runs it on a
+rebuilt binary before putting that binary in place.`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if panelConfigCheckConfig == "" {
+			return errors.New("config-check needs --config <file>")
+		}
+		cfg, err := config.LoadConfig(panelConfigCheckConfig)
+		if err != nil {
+			return err
+		}
+		b, err := json.Marshal(config.CheckOf(cfg))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n", b)
+		return nil
 	},
 }
 
@@ -141,8 +188,10 @@ func init() {
 	panelAttachCmd.Flags().StringVar(&attachID, "id", "", "the project's id in routes, the page and the sidecar's folder (default: from the repository's name)")
 	panelAttachCmd.Flags().BoolVar(&attachDefault, "default", false, "make it the default project")
 	panelRemoveCmd.Flags().BoolVar(&removeForce, "force", false, "remove it even while lanes are registered (they keep running; their registry is kept)")
+	panelCatchUpCmd.Flags().StringVar(&catchUpProject, "project", "", "the project's id or root, its main checkout (required)")
+	panelConfigCheckCmd.Flags().StringVar(&panelConfigCheckConfig, "config", "", "the panel config file to load (required)")
 	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd,
-		panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
+		panelCatchUpCmd, panelConfigCheckCmd, panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 
@@ -555,5 +604,97 @@ func printTrust(w io.Writer, cfgPath, h string, runs []string, err error) error 
 		return err
 	}
 	install.PrintTrusted(w, cfgPath, h, runs)
+	return nil
+}
+
+var catchUpProject string
+
+var panelCatchUpCmd = &cobra.Command{
+	Use:   "catch-up --project <id|path> [on|off]",
+	Short: "Turn on or off, or print, whether the panel brings a project's main checkout to its merged base",
+	Long: `With catch-up on for a project, the running panel fast-forwards the project's
+main checkout to its base (base in panel.json, default origin/main) when one of
+its pull requests leaves the open list, and at the panel's start: only while the
+checkout is clean, on the base's branch and behind it, and only over pull
+requests merged from the account 'gh api user' names. Whatever it cannot do, it
+leaves as it was and says why once, as a notification.
+
+It is this machine's choice, kept in ~/.clauductor/panel/catch-up.json by the
+project's root, and off until you turn it on; never a key of panel.json. With no
+on or off, it prints the project's state: on or off. A project whose config is
+outside its repository (an attached project) cannot turn it on. A running panel
+reads the file at each merge, so a change takes effect with no restart; 'panel
+remove' turns it off.`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+			return err
+		}
+		if len(args) == 1 && args[0] != "on" && args[0] != "off" {
+			return fmt.Errorf("catch-up takes on or off, not %q", args[0])
+		}
+		return nil
+	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		return runCatchUp(cmd.OutOrStdout(), home, catchUpProject, args)
+	},
+}
+
+// runCatchUp is `panel catch-up`: print the project's state, or set it (OPS-118 D2).
+// A registered project is found by its id or its root, and its catch-up is keyed by
+// that root; an unregistered path can only be printed or turned off, so a root left
+// listed can still be cleared. Nothing but catch-up.json is written.
+func runCatchUp(out io.Writer, home, project string, args []string) error {
+	if project == "" {
+		return fmt.Errorf("catch-up needs --project <id|path>: the project's main checkout")
+	}
+	reg, err := config.LoadProjects(home)
+	if err != nil {
+		return err
+	}
+	e := reg.Find(project)
+	if e == nil {
+		e = reg.Find(signals.ResolvePath(project))
+	}
+	root := signals.ResolvePath(project)
+	if e != nil {
+		root = e.Root
+	}
+	if len(args) == 0 {
+		on, err := config.CatchUpOn(home, root)
+		if err != nil {
+			return err
+		}
+		if on {
+			fmt.Fprintln(out, "on")
+		} else {
+			fmt.Fprintln(out, "off")
+		}
+		return nil
+	}
+	on := args[0] == "on"
+	if on {
+		if e == nil {
+			return fmt.Errorf("no registered project %q (`clauductor panel list` names them): catch-up is for a project the panel serves", project)
+		}
+		if install.ConfigOutside(*e) {
+			// ATTACH-2: a repository the owner does not run the model in is never written
+			// by the panel, and its trust stays the owner's alone.
+			return fmt.Errorf("catch-up stays off for %s: its config %s is outside the repository (an attached project), and the panel fast-forwards only a project whose config is in its repository", e.Root, e.ConfigPath())
+		}
+	}
+	if err := config.SetCatchUp(home, root, on); err != nil {
+		return err
+	}
+	if on {
+		fmt.Fprintf(out, "Catch-up is on for %s: the running panel brings its main checkout to its merged base after each of its pull requests merges, and at its start.\n", root)
+	} else {
+		fmt.Fprintf(out, "Catch-up is off for %s.\n", root)
+	}
 	return nil
 }

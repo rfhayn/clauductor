@@ -135,16 +135,27 @@ const loginOpenGap = 5 * time.Minute
 // ShouldOpenAtLogin decides whether a launchd start opens the browser, and records
 // the open when it does.
 func ShouldOpenAtLogin(home string, now time.Time) bool {
-	path := filepath.Join(config.PanelDir(home), "browser-opened")
-	if b, err := os.ReadFile(path); err == nil {
+	if b, err := os.ReadFile(browserOpenedPath(home)); err == nil {
 		if sec, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil &&
 			now.Sub(time.Unix(sec, 0)) < loginOpenGap {
 			return false
 		}
 	}
+	RecordBrowserOpen(home, now)
+	return true
+}
+
+// RecordBrowserOpen records a browser open at now, as ShouldOpenAtLogin records the
+// one it makes: the panel's restart after rebuilding itself (OPS-118 D4) records one
+// it did not make, so the login agent's start of the new binary opens no tab.
+func RecordBrowserOpen(home string, now time.Time) {
+	path := browserOpenedPath(home)
 	_ = config.EnsurePrivateDir(filepath.Dir(path))
 	_ = os.WriteFile(path, []byte(strconv.FormatInt(now.Unix(), 10)+"\n"), 0o600)
-	return true
+}
+
+func browserOpenedPath(home string) string {
+	return filepath.Join(config.PanelDir(home), "browser-opened")
 }
 
 // plistSpec is what the login agent runs.
@@ -159,7 +170,8 @@ type plistSpec struct {
 
 // pathForAgent builds the agent's PATH: Homebrew, ~/.local/bin, the directories of
 // the tools the panel and its lanes run (as found on the installing user's PATH),
-// then the system directories. launchd's own default PATH has none of these.
+// then the system directories. launchd's own default PATH has none of these. go is
+// one: the panel rebuilds itself with it after a merge into its own source (OPS-118 D4).
 func pathForAgent(home string, lookPath func(string) (string, error)) string {
 	var dirs []string
 	seen := map[string]bool{}
@@ -171,7 +183,7 @@ func pathForAgent(home string, lookPath func(string) (string, error)) string {
 	}
 	add("/opt/homebrew/bin")
 	add(filepath.Join(home, ".local", "bin"))
-	for _, tool := range []string{"claude", "tmux", "git", "gh", "node", "jq"} {
+	for _, tool := range []string{"claude", "tmux", "git", "gh", "node", "jq", "go"} {
 		if p, err := lookPath(tool); err == nil {
 			add(filepath.Dir(p))
 		}

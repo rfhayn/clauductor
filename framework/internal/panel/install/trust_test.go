@@ -307,3 +307,134 @@ func TestSidecarRecordedEarlierIsNotTrusted(t *testing.T) {
 		t.Error("a sidecar that does not parse is trusted")
 	}
 }
+
+// A config trusted on arrival carries its note, "trusted on arrival from #7", in its
+// record: a runtime started on the record later, and the page's trust report, read it
+// back (CheckTrust), while the bytes are the ones it was made for. TrustArrived records
+// only the bytes it was told, never parses them (the new binary judged them), and trusts
+// nothing outside the repository. A test of the part cites no scenario: the panel test
+// TestCatchUpTrustsTheOwnersMergeOnArrival drives trust on arrival through a fast-forward.
+func TestTrustArrivedCarriesItsNote(t *testing.T) {
+	t.Parallel()
+	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
+	cfg := filepath.Join(root, ".claude", "panel.json")
+	// A version the running binary does not read: the rebuild's new binary judged it.
+	body := `{"version":999,"name":"acme"}`
+	writeConfig(t, cfg, body)
+	h := ConfigHash([]byte(body))
+	const note = "trusted on arrival from #7"
+
+	if _, err := TrustArrived(home, root, cfg, ConfigHash([]byte("other bytes")), note); !errors.Is(err, ErrConfigChanged) {
+		t.Fatalf("bytes that are not the ones judged: %v, want ErrConfigChanged", err)
+	}
+	if TrustedNow(home, root, cfg, h) {
+		t.Fatal("a refused arrival recorded the file")
+	}
+	tv, err := TrustArrived(home, root, cfg, h, note)
+	if err != nil || !tv.Trusted || tv.Note != note {
+		t.Fatalf("TrustArrived: %+v %v, want trusted with the note %q", tv, err, note)
+	}
+	if tv, _ := CheckTrust(home, root, cfg, h, false); !tv.Trusted || tv.Note != note {
+		t.Fatalf("the record read back: %+v, want trusted with the note %q", tv, note)
+	}
+	// An older binary reads the file: its configs are where they always were.
+	b, err := os.ReadFile(TrustPath(home, root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var older struct {
+		Configs map[string]string `json:"configs"`
+	}
+	if err := json.Unmarshal(b, &older); err != nil || older.Configs[signals.ResolvePath(cfg)] != h {
+		t.Fatalf("the record as an older binary reads it: %s (%v)", b, err)
+	}
+
+	// The owner's own trust of other bytes drops the note: it no longer says how the
+	// trusted bytes were trusted.
+	if tv, _ := CheckTrust(home, root, cfg, "h2", true); !tv.Trusted || tv.Note == note {
+		t.Fatalf("trusting other bytes by hand: %+v, want trusted with its own note", tv)
+	}
+	if tv, _ := CheckTrust(home, root, cfg, "h2", false); tv.Note != "" {
+		t.Fatalf("a hand trust read back with the note %q", tv.Note)
+	}
+	// A note made for other bytes than the recorded ones is never read.
+	tf, err := readTrust(TrustPath(home, root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf.Notes = map[string]trustNote{signals.ResolvePath(cfg): {Hash: h, Note: note}}
+	if err := writeTrust(TrustPath(home, root), tf); err != nil {
+		t.Fatal(err)
+	}
+	if tv, _ := CheckTrust(home, root, cfg, "h2", false); !tv.Trusted || tv.Note != "" {
+		t.Fatalf("a note for other bytes: %+v, want trusted with no note", tv)
+	}
+
+	// A config outside its repository is never trusted on arrival.
+	sidecar := filepath.Join(signals.ResolvePath(t.TempDir()), "panel.json")
+	writeConfig(t, sidecar, body)
+	if _, err := TrustArrived(home, root, sidecar, h, note); err == nil || TrustedNow(home, root, sidecar, h) {
+		t.Fatalf("a config outside the repository was trusted on arrival (%v)", err)
+	}
+}
+
+// A trust recorded on arrival is withdrawn when the binary that judged the bytes is not
+// put in place (UntrustArrived): the record goes back to the hash before it, or goes
+// when there was none, and the note goes with it. A record changed since, by the
+// owner's own trust, stands. A test of the part cites no scenario: the panel test
+// TestCatchUpStoppedBeforeTheSwapWithdrawsTheTrust drives it through a stop.
+func TestUntrustArrivedRestoresTheRecordBeforeIt(t *testing.T) {
+	t.Parallel()
+	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
+	cfg := filepath.Join(root, ".claude", "panel.json")
+	const note = "trusted on arrival from #7"
+	writeConfig(t, cfg, `{"name":"old"}`)
+	h0 := ConfigHash([]byte(`{"name":"old"}`))
+	if _, err := CheckTrust(home, root, cfg, h0, true); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"version":999,"name":"new"}`
+	writeConfig(t, cfg, body)
+	h1 := ConfigHash([]byte(body))
+	tv, err := TrustArrived(home, root, cfg, h1, note)
+	if err != nil || tv.Prev != h0 {
+		t.Fatalf("TrustArrived: %+v %v, want the earlier hash as Prev", tv, err)
+	}
+
+	if ok, err := UntrustArrived(home, root, cfg, h1, "another note", h0); ok || err != nil || !TrustedNow(home, root, cfg, h1) {
+		t.Fatalf("a record made with another note was withdrawn (%v, %v)", ok, err)
+	}
+	if ok, err := UntrustArrived(home, root, cfg, h1, note, h0); !ok || err != nil {
+		t.Fatalf("UntrustArrived: %v %v, want withdrawn", ok, err)
+	}
+	if TrustedNow(home, root, cfg, h1) || !TrustedNow(home, root, cfg, h0) {
+		t.Fatal("after the withdrawal, want the earlier bytes trusted and the arrived ones not")
+	}
+	if tv, _ := CheckTrust(home, root, cfg, h0, false); tv.Note != "" {
+		t.Fatalf("the arrival's note outlived its record: %q", tv.Note)
+	}
+
+	// The owner's trust since stands.
+	if _, err := TrustArrived(home, root, cfg, h1, note); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckTrust(home, root, cfg, "h2", true); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := UntrustArrived(home, root, cfg, h1, note, h0); ok || err != nil || !TrustedNow(home, root, cfg, "h2") {
+		t.Fatalf("a record the owner made since was withdrawn (%v, %v)", ok, err)
+	}
+
+	// No record before: the withdrawal leaves none.
+	home2 := t.TempDir()
+	if tv, err := TrustArrived(home2, root, cfg, h1, note); err != nil || tv.Prev != "" {
+		t.Fatalf("TrustArrived over no record: %+v %v", tv, err)
+	}
+	if ok, err := UntrustArrived(home2, root, cfg, h1, note, ""); !ok || err != nil {
+		t.Fatalf("UntrustArrived over no record: %v %v", ok, err)
+	}
+	tf, err := readTrust(TrustPath(home2, root))
+	if err != nil || len(tf.Configs) != 0 || len(tf.Notes) != 0 {
+		t.Fatalf("the record after withdrawing the only trust: %+v %v, want empty", tf, err)
+	}
+}

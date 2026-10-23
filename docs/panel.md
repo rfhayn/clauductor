@@ -291,7 +291,11 @@ Either way the project is served at once and the page switches to it.
 **Trust config…** shows the same report for a served project (`/api/projects/<id>/trust` with
 `dryRun`) and trusts exactly those bytes. If the file on disk is not the one the panel loaded (it
 was edited since), the project is started again with the bytes just trusted. A config that
-changes after it was trusted asks again, as it always has.
+changes after it was trusted asks again, as it always has, unless the change came by catch-up's
+fast-forward and was trusted on arrival, the second way a config is trusted (see
+[Catch up after a merge](#catch-up-after-a-merge)). The trust report then reads "These exact bytes
+are trusted already: trusted on arrival from #N", across restarts, until you trust the file by
+hand, which drops the note.
 
 **Remove from panel…** explains first that it only unregisters the project: nothing on disk is
 deleted (the repository, its config, its worktrees and its lane registry stay, and adding it again
@@ -602,6 +606,12 @@ local remote-tracking branch, as of the last fetch (yours, or the panel's when a
 Close lane or Remove plans), hence "as of last fetch". There is no line when the branch is up to
 date or only ahead, when it has no upstream or HEAD is detached, or when git cannot be read.
 Pull in the main checkout, then **Refresh** (it re-reads git and every card at once).
+
+With catch-up on for the project (see [Catch up after a merge](#catch-up-after-a-merge)), you do
+not pull: after each merge of a pull request from your account, the panel fetches and
+fast-forwards the main checkout itself, so the line clears. When it cannot (a tracked change, a
+commit of the main checkout's own, a commit no pull request of yours brought), the checkout stays
+behind, and a notice says why.
 
 ## The page
 
@@ -2097,18 +2107,31 @@ restart does not send it again while it is still active: until the sources the s
 have answered since the start, the notifier keeps each stall's mark in `notifier.json` rather than
 reading the stall as cleared.
 
-**The push command (stalls only).** A Mac notification reaches nobody who is away from the Mac,
-which is when a stall matters. `~/.clauductor/panel/push.json` names a command of yours that
+**Catch-up's notices** (see [Catch up after a merge](#catch-up-after-a-merge)) are about the
+checkout, the config and the panel's own binary, not a lane: a refused fast-forward, a skipped
+project, a config trusted on arrival, one that waits for you or does not load, and the rebuild's
+(a failed or skipped build, the restart with its rollback, "now running"). Each goes once per
+panel run, as a macOS notification and through the push command below, with none of the lane
+rules above (no grouping, rate limit or focus). They go whatever `alerts.notify` says, but for the
+one that says a config waits for you, which the page's **Config untrusted** banner says too: no
+config in a repository may silence the notice that a merge left the checkout behind, or how to
+roll back a binary that replaced itself. Each is titled "clauductor panel" with the checkout's
+path in its body, but for the trust notice, titled with the `name` of the config it trusted. The
+body keeps its lines (a trust notice's `+` and `−` command lines) and is cut at 600 characters;
+the push's title, at 80.
+
+**The push command (stalls and catch-up).** A Mac notification reaches nobody who is away from the
+Mac, which is when a stall matters. `~/.clauductor/panel/push.json` names a command of yours that
 reaches your phone:
 
 ```json
 {"argv": ["/opt/homebrew/bin/ntfy", "publish", "my-private-topic"]}
 ```
 
-The panel runs it for each notification that carries a stall, with two more arguments, the title
-and the body, with no shell and a 10 s timeout, so the argv ends where those two belong. ntfy's
-CLI joins every argument after the topic into the message, so the line above sends the title and
-the body as one message. For a real title, a two-line wrapper of your own (owned by you, and
+The panel runs it for each notification that carries a stall, and for each catch-up notice, with
+two more arguments, the title and the body, with no shell and a 10 s timeout, so the argv ends
+where those two belong. ntfy's CLI joins every argument after the topic into the message, so the
+line above sends the title and the body as one message. For a real title, a two-line wrapper of your own (owned by you, and
 writable by you alone, as `push.json` is) does it with `curl`:
 
 ```sh
@@ -2138,15 +2161,18 @@ exec /usr/bin/curl -fsS --form-string "token=APP_TOKEN" --form-string "user=USER
   lane has been quiet, the kind of wait ("a shell in flight", "nothing in flight", "a question",
   "claude exited") and the open work ("#152 open"), built from the stall's own fields. Never the
   turn's last line, a task's description or a question's words: those are the model's, and the
-  push leaves the machine. Only a stall is pushed; a waiting alert is pushed only when it has
-  stalled.
+  push leaves the machine. Only a stall and a catch-up notice are pushed; a waiting alert is
+  pushed only when it has stalled. A catch-up notice sends its own title and body, as above:
+  commits, pull requests, a path, the config's run lines, never a model's words.
 - **When it is read:** once for every project, at start and whenever the file changes (a check
   every 10 s, its mode and owner included, and those of the folder of its path and of each link's target).
 - **A refused file** never runs, and a warning bar on every project's page names the file and why
   (see *Security model*).
-- **A failed push** counts in the notifier's failures with the last line it printed (never its
-  arguments, which can hold a token); the Mac notification still goes. `alerts.notify` off sends
-  neither.
+- **A failed push** of a stall counts in the notifier's failures with the last line it printed
+  (never its arguments, which can hold a token); a failed push of a catch-up notice is written to
+  the panel log alone, with the same line. Either way the Mac notification still goes.
+  `alerts.notify` off sends neither for a stall; of catch-up's notices it withholds only the one
+  that says a config waits for you.
 
 ## Metrics
 
@@ -2877,12 +2903,14 @@ send requests to `127.0.0.1`.
   a loopback peer, the cookie, and an `Origin` equal to this page's (so another loopback port or
   another `*.localhost` name cannot call them), with no CORS answer to a preflight. Each body is
   strict JSON, at most 16 KB, unknown fields refused, and names no command: a path, a project id,
-  a flag, and for trusting a SHA-256. **Nothing a repository names runs before an explicit trust
-  click:** validating a path and previewing `panel init` read files and run only git's read-only
+  a flag, and for trusting a SHA-256. **Nothing a repository names runs before it is trusted:**
+  validating a path and previewing `panel init` read files and run only git's read-only
   plumbing (`rev-parse`, `worktree list`, `symbolic-ref`, `for-each-ref`); the trust report renders
   the config. Commands run only after **Trust and add** or **Trust config…**, and only for the
   bytes whose hash the request names, checked again when the trust is recorded (an edit between
-  the report and the click is refused). **Add without trusting** adds a project whose commands
+  the report and the click is refused). The one trust with no click is catch-up's trust on
+  arrival, only for a project you turned catch-up on for (*Catch-up*, below). **Add without
+  trusting** adds a project whose commands
   stay off, as `panel add` does. `init` creates `.clauductor/panel.json` with `O_EXCL` and never
   overwrites a file, a dangling symlink included. A project added or made the default live adds
   its Host names to the allow-list only once it is trusted (only the default the panel started
@@ -2942,12 +2970,40 @@ send requests to `127.0.0.1`.
   path, or is anything but one JSON object with a non-empty `argv` of strings. The push carries
   no word of the model's or of a question (only the quiet time, the kind of wait and the open
   work), and a failed push's error keeps only the last line it printed, never its arguments.
+- **Catch-up writes your main checkout, trusts on arrival and replaces the panel's binaries, only
+  where you turn it on** (OPS-118; [Catch up after a merge](#catch-up-after-a-merge)). It is off
+  for every project until `clauductor panel catch-up --project <root> on`, and its switch lives in
+  `~/.clauductor/panel/catch-up.json`, never in `panel.json`, so a repository cannot grant itself
+  any of it; an attached project never catches up, and the switch is refused for one. With it on,
+  the panel runs `git fetch` and `git merge --ff-only` in the main checkout, only to a commit
+  whose every first-parent commit since HEAD is the merge commit of a pull request merged into the
+  base branch from the account `gh` runs as. A `panel.json` that fast-forward brings in is
+  trusted on arrival, with no click, and its new commands run before you read them: the notice
+  lists them after. For the panel's own source, under launchd, it builds itself with the `go` on
+  its PATH, replaces its installed binary and, when that one's build information names the same
+  module and a commit of the repository, the `clauductor` on its PATH, then restarts. The
+  boundary is your GitHub account, not you in person: whatever that account merges arrives
+  trusted. The conditions, and what each refusal leaves, are in *Catch up after a merge*.
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
   - the hook install;
   - the lane registry;
-  - the trusted config hash, and the logs of queue RUNs;
+  - the trusted config hash (with the note "trusted on arrival from #N" when catch-up trusted
+    it), and the logs of queue RUNs;
+  - `catch-up.json`, only when `clauductor panel catch-up` turns a project on or off, or
+    `panel remove` clears the project's root (OPS-118);
+  - with catch-up on, the main checkout: what git writes for `git fetch <remote> <branch>` and
+    `git merge --ff-only` to the commit the panel checked (objects, refs, `FETCH_HEAD`,
+    `ORIG_HEAD`, the reflog, the index, and the tracked files the merge changes), and nothing
+    else in the repository;
+  - when catch-up rebuilds the panel: `~/.clauductor/panel/bin/clauductor.new` (removed when the
+    build or its checks fail), then the old binary renamed to `clauductor.prev` and the new one
+    to `clauductor`; the `clauductor` on the panel's PATH, outside `~/.clauductor`, replaced the
+    same way, with its own `.new` and `.prev` beside it, only when its build information names
+    the same module and a commit of the repository; Go's own build and module caches, as any
+    `go build` writes them; and the marker `~/.clauductor/panel/restarted`, which the next
+    start reads and removes;
   - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
     a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
@@ -3024,6 +3080,14 @@ and add** in Add a project…, and **Trust config…** (in the untrusted banner 
 hash, checked again as the trust is recorded; an edit in between is refused and the report is read
 again. See [Add, trust and remove from the page](#add-trust-and-remove-from-the-page) and, for the
 routes, [Security model](#security-model).
+
+Since OPS-118 there is a second way, which needs no review: **trust on arrival**. With catch-up on
+for the project, a changed in-repository config that the panel's own fast-forward brought, over
+pull requests merged from your GitHub account only, replacing bytes that were trusted, is trusted
+as it arrives, with the note "trusted on arrival from #N", and one notice lists each command line
+it added and removed. What that rests on, and what stays behind your own trust, is in
+[Catch up after a merge](#catch-up-after-a-merge). A config outside its repository is never
+trusted that way: catch-up refuses an attached project.
 
 #### A config outside its repository
 
@@ -3225,20 +3289,25 @@ clauductor panel install                                      # once projects.js
    project's config and refuses if it is missing or invalid, rather than crash-looping later.
 2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
    a build directory or a worktree that may disappear. Re-run `install` after upgrading
-   clauductor.
+   clauductor, unless the panel rebuilt itself after a merge (see
+   [Catch up after a merge](#catch-up-after-a-merge)): its notice says when a merge changed what
+   `install` writes.
 3. Writes a new persistent token to `~/.clauductor/panel/token` (0600, directory 0700). Every
    install rotates it, so reinstalling also revokes the old one.
 4. Writes `~/Library/LaunchAgents/com.clauductor.panel.plist` and checks it with `plutil -lint`.
    The plist sets:
    - `RunAtLoad`;
-   - `KeepAlive` with `SuccessfulExit = false`, so a crash restarts the panel, throttled to once
-     every 30 s, and `launchctl bootout` stops it for good;
+   - `KeepAlive` with `SuccessfulExit = false`, so a crash, or the exit status 75 of a panel
+     that has rebuilt itself, restarts the panel, throttled to once every 30 s, and
+     `launchctl bootout` stops it for good;
    - `LimitLoadToSessionType = Aqua`;
    - logs in `~/.clauductor/panel/logs/`;
    - `LANG=en_US.UTF-8`;
    - a PATH made of `/opt/homebrew/bin`, `~/.local/bin`, the directories where `claude`,
-     `tmux`, `git`, `gh`, `node` and `jq` were found at install time, and the system
-     directories. launchd's default PATH has none of these.
+     `tmux`, `git`, `gh`, `node`, `jq` and `go` were found at install time, and the system
+     directories. launchd's default PATH has none of these; the rebuild after a merge needs
+     `go`. A plist written before OPS-118 holds `go`'s directory only when it is one of the
+     others (`/opt/homebrew/bin` for Homebrew's `go`): otherwise re-run `install` once.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
 
 Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
@@ -3274,6 +3343,13 @@ Under launchd, the panel runs with `--launchd`:
   file instead.
 - At each start it opens the browser once, with the token. Another start within 5 minutes does
   not open it again, so a crash loop cannot fill the browser with tabs.
+- Only here does the panel rebuild itself after a merge (OPS-118, see
+  [Catch up after a merge](#catch-up-after-a-merge)). It swaps the new binary into
+  `~/.clauductor/panel/bin/clauductor`, keeps the one it replaced as
+  `~/.clauductor/panel/bin/clauductor.prev`, and exits with status 75, which `KeepAlive` reads as
+  a failure and restarts it from the new binary. The token file is left as it is, so the page's
+  token still works. Rolling back is moving `clauductor.prev` back over `clauductor`, then
+  `launchctl kickstart -k gui/$(id -u)/com.clauductor.panel`; the restart's notice names both.
 
 `--app` also builds `~/Applications/Clauductor Panel.app`, an AppleScript applet made by
 `osacompile` that runs `clauductor panel open`. Put it in the Dock, or find it with Spotlight.
@@ -3288,6 +3364,149 @@ clauductor panel uninstall    # bootout, then remove everything the agent owns
 the browser resolves `clauductor.localhost` to `::1` first. On a mismatch at either address it
 refuses rather than hand the token to whatever holds the port. If nothing listens on `[::1]`, it
 opens `http://127.0.0.1:<port>/` instead.
+
+### Catch up after a merge
+
+OPS-118. A merge leaves the main checkout, the config the panel serves and the installed panel
+where they were, until you pull, re-trust a changed `panel.json` and reinstall after a change to
+the panel's own source. With catch-up on for a project, the panel does all three itself after each
+merge of a pull request from your own GitHub account, and says what it could not do.
+
+```bash
+clauductor panel catch-up --project ~/Development/app on    # off turns it off
+clauductor panel catch-up --project ~/Development/app       # prints on or off
+```
+
+**The switch** is this machine's, per project, and off until you turn it on. It is kept in
+`~/.clauductor/panel/catch-up.json` (`{"roots": [...]}`, the projects' repository roots), never in
+`panel.json`: a repository must not be able to grant itself writes to your checkout and trust on
+arrival, and a `catch_up` key there fails the config's load. A running panel reads the file at
+each trigger, so turning it on or off takes effect with no restart; an unreadable file reads as off
+for every project, and the panel log says so. `panel remove` clears the project's root, so a
+project added there later starts with catch-up off. It is refused, and nothing is written, for an
+attached project (a config outside its repository, which the panel never writes to); a root whose
+config `panel add --config` later moves outside it is skipped at each trigger, with one notice.
+merge-pr asks the same command after a merge (its step 5): catch-up counts as on only when it
+exits 0 and prints `on`, and then merge-pr leaves the checkout to the panel and its report names no
+step for you.
+
+**The fast-forward.** Two things wake it: a pull request leaving a project's open list (the
+open-PR poll, every 60 s) and the panel's start. Between them it makes no call, unless a refusal
+is waiting to be tried again (below). For each project
+with catch-up on, it reads the main checkout (`git --no-optional-locks -C <root>`, which writes
+nothing) and goes on only while:
+
+- HEAD is the local branch of the project's `base` (`origin/main` is remote `origin`, branch
+  `main`), tracking `<remote>/<branch>`; a base not in that form is refused;
+- no tracked file differs from HEAD, and no merge, rebase, cherry-pick or revert is in progress;
+- the branch has no commit the remote's lacks.
+
+Then it runs `git fetch <remote> <branch>`, reads once the commit C that `<remote>/<branch>` names,
+and checks every first-parent commit of `HEAD..C`: each must be the merge commit of a pull request
+merged into `<branch>` from the login `gh api user` names, the account the panel runs `gh` as and
+through which every lane's merge-pr merges. It asks GitHub's commit-to-pull-request route (`gh api
+repos/{owner}/{repo}/commits/<sha>/pulls`, then `…/pulls/<n>` for `merged_by`, `base.ref` and
+`merge_commit_sha`), not its search, which can lag a fresh merge. Only then does it run `git merge
+--ff-only C`, by the hash it checked: every worktree shares `<remote>/<branch>`, and a lane's fetch
+can move it meanwhile. Untracked files stay; when the merge would overwrite one, git refuses, and
+so does the panel. Each git and `gh` call has 60 s.
+
+**Refusals.** Whatever it cannot do, it leaves the checkout as it was, writes `catch-up <root>:
+<reason>` in the panel log, and sends one notice, "Catch-up left <root> as it was: <reason>.",
+once per project, reason and remote commit per panel run. A commit that fails the pull-request
+check (no pull request, another branch, another account) is named, so you can pull past it by
+hand. A fetch or a `gh` call that fails, and any call that outlasts its 60 s, is tried again 1, 3
+and 6 minutes after the first such refusal, then waits for the next trigger; every other refusal
+(the checkout's state, a commit that fails the check, git's own refusal) waits for the next trigger.
+
+**Trust on arrival.** When the fast-forward from A to B changed the project's in-repository
+`.clauductor/panel.json`, the panel trusts the new bytes itself, the second way a config is
+trusted (*Config trust*), when all of these hold:
+
+- the config it had loaded was trusted, and its bytes are the file's blob at A;
+- its own fast-forward moved HEAD from A to B, and the file on disk is the blob at B, so every
+  commit between passed the pull-request check;
+- the new config loads (`canStart`) in the binary that will serve it: the rebuilt one when the
+  same merge changes the panel's own source (below), which answers through its `panel config-check
+  --config <file>`;
+- the new config keeps `alerts.notify` on, so a merged config cannot silence its own trust notice.
+
+It records the bytes with the note "trusted on arrival from #N" (the page's trust report shows it
+until you trust the file by hand), sends one notice, titled with the config's `name`, naming the
+pull request, the login and each command line added (`+`) and removed (`−`), and then restarts the
+project on the new bytes, as **Trust config…** does. Undo is a revert pull request, whose config
+arrives the same way. Otherwise:
+
+- **A condition fails and the new config loads:** the project restarts on it untrusted, under the
+  **Config untrusted** banner with **Trust config…** offered, as after a pull and a restart. The
+  panel log names the condition, and so does a notice saying the config waits for you, sent only
+  while the loaded config's `alerts.notify` is on: the one catch-up notice `alerts.notify` can
+  withhold, since the banner says the same.
+- **The new config does not load:** the project keeps the config it had loaded, and a notice names
+  the error whatever `alerts.notify` says.
+- **The rebuild fails** (below): nothing is trusted on arrival, the running binary judges the new
+  config as above, and two notices go, the build's error and what became of the config.
+
+**What it rests on.** Before the merge, the review every line of the repository gets: the gate on
+the pull request's exact head and merge-pr's converged review. At arrival, only what the panel can
+check itself: that each commit came through a pull request merged from your account, and that the
+trusted bytes it replaces are the ones it started from. It cannot re-check a gate receipt (they
+live with the lane, and an agent can write them) or a review line. So the boundary is your
+account, not you in person: a pull request anyone wrote (Dependabot, a teammate, a cloud session)
+arrives trusted once this account merges it. A commit pushed with no pull request, or merged from
+another account, stops the fast-forward, so nothing past it runs until you pull it yourself. What
+you give up is reading new command lines before they first run; the notice lists them after. That
+is accepted because the scripts a trusted config runs already change with every merge without a
+re-trust. A config the panel did not fast-forward to (your own pull, an edit, another branch) is
+trusted only by you, as before, and an attached project never catches up.
+
+**The rebuild.** After a fast-forward to B, the panel asks whether the project is its own source:
+its build information names the module `<root>/framework/go.mod` declares. For any other project
+nothing more happens, and nothing is said. For its own source, when `framework/` differs between
+the commit the panel was built from, R, and B (between A and B when R cannot be the base), it
+rebuilds itself when all of these hold, and otherwise sends one notice that says why and how to
+update it:
+
+- it runs as the login agent (`--launchd`), not by hand;
+- R is known (`vcs.revision`), is a commit of the repository and an ancestor of B, and
+  `vcs.modified` is false, so a build you installed from another branch is not replaced by the
+  base;
+- `git status --porcelain` in the main checkout prints nothing, untracked files included, since
+  Go would stamp the new build modified and the next merge could not rebuild it.
+
+It runs `go build -o ~/.clauductor/panel/bin/clauductor.new ./cmd/clauductor` in
+`<root>/framework`, with `go` from its PATH and a 5-minute limit; the build writes nothing in the
+repository. The new binary must then name the same module, `vcs.revision` B and `vcs.modified`
+false; its `version` and `panel list` must exit 0; and, when the merge changed `panel.json`, its
+`panel config-check --config <file>` must load the file. Then the installed binary is renamed to
+`clauductor.prev` and the new one renamed into its place. The `clauductor` on the panel's PATH is
+replaced the same way, keeping its own `.prev`, only when its build information names the same
+module and a commit of the repository. The token, the plist and the hooks are not touched: the
+panel does not run `clauductor panel install`, which would rotate the token and sign every open
+page out. A failed build or check leaves the running binary and no `.new` file, and one notice
+names the error.
+
+**The restart.** The panel waits until none of its own `claude` calls is running, or 10 minutes
+pass, then sends the notice naming the old and new commits and the rollback:
+
+```bash
+mv ~/.clauductor/panel/bin/clauductor.prev ~/.clauductor/panel/bin/clauductor
+launchctl kickstart -k gui/$(id -u)/com.clauductor.panel
+```
+
+When `R..B` changed `install/launchd.go` or `install/hooks.go` (what `panel install` writes
+besides the binary), the notice also says to run `clauductor panel install` once. The panel records
+a browser open, so the restart opens no tab, and exits with status 75; launchd starts the new
+binary (*The launchd agent*), whose first start sends "The panel is now running <commit>". The
+panel does not roll back on its own: the binary that would judge the new one is the one replaced.
+Hooks sent during the restart are lost, as at any restart, and stalls are approximate for one stall
+time after it (*Stalled lanes*). A stop (a logout) during the rebuild leaves the running binary,
+and its notice says so.
+
+**The notices.** Every catch-up notice goes as a macOS notification and through your push command
+(*Notifications*), whatever `alerts.notify` says, but for the one that says a config waits for
+you. Each is titled "clauductor panel" and names the checkout's path, but for the trust notice,
+titled with the config's `name`.
 
 ### Uninstall
 

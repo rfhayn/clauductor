@@ -127,6 +127,23 @@ func TestOsascriptArgvRoundTrip(t *testing.T) {
 	}
 }
 
+// NotifyLinesArgv keeps a body's lines and cuts it only at max (OPS-118 D6), where
+// NotifyArgv flattens it and cuts at signals.DetailMax; its text still comes after "--".
+func TestNotifyLinesArgvKeepsTheBodysLines(t *testing.T) {
+	t.Parallel()
+	body := "head " + strings.Repeat("h", 150) + "\n+ added line\n− removed line"
+	argv := NotifyLinesArgv(strings.Repeat("T", 90), body, 600)
+	if argv[len(argv)-3] != "--" || argv[len(argv)-1] != body || len([]rune(argv[len(argv)-2])) != 80 {
+		t.Fatalf("argv %q: want --, the title cut at 80 runes, then the body as it is", argv)
+	}
+	if got := NotifyLinesArgv("t", body, 20)[len(argv)-1]; got != body[:19]+"…" {
+		t.Fatalf("a body over max: %q", got)
+	}
+	if got := NotifyArgv("t", body)[len(argv)-1]; strings.Contains(got, "removed line") {
+		t.Fatalf("NotifyArgv kept what follows DetailMax (%q): the test no longer shows the difference", got)
+	}
+}
+
 // Review 2026-09-28: only what blocks you interrupts, and a restart never
 // re-notifies an alert that is still active.
 func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {

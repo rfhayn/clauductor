@@ -50,6 +50,9 @@ type liveSet struct {
 	sig    string // projects.json's signature at the last reconcile
 	order  []string
 	regErr string // the last error reading projects.json, said once
+	// cu is catch-up (OPS-118 D3; catchup.go): a source of the liveSet, woken by each
+	// runtime's prs source. nil in a test that builds a liveSet without Run.
+	cu *catchUp
 }
 
 // liveRT is one served project's runtime and what stops it.
@@ -102,6 +105,8 @@ func (ls *liveSet) wire(r *Runtime) *web.Project {
 	r.srv.Store(ls.srv)
 	r.hub.OnPush = func(v state.View) { ls.sums.Set(r.summary(v)) }
 	r.onTrusted = ls.refreshHosts
+	root := r.root
+	r.onPRLeft = func() { ls.cu.wake(root) }
 	if r.lanes != nil {
 		// A lane action re-reads the worktrees at once, not through kickWorktrees'
 		// throttle: lanes started together each add a worktree, and one read skipped
@@ -172,16 +177,70 @@ func (ls *liveSet) stopAll() {
 // other served project's, without starting anything. A restart checks it first, so
 // it never stops a runtime for one that cannot start. ls.mu is held.
 func (ls *liveSet) canStart(e config.ProjectEntry) error {
-	p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary)
+	_, err := ls.tryLoad(ls.ctx, e)
+	return err
+}
+
+// tryLoad is canStart's load, returned: what the project would serve, its worktree list
+// read under ctx (the run's, but for catch-up's judgement of a config, which a stop must
+// not turn into one that does not load). ls.mu is held.
+func (ls *liveSet) tryLoad(ctx context.Context, e config.ProjectEntry) (loadedProject, error) {
+	p, err := loadProject(ctx, ls.o, e, e.ID == ls.primary)
 	if err != nil {
-		return err
+		return p, err
 	}
+	return p, ls.socketFree(e.ID, p.cfg.Socket())
+}
+
+// socketFree says whether socket is free of every served project's but id's. ls.mu is
+// held.
+func (ls *liveSet) socketFree(id, socket string) error {
 	for other, olr := range ls.rts {
-		if other != e.ID && olr.r.cfg.Socket() == p.cfg.Socket() {
-			return fmt.Errorf("its tmux socket %q is %s's", p.cfg.Socket(), other)
+		if other != id && olr.r.cfg.Socket() == socket {
+			return fmt.Errorf("its tmux socket %q is %s's", socket, other)
 		}
 	}
 	return nil
+}
+
+// canServe is canStart for a changed config that a rebuilt binary is to serve (OPS-118
+// D1 (e), D4's preflight): the new binary parsed it (chk, its `panel config-check`),
+// since this one may not read it, and what canStart checks of a config beyond its parse
+// is checked here: the socket it is served on, free of every other served project's. A
+// clash would leave the project unserved after the restart, and the panel down when it
+// is the primary. nil when root is no longer served: arrive says so.
+func (ls *liveSet) canServe(root string, chk config.Check) error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	for _, lr := range ls.rts {
+		if lr.entry.Root != root {
+			continue
+		}
+		sock, err := servedSocket(ls.o, lr.entry, chk.Socket, lr.entry.ID == ls.primary)
+		if err != nil {
+			return err
+		}
+		return ls.socketFree(lr.entry.ID, sock)
+	}
+	return nil
+}
+
+// reload serves a project again on its config as it is now on disk (a trust from the
+// page, or a config catch-up brought, OPS-118 D1). It checks first that the config
+// loads (canStart), so one that would not never stops the runtime serving now: that
+// is notLoaded, and nothing changed. err is a start that failed after the stop. ls.mu
+// is held.
+func (ls *liveSet) reload(lr *liveRT) (notLoaded, err error) {
+	e := lr.entry
+	if err := ls.canStart(e); err != nil {
+		return err, nil
+	}
+	wasDefault := ls.m.defRT() == lr.r
+	ls.restartStop(e.ID)
+	err = ls.startEntry(e, wasDefault)
+	ls.sums.Reorder(ls.order)
+	ls.settle()
+	return nil, err
 }
 
 // startEntry loads a registered project and serves it, or records why it cannot be.
@@ -225,6 +284,29 @@ func (ls *liveSet) pollRegistry(context.Context, time.Time) (update, time.Durati
 	defer ls.mu.Unlock()
 	_ = ls.reconcile()
 	return nil, 0
+}
+
+// catchUpTargets is every served project as catch-up reads it at a trigger (OPS-118
+// D3): its root, its base, and its config's path when that is outside the repository,
+// by the served entry or by projects.json's, which `panel add --config` may have moved
+// before the watch restarts the project (D2). A project that failed to load is not
+// served, so it is not caught up.
+func (ls *liveSet) catchUpTargets() []catchUpTarget {
+	reg, regErr := config.LoadProjects(ls.o.Home)
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	out := make([]catchUpTarget, 0, len(ls.rts))
+	for _, lr := range ls.rts {
+		t := catchUpTarget{root: lr.entry.Root, base: lr.r.cfg.BaseRef(), outside: install.OutsideConfig(lr.entry), cfgPath: lr.r.cfgPath}
+		if t.outside == "" && regErr == nil {
+			if e := reg.Find(lr.entry.Root); e != nil {
+				t.outside = install.OutsideConfig(*e)
+			}
+		}
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].root < out[j].root })
+	return out
 }
 
 func (ls *liveSet) signature() string {
@@ -651,6 +733,9 @@ type trustReport struct {
 	Runs    []string `json:"runs"`
 	Trusted bool     `json:"trusted"`
 	Prev    string   `json:"prev,omitempty"`
+	// Note is how the trusted bytes were trusted, when their record says ("trusted on
+	// arrival from #7", OPS-118 D1).
+	Note string `json:"note,omitempty"`
 	// Reloaded: the file differed from the one the panel had loaded, so the project
 	// was started again with the bytes just trusted.
 	Reloaded bool `json:"reloaded,omitempty"`
@@ -676,6 +761,9 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 	h := install.ConfigHash(raw)
 	tv, _ := install.CheckTrust(ls.o.Home, lr.entry.Root, path, h, false)
 	rep := trustReport{ID: id, Name: cfg.Name, Path: path, Hash: h, Runs: append([]string{}, install.TrustRuns(lr.entry.Root, path, cfg)...), Trusted: tv.Trusted, Prev: tv.Prev}
+	if tv.Trusted {
+		rep.Note = tv.Note
+	}
 	if dryRun {
 		return rep, nil
 	}
@@ -693,18 +781,12 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 		}
 		return rep, nil
 	}
-	// The file is not the one the panel loaded: serve the bytes just trusted.
-	// First check that it loads, so a config that would not (its socket is another
-	// project's, git fails) never stops the runtime that serves now.
-	e := lr.entry
-	if err := ls.canStart(e); err != nil {
-		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", err)
+	// The file is not the one the panel loaded: serve the bytes just trusted, unless
+	// they do not load (its socket is another project's, git fails).
+	notLoaded, err := ls.reload(lr)
+	if notLoaded != nil {
+		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", notLoaded)
 	}
-	wasDefault := ls.m.defRT() == lr.r
-	ls.restartStop(id)
-	err = ls.startEntry(e, wasDefault)
-	ls.sums.Reorder(ls.order)
-	ls.settle()
 	if err != nil {
 		return nil, lerr(http.StatusConflict, "bad-config", "%v", err)
 	}

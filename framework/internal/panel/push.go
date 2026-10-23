@@ -22,8 +22,9 @@ import (
 )
 
 // The push command (PANEL-51 D7): the machine's push.json, {"argv": ["/abs/path",
-// "arg", ...]}, run for each notice that carries a stalled alert with two more
-// arguments, the title and the body, with no shell and under pushTimeout. It is the
+// "arg", ...]}, run for each notice that carries a stalled alert, and for each catch-up
+// notice (OPS-118 D6, sendCatchUp), with two more arguments, the title and the body,
+// with no shell and under pushTimeout. It is the
 // machine's, not a project's: a project's config is committed, and a push topic is
 // personal. The machine reads it once for every project (pushWatch); each project's
 // pollNotify takes the current command, or its refusal, at each tick.
@@ -253,6 +254,67 @@ func runPush(ctx context.Context, timeout time.Duration, argv []string, title, b
 func lastLine(out []byte, n int) string {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	return signals.Clip(strings.TrimSpace(lines[len(lines)-1]), n)
+}
+
+// catchUpNotice is one notice of catch-up (OPS-118 D6): the only notices but a stall
+// that the push command carries, each built from its own text.
+type catchUpNotice struct {
+	root string // the checkout: the notice's group, and named in its body
+	key  string // sent once per key for the panel's run
+	body string
+	// trusted is the name of the config the notice says was trusted on arrival: its
+	// title. Every other catch-up notice is titled catchUpTitle and names the checkout
+	// in its body, never a config's name: a config not trusted must not title a push.
+	trusted string
+	// waits: the notice that a changed config waits for the owner, the one catch-up
+	// notice alerts.notify withholds, since the page's Config untrusted banner and
+	// Trust config… say the same.
+	waits bool
+}
+
+func (n catchUpNotice) title() string {
+	if n.trusted != "" {
+		return n.trusted
+	}
+	return catchUpTitle
+}
+
+// sendCatchUp sends a catch-up notice as an OS notification and, when push.json holds
+// a valid command, through it, under STALL-3's argv and timeout rules: whatever the
+// project's alerts.notify says, but for the notice that a config waits for the owner,
+// which notifyOn (the loaded config's alerts.notify) withholds. Both carry one text:
+// the body cut at catchUpBodyMax, its lines kept, which notifyCatchUp shows on the Mac
+// as it is. It reports whether the notice went; a failure of either way is logged to
+// out.
+func sendCatchUp(ctx context.Context, notify func(context.Context, state.Notice) error, p pushCmd, out io.Writer, n catchUpNotice, notifyOn bool) bool {
+	if n.waits && !notifyOn {
+		return false
+	}
+	body := signals.ClipLines(n.body, catchUpBodyMax)
+	if err := notify(ctx, state.Notice{Group: n.root, Title: n.title(), Body: body, Keys: []string{n.key}}); err != nil {
+		fmt.Fprintf(out, "catch-up %s: notification failed: %v\n", n.root, err)
+	}
+	if len(p.argv) > 0 {
+		if err := runPush(ctx, pushTimeout, p.argv, signals.Clip(n.title(), 80), body); err != nil {
+			fmt.Fprintf(out, "catch-up %s: %v\n", n.root, err)
+		}
+	}
+	return true
+}
+
+// notifyCatchUp shows a catch-up notice as a macOS notification (catchUpNotifyArgv):
+// the catch-up source's sender when no test records its notices instead.
+func notifyCatchUp(ctx context.Context, n state.Notice) error {
+	return showNotice(ctx, catchUpNotifyArgv(n))
+}
+
+// catchUpNotifyArgv is a catch-up notice's notification: its body whole, lines kept,
+// cut only at catchUpBodyMax as sendCatchUp already cut it. Not SendNotice's
+// NotifyArgv: that flattens a body and cuts it at signals.DetailMax (140), which left
+// a trust notice without its + and − lines, and a notice that waits, or names a load
+// error or a refusal, without its reason (OPS-118 D1, D6).
+func catchUpNotifyArgv(n state.Notice) []string {
+	return state.NotifyLinesArgv(n.Title, n.Body, catchUpBodyMax)
 }
 
 // pushNotice pushes a notice that carries a stalled alert (D7), its title and body

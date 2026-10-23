@@ -139,8 +139,41 @@ The guard reads the file; a `--body "$(…)"` it cannot read is refused. If it n
 `Session:` value, use the one it names: it is the session the hook sees.
 
 ### 5. Sync
-From the main checkout: `git -C <main checkout> pull --ff-only origin main`, then confirm the
-squash commit landed (`git log --oneline -3`). Leave the main checkout on `main`.
+Find the main checkout and ask whether the panel catches it up. The main checkout is the first
+`worktree` entry of `git worktree list --porcelain`, whichever checkout you run from: a lane's own
+worktree is never the root you ask about.
+
+```bash
+main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+if cu=$(clauductor panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
+```
+
+Catch-up counts as on only when that command exits 0 and prints `on`. Anything else is off:
+`clauductor` not on PATH, an older one with no `panel catch-up`, or an error. Then take the one
+branch that applies:
+
+- **Catch-up on:** leave the main checkout to the panel, and do not pull it, even from the main
+  checkout itself. The panel trusts a merged `panel.json` on arrival, and rebuilds itself, only
+  after a fast-forward it made; a pull from here takes that from it. Confirm the squash commit is
+  on the remote's base: `git fetch origin main`, then `git log -1 --oneline origin/main` names it
+  (when a later merge sits on top, `git merge-base --is-ancestor <squash> origin/main` exits 0).
+- **Catch-up off, run from the main checkout itself** (`git rev-parse --path-format=absolute
+  --git-dir` prints what `git rev-parse --path-format=absolute --git-common-dir` prints; from a
+  lane they differ): `git pull --ff-only origin main`, then confirm the squash commit landed
+  (`git log --oneline -3`). Leave the main checkout on `main`.
+- **Catch-up off, from a lane:** confirm the squash commit as with catch-up on, and do not pull:
+  a lane's sandbox and worktree isolation refuse a write to the main checkout.
+
+**The owner's step, in your report.** Unless catch-up is on, the report of the merge (your
+summary, or the `reportTo` message) ends with what the owner runs in the main checkout, since
+nothing else runs it:
+- `git pull --ff-only`, unless step 5 pulled;
+- after a change to the panel's own source (`framework/`, in the repository the panel is built
+  from): `./install.sh`, then `clauductor panel install`;
+- after a change to `.clauductor/panel.json`: `clauductor panel trust`.
+
+With catch-up on, the report names none of them: the panel fast-forwards the checkout, trusts or
+holds the config, rebuilds itself, and sends a notice for whatever it could not do.
 
 ## After the merge
 - Set the roadmap row to `✅ merged (#N)` (the parser refuses any other shape) in the next
