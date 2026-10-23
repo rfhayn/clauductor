@@ -60,6 +60,38 @@
   `go vet` and `gofmt` pass, and so do the catch-up, rebuild, restart and trust tests without
   `-short`. Left: the orchestrator's gate and review, and 3.4 (the owner's, after the merge).
 - 2026-10-23 group 3 (The rebuild and the restart (D4)) built and reviewed: converged in 2 round(s), peak low; grades R1 concern, R2 pass
+- 2026-10-23 group 4 built (4.1, 4.2, and 4.3's roadmap bullet), not yet reviewed. merge-pr
+  step 5 takes three branches, held by `change-process.sh` with a falsification per rule; the
+  plugin is rebuilt and this repo's copies updated (`.claude/skills/merge-pr/SKILL.md`,
+  `.claude/checks/change-process.sh`). Left: the orchestrator's gate and review; 4.3's other
+  half, the build PR's body saying `Refs #164` (never Closes, Fixes or Resolves: #164 keeps its
+  second item), written by whoever opens the PR, who then ticks 4.3; 3.4 (the owner's).
+- 2026-10-23 group 4 review round 1 fixed: step 5's check allows only the spans it lists, per
+  part, instead of refusing pull spellings; the *Security model* names catch-up (decision log).
+- 2026-10-23 group 4 review round 2 fixed: step 5's check chooses a line's part by where it sits,
+  not how it starts (decision log). Left as before: the gate and review, 4.3's PR-body half, 3.4.
+- 2026-10-23 3.4 and 4.3's PR-body half leave the task list (decision log): 3.4's checks are in
+  proposal.md's *How we'll know*, and the PR body is the opener's. Review run 3 of group 4 found
+  the step-5 guard's THIRD instance of one class (a pull of the main checkout the guard does not
+  judge: rounds 1 and 2 by branch and by position, now the `### 5.` heading line and all text
+  after a `####` sub-heading, since the guard reads only its own cut of step 5). Close the class,
+  not the instance: enumerate the authority. The guard judges every code span in the WHOLE of
+  `SKILL.md` that pulls, fetches into or fast-forwards the main checkout (`pull`, `merge
+  --ff-only`, `reset` or `checkout` of the base against `$main` or the main checkout), and
+  allows only the one span in step 5's catch-up-off, main-checkout branch, located by its own
+  marker rather than by where the guard thinks step 5 ends; a heading line is text like any
+  other. Add a `_red` copy for each hiding place the reviews found (another branch, another
+  position, the heading, after a `####`, and a new step outside step 5), each seen failing. Also
+  fix review run 3's low: `docs/panel.md`'s push bullet says a failed push counts in the
+  notifier's failures, which is true only of a stall's push; a catch-up push's failure goes to
+  the panel log only (`push.go` `sendCatchUp`).
+- 2026-10-23 group 4 review run 3 fixed: the step-5 guard reads the whole of `SKILL.md`
+  (`merge_pr_spans`), and the push bullet of `docs/panel.md` says where a failed catch-up push
+  goes (decision log). The nine new copies each give one objection, and each passed the old cut;
+  the template's, this repo's and the plugin's `change-process.sh` pass their step-5 lines; the
+  plugin is rebuilt and this repo's copy updated (`model-roles.json`'s drift reverted again).
+  Left: the orchestrator's gate and review.
+- 2026-10-23 group 4 (merge-pr, the docs and the template (D5)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
 
 ## Decision log
 - 2026-10-22 (proposal) The panel cannot re-check a merge's gate receipt or its Review line (E5),
@@ -366,6 +398,88 @@
   scenario, because no scenario has a failed swap in its GIVEN. Each case failed with its fix
   reverted. With the withdrawal alone, "loads" timed out waiting for the new bytes and "does not
   load" failed on the notice text. Without the unread hand-over, "unread" failed on the notice.
+- 2026-10-23 (group 4) merge-pr's test for the main checkout compares `git rev-parse
+  --path-format=absolute --git-dir` with the same for `--git-common-dir`; not the plain pair the
+  task names: from a subdirectory of the main checkout `--git-common-dir` prints a relative
+  `../.git` while `--git-dir` prints an absolute path, so the plain compare calls the main
+  checkout a lane.
+- 2026-10-23 (group 4) The owner's step names `./install.sh` and `clauductor panel install` only
+  "after a change to the panel's own source (`framework/`, in the repository the panel is built
+  from)"; not after any `framework/` change: the skill ships to projects that have no
+  `framework/`, and for them that step would be noise.
+- 2026-10-23 (group 4) `change-process.sh` holds step 5 with a `step5` function over the step's
+  own text (the `### 5.` heading to the next heading), falsified rule by rule on `sed`-edited
+  copies, each asserting its own objection; not `has` lines, which cannot say that the
+  `--git-common-dir` test comes before the first pull, or that a branch has no pull.
+- 2026-10-23 (group 4) ~~"No pull" in the catch-up-on and lane branches matches a command
+  (`pull --ff-only`, `git pull`, `git -C <dir> pull`, `pull origin`); not the word "pull", which
+  their prose uses to say "do not pull".~~ Superseded by the next entry (review round 1).
+- 2026-10-23 (group 4, review round 1) Class: a write to the main checkout that the step-5
+  guard's list of pull spellings does not match (`git -C <dir> pull`, `git -C <dir> merge
+  --ff-only`, a pull added after the branches). Closed by allowing only what is listed: every
+  code span step 5 names (each fenced line, each inline span, wrapped ones joined) must be on
+  `step5_allowed`'s list for the part it sits in (before the branches, each branch, the owner's
+  pull bullet, the rest), and no `git` or `gh` may be named outside a span; the pull is allowed
+  only in the main-checkout branch, after both `rev-parse` tests. Not one more spelling on the
+  refused list: the list of writes is open, the list of what step 5 names is not. The cost: an
+  edit of step 5 that names anything new adds it to the list, and the objection says so. Not
+  closed: a write described in prose with no command and no `git` or `gh` in it, which no check
+  of the text can tell from a description.
+- 2026-10-23 (group 4, review round 2) Class, a second instance of round 1's: a step-5 write the
+  guard lets through because it chose a line's part by how the line STARTS (a bullet shaped like
+  the owner's pull, before or between the branches, got the owner's list; a second main-checkout
+  heading after the owner's list got the branch's). Closed by choosing parts by POSITION in
+  `step5_spans`: the parts open once each, in one order (before the branches, the three branches
+  one after another, the owner's step from its bold line, its pull only as that step's first
+  bullet), and a line that starts like a heading where its part may not open is an objection of
+  its own and is judged by the part it sits in. An unindented line ends a branch into "between or
+  after the branches", whose list is empty. Not one more prefix refused: no prefix chooses a part
+  anywhere but in its one place. Falsified by six copies (the review's three, a branch heading
+  twice, the owner's step twice, a bullet before the owner's pull), each confirmed to pass the
+  round-1 guard.
+- 2026-10-23 (group 4, review round 1) docs/panel.md's *Security model* names catch-up as its own
+  bullet (the switch only you set, the writes to the main checkout, trust on arrival with no
+  click, the binaries replaced, the account as the boundary) and the "explicit trust click" line
+  names it as the one trust with no click; *What the panel writes to disk* lists `catch-up.json`,
+  the main checkout's fetch and fast-forward, the trust record's note, the rebuild's binaries
+  (the one on PATH included, outside `~/.clauductor`) and the `restarted` marker. Not a link to
+  *Catch up after a merge* alone: the Security model is where the boundary and the writes are
+  read whole.
+- 2026-10-23 (group 4) *Catch up after a merge* sits under *Operations*, after *The launchd
+  agent* it refers to; not under *Config trust*: it covers the checkout and the binary as well
+  as trust, and both trust sections link to it.
+- 2026-10-23 (group 4) `framework/clauductor update` also merged the template's
+  `roles.reviewer.eval.baseline` into `.claude/model-roles.json` and reformatted that file;
+  reverted, since it is drift that predates this change and a model-roles edit is
+  `pr-merge-guard.sh` rule 13's to judge. This repo's copy still lacks that key.
+- 2026-10-23 (the owner) Task 3.4, the check on the owner's Mac after the merge (catch-up on, a
+  `framework/` PR merged from a lane, `go version -m`, `clauductor.prev`, the page's token), can
+  run only after the build merges, and verify refuses any open task. Its checks move into
+  proposal.md's *How we'll know*, read at the outcome check; CATCHUP-4-S1 stays cited by
+  `framework/internal/panel/run_test.go`, and its live half is that signal.
+- 2026-10-23 4.3's second half, the build PR saying `Refs #164` and never Closes, Fixes or
+  Resolves, belongs to whoever opens the PR, which does not exist when verify runs; 4.3 keeps
+  the roadmap bullet and is ticked for it.
+- 2026-10-23 (group 4, review run 3) Class, the third instance of rounds 1 and 2's: a pull of the
+  main checkout the guard never reads, since it read only its own cut of step 5 (the `### 5.`
+  heading skipped, the cut ended by a `####`, a step outside 5 never seen). Closed by reading the
+  whole skill in one pass, `merge_pr_spans`: every line belongs to a part, a heading included.
+  Step 5 runs from its `### 5.` to the next heading of level 1 to 3 (fences skipped), its parts
+  open by position as before, its heading is intro text, and a `####` is an unindented line of the
+  part it sits in. The text before and after step 5 is held to a closed list, `merge_pr_cmds`:
+  the git and gh commands merge-pr runs there (`git diff`, `git worktree remove`, the `gh` reads
+  and `gh pr merge`), none of which moves a checkout; a span starting with a command that does
+  (`pull`, `reset`, ... with no git before it), text naming git with one, and a second `### 5.`
+  are objections too. Not the direction's scan for spans that pull, fetch into or fast-forward
+  the main checkout: that is a list of write spellings again, the thing round 1 replaced, where a
+  list of what merge-pr runs refuses `gh repo sync` or `git -C "$main" merge origin/main` without
+  naming them (so no separate rule for a fetch into a branch: no fetch is listed outside step 5).
+  The allowed pulls stay where their own markers put them: the main-checkout branch's, and the
+  owner's `git pull --ff-only` as the first bullet of the owner's step, a pull too, which D5 has
+  the report name for the owner to run. Falsified by nine copies (the heading, after a `####`, the
+  step before 5, a step 6, a merge after the merge, a bare `reset`, `gh repo sync`, git pull in
+  prose, a second `### 5.`), each one objection alone and each seen passing the old cut. Not
+  closed: a write in prose that names no git ("pull the main checkout").
 
 ## 1. The switch and the fast-forward (D2, D3)
 - [x] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.clauductor/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
@@ -382,11 +496,10 @@
 - [x] 3.1 `framework/internal/panel/install/selfupdate.go` (new): from `debug.ReadBuildInfo`, the module, `vcs.revision` and `vcs.modified`; the module `<root>/framework/go.mod` declares, checked first, with nothing sent when it differs; whether R is a commit of the repository and an ancestor of B, and `framework/` differs between R and B; `git status --porcelain` empty; the build into `clauductor.new` under a 5-minute timeout; the preflight (the new binary's build information read with `debug/buildinfo`: the same module, `vcs.revision` B, `vcs.modified` false; then `version`, `panel list`, and `panel config-check` when the merge changed `panel.json`); the two renames for the installed binary and, when its own build information qualifies, the one on PATH. The token, the plist and the hooks are never opened for writing. `framework/internal/cmd/panel.go`: the `panel config-check --config <file>` command, printing the config's `alerts.notify` and run list as JSON, or failing with the load's error. Tested in `framework/internal/panel/install/selfupdate_test.go` (new) with a throwaway module and repository, a stand-in `go` from `internal/testbin` for the failure cases, and `internal/treesnap` over the repository; `config-check` in `framework/internal/cmd/panel_catchup_test.go`. Citing [CATCHUP-4-S1], [CATCHUP-4-S2], [CATCHUP-4-S3], [CATCHUP-4-S5], [CATCHUP-4-S9], [CATCHUP-4-S10].
 - [x] 3.2 `framework/internal/panel/run.go`: under `--launchd` only, the restart: wait until no `claude` call of the panel's runs (the call gate), up to 10 minutes; the notice naming R, B and the rollback, with `clauductor panel install` when `R..B` (the build's range, not the last merge's) changed `install/launchd.go` or `install/hooks.go`; every notice of the rebuild, this one, its refusals and the new binary's, sent whatever `alerts.notify` says, titled "clauductor panel"; a marker file for the new binary's "now running" notice; the browser open recorded as `ShouldOpenAtLogin` records it; then the run's context ended, as SIGTERM ends it, with exit status 75 recorded and returned once the run loop's shutdown is done. `framework/internal/cmd/panel.go` exits the process with that status (`os.Exit`, as `internal/cmd/lockrun.go` does), since `cmd/clauductor/main.go` turns every error into 1. A hand-started panel sends the "update yourself" notice instead. Tested in `framework/internal/panel/run_test.go`, which drives the restart path and then a second start in the same home and asserts it opens no tab, and in `framework/internal/cmd/panel_catchup_test.go`, which runs the built command as a child process and reads its exit status. Citing [CATCHUP-4-S1], [CATCHUP-4-S4], [CATCHUP-4-S6], [CATCHUP-4-S7], [CATCHUP-4-S8], [CATCHUP-4-S11].
 - [x] 3.3 `framework/internal/panel/install/launchd.go`: `go`'s directory joins `pathForAgent`'s tools. Tested in `framework/internal/panel/install/launchd_test.go`.
-- [ ] 3.4 On the owner's Mac, after the build merges: catch-up on for this repository, then a small `framework/` PR merged from a lane; the installed binary's `go version -m` names its merge commit, `clauductor.prev` is the old one, and the page's token still works. [CATCHUP-4-S1] (manual: the real login agent and launchd's restart, which no test may touch: the owner's live panel).
 
 ## 4. merge-pr, the docs and the template (D5)
-- [ ] 4.1 `template/.claude/skills/merge-pr/SKILL.md` step 5: find the main checkout (the first `worktree` entry of `git worktree list --porcelain`) and ask `clauductor panel catch-up --project <that root>`, catch-up counting as on only when it exits 0 and prints `on` (anything else, an older `clauductor` included, is off); with catch-up on, confirm the squash commit on the remote's base (`git fetch`, `git log -1`) and do not pull; with it off, `pull --ff-only` only when run from the main checkout itself (`git rev-parse --git-dir` equal to `--git-common-dir`), and from a lane confirm without pulling; the report names the owner's step unless catch-up is on, leaving out the pull when step 5 made it. `template/.claude/checks/change-process.sh` holds step 5 to those three branches: the root from `git worktree list --porcelain`, the "exits 0 and prints `on`" test, the `--git-common-dir` test before any `pull --ff-only`, and no pull while catch-up is on. Then `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root with the binary built from this checkout.
-- [ ] 4.2 `docs/panel.md`: a *Catch up after a merge* section (the switch, the fast-forward and its refusals, trust on arrival and what it rests on, the rebuild and its rollback); *Config trust* and *Add, trust and remove from the page* name the second way a config is trusted; *When the cards may be stale* says catch-up clears it; *Notifications* names the catch-up notices and the push; *The launchd agent* names exit status 75 and `clauductor.prev`.
-- [ ] 4.3 `docs/roadmap.md`'s session-plan bullet *After each merge the owner* says the step applies only while catch-up is off, and the build PR references #164 without closing it.
+- [x] 4.1 `template/.claude/skills/merge-pr/SKILL.md` step 5: find the main checkout (the first `worktree` entry of `git worktree list --porcelain`) and ask `clauductor panel catch-up --project <that root>`, catch-up counting as on only when it exits 0 and prints `on` (anything else, an older `clauductor` included, is off); with catch-up on, confirm the squash commit on the remote's base (`git fetch`, `git log -1`) and do not pull; with it off, `pull --ff-only` only when run from the main checkout itself (`git rev-parse --git-dir` equal to `--git-common-dir`), and from a lane confirm without pulling; the report names the owner's step unless catch-up is on, leaving out the pull when step 5 made it. `template/.claude/checks/change-process.sh` holds step 5 to those three branches: the root from `git worktree list --porcelain`, the "exits 0 and prints `on`" test, the `--git-common-dir` test before any `pull --ff-only`, and no pull while catch-up is on. Then `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root with the binary built from this checkout.
+- [x] 4.2 `docs/panel.md`: a *Catch up after a merge* section (the switch, the fast-forward and its refusals, trust on arrival and what it rests on, the rebuild and its rollback); *Config trust* and *Add, trust and remove from the page* name the second way a config is trusted; *When the cards may be stale* says catch-up clears it; *Notifications* names the catch-up notices and the push; *The launchd agent* names exit status 75 and `clauductor.prev`.
+- [x] 4.3 `docs/roadmap.md`'s session-plan bullet *After each merge the owner* says the step applies only while catch-up is off. (The build PR's `Refs #164`, never closing it, is the PR opener's step: decision log.)
 
 - [ ] Slice: an owner can merge a PR from a lane and find the main checkout, the panel's config and the installed panel on the merged main without running a command, at the panel
