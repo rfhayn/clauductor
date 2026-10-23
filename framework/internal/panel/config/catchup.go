@@ -113,15 +113,18 @@ func SetCatchUp(home, root string, on bool) error {
 }
 
 // Check is a config as the binary that will serve it reads it, for trust on arrival
-// (OPS-118 D1 (e), (f)): its name (the trust notice's title), its alerts.notify, and its
-// run list (the notice's + and − lines). It is what `clauductor panel config-check`
-// prints as JSON, so that when a merge also rebuilds the panel, the new binary judges a
-// config the running one may not read (a raised version); the running binary takes
-// the same three from its own load (CheckOf).
+// (OPS-118 D1 (e), (f)): its name (the trust notice's title), its alerts.notify, its
+// run list (the notice's + and − lines), and its tmux_socket as written ("" when it
+// names none), which the running panel checks against every other project it serves,
+// as canStart does. It is what `clauductor panel config-check` prints as JSON, so that
+// when a merge also rebuilds the panel, the new binary judges a config the running one
+// may not read (a raised version); the running binary takes the same from its own load
+// (CheckOf).
 type Check struct {
 	Name   string   `json:"name"`
 	Notify bool     `json:"notify"`
 	Runs   []string `json:"runs"`
+	Socket string   `json:"tmux_socket"`
 }
 
 // CheckOf is a loaded config's Check. Its run list is RunList: catch-up trusts only a
@@ -129,5 +132,5 @@ type Check struct {
 func CheckOf(c *Config) Check {
 	// Never a nil list: `config-check` prints [] for a config that runs nothing, and a
 	// reader takes a missing or null runs as a binary that judged nothing.
-	return Check{Name: c.Name, Notify: c.AlertThresholds().Notify, Runs: append([]string{}, c.RunList()...)}
+	return Check{Name: c.Name, Notify: c.AlertThresholds().Notify, Runs: append([]string{}, c.RunList()...), Socket: c.TmuxSocket}
 }

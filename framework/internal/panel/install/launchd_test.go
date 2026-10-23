@@ -114,6 +114,22 @@ func TestPlistContent(t *testing.T) {
 	}
 }
 
+// The agent's PATH holds go's directory, as found on the installing user's PATH: the
+// panel rebuilds itself with the go its PATH names (OPS-118 D4), and launchd's default
+// PATH has no Go toolchain.
+func TestAgentPathHoldsGo(t *testing.T) {
+	t.Parallel()
+	path := pathForAgent("/Users/me", func(tool string) (string, error) {
+		if tool == "go" {
+			return "/usr/local/go/bin/go", nil
+		}
+		return "", errors.New("not found")
+	})
+	if !strings.Contains(":"+path+":", ":/usr/local/go/bin:") {
+		t.Fatalf("PATH %q lacks go's directory", path)
+	}
+}
+
 func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -224,6 +240,12 @@ func TestBrowserOpensOncePerLogin(t *testing.T) {
 	}
 	if !ShouldOpenAtLogin(home, now.Add(2*time.Hour)) {
 		t.Fatal("a later login did not open the browser")
+	}
+	// An open recorded without one (the panel's restart after rebuilding itself)
+	// counts as one: a start within the gap opens no tab.
+	RecordBrowserOpen(home, now.Add(4*time.Hour))
+	if ShouldOpenAtLogin(home, now.Add(4*time.Hour+time.Minute)) {
+		t.Fatal("a start a minute after a recorded open opened a tab")
 	}
 }
 

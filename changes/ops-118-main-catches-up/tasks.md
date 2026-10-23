@@ -19,6 +19,47 @@
 - 2026-10-23 group 2 review round 3 fixed: no catch-up outcome reaches only the panel log (an
   unread config, a reload that fails after its notice) (decision log).
 - 2026-10-22 group 2 (Trust on arrival, and the push (D1, D6)) built and reviewed: converged in 4 round(s), peak low; grades R1 fail, R2 concern, R3 concern, R4 pass
+- 2026-10-23 group 3 built (3.1 to 3.3: the rebuild, the restart and exit 75, `config-check`,
+  `go` on the agent's PATH), not yet reviewed. 3.4 is the owner's, on their Mac after the merge.
+  `Options.selfUpdate` is now Run's `selfUpdater`, so `configCheck` has a production caller.
+- 2026-10-23 group 3 review finding fixed (a stop during the restart's wait dropped the rollback
+  notice; decision log). A resumed run found 3.1 to 3.3 complete on disk: `go test -short ./...`
+  passes, the group's tests pass under `-race` without `-short`, CATCHUP-4-S1 to S11 trace as
+  CITED, and `TestRestartStoppedDuringItsWaitStillSendsTheRollback` fails with the send on the
+  run's context. Left: the orchestrator's gate and review; 3.4 (the owner's, after the merge).
+- 2026-10-23 the owner raised the budget from $120 to $175 at $112.95 spent, after two group 3
+  review runs stopped "not falling", each round finding a new medium. Open at that stop: (a)
+  `panel config-check` judges with `config.LoadConfig` alone, so a config arriving with a
+  rebuild skips `canStart` (the tmux socket clash, `live.go`; D1 (e)); (b) no test drives the
+  real `selfUpdater`'s preflight config-check failure and its discard of `clauductor.new`: only
+  the stand-in at `catchup_trust_integration_test.go:565` re-implements that block.
+- 2026-10-23 group 3: (a) and (b) fixed (decision log). `go test -short ./...` passes; the
+  group's tests and the new full-panel test pass under `-race` without `-short`, as do
+  `internal/panel/...` and `internal/cmd/...` without `-short`; the change's 51 scenarios trace
+  as cited. Left: the orchestrator's gate and review; 3.4 (the owner's, after the merge).
+- 2026-10-23 group 3: review finding 1 (a stop mid-rebuild lost the rebuild in silence) fixed
+  (decision log). `go test -short ./...` passes, the group's tests pass under `-race` without
+  `-short`, and each fix's guarding test was seen to fail with the fix reverted. Left: the
+  orchestrator's gate and review; 3.4 (the owner's, after the merge).
+- 2026-10-23 the owner made the $175 budget soft at $140.83 spent ("I want to see ops-118 get
+  completed"): an overrun is reported, not a stop. The third group 3 review run stopped "not
+  falling" on one more of review finding 1's class: with no rebuild, `arrive` still loads the
+  new config through `ls.tryLoad` on the run's cancelled context (`catchup.go:876`), so a stop
+  mid-arrival reports a valid config as not loading and skips trust on arrival. Close the
+  class, not the instance: every step of the arrival from the merge on runs off the cancelled
+  context, with a test that stops the panel between the merge and a no-rebuild arrival.
+- 2026-10-23 group 3: the class is closed (decision log, review run 3). Every read of the arrival
+  now runs off the cancelled context: the judgement's load, Swap's PATH check, and the one stop
+  read in `arrived`. The reload still ends with the run, as finding 1 decided, but it no longer
+  reports a failure that only the stop caused. `go test -short ./...`, `go vet` and `gofmt`
+  pass. The catch-up and swap tests pass under `-race` without `-short`, and the new stop test
+  passed eight times in a row. Left: the orchestrator's gate and review, and 3.4 (the owner's,
+  after the merge).
+- 2026-10-23 group 3: review run 4, finding 1 (a failed swap left the withdrawn trust's config
+  served trusted here) is fixed and its class closed (decision log). `go test -short ./...`,
+  `go vet` and `gofmt` pass, and so do the catch-up, rebuild, restart and trust tests without
+  `-short`. Left: the orchestrator's gate and review, and 3.4 (the owner's, after the merge).
+- 2026-10-23 group 3 (The rebuild and the restart (D4)) built and reviewed: converged in 2 round(s), peak low; grades R1 concern, R2 pass
 
 ## Decision log
 - 2026-10-22 (proposal) The panel cannot re-check a merge's gate receipt or its Review line (E5),
@@ -167,6 +208,164 @@
   notice after the restart is grouped by the worktree path, not the lane, so the alert came back
   before the lane was restored, and `Notifier.Process` clears a restored mark whose alert is not
   yet active, which would let it notify again.
+- 2026-10-23 (group 3) S3, S6, S9 and S10 are cited in `internal/panel/selfupdate_test.go` and S1,
+  S2, S4, S7, S8 and S11 in `run_test.go`; not in `install/selfupdate_test.go` as 3.1 lists; their
+  THEN is the panel's notice or its next start, which `install` does not send. S5 stays there
+  (`treesnap`), and `install`'s tests cover each condition of `Decide`, `Build`, `Preflight` and
+  `Swap` without an ID.
+- 2026-10-23 (group 3) A panel that does not qualify gets a notice and `selfUpdate` returns nil;
+  not a `rebuilt.err`; that would make D1's trust read "the rebuild failed" for a rebuild that
+  never started, where the running binary's own load is the right judge.
+- 2026-10-23 (group 3) The build's base is R when R is a commit and an ancestor of B, else A (the
+  fast-forward's start); not always A; D4's notice and its `clauductor panel install` line are
+  over "the build's range", and the running binary is R's build. A `git` failure in `Decide` is
+  said in the notice, never read as framework/ unchanged.
+- 2026-10-23 (group 3) The PATH binary is copied (`copyExecutable`, mode 0755) and renamed after
+  the installed one, and its failure is only reported in the restart notice; not
+  `copyFileAtomic`, which makes the destination's directory 0700, and not a failure of the swap,
+  since the login agent runs the installed binary alone.
+- 2026-10-23 (group 3) The restart marker (`~/.clauductor/panel/restarted`) is written after the
+  swap and before the wait for claude calls, so a stop meanwhile still starts the new binary with
+  its notice; `TakeRestartMarker` removes it once read, before parsing it or sending the notice,
+  so neither a crash nor an unreadable marker repeats the notice at every start. Not a field in
+  an existing file; nothing else there is read once.
+- 2026-10-23 (group 3) The wait is `claudecall.Gate.Quiesce`, which takes the call gate's slot
+  and keeps it, so no claude call starts between the wait and the run's end; not a poll of the
+  running count, which a call could slip past. On its 10 minutes passing the restart goes on and
+  the panel log says so.
+- 2026-10-23 (group 3) The notice body leads with the rollback (`mv … .prev`, `launchctl
+  kickstart`), then the install step, then the merge; the commands name framework/, not its
+  path, and a skip's reason is clipped to 200 runes; the body is cut at 600 runes, and these
+  are what nothing else says.
+- 2026-10-23 (group 3) `clauductor panel` reaches the run through a package variable `runPanel`,
+  which the cmd test binary replaces when `CLAUDUCTOR_CMD_HELPER_RESTART` is set, so the exit 75
+  is read from a real child process; not a real rebuild in the cmd test, which run_test.go does.
+- 2026-10-23 (group 3) The "now running" notice runs on catch-up's source at its first poll
+  (`catchUp.atStart`), so it goes through the same sender as the rebuild's other notices; a
+  rebuilt binary not swapped (a later check refused) is removed (`rebuilt.discard`).
+- 2026-10-23 (group 3) The rebuild's notices pass `send(…, true)`, but `sendCatchUp` withholds
+  only a `waits` notice under `alerts.notify` off, so S11's test holds through group 2's sender:
+  removing the `true` does not fail it. Left so; a second gate would be a mechanism with no case.
+- 2026-10-23 (group 3, review) Class: an early return that skips the one notice a completed
+  irreversible step requires. A stop during the restart's wait returned before the rollback
+  notice, and a stop between the wait and the send dropped it too (osascript and the push run
+  under the run's context). Closed at the source: every notice sent once the swap's renames ran
+  (the rollback, a swap that could not put the binary back) and the "now running" notice after
+  the marker is taken goes through `selfUpdater.sendAfterSwap`, under `context.WithoutCancel`
+  bounded by 10 s, which Run's shutdown waits for; a stop sends the rollback saying the panel
+  was stopped before its restart, and goes no further (no browser record, no exit 75). Not a
+  notice before the wait: D4 sends it at the restart, and "back in 2 minutes" would then be
+  10 minutes early. Tested in `TestRestartStoppedDuringItsWaitStillSendsTheRollback`, which
+  fails with the send on the run's context.
+- 2026-10-23 (group 3, review) Class: a shared deadline that shortens a per-call timeout the
+  spec sets. `sendAfterSwap` put one 10 s deadline around the notification and then the push,
+  so a slow osascript took the push's time (STALL-3 gives the push its own 10 s), and the push
+  of the rollback could start under an expired context. Closed at the source: the deadline is
+  deleted, and `sendAfterSwap` sends under `context.WithoutCancel` alone; the notification
+  (`showNotice`, 10 s) and the push (`pushTimeout`, plus its 1 s `WaitDelay`) each keep their
+  own bound, so the send ends within about 21 s, which Run's shutdown waits for. Not an outer
+  bound of their sum (redundant), and not the push before the notification (group 2's sender,
+  every catch-up notice). The worst case, both at their bounds during a stop, is past
+  `panel install`'s wait of about 7 s for the old job (the 10 s bound was too) and near
+  launchd's default `ExitTimeOut` of 20 s; the usual send takes a second or two. The other
+  deadlines of group 3 are each one call's (`git`, `runNew`, `configCheck`, the build), none
+  shared. Tested in `TestRestartNoticeIsPushedAfterASlowNotification`, which fails with the
+  shared deadline (no push ran).
+- 2026-10-23 (group 3, review) Class: a check of D1 (e) that ran only half of `canStart` for a
+  config a rebuilt binary is to serve. `panel config-check` judged the parse alone, so a merged
+  config naming a tmux socket another served project holds passed the preflight; the swap ran,
+  and the new binary refused the project after the restart (the panel itself, when it is the
+  primary). Closed at the source: `config.Check` carries the config's `tmux_socket` as written
+  (`configCheck` requires the field, so an older binary's answer is no judgement), and the
+  preflight runs `liveSet.canServe` on it: the socket the project would be served on
+  (`servedSocket`, which `loadProject` now uses too) checked by `socketFree`, the clash loop
+  `tryLoad` already ran. A clash is a preflight failure: `clauductor.new` is discarded and the
+  running binary judges the config, which `arrive` reports as not loading. Not a check in
+  `arrive` after the preflight passed, since the swap would still run and the new binary load
+  the clashing file from disk; not `config-check` reading `projects.json`, since a lone binary
+  knows neither the projects being served nor the panel's `--tmux-socket`. The worktree list
+  `canStart` also reads is the checkout's, not the config's, so it is not checked again.
+- 2026-10-23 (group 3, review) The real `selfUpdater`'s preflight failure is now tested on a full
+  panel, `TestRebuildPreflightJudgesTheConfigItWillServe`, with no scenario ID: no scenario's
+  GIVEN is a config the new binary refuses (CATCHUP-3-S5 starts from a trusted one). The
+  throwaway module's `config-check` reads the file instead of printing a fixed answer. Without
+  `rb.Discard()` both subtests fail (`clauductor.new` is left); without `su.canServe =
+  ls.canServe` the socket subtest fails (the binary was swapped).
+- 2026-10-23 (group 3, review finding 1) A stop (logout, launchd unload) during the rebuild or
+  between the arrival and the swap dropped the rebuild in silence: the notices went out on the
+  cancelled context, the swap was skipped and `clauductor.new` discarded with no word, a trust
+  recorded on arrival (judged by the new build) stayed while the old binary kept running, and the
+  next start found `from == to`, so nothing re-ran. The class is "a stop mid-operation loses a
+  one-shot, event-triggered action with no retry at start". Closed where each step is taken:
+  every catch-up notice goes out under `context.WithoutCancel` (`c.send`: a notice records a step
+  already taken; the notification and the push keep their own bounds); `check()` runs `arrived`
+  after a completed merge before it looks at the stop; the merge itself runs under
+  `WithoutCancel`, and no merge starts once the panel is stopping, so a merge is either not begun
+  or finished and reported; `Decide` and the config blob reads run under `WithoutCancel`; a
+  rebuild stopped before or during its build, or before its swap, says so
+  (`errRebuildStopped`, `stoppedRebuildBody`) with the update by hand (`install.UpdateByHand`,
+  shared with `Decide`); and a trust recorded on arrival for the rebuilt binary is withdrawn
+  (`install.UntrustArrived`, only while the record and its note are still the ones written) when
+  the swap does not happen, on a stop or a failed `rb.Swap`, so the config waits for the owner
+  instead of being served trusted by a judgement the running binary never made. Not a retry at
+  start: it needs a durable record of the pending rebuild and a new D4 trigger, and D4 already
+  leaves a merge that could not rebuild to the next rebuild (`Plan.Base` is the running build's
+  revision, so the change is in that diff). Not recording the trust after the swap: D1 records it
+  before the swap, and the withdrawal keeps that order. The failure table in design.md has no
+  stop row; this follows D4's "a merge that could not rebuild leaves its change for the next".
+- 2026-10-23 (group 3, review run 3) Class: "a stop turns a read of the arrival into a false
+  verdict". Every read the arrival takes after the merge was checked for the run's context, and
+  four instances were closed. (1) `arrive`'s judgement loads the config through
+  `ls.tryLoad(context.WithoutCancel(ctx), …)`. `tryLoad` now takes its context, and `canStart`
+  passes `ls.ctx` as before. `ReadWorktrees` keeps its own 10 s bound. (2) A reload the stop
+  cuts short (`ls.reload` failing while `ctx.Err() != nil`), or one the stop forestalls, logs
+  that the panel stopped before it served the new config, and sends no "no longer loads" / "did
+  not start" notice: the stop made it fail, not the config. (3) `install.Rebuild.Swap` checks
+  the PATH binary under `WithoutCancel`, since its `git` calls keep `preflightTimeout`; a stop
+  between the two renames no longer skips the PATH binary in silence. (4) `arrived` reads
+  `ctx.Err()` once, as `swapNow`, after the judgement, so the unread notice, the discard, the
+  swap and the stop's notice follow one answer. Rejected alternative: running the reload under
+  `WithoutCancel` too. That would start a runtime (lanes, tmux) for a panel that is stopping,
+  and change finding 1's decision that the reload ends with the run. The next start serves the
+  file as its trust record says, and the trust notice already said so. Rejected alternative:
+  swapping on a stop. That too would change finding 1's decision.
+- 2026-10-23 (group 3, review run 3) Tests: `TestCatchUpStoppedMidArrivalStillTrustsTheConfig`
+  (`catchup_trust_integration_test.go`) stops the panel right after the merge, and again in the
+  reload's first worktree read. Each time the config ends up trusted with the note, one notice is
+  sent, and the next start serves the config trusted and runs its card. It cites no scenario: no
+  scenario has a stop in its GIVEN. `TestSwapKeepsThePreviousBinaries` gained a stopped case.
+  Each test failed with its fix reverted, as follows. With the judgement on `ctx`, the bytes
+  stay untrusted. With the reload check off, the config is said to "no longer load". With
+  `pathQualifies(ctx, …)`, the PATH binary is not replaced. The single read in (4) has no
+  failing test: the race it closes sits between two adjacent reads that no test can stop
+  between.
+- 2026-10-23 (group 3, review run 4) Class: "a failed swap left unhandled where D1 handles a
+  failed build". Closed: a binary built but not put in place now hands the config to the
+  running binary just as a failed build does. `rebuilt.unswapped` holds that hand-over. `arrive`
+  sets it for a config the new build trusted, and `arrived` sets it for one it could not read.
+  `swap` runs it in its error branch, so the one swap notice says the outcome before it is sent.
+  For a trusted arrival, it withdraws the trust first. If the withdrawal fails, there is no
+  reload, because the record still says trusted. Otherwise it reloads the file on disk
+  (`serveArrived`, the same reload `arrive` runs after a failed build). The panel then serves it
+  untrusted and offers Trust config…, or it keeps the config it had loaded when the file does
+  not load. An unread config is kept as loaded, and the notice says so. The swap error now comes
+  last in that notice, so a long path cannot push the config's account past the 600-rune cut.
+  Rejected alternatives: a second, separate D1 notice (two notices for one event, and the first
+  would claim "keeps running as it was" with no word on the config), and `swap` returning a bool
+  for `arrived` to act on (the notice is already sent by then).
+- 2026-10-23 (group 3, review run 4) The reload after a failed swap passes no runtime to
+  `serveArrived`, so it reloads whatever runtime serves the project now, not only the one that
+  was running at the merge. A runtime started in between was started on the trust that has just
+  been withdrawn, so it too must load the config again. The log line for a project with no
+  runtime now reads "started again or removed meanwhile" (no test named the old wording).
+- 2026-10-23 (group 3, review run 4) Test: `TestRebuildSwapThatFailsServesTheConfigHere`
+  (`selfupdate_test.go`, a real build, skipped under `-short`) makes the swap's rename fail. It
+  has three cases: a config that loads (served untrusted, with Trust config… offered), one that
+  does not (the old config stays loaded and trusted, and the notice names the error), and an
+  unread one (the old config is kept, and the notice says it could not be read). It cites no
+  scenario, because no scenario has a failed swap in its GIVEN. Each case failed with its fix
+  reverted. With the withdrawal alone, "loads" timed out waiting for the new bytes and "does not
+  load" failed on the notice text. Without the unread hand-over, "unread" failed on the notice.
 
 ## 1. The switch and the fast-forward (D2, D3)
 - [x] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.clauductor/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
@@ -180,9 +379,9 @@
 - [x] 2.3 `framework/internal/panel/push.go`: a catch-up notice runs the push command under STALL-3's rules, `alerts.notify` withholding only the notice that a config waits for the owner; only the trust notice titled with a name (the config it trusted), every other catch-up notice (the config waiting, refusals, a config that does not load, the rebuild's of task 3.2) titled "clauductor panel" and naming the checkout's path; a `waiting` alert still never pushes. Tested in `framework/internal/panel/push_test.go` with its stand-in program. Citing [STALL-3-S12], and re-running [STALL-3-S1], [STALL-3-S6], [STALL-3-S10], [STALL-3-S11] unchanged.
 
 ## 3. The rebuild and the restart (D4)
-- [ ] 3.1 `framework/internal/panel/install/selfupdate.go` (new): from `debug.ReadBuildInfo`, the module, `vcs.revision` and `vcs.modified`; the module `<root>/framework/go.mod` declares, checked first, with nothing sent when it differs; whether R is a commit of the repository and an ancestor of B, and `framework/` differs between R and B; `git status --porcelain` empty; the build into `clauductor.new` under a 5-minute timeout; the preflight (the new binary's build information read with `debug/buildinfo`: the same module, `vcs.revision` B, `vcs.modified` false; then `version`, `panel list`, and `panel config-check` when the merge changed `panel.json`); the two renames for the installed binary and, when its own build information qualifies, the one on PATH. The token, the plist and the hooks are never opened for writing. `framework/internal/cmd/panel.go`: the `panel config-check --config <file>` command, printing the config's `alerts.notify` and run list as JSON, or failing with the load's error. Tested in `framework/internal/panel/install/selfupdate_test.go` (new) with a throwaway module and repository, a stand-in `go` from `internal/testbin` for the failure cases, and `internal/treesnap` over the repository; `config-check` in `framework/internal/cmd/panel_catchup_test.go`. Citing [CATCHUP-4-S1], [CATCHUP-4-S2], [CATCHUP-4-S3], [CATCHUP-4-S5], [CATCHUP-4-S9], [CATCHUP-4-S10].
-- [ ] 3.2 `framework/internal/panel/run.go`: under `--launchd` only, the restart: wait until no `claude` call of the panel's runs (the call gate), up to 10 minutes; the notice naming R, B and the rollback, with `clauductor panel install` when `R..B` (the build's range, not the last merge's) changed `install/launchd.go` or `install/hooks.go`; every notice of the rebuild, this one, its refusals and the new binary's, sent whatever `alerts.notify` says, titled "clauductor panel"; a marker file for the new binary's "now running" notice; the browser open recorded as `ShouldOpenAtLogin` records it; then the run's context ended, as SIGTERM ends it, with exit status 75 recorded and returned once the run loop's shutdown is done. `framework/internal/cmd/panel.go` exits the process with that status (`os.Exit`, as `internal/cmd/lockrun.go` does), since `cmd/clauductor/main.go` turns every error into 1. A hand-started panel sends the "update yourself" notice instead. Tested in `framework/internal/panel/run_test.go`, which drives the restart path and then a second start in the same home and asserts it opens no tab, and in `framework/internal/cmd/panel_catchup_test.go`, which runs the built command as a child process and reads its exit status. Citing [CATCHUP-4-S1], [CATCHUP-4-S4], [CATCHUP-4-S6], [CATCHUP-4-S7], [CATCHUP-4-S8], [CATCHUP-4-S11].
-- [ ] 3.3 `framework/internal/panel/install/launchd.go`: `go`'s directory joins `pathForAgent`'s tools. Tested in `framework/internal/panel/install/launchd_test.go`.
+- [x] 3.1 `framework/internal/panel/install/selfupdate.go` (new): from `debug.ReadBuildInfo`, the module, `vcs.revision` and `vcs.modified`; the module `<root>/framework/go.mod` declares, checked first, with nothing sent when it differs; whether R is a commit of the repository and an ancestor of B, and `framework/` differs between R and B; `git status --porcelain` empty; the build into `clauductor.new` under a 5-minute timeout; the preflight (the new binary's build information read with `debug/buildinfo`: the same module, `vcs.revision` B, `vcs.modified` false; then `version`, `panel list`, and `panel config-check` when the merge changed `panel.json`); the two renames for the installed binary and, when its own build information qualifies, the one on PATH. The token, the plist and the hooks are never opened for writing. `framework/internal/cmd/panel.go`: the `panel config-check --config <file>` command, printing the config's `alerts.notify` and run list as JSON, or failing with the load's error. Tested in `framework/internal/panel/install/selfupdate_test.go` (new) with a throwaway module and repository, a stand-in `go` from `internal/testbin` for the failure cases, and `internal/treesnap` over the repository; `config-check` in `framework/internal/cmd/panel_catchup_test.go`. Citing [CATCHUP-4-S1], [CATCHUP-4-S2], [CATCHUP-4-S3], [CATCHUP-4-S5], [CATCHUP-4-S9], [CATCHUP-4-S10].
+- [x] 3.2 `framework/internal/panel/run.go`: under `--launchd` only, the restart: wait until no `claude` call of the panel's runs (the call gate), up to 10 minutes; the notice naming R, B and the rollback, with `clauductor panel install` when `R..B` (the build's range, not the last merge's) changed `install/launchd.go` or `install/hooks.go`; every notice of the rebuild, this one, its refusals and the new binary's, sent whatever `alerts.notify` says, titled "clauductor panel"; a marker file for the new binary's "now running" notice; the browser open recorded as `ShouldOpenAtLogin` records it; then the run's context ended, as SIGTERM ends it, with exit status 75 recorded and returned once the run loop's shutdown is done. `framework/internal/cmd/panel.go` exits the process with that status (`os.Exit`, as `internal/cmd/lockrun.go` does), since `cmd/clauductor/main.go` turns every error into 1. A hand-started panel sends the "update yourself" notice instead. Tested in `framework/internal/panel/run_test.go`, which drives the restart path and then a second start in the same home and asserts it opens no tab, and in `framework/internal/cmd/panel_catchup_test.go`, which runs the built command as a child process and reads its exit status. Citing [CATCHUP-4-S1], [CATCHUP-4-S4], [CATCHUP-4-S6], [CATCHUP-4-S7], [CATCHUP-4-S8], [CATCHUP-4-S11].
+- [x] 3.3 `framework/internal/panel/install/launchd.go`: `go`'s directory joins `pathForAgent`'s tools. Tested in `framework/internal/panel/install/launchd_test.go`.
 - [ ] 3.4 On the owner's Mac, after the build merges: catch-up on for this repository, then a small `framework/` PR merged from a lane; the installed binary's `go version -m` names its merge commit, `clauductor.prev` is the old one, and the page's token still works. [CATCHUP-4-S1] (manual: the real login agent and launchd's restart, which no test may touch: the owner's live panel).
 
 ## 4. merge-pr, the docs and the template (D5)

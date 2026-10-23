@@ -247,6 +247,25 @@ func (g *Gate) isClosed() bool {
 	return g.closed
 }
 
+// Quiesce takes the slot once no claude call of the panel's runs, waiting at most max
+// on the gate's clock, and keeps it: no call starts after it, since the panel's restart
+// after rebuilding itself (OPS-118 D4) follows. It says whether it took the slot: false
+// when max passed with a call still running, or ctx ended first; the restart goes
+// ahead either way, and the shutdown's Close stops what still runs. Close needs no
+// slot, so a kept one holds nothing up.
+func (g *Gate) Quiesce(ctx context.Context, max time.Duration) bool {
+	t := g.clock.NewTimer(max)
+	defer t.Stop()
+	select {
+	case g.slot <- struct{}{}:
+		return true
+	case <-t.C():
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // spawned is ExecRunner's report of the started process: the call enters the
 // history, dated by the panel's clock now (no ps per call).
 func (g *Gate) spawned(c *call, p *os.Process) {

@@ -377,3 +377,64 @@ func TestTrustArrivedCarriesItsNote(t *testing.T) {
 		t.Fatalf("a config outside the repository was trusted on arrival (%v)", err)
 	}
 }
+
+// A trust recorded on arrival is withdrawn when the binary that judged the bytes is not
+// put in place (UntrustArrived): the record goes back to the hash before it, or goes
+// when there was none, and the note goes with it. A record changed since, by the
+// owner's own trust, stands. A test of the part cites no scenario: the panel test
+// TestCatchUpStoppedBeforeTheSwapWithdrawsTheTrust drives it through a stop.
+func TestUntrustArrivedRestoresTheRecordBeforeIt(t *testing.T) {
+	t.Parallel()
+	home, root := t.TempDir(), signals.ResolvePath(t.TempDir())
+	cfg := filepath.Join(root, ".claude", "panel.json")
+	const note = "trusted on arrival from #7"
+	writeConfig(t, cfg, `{"name":"old"}`)
+	h0 := ConfigHash([]byte(`{"name":"old"}`))
+	if _, err := CheckTrust(home, root, cfg, h0, true); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"version":999,"name":"new"}`
+	writeConfig(t, cfg, body)
+	h1 := ConfigHash([]byte(body))
+	tv, err := TrustArrived(home, root, cfg, h1, note)
+	if err != nil || tv.Prev != h0 {
+		t.Fatalf("TrustArrived: %+v %v, want the earlier hash as Prev", tv, err)
+	}
+
+	if ok, err := UntrustArrived(home, root, cfg, h1, "another note", h0); ok || err != nil || !TrustedNow(home, root, cfg, h1) {
+		t.Fatalf("a record made with another note was withdrawn (%v, %v)", ok, err)
+	}
+	if ok, err := UntrustArrived(home, root, cfg, h1, note, h0); !ok || err != nil {
+		t.Fatalf("UntrustArrived: %v %v, want withdrawn", ok, err)
+	}
+	if TrustedNow(home, root, cfg, h1) || !TrustedNow(home, root, cfg, h0) {
+		t.Fatal("after the withdrawal, want the earlier bytes trusted and the arrived ones not")
+	}
+	if tv, _ := CheckTrust(home, root, cfg, h0, false); tv.Note != "" {
+		t.Fatalf("the arrival's note outlived its record: %q", tv.Note)
+	}
+
+	// The owner's trust since stands.
+	if _, err := TrustArrived(home, root, cfg, h1, note); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckTrust(home, root, cfg, "h2", true); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := UntrustArrived(home, root, cfg, h1, note, h0); ok || err != nil || !TrustedNow(home, root, cfg, "h2") {
+		t.Fatalf("a record the owner made since was withdrawn (%v, %v)", ok, err)
+	}
+
+	// No record before: the withdrawal leaves none.
+	home2 := t.TempDir()
+	if tv, err := TrustArrived(home2, root, cfg, h1, note); err != nil || tv.Prev != "" {
+		t.Fatalf("TrustArrived over no record: %+v %v", tv, err)
+	}
+	if ok, err := UntrustArrived(home2, root, cfg, h1, note, ""); !ok || err != nil {
+		t.Fatalf("UntrustArrived over no record: %v %v", ok, err)
+	}
+	tf, err := readTrust(TrustPath(home2, root))
+	if err != nil || len(tf.Configs) != 0 || len(tf.Notes) != 0 {
+		t.Fatalf("the record after withdrawing the only trust: %+v %v, want empty", tf, err)
+	}
+}

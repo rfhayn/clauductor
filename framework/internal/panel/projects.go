@@ -71,12 +71,8 @@ func loadProject(ctx context.Context, o Options, e config.ProjectEntry, primary 
 	if err != nil {
 		return loadedProject{}, err
 	}
-	cfg.TmuxSocket = e.Socket(cfg)
-	if primary && o.TmuxSocket != "" {
-		if !config.SocketNameRe.MatchString(o.TmuxSocket) {
-			return loadedProject{}, fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, config.SocketNameRe)
-		}
-		cfg.TmuxSocket = o.TmuxSocket
+	if cfg.TmuxSocket, err = servedSocket(o, e, cfg.TmuxSocket, primary); err != nil {
+		return loadedProject{}, err
 	}
 	// Without the worktree list every event of the project would be dropped, so a
 	// failure here is an error rather than a quiet empty project.
@@ -85,4 +81,17 @@ func loadProject(ctx context.Context, o Options, e config.ProjectEntry, primary 
 		return loadedProject{}, fmt.Errorf("%s: %w", e.Root, err)
 	}
 	return loadedProject{entry: e, cfg: cfg, raw: raw, cfgPath: cfgPath, wts: wts}, nil
+}
+
+// servedSocket is the tmux socket a project is served on, given the tmux_socket its
+// config names (cfgSocket, "" for none): that, else its entry's, else the default
+// (ProjectEntry.Socket), and for the primary the panel's --tmux-socket over all.
+func servedSocket(o Options, e config.ProjectEntry, cfgSocket string, primary bool) (string, error) {
+	if primary && o.TmuxSocket != "" {
+		if !config.SocketNameRe.MatchString(o.TmuxSocket) {
+			return "", fmt.Errorf("tmux socket %q must match %s", o.TmuxSocket, config.SocketNameRe)
+		}
+		return o.TmuxSocket, nil
+	}
+	return e.Socket(&config.Config{TmuxSocket: cfgSocket}), nil
 }

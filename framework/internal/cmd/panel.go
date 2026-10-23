@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,7 +85,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), panelStopSignals(signal.Ignored)...)
 		defer stop()
-		return panel.Run(ctx, panel.Options{
+		err = runPanel(ctx, panel.Options{
 			Project:     project,
 			ConfigPath:  panelConfig,
 			Only:        panelOnly,
@@ -95,6 +96,52 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 			Launchd:     panelLaunchd,
 			TrustConfig: panelTrust,
 		})
+		// The rebuild's restart (OPS-118 D4): the run has shut down, and the exit status
+		// is what tells launchd to start the new binary. main turns a returned error into
+		// 1, so the status is set here, as lock-run does.
+		if rs := (*panel.RestartError)(nil); errors.As(err, &rs) {
+			fmt.Fprintf(out, "clauductor panel: %v\n", rs)
+			stop()
+			os.Exit(rs.Code)
+		}
+		return err
+	},
+}
+
+// runPanel is panel.Run; a test of the restart's exit status stands one in.
+var runPanel = panel.Run
+
+var panelConfigCheckConfig string
+
+// panelConfigCheckCmd is how the running panel asks a rebuilt binary to judge a
+// changed panel.json before it replaces itself (OPS-118 D1, D4): the new binary's
+// reading of the file, not the old one's, decides what the new one will run.
+var panelConfigCheckCmd = &cobra.Command{
+	Use:   "config-check --config <file>",
+	Short: "Load a panel config and print its name, alerts.notify, run list and tmux_socket as JSON",
+	Long: `Load a panel config as this binary would serve it and print, as one JSON object,
+its name, its alerts.notify, the commands and prompts it runs (the run list
+'panel trust' reports) and its tmux_socket as written ("" when it names none). A
+config that does not load is the command's error, and
+it exits non-zero. It trusts nothing and writes nothing: the panel runs it on a
+rebuilt binary before putting that binary in place.`,
+	Args:          cobra.NoArgs,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if panelConfigCheckConfig == "" {
+			return errors.New("config-check needs --config <file>")
+		}
+		cfg, err := config.LoadConfig(panelConfigCheckConfig)
+		if err != nil {
+			return err
+		}
+		b, err := json.Marshal(config.CheckOf(cfg))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\n", b)
+		return nil
 	},
 }
 
@@ -142,8 +189,9 @@ func init() {
 	panelAttachCmd.Flags().BoolVar(&attachDefault, "default", false, "make it the default project")
 	panelRemoveCmd.Flags().BoolVar(&removeForce, "force", false, "remove it even while lanes are registered (they keep running; their registry is kept)")
 	panelCatchUpCmd.Flags().StringVar(&catchUpProject, "project", "", "the project's id or root, its main checkout (required)")
+	panelConfigCheckCmd.Flags().StringVar(&panelConfigCheckConfig, "config", "", "the panel config file to load (required)")
 	panelCmd.AddCommand(panelInitCmd, panelInstallCmd, panelUninstallCmd, panelOpenCmd, panelRotateCmd, panelTrustCmd,
-		panelCatchUpCmd, panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
+		panelCatchUpCmd, panelConfigCheckCmd, panelAddCmd, panelAttachCmd, panelRemoveCmd, panelListCmd)
 	rootCmd.AddCommand(panelCmd)
 }
 

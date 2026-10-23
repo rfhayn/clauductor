@@ -1,7 +1,7 @@
 **Approved:** 2026-10-22 by Rich · design 248b39b9be79
 **Roadmap row:** OPS-118
 **Risk:** high
-**Budget:** $120
+**Budget:** $175, soft
 
 ## Why
 After every merge the owner does by hand what no lane can: pulls the main checkout, runs

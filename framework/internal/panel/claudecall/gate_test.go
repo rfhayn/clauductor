@@ -484,6 +484,66 @@ func result(t *testing.T, errc <-chan error, what string) error {
 	}
 }
 
+// Quiesce, the panel's wait before it restarts into a rebuilt binary (OPS-118 D4),
+// returns only once the running call has ended, keeps the slot so no call starts
+// after it, and gives up at its bound when a call outlasts it.
+func TestGateQuiesceWaitsForTheRunningCallAndKeepsTheSlot(t *testing.T) {
+	clk := clock.NewFake(t0)
+	h := newHolder()
+	g, _ := newGate(t, h.run, Reader{}, clk)
+	goRun(g, laneCtx(t), []string{"claude", "hold"})
+	waitSlotTaken(t, g)
+	took := make(chan bool, 1)
+	go func() { took <- g.Quiesce(context.Background(), 10*time.Minute) }()
+	clk.BlockUntil(1) // Quiesce's bound
+	clk.Advance(10*time.Minute - time.Second)
+	select {
+	case ok := <-took:
+		t.Fatalf("Quiesce returned %v while a call ran", ok)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(h.release)
+	select {
+	case ok := <-took:
+		if !ok {
+			t.Fatal("Quiesce did not take the slot once the call ended")
+		}
+	case <-time.After(testwait.Scale(10 * time.Second)):
+		t.Fatal("Quiesce never returned after the call ended")
+	}
+	// The slot is kept: a poll that comes after gives up busy, and reaches no claude.
+	ctx, cancel := context.WithTimeout(signals.WithPoll(context.Background()), 10*time.Second)
+	defer cancel()
+	errc := goRun(g, ctx, agentsArgv)
+	clk.BlockUntil(1)
+	clk.Advance(PollWait)
+	if err := result(t, errc, "the poll after Quiesce"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a poll after Quiesce: %v, want ErrBusy", err)
+	}
+	if n := h.n.Load(); n != 1 {
+		t.Fatalf("%d claude calls reached the runner, want only the one before Quiesce", n)
+	}
+
+	// A call that outlasts the bound: Quiesce gives up at it.
+	h2 := newHolder()
+	defer close(h2.release)
+	clk2 := clock.NewFake(t0)
+	g2, _ := newGate(t, h2.run, Reader{}, clk2)
+	goRun(g2, laneCtx(t), []string{"claude", "hold"})
+	waitSlotTaken(t, g2)
+	go func() { took <- g2.Quiesce(context.Background(), 10*time.Minute) }()
+	clk2.BlockUntil(1)
+	clk2.Advance(10 * time.Minute)
+	select {
+	case ok := <-took:
+		if ok {
+			t.Fatal("Quiesce took a slot a running call holds")
+		}
+	case <-time.After(testwait.Scale(10 * time.Second)):
+		t.Fatal("Quiesce did not give up at its bound")
+	}
+}
+
 // [CLAUDECALLS-2-S1] A colliding poll waits briefly, then retries soon: no second
 // claude starts, and the poll gives up at PollWait with a retry in 1 s.
 func TestGatePollGivesUpOnABusySlot(t *testing.T) {

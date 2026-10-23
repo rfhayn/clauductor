@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/claudecall"
@@ -93,6 +94,9 @@ type Options struct {
 	// source (OPS-118 D4, task 3.1): nil, or a nil result, when no rebuild follows.
 	// Unexported: a test of trust on arrival stands one in.
 	selfUpdate func(ctx context.Context, t catchUpTarget, res catchUpResult, cfgPath string) *rebuilt
+	// rebuild stands in for what the rebuild reads of the process (its build stamp,
+	// its path, go, the PATH's clauductor, the build's bound); nil reads the process's.
+	rebuild *rebuildEnv
 }
 
 // Ticks are the panel's tick lengths. Every process the panel spawns while it idles
@@ -418,6 +422,14 @@ func Run(ctx context.Context, o Options) error {
 	// prs source its wake.
 	ls.cu = newCatchUp(o, clk, m.push.current, ls.catchUpTargets)
 	ls.cu.arrive = ls.arrive
+	// The rebuild and restart (OPS-118 D4): the restart waits for the panel's claude
+	// calls at the gate and ends this run like a SIGTERM, recording the exit status.
+	var restarted atomic.Pointer[RestartError]
+	if ls.cu.selfUpdate == nil {
+		su := newSelfUpdater(o, clk, ls.cu, gate.Quiesce, func(r *RestartError) { restarted.Store(r); cancel() })
+		su.canServe = ls.canServe
+		ls.cu.selfUpdate, ls.cu.atStart = su.selfUpdate, su.announce
+	}
 	for _, r := range runtimes {
 		p := ls.wire(r)
 		srv.Projects = append(srv.Projects, p)
@@ -509,6 +521,9 @@ func Run(ctx context.Context, o Options) error {
 	// ShutdownGrace, not the 15 s, then SIGKILL, so the exit stays inside `panel
 	// install`'s wait for the old job.
 	gate.Close(claudecall.ShutdownGrace)
+	if r := restarted.Load(); r != nil {
+		return r
+	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

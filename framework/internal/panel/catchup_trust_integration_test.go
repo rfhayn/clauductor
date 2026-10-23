@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // OPS-118 group 2 (D1): a panel.json the panel's own fast-forward brings is trusted on
@@ -444,7 +446,7 @@ func TestCatchUpChecksAConfigItCouldNotReadBeforeARebuild(t *testing.T) {
 		name, answer string
 		swaps        int
 	}{
-		{"checked", `{"name":"T","notify":true,"runs":[]}`, 1},
+		{"checked", `{"name":"T","notify":true,"runs":[],"tmux_socket":""}`, 1},
 		{"refused", `not json`, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -538,14 +540,15 @@ func TestCatchUpSaysWhenTheNewConfigNoLongerLoads(t *testing.T) {
 // standInRebuild stands in for the panel's rebuild of itself (Options.selfUpdate, D4):
 // the new binary is bin, a testbin program answering `panel config-check`, read through
 // configCheck, as the rebuild's preflight reads it; or the build fails with fail. It
-// records each swap, and the trust record at the moment it ran.
+// records each swap, the trust record at the moment it ran, and each discard.
 type standInRebuild struct {
 	home, root, bin string
 	fail            error
 
-	mu     sync.Mutex
-	swaps  int
-	atSwap config.TrustView
+	mu       sync.Mutex
+	swaps    int
+	atSwap   config.TrustView
+	discards int
 }
 
 func (s *standInRebuild) selfUpdate(ctx context.Context, _ catchUpTarget, _ catchUpResult, cfgPath string) *rebuilt {
@@ -560,6 +563,10 @@ func (s *standInRebuild) selfUpdate(ctx context.Context, _ catchUpTarget, _ catc
 			b, _ := os.ReadFile(cfgPath)
 			s.atSwap, _ = install.CheckTrust(s.home, s.root, cfgPath, install.ConfigHash(b), false)
 		}
+	}, discard: func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.discards++
 	}}
 	if cfgPath != "" {
 		chk, err := configCheck(ctx, s.bin, cfgPath)
@@ -600,7 +607,7 @@ func TestCatchUpTrustsWhatTheNewBinaryReads(t *testing.T) {
 		old := cardCfg("T", true, ".claude/y.sh")
 		w := newTrustWorld(t, old, true)
 		rb := &standInRebuild{home: w.home, root: w.root, bin: newBinary(t, w.cfgPath(),
-			`{"name":"T","notify":true,"runs":["card x runs [\"sh\" \".claude/x.sh\"] (interval:1)"]}`)}
+			`{"name":"T","notify":true,"runs":["card x runs [\"sh\" \".claude/x.sh\"] (interval:1)"],"tmux_socket":""}`)}
 		w.setOpen(7)
 		var notices noticeLog
 		var log cuLog
@@ -650,6 +657,157 @@ func TestCatchUpTrustsWhatTheNewBinaryReads(t *testing.T) {
 		noticeSays(t, ns[0], "clauductor panel", w.root, "syntax error")
 		noticeSays(t, ns[1], "clauductor panel", w.root, "does not load", perr.Error())
 	})
+}
+
+// A stop (a logout, `launchctl bootout`) after the new binary's reading of #7's config
+// was trusted on arrival, before the swap: the new binary is discarded, not swapped, and
+// the trust is withdrawn, so the record is the owner's trust of the config it started
+// from again: the running binary, which serves the file at the next start, never judged
+// it. A second notice, sent although the run has ended, says so, and how the change
+// still comes. Review 2026-10-23 found the trust kept, and no word, after such a stop.
+// A test of a stop cites no scenario: none has one in its GIVEN.
+func TestCatchUpStoppedBeforeTheSwapWithdrawsTheTrust(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	old := cardCfg("T", true, ".claude/y.sh")
+	w := newTrustWorld(t, old, true)
+	rb := &standInRebuild{home: w.home, root: w.root, bin: newBinary(t, w.cfgPath(),
+		`{"name":"T","notify":true,"runs":["card x runs [\"sh\" \".claude/x.sh\"] (interval:1)"],"tmux_socket":""}`)}
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	var run atomic.Pointer[panelRun]
+	stopped := make(chan struct{})
+	var once sync.Once
+	p := w.start(t, sock, &notices, &log, func(o *Options) {
+		o.selfUpdate = rb.selfUpdate
+		o.Notify = func(n state.Notice) error {
+			notices.notify(n)
+			// The stop comes as the trust is said: after it was recorded, before the swap.
+			if len(n.Keys) > 0 && strings.Contains(n.Keys[0], "\x00arrival\x00") && strings.Contains(n.Body, "trusted the new") {
+				once.Do(func() { run.Load().cancel(); close(stopped) })
+			}
+			return nil
+		}
+	})
+	run.Store(p)
+	p.polls.until(t, "catch-up", 1)
+	p.polls.until(t, "prs", 1)
+	w.merged(t, 7, "owner", config.DefaultConfigRel, badCfg)
+	w.setOpen()
+	select {
+	case <-stopped:
+	case <-time.After(testwait.Scale(20 * time.Second)):
+		t.Fatalf("no trust on arrival to stop at\n%s", log.String())
+	}
+	p.stop() // Run's shutdown waits for catch-up's source
+	rb.mu.Lock()
+	swaps, discards := rb.swaps, rb.discards
+	rb.mu.Unlock()
+	if swaps != 0 || discards != 1 {
+		t.Fatalf("after the stop: %d swaps and %d discards, want none and one\n%s", swaps, discards, log.String())
+	}
+	if trustedBytes(w, badCfg) {
+		t.Fatalf("the new bytes are still trusted after a stop before the swap\n%s", log.String())
+	}
+	if !trustedBytes(w, old) {
+		t.Fatal("the owner's trust of the config the fast-forward started from is gone")
+	}
+	ns := catchUpNotices(&notices)
+	if len(ns) != 2 {
+		t.Fatalf("catch-up sent %d notices, want the trust's and the stop's: %+v", len(ns), ns)
+	}
+	noticeSays(t, ns[1], "clauductor panel", w.root, "#7", "was stopped before it put the build in place",
+		"The trust it recorded on arrival for the new "+config.DefaultConfigRel, "is withdrawn", "Its next start runs the binary it ran",
+		"catch-up's next fast-forward rebuilds it")
+}
+
+// A stop (a logout, `launchctl bootout`) as #7's config arrives with no rebuild to follow,
+// in turn right after the fast-forward's merge and as the panel serves the config it has
+// just trusted: the config is judged as it is, trusted on arrival with the note, and the
+// one notice says so; the reload the stop ends says nothing more, and the next start
+// serves the config trusted and runs its card. Review 2026-10-23 found the judgement's
+// load ran on the run's ended context, so a stop read a config that loads as one that
+// does not and trusted nothing, and a reload the stop cut short said the config "no
+// longer loads". A test of a stop cites no scenario: none has one in its GIVEN.
+func TestCatchUpStoppedMidArrivalStillTrustsTheConfig(t *testing.T) {
+	t.Parallel()
+	worktreeList := []string{"git", "worktree", "list", "--porcelain"}
+	for _, tc := range []struct {
+		name   string
+		reload bool // the stop lands in the reload's load, not right after the merge
+	}{{"right after the merge", false}, {"as it serves the config", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, sock := throwawaySocket(t)
+			old, cfg := cardCfg("T", true, ".claude/y.sh"), cardCfg("T", true, ".claude/x.sh")
+			w := newTrustWorld(t, old, true)
+			w.setOpen(7)
+			var notices noticeLog
+			var log cuLog
+			var run atomic.Pointer[panelRun]
+			var said atomic.Bool // the trust notice went
+			stopped := make(chan struct{})
+			var once sync.Once
+			stop := func() { once.Do(func() { run.Load().cancel(); close(stopped) }) }
+			p := w.start(t, sock, &notices, &log, func(o *Options) {
+				// The runtime reads its worktrees at its start alone, so the first read
+				// after the trust notice is the reload's.
+				o.Ticks.Worktrees, o.Ticks.WorktreeWatch, o.Ticks.WorktreeKick = time.Hour, time.Hour, time.Hour
+				o.Notify = func(n state.Notice) error {
+					notices.notify(n)
+					if len(n.Keys) > 0 && strings.Contains(n.Keys[0], "\x00arrival\x00") && strings.Contains(n.Body, "trusted the new") {
+						said.Store(true)
+					}
+					return nil
+				}
+				o.Runner = func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+					if tc.reload && said.Load() && slices.Equal(argv, worktreeList) {
+						stop()
+					}
+					out, err := w.run(ctx, dir, argv)
+					if !tc.reload && err == nil && slices.Contains(argv, "merge") && slices.Contains(argv, "--ff-only") {
+						stop()
+					}
+					return out, err
+				}
+			})
+			run.Store(p)
+			p.polls.until(t, "catch-up", 1)
+			p.polls.until(t, "prs", 1)
+			c := w.merged(t, 7, "owner", config.DefaultConfigRel, cfg)
+			w.setOpen()
+			select {
+			case <-stopped:
+			case <-time.After(testwait.Scale(20 * time.Second)):
+				t.Fatalf("no arrival to stop at\n%s", log.String())
+			}
+			p.stop() // Run's shutdown waits for catch-up's source
+			if got := w.head(t); got != c {
+				t.Fatalf("HEAD is %s, want #7's merge commit %s\n%s", got, c, log.String())
+			}
+			tv, err := install.CheckTrust(w.home, w.root, w.cfgPath(), install.ConfigHash([]byte(cfg)), false)
+			if err != nil || !tv.Trusted || tv.Note != arrivedNote {
+				t.Fatalf("after the stop the new bytes are %+v (%v), want trusted with the note %q\n%s", tv, err, arrivedNote, log.String())
+			}
+			ns := catchUpNotices(&notices)
+			if len(ns) != 1 {
+				t.Fatalf("catch-up sent %d notices, want the trust notice alone: %+v\n%s", len(ns), ns, log.String())
+			}
+			noticeSays(t, ns[0], "T", "#7", "owner", ".claude/x.sh")
+			if !strings.Contains(log.String(), "the panel stopped before it served the new "+config.DefaultConfigRel) {
+				t.Fatalf("the log does not say the stop ended the reload\n%s", log.String())
+			}
+
+			var again noticeLog
+			var log2 cuLog
+			p2 := w.start(t, sock, &again, &log2, nil)
+			if tv := served(t, p2, cfg); !tv.Trusted || tv.Note != arrivedNote {
+				t.Fatalf("the next start serves %+v, want the new config trusted with the note %q\n%s", tv, arrivedNote, log2.String())
+			}
+			waitFor(t, "the new card's command run", func() bool { return w.cardRuns(".claude/x.sh") > 0 })
+		})
+	}
 }
 
 // [CATCHUP-3-S9] The owner's #7 adds a card and sets alerts.notify false: the new config
@@ -722,16 +880,16 @@ func TestCatchUpFailedBuildServesTheConfigUntrusted(t *testing.T) {
 	}
 }
 
-// configCheck reads a binary's `panel config-check` answer: the three fields, each
+// configCheck reads a binary's `panel config-check` answer: the four fields, each
 // required, and an exit that is not 0 as the load's error.
 func TestConfigCheckReadsTheNewBinarysAnswer(t *testing.T) {
 	t.Parallel()
 	cfg := filepath.Join(t.TempDir(), "panel.json")
-	got, err := configCheck(context.Background(), newBinary(t, cfg, `{"name":"T","notify":false,"runs":["card x runs [\"sh\"] (interval:1)"]}`), cfg)
-	if err != nil || got.Name != "T" || got.Notify || len(got.Runs) != 1 {
+	got, err := configCheck(context.Background(), newBinary(t, cfg, `{"name":"T","notify":false,"runs":["card x runs [\"sh\"] (interval:1)"],"tmux_socket":"s"}`), cfg)
+	if err != nil || got.Name != "T" || got.Notify || len(got.Runs) != 1 || got.Socket != "s" {
 		t.Fatalf("configCheck: %+v %v", got, err)
 	}
-	for _, answer := range []string{`{"name":"T","runs":[]}`, `{"name":"T","notify":true,"runs":null}`, `not json`} {
+	for _, answer := range []string{`{"name":"T","runs":[],"tmux_socket":""}`, `{"name":"T","notify":true,"runs":null,"tmux_socket":""}`, `{"name":"T","notify":true,"runs":[]}`, `not json`} {
 		if _, err := configCheck(context.Background(), newBinary(t, cfg, answer), cfg); err == nil {
 			t.Errorf("the answer %s judged nothing, and was taken", answer)
 		}

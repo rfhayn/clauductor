@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/clauductor/clauductor/internal/panel"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 )
@@ -168,5 +170,59 @@ func TestPanelCatchUpClearedByRemove(t *testing.T) {
 	}
 	if got := mustCLI(t, home, "panel", "catch-up", "--project", root).stdout; got != "off\n" {
 		t.Fatalf("print after remove and add: %q, want off", got)
+	}
+}
+
+// When the panel's run ends with the rebuild's restart (OPS-118 D4), `clauductor panel
+// --launchd` exits with the restart's status, 75, not the 1 main gives every error: the
+// status is what tells the login agent to start the new binary.
+func TestPanelExitsWithTheRestartsStatus(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	r := cliEnv(t, "", home, []string{"CLAUDUCTOR_CMD_HELPER_RESTART=1"}, "panel", "--launchd")
+	if panel.ExitRestart != 75 || r.code != 75 {
+		t.Fatalf("exit %d, want 75\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "exits 75") {
+		t.Fatalf("stdout %q does not say the panel exits 75 for the login agent", r.stdout)
+	}
+}
+
+// `panel config-check --config <file>` prints the config as this binary loads it, as
+// one JSON object: its name, alerts.notify and run list, an empty list as []. A config
+// that does not load exits non-zero with the load's error and prints nothing on stdout,
+// and no --config is refused.
+func TestPanelConfigCheckPrintsTheConfigAsItLoads(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	card := write("card.json", `{"name":"T","lanes":{"main":"orchestrator"},"alerts":{"notify":false},"tmux_socket":"x-sock",`+
+		`"cards":[{"id":"x","title":"x","command":["sh",".claude/x.sh"],"refresh":"interval:1"}]}`)
+	var chk config.Check
+	if err := json.Unmarshal([]byte(mustCLI(t, home, "panel", "config-check", "--config", card).stdout), &chk); err != nil {
+		t.Fatal(err)
+	}
+	if chk.Name != "T" || chk.Notify || len(chk.Runs) != 1 || !strings.Contains(chk.Runs[0], ".claude/x.sh") || chk.Socket != "x-sock" {
+		t.Fatalf("config-check of a card config: %+v, want T, notify false, its one card and its socket", chk)
+	}
+
+	plain := write("plain.json", `{"name":"E","lanes":{"main":"orchestrator"}}`)
+	if got := mustCLI(t, home, "panel", "config-check", "--config", plain).stdout; got != `{"name":"E","notify":true,"runs":[],"tmux_socket":""}`+"\n" {
+		t.Fatalf("config-check of a config that runs nothing: %q", got)
+	}
+
+	bad := write("bad.json", `{"version":999,"name":"B","lanes":{"main":"orchestrator"}}`)
+	if r := cli(t, home, "panel", "config-check", "--config", bad); r.code == 0 || r.stdout != "" || !strings.Contains(r.stderr, "Error:") {
+		t.Fatalf("config-check of a config that does not load: exit %d\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
+	}
+	if r := cli(t, home, "panel", "config-check"); r.code == 0 || !strings.Contains(r.stderr, "--config") {
+		t.Fatalf("config-check with no --config: exit %d stderr %q", r.code, r.stderr)
 	}
 }

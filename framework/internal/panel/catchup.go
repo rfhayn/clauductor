@@ -100,6 +100,9 @@ type catchUp struct {
 	arrive func(context.Context, *catchUp, arrival)
 	// selfUpdate is D4's rebuild after a fast-forward (Options.selfUpdate).
 	selfUpdate func(context.Context, catchUpTarget, catchUpResult, string) *rebuilt
+	// atStart runs once, at the source's first poll and before its check: the first
+	// start after the rebuild's restart says which commit it runs (D4).
+	atStart func(context.Context)
 
 	mu      sync.Mutex
 	pending map[string]bool // roots woken since the last poll
@@ -151,6 +154,9 @@ func (c *catchUp) poll(ctx context.Context, now time.Time) (update, time.Duratio
 	c.mu.Unlock()
 	all := !c.started
 	c.started = true
+	if all && c.atStart != nil {
+		c.atStart(ctx)
+	}
 	due := map[string]bool{}
 	for root := range woken {
 		delete(c.retries, root) // a new trigger counts its retries afresh
@@ -198,16 +204,18 @@ func (c *catchUp) check(ctx context.Context, all bool, woken, due map[string]boo
 			rt.n++
 		}
 		res, ref := c.fastForward(ctx, t)
+		if ref == nil && res.from != res.to {
+			// The merge is in the checkout whether or not the panel is stopping, and the
+			// next start finds nothing to arrive: what follows it runs now.
+			fmt.Fprintf(c.out, "catch-up %s: fast-forwarded %s from %s to %s over %s merged by %s\n",
+				t.root, res.branch, res.from, res.to, prList(res.prs), res.login)
+			c.arrived(ctx, t, res)
+		}
 		if ctx.Err() != nil {
-			return // the panel is stopping: nothing it read means anything
+			return // the panel is stopping: nothing else it read means anything
 		}
 		if ref == nil {
 			delete(c.retries, t.root)
-			if res.from != res.to {
-				fmt.Fprintf(c.out, "catch-up %s: fast-forwarded %s from %s to %s over %s merged by %s\n",
-					t.root, res.branch, res.from, res.to, prList(res.prs), res.login)
-				c.arrived(ctx, t, res)
-			}
 			continue
 		}
 		c.retryAfter(t.root, ref)
@@ -265,12 +273,18 @@ func (c *catchUp) refuse(ctx context.Context, root string, ref *catchUpRefusal) 
 }
 
 // send sends a catch-up notice once per key for this panel run (sendCatchUp), notifyOn
-// being the loaded config's alerts.notify, which only a notice that waits reads.
+// being the loaded config's alerts.notify, which only a notice that waits reads. It
+// sends under a context the run's end does not cancel: every notice says what a step
+// already taken did (a fast-forward, a trust, the swap's renames and their rollback), and
+// a stop that ends the run must not drop the only record of it on the way out. It sets
+// no deadline of its own: the notification and then the push each keep theirs
+// (showNotice's 10 s, pushTimeout), so a slow notification cannot take the push's time,
+// and the send, which Run's shutdown waits for, ends within their sum.
 func (c *catchUp) send(ctx context.Context, n catchUpNotice, notifyOn bool) {
 	if c.sent[n.key] {
 		return
 	}
-	if sendCatchUp(ctx, c.notify, c.push(), c.out, n, notifyOn) {
+	if sendCatchUp(context.WithoutCancel(ctx), c.notify, c.push(), c.out, n, notifyOn) {
 		c.sent[n.key] = true
 	}
 }
@@ -445,7 +459,13 @@ func (c *catchUp) fastForward(ctx context.Context, t catchUpTarget) (catchUpResu
 	}
 
 	// C by its hash, never the ref's name: the ref may have moved past what was checked.
-	if _, slow, err := c.call(ctx, t.root, "git", "-C", t.root, "merge", "--ff-only", to); err != nil {
+	// A stop starts no merge, and does not kill one under way, under its own bound: a
+	// merge killed after it moved the branch would leave a fast-forward nothing follows,
+	// since the next start finds nothing to arrive.
+	if ctx.Err() != nil {
+		return catchUpResult{}, policy("the panel is stopping")
+	}
+	if _, slow, err := c.call(context.WithoutCancel(ctx), t.root, "git", "-C", t.root, "merge", "--ff-only", to); err != nil {
 		if slow {
 			return catchUpResult{}, timedOut("git merge")
 		}
@@ -599,9 +619,58 @@ const configCheckTimeout = 30 * time.Second
 // Catch-up sends the failure's notice, judges the config with check, and only then
 // runs swap, so the bytes are recorded as trusted before the swap (D1).
 type rebuilt struct {
-	err   error         // the build or its preflight failed: nothing is swapped
+	err   error         // the build or its preflight failed, or a stop ended it: nothing is swapped
 	check *config.Check // the new binary's `panel config-check` of the changed config
 	swap  func(context.Context)
+	// discard removes the new binary when catch-up does not run swap after all.
+	discard func()
+	// untrust withdraws the trust arrive recorded on check: whether the record was taken
+	// back (one changed since stands), or why it could not be; nil when arrive recorded
+	// none. withdraw runs it, once.
+	untrust func() (bool, error)
+	// unswapped is what becomes of the changed config when swap fails, for its notice
+	// (notInPlace): set by arrive, or by arrived for a config it could not read; nil when
+	// the config did not change.
+	unswapped func(context.Context) string
+}
+
+// withdraw withdraws the trust recorded on arrival for the new binary's reading of the
+// config (untrust), once, when that binary is not put in place after all: the binary
+// that next serves the config never judged it (D1). withdrew is false, and err nil, when
+// nothing was recorded or the record changed since; withdrawnSaid words the outcome.
+func (u *rebuilt) withdraw() (withdrew bool, err error) {
+	if u == nil || u.untrust == nil {
+		return false, nil
+	}
+	f := u.untrust
+	u.untrust = nil
+	return f()
+}
+
+// notInPlace is the swap's account of the changed config when the rebuilt binary could
+// not be put in place: the running binary has taken it over as after a failed build
+// (unswapped, D1). "" when the config did not change.
+func (u *rebuilt) notInPlace(ctx context.Context) string {
+	if u == nil || u.unswapped == nil {
+		return ""
+	}
+	return u.unswapped(ctx)
+}
+
+// waitsForOwner is how a config that is not trusted waits for the owner.
+const waitsForOwner = "waits for the owner (Trust config… on the page, or `clauductor panel trust`)"
+
+// withdrawnSaid is a notice's account of a withdrawal (rebuilt.withdraw) of the trust
+// recorded on arrival for rel: "is withdrawn" and then what follows, or why it could not
+// be and what that leaves; "" when nothing was withdrawn.
+func withdrawnSaid(rel string, withdrew bool, err error, then string) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf(" Withdrawing the trust it recorded on arrival for the new %s failed (%v): the next start serves it trusted, as the build that is not in place judged it.", rel, err)
+	case withdrew:
+		return fmt.Sprintf(" The trust it recorded on arrival for the new %s, judged by that build, is withdrawn%s.", rel, then)
+	}
+	return ""
 }
 
 // arrival is a fast-forward that changed the project's panel.json: the file's blob at
@@ -623,13 +692,21 @@ type arrival struct {
 // was not judged (c.unread); then the rebuild's swap. An unread config is never read
 // as unchanged: the rebuild is told it may have changed, so its preflight's
 // config-check judges the file the new binary will load.
+//
+// A stop does not cut it short: the fast-forward is in the checkout, and the next start
+// finds nothing to arrive, so the reads and the judgement run, and every notice goes
+// (send). Only what waits on the run ends with it: the build (a stopped rebuild says
+// so), the reload, and the swap, whose new binary is then discarded and the trust it
+// earned withdrawn.
 func (c *catchUp) arrived(ctx context.Context, t catchUpTarget, res catchUpResult) {
 	a := arrival{t: t, res: res}
 	changed := false
 	var unread error // the config's blobs could not be read: whether it changed is not known
 	if rel, ok := repoRel(t.root, t.cfgPath); ok {
 		a.rel = rel
-		if changed, unread = c.blobs(ctx, &a); unread != nil {
+		// Under their own bounds (call's timeout): a stop must not turn a read into
+		// "not known", which the rebuild would then have to judge.
+		if changed, unread = c.blobs(context.WithoutCancel(ctx), &a); unread != nil {
 			changed = false
 		}
 	}
@@ -646,23 +723,52 @@ func (c *catchUp) arrived(ctx context.Context, t catchUpTarget, res catchUpResul
 		u.err = fmt.Errorf("its preflight did not read %s", a.rel)
 	}
 	if u != nil && u.err != nil {
-		c.send(ctx, catchUpNotice{root: t.root, key: "catch-up\x00" + t.root + "\x00rebuild\x00" + res.to,
-			body: catchUpBody(fmt.Sprintf("The panel did not rebuild itself after catch-up moved %s to %s (%s), and keeps running as it was: %v.",
-				t.root, short(res.to), prList(res.prs), u.err))}, true)
+		body := fmt.Sprintf("The panel did not rebuild itself after catch-up moved %s to %s (%s), and keeps running as it was: %v.",
+			t.root, short(res.to), prList(res.prs), u.err)
+		if errors.Is(u.err, errRebuildStopped) {
+			body = stoppedRebuildBody(fmt.Sprintf("The panel was stopped during its rebuild after catch-up moved %s to %s (%s).",
+				t.root, short(res.to), prList(res.prs)))
+		}
+		c.send(ctx, catchUpNotice{root: t.root, key: rebuildKey(t.root, res.to, ""), body: catchUpBody(body)}, true)
 	}
 	swaps := u != nil && u.err == nil && u.swap != nil
-	switch {
-	case ctx.Err() != nil:
-	case unread != nil:
-		c.unread(ctx, a, unread, swaps)
-	case changed && c.arrive != nil:
+	if unread == nil && changed && c.arrive != nil {
 		a.u = u
 		c.arrive(ctx, c, a)
 	}
-	if swaps && ctx.Err() == nil {
+	// Read once, after the judgement: the unread notice's account of who serves the file,
+	// the discard, the swap and the stop's notice all follow one answer.
+	swapNow := swaps && ctx.Err() == nil
+	if unread != nil {
+		c.unread(ctx, a, unread, swapNow)
+		if swapNow {
+			// The unread notice said the rebuilt binary serves the file: a swap that fails
+			// leaves the running one serving the config it loaded, as a failed build does.
+			u.unswapped = func(context.Context) string {
+				return fmt.Sprintf(" As its %s could not be read, %s.", a.rel, unreadKeeps)
+			}
+		}
+	}
+	if u != nil && u.discard != nil && !swapNow {
+		u.discard() // no swap follows: no new binary is left beside the installed one
+	}
+	switch {
+	case swapNow:
 		u.swap(ctx)
+	case swaps:
+		// Stopped between the judgement and the swap: the binary that judged the config
+		// is not put in place, so its trust goes with it.
+		fmt.Fprintf(c.out, "catch-up %s: stopped before the build of %s was put in place; the next start runs the binary it ran\n", t.root, short(res.to))
+		withdrew, err := u.withdraw()
+		c.send(ctx, catchUpNotice{root: t.root, key: rebuildKey(t.root, res.to, ""), body: catchUpBody(stoppedRebuildBody(fmt.Sprintf(
+			"The panel built %s after catch-up moved %s there (%s), and was stopped before it put the build in place.%s",
+			short(res.to), t.root, prList(res.prs), withdrawnSaid(a.rel, withdrew, err, ": the config "+waitsForOwner))))}, true)
 	}
 }
+
+// unreadKeeps is what becomes of a config catch-up could not read when the running
+// binary goes on serving.
+const unreadKeeps = "the panel keeps serving the config it had loaded. Read the file; `clauductor panel trust` trusts it, and the panel's next start serves it"
 
 // unread is the log line and the one notice of an arrival whose config's blobs could
 // not be read (blobs): whether the fast-forward changed the config is not known, so
@@ -672,7 +778,7 @@ func (c *catchUp) arrived(ctx context.Context, t catchUpTarget, res catchUpResul
 // panel has not judged. swaps says a rebuilt binary is about to serve the file.
 func (c *catchUp) unread(ctx context.Context, a arrival, err error, swaps bool) {
 	root := a.t.root
-	what := "the panel keeps serving the config it had loaded. Read the file; `clauductor panel trust` trusts it, and the panel's next start serves it"
+	what := unreadKeeps
 	if swaps {
 		what = "the rebuilt panel serves the file as it is on disk, untrusted if it changed. Read it, then Trust config… on the page, or `clauductor panel trust`"
 	}
@@ -767,7 +873,11 @@ func (c *catchUp) blob(ctx context.Context, root, id string) ([]byte, error) {
 // and the trust run under ls.mu, so a page's trust or a registry change cannot come
 // between them; the notices go without it, since a push may take pushTimeout and a
 // page request must not wait for one; the reload takes it again, and serves nothing
-// when the runtime was replaced meanwhile.
+// when the runtime was replaced meanwhile. A trust recorded on a rebuild's reading of
+// the config goes with that binary: a.u.untrust takes it back if it is not put in place,
+// and when its swap fails, a.u.unswapped serves the config here as after a failed build.
+// A stop does not change the judgement (its load runs to its answer, as arrived's reads
+// do), and ends only the reload, which then says nothing a stop made it fail.
 func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 	root, to := a.t.root, a.res.to
 	ls.mu.Lock()
@@ -796,7 +906,10 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 		why = append(why, "the file on disk is not the one "+short(to)+" holds")
 	}
 	rebuiltOK := a.u != nil && a.u.err == nil
-	if a.u != nil && a.u.err != nil {
+	switch {
+	case a.u != nil && errors.Is(a.u.err, errRebuildStopped):
+		why = append(why, "the panel was stopped before its rebuild was done")
+	case a.u != nil && a.u.err != nil:
 		why = append(why, "the panel's rebuild failed")
 	}
 	// (e) and (f): the new config as the binary that will serve it reads it.
@@ -808,7 +921,10 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 	case rebuiltOK:
 		chk = *a.u.check
 	default:
-		if p, err := ls.tryLoad(lr.entry); err != nil {
+		// Under the load's own bound (ReadWorktrees'), not the run's: a stop must not make
+		// a config that loads read as one that does not, and so lose its trust on arrival;
+		// the next start finds nothing to arrive.
+		if p, err := ls.tryLoad(context.WithoutCancel(ctx), lr.entry); err != nil {
 			loadErr = err
 		} else {
 			chk = config.CheckOf(p.cfg)
@@ -821,10 +937,14 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 	trusted := false
 	if loadErr == nil && len(why) == 0 {
 		note := "trusted on arrival from " + prList(a.res.prs)
-		if _, err := install.TrustArrived(ls.o.Home, root, a.t.cfgPath, install.ConfigHash(a.now), note); err != nil {
+		hash := install.ConfigHash(a.now)
+		if tv, err := install.TrustArrived(ls.o.Home, root, a.t.cfgPath, hash, note); err != nil {
 			why = append(why, "recording its trust failed: "+err.Error())
 		} else {
 			trusted = true
+			if rebuiltOK && tv.Prev != hash {
+				a.u.untrust = ls.untrustArrived(c, a, hash, note, tv.Prev)
+			}
 		}
 	}
 	id := lr.entry.ID
@@ -849,18 +969,16 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 			"Catch-up moved %s to %s (%s), and did not trust its new %s: %s. The config waits for the owner: Trust config… on the page, or `clauductor panel trust`.",
 			root, short(to), from, a.rel, strings.Join(why, "; ")))}, loadedNotify)
 	}
-	if rebuiltOK || ctx.Err() != nil {
-		return // the new binary serves it, trusted or not, from its first start
-	}
-	ls.mu.Lock()
-	cur := ls.rts[id]
-	if cur == nil || cur.r != r {
-		ls.mu.Unlock()
-		fmt.Fprintf(c.out, "catch-up %s: the project was started again meanwhile, on its config as it was then\n", root)
+	if rebuiltOK {
+		// The new binary serves it, trusted or not, from its first start. A swap that
+		// fails hands it to this binary instead, as a failed build does (D1).
+		a.u.unswapped = func(ctx context.Context) string { return ls.unswapped(ctx, c, a, id) }
 		return
 	}
-	notLoaded, err := ls.reload(cur)
-	ls.mu.Unlock()
+	done, notLoaded, err := ls.serveArrived(ctx, c, a, r, id)
+	if !done {
+		return
+	}
 	// The notice just sent said the new config would be served: one that fails now, as
 	// (e) failing late, is said too, whatever alerts.notify says (D1, D6).
 	var what string
@@ -875,6 +993,102 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 	fmt.Fprintf(c.out, "catch-up %s: the new %s %s\n", root, a.rel, what)
 	c.send(ctx, catchUpNotice{root: root, key: key + "\x00reload", body: catchUpBody(fmt.Sprintf(
 		"Catch-up moved %s to %s (%s), and its new %s %s.", root, short(to), from, a.rel, what))}, true)
+}
+
+// serveArrived serves the project id again on its config as it is now on disk (reload):
+// arrive's reload after its notice, while r still serves the project, and a failed
+// swap's (r nil), whichever runtime serves it then, since that one may have started on
+// the trust just withdrawn. done is false when nothing was started, each case logged: a
+// stop ends the reload, as it ends every runtime (the next start serves the file on disk
+// as its trust record says, and a reload the stop cut short failed for the stop, not for
+// the config, and says nothing more); the project is no longer served; or (r set) it was
+// started again meanwhile, on its config as it was then. Otherwise notLoaded and err are
+// reload's.
+func (ls *liveSet) serveArrived(ctx context.Context, c *catchUp, a arrival, r *Runtime, id string) (done bool, notLoaded, err error) {
+	root := a.t.root
+	stopped := func() (bool, error, error) {
+		fmt.Fprintf(c.out, "catch-up %s: the panel stopped before it served the new %s; its next start loads it as it is on disk\n", root, a.rel)
+		return false, nil, nil
+	}
+	ls.mu.Lock()
+	if ctx.Err() != nil {
+		ls.mu.Unlock()
+		return stopped()
+	}
+	cur := ls.rts[id]
+	if cur == nil || (r != nil && cur.r != r) {
+		ls.mu.Unlock()
+		fmt.Fprintf(c.out, "catch-up %s: the project was started again or removed meanwhile, on its config as it was then\n", root)
+		return false, nil, nil
+	}
+	notLoaded, err = ls.reload(cur)
+	ls.mu.Unlock()
+	if (notLoaded != nil || err != nil) && ctx.Err() != nil {
+		return stopped()
+	}
+	return true, notLoaded, err
+}
+
+// unswapped is what becomes of a config arrive judged for a rebuilt binary that its swap
+// then could not put in place: this binary takes it over as after a failed build (D1).
+// The trust recorded for the new binary's reading is withdrawn, then the project is
+// served again on the file as it is on disk: untrusted, with Trust config… offered, or on
+// the config it had loaded when this binary cannot load the file. A withdrawal that
+// failed leaves the runtime as it is, since a reload would serve the file trusted on a
+// judgement this binary never made. It returns the swap notice's account. A config that
+// was never trusted and is now served untrusted adds nothing: arrive's notice said it
+// waits for the owner, under the loaded config's alerts.notify as after a failed build.
+func (ls *liveSet) unswapped(ctx context.Context, c *catchUp, a arrival, id string) string {
+	withdrew, err := a.u.withdraw()
+	if err != nil {
+		return withdrawnSaid(a.rel, false, err, "")
+	}
+	done, notLoaded, startErr := ls.serveArrived(ctx, c, a, nil, id)
+	it := "the new " + a.rel
+	if withdrew {
+		it = "it"
+	}
+	var what string
+	switch {
+	case !done:
+		if withdrew {
+			what = "the config " + waitsForOwner
+		}
+	case notLoaded != nil:
+		fmt.Fprintf(c.out, "catch-up %s: the running panel cannot load the new %s, so it keeps serving the config it had loaded: %v\n", a.t.root, a.rel, notLoaded)
+		what = fmt.Sprintf("the running panel cannot load %s, so it keeps serving the config it had loaded: %v", it, notLoaded)
+	case startErr != nil:
+		fmt.Fprintf(c.out, "catch-up %s: the new %s did not start, so the project is not served: %v\n", a.t.root, a.rel, startErr)
+		what = fmt.Sprintf("the panel could not start the project on %s, so it is not served (the page shows why): %v", it, startErr)
+	case withdrew:
+		what = "the panel serves it untrusted, and it " + waitsForOwner
+	}
+	switch {
+	case withdrew:
+		return withdrawnSaid(a.rel, true, nil, ": "+what)
+	case what == "":
+		return ""
+	}
+	return " T" + what[1:] + "."
+}
+
+// untrustArrived is a rebuild's untrust for the trust arrive just recorded, for the new
+// binary's reading of the config (hash, note, over prev): it takes the record back, under
+// ls.mu as the trust was made, and says whether it did. A record changed since stands
+// (install.UntrustArrived).
+func (ls *liveSet) untrustArrived(c *catchUp, a arrival, hash, note, prev string) func() (bool, error) {
+	return func() (bool, error) {
+		ls.mu.Lock()
+		withdrew, err := install.UntrustArrived(ls.o.Home, a.t.root, a.t.cfgPath, hash, note, prev)
+		ls.mu.Unlock()
+		switch {
+		case err != nil:
+			fmt.Fprintf(c.out, "catch-up %s: withdrawing the trust recorded on arrival for %s failed: %v\n", a.t.root, a.rel, err)
+		case withdrew:
+			fmt.Fprintf(c.out, "catch-up %s: the trust recorded on arrival for %s is withdrawn: the binary that judged it does not serve it\n", a.t.root, a.rel)
+		}
+		return withdrew, err
+	}
 }
 
 // runsDiff is the run-list lines of now that was lacks (added) and of was that now
@@ -941,7 +1155,8 @@ func trustBody(head string, added, removed []string) string {
 // path`, for D1 (e) and (f) when a rebuild follows: the binary that will serve the
 // config judges it, since the running one may not read it. The rebuild's preflight
 // (task 3.1) runs it on the new binary. An exit that is not 0 is the load's error;
-// an answer missing any of name, notify and runs judged nothing, and is an error too.
+// an answer missing any of name, notify, runs and tmux_socket judged nothing, and is an
+// error too.
 func configCheck(ctx context.Context, bin, path string) (config.Check, error) {
 	cctx, cancel := context.WithTimeout(ctx, configCheckTimeout)
 	defer cancel()
@@ -956,9 +1171,10 @@ func configCheck(ctx context.Context, bin, path string) (config.Check, error) {
 		Name   *string   `json:"name"`
 		Notify *bool     `json:"notify"`
 		Runs   *[]string `json:"runs"`
+		Socket *string   `json:"tmux_socket"`
 	}
-	if err := json.Unmarshal(out, &v); err != nil || v.Name == nil || v.Notify == nil || v.Runs == nil {
-		return config.Check{}, errors.New("panel config-check printed no name, notify and runs")
+	if err := json.Unmarshal(out, &v); err != nil || v.Name == nil || v.Notify == nil || v.Runs == nil || v.Socket == nil {
+		return config.Check{}, errors.New("panel config-check printed no name, notify, runs and tmux_socket")
 	}
-	return config.Check{Name: *v.Name, Notify: *v.Notify, Runs: *v.Runs}, nil
+	return config.Check{Name: *v.Name, Notify: *v.Notify, Runs: *v.Runs, Socket: *v.Socket}, nil
 }

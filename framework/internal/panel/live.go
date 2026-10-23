@@ -177,22 +177,52 @@ func (ls *liveSet) stopAll() {
 // other served project's, without starting anything. A restart checks it first, so
 // it never stops a runtime for one that cannot start. ls.mu is held.
 func (ls *liveSet) canStart(e config.ProjectEntry) error {
-	_, err := ls.tryLoad(e)
+	_, err := ls.tryLoad(ls.ctx, e)
 	return err
 }
 
-// tryLoad is canStart's load, returned: what the project would serve. ls.mu is held.
-func (ls *liveSet) tryLoad(e config.ProjectEntry) (loadedProject, error) {
-	p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary)
+// tryLoad is canStart's load, returned: what the project would serve, its worktree list
+// read under ctx (the run's, but for catch-up's judgement of a config, which a stop must
+// not turn into one that does not load). ls.mu is held.
+func (ls *liveSet) tryLoad(ctx context.Context, e config.ProjectEntry) (loadedProject, error) {
+	p, err := loadProject(ctx, ls.o, e, e.ID == ls.primary)
 	if err != nil {
 		return p, err
 	}
+	return p, ls.socketFree(e.ID, p.cfg.Socket())
+}
+
+// socketFree says whether socket is free of every served project's but id's. ls.mu is
+// held.
+func (ls *liveSet) socketFree(id, socket string) error {
 	for other, olr := range ls.rts {
-		if other != e.ID && olr.r.cfg.Socket() == p.cfg.Socket() {
-			return p, fmt.Errorf("its tmux socket %q is %s's", p.cfg.Socket(), other)
+		if other != id && olr.r.cfg.Socket() == socket {
+			return fmt.Errorf("its tmux socket %q is %s's", socket, other)
 		}
 	}
-	return p, nil
+	return nil
+}
+
+// canServe is canStart for a changed config that a rebuilt binary is to serve (OPS-118
+// D1 (e), D4's preflight): the new binary parsed it (chk, its `panel config-check`),
+// since this one may not read it, and what canStart checks of a config beyond its parse
+// is checked here: the socket it is served on, free of every other served project's. A
+// clash would leave the project unserved after the restart, and the panel down when it
+// is the primary. nil when root is no longer served: arrive says so.
+func (ls *liveSet) canServe(root string, chk config.Check) error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	for _, lr := range ls.rts {
+		if lr.entry.Root != root {
+			continue
+		}
+		sock, err := servedSocket(ls.o, lr.entry, chk.Socket, lr.entry.ID == ls.primary)
+		if err != nil {
+			return err
+		}
+		return ls.socketFree(lr.entry.ID, sock)
+	}
+	return nil
 }
 
 // reload serves a project again on its config as it is now on disk (a trust from the

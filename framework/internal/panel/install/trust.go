@@ -164,6 +164,35 @@ func TrustArrived(home, project, cfgPath, want, note string) (config.TrustView, 
 	return checkTrust(home, project, cfgPath, want, true, note)
 }
 
+// UntrustArrived withdraws a trust TrustArrived recorded: the record of cfgPath goes
+// back to prev, the hash recorded before it ("" for none, which removes it), while the
+// record is still hash with note, so a trust made since (the owner's, or a later
+// arrival's) stands. It says whether it withdrew. A rebuild's new binary judged the
+// bytes, and when that binary is not put in place after all (a stop before the swap,
+// a swap that failed) the binary that next serves them never did (OPS-118 D1). prev's
+// own note, if it had one, is not restored: its trust stands, unannotated.
+func UntrustArrived(home, project, cfgPath, hash, note, prev string) (bool, error) {
+	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
+	path := TrustPath(home, project)
+	t, err := readTrust(path)
+	if err != nil {
+		return false, err
+	}
+	if t.Configs[cfgPath] != hash || t.Notes[cfgPath] != (trustNote{Hash: hash, Note: note}) {
+		return false, nil
+	}
+	if prev == "" {
+		delete(t.Configs, cfgPath)
+	} else {
+		t.Configs[cfgPath] = prev
+	}
+	delete(t.Notes, cfgPath)
+	if err := writeTrust(path, t); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // TrustConfig records the config at cfgPath as trusted (`clauductor panel trust`).
 func TrustConfig(home, project, cfgPath string) (string, error) {
 	h, _, err := TrustConfigReport(home, project, cfgPath)

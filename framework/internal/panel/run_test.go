@@ -273,3 +273,185 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	defer s.mu.Unlock()
 	return s.w.Write(p)
 }
+
+// [CATCHUP-4-S1] [CATCHUP-4-S7] [CATCHUP-4-S8] A panel running as the login agent, built
+// at R with no local changes, with catch-up on and the owner's #7 changing
+// framework/internal/panel/server.go: the fast-forward to #7's merge commit B puts the
+// build of B in place and the build of R at clauductor.prev, leaves the token and the
+// plist byte for byte as they were, sends one notice naming R, B and the rollback's mv and
+// launchctl kickstart, and ends the run with exit status 75. The login agent's start of
+// the new binary, within 5 minutes, opens no browser tab and sends one notice naming B;
+// the start after it sends none.
+func TestCatchUpRebuildsAndRestartsThePanel(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	goPath := needGo(t)
+	w := newSelfWorld(t, cuPanelJSON)
+	w.catchUpOn(t, true)
+	self := w.installBuild(t, goPath)
+	rBuild := readBytes(t, w.bin)
+	writeFile(t, install.PlistPath(w.home), "<plist>the login agent</plist>\n")
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	var opened openLog
+	p := w.startSelfPanel(t, sock, true, rebuildEnv{self: self, exe: w.bin, goCmd: goPath, timeout: 2 * time.Minute}, &notices, &log, &opened)
+	waitFor(t, "the login start's browser open", func() bool { return opened.count() == 1 })
+	// That open is an hour old now: only the restart's own record keeps the next start's
+	// tab closed.
+	install.RecordBrowserOpen(w.home, time.Now().Add(-time.Hour))
+	p.polls.until(t, "catch-up", 1)
+	p.polls.until(t, "prs", 1)
+	token, plist := readBytes(t, install.TokenPath(w.home)), readBytes(t, install.PlistPath(w.home))
+	b := w.merged(t, 7, "owner", "framework/internal/panel/server.go", serverTwo)
+	w.setOpen()
+
+	rs := restartOf(t, p, &log)
+	if rs.Code != 75 || rs.From != w.r || rs.To != b {
+		t.Fatalf("the run ended with %+v, want exit 75 from R %s to B %s", rs, w.r, b)
+	}
+	if s, err := install.FileStamp(w.bin); err != nil || s.Module != selfMod || s.Revision != b || s.Modified {
+		t.Fatalf("the installed binary is stamped %+v (%v), want %s at B %s with no local changes", s, err, selfMod, b)
+	}
+	if readBytes(t, w.bin+".prev") != rBuild {
+		t.Fatal("clauductor.prev is not the build of R")
+	}
+	gone(t, w.bin+".new")
+	if readBytes(t, install.TokenPath(w.home)) != token || readBytes(t, install.PlistPath(w.home)) != plist {
+		t.Fatal("the restart changed the token or the plist")
+	}
+	w.oneNotice(t, &notices, short(w.r), short(b), "#7",
+		"`mv "+w.tildeOf(w.bin+".prev")+" "+w.tildeOf(w.bin)+"`",
+		"`launchctl kickstart -k gui/$(id -u)/"+install.LaunchdLabel+"`")
+	p.stop()
+
+	// The login agent starts the new binary, stamped B, in the same home.
+	newSelf, err := install.FileStamp(w.bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newEnv := rebuildEnv{self: newSelf, exe: w.bin, goCmd: goPath, timeout: 2 * time.Minute}
+	var notices2 noticeLog
+	var opened2 openLog
+	p2 := w.startSelfPanel(t, sock, true, newEnv, &notices2, &log, &opened2)
+	p2.polls.until(t, "catch-up", 1)
+	p2.stop() // its browser open is decided by then
+	if n := opened2.count(); n != 0 {
+		t.Fatalf("the new binary's start opened %d browser tabs, want none", n)
+	}
+	w.oneNotice(t, &notices2, "now running "+short(b))
+	var notices3 noticeLog
+	p3 := w.startSelfPanel(t, sock, true, newEnv, &notices3, &log, &opened2)
+	p3.polls.until(t, "catch-up", 1)
+	p3.stop()
+	if ns := catchUpNotices(&notices3); len(ns) != 0 {
+		t.Fatalf("a second start sent %d notices, want none: %+v", len(ns), ns)
+	}
+}
+
+// [CATCHUP-4-S11] A panel running as the login agent that would rebuild, its project
+// with catch-up on and alerts.notify false, and push.json's argv a stand-in that records
+// its arguments: the restart notice naming R, B and the rollback goes out as a
+// notification and as a push, titled "clauductor panel", and so does the new binary's
+// notice naming B.
+func TestCatchUpRebuildNoticesIgnoreAlertsNotify(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	goPath := needGo(t)
+	w := newSelfWorld(t, `{"name":"T","lanes":{"main":"orchestrator"},"alerts":{"notify":false}}`)
+	w.catchUpOn(t, true)
+	prog, runs := pushStandIn(t, "")
+	writePush(t, w.home, argvJSON(prog))
+	self := w.installBuild(t, goPath)
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	var opened openLog
+	p := w.startSelfPanel(t, sock, true, rebuildEnv{self: self, exe: w.bin, goCmd: goPath, timeout: 2 * time.Minute}, &notices, &log, &opened)
+	p.polls.until(t, "catch-up", 1)
+	p.polls.until(t, "prs", 1)
+	b := w.merged(t, 7, "owner", "framework/internal/panel/server.go", serverTwo)
+	w.setOpen()
+
+	restartOf(t, p, &log)
+	nt := w.oneNotice(t, &notices, short(w.r), short(b), "`mv ", "`launchctl kickstart -k ")
+	if got := pushRuns(t, runs); len(got) != 1 || len(got[0]) != 2 || got[0][0] != "clauductor panel" || got[0][1] != nt.Body {
+		t.Fatalf("pushes %q, want one titled clauductor panel with the restart notice's body %q", got, nt.Body)
+	}
+	p.stop()
+
+	newSelf, err := install.FileStamp(w.bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notices2 noticeLog
+	p2 := w.startSelfPanel(t, sock, true, rebuildEnv{self: newSelf, exe: w.bin, goCmd: goPath, timeout: 2 * time.Minute}, &notices2, &log, &opened)
+	p2.polls.until(t, "catch-up", 1)
+	nt2 := w.oneNotice(t, &notices2, "now running "+short(b))
+	if got := pushRuns(t, runs); len(got) != 2 || len(got[1]) != 2 || got[1][0] != "clauductor panel" || got[1][1] != nt2.Body {
+		t.Fatalf("pushes %q, want the new binary's second, titled clauductor panel with its body %q", got, nt2.Body)
+	}
+}
+
+// [CATCHUP-4-S2] A panel that would rebuild, and the owner's #7 whose framework/ does not
+// compile: the panel keeps running, the installed binary is as it was, no
+// clauductor.new is left (the go here writes a partial one before it fails), and one
+// notice names the build's error.
+func TestCatchUpKeepsThePanelWhenItsBuildFails(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	goPath := needGo(t)
+	w := newSelfWorld(t, cuPanelJSON)
+	w.catchUpOn(t, true)
+	self := w.installBuild(t, goPath)
+	was := readBytes(t, w.bin)
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	var opened openLog
+	p := w.startSelfPanel(t, sock, true, rebuildEnv{self: self, exe: w.bin, goCmd: partialGo(t, goPath), timeout: 2 * time.Minute},
+		&notices, &log, &opened)
+	p.polls.until(t, "catch-up", 1)
+	p.polls.until(t, "prs", 1)
+	b := w.merged(t, 7, "owner", "framework/internal/panel/server.go", "package panel\n\nconst Version =\n")
+	w.setOpen()
+
+	waitFor(t, "the failed build's notice", func() bool { return len(catchUpNotices(&notices)) > 0 })
+	running(t, p)
+	if got := w.head(t); got != b {
+		t.Fatalf("HEAD is %s, want the merge %s", got, b)
+	}
+	w.unchanged(t, was)
+	w.oneNotice(t, &notices, short(b), "#7", "keeps running as it was", "its build failed", "server.go", "syntax error")
+}
+
+// [CATCHUP-4-S4] A panel started by hand, built at R, and the owner's #7 changing
+// framework/: nothing is built, the panel keeps running, and one notice says framework/
+// changed and how to rebuild it and start it again.
+func TestCatchUpLeavesAHandStartedPanel(t *testing.T) {
+	t.Parallel()
+	_, sock := throwawaySocket(t)
+	w := newSelfWorld(t, cuPanelJSON)
+	w.catchUpOn(t, true)
+	goProg, runs := goStandIn(t)
+	exe := filepath.Join(w.dir, "bin", "clauductor")
+	w.setOpen(7)
+	var notices noticeLog
+	var log cuLog
+	var opened openLog
+	p := w.startSelfPanel(t, sock, false, rebuildEnv{self: install.BuildStamp{Module: selfMod, Revision: w.r}, exe: exe, goCmd: goProg,
+		timeout: time.Minute}, &notices, &log, &opened)
+	p.polls.until(t, "catch-up", 1)
+	p.polls.until(t, "prs", 1)
+	b := w.merged(t, 7, "owner", "framework/internal/panel/server.go", serverTwo)
+	w.setOpen()
+
+	waitFor(t, "the hand-started panel's notice", func() bool { return len(catchUpNotices(&notices)) > 0 })
+	running(t, p)
+	if n := goRan(t, runs); n != 0 {
+		t.Fatalf("go ran %d times for a panel started by hand", n)
+	}
+	gone(t, w.bin+".new")
+	w.oneNotice(t, &notices, short(b), "which changed framework/", "started by hand",
+		"`go build -o "+exe+" ./cmd/clauductor` in framework/", "stop this panel and start it again")
+}
