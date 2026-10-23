@@ -92,6 +92,10 @@
   plugin is rebuilt and this repo's copy updated (`model-roles.json`'s drift reverted again).
   Left: the orchestrator's gate and review.
 - 2026-10-23 group 4 (merge-pr, the docs and the template (D5)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
+- 2026-10-23 archived: actual cost $200.24 of budget $175, soft (build-change's figure with group 4
+  committed, before the PR and the merge; `change-cost.sh` read $0 once this lane moved to the
+  archive branch, since it counts a lane only while its lead last recorded the change's branch).
+  Merged in #213 (b5bce1cf).
 
 ## Decision log
 - 2026-10-22 (proposal) The panel cannot re-check a merge's gate receipt or its Review line (E5),
