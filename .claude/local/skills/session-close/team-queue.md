@@ -11,5 +11,5 @@ removes or asks for `approved`, or for `new-row`, which only the proposing bot a
    `gh issue comment <N> --body "…"` and leave it open. Comments are written, never read. The
    issues still open on GitHub are the list the bot team reads; nothing else is posted.
 3. A bug or flake found during the session that no row or issue owns yet: file it as an issue
-   with the labels `team-queue` and the existing `bug` (never `approved` or `new-row`), so
+   with the labels `team-queue` and the existing `bug` (never `approved`, `new-row` or any new label), so
    the bot team can triage it. It reads UNAPPROVED or NEEDS ROW until the owner says otherwise.

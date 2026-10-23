@@ -65,11 +65,14 @@ if [ "${1:-}" = --hash ]; then
   exit 0
 fi
 # --next-id PREFIX (OPS-100): the id a PROPOSES ROW item's row takes, PREFIX-<max+1>. The max is
-# over every id taken or claimed: the roadmap's rows (the working tree's and origin/main's), the
-# `Row:` lines of the open team-queue issues and the leading `PREFIX-N:` of open PR titles. Only
-# ids that are exactly PREFIX-<digits> count (OPS-92a is skipped, never read as 92); a reserved
-# placeholder row still counts, so its id is never handed out, and a gap is never filled. Unlike
-# the listing, any failure is one CANNOT CHECK line and exit 1: a guessed id is worse than none.
+# over every id taken or claimed: the roadmap's rows (the working tree's, origin/main's and each
+# open PR's own), the `Row:` lines of the open team-queue issues and the leading `PREFIX-N:` of
+# open PR titles. A PR's roadmap counts because a PR adds rows its title does not name (#203,
+# titled OPS-105, added OPS-120 and OPS-122), and two PRs taking one id both pass their gates.
+# Only ids that are exactly PREFIX-<1 to 9 digits> count (OPS-92a is skipped, never read as 92,
+# and an issue's `Row: OPS-99999999999999999999` cannot overflow the sum); a reserved placeholder
+# row still counts, so its id is never handed out, and a gap is never filled. Unlike the
+# listing, any failure is one CANNOT CHECK line and exit 1: a guessed id is worse than none.
 NEXT_ID=""
 if [ "${1:-}" = --next-id ]; then
   NEXT_ID=$(printf '%s' "${2:-}" | grep -xE '[A-Z][A-Z0-9]{0,15}') \
@@ -99,7 +102,7 @@ if [ -n "$NEXT_ID" ]; then
   # not read short (a missed id is a duplicate id later).
   NQ='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
     issues(first: 100, states: OPEN, labels: ["team-queue"]) { totalCount nodes { body } }
-    pullRequests(first: 100, states: OPEN) { totalCount nodes { title } } } }'
+    pullRequests(first: 100, states: OPEN) { totalCount nodes { number title headRefOid } } } }'
   with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" gh api graphql -f query="$NQ" -F owner='{owner}' -F name='{repo}' </dev/null >"$t/resp" 2>/dev/null
   rc=$?
   case $rc in
@@ -117,13 +120,29 @@ if [ -n "$NEXT_ID" ]; then
   with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" git fetch -q origin "$MAIN_BRANCH" </dev/null >/dev/null 2>&1 \
     && git show "origin/$MAIN_BRANCH:$ROADMAP" > "$t/main.md" 2>/dev/null || cannot "origin/$MAIN_BRANCH's roadmap could not be read"
   roadmap_queue --tsv "$t/main.md" >> "$t/tsv" 2>/dev/null || cannot "origin/$MAIN_BRANCH's change queue is UNKNOWN"
+  # Each open PR's own roadmap, at the head GitHub named: one fetch of every open PR's head, and a
+  # head that cannot be read is CANNOT CHECK. A head with no roadmap at all adds no ids.
+  jq -r '.data.repository.pullRequests.nodes[] | "\(.number) \(.headRefOid)"' "$t/resp" > "$t/prs" 2>/dev/null \
+    || cannot "the open PRs could not be read"
+  if [ -s "$t/prs" ]; then
+    grep -vxE '[1-9][0-9]{0,8} [0-9a-f]{40}' "$t/prs" >/dev/null && cannot "an open PR's number or head does not parse"
+    # shellcheck disable=SC2046 # the refspecs are digits and fixed words, one per PR
+    with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" git fetch -q origin $(awk '{ print "refs/pull/" $1 "/head" }' "$t/prs") </dev/null >/dev/null 2>&1 \
+      || cannot "the open PRs' heads could not be fetched"
+    while read -r n oid; do
+      git cat-file -e "$oid^{commit}" 2>/dev/null || cannot "#$n's head could not be read"
+      git cat-file -e "$oid:$ROADMAP" 2>/dev/null || continue
+      { git show "$oid:$ROADMAP" > "$t/pr.md" && roadmap_queue --tsv "$t/pr.md" >> "$t/tsv"; } 2>/dev/null \
+        || cannot "#$n's change queue is UNKNOWN"
+    done < "$t/prs"
+  fi
   {
     awk -F'\t' '{ print $4 }' "$t/tsv"
     jq -r '.data.repository.issues.nodes[].body // "" | gsub("\r"; "") | split("\n")[]
       | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")' "$t/resp"
     jq -r '.data.repository.pullRequests.nodes[].title // ""' "$t/resp" | sed -n "s/^\($NEXT_ID-[0-9][0-9]*\):.*/\1/p"
   } > "$t/ids" || cannot "the ids could not be read"
-  max=$(grep -xE "$NEXT_ID-[0-9]+" "$t/ids" | sed "s/^$NEXT_ID-//" | awk '$1 + 0 > m { m = $1 + 0 } END { print m + 0 }')
+  max=$(grep -xE "$NEXT_ID-[0-9]{1,9}" "$t/ids" | sed "s/^$NEXT_ID-//" | awk '$1 + 0 > m { m = $1 + 0 } END { print m + 0 }')
   [ "${max:-0}" -gt 0 ] || cannot "no id is $NEXT_ID-<number>"
   echo "$NEXT_ID-$((max + 1))"
   exit 0
@@ -248,11 +267,14 @@ while [ "$i" -lt "$n" ]; do
 
   if [ -n "$ROW_N" ]; then
     [ "$state" = "PROPOSES ROW" ] || cannot "#$num reads $state ($why), not PROPOSES ROW"
-    jq -r '.body // "" | gsub("\r"; "") | split("\n") | map(select(test("^Proposed-[A-Za-z]+:")))
+    jq -r '.body // "" | gsub("\r"; "") | split("\n") | map(select(test("^Proposed-(Lane|Change|Scope|Deps|Section|Slot):")))
       | map(gsub("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]"; " ")) | .[]' "$t/issue" > "$t/proposed" || cannot "#$num's body does not parse"
     for k in Lane Change Scope Deps Section Slot; do
       [ "$(grep -c "^Proposed-$k:" "$t/proposed")" = 1 ] || cannot "#$num needs one Proposed-$k line"
     done
+    # The row's Change cell gets ` (team-queue #<num>)` appended; one already in the text would
+    # let this item's row claim another item.
+    grep -q '^Proposed-Change:.*(team-queue #' "$t/proposed" && cannot "#$num's Proposed-Change already names a team-queue item"
     cat "$t/proposed"
     exit 0
   fi

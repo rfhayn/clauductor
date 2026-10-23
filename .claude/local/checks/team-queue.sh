@@ -221,7 +221,7 @@ NR=team-queue,new-row,approved
 # proposal NUM LANE [EXTRA]: a new-row body; the proposed text carries PROPOSED-MARKER.
 proposal() { printf '**What:** item %s\nProposed-Lane: %s\nProposed-Change: `ops/xy-?-thing` — PROPOSED-MARKER text\nProposed-Scope: x\nProposed-Deps: —\nProposed-Section: First\nProposed-Slot: S9\n%s' "$1" "$2" "${3:-}"; }
 {
-  item 41 "proposes a row" "$(body "$(proposal 41 XY)")" "$NR" "$LA" "" ""
+  item 41 "proposes a row" "$(body "$(proposal 41 XY "Proposed-Extra: EXTRA-MARKER")")" "$NR" "$LA" "" ""
   item 4 "proposes, its number a prefix of 42" "$(body "$(proposal 4 XY)")" "$NR" "$LA" "" ""
   item 45 "new-row, not approved" "$(body "$(proposal 45 XY)")" team-queue,new-row "" "" ""
   item 46 "new-row, edited after approval" "$(body "$(proposal 46 XY)")" "$NR" "$LA" "$LATE" ""
@@ -261,6 +261,7 @@ case $out in *PROPOSED-MARKER* | *"ops/xy-?"* | *Proposed-*) fail "new-row: the 
   jq -c '.data.repository.issues.nodes[]' "$S/d.json"
   item 53 "two changes" "$(body "$(proposal 53 XY 'Proposed-Change: `ops/xy-?-other` — a second')")" "$NR" "$LA" "" ""
   item 54 "no slot" "$(body "$(proposal 54 XY | grep -v '^Proposed-Slot:')")" "$NR" "$LA" "" ""
+  item 55 "claims another" "$(body "$(proposal 55 XY | sed 's/PROPOSED-MARKER text$/PROPOSED-MARKER text (team-queue #42)/')")" "$NR" "$LA" "" ""
 } | answer > "$S/e.json"
 rowrun() { # rowrun N [ENV=VALUE...]: --row N's output in $_g, its exit code in $nrc
   _n=$1; shift
@@ -270,7 +271,7 @@ rowrun() { # rowrun N [ENV=VALUE...]: --row N's output in $_g, its exit code in 
 }
 rowrun 41
 want=$(proposal 41 XY | grep '^Proposed-')
-[ "$nrc" = 0 ] && [ "$_g" = "$want" ] && ok "--row: an approved PROPOSES ROW item prints its six Proposed-* lines, and nothing else" \
+[ "$nrc" = 0 ] && [ "$_g" = "$want" ] && ok "--row: an approved PROPOSES ROW item prints its six Proposed-* lines, and nothing else (not its Proposed-Extra line)" \
   || fail "--row 41 (exit $nrc): [$_g]"
 [ "$(wc -l < "$S/gh.log" | tr -d ' ')" = 1 ] && ok "--row: one gh call" || fail "--row: gh was called $(wc -l < "$S/gh.log" | tr -d ' ') times"
 rowcannot() { # rowcannot N REASON MSG
@@ -282,21 +283,35 @@ rowcannot 45 "#45 reads UNAPPROVED (no approved label), not PROPOSES ROW" "--row
 rowcannot 42 "#42 reads APPLIES ($OK), not PROPOSES ROW" "--row: an item whose row exists prints nothing"
 rowcannot 53 "#53 needs one Proposed-Change line" "--row: two Proposed-Change lines print nothing"
 rowcannot 54 "#54 needs one Proposed-Slot line" "--row: a missing Proposed-Slot line prints nothing"
+rowcannot 55 "#55's Proposed-Change already names a team-queue item" "--row: a Proposed-Change that names another item's tag prints nothing"
 rowcannot 99 "#99 is not among the open team-queue issues read" "--row: an issue not in the queue prints nothing"
 
 # --next-id: the working tree has rows X-1..3 (origin/main too); the answers add issue Row lines
-# and open PR titles.
+# and open PR titles. Open PRs 1-3 have origin/main as their head; PR 9's head is a branch whose
+# roadmap adds X-11, a row its title does not name.
 cp "$S/roadmap.md" "$F/docs/roadmap.md"
+MAIN_SHA=$(git -C "$S/other" rev-parse HEAD)
+for n in 1 2 3; do git -C "$S/other" push -q origin "HEAD:refs/pull/$n/head"; done
+git -C "$S/other" checkout -q -b pr9
+echo '| X-11 | `ops/x-11-pr` — a row an open PR adds | x | — | ⬜ queued |' >> "$S/other/docs/roadmap.md"
+git -C "$S/other" commit -qam 'Y-1: Add a row in another lane'
+git -C "$S/other" push -q origin "HEAD:refs/pull/9/head"
+PR9_SHA=$(git -C "$S/other" rev-parse HEAD)
+git -C "$S/other" checkout -q main
 nid() { # nid JSON [ENV=VALUE...]: --next-id X's output in $_g, its exit code in $nrc
   _j=$1; shift
   : > "$S/gh.log"; : > "$S/gh.log.args"
   _g=$(cd "$F" && env PATH="$S/bin:$PATH" CONTEXT_OFFLINE= FAKE_LOG="$S/gh.log" FAKE_JSON="$_j" "$@" sh .claude/local/context.d/session-start/team-queue.sh --next-id X 2>&1)
   nrc=$?
 }
-ans() { # ans 'ROW...' 'TITLE...': issue bodies with those Row lines, PRs with those titles
-  jq -n --arg r "$1" --arg p "$2" '{ data: { repository: {
+ans() { # ans 'ROW...' 'TITLE...': issue bodies with those Row lines, PRs 1.. with those titles
+  jq -n --arg r "$1" --arg p "$2" --arg h "$MAIN_SHA" '{ data: { repository: {
     issues: { totalCount: ($r | split(" ") | map(select(. != "")) | length), nodes: ($r | split(" ") | map(select(. != "")) | map({ body: ("**What:** x\nRow: " + . + "\n") })) },
-    pullRequests: { totalCount: ($p | split("|") | map(select(. != "")) | length), nodes: ($p | split("|") | map(select(. != "")) | map({ title: . })) } } } }'
+    pullRequests: { totalCount: ($p | split("|") | map(select(. != "")) | length), nodes: ($p | split("|") | map(select(. != "")) | to_entries | map({ number: (.key + 1), title: .value, headRefOid: $h })) } } } }'
+}
+pr() { # pr NUMBER HEAD: one open PR and no issues
+  jq -n --argjson n "$1" --arg h "$2" '{ data: { repository: { issues: { totalCount: 0, nodes: [] },
+    pullRequests: { totalCount: 1, nodes: [{ number: $n, title: "Y-1: another lane", headRefOid: $h }] } } } }'
 }
 nexpect() { # nexpect WANT MSG JSON [ENV=VALUE...]
   _w=$1 _m=$2; shift 2
@@ -312,6 +327,10 @@ ans "" "X-5: a PR" > "$S/n3.json"
 nexpect X-6 "--next-id: an open PR's leading X-N: counts" "$S/n3.json"
 ans "" "" > "$S/n0.json"
 nexpect X-4 "--next-id: with nothing open, the roadmap's max + 1" "$S/n0.json"
+pr 9 "$PR9_SHA" > "$S/n9.json"
+nexpect X-12 "--next-id: a row an open PR's roadmap adds counts, though its title names another id" "$S/n9.json"
+ans "X-1234567890 X-99999999999999999999" "" > "$S/nbig.json"
+nexpect X-4 "--next-id: an issue Row id of more than 9 digits is not counted (no overflow, no CANNOT CHECK)" "$S/nbig.json"
 cat >> "$F/docs/roadmap.md" <<'EOF'
 | X-9 | `ops/x-9-nine` — a row | x | — | ⬜ queued |
 | X-9a | `ops/x-9a-sub` — a suffixed row | x | — | ⬜ queued |
@@ -335,6 +354,10 @@ jq '.data.repository.pullRequests.totalCount = 101' "$S/n1.json" > "$S/n101.json
 ncannot "more than 100 open team-queue issues or PRs" "--next-id: a second page is refused, not read short" "$S/n101.json"
 jq '.data.repository.issues.totalCount = 101' "$S/n1.json" > "$S/i101.json"
 ncannot "more than 100 open team-queue issues or PRs" "--next-id: ...of issues too" "$S/i101.json"
+pr 77 "$PR9_SHA" > "$S/n77.json"
+ncannot "the open PRs' heads could not be fetched" "--next-id: an open PR whose head cannot be fetched is CANNOT CHECK, not skipped" "$S/n77.json"
+pr 9 "not-a-sha" > "$S/nbad.json"
+ncannot "an open PR's number or head does not parse" "--next-id: a PR head that is not a commit hash is CANNOT CHECK" "$S/nbad.json"
 git -C "$F" remote set-url origin "$S/nowhere.git"
 ncannot "origin/main's roadmap could not be read" "--next-id: an origin that cannot be fetched is CANNOT CHECK, not its last-fetched roadmap" "$S/n0.json"
 git -C "$F" remote set-url origin "$S/origin.git"

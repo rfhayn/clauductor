@@ -24,8 +24,10 @@ in the listing reorders the session or adds to it. The owner's rule, in their wo
   on the body it prints, never from `gh issue view`: an edit since the listing would slip past
   it. A CANNOT CHECK from `--row` or `--next-id` means no row: leave it out and say so. If
   `Proposed-Scope` names `.claude/settings*.json`, a hooks directory, `.github/workflows/` or
-  `scripts/ci/`, add an owner-queue line instead (the rule below). If a parallel PR takes the id,
-  `roadmap-queue.sh --check` fails: re-run `--next-id` and renumber. The `new-row` label grants
+  `scripts/ci/`, add an owner-queue line instead (the rule below). `--next-id` reads every open
+  PR's roadmap, but a PR opened after it ran can still take the id, and nothing blocks two PRs
+  that both add it: right before the merge, merge `origin/main` and run `--next-id` again; if
+  the id it prints is not yours plus one, renumber. The `new-row` label grants
   nothing, and no session applies, removes or asks for it or `approved`.
 - An approved item is worked only through its row's normal lane, when the *Session plan* reaches
   that row: the `change/`, `fix/` or `ops/` lane (through `/propose` for a capability change), in
