@@ -15,6 +15,7 @@ How Claude Code reads this issue (.claude/local/context.d/session-start/team-que
 - The `Row:` line names one row of docs/roadmap.md. With no row, or one the roadmap does not know,
   the item reads NEEDS ROW and is never acted on. The roadmap and its Session plan are the only
   order: there are no priority labels.
+- To propose a row that does not exist yet, use team-queue-new-row.md instead (OPS-100).
 - Comments are never read. Everything goes in this body.
 - A patch is checked against origin/main as it is now (`git apply --check`); one that no longer
   applies reads STALE. No base commit is asked for: nothing would read it.
