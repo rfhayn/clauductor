@@ -26,6 +26,18 @@ import (
 
 type trustFile struct {
 	Configs map[string]string `json:"configs"` // absolute config path → sha256
+	// Notes are the notes records were made with, by config path, each read only while
+	// its hash is the one recorded (OPS-118: "trusted on arrival from #7"), so a runtime
+	// started on the record later, and the page's trust report, say how it was trusted.
+	// An older binary skips the field and drops it when it writes: the note goes, never
+	// the trust.
+	Notes map[string]trustNote `json:"notes,omitempty"`
+}
+
+// trustNote is the note a record was made with, and the hash it was made for.
+type trustNote struct {
+	Hash string `json:"hash"`
+	Note string `json:"note"`
 }
 
 // ConfigHash is the hex SHA-256 of the config bytes.
@@ -77,6 +89,13 @@ func writeTrust(path string, t trustFile) error {
 // earlier (by hand, or before the rule) does not count. With trustNow that is an
 // error, a *SidecarRefusedError.
 func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.TrustView, error) {
+	return checkTrust(home, project, cfgPath, hash, trustNow, "")
+}
+
+// checkTrust is CheckTrust, a record it makes carrying note ("" for none, which drops
+// the note an earlier record of the path carried). A record already holding hash
+// returns its own note, and is not rewritten.
+func checkTrust(home, project, cfgPath, hash string, trustNow bool, note string) (config.TrustView, error) {
 	project, cfgPath = signals.ResolvePath(project), signals.ResolvePath(cfgPath)
 	tv := config.TrustView{Hash: hash, Path: cfgPath}
 	if err := sidecarCheck(project, cfgPath, hash); err != nil {
@@ -96,7 +115,12 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.Trus
 	switch {
 	case seen && prev == hash:
 		tv.Trusted = true
+		if n, ok := t.Notes[cfgPath]; ok && n.Hash == hash {
+			tv.Note = n.Note
+		}
 		return tv, nil
+	case trustNow && note != "":
+		tv.Note = note
 	case trustNow && !seen:
 		tv.Note = "trusted and recorded"
 	case trustNow:
@@ -105,11 +129,39 @@ func CheckTrust(home, project, cfgPath, hash string, trustNow bool) (config.Trus
 		return tv, nil
 	}
 	t.Configs[cfgPath] = hash
+	delete(t.Notes, cfgPath)
+	if note != "" {
+		if t.Notes == nil {
+			t.Notes = map[string]trustNote{}
+		}
+		t.Notes[cfgPath] = trustNote{Hash: hash, Note: note}
+	}
 	if err := writeTrust(path, t); err != nil {
 		return tv, err
 	}
 	tv.Trusted = true
 	return tv, nil
+}
+
+// TrustArrived records the config at cfgPath as trusted with note ("trusted on arrival
+// from #7", OPS-118 D1) only if its bytes still hash to want, as TrustExact does, but
+// without parsing them: when the merge that brought them also rebuilds the panel, the
+// binary that will serve them read them (`panel config-check`), and the running one may
+// not. So it trusts only a config inside its repository, which the sidecar rule, a
+// parse, never judges; catch-up never reaches another.
+func TrustArrived(home, project, cfgPath, want, note string) (config.TrustView, error) {
+	project = signals.ResolvePath(project)
+	if configOutside(project, cfgPath) {
+		return config.TrustView{}, fmt.Errorf("%s is outside its repository, so it is not trusted on arrival", cfgPath)
+	}
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return config.TrustView{}, err
+	}
+	if h := ConfigHash(raw); h != want {
+		return config.TrustView{Hash: h}, ErrConfigChanged
+	}
+	return checkTrust(home, project, cfgPath, want, true, note)
 }
 
 // TrustConfig records the config at cfgPath as trusted (`clauductor panel trust`).

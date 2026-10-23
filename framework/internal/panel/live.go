@@ -177,16 +177,40 @@ func (ls *liveSet) stopAll() {
 // other served project's, without starting anything. A restart checks it first, so
 // it never stops a runtime for one that cannot start. ls.mu is held.
 func (ls *liveSet) canStart(e config.ProjectEntry) error {
+	_, err := ls.tryLoad(e)
+	return err
+}
+
+// tryLoad is canStart's load, returned: what the project would serve. ls.mu is held.
+func (ls *liveSet) tryLoad(e config.ProjectEntry) (loadedProject, error) {
 	p, err := loadProject(ls.ctx, ls.o, e, e.ID == ls.primary)
 	if err != nil {
-		return err
+		return p, err
 	}
 	for other, olr := range ls.rts {
 		if other != e.ID && olr.r.cfg.Socket() == p.cfg.Socket() {
-			return fmt.Errorf("its tmux socket %q is %s's", p.cfg.Socket(), other)
+			return p, fmt.Errorf("its tmux socket %q is %s's", p.cfg.Socket(), other)
 		}
 	}
-	return nil
+	return p, nil
+}
+
+// reload serves a project again on its config as it is now on disk (a trust from the
+// page, or a config catch-up brought, OPS-118 D1). It checks first that the config
+// loads (canStart), so one that would not never stops the runtime serving now: that
+// is notLoaded, and nothing changed. err is a start that failed after the stop. ls.mu
+// is held.
+func (ls *liveSet) reload(lr *liveRT) (notLoaded, err error) {
+	e := lr.entry
+	if err := ls.canStart(e); err != nil {
+		return err, nil
+	}
+	wasDefault := ls.m.defRT() == lr.r
+	ls.restartStop(e.ID)
+	err = ls.startEntry(e, wasDefault)
+	ls.sums.Reorder(ls.order)
+	ls.settle()
+	return nil, err
 }
 
 // startEntry loads a registered project and serves it, or records why it cannot be.
@@ -243,7 +267,7 @@ func (ls *liveSet) catchUpTargets() []catchUpTarget {
 	defer ls.mu.Unlock()
 	out := make([]catchUpTarget, 0, len(ls.rts))
 	for _, lr := range ls.rts {
-		t := catchUpTarget{root: lr.entry.Root, base: lr.r.cfg.BaseRef(), outside: install.OutsideConfig(lr.entry)}
+		t := catchUpTarget{root: lr.entry.Root, base: lr.r.cfg.BaseRef(), outside: install.OutsideConfig(lr.entry), cfgPath: lr.r.cfgPath}
 		if t.outside == "" && regErr == nil {
 			if e := reg.Find(lr.entry.Root); e != nil {
 				t.outside = install.OutsideConfig(*e)
@@ -679,6 +703,9 @@ type trustReport struct {
 	Runs    []string `json:"runs"`
 	Trusted bool     `json:"trusted"`
 	Prev    string   `json:"prev,omitempty"`
+	// Note is how the trusted bytes were trusted, when their record says ("trusted on
+	// arrival from #7", OPS-118 D1).
+	Note string `json:"note,omitempty"`
 	// Reloaded: the file differed from the one the panel had loaded, so the project
 	// was started again with the bytes just trusted.
 	Reloaded bool `json:"reloaded,omitempty"`
@@ -704,6 +731,9 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 	h := install.ConfigHash(raw)
 	tv, _ := install.CheckTrust(ls.o.Home, lr.entry.Root, path, h, false)
 	rep := trustReport{ID: id, Name: cfg.Name, Path: path, Hash: h, Runs: append([]string{}, install.TrustRuns(lr.entry.Root, path, cfg)...), Trusted: tv.Trusted, Prev: tv.Prev}
+	if tv.Trusted {
+		rep.Note = tv.Note
+	}
 	if dryRun {
 		return rep, nil
 	}
@@ -721,18 +751,12 @@ func (ls *liveSet) Trust(ctx context.Context, id string, dryRun bool, hash strin
 		}
 		return rep, nil
 	}
-	// The file is not the one the panel loaded: serve the bytes just trusted.
-	// First check that it loads, so a config that would not (its socket is another
-	// project's, git fails) never stops the runtime that serves now.
-	e := lr.entry
-	if err := ls.canStart(e); err != nil {
-		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", err)
+	// The file is not the one the panel loaded: serve the bytes just trusted, unless
+	// they do not load (its socket is another project's, git fails).
+	notLoaded, err := ls.reload(lr)
+	if notLoaded != nil {
+		return nil, lerr(http.StatusConflict, "bad-config", "trusted, but it does not load as it is now, so the panel keeps serving the config it loaded: %v", notLoaded)
 	}
-	wasDefault := ls.m.defRT() == lr.r
-	ls.restartStop(id)
-	err = ls.startEntry(e, wasDefault)
-	ls.sums.Reorder(ls.order)
-	ls.settle()
 	if err != nil {
 		return nil, lerr(http.StatusConflict, "bad-config", "%v", err)
 	}

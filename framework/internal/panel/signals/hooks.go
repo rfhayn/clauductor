@@ -270,3 +270,14 @@ func Clip(s string, n int) string {
 	}
 	return s
 }
+
+// ClipLines is s cut to n runes with its lines kept: a body whose sender shaped its
+// lines (a catch-up notice's run list, OPS-118 D1), which OneLine would flatten and
+// cut at DetailMax.
+func ClipLines(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}

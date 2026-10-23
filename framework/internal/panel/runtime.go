@@ -1089,7 +1089,11 @@ func pathSignature(path string) string {
 
 // SendNotice shows a notification with osascript.
 func SendNotice(ctx context.Context, nt state.Notice) error {
-	argv := state.NotifyArgv(nt.Title, nt.Body)
+	return showNotice(ctx, state.NotifyArgv(nt.Title, nt.Body))
+}
+
+// showNotice runs a notification's osascript argv.
+func showNotice(ctx context.Context, argv []string) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()

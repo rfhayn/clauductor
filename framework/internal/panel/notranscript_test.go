@@ -311,7 +311,8 @@ var fileReadSites = map[string]int{
 	"push.go":              1, // PANEL-51: the machine's push command (push.json: one JSON object, its argv alone), once its owner and modes are checked
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry
-	"install/trust.go":     2, // the trusted-config record; a sidecar's config, judged by the sidecar rule (PANEL-42)
+	"install/trust.go":     3, // the trusted-config record; a sidecar's config, judged by the sidecar rule (PANEL-42); OPS-118: a config trusted on arrival, its bytes hashed against the blob catch-up judged
+	"catchup.go":           1, // OPS-118: the project's own panel.json, compared with its blob at the commit catch-up moved to (D1 (c))
 	"install/init.go":      2, // the project's package.json and Makefile (`panel init`'s gate detection)
 	"lease/lease.go":       5, // a lease owner/waiter file; the lease directory opened for flock(2) (2); /proc/<pid>/stat (2: start time, zombie)
 	"install/singleton.go": 6, // the pid file, owner.json (3: PANEL-22's wait for a live add) and port marker; settings.json (hook drift)

@@ -88,6 +88,11 @@ type Options struct {
 	// Ticks overrides the cadence of the sources and periodic tasks; a zero field
 	// keeps its default (DefaultTicks).
 	Ticks Ticks
+
+	// selfUpdate is the panel's rebuild of itself after catch-up fast-forwards its own
+	// source (OPS-118 D4, task 3.1): nil, or a nil result, when no rebuild follows.
+	// Unexported: a test of trust on arrival stands one in.
+	selfUpdate func(ctx context.Context, t catchUpTarget, res catchUpResult, cfgPath string) *rebuilt
 }
 
 // Ticks are the panel's tick lengths. Every process the panel spawns while it idles
@@ -412,6 +417,7 @@ func Run(ctx context.Context, o Options) error {
 	// Catch-up (OPS-118 D3) exists before any runtime is wired: wire hands each one's
 	// prs source its wake.
 	ls.cu = newCatchUp(o, clk, m.push.current, ls.catchUpTargets)
+	ls.cu.arrive = ls.arrive
 	for _, r := range runtimes {
 		p := ls.wire(r)
 		srv.Projects = append(srv.Projects, p)

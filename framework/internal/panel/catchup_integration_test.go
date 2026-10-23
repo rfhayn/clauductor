@@ -244,13 +244,19 @@ func (l *cuLog) String() string {
 	return l.buf.String()
 }
 
-// catchUpNotices are the notices catch-up sent: its keys are its own.
+// catchUpNotices are the notices catch-up sent (its keys are its own), each as the Mac
+// shows it: its Title and Body are the last two arguments of catchUpNotifyArgv, the
+// argv notifyCatchUp runs. So a test of what a notice says tests what reaches the owner,
+// not the text before the notification's cut (review 2026-10-22: NotifyArgv's one-line
+// summary cut a trust notice at 140 runes).
 func catchUpNotices(l *noticeLog) []state.Notice {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out []state.Notice
 	for _, n := range l.ns {
 		if len(n.Keys) > 0 && strings.HasPrefix(n.Keys[0], "catch-up\x00") {
+			argv := catchUpNotifyArgv(n)
+			n.Title, n.Body = argv[len(argv)-2], argv[len(argv)-1]
 			out = append(out, n)
 		}
 	}
@@ -605,9 +611,12 @@ func TestCatchUpFastForwardsAfterAMerge(t *testing.T) {
 	a := w.head(t)
 	c := w.merged(t, 7, "owner", "b.txt", "two\n")
 	w.setOpen() // #7 merged: it leaves the open list
-	waitFor(t, "HEAD at origin/main's commit", func() bool { return w.head(t) == c })
-	if !strings.Contains(log.String(), "catch-up "+w.root+": fast-forwarded main from "+a+" to "+c) {
-		t.Fatalf("the panel log names no fast-forward from %s to %s:\n%s", a, c, log.String())
+	// The log line is written only once the merge has returned, so HEAD at C does not yet
+	// mean the line is there: wait on the line, the later of the two, then check HEAD.
+	ff := "catch-up " + w.root + ": fast-forwarded main from " + a + " to " + c
+	waitFor(t, "the panel log naming the fast-forward from A to C", func() bool { return strings.Contains(log.String(), ff) })
+	if got := w.head(t); got != c {
+		t.Fatalf("HEAD is %s, want origin/main's commit %s:\n%s", got, c, log.String())
 	}
 	if ns := catchUpNotices(&notices); len(ns) != 0 {
 		t.Fatalf("notices for a fast-forward: %+v", ns)

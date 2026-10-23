@@ -259,3 +259,12 @@ const maxNoticeText = 240
 func NotifyArgv(title, body string) []string {
 	return osascriptArgv(notifyScript, signals.Clip(title, 80), signals.Clip(body, maxNoticeText))
 }
+
+// NotifyLinesArgv is the argv that shows one notification whose body keeps its lines
+// and is cut only at max runes: a notice whose sender shaped and bounded its own text
+// (a catch-up notice, OPS-118 D6). NotifyArgv's one-line summary would cut it at
+// signals.DetailMax and lose what follows its first 140 runes: a trust notice's run
+// list, the reason a config waits for the owner.
+func NotifyLinesArgv(title, body string, max int) []string {
+	return osascriptArgv(notifyScript, signals.Clip(title, 80), signals.ClipLines(body, max))
+}
