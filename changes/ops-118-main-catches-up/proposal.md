@@ -52,7 +52,10 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
   merged pull request, without changing the first.
 - **`panel-stall`:** STALL-3 sends a `stalled` alert as a macOS notification and through
   `push.json`, and says the push carries no other alert. **Modified:** a catch-up notice may also
-  be pushed (D6), under the same file, argv, timeout and `alerts.notify` rules. STALL-1's restart
+  be pushed (D6), under the same file, argv and timeout rules. `alerts.notify` withholds only the
+  notice that a config waits for the owner (the page's untrusted banner says the same); every
+  other catch-up notice goes whatever it says. Only the trust-on-arrival notice is titled with the
+  project's name; the rest are titled "clauductor panel" (D6, *Titles*). STALL-1's restart
   rules already cover a panel that restarts itself: a stall of a lane not stalled before is
   approximate, and not notified, for one stall time after the start.
 - **New capability `panel-catch-up`:** the switch, the fast-forward, trust on arrival, and the
