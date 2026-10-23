@@ -213,6 +213,12 @@ func RemoveProject(home, idOrPath string, force bool) (config.ProjectEntry, erro
 			reg.Default = kept[0].ID
 		}
 	}
+	// Catch-up is keyed by root (OPS-118 D2): a repository registered again at this
+	// root starts with it off. Cleared first, so a failure leaves the project
+	// registered with catch-up as it was, never a root listed that nothing serves.
+	if err := config.SetCatchUp(home, gone.Root, false); err != nil {
+		return gone, fmt.Errorf("%s stays registered: its catch-up could not be cleared: %v", gone.ID, err)
+	}
 	return gone, config.SaveProjects(home, reg)
 }
 

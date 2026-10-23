@@ -3,6 +3,10 @@
 ## Progress
 - 2026-10-22 proposed (session 9); nothing built yet. The build starts from `main` once the owner
   approves, in a later session. The roadmap row stays `⬜ queued` until its build PR opens.
+- 2026-10-22 group 1 built (the switch, its command, and the fast-forward on the liveSet's
+  catch-up source); groups 2 to 4 not started. Groups 2 and 3 hang off `catchUpResult` (the
+  branch, the old and new commits, the pull requests and the login), which `fastForward` returns.
+- 2026-10-22 group 1 (The switch and the fast-forward (D2, D3)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
 
 ## Decision log
 - 2026-10-22 (proposal) The panel cannot re-check a merge's gate receipt or its Review line (E5),
@@ -29,12 +33,53 @@
   the trust-on-arrival notice is titled with a name, the config it trusted; every other
   catch-up notice, the waits notice included, is titled "clauductor panel" with the checkout's
   path. This corrects round 4's line above, whose "titled" took in the trust notice.
+- 2026-10-22 (group 1) `catch-up.json` is `{"roots":[...]}`, decoded strictly, an unreadable file
+  read as off for every project (logged); not a bare list, nor an unreadable file failing the
+  source; an object leaves room for a field without breaking an older binary's strict decode, and
+  off is the safe reading.
+- 2026-10-22 (group 1) `panel catch-up` requires `--project`; not the git toplevel of the working
+  directory as a default; a lane's worktree would otherwise name a root no project has.
+- 2026-10-22 (group 1) `RemoveProject` clears the root before it saves `projects.json`; not after;
+  a failure then leaves the project registered with catch-up as it was, never a listed root that
+  nothing serves.
+- 2026-10-22 (group 1) The wake is per root (the project whose open list lost a PR); the start
+  trigger checks every served project (under `--only`, the primary alone), and a project that
+  failed to load is skipped; not one wake checking every project; a merge in one repository says
+  nothing about another's checkout.
+- 2026-10-22 (group 1) The retries run at 1, 3 and 6 minutes counted from the first transient
+  refusal, and a trigger for that root starts them afresh; not 1, 3 and 6 minutes between
+  attempts; the scenario's "a minute, 3 minutes and 6 minutes passing" reads as elapsed time.
+- 2026-10-22 (group 1) Precondition reads run as `git --no-optional-locks -C <root>`; not plain
+  `git -C`; `git status` would otherwise refresh the index, a write to a checkout the owner may be
+  using.
+- 2026-10-22 (group 1) After the fetch the ancestry is checked again (`rev-list --count C..A` must
+  be 0); not only before it; a force-push between the two reads would otherwise go to
+  `merge --ff-only`, which refuses it but as git's refusal, not the reason.
+- 2026-10-22 (group 1) A refusal before the fetch is keyed on the local `<remote>/<branch>`
+  commit; not on a remote read, which would be a fetch; the precondition reads stay read-only.
+- 2026-10-22 (group 1) `REVERT_HEAD` counts as an operation in progress with `MERGE_HEAD`,
+  `CHERRY_PICK_HEAD` and the two rebase directories; not left out; a fast-forward mid-revert would
+  bury the owner's unfinished revert.
+- 2026-10-22 (group 1) The refusal's push runs from `catchup.go` through `runPush`; not a new rule
+  in `push.go`, which is task 2.3; the push only had to happen for [CATCHUP-2-S11].
+- 2026-10-22 (group 1) A config outside its repository is checked against both the served entry
+  and `projects.json`'s entry for that root; not the served entry alone; `panel add --config`
+  rewrites `projects.json` before the registry tick restarts the runtime on it.
+- 2026-10-22 (group 1) A commit's candidate pull requests are filtered by `merge_commit_sha`
+  before each one's own lookup; not every PR that contains the commit; GitHub lists a PR whose
+  branch merely holds the commit, which did not merge it.
+- 2026-10-22 (group 1) A notice's body is cut at 600 runes on one line (`catchUpBody`); not
+  `signals.Clip`, whose `OneLine` cuts at 140 first, so a deep checkout's path left no room for
+  the reason.
+- 2026-10-22 (group 1) [CATCHUP-2-S10]'s test fetches D's objects into `refs/test/d` beforehand,
+  so the fake `gh`'s hook can `update-ref` the clone's `origin/main` to it; not a real fetch in
+  the hook; the hook then runs with no network or lock of its own during the lookup.
 
 ## 1. The switch and the fast-forward (D2, D3)
-- [ ] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.clauductor/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
-- [ ] 1.2 `framework/internal/cmd/panel.go`: `clauductor panel catch-up --project <path> [on|off]` beside `panel trust`, writing only `catch-up.json`, refused for an attached project (`configOutside`, in `install/projects.go`) with nothing written; `RemoveProject` (`install/projects.go`) clears the root. Tested in `framework/internal/cmd/panel_catchup_test.go` (new), with `projects.json` compared byte for byte and `catch-up.json` checked absent after a refusal, and a remove then a fresh add at the same root. Citing [CATCHUP-1-S1], [CATCHUP-1-S2], [CATCHUP-1-S7].
-- [ ] 1.3 A test that a `panel.json` setting `catch_up` fails to load and names the key (the strict decoder, `config.go`). Tested in `framework/internal/panel/config/config_test.go`. Citing [CATCHUP-1-S4].
-- [ ] 1.4 `framework/internal/panel/catchup.go` (new): the fast-forward of D3 on a machine-level source of the liveSet beside `pollRegistry` (`live.go`), woken without blocking by the open-PR poll when a pull request leaves the open list (`runtime.go`, beside `lanes_auto_close`'s hook in `autoclose.go`) and once at the panel's start; `catch-up.json` read and `configOutside` checked at each wake; every precondition read with `git -C <root>`; `base` read through `BaseRef()` and split as `<remote>/<branch>`; after the fetch, the commit C that `<remote>/<branch>` names read once (`git rev-parse`), each first-parent commit of `HEAD..C` looked up with `gh api repos/{owner}/{repo}/commits/<sha>/pulls`, then `gh api repos/{owner}/{repo}/pulls/<n>` (`merged_by`, `base.ref`, `merge_commit_sha`), against `gh api user`'s login, before `merge --ff-only C` (C's hash, never the ref's name); each git and `gh` call under a 60 s timeout; a transient failure (`git fetch` or `gh` erroring or timing out, or any git call timing out) woken again at 1, 3 and 6 minutes (on the clock the tests drive), and git's own refusals not retried; a catch-up notifier of its own (keys of project, reason and remote commit, created with the source; not `notifyOnce`) and a panel log line for each refusal, the refusal's notice (and the skip of a config outside its repository) sent whatever `alerts.notify` says, titled "clauductor panel" and naming the checkout's path. Tested in `framework/internal/panel/catchup_integration_test.go` (new), with real git repositories (a bare remote and a clone), a fake `gh` written by `internal/testbin` (for [CATCHUP-2-S10], one whose first lookup moves the clone's `origin/main` with `git update-ref` to a commit after C, as another worktree's fetch would), and `internal/treesnap` for "as before". Citing [CATCHUP-1-S3], [CATCHUP-1-S5], [CATCHUP-1-S6], [CATCHUP-2-S1], [CATCHUP-2-S2], [CATCHUP-2-S3], [CATCHUP-2-S4], [CATCHUP-2-S5], [CATCHUP-2-S6], [CATCHUP-2-S7], [CATCHUP-2-S8], [CATCHUP-2-S9], [CATCHUP-2-S10], [CATCHUP-2-S11] (its push read from the stand-in program `push_test.go` uses).
+- [x] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.clauductor/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
+- [x] 1.2 `framework/internal/cmd/panel.go`: `clauductor panel catch-up --project <path> [on|off]` beside `panel trust`, writing only `catch-up.json`, refused for an attached project (`configOutside`, in `install/projects.go`) with nothing written; `RemoveProject` (`install/projects.go`) clears the root. Tested in `framework/internal/cmd/panel_catchup_test.go` (new), with `projects.json` compared byte for byte and `catch-up.json` checked absent after a refusal, and a remove then a fresh add at the same root. Citing [CATCHUP-1-S1], [CATCHUP-1-S2], [CATCHUP-1-S7].
+- [x] 1.3 A test that a `panel.json` setting `catch_up` fails to load and names the key (the strict decoder, `config.go`). Tested in `framework/internal/panel/config/config_test.go`. Citing [CATCHUP-1-S4].
+- [x] 1.4 `framework/internal/panel/catchup.go` (new): the fast-forward of D3 on a machine-level source of the liveSet beside `pollRegistry` (`live.go`), woken without blocking by the open-PR poll when a pull request leaves the open list (`runtime.go`, beside `lanes_auto_close`'s hook in `autoclose.go`) and once at the panel's start; `catch-up.json` read and `configOutside` checked at each wake; every precondition read with `git -C <root>`; `base` read through `BaseRef()` and split as `<remote>/<branch>`; after the fetch, the commit C that `<remote>/<branch>` names read once (`git rev-parse`), each first-parent commit of `HEAD..C` looked up with `gh api repos/{owner}/{repo}/commits/<sha>/pulls`, then `gh api repos/{owner}/{repo}/pulls/<n>` (`merged_by`, `base.ref`, `merge_commit_sha`), against `gh api user`'s login, before `merge --ff-only C` (C's hash, never the ref's name); each git and `gh` call under a 60 s timeout; a transient failure (`git fetch` or `gh` erroring or timing out, or any git call timing out) woken again at 1, 3 and 6 minutes (on the clock the tests drive), and git's own refusals not retried; a catch-up notifier of its own (keys of project, reason and remote commit, created with the source; not `notifyOnce`) and a panel log line for each refusal, the refusal's notice (and the skip of a config outside its repository) sent whatever `alerts.notify` says, titled "clauductor panel" and naming the checkout's path. Tested in `framework/internal/panel/catchup_integration_test.go` (new), with real git repositories (a bare remote and a clone), a fake `gh` written by `internal/testbin` (for [CATCHUP-2-S10], one whose first lookup moves the clone's `origin/main` with `git update-ref` to a commit after C, as another worktree's fetch would), and `internal/treesnap` for "as before". Citing [CATCHUP-1-S3], [CATCHUP-1-S5], [CATCHUP-1-S6], [CATCHUP-2-S1], [CATCHUP-2-S2], [CATCHUP-2-S3], [CATCHUP-2-S4], [CATCHUP-2-S5], [CATCHUP-2-S6], [CATCHUP-2-S7], [CATCHUP-2-S8], [CATCHUP-2-S9], [CATCHUP-2-S10], [CATCHUP-2-S11] (its push read from the stand-in program `push_test.go` uses).
 
 ## 2. Trust on arrival, and the push (D1, D6)
 - [ ] 2.1 `framework/internal/panel/catchup.go`: after a fast-forward from A to B that changed the in-repository `panel.json`, on the same liveSet source, the checks of D1 (a) to (f): the loaded config's trust and its bytes against the blob at A, the file on disk against the blob at B (`git cat-file`), D3's pull-request check having passed for `A..B`, `canStart`, and the new config's `alerts.notify`; when a rebuild follows (task 3.1), (e) and (f) come from the new binary's `panel config-check` and the trust is recorded before the swap. On success: `install.TrustExact`, the notice, then the reload `liveSet.Trust` does (`canStart`, `restartStop`, `startEntry`, `live.go`) with the note "trusted on arrival from #N" (`markTrusted`); otherwise the untrusted restart or the kept config, with the reason in the panel log; the notice that the config waits for the owner sent only while the loaded config's `alerts.notify` is on, and the notice of a config that does not load sent whatever it says; when the build or its preflight fails, the running binary's own load decides between the two, and the build's error goes in the rebuild's own notice (task 3.2), a second notice. The notice's `+` and `−` lines are the difference between the old and new `TrustRuns` lists. Tested in `framework/internal/panel/catchup_trust_integration_test.go` (new), with a fake `gh` and a stand-in new binary written by `internal/testbin`. Citing [CATCHUP-3-S1], [CATCHUP-3-S2], [CATCHUP-3-S3], [CATCHUP-3-S4], [CATCHUP-3-S5], [CATCHUP-3-S6], [CATCHUP-3-S7], [CATCHUP-3-S8], [CATCHUP-3-S9], [CATCHUP-3-S10].

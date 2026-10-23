@@ -307,6 +307,7 @@ var fileReadSites = map[string]int{
 	"runtime.go":           2, // a project's notifier state (notifier.json); PANEL-51: its stall clocks (stall.json: lane and session clocks, ask times, kept Stop allowlists, SubagentStop agent ids)
 	"machine.go":           4, // the last quota (quota.json); the live-verified version (verified.json); the quota alert's notifier state; PANEL-28: the last account reading (account.json)
 	"config/projects.go":   1, // the projects registry (projects.json)
+	"config/catchup.go":    1, // OPS-118: the catch-up record (catch-up.json under the panel's home: the roots catch-up is on for)
 	"push.go":              1, // PANEL-51: the machine's push command (push.json: one JSON object, its argv alone), once its owner and modes are checked
 	"install/open.go":      1, // the panel's pid file, checked before `panel open` sends the token
 	"lanes/registry.go":    1, // the lane registry

@@ -50,6 +50,9 @@ type liveSet struct {
 	sig    string // projects.json's signature at the last reconcile
 	order  []string
 	regErr string // the last error reading projects.json, said once
+	// cu is catch-up (OPS-118 D3; catchup.go): a source of the liveSet, woken by each
+	// runtime's prs source. nil in a test that builds a liveSet without Run.
+	cu *catchUp
 }
 
 // liveRT is one served project's runtime and what stops it.
@@ -102,6 +105,8 @@ func (ls *liveSet) wire(r *Runtime) *web.Project {
 	r.srv.Store(ls.srv)
 	r.hub.OnPush = func(v state.View) { ls.sums.Set(r.summary(v)) }
 	r.onTrusted = ls.refreshHosts
+	root := r.root
+	r.onPRLeft = func() { ls.cu.wake(root) }
 	if r.lanes != nil {
 		// A lane action re-reads the worktrees at once, not through kickWorktrees'
 		// throttle: lanes started together each add a worktree, and one read skipped
@@ -225,6 +230,29 @@ func (ls *liveSet) pollRegistry(context.Context, time.Time) (update, time.Durati
 	defer ls.mu.Unlock()
 	_ = ls.reconcile()
 	return nil, 0
+}
+
+// catchUpTargets is every served project as catch-up reads it at a trigger (OPS-118
+// D3): its root, its base, and its config's path when that is outside the repository,
+// by the served entry or by projects.json's, which `panel add --config` may have moved
+// before the watch restarts the project (D2). A project that failed to load is not
+// served, so it is not caught up.
+func (ls *liveSet) catchUpTargets() []catchUpTarget {
+	reg, regErr := config.LoadProjects(ls.o.Home)
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	out := make([]catchUpTarget, 0, len(ls.rts))
+	for _, lr := range ls.rts {
+		t := catchUpTarget{root: lr.entry.Root, base: lr.r.cfg.BaseRef(), outside: install.OutsideConfig(lr.entry)}
+		if t.outside == "" && regErr == nil {
+			if e := reg.Find(lr.entry.Root); e != nil {
+				t.outside = install.OutsideConfig(*e)
+			}
+		}
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].root < out[j].root })
+	return out
 }
 
 func (ls *liveSet) signature() string {

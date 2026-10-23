@@ -214,6 +214,30 @@ type Runtime struct {
 	// autoClose is lanes_auto_close's state (PANEL-20; autoclose.go); its source's
 	// goroutine only.
 	autoClose autoCloser
+	// onPRLeft is called, never blocking, when a pull request leaves the open list:
+	// catch-up's trigger (OPS-118 D3; the liveSet wires it). prsOpen is the list the
+	// last successful read held, nil before the first; the prs source's goroutine only.
+	onPRLeft func()
+	prsOpen  map[int]bool
+}
+
+// openPRsRead compares a successful open-PR read with the last one and calls onPRLeft
+// when a pull request left. The first read is the baseline: nothing left it.
+func (r *Runtime) openPRsRead(prs []signals.PR) {
+	now := make(map[int]bool, len(prs))
+	for _, p := range prs {
+		now[p.Number] = true
+	}
+	left := false
+	for n := range r.prsOpen {
+		if !now[n] {
+			left = true
+		}
+	}
+	r.prsOpen = now
+	if left && r.onPRLeft != nil {
+		r.onPRLeft()
+	}
 }
 
 // newRuntime builds a project's runtime and its table of sources.
@@ -263,8 +287,15 @@ func newRuntime(id string, o Options, cfg *config.Config, root, cfgPath, outside
 	}
 	// gh lists 30 rows unless asked for more, and the stall rule reads this list as every
 	// open pull request (D3, D10): a lane's pull request past the 30th would read as none.
-	prs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision",
+	openPRs := commandFetch(r, 30*time.Second, []string{"gh", "pr", "list", "--json", "number,title,headRefName,author,isDraft,statusCheckRollup,reviewDecision",
 		"--limit", openPRLimit}, signals.ParsePRs)
+	var prs fetch[[]signals.PR] = func(ctx context.Context) ([]signals.PR, error) {
+		v, err := openPRs(ctx)
+		if err == nil {
+			r.openPRsRead(v) // a failed read is no news: nothing left the list
+		}
+		return v, err
+	}
 	// The table of sources. Each runs in its own goroutine, through Runtime.loop.
 	r.sources = []*source{
 		// Re-read within a watch tick of git's own worktree registry changing (a

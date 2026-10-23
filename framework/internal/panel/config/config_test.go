@@ -2,10 +2,30 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// [CATCHUP-1-S4] A repository cannot turn catch-up on for itself: a panel.json that
+// sets a catch_up key fails to load, and the error names the key. The switch is the
+// machine's catch-up.json alone (OPS-118 D2).
+func TestConfigRefusesCatchUpKey(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "panel.json")
+	if err := os.WriteFile(path, []byte(`{"name":"x","catch_up":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err == nil {
+		t.Fatalf("loaded %+v, want the load to fail", cfg)
+	}
+	if !strings.Contains(err.Error(), `"catch_up"`) {
+		t.Fatalf("error %q does not name the key", err)
+	}
+}
 
 func TestConfigExampleFixtureParses(t *testing.T) {
 	t.Parallel()

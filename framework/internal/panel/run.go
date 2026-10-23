@@ -409,6 +409,9 @@ func Run(ctx context.Context, o Options) error {
 	for _, e := range reg.Projects {
 		ls.order = append(ls.order, e.ID)
 	}
+	// Catch-up (OPS-118 D3) exists before any runtime is wired: wire hands each one's
+	// prs source its wake.
+	ls.cu = newCatchUp(o, clk, m.push.current, ls.catchUpTargets)
 	for _, r := range runtimes {
 		p := ls.wire(r)
 		srv.Projects = append(srv.Projects, p)
@@ -427,6 +430,9 @@ func Run(ctx context.Context, o Options) error {
 	}
 	start(func() { m.ingest(ctx, hooks, status) })
 	m.start(ctx, start)
+	// After every runtime is launched, so its first poll, the start trigger, sees them
+	// all; under --only too, where it sees the one project served.
+	start(func() { runLoop(ctx, clk, ls.cu.source(), m.pollOnce) })
 	// The login refresh locks (PANEL-28): watched and logged from the start, so the
 	// log covers every refresh this panel lives beside. It only reads them.
 	// What it reads of them goes to every project's model, where the alerts for a
