@@ -484,8 +484,9 @@ func goRun(g *Gate, ctx context.Context, argv []string) <-chan error {
 }
 
 // expiring is a caller's timeout the test fires itself: once expired, its Err is
-// context.DeadlineExceeded, as a deadline's would be (a context derived from it takes
-// that Err too), so a test still drives a timeout and asserts its error. Its far
+// context.DeadlineExceeded, as a deadline's would be, so a test still drives a timeout
+// and asserts its error. Only its own Err says so: a context derived from it ends
+// Canceled, which the gate never reads (it runs the call on WithoutCancel). Its far
 // deadline keeps it a call with a deadline (gate.go's slot wait).
 type expiring struct{ context.Context }
 

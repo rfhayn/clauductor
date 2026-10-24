@@ -435,8 +435,17 @@ func TestRunPushFailsAndTimesOut(t *testing.T) {
 	}
 	// The stand-in outlasts the scaled bound many times over: the bound tells a stop
 	// at the timeout from a wait for the stand-in, on a loaded machine too (OPS-122).
-	// exec: the timeout's kill ends the sleep itself, so none outlives the test.
-	slow, _ := pushStandIn(t, "exec sleep 60")
+	// Its child holds the output open past the timeout's kill (what WaitDelay is for);
+	// the test kills that one child, so it does not outlive the test.
+	childPid := filepath.Join(t.TempDir(), "child.pid")
+	slow, _ := pushStandIn(t, "sleep 60 & echo $! > "+childPid+"; wait")
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(childPid); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
 	start := time.Now()
 	err = runPush(context.Background(), 200*time.Millisecond, []string{slow}, "T", "B")
 	if took := time.Since(start); took > testwait.Scale(3*time.Second) {
