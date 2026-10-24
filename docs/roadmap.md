@@ -346,9 +346,14 @@ merged; the owner's decisions of 2026-10-21 set how its sessions run:
 - **The review cap, by risk.** A change takes its proposal's `**Risk:**` (low 2 rounds, normal 3,
   high 3; normal is what the owner called medium). An ops or fix row has no proposal, so it is
   normal unless its Change cell says `Risk: low` or `Risk: high`. Past the cap, what is left goes
-  to KNOWN LIMITS with an issue or row that owns it, unless the owner says otherwise. Until OPS-108
-  merges, the session applies it by hand (build-change's `maxRounds`, merge-pr step 3); OPS-108
-  makes the scripts read it.
+  to KNOWN LIMITS with an issue or row that owns it, unless the owner says otherwise.
+  `.claude/review-cap.sh <row>` reads it (the rounds are `REVIEW_CAPS` in `.claude/project.conf`):
+  build-change's `maxRounds` defaults to it and merge-pr step 3 stops at it (OPS-108).
+- **One row, one session, one PR; a daily close folds the records** (OPS-108). A row's session
+  opens its PR as a draft at the start (`session-start/marker.sh`) and writes its records to
+  `docs/journal.d/<row id>.md` in that PR, never to the journal, the insights log or a Status here.
+  A daily close (or one every 3–4 rows) folds the fragments into one `## Session N`, N being the
+  first plan session it covers, and sets each landed row's Status (`session-close/fold.sh`).
 - **Owner decisions are taken ahead.** A row that needs one does not start without it, and while
   one row builds, the next one's proposal may be drafted.
 - **One cloud lane beside the Mac session** where the plan has one (the owner's decision of

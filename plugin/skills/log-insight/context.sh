@@ -7,7 +7,18 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 cd "$ROOT" || exit 0
 
 echo "- Today: $(date +%Y-%m-%d)"
-echo "- Branch: $(git --no-optional-locks branch --show-current 2>/dev/null)"
+br=$(git --no-optional-locks branch --show-current 2>/dev/null)
+echo "- Branch: $br"
+# OPS-108: a row's PR never edits INSIGHTS; its rows go in its fragment, and the close folds them.
+if [ -z "$BRANCH_SESSION_CLOSE" ]; then
+  echo "- Writer: BRANCH_SESSION_CLOSE is empty (rule 8 off), so no branch is told apart as a close's: write $INSIGHTS"
+else
+  # shellcheck disable=SC2254
+  case $br in
+    $BRANCH_SESSION_CLOSE) echo "- Writer: a daily close's branch, so write the row in $INSIGHTS" ;;
+    *) echo "- Writer: NOT a close's branch ($BRANCH_SESSION_CLOSE): write the row under ## Insights in the row's fragment, $JOURNAL_FRAGMENTS/<row id>.md, never $INSIGHTS" ;;
+  esac
+fi
 if [ -f "$INSIGHTS" ]; then
   echo "- Area buckets (INSIGHT_AREAS in project.conf): ${INSIGHT_AREAS:-not set; use the areas already in the log}"
   echo "- Areas in use:"

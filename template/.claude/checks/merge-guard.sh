@@ -165,7 +165,8 @@ printf '# Journal\n\n## Session 2 — 2026-01-02 — c — theirs\n\n## Session 
 git -C "$R" commit -qam "their close: session 2"
 (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
 printf '%s\tfull\tclean\tall\n' "$MINE" > "$R/.git/ci-receipt"
-guard 2 "a journal session number another merged session took" "gh pr merge 5 --squash" GH_HEAD="$MINE" GH_BRANCH=ops/close
+guard 2 "a journal session number another merged session took" "gh pr merge 5 --squash" GH_HEAD="$MINE" GH_BRANCH=ops/session-2-close
+grep -q 'claims Session 2, which another merged session already uses' "$d/err" && ok "rule 7: ...and the block is the collision's, naming the number" || fail "rule 7 collision message: $(cat "$d/err")"
 receipt "$MAINSHA"
 
 # Rules 9–12: the change process, read at the head (lib/change-guard.sh).
@@ -174,6 +175,25 @@ on() { git -C "$R" checkout -q -B "$1" main; }
 head_of() { git -C "$R" add -A && git -C "$R" commit -qm "$1" && h=$(git -C "$R" rev-parse HEAD) && git -C "$R" checkout -q main && printf '%s\n' "$h" > "$d/head"; }
 at() { printf '%s\tfull\tclean\tall\n' "$(cat "$d/head")" > "$R/.git/ci-receipt"; }
 H() { cat "$d/head"; }
+
+# Rule 7's second half (OPS-108): only a session close numbers a session; a row writes a fragment.
+J="$R/docs/development-journal.md"
+on ops/ops-1-row
+printf '# Journal\n\n## Session 3 — 2026-01-03 — d — a row numbers one\n\n## Session 2 — 2026-01-02 — c — theirs\n\n## Session 1 — 2026-01-01 — a — start\n' > "$J"
+head_of "a row writes a session entry"; at; ROW3=$(H)
+guard 2 "rule 7: a row's PR (not a session close) that adds a '## Session N'" "gh pr merge 5 --squash" GH_HEAD="$ROW3" GH_BRANCH=ops/ops-1-row
+grep -q 'only a session close' "$d/err" && grep -q 'journal.d/<row id>.md' "$d/err" && ok "rule 7: ...and the block names the fragment to write instead" || fail "rule 7 row-heading message: $(cat "$d/err")"
+guard 0 "rule 7: the same entry from a session close" "gh pr merge 5 --squash" GH_HEAD="$ROW3" GH_BRANCH=ops/session-3-close
+cp "$R/.claude/project.conf" "$d/conf7.bak"; echo 'BRANCH_SESSION_CLOSE=""' >> "$R/.claude/project.conf"
+guard 0 "rule 7: BRANCH_SESSION_CLOSE=\"\" turns its second half off, with rule 8" "gh pr merge 5 --squash" GH_HEAD="$ROW3" GH_BRANCH=ops/ops-1-row
+cp "$d/conf7.bak" "$R/.claude/project.conf"
+on ops/ops-2-row; sed 's/— start$/— start, retitled/' "$J" > "$J.new" && mv "$J.new" "$J"
+head_of "a row retitles an old entry"; at
+guard 0 "rule 7: a row's PR that retitles an old entry numbers nothing" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/ops-2-row
+on ops/ops-3-row; mkdir -p "$R/docs/journal.d"; printf '# OPS-3 — a row\n' > "$R/docs/journal.d/OPS-3.md"
+head_of "a row writes its fragment"; at
+guard 0 "rule 7: a row's PR that writes only its fragment" "gh pr merge 5 --squash" GH_HEAD="$(H)" GH_BRANCH=ops/ops-3-row
+receipt "$MAINSHA"
 
 # Rule 2(c) and rule 8: a head behind origin/main. 2(c) advises on any PR; rule 8 BLOCKS a session
 # close (BRANCH_SESSION_CLOSE) until its head contains origin/main. Ported from the meta-tests of
@@ -214,6 +234,32 @@ git -C "$R" update-ref -d refs/remotes/origin/main; git -C "$R" remote set-url o
 guard 2 "rule 8: origin/main unreadable (fails closed, not open)" "gh pr merge 5 --squash" GH_HEAD="$GONE" GH_BRANCH=ops/session-9-close
 grep -q 'cannot read origin/main, so rule 8' "$d/err" && ok "rule 8: ...and the block is rule 8's, naming the fetch to run" || fail "rule 8 unreadable-main message: $(cat "$d/err")"
 git -C "$R" remote set-url origin acme/app.git; (cd "$R" && git fetch -q origin)
+receipt "$MAINSHA"
+
+# Rule 8's second half (OPS-108): any PR that changes JOURNAL or INSIGHTS lands on top of
+# origin/main, whatever its branch, so a close that rides a row's PR is held as a close is.
+land() { echo "$1" > "$R/land.txt"; git -C "$R" add -A; git -C "$R" commit -qm "another PR lands: $1"; (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin); }
+on ops/ops-4-row; printf '# Insights\n\n| a row adds a line |\n' > "$R/docs/insights-log.md"; head_of "a row writes the insights log"; at; INS=$(H)
+land ins
+guard 2 "rule 8: a row's PR that changes the insights log, behind origin/main" "gh pr merge 5 --squash" GH_HEAD="$INS" GH_BRANCH=ops/ops-4-row
+grep -q 'changes docs/insights-log.md' "$d/err" && grep -q 'does not contain origin/main' "$d/err" && ok "rule 8: ...and the block names the record it changes" || fail "rule 8 record message: $(cat "$d/err")"
+on ops/ops-5-row; printf '\nmore\n' >> "$J"; head_of "a row edits the journal's prose"; at; JRN=$(H)
+land jrn
+guard 2 "rule 8: a row's PR that changes the journal, behind origin/main" "gh pr merge 5 --squash" GH_HEAD="$JRN" GH_BRANCH=ops/ops-5-row
+git -C "$R" checkout -q ops/ops-4-row && git -C "$R" merge -q --no-edit origin/main && INSM=$(git -C "$R" rev-parse HEAD) && git -C "$R" checkout -q main
+receipt "$INSM"
+guard 0 "rule 8: the same row's PR, once it merges origin/main" "gh pr merge 5 --squash" GH_HEAD="$INSM" GH_BRANCH=ops/ops-4-row
+case "$(seen)" in *"rule 8"*"changes docs/insights-log.md"*"contains origin/main"*) ok "rule 8: ...and says rule 8 ran, and why" ;; *) fail "rule 8 silent on the merged row: $(seen)" ;; esac
+on ops/ops-6-row; mkdir -p "$R/docs/journal.d"; printf '# OPS-6 — a row\n' > "$R/docs/journal.d/OPS-6.md"; head_of "a row writes only its fragment"; at; FRG=$(H)
+land frg
+guard 0 "rule 8: a row's PR that writes only its fragment, behind origin/main (advice, not a block)" "gh pr merge 5 --squash" GH_HEAD="$FRG" GH_BRANCH=ops/ops-6-row
+case "$(seen)" in *"rule 8"*) fail "rule 8 ran on a fragment-only row: $(seen)" ;; *) ok "rule 8: silent on a fragment-only row" ;; esac
+# The journal edit is main's, carried in by a merge: the PR itself changes neither record.
+printf '\nmain edits its journal\n' >> "$J"; git -C "$R" commit -qam "a close lands"; (cd "$R" && git push -q origin HEAD:main 2>/dev/null && git fetch -q origin)
+git -C "$R" checkout -q ops/ops-6-row && git -C "$R" merge -q --no-edit origin/main && CARRY=$(git -C "$R" rev-parse HEAD) && git -C "$R" checkout -q main
+land carry; receipt "$CARRY"
+guard 0 "rule 8: a row's PR whose only journal change is main's, merged in" "gh pr merge 5 --squash" GH_HEAD="$CARRY" GH_BRANCH=ops/ops-6-row
+case "$(seen)" in *"rule 8"*) fail "rule 8 counted main's journal edit as the row's: $(seen)" ;; esac
 receipt "$MAINSHA"
 
 on change/add-y; mkdir -p "$R/changes/add-y" "$R/src"

@@ -111,8 +111,9 @@ If the line above shows as literal text instead of output, run
    `**Approved:** <date> by <owner> · design <hash>`: the approval covers `design.md` and the Risk
    line exactly as they stand), run `clauductor-model checks/run.sh changes`, then land the proposal alone through `merge-pr`
    (under a review page, the PR's body carries the `Review:` line too). Step 2b reviewed it, so
-   merge-pr's step 3 reviews only what changed since. Its roadmap row stays `⬜ queued` with a note
-   `proposed (#N)`: it goes in flight when the build PR opens. The build then starts from `main`
+   merge-pr's step 3 reviews only what changed since. Its roadmap row stays `⬜ queued`, untouched:
+   a row's Status is the daily close's (OPS-108), which sets it in flight once the build PR opens.
+   A proposal session writes no journal fragment; the build's PR writes the row's. The build then starts from `main`
    (`/build-change {"change": "<id>"}`, or the panel's build template).
 
 ## Rules

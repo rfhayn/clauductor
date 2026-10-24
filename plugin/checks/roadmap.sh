@@ -348,6 +348,11 @@ bypass() {
       */local/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
       # ...and its check, which finds that section's line range and greps for a committed address.
       */local/checks/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+      # OPS-108: the daily close's fold writes each folded row's Status cell (no parser writes), at
+      # the line roadmap_queue --tsv names, and re-parses the result with roadmap_queue --check;
+      # review-cap.sh reads a row's Risk: from the line roadmap_queue names, because the --tsv
+      # summary column may be shortened by a project's own parser.
+      */skills/session-close/fold.sh|"$1"/review-cap.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
     esac
     grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' "$f" \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \

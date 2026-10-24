@@ -211,7 +211,7 @@ const prefixRun = async (risk, econ) => {
   // The preflight answer also carries a gate that disagrees: the project's gate is read ONCE, from
   // the settings, and nothing the preflight agent reports may replace it.
   const pre = { branch: 'change/x', clean: true, dirtyFiles: [], groups: [{ n: 1, title: 't', openTasks: 1 }],
-    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01',
+    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, reviewCap: `3 — risk ${risk}, from the test`, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01',
     gate: 'scripts/ci/gate.sh', quickFlags: '--quick' }
   const agent = async (p, o) => (o && o.label === 'preflight' ? pre : o && o.label === 'settings' ? settings : null)
   const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick, gate: GATE_CMD, quick: QUICK }\n})()`
@@ -298,7 +298,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     calls.push({ prompt, opts })
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
-    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', ...budget,
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', ...budget,
       groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
@@ -397,6 +397,24 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   // the budget comes from change-cost.sh's JSON, and the agent is told not to parse proposal.md.
   const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
   t('the preflight agent takes budgetUsd and budgetKind from change-cost.sh --json, never from proposal.md\'s **Budget:** line', /change-cost\.sh demo --json/.test(pf) && /budgetKind/.test(pf) && !/\*\*Budget:\*\*/.test(pf) && /Do not read the budget from proposal\.md/.test(pf), pf)
+  // The review cap (OPS-108): review-cap.sh's words, parsed by the script, or args.maxRounds.
+  t('the preflight agent runs review-cap.sh for the change and reports its words verbatim', /review-cap\.sh demo --why 2>&1/.test(pf) && /reviewCap/.test(pf), pf)
+  r = await run([], { budget: { reviewCap: 'ERROR: the roadmap did not parse, so the review cap is UNKNOWN' } })
+  t('review-cap.sh refusing stops at preflight, naming what it said, before any group is built', r.report.stoppedAt === 'preflight' && /gave no review cap/.test(r.report.reason) && /UNKNOWN/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { reviewCap: '' } })
+  t('a preflight that reports no cap at all stops too, rather than defaulting', r.report.stoppedAt === 'preflight' && /no output/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([finding(3)], { budget: { reviewCap: '1 — risk low, from the test' } })
+  t('the cap review-cap.sh prints is the rounds a group gets: at 1, a round with findings stops for KNOWN LIMITS', r.report.stoppedAt === 'group 3 review' && /after 1 rounds, the review cap/.test(r.report.reason) && /KNOWN LIMITS/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([finding(3)])
+  t('at the default 3, the same finding is fixed and the run finishes', r.report.stoppedAt === null, [r.report.stoppedAt, r.report.reason])
+  r = await run([finding(3)], { args: { maxRounds: 1 } })
+  t('args.maxRounds overrides the printed cap', r.report.stoppedAt === 'group 3 review' && /after 1 rounds/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { args: { maxRounds: 2 }, budget: { reviewCap: 'ERROR: no cap' } })
+  t('with args.maxRounds, a refusing review-cap.sh does not stop the run', r.report.stoppedAt === null, [r.report.stoppedAt, r.report.reason])
+  for (const bad of [0, 1.5, 'three']) {
+    r = await run([], { args: { maxRounds: bad } })
+    t(`maxRounds ${JSON.stringify(bad)} stops at preflight`, r.report.stoppedAt === 'preflight' && /not a whole number/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  }
   console.log(out.join('\n'))
 })().catch((e) => { console.log(`FAIL driver: the script threw: ${e && e.message}`) })
 EOF

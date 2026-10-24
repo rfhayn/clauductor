@@ -66,10 +66,17 @@ comments on this repo, and the squash-merge through `merge-pr`. A session runs `
 at an owner decision, an environment fault, a gate that stays red, or review not converging, and
 once at the end, one line. Work that needs the owner at the computer goes in the owner queue.
 
+**One row, one session, one PR.** A row's PR writes its records to one fragment,
+`docs/journal.d/<row id>.md` (`JOURNAL_FRAGMENTS`; the shape is that directory's README), and never
+edits the journal, the insights log or any row's Status. A daily close (`BRANCH_SESSION_CLOSE`, once
+a day or every 3–4 rows) folds the fragments on main into one `## Session N` (`session-close`,
+*Two forms*). `pr-merge-guard` rule 7 refuses a row PR that adds a session heading; rule 8 holds any
+PR that changes the journal or the log, whatever its branch, on top of `origin/main`.
+
 **Several people.** Each person has their own Claude and merges only their own PRs. Claude's
-memory is per machine: what another person needs goes in the repo. Shared files are resolved as
-`session-close` describes (the journal renumbers, the insights log keeps both rows, ADRs take the
-next number).
+memory is per machine: what another person needs goes in the repo. Fragments never conflict (one
+file per row); the close's shared files are resolved as `session-close` describes (the journal
+renumbers, the insights log keeps both rows, ADRs take the next number).
 
 ## Testing (yours)
 

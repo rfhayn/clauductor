@@ -8,6 +8,7 @@
 . "$(dirname "$0")/lib.sh"
 . "$ROOT/.claude/hooks/lib/journal-sessions.sh"
 . "$ROOT/.claude/lib/records.sh"
+. "$ROOT/.claude/lib/fragments.sh"
 
 if [ -z "${JOURNAL_SELFTEST:-}" ]; then
 h() { printf '## Session %s — 2026-01-0%s — a — x\n' "$@"; }
@@ -97,6 +98,66 @@ conf 'RECORDS_BASELINE="2026-09-01"'
 jbad "a project's own heading shape against the default JOURNAL_HEADING" "Session 4 | 2026-09-28"
 conf 'RECORDS_BASELINE="2026-09-01"' "JOURNAL_HEADING='^## Session [0-9]+ [|] [0-9]{4}-[0-9]{2}-[0-9]{2} [|] .+'"
 jok "a project's own heading shape under its own JOURNAL_HEADING"
+
+# ── Self-test: a row's fragment (lib/fragments.sh), good and broken one way at a time ────────────
+FD="$(scratch)/frag"; mkdir -p "$FD"
+good() {  # good ID: a fragment of the full shape, to stdout
+  cat <<G
+# $1 — a sample row
+
+- **PR**: #12
+- **Session**: S10, started 2026-10-23 09:15 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: 14 min
+- **Cost**: \$3.10
+- **Session start**: 48000 tokens, 2 min
+
+## What happened
+
+The row's narrative.
+
+## Decisions
+
+None.
+
+## Surprises
+
+None.
+
+## Insights
+
+| 2026-10-23 | Process | a/b | An observation. | How to verify it. | Raw |
+G
+}
+fgood() { if got=$(fragment_problems "$FD/$1.md"); then ok "fragment: $2 passes"; else fail "fragment: $2 FAILED: $(echo $got)"; fi; }
+fbad() {  # fbad ID LABEL WORDS: it must fail, and for the reason WORDS
+  if got=$(fragment_problems "$FD/$1.md"); then fail "fragment: $2 passed"
+  elif printf '%s\n' "$got" | grep -qF -- "$3"; then ok "fragment: $2 fails ($3)"
+  else fail "fragment: $2 fails, but not for '$3': $(echo $got)"; fi
+}
+good OPS-1 > "$FD/OPS-1.md"; fgood OPS-1 "the full shape"
+good OPS-2 | sed 's/^| 2026.*/None./' > "$FD/OPS-2.md"; fgood OPS-2 "no insights (None.)"
+good OPS-9 > "$FD/OPS-3.md"; fbad OPS-3 "a title naming another row" 'line 1 is not "# OPS-3'
+good OPS-4 | sed '/\*\*Gate\*\*/d' > "$FD/OPS-4.md"; fbad OPS-4 "a missing field" "no **Gate** field"
+good OPS-5 | sed 's/started 2026-10-23 09:15 ET/started this morning/' > "$FD/OPS-5.md"; fbad OPS-5 "a session without its start time" "**Session** is not"
+good OPS-6 | sed '/^## Surprises/,/^## Insights/{/^## Insights/!d;}' > "$FD/OPS-6.md"; fbad OPS-6 "a missing section" 'no "## Surprises" section'
+good OPS-7 | sed 's/^## What happened/## Session 11 — 2026-10-23 — a — x/' > "$FD/OPS-7.md"; fbad OPS-7 "a session heading in a fragment" "only a session close numbers a session"
+good OPS-8 | sed 's/ Raw |$/ Raw | extra |/' > "$FD/OPS-8.md"; fbad OPS-8 "an insight row of seven cells" "needs six cells"
+good OPS-10 > "$FD/OPS-10.md"
+printf '| Date | Area | Topic | Observation | How to verify | Status |\n' >> "$FD/OPS-10.md"; fbad OPS-10 "a table header under Insights" "no table header"
+good OPS-11 | sed '/^| 2026/d' > "$FD/OPS-11.md"; fbad OPS-11 "an empty Insights section" 'neither an insight row nor "None."'
+good 'two words' > "$FD/two words.md"; fbad 'two words' "a file name that is not a row id" "is not <row id>.md"
+good OPS-12 | awk '{ print } /^The row.s narrative\./ { print ""; print "```"; print "## What happened"; print "- **PR**: quoted"; print "```" }' > "$FD/OPS-12.md"
+fgood OPS-12 "a fenced block quoting a section heading and a field"
+good OPS-13 | sed 's/An observation\./a \\| b, escaped as the log writes it/' > "$FD/OPS-13.md"; fgood OPS-13 "an insight row with an escaped \\| in a cell"
+good OPS-14 | sed 's/peak medium/peak minor/' > "$FD/OPS-14.md"; fbad OPS-14 "a peak that is not a severity" "**Review** is not"
+good OPS-15 > "$FD/OPS-15.md"; printf '\nThe second one was about the gate lease.\n' >> "$FD/OPS-15.md"
+fbad OPS-15 "prose under Insights beside a row (the fold would drop it)" "holds only insight rows"
+good OPS-16 > "$FD/OPS-16.md"; printf '\n```\n| 2026-10-23 | a | b | c | d | Raw |\n```\n' >> "$FD/OPS-16.md"
+fbad OPS-16 "a fenced block under Insights (the fold would drop it)" "holds only insight rows"
+good OPS-17 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: 4.20/' > "$FD/OPS-17.md"; fbad OPS-17 "a cost with no \$" "**Cost** is not"
+good OPS-18 | sed 's/^- \*\*Session start\*\*: .*/- **Session start**: about an hour/' > "$FD/OPS-18.md"; fbad OPS-18 "a session start that is not the marker's" "**Session start** is not"
+good OPS-19 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: CANNOT CHECK — no records/' > "$FD/OPS-19.md"; fgood OPS-19 "a cost that could not be read, said so"
 fi
 
 # ── This project's journal ───────────────────────────────────────────────────────────────────────
@@ -126,4 +187,14 @@ nb=$(grep -c . "$(scratch)/j-bad"); bad=$(head -3 "$(scratch)/j-bad" | tr '\n' '
 [ "$kind" = none ] || ok "$nl session heading(s) before RECORDS_BASELINE ($RECORDS_BASELINE) kept as written"
 if [ "$nb" -eq 0 ]; then ok "every session heading since adoption ($nn) matches JOURNAL_HEADING"
 else fail "malformed session headings ($nb of $nn since adoption; JOURNAL_HEADING): $bad"; fi
+
+# ── This project's fragments: each row's records in the shape the close folds ───────────────────
+nfr=0
+fragment_files > "$(scratch)/fragments"
+while IFS= read -r f; do
+  nfr=$((nfr + 1))
+  if got=$(fragment_problems "$f"); then ok "fragment ${f#"$ROOT"/} has the shape session-close folds"
+  else fail "fragment ${f#"$ROOT"/} (docs/journal.d/README.md has the shape): $(printf '%s\n' "$got" | head -5 | tr '\n' ';')"; fi
+done < "$(scratch)/fragments"
+[ "$nfr" -gt 0 ] || ok "no row fragment waits in $JOURNAL_FRAGMENTS for a close"
 finish

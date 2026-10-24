@@ -59,8 +59,9 @@ do one group alone. The loop is the same, and so are its stops.
 4. **Review.** Spawn the `clauductor:reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
-   if peak severity RISES between rounds, or after 3 rounds without converging, and name the
-   builder's disputes for the owner to rule on.
+   if peak severity RISES between rounds, or at the cap without converging (`clauductor-model review-cap.sh
+   <id>`: its rounds for the proposal's `**Risk:**`), and name the builder's disputes for the owner to
+   rule on; what is left goes to the PR's `KNOWN LIMITS`, each with the issue or row that owns it.
 5. **Commit** the group once a round finds nothing medium or worse: add one line under
    `## Progress` in `tasks.md` (`- <date> group N (<title>) built and reviewed: converged in <n>
    round(s), peak <sev>`), check `git diff HEAD --name-status` for anything secret-looking,
@@ -74,7 +75,8 @@ do one group alone. The loop is the same, and so are its stops.
   (timeout 600000): exit 3 means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or
   2: no result, run the gate again).
 - `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
-- Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
+- Write the row's fragment (`docs/journal.d/<row id>.md`; the row's Status is the daily close's
+  fold's, never set in this PR). Push, open the PR, and land it with
   `merge-pr` (passing on any `reportTo`), recording `Review: converged in <n> round(s), peak
   <sev>, at <sha>` per group.
 

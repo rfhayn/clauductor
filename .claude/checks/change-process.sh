@@ -100,6 +100,7 @@ git worktree remove
 gh pr create
 gh pr view
 gh pr checks
+gh pr ready
 gh pr merge
 gh run list
 gh auth status
@@ -366,16 +367,16 @@ _red "a pull in a step of its own after step 5" '/^## After the merge/i\
 ### 6. Pull\
 Run `git -C "$main" pull --ff-only` once the merge lands.
 ' "text after step 5 names \`git -C \"\$main\" pull --ff-only\`"
-_red "a fast-forward by merge after the merge" '/^- Set the roadmap row/i\
+_red "a fast-forward by merge after the merge" '/^- Leave the roadmap row/i\
 - Fast-forward the main checkout: `git -C "$main" merge origin/main`.
 ' "text after step 5 names \`git -C \"\$main\" merge origin/main\`"
-_red "a reset with no git before it" '/^- Set the roadmap row/i\
+_red "a reset with no git before it" '/^- Leave the roadmap row/i\
 - Then `reset --hard origin/main` in the main checkout.
 ' "text after step 5 names \`reset --hard origin/main\`"
-_red "a sync by gh" '/^- Set the roadmap row/i\
+_red "a sync by gh" '/^- Leave the roadmap row/i\
 - Bring the main checkout up to date with `gh repo sync`.
 ' "text after step 5 names \`gh repo sync\`"
-_red "a pull named outside a code span after step 5" '/^- Set the roadmap row/i\
+_red "a pull named outside a code span after step 5" '/^- Leave the roadmap row/i\
 - Then run git pull in the main checkout.
 ' "text after step 5 names \`git pull\` outside a code span"
 _red "a second step 5" '/^## After the merge/i\
@@ -386,6 +387,9 @@ _red "a second step 5" '/^## After the merge/i\
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"
 has .claude/skills/archive-change/SKILL.md 'check-outcome-<id>' "archive queues the outcome check"
 has .claude/skills/merge-pr/SKILL.md 'Agent-Role:' "merge-pr writes the provenance trailers"
+# A row's PR opens as a draft (session-start/marker.sh), and GitHub refuses to squash a draft.
+has .claude/skills/merge-pr/SKILL.md 'run `gh pr ready <n>` first' "merge-pr readies a draft PR before the squash"
+has .claude/skills/merge-pr/context.sh 'isDraft' "merge-pr's context says when the PR is a draft"
 has .claude/workflows/build-change.js "stop('budget'" "build-change stops over budget"
 
 # The reviewer checks that a citing test asserts the THEN (D4).

@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: 3, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}; the changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, push and run merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -38,7 +38,10 @@ if (!change) throw new Error('build-change needs args.change (the change id)')
 // The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args,
 // and so does gate-wait.sh's path (gateWait: beside GATE_RUN, or scripts/ci/ for a project's own runner).
 let CHANGES, BRANCH, GATE_CMD, GATE_WAIT, QUICK, CFG
-const MAX_ROUNDS = args.maxRounds ?? 3
+// Review rounds per group: args.maxRounds, else the cap .claude/review-cap.sh prints for this change
+// (its proposal's **Risk:** against REVIEW_CAPS, the one place the owner's caps live), set after the
+// preflight reads it. Past it, the group stops and what is left goes to KNOWN LIMITS (OPS-108).
+let MAX_ROUNDS
 const RESUME = args.resume == null ? null : Number(args.resume)
 const MAX_GATE_FIXES = 2
 
@@ -208,6 +211,7 @@ const PREFLIGHT = {
     clean: { type: 'boolean' },
     gitDir: { type: 'string', description: 'verbatim output of git rev-parse --absolute-git-dir' },
     risk: { type: 'string', description: 'the value of proposal.md\'s **Risk:** line, verbatim; empty if there is none' },
+    reviewCap: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model review-cap.sh <change> --why' },
     budgetUsd: { type: ['number', 'null'], description: 'budgetUsd from change-cost.sh --json, verbatim; null if it printed null or nothing' },
     budgetKind: { type: ['string', 'null'], description: 'budgetKind from change-cost.sh --json, verbatim (hard, soft, none or unreadable); null if it printed no budgetKind' },
     costUsd: { type: ['number', 'null'], description: 'costUsd from change-cost.sh --json; null if it could not check' },
@@ -330,6 +334,7 @@ const pre = await agent(
 6. \`clauductor-model change-cost.sh ${change} --json\` → from the JSON it prints, whatever its exit code: costUsd, budgetUsd and budgetKind, each copied verbatim (null for any it does not print, all three null if it prints no JSON). Do not read the budget from proposal.md yourself.
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
+9. \`clauductor-model review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
@@ -361,6 +366,16 @@ const gateCmd = (flags) => [GATE_CMD, flags].filter(Boolean).join(' ')
 // The risk tier the owner approved picks each role's variant; economy mode drops the roles it lists.
 const RISK = pre.risk
 if (!['low', 'normal', 'high'].includes(RISK)) return stop('preflight', `proposal.md's **Risk:** is '${RISK}', not low, normal or high; checks/changes.sh should have refused it`)
+// The cap is parsed HERE from the script's own words, not taken from an agent's number: a cap the
+// script refused to give is a stop, never a default that lets review end early or run on.
+const capLine = String(pre.reviewCap || '').trim()
+const capMatch = capLine.match(/^(\d+) — /)
+if (args.maxRounds != null) {
+  MAX_ROUNDS = Number(args.maxRounds)
+  if (!Number.isInteger(MAX_ROUNDS) || MAX_ROUNDS < 1) return stop('preflight', `maxRounds ${args.maxRounds} is not a whole number of rounds (1 or more)`)
+} else if (capMatch && Number(capMatch[1]) >= 1) MAX_ROUNDS = Number(capMatch[1])
+else return stop('preflight', `.claude/review-cap.sh gave no review cap for ${change}: ${capLine || 'no output'}. Fix what it names, or pass maxRounds`)
+log(`Review cap: ${MAX_ROUNDS} round(s) per group (${args.maxRounds != null ? 'maxRounds' : capLine})`)
 const ECONOMY_ON = pre.economy === true
 const pick = (role) => {
   let c = TIERS[`${role}.${RISK}`] || ROLES[role]
@@ -497,7 +512,7 @@ for (const g of todo) {
     if (round >= MAX_ROUNDS) {
       entry.residual = rev.findings
       const disputes = entry.disputed.length ? `; builder disputes, which you may need to rule on: ${entry.disputed.join(' | ')}` : ''
-      return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds (peak ${peak})${disputes}`)
+      return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds, the review cap (peak ${peak})${disputes}. What is left goes to the PR's KNOWN LIMITS, each finding with the issue or roadmap row that owns it (create it if none does), unless the owner raises the cap (maxRounds)`)
     }
     const source = (f) => (!outside.includes(f) ? '' : f.group === 0 ? ' (source: predates this change)' : ` (source: group ${f.group}, already committed)`)
     const list = actionable.map((f, i) => `${i + 1}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}${source(f)}: ${f.summary}\n   failure: ${f.failure}${f.class ? `\n   class: ${f.class}` : ''}`).join('\n')

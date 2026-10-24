@@ -30,6 +30,12 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
    on anything it removes. Never merge another person's PR.
 4. **Set the focus**: `clauductor-model status-write.sh "[<branch>] <short focus>"`. The panel shows it
    on the lane's card.
+   **A row's session** (one roadmap row, in its own worktree on the row's branch) then marks its
+   start: `clauductor-model skills/session-start/marker.sh <row id> [S<n>]` (`S<n>` the session plan's
+   number, when it has one). It opens the row's PR as a draft whose body starts
+   `session-start: S<n> <YYYY-MM-DD HH:MM ET> row <id>` and the session-start cost, which the row's
+   fragment copies at close (`session-close`, *Two forms*). It never blocks: a failure is one
+   `marker: WARNING` line to say, and the session goes on.
 5. **Flag what needs attention before new work**: uncommitted changes, a `Raw` insight that should
    be promoted, a `Proposed` ADR or practice record awaiting the owner, a "What's next" that is
    now stale, two changes proposed at once.

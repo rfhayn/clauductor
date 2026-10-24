@@ -49,8 +49,10 @@ workflow's success for the same SHA, as evidence. See `scripts/ci/README.md`.
 Review when a task group is done, not when the PR is (*A review's blind spot is set by its
 framing*). The build-change workflow does exactly that: it gates, reviews with a reviewer that is
 not told what the builder intended, fixes, and re-reviews until no finding is medium or worse; it
-stops for the owner if peak severity RISES between rounds or after three rounds without
-converging. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
+stops for the owner if peak severity RISES between rounds or at the review cap without
+converging. The cap is per risk (`${CLAUDE_PLUGIN_ROOT}/review-cap.sh`: the proposal's `**Risk:**`, or an ops or
+fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`, low 2, normal 3, high 3); past it, what
+is left goes to the PR's `KNOWN LIMITS` with the issue or row that owns it. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
 diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-lane.sh`).
 
 ## Who decides, and what runs unattended
@@ -63,10 +65,17 @@ comments on this repo, and the squash-merge through `merge-pr`. A session runs `
 at an owner decision, an environment fault, a gate that stays red, or review not converging, and
 once at the end, one line. Work that needs the owner at the computer goes in the owner queue.
 
+**One row, one session, one PR.** A row's PR writes its records to one fragment,
+`docs/journal.d/<row id>.md` (`JOURNAL_FRAGMENTS`; the shape is that directory's README), and never
+edits the journal, the insights log or any row's Status. A daily close (`BRANCH_SESSION_CLOSE`, once
+a day or every 3–4 rows) folds the fragments on main into one `## Session N` (`session-close`,
+*Two forms*). `pr-merge-guard` rule 7 refuses a row PR that adds a session heading; rule 8 holds any
+PR that changes the journal or the log, whatever its branch, on top of `origin/main`.
+
 **Several people.** Each person has their own Claude and merges only their own PRs. Claude's
-memory is per machine: what another person needs goes in the repo. Shared files are resolved as
-`session-close` describes (the journal renumbers, the insights log keeps both rows, ADRs take the
-next number).
+memory is per machine: what another person needs goes in the repo. Fragments never conflict (one
+file per row); the close's shared files are resolved as `session-close` describes (the journal
+renumbers, the insights log keeps both rows, ADRs take the next number).
 
 ## Testing (yours)
 

@@ -19,10 +19,24 @@
 #       on this branch's own squash-merged heading.
 # Sub-numbered sessions (`58`, `58.1`) are distinct numbers.
 #
-# WHAT IT CANNOT DECIDE: that the number is the NEXT one (a gap passes).
+# WHAT IT CANNOT DECIDE: that the number is the NEXT one (a gap passes). A close numbers its entry
+# after the first plan session it covers (OPS-108), so a gap is expected, not a fault.
 
 _journal_numbers() {
   printf '%s\n' "$1" | sed -n 's/^## Session \([0-9][0-9]*\(\.[0-9][0-9]*\)*\).*/\1/p'
+}
+
+# $1 = BASE headings, $2 = HEAD headings, $3 = MAIN headings. Prints each HEAD heading whose NUMBER
+# neither BASE nor MAIN has: a session this PR numbers. By number, not by line, so a retitled old
+# entry numbers nothing, and neither does a heading main gained after the cut and a merge of it
+# carried in. Rule 7 refuses one on a PR that is not a session close (OPS-108: only a close numbers
+# a session); a number another session already took is journal_session_collisions' case.
+journal_sessions_numbered() {
+  _known=$(printf '%s\n%s\n' "$(_journal_numbers "$1")" "$(_journal_numbers "$3")")
+  printf '%s\n' "$2" | grep -E '^## Session [0-9]+' | while IFS= read -r _line; do
+    _n=$(_journal_numbers "$_line")
+    printf '%s\n' "$_known" | grep -qxF -- "$_n" || printf '%s\n' "$_line"
+  done
 }
 
 # $1 = BASE headings, $2 = HEAD headings, $3 = MAIN headings (newline-separated lines).
