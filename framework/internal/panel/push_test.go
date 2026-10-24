@@ -446,9 +446,12 @@ func TestRunPushFailsAndTimesOut(t *testing.T) {
 			}
 		}
 	})
+	// The timeout gives the stand-in time to start its child first: a kill before the
+	// fork would leave nothing for WaitDelay to cut short (OPS-122 review).
+	timeout := testwait.Scale(time.Second)
 	start := time.Now()
-	err = runPush(context.Background(), 200*time.Millisecond, []string{slow}, "T", "B")
-	if took := time.Since(start); took > testwait.Scale(3*time.Second) {
+	err = runPush(context.Background(), timeout, []string{slow}, "T", "B")
+	if took := time.Since(start); took > timeout+testwait.Scale(3*time.Second) {
 		t.Fatalf("a push that never answers took %s, want it stopped at its timeout", took)
 	}
 	if err == nil || !strings.Contains(err.Error(), "no answer within") {
