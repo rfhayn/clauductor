@@ -189,6 +189,42 @@ func TestNotifierInterruptsOnlyForBlockingAndSurvivesRestart(t *testing.T) {
 	}
 }
 
+// OPS-122: a lane's alert carries its terminal once tmux reports the terminal running,
+// and only its worktree before. After a restart, a loaded machine's tmux poll can
+// answer after `claude agents` does: the alert, in a new stretch (its Since restarts
+// with the panel), comes in under the worktree alone. The lane was notified inside
+// MinInterval under its terminal, so it waits all the same.
+func TestNotifierIntervalHoldsWhileTheLaneIsUnbound(t *testing.T) {
+	t.Parallel()
+	bound := AlertView{Key: "waiting:s", Kind: AlertWaiting, Severity: signals.SevBlock, Lane: "/repo/.wt/bug", Name: "bug",
+		Terminal: "bug", Text: "waiting", Since: t0.UnixMilli()}
+	n := &Notifier{MinInterval: 10 * time.Minute}
+	if out := n.Process([]AlertView{bound}, nil, t0); len(out) != 1 {
+		t.Fatalf("the bound alert: %+v, want one notice", out)
+	}
+	unbound := bound
+	unbound.Terminal, unbound.Since = "", t0.Add(2*time.Second).UnixMilli()
+	n2 := &Notifier{MinInterval: 10 * time.Minute}
+	n2.Restore(n.State())
+	if out := n2.Process([]AlertView{unbound}, nil, t0.Add(3*time.Second)); len(out) != 0 {
+		t.Fatalf("the restart re-notified the lane before tmux bound it: %+v", out)
+	}
+	// And the other way: a notice sent while unbound holds the lane once bound.
+	n3 := &Notifier{MinInterval: 10 * time.Minute}
+	if out := n3.Process([]AlertView{unbound}, nil, t0); len(out) != 1 {
+		t.Fatalf("the unbound alert: %+v, want one notice", out)
+	}
+	rebound := bound
+	rebound.Since = t0.Add(5 * time.Second).UnixMilli()
+	if out := n3.Process([]AlertView{rebound}, nil, t0.Add(6*time.Second)); len(out) != 0 {
+		t.Fatalf("the lane, once bound, was notified again inside MinInterval: %+v", out)
+	}
+	// The premise: past MinInterval the new stretch notifies.
+	if out := n3.Process([]AlertView{rebound}, nil, t0.Add(11*time.Minute)); len(out) != 1 {
+		t.Fatalf("past MinInterval: %+v, want one notice", out)
+	}
+}
+
 // stalledAt is a stalled alert of lane-a since since, as applyStalls raises it.
 func stalledAt(since time.Time, approx bool) AlertView {
 	return AlertView{Key: AlertStalled + ":/repo/w/a", Kind: AlertStalled, Severity: signals.SevBlock, Lane: "/repo/w/a",

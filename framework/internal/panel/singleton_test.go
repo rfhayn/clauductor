@@ -58,10 +58,12 @@ func writePanelFiles(t *testing.T, home string, pid, port int, owner *install.Pa
 }
 
 // runBounded runs the panel with a deadline: a regression that let a refused
-// second panel start would serve until the deadline instead of failing.
+// second panel start would serve until the deadline instead of failing. The deadline
+// sits far past any refusal's scaled bound, so a slow refusal on a loaded machine is
+// still a refusal, not the deadline's error (OPS-122).
 func runBounded(t *testing.T, o Options) error {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if o.LookupEnv == nil {
 		o.LookupEnv = testEnv
@@ -584,7 +586,7 @@ func TestLaunchdStartWaitsForTheRunningPanel(t *testing.T) {
 	if err := runBounded(t, Options{Project: root, Port: 0, NoOpen: true, Home: home, Runner: fakeRunner(root)}); err == nil {
 		t.Fatal("a refused hand start returned no error")
 	}
-	if d := time.Since(t0); d > 2*time.Second {
+	if d := time.Since(t0); d > testwait.Scale(2*time.Second) {
 		t.Fatalf("a hand start waited %v instead of refusing at once", d)
 	}
 

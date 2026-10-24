@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // PANEL-23. The panel's hooks run in EVERY Claude Code session on the machine, so they
@@ -83,7 +84,7 @@ func quiet(t *testing.T, out string, took time.Duration, err error) {
 	if err != nil || out != "" {
 		t.Fatalf("the hook failed or spoke: err=%v output=%q", err, out)
 	}
-	if took > 5*time.Second {
+	if took > testwait.Scale(5*time.Second) {
 		t.Fatalf("the hook ran %v; it must end on its own (an async hook's timeout is not enforced)", took)
 	}
 }

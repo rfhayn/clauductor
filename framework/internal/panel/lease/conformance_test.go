@@ -1,6 +1,8 @@
 package lease
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +11,18 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
+
+// fastEnv is the driver's bounds for the controls and mutants. WAIT is how long a
+// waiter must keep waiting, so a broken one has that long to show its fault: on a
+// loaded machine 2 s let a slow-starting mutant pass (OPS-122). A caught one ends
+// early; a correct case pays WAIT, so it is 5 s, not more. A control that hangs pays
+// TIMEOUT, so it is the driver's default, 20 s, not more.
+func fastEnv() []string {
+	f := testwait.Factor()
+	return []string{fmt.Sprintf("CONFORMANCE_WAIT=%d", int(math.Ceil(5*f))), fmt.Sprintf("CONFORMANCE_TIMEOUT=%d", int(math.Ceil(20*f)))}
+}
 
 // The lease protocol has more than one implementation: lock-run, the plain-shell
 // lease.sh in docs/panel.md, and whatever a project writes for itself. The
@@ -170,7 +183,7 @@ func TestLeaseConformanceControlsFail(t *testing.T) {
 		known[c] = true
 	}
 	dir := t.TempDir()
-	fast := []string{"CONFORMANCE_WAIT=2", "CONFORMANCE_TIMEOUT=12"}
+	fast := fastEnv()
 	controls := []struct {
 		name, body string
 		mustFail   []string
@@ -262,7 +275,7 @@ func TestLeaseConformanceCatchesEveryMutant(t *testing.T) {
 	driver := conformanceDriver(t)
 	orig := docLeaseText(t)
 	dir := t.TempDir()
-	fast := []string{"CONFORMANCE_WAIT=2", "CONFORMANCE_TIMEOUT=12"}
+	fast := fastEnv()
 	mutantRuns := make([][]func() (string, error), len(leaseShMutants))
 	for i, m := range leaseShMutants {
 		if strings.Count(orig, m.old) != 1 {
