@@ -84,7 +84,11 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
     # gate-wait takes no arguments. gate-wait.sh is where install put it (gate_wait_path, conf.sh):
     # beside the template's runner, but at scripts/ci/ beside a project's own runner.
     # Both as install writes them: the gate as a command (gate_cmd), gate-wait where it put it.
-    for _g in "$(gate_cmd "$GATE")" "$(gate_wait_path)"; do
+    # An empty GATE is the template's gate: build-change runs scripts/ci/gate.sh then (`c.gate ||`),
+    # and the settings an install wrote before it emptied still name that (OPS-87). Only empty: any
+    # other value, absolute or outside the repo included, build-change runs as given.
+    _gt=$(gate_cmd "$GATE"); [ -n "$_gt" ] || _gt=scripts/ci/gate.sh
+    for _g in "$_gt" "$(gate_wait_path)"; do
       for _p in "$_g" "$_g *"; do
         jq -e --arg p "$_p" '(.sandbox.excludedCommands // []) | index($p)' "$f" >/dev/null \
           && echo "ok   sandbox.excludedCommands lists '$_p'" \
@@ -99,7 +103,7 @@ st="$ROOT/.claude/settings.json"
 d=$(scratch)
 selftest() {  # selftest WANT LABEL JQ-FILTER [GATE_RUN] [GATE]: the last two, for a project whose gate moved
   jq "$3" "$st" > "$d/s.json"
-  n=$(GATE_RUN=${4:-$GATE_RUN}; GATE=${5:-$GATE}; check_settings "$d/s.json" | grep -c '^FAIL')
+  n=$(GATE_RUN=${4:-$GATE_RUN}; GATE=${5-$GATE}; check_settings "$d/s.json" | grep -c '^FAIL')
   if [ "$1" = pass ] && [ "$n" -eq 0 ]; then ok "self-test: $2 passes"
   elif [ "$1" = fail ] && [ "$n" -gt 0 ]; then ok "self-test: $2 fails"
   else fail "self-test: $2 ($n FAIL line(s), want $1)"; fi
@@ -140,6 +144,10 @@ selftest pass "a gate at the repository root (GATE=./gate.sh): the settings name
 selftest fail "a gate at the repository root, excluded only as a bare gate.sh" \
   '(.sandbox.excludedCommands, .permissions.allow) |= map(sub("scripts/ci/gate\\.sh"; "gate.sh"))' '' ./gate.sh
 selftest pass "GATE written scripts/ci//gate.sh, GATE_RUN ci/../scripts/ci/run-local.sh/" '.' ci/../scripts/ci/run-local.sh/ scripts/ci//gate.sh
+# GATE="" runs the template's gate (build-change's fallback), so its exclusion is the one read (OPS-87).
+selftest pass "GATE empty: the settings name scripts/ci/gate.sh, which build-change then runs" '.' '' ''
+selftest fail "GATE empty, the default gate no longer excluded" '.sandbox.excludedCommands -= ["scripts/ci/gate.sh"]' '' ''
+selftest fail "GATE absolute (/abs/gate.sh), the settings naming only the default gate" '.' '' /abs/gate.sh
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))
