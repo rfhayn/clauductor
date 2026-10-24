@@ -64,7 +64,24 @@ if [ $# -eq 0 ]; then
   # wrap: start (no-clauductor.sh's fixture deletes from here to `wrap: end` to remove the wrap)
   if [ "${CHECKS_DOUBLE_PASS:-}" != 1 ] && [ -z "${CHECKS_BARE:-}" ]; then
     use_lib
+    # The exec window (OPS-121): a signal after the `exec` and before the inner run sets its traps
+    # leaves the environment, and no shell can close that instant (a signal ignored across `exec`
+    # cannot be trapped after it). So the run records its pid, which `exec` keeps, beside the
+    # environment, and the inner run deletes it once its traps exist: a run.pid still there is a run
+    # that died inside the window or is about to leave it. Every whole-set run's start removes such a
+    # scratch once its run is gone. Gone means kill says "no such process" (in any case: zsh and ksh
+    # say it lower case); "Operation not permitted" is a live process, a pid in another pid namespace
+    # (a Linux sandbox) can read as gone but only while its run is still in the instant before its
+    # traps, and a scratch with no pid recorded (any check's, or a live run's) is never touched.
+    for _w in "${TMPDIR:-/tmp}"/checks.*/run.pid; do
+      [ -f "$_w" ] || continue
+      _wp=$(cat "$_w" 2>/dev/null)
+      case $_wp in '' | *[!0-9]*) continue ;; esac
+      LC_ALL=C sh -c 'kill -0 "$1"' kill "$_wp" 2>&1 | grep -qi 'no such process' && rm -rf "${_w%/run.pid}"
+    done
     bare_env
+    # Recorded only now: until the exec, lib.sh's own traps remove the scratch.
+    echo $$ > "$_scratch/run.pid"
     bare_exec CHECKS_BARE="$BARE_DIR" CHECKS_BARE_RM="$_scratch" sh "$dir/run.sh"
   fi
   # wrap: end
@@ -81,6 +98,8 @@ if [ $# -eq 0 ]; then
     unset CHECKS_BARE_RM
     trap 'rm -rf "$_scratch"; trap - INT; kill -INT $$' INT
     trap 'rm -rf "$_scratch"; trap - TERM; kill -TERM $$' TERM
+    # Out of the exec window: from here these traps remove the environment, so no sweep may.
+    rm -f "$_scratch/run.pid"
   fi
 fi
 
