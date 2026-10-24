@@ -81,7 +81,7 @@ blob=$(git -C "$ROOT" hash-object -- "$ROADMAP") || die "cannot hash $ROADMAP"
 tsv=$(roadmap_queue --tsv "$rmfile") || die "the change queue is UNKNOWN: $tsv"
 
 # The plan, as tab-separated records:  S session order when focus owner  |  R id session order pos
-# |  D id decision.  Any shape it cannot read is an error, never a shorter plan.
+# kind lead  |  D id decision.  Any shape it cannot read is an error, never a shorter plan.
 plan=$(sh "$ROOT/.claude/roadmap-plan.sh" "$rmfile") || die "the Session plan cannot be read (above)"
 # The template's parser treats the section as optional; the tracker has nothing to show without it.
 printf '%s\n' "$plan" | grep -q '^S	' || die "no \"## Session plan\" section in $ROADMAP"

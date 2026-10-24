@@ -228,7 +228,7 @@ tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside
 # by ROADMAP_PARSER, reads it, and every consumer follows the key (the panel's suggestions here).
 need jq
 F="$d/own"; mkdir -p "$F/.claude/lib" "$F/docs" "$F/changes" "$F/infra"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$F/.claude/lib/"
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/fragments.sh" "$F/.claude/lib/"
 cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$CLAUDUCTOR_FW/panel-suggest.sh" "$F/.claude/"
 cat > "$F/docs/roadmap.md" <<'EOF'
 # Roadmap
@@ -353,11 +353,14 @@ bypass() {
       # review-cap.sh reads a row's Risk: from the line roadmap_queue names, because the --tsv
       # summary column may be shortened by a project's own parser.
       */skills/session-close/fold.sh|"$1"/review-cap.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
-      # OPS-125: the marker reads a row's session from the `## Session plan` through its one parser,
-      # roadmap-plan.sh (no queue table); the row itself comes from roadmap_queue --tsv.
-      */skills/session-start/marker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
     esac
-    grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' "$f" \
+    # OPS-125: the marker reads a row's session from the `## Session plan` through its one parser,
+    # roadmap-plan.sh (no queue table); the row itself comes from roadmap_queue --tsv. Only that
+    # call is allowed (OPS-126): the first such call on each line is cut before the scan, so a raw
+    # queue read added to the marker, even on that same line, is still flagged.
+    strip='s/^$//'
+    case $f in */skills/session-start/marker.sh) strip='s|sh "\$ROOT/\.claude/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"||' ;; esac
+    sed "$strip" "$f" | grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"
   done
@@ -383,6 +386,10 @@ p2=$(bypass "$d/plant2" "$d/skips2" | cut -d: -f1 | tr '\n' ' ')
 [ "$p2" = "braced.sh cd-then-read.sh marked.sh mixed.sh unquoted.sh " ] \
   && ok "the bypass scan finds the roadmap's path unquoted, half-quoted, braced, after a cd and behind a comment marker; it passes a bare \"\$ROADMAP\" pattern" \
   || fail "the bypass scan flagged [$p2], want [braced.sh cd-then-read.sh marked.sh mixed.sh unquoted.sh ]"
+mkdir -p "$d/plant3/skills/session-start"
+printf '#!/bin/sh\nsn=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null)\nawk 1 "$ROOT/$ROADMAP"\nx=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP"; awk 1 "$ROOT/$ROADMAP")\n' > "$d/plant3/skills/session-start/marker.sh"
+p3=$(bypass "$d/plant3" | cut -d: -f1,2 | tr '\n' ' ')
+[ "$p3" = "skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 " ] && ok "the marker's exemption covers only its roadmap-plan.sh call: a raw read added to it is flagged, on its own line or the call's" || fail "the marker plant flagged [$p3], want [skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 ]"
 [ "$(cat "$d/skips2")" = "local/roadmap-tracker.sh" ] && ok "...and skips a path its own case allows, naming it" || fail "the allowlisted plant was not skipped and named: [$(cat "$d/skips2")]"
 : > "$d/skips"
 by=$(bypass "$fw" "$d/skips")

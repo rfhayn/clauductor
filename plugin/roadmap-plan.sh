@@ -8,7 +8,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 #   sh .claude/roadmap-plan.sh FILE    the plan in FILE, as tab-separated records, in table order:
 #     S  session  order  when  focus  owner     a session (order: the first number in its name)
-#     R  id  session  order  pos                a row it names (pos: its place in the whole plan)
+#     R  id  session  order  pos  kind  lead    a row it names (pos: its place in the whole plan;
+#                                               kind: `proposal` or empty; lead: its batch's first
+#                                               id, empty when it is not batched)
 #     D  id  decision                           an `ID: decision` from *The owner decides*
 #
 # THE GRAMMAR:
@@ -16,9 +18,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   | Session | When | Focus | Rows | The owner decides |
 #   |---|---|---|---|---|
 #   | S8 | (done) | what it is for | OPS-111, OPS-120 | OPS-111: approve its design; OPS-120: … |
-# Rows: row ids, comma-separated, each planned once. *The owner decides*: `—`, or `ID: decision`
-# parts separated by `;`. A section with no table, a second table, a wrong header or cell count, a
-# session planned twice or an id planned twice is an error (exit 1, each named on stderr), never a
+# Rows: row ids, comma-separated, each planned once. An entry `ID (proposal)` is a change row this
+# session only proposes: it has landed once its proposal is on main (OPS-126), and the same id may
+# be planned once more, in a later entry, as its build. An entry `A + B` is a batch, one PR titled
+# by A that closes B too (its fragment's **Also closes**): only A gets a lane. *The owner decides*:
+# `—`, or `ID: decision` parts separated by `;`. A section with no table, a second table, a wrong
+# header or cell count, a session planned twice, an id planned twice (beyond its proposal and its
+# build) or built before its proposal is an error (exit 1, each named on stderr), never a
 # shorter plan. No `## Session plan` section prints nothing and exits 0: the plan is optional.
 set -u
 f=${1:-}
@@ -48,10 +54,19 @@ function err(m) { printf "%s:%d: %s\n", FILENAME, NR, m > "/dev/stderr"; bad = 1
   printf "S\t%s\t%d\t%s\t%s\t%s\n", s, ord, w, fo, o
   n = split(rows, r, ",")
   for (i = 1; i <= n; i++) {
-    id = trim(r[i]); if (id == "") continue
-    if (id !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) { err("\"" id "\" is not a row id"); continue }
-    if (id in where) { err(id " is planned in " where[id] " and " s); continue }
-    where[id] = s; printf "R\t%s\t%s\t%d\t%d\n", id, s, ord, ++pos
+    e = trim(r[i]); if (e == "") continue
+    kind = ""
+    if (e ~ /[ \t]\(proposal\)$/) { kind = "proposal"; e = trim(substr(e, 1, length(e) - 10)) }
+    m = split(e, b, "+"); lead = (m > 1 ? trim(b[1]) : "")
+    if (m > 1 && kind != "") { err("\"" trim(r[i]) "\": a batch is one PR that lands its rows, never a proposal"); continue }
+    for (k = 1; k <= m; k++) {
+      id = trim(b[k])
+      if (id !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) { err("\"" id "\" is not a row id"); continue }
+      # Once, or twice as the two sessions of a change: its `(proposal)`, then its build.
+      if ((id SUBSEP kind) in where) { err(id " is planned in " where[id SUBSEP kind] " and " s); continue }
+      if (kind != "" && ((id SUBSEP "") in where)) { err(id " is built in " where[id SUBSEP ""] " before its proposal in " s); continue }
+      where[id SUBSEP kind] = s; printf "R\t%s\t%s\t%d\t%d\t%s\t%s\n", id, s, ord, ++pos, kind, lead
+    }
   }
   n = split(o, d, ";")
   for (i = 1; i <= n; i++) {

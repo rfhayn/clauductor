@@ -58,9 +58,14 @@ body() { jq -r '.[0].body' "$S/prs.json"; }
 
 # No PR open: a draft opens, its body led by the marker and the cost line.
 setup
+echo staged > "$F/work.txt"; git -C "$F" add work.txt
 out=$(mark); rc=$?
+[ -z "$(git -C "$F" diff --name-only main..HEAD)" ] && [ "$(git -C "$F" diff --cached --name-only)" = work.txt ] \
+  && ok "marker: the empty commit leaves staged work staged, uncommitted" || fail "marker: the marker commit holds '$(git -C "$F" diff --name-only main..HEAD)', staged: '$(git -C "$F" diff --cached --name-only)'"
+git -C "$F" rm -q --cached work.txt; rm -f "$F/work.txt"
 [ $rc -eq 0 ] && printf '%s' "$out" | grep -q '^marker: opened https://github.example/o/r/pull/1 as a draft' \
   && ok "marker: no open PR, a draft opens" || fail "marker: no open PR: exit $rc: $out"
+printf '%s\n' "$out" | tail -1 >> "$S/success"
 body | sed -n 1p | grep -qE '^session-start: S10 [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} ET row A-1$' \
   && ok "marker: the body's first line is the marker, S<n> one past the journal's top session" || fail "marker: body line 1 is '$(body | sed -n 1p)'"
 body | sed -n 2p | grep -q '^session-start cost: CANNOT CHECK — ' \
@@ -76,6 +81,7 @@ out=$(mark); rc=$?
 [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'already carries it' && [ "$(cksum < "$S/prs.json")" = "$before" ] \
   && ! grep -qE '^pr (create|edit)' "$S/prs.json.log" \
   && ok "marker: a second run adds nothing" || fail "marker: second run: exit $rc: $out; gh calls: $(tr '\n' ';' < "$S/prs.json.log")"
+printf '%s\n' "$out" | tail -1 >> "$S/success"
 
 # An open PR without the marker gets it first, its body kept below.
 setup
@@ -84,6 +90,7 @@ out=$(SN=7 mark); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S7 .* row A-1$' && [ "$(body | tail -3)" = "$(printf 'Hand-written.\n\nMore.')" ] \
   && [ "$(jq length "$S/prs.json")" = 1 ] \
   && ok "marker: an open PR without one gets the marker first (S7 as given), its body kept" || fail "marker: open PR: exit $rc: $out; body: $(body)"
+printf '%s\n' "$out" | tail -1 >> "$S/success"
 
 # Every failure: one WARNING line, exit 0.
 warns() {  # warns LABEL [env...]
@@ -107,6 +114,37 @@ EOF
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S12 .* row A-1$' \
   && ok "marker: with no arguments, the branch's row and the plan's session (S12)" || fail "marker: no arguments: exit $rc: $out; body: $(body | sed -n 1p)"
+# A row planned twice, its `(proposal)` then its build: the proposal's session until its proposal
+# exists, the build's after (OPS-126).
+for has in no yes; do
+  setup
+  cat >> "$F/docs/roadmap.md" <<'EOF'
+
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S11 | soon | propose it | A-1 (proposal) | — |
+| S12 | later | build it | A-1 | — |
+EOF
+  want=S11; [ $has = yes ] && { mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"; want=S12; }
+  out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+  [ $rc -eq 0 ] && body | sed -n 1p | grep -q "^session-start: $want .* row A-1$" \
+    && ok "marker: a row planned as its proposal and its build, proposal $has: $want" || fail "marker: proposal and build, proposal $has: exit $rc: $out; body: $(body | sed -n 1p)"
+done
+# Its proposal exists but no build is planned yet: the build is no session the plan names, so the
+# journal's count numbers it (S10, past its Session 9), never the proposal's S11.
+setup
+cat >> "$F/docs/roadmap.md" <<'EOF'
+
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S11 | soon | propose it | A-1 (proposal) | — |
+EOF
+mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
+  && ok "marker: a proposed row whose build is not planned yet takes the journal's count (S10)" || fail "marker: proposed, build unplanned: exit $rc: $out; body: $(body | sed -n 1p)"
 # A plan entry spanning sessions (`S15–S18`) names no one day, and is no S<n> the fragment's
 # **Session** field takes: the journal's count numbers the day (S10, past its Session 9), as the
 # day's close is numbered.
@@ -126,6 +164,18 @@ out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESS
 [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] && printf '%s' "$out" | grep -q "no roadmap row is built on 'ops/no-row'" \
   && ! [ -s "$S/prs.json.log" ] && [ "$(git -C "$F" rev-list --count main..HEAD)" = 0 ] \
   && ok "marker: on a branch no row names, one line, and no PR, push or commit" || fail "marker: no row: exit $rc: $out; gh calls: $(tr '\n' ';' < "$S/prs.json.log")"
+printf '%s\n' "$out" | tail -1 >> "$S/success"
+
+# build-change's preflight takes only marker.sh's success lines as a marker (MARKER_OK) and warns
+# on anything else, so each line printed above must be one it accepts (OPS-126).
+wf="$ROOT/.claude/workflows/build-change.js"
+if [ ! -f "$wf" ]; then ok "SKIPPED: no build-change.js, so no preflight reads the marker"
+elif ! command -v node >/dev/null 2>&1; then ok "SKIPPED: node is not installed, so build-change's MARKER_OK is not held to marker.sh's lines"
+else
+  re=$(grep '^const MARKER_OK = ' "$wf")
+  [ "$(grep -c . "$S/success")" = 4 ] && bad=$(node -e "$re; const ls = require('fs').readFileSync(process.argv[1], 'utf8').trim().split('\n'); console.log(ls.filter((l) => !MARKER_OK.test(l)).join(' | '))" "$S/success" 2>&1) && [ -z "$bad" ] && [ -n "$re" ] \
+    && ok "build-change's MARKER_OK accepts each of marker.sh's 4 success lines" || fail "build-change's MARKER_OK ('$re') refuses marker.sh's success line(s): ${bad:-$(cat "$S/success")}"
+fi
 
 # The caller: a marker no session start runs is not shipped (rule 3).
 grep -q 'session-start/marker\.sh' "$ROOT/.claude/skills/session-start/SKILL.md" 2>/dev/null \

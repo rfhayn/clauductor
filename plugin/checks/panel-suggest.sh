@@ -13,7 +13,7 @@ need jq
 
 d=$(scratch)
 F="$d/proj"; mkdir -p "$F/.claude/lib" "$F/.claude/skills/propose" "$F/docs" "$F/changes"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$F/.claude/lib/" 2>/dev/null
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/fragments.sh" "$F/.claude/lib/" 2>/dev/null
 cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$CLAUDUCTOR_FW/panel-suggest.sh" "$F/.claude/" 2>/dev/null
 cp "$CLAUDUCTOR_FW/skills/propose/context.sh" "$F/.claude/skills/propose/" 2>/dev/null
 cat > "$F/docs/roadmap.md" <<'EOF'
@@ -228,6 +228,60 @@ mv "$C/keep.md" "$C/docs/roadmap.md"
 printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
 awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
 [ "$(cnames)" = "session-5-close" ] && ok "close: with no plan, offered while a fragment waits, one past the journal's top" || fail "close with no plan offered: $(cnames)"
+
+# OPS-126: a landed row (its fragment on main) is never offered again, a batch's later rows get no
+# lane of their own, and a planned proposal lands with its proposal on main.
+cat > "$C/docs/roadmap.md" <<'RM'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `ops/one` — one | s | — | ⬜ queued |
+| 1.2 | `ops/two` — two | s | — | ⬜ queued |
+| 1.3 | `ops/three` — three | s | — | ⬜ queued |
+| 1.5 | `add-p` — p | s | — | ⬜ queued |
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S5 | | today | 1.1, 1.5 (proposal) | — |
+| S6 | | next | 1.2 + 1.3 | — |
+RM
+cops() { (cd "$C" && sh .claude/panel-suggest.sh "$1") | jq -r '[.[].name] | join(" ")'; }
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cops ops)" = "two" ] && ok "ops: a row whose fragment is on main is not offered again, and a batch offers only its first row" || fail "ops with 1.1 landed and 1.2 + 1.3 batched offered: $(cops ops)"
+rm -f "$C/docs/journal.d/1.1.md"
+[ "$(cops ops)" = "one two" ] && ok "...and a row with no fragment still is" || fail "ops with no fragment offered: $(cops ops)"
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: a planned proposal holds the close until its proposal is on main" || fail "close with add-p unproposed printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+mkdir -p "$C/changes/add-p" && echo '**Status:** approved' > "$C/changes/add-p/proposal.md"
+[ "$(cnames)" = "session-5-close" ] && ok "...and lets it go once the proposal is on main, with no fragment of its own" || fail "close with add-p proposed offered: $(cnames)"
+[ "$(cops build)" = "add-p" ] && ok "build offers the proposed row" || fail "build with add-p proposed offered: $(cops build)"
+# A batch's later row waits only while its lead is open: once the lead lands without closing it, it
+# is offered, never stranded (S11's OPS-103 shipped apart from its batch).
+printf '# 1.2 — two\n\n- **Also closes**: 1.3\n' > "$C/docs/journal.d/1.2.md"
+[ -z "$(cops ops)" ] && ok "ops: a lead whose fragment also closes its batch leaves nothing to offer" || fail "ops with 1.2 closing 1.3 offered: $(cops ops)"
+printf '# 1.2 — two\n' > "$C/docs/journal.d/1.2.md"
+[ "$(cops ops)" = "three" ] && ok "...and one that does not close it offers the later row" || fail "ops with 1.2 landed alone offered: $(cops ops)"
+rm -f "$C/docs/journal.d/1.2.md"
+sed 's/| 1\.2 | `ops\/two` — two | s | — | ⬜ queued |/| 1.2 | `ops\/two` — two | s | — | ✅ merged (#9) |/' "$C/docs/roadmap.md" > "$C/r" && cp "$C/r" "$C/docs/roadmap.md"
+[ "$(cops ops)" = "three" ] && ok "...as does a lead merged on the roadmap" || fail "ops with 1.2 merged offered: $(cops ops)"
+sed 's/✅ merged (#9)/⬜ queued/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+# A change planned as its proposal (S5) and then its build (S6): S6's close waits for the build's
+# own fragment, never counting the proposal that landed in S5.
+sed -e 's/| S5 | |/| S5 | (done) |/' -e 's/| 1\.2 + 1\.3 |/| 1.2 + 1.3, 1.5 |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+printf '# 1.2 — two\n\n- **Also closes**: 1.3\n' > "$C/docs/journal.d/1.2.md"
+cnone && ok "close: a build planned after its proposal holds its session's close until its fragment" || fail "close with 1.5's build unlanded printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# 1.5 — p\n' > "$C/docs/journal.d/1.5.md"
+[ "$(cnames)" = "session-6-close" ] && ok "...and lets it go once the build's fragment is on main" || fail "close with 1.5 built offered: $(cnames)"
+rm -f "$C/docs/journal.d/1.2.md" "$C/docs/journal.d/1.5.md"
+sed -e 's/| S5 | (done) |/| S5 | |/' -e 's/| 1\.2 + 1\.3, 1\.5 |/| 1.2 + 1.3 |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+sed 's/1\.2 + 1\.3 |/1.2 + 1.3 (proposal) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+(cd "$C" && sh .claude/panel-suggest.sh ops >/dev/null 2>&1) && fail "a batch marked (proposal) gave a list" || ok "a batch marked (proposal) is a plan error, never a shorter list"
+# Planned twice beyond its proposal and its build, or built before it is proposed: a plan error.
+for bad in '| 1.1, 1.5 (proposal) |::| 1.2 + 1.3, 1.5 (proposal) |' '| 1.1, 1.5 |::| 1.2 + 1.3, 1.5 (proposal) |'; do
+  sed -e "s/| 1\.1, 1\.5 (proposal) |/${bad%%::*}/" -e "s/| 1\.2 + 1\.3 (proposal) |/${bad##*::}/" "$C/docs/roadmap.md" > "$C/r.bad"
+  out=$(sh "$C/.claude/roadmap-plan.sh" "$C/r.bad" 2>&1 >/dev/null) && fail "the plan '$bad' parsed" \
+    || case $out in *"planned in S5 and S6"* | *"built in S5 before its proposal in S6"*) ok "a plan error: $out" ;; *) fail "the plan '$bad' failed for another reason: $out" ;; esac
+done
 
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"

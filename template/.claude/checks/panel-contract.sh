@@ -148,6 +148,11 @@ pt="check with $D/checks/run.sh, then (sh $D/roadmap-queue.sh --text), not and/o
   && ok "the path detector finds repo paths (trailing punctuation dropped), and not prose like and/or" || fail "the path detector: '$(paths_in "$pt" | tr '\n' ' ')'"
 [ "$(commands_in '/clauductor:propose {name}: its row' | tr '\n' ' ')" = "clauductor:propose " ] && ok "the /command detector reads a plugin's /<plugin>:<skill>" || fail "the /command detector on a plugin skill: '$(commands_in '/clauductor:propose {name}: its row')'"
 target_exists premise-check && fail "target_exists found a skill that does not exist" || ok "target_exists refuses a /command that is no skill or workflow"
+# Claude Code reads a leading /command up to the first space, so '/session-close:' is an unknown
+# command, not /session-close with its arguments (the S11 close lane).
+lead_ok() { printf '%s' "${1%% *}" | grep -qE '^/[A-Za-z0-9]([A-Za-z0-9_:-]*[A-Za-z0-9])?$'; }
+for p in '/session-close This lane' '/x then' '/clauductor:propose x' '/merge-pr'; do lead_ok "$p" && ok "the leading-command guard passes '${p%% *}'" || fail "the leading-command guard refused '${p%% *}'"; done
+for p in '/session-close: This lane' '/build-change, then' '/x.' '/-x y'; do lead_ok "$p" && fail "the leading-command guard passed '${p%% *}'" || ok "the leading-command guard refuses '${p%% *}'"; done
 jq -c '.templates[]?' "$PJ" > "$(scratch)/templates"
 while IFS= read -r t; do
   id=$(printf '%s' "$t" | jq -r .id); fp=$(printf '%s' "$t" | jq -r .first_prompt)
@@ -159,18 +164,23 @@ while IFS= read -r t; do
   printf '%s' "$t" | jq -e '[.first_prompt | explode[] | select(. < 32 or . == 127)] | length == 0' >/dev/null && ok "template $id: its first prompt is one typable line" || fail "template $id: its first prompt has a control character (a newline submits it early)"
   bad=$(printf '%s\n' "$fp" | grep -oE '\{[A-Za-z_]+\}' | grep -vxE '\{(name|issue)\}' || true)
   [ -z "$bad" ] && ok "template $id: only {name} and {issue} placeholders" || fail "template $id: unknown placeholder(s) $bad"
-  # Claude Code reads a leading /command up to the first space, so '/session-close:' is an unknown
-  # command, not /session-close with its arguments (the S11 close lane).
   case $fp in /*)
-    printf '%s' "${fp%% *}" | grep -qE '^/[A-Za-z0-9][A-Za-z0-9_:-]*[A-Za-z0-9]$' && ok "template $id: its leading command ${fp%% *} ends at a space" \
+    lead_ok "$fp" && ok "template $id: its leading command ${fp%% *} ends at a space" \
       || fail "template $id: its leading command '${fp%% *}' has punctuation glued on (Claude Code reads it as an unknown command)" ;;
   esac
   # OPS-125: a row's lane starts its session and closes it with nothing pasted in. A /build-change
-  # prompt must start with the command (the panel's approval warning reads it), so its steps are
-  # the workflow's description, which the lane's session reads.
+  # prompt must start with the command (the panel's approval warning reads it), so the workflow
+  # runs the marker itself, in its preflight (OPS-126), and the fragment and merge steps are its
+  # description, which the lane's session reads.
   case $id in build | fix | ops)
     steps=$fp
-    case $fp in /build-change*) steps="$fp $(grep -m1 'whenToUse:' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null)" ;; esac
+    case $fp in /build-change*)
+      steps="$fp $(grep -m1 'whenToUse:' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null)"
+      grep -qE '^[0-9]+\. \\`sh \.claude/skills/session-start/marker\.sh' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null \
+        && ok "template $id: build-change's preflight runs the marker itself" || fail "template $id: build-change's preflight does not run sh .claude/skills/session-start/marker.sh, so a build lane starts with no marker"
+      grep -qE '^if \(!MARKER_OK\.test\(markerLine\)\) report\.warnings\.push' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null \
+        && ok "template $id: a marker that did not report success reaches report.warnings" || fail "template $id: build-change.js does not push a marker that did not report success to report.warnings, so a failed marker reaches nobody" ;;
+    esac
     for w in session-start/marker.sh "run.sh journal" merge-pr; do
       case $steps in *"$w"*) ok "template $id: its lane runs $w" ;; *) fail "template $id: neither its prompt nor what it runs names $w (the row's start, fragment or merge)" ;; esac
     done ;;

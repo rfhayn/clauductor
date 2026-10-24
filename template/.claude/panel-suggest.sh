@@ -13,7 +13,10 @@
 # session is the first not `(done)` with a row the roadmap does not show merged; it is offered once
 # every one of its rows is merged, or landed: named by a fragment on main (its file, or its
 # **Also closes**, lib/fragments.sh). With no plan, it is offered while any fragment waits, N one
-# past the journal's top session. No fragment waiting offers nothing.
+# past the journal's top session. No fragment waiting offers nothing. A planned `ID (proposal)`
+# lands with its proposal on main, since it writes no fragment (OPS-126).
+# build, ops, propose (OPS-126): never a row a fragment on main names, nor a batch's later rows
+# (`A + B` in the plan: only A gets a lane).
 # It prints the panel's JSON: [{"name","title","detail","issue"}]. The rows come from
 # .claude/roadmap-queue.sh through roadmap_queue (one parser, never a second copy of the table).
 # Their order: when the roadmap has a `## Session plan` (.claude/roadmap-plan.sh, its one parser),
@@ -74,33 +77,44 @@ branched=$(printf '%s\n' "$props" | awk -F'\t' 'NF { print $1 }' | tr '\n' ' ')
 waiting=$(printf '%s\n' "$props" | awk -F'\t' '$2 == "waiting" { print $1 }' | tr '\n' ' ')
 plan=$(sh "$ROOT/.claude/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-suggest: the Session plan could not be parsed" >&2; exit 1; }
 printf '%s\n' "$tsv" > "$tmp/tsv"
-# The planned ids in the plan's order (the R records are printed in it).
-printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" { print $2 }' > "$tmp/plan"
+# The planned ids in the plan's order (the R records are printed in it), each once: a change
+# planned as its `(proposal)` and then its build keeps its first place.
+printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" && !seen[$2]++ { print $2 }' > "$tmp/plan"
+
+# The rows a fragment on main names (its file, or its **Also closes**, lib/fragments.sh): landed,
+# though their rows stay queued until the daily close folds them. close waits for them; build and
+# ops never offer them again (OPS-126: OPS-125 was offered all through S11 after #222 merged).
+# shellcheck disable=SC1091
+. "$ROOT/.claude/lib/fragments.sh"
+mkdir -p "$tmp/frags"
+if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:./$ROADMAP" 2>/dev/null; then
+  for p in $(git ls-tree --name-only "$ref" "./$JOURNAL_FRAGMENTS/" 2>/dev/null); do
+    case $p in *.md) [ "$(basename "$p")" = README.md ] || git show "$ref:./$p" > "$tmp/frags/$(basename "$p")" ;; esac
+  done
+  git show "$ref:./$JOURNAL" > "$tmp/journal" 2>/dev/null
+else
+  for p in "$JOURNAL_FRAGMENTS"/*.md; do [ -f "$p" ] && [ "$(basename "$p")" != README.md ] && cp "$p" "$tmp/frags/"; done
+  cp "$JOURNAL" "$tmp/journal" 2>/dev/null
+fi
+nf=0; : > "$tmp/landed"
+for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment_rows "$f" >> "$tmp/landed"; done
 
 if [ "$kind" = close ]; then
-  # shellcheck disable=SC1091
-  . "$ROOT/.claude/lib/fragments.sh"
-  mkdir -p "$tmp/frags"
-  if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:./$ROADMAP" 2>/dev/null; then
-    for p in $(git ls-tree --name-only "$ref" "./$JOURNAL_FRAGMENTS/" 2>/dev/null); do
-      case $p in *.md) [ "$(basename "$p")" = README.md ] || git show "$ref:./$p" > "$tmp/frags/$(basename "$p")" ;; esac
-    done
-    git show "$ref:./$JOURNAL" > "$tmp/journal" 2>/dev/null
-  else
-    for p in "$JOURNAL_FRAGMENTS"/*.md; do [ -f "$p" ] && [ "$(basename "$p")" != README.md ] && cp "$p" "$tmp/frags/"; done
-    cp "$JOURNAL" "$tmp/journal" 2>/dev/null
-  fi
   top=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$tmp/journal" 2>/dev/null | head -1)
-  nf=0; : > "$tmp/landed"
-  for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment_rows "$f" >> "$tmp/landed"; done
   [ "$nf" -gt 0 ] || { echo "[]"; exit 0; }
+  # A planned `ID (proposal)` lands with its proposal on main (or archived): it writes no fragment.
+  # It is counted per entry, never added to landed, so the same id's build entry still waits for
+  # its own fragment.
+  printf '%s\n' "$plan" | awk -F'\t' -v have=" $have $done_ids " 'NR == FNR { ch[$4] = $5; next }
+    $1 == "R" && $6 == "proposal" && ($2 in ch) && index(have, " " ch[$2] " ") { print $2 }' "$tmp/tsv" - > "$tmp/proposed"
   if [ -s "$tmp/plan" ]; then
     # The open session: the first not (done) with a planned row the roadmap does not show merged or
-    # cancelled (the same rows `waiting` below counts done).
-    sess=$(printf '%s\n' "$plan" | awk -F'\t' 'NR == FNR { if ($7 == "merged" || $7 == "cancelled") m[$4] = 1; next }
+    # cancelled, nor a proposal entry whose proposal has landed (as `waiting` below counts them).
+    sess=$(printf '%s\n' "$plan" | awk -F'\t' 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") m[$4] = 1; next }
+      FILENAME == ARGV[2] { p[$0] = 1; next }
       $1 == "S" && $4 !~ /\(done\)/ { order[++k] = $2; num[$2] = $3; next }
-      $1 == "R" && !($2 in m) { open[$3] = 1 }
-      END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" -)
+      $1 == "R" && !($2 in m) && !($6 == "proposal" && ($2 in p)) { open[$3] = 1 }
+      END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" "$tmp/proposed" -)
     s=$(printf '%s\n' "$sess" | cut -f1); n=$(( ${top:-0} + 1 ))
     # The close's N is the one fold.sh and session-close name (OPS-108): the first plan session it
     # covers that no entry holds. A plain label is that session (`S4.5` folds Session 4.5); one the
@@ -118,8 +132,9 @@ if [ "$kind" = close ]; then
       grep -qE "^## Session $(printf '%s' "${s#S}" | sed 's/\./\\./g')( |$)" "$tmp/journal" 2>/dev/null || n=${s#S}
       # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
       waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
-        FILENAME == ARGV[2] { d[$0] = 1; next }
-        $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
+        FILENAME == ARGV[2] { l[$0] = 1; next }
+        FILENAME == ARGV[3] { p[$0] = 1; next }
+        $1 == "R" && $3 == s && !($2 in d) && !($6 == "proposal" ? ($2 in p) : ($2 in l)) { print $2 }' "$tmp/tsv" "$tmp/landed" "$tmp/proposed" -)
       [ -z "$waiting" ] || { echo "[]"; exit 0; }
       if [ "$n" = "${s#S}" ]; then title="Close $s: fold $nf fragment(s)"; else title="Close $s (session $n): fold $nf fragment(s)"; fi
     fi
@@ -129,7 +144,7 @@ if [ "$kind" = close ]; then
   # A lane's name takes no dot: Session 4.5's close is the lane session-4-5-close.
   name="session-$(printf '%s' "$n" | tr . -)-close"
   printf '%s\n' "$name" | grep -qE '^[a-z0-9][a-z0-9-]{0,40}$' || { echo "[]"; exit 0; }
-  jq -n -c --arg name "$name" --arg t "$title" --arg d "rows landed: $(sort -u "$tmp/landed" | paste -sd ',' - | sed 's/,/, /g')" \
+  jq -n -c --arg name "$name" --arg t "$title" --arg d "rows landed: $(sort -u "$tmp/landed" "$tmp/proposed" | paste -sd ',' - | sed 's/,/, /g')" \
     '[{name: $name, title: $t, detail: $d}]'
   exit 0
 fi
@@ -146,6 +161,14 @@ else
   awk -F'\t' -v cur="$cur" '$2 == cur && $7 == "queued"' "$tmp/tsv" > "$tmp/rows"
   planned=0
 fi
+# Never offered: a row a fragment says has landed, and a batch's later rows, which land in its
+# first row's PR (`A + B` in the plan): only A gets a lane. Once A has merged, been cancelled or
+# landed without closing B, B is offered after all, never stranded.
+printf '%s\n' "$plan" | awk -F'\t' 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
+  FILENAME == ARGV[2] { d[$0] = 1; next }
+  $1 == "R" && $7 != "" && $7 != $2 && !($7 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" - > "$tmp/batched"
+cat "$tmp/batched" >> "$tmp/landed"
+awk -F'\t' 'FILENAME == ARGV[1] { skip[$0] = 1; next } !($4 in skip)' "$tmp/landed" "$tmp/rows" > "$tmp/rows.kept" && mv "$tmp/rows.kept" "$tmp/rows"
 
 # Fields: line phase section id change kind state pr owner summary. awk, not `read`: a tab is IFS
 # whitespace to the shell, so an empty field (no section) would collapse and shift the rest.
