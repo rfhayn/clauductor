@@ -353,6 +353,9 @@ bypass() {
       # review-cap.sh reads a row's Risk: from the line roadmap_queue names, because the --tsv
       # summary column may be shortened by a project's own parser.
       */skills/session-close/fold.sh|"$1"/review-cap.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+      # OPS-125: the marker reads a row's session from the `## Session plan` through its one parser,
+      # roadmap-plan.sh (no queue table); the row itself comes from roadmap_queue --tsv.
+      */skills/session-start/marker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
     esac
     grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' "$f" \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
