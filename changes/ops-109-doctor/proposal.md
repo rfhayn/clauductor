@@ -1,4 +1,4 @@
-**Status:** awaiting approval
+**Approved:** 2026-10-24 by Rich · design 92ec82fb58f7
 **Roadmap row:** OPS-109
 **Risk:** low
 

@@ -5,7 +5,10 @@
   approves. The roadmap row stays `⬜ queued` until its build PR opens.
 
 ## Decision log
-- (none yet)
+- 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
+  (PR #236) are carried into tasks 2.2, 3.1 and 3.2 below, which narrow D8 without changing it:
+  `CheckAdd` holds every refusal `AddProject` makes before it saves, `registeredAs` included (L5),
+  and a carried `--template-dir` is the resolved absolute `Source.Dir` (L6).
 
 ## 1. The command and the machine (D1, D2, D7)
 - [ ] 1.1 `template/.claude/prereqs.sh`: the `--rows` mode of D1 (one tab-separated line per tool:
@@ -47,7 +50,8 @@
   holding the plugin marker. Citing [DOCTOR-2-S1], [DOCTOR-2-S2], [DOCTOR-2-S3].
 - [ ] 2.2 The drift line, from `template.Survey` at the toplevel: `Report.Converged`, the counts
   of framework files that differ and are missing, whether `settings.json` would change, each
-  `Report.Warnings` entry but the template's own warning, and the fix as D8 prints it; the last
+  `Report.Warnings` entry but the template's own warning, and the fix as D8 prints it (a given
+  `--template-dir` carried as the resolved `Source.Dir`, quoted, so it survives the `cd`); the last
   line's `sh .claude/checks/run.sh` for Clauductor's model (D4). Tested in `doctor_test.go` with a repository installed by `install`,
   then one framework file edited and one deleted, run from a subdirectory. Citing [DOCTOR-2-S4],
   [DOCTOR-2-S5].
@@ -61,13 +65,14 @@
   with its `lease.ProcCheck` passed in; the restart named with `install.LaunchdLabel` and
   `install.LogDir`), and the build (`install.FileStamp` of `install.InstalledBinary` against
   `install.RunningStamp`), each fix as D8 prints it (paths through `install.ShellWord`,
-  `--template-dir` carried when given). Tested in `doctor_test.go` with a temporary home holding
+  `--template-dir` carried as the resolved `Source.Dir` when given). Tested in `doctor_test.go` with a temporary home holding
   a plist and no live panel, a registered project with no plist, an installed binary whose stamp
   the test sets apart from the running one, and an empty home. Citing [DOCTOR-1-S5],
   [DOCTOR-1-S6], [DOCTOR-1-S7].
-- [ ] 3.2 `framework/internal/panel/install/projects.go`: `CheckAdd`, the read-only checks
-  `AddProject` runs before it saves (the config loads, the id is free, the socket is no other
-  project's), returning its refusal; `AddProject` calls it. Tested in
+- [ ] 3.2 `framework/internal/panel/install/projects.go`: `CheckAdd`, every read-only check
+  `AddProject` runs before it saves (among them: the config loads, the id is free, the repository
+  is not registered under another path (`registeredAs`), the socket is no other project's),
+  returning its refusal; `AddProject` calls it. Tested in
   `framework/internal/panel/install/projects_test.go`: each refusal from both functions with the
   same text, and `CheckAdd` writing nothing (`internal/treesnap` over the home).
 - [ ] 3.3 The panel's project lines, on macOS with the panel installed, read at the main
