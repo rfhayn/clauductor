@@ -108,6 +108,7 @@ cp "$LIB" "$R/$RUN_DIR/lib/steps.sh"
 for f in lib/gate-state.sh gate-wait.sh; do [ -f "$ROOT/$RUN_DIR/$f" ] && cp "$ROOT/$RUN_DIR/$f" "$R/$RUN_DIR/$f"; done
 if grep -q '^# gate.sh: run-local.sh for an AGENT' "$ROOT/$WRAP_REL" 2>/dev/null; then cp "$ROOT/$WRAP_REL" "$R/$WRAP_REL"; WRAP=yes; else WRAP=""; fi
 cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$R/.claude/lib/"
+[ -f "$CLAUDUCTOR_FW/lib/docs-gate.sh" ] && cp "$CLAUDUCTOR_FW/lib/docs-gate.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
 printf 'GATE_RUN="%s"\nGATE="%s"\nGATE_STEPS="%s"\n' "$RUN_REL" "$WRAP_REL" "$STEPS_REL" > "$R/.claude/project.conf"
 cat > "$R/$STEPS_REL" <<'EOF'
@@ -336,6 +337,34 @@ kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
 expect_rc 0 "$rc" "a --quick run under a caller's CLAUDUCTOR_LOCK_HELD runs unleased and is not failed by that lease"
 rm -rf "$LOCK" "$LOCK.waiters"
+
+# ── The docs gate (OPS-89) ──────────────────────────────────────────────────────────────
+# `--docs` vouches only for a diff that is prose against origin/main (.claude/lib/docs-gate.sh): it
+# runs the model's steps and `gate_steps docs`, never the full-only ones, and writes a receipt whose
+# stage is `docs`, which the merge guard accepts only for a PR whose own diff is prose.
+git init -q --bare "$d/origin.git"; git -C "$R" remote add origin "$d/origin.git"
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q -b docs-x
+mkdir -p "$R/docs"; printf '# A note\n' > "$R/docs/note.md"; git -C "$R" add -A && git -C "$R" commit -qm "a note"
+DOCS=$(git -C "$R" rev-parse HEAD)
+touch "$R/FAIL_SLOW"; run --docs; rc=$?
+expect_rc 0 "$rc" "a docs gate over a prose-only diff passes (and runs no full-only step)"
+[ "$(cat "$REC" 2>/dev/null)" = "$(printf '%s\tdocs\tclean\tdocs' "$DOCS")" ] && ok "...and writes '<sha> docs clean docs', never stage all" || fail "docs receipt: $(cat "$REC" 2>/dev/null || echo none); $(grep '^==>' "$d/out" | tr '\n' ' ')"
+grep -q '^==> unit' "$d/out" && ! grep -q '^==> slow' "$d/out" && grep -q '^==> secrets' "$d/out" && ok "...running the model's steps and gate_steps docs" || fail "docs gate steps: $(grep '^==>' "$d/out" | tr '\n' ' ')"
+rm -f "$R/FAIL_SLOW"
+touch "$R/FAIL_UNIT"; run --docs; rc=$?; rm -f "$R/FAIL_UNIT"
+expect_rc 1 "$rc" "a failing docs gate fails"
+[ ! -f "$REC" ] && ok "...and deletes the receipt (a stale pass must not outlive a fail)" || fail "a failed docs gate left $(cat "$REC")"
+# The fixture's own skill path, in pieces: the plugin build rewrites a literal framework path.
+cl=.claude
+for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md; do
+  mkdir -p "$(dirname "$R/$p")"; echo x > "$R/$p"; git -C "$R" add -A && git -C "$R" commit -qm "$p"
+  run --docs; rc=$?
+  expect_rc 1 "$rc" "the docs gate refuses a diff with $p in it"
+  grep -q "not a docs-only diff.*$p" "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming $p, with no receipt" || fail "docs refusal for $p: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+  git -C "$R" reset -q --hard HEAD~1
+done
+git -C "$R" checkout -q main; git -C "$R" branch -q -D docs-x; git -C "$R" remote remove origin
 
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
 # Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says

@@ -7,7 +7,7 @@
 # gate in this checkout is running, passed, failed or never ran, and for WHICH tree.
 #
 # THE STATE FILE, one per worktree, beside the receipt: $(git rev-parse --absolute-git-dir)/ci-gate.state
-#   started pid=<pid> at=<epoch> mode=<full|quick> subject=<commit|worktree> head=<sha> tree=<id> script=<name>
+#   started pid=<pid> at=<epoch> mode=<full|quick|docs> subject=<commit|worktree> head=<sha> tree=<id> script=<name>
 #   exit pid=<the started pid> code=<exit code, or `signal`: interrupted before its verdict> at=<epoch>
 # The started line is written BEFORE the gate queues for the lease, so a gate waiting for it already
 # reads as running, never as the previous run's verdict; it replaces the file. The exit line is
@@ -64,7 +64,7 @@ gate_state_start() {
   _gs_script=$(basename "$1"); shift
   _gs_mode=full _gs_dirty=0
   for _gs_a in "$@"; do
-    case $_gs_a in --quick) _gs_mode=quick ;; --dirty) _gs_dirty=1 ;; -h|--help) return 0 ;; esac
+    case $_gs_a in --quick) _gs_mode=quick ;; --docs) _gs_mode=docs ;; --dirty) _gs_dirty=1 ;; -h|--help) return 0 ;; esac
   done
   # The clean room tests HEAD's commit whatever is on disk; otherwise the run tests the checkout.
   _gs_subject=worktree

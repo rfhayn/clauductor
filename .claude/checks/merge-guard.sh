@@ -12,6 +12,7 @@ mkdir -p "$R/.claude/hooks/lib" "$R/.claude/lib" "$R/docs" "$d/bin"
 cp "$ROOT/.claude/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
 cp "$ROOT/.claude/hooks/lib/"* "$R/.claude/hooks/lib/"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/evals.sh" "$R/.claude/lib/"
+[ -f "$ROOT/.claude/lib/docs-gate.sh" ] && cp "$ROOT/.claude/lib/docs-gate.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 cat > "$R/.claude/project.conf" <<'EOF'
 GATE_DISPLAY_CONTEXTS="ci/local"
@@ -80,6 +81,23 @@ receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick
 guard 2 "a partial receipt" "gh pr merge 5 --squash"
+# A docs receipt (run-local.sh --docs, OPS-89) counts only for a PR whose own diff against
+# origin/main is prose (.claude/lib/docs-gate.sh), and never for one that also changes code.
+git -C "$R" checkout -q -b docs-pr
+printf '# x\n' > "$R/docs/x.md"; git -C "$R" add -A && git -C "$R" commit -qm "a doc"
+DOCSHA=$(git -C "$R" rev-parse HEAD)
+printf 'echo\n' > "$R/x.sh"; git -C "$R" add -A && git -C "$R" commit -qm "code"
+CODESHA=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q main
+printf '%s\tdocs\tclean\tdocs\n' "$DOCSHA" > "$R/.git/ci-receipt"
+guard 0 "a docs receipt for a prose-only PR" "gh pr merge 5 --squash" GH_HEAD="$DOCSHA"
+printf '%s\tdocs\tclean\tdocs\n' "$CODESHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that changes code" "gh pr merge 5 --squash" GH_HEAD="$CODESHA"
+grep -q 'x.sh' "$d/err" && ok "merge-guard: ...naming the path that is not prose" || fail "merge-guard: docs refusal does not name x.sh: $(head -3 "$d/err")"
+mv "$R/.claude/lib/docs-gate.sh" "$d/dg.away" 2>/dev/null
+printf '%s\tdocs\tclean\tdocs\n' "$DOCSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt when docs-gate.sh is missing (fails closed)" "gh pr merge 5 --squash" GH_HEAD="$DOCSHA"
+mv "$d/dg.away" "$R/.claude/lib/docs-gate.sh" 2>/dev/null
 receipt 0000000000000000000000000000000000000000
 guard 2 "a receipt for another commit" "gh pr merge 5 --squash"
 rm -f "$R/.git/ci-receipt"

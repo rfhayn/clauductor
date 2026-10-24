@@ -53,6 +53,9 @@ fi
 #   scripts/ci/run-local.sh            the full gate on the committed tree: writes the receipt
 #   scripts/ci/run-local.sh --dirty    the working tree as it stands (receipt marked dirty: refused)
 #   scripts/ci/run-local.sh --quick    the quick steps only: writes no receipt, deletes none, takes no lease
+#   scripts/ci/run-local.sh --docs    a prose-only diff (.claude/lib/docs-gate.sh): the model's steps
+#                                      and gate_steps docs; a receipt of stage `docs`, which the merge
+#                                      guard accepts only for a PR whose own diff is prose (OPS-89)
 #
 # Agents run it through scripts/ci/gate.sh (GATE), which keeps the log in a file.
 #
@@ -119,6 +122,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dirty) DIRTY=1 ;;
     --quick) MODE=quick ;;
+    --docs) MODE=docs ;;
     -h|--help) trap - EXIT; sed -n '/^# run-local.sh:/,/^# spoke/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run-local: unknown flag $1 (see --help)" >&2; exit 64 ;;
   esac
@@ -130,6 +134,17 @@ RECEIPT="$GIT_DIR_ABS/ci-receipt"
 TESTED_SHA=$(git rev-parse HEAD)
 porcelain() { git status --porcelain --untracked-files=normal 2>/dev/null; }
 START_DIRTY=$([ -n "$(porcelain)" ] && echo 1 || echo 0)
+
+# The docs gate vouches only for prose (OPS-89): it refuses any other diff before a step runs and
+# leaves the receipt alone (a refusal is not a run). Without the library it fails closed.
+if [ "$MODE" = docs ]; then
+  [ -f "$ROOT/.claude/lib/docs-gate.sh" ] || { echo "==> FAIL: docs gate: .claude/lib/docs-gate.sh is missing" >&2; exit 1; }
+  # shellcheck disable=SC1091
+  . "$ROOT/.claude/lib/docs-gate.sh"
+  docs_paths=$(docs_gate_paths HEAD worktree) || { echo "==> FAIL: docs gate: cannot list the diff against origin/${MAIN_BRANCH:-main} (fetch it; a shallow clone cannot)" >&2; exit 1; }
+  docs_verdict=$(printf '%s\n' "$docs_paths" | docs_gate_verdict) || { echo "==> FAIL: docs gate: not a docs-only diff ($docs_verdict): run the full gate" >&2; exit 1; }
+  echo "==> docs gate: $docs_verdict"
+fi
 
 [ -f "$ROOT/$GATE_STEPS" ] || { echo "==> FAIL: GATE_STEPS $GATE_STEPS does not exist" >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -211,13 +226,18 @@ if [ "$code" -eq 0 ]; then
     if [ "$state" = clean ]; then model_publish_status pass "$TESTED_SHA"; fi
     # Said HERE, at the end, where the verdict is read: a note at the top of a long log is not read.
     [ "$state" = clean ] || echo "    !!  The tree tested was NOT the commit (uncommitted or untracked files, --dirty, or HEAD moved): the merge guard refuses this receipt. Commit and re-run."
+  elif [ "$MODE" = docs ]; then
+    # Stage `docs`, never `all`: the guard re-checks the PR's own diff before it accepts this. No
+    # status is published: a status cannot say "for prose only".
+    printf '%s\tdocs\t%s\tdocs\n' "$TESTED_SHA" "$state" > "$RECEIPT"
+    echo "    receipt: $RECEIPT ($state, docs: the merge guard accepts it only for a prose-only PR)"
   else
     echo "    NO receipt: a --quick run is not the full gate. Run with no flags for evidence the merge guard accepts."
   fi
 else
   echo
   echo "==> FAIL ($MODE):$FAILED"
-  if [ "$MODE" = full ] && [ -f "$RECEIPT" ]; then rm -f "$RECEIPT"; echo "    removed $RECEIPT: a stale pass must not outlive a fail"; fi
+  if [ "$MODE" != quick ] && [ -f "$RECEIPT" ]; then rm -f "$RECEIPT"; echo "    removed $RECEIPT: a stale pass must not outlive a fail"; fi
   # Evidence and picture are retracted together: a failed full run of the committed tree also turns
   # an earlier green status on that commit red. A run over anything else (--dirty, uncommitted
   # changes, HEAD moved) did not run the commit, so it posts nothing either way.

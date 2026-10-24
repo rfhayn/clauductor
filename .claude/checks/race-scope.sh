@@ -154,12 +154,23 @@ out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
   step() { [ "$1" = "test (short)" ] && { shift; echo "RAN $*"; }; return 0; }
   gate_steps quick)
 case "$out" in
-  *"RAN sh -c cd framework && go test -short -count=1 ./..."*) ok "the short test step runs uncached (-count=1)" ;;
-  *) fail "the short test step does not run with -count=1: $(printf '%s' "$out" | grep '^RAN')" ;;
+  *"RAN sh -c cd framework && go test -short -count=1 -timeout 5m ./..."*) ok "the short test step runs uncached (-count=1), bounded at 5m (OPS-89)" ;;
+  *) fail "the short test step does not run with -count=1 -timeout 5m:$(printf '%s' "$out" | grep '^RAN')" ;;
 esac
 out=$(cd "$R" && GATE_RACE_BASE=$BASE; export GATE_RACE_BASE
   step() { [ "$1" = "test (race)" ] && { shift; echo "RAN $*"; }; return 0; }
   gate_steps quick)
 case "$out" in *RAN*|*"test (race)"*) fail "a quick gate ran or announced the race step" ;; *) ok "a quick gate has no race step" ;; esac
+
+# The docs gate (OPS-89): docs_scope refuses prose a Go test reads, and the docs mode stops after
+# the process checks, before any Go step.
+for pair in "docs/roadmap.md:0" "docs/panel.md:1" "docs/guide.md:1" "template/docs/playbook.md:1" "plugin/x.md:1"; do
+  p=${pair%:*} want=${pair##*:}
+  (race_changed_paths() { printf '%s\n' "$p"; }; docs_scope >/dev/null); rc=$?
+  [ "$rc" = "$want" ] && ok "docs_scope $( [ "$want" = 0 ] && echo allows || echo refuses ) $p" || fail "docs_scope on $p: exit $rc, want $want"
+done
+out=$(cd "$ROOT" && step() { echo "STEP $1"; return 0; }; check_sets() { :; }; docs_scope() { :; }; gate_steps docs)
+case "$out" in *"STEP docs scope"*"STEP process checks"*) ok "a docs gate runs the docs scope, then the process checks" ;; *) fail "docs gate steps: $out" ;; esac
+case "$out" in *gofmt*|*vet*|*test*|*template*|*plugin*) fail "a docs gate ran a Go or template step: $out" ;; *) ok "...and no Go, template or plugin step" ;; esac
 
 finish

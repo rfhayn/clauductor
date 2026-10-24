@@ -1,5 +1,5 @@
 # steps.sh: THE one definition of the gate's steps (GATE_STEPS in .claude/project.conf). Sourced by
-# run-local.sh, which calls `gate_steps full|quick` in the directory being tested. The remote CI
+# run-local.sh, which calls `gate_steps full|quick|docs` in the directory being tested. The remote CI
 # (.github/workflows/test.yml) runs the same commands: on Ubuntu for a pull request, on macOS and
 # Ubuntu for a push to main (OPS-26).
 #
@@ -194,18 +194,33 @@ check_sets() {
   fi
 }
 
-gate_steps() {
-  mode=$1   # full | quick
+# docs_scope: the docs gate's guard for this repo (OPS-89). run-local.sh has found the diff prose
+# only; this refuses it when the prose is a file a Go test reads (the race table above: docs/panel.md,
+# docs/guide.md, template/, plugin/), which race_select maps to more than RACE_BASELINE.
+docs_scope() {
+  _ds=$(race_scope)
+  [ "$(printf '%s' "$_ds" | cut -f1)" = "$RACE_BASELINE" ] && return 0
+  echo "a docs gate cannot vouch for this diff: Go tests read it ($(printf '%s' "$_ds" | cut -f2)). Run the full gate."
+  return 1
+}
 
+gate_steps() {
+  mode=$1   # full | quick | docs
+
+  [ "$mode" != docs ] || step "docs scope" docs_scope || return 1
   # This repo's own operating model: the process checks over its records, hooks and roles, but for
   # the ones the template's set below runs from the same files (CHECKS_ONCE).
   step "check sets" check_sets || return 1
   step "process checks" env CHECKS_SKIP="$CHECKS_LEFT" sh .claude/checks/run.sh || return 1
+  # A prose-only diff changes nothing the remaining steps build or test (docs_scope holds the rest).
+  [ "$mode" != docs ] || return 0
   step "gofmt" gofmt_clean || return 1
   step "vet" sh -c 'cd framework && go vet ./...' || return 1
   # -count=1 on both test steps: go's test cache keys on what the test process itself opens, and
   # many tests run sh checks over template/ in subprocesses, so a cached pass can be stale evidence.
-  step "test (short)" sh -c 'cd framework && go test -short -count=1 ./...' || return 1
+  # -timeout 5m: the short suite's slowest run on record is 40 s (gate-runs.log, 2026-10-22 to
+  # 10-24), so a hung test fails in minutes rather than at go test's 10-minute default (OPS-89).
+  step "test (short)" sh -c 'cd framework && go test -short -count=1 -timeout 5m ./...' || return 1
   # The template's checks, run in the template (they hold the model every project receives): all of
   # them, CHECKS_ONCE included, and never a CHECKS_SKIP from the caller.
   step "template checks" env CHECKS_SKIP= sh template/.claude/checks/run.sh || return 1
