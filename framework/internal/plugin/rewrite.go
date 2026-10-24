@@ -12,21 +12,23 @@ import (
 // rewriter holds the path rewrites, built from what the template actually contains, so a new
 // framework script or directory is covered the moment it exists.
 type rewriter struct {
-	fw       string         // alternation of framework path heads: skills/(?!project)…|hooks/|statusline\.sh|…
-	agents   []string       // agent names, for namespacing
-	shRoot   *regexp.Regexp // ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-	shVarFW  *regexp.Regexp // "$ROOT/.claude/<fw>  and  "$ROOT"/.claude/<fw>
-	shBare   *regexp.Regexp // sh .claude/<fw>   and   in .claude/<fw>
-	mdFW     *regexp.Regexp // .claude/<fw> in Markdown
-	mdSh     *regexp.Regexp // sh .claude/<fw> in Markdown
-	mdCtx    *regexp.Regexp // !`sh .claude/<fw> : a skill's context line
-	mdAgent  *regexp.Regexp // `builder` agent
-	jsAgent  *regexp.Regexp // agentType: 'builder'
-	scaffSh  *regexp.Regexp // sh .claude/<fw> in the project's gate scripts
-	panelArg *regexp.Regexp // "sh", ".claude/<fw> in panel.json command arrays
-	initRole *regexp.Regexp // "start-project": "<role>" in model-roles.json
-	pbStart  *regexp.Regexp // the playbook's start-project row
-	skillRef *regexp.Regexp // /session-start: a plugin skill named as a command
+	fw        string         // alternation of framework path heads: skills/(?!project)…|hooks/|statusline\.sh|…
+	agents    []string       // agent names, for namespacing
+	shRoot    *regexp.Regexp // ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+	shVarFW   *regexp.Regexp // "$ROOT/.claude/<fw>  and  "$ROOT"/.claude/<fw>
+	shBare    *regexp.Regexp // sh .claude/<fw>   and   in .claude/<fw>
+	shChildFW *regexp.Regexp // sh -c '… $CLAUDUCTOR_FW …' (or -ec, ${CLAUDUCTOR_FW…}): a child that needs the plugin root passed
+	assignsFW *regexp.Regexp // CLAUDUCTOR_FW= among a command's assignments
+	mdFW      *regexp.Regexp // .claude/<fw> in Markdown
+	mdSh      *regexp.Regexp // sh .claude/<fw> in Markdown
+	mdCtx     *regexp.Regexp // !`sh .claude/<fw> : a skill's context line
+	mdAgent   *regexp.Regexp // `builder` agent
+	jsAgent   *regexp.Regexp // agentType: 'builder'
+	scaffSh   *regexp.Regexp // sh .claude/<fw> in the project's gate scripts
+	panelArg  *regexp.Regexp // "sh", ".claude/<fw> in panel.json command arrays
+	initRole  *regexp.Regexp // "start-project": "<role>" in model-roles.json
+	pbStart   *regexp.Regexp // the playbook's start-project row
+	skillRef  *regexp.Regexp // /session-start: a plugin skill named as a command
 }
 
 func newRewriter(tmpl string) (*rewriter, error) {
@@ -79,21 +81,24 @@ func newRewriter(tmpl string) (*rewriter, error) {
 	an := "(?:" + strings.Join(qa, "|") + ")"
 
 	return &rewriter{
-		fw:       fw,
-		agents:   agents,
-		shRoot:   regexp.MustCompile(`\b(ROOT|ROOT_HOOK)=\$\(cd "(?:\$\(dirname "\$0"\)|\$dir)/[./]+"(?: 2>/dev/null)? && pwd\)`),
-		shVarFW:  regexp.MustCompile(`"(?:\$ROOT|\$ROOT_HOOK|\$\{ROOT\})(")?/\.claude/(` + fw + `)`),
-		shBare:   regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
-		mdSh:     regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
-		panelArg: regexp.MustCompile(`"sh", "\.claude/(` + fw + `)`),
-		skillRef: skillRef,
-		pbStart:  regexp.MustCompile("(?m)^\\| `/start-project` \\|[^|\n]*\\| ([a-z-]+) \\|$"),
-		initRole: regexp.MustCompile(`(?m)^(\s*)"start-project": "([a-z-]+)"`),
-		mdCtx:    regexp.MustCompile("!`sh \\.claude/(" + fw + ")"),
-		scaffSh:  regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
-		mdFW:     regexp.MustCompile(`\.claude/(` + fw + `)`),
-		mdAgent:  regexp.MustCompile("`(" + an + ")`( agent| lane)"),
-		jsAgent:  regexp.MustCompile(`agentType: '(` + an + `)'`),
+		fw:      fw,
+		agents:  agents,
+		shRoot:  regexp.MustCompile(`\b(ROOT|ROOT_HOOK)=\$\(cd "(?:\$\(dirname "\$0"\)|\$dir)/[./]+"(?: 2>/dev/null)? && pwd\)`),
+		shVarFW: regexp.MustCompile(`"(?:\$ROOT|\$ROOT_HOOK|\$\{ROOT\})(")?/\.claude/(` + fw + `)`),
+		shBare:  regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
+		// A command's start (the line's, or after ; & | ( and $( ), its assignments, then the child.
+		shChildFW: regexp.MustCompile(`(^\s*|[;&|(]\s*)((?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s;&|()'"]*)\s+)*)sh (-[A-Za-z]*c) '([^']*\$\{?` + FWVar + `)`),
+		assignsFW: regexp.MustCompile(`(^|\s)` + FWVar + `=`),
+		mdSh:      regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
+		panelArg:  regexp.MustCompile(`"sh", "\.claude/(` + fw + `)`),
+		skillRef:  skillRef,
+		pbStart:   regexp.MustCompile("(?m)^\\| `/start-project` \\|[^|\n]*\\| ([a-z-]+) \\|$"),
+		initRole:  regexp.MustCompile(`(?m)^(\s*)"start-project": "([a-z-]+)"`),
+		mdCtx:     regexp.MustCompile("!`sh \\.claude/(" + fw + ")"),
+		scaffSh:   regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
+		mdFW:      regexp.MustCompile(`\.claude/(` + fw + `)`),
+		mdAgent:   regexp.MustCompile("`(" + an + ")`( agent| lane)"),
+		jsAgent:   regexp.MustCompile(`agentType: '(` + an + `)'`),
 	}, nil
 }
 
@@ -152,6 +157,20 @@ func (r *rewriter) shell(dest, s string) string {
 				return `"$` + FWVar + `"/` + sm[2]
 			}
 			return `"$` + FWVar + `/` + sm[2]
+		})
+		// The prologue sets the plugin root without exporting it, so a child `sh -c '…'` that now
+		// names it would read it empty: pass it on that command line (OPS-88). Each child is judged
+		// alone, and one whose own assignments already set it (a check pointing it at a fixture)
+		// keeps that value. A child after a wrapper (`with_timeout 60 sh -c`) does not match, since
+		// after a command word an assignment is an argument; after a reserved word (`then sh -c`) it
+		// would be safe, but is skipped too, to keep the match simple. Either way
+		// TestShellChildGetsPluginRoot names the line, and it is written another way.
+		l = r.shChildFW.ReplaceAllStringFunc(l, func(m string) string {
+			sm := r.shChildFW.FindStringSubmatch(m)
+			if r.assignsFW.MatchString(sm[2]) {
+				return m
+			}
+			return sm[1] + sm[2] + FWVar + `="$` + FWVar + `" sh ` + sm[3] + ` '` + sm[4]
 		})
 		// In a check, a bare `sh .claude/x` runs inside a scratch repository the check built, on the
 		// copy it put there: left as it is.

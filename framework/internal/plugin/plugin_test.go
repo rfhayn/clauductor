@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -893,4 +894,85 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 	if !exists(filepath.Join(p, ".claude", "skills", "ours", "SKILL.md")) || !exists(filepath.Join(p, ".claude", "hooks", "mine.sh")) {
 		t.Error("--prune removed a project file")
 	}
+}
+
+// A plugin script sets CLAUDUCTOR_FW in its prologue without exporting it, so a `sh -c '…'` whose
+// body names it reads an empty variable, unless the builder passes it on that command line
+// (OPS-88: plugin/checks/statusline.sh, run directly, failed its two unwritable-HOME cases).
+func TestShellChildGetsPluginRoot(t *testing.T) {
+	out, _ := build(t)
+	err := filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".sh") {
+			return err
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		for i, l := range strings.Split(string(raw), "\n") {
+			for _, bad := range unpassedChildren(l) {
+				t.Errorf("%s:%d: a sh -c names $%s without it among its assignments: %s", p, i+1, FWVar, bad)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The rewrite itself: each child judged alone, a value the template set kept, and nothing
+	// inserted after a wrapper's command word (where it would be an argument, not an assignment).
+	rw, err := newRewriter(filepath.Join(repoRoot(t), "template"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ in, want string }{
+		{`a=$(sh -c '. "$ROOT/.claude/lib/conf.sh"'); b=$(X=1 sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`a=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'); b=$(X=1 CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`v=$(CLAUDUCTOR_FW= sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW= sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`with_timeout 60 sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
+			`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`},
+		{`v=$(sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`},
+	} {
+		if got := rw.shell("checks/x.sh", c.in); got != c.want {
+			t.Errorf("shell(%s)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := unpassedChildren(`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`); len(got) != 1 {
+		t.Errorf("a child behind a wrapper is not reported: %q", got)
+	}
+	// A quoted value with a blank, a ; and a ( (change-tools.sh writes one) is still one assignment.
+	if got := unpassedChildren(rw.shell("checks/x.sh", `out=$(MSG="a; b (c)" sh -c '. "$ROOT/.claude/lib/conf.sh"')`)); len(got) != 0 {
+		t.Errorf("a passed child after a quoted value with a blank is reported: %q", got)
+	}
+}
+
+// unpassedChildren returns each `sh -c '…$CLAUDUCTOR_FW…'` on the line whose command does not set
+// CLAUDUCTOR_FW among its leading assignments. Written apart from the rewrite's regex, so the two
+// do not share a mistake: the command is the text back to the last ; & | or (, split on blanks.
+func unpassedChildren(l string) []string {
+	var bad []string
+	assign := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+	quoted := regexp.MustCompile(`"[^"]*"|'[^']*'`)
+	for _, loc := range regexp.MustCompile(`sh -[A-Za-z]*c '[^']*\$\{?`+FWVar).FindAllStringIndex(l, -1) {
+		// A quoted value may hold a blank, a ; or a (: empty it before cutting and splitting.
+		before := quoted.ReplaceAllString(l[:loc[0]], `""`)
+		before = before[strings.LastIndexAny(before, ";&|(")+1:]
+		passed := false
+		for _, f := range strings.Fields(before) {
+			if !assign.MatchString(f) {
+				passed = false
+				break
+			}
+			passed = passed || strings.HasPrefix(f, FWVar+"=")
+		}
+		if !passed {
+			bad = append(bad, l[loc[0]:loc[1]])
+		}
+	}
+	return bad
 }

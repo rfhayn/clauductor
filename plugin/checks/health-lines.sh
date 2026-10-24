@@ -82,7 +82,7 @@ has "scheduled: no scheduled workflow still prints a line (before any gh or offl
 cover() {  # cover ROOTDIR: the script's --list against a cron grep of the same directory
   want=$(for f in "$1"/.github/workflows/*.yml "$1"/.github/workflows/*.yaml; do
     [ -f "$f" ] && sed 's/#.*$//' "$f" | grep -qE '(^|[^A-Za-z_])cron[[:space:]]*:' && basename "$f"; done | sort | tr '\n' ' ')
-  have=$(ROOT="$1" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"; . "$0"; health_scheduled --list' "$CLAUDUCTOR_FW/lib/health.sh" | sort | tr '\n' ' ')
+  have=$(ROOT="$1" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"; . "$0"; health_scheduled --list' "$CLAUDUCTOR_FW/lib/health.sh" | sort | tr '\n' ' ')
   [ "$want" = "$have" ] && ok "scheduled: covers exactly the workflows with a cron in ${2:-$1} (${have:-none})" || fail "scheduled: --list ($have) differs from the workflows with a cron ($want) in ${2:-$1}"
 }
 cover "$R" "the fixture"
