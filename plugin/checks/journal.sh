@@ -163,6 +163,7 @@ good OPS-18 | sed 's/^- \*\*Session start\*\*: .*/- **Session start**: about an 
 good OPS-19 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: CANNOT CHECK — no records/' > "$FD/OPS-19.md"; fgood OPS-19 "a cost that could not be read, said so"
 # A row two fragments close (an **Also closes** naming a row with its own, or two naming one) is a
 # fold refusal at the close (OPS-125): seen here, at the row's gate, the row's author fixes it.
+# Only when the branch holds both: two PRs cut from one main each see one, and the fold catches that.
 FT="$(scratch)/twice"; mkdir -p "$FT"
 good A-1 | awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-2" }' > "$FT/A-1.md"; good A-2 > "$FT/A-2.md"
 tw=$(printf '%s\n' "$FT/A-1.md" "$FT/A-2.md" | fragments_twice 2>&1)

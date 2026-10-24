@@ -127,7 +127,7 @@ fragment_rows() {
 }
 
 # Fragment paths on stdin, one per line. Prints each row id more than one of them closes, which
-# the fold refuses (checks/journal.sh says so at the row's gate first).
+# the fold refuses (checks/journal.sh says so first, at the gate of a branch that holds both).
 fragments_twice() {
   while IFS= read -r _f; do [ -n "$_f" ] && fragment_rows "$_f"; done | sort | uniq -d
 }

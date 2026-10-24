@@ -85,11 +85,12 @@ if [ "$kind" = close ]; then
     for p in $(git ls-tree --name-only "$ref" "./$JOURNAL_FRAGMENTS/" 2>/dev/null); do
       case $p in *.md) [ "$(basename "$p")" = README.md ] || git show "$ref:./$p" > "$tmp/frags/$(basename "$p")" ;; esac
     done
-    top=$(git show "$ref:./$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | head -1)
+    git show "$ref:./$JOURNAL" > "$tmp/journal" 2>/dev/null
   else
     for p in "$JOURNAL_FRAGMENTS"/*.md; do [ -f "$p" ] && [ "$(basename "$p")" != README.md ] && cp "$p" "$tmp/frags/"; done
-    top=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$JOURNAL" 2>/dev/null | head -1)
+    cp "$JOURNAL" "$tmp/journal" 2>/dev/null
   fi
+  top=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$tmp/journal" 2>/dev/null | head -1)
   nf=0; : > "$tmp/landed"
   for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment_rows "$f" >> "$tmp/landed"; done
   [ "$nf" -gt 0 ] || { echo "[]"; exit 0; }
@@ -100,28 +101,35 @@ if [ "$kind" = close ]; then
       $1 == "S" && $4 !~ /\(done\)/ { order[++k] = $2; num[$2] = $3; next }
       $1 == "R" && !($2 in m) { open[$3] = 1 }
       END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" -)
-    [ -n "$sess" ] || { echo "[]"; exit 0; }
-    # Every close is numbered one way, one past the journal's top: the plan's label is not the
-    # journal's number (`S4.5`, or a plain session after an entry that ran long), and fold.sh N
-    # refuses a number the journal holds.
     s=$(printf '%s\n' "$sess" | cut -f1); n=$(( ${top:-0} + 1 ))
-    if ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then
+    # The close's N is the one fold.sh and session-close name (OPS-108): the first plan session it
+    # covers that no entry holds. A plain label is that session (`S4.5` folds Session 4.5); one the
+    # journal already holds (an entry before it ran long), or a session no label names, takes one
+    # past the journal's top, the first number free.
+    if [ -z "$s" ]; then
+      # No open session, yet a fragment waits (its row in no plan entry, or one marked done early):
+      # offered as with no plan, never held until someone edits the plan.
+      title="Close session $n: fold $nf fragment(s)"
+    elif ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then
       # An entry spanning days (`S15–S18`, `S29+`) is no one day's plan: each day's close is
       # offered while a fragment waits.
       title="Close session $n ($s): fold $nf fragment(s)"
     else
+      grep -qE "^## Session $(printf '%s' "${s#S}" | sed 's/\./\\./g')( |$)" "$tmp/journal" 2>/dev/null || n=${s#S}
       # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
       waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
         FILENAME == ARGV[2] { d[$0] = 1; next }
         $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
       [ -z "$waiting" ] || { echo "[]"; exit 0; }
-      title="Close $s (session $n): fold $nf fragment(s)"
+      if [ "$n" = "${s#S}" ]; then title="Close $s: fold $nf fragment(s)"; else title="Close $s (session $n): fold $nf fragment(s)"; fi
     fi
   else
     n=$(( ${top:-0} + 1 )); title="Close session $n: fold $nf fragment(s)"
   fi
-  printf '%s\n' "session-$n-close" | grep -qE '^[a-z0-9][a-z0-9-]{0,40}$' || { echo "[]"; exit 0; }
-  jq -n -c --arg name "session-$n-close" --arg t "$title" --arg d "rows landed: $(sort -u "$tmp/landed" | paste -sd ',' - | sed 's/,/, /g')" \
+  # A lane's name takes no dot: Session 4.5's close is the lane session-4-5-close.
+  name="session-$(printf '%s' "$n" | tr . -)-close"
+  printf '%s\n' "$name" | grep -qE '^[a-z0-9][a-z0-9-]{0,40}$' || { echo "[]"; exit 0; }
+  jq -n -c --arg name "$name" --arg t "$title" --arg d "rows landed: $(sort -u "$tmp/landed" | paste -sd ',' - | sed 's/,/, /g')" \
     '[{name: $name, title: $t, detail: $d}]'
   exit 0
 fi

@@ -210,11 +210,20 @@ sed 's/^| S5 |/| S5–S7 |/' "$C/keep.md" > "$C/docs/roadmap.md"
 printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 [ "$(cnames)" = "session-6-close" ] && ok "...the next day's numbered past the one the journal holds" || fail "close in a spanning entry after S5 offered: $(cnames)"
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
-# A plain session's label is not the journal's number either: S4.5's close folds Session 5, the
-# one past the journal's Session 4, never 4 (its order) again.
+# A plain session is numbered as fold.sh and session-close number it (OPS-108), by its label: S4.5
+# folds Session 4.5 (a lane name takes no dot), never 4 (its order) and never 5.
 sed 's/^| S5 |/| S4.5 |/' "$C/keep.md" > "$C/docs/roadmap.md"
 printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
-[ "$(cnames)" = "session-5-close" ] && ok "close: S4.5's close is numbered past the journal's top, not by its label" || fail "close for S4.5 offered: $(cnames)"
+[ "$(cnames)" = "session-4-5-close" ] && ok "close: S4.5's close is numbered by its label, as fold.sh's N" || fail "close for S4.5 offered: $(cnames)"
+# A label the journal already holds (an entry before it ran long) takes the first number free.
+cp "$C/keep.md" "$C/docs/roadmap.md"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+[ "$(cnames)" = "session-6-close" ] && ok "close: a plain label the journal holds takes one past its top" || fail "close for a held S5 offered: $(cnames)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+# Every plan entry done, yet a fragment waits (its row in none, or an entry marked done early): the
+# close is still offered, never held until the plan is edited.
+sed 's/^| S5 | |/| S5 | (done) |/' "$C/keep.md" > "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: with no open plan session, offered while a fragment waits" || fail "close with every entry done offered: $(cnames)"
 mv "$C/keep.md" "$C/docs/roadmap.md"
 printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
 awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
