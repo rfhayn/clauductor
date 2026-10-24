@@ -184,8 +184,8 @@ With catch-up on, the report names none of them: the panel fast-forwards the che
 holds the config, rebuilds itself, and sends a notice for whatever it could not do.
 
 ## After the merge
-- Set the roadmap row to `✅ merged (#N)` (the parser refuses any other shape) in the next
-  change's PR or the session close.
+- Leave the roadmap row's Status alone: the daily close's fold sets `✅ merged (#N)` from the
+  row's fragment (`.claude/skills/session-close/fold.sh`), and no row's PR sets it (OPS-108).
 - If the PR completed a change, archive it (`/archive-change`).
 - Refresh the focus: `sh .claude/status-write.sh "[main] <next focus>"`.
 - Remove the lane's worktree once it is merged and clean (`git worktree remove <path>`), or leave it

@@ -211,7 +211,8 @@ roadmap row ──► /clauductor:propose (just in time) ──► owner approve
    body carrying the provenance trailers (`Change:`, `Agent-Role:`, `Model:`, `Session:`).
 7. **Archive** (`/clauductor:archive-change`): spec deltas promoted into `specs/`, the actual cost recorded,
    the outcome check queued for the day the proposal named, the directory moved to
-   `changes/archive/`, the row marked `✅ merged (#N)`.
+   `changes/archive/`. The row is marked `✅ merged (#N)` by the daily close's fold, from the row's
+   fragment.
 
 A `fix/` or `ops/` change skips 2–3, 5 and 7: it is not a capability change (the test: *does it
 change what a user can do?*).

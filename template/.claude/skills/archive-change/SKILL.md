@@ -55,10 +55,11 @@ behind, and the next proposal reads them as current.
    `roadmap-queue.sh --text` lists it as DUE from that date, so session-start raises it. Rule 11
    requires the row.
 4. `git mv changes/<id> changes/archive/<YYYY-MM-DD>-<id>` (today's date).
-5. Optionally, compound now: the insights this change produced are freshest at its archive
-   (`sh .claude/compound.sh`, then session-close step 3b's three choices). Otherwise session-close
-   does it.
-6. Set the roadmap row to `✅ merged (#N)` if it is not already, then
+5. Compounding (`sh .claude/compound.sh`, then session-close step 3b's three choices) edits the
+   insights log, so it is the close's: do it here only when this archive rides the close's branch
+   (BRANCH_SESSION_CLOSE). Otherwise session-close does it.
+6. Leave the row's Status to the daily close's fold (OPS-108), unless this archive rides the
+   close's branch and the fold left it unset; then set `✅ merged (#N)`. Run
    `sh .claude/roadmap-queue.sh --check` and `sh .claude/checks/run.sh changes scenarios`: the
    promoted scenarios are now living, so the trace holds their tests to them from here on.
 7. Land it through `merge-pr` (or with the session close).

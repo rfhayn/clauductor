@@ -368,16 +368,16 @@ _red "a pull in a step of its own after step 5" '/^## After the merge/i\
 ### 6. Pull\
 Run `git -C "$main" pull --ff-only` once the merge lands.
 ' "text after step 5 names \`git -C \"\$main\" pull --ff-only\`"
-_red "a fast-forward by merge after the merge" '/^- Set the roadmap row/i\
+_red "a fast-forward by merge after the merge" '/^- Leave the roadmap row/i\
 - Fast-forward the main checkout: `git -C "$main" merge origin/main`.
 ' "text after step 5 names \`git -C \"\$main\" merge origin/main\`"
-_red "a reset with no git before it" '/^- Set the roadmap row/i\
+_red "a reset with no git before it" '/^- Leave the roadmap row/i\
 - Then `reset --hard origin/main` in the main checkout.
 ' "text after step 5 names \`reset --hard origin/main\`"
-_red "a sync by gh" '/^- Set the roadmap row/i\
+_red "a sync by gh" '/^- Leave the roadmap row/i\
 - Bring the main checkout up to date with `gh repo sync`.
 ' "text after step 5 names \`gh repo sync\`"
-_red "a pull named outside a code span after step 5" '/^- Set the roadmap row/i\
+_red "a pull named outside a code span after step 5" '/^- Leave the roadmap row/i\
 - Then run git pull in the main checkout.
 ' "text after step 5 names \`git pull\` outside a code span"
 _red "a second step 5" '/^## After the merge/i\

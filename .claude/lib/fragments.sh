@@ -12,8 +12,8 @@
 #   # <row id> — <focus>              line 1, the id equal to the file name's
 #   - **PR**: #N
 #   - **Session**: S<n>, started <YYYY-MM-DD HH:MM ET>     the marker line's (session-start/marker.sh)
-#   - **Review**: <n> round(s), peak <severity>, cap <n>   cap: .claude/review-cap.sh
-#   - **Gate**: <minutes> min                              the last full gate measured on the branch
+#   - **Review**: <n> round(s), peak <severity>, cap <n>   critical|high|medium|low|none; cap: .claude/review-cap.sh
+#   - **Gate**: <minutes> min                              the last full gate before the fragment's commit
 #   - **Cost**: $<amount>, or CANNOT CHECK and why         usage-report.sh, this row's sessions
 #   - **Session start**: <tokens> tokens, <minutes> min    the marker's cost line, or CANNOT CHECK
 #   ## What happened / ## Decisions / ## Surprises / ## Insights    each once, in this order
@@ -41,6 +41,9 @@ fragment_problems() {
       if (substr($0, 1, length(want)) != want || length($0) == length(want)) bad("line 1 is not \"# " name " — <focus>\" (the id must equal the file name)")
       next
     }
+    # A fenced block is the fragment quoting something: a `## ` or `- **X**:` in it is not shape.
+    /^(```|~~~)/ { fence = !fence; next }
+    fence { next }
     /^## Session/ { bad("line " NR " is a session heading: only a session close numbers a session (rule 7)"); next }
     /^## / {
       h = trim(substr($0, 4)); cur = h
@@ -58,7 +61,8 @@ fragment_problems() {
       got[k] = v; next
     }
     cur == "Insights" && /^\|/ {
-      line = $0; sub(/[ \t]+$/, "", line)
+      # An escaped \| is text in a cell, as the log itself writes one.
+      line = $0; sub(/[ \t]+$/, "", line); gsub(/\\\|/, "", line)
       c = gsub(/\|/, "|", line)
       if (c != 7 || line !~ /\|$/) { bad("line " NR ": an insight row needs six cells (| Date | Area | Topic | Observation | How to verify | Status |)"); next }
       split(line, C, "|")
@@ -72,7 +76,7 @@ fragment_problems() {
       for (i = 1; i <= nf; i++) if (!(F[i] in got)) bad("no **" F[i] "** field before the first section (- **" F[i] "**: …)")
       if ("PR" in got && got["PR"] !~ /^#[0-9]+/) bad("**PR** is not #N")
       if ("Session" in got && got["Session"] !~ /^S[0-9]+(\.[0-9]+)*, started [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9] [A-Za-z]+/) bad("**Session** is not \"S<n>, started YYYY-MM-DD HH:MM <zone>\" (the marker'"'"'s time)")
-      if ("Review" in got && got["Review"] !~ /^[0-9]+ rounds?, peak [a-z]+, cap [0-9]+/) bad("**Review** is not \"<n> round(s), peak <severity>, cap <n>\"")
+      if ("Review" in got && got["Review"] !~ /^[0-9]+ rounds?, peak (critical|high|medium|low|none), cap [0-9]+/) bad("**Review** is not \"<n> round(s), peak <critical|high|medium|low|none>, cap <n>\"")
       if ("Gate" in got && got["Gate"] !~ /^([0-9]+(\.[0-9]+)? min|CANNOT CHECK)/) bad("**Gate** is not \"<minutes> min\" (or CANNOT CHECK and why)")
       for (i = next_s; i <= ns; i++) if (!(S[i] in seen)) bad("no \"## " S[i] "\" section")
       if (("Insights" in seen) && !rows && !none) bad("## Insights has neither an insight row nor \"None.\"")

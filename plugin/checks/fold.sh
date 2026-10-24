@@ -34,7 +34,7 @@ frag() {  # frag ID PR COST INSIGHTS-LINE
 
 - **PR**: #$2
 - **Session**: S5, started 2026-01-02 09:00 ET
-- **Review**: 2 rounds, peak minor, cap 3
+- **Review**: 2 rounds, peak low, cap 3
 - **Gate**: 7 min
 - **Cost**: $3
 - **Session start**: 1000 tokens, 3 min
@@ -87,6 +87,20 @@ grep -q '^| A-1 .*| ✅ merged (#11) |$' "$F/docs/roadmap.md" && grep -q '^| A-2
 (ROOT=$F; . "$F/.claude/lib/conf.sh"; roadmap_queue --check >/dev/null 2>&1) && ok "fold: the roadmap still parses" || fail "fold: the roadmap no longer parses"
 out=$(fold 6); [ $? -eq 0 ] && printf '%s' "$out" | grep -q 'nothing to fold' \
   && ok "fold: no fragment, nothing to fold (exit 0)" || fail "fold: with no fragment: $out"
+
+# A fragment quoting markdown in a fence keeps it whole; a gate that could not be read is no 0.
+setup
+awk '{ print } /^Chose\./ { print ""; print "```"; print "## Insights"; print "| 2026-01-09 | Ops | quoted | o | v | Raw |"; print "```" }' \
+  "$F/docs/journal.d/A-1.md" > "$S/a1" && mv "$S/a1" "$F/docs/journal.d/A-1.md"
+awk '/^- \*\*Gate\*\*:/ { print "- **Gate**: CANNOT CHECK — no receipt"; next } { print }' \
+  "$F/docs/journal.d/A-2.md" > "$S/a2" && mv "$S/a2" "$F/docs/journal.d/A-2.md"
+out=$(fold 5); rc=$?
+[ $rc -eq 0 ] && [ "$(awk '/^Chose\./ { on = 1; next } on && NF { print; n++ } n == 4 { exit }' "$J" | cksum)" = "$(printf '```\n## Insights\n| 2026-01-09 | Ops | quoted | o | v | Raw |\n```\n' | cksum)" ] \
+  && ! grep -q 'quoted' "$F/docs/insights-log.md" && grep -q '^1 row(s), moved' "$J" \
+  && ok "fold: a fenced block in a fragment is copied whole, its quoted row not moved to the log" \
+  || fail "fold: fenced block: exit $rc: $out; entry: $(awk '/^### A-1 /{on=1} /^### A-2 /{on=0} on' "$J" | tr '\n' '~')"
+grep -q '^\*\*Totals\.\*\* Gate 7 min (a row.s gate was CANNOT CHECK, so this is a floor); cost \$3.75\.' "$J" \
+  && ok "fold: a CANNOT CHECK gate makes the total a floor, said so, never a silent 0" || fail "fold: totals: $(grep Totals "$J")"
 
 # All or nothing: each refusal leaves every file as it was.
 refuses() {  # refuses WORDS LABEL ARGS…

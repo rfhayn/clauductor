@@ -8,8 +8,9 @@ argument-hint: <topic> <insight text>
 
 # Log a technical insight
 
-Add a row to the insights log now (the intake tier; `docs/insights-log.md` by default). Do not
-defer it.
+Add a row for the insights log now (the intake tier; `docs/insights-log.md` by default). Do not
+defer it. On a row's branch the row goes in the row's fragment, and the daily close moves it to
+the log (OPS-108), so rows built in parallel never edit one shared line.
 
 ## Context: the state, computed
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/log-insight/context.sh`
@@ -23,9 +24,14 @@ debugging technique that saved real time, a guard that failed silently, a premis
 false. Not a changelog entry, and not something the code or git history already says.
 
 ## Steps
-1. Add ONE row at the **top** of the table body:
+1. Add ONE row where the context's **Writer** line says:
 
    `| <today> | <Area> | <Topic> | <the observation> | <how to verify it> | Raw |`
+
+   - **A daily close's branch**: at the **top** of the insights log's table body.
+   - **A row's branch**: under `## Insights` in the row's fragment, `docs/journal.d/<row id>.md`
+     (in place of `None.`; the shape is that directory's README). Start the fragment now if it is
+     not there: the row's gate holds its shape, so its other fields cannot be forgotten.
 
    - **Area** is a coarse bucket from `INSIGHT_AREAS` in `.claude/project.conf` (or, if unset,
      one already used in the log).

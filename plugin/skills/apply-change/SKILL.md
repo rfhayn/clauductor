@@ -75,7 +75,8 @@ do one group alone. The loop is the same, and so are its stops.
   (timeout 600000): exit 3 means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or
   2: no result, run the gate again).
 - `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
-- Push, open the PR, set the roadmap row to `⬜ in flight (#N)` in it, and land it with
+- Write the row's fragment (`docs/journal.d/<row id>.md`; the row's Status is the daily close's
+  fold's, never set in this PR). Push, open the PR, and land it with
   `merge-pr` (passing on any `reportTo`), recording `Review: converged in <n> round(s), peak
   <sev>, at <sha>` per group.
 

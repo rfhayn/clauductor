@@ -3,7 +3,7 @@
 > **A budget, not an archive.** Every session and every subagent loads this file at startup, so
 > each line is paid for again every time an agent starts. `.claude/checks/agents-md-budget.sh`
 > holds it to a byte ceiling and each table row to a length ceiling. **New lessons go to
-> `docs/insights-log.md`**; detail goes to **`docs/conventions.md`**. Change this file only to
+> `docs/insights-log.md`** (from a row, by its fragment); detail goes to **`docs/conventions.md`**. Change this file only to
 > add a mechanism or to delete something, and give the mechanism its row in the table below.
 
 ## Four rules that keep the model honest

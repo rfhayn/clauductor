@@ -46,7 +46,9 @@ If the line above shows as literal text instead of output, run
 5. **Retag EVERY insights-log row the record or amendment cites**, not only the one that prompted
    it: `Promoted → ADR-NNNN` or `Promoted → PRAC-NNNN` (or `… (<date> amendment)`). Grep for each
    cited topic and read each status cell back. A promotion that does not retag its sources keeps
-   session-close's promotion trigger firing on work already done.
+   session-close's promotion trigger firing on work already done. This edits the insights log,
+   so the record lands in its own PR or the close's (rule 8 holds either on top of `origin/main`),
+   never inside a row's PR, which writes only its fragment (OPS-108).
 6. If it supersedes an older record, set that one's Status to `Superseded by ADR-NNNN` (or
    `PRAC-NNNN`).
 7. Run `sh .claude/checks/run.sh adr-numbering`.

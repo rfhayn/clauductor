@@ -147,6 +147,10 @@ good OPS-10 > "$FD/OPS-10.md"
 printf '| Date | Area | Topic | Observation | How to verify | Status |\n' >> "$FD/OPS-10.md"; fbad OPS-10 "a table header under Insights" "no table header"
 good OPS-11 | sed '/^| 2026/d' > "$FD/OPS-11.md"; fbad OPS-11 "an empty Insights section" 'neither an insight row nor "None."'
 good 'two words' > "$FD/two words.md"; fbad 'two words' "a file name that is not a row id" "is not <row id>.md"
+good OPS-12 | awk '{ print } /^The row.s narrative\./ { print ""; print "```"; print "## What happened"; print "- **PR**: quoted"; print "```" }' > "$FD/OPS-12.md"
+fgood OPS-12 "a fenced block quoting a section heading and a field"
+good OPS-13 | sed 's/An observation\./a \\| b, escaped as the log writes it/' > "$FD/OPS-13.md"; fgood OPS-13 "an insight row with an escaped \\| in a cell"
+good OPS-14 | sed 's/peak medium/peak minor/' > "$FD/OPS-14.md"; fbad OPS-14 "a peak that is not a severity" "**Review** is not"
 fi
 
 # ── This project's journal ───────────────────────────────────────────────────────────────────────

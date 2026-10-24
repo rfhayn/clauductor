@@ -45,7 +45,8 @@ keep: no hook refuses a row PR's edit to the log.
   PR, `<JOURNAL_FRAGMENTS>/<row id>.md`, written last, before the final gate. The shape is
   `docs/journal.d/README.md`'s and `checks/journal.sh` holds it: the PR, the session marker's
   `S<n>` and time (the PR body's first line, from `session-start/marker.sh`), review rounds and peak
-  against `clauductor-model review-cap.sh <row id>`, the last full gate's minutes, the cost
+  against `clauductor-model review-cap.sh <row id>`, the last full gate's minutes (both the runs before
+  the fragment's commit, which the final gate's receipt then covers), the cost
   (`usage-report.sh`, this row's sessions), the marker's `session-start cost:` line, then what
   happened, decisions, surprises, and insight lines as rows of the log's table. Then steps 1, 2, 4,
   5 and 6.5–6.6; step 3's records wait for the daily close, and there is no close PR.

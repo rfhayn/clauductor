@@ -59,14 +59,17 @@ grep -qE "^## Session $(printf '%s' "$n" | sed 's/\./\\./g')( |$)" "$ROOT/$JOURN
 
 # 2. The entry: a summary line, then each row's fragment with its headings stepped down, its
 # Insights section left out (the rows move to the log; the entry says how many).
-gate=0; cost=0; costs=ok
+gate=0; gates=ok; cost=0; costs=ok
 {
   printf '%s\n\n' "$heading"
   printf '**Rows folded.** %s.\n\n' "$(while IFS= read -r f; do printf '%s (%s)\n' "$(basename "$f" .md)" "$(field "$f" PR | sed 's/[[:space:]].*//')"; done < "$tmp/list" | paste -sd ',' - | sed 's/,/, /g')"
   while IFS= read -r f; do
-    ni=$(awk '/^## Insights/ { on = 1; next } /^## / { on = 0 } on && /^\|/ { c++ } END { print c + 0 }' "$f")
+    ni=$(awk '/^(```|~~~)/ { fence = !fence } !fence && /^## Insights/ { on = 1; next } !fence && /^## / { on = 0 } on && !fence && /^\|/ { c++ } END { print c + 0 }' "$f")
+    # A fenced block is copied as it stands: a `## ` in it is the fragment quoting, not a section.
     awk -v ni="$ni" '
       NR == 1 { sub(/^# /, "### "); print; next }
+      /^(```|~~~)/ { fence = !fence; if (!skip) b[++k] = $0; next }
+      fence { if (!skip) b[++k] = $0; next }
       /^## Insights/ { skip = 1; b[++k] = "#### Insights"; b[++k] = ""; b[++k] = (ni ? ni " row(s), moved to the insights log." : "None."); b[++k] = ""; next }
       /^## / { skip = 0; sub(/^## /, "#### ") }
       !skip { b[++k] = $0 }
@@ -75,11 +78,15 @@ gate=0; cost=0; costs=ok
   done < "$tmp/list"
 } > "$tmp/entry"
 while IFS= read -r f; do
-  g=$(field "$f" Gate | sed -n 's/^\([0-9][0-9.]*\) min.*/\1/p'); [ -n "$g" ] && gate=$(awk -v a="$gate" -v b="$g" 'BEGIN { print a + b }')
+  g=$(field "$f" Gate | sed -n 's/^\([0-9][0-9.]*\) min.*/\1/p')
+  if [ -n "$g" ]; then gate=$(awk -v a="$gate" -v b="$g" 'BEGIN { print a + b }'); else gates=partial; fi
   c=$(field "$f" Cost | sed -n 's/^\$\([0-9][0-9.]*\).*/\1/p')
   if [ -n "$c" ]; then cost=$(awk -v a="$cost" -v b="$c" 'BEGIN { printf "%.2f", a + b }'); else costs=partial; fi
 done < "$tmp/list"
-totals="**Totals.** Gate $gate min; cost \$$cost"
+# A reading that failed is CANNOT CHECK, never 0: a total missing one is a floor, and says so.
+totals="**Totals.** Gate $gate min"
+[ "$gates" = ok ] || totals="$totals (a row's gate was CANNOT CHECK, so this is a floor)"
+totals="$totals; cost \$$cost"
 [ "$costs" = ok ] || totals="$totals (a row's cost was CANNOT CHECK, so this is a floor)"
 awk -v t="$totals." 'NR == 3 { print t; print "" } { print }' "$tmp/entry" > "$tmp/entry2" && mv "$tmp/entry2" "$tmp/entry"
 
@@ -95,7 +102,7 @@ awk -v ef="$tmp/entry" '
 # 4. The insights log: every fragment's rows, right under the table's separator line.
 i="$ROOT/$INSIGHTS"; [ -f "$i" ] || refuse "INSIGHTS $INSIGHTS does not exist"
 while IFS= read -r f; do
-  awk '/^## Insights/ { on = 1; next } /^## / { on = 0 } on && /^\|/' "$f"
+  awk '/^(```|~~~)/ { fence = !fence } !fence && /^## Insights/ { on = 1; next } !fence && /^## / { on = 0 } on && !fence && /^\|/' "$f"
 done < "$tmp/list" > "$tmp/rows"
 if [ -s "$tmp/rows" ]; then
   H="$INSIGHTS_TABLE_HEADING" awk -v rf="$tmp/rows" '
