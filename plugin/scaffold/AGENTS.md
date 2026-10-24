@@ -51,8 +51,9 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | No `--auto`, no `--admin`; a merge has gate evidence for its exact head commit | **`${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`** rules 1–2 (blocking); **`checks/merge-guard.sh`** |
 | Only a complete run of a clean tree is evidence; two gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
-| A journal `## Session N` is not claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** |
-| A session close lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, `BRANCH_SESSION_CLOSE`); **`checks/merge-guard.sh`** |
+| A row's PR writes its fragment (`docs/journal.d/<row id>.md`); only a daily close adds a `## Session N`, never one claimed twice | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** (the fragment's shape); `session-close/fold.sh`; **`checks/fold.sh`** |
+| Only a session close edits the journal or insights log, on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, `BRANCH_SESSION_CLOSE`); **`checks/merge-guard.sh`** |
+| Review stops at the row's cap by risk; what is left goes to KNOWN LIMITS with its owner | **`${CLAUDE_PLUGIN_ROOT}/review-cap.sh`** via `build-change.js` (`maxRounds`) and `merge-pr` step 3; **`checks/review-cap.sh`** |
 | An open change has the shape build-change reads and records the owner's approval | **`checks/changes.sh`**; `/clauductor:propose` stops for the owner |
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `${CLAUDE_PLUGIN_ROOT}/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`${CLAUDE_PLUGIN_ROOT}/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |

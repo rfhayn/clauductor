@@ -18,6 +18,11 @@ themselves are in `AGENTS.md`; the reasons behind them in `docs/principles.md`.
    updates the roadmap, insights, owner queue and journal, lands its own `ops/session-<N>-close` PR, quiets the machine
    (`machine-quiet.sh`), and sends one **Done** notification.
 
+A session that builds one roadmap row opens the row's PR as a draft at its start
+(`session-start/marker.sh`) and closes by writing the row's fragment, `docs/journal.d/<row id>.md`,
+in that PR; it never edits the journal or the insights log. The daily close folds the fragments
+into one journal entry (`session-close/fold.sh`): `session-close`, *Two forms*.
+
 A check that could not run says `CANNOT CHECK`, never "none": absence must not read as health.
 
 ## Who decides
@@ -255,7 +260,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | blocked / environment fault | a service down, a credential missing | fix the environment, re-run with `resume` |
 | gate still red | two fix attempts failed | read the failure; fix or split the group |
 | severity rose | fixes introduced worse defects than they removed | read the rounds; usually the group is too big: split it |
-| not converged | three rounds without a clean one | rule on the builder's disputes, or split the group |
+| not converged | the review cap (`review-cap.sh`, by risk) without a clean round | rule on the builder's disputes, split the group, or list what is left under KNOWN LIMITS with its owner |
 | stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
@@ -438,7 +443,7 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 
 | Guard | When | What it does |
 |---|---|---|
-| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
+| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session or one added outside a daily close, a journal or insights edit off the close's branch, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
 | `no-blind-source-rewrite.sh` | every Bash call | blocks `sed -i`/`perl -pi`/python read-modify-write on tracked source: use the Edit tool |
 | `no-background-gate.sh` | every Bash call | blocks a gate sent to the background where nobody hears it end: `&` from anyone; `run_in_background` or a timeout under 600000 ms from a subagent. A subagent follows a long gate with `scripts/ci/gate-wait.sh` |
 | `no-silent-wait.sh` | an agent's Bash call and its turn's end, `AskUserQuestion` | blocks a subagent's or teammate's turn ending while a command it started still runs (it says how to wait in the foreground), its shell `&` that nothing waits for, and the main session's `AskUserQuestion` while an agent or a background command of the session runs: ask through the owner queue or a push instead |
@@ -529,7 +534,8 @@ removed with `--prune`.
 | decisions | `docs/adr/` | decisions about the system, each naming its enforcement | AGENTS.md only as a mechanism |
 | practices | `docs/practices/` | how we work: lessons with a mechanism (`PRAC-NNNN`, one number space with ADRs) | AGENTS.md only as a mechanism |
 | rules | `AGENTS.md` | the four rules and what executes each (a byte budget) | never grows by prose |
-| narrative | `docs/development-journal.md` | each session: what, why, what next | — |
+| narrative | `docs/development-journal.md` | each daily close: what, why, what next | — |
+| row records | `docs/journal.d/<row id>.md` | one row's PR: what happened, review, gate, cost, insights | the daily close folds them into the journal |
 
 Plus the living state: `docs/roadmap.md` (the queue), `changes/` (in flight), `specs/` (what the
 system does), `docs/owner-queue.md` (what needs the owner).

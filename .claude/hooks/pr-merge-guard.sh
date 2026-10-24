@@ -15,8 +15,12 @@
 #   3. A capability-change PR (BRANCH_CHANGE) is blocked unless the change's tasks.md states its
 #      slice (`Slice: …`). A presence check: it makes the question be answered out loud.
 #   4. Advisory: more than one change is proposed at once (propose just in time).
-#   7. A PR is blocked if its journal claims a `## Session N` another merged session already uses.
-#   8. A session-close PR (BRANCH_SESSION_CLOSE) is blocked unless its head contains origin/<main>.
+#   7. A PR is blocked if its journal claims a `## Session N` another merged session already uses,
+#      or if it ADDS a `## Session N` and is not a session close (BRANCH_SESSION_CLOSE): a row
+#      writes a fragment (JOURNAL_FRAGMENTS/<row id>.md), and only a close numbers a session.
+#   8. A session-close PR (BRANCH_SESSION_CLOSE), or any PR that changes JOURNAL or INSIGHTS, is
+#      blocked unless its head contains origin/<main>. BRANCH_SESSION_CLOSE="" turns off rule 8
+#      and rule 7's second half.
 #   9. A build PR on a change branch is blocked until every task of the change it touches is ticked.
 #  10. A merge is blocked while an enforced scenario is cited by no test at the head
 #      (.claude/scenario-trace.sh --rev; D4 of the change process).
@@ -64,7 +68,7 @@ if [ -f "$ROOT_HOOK/.claude/lib/conf.sh" ]; then
   # shellcheck disable=SC1091
   . "$ROOT_HOOK/.claude/lib/conf.sh"
 else
-  MAIN_BRANCH=main JOURNAL=docs/development-journal.md CHANGES_DIR=changes BRANCH_CHANGE=change/ GATE_RUN=scripts/ci/run-local.sh GATE_REMOTE_WORKFLOW=
+  MAIN_BRANCH=main JOURNAL=docs/development-journal.md INSIGHTS=docs/insights-log.md JOURNAL_FRAGMENTS=docs/journal.d CHANGES_DIR=changes BRANCH_CHANGE=change/ GATE_RUN=scripts/ci/run-local.sh GATE_REMOTE_WORKFLOW=
 fi
 REMOTE_WF=${GATE_REMOTE_WORKFLOW:-}  # the default is conf.sh's, stated there once
 payload=$(cat)
@@ -689,12 +693,12 @@ case "$behind" in
   *) say "PR #$pr is $behind commit(s) behind origin/$MAIN_BRANCH: its gate evidence was produced against a tree that is not what merging would produce. Consider: git merge origin/$MAIN_BRANCH && $GATE_RUN" ;;
 esac
 
-# Rules 3, 4 and 7 read the PR's head branch and its tree at the head SHA.
+# Rules 3, 4, 7 and 8 read the PR's head branch and its tree at the head SHA.
 head_json=$(gh pr view "$pr" --json headRefName,headRefOid 2>/dev/null)
 branch=$(printf '%s' "$head_json" | jq -r '.headRefName // empty' 2>/dev/null)
-[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3 and 7 cannot be evaluated. Retry once 'gh pr view $pr --json headRefName' answers."
+[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr --json headRefName' answers."
 
-# The head commit, locally: rules 3 and 7 read files at it from local git objects (no API size cap,
+# The head commit, locally: rules 3, 7 and 8 read files at it from local git objects (no API size cap,
 # nothing remote-tracking to be stale). Fetched once if missing; fails CLOSED if still missing.
 if ! git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
   git fetch origin "pull/$pr/head" --quiet 2>/dev/null
@@ -761,6 +765,33 @@ if git cat-file -e "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null; then
 Renumber this PR's entry to one past the top '## Session N' on origin/$MAIN_BRANCH, keep BOTH entries, re-run the gate ($GATE_RUN), then merge."
   fi
 fi
+# ...and only a close numbers a session (OPS-108). A row's PR writes its records to a fragment of its
+# own ($JOURNAL_FRAGMENTS/<row id>.md), and the close folds the fragments into one entry, so a PR off
+# BRANCH_SESSION_CLOSE whose journal has a heading numbered as neither the merge base nor
+# origin/<main> numbers one (journal_sessions_numbered) is a row numbering a session nobody closed.
+# A retitle, and main's own headings carried in by a merge of origin/<main>, number nothing. Off
+# with rule 8 (BRANCH_SESSION_CLOSE ""): a project without a close pattern has nothing else that may
+# number a session.
+if [ -n "${BRANCH_SESSION_CLOSE:-}" ]; then
+  # shellcheck disable=SC2254
+  case "$branch" in
+    $BRANCH_SESSION_CLOSE) ;;
+    *)
+      [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rule 7 (only a session close adds a '## Session N') cannot be evaluated. Run: git fetch origin pull/$pr/head"
+      added_base=$(git merge-base "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null) \
+        || block "no merge base between origin/$MAIN_BRANCH and PR #$pr's head, so rule 7 cannot be evaluated."
+      journal_lib="$(dirname "$0")/lib/journal-sessions.sh"
+      [ -f "$journal_lib" ] || block "cannot find $journal_lib, so rule 7 (journal session numbers) cannot be checked. Restore it."
+      . "$journal_lib"
+      command -v journal_sessions_numbered >/dev/null 2>&1 || block "$journal_lib did not define journal_sessions_numbered, so rule 7 cannot be checked. Run: sh -n $journal_lib"
+      heads_at() { git show "$1:$JOURNAL" 2>/dev/null | grep -E '^## Session [0-9]+'; }
+      added=$(journal_sessions_numbered "$(heads_at "$added_base")" "$(heads_at "$head_sha")" "$(heads_at "origin/$MAIN_BRANCH")")
+      [ -z "$added" ] || block "PR #$pr ($branch) adds a journal session heading, and only a session close (BRANCH_SESSION_CLOSE: $BRANCH_SESSION_CLOSE) numbers a session (rule 7):
+$(printf '%s\n' "$added" | head -3 | sed 's/^/    /')
+Move the entry's content into this row's fragment, $JOURNAL_FRAGMENTS/<row id>.md (session-close folds the fragments into one entry), drop the heading, re-run the gate ($GATE_RUN), then merge."
+      ;;
+  esac
+fi
 
 # Rule 8 — a session close lands on top of origin/<main>. BLOCKING.
 #
@@ -775,19 +806,32 @@ fi
 # there is no origin/<main> to compare with: the remedy is one command. The fetch repeats rule
 # 2(c)'s and is best-effort: if it fails, an older local origin/<main> is what is compared (the
 # merge itself, which needs the same network, then usually fails too).
+# ...and any PR that changes JOURNAL or INSIGHTS, whatever its branch (OPS-108): only a close writes
+# them now, so one that does it from a row's branch (a close riding a row's PR) is held the same way.
+# Which files the PR changes is read from merge-base..head, so main's own edits merged in do not
+# count; a head the guard cannot read fails closed, as above.
 if [ -n "${BRANCH_SESSION_CLOSE:-}" ]; then
+  why8=""
   # shellcheck disable=SC2254
   case "$branch" in
-    $BRANCH_SESSION_CLOSE)
-      [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rule 8 (a session close contains origin/$MAIN_BRANCH) cannot be evaluated. Run: git fetch origin pull/$pr/head"
-      git fetch origin "$MAIN_BRANCH" --quiet 2>/dev/null
-      git rev-parse --verify --quiet "origin/$MAIN_BRANCH" >/dev/null \
-        || block "cannot read origin/$MAIN_BRANCH, so rule 8 cannot tell whether PR #$pr's head is what merging would produce. Run: git fetch origin $MAIN_BRANCH"
-      git merge-base --is-ancestor "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null \
-        || block "PR #$pr ($branch) is a session close whose head does not contain origin/$MAIN_BRANCH (rule 8). Its records and its gate evidence were checked against a tree that is not what merging would produce. Run: git merge origin/$MAIN_BRANCH, resolve per session-close's shared-file table, re-run the gate ($GATE_RUN), push, then merge."
-      say "rule 8: PR #$pr ($branch) is a session close, and its head contains origin/$MAIN_BRANCH ($(git rev-parse --short "origin/$MAIN_BRANCH" 2>/dev/null))."
+    $BRANCH_SESSION_CLOSE) why8="is a session close" ;;
+    *)
+      [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rule 8 (a PR that changes $JOURNAL or $INSIGHTS contains origin/$MAIN_BRANCH) cannot be evaluated. Run: git fetch origin pull/$pr/head"
+      rec_base=$(git merge-base "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null) \
+        || block "no merge base between origin/$MAIN_BRANCH and PR #$pr's head, so rule 8 cannot tell whether it changes $JOURNAL or $INSIGHTS."
+      rec=$(git diff --name-only "$rec_base" "$head_sha" -- "$JOURNAL" "$INSIGHTS" 2>/dev/null | tr '\n' ' ')
+      [ -n "$rec" ] && why8="changes ${rec% } (only a session close writes the journal and the insights log)"
       ;;
   esac
+  if [ -n "$why8" ]; then
+    [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rule 8 (a session close contains origin/$MAIN_BRANCH) cannot be evaluated. Run: git fetch origin pull/$pr/head"
+    git fetch origin "$MAIN_BRANCH" --quiet 2>/dev/null
+    git rev-parse --verify --quiet "origin/$MAIN_BRANCH" >/dev/null \
+      || block "cannot read origin/$MAIN_BRANCH, so rule 8 cannot tell whether PR #$pr's head is what merging would produce. Run: git fetch origin $MAIN_BRANCH"
+    git merge-base --is-ancestor "origin/$MAIN_BRANCH" "$head_sha" 2>/dev/null \
+      || block "PR #$pr ($branch) $why8, and its head does not contain origin/$MAIN_BRANCH (rule 8). Its records and its gate evidence were checked against a tree that is not what merging would produce. Run: git merge origin/$MAIN_BRANCH, resolve per session-close's shared-file table, re-run the gate ($GATE_RUN), push, then merge."
+    say "rule 8: PR #$pr ($branch) $why8, and its head contains origin/$MAIN_BRANCH ($(git rev-parse --short "origin/$MAIN_BRANCH" 2>/dev/null))."
+  fi
 fi
 
 

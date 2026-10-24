@@ -94,7 +94,7 @@ Converged means **the last review round found nothing medium or worse.** By how 
   made after the report (a merge of `origin/main`, a doc fix) are unreviewed: review that delta.
 - **Built by hand** (a fix or ops branch, a session close): run `/code-review` (or the `clauductor:reviewer` agent)
   on `git diff origin/main...HEAD`, fix what is medium or worse, and re-run until a round comes back
-  clean. Stop and notify if peak severity rises between rounds, or after 3 rounds.
+  clean, or the cap. Stop and notify if peak severity rises between rounds.
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
 - **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it.
@@ -108,6 +108,13 @@ Converged means **the last review round found nothing medium or worse.** By how 
   (another line in that diff, a design hash that differs, a `<sha>` git cannot find) review the
   whole PR.
 
+**The cap.** `clauductor-model review-cap.sh <row id or branch> --why` prints how many rounds this PR gets:
+its proposal's `**Risk:**`, or an ops or fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`
+(low 2, normal 3, high 3 by default). An exit 1 is a stop: fix what it names. When the cap's round
+still finds something medium or worse, stop reviewing: put each finding left under `KNOWN LIMITS` in
+the PR body, with the issue or roadmap row that owns it (create one if none does: AGENTS.md rule 1),
+and merge; the owner may raise the cap for this PR instead. `build-change` reads the same cap.
+
 A reviewer spawn may come back as launched in the background (fork mode, the default, always
 does). Do any other work this step has. If there is none,
 end your turn with no final report and without SubagentHandback: Claude Code keeps you running
@@ -117,7 +124,8 @@ If the Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK
 there, a launcher that ends its turn has ended.
 
 Write the result into the PR body as one line: `Review: converged in <n> round(s), peak <sev>, at
-<short sha>`. Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
+<short sha>` (or `Review: capped at <n> round(s), peak <sev>, at <short sha>; see KNOWN LIMITS`).
+Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
 
 ### 4. Squash-merge and prune
 Write the squash body to a file: the PR's summary, then ONE trailer block. While

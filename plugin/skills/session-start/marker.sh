@@ -1,0 +1,81 @@
+#!/bin/sh
+CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+# marker.sh: a row's session shows on GitHub from its first minute (OPS-108, the job OPS-102 had).
+#
+#   sh .claude/skills/session-start/marker.sh <row id> [S<n>]
+#
+# Run from the row's worktree, on the row's branch. It opens the row's PR as a DRAFT whose body
+# starts with the marker line, and the session-start cost under it:
+#   session-start: S<n> <YYYY-MM-DD HH:MM ET> row <id>
+#   session-start cost: <tokens> tokens, <minutes> min (this session so far: what orienting cost)
+# S<n> is the argument (the session plan's number), else one past the top `## Session` of the
+# journal on origin/main. The cost line is what the row's fragment copies into **Session start**
+# (docs/journal.d/README.md); a reading that failed says CANNOT CHECK, never 0.
+#
+# WHY A DRAFT PR AND NOT A WRITE TO MAIN. A row's records reach main only through the row's own PR
+# and the daily close (pr-merge-guard rules 7 and 8); the marker needs no file at all. The branch
+# gets one empty commit when it has none ahead of origin/main, since GitHub opens no PR without one.
+#
+# FAIL SOFT, ONCE. Session start never blocks and never asks: any failure prints ONE line starting
+# `marker: WARNING` and exits 0. A second run finds the marker on the open PR and adds nothing; an
+# open PR without one gets the marker put first in its body.
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+# shellcheck disable=SC1091
+. "$CLAUDUCTOR_FW/lib/conf.sh"
+
+warn() { echo "marker: WARNING — $*; the session goes on without a marker"; exit 0; }
+[ -n "${1:-}" ] || warn "usage: sh "$CLAUDUCTOR_FW"/skills/session-start/marker.sh <row id> [S<n>]"
+rowid=$1; sn=${2:-}
+command -v gh >/dev/null 2>&1 || warn "gh is not installed"
+
+tsv=$(roadmap_queue --tsv 2>&1) || warn "the roadmap did not parse ($(printf '%s' "$tsv" | head -1))"
+row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$rowid" '$4 == a { print; exit }')
+[ -n "$row" ] || warn "no roadmap row has the id '$rowid'"
+id=$(printf '%s\n' "$row" | cut -f5); kind=$(printf '%s\n' "$row" | cut -f6)
+summary=$(printf '%s\n' "$row" | cut -f10 | cut -c1-60 | sed 's/[[:space:]]*$//')
+# An ops or fix row's change id IS its branch (it starts with BRANCH_OPS or BRANCH_FIX); a
+# capability change's branch takes BRANCH_CHANGE in front.
+branch=$id; [ "$kind" = change ] && branch="$BRANCH_CHANGE$id"
+here=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ "$here" = "$branch" ] || warn "this checkout is on '$here', not row $rowid's branch '$branch'"
+
+if [ -z "$sn" ]; then
+  top=$(git -C "$ROOT" show "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | head -1)
+  [ -n "$top" ] || warn "no session number given and none on origin/$MAIN_BRANCH's $JOURNAL to count from"
+  sn="S$((top + 1))"
+fi
+case $sn in S[0-9]*) ;; *) sn="S$sn" ;; esac
+when="$(TZ="$TIME_ZONE" date '+%Y-%m-%d %H:%M') $TIME_ZONE_LABEL"
+marker="session-start: $sn $when row $rowid"
+
+# The cost so far: every message of THIS session (its agents included), from its first.
+cost="session-start cost: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell"
+if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && command -v jq >/dev/null 2>&1; then
+  if recs=$(sh "$CLAUDUCTOR_FW/usage-report.sh" --session "$CLAUDE_CODE_SESSION_ID" --records 2>&1) && [ -n "$recs" ]; then
+    cost=$(printf '%s\n' "$recs" | jq -rs --arg now "$(date +%s)" '
+      (map(.read + .write + .out) | add) as $t | (map(.ts) | min) as $first
+      | "session-start cost: \($t) tokens, \((($now | tonumber) - $first) / 60 | floor) min"' 2>/dev/null) \
+      || cost="session-start cost: CANNOT CHECK — usage-report.sh's records did not total"
+  else
+    cost="session-start cost: CANNOT CHECK — usage-report.sh: $(printf '%s' "$recs" | head -1)"
+  fi
+fi
+
+open=$(gh pr list --head "$branch" --state open --json number,body --jq '.[0] | "\(.number)\t\(.body | split("\n")[0])"' 2>&1) \
+  || warn "gh could not list $branch's PRs ($(printf '%s' "$open" | head -1))"
+if [ -n "$open" ]; then
+  n=${open%%"	"*}; first=${open#*"	"}
+  case $first in session-start:*) echo "marker: PR #$n already carries it ($first)"; exit 0 ;; esac
+  body=$(gh pr view "$n" --json body --jq .body 2>/dev/null) || warn "gh could not read PR #$n"
+  gh pr edit "$n" --body "$(printf '%s\n%s\n\n%s' "$marker" "$cost" "$body")" >/dev/null 2>&1 || warn "gh could not edit PR #$n"
+  echo "marker: put first in PR #$n's body ($marker)"; exit 0
+fi
+
+if [ "$(git -C "$ROOT" rev-list --count "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)" = 0 ]; then
+  git -C "$ROOT" commit -q --allow-empty -m "$rowid: Start the row's session ($sn)" || warn "the empty marker commit failed"
+fi
+git -C "$ROOT" push -q -u origin "$branch" 2>/dev/null || warn "git push of $branch failed"
+url=$(gh pr create --draft --head "$branch" --base "$MAIN_BRANCH" --title "$rowid: $summary" \
+  --body "$(printf '%s\n%s\n\n%s' "$marker" "$cost" "A draft from the session's start: the row's work, its fragment ($JOURNAL_FRAGMENTS/$rowid.md) and its receipts follow.")" 2>&1) \
+  || warn "gh pr create failed ($(printf '%s' "$url" | tail -1))"
+echo "marker: opened $url as a draft ($marker)"

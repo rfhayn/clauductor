@@ -75,8 +75,12 @@ ctx_tbd_specs 2>&1 | ind
 if [ -n "$fetched" ]; then
   top=$(git show "$base:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | sort -n | tail -1)
   echo "- Journal: next session number on $base = $(( ${top:-0} + 1 )); author for the heading = $(git config user.name 2>/dev/null | cut -d' ' -f1)"
+  # OPS-108: the rows whose records wait for a daily close's fold (step 3), read off main.
+  frags=$(git ls-tree --name-only "$base:$JOURNAL_FRAGMENTS" 2>/dev/null | grep '\.md$' | grep -vx README.md | sed 's/\.md$//' | paste -sd ' ' -)
+  echo "- Fragments: rows waiting on $base for a daily close's fold: ${frags:-none}"
 else
   echo "- Journal: next session number CANNOT CHECK (no $base); do not take it from this branch"
+  echo "- Fragments: CANNOT CHECK (no $base)"
 fi
 echo "- Latest journal entry here: $(grep -m1 '^## Session [0-9]' "$JOURNAL" 2>/dev/null || echo none)"
 echo "- Today: $(date +%F); insight rows dated today: $(count_rows "^\| $(date +%F) \|" "$INSIGHTS")"

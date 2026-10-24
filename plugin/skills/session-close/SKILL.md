@@ -33,14 +33,33 @@ it with ToolSearch `select:PushNotification`):
 If `PushNotification` is not in your tool list, say so in the final message; do not substitute
 another channel (an issue comment, email).
 
+## Two forms: a row's close, and the daily close
+
+One row, one session, one PR. **A row's PR never edits the journal, the insights log or any row's
+Status**, so rows built in parallel never touch one shared line; `pr-merge-guard` rule 7 refuses a
+row PR that adds a `## Session` heading, and rule 8 holds every PR that changes the journal or the
+insights log to the close's branch.
+
+- **A row's close** (this session built one roadmap row): its records are ONE file in the row's own
+  PR, `<JOURNAL_FRAGMENTS>/<row id>.md`, written last, before the final gate. The shape is
+  `docs/journal.d/README.md`'s and `checks/journal.sh` holds it: the PR, the session marker's
+  `S<n>` and time (the PR body's first line, from `session-start/marker.sh`), review rounds and peak
+  against `clauductor-model review-cap.sh <row id>`, the last full gate's minutes, the cost
+  (`usage-report.sh`, this row's sessions), the marker's `session-start cost:` line, then what
+  happened, decisions, surprises, and insight lines as rows of the log's table. Then steps 1, 2, 4,
+  5 and 6.5–6.6; step 3's records wait for the daily close, and there is no close PR.
+- **The daily close** (once a day, or every 3–4 rows; branch `BRANCH_SESSION_CLOSE`): every step
+  below, step 3 starting with the fold.
+
 ## Several people, one set of shared files
 
-When more than one person runs sessions here, every close edits the same files, so the second
-close to merge conflicts, deliberately (it forces step 6's merge of `origin/main`):
+When more than one person runs sessions here, every daily close edits the same files, so the second
+close to merge conflicts, deliberately (it forces step 6's merge of `origin/main`). Row fragments
+never conflict: one file per row.
 
 | file | on conflict |
 |---|---|
-| the journal | keep **both** entries, yours on top, renumbered to one past `origin/main`'s top (`pr-merge-guard` rule 7 blocks a duplicate) |
+| the journal | keep **both** entries, yours on top, renumbered to the next number no entry holds (`pr-merge-guard` rule 7 blocks a duplicate) |
 | the insights log | keep both rows |
 | the roadmap | keep both sides' status edits; `clauductor-model roadmap-queue.sh --check` must pass |
 | `docs/adr/` | keep both index rows; take the next free number for **yours** (file, title, index, every citation) |
@@ -65,6 +84,13 @@ TAB, what to do). Their rows, if any:
 - **At most ONE change may remain proposed.** Two in the Context block is the finding.
 
 ### 3. Update the written record
+- **The fold** first, on the close's branch cut from `origin/main`:
+  `clauductor-model skills/session-close/fold.sh <N> --focus "<short focus>"`, `--dry-run` first. `N` is
+  the first plan session the close covers (the Context block's `Fragments:` line lists what waits).
+  It writes one `## Session N` entry from every fragment, moves their insight rows to the top of the
+  log, sets each folded row's Status `✅ merged (#PR)`, and removes the fragments. It is all or
+  nothing: a malformed fragment, a taken number or a log with no table stops it with every file
+  unchanged, naming why. A malformed fragment is fixed on main in a row PR, never here by hand.
 - **The roadmap** (`ROADMAP`), statuses first, because session-start reads the queue off it: a
   merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)` (every `QUEUED ON` line in
   the Context block is one still reading queued on `origin/main`), a dropped one
@@ -77,8 +103,9 @@ TAB, what to do). Their rows, if any:
   Raw rows is the trigger for `/clauductor:new-adr`.
 - **The owner queue**: anything left that needs the owner at the computer, as a `- [ ]` line with
   the date and what it needs first; tick what this session did.
-- **`/clauductor:dev-journal`** last, once the facts are settled: number and author from the Context block's
-  `Journal:` line. Put the Context block's **Flow** line and this session's cost total (its
+- **`/clauductor:dev-journal`** last, once the facts are settled: it adds the close's own narrative under the
+  entry the fold wrote (with no fragment to fold, it writes the entry: number and author from the
+  Context block's `Journal:` line). Put the Context block's **Flow** line and this session's cost total (its
   `usage-report.sh` table, by role and model) in the entry: the model chosen for each role is a
   hypothesis until its cost sits next to what the role caught. A `CANNOT CHECK` there is said as
   such, never as $0.

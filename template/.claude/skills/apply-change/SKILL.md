@@ -59,8 +59,9 @@ do one group alone. The loop is the same, and so are its stops.
 4. **Review.** Spawn the `reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
-   if peak severity RISES between rounds, or after 3 rounds without converging, and name the
-   builder's disputes for the owner to rule on.
+   if peak severity RISES between rounds, or at the cap without converging (`sh .claude/review-cap.sh
+   <id>`: its rounds for the proposal's `**Risk:**`), and name the builder's disputes for the owner to
+   rule on; what is left goes to the PR's `KNOWN LIMITS`, each with the issue or row that owns it.
 5. **Commit** the group once a round finds nothing medium or worse: add one line under
    `## Progress` in `tasks.md` (`- <date> group N (<title>) built and reviewed: converged in <n>
    round(s), peak <sev>`), check `git diff HEAD --name-status` for anything secret-looking,

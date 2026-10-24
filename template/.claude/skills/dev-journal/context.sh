@@ -6,7 +6,18 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 . "$ROOT/.claude/lib/conf.sh"
 cd "$ROOT" || exit 0
 
-echo "- Branch: $(git --no-optional-locks branch --show-current 2>/dev/null)"
+br=$(git --no-optional-locks branch --show-current 2>/dev/null)
+echo "- Branch: $br"
+# OPS-108: only a daily close writes the journal; a row writes its fragment (rules 7 and 8).
+if [ -z "$BRANCH_SESSION_CLOSE" ]; then
+  echo "- Writer: BRANCH_SESSION_CLOSE is empty (rule 8 off), so no branch is told apart as a close's"
+else
+  # shellcheck disable=SC2254
+  case $br in
+    $BRANCH_SESSION_CLOSE) echo "- Writer: a daily close's branch, so write the entry here (under fold.sh's, if it ran)" ;;
+    *) echo "- Writer: NOT a close's branch ($BRANCH_SESSION_CLOSE): write the row's fragment, $JOURNAL_FRAGMENTS/<row id>.md, never $JOURNAL" ;;
+  esac
+fi
 echo "- Today: $(date +%Y-%m-%d)"
 echo "- Author (first word of git user.name): $(git config user.name | awk '{print $1}')"
 
