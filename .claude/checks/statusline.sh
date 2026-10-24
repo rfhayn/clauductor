@@ -79,6 +79,9 @@ window() {  # window VALUE (or "-" for unset): prints the posted body's auto_com
     [ "$1" = "-" ] || { CLAUDE_CODE_AUTO_COMPACT_WINDOW=$1; export CLAUDE_CODE_AUTO_COMPACT_WINDOW; }
     run "$live"
   )
+  # The exit code and the post count too, not only the line: a status line that exits non-zero or
+  # posts twice with the variable set prints the same line (review of #151).
+  [ "$(printf '%s\n' "$out" | cut -d' ' -f1-2)" = "0 1" ] || { echo "exit and posts: $out"; return; }
   [ "$(printf '%s\n' "$out" | cut -d' ' -f4-)" = "$plain" ] || echo "line changed: $out"
   cp "$(printf '%s\n' "$out" | cut -d' ' -f3)/home/body" "$d/body" 2>/dev/null || { echo "no post"; return; }
   jq -r 'if has("auto_compact_window") then (.auto_compact_window | tojson) else "none" end' "$d/body" 2>/dev/null || echo "bad json"

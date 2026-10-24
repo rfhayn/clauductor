@@ -935,6 +935,8 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			`v=$(CLAUDUCTOR_FW= sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
 		{`with_timeout 60 sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
 			`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`},
+		{`v=$(sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`},
 	} {
 		if got := rw.shell("checks/x.sh", c.in); got != c.want {
 			t.Errorf("shell(%s)\n got %s\nwant %s", c.in, got, c.want)
@@ -942,6 +944,10 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	}
 	if got := unpassedChildren(`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`); len(got) != 1 {
 		t.Errorf("a child behind a wrapper is not reported: %q", got)
+	}
+	// A quoted value with a blank, a ; and a ( (change-tools.sh writes one) is still one assignment.
+	if got := unpassedChildren(rw.shell("checks/x.sh", `out=$(MSG="a; b (c)" sh -c '. "$ROOT/.claude/lib/conf.sh"')`)); len(got) != 0 {
+		t.Errorf("a passed child after a quoted value with a blank is reported: %q", got)
 	}
 }
 
@@ -951,8 +957,10 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 func unpassedChildren(l string) []string {
 	var bad []string
 	assign := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-	for _, loc := range regexp.MustCompile(`sh -c '[^']*\$`+FWVar).FindAllStringIndex(l, -1) {
-		before := l[:loc[0]]
+	quoted := regexp.MustCompile(`"[^"]*"|'[^']*'`)
+	for _, loc := range regexp.MustCompile(`sh -[A-Za-z]*c '[^']*\$\{?`+FWVar).FindAllStringIndex(l, -1) {
+		// A quoted value may hold a blank, a ; or a (: empty it before cutting and splitting.
+		before := quoted.ReplaceAllString(l[:loc[0]], `""`)
 		before = before[strings.LastIndexAny(before, ";&|(")+1:]
 		passed := false
 		for _, f := range strings.Fields(before) {
