@@ -209,6 +209,11 @@ sed 's/^| S5 |/| S5–S7 |/' "$C/keep.md" > "$C/docs/roadmap.md"
 printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 [ "$(cnames)" = "session-6-close" ] && ok "...the next day's numbered past the one the journal holds" || fail "close in a spanning entry after S5 offered: $(cnames)"
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+# A plain session's label is not the journal's number either: S4.5's close folds Session 5, the
+# one past the journal's Session 4, never 4 (its order) again.
+sed 's/^| S5 |/| S4.5 |/' "$C/keep.md" > "$C/docs/roadmap.md"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: S4.5's close is numbered past the journal's top, not by its label" || fail "close for S4.5 offered: $(cnames)"
 mv "$C/keep.md" "$C/docs/roadmap.md"
 printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
 awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"

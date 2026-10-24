@@ -107,8 +107,9 @@ EOF
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S12 .* row A-1$' \
   && ok "marker: with no arguments, the branch's row and the plan's session (S12)" || fail "marker: no arguments: exit $rc: $out; body: $(body | sed -n 1p)"
-# A plan entry spanning sessions (`S15–S18`) is no S<n> the fragment's **Session** field takes: its
-# first session's number is.
+# A plan entry spanning sessions (`S15–S18`) names no one day, and is no S<n> the fragment's
+# **Session** field takes: the journal's count numbers the day (S10, past its Session 9), as the
+# day's close is numbered.
 setup
 cat >> "$F/docs/roadmap.md" <<'EOF'
 
@@ -118,8 +119,8 @@ cat >> "$F/docs/roadmap.md" <<'EOF'
 | S15–S18 | later | a long piece | A-1 | — |
 EOF
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
-[ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S15 .* row A-1$' \
-  && ok "marker: a plan entry spanning sessions (S15–S18) marks its first, S15" || fail "marker: spanning entry: exit $rc: $out; body: $(body | sed -n 1p)"
+[ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
+  && ok "marker: in a plan entry spanning sessions (S15–S18), the journal's next, S10" || fail "marker: spanning entry: exit $rc: $out; body: $(body | sed -n 1p)"
 setup; git -C "$F" checkout -q -b ops/no-row; : > "$S/prs.json.log"
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] && printf '%s' "$out" | grep -q "no roadmap row is built on 'ops/no-row'" \

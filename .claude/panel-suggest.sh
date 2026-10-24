@@ -101,18 +101,21 @@ if [ "$kind" = close ]; then
       $1 == "R" && !($2 in m) { open[$3] = 1 }
       END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" -)
     [ -n "$sess" ] || { echo "[]"; exit 0; }
-    s=$(printf '%s\n' "$sess" | cut -f1); n=$(printf '%s\n' "$sess" | cut -f2)
+    # Every close is numbered one way, one past the journal's top: the plan's label is not the
+    # journal's number (`S4.5`, or a plain session after an entry that ran long), and fold.sh N
+    # refuses a number the journal holds.
+    s=$(printf '%s\n' "$sess" | cut -f1); n=$(( ${top:-0} + 1 ))
     if ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then
       # An entry spanning days (`S15–S18`, `S29+`) is no one day's plan: each day's close is
-      # offered while a fragment waits, numbered as with no plan, one past the journal's top.
-      n=$(( ${top:-0} + 1 )); title="Close session $n ($s): fold $nf fragment(s)"
+      # offered while a fragment waits.
+      title="Close session $n ($s): fold $nf fragment(s)"
     else
       # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
       waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
         FILENAME == ARGV[2] { d[$0] = 1; next }
         $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
       [ -z "$waiting" ] || { echo "[]"; exit 0; }
-      title="Close $s: fold $nf fragment(s)"
+      title="Close $s (session $n): fold $nf fragment(s)"
     fi
   else
     n=$(( ${top:-0} + 1 )); title="Close session $n: fold $nf fragment(s)"

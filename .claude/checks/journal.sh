@@ -142,6 +142,8 @@ good OPS-4 | sed '/\*\*Gate\*\*/d' > "$FD/OPS-4.md"; fbad OPS-4 "a missing field
 good OPS-5 | sed 's/started 2026-10-23 09:15 ET/started this morning/' > "$FD/OPS-5.md"; fbad OPS-5 "a session without its start time" "**Session** is not"
 good OPS-6 | sed '/^## Surprises/,/^## Insights/{/^## Insights/!d;}' > "$FD/OPS-6.md"; fbad OPS-6 "a missing section" 'no "## Surprises" section'
 good OPS-7 | sed 's/^## What happened/## Session 11 — 2026-10-23 — a — x/' > "$FD/OPS-7.md"; fbad OPS-7 "a session heading in a fragment" "only a session close numbers a session"
+# A field twice: the fold reads the first **Also closes**, so a second would go unread unchecked.
+good OPS-7 | awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: OPS-8"; print "- **Also closes**: OPS-9" }' > "$FD/OPS-7.md"; fbad OPS-7 "a field given twice" "appears twice"
 good OPS-8 | sed 's/ Raw |$/ Raw | extra |/' > "$FD/OPS-8.md"; fbad OPS-8 "an insight row of seven cells" "needs six cells"
 good OPS-10 > "$FD/OPS-10.md"
 printf '| Date | Area | Topic | Observation | How to verify | Status |\n' >> "$FD/OPS-10.md"; fbad OPS-10 "a table header under Insights" "no table header"
@@ -158,6 +160,15 @@ fbad OPS-16 "a fenced block under Insights (the fold would drop it)" "holds only
 good OPS-17 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: 4.20/' > "$FD/OPS-17.md"; fbad OPS-17 "a cost with no \$" "**Cost** is not"
 good OPS-18 | sed 's/^- \*\*Session start\*\*: .*/- **Session start**: about an hour/' > "$FD/OPS-18.md"; fbad OPS-18 "a session start that is not the marker's" "**Session start** is not"
 good OPS-19 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: CANNOT CHECK — no records/' > "$FD/OPS-19.md"; fgood OPS-19 "a cost that could not be read, said so"
+# A row two fragments close (an **Also closes** naming a row with its own, or two naming one) is a
+# fold refusal at the close (OPS-125): seen here, at the row's gate, the row's author fixes it.
+FT="$(scratch)/twice"; mkdir -p "$FT"
+good A-1 | awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-2" }' > "$FT/A-1.md"; good A-2 > "$FT/A-2.md"
+tw=$(printf '%s\n' "$FT/A-1.md" "$FT/A-2.md" | fragments_twice 2>&1)
+[ "$tw" = A-2 ] && ok "fragments_twice: a row its own fragment and another's Also closes both close" || fail "fragments_twice found '$tw', want A-2"
+good A-1 > "$FT/A-1.md"
+tw=$(printf '%s\n' "$FT/A-1.md" "$FT/A-2.md" | fragments_twice 2>&1)
+[ -z "$tw" ] && ok "fragments_twice: none when each row is closed once" || fail "fragments_twice found '$tw' in two separate rows"
 fi
 
 # ── This project's journal ───────────────────────────────────────────────────────────────────────
@@ -197,4 +208,6 @@ while IFS= read -r f; do
   else fail "fragment ${f#"$ROOT"/} (docs/journal.d/README.md has the shape): $(printf '%s\n' "$got" | head -5 | tr '\n' ';')"; fi
 done < "$(scratch)/fragments"
 [ "$nfr" -gt 0 ] || ok "no row fragment waits in $JOURNAL_FRAGMENTS for a close"
+tw=$(fragments_twice < "$(scratch)/fragments" | paste -sd ' ' -)
+[ -z "$tw" ] && ok "no row is closed by two of this project's fragments" || fail "row(s) $tw are closed by two fragments (the fold would refuse): keep one **Also closes** or fragment for each"
 finish

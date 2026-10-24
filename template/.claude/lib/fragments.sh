@@ -64,6 +64,7 @@ fragment_problems() {
       k = $0; sub(/^- \*\*/, "", k); sub(/\*\*:.*/, "", k)
       v = $0; sub(/^- \*\*[^*]+\*\*:[ \t]*/, "", v)
       if (v == "") bad("the **" k "** field is empty")
+      if (k in got) bad("the **" k "** field appears twice (one each)")
       got[k] = v; next
     }
     cur == "Insights" && /^\|/ {
@@ -123,4 +124,10 @@ fragment_rows() {
   awk 'NR == 1 { next } /^(```|~~~)/ { f = !f; next } f { next } /^## / { exit }
     /^- \*\*Also closes\*\*:/ { sub(/^- \*\*Also closes\*\*:[ \t]*/, ""); print; exit }' "$1" \
     | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep . || true
+}
+
+# Fragment paths on stdin, one per line. Prints each row id more than one of them closes, which
+# the fold refuses (checks/journal.sh says so at the row's gate first).
+fragments_twice() {
+  while IFS= read -r _f; do [ -n "$_f" ] && fragment_rows "$_f"; done | sort | uniq -d
 }
