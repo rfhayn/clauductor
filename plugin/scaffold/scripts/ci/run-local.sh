@@ -8,9 +8,13 @@ if [ -f "$(dirname "$0")/lib/gate-state.sh" ]; then
 fi
 # A --quick run takes no lease (OPS-103): nothing it runs binds a fixed port, socket or database,
 # or writes the receipt, so it need not wait out a full gate it cannot disturb. Read from argv here,
-# before the lease, as gate_state_start reads it; the flag loop below reads it again.
-quick=""
-for a in "$@"; do [ "$a" = --quick ] && quick=1; done
+# before the lease, as gate_state_start reads it; the flag loop below reads it again. MODE is set
+# here too, so a run that ends before that loop is still recorded as quick and rotates no log.
+quick="" MODE=full
+for a in "$@"; do [ "$a" = --quick ] && quick=1 MODE=quick; done
+# A lease a caller holds is not this run's: verifying it at the end (lease_verify) could only fail
+# a run that writes no receipt.
+[ -z "$quick" ] || unset CLAUDUCTOR_LOCK_HELD
 # Serialise the full gate across every worktree of this repo.
 lock=""
 if [ -n "$quick" ]; then :
@@ -110,7 +114,7 @@ trap gate_end EXIT
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 
-DIRTY=0 MODE=full
+DIRTY=0   # MODE: set from argv before the lease (above)
 while [ $# -gt 0 ]; do
   case "$1" in
     --dirty) DIRTY=1 ;;

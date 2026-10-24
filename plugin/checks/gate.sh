@@ -331,6 +331,10 @@ grep -q '"lane":"other"' "$LOCK/owner.json" 2>/dev/null && ok "...and leaves the
 expect_rc 124 "$rc" "a full run still queues behind the holder (gave up after CLAUDUCTOR_LEASE_MAX_WAIT)"
 grep -q '^==> ' "$d/out" && fail "...but a full run ran steps without the lease: $(grep '^==>' "$d/out" | tr '\n' ' ')" || ok "...and ran no step without it"
 kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+# A quick run started inside another gate's lease (a fixture's gate, run by a step) neither takes
+# that lease as its own nor verifies it at the end: it holds none.
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+expect_rc 0 "$rc" "a --quick run under a caller's CLAUDUCTOR_LOCK_HELD runs unleased and is not failed by that lease"
 rm -rf "$LOCK" "$LOCK.waiters"
 
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
@@ -444,6 +448,8 @@ tail -n 1 "$RUNS" | awk -F'\t' 'NF == 10 && $6 == "fail" && $10 == "-" { ok = 1 
 rm -f "$RUNS.1"; before=$(lines "$RUNS")
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
 [ ! -e "$RUNS.1" ] && [ "$(lines "$RUNS")" = $((before + 1)) ] && ok "a --quick run past GATE_RUNS_MAX_BYTES appends and never rotates (it holds no lease)" || fail "quick rotation: log $(lines "$RUNS") lines (was $before), .1 $(lines "$RUNS.1") lines"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --bogus --quick) >/dev/null 2>&1
+[ ! -e "$RUNS.1" ] && tail -n 1 "$RUNS" | cut -f5 | grep -qx quick && ok "...nor does one that ends before its flags are read (logged as quick)" || fail "early-exit quick run: .1 $(lines "$RUNS.1") lines, logged as '$(tail -n 1 "$RUNS" | cut -f5)'"
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL") >/dev/null 2>&1
 [ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES a full run rotates the log to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
 

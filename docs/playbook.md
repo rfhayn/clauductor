@@ -50,8 +50,9 @@ started from the panel's **New lane** (or by hand), on one branch:
 
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
-- **One gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a lane's
-  gate may queue behind another's; the panel shows who holds it.
+- **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
+  lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
+  no lease and never queues.
 - The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
   config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue

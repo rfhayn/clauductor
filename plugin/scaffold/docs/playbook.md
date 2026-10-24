@@ -64,8 +64,9 @@ started from the panel's **New lane** (or by hand), on one branch:
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
   which lane, its rough cost, what it displaces and whether it lands in a control, with a cheaper
   option when there is one, and the owner chooses (`session-start`, *Rules*; nothing checks it).
-- **One gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a lane's
-  gate may queue behind another's; the panel shows who holds it.
+- **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
+  lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
+  no lease and never queues.
 - The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
   config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue
