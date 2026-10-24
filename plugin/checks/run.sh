@@ -80,8 +80,9 @@ if [ $# -eq 0 ]; then
       case $_wp in '' | *[!0-9]*) continue ;; esac
       LC_ALL=C sh -c 'kill -0 "$1"' kill "$_wp" 2>&1 | grep -qi 'no such process' && rm -rf "${_w%/run.pid}"
     done
-    echo $$ > "$_scratch/run.pid"
     bare_env
+    # Recorded only now: until the exec, lib.sh's own traps remove the scratch.
+    echo $$ > "$_scratch/run.pid"
     bare_exec CHECKS_BARE="$BARE_DIR" CHECKS_BARE_RM="$_scratch" sh "$dir/run.sh"
   fi
   # wrap: end
