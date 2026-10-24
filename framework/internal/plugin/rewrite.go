@@ -161,9 +161,10 @@ func (r *rewriter) shell(dest, s string) string {
 		// The prologue sets the plugin root without exporting it, so a child `sh -c '…'` that now
 		// names it would read it empty: pass it on that command line (OPS-88). Each child is judged
 		// alone, and one whose own assignments already set it (a check pointing it at a fixture)
-		// keeps that value. A child after any word, a wrapper (`with_timeout 60 sh -c`) or a reserved
-		// word (`then sh -c`), does not match, since after a command word an assignment is an
-		// argument: TestShellChildGetsPluginRoot names it, and the line is written another way.
+		// keeps that value. A child after a wrapper (`with_timeout 60 sh -c`) does not match, since
+		// after a command word an assignment is an argument; after a reserved word (`then sh -c`) it
+		// would be safe, but is skipped too, to keep the match simple. Either way
+		// TestShellChildGetsPluginRoot names the line, and it is written another way.
 		l = r.shChildFW.ReplaceAllStringFunc(l, func(m string) string {
 			sm := r.shChildFW.FindStringSubmatch(m)
 			if r.assignsFW.MatchString(sm[2]) {
