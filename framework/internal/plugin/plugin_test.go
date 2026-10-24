@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -892,5 +893,31 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 	}
 	if !exists(filepath.Join(p, ".claude", "skills", "ours", "SKILL.md")) || !exists(filepath.Join(p, ".claude", "hooks", "mine.sh")) {
 		t.Error("--prune removed a project file")
+	}
+}
+
+// A plugin script sets CLAUDUCTOR_FW in its prologue without exporting it, so a `sh -c '…'` whose
+// body names it reads an empty variable, unless the builder passes it on that command line
+// (OPS-88: plugin/checks/statusline.sh, run directly, failed its two unwritable-HOME cases).
+func TestShellChildGetsPluginRoot(t *testing.T) {
+	out, _ := build(t)
+	child := regexp.MustCompile(`(?:^|[^A-Za-z0-9_=])sh -c '[^']*\$` + FWVar)
+	err := filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".sh") {
+			return err
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		for i, l := range strings.Split(string(raw), "\n") {
+			if child.MatchString(l) && !strings.Contains(l, FWVar+`="$`+FWVar+`" sh -c '`) {
+				t.Errorf("%s:%d: a sh -c names $%s without it on the command line: %s", p, i+1, FWVar, strings.TrimSpace(l))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

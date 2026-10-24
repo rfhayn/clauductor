@@ -80,6 +80,9 @@ window() {  # window VALUE (or "-" for unset): prints the posted body's auto_com
     [ "$1" = "-" ] || { CLAUDE_CODE_AUTO_COMPACT_WINDOW=$1; export CLAUDE_CODE_AUTO_COMPACT_WINDOW; }
     run "$live"
   )
+  # The exit code and the post count too, not only the line: a status line that exits non-zero or
+  # posts twice with the variable set prints the same line (review of #151).
+  [ "$(printf '%s\n' "$out" | cut -d' ' -f1-2)" = "0 1" ] || { echo "exit and posts: $out"; return; }
   [ "$(printf '%s\n' "$out" | cut -d' ' -f4-)" = "$plain" ] || echo "line changed: $out"
   cp "$(printf '%s\n' "$out" | cut -d' ' -f3)/home/body" "$d/body" 2>/dev/null || { echo "no post"; return; }
   jq -r 'if has("auto_compact_window") then (.auto_compact_window | tojson) else "none" end' "$d/body" 2>/dev/null || echo "bad json"
@@ -123,7 +126,7 @@ case "$line" in *"doing the thing"*) ok "shows the focus status-write.sh set" ;;
 mkdir -p "$d/ro"; chmod 555 "$d/ro"
 ( cd "$d/repo" && HOME="$d/ro" sh "$CLAUDUCTOR_FW/status-write.sh" "sandboxed focus" >/dev/null 2>&1 )
 # The file itself, not the exit code: the old script exited 0 whatever happened to its write.
-ff=$(cd "$d/repo" && HOME="$d/ro" ROOT="$ROOT" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && focus_file main')
+ff=$(cd "$d/repo" && HOME="$d/ro" ROOT="$ROOT" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && focus_file main')
 case "$ff" in "$d/ro"/*) fail "the focus file is under HOME: $ff" ;; esac
 [ "$(cat "$ff" 2>/dev/null)" = "sandboxed focus" ] && ok "status-write sets the focus with HOME unwritable" || fail "status-write did not write $ff with HOME unwritable"
 line=$(printf '%s' "$input" | HOME="$d/ro" PATH="$d/bin:$PATH" sh "$sl")
@@ -132,7 +135,7 @@ chmod 755 "$d/ro"
 
 # A focus that cannot be written is an error, never "focus set": a plain file where the focus's
 # folder belongs blocks the write.
-fdir=$(cd "$d/repo" && HOME="$d/home.-" ROOT="$ROOT" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && dirname "$(focus_file blocked)"')
+fdir=$(cd "$d/repo" && HOME="$d/home.-" ROOT="$ROOT" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && dirname "$(focus_file blocked)"')
 rm -rf "$fdir"; mkdir -p "$(dirname "$fdir")"; : > "$fdir"
 rc=0; out=$(cd "$d/repo" && HOME="$d/home.-" sh "$CLAUDUCTOR_FW/status-write.sh" "lost" blocked 2>&1) || rc=$?
 [ "$rc" != 0 ] && ok "status-write exits non-zero when it cannot write" || fail "status-write exited 0 on a failed write: $out"
