@@ -230,19 +230,29 @@ sig_fx TERM
 # live run's environment, not a scratch with no pid recorded.
 W="$d/window"; fx_project "$W"; mkdir -p "$W/tmp" "$d/winsh"
 printf '#!/bin/sh\nkill -TERM $$\n' > "$d/winsh/sh"; chmod +x "$d/winsh/sh"
-printf '. "$(dirname "$0")/lib.sh"\nok "runs"\nfinish\n' > "$W/.claude/checks/c.sh"
+# The check sees whether its own run still records a pid: a live run past its traps must not, since
+# from another pid namespace (a Linux sandbox) its pid can read as gone.
+cat > "$W/.claude/checks/c.sh" <<'EOF'
+. "$(dirname "$0")/lib.sh"
+[ -e "${CHECKS_BARE%/bare}/run.pid" ] && fail "a live run past its traps still records its pid, so a sweep could remove it" || ok "a live run records no pid"
+finish
+EOF
 _sh=$(command -v sh)
 (cd "$W" && unmarked TMPDIR="$W/tmp" PATH="$d/winsh:$BARE_PATH" "$_sh" .claude/checks/run.sh) > "$W/out" 2>&1
 _left=$(ls -d "$W"/tmp/checks.*/bare 2>/dev/null)
 [ -n "$_left" ] && ok "a TERM inside the exec window leaves the environment behind (${_left#"$W/"})" \
   || fail "the window fixture left no environment behind, so it did not signal inside the window: $(tail -2 "$W/out")"
-mkdir -p "$W/tmp/checks.live" "$W/tmp/checks.nopid"; echo $$ > "$W/tmp/checks.live/run.pid"
+# Pid 1 is a live process kill cannot signal ("Operation not permitted") unless this is root, where
+# kill -0 succeeds: live either way.
+mkdir -p "$W/tmp/checks.live" "$W/tmp/checks.eperm" "$W/tmp/checks.nopid"
+echo $$ > "$W/tmp/checks.live/run.pid"; echo 1 > "$W/tmp/checks.eperm/run.pid"
 (cd "$W" && unmarked TMPDIR="$W/tmp" PATH="$BARE_PATH" sh .claude/checks/run.sh) > "$W/out2" 2>&1
-expect_rc 0 $? "...a whole-set run after it passes"
+expect_rc 0 $? "...a whole-set run after it passes, its check seeing no pid recorded for its own run"
+grep -q '^    FAIL' "$W/out2" && fail "$(grep '^    FAIL' "$W/out2" | head -1)"
 [ -n "$_left" ] && [ ! -e "$_left" ] && ok "...and removes the environment the window left" \
   || fail "the environment the window left is still there: $(ls "$W/tmp")"
-[ -d "$W/tmp/checks.live" ] && [ -d "$W/tmp/checks.nopid" ] \
-  && ok "...but not a live run's environment, nor a scratch with no pid recorded" \
+[ -d "$W/tmp/checks.live" ] && [ -d "$W/tmp/checks.eperm" ] && [ -d "$W/tmp/checks.nopid" ] \
+  && ok "...but not a live run's environment (one kill can signal, one it cannot), nor a scratch with no pid recorded" \
   || fail "the sweep removed a live run's environment or an unrecorded scratch: $(ls "$W/tmp")"
 
 # ── 3. A skill context script ───────────────────────────────────────────────────────────────────
