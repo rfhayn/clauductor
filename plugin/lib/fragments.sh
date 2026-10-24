@@ -116,7 +116,11 @@ fragment_files() {
 
 # $1 = a fragment's path. Prints every row id it closes, one per line: its own (the file name),
 # then each its **Also closes** names. The fold marks each merged; panel-suggest counts each landed.
+# The field is read where fragment_problems reads it, the header, outside a fence: a fragment that
+# quotes the line in its body (one describing this very field) closes no row by it.
 fragment_rows() {
   basename "$1" .md
-  sed -n 's/^- \*\*Also closes\*\*:[[:space:]]*//p' "$1" | head -1 | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep . || true
+  awk 'NR == 1 { next } /^(```|~~~)/ { f = !f; next } f { next } /^## / { exit }
+    /^- \*\*Also closes\*\*:/ { sub(/^- \*\*Also closes\*\*:[ \t]*/, ""); print; exit }' "$1" \
+    | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep . || true
 }

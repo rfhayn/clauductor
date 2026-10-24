@@ -95,19 +95,26 @@ if [ "$kind" = close ]; then
   for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment_rows "$f" >> "$tmp/landed"; done
   [ "$nf" -gt 0 ] || { echo "[]"; exit 0; }
   if [ -s "$tmp/plan" ]; then
-    # The open session: the first not (done) with a planned row the roadmap does not show merged.
-    sess=$(printf '%s\n' "$plan" | awk -F'\t' 'NR == FNR { if ($7 == "merged") m[$4] = 1; next }
+    # The open session: the first not (done) with a planned row the roadmap does not show merged or
+    # cancelled (the same rows `waiting` below counts done).
+    sess=$(printf '%s\n' "$plan" | awk -F'\t' 'NR == FNR { if ($7 == "merged" || $7 == "cancelled") m[$4] = 1; next }
       $1 == "S" && $4 !~ /\(done\)/ { order[++k] = $2; num[$2] = $3; next }
       $1 == "R" && !($2 in m) { open[$3] = 1 }
       END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" -)
     [ -n "$sess" ] || { echo "[]"; exit 0; }
     s=$(printf '%s\n' "$sess" | cut -f1); n=$(printf '%s\n' "$sess" | cut -f2)
-    # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
-    waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
-      FILENAME == ARGV[2] { d[$0] = 1; next }
-      $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
-    [ -z "$waiting" ] || { echo "[]"; exit 0; }
-    title="Close $s: fold $nf fragment(s)"
+    if ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then
+      # An entry spanning days (`S15–S18`, `S29+`) is no one day's plan: each day's close is
+      # offered while a fragment waits, numbered as with no plan, one past the journal's top.
+      n=$(( ${top:-0} + 1 )); title="Close session $n ($s): fold $nf fragment(s)"
+    else
+      # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
+      waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
+        FILENAME == ARGV[2] { d[$0] = 1; next }
+        $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
+      [ -z "$waiting" ] || { echo "[]"; exit 0; }
+      title="Close $s: fold $nf fragment(s)"
+    fi
   else
     n=$(( ${top:-0} + 1 )); title="Close session $n: fold $nf fragment(s)"
   fi

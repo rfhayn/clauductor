@@ -51,6 +51,9 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
   background commands; a lane that is a session of its own (a panel lane) it cannot see.
 - **The main checkout stays on `main`.** Hooks run from it; a feature branch there makes
   `worktree-hook-drift.sh` refuse every worktree agent.
+- **A lane runs only its own task.** A panel lane (a row's, a fix's, an ops task's, the close)
+  that ran this skill from its template does its prompt's work and offers no queue row: the rule
+  below is the orchestrating session's, when one runs the lanes.
 - **Run as an orchestrator of lanes** (`docs/playbook.md`, *Lanes*): one build lane at a time in its
   OWN worktree (a panel lane, or `git worktree add .claude/worktrees/<lane> -b <BRANCH_CHANGE><id>
   origin/main` then `EnterWorktree` there before starting `/build-change`, and stay there until it

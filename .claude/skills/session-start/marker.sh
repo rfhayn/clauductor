@@ -47,7 +47,9 @@ branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '$1 == a { print $
 
 if [ -z "$sn" ] && [ -f "$ROOT/.claude/roadmap-plan.sh" ]; then
   # A plan that does not parse numbers nothing here: the journal's count below still does.
-  sn=$(sh "$ROOT/.claude/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" '$1 == "R" && $2 == a { print $3; exit }')
+  # An entry spanning sessions (`S15–S18`) is no S<n>: its first session's number (the plan's
+  # order) is, which the fragment's **Session** field takes.
+  sn=$(sh "$ROOT/.claude/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" '$1 == "R" && $2 == a { print ($3 ~ /^S[0-9]+(\.[0-9]+)*$/ ? $3 : "S" $4); exit }')
 fi
 if [ -z "$sn" ]; then
   top=$(git -C "$ROOT" show "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | head -1)

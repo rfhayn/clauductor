@@ -527,7 +527,7 @@ live, the branch prefixes it uses, and a gate script it defines (a package.json
 script or Makefile target named gate, ci, check, verify or test) as a queue. It
 invents no card, and a queue's command runs only when you press RUN. A repository
 that runs Clauductor's operating model (.claude/owner-queue.sh or
-.claude/roadmap-queue.sh) also gets its pinned cards, its four lane templates and
+.claude/roadmap-queue.sh) also gets its pinned cards, its five lane templates and
 its gate (scripts/ci/run-local.sh), for the scripts it has; each is printed with
 why, and none runs before "clauductor panel trust". It refuses to overwrite an
 existing file. The file names its JSON Schema, so an editor

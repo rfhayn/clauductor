@@ -129,6 +129,8 @@ while IFS= read -r f; do
   pr=$(field "$f" PR | sed -n 's/^#\([0-9][0-9]*\).*/\1/p')
   fragment_rows "$f" | awk -v pr="$pr" '{ print $0, pr }'
 done < "$tmp/list" > "$tmp/closes"
+twice=$(awk '{ c[$1]++ } END { for (k in c) if (c[k] > 1) print k }' "$tmp/closes" | sort | paste -sd ' ' -)
+[ -z "$twice" ] || refuse "row(s) $twice are closed by two fragments (an **Also closes** names a row with its own fragment, or two name it): keep one"
 while read -r id pr; do
   row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$id" '$4 == a { print; exit }')
   if [ -z "$row" ]; then echo "  $id: no roadmap row has this id, so no Status was set" >> "$tmp/notes"; continue; fi

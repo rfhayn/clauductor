@@ -185,11 +185,32 @@ cat > "$C/docs/roadmap.md" <<'RM'
 RM
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 cnames() { (cd "$C" && sh .claude/panel-suggest.sh close) | jq -r '[.[].name] | join(" ")'; }
-[ "$(cnames)" = "" ] && ok "close: nothing while no fragment waits" || fail "close with no fragment offered: $(cnames)"
+# "Nothing" is exit 0 and exactly `[]`: an error's empty output would read as nothing too.
+cnone() { out=$(cd "$C" && sh .claude/panel-suggest.sh close 2>&1); [ $? -eq 0 ] && [ "$out" = "[]" ]; }
+cnone && ok "close: nothing while no fragment waits" || fail "close with no fragment printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
 printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
-[ "$(cnames)" = "" ] && ok "close: nothing while a row of the open session has not landed" || fail "close with 1.2 unlanded offered: $(cnames)"
+cnone && ok "close: nothing while a row of the open session has not landed" || fail "close with 1.2 unlanded printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# An Also closes the fragment only quotes (in a fence, under a section) closes nothing.
+printf '# 1.1 — one\n- **PR**: #9\n\n## What happened\n\n```\n- **Also closes**: 1.2\n```\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: an Also closes quoted in the fragment's body closes no row" || fail "close with a quoted Also closes printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
 printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
 [ "$(cnames)" = "session-5-close" ] && ok "close: offered once every row landed, a batched PR's Also closes counting" || fail "close with all landed offered: $(cnames)"
+# A cancelled row closes its session as a merged one does: S4 (not marked done) holds only a merged
+# and a cancelled row, so the open session is still S5, and 1.2 has not landed.
+cp "$C/docs/roadmap.md" "$C/keep.md"
+awk '/^\| 1\.3 /{ print; print "| 1.4 | `ops/gone` — gone | s | — | ❌ cancelled |"; next }
+  /^\| S4 /{ print "| S4 | | done | 1.3, 1.4 | — |"; next } { print }' "$C/keep.md" > "$C/docs/roadmap.md"
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: a session of merged and cancelled rows is not the open one" || fail "close with S4 merged+cancelled printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# A plan entry spanning sessions (S5–S7) holds days of rows: each day's close is offered while a
+# fragment waits, numbered one past the journal's top, never held until the whole entry lands.
+sed 's/^| S5 |/| S5–S7 |/' "$C/keep.md" > "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: a spanning plan entry offers the day's close while a fragment waits" || fail "close in a spanning entry offered: $(cnames)"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+[ "$(cnames)" = "session-6-close" ] && ok "...the next day's numbered past the one the journal holds" || fail "close in a spanning entry after S5 offered: $(cnames)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+mv "$C/keep.md" "$C/docs/roadmap.md"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
 awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
 [ "$(cnames)" = "session-5-close" ] && ok "close: with no plan, offered while a fragment waits, one past the journal's top" || fail "close with no plan offered: $(cnames)"
 

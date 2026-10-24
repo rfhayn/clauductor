@@ -174,7 +174,7 @@ func TestInitConfigHintsAtCardsAndTemplates(t *testing.T) {
 }
 
 // PANEL-18: a repository with the operating model's files gets its pinned cards, its
-// four lane templates (with Up next when its suggest script is there) and its full
+// five lane templates (with Up next when its suggest script is there) and its full
 // gate, each printed with why; the file validates, and names only scripts it has.
 func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 	for _, withSuggest := range []bool{true, false} {

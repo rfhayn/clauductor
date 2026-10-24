@@ -122,6 +122,9 @@ setup; printf 'stray\n' >> "$F/docs/journal.d/A-2.md"; sed -i.b '/^- \*\*Gate/d'
 refuses "malformed fragment" "a malformed fragment" 5
 setup; awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-3 and A-2" }' "$F/docs/journal.d/A-1.md" > "$S/a1" && mv "$S/a1" "$F/docs/journal.d/A-1.md"
 refuses "Also closes" "an Also closes that is not row ids" 5
+# Two fragments closing one row (A-1 also closes A-2, which has its own) would set its Status twice.
+setup; awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-2" }' "$F/docs/journal.d/A-1.md" > "$S/a1" && mv "$S/a1" "$F/docs/journal.d/A-1.md"
+refuses "closed by two fragments" "a row two fragments close" 5
 setup; refuses "already has a Session 4" "a number the journal holds" 4
 setup; printf '# Insights\n\nNo table.\n' > "$F/docs/insights-log.md"
 refuses "no '| Date" "a log with no table" 5
