@@ -229,7 +229,7 @@ func configNote(rel, src, dst string, conf *Conf) string {
 		if err != nil {
 			return ""
 		}
-		if _, added, err := MergeAddOnly(have, want); err == nil && len(added) > 0 {
+		if _, added, err := MergeModelRoles(have, want); err == nil && len(added) > 0 {
 			return fmt.Sprintf("lacks %d key(s) the template added (update adds them): %s", len(added), abbrev(added))
 		}
 	case PanelPath:

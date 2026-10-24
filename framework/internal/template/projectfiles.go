@@ -58,10 +58,20 @@ func projectPanelPath(targetDir string, names []string) string {
 	return rels[0]
 }
 
-// MergeAddOnly adds to the project's JSON (have) every key the template's (want) has and it
-// lacks, at any depth, and changes nothing else: an existing value, array or differing type is
-// the project's. It returns the dotted paths it added; have unchanged (byte for byte) when none.
-func MergeAddOnly(have, want []byte) ([]byte, []string, error) {
+// MergeModelRoles adds to the project's model-roles.json (have) every key the template's (want)
+// has and it lacks, at any depth, and changes nothing else: an existing value, array or differing
+// type is the project's. It returns the dotted paths it added; have unchanged (byte for byte) when
+// none. A role's eval (roles.<role>.eval) is left whole when either side holds a receipt: a
+// receipt replaces an unmeasured baseline, so merging the two would put both in one record (OPS-119).
+func MergeModelRoles(have, want []byte) ([]byte, []string, error) {
+	return mergeAddOnly(have, want, func(path string, h, w *node) bool {
+		p := strings.Split(path, ".")
+		return len(p) == 3 && p[0] == "roles" && p[2] == "eval" && (h.fields["receipt"] != nil || w.fields["receipt"] != nil)
+	})
+}
+
+// mergeAddOnly is MergeModelRoles's walk; it does not descend into an object for which whole is true.
+func mergeAddOnly(have, want []byte, whole func(path string, h, w *node) bool) ([]byte, []string, error) {
 	h, err := parseNode(have)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the project's file is not valid JSON: %w", err)
@@ -87,7 +97,7 @@ func MergeAddOnly(have, want []byte) ([]byte, []string, error) {
 				added = append(added, p)
 				continue
 			}
-			if hv.obj && w.fields[k].obj {
+			if hv.obj && w.fields[k].obj && !whole(p, hv, w.fields[k]) {
 				walk(p, hv, w.fields[k])
 			}
 		}
