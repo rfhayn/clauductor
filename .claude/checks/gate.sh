@@ -111,7 +111,12 @@ cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 printf 'GATE_RUN="%s"\nGATE="%s"\nGATE_STEPS="%s"\n' "$RUN_REL" "$WRAP_REL" "$STEPS_REL" > "$R/.claude/project.conf"
 cat > "$R/$STEPS_REL" <<'EOF'
 gate_steps() {
-  step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
+  # A full run holds the lease; a --quick run takes none (OPS-103).
+  if [ "$1" = full ]; then
+    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
+  else
+    step "no lease" sh -c '[ -z "${CLAUDUCTOR_LOCK_HELD:-}" ]' || return 1
+  fi
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
   # Fails if the caller's CHECKS_SKIP reached the steps (a checks/run.sh here would leave checks out).
@@ -310,6 +315,27 @@ expect_rc 70 "$rc" "a gate whose lease was taken away mid-run fails (70)"
 grep -q '^==> FAIL: lease' "$d/out" && [ ! -f "$REC" ] && ok "...names the lost lease and writes no receipt (deletes the old one)" || fail "stolen lease: $(grep '^==>' "$d/out" | tr '\n' ' '); receipt $(cat "$REC" 2>/dev/null || echo none)"
 rm -rf "$LOCK" "$LOCK.waiters"
 
+# --quick takes no lease (OPS-103): nothing it runs binds a fixed port, socket or database, or
+# writes the receipt, so it never queues behind a full gate. A full run still queues. The other
+# holder is a live process on this host; each run is bounded by CLAUDUCTOR_LEASE_MAX_WAIT, so a
+# quick run that queued shows as 124, not a hang.
+sleep 60 & other=$!
+mkdir -p "$LOCK"
+printf '{"v":1,"nonce":"0123456789abcdef","pid":%s,"pstart":"","host":"%s","lane":"other","cmd":"gate","started":%s,"renewed":%s,"ttl":600}\n' \
+  "$other" "$(hostname)" "$(date +%s)" "$(date +%s)" > "$LOCK/owner.json"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LEASE_MAX_WAIT=3 bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+expect_rc 0 "$rc" "a --quick run passes while another gate holds the lease (it takes none)"
+grep -q '"lane":"other"' "$LOCK/owner.json" 2>/dev/null && ok "...and leaves the holder's lease alone" || fail "the quick run changed the holder's lease: $(cat "$LOCK/owner.json" 2>/dev/null || echo gone)"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LEASE_MAX_WAIT=3 bash "$RUN_REL") >"$d/out" 2>&1; rc=$?
+expect_rc 124 "$rc" "a full run still queues behind the holder (gave up after CLAUDUCTOR_LEASE_MAX_WAIT)"
+grep -q '^==> ' "$d/out" && fail "...but a full run ran steps without the lease: $(grep '^==>' "$d/out" | tr '\n' ' ')" || ok "...and ran no step without it"
+kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+# A quick run started inside another gate's lease (a fixture's gate, run by a step) neither takes
+# that lease as its own nor verifies it at the end: it holds none.
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+expect_rc 0 "$rc" "a --quick run under a caller's CLAUDUCTOR_LOCK_HELD runs unleased and is not failed by that lease"
+rm -rf "$LOCK" "$LOCK.waiters"
+
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
 # Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says
 # PASS, FAIL, STILL RUNNING or NO RESULT for the tree in front of it, and never waits past its bound.
@@ -417,8 +443,14 @@ tail -n 1 "$RUNS" | awk -F'\t' 'NF == 10 && $6 == "fail" && $10 == "-" { ok = 1 
   && ok "a run that ran no step logs its steps as '-'" || fail "run log with no step: '$(tail -n 1 "$RUNS")'"
 
 # Bounded: past GATE_RUNS_MAX_BYTES the log becomes gate-runs.log.1 and a new one starts.
+# Only a full run rotates, under the lease; a --quick run, unleased (OPS-103), only appends.
+rm -f "$RUNS.1"; before=$(lines "$RUNS")
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
-[ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES the run log rotates to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
+[ ! -e "$RUNS.1" ] && [ "$(lines "$RUNS")" = $((before + 1)) ] && ok "a --quick run past GATE_RUNS_MAX_BYTES appends and never rotates (it holds no lease)" || fail "quick rotation: log $(lines "$RUNS") lines (was $before), .1 $(lines "$RUNS.1") lines"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --bogus --quick) >/dev/null 2>&1
+[ ! -e "$RUNS.1" ] && tail -n 1 "$RUNS" | cut -f5 | grep -qx quick && ok "...nor does one that ends before its flags are read (logged as quick)" || fail "early-exit quick run: .1 $(lines "$RUNS.1") lines, logged as '$(tail -n 1 "$RUNS" | cut -f5)'"
+(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL") >/dev/null 2>&1
+[ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES a full run rotates the log to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
 
 # A project.conf that names a variable the run state does not set ($ROOT, read before conf.sh runs)
 # still gates: recording the run must never stop the gate.

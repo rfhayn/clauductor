@@ -49,7 +49,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Rule / convention | What executes it |
 |---|---|
 | No `--auto`, no `--admin`; a merge has gate evidence for its exact head commit | **`.claude/hooks/pr-merge-guard.sh`** rules 1–2 (blocking); **`checks/merge-guard.sh`** |
-| Only a complete run of a clean tree is evidence; two gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
+| Only a complete run of a clean tree is evidence; two full gates on one machine never overlap | **`scripts/ci/run-local.sh`**: the receipt, and the panel's gate lease (`lock-run` or `lease.sh`); **`checks/gate.sh`** |
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
 | Only a daily close adds a `## Session N`, never one claimed twice; a row's records go to its fragment, `docs/journal.d/<row id>.md` | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** (the fragment's shape); `session-close/fold.sh`; **`checks/fold.sh`**; writing the fragment: **Nothing. You.** |
 | A PR that changes the journal or insights log lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, any branch); **`checks/merge-guard.sh`** |

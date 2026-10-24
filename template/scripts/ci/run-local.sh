@@ -6,14 +6,25 @@ if [ -f "$(dirname "$0")/lib/gate-state.sh" ]; then
   . "$(dirname "$0")/lib/gate-state.sh"
   gate_state_start "$0" "$@" || :   # recording a run never stops it
 fi
+# A --quick run takes no lease (OPS-103): nothing it runs binds a fixed port, socket or database,
+# or writes the receipt, so it need not wait out a full gate it cannot disturb. Read from argv here,
+# before the lease, as gate_state_start reads it; the flag loop below reads it again. MODE is set
+# here too, so a run that ends before that loop is still recorded as quick and rotates no log.
+quick="" MODE=full
+for a in "$@"; do [ "$a" = --quick ] && quick=1 MODE=quick; done
+# A lease a caller holds is not this run's: verifying it at the end (lease_verify) could only fail
+# a run that writes no receipt.
+[ -z "$quick" ] || unset CLAUDUCTOR_LOCK_HELD
 # Serialise the full gate across every worktree of this repo.
 lock=""
-if common=$(git rev-parse --git-common-dir 2>/dev/null); then
+if [ -n "$quick" ]; then :
+elif common=$(git rev-parse --git-common-dir 2>/dev/null); then
   case $common in /*) ;; *) common="$PWD/$common" ;; esac
   lock="$common/clauductor/gate.lock"
 fi
 lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
-if [ -z "$lock" ]; then
+if [ -n "$quick" ]; then :
+elif [ -z "$lock" ]; then
   echo "gate: not in a git checkout; running without the gate queue" >&2
 elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   if command -v clauductor >/dev/null 2>&1; then
@@ -33,7 +44,7 @@ elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
   echo "gate: neither clauductor nor lease.sh found; running without the gate queue" >&2
 fi
 # ── Above: the clauductor docs/panel.md "In a project's gate script" snippet, verbatim, but for the
-#    run-state lines at its top (OPS-41). ─────
+#    run-state lines at its top (OPS-41) and the --quick skip (OPS-103). ─────
 #
 # run-local.sh: THE full gate (GATE_RUN in .claude/project.conf). Runs every step in GATE_STEPS
 # and, only after a COMPLETE run of a CLEAN tree, writes the receipt pr-merge-guard reads:
@@ -41,7 +52,7 @@ fi
 #
 #   scripts/ci/run-local.sh            the full gate on the committed tree: writes the receipt
 #   scripts/ci/run-local.sh --dirty    the working tree as it stands (receipt marked dirty: refused)
-#   scripts/ci/run-local.sh --quick    the quick steps only: writes no receipt, deletes none
+#   scripts/ci/run-local.sh --quick    the quick steps only: writes no receipt, deletes none, takes no lease
 #
 # Agents run it through scripts/ci/gate.sh (GATE), which keeps the log in a file.
 #
@@ -103,7 +114,7 @@ trap gate_end EXIT
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 
-DIRTY=0 MODE=full
+DIRTY=0   # MODE: set from argv before the lease (above)
 while [ $# -gt 0 ]; do
   case "$1" in
     --dirty) DIRTY=1 ;;
