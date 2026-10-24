@@ -397,7 +397,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
   t('the preflight agent takes budgetUsd and budgetKind from change-cost.sh --json, never from proposal.md\'s **Budget:** line', /change-cost\.sh demo --json/.test(pf) && /budgetKind/.test(pf) && !/\*\*Budget:\*\*/.test(pf) && /Do not read the budget from proposal\.md/.test(pf), pf)
   // The review cap (OPS-108): review-cap.sh's words, parsed by the script, or args.maxRounds.
-  t('the preflight agent runs review-cap.sh for the change and reports its words verbatim', /sh \.claude\/review-cap\.sh demo --why 2>&1/.test(pf) && /reviewCap/.test(pf), pf)
+  t('the preflight agent runs review-cap.sh for the change and reports its words verbatim', /review-cap\.sh demo --why 2>&1/.test(pf) && /reviewCap/.test(pf), pf)
   r = await run([], { budget: { reviewCap: 'ERROR: the roadmap did not parse, so the review cap is UNKNOWN' } })
   t('review-cap.sh refusing stops at preflight, naming what it said, before any group is built', r.report.stoppedAt === 'preflight' && /gave no review cap/.test(r.report.reason) && /UNKNOWN/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
   r = await run([], { budget: { reviewCap: '' } })
