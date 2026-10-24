@@ -6,10 +6,10 @@ close its lanes without the owner's click, and without any way to close a lane t
 ## ADDED Requirements
 
 ### Requirement: Close a lane from the command line through Close lane's plan and guards
-WHEN `clauductor lane close <id>` runs in any checkout of a project the running panel serves THE
-SYSTEM SHALL print the plan Close lane's confirmation lists and change nothing, and with `--yes`
-SHALL close the lane through Close lane's own plan and guards, printing what was removed and
-what was kept, each with why.
+WHEN `clauductor lane close <id>` runs in any checkout of a project the running panel serves, for
+a lane the second requirement does not refuse, THE SYSTEM SHALL print the plan Close lane's
+confirmation lists and change nothing, and with `--yes` SHALL close the lane through Close lane's
+own plan and guards, printing what was removed and what was kept, each with why.
 
 #### Scenario: [LANECLOSE-1-S1] Without --yes, the plan is printed and nothing changes
 - **GIVEN** a running panel serving a project with an idle lane on a clean worktree whose branch
@@ -30,7 +30,7 @@ what was kept, each with why.
 - **AND** the panel's output has one line naming the lane, its project and `clauductor lane close`
 
 #### Scenario: [LANECLOSE-1-S3] A dirty worktree stays, and says why
-- **GIVEN** an idle lane whose worktree holds an uncommitted change
+- **GIVEN** an idle lane whose branch is merged and whose worktree holds an uncommitted change
 - **WHEN** `clauductor lane close <id> --yes` runs
 - **THEN** the lane is stopped and forgotten, as Close lane stops it
 - **AND** the worktree and its branch stay, and the **Kept** lines say why
@@ -44,15 +44,17 @@ what was kept, each with why.
 
 #### Scenario: [LANECLOSE-1-S5] Run inside a lane's worktree, the command addresses the main checkout's project
 - **GIVEN** a registered project, and the current directory inside one of its linked worktrees
-- **WHEN** `clauductor lane close <id>` runs without `--project`
+- **WHEN** `clauductor lane close <id>` runs
 - **THEN** it asks the panel about the project whose root is the repository's main checkout
-- **AND** `--project` given an id or any path in the repository addresses the same project
+- **AND** run from a directory in no project the panel serves, it is refused naming
+  `clauductor panel list`, and the panel is asked nothing
 
-### Requirement: Close only a lane whose work has ended, never the caller's own
-WHEN the command asks to close a lane THE SYSTEM SHALL refuse unless that lane's claude has exited
-or is gone, or is idle on a current reading with no background work of its turn still in flight
-and no queue's lease held or waited for, by the one verdict auto-close also reads, and SHALL refuse a lane's own id when run inside that
-lane.
+### Requirement: Close only a lane whose work has ended and landed, never the caller's own
+WHEN the command asks to close a lane THE SYSTEM SHALL refuse a lane that holds or waits for a
+queue's lease, and otherwise SHALL refuse unless that lane's claude has exited, or its branch is
+merged and its claude is gone or idle on a current reading with no background work of its own
+session's turn still in flight, by the one verdict auto-close also reads for its work, and SHALL
+refuse a lane's own id when run inside that lane.
 
 #### Scenario: [LANECLOSE-2-S1] A lane whose claude is working is refused, and keeps running
 - **GIVEN** a lane whose claude is working
@@ -61,11 +63,13 @@ lane.
 - **AND** the lane's tmux session, worktree and branch are untouched
 - **AND** a lane waiting on the owner, a lane starting, and a lane whose reading is not current
   are refused the same way, each in auto-close's words
+- **AND** run without `--yes`, it is refused the same way, and no plan is printed
 
 #### Scenario: [LANECLOSE-2-S2] A lane does not close itself
 - **GIVEN** the command runs with `CLAUDUCTOR_LANE=<id>` in its environment
 - **WHEN** `clauductor lane close <id>` runs, with or without `--yes`
-- **THEN** it is refused before the panel is asked, naming auto-close and the page's Close lane
+- **THEN** it is refused before anything is read or the panel is asked, naming the page's Close
+  lane, and auto-close where it is on for the lane's type
 - **AND** it exits 1
 
 #### Scenario: [LANECLOSE-2-S3] A lane whose turn ended on background work is refused, by the command and by auto-close
@@ -74,10 +78,24 @@ lane.
 - **WHEN** `clauductor lane close <id> --yes` runs
 - **THEN** it is refused naming the background work, and exits 1, and the lane keeps running
 - **AND** an idle lane that holds or waits for a queue's lease is refused the same way, naming the
-  lease
+  lease, and so is a lane whose claude has exited while it holds one
+- **AND** another session busy in the same worktree does not hold the lane: only the lane's own
+  session is read
 - **AND** with `lanes_auto_close` `on_merge` and the lane's pull request merged, auto-close does
   not close it either, and asks in Needs you with the same reason
 - **AND** once a later `Stop` lists no such task, the lane may close
+
+#### Scenario: [LANECLOSE-2-S4] An idle lane on unmerged work is refused; an exited one closes and keeps its branch
+- **GIVEN** a lane whose claude is idle, with no background work, on a branch neither merged into
+  the base nor the head of a merged pull request
+- **WHEN** `clauductor lane close <id> --yes` runs
+- **THEN** it is refused with "its branch is not merged" and the reason, and exits 1
+- **AND** the lane's tmux session, its registry record, its worktree and its branch are untouched
+- **AND** a lane whose plan names no branch is refused the same way, "its branch is not known"
+- **AND** a registered lane whose tmux session is gone, on that branch, is refused the same way,
+  and the page still offers to restore it
+- **AND** when that lane's claude has exited instead, the close goes ahead: the lane is stopped
+  and forgotten, and the **Kept** lines keep the branch, saying it is not merged
 
 ### Requirement: Reach the panel only as the owner's user, never from a browser
 WHILE the panel runs THE SYSTEM SHALL serve the command's close on a Unix socket only the

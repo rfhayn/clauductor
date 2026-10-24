@@ -23,28 +23,38 @@ forced.
 - **The plan first** (D3). With no flag the command prints what Close would remove and keep, and
   changes nothing. `--yes` closes the lane with the plan's offers as consent, as the page's
   **Confirm** does, and prints what was removed and kept.
-- **Only a lane whose work has ended, never the caller's own** (D2). The panel refuses unless the
-  lane's claude has exited, or is idle with no background work of its turn still in flight (a
-  subagent, a workflow, a background shell, a teammate) and no gate lease held or waited for. Auto-close reads the same verdict, so it too stops
-  closing a lane whose turn ended on background work: a fix to PANEL-20 the owner approves with
-  D2. A lane cannot close itself.
+- **Only a lane whose work has ended and landed, never the caller's own** (D2). The panel refuses
+  a lane that holds or waits for a gate lease. Otherwise it refuses unless the lane's claude has
+  exited, or is idle with no background work of its own session's turn still in flight (a
+  subagent, a workflow, a background shell, a teammate) and its branch is merged: an idle lane is
+  not a finished one. A lane whose tmux session is gone, which the page offers to restore, closes
+  only when its branch is merged. Auto-close reads the same verdict for the work, so it too stops closing a
+  lane whose turn ended on background work or that holds a lease: a fix to PANEL-20 the owner
+  approves with D2. A lane cannot close itself.
 - **Reached over a socket only the owner's user can open** (D1). The panel serves the close on
   `~/.clauductor/panel/cli.sock` (mode 0600, in the 0700 panel directory). No browser can reach it,
   and the CLI holds no token.
 - **An interrupted command leaves the close finished** (D4). Once the panel starts a close, it
   finishes it.
-- **Its caller in production** (D5). session-close's *Close the lanes* rule runs the command for
-  each idle lane whose pull request merged and that the panel left open, including one whose plan
-  keeps the worktree or branch, and names what stayed in its final message.
+- **Its caller in production** (D5). session-close's *Close the lanes* rule runs the command, from
+  the repository, for each lane whose pull request merged and that the panel left open, including
+  one whose plan keeps a dirty worktree (and with it the branch). It confirms with `--yes` only
+  when the plan's first line names that merged branch, and names what stayed, and any refusal, in
+  its final message.
 - **Allowed without a prompt** (D7). The template's settings allow `Bash(clauductor lane close *)`
-  and nothing wider, so a session close does not wait on the owner twice per lane.
+  and nothing wider, so a session close does not wait on the owner twice per lane. The command
+  takes its project from the current directory alone (no `--project`), so an allowed call reaches
+  only the project it runs in.
 - **Beyond the row's scope column** (`framework/internal/cmd`, `framework/internal/panel/web`,
   `docs/panel.md`, `template/.claude/skills/`, `plugin/`): `framework/internal/panel/run.go` (the
   socket's listener and the owner record), `framework/internal/panel/live.go` (its rewrites of the
   owner record keep the socket), `framework/internal/panel/install/singleton.go` (the owner record
   names the socket), `framework/internal/panel/install/candidate.go` (`MainWorktree`, which
-  `mainRoot` then calls), `framework/internal/panel/autoclose.go` and
-  `framework/internal/panel/state/model.go` (the shared verdict), `template/.claude/settings.json`
+  `mainRoot` then calls), `framework/internal/panel/autoclose.go`,
+  `framework/internal/panel/state/model.go` and `framework/internal/panel/state/stall.go` (the
+  shared verdict, and the leases it reads), `framework/internal/panel/lanes/close.go` (the plan
+  says whether the branch is merged), `framework/internal/panel/config/fields.go` (auto-close's
+  reference line), `template/.claude/settings.json`
   (D7), this repository's own `.claude/skills/session-close/SKILL.md` and `.claude/settings.json`
   (synced), and `README.md`'s command table.
 
@@ -72,6 +82,8 @@ This change adds a new capability, `panel-lane-close` (LANECLOSE-1 to LANECLOSE-
   serves the close and nothing else (D1). This is a refusal, not a deferral.
 - **A lane that closes itself when its turn ends:** D2 refuses a self-close. For a lane on a
   merged branch, auto-close (`on_merge`) already closes it once its work ends. This is a refusal.
+- **`--project`, closing a lane of another project:** no production caller needs it, and with D7's
+  allow rule it would let a session close another project's lanes. This is a refusal.
 - **`--json`, and a `lane list` command:** no production caller reads either (rule 3). An unknown
   id is answered with the project's lanes and their branches (LANECLOSE-1-S4), and with the
   worktree's folder name (D5) that is enough for a session to find the lane it means.

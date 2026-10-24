@@ -103,48 +103,100 @@ Read on 2026-10-24, at `24aa88ee`.
   **Beat (d): no credential, as `/hook`.** `/hook` is write-only and observes. A close stops a
   lane. Any process on the machine, another user's included, could close one.
 
-- **D2. The command closes only a lane whose work has ended, and never the caller's own.**
-  **Recommended.** A lane may close when its claude has exited or is gone (`!Running || Dead`:
-  background work ends with it), or when claude is idle on a current reading (E3's rule) and no
-  live session in the lane's worktree is still at work, and the lane holds no lease (E11): none
-  is working by STALL-1's rule (`sessionWorking`); none's last `Stop` lists a shell, a monitor or a
-  teammate, whatever its status (`taskOpen`, as `turnWork` reads it), or a subagent (not marked
-  ended) or a workflow running or pending (`taskWorking`, `inFlight`); and `m.leases` binds no
-  held or waited-for lease to the lane. A type STALL-1 counts as neither (a dream, a memory
-  import) does not hold the close. Unlike `sessionWorking`, the task list holds the close however
-  long the session has been quiet: a long gate is the case this guards, and a later `Stop` with no
-  tasks clears it. The lease covers the gate no `Stop` lists. The reducer
-  computes this once per lane, as `TermLaneView.CloseHeld` (empty when the lane may close,
-  otherwise why not), in `TerminalViews` (`state/model.go:1463`), so the reason reads like
-  auto-close's: "claude is working", "waiting on you", "starting", any status with "(not a current
-  reading)" when it is approximate, "its turn ended on background work: <the task's
-  description>", or "it holds or waits for the <queue> lease". `statusWords` moves to `state` with it. The socket's route refuses, before asking
-  the manager anything, a lane whose `CloseHeld` is set. The view lists every registered lane and
-  every tmux session on the panel's socket (`TermLaneView`, `state/model.go:1387`), so a lane it
-  does not list is refused as unknown (LANECLOSE-1-S4). A lane started seconds ago may not be
-  listed yet, and refusing it is the safe side. The CLI also refuses an id equal to its own
-  `CLAUDUCTOR_LANE` (E8) before it asks the panel, and names the two things that do close a lane
-  after its work: auto-close once the turn ends, and the page's Close lane. That check only gives
-  a clearer message: the panel's rule is the authority, and a lane running the command is never
-  idle. The view can be a few seconds old, and claude can start working between the check and the
-  stop. `Close` then stops it as Stop does (E2). This narrows the window and cannot close it, as
-  the detached recheck narrows its own (`close.go:129`).
+- **D2. The command closes only a lane whose work has ended and landed, and never the caller's
+  own.** **Recommended; its merged condition is the owner's direction of 2026-10-24.** Two tests,
+  both needed:
+  - **Its work has ended** (`TermLaneView.CloseHeld` is empty). A lane bound to a held or
+    waited-for lease is held, whatever claude is doing: the lease covers a gate no `Stop` lists
+    (E11). Otherwise, a lane whose claude has exited or is gone (`!Running || Dead`) may close:
+    its session's background work ends with it. Otherwise claude must be idle on a current
+    reading (E3's rule), and the lane's own session, the one `tv.SessionID` names, must be at
+    rest: not working by STALL-1's rule (`sessionWorking`), and its last `Stop` listing no shell,
+    monitor or teammate, whatever its status (`taskOpen`, as `turnWork` reads it), and no subagent
+    (not marked ended) or workflow running or pending (`taskWorking`, `inFlight`). A type STALL-1
+    counts as neither (a dream, a memory import) does not hold the close. Unlike
+    `sessionWorking`, the task list holds the close however long the session has been quiet: a
+    long gate is the case this guards, and a later `Stop` with no tasks clears it. (A lane whose
+    session the panel has not heard from reads `running`, and is held as "starting".) Other
+    sessions in the same worktree are not read: Close removes a worktree only when it is clean
+    (E1), so their uncommitted work stays. **The cost, stated for the owner:** a session other
+    than the lane's own, such as the owner's `claude` in a terminal there, working in a clean
+    worktree whose branch merged, has its directory removed under it, as the page's Close lane
+    does today. The merged test makes that rare (the work there has landed). Reading every session
+    in the worktree was the first draft's rule; it made the verdict depend on which sessions the
+    panel had heard of, and a session the hook never reached would pass it anyway.
+  - **Its work has landed.** The lane's branch is merged into the base or is the head of a merged
+    pull request, the verdict `branchVerdict` already gives (`close.go:227`), or its claude has
+    exited (`Dead`: the program ended and remain-on-exit holds its pane). `ClosePlan` gains
+    `Merged` (the verdict's `ok`, "" when not merged) and `Unmerged` (its `why`), set whenever
+    the lane has a branch, even when its worktree stays. A lane that is not `Dead` closes only when `Merged` is set, so a plan
+    with no branch is refused too: a corrupt record, a worktree gone, unreadable or no longer the
+    project's, or a detached head. A failed read keeps more. Otherwise the socket's route refuses
+    "its branch is not merged: <why>", or "its branch is not known" when the plan has none. An
+    idle lane on unmerged work is most often one waiting for the owner's next prompt, and it stays
+    the owner's, closed from the page. A lane on the main checkout is on the base branch, so it is
+    refused unless its claude has exited ("its branch is not merged: it is the base branch").
+    **A lane whose tmux session is gone is not exempt**, though its work has ended: it is the lane
+    the page offers to restore (`Restorable`, `state/model.go:1936`), and after a reboot every
+    lane is one. It closes from the command only when its branch is merged; otherwise the page
+    keeps its restore. This reads the owner's "its claude has exited" as the program's exit
+    (`Dead`), the narrower of the two readings; counting a gone session too would let an agent with
+    a wrong id close any lane after a reboot and lose its restore, the harm the merged test exists
+    to stop. **The cost of the exit exemption, stated for the owner:** a `Dead` lane keeps its
+    tmux session, and the page offers it **Restart**. Closed with a wrong id while on unmerged
+    work, it loses that Restart the same way (the record is forgotten, a clean worktree removed),
+    and only `claude --resume <session>`, which the plan's Keep line names, brings the
+    conversation back; the branch stays. That is the owner's decision as given, on a smaller set
+    of lanes than a gone session would add. Auto-close needs no landed test: it acts only on a
+    merged pull request already.
+
+  The reducer computes `CloseHeld` in a second pass: `TerminalViews` (`state/model.go:1463`) builds
+  the views, then fills each lane's `CloseHeld` from one `m.leases` call and the sessions. The
+  first pass becomes an unexported builder that `leaseBinder` (`stall.go:677`) calls, so
+  `TerminalViews → leases → leaseBinder` never comes back to `TerminalViews`. `leases` also
+  returns each held lane's queue id, in a new map, so `judgeStalls`' reading is unchanged.
+  `CloseHeld` reads like auto-close's reasons: "claude is working", "waiting on you", "starting",
+  any status with "(not a current reading)" when it is approximate, "its turn ended on background
+  work: <the task's description>", or "it holds or waits for the <queue> lease". `statusWords`
+  moves to `state` with it.
+
+  The socket's route refuses, before the manager is asked to close anything, a lane whose
+  `CloseHeld` is set; then it asks for the plan, and refuses an unmerged lane as above. The view
+  lists every registered lane and every tmux session on the panel's socket (`TermLaneView`,
+  `state/model.go:1387`), so a lane it does not list is refused as unknown (LANECLOSE-1-S4). A
+  lane started seconds ago may not be listed yet, and refusing it is the safe side. The CLI also
+  refuses an id equal to its own `CLAUDUCTOR_LANE` (E8) before it reads anything or asks the
+  panel, and names what does close a lane after its work, in fixed words: the page's Close lane,
+  and auto-close where it is on for the lane's type (`AutoCloseOf`; off by default, E3). It reads
+  no config to choose them, since a lane type's `auto_close` overrides the project's
+  `lanes_auto_close` and the CLI does not know the lane's type. That check only gives a clearer
+  message: the panel's rule is the authority, and a lane running the command is never idle. The
+  view can be a few seconds old, and claude can start working between the check and the stop.
+  `Close` then stops it as Stop does (E2). This narrows the window and cannot close it, as the
+  detached recheck narrows its own (`close.go:129`).
   **Auto-close reads the same `CloseHeld`** in place of its own rule, so it too stops closing a
-  lane whose turn ended on background work (E11). That is a fix to PANEL-20's behaviour, and the
-  owner's to approve with this decision. **Beat: the stricter rule for the command only,**
-  leaving auto-close on E3's rule. Two rules for one question, one of them knowingly unsafe.
+  lane whose turn ended on background work or that holds a lease (E11). That is a fix to
+  PANEL-20's behaviour, and the owner's to approve with this decision. **Beat: the stricter rule
+  for the command only,** leaving auto-close on E3's rule. Two rules for one question, one of them
+  knowingly unsafe.
+  **Beat: close any idle lane, merged or not** (this proposal's first draft). With D7 any agent
+  could then stop an idle lane waiting on the owner, with a wrong id, and its record would be gone:
+  its worktree and branch stay, but the page can no longer restore it.
   **Beat: close whatever claude is doing, as the page does.** The page has the owner looking at
   the lane. A command has a lane id typed by an agent. A wrong id, or a right id a few minutes
   early, would end a working turn: a running gate or a build group, its uncommitted work kept but
   its progress lost.
 
 - **D3. The plan first; `--yes` closes.** **Recommended.** `clauductor lane close <id>` sends
-  `{"dryRun": true}` and prints the plan as the page's confirmation lists it: **Removes**,
-  **Keeps** (each with why) and the notes. It changes nothing and exits 0. With `--yes` it asks for
+  `{"dryRun": true}` and prints the plan as the page's confirmation lists it, after a first line
+  naming the lane and its branch (`lane <id> on <branch>`): **Removes**, **Keeps** (each with why)
+  and the notes. It changes nothing and exits 0. With `--yes` it asks for
   the plan, then closes with the plan's offers as the consent (`worktree` and `branch` as the plan
   set them, as the page's Confirm sends them), prints **Removed** and **Kept** from the result,
   and exits 0. The lane is stopped either way, and what stays is said with why (E1). Any refusal
-  (D2, no panel, no such lane, a project the panel does not serve) exits 1 with the reason.
+  (D2, no panel, no such lane, a project the panel does not serve) exits 1 with the reason. D2's
+  refusals apply to the dry run too: a lane the command may not close gets the refusal, not a
+  plan it could not carry out, so the agent learns it before it confirms anything.
   **Beat: close by default, with `--dry-run` for the plan.** That is one call fewer, but the
   command's first use by an agent would then be the act itself. With the plan first, the agent and
   the owner reading its transcript see what will go before anything does, as the page shows it.
@@ -163,16 +215,20 @@ Read on 2026-10-24, at `24aa88ee`.
 - **D5. session-close closes a merged lane the panel left open.** **Recommended.**
   `template/.claude/skills/session-close/SKILL.md`'s *Close the lanes* rule gains one sentence.
   For each lane whose pull request merged and that is still open: run `clauductor lane close
-  <id>`, then the same with `--yes`, and put the plan's Keeps lines, if any, in the final message.
-  The id is the folder name of the merged branch's worktree in `git worktree list` (a lane's
-  worktree is `<worktree_dir>/<id>`, `lanes/lanes.go:712`); when that is refused as unknown, the
-  refusal's `id (branch)` list names the lane on that branch. A refusal (D2) is named in the final
-  message too, with its reason. Skip it when `clauductor` is not on `PATH`
-  or no panel runs (the repository works without either: ADR-0006). This covers every way
-  auto-close holds back (E3) but the first: with auto-close off, the command closes what
-  auto-close would have; with a plan that keeps the worktree or branch, the lane stops and they
-  stay, as the page's Close lane leaves them, named for the owner. A lane not idle is refused, and
-  stays the owner's. The plugin is rebuilt and this repository's copy synced. This is the
+  <id>` from the repository, then, only when the plan's first line names the merged branch, the
+  same with `--yes`, and put the plan's Keeps lines, if any, in the final message. The id to try
+  first is the folder name of the merged branch's worktree in `git worktree list` (a new lane's
+  worktree is `<worktree_dir>/<id>`, `lanes/lanes.go:712`; a lane started on an existing worktree
+  may differ). When that id is unknown, the refusal's `id (branch)` list names the lane on the
+  merged branch, and that id is used instead. When it is a lane on another branch (the plan's
+  first line says so), nothing more is run for it: the final message names the merged branch
+  whose lane was not found, and leaves it to the owner. A refusal (D2) is named in the final
+  message too, with its reason and the lane it was for. Skip it when
+  `clauductor` is not on `PATH` or no panel runs (the repository works without either:
+  ADR-0006). This covers every way auto-close holds back (E3) but the first: with auto-close off,
+  the command closes what auto-close would have; with a plan that keeps a dirty worktree, the lane
+  stops and the worktree and its branch stay, as the page's Close lane leaves them, named for the
+  owner. A lane whose work has not ended is refused, and stays the owner's. The plugin is rebuilt and this repository's copy synced. This is the
   production caller (rule 3), and it stays a skill sentence: **Nothing. You.** executes it, as it
   executes the rule today.
   **Beat: `--yes` only when the plan removes both the worktree and the branch.** That is exactly
@@ -195,25 +251,31 @@ Read on 2026-10-24, at `24aa88ee`.
   this repository's copy follows through `clauductor update`. session-close runs hands-off, and
   without the rule each lane costs two permission prompts in the default mode (E9), which leaves
   the session waiting on the owner it was meant to spare. The rule is narrow: `close` alone, whose
-  every effect is D2's and Close lane's guards; no other `clauductor` subcommand is allowed.
+  every effect is D2's and Close lane's guards; no other `clauductor` subcommand is allowed. Under
+  D2 an agent can close only a lane whose work has ended and whose branch merged, or whose claude
+  has exited (a lane whose tmux session is gone keeps its restore unless its branch merged), and
+  only in the project of the directory it runs in (no `--project`); a dirty
+  worktree or an unmerged branch still stays (E1).
   **Beat: no allow rule.** Each project or owner allows it themselves, and until then D5's
   sentence asks the owner twice per lane, or is skipped under a mode that denies it.
 
 ## The command
 
 ```
-clauductor lane close <id> [--yes] [--project <id|path>]
+clauductor lane close <id> [--yes]
 ```
 
 - **The panel**, checked first, is the live one `install.RunningPanel` finds (E5), reached at
   `owner.json`'s `Socket` (D1). No live panel, an empty `Socket` (a panel `RunningPanel` found by
   `/healthz` alone has none, `singleton.go:192`), or a socket that does not answer: exit 1, saying
   which and naming `clauductor panel`.
-- **The project** is `--project` (an id, or any path in the repository), or else the repository
-  of the current directory. A path is resolved to its main checkout, the first entry of
-  `signals.ReadWorktrees` from `git rev-parse --show-toplevel` (E7), and matched in the registry.
-  A lane worktree therefore names its project. A path that is not a registered project, or one the
-  running panel does not serve (`PanelOwner.Projects`), is refused, naming `clauductor panel list`.
+- **The project** is the repository of the current directory, and nothing else: the current
+  directory is resolved to its main checkout, the first entry of `signals.ReadWorktrees` from
+  `git rev-parse --show-toplevel` (E7), and matched in the registry. A lane worktree therefore
+  names its project. A directory that is not in a registered project, or one the running panel
+  does not serve (`PanelOwner.Projects`), is refused, naming `clauductor panel list`. There is no
+  `--project`: its only caller (D5) runs in the repository it closes in, and with D7 the flag
+  would let a session in one project close another project's lane without a prompt.
 - **Output** is lines for people, the page's words: the plan's or the result's lists, each line as
   `close.go` wrote it. No `--json` (rule 3: no caller reads one).
 - **The panel's output** (`Options.Out`) gets one line per close through the socket: `lane <id>
@@ -227,12 +289,13 @@ clauductor lane close <id> [--yes] [--project <id|path>]
 | Situation | What happens instead |
 |---|---|
 | The lane's claude is working, waiting on the owner, starting, or its reading is not current | Refused, exit 1, naming the status (D2). Nothing stops. |
-| claude is idle, but its turn ended on background work still in flight, or the lane holds or waits for a lease | Refused, exit 1, naming the task or the lease (D2). Nothing stops. |
-| The id is the caller's own `CLAUDUCTOR_LANE` | Refused by the CLI before the panel is asked, naming auto-close and the page's Close lane (D2) |
+| claude is idle, but its own session's turn ended on background work still in flight, or the lane holds or waits for a lease (exited or not) | Refused, exit 1, naming the task or the lease (D2). Nothing stops. |
+| claude is idle, or the lane's tmux session is gone, and its branch is not merged or not known | Refused, exit 1: "its branch is not merged: <why>" or "its branch is not known" (D2). Nothing stops; the page's Close lane, or its restore, still can. |
+| The id is the caller's own `CLAUDUCTOR_LANE` | Refused by the CLI before it reads anything, naming the page's Close lane, and auto-close where it is on for the lane's type (D2) |
 | No live panel, or one with no socket | Exit 1, saying which; nothing is written |
-| The project is not one the panel serves | Exit 1, naming `clauductor panel list` |
+| The current directory is in no project the panel serves | Exit 1, naming `clauductor panel list` |
 | No such lane in the project | Exit 1, listing the project's lanes, each with its branch |
-| The worktree is dirty, locked, outside `worktree_dir`, or another lane's; the branch unmerged | Not a refusal: the lane stops and those stay, each with why, as on the page (E1) |
+| The worktree is dirty, locked, outside `worktree_dir`, or another lane's; or, for a lane whose claude has exited, the branch is unmerged | Not a refusal: the lane stops and those stay, each with why, as on the page (E1) |
 | A request on the socket for anything but the close | 404 or 405; the socket serves nothing else (D1) |
 | `--yes` is interrupted after the panel began the close | The panel finishes it (D4) |
 | `clauductor` is not on `PATH`, or no panel runs, at session close | session-close skips the step (D5) |
