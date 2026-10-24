@@ -128,7 +128,10 @@ The path rewrites, all mechanical and all in `framework/internal/plugin`:
   and finds the model's files through it; the project root comes from git
   (`git rev-parse --show-toplevel`), because the script's own location is now the plugin cache,
   not the repository. Sourced files (`lib/conf.sh`, `checks/lib.sh`, `hooks/lib/*`) use their
-  caller's. A copy a check puts in a scratch repository's `.claude/` takes that repository as its
+  caller's. The variable is set, not exported, so a `sh -c '…'` child whose body names it gets
+  `CLAUDUCTOR_FW="$CLAUDUCTOR_FW"` among its assignments, unless they already set it (a check
+  pointing it at a fixture); a child behind a wrapper (`with_timeout 60 sh -c`) is not rewritten,
+  and `TestShellChildGetsPluginRoot` fails on it. A copy a check puts in a scratch repository's `.claude/` takes that repository as its
   root, as in the template; the plugin's own copy takes the `ROOT` its caller names, else the
   repository the command runs in. Inside a check, a bare `sh .claude/x` runs the scratch copy and
   is left alone. A few scripts need a specific edit, listed in `shellPatches` with the reason; the

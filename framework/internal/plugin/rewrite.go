@@ -18,6 +18,7 @@ type rewriter struct {
 	shVarFW   *regexp.Regexp // "$ROOT/.claude/<fw>  and  "$ROOT"/.claude/<fw>
 	shBare    *regexp.Regexp // sh .claude/<fw>   and   in .claude/<fw>
 	shChildFW *regexp.Regexp // sh -c '… $CLAUDUCTOR_FW …': a child that needs the plugin root passed
+	assignsFW *regexp.Regexp // CLAUDUCTOR_FW= among a command's assignments
 	mdFW      *regexp.Regexp // .claude/<fw> in Markdown
 	mdSh      *regexp.Regexp // sh .claude/<fw> in Markdown
 	mdCtx     *regexp.Regexp // !`sh .claude/<fw> : a skill's context line
@@ -80,12 +81,14 @@ func newRewriter(tmpl string) (*rewriter, error) {
 	an := "(?:" + strings.Join(qa, "|") + ")"
 
 	return &rewriter{
-		fw:        fw,
-		agents:    agents,
-		shRoot:    regexp.MustCompile(`\b(ROOT|ROOT_HOOK)=\$\(cd "(?:\$\(dirname "\$0"\)|\$dir)/[./]+"(?: 2>/dev/null)? && pwd\)`),
-		shVarFW:   regexp.MustCompile(`"(?:\$ROOT|\$ROOT_HOOK|\$\{ROOT\})(")?/\.claude/(` + fw + `)`),
-		shBare:    regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
-		shChildFW: regexp.MustCompile(`(^|[^A-Za-z0-9_=])sh -c '([^']*\$` + FWVar + `)`),
+		fw:      fw,
+		agents:  agents,
+		shRoot:  regexp.MustCompile(`\b(ROOT|ROOT_HOOK)=\$\(cd "(?:\$\(dirname "\$0"\)|\$dir)/[./]+"(?: 2>/dev/null)? && pwd\)`),
+		shVarFW: regexp.MustCompile(`"(?:\$ROOT|\$ROOT_HOOK|\$\{ROOT\})(")?/\.claude/(` + fw + `)`),
+		shBare:  regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
+		// A command's start (the line's, or after ; & | ( and $( ), its assignments, then the child.
+		shChildFW: regexp.MustCompile(`(^\s*|[;&|(]\s*)((?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s;&|()'"]*)\s+)*)sh -c '([^']*\$` + FWVar + `)`),
+		assignsFW: regexp.MustCompile(`(^|\s)` + FWVar + `=`),
 		mdSh:      regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
 		panelArg:  regexp.MustCompile(`"sh", "\.claude/(` + fw + `)`),
 		skillRef:  skillRef,
@@ -156,10 +159,17 @@ func (r *rewriter) shell(dest, s string) string {
 			return `"$` + FWVar + `/` + sm[2]
 		})
 		// The prologue sets the plugin root without exporting it, so a child `sh -c '…'` that now
-		// names it would read it empty: pass it on that command line (OPS-88).
-		if !strings.Contains(l, FWVar+`="$`+FWVar+`" sh -c '`) {
-			l = r.shChildFW.ReplaceAllString(l, `${1}`+FWVar+`="$$`+FWVar+`" sh -c '${2}`)
-		}
+		// names it would read it empty: pass it on that command line (OPS-88). Each child is judged
+		// alone, and one whose own assignments already set it (a check pointing it at a fixture)
+		// keeps that value. A child behind a wrapper (`with_timeout 60 sh -c`) does not match: an
+		// assignment after a command word is an argument, and TestShellChildGetsPluginRoot names it.
+		l = r.shChildFW.ReplaceAllStringFunc(l, func(m string) string {
+			sm := r.shChildFW.FindStringSubmatch(m)
+			if r.assignsFW.MatchString(sm[2]) {
+				return m
+			}
+			return sm[1] + sm[2] + FWVar + `="$` + FWVar + `" sh -c '` + sm[3]
+		})
 		// In a check, a bare `sh .claude/x` runs inside a scratch repository the check built, on the
 		// copy it put there: left as it is.
 		if !strings.HasPrefix(dest, "checks/") {

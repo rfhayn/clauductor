@@ -901,7 +901,6 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 // (OPS-88: plugin/checks/statusline.sh, run directly, failed its two unwritable-HOME cases).
 func TestShellChildGetsPluginRoot(t *testing.T) {
 	out, _ := build(t)
-	child := regexp.MustCompile(`(?:^|[^A-Za-z0-9_=])sh -c '[^']*\$` + FWVar)
 	err := filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".sh") {
 			return err
@@ -911,8 +910,8 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			return err
 		}
 		for i, l := range strings.Split(string(raw), "\n") {
-			if child.MatchString(l) && !strings.Contains(l, FWVar+`="$`+FWVar+`" sh -c '`) {
-				t.Errorf("%s:%d: a sh -c names $%s without it on the command line: %s", p, i+1, FWVar, strings.TrimSpace(l))
+			for _, bad := range unpassedChildren(l) {
+				t.Errorf("%s:%d: a sh -c names $%s without it among its assignments: %s", p, i+1, FWVar, bad)
 			}
 		}
 		return nil
@@ -920,4 +919,52 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// The rewrite itself: each child judged alone, a value the template set kept, and nothing
+	// inserted after a wrapper's command word (where it would be an argument, not an assignment).
+	rw, err := newRewriter(filepath.Join(repoRoot(t), "template"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ in, want string }{
+		{`a=$(sh -c '. "$ROOT/.claude/lib/conf.sh"'); b=$(X=1 sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`a=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'); b=$(X=1 CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`v=$(CLAUDUCTOR_FW= sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW= sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`with_timeout 60 sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
+			`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`},
+	} {
+		if got := rw.shell("checks/x.sh", c.in); got != c.want {
+			t.Errorf("shell(%s)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := unpassedChildren(`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`); len(got) != 1 {
+		t.Errorf("a child behind a wrapper is not reported: %q", got)
+	}
+}
+
+// unpassedChildren returns each `sh -c '…$CLAUDUCTOR_FW…'` on the line whose command does not set
+// CLAUDUCTOR_FW among its leading assignments. Written apart from the rewrite's regex, so the two
+// do not share a mistake: the command is the text back to the last ; & | or (, split on blanks.
+func unpassedChildren(l string) []string {
+	var bad []string
+	assign := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+	for _, loc := range regexp.MustCompile(`sh -c '[^']*\$`+FWVar).FindAllStringIndex(l, -1) {
+		before := l[:loc[0]]
+		before = before[strings.LastIndexAny(before, ";&|(")+1:]
+		passed := false
+		for _, f := range strings.Fields(before) {
+			if !assign.MatchString(f) {
+				passed = false
+				break
+			}
+			passed = passed || strings.HasPrefix(f, FWVar+"=")
+		}
+		if !passed {
+			bad = append(bad, l[loc[0]:loc[1]])
+		}
+	}
+	return bad
 }
