@@ -71,7 +71,7 @@ once at the end, one line. Work that needs the owner at the computer goes in the
 edits the journal, the insights log or any row's Status. A daily close (`BRANCH_SESSION_CLOSE`, once
 a day or every 3–4 rows) folds the fragments on main into one `## Session N` (`session-close`,
 *Two forms*). `pr-merge-guard` rule 7 refuses a row PR that adds a session heading; rule 8 holds any
-PR that changes the journal or the log to the close's branch, on top of `origin/main`.
+PR that changes the journal or the log, whatever its branch, on top of `origin/main`.
 
 **Several people.** Each person has their own Claude and merges only their own PRs. Claude's
 memory is per machine: what another person needs goes in the repo. Fragments never conflict (one

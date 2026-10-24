@@ -38,7 +38,8 @@ another channel (an issue comment, email).
 One row, one session, one PR. **A row's PR never edits the journal, the insights log or any row's
 Status**, so rows built in parallel never touch one shared line; `pr-merge-guard` rule 7 refuses a
 row PR that adds a `## Session` heading, and rule 8 holds every PR that changes the journal or the
-insights log to the close's branch.
+insights log, whatever its branch, on top of `origin/main`. The rest of that sentence is yours to
+keep: no hook refuses a row PR's edit to the log.
 
 - **A row's close** (this session built one roadmap row): its records are ONE file in the row's own
   PR, `<JOURNAL_FRAGMENTS>/<row id>.md`, written last, before the final gate. The shape is

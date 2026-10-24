@@ -55,7 +55,8 @@ if [ -n "$row" ]; then
   fi
   # The ROADMAP line itself, not the summary column: a parser of the project's own may shorten it.
   line=$(printf '%s\n' "$row" | cut -f1)
-  risks=$(sed -n "${line}p" "$ROOT/$ROADMAP" | sed 's/`[^`]*`//g' | grep -oE 'Risk: (low|normal|high)' | sed 's/^Risk: //' | sort -u)
+  # The Change cell only (cell 3 of `| # | Change | Scope | Deps | Status |`), backticks out.
+  risks=$(sed -n "${line}p" "$ROOT/$ROADMAP" | sed 's/`[^`]*`//g' | awk -F'|' '{ print $3 }' | grep -oE 'Risk: (low|normal|high)' | sed 's/^Risk: //' | sort -u)
   case $(printf '%s\n' "$risks" | grep -c .) in
     0) say normal "row $rid (no Risk: in its Change cell)" ;;
     1) say "$risks" "row $rid's Change cell" ;;

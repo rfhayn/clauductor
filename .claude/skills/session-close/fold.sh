@@ -21,15 +21,15 @@ ROOT=$(cd "$(dirname "$0")/../../.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/fragments.sh"
 
+refuse() { echo "fold: REFUSED — $*; nothing was changed"; exit 1; }
 n="" focus="" dry=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --focus) focus=${2:-}; shift 2 ;;
+    --focus) [ $# -ge 2 ] && [ -n "$2" ] || refuse "--focus needs the focus after it"; focus=$2; shift 2 ;;
     --dry-run) dry=1; shift ;;
     *) n=$1; shift ;;
   esac
 done
-refuse() { echo "fold: REFUSED — $*; nothing was changed"; exit 1; }
 printf '%s' "$n" | grep -qE '^[0-9]+(\.[0-9]+)*$' || refuse "usage: fold.sh <N> [--focus \"…\"] [--dry-run] (N, the session number, is required)"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/fold.XXXXXX") || refuse "no temp directory"
@@ -66,7 +66,7 @@ gate=0; cost=0; costs=ok
     ni=$(awk '/^## Insights/ { on = 1; next } /^## / { on = 0 } on && /^\|/ { c++ } END { print c + 0 }' "$f")
     awk -v ni="$ni" '
       NR == 1 { sub(/^# /, "### "); print; next }
-      /^## Insights/ { skip = 1; print "#### Insights"; print ""; print (ni ? ni " row(s), moved to the insights log." : "None."); print ""; next }
+      /^## Insights/ { skip = 1; b[++k] = "#### Insights"; b[++k] = ""; b[++k] = (ni ? ni " row(s), moved to the insights log." : "None."); b[++k] = ""; next }
       /^## / { skip = 0; sub(/^## /, "#### ") }
       !skip { b[++k] = $0 }
       END { while (k > 0 && b[k] ~ /^[ \t]*$/) k--; for (i = 1; i <= k; i++) print b[i] }' "$f"
@@ -82,10 +82,12 @@ totals="**Totals.** Gate $gate min; cost \$$cost"
 [ "$costs" = ok ] || totals="$totals (a row's cost was CANNOT CHECK, so this is a floor)"
 awk -v t="$totals." 'NR == 3 { print t; print "" } { print }' "$tmp/entry" > "$tmp/entry2" && mv "$tmp/entry2" "$tmp/entry"
 
-# 3. The journal: the entry above the first session heading (the newest first), or at the end.
+# 3. The journal: the entry above the first numbered session heading (the newest first), or at the
+# end. A fenced block is skipped: the journal's own format example (`## Session N — …`) sits in one.
 j="$ROOT/$JOURNAL"; [ -f "$j" ] || refuse "JOURNAL $JOURNAL does not exist"
 awk -v ef="$tmp/entry" '
-  !done && /^## Session / { while ((getline l < ef) > 0) print l; done = 1 }
+  /^(```|~~~)/ { fence = !fence }
+  !done && !fence && /^## Session [0-9]/ { while ((getline l < ef) > 0) print l; done = 1 }
   { print }
   END { if (!done) { print ""; while ((getline l < ef) > 0) print l } }' "$j" > "$tmp/journal"
 
@@ -127,7 +129,7 @@ done < "$tmp/list"
 chk=$(roadmap_queue --check "$tmp/roadmap" 2>&1) || refuse "the roadmap would not parse after the edit: $(printf '%s' "$chk" | head -2 | tr '\n' ' ')"
 
 if [ -n "$dry" ]; then
-  echo "fold (dry run): Session $n from $(grep -c . "$tmp/list") fragment(s); $(grep -c . "$tmp/rows" 2>/dev/null || echo 0) insight row(s)"
+  echo "fold (dry run): Session $n from $(grep -c . "$tmp/list") fragment(s); $(grep -c . "$tmp/rows") insight row(s)"
   cat "$tmp/notes"; echo "--- the entry:"; cat "$tmp/entry"; exit 0
 fi
 

@@ -61,7 +61,7 @@ if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-open=$(gh pr list --head "$branch" --state open --json number,body --jq '.[0] | "\(.number)\t\(.body | split("\n")[0])"' 2>&1) \
+open=$(gh pr list --head "$branch" --state open --json number,body --jq '.[0] // empty | "\(.number)\t\(.body | split("\n")[0])"' 2>&1) \
   || warn "gh could not list $branch's PRs ($(printf '%s' "$open" | head -1))"
 if [ -n "$open" ]; then
   n=${open%%"	"*}; first=${open#*"	"}

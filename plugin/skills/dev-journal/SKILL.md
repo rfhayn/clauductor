@@ -19,9 +19,10 @@ run `clauductor-model skills/dev-journal/context.sh` yourself and read the resul
 
 **Only a daily close writes here** (`session-close`, *Two forms*). A row's session writes its
 fragment instead, `<JOURNAL_FRAGMENTS>/<row id>.md` (`docs/journal.d/README.md`), and the close's
-`fold.sh` turns the fragments into the `## Session N` entry; `pr-merge-guard` rules 7 and 8 refuse a
-row PR that edits the journal. Under a folded entry, add the close's own narrative (the steps below)
-after the heading and its totals, above the rows' blocks, rather than writing a second entry.
+`fold.sh` turns the fragments into the `## Session N` entry; `pr-merge-guard` rule 7 refuses a
+session heading off the close's branch, and rule 8 holds any journal edit on top of `origin/main`. Under a folded entry, add the close's own
+narrative (the steps below) after the heading and its totals, above the rows' blocks, rather than
+writing a second entry.
 
 ## Steps
 1. **Take N from `origin/main`, not from this branch** (the context block prints it). A branch cut

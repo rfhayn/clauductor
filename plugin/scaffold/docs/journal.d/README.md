@@ -1,10 +1,11 @@
 # Row fragments
 
 One file per roadmap row, written by the row's own PR: `<row id>.md`. A row's PR never edits the
-development journal, the insights log or any row's Status (`pr-merge-guard` rules 7 and 8), so rows
-built in parallel never touch one shared line. A daily close folds every fragment here into one
-`## Session N` entry (`${CLAUDE_PLUGIN_ROOT}/skills/session-close/fold.sh`), moves the insight rows to the log,
-sets each row's Status and deletes the fragments. This README stays.
+development journal, the insights log or any row's Status, so rows built in parallel never touch one
+shared line (`pr-merge-guard` rule 7 refuses its session heading; the rest is the row's to keep). A
+daily close folds every fragment here into one `## Session N` entry
+(`${CLAUDE_PLUGIN_ROOT}/skills/session-close/fold.sh`), moves the insight rows to the log, sets each row's Status
+and deletes the fragments. This README stays.
 
 `${CLAUDE_PLUGIN_ROOT}/checks/journal.sh` holds the shape at the row's gate (`${CLAUDE_PLUGIN_ROOT}/lib/fragments.sh`), and the
 fold refuses a malformed fragment whole, so a record is never dropped silently.

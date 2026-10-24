@@ -19,7 +19,8 @@ setup() {  # a fresh fixture project, a git repo with two good fragments
 | A-2 | `ops/a-two` — the second row | s | — | ⬜ in flight (#12) |
 | A-3 | `ops/a-three` — not folded | s | — | ⬜ queued |
 EOF
-  printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — before\n\nOld.\n' > "$F/docs/development-journal.md"
+  # The shipped journal's shape: a fenced format example above the first real entry.
+  printf '# Journal\n\nEach entry:\n\n```\n## Session N — YYYY-MM-DD — <author> — <short focus>\n```\n\n<!-- Newest session goes below this line. -->\n\n## Session 4 — 2026-01-01 — Ann — before\n\nOld.\n' > "$F/docs/development-journal.md"
   printf '# Insights\n\n## Log\n\n| Date | Area | Topic | Observation | How to verify | Status |\n|---|---|---|---|---|---|\n| 2026-01-01 | Ops | old | o | v | Raw |\n' > "$F/docs/insights-log.md"
   frag A-1 11 '$1.50' '| 2026-01-02 | Ops | new one | o | v | Raw |'
   frag A-2 12 '$2.25' 'None.'
@@ -61,10 +62,19 @@ setup
 out=$(fold 5 --focus "two rows"); rc=$?
 J="$F/docs/development-journal.md"
 [ $rc -eq 0 ] && ok "fold: folds two fragments (exit 0)" || fail "fold: exit $rc: $out"
-head -3 "$J" | tail -1 | grep -qx '## Session 5 — [0-9-]* — Ann — two rows' \
-  && ok "fold: the entry heads the journal, the newest first, as Session 5" || fail "fold: journal head is: $(sed -n 3p "$J")"
+grep -m1 '^## Session [0-9]' "$J" | grep -qx '## Session 5 — [0-9-]* — Ann — two rows' \
+  && [ "$(grep -n '^## Session 5 ' "$J" | cut -d: -f1)" -lt "$(grep -n '^## Session 4 ' "$J" | cut -d: -f1)" ] \
+  && ok "fold: the entry heads the entries, the newest first, as Session 5" || fail "fold: journal is: $(grep -n '^## Session' "$J")"
+[ "$(sed -n '5,7p' "$J" | cksum)" = "$(printf '```\n## Session N — YYYY-MM-DD — <author> — <short focus>\n```\n' | cksum)" ] \
+  && [ "$(grep -n '^## Session 5 ' "$J" | cut -d: -f1)" -gt 9 ] \
+  && ok "fold: the fenced format example stays whole, and the entry goes below it" || fail "fold: the head of the journal is: $(sed -n '1,12p' "$J")"
 grep -q '^### A-1 — the A-1 work' "$J" && grep -q '^#### What happened' "$J" \
   && ok "fold: each fragment is a ### block with #### sections" || fail "fold: fragment blocks missing in the entry"
+at() { grep -n -- "$1" "$J" | head -1 | cut -d: -f1; }
+[ "$(at '^### A-1 ')" -lt "$(at '^- \*\*PR\*\*: #11')" ] && [ "$(at '^- \*\*PR\*\*: #11')" -lt "$(at '^#### What happened')" ] \
+  && [ "$(at '^#### Surprises')" -lt "$(at '^#### Insights')" ] \
+  && ok "fold: a block keeps its fragment's order: fields, the sections, Insights last" \
+  || fail "fold: block order: $(awk '/^### A-1 /{on=1} /^### A-2 /{on=0} on' "$J" | grep -n '^###\|^- \*\*PR\|^#### ')"
 grep -q '^\*\*Totals\.\*\* Gate 14 min; cost \$3.75\.' "$J" && ok "fold: totals add the gates and costs" || fail "fold: totals wrong: $(grep Totals "$J")"
 grep -q '^| 2026-01-02 | Ops | new one' "$J" && fail "fold: an insight row stayed in the journal" || ok "fold: insight rows leave the entry"
 sed -n 7p "$F/docs/insights-log.md" | grep -q 'new one' \
@@ -91,6 +101,13 @@ setup; refuses "already has a Session 4" "a number the journal holds" 4
 setup; printf '# Insights\n\nNo table.\n' > "$F/docs/insights-log.md"
 refuses "no '| Date" "a log with no table" 5
 setup; refuses "usage" "no session number" --focus x
+setup; refuses "needs the focus" "--focus with nothing after it" 5 --focus
+
+# A dry run changes nothing and counts each thing once.
+setup; frag A-1 11 '$1.50' 'None.'; before=$(snap)
+out=$(fold 5 --dry-run)
+printf '%s\n' "$out" | head -1 | grep -qx 'fold (dry run): Session 5 from 2 fragment(s); 0 insight row(s)' && [ "$(snap)" = "$before" ] \
+  && ok "fold: a dry run with no insight rows says 0 once and changes nothing" || fail "fold: dry run said: $(printf '%s\n' "$out" | head -2)"
 
 # The caller: a fold no close runs is not shipped (rule 3).
 grep -q 'session-close/fold\.sh' "$ROOT/.claude/skills/session-close/SKILL.md" 2>/dev/null \
