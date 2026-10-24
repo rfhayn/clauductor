@@ -479,13 +479,13 @@ func TestWatchAttributesALockTakenDuringTheGrace(t *testing.T) {
 	// The grace outlasts the test's second of sleep below by a margin load cannot eat.
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`trap 'kill $P 2>/dev/null; sleep 8; exit 0' TERM
-echo ready >> %s
 sleep 60 & P=$!
+echo ready >> %s
 wait $P
 `, shq(marks)))
 	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
-	if err, _ := giveUpWhenReady(t, g, context.Background(), agentsArgv, marks); !errors.Is(err, context.Canceled) {
-		t.Fatalf("err %v, want the caller's own end", err)
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
 	}
 	time.Sleep(time.Second) // into the grace: SIGTERM went out a second ago
 	cs := g.calls()

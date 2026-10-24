@@ -435,7 +435,8 @@ func TestRunPushFailsAndTimesOut(t *testing.T) {
 	}
 	// The stand-in outlasts the scaled bound many times over: the bound tells a stop
 	// at the timeout from a wait for the stand-in, on a loaded machine too (OPS-122).
-	slow, _ := pushStandIn(t, "sleep 60")
+	// exec: the timeout's kill ends the sleep itself, so none outlives the test.
+	slow, _ := pushStandIn(t, "exec sleep 60")
 	start := time.Now()
 	err = runPush(context.Background(), 200*time.Millisecond, []string{slow}, "T", "B")
 	if took := time.Since(start); took > testwait.Scale(3*time.Second) {

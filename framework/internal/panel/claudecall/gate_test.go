@@ -167,15 +167,15 @@ func TestGateStopsATimedOutClaudeWithSIGTERM(t *testing.T) {
 	makeLock(t, r.CurrentPath(), time.Now().Add(-5*time.Minute)) // stale: stops nothing, but it exists
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`trap 'kill $P 2>/dev/null; echo TERM >> %[1]s; sleep 5; exit 0' TERM
-echo ready >> %[1]s
 sleep 60 & P=$!
+echo ready >> %[1]s
 wait $P
 `, shq(marks)))
 	g, home := newGate(t, signals.ExecRunner, r, clock.System)
 
-	err, took := giveUpWhenReady(t, g, context.Background(), agentsArgv, marks)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err %v, want the caller's own end", err)
+	err, took := giveUpWhenReady(t, g, agentsArgv, marks)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
 	}
 	if took > testwait.Scale(time.Second) {
 		t.Fatalf("the caller waited %v: it must have its timeout at the timeout, not at the exit", took)
@@ -210,8 +210,8 @@ echo ready >> %[1]s
 while :; do sleep 1; done
 `, shq(marks)))
 	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	if err, _ := giveUpWhenReady(t, g, context.Background(), agentsArgv, marks); !errors.Is(err, context.Canceled) {
-		t.Fatalf("err %v, want the caller's own end", err)
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
 	}
 	cs := waitCalls(t, g, "the kill", 1, ended)
 	grace := cs[0].ended.Sub(cs[0].stoppedAt)
@@ -293,10 +293,14 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 	// process is gone (reaped: Wait reaps it before it drains the output), never at a
 	// fixed time: under load a 500 ms timeout fired before the shell had exited, and
 	// the SIGTERM reached it (#177).
-	marks := filepath.Join(t.TempDir(), "marks")
-	fakeProgram(t, "claude", fmt.Sprintf("sleep 5 &\necho $$ > %s\nexit 0\n", shq(marks)))
+	// The child holds the output until the test releases it (at most 60 s), not for a
+	// fixed time a slow look at the reap could outlast.
+	dir := t.TempDir()
+	marks, release := filepath.Join(dir, "marks"), filepath.Join(dir, "release")
+	fakeProgram(t, "claude", fmt.Sprintf("(i=0; while [ ! -e %s ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &\necho $$ > %s\nexit 0\n", shq(release), shq(marks)))
+	defer os.WriteFile(release, nil, 0o600)
 	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := newExpiring(t)
 	defer cancel()
 	errc := goRun(g, ctx, agentsArgv)
 	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
@@ -311,8 +315,11 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
-	if err := <-errc; !errors.Is(err, context.Canceled) {
-		t.Fatalf("err %v, want the cancel", err)
+	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	cs := waitCalls(t, g, "the call's end", 1, ended)
 	if !cs[0].stopped || cs[0].term {
@@ -476,13 +483,35 @@ func goRun(g *Gate, ctx context.Context, argv []string) <-chan error {
 	return errc
 }
 
-// giveUpWhenReady runs argv and gives up, as a caller's timeout would, once the fake
-// has written "ready" to marks, after its trap: a fixed timeout raced the shell's
-// start under load, and a SIGTERM before the trap killed the fake outright (OPS-122).
-// It returns the call's error and how long the caller waited after giving up.
-func giveUpWhenReady(t *testing.T, g *Gate, ctx context.Context, argv []string, marks string) (error, time.Duration) {
+// expiring is a caller's timeout the test fires itself: once expired, its Err is
+// context.DeadlineExceeded, as a deadline's would be (a context derived from it takes
+// that Err too), so a test still drives a timeout and asserts its error. Its far
+// deadline keeps it a call with a deadline (gate.go's slot wait).
+type expiring struct{ context.Context }
+
+func (c expiring) Err() error {
+	if c.Context.Err() != nil {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func newExpiring(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(ctx)
+	far, farCancel := context.WithTimeout(context.Background(), time.Hour)
+	ctx, expire := context.WithCancel(far)
+	t.Cleanup(farCancel)
+	return expiring{ctx}, expire
+}
+
+// giveUpWhenReady runs argv and lets its timeout expire once the fake has written
+// "ready" to marks, after its trap and once the trap has what it acts on: a fixed
+// timeout raced the shell's start under load, and a SIGTERM before the trap killed
+// the fake outright (OPS-122). It returns the call's error and how long the caller
+// waited after its timeout.
+func giveUpWhenReady(t *testing.T, g *Gate, argv []string, marks string) (error, time.Duration) {
+	t.Helper()
+	ctx, cancel := newExpiring(t)
 	defer cancel()
 	errc := goRun(g, ctx, argv)
 	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
@@ -636,13 +665,13 @@ func TestGateLaneActionWaitsForTheSlot(t *testing.T) {
 func TestGateStoppedCallHoldsTheSlotUntilItExits(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`case "$1" in
-agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; echo ready >> %s; sleep 60 & P=$!; wait $P;;
+agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; sleep 60 & P=$!; echo ready >> %s; wait $P;;
 *) echo '[]';;
 esac
 `, shq(marks)))
 	g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	if err, _ := giveUpWhenReady(t, g, context.Background(), agentsArgv, marks); !errors.Is(err, context.Canceled) {
-		t.Fatalf("err %v, want the caller's own end", err)
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
 	}
 	time.Sleep(time.Second)
 	pctx, pcancel := context.WithTimeout(signals.WithPoll(context.Background()), 10*time.Second)
