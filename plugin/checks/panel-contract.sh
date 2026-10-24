@@ -160,6 +160,12 @@ while IFS= read -r t; do
   printf '%s' "$t" | jq -e '[.first_prompt | explode[] | select(. < 32 or . == 127)] | length == 0' >/dev/null && ok "template $id: its first prompt is one typable line" || fail "template $id: its first prompt has a control character (a newline submits it early)"
   bad=$(printf '%s\n' "$fp" | grep -oE '\{[A-Za-z_]+\}' | grep -vxE '\{(name|issue)\}' || true)
   [ -z "$bad" ] && ok "template $id: only {name} and {issue} placeholders" || fail "template $id: unknown placeholder(s) $bad"
+  # Claude Code reads a leading /command up to the first space, so '/session-close:' is an unknown
+  # command, not /session-close with its arguments (the S11 close lane).
+  case $fp in /*)
+    printf '%s' "${fp%% *}" | grep -qE '^/[A-Za-z0-9][A-Za-z0-9_:-]*[A-Za-z0-9]$' && ok "template $id: its leading command ${fp%% *} ends at a space" \
+      || fail "template $id: its leading command '${fp%% *}' has punctuation glued on (Claude Code reads it as an unknown command)" ;;
+  esac
   # OPS-125: a row's lane starts its session and closes it with nothing pasted in. A /build-change
   # prompt must start with the command (the panel's approval warning reads it), so its steps are
   # the workflow's description, which the lane's session reads.
