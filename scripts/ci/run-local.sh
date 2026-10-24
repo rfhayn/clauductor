@@ -143,7 +143,10 @@ if [ "$MODE" = docs ]; then
   [ -f "$ROOT/.claude/lib/docs-gate.sh" ] || { echo "==> FAIL: docs gate: .claude/lib/docs-gate.sh is missing" >&2; exit 1; }
   # shellcheck disable=SC1091
   . "$ROOT/.claude/lib/docs-gate.sh"
-  docs_paths=$(docs_gate_paths HEAD worktree) || { echo "==> FAIL: docs gate: cannot list the diff against origin/${MAIN_BRANCH:-main} (fetch it; a shallow clone cannot)" >&2; exit 1; }
+  # Fetched first, as the guard does: a stale origin/main hides what the branch reverts of main's, so
+  # steps.sh's docs mode (the prose the project's tests read) would judge the wrong diff.
+  git fetch origin "${MAIN_BRANCH:-main}" --quiet 2>/dev/null || { echo "==> FAIL: docs gate: cannot fetch origin/${MAIN_BRANCH:-main} to list the diff against it: retry online, or run the full gate" >&2; exit 1; }
+  docs_paths=$(docs_gate_paths HEAD worktree) || { echo "==> FAIL: docs gate: cannot list the diff against origin/${MAIN_BRANCH:-main} (a shallow clone, or a git older than 2.28)" >&2; exit 1; }
   docs_verdict=$(printf '%s\n' "$docs_paths" | docs_gate_verdict) || { echo "==> FAIL: docs gate: not a docs-only diff ($docs_verdict): run the full gate" >&2; exit 1; }
   echo "==> docs gate: $docs_verdict"
 fi

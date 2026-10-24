@@ -363,11 +363,13 @@ expect_rc 1 "$rc" "a failing docs gate fails"
 [ ! -f "$REC" ] && ok "...and deletes the receipt (a stale pass must not outlive a fail)" || fail "a failed docs gate left $(cat "$REC")"
 # The fixture's own skill path, in pieces: the plugin build rewrites a literal framework path.
 cl=.claude
-for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md docs/Claude.md CLAUDE.local.md skills/y/SKILL.md agents/a.md; do
+for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md docs/Claude.md CLAUDE.local.md skills/y/SKILL.md agents/a.md \
+  docs/sub/agents/a.md commands/c.md docs/sub/commands/c.md .Claude/x.md Specs/cap/spec.md changes/c/Specs/cap/spec.md; do
   mkdir -p "$(dirname "$R/$p")"; echo x > "$R/$p"; git -C "$R" add -A && git -C "$R" commit -qm "$p"
   run --docs; rc=$?
   expect_rc 1 "$rc" "the docs gate refuses a diff with $p in it"
-  grep -q "not a docs-only diff.*$p" "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming $p, with no receipt" || fail "docs refusal for $p: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+  # -i: a case-insensitive file system writes .Claude/x.md into .claude/, and git names it so.
+  grep -qi "not a docs-only diff.*$p" "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming $p, with no receipt" || fail "docs refusal for $p: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
   git -C "$R" reset -q --hard HEAD~1
 done
 # A rename lists both ends (--no-renames): `git mv x.sh x.md` deletes code, and must not read as prose.
@@ -382,6 +384,10 @@ git -C "$R" reset -q --hard HEAD~1
 echo x > "$R/new.sh"; run --docs; rc=$?; rm -f "$R/new.sh"
 expect_rc 1 "$rc" "the docs gate refuses an untracked code file"
 grep -q 'not a docs-only diff.*new\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming it, before any step" || fail "docs untracked: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# Unreachable origin: the docs gate does not trust a stale origin/main, it refuses.
+git -C "$R" remote set-url origin "$d/gone.git"; run --docs; rc=$?; git -C "$R" remote set-url origin "$d/origin.git"
+expect_rc 1 "$rc" "the docs gate refuses when origin/main cannot be fetched"
+grep -q 'docs gate: cannot fetch origin' "$d/out" && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming the fetch" || fail "docs unfetchable: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
 # Config never narrows the list: diff.relative from a subdirectory, and a gitlink bump that
 # diff.ignoreSubmodules=all would hide.
 echo x > "$R/x2.sh"; git -C "$R" add x2.sh

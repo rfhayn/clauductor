@@ -388,7 +388,7 @@ func TestMain(m *testing.M) {
 	// A panel refuses to start a lane while an API key is in its environment, so a gate run from a
 	// session on API credit failed tests unrelated to its change (#184). Tests that want a key
 	// set it with t.Setenv.
-	for _, k := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} {
+	for _, k := range lanes.APIKeyVars() {
 		os.Unsetenv(k)
 	}
 	os.Exit(leakcheck.Main(m))

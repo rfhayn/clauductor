@@ -15,22 +15,23 @@
 #   - specs: SPECS_DIR/**, CHANGES_DIR/*/specs/** (archived ones included) and openspec/**.
 # Stricter than merge-pr's review-lane.sh (which reads root .claude/ and root AGENTS.md only): a
 # gate skipped is worse than a review lightened. Prose the project's own TESTS read (a doc a test
-# parses) is the project's to refuse, in its `gate_steps docs`. An empty diff is not docs. The
-# config names match in any case: a case-insensitive file system reads `Claude.md` as CLAUDE.md.
+# parses) is the project's to refuse, in its `gate_steps docs`. An empty diff is not docs. Every
+# name matches in any case: a case-insensitive file system reads `Claude.md` as CLAUDE.md, and
+# writes `Specs/x.md` into specs/.
 
 # docs_gate_verdict: reads changed paths on stdin, one per line. Prints `docs (<n> path(s))` and
 # returns 0 when every one is prose; else prints `full:` and the paths that are not, and returns 1.
 docs_gate_verdict() {
   _dg_n=0 _dg_full=""
+  _dg_sd=$(printf '%s' "${SPECS_DIR:-specs}" | tr 'A-Z' 'a-z')
+  _dg_cd=$(printf '%s' "${CHANGES_DIR:-changes}" | tr 'A-Z' 'a-z')
   # `|| [ -n "$_dg_p" ]`: a last line with no newline is still a path.
   while IFS= read -r _dg_p || [ -n "$_dg_p" ]; do
     [ -n "$_dg_p" ] || continue
     _dg_n=$((_dg_n + 1))
     _dg_l=$(printf '%s' "$_dg_p" | tr 'A-Z' 'a-z')
-    case $_dg_p in
-      "${SPECS_DIR:-specs}"/* | "${CHANGES_DIR:-changes}"/*/specs/* | openspec/*) _dg_full="$_dg_full $_dg_p"; continue ;;
-    esac
     case $_dg_l in
+      "$_dg_sd"/* | "$_dg_cd"/*/specs/* | openspec/*) _dg_full="$_dg_full $_dg_p" ;;
       .claude/* | */.claude/* | agents.md | */agents.md | claude.md | */claude.md | claude.local.md | */claude.local.md) _dg_full="$_dg_full $_dg_p" ;;
       skill.md | */skill.md | agents/* | */agents/* | commands/* | */commands/*) _dg_full="$_dg_full $_dg_p" ;;
       *.md) ;;
@@ -48,7 +49,8 @@ docs_gate_verdict() {
 # or `diff.relative` says. A caller deciding a merge fetches origin/MAIN_BRANCH first: against a
 # stale one, a PR that reverts main's newer code lists no code. With `worktree`,
 # also what the working tree changes against HEAD and every untracked file. Fails when it cannot
-# compute them (no origin/MAIN_BRANCH, a shallow clone, a git error): never an empty list.
+# compute them (no origin/MAIN_BRANCH, a shallow clone, a git older than 2.28, which has no
+# --no-relative): never an empty list.
 docs_gate_paths() {
   _dg_ref=origin/${MAIN_BRANCH:-main}
   [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = false ] || return 1

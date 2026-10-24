@@ -115,6 +115,11 @@ git -C "$R" update-ref refs/remotes/origin/main "$B"
 printf '%s\tdocs\tclean\tdocs\n' "$REVSHA" > "$R/.git/ci-receipt"
 guard 2 "a docs receipt for a PR that reverts main's code, against a stale origin/main" "gh pr merge 5 --squash" GH_HEAD="$REVSHA"
 grep -q 'y\.sh' "$d/err" && ok "merge-guard: ...naming the code it reverts (fetched, not the stale ref)" || fail "merge-guard: stale-origin refusal does not name y.sh: $(head -3 "$d/err")"
+# ...and when origin cannot be fetched, the stale ref is not trusted: it blocks.
+git -C "$R" update-ref refs/remotes/origin/main "$B"; git -C "$R" remote set-url origin acme/gone.git
+guard 2 "a docs receipt when origin/main cannot be fetched (fails closed, not on the stale ref)" "gh pr merge 5 --squash" GH_HEAD="$REVSHA"
+grep -q 'cannot be fetched' "$d/err" && ok "merge-guard: ...naming the fetch" || fail "merge-guard: unfetchable-origin docs message: $(head -3 "$d/err")"
+git -C "$R" remote set-url origin acme/app.git
 git -C "$R" push -q -f origin "$B:main"; git -C "$R" fetch -q origin; git -C "$R" branch -q -D m1 ren rev
 receipt 0000000000000000000000000000000000000000
 guard 2 "a receipt for another commit" "gh pr merge 5 --squash"
