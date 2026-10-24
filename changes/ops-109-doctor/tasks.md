@@ -6,7 +6,7 @@
 
 ## Decision log
 - 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
-  (PR #236) are carried into tasks 2.2, 3.1 and 3.2 below, which narrow D8 without changing it:
+  (PR #236) are carried into tasks 2.2 and 3.2 below, which narrow D8 without changing it:
   `CheckAdd` holds every refusal `AddProject` makes before it saves, `registeredAs` included (L5),
   and a carried `--template-dir` is the resolved absolute `Source.Dir` (L6).
 
@@ -45,9 +45,10 @@
 - [ ] 2.1 The repository line (`git rev-parse --show-toplevel`, and the main checkout as
   `install/candidate.go`'s `mainRoot` finds it: the first entry of `signals.ReadWorktrees`,
   resolved), and the model line with `ownguard.go`'s readings (the plugin marker first, then the
-  install marker and the old model's signs, then `ownModelSigns`). Tested in `doctor_test.go` with a
-  directory outside any repository, a bare `git init`, one holding `.claude/skills`, and one
-  holding the plugin marker. Citing [DOCTOR-2-S1], [DOCTOR-2-S2], [DOCTOR-2-S3].
+  install marker and the old model's signs, then `ownModelSigns`), the no-model fix `clauductor
+  install` as D8 prints it. Tested in `doctor_test.go` with a directory outside any repository, a
+  bare `git init` (run from a subdirectory, the fix asserted with its `cd <toplevel> &&`), one
+  holding `.claude/skills`, and one holding the plugin marker. Citing [DOCTOR-2-S1], [DOCTOR-2-S2], [DOCTOR-2-S3].
 - [ ] 2.2 The drift line, from `template.Survey` at the toplevel: `Report.Converged`, the counts
   of framework files that differ and are missing, whether `settings.json` would change, each
   `Report.Warnings` entry but the template's own warning, and the fix as D8 prints it (a given
@@ -64,8 +65,8 @@
   installed (`install.PlistPath`, or a project in the registry), running (`install.RunningPanel`,
   with its `lease.ProcCheck` passed in; the restart named with `install.LaunchdLabel` and
   `install.LogDir`), and the build (`install.FileStamp` of `install.InstalledBinary` against
-  `install.RunningStamp`), each fix as D8 prints it (paths through `install.ShellWord`,
-  `--template-dir` carried as the resolved `Source.Dir` when given). Tested in `doctor_test.go` with a temporary home holding
+  `install.RunningStamp`), each fix as D8 prints it (paths through `install.ShellWord`; no
+  `--template-dir`, which no panel command takes). Tested in `doctor_test.go` with a temporary home holding
   a plist and no live panel, a registered project with no plist, an installed binary whose stamp
   the test sets apart from the running one, and an empty home. Citing [DOCTOR-1-S5],
   [DOCTOR-1-S6], [DOCTOR-1-S7].
