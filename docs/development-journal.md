@@ -14,6 +14,104 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 10 — 2026-10-24 — Rich — one row, one session: records fold at a daily close
+
+**Totals.** Gate 30 min; cost $22.51.
+
+**Rows folded.** OPS-108 (#218).
+
+### OPS-108 — one row, one session, one PR; a daily close folds the records
+
+- **PR**: #218
+- **Session**: S10, started 2026-10-23 18:50 ET
+- **Review**: 3 rounds, peak high, cap 3 (round 3's six findings fixed after it, not re-reviewed)
+- **Gate**: 30 min (the full run before this commit: red on OPS-122's three load flakes and one plugin-mode regex of this row's, fixed here)
+- **Cost**: $22.51 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: CANNOT CHECK — marker.sh was built in this row, after the session started
+
+#### What happened
+
+A row's PR now writes its records to one fragment, `docs/journal.d/<row id>.md`, and no longer
+edits the development journal, the insights log or any row's Status. `session-close/fold.sh`
+folds the fragments on main into one `## Session N` entry on the daily close (all or nothing),
+moves their insight rows to the log, sets each row's Status and deletes the fragments.
+`pr-merge-guard` rule 7 now refuses any non-close PR that adds a session heading, and rule 8
+holds every PR that changes the journal or the insights log to the close's branch.
+`checks/journal.sh` holds the fragment shape (`lib/fragments.sh`); `checks/fold.sh` drives the
+fold over a fixture project. `review-cap.sh` turns a row's risk into its review cap (low 2,
+normal 3, high 3, `REVIEW_CAPS`), read by build-change.js (maxRounds' default) and merge-pr
+step 3; past the cap, what is left goes to KNOWN LIMITS. `session-start/marker.sh` opens a row's
+draft PR with the `session-start: S<n> <time> row <id>` marker.
+
+#### Decisions
+
+- Rules 7 and 8 change as the row states: the owner's, 2026-10-21.
+- The cap is parsed in build-change.js from review-cap.sh's own words, never taken from an
+  agent's number, and a refusal stops the run at preflight: a guessed cap would let review end
+  early or run on.
+- The fold writes nothing until every fragment validates and the folded roadmap re-parses, so a
+  malformed fragment can never leave half a session behind.
+
+#### Surprises
+
+- The branch-prefixes check caught literal `change/` and `ops/` prefixes in two new comments;
+  the build-change check's faked preflights had no `reviewCap`, so every faked run stopped at
+  preflight until they did.
+- This row's own records could not use its marker: `marker.sh` did not exist when the session
+  started. Running it on this row 70 minutes in found its first bug: with no PR open, `gh`'s
+  `--jq '.[0] | …'` met `null` and refused, so the marker only ever warned. `checks/marker.sh`
+  now drives it through a stand-in `gh` that applies each `--jq` with real jq.
+- Review round 1 found the fold would have written the new entry inside the journal's own
+  fenced format example (its first `## Session` line), `--focus` with nothing after it looped
+  forever on `shift 2`, and review-cap.sh read a `Risk:` from any cell of the row.
+- Review round 2 found the rule's other writers: log-insight, apply-change, merge-pr,
+  archive-change and new-adr still told a row's PR to edit the insights log or a Status. Each now
+  routes to the fragment or the close; log-insight computes a **Writer** line from the branch, as
+  dev-journal already did.
+- Review round 3 found the draft `marker.sh` opens was never readied, so every row's squash would
+  be refused; merge-pr now runs `gh pr ready` on a draft. It also found the validator accepted
+  prose under `## Insights` that the fold then dropped, and that Cost and Session start had no
+  format check.
+- The first full gate failed on this row's own build-change check in the plugin: the plugin's
+  workflow says `clauductor-model review-cap.sh`, not `sh .claude/review-cap.sh`, and the test's
+  regex named the latter. The template's run of the same check could not see it.
+- The roadmap parser refuses a `|` inside backticks and a Deps cell that is not row ids, so the
+  only cell review-cap.sh's fixture can prove it ignores is the Scope.
+
+#### Insights
+
+None.
+
+### The close (2026-10-24)
+
+S10's lane ended at #218's merge with no close, so the roadmap still read OPS-108 queued and the
+session plan still offered S10 next. This close is the first daily close under OPS-108's rule: a
+separate session the next morning, which ran the fold above (one fragment, all of it valid on the
+first dry run), marked S10 done in the plan, and refreshed the tracker. Lesson for the panel's
+lanes: a row's session ends at its merge, and nothing starts the daily close; until something
+does, the owner asks for it (the `session-close` skill) once a working day.
+
+Catch-up (OPS-118) did its job on #218 with nobody's hands: the panel log fast-forwarded the main
+checkout `6422aab5..6de033cf`, rebuilt the panel and `~/.local/bin/clauductor` because
+`framework/` changed, and restarted into the new build within a minute of the merge. That is
+outcome check o.9's first signal, and the owner-queue item to turn catch-up on is ticked.
+
+The sandbox refused `git switch -c` (it cannot write `.git/config`) and a worktree checkout of
+`template/.claude/agents/`, so the close's worktree was created outside it.
+
+### Compound
+
+One Raw row, `archive/two-lanes` (2026-10-23, 0 sessions waited), left Raw while young: the fix
+is a rule naming which session archives a lane-built change, and it wants a row when one of the
+next closes decides it.
+
+### Flow and cost
+
+Flow 30d to 2026-10-24: cycle 1.1h median, lead 2.5h, 32.2 merges/wk, change-fail 5.3%, approval
+wait 4h, review rounds 2.2, spend $877.95/wk, 25 in flight (excludes unpriced models:
+claude-haiku-5-5). The close session itself: about $0.45 at its start (usage-report.sh, session,
+claude-opus-5-5); the row's own cost is above, $22.51.
+
 ## Session 9 — 2026-10-23 — Rich — main catches up after a merge, and a cloud session builds a row
 
 **Rows**: OPS-118, OPS-100 · **Span**: 2026-10-22 to 2026-10-23
