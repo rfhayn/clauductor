@@ -64,6 +64,19 @@ if [ $# -eq 0 ]; then
   # wrap: start (no-clauductor.sh's fixture deletes from here to `wrap: end` to remove the wrap)
   if [ "${CHECKS_DOUBLE_PASS:-}" != 1 ] && [ -z "${CHECKS_BARE:-}" ]; then
     use_lib
+    # The exec window (OPS-121): a signal after the `exec` and before the inner run sets its traps
+    # leaves the environment, and no shell can close that instant (a signal ignored across `exec`
+    # cannot be trapped after it). So the run records its pid, which `exec` keeps, beside the
+    # environment, and every whole-set run's start removes a scratch whose run is gone. Gone means
+    # kill says "No such process": "Operation not permitted" is a live process, and a scratch with no
+    # pid recorded (any check's, or a run before this line) is never touched.
+    for _w in "${TMPDIR:-/tmp}"/checks.*/run.pid; do
+      [ -f "$_w" ] || continue
+      _wp=$(cat "$_w" 2>/dev/null)
+      case $_wp in '' | *[!0-9]*) continue ;; esac
+      LC_ALL=C sh -c 'kill -0 "$1"' kill "$_wp" 2>&1 | grep -q 'No such process' && rm -rf "${_w%/run.pid}"
+    done
+    echo $$ > "$_scratch/run.pid"
     bare_env
     bare_exec CHECKS_BARE="$BARE_DIR" CHECKS_BARE_RM="$_scratch" sh "$dir/run.sh"
   fi

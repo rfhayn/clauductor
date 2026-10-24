@@ -222,6 +222,28 @@ else
 fi
 sig_fx TERM
 
+# The exec window (OPS-121): a signal after run.sh's `exec` into the environment and before the inner
+# run has its traps kills it with nothing to remove the environment. A stub `sh`, found only inside
+# the environment, is that instant: it TERMs itself, with the run's pid, before any trap exists. The
+# next whole-set run's start removes what it left, by the pid it recorded, and nothing else: not a
+# live run's environment, not a scratch with no pid recorded.
+W="$d/window"; fx_project "$W"; mkdir -p "$W/tmp" "$d/winsh"
+printf '#!/bin/sh\nkill -TERM $$\n' > "$d/winsh/sh"; chmod +x "$d/winsh/sh"
+printf '. "$(dirname "$0")/lib.sh"\nok "runs"\nfinish\n' > "$W/.claude/checks/c.sh"
+_sh=$(command -v sh)
+(cd "$W" && unmarked TMPDIR="$W/tmp" PATH="$d/winsh:$BARE_PATH" "$_sh" .claude/checks/run.sh) > "$W/out" 2>&1
+_left=$(ls -d "$W"/tmp/checks.*/bare 2>/dev/null)
+[ -n "$_left" ] && ok "a TERM inside the exec window leaves the environment behind (${_left#"$W/"})" \
+  || fail "the window fixture left no environment behind, so it did not signal inside the window: $(tail -2 "$W/out")"
+mkdir -p "$W/tmp/checks.live" "$W/tmp/checks.nopid"; echo $$ > "$W/tmp/checks.live/run.pid"
+(cd "$W" && unmarked TMPDIR="$W/tmp" PATH="$BARE_PATH" sh .claude/checks/run.sh) > "$W/out2" 2>&1
+expect_rc 0 $? "...a whole-set run after it passes"
+[ -n "$_left" ] && [ ! -e "$_left" ] && ok "...and removes the environment the window left" \
+  || fail "the environment the window left is still there: $(ls "$W/tmp")"
+[ -d "$W/tmp/checks.live" ] && [ -d "$W/tmp/checks.nopid" ] \
+  && ok "...but not a live run's environment, nor a scratch with no pid recorded" \
+  || fail "the sweep removed a live run's environment or an unrecorded scratch: $(ls "$W/tmp")"
+
 # ── 3. A skill context script ───────────────────────────────────────────────────────────────────
 ctx() {  # ctx SCRIPT: rc 0, no error on stderr, nothing asking for clauductor or the panel
   (cd "$ROOT" && bare sh "$1") > "$d/ctx.out" 2> "$d/ctx.err"; _rc=$?
