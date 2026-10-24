@@ -20,7 +20,7 @@
 #
 # THE RUN LOG, one per repository, beside the gate lease: <git common dir>/clauductor/gate-runs.log
 # One tab-separated line per finished run, appended by the run as it ends:
-#   <finished, UTC ISO-8601>  <lane>  <branch>  <head sha>  <full|quick>  <pass|fail>  <exit code|signal>  <run s>  <queued s>  <steps>
+#   <finished, UTC ISO-8601>  <lane>  <branch>  <head sha>  <full|quick|docs>  <pass|fail>  <exit code|signal>  <run s>  <queued s>  <steps>
 # `run s` is the run under the lease; `queued s` the wait for it. `steps` (OPS-89) is each step that
 # ran, in order, as `<name>=<seconds>` joined by `;` (`scenario trace=2;secrets=9;…`), or `-` when
 # none ran; a line written before OPS-89 has nine fields and no `steps`. Append-only: a line is never

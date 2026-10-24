@@ -112,11 +112,11 @@ cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 printf 'GATE_RUN="%s"\nGATE="%s"\nGATE_STEPS="%s"\n' "$RUN_REL" "$WRAP_REL" "$STEPS_REL" > "$R/.claude/project.conf"
 cat > "$R/$STEPS_REL" <<'EOF'
 gate_steps() {
-  # A full run holds the lease; a --quick run takes none (OPS-103).
-  if [ "$1" = full ]; then
-    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
-  else
+  # A full or docs run holds the lease; a --quick run takes none (OPS-103).
+  if [ "$1" = quick ]; then
     step "no lease" sh -c '[ -z "${CLAUDUCTOR_LOCK_HELD:-}" ]' || return 1
+  else
+    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
   fi
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
