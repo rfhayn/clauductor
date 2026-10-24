@@ -64,6 +64,14 @@ guard reads receipts in every worktree's git dir. `--quick` writes no receipt; a
 uncommitted or untracked files writes one marked `dirty`, which the guard refuses. If you commit
 again, the receipt is stale: re-run.
 
+**A prose-only PR** (Markdown outside `.claude/`, `agents/`, `commands/`, the specs, and the files
+agents load, AGENTS.md, CLAUDE.md, CLAUDE.local.md and SKILL.md, in any case: a record, a roadmap
+row, a close) may run the docs gate instead, where `GATE_DOCS` is on in
+`.claude/project.conf`: `scripts/ci/gate.sh --docs`. It runs the
+process checks, not the tests, and refuses any other diff before a step runs; its receipt (stage
+`docs`) passes the guard only while the PR's own diff is still prose (`.claude/lib/docs-gate.sh`).
+If it refuses, run the full gate.
+
 If the project names a remote workflow (`GATE_REMOTE_WORKFLOW`), its success on the head SHA counts
 too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <file> --commit <sha>`.
 

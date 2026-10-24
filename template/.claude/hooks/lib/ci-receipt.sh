@@ -7,6 +7,8 @@
 #     <sha>  <scope>  <clean|dirty>  <stage>
 # where <sha> is the commit that was tested (resolved before the run starts), <stage> is `all` for
 # the whole gate, and <clean|dirty> says whether the tree tested was the commit or a working tree.
+# The docs gate (--docs, OPS-89) writes `<sha> docs clean|dirty docs` for a prose-only diff, which
+# counts only while the PR's own diff passes .claude/lib/docs-gate.sh (checked again here).
 # A partial run (--quick) neither writes nor deletes a receipt; a failed full run deletes it. It
 # lives in the git dir, so it is per clone, never committed, and cannot vouch on another machine
 # for something it never ran.
@@ -46,7 +48,7 @@ ci_receipt_verdict() {
   _nl='
 '
   _dirs=$(ci_receipt_git_dirs)
-  _full=""; _partial=""; _partial_stage=""; _dirty=""; _examined=""; _dirlist=""; _n=0
+  _full=""; _docs=""; _partial=""; _partial_stage=""; _dirty=""; _examined=""; _dirlist=""; _n=0
 
   if [ -z "$_head" ]; then
     echo "no head SHA was given for PR #$_pr, so no receipt can be matched."
@@ -66,6 +68,8 @@ ci_receipt_verdict() {
     [ "$_sha" = "$_head" ] || continue
     if [ "$_state" = "clean" ] && [ "$_stage" = "all" ]; then
       [ -n "$_full" ] || _full=$_rf
+    elif [ "$_state" = "clean" ] && [ "$_stage" = "docs" ]; then
+      [ -n "$_docs" ] || _docs=$_rf
     elif [ "$_state" = "clean" ]; then
       [ -n "$_partial" ] || { _partial=$_rf; _partial_stage=$_stage; }
     else
@@ -78,6 +82,24 @@ EOF
   if [ -n "$_full" ]; then
     echo "${_wf:+no successful $_wf run for PR #$_pr, but }$_run passed in full on this exact commit ($(printf %.9s "$_head")…). Receipt: $_full. Allowing."
     return 0
+  elif [ -n "$_docs" ]; then
+    # The docs gate ran only the prose steps, so its receipt is checked again here against the PR's
+    # OWN diff, not the run's word for it. Fails closed: no library, no diff, no allow.
+    _dglib="${ROOT_HOOK:-$(git rev-parse --show-toplevel 2>/dev/null)}/.claude/lib/docs-gate.sh"
+    if [ ! -f "$_dglib" ]; then
+      echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and $_dglib, which says whether the PR is prose only, is missing. Run the full gate: $_run"
+    # Fetched first: against a stale origin/main, a PR that reverts main's newer code lists no code.
+    elif ! git fetch origin "${MAIN_BRANCH:-main}" --quiet 2>/dev/null; then
+      echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and origin/${MAIN_BRANCH:-main} cannot be fetched to list the PR's diff against it. Check the origin remote and the network, or run the full gate: $_run"
+    # shellcheck disable=SC1090
+    elif ! . "$_dglib" || ! _dgpaths=$(docs_gate_paths "$_head"); then
+      echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and the PR's diff against origin/${MAIN_BRANCH:-main} cannot be listed (a shallow clone, a head not fetched, or a git older than 2.28). Run the full gate: $_run"
+    elif _dgv=$(printf '%s\n' "$_dgpaths" | docs_gate_verdict); then
+      echo "$_run --docs passed on this exact commit ($(printf %.9s "$_head")…), and the PR's diff is $_dgv. Receipt: $_docs. Allowing."
+      return 0
+    else
+      echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, but the PR's diff is not prose only ($_dgv). Run the full gate: $_run"
+    fi
   elif [ -n "$_partial" ]; then
     # A partial receipt is the most dangerous of the set: honest, current, and covering less than
     # it appears to.

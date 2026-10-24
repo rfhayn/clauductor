@@ -107,15 +107,16 @@ cp "$LIB" "$R/$RUN_DIR/lib/steps.sh"
 for f in lib/gate-state.sh gate-wait.sh; do [ -f "$ROOT/$RUN_DIR/$f" ] && cp "$ROOT/$RUN_DIR/$f" "$R/$RUN_DIR/$f"; done
 if grep -q '^# gate.sh: run-local.sh for an AGENT' "$ROOT/$WRAP_REL" 2>/dev/null; then cp "$ROOT/$WRAP_REL" "$R/$WRAP_REL"; WRAP=yes; else WRAP=""; fi
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$R/.claude/lib/"
+[ -f "$ROOT/.claude/lib/docs-gate.sh" ] && cp "$ROOT/.claude/lib/docs-gate.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 printf 'GATE_RUN="%s"\nGATE="%s"\nGATE_STEPS="%s"\n' "$RUN_REL" "$WRAP_REL" "$STEPS_REL" > "$R/.claude/project.conf"
 cat > "$R/$STEPS_REL" <<'EOF'
 gate_steps() {
-  # A full run holds the lease; a --quick run takes none (OPS-103).
-  if [ "$1" = full ]; then
-    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
-  else
+  # A full or docs run holds the lease; a --quick run takes none (OPS-103).
+  if [ "$1" = quick ]; then
     step "no lease" sh -c '[ -z "${CLAUDUCTOR_LOCK_HELD:-}" ]' || return 1
+  else
+    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
   fi
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
@@ -335,6 +336,78 @@ kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
 expect_rc 0 "$rc" "a --quick run under a caller's CLAUDUCTOR_LOCK_HELD runs unleased and is not failed by that lease"
 rm -rf "$LOCK" "$LOCK.waiters"
+
+# ── The docs gate (OPS-89) ──────────────────────────────────────────────────────────────
+# `--docs` vouches only for a diff that is prose against origin/main (.claude/lib/docs-gate.sh): it
+# runs the model's steps and `gate_steps docs`, never the full-only ones, and writes a receipt whose
+# stage is `docs`, which the merge guard accepts only for a PR whose own diff is prose.
+git init -q --bare "$d/origin.git"; git -C "$R" remote add origin "$d/origin.git"
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q -b docs-x
+mkdir -p "$R/docs"; printf '# A note\n' > "$R/docs/note.md"; git -C "$R" add -A && git -C "$R" commit -qm "a note"
+DOCS=$(git -C "$R" rev-parse HEAD)
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate is off until GATE_DOCS says the project's docs mode guards its own tests"
+grep -q 'docs gate: off in this project' "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...refused before any step, naming GATE_DOCS" || fail "docs gate off: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# On, on main (undone below): on the branch, project.conf would be the diff's code.
+git -C "$R" checkout -q main; printf 'GATE_DOCS="1"\n' >> "$R/.claude/project.conf"; git -C "$R" commit -qam "docs gate on"
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" rebase -q main; DOCS=$(git -C "$R" rev-parse HEAD)
+touch "$R/FAIL_SLOW"; run --docs; rc=$?
+expect_rc 0 "$rc" "a docs gate over a prose-only diff passes (and runs no full-only step)"
+[ "$(cat "$REC" 2>/dev/null)" = "$(printf '%s\tdocs\tclean\tdocs' "$DOCS")" ] && ok "...and writes '<sha> docs clean docs', never stage all" || fail "docs receipt: $(cat "$REC" 2>/dev/null || echo none); $(grep '^==>' "$d/out" | tr '\n' ' ')"
+grep -q '^==> unit' "$d/out" && ! grep -q '^==> slow' "$d/out" && grep -q '^==> secrets' "$d/out" && ok "...running the model's steps and gate_steps docs" || fail "docs gate steps: $(grep '^==>' "$d/out" | tr '\n' ' ')"
+rm -f "$R/FAIL_SLOW"
+touch "$R/FAIL_UNIT"; run --docs; rc=$?; rm -f "$R/FAIL_UNIT"
+expect_rc 1 "$rc" "a failing docs gate fails"
+[ ! -f "$REC" ] && ok "...and deletes the receipt (a stale pass must not outlive a fail)" || fail "a failed docs gate left $(cat "$REC")"
+# The fixture's own skill path, in pieces: the plugin build rewrites a literal framework path.
+cl=.claude
+for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md docs/Claude.md CLAUDE.local.md skills/y/SKILL.md agents/a.md \
+  docs/sub/agents/a.md commands/c.md docs/sub/commands/c.md .Claude/x.md Specs/cap/spec.md changes/c/Specs/cap/spec.md; do
+  mkdir -p "$(dirname "$R/$p")"; echo x > "$R/$p"; git -C "$R" add -A && git -C "$R" commit -qm "$p"
+  run --docs; rc=$?
+  expect_rc 1 "$rc" "the docs gate refuses a diff with $p in it"
+  # -i: a case-insensitive file system writes .Claude/x.md into .claude/, and git names it so.
+  grep -qi "not a docs-only diff.*$p" "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming $p, with no receipt" || fail "docs refusal for $p: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+  git -C "$R" reset -q --hard HEAD~1
+done
+# A rename lists both ends (--no-renames): `git mv x.sh x.md` deletes code, and must not read as prose.
+git -C "$R" checkout -q main; echo x > "$R/x.sh"; git -C "$R" add x.sh && git -C "$R" commit -qm x.sh
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" rebase -q main && git -C "$R" mv x.sh x.md && git -C "$R" commit -qm "x.sh to x.md"
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate refuses a rename of code to Markdown"
+grep -q 'not a docs-only diff.*x\.sh' "$d/out" && ok "...naming the code it deletes" || fail "docs rename: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+git -C "$R" reset -q --hard HEAD~1
+# The working tree counts too: an untracked script is code the run would test.
+echo x > "$R/new.sh"; run --docs; rc=$?; rm -f "$R/new.sh"
+expect_rc 1 "$rc" "the docs gate refuses an untracked code file"
+grep -q 'not a docs-only diff.*new\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming it, before any step" || fail "docs untracked: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# Unreachable origin: the docs gate does not trust a stale origin/main, it refuses.
+git -C "$R" remote set-url origin "$d/gone.git"; run --docs; rc=$?; git -C "$R" remote set-url origin "$d/origin.git"
+expect_rc 1 "$rc" "the docs gate refuses when origin/main cannot be fetched"
+grep -q 'docs gate: cannot fetch origin' "$d/out" && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming the fetch" || fail "docs unfetchable: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# Fetched FIRST: main gains y.sh, the local origin/main does not know it, and the branch deletes it.
+# Against the stale ref the diff is only the note; against the fetched one it deletes code.
+OLD=$(git -C "$R" rev-parse origin/main)
+echo y > "$R/y.sh"; git -C "$R" add y.sh && git -C "$R" commit -qm "y.sh on main"; git -C "$R" push -q origin HEAD:main
+git -C "$R" rm -q y.sh && git -C "$R" commit -qm "revert y.sh"; git -C "$R" update-ref refs/remotes/origin/main "$OLD"
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate fetches before it lists: a branch reverting main's newer code is refused"
+grep -q 'not a docs-only diff.*y\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming the code it deletes" || fail "docs stale origin: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+git -C "$R" reset -q --hard HEAD~2; git -C "$R" push -q -f origin "$OLD:main" && git -C "$R" fetch -q origin
+# Config never narrows the list: diff.relative from a subdirectory, and a gitlink bump that
+# diff.ignoreSubmodules=all would hide.
+echo x > "$R/x2.sh"; git -C "$R" add x2.sh
+git -C "$R" update-index --add --cacheinfo "160000,$(git -C "$R" rev-parse HEAD),sub" && git -C "$R" commit -qm "code and a gitlink"
+got=$(cd "$R/docs" && git config diff.relative true && git config diff.ignoreSubmodules all && . "$R/.claude/lib/docs-gate.sh" && docs_gate_paths HEAD | tr '\n' ' ')
+git -C "$R" config --unset diff.relative; git -C "$R" config --unset diff.ignoreSubmodules
+case " $got " in *" x2.sh "*) has_x=1 ;; *) has_x=0 ;; esac
+case " $got " in *" sub "*) has_s=1 ;; *) has_s=0 ;; esac
+[ "$has_x$has_s" = 11 ] && ok "docs_gate_paths lists from the root and every gitlink, whatever diff.relative and diff.ignoreSubmodules say" || fail "docs_gate_paths under diff.relative and ignoreSubmodules=all: '$got', want x2.sh and sub"
+git -C "$R" reset -q --hard HEAD~1
+git -C "$R" checkout -q main; git -C "$R" reset -q --hard HEAD~2; git -C "$R" branch -q -D docs-x; git -C "$R" remote remove origin
 
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
 # Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says

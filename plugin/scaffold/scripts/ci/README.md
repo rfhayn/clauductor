@@ -43,7 +43,14 @@ beside another) fails with exit 70 and writes no receipt.
   `run-local.sh`'s header); otherwise `dirty`.
 - A failed full run deletes the receipt; a `--quick` run neither writes nor deletes one.
 
-`${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh` rule 2 accepts a `clean`, `all` receipt naming the PR's head SHA,
+The docs gate, `run-local.sh --docs` (OPS-89), is for a diff that is prose only by
+`${CLAUDE_PLUGIN_ROOT}/lib/docs-gate.sh`: Markdown, but nothing under a `.claude/`, `agents/` or `commands/`
+directory, no AGENTS.md, CLAUDE.md, CLAUDE.local.md or SKILL.md, no spec, in any case. It is off until `GATE_DOCS="1"` in `.claude/project.conf` (set it once
+`steps.sh`'s `docs` mode refuses the Markdown your own tests read). It refuses any other diff before a step runs, then runs the model's steps and
+`gate_steps docs`, and writes `<sha> TAB docs TAB clean|dirty TAB docs` (a failed one deletes the
+receipt). The guard accepts that receipt only when the PR's own diff passes the same test.
+
+`${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh` rule 2 accepts a `clean`, `all` receipt (or a `clean`, `docs` one for a prose-only PR) naming the PR's head SHA,
 found in the git dir of ANY worktree of this repository, or the named remote workflow's success on
 that SHA (`GATE_REMOTE_WORKFLOW`). Nothing else counts: an unrelated green check is not evidence.
 The receipt stays in the git dir, so it is per clone and never travels.

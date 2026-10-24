@@ -14,6 +14,7 @@
 #
 #   scripts/ci/gate.sh --quick     the inner loop (build-change's gate)
 #   scripts/ci/gate.sh             the full gate; writes the receipt as usual
+#   scripts/ci/gate.sh --docs      the docs gate, for a prose-only PR (merge-pr step 2)
 #
 # GATE_FAIL_PATTERN (project.conf) is the extended regex of failure lines for YOUR tools; it is
 # matched against a colour-stripped copy, and never anchored at line start, because many runners

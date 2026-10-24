@@ -433,7 +433,7 @@ const LOG = `Keep ${CHANGES}/${change}/tasks.md's log current, so a resumed run 
 async function gateUntilGreen(g, entry) {
   for (let attempt = 0; ; attempt++) {
     const gate = await spawn(
-      `${REGISTER} Then the quick gate. ${LONE(gateCmd(QUICK))} Run it in the foreground (allow up to 15 minutes). ${GATE_OUTPUT()} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
+      `${REGISTER} Then the quick gate. ${LONE(gateCmd(QUICK))} Run it in the foreground (allow up to 20 minutes). ${GATE_OUTPUT()} Judge by the tool's OUTPUT, never the exit code alone: passed=true only if the output shows every step completing with zero failures. Quote the verdict line(s) as evidence. If it could not run at all (a service or VM down, killed before the steps start), set environmentFault=true. Last, run \`git diff HEAD | git hash-object --stdin\` and copy its output as diffHash.`,
       { label: `gate:${g.n}#${attempt + 1}`, phase: 'Gate', schema: GATE, ...CHEAP },
     )
     if (!gate) return 'gate agent returned nothing'
@@ -552,7 +552,7 @@ phase('Receipt')
 const receipt = await spawn(
   `The receipt is keyed to the HEAD sha, so any commit AFTER the run voids it (pr-merge-guard rule 2). Order matters:
 1. FIRST tick any task in ${CHANGES}/${change}/tasks.md that asks for a full gate run, and commit only that file. Skip if there is none. Its message, via heredoc:\n\n${change}: full gate receipt${trailers('mechanic')}\n
-2. THEN the full gate on committed HEAD, with no flags. ${LONE(gateCmd(''))} Run it in the foreground; allow up to 30 minutes. ${GATE_OUTPUT()} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
+2. THEN the full gate on committed HEAD, with no flags. ${LONE(gateCmd(''))} Run it in the foreground; allow up to 45 minutes. ${GATE_OUTPUT()} Judge by OUTPUT: passed=true only if every step completes with zero failures and the output says the receipt was written and is clean. Quote the verdict line(s) as evidence.
 3. If it FAILED and you ticked in step 1, untick it and commit that revert, so tasks.md never claims a run that did not pass.
 Do NOT push.`,
   { label: 'receipt', phase: 'Receipt', schema: GATE, ...CHEAP },

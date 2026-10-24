@@ -12,6 +12,7 @@ mkdir -p "$R/.claude/hooks/lib" "$R/.claude/lib" "$R/docs" "$d/bin"
 cp "$ROOT/.claude/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
 cp "$ROOT/.claude/hooks/lib/"* "$R/.claude/hooks/lib/"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/evals.sh" "$R/.claude/lib/"
+[ -f "$ROOT/.claude/lib/docs-gate.sh" ] && cp "$ROOT/.claude/lib/docs-gate.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/scenario-trace.sh" "$R/.claude/"
 cat > "$R/.claude/project.conf" <<'EOF'
 GATE_DISPLAY_CONTEXTS="ci/local"
@@ -80,6 +81,45 @@ receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick
 guard 2 "a partial receipt" "gh pr merge 5 --squash"
+# A docs receipt (run-local.sh --docs, OPS-89) counts only for a PR whose own diff against
+# origin/main is prose (.claude/lib/docs-gate.sh), and never for one that also changes code.
+git -C "$R" checkout -q -b docs-pr
+printf '# x\n' > "$R/docs/x.md"; git -C "$R" add -A && git -C "$R" commit -qm "a doc"
+DOCSHA=$(git -C "$R" rev-parse HEAD)
+printf 'echo\n' > "$R/x.sh"; git -C "$R" add -A && git -C "$R" commit -qm "code"
+CODESHA=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q main
+printf '%s\tdocs\tclean\tdocs\n' "$DOCSHA" > "$R/.git/ci-receipt"
+guard 0 "a docs receipt for a prose-only PR" "gh pr merge 5 --squash" GH_HEAD="$DOCSHA"
+printf '%s\tdocs\tclean\tdocs\n' "$CODESHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that changes code" "gh pr merge 5 --squash" GH_HEAD="$CODESHA"
+grep -q 'x.sh' "$d/err" && ok "merge-guard: ...naming the path that is not prose" || fail "merge-guard: docs refusal does not name x.sh: $(head -3 "$d/err")"
+mv "$R/.claude/lib/docs-gate.sh" "$d/dg.away" 2>/dev/null
+printf '%s\tdocs\tclean\tdocs\n' "$DOCSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt when docs-gate.sh is missing (fails closed)" "gh pr merge 5 --squash" GH_HEAD="$DOCSHA"
+mv "$d/dg.away" "$R/.claude/lib/docs-gate.sh" 2>/dev/null
+# Main moves on with code (M1). A rename of that code to Markdown deletes it, so it is not prose;
+# nor is a PR that reverts M1's code, though against a stale origin/main (B) it lists only its note:
+# the guard fetches before it lists.
+B=$(git -C "$R" rev-parse origin/main)
+git -C "$R" checkout -q -b m1; printf 'echo\n' > "$R/y.sh"; git -C "$R" add -A && git -C "$R" commit -qm "main's code"
+M1=$(git -C "$R" rev-parse HEAD); git -C "$R" push -q origin HEAD:main
+git -C "$R" checkout -q -b ren; git -C "$R" mv y.sh y.md && git -C "$R" commit -qm "y.sh to y.md"; RENSHA=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q -b rev "$M1"; git -C "$R" rm -q y.sh; printf '# n\n' > "$R/docs/n.md"; git -C "$R" add -A && git -C "$R" commit -qm "revert, and a note"
+REVSHA=$(git -C "$R" rev-parse HEAD); git -C "$R" checkout -q main
+printf '%s\tdocs\tclean\tdocs\n' "$RENSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that renames code to Markdown" "gh pr merge 5 --squash" GH_HEAD="$RENSHA"
+grep -q 'y\.sh' "$d/err" && ok "merge-guard: ...naming the code the rename deletes" || fail "merge-guard: rename refusal does not name y.sh: $(head -3 "$d/err")"
+git -C "$R" update-ref refs/remotes/origin/main "$B"
+printf '%s\tdocs\tclean\tdocs\n' "$REVSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that reverts main's code, against a stale origin/main" "gh pr merge 5 --squash" GH_HEAD="$REVSHA"
+grep -q 'y\.sh' "$d/err" && ok "merge-guard: ...naming the code it reverts (fetched, not the stale ref)" || fail "merge-guard: stale-origin refusal does not name y.sh: $(head -3 "$d/err")"
+# ...and when origin cannot be fetched, the stale ref is not trusted: it blocks.
+git -C "$R" update-ref refs/remotes/origin/main "$B"; git -C "$R" remote set-url origin acme/gone.git
+guard 2 "a docs receipt when origin/main cannot be fetched (fails closed, not on the stale ref)" "gh pr merge 5 --squash" GH_HEAD="$REVSHA"
+grep -q 'cannot be fetched' "$d/err" && ok "merge-guard: ...naming the fetch" || fail "merge-guard: unfetchable-origin docs message: $(head -3 "$d/err")"
+git -C "$R" remote set-url origin acme/app.git
+git -C "$R" push -q -f origin "$B:main"; git -C "$R" fetch -q origin; git -C "$R" branch -q -D m1 ren rev
 receipt 0000000000000000000000000000000000000000
 guard 2 "a receipt for another commit" "gh pr merge 5 --squash"
 rm -f "$R/.git/ci-receipt"

@@ -39,6 +39,10 @@ import (
 // apiKeyVars outrank the subscription login; a lane never starts while one is set.
 var apiKeyVars = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
 
+// APIKeyVars returns a copy of apiKeyVars, so the panel package's tests unset the one list a lane
+// checks rather than a copy of it that drifts (#184).
+func APIKeyVars() []string { return append([]string(nil), apiKeyVars...) }
+
 // parentSessionVars are set by a running Claude Code session for its own children.
 // If the panel was itself launched from inside a session they would leak into every
 // lane and make it look nested, so the lane command unsets them.
