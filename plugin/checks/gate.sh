@@ -389,6 +389,15 @@ grep -q 'not a docs-only diff.*new\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...na
 git -C "$R" remote set-url origin "$d/gone.git"; run --docs; rc=$?; git -C "$R" remote set-url origin "$d/origin.git"
 expect_rc 1 "$rc" "the docs gate refuses when origin/main cannot be fetched"
 grep -q 'docs gate: cannot fetch origin' "$d/out" && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming the fetch" || fail "docs unfetchable: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# Fetched FIRST: main gains y.sh, the local origin/main does not know it, and the branch deletes it.
+# Against the stale ref the diff is only the note; against the fetched one it deletes code.
+OLD=$(git -C "$R" rev-parse origin/main)
+echo y > "$R/y.sh"; git -C "$R" add y.sh && git -C "$R" commit -qm "y.sh on main"; git -C "$R" push -q origin HEAD:main
+git -C "$R" rm -q y.sh && git -C "$R" commit -qm "revert y.sh"; git -C "$R" update-ref refs/remotes/origin/main "$OLD"
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate fetches before it lists: a branch reverting main's newer code is refused"
+grep -q 'not a docs-only diff.*y\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming the code it deletes" || fail "docs stale origin: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+git -C "$R" reset -q --hard HEAD~2; git -C "$R" push -q -f origin "$OLD:main" && git -C "$R" fetch -q origin
 # Config never narrows the list: diff.relative from a subdirectory, and a gitlink bump that
 # diff.ignoreSubmodules=all would hide.
 echo x > "$R/x2.sh"; git -C "$R" add x2.sh
