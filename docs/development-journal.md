@@ -310,6 +310,51 @@ unset every API-key variable in TestMain through `lanes.APIKeyVars()` (#184).
 
 1 row(s), moved to the insights log.
 
+### The close (2026-10-24)
+
+All seven planned rows had merged, each with its fragment on main, and the fold took them on its
+first dry run. OPS-103 landed in its own PR (#224), not batched into OPS-89's as the plan wrote,
+because the panel offered it a lane of its own; OPS-126 (5) owns teaching the suggester the plan's
+batches. Two other PRs landed in S11 beside the rows: OPS-126's roadmap row (#230), and OPS-109's
+proposal (#236), approved by the owner the same day, so S12 starts with no owner decision waiting.
+
+The close lane itself was the first one started from OPS-125's `close` template, and it failed at
+the first token: `Unknown command: /session-close:`. The prompt glued a colon onto the command,
+`checks/panel-contract.sh`'s `*/session-close*` glob passed it, and the same colon kept
+build-plugin from namespacing it, so plugin users had it too. At the owner's request the fix went
+first, as its own PR before the close: #237 (`OPS-125:`, no fragment, since OPS-125's was already
+on main and a second would stop the fold). It fixes four copies (the template, this repo's
+`panel.json`, `init.go`, `plugin/`) and adds a leading-command case shown failing on the old
+prompt. Review converged in 1 round at peak low; its two lows (no both-ways fixture, a regex that
+refuses a one-letter command) went to OPS-126 as item (6) and to #223. Gate 1390 s, full, clean.
+Catch-up is on, so the panel re-trusts the merged config with nobody's hands.
+
+`clauductor update`, run to sync this repo's copy of the check, again reflowed
+`.claude/model-roles.json` and re-added `eval.baseline` with no terminal to ask: OPS-119's
+behaviour exactly, a day before S12 builds it. Reverted by hand, and the check copied from the
+template instead.
+
+The plan: S11 marked done; S12 is OPS-126, OPS-109's build and OPS-119, as the owner confirmed;
+OPS-123 and OPS-124, queued but in no session (so Up next could never offer them), go to S13.
+
+### Compound
+
+Ten Raw rows before the close, nine of them today's. Decided: `archive/two-lanes` (two sessions
+waited) → owned by #217, whose scope now also names which session archives a lane-built change;
+`update/non-interactive` → owned by OPS-119. Logged and shipped: `check/mention-not-parse`
+(#237). The other eight stay Raw while young.
+
+### Flow and cost
+
+Flow 30d to 2026-10-24: cycle 1.3h median, lead 2.4h, 34.8 merges/wk, change-fail 4.9%, approval
+wait 3.4h, review rounds 2.2, spend $897.49/wk, 26 in flight (excludes unpriced models:
+claude-haiku-5-5). The close session (usage-report.sh, this session): ~$3.75, session ~$3.13 and
+reviewer ~$0.62, all claude-opus-5-5. The rows' own costs are above, $53.47 in all.
+
+A standing finding the merge guard repeats: six changes sit proposed at once (ops-109-doctor,
+ops-42-routines, panel-25, panel-30, panel-31, panel-46), against at most one. ops-109 builds in
+S12; the rest are older approvals queued after PANEL-46 and OPS-42's re-approval (the owner queue).
+
 ## Session 10 — 2026-10-24 — Rich — one row, one session: records fold at a daily close
 
 **Totals.** Gate 30 min; cost $22.51.
