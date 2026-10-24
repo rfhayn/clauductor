@@ -476,14 +476,15 @@ func TestWatchAttributesALockLeftByAReapedCall(t *testing.T) {
 // the call's end is when it was reaped, not when it was stopped.
 func TestWatchAttributesALockTakenDuringTheGrace(t *testing.T) {
 	home, r := fakeConfig(t)
-	fakeProgram(t, "claude", `trap 'kill $P 2>/dev/null; sleep 3; exit 0' TERM
+	// The grace outlasts the test's second of sleep below by a margin load cannot eat.
+	marks := filepath.Join(t.TempDir(), "marks")
+	fakeProgram(t, "claude", fmt.Sprintf(`trap 'kill $P 2>/dev/null; sleep 8; exit 0' TERM
 sleep 60 & P=$!
+echo ready >> %s
 wait $P
-`)
+`, shq(marks)))
 	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	if _, err := g.Run(ctx, t.TempDir(), agentsArgv); !errors.Is(err, context.DeadlineExceeded) {
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
 	time.Sleep(time.Second) // into the grace: SIGTERM went out a second ago

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func interruptKind(a AlertView) bool {
 type NotifierState struct {
 	Stats    NotifierStats    `json:"stats"`
 	Notified map[string]int64 `json:"notified"` // alert key → the Since it was notified for
-	LastSent map[string]int64 `json:"lastSent"` // group → unix ms
+	LastSent map[string]int64 `json:"lastSent"` // group, terminal or worktree (namesOf) → unix ms
 }
 
 // State returns the notifier's persistent state.
@@ -138,6 +139,22 @@ func groupOf(a AlertView) string {
 		return a.Lane
 	}
 	return "global"
+}
+
+// namesOf is every name the window of g's alerts is kept under: the group, and each
+// alert's terminal and worktree. A lane's alert names its terminal only once tmux
+// reports it running, so after a restart a loaded machine can raise it under the
+// worktree alone (OPS-122); the window holds under either name.
+func namesOf(g string, as []AlertView) []string {
+	names := []string{g}
+	for _, a := range as {
+		for _, s := range []string{a.Terminal, a.Lane} {
+			if s != "" && !slices.Contains(names, s) {
+				names = append(names, s)
+			}
+		}
+	}
+	return names
 }
 
 // ProcessView is Process over a view: its alerts, with the stall flags the view sets
@@ -199,7 +216,8 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 			n.stats.Suppressed += len(as)
 			continue
 		}
-		if last, ok := n.lastSent[g]; ok && now.Sub(last) < n.MinInterval {
+		names := namesOf(g, as)
+		if slices.ContainsFunc(names, func(s string) bool { last, ok := n.lastSent[s]; return ok && now.Sub(last) < n.MinInterval }) {
 			n.stats.Deferred += len(as)
 			continue
 		}
@@ -219,7 +237,9 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 				stall = &a
 			}
 		}
-		n.lastSent[g] = now
+		for _, s := range names {
+			n.lastSent[s] = now
+		}
 		n.stats.Interrupts++
 		title := name
 		if n.Project != "" {

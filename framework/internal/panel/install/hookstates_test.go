@@ -83,7 +83,10 @@ func quiet(t *testing.T, out string, took time.Duration, err error) {
 	if err != nil || out != "" {
 		t.Fatalf("the hook failed or spoke: err=%v output=%q", err, out)
 	}
-	if took > 5*time.Second {
+	// Unscaled: the bound is curl's own limit (-m 3) and a margin, a length this test
+	// asserts. Scaled, CI's factor would put it at runHook's 10 s deadline, past a
+	// curl limit raised to 9 s (OPS-122 review).
+	if took > 6*time.Second {
 		t.Fatalf("the hook ran %v; it must end on its own (an async hook's timeout is not enforced)", took)
 	}
 }

@@ -167,21 +167,17 @@ func TestGateStopsATimedOutClaudeWithSIGTERM(t *testing.T) {
 	makeLock(t, r.CurrentPath(), time.Now().Add(-5*time.Minute)) // stale: stops nothing, but it exists
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`trap 'kill $P 2>/dev/null; echo TERM >> %[1]s; sleep 5; exit 0' TERM
-echo started >> %[1]s
 sleep 60 & P=$!
+echo ready >> %[1]s
 wait $P
 `, shq(marks)))
 	g, home := newGate(t, signals.ExecRunner, r, clock.System)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	start := time.Now()
-	_, err := g.Run(ctx, t.TempDir(), agentsArgv)
-	took := time.Since(start)
+	err, took := giveUpWhenReady(t, g, agentsArgv, marks)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
-	if took > time.Second+testwait.Scale(time.Second) {
+	if took > testwait.Scale(time.Second) {
 		t.Fatalf("the caller waited %v: it must have its timeout at the timeout, not at the exit", took)
 	}
 	cs := g.calls()
@@ -209,13 +205,12 @@ func TestGateKillsAClaudeThatIgnoresSIGTERMAfterTheGrace(t *testing.T) {
 		t.Skip("-short: waits out the real 15 s grace (the full run covers it)")
 	}
 	marks := filepath.Join(t.TempDir(), "marks")
-	fakeProgram(t, "claude", fmt.Sprintf(`trap 'echo TERM >> %s' TERM
+	fakeProgram(t, "claude", fmt.Sprintf(`trap 'echo TERM >> %[1]s' TERM
+echo ready >> %[1]s
 while :; do sleep 1; done
 `, shq(marks)))
 	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	if _, err := g.Run(ctx, t.TempDir(), agentsArgv); !errors.Is(err, context.DeadlineExceeded) {
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
 	cs := waitCalls(t, g, "the kill", 1, ended)
@@ -293,14 +288,38 @@ func TestGateCallRefusedAtCloseDoesNotFireAcquired(t *testing.T) {
 // A call whose process had exited before its caller gave up was sent no signal, so
 // it is no stopped call: the log names only signals actually sent.
 func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
-	// The process exits at once; a child keeps its stdout open for 2 s, so the call
-	// is still running (reading) when the caller's timeout ends it.
-	fakeProgram(t, "claude", "sleep 2 &\nexit 0\n")
+	// The process exits at once; a child keeps its stdout open, so the call is still
+	// running (reading) when its caller gives up. The caller gives up only once the
+	// process is gone (reaped: Wait reaps it before it drains the output), never at a
+	// fixed time: under load a 500 ms timeout fired before the shell had exited, and
+	// the SIGTERM reached it (#177).
+	// The child holds the output until the test releases it (at most 60 s), not for a
+	// fixed time a slow look at the reap could outlast.
+	dir := t.TempDir()
+	marks, release := filepath.Join(dir, "marks"), filepath.Join(dir, "release")
+	fakeProgram(t, "claude", fmt.Sprintf("(i=0; while [ ! -e %s ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &\necho $$ > %s\nexit 0\n", shq(release), shq(marks)))
+	defer os.WriteFile(release, nil, 0o600)
 	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := newExpiring(t)
 	defer cancel()
-	if _, err := g.Run(ctx, t.TempDir(), agentsArgv); !errors.Is(err, context.DeadlineExceeded) {
+	errc := goRun(g, ctx, agentsArgv)
+	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
+	for {
+		pid := strings.TrimSpace(readMarks(t, marks))
+		if pid != "" && exec.Command("ps", "-p", pid).Run() != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the claude (pid %q) never exited", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	cs := waitCalls(t, g, "the call's end", 1, ended)
 	if !cs[0].stopped || cs[0].term {
@@ -464,6 +483,51 @@ func goRun(g *Gate, ctx context.Context, argv []string) <-chan error {
 	return errc
 }
 
+// expiring is a caller's timeout the test fires itself: once expired, its Err is
+// context.DeadlineExceeded, as a deadline's would be, so a test still drives a timeout
+// and asserts its error. Only its own Err says so: a context derived from it ends
+// Canceled, which the gate never reads (it runs the call on WithoutCancel). Its far
+// deadline keeps it a call with a deadline (gate.go's slot wait).
+type expiring struct{ context.Context }
+
+func (c expiring) Err() error {
+	if c.Context.Err() != nil {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func newExpiring(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+	far, farCancel := context.WithTimeout(context.Background(), time.Hour)
+	ctx, expire := context.WithCancel(far)
+	t.Cleanup(farCancel)
+	return expiring{ctx}, expire
+}
+
+// giveUpWhenReady runs argv and lets its timeout expire once the fake has written
+// "ready" to marks, after its trap and once the trap has what it acts on: a fixed
+// timeout raced the shell's start under load, and a SIGTERM before the trap killed
+// the fake outright (OPS-122). It returns the call's error and how long the caller
+// waited after its timeout.
+func giveUpWhenReady(t *testing.T, g *Gate, argv []string, marks string) (error, time.Duration) {
+	t.Helper()
+	ctx, cancel := newExpiring(t)
+	defer cancel()
+	errc := goRun(g, ctx, argv)
+	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
+	for !strings.Contains(readMarks(t, marks), "ready") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the fake %s never got ready: marks %q", argv[0], readMarks(t, marks))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	start := time.Now()
+	err := <-errc
+	return err, time.Since(start)
+}
+
 func noResult(t *testing.T, errc <-chan error, what string) {
 	t.Helper()
 	select {
@@ -600,15 +664,14 @@ func TestGateLaneActionWaitsForTheSlot(t *testing.T) {
 // takes 5 s to exit after SIGTERM keeps a poll due 1 s after the timeout out, and a
 // lane action starts only once it has been reaped.
 func TestGateStoppedCallHoldsTheSlotUntilItExits(t *testing.T) {
-	fakeProgram(t, "claude", `case "$1" in
-agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; sleep 60 & P=$!; wait $P;;
+	marks := filepath.Join(t.TempDir(), "marks")
+	fakeProgram(t, "claude", fmt.Sprintf(`case "$1" in
+agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; sleep 60 & P=$!; echo ready >> %s; wait $P;;
 *) echo '[]';;
 esac
-`)
+`, shq(marks)))
 	g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	if _, err := g.Run(ctx, t.TempDir(), agentsArgv); !errors.Is(err, context.DeadlineExceeded) {
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
 	time.Sleep(time.Second)

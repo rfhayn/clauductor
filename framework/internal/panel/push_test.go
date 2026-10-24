@@ -25,7 +25,9 @@ import (
 
 // pushStandIn writes a stand-in push program that records each run's arguments, one
 // per line, in a file of its own under dir/runs; then it runs tail (shell text: an
-// exit, a sleep). It returns the program's absolute path.
+// exit, a sleep). It returns the program's absolute path. The record is written
+// beside runs and renamed in, whole: a test waits for it to appear, and under load
+// one written in place was read before printf filled it (OPS-122).
 func pushStandIn(t *testing.T, tail string) (prog, runs string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -34,7 +36,7 @@ func pushStandIn(t *testing.T, tail string) (prog, runs string) {
 		t.Fatal(err)
 	}
 	prog = filepath.Join(dir, "push")
-	testbin.Write(t, prog, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+runs+"/run.$$\n"+tail+"\n")
+	testbin.Write(t, prog, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+dir+"/run.$$.tmp && mv "+dir+"/run.$$.tmp "+runs+"/run.$$\n"+tail+"\n")
 	return prog, runs
 }
 
@@ -431,10 +433,25 @@ func TestRunPushFailsAndTimesOut(t *testing.T) {
 	if got := pushRuns(t, runs); len(got) != 1 || strings.Join(got[0], "|") != "-x|T|B" {
 		t.Fatalf("the push ran with %q, want its argv then the title and the body, as arguments", got)
 	}
-	slow, _ := pushStandIn(t, "sleep 5")
+	// The stand-in outlasts the scaled bound many times over: the bound tells a stop
+	// at the timeout from a wait for the stand-in, on a loaded machine too (OPS-122).
+	// Its child holds the output open past the timeout's kill (what WaitDelay is for);
+	// the test kills that one child, so it does not outlive the test.
+	childPid := filepath.Join(t.TempDir(), "child.pid")
+	slow, _ := pushStandIn(t, "sleep 60 & echo $! > "+childPid+"; wait")
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(childPid); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	// The timeout gives the stand-in time to start its child first: a kill before the
+	// fork would leave nothing for WaitDelay to cut short (OPS-122 review).
+	timeout := testwait.Scale(time.Second)
 	start := time.Now()
-	err = runPush(context.Background(), 200*time.Millisecond, []string{slow}, "T", "B")
-	if took := time.Since(start); took > 3*time.Second {
+	err = runPush(context.Background(), timeout, []string{slow}, "T", "B")
+	if took := time.Since(start); took > timeout+testwait.Scale(3*time.Second) {
 		t.Fatalf("a push that never answers took %s, want it stopped at its timeout", took)
 	}
 	if err == nil || !strings.Contains(err.Error(), "no answer within") {

@@ -121,7 +121,7 @@ func TestShellLeaseInteroperatesWithLockRun(t *testing.T) {
 		bin := t.TempDir()
 		trace := tracedSleep(t, bin)
 		sh := startShellLeaseEnv(t, leaseSh, lock, "shell", body(log, "S"), []string{"PATH=" + bin + ":" + os.Getenv("PATH")})
-		waitUntil(t, "three iterations of the shell's wait loop", 10*time.Second, func() bool { return lineCount(trace) >= 3 })
+		waitUntil(t, "three iterations of the shell's wait loop", 60*time.Second, func() bool { return lineCount(trace) >= 3 })
 		if lineCount(log) != 1 {
 			t.Fatalf("the shell took a stopped holder's lease: %v", readLog(t, log))
 		}
@@ -343,7 +343,7 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 		own := noPSPath(t) // its own PATH: the traced sleep counts this shell's loop only
 		trace := tracedSleep(t, own)
 		s := run(own, lock, "shell", "echo S-ran >> "+shq(log))
-		waitUntil(t, "two iterations of the shell's wait loop", 10*time.Second, func() bool { return lineCount(trace) >= 2 })
+		waitUntil(t, "two iterations of the shell's wait loop", 60*time.Second, func() bool { return lineCount(trace) >= 2 })
 		if _, err := os.Stat(other); err != nil {
 			t.Fatal("deleted a live waiter's file on missing data")
 		}
@@ -472,7 +472,7 @@ func TestDaemonLeftByTheGateDoesNotHoldTheLease(t *testing.T) {
 			lock, log := filepath.Join(dir, "gate.lock"), filepath.Join(dir, "log")
 			daemonPid := filepath.Join(dir, "daemon.pid")
 			holder := startLockRun(t, lock, "a", time.Minute, "/bin/sh", "-c",
-				"(sleep 60 </dev/null >/dev/null 2>&1 & echo $! > "+daemonPid+"); echo A-start >> "+log+"; sleep 1; echo A-end >> "+log)
+				"(sleep 600 </dev/null >/dev/null 2>&1 & echo $! > "+daemonPid+"); echo A-start >> "+log+"; sleep 1; echo A-end >> "+log)
 			t.Cleanup(func() {
 				if b, err := os.ReadFile(daemonPid); err == nil {
 					if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
@@ -490,10 +490,13 @@ func TestDaemonLeftByTheGateDoesNotHoldTheLease(t *testing.T) {
 			} else {
 				w = startLockRun(t, lock, "b", time.Minute, "/bin/sh", "-c", "echo B-ran >> "+log)
 			}
-			if code := w.wait(t, 10*time.Second); code != 0 {
+			// A daemon holding the lease would hold it for its 600 s, or until the
+			// holder's one-minute TTL: the bound sits far below both, and far above a
+			// loaded machine's prompt hand-over (4 s was not, OPS-122).
+			if code := w.wait(t, 120*time.Second); code != 0 {
 				t.Fatalf("waiter exit %d: %s", code, w.stderr)
 			}
-			if d := time.Since(start); d > 4*time.Second {
+			if d := time.Since(start); d > 30*time.Second {
 				t.Fatalf("took %v: the daemon's fd held the lease", d)
 			}
 			if got := strings.Join(readLog(t, log), " "); got != "A-start A-end B-ran" {
