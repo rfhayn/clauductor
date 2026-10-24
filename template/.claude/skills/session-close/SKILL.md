@@ -49,10 +49,14 @@ keep: no hook refuses a row PR's edit to the log.
   against `sh .claude/review-cap.sh <row id>`, the last full gate's minutes (both the runs before
   the fragment's commit, which the final gate's receipt then covers), the cost
   (`usage-report.sh`, this row's sessions), the marker's `session-start cost:` line, then what
-  happened, decisions, surprises, and insight lines as rows of the log's table. Then steps 1, 2, 4,
-  5 and 6.5–6.6; step 3's records wait for the daily close, and there is no close PR.
+  happened, decisions, surprises, and insight lines as rows of the log's table. A batched PR that
+  closes other rows too names them in `- **Also closes**: <id>, <id>`, and the fold marks each
+  merged by the same PR. Then steps 1, 2, 4,
+  5 and 6.5–6.6; step 3's records wait for the daily close, and there is no close PR. The panel's
+  row templates (build, fix, ops) put this and the marker in the lane's first prompt (OPS-125).
 - **The daily close** (once a day, or every 3–4 rows; branch `BRANCH_SESSION_CLOSE`): every step
-  below, step 3 starting with the fold.
+  below, step 3 starting with the fold. The panel's **close** template offers it
+  (`panel-suggest.sh close`) once every row of the plan's open session has landed.
 
 ## Several people, one set of shared files
 

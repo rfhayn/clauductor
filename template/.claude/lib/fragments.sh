@@ -16,6 +16,8 @@
 #   - **Gate**: <minutes> min                              the last full gate before the fragment's commit
 #   - **Cost**: $<amount>, or CANNOT CHECK and why         usage-report.sh, this row's sessions
 #   - **Session start**: <tokens> tokens, <minutes> min    the marker's cost line, or CANNOT CHECK
+#   - **Also closes**: <row id>[, <row id>…]   optional: the other rows a batched PR closes, which
+#                                               the fold marks merged by the same PR (OPS-125)
 #   ## What happened / ## Decisions / ## Surprises / ## Insights    each once, in this order
 # Under ## Insights: rows of the insights log's table (`| Date | Area | Topic | Observation | How to
 # verify | Status |`, six cells, no header), which the fold moves to the top of the log; or `None.`;
@@ -62,6 +64,7 @@ fragment_problems() {
       k = $0; sub(/^- \*\*/, "", k); sub(/\*\*:.*/, "", k)
       v = $0; sub(/^- \*\*[^*]+\*\*:[ \t]*/, "", v)
       if (v == "") bad("the **" k "** field is empty")
+      if (k in got) bad("the **" k "** field appears twice (one each)")
       got[k] = v; next
     }
     cur == "Insights" && /^\|/ {
@@ -86,6 +89,14 @@ fragment_problems() {
       # The fold totals what parses and calls the rest CANNOT CHECK: "4.20" would read as a failure.
       if ("Cost" in got && got["Cost"] !~ /^(\$[0-9]+(\.[0-9]+)?|CANNOT CHECK)/) bad("**Cost** is not \"$<amount>\" (or CANNOT CHECK and why)")
       if ("Session start" in got && got["Session start"] !~ /^([0-9]+ tokens, [0-9]+ min|CANNOT CHECK)/) bad("**Session start** is not \"<tokens> tokens, <minutes> min\" (or CANNOT CHECK and why)")
+      if ("Also closes" in got) {
+        na = split(got["Also closes"], A, ",")
+        for (i = 1; i <= na; i++) {
+          a = trim(A[i])
+          if (a !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) bad("**Also closes** is not row ids separated by commas (\"" trim(got["Also closes"]) "\")")
+          else if (a == name) bad("**Also closes** names the fragment'"'"'s own row, " name)
+        }
+      }
       for (i = next_s; i <= ns; i++) if (!(S[i] in seen)) bad("no \"## " S[i] "\" section")
       if (("Insights" in seen) && !rows && !none) bad("## Insights has neither an insight row nor \"None.\"")
       if (rows && none) bad("## Insights has rows and \"None.\"")
@@ -102,4 +113,21 @@ fragment_files() {
     [ "$(basename "$_f")" = README.md ] && continue
     printf '%s\n' "$_f"
   done
+}
+
+# $1 = a fragment's path. Prints every row id it closes, one per line: its own (the file name),
+# then each its **Also closes** names. The fold marks each merged; panel-suggest counts each landed.
+# The field is read where fragment_problems reads it, the header, outside a fence: a fragment that
+# quotes the line in its body (one describing this very field) closes no row by it.
+fragment_rows() {
+  basename "$1" .md
+  awk 'NR == 1 { next } /^(```|~~~)/ { f = !f; next } f { next } /^## / { exit }
+    /^- \*\*Also closes\*\*:/ { sub(/^- \*\*Also closes\*\*:[ \t]*/, ""); print; exit }' "$1" \
+    | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep . || true
+}
+
+# Fragment paths on stdin, one per line. Prints each row id more than one of them closes, which
+# the fold refuses (checks/journal.sh says so first, at the gate of a branch that holds both).
+fragments_twice() {
+  while IFS= read -r _f; do [ -n "$_f" ] && fragment_rows "$_f"; done | sort | uniq -d
 }

@@ -167,6 +167,68 @@ inM git checkout -q --detach refs/remotes/origin/main && mkdir -p "$M/sub/change
   && inM git add -A && inM git commit -qm approved && inM git update-ref refs/remotes/origin/change/add-c HEAD && inM git checkout -q - || fail "the subdirectory fixture could not branch"
 [ "$(subnames propose)" = "add-b" ] && ok "...and its proposals on a change branch, approval included" || fail "propose in a subdirectory offered: $(subnames propose)"
 
+# close (OPS-125): the daily close is offered once every row of the open plan session has landed,
+# a batched PR's **Also closes** counting; with no plan, while any fragment waits.
+C="$d/close"; mkdir -p "$C/.claude/lib" "$C/docs/journal.d"
+cp -R "$F/.claude/." "$C/.claude/"; cp "$CLAUDUCTOR_FW/lib/fragments.sh" "$C/.claude/lib/" 2>/dev/null
+cat > "$C/docs/roadmap.md" <<'RM'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `ops/one` — one | s | — | ⬜ queued |
+| 1.2 | `ops/two` — two | s | — | ⬜ queued |
+| 1.3 | `ops/old` — old | s | — | ✅ merged (#2) |
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S4 | (done) | done | 1.3 | — |
+| S5 | | today | 1.1, 1.2 | — |
+RM
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnames() { (cd "$C" && sh .claude/panel-suggest.sh close) | jq -r '[.[].name] | join(" ")'; }
+# "Nothing" is exit 0 and exactly `[]`: an error's empty output would read as nothing too.
+cnone() { out=$(cd "$C" && sh .claude/panel-suggest.sh close 2>&1); [ $? -eq 0 ] && [ "$out" = "[]" ]; }
+cnone && ok "close: nothing while no fragment waits" || fail "close with no fragment printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: nothing while a row of the open session has not landed" || fail "close with 1.2 unlanded printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# An Also closes the fragment only quotes (in a fence, under a section) closes nothing.
+printf '# 1.1 — one\n- **PR**: #9\n\n## What happened\n\n```\n- **Also closes**: 1.2\n```\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: an Also closes quoted in the fragment's body closes no row" || fail "close with a quoted Also closes printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: offered once every row landed, a batched PR's Also closes counting" || fail "close with all landed offered: $(cnames)"
+# A cancelled row closes its session as a merged one does: S4 (not marked done) holds only a merged
+# and a cancelled row, so the open session is still S5, and 1.2 has not landed.
+cp "$C/docs/roadmap.md" "$C/keep.md"
+awk '/^\| 1\.3 /{ print; print "| 1.4 | `ops/gone` — gone | s | — | ❌ cancelled |"; next }
+  /^\| S4 /{ print "| S4 | | done | 1.3, 1.4 | — |"; next } { print }' "$C/keep.md" > "$C/docs/roadmap.md"
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+cnone && ok "close: a session of merged and cancelled rows is not the open one" || fail "close with S4 merged+cancelled printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# A plan entry spanning sessions (S5–S7) holds days of rows: each day's close is offered while a
+# fragment waits, numbered one past the journal's top, never held until the whole entry lands.
+sed 's/^| S5 |/| S5–S7 |/' "$C/keep.md" > "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: a spanning plan entry offers the day's close while a fragment waits" || fail "close in a spanning entry offered: $(cnames)"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+[ "$(cnames)" = "session-6-close" ] && ok "...the next day's numbered past the one the journal holds" || fail "close in a spanning entry after S5 offered: $(cnames)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+# A plain session is numbered as fold.sh and session-close number it (OPS-108), by its label: S4.5
+# folds Session 4.5 (a lane name takes no dot), never 4 (its order) and never 5.
+sed 's/^| S5 |/| S4.5 |/' "$C/keep.md" > "$C/docs/roadmap.md"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cnames)" = "session-4-5-close" ] && ok "close: S4.5's close is numbered by its label, as fold.sh's N" || fail "close for S4.5 offered: $(cnames)"
+# A label the journal already holds (an entry before it ran long) takes the first number free.
+cp "$C/keep.md" "$C/docs/roadmap.md"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+[ "$(cnames)" = "session-6-close" ] && ok "close: a plain label the journal holds takes one past its top" || fail "close for a held S5 offered: $(cnames)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+# Every plan entry done, yet a fragment waits (its row in none, or an entry marked done early): the
+# close is still offered, never held until the plan is edited.
+sed 's/^| S5 | |/| S5 | (done) |/' "$C/keep.md" > "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: with no open plan session, offered while a fragment waits" || fail "close with every entry done offered: $(cnames)"
+mv "$C/keep.md" "$C/docs/roadmap.md"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
+awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: with no plan, offered while a fragment waits, one past the journal's top" || fail "close with no plan offered: $(cnames)"
+
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"
 if [ -f "$pj" ]; then

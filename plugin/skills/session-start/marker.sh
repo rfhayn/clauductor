@@ -2,14 +2,17 @@
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
 # marker.sh: a row's session shows on GitHub from its first minute (OPS-108, the job OPS-102 had).
 #
-#   sh .claude/skills/session-start/marker.sh <row id> [S<n>]
+#   sh .claude/skills/session-start/marker.sh [<row id> [S<n>]]
 #
-# Run from the row's worktree, on the row's branch. It opens the row's PR as a DRAFT whose body
+# Run from the row's worktree, on the row's branch. With no row id it finds the row whose branch
+# this is, since a lane template's first prompt knows only its lane's name (OPS-125); on a branch
+# no row names it says so in one line and does nothing: that lane is no row's session. It opens the row's PR as a DRAFT whose body
 # starts with the marker line, and the session-start cost under it:
 #   session-start: S<n> <YYYY-MM-DD HH:MM ET> row <id>
 #   session-start cost: <tokens> tokens, <minutes> min (this session so far: what orienting cost)
-# S<n> is the argument (the session plan's number), else one past the top `## Session` of the
-# journal on origin/main. The cost line is what the row's fragment copies into **Session start**
+# S<n> is the argument, else the session of the roadmap's Session plan that names the row
+# (.claude/roadmap-plan.sh, its one parser), else one past the top `## Session` of the journal on
+# origin/main. The cost line is what the row's fragment copies into **Session start**
 # (docs/journal.d/README.md); a reading that failed says CANNOT CHECK, never 0.
 #
 # WHY A DRAFT PR AND NOT A WRITE TO MAIN. A row's records reach main only through the row's own PR
@@ -24,21 +27,31 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 
 warn() { echo "marker: WARNING — $*; the session goes on without a marker"; exit 0; }
-[ -n "${1:-}" ] || warn "usage: sh "$CLAUDUCTOR_FW"/skills/session-start/marker.sh <row id> [S<n>]"
-rowid=$1; sn=${2:-}
+case ${1:-} in -*) warn "usage: sh "$CLAUDUCTOR_FW"/skills/session-start/marker.sh [<row id> [S<n>]]" ;; esac
+rowid=${1:-}; sn=${2:-}
 command -v gh >/dev/null 2>&1 || warn "gh is not installed"
 
 tsv=$(roadmap_queue --tsv 2>&1) || warn "the roadmap did not parse ($(printf '%s' "$tsv" | head -1))"
+here=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+# Each row's branch: an ops or fix row's change id IS its branch (it starts with BRANCH_OPS or
+# BRANCH_FIX); a capability change's branch takes BRANCH_CHANGE in front.
+branches=$(printf '%s\n' "$tsv" | awk -F'\t' -v c="$BRANCH_CHANGE" 'NF >= 6 { print $4 "\t" ($6 == "change" ? c $5 : $5) }')
+if [ -z "$rowid" ]; then
+  rowid=$(printf '%s\n' "$branches" | awk -F'\t' -v b="$here" '$2 == b { print $1; exit }')
+  [ -n "$rowid" ] || { echo "marker: no roadmap row is built on '$here', so this lane is no row's session; no marker"; exit 0; }
+fi
 row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$rowid" '$4 == a { print; exit }')
 [ -n "$row" ] || warn "no roadmap row has the id '$rowid'"
-id=$(printf '%s\n' "$row" | cut -f5); kind=$(printf '%s\n' "$row" | cut -f6)
 summary=$(printf '%s\n' "$row" | cut -f10 | cut -c1-60 | sed 's/[[:space:]]*$//')
-# An ops or fix row's change id IS its branch (it starts with BRANCH_OPS or BRANCH_FIX); a
-# capability change's branch takes BRANCH_CHANGE in front.
-branch=$id; [ "$kind" = change ] && branch="$BRANCH_CHANGE$id"
-here=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '$1 == a { print $2; exit }')
 [ "$here" = "$branch" ] || warn "this checkout is on '$here', not row $rowid's branch '$branch'"
 
+if [ -z "$sn" ] && [ -f "$CLAUDUCTOR_FW/roadmap-plan.sh" ]; then
+  # A plan that does not parse numbers nothing here: the journal's count below still does.
+  # An entry spanning sessions (`S15–S18`) names no one day: the journal's count below numbers
+  # it, as panel-suggest numbers that day's close.
+  sn=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" '$1 == "R" && $2 == a { if ($3 ~ /^S[0-9]+(\.[0-9]+)*$/) print $3; exit }')
+fi
 if [ -z "$sn" ]; then
   top=$(git -C "$ROOT" show "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | head -1)
   [ -n "$top" ] || warn "no session number given and none on origin/$MAIN_BRANCH's $JOURNAL to count from"

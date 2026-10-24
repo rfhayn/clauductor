@@ -52,8 +52,9 @@ func TestInitTemplatesMatchTheShippedConfig(t *testing.T) {
 		if tp.Suggest.Refresh != w.Suggest.Refresh {
 			t.Errorf("template %s refreshes %q, the shipped config %q", tp.ID, tp.Suggest.Refresh, w.Suggest.Refresh)
 		}
-		if tp.ID == "ops" && tp.FirstPrompt != w.FirstPrompt {
-			t.Errorf("the ops prompt differs from the shipped config's:\n%s\n%s", tp.FirstPrompt, w.FirstPrompt)
+		// OPS-125: every first prompt, since each now starts and closes its row's session.
+		if tp.FirstPrompt != w.FirstPrompt {
+			t.Errorf("the %s prompt differs from the shipped config's:\n%s\n%s", tp.ID, tp.FirstPrompt, w.FirstPrompt)
 		}
 	}
 }

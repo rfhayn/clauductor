@@ -38,7 +38,7 @@ chmod +x "$S/bin/gh"
 setup() {  # a fresh project with an origin, on row A-1's branch with nothing ahead of main
   F="$S/proj"; rm -rf "$F" "$S/origin.git"; mkdir -p "$F/.claude/lib" "$F/.claude/skills/session-start" "$F/docs"
   cp "$ROOT/.claude/lib/conf.sh" "$F/.claude/lib/" 2>/dev/null
-  cp "$ROOT/.claude/roadmap-queue.sh" "$F/.claude/" 2>/dev/null
+  cp "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/roadmap-plan.sh" "$F/.claude/" 2>/dev/null
   cp "$ROOT/.claude/skills/session-start/marker.sh" "$F/.claude/skills/session-start/" 2>/dev/null
   cat > "$F/docs/roadmap.md" <<'EOF'
 ## Phase 1 — Now
@@ -93,6 +93,39 @@ warns() {  # warns LABEL [env...]
 }
 setup; warns "gh failing" GH_FAIL="HTTP 502"
 setup; git -C "$F" checkout -q -b ops/other; warns "the wrong branch"
+
+# With no row id (a lane template's first prompt knows only its lane's name, OPS-125): the row is
+# the one built on this branch, and S<n> the Session plan's session that names it.
+setup
+cat >> "$F/docs/roadmap.md" <<'EOF'
+
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S12 | soon | the first row | A-1 | — |
+EOF
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S12 .* row A-1$' \
+  && ok "marker: with no arguments, the branch's row and the plan's session (S12)" || fail "marker: no arguments: exit $rc: $out; body: $(body | sed -n 1p)"
+# A plan entry spanning sessions (`S15–S18`) names no one day, and is no S<n> the fragment's
+# **Session** field takes: the journal's count numbers the day (S10, past its Session 9), as the
+# day's close is numbered.
+setup
+cat >> "$F/docs/roadmap.md" <<'EOF'
+
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S15–S18 | later | a long piece | A-1 | — |
+EOF
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
+  && ok "marker: in a plan entry spanning sessions (S15–S18), the journal's next, S10" || fail "marker: spanning entry: exit $rc: $out; body: $(body | sed -n 1p)"
+setup; git -C "$F" checkout -q -b ops/no-row; : > "$S/prs.json.log"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] && printf '%s' "$out" | grep -q "no roadmap row is built on 'ops/no-row'" \
+  && ! [ -s "$S/prs.json.log" ] && [ "$(git -C "$F" rev-list --count main..HEAD)" = 0 ] \
+  && ok "marker: on a branch no row names, one line, and no PR, push or commit" || fail "marker: no row: exit $rc: $out; gh calls: $(tr '\n' ';' < "$S/prs.json.log")"
 
 # The caller: a marker no session start runs is not shipped (rule 3).
 grep -q 'session-start/marker\.sh' "$ROOT/.claude/skills/session-start/SKILL.md" 2>/dev/null \

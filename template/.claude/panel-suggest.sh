@@ -6,7 +6,14 @@
 #   sh .claude/panel-suggest.sh propose   the next queued change row with no proposal yet, or none
 #   sh .claude/panel-suggest.sh ops       queued ops/<name> rows, named <name>
 #   sh .claude/panel-suggest.sh fix       open GitHub issues (gh), newest first, named <n>-<title slug>
+#   sh .claude/panel-suggest.sh close     the daily close, session-<N>-close, once the day's rows landed
 #
+# close (OPS-125): a row's PR leaves its fragment on main (JOURNAL_FRAGMENTS) and its row queued
+# until the daily close folds it, so nothing else would say the close is due. With a plan, the
+# session is the first not `(done)` with a row the roadmap does not show merged; it is offered once
+# every one of its rows is merged, or landed: named by a fragment on main (its file, or its
+# **Also closes**, lib/fragments.sh). With no plan, it is offered while any fragment waits, N one
+# past the journal's top session. No fragment waiting offers nothing.
 # It prints the panel's JSON: [{"name","title","detail","issue"}]. The rows come from
 # .claude/roadmap-queue.sh through roadmap_queue (one parser, never a second copy of the table).
 # Their order: when the roadmap has a `## Session plan` (.claude/roadmap-plan.sh, its one parser),
@@ -29,7 +36,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/.claude/lib/change.sh"
 cd "$ROOT" || exit 1
 kind=${1:-}
-case "$kind" in build | propose | ops | fix) ;; *) echo "usage: panel-suggest.sh build|propose|ops|fix" >&2; exit 2 ;; esac
+case "$kind" in build | propose | ops | fix | close) ;; *) echo "usage: panel-suggest.sh build|propose|ops|fix|close" >&2; exit 2 ;; esac
 command -v jq >/dev/null 2>&1 || { echo "panel-suggest: jq is not installed" >&2; exit 1; }
 
 if [ "$kind" = fix ]; then
@@ -69,6 +76,63 @@ plan=$(sh "$ROOT/.claude/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-su
 printf '%s\n' "$tsv" > "$tmp/tsv"
 # The planned ids in the plan's order (the R records are printed in it).
 printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" { print $2 }' > "$tmp/plan"
+
+if [ "$kind" = close ]; then
+  # shellcheck disable=SC1091
+  . "$ROOT/.claude/lib/fragments.sh"
+  mkdir -p "$tmp/frags"
+  if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:./$ROADMAP" 2>/dev/null; then
+    for p in $(git ls-tree --name-only "$ref" "./$JOURNAL_FRAGMENTS/" 2>/dev/null); do
+      case $p in *.md) [ "$(basename "$p")" = README.md ] || git show "$ref:./$p" > "$tmp/frags/$(basename "$p")" ;; esac
+    done
+    git show "$ref:./$JOURNAL" > "$tmp/journal" 2>/dev/null
+  else
+    for p in "$JOURNAL_FRAGMENTS"/*.md; do [ -f "$p" ] && [ "$(basename "$p")" != README.md ] && cp "$p" "$tmp/frags/"; done
+    cp "$JOURNAL" "$tmp/journal" 2>/dev/null
+  fi
+  top=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$tmp/journal" 2>/dev/null | head -1)
+  nf=0; : > "$tmp/landed"
+  for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment_rows "$f" >> "$tmp/landed"; done
+  [ "$nf" -gt 0 ] || { echo "[]"; exit 0; }
+  if [ -s "$tmp/plan" ]; then
+    # The open session: the first not (done) with a planned row the roadmap does not show merged or
+    # cancelled (the same rows `waiting` below counts done).
+    sess=$(printf '%s\n' "$plan" | awk -F'\t' 'NR == FNR { if ($7 == "merged" || $7 == "cancelled") m[$4] = 1; next }
+      $1 == "S" && $4 !~ /\(done\)/ { order[++k] = $2; num[$2] = $3; next }
+      $1 == "R" && !($2 in m) { open[$3] = 1 }
+      END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" -)
+    s=$(printf '%s\n' "$sess" | cut -f1); n=$(( ${top:-0} + 1 ))
+    # The close's N is the one fold.sh and session-close name (OPS-108): the first plan session it
+    # covers that no entry holds. A plain label is that session (`S4.5` folds Session 4.5); one the
+    # journal already holds (an entry before it ran long), or a session no label names, takes one
+    # past the journal's top, the first number free.
+    if [ -z "$s" ]; then
+      # No open session, yet a fragment waits (its row in no plan entry, or one marked done early):
+      # offered as with no plan, never held until someone edits the plan.
+      title="Close session $n: fold $nf fragment(s)"
+    elif ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then
+      # An entry spanning days (`S15–S18`, `S29+`) is no one day's plan: each day's close is
+      # offered while a fragment waits.
+      title="Close session $n ($s): fold $nf fragment(s)"
+    else
+      grep -qE "^## Session $(printf '%s' "${s#S}" | sed 's/\./\\./g')( |$)" "$tmp/journal" 2>/dev/null || n=${s#S}
+      # Every one of its rows merged on the roadmap or landed in a fragment, or the day is not done.
+      waiting=$(printf '%s\n' "$plan" | awk -F'\t' -v s="$s" 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") d[$4] = 1; next }
+        FILENAME == ARGV[2] { d[$0] = 1; next }
+        $1 == "R" && $3 == s && !($2 in d) { print $2 }' "$tmp/tsv" "$tmp/landed" -)
+      [ -z "$waiting" ] || { echo "[]"; exit 0; }
+      if [ "$n" = "${s#S}" ]; then title="Close $s: fold $nf fragment(s)"; else title="Close $s (session $n): fold $nf fragment(s)"; fi
+    fi
+  else
+    n=$(( ${top:-0} + 1 )); title="Close session $n: fold $nf fragment(s)"
+  fi
+  # A lane's name takes no dot: Session 4.5's close is the lane session-4-5-close.
+  name="session-$(printf '%s' "$n" | tr . -)-close"
+  printf '%s\n' "$name" | grep -qE '^[a-z0-9][a-z0-9-]{0,40}$' || { echo "[]"; exit 0; }
+  jq -n -c --arg name "$name" --arg t "$title" --arg d "rows landed: $(sort -u "$tmp/landed" | paste -sd ',' - | sed 's/,/, /g')" \
+    '[{name: $name, title: $t, detail: $d}]'
+  exit 0
+fi
 
 if [ -s "$tmp/plan" ]; then
   # The queued rows the plan names, in its order; a planned id with no queue row is skipped.
