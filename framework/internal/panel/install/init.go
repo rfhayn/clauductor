@@ -169,7 +169,7 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 			FirstPrompt: rowStart + "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task." + rowClose,
 			Suggest:     sg("ops", "interval:120")},
 		{ID: "close", Title: "Close the day's session (every planned row has landed)", LaneType: "ops", BranchPattern: "ops/{name}",
-			FirstPrompt: "/session-close: this lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
+			FirstPrompt: "/session-close This lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
 			Suggest:     sg("close", "interval:300")},
 	}
 	why := "the operating model's queue scripts are here"
