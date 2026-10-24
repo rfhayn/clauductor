@@ -56,7 +56,7 @@
       "title": "Close the day's session (every planned row has landed)",
       "lane_type": "ops",
       "branch_pattern": "ops/{name}",
-      "first_prompt": "/session-close: this lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh scripts/ci/clauductor-model.sh skills/session-close/fold.sh with the session's number), then land the close PR with /clauductor:merge-pr.",
+      "first_prompt": "/clauductor:session-close This lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh scripts/ci/clauductor-model.sh skills/session-close/fold.sh with the session's number), then land the close PR with /clauductor:merge-pr.",
       "suggest": { "command": ["sh", "scripts/ci/clauductor-model.sh", "panel-suggest.sh", "close"], "refresh": "interval:300" }
     }
   ],

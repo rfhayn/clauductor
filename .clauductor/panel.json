@@ -57,7 +57,7 @@
       "title": "Close the day's session (every planned row has landed)",
       "lane_type": "ops",
       "branch_pattern": "ops/{name}",
-      "first_prompt": "/session-close: this lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
+      "first_prompt": "/session-close This lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
       "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "close"], "refresh": "interval:300" }
     }
   ],
