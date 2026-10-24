@@ -10,11 +10,13 @@
 #
 # PROSE is `*.md` and nothing else, EXCEPT what changes what runs or what the system is said to do:
 #   - anything under a `.claude/` directory, at any depth (a SKILL.md or agent file is config);
-#   - AGENTS.md and CLAUDE.md, at any depth (every agent loads them);
+#   - AGENTS.md, CLAUDE.md and CLAUDE.local.md, at any depth (every agent loads them);
+#   - a SKILL.md, and anything under `agents/` or `commands/`, at any depth (a plugin's layout);
 #   - specs: SPECS_DIR/**, CHANGES_DIR/*/specs/** (archived ones included) and openspec/**.
 # Stricter than merge-pr's review-lane.sh (which reads root .claude/ and root AGENTS.md only): a
 # gate skipped is worse than a review lightened. Prose the project's own TESTS read (a doc a test
-# parses) is the project's to refuse, in its `gate_steps docs`. An empty diff is not docs.
+# parses) is the project's to refuse, in its `gate_steps docs`. An empty diff is not docs. The
+# config names match in any case: a case-insensitive file system reads `Claude.md` as CLAUDE.md.
 
 # docs_gate_verdict: reads changed paths on stdin, one per line. Prints `docs (<n> path(s))` and
 # returns 0 when every one is prose; else prints `full:` and the paths that are not, and returns 1.
@@ -24,9 +26,13 @@ docs_gate_verdict() {
   while IFS= read -r _dg_p || [ -n "$_dg_p" ]; do
     [ -n "$_dg_p" ] || continue
     _dg_n=$((_dg_n + 1))
+    _dg_l=$(printf '%s' "$_dg_p" | tr 'A-Z' 'a-z')
     case $_dg_p in
-      "${SPECS_DIR:-specs}"/* | "${CHANGES_DIR:-changes}"/*/specs/* | openspec/*) _dg_full="$_dg_full $_dg_p" ;;
-      .claude/* | */.claude/* | AGENTS.md | CLAUDE.md | */AGENTS.md | */CLAUDE.md) _dg_full="$_dg_full $_dg_p" ;;
+      "${SPECS_DIR:-specs}"/* | "${CHANGES_DIR:-changes}"/*/specs/* | openspec/*) _dg_full="$_dg_full $_dg_p"; continue ;;
+    esac
+    case $_dg_l in
+      .claude/* | */.claude/* | agents.md | */agents.md | claude.md | */claude.md | claude.local.md | */claude.local.md) _dg_full="$_dg_full $_dg_p" ;;
+      skill.md | */skill.md | agents/* | */agents/* | commands/* | */commands/*) _dg_full="$_dg_full $_dg_p" ;;
       *.md) ;;
       *) _dg_full="$_dg_full $_dg_p" ;;
     esac
@@ -37,17 +43,20 @@ docs_gate_verdict() {
 }
 
 # docs_gate_paths REV [worktree]: the paths REV changes against its merge-base with
-# origin/MAIN_BRANCH, without renames (a rename would list only its destination). With `worktree`,
+# origin/MAIN_BRANCH, without renames (a rename would list only its destination), with every
+# submodule bump (a `.gitmodules` `ignore = all` would hide one), and from the root whatever the cwd
+# or `diff.relative` says. A caller deciding a merge fetches origin/MAIN_BRANCH first: against a
+# stale one, a PR that reverts main's newer code lists no code. With `worktree`,
 # also what the working tree changes against HEAD and every untracked file. Fails when it cannot
 # compute them (no origin/MAIN_BRANCH, a shallow clone, a git error): never an empty list.
 docs_gate_paths() {
   _dg_ref=origin/${MAIN_BRANCH:-main}
   [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = false ] || return 1
   _dg_base=$(git merge-base "$_dg_ref" "$1" 2>/dev/null) || return 1
-  _dg_out=$(git diff --name-only --no-renames "$_dg_base" "$1" 2>/dev/null) || return 1
+  _dg_out=$(git diff --name-only --no-renames --ignore-submodules=none --no-relative "$_dg_base" "$1" 2>/dev/null) || return 1
   if [ "${2:-}" = worktree ]; then
-    _dg_wt=$(git diff --name-only --no-renames HEAD 2>/dev/null) || return 1
-    _dg_un=$(git ls-files --others --exclude-standard 2>/dev/null) || return 1
+    _dg_wt=$(git diff --name-only --no-renames --ignore-submodules=none --no-relative HEAD 2>/dev/null) || return 1
+    _dg_un=$(git -C "$(git rev-parse --show-toplevel)" ls-files --others --exclude-standard 2>/dev/null) || return 1
     _dg_out=$(printf '%s\n%s\n%s\n' "$_dg_out" "$_dg_wt" "$_dg_un")
   fi
   printf '%s\n' "$_dg_out" | sed '/^$/d' | sort -u

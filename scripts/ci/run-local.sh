@@ -138,6 +138,8 @@ START_DIRTY=$([ -n "$(porcelain)" ] && echo 1 || echo 0)
 # The docs gate vouches only for prose (OPS-89): it refuses any other diff before a step runs and
 # leaves the receipt alone (a refusal is not a run). Without the library it fails closed.
 if [ "$MODE" = docs ]; then
+  # Opt-in: what the guard re-checks is prose, not what this project's own tests read.
+  [ "${GATE_DOCS:-}" = 1 ] || { echo "==> FAIL: docs gate: off in this project (GATE_DOCS in .claude/project.conf; set it once steps.sh's docs mode refuses the Markdown your tests read): run the full gate" >&2; exit 1; }
   [ -f "$ROOT/.claude/lib/docs-gate.sh" ] || { echo "==> FAIL: docs gate: .claude/lib/docs-gate.sh is missing" >&2; exit 1; }
   # shellcheck disable=SC1091
   . "$ROOT/.claude/lib/docs-gate.sh"

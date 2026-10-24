@@ -346,6 +346,13 @@ git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
 git -C "$R" checkout -q -b docs-x
 mkdir -p "$R/docs"; printf '# A note\n' > "$R/docs/note.md"; git -C "$R" add -A && git -C "$R" commit -qm "a note"
 DOCS=$(git -C "$R" rev-parse HEAD)
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate is off until GATE_DOCS says the project's docs mode guards its own tests"
+grep -q 'docs gate: off in this project' "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...refused before any step, naming GATE_DOCS" || fail "docs gate off: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# On, on main (undone below): on the branch, project.conf would be the diff's code.
+git -C "$R" checkout -q main; printf 'GATE_DOCS="1"\n' >> "$R/.claude/project.conf"; git -C "$R" commit -qam "docs gate on"
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" rebase -q main; DOCS=$(git -C "$R" rev-parse HEAD)
 touch "$R/FAIL_SLOW"; run --docs; rc=$?
 expect_rc 0 "$rc" "a docs gate over a prose-only diff passes (and runs no full-only step)"
 [ "$(cat "$REC" 2>/dev/null)" = "$(printf '%s\tdocs\tclean\tdocs' "$DOCS")" ] && ok "...and writes '<sha> docs clean docs', never stage all" || fail "docs receipt: $(cat "$REC" 2>/dev/null || echo none); $(grep '^==>' "$d/out" | tr '\n' ' ')"
@@ -356,14 +363,36 @@ expect_rc 1 "$rc" "a failing docs gate fails"
 [ ! -f "$REC" ] && ok "...and deletes the receipt (a stale pass must not outlive a fail)" || fail "a failed docs gate left $(cat "$REC")"
 # The fixture's own skill path, in pieces: the plugin build rewrites a literal framework path.
 cl=.claude
-for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md; do
+for p in x.sh "$cl/skills/x/SKILL.md" AGENTS.md docs/sub/.claude/a.md specs/cap/spec.md docs/Claude.md CLAUDE.local.md skills/y/SKILL.md agents/a.md; do
   mkdir -p "$(dirname "$R/$p")"; echo x > "$R/$p"; git -C "$R" add -A && git -C "$R" commit -qm "$p"
   run --docs; rc=$?
   expect_rc 1 "$rc" "the docs gate refuses a diff with $p in it"
   grep -q "not a docs-only diff.*$p" "$d/out" && [ ! -f "$REC" ] && ! grep -q '^==> secrets' "$d/out" && ok "...before any step, naming $p, with no receipt" || fail "docs refusal for $p: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
   git -C "$R" reset -q --hard HEAD~1
 done
-git -C "$R" checkout -q main; git -C "$R" branch -q -D docs-x; git -C "$R" remote remove origin
+# A rename lists both ends (--no-renames): `git mv x.sh x.md` deletes code, and must not read as prose.
+git -C "$R" checkout -q main; echo x > "$R/x.sh"; git -C "$R" add x.sh && git -C "$R" commit -qm x.sh
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" rebase -q main && git -C "$R" mv x.sh x.md && git -C "$R" commit -qm "x.sh to x.md"
+run --docs; rc=$?
+expect_rc 1 "$rc" "the docs gate refuses a rename of code to Markdown"
+grep -q 'not a docs-only diff.*x\.sh' "$d/out" && ok "...naming the code it deletes" || fail "docs rename: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+git -C "$R" reset -q --hard HEAD~1
+# The working tree counts too: an untracked script is code the run would test.
+echo x > "$R/new.sh"; run --docs; rc=$?; rm -f "$R/new.sh"
+expect_rc 1 "$rc" "the docs gate refuses an untracked code file"
+grep -q 'not a docs-only diff.*new\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming it, before any step" || fail "docs untracked: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# Config never narrows the list: diff.relative from a subdirectory, and a gitlink bump that
+# diff.ignoreSubmodules=all would hide.
+echo x > "$R/x2.sh"; git -C "$R" add x2.sh
+git -C "$R" update-index --add --cacheinfo "160000,$(git -C "$R" rev-parse HEAD),sub" && git -C "$R" commit -qm "code and a gitlink"
+got=$(cd "$R/docs" && git config diff.relative true && git config diff.ignoreSubmodules all && . "$R/.claude/lib/docs-gate.sh" && docs_gate_paths HEAD | tr '\n' ' ')
+git -C "$R" config --unset diff.relative; git -C "$R" config --unset diff.ignoreSubmodules
+case " $got " in *" x2.sh "*) has_x=1 ;; *) has_x=0 ;; esac
+case " $got " in *" sub "*) has_s=1 ;; *) has_s=0 ;; esac
+[ "$has_x$has_s" = 11 ] && ok "docs_gate_paths lists from the root and every gitlink, whatever diff.relative and diff.ignoreSubmodules say" || fail "docs_gate_paths under diff.relative and ignoreSubmodules=all: '$got', want x2.sh and sub"
+git -C "$R" reset -q --hard HEAD~1
+git -C "$R" checkout -q main; git -C "$R" reset -q --hard HEAD~2; git -C "$R" branch -q -D docs-x; git -C "$R" remote remove origin
 
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
 # Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says

@@ -198,7 +198,9 @@ check_sets() {
 # only; this refuses it when the prose is a file a Go test reads (the race table above: docs/panel.md,
 # docs/guide.md, template/, plugin/), which race_select maps to more than RACE_BASELINE.
 docs_scope() {
-  _ds=$(race_scope)
+  # Always against origin/main: a GATE_RACE_BASE that already holds the edit would hide it, and the
+  # guard's own re-check knows prose, not this table.
+  _ds=$(unset GATE_RACE_BASE; race_scope)
   [ "$(printf '%s' "$_ds" | cut -f1)" = "$RACE_BASELINE" ] && return 0
   echo "a docs gate cannot vouch for this diff: Go tests read it ($(printf '%s' "$_ds" | cut -f2)). Run the full gate."
   return 1

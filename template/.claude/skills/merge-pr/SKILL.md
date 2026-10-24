@@ -65,7 +65,8 @@ uncommitted or untracked files writes one marked `dirty`, which the guard refuse
 again, the receipt is stale: re-run.
 
 **A prose-only PR** (Markdown outside `.claude/`, AGENTS.md, CLAUDE.md and the specs: a record, a
-roadmap row, a close) may run the docs gate instead: `scripts/ci/gate.sh --docs`. It runs the
+roadmap row, a close) may run the docs gate instead, where `GATE_DOCS` is on in
+`.claude/project.conf`: `scripts/ci/gate.sh --docs`. It runs the
 process checks, not the tests, and refuses any other diff before a step runs; its receipt (stage
 `docs`) passes the guard only while the PR's own diff is still prose (`.claude/lib/docs-gate.sh`).
 If it refuses, run the full gate.

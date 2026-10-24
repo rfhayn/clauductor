@@ -89,6 +89,9 @@ EOF
     if [ ! -f "$_dglib" ]; then
       echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and $_dglib, which says whether the PR is prose only, is missing. Run the full gate: $_run"
     # shellcheck disable=SC1090
+    # Fetched first: against a stale origin/main, a PR that reverts main's newer code lists no code.
+    elif ! git fetch origin "${MAIN_BRANCH:-main}" --quiet 2>/dev/null; then
+      echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and origin/${MAIN_BRANCH:-main} cannot be fetched to list the PR's diff against it. Retry online, or run the full gate: $_run"
     elif ! . "$_dglib" || ! _dgpaths=$(docs_gate_paths "$_head"); then
       echo "the local gate receipt for PR #$_pr ($_docs) is a docs gate's, and the PR's diff against origin/${MAIN_BRANCH:-main} cannot be listed (fetch it). Run the full gate: $_run"
     elif _dgv=$(printf '%s\n' "$_dgpaths" | docs_gate_verdict); then

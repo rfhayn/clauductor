@@ -98,6 +98,23 @@ mv "$R/.claude/lib/docs-gate.sh" "$d/dg.away" 2>/dev/null
 printf '%s\tdocs\tclean\tdocs\n' "$DOCSHA" > "$R/.git/ci-receipt"
 guard 2 "a docs receipt when docs-gate.sh is missing (fails closed)" "gh pr merge 5 --squash" GH_HEAD="$DOCSHA"
 mv "$d/dg.away" "$R/.claude/lib/docs-gate.sh" 2>/dev/null
+# Main moves on with code (M1). A rename of that code to Markdown deletes it, so it is not prose;
+# nor is a PR that reverts M1's code, though against a stale origin/main (B) it lists only its note:
+# the guard fetches before it lists.
+B=$(git -C "$R" rev-parse origin/main)
+git -C "$R" checkout -q -b m1; printf 'echo\n' > "$R/y.sh"; git -C "$R" add -A && git -C "$R" commit -qm "main's code"
+M1=$(git -C "$R" rev-parse HEAD); git -C "$R" push -q origin HEAD:main
+git -C "$R" checkout -q -b ren; git -C "$R" mv y.sh y.md && git -C "$R" commit -qm "y.sh to y.md"; RENSHA=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q -b rev "$M1"; git -C "$R" rm -q y.sh; printf '# n\n' > "$R/docs/n.md"; git -C "$R" add -A && git -C "$R" commit -qm "revert, and a note"
+REVSHA=$(git -C "$R" rev-parse HEAD); git -C "$R" checkout -q main
+printf '%s\tdocs\tclean\tdocs\n' "$RENSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that renames code to Markdown" "gh pr merge 5 --squash" GH_HEAD="$RENSHA"
+grep -q 'y\.sh' "$d/err" && ok "merge-guard: ...naming the code the rename deletes" || fail "merge-guard: rename refusal does not name y.sh: $(head -3 "$d/err")"
+git -C "$R" update-ref refs/remotes/origin/main "$B"
+printf '%s\tdocs\tclean\tdocs\n' "$REVSHA" > "$R/.git/ci-receipt"
+guard 2 "a docs receipt for a PR that reverts main's code, against a stale origin/main" "gh pr merge 5 --squash" GH_HEAD="$REVSHA"
+grep -q 'y\.sh' "$d/err" && ok "merge-guard: ...naming the code it reverts (fetched, not the stale ref)" || fail "merge-guard: stale-origin refusal does not name y.sh: $(head -3 "$d/err")"
+git -C "$R" push -q -f origin "$B:main"; git -C "$R" fetch -q origin; git -C "$R" branch -q -D m1 ren rev
 receipt 0000000000000000000000000000000000000000
 guard 2 "a receipt for another commit" "gh pr merge 5 --squash"
 rm -f "$R/.git/ci-receipt"

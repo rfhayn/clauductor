@@ -5,6 +5,7 @@
 # `docs` is the docs gate (run-local.sh --docs), for a diff run-local.sh has already found to be
 # prose only (.claude/lib/docs-gate.sh). Run what reads the records (the process checks) and return.
 # If any of your tests parse a Markdown file, fail the docs mode when the diff touches that file.
+# run-local.sh refuses --docs until GATE_DOCS="1" (.claude/project.conf) says you have.
 #
 # Each step is `step "<name>" <command> [args...]`: it prints `==> <name>` (the agent-facing
 # filter keys on that), runs the command, and a non-zero exit fails the gate. `|| return 1` stops at

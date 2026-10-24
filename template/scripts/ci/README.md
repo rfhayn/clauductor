@@ -45,7 +45,8 @@ beside another) fails with exit 70 and writes no receipt.
 
 The docs gate, `run-local.sh --docs` (OPS-89), is for a diff that is prose only by
 `.claude/lib/docs-gate.sh`: Markdown, but nothing under a `.claude/` directory, no AGENTS.md or
-CLAUDE.md, no spec. It refuses any other diff before a step runs, then runs the model's steps and
+CLAUDE.md, no spec. It is off until `GATE_DOCS="1"` in `.claude/project.conf` (set it once
+`steps.sh`'s `docs` mode refuses the Markdown your own tests read). It refuses any other diff before a step runs, then runs the model's steps and
 `gate_steps docs`, and writes `<sha> TAB docs TAB clean|dirty TAB docs` (a failed one deletes the
 receipt). The guard accepts that receipt only when the PR's own diff passes the same test.
 
