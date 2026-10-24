@@ -50,5 +50,7 @@ What did not go as expected, or `None.`
   covers. **Cost**: `usage-report.sh` over this row's
   sessions. **Session start**: the marker's `session-start cost:` line. A reading that failed is
   `CANNOT CHECK — <why>`, never `0`.
+- **Also closes** (optional, after the fields above): `<row id>, <row id>`, the other rows a batched
+  PR closes; the fold marks each `✅ merged` by this fragment's PR.
 - **Insights**: rows of the log's table, six cells, date first, no header; or `None.`
 - No `## Session` heading: only the close numbers a session.

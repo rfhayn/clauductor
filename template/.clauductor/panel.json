@@ -40,7 +40,7 @@
       "title": "Fix an issue (fast path: a diff that fits in one sentence needs no proposal)",
       "lane_type": "fix",
       "branch_pattern": "fix/{name}",
-      "first_prompt": "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. This is the fast path, with no proposal: if the fix turns out to change what a user can do, or will not fit in one sentence, stop and say it needs /propose. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "first_prompt": "Run /session-start; as its row step run sh .claude/skills/session-start/marker.sh (no arguments: it finds this branch's row and its session). Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. This is the fast path, with no proposal: if the fix turns out to change what a user can do, or will not fit in one sentence, stop and say it needs /propose. Before the final gate, if this lane builds a roadmap row, write its fragment, docs/journal.d/<row id>.md (session-close, A row's close), and check it with sh .claude/checks/run.sh journal. Then gate with scripts/ci/gate.sh and land it with /merge-pr.",
       "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "fix"], "refresh": "interval:300" }
     },
     {
@@ -48,8 +48,16 @@
       "title": "Ops task (fast path: tooling, docs or process; no change proposal)",
       "lane_type": "ops",
       "branch_pattern": "ops/{name}",
-      "first_prompt": "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+      "first_prompt": "Run /session-start; as its row step run sh .claude/skills/session-start/marker.sh (no arguments: it finds this branch's row and its session). This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Before the final gate, if this lane builds a roadmap row, write its fragment, docs/journal.d/<row id>.md (session-close, A row's close), and check it with sh .claude/checks/run.sh journal. Then gate with scripts/ci/gate.sh and land it with /merge-pr.",
       "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "ops"], "refresh": "interval:120" }
+    },
+    {
+      "id": "close",
+      "title": "Close the day's session (every planned row has landed)",
+      "lane_type": "ops",
+      "branch_pattern": "ops/{name}",
+      "first_prompt": "/session-close: this lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "close"], "refresh": "interval:300" }
     }
   ],
   "queues": [

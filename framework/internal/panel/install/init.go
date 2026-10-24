@@ -153,6 +153,9 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 		}
 		return &config.SuggestConfig{Command: []string{"sh", omSuggest, arg}, Refresh: refresh}
 	}
+	// OPS-125: a row's lane starts its session (the marker) and closes it (its fragment) itself.
+	const rowStart = "Run /session-start; as its row step run sh .claude/skills/session-start/marker.sh (no arguments: it finds this branch's row and its session). "
+	const rowClose = " Before the final gate, if this lane builds a roadmap row, write its fragment, docs/journal.d/<row id>.md (session-close, A row's close), and check it with sh .claude/checks/run.sh journal. Then gate with scripts/ci/gate.sh and land it with /merge-pr."
 	s.Templates = []starterTemplate{
 		{ID: "build", Title: "Build an approved change (its proposal is on main)", LaneType: "build", BranchPattern: "change/{name}",
 			FirstPrompt: `/build-change {"change": "{name}"}`, Suggest: sg("build", "interval:120")},
@@ -160,11 +163,14 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 			FirstPrompt: "/propose {name}: its row of the change queue (sh .claude/roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
 			Suggest:     sg("propose", "interval:120")},
 		{ID: "fix", Title: "Fix an issue", LaneType: "fix", BranchPattern: "fix/{name}",
-			FirstPrompt: "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+			FirstPrompt: rowStart + "Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. This is the fast path, with no proposal: if the fix turns out to change what a user can do, or will not fit in one sentence, stop and say it needs /propose." + rowClose,
 			Suggest:     sg("fix", "interval:300")},
 		{ID: "ops", Title: "Ops task (tooling, docs or process; no change proposal)", LaneType: "ops", BranchPattern: "ops/{name}",
-			FirstPrompt: "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Gate with scripts/ci/gate.sh, then land it with /merge-pr.",
+			FirstPrompt: rowStart + "This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task." + rowClose,
 			Suggest:     sg("ops", "interval:120")},
+		{ID: "close", Title: "Close the day's session (every planned row has landed)", LaneType: "ops", BranchPattern: "ops/{name}",
+			FirstPrompt: "/session-close: this lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
+			Suggest:     sg("close", "interval:300")},
 	}
 	why := "the operating model's queue scripts are here"
 	if suggest {
@@ -172,7 +178,7 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 	} else {
 		why += "; no " + omSuggest + ", so no Up next"
 	}
-	*notes = append(*notes, "templates     build, propose, fix, ops: each types its first prompt once claude is ready ("+why+")")
+	*notes = append(*notes, "templates     build, propose, fix, ops, close: each types its first prompt once claude is ready ("+why+")")
 
 	if has(omRunLocal) {
 		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Full gate (" + omRunLocal + ")", Lock: "clauductor/gate.lock", Command: []string{omRunLocal}}}

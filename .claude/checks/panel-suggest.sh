@@ -166,6 +166,33 @@ inM git checkout -q --detach refs/remotes/origin/main && mkdir -p "$M/sub/change
   && inM git add -A && inM git commit -qm approved && inM git update-ref refs/remotes/origin/change/add-c HEAD && inM git checkout -q - || fail "the subdirectory fixture could not branch"
 [ "$(subnames propose)" = "add-b" ] && ok "...and its proposals on a change branch, approval included" || fail "propose in a subdirectory offered: $(subnames propose)"
 
+# close (OPS-125): the daily close is offered once every row of the open plan session has landed,
+# a batched PR's **Also closes** counting; with no plan, while any fragment waits.
+C="$d/close"; mkdir -p "$C/.claude/lib" "$C/docs/journal.d"
+cp -R "$F/.claude/." "$C/.claude/"; cp "$ROOT/.claude/lib/fragments.sh" "$C/.claude/lib/" 2>/dev/null
+cat > "$C/docs/roadmap.md" <<'RM'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.1 | `ops/one` — one | s | — | ⬜ queued |
+| 1.2 | `ops/two` — two | s | — | ⬜ queued |
+| 1.3 | `ops/old` — old | s | — | ✅ merged (#2) |
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S4 | (done) | done | 1.3 | — |
+| S5 | | today | 1.1, 1.2 | — |
+RM
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnames() { (cd "$C" && sh .claude/panel-suggest.sh close) | jq -r '[.[].name] | join(" ")'; }
+[ "$(cnames)" = "" ] && ok "close: nothing while no fragment waits" || fail "close with no fragment offered: $(cnames)"
+printf '# 1.1 — one\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cnames)" = "" ] && ok "close: nothing while a row of the open session has not landed" || fail "close with 1.2 unlanded offered: $(cnames)"
+printf '# 1.1 — one\n- **Also closes**: 1.2\n' > "$C/docs/journal.d/1.1.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: offered once every row landed, a batched PR's Also closes counting" || fail "close with all landed offered: $(cnames)"
+awk '!/^## Session plan/ { print } /^## Session plan/ { exit }' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: with no plan, offered while a fragment waits, one past the journal's top" || fail "close with no plan offered: $(cnames)"
+
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"
 if [ -f "$pj" ]; then

@@ -1,7 +1,8 @@
 #!/bin/sh
 # fold.sh: the daily close's fold (OPS-108). Every row fragment waiting in JOURNAL_FRAGMENTS becomes
 # one `## Session N` entry in JOURNAL; their insight rows go to the top of INSIGHTS' table; each
-# landed row's Status in ROADMAP becomes `✅ merged (#PR)`; the fragments are removed (git rm).
+# landed row's Status in ROADMAP becomes `✅ merged (#PR)`, with every row a batched PR's fragment
+# names under **Also closes**; the fragments are removed (git rm).
 #
 #   sh .claude/skills/session-close/fold.sh <N> [--focus "<short focus>"] [--dry-run]
 #
@@ -61,7 +62,10 @@ grep -qE "^## Session $(printf '%s' "$n" | sed 's/\./\\./g')( |$)" "$ROOT/$JOURN
 gate=0; gates=ok; cost=0; costs=ok
 {
   printf '%s\n\n' "$heading"
-  printf '**Rows folded.** %s.\n\n' "$(while IFS= read -r f; do printf '%s (%s)\n' "$(basename "$f" .md)" "$(field "$f" PR | sed 's/[[:space:]].*//')"; done < "$tmp/list" | paste -sd ',' - | sed 's/,/, /g')"
+  printf '**Rows folded.** %s.\n\n' "$(while IFS= read -r f; do
+    also=$(fragment_rows "$f" | sed 1d | paste -sd ',' - | sed 's/,/, /g')
+    printf '%s (%s%s)\n' "$(basename "$f" .md)" "$(field "$f" PR | sed 's/[[:space:]].*//')" "${also:+, also closes $also}"
+  done < "$tmp/list" | paste -sd ';' - | sed 's/;/; /g')"
   while IFS= read -r f; do
     ni=$(awk '/^(```|~~~)/ { fence = !fence } !fence && /^## Insights/ { on = 1; next } !fence && /^## / { on = 0 } on && !fence && /^\|/ { c++ } END { print c + 0 }' "$f")
     # A fenced block is copied as it stands: a `## ` in it is the fragment quoting, not a section.
@@ -120,8 +124,12 @@ fi
 r="$ROOT/$ROADMAP"
 tsv=$(roadmap_queue --tsv) || refuse "the roadmap does not parse: $(printf '%s' "$tsv" | head -1)"
 cp "$r" "$tmp/roadmap"; : > "$tmp/notes"
+# Each row a fragment closes: its own, then each its **Also closes** names (a batched PR, OPS-125).
 while IFS= read -r f; do
-  id=$(basename "$f" .md); pr=$(field "$f" PR | sed -n 's/^#\([0-9][0-9]*\).*/\1/p')
+  pr=$(field "$f" PR | sed -n 's/^#\([0-9][0-9]*\).*/\1/p')
+  fragment_rows "$f" | awk -v pr="$pr" '{ print $0, pr }'
+done < "$tmp/list" > "$tmp/closes"
+while read -r id pr; do
   row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$id" '$4 == a { print; exit }')
   if [ -z "$row" ]; then echo "  $id: no roadmap row has this id, so no Status was set" >> "$tmp/notes"; continue; fi
   [ "$(printf '%s\n' "$row" | cut -f7)" = merged ] && { echo "  $id: already merged on the roadmap" >> "$tmp/notes"; continue; }
@@ -132,7 +140,7 @@ while IFS= read -r f; do
     { print }' "$tmp/roadmap" > "$tmp/roadmap2" || refuse "roadmap line $line (row $id) has no Status cell to set"
   mv "$tmp/roadmap2" "$tmp/roadmap"
   echo "  $id: Status ✅ merged (#$pr)" >> "$tmp/notes"
-done < "$tmp/list"
+done < "$tmp/closes"
 chk=$(roadmap_queue --check "$tmp/roadmap" 2>&1) || refuse "the roadmap would not parse after the edit: $(printf '%s' "$chk" | head -2 | tr '\n' ' ')"
 
 if [ -n "$dry" ]; then

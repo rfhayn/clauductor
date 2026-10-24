@@ -87,6 +87,15 @@ grep -q '^| A-1 .*| ✅ merged (#11) |$' "$F/docs/roadmap.md" && grep -q '^| A-2
 out=$(fold 6); [ $? -eq 0 ] && printf '%s' "$out" | grep -q 'nothing to fold' \
   && ok "fold: no fragment, nothing to fold (exit 0)" || fail "fold: with no fragment: $out"
 
+# A batched PR (OPS-125): its fragment's **Also closes** rows turn merged by the same PR.
+setup
+awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-3" }' "$F/docs/journal.d/A-1.md" > "$S/a1" && mv "$S/a1" "$F/docs/journal.d/A-1.md"
+out=$(fold 5); rc=$?
+[ $rc -eq 0 ] && grep -q '^| A-3 .*| ✅ merged (#11) |$' "$F/docs/roadmap.md" && grep -q '^| A-1 .*| ✅ merged (#11) |$' "$F/docs/roadmap.md" \
+  && grep -q '^\*\*Rows folded\.\*\* A-1 (#11, also closes A-3); A-2 (#12)\.' "$J" \
+  && ok "fold: a batched PR's Also closes row is merged by its PR, and the entry says so" \
+  || fail "fold: Also closes: exit $rc: $out; roadmap: $(grep '^| A-' "$F/docs/roadmap.md" | tr '\n' '~'); $(grep 'Rows folded' "$J")"
+
 # A fragment quoting markdown in a fence keeps it whole; a gate that could not be read is no 0.
 setup
 awk '{ print } /^Chose\./ { print ""; print "```"; print "## Insights"; print "| 2026-01-09 | Ops | quoted | o | v | Raw |"; print "```" }' \
@@ -111,6 +120,8 @@ refuses() {  # refuses WORDS LABEL ARGS…
 }
 setup; printf 'stray\n' >> "$F/docs/journal.d/A-2.md"; sed -i.b '/^- \*\*Gate/d' "$F/docs/journal.d/A-2.md"; rm -f "$F/docs/journal.d/A-2.md.b"
 refuses "malformed fragment" "a malformed fragment" 5
+setup; awk '{ print } /^- \*\*Session start\*\*:/ { print "- **Also closes**: A-3 and A-2" }' "$F/docs/journal.d/A-1.md" > "$S/a1" && mv "$S/a1" "$F/docs/journal.d/A-1.md"
+refuses "Also closes" "an Also closes that is not row ids" 5
 setup; refuses "already has a Session 4" "a number the journal holds" 4
 setup; printf '# Insights\n\nNo table.\n' > "$F/docs/insights-log.md"
 refuses "no '| Date" "a log with no table" 5

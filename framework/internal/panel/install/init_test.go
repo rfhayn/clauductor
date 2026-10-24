@@ -216,7 +216,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 				t.Errorf("template %s suggest %v", tp.ID, tp.Suggest.Command)
 			}
 		}
-		if !reflect.DeepEqual(ids, []string{"build", "propose", "fix", "ops"}) {
+		if !reflect.DeepEqual(ids, []string{"build", "propose", "fix", "ops", "close"}) {
 			t.Fatalf("templates %v", ids)
 		}
 		if c.Lanes["change/"] != "build" || c.Lanes["fix/"] != "fix" || c.Lanes["ops/"] != "ops" || c.Lanes["main"] != "orchestrator" {
@@ -250,7 +250,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Cards) != 1 || c.Cards[0].ID != "owner-queue" || len(c.Templates) != 4 || len(c.Queues) != 1 || !reflect.DeepEqual(c.Queues[0].Command, []string{"make", "ci"}) {
+	if len(c.Cards) != 1 || c.Cards[0].ID != "owner-queue" || len(c.Templates) != 5 || len(c.Queues) != 1 || !reflect.DeepEqual(c.Queues[0].Command, []string{"make", "ci"}) {
 		t.Fatalf("cards %+v templates %d queues %+v", c.Cards, len(c.Templates), c.Queues)
 	}
 	if strings.Contains(string(res.Body), "roadmap-queue.sh --text 2>&1") || strings.Contains(string(res.Body), "run-local") || strings.Contains(string(res.Body), "panel-suggest") {
@@ -341,7 +341,7 @@ func TestPlanInitForASidecar(t *testing.T) {
 			if len(got.Queues) != 1 || !reflect.DeepEqual(got.Queues[0].Command, []string{"bun", "run", "gate"}) {
 				t.Errorf("the detected gate: %+v", got.Queues)
 			}
-		} else if len(got.Cards) != 2 || len(got.Templates) != 4 {
+		} else if len(got.Cards) != 2 || len(got.Templates) != 5 {
 			t.Errorf("the operating model's cards and templates: %+v %+v", got.Cards, got.Templates)
 		}
 

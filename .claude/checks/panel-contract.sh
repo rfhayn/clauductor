@@ -11,6 +11,8 @@
 #   3. Every lane template delegates to something that exists: each /command its first prompt names
 #      is a skill or a workflow of that name, each repo path it names exists, its branch is under its
 #      lane type's prefix, and the prompt is one typable line (a newline would submit it early).
+#      A row's lane (build, fix, ops) runs the marker, checks its fragment and merges; a close lane
+#      runs /session-close, offered by panel-suggest's close (OPS-125).
 #   4. The gate queue RUNs an executable run-local, and its lock is the one run-local takes.
 # No panel config is a pass for 2-4: the panel is optional (nothing here needs it).
 . "$(dirname "$0")/lib.sh"
@@ -157,6 +159,19 @@ while IFS= read -r t; do
   printf '%s' "$t" | jq -e '[.first_prompt | explode[] | select(. < 32 or . == 127)] | length == 0' >/dev/null && ok "template $id: its first prompt is one typable line" || fail "template $id: its first prompt has a control character (a newline submits it early)"
   bad=$(printf '%s\n' "$fp" | grep -oE '\{[A-Za-z_]+\}' | grep -vxE '\{(name|issue)\}' || true)
   [ -z "$bad" ] && ok "template $id: only {name} and {issue} placeholders" || fail "template $id: unknown placeholder(s) $bad"
+  # OPS-125: a row's lane starts its session and closes it with nothing pasted in. A /build-change
+  # prompt must start with the command (the panel's approval warning reads it), so its steps are
+  # the workflow's description, which the lane's session reads.
+  case $id in build | fix | ops)
+    steps=$fp
+    case $fp in /build-change*) steps="$fp $(grep -m1 'whenToUse:' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null)" ;; esac
+    for w in session-start/marker.sh "run.sh journal" merge-pr; do
+      case $steps in *"$w"*) ok "template $id: its lane runs $w" ;; *) fail "template $id: neither its prompt nor what it runs names $w (the row's start, fragment or merge)" ;; esac
+    done ;;
+  close)
+    case $fp in */session-close*) ok "template close: its prompt runs /session-close" ;; *) fail "template close: its prompt does not run /session-close" ;; esac
+    [ "$(printf '%s' "$t" | jq -r '.suggest.command[-1] // ""')" = close ] && ok "template close: Up next is panel-suggest's close" || fail "template close: its suggest is not panel-suggest.sh close" ;;
+  esac
 done < "$(scratch)/templates"
 
 # ── 4. The gate queue is the lease run-local takes ────────────────────────────────────────────────
