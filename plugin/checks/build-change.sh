@@ -423,7 +423,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([], { budget: { marker: 'marker: WARNING: not run, on a branch other than change/demo' } })
   t('a marker skipped off the branch is a warning too', warned(r, 'not run, on a branch other than'), r.report.warnings)
   // Success is a closed set, not "anything but WARNING": a skipped step or a shell error warns.
-  for (const bad of ['marker: skipped (preflight changes nothing)', 'sh: .claude/skills/session-start/marker.sh: No such file or directory']) {
+  for (const bad of ['marker: skipped (preflight changes nothing)', 'sh: marker.sh: No such file or directory']) {
     r = await run([], { budget: { marker: bad } })
     t(`a marker line that is no success form warns, quoting it: ${bad}`, r.report.stoppedAt === null && warned(r, 'did not report a marker', bad), r.report.warnings)
   }
