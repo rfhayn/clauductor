@@ -14,6 +14,347 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 11 — 2026-10-24 — Rich — lanes start and close themselves; the gate's docs path; check and test lows
+
+**Totals.** Gate 26 min (a row's gate was CANNOT CHECK, so this is a floor); cost $53.47.
+
+**Rows folded.** OPS-103 (#224); OPS-121 (#228); OPS-122 (#229); OPS-125 (#222); OPS-87 (#226); OPS-88 (#227); OPS-89 (#225).
+
+### OPS-103 — the quick gate runs without the gate lease
+
+- **PR**: #224
+- **Session**: S11, started 2026-10-24 09:44 ET
+- **Review**: 1 round, peak low, cap 3 (four lows, all fixed after it, not re-reviewed)
+- **Gate**: 7 min (the full run on 5dcd75391, after 18 min queued behind another lane's gate: red at `test (short)` on an empty, ignored `template/.claude/.cc-writes/` the harness left; removed, and the final gate follows this commit)
+- **Cost**: $3.87 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122443 tokens, 0 min
+
+#### What happened
+
+`run-local.sh --quick` now reads its flag from argv before the lease block and takes no lease, so
+build-change's quick gate no longer waits out a full gate it cannot disturb. A full run still
+queues. A quick run also clears a `CLAUDUCTOR_LOCK_HELD` it inherits, so `lease_verify` never fails
+it on a lease it never took. `MODE` is set from argv before the lease, so a quick run that exits
+early is still logged as quick. `gate-runs.log` rotates only on a full run, the one that holds the
+lease. `checks/gate.sh` gains the row's two cases plus three others: a quick run passes beside a
+live holder; a full run queues (exit 124 under `CLAUDUCTOR_LEASE_MAX_WAIT`); a quick run never
+rotates the log, even one that exits before its flags are read; a quick run under a caller's lease
+passes. Each was shown failing on the code before its fix. The fixture's first step now asserts
+that a full run holds the lease and a quick run holds none. The README, both playbooks and both
+AGENTS.md rows now say *full* gates never overlap.
+
+#### Decisions
+
+The row ships alone in #224, not batched into OPS-89's PR as the S11 plan said. That was the
+owner's course correction, so this fragment carries no `**Also closes**` line and OPS-89's carries
+none for it. The review's fourth low, that a quick run in the same worktree as a running full gate
+now finishes during it and overwrites the state file, is documented in the README (one gate at a
+time per worktree), not enforced: the state file and `gate.sh`'s log were already per worktree.
+
+#### Surprises
+
+`clauductor update`, run without a terminal, cancelled its file reviews and still reformatted
+`.claude/model-roles.json`, adding an `eval.baseline` field. The edit was reverted and the four
+synced files were copied by hand. A loop of `cp template/$f $f` was blocked by `pr-merge-guard`
+as a merge in a form it cannot read, a false positive on `$f`. The first full gate went red on
+`TestEveryTemplateClaudeDirIsPlaced`: Claude Code had made an empty `.claude/.cc-writes/` under
+`template/` while the session's working directory was there. The directory is ignored, but the
+test walks the disk, not git.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-121 — the environment a signal in run.sh's exec window leaves is swept
+
+- **PR**: #228
+- **Session**: S11, started 2026-10-24 09:45 ET
+- **Review**: 2 rounds, peak high, cap 3 (round 2's one low fixed after it, not re-reviewed)
+- **Gate**: CANNOT CHECK — no full gate completed before this commit: two runs were stopped while queued for the lease, each when review changed the tree; the final gate follows this commit
+- **Cost**: $3.95 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122428 tokens, 0 min
+
+#### What happened
+
+A whole-set `checks/run.sh` now writes its pid to `run.pid` beside the no-clauductor environment
+just before it `exec`s into it (the `exec` keeps the pid), and the inner run deletes it the moment
+its traps exist. So a `run.pid` that survives belongs to a run that died inside the window, and
+every whole-set run's start removes the scratch of such a run once `kill -0` says "no such
+process". A new fixture in `checks/no-clauductor.sh` signals inside the window with a stub `sh`
+that only the environment's PATH finds; it TERMs itself with the run's pid before any trap exists.
+It was shown failing first (the environment stayed), and its decoys were shown failing against two
+mutants: a run that keeps its pid past its traps, and a sweep that removes whatever `kill -0`
+cannot signal.
+
+#### Decisions
+
+Bound what the window leaves rather than close it: a shell cannot close it, because a signal
+ignored across `exec` cannot be trapped by the shell it starts. "Gone" is only "no such process":
+"Operation not permitted" is a live process. The inner run deleting `run.pid` (review round 1's
+high) makes the sweep safe across pid namespaces, which Claude Code's Linux sandbox gives every
+command while TMPDIR stays shared.
+
+#### Surprises
+
+The first design trusted `kill -0` alone. Review found that on Linux, in the sandbox, a live run's
+pid can read as gone from another lane's pid namespace, so the sweep would have removed a running
+check's HOME. On macOS `grep -v 'rm -f "$_scratch/…"'` silently matched nothing, so the first
+mutant passed for the wrong reason; `grep -F` fixed it.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-122 — the tests that failed in concurrent gates hold under load
+
+- **PR**: #229
+- **Session**: S11, started 2026-10-24 09:45 ET
+- **Review**: 3 rounds, peak high, cap 3 (round 3's one low fixed after it, not re-reviewed)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit; the final gate's receipt covers it
+- **Cost**: $10.29 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122559 tokens, 0 min
+
+#### What happened
+
+The template lane's double first prompt was a real panel bug, not a slow test. A lane's alert
+names its tmux terminal only once tmux reports it running, so after a restart on a loaded machine
+the alert was grouped by worktree path, missed the terminal's `lastSent`, and notified again. The
+notifier now keeps the MinInterval window under every name of the lane (`namesOf`), and
+`TestNotifierIntervalHoldsWhileTheLaneIsUnbound` failed before the fix. `pushStandIn` writes its
+record through `mv`. The lease daemon test's bound went from 4 s against a 60 s daemon to 30 s
+against a 600 s one, and the conformance driver gives a waiter 5 s to show its fault (the tests
+take 24 s, up from 15). A sweep of `framework/` found the #177 shape in four more claudecall
+tests: a fixed timeout raced the fake's `trap`. Their fakes now write "ready" once armed, and an
+`expiring` context fires the caller's timeout then, so the tests still assert
+`DeadlineExceeded`. Closes #92 and #177.
+
+#### Decisions
+
+The row's "Done when" (five concurrent full-gate pairs agreeing with three singles) was not run
+here: it takes about ten gate runtimes with the lease bypassed. #233 owns it, and it gates OPS-105's
+follow-on (Q28). A restart past MinInterval still re-notifies a waiting alert, because
+`WaitingSince` is not persisted without stalls; #231 owns that. Bounds that mark a failure stay
+unscaled where scaling would reach the failure (the hook's 6 s against curl's `-m 3`).
+
+#### Surprises
+
+Review round 1 caught the new "ready" mark written before `P=$!`: cancelling on it aimed the
+signal into the one gap where the trap had no pid, a new flake of the kind the row removes (2 in
+40 under the sandbox). Round 2 caught `exec sleep 60`, which had silenced a leak but also removed
+the child the push test exists to create; with `WaitDelay` deleted that test now fails at 60 s
+again. Raising the conformance TIMEOUT to 60 s cost 51 s, because a control case runs it out, so
+it stayed at the driver's default, 20 s.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-125 — a row's lane starts and closes itself; the panel offers the daily close
+
+- **PR**: #222
+- **Session**: S11, started 2026-10-24 05:25 ET
+- **Review**: 3 rounds, peak medium, cap 3 (round 3's three findings fixed after it, not re-reviewed; one low left to #223)
+- **Gate**: 19 min (the full run on 5bc5579ab, before review; the final gate follows this commit)
+- **Cost**: $14.43 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 575652 tokens, 0 min
+
+#### What happened
+
+The panel's ops and fix templates now open with session-start and the row marker, and end with
+the row's fragment, `run.sh journal`, the gate and `/merge-pr`. The build template still starts
+with `/build-change`, and build-change's description carries the same steps. `marker.sh` with no
+arguments finds the row this branch belongs to and its session in the plan. A fragment's optional
+`**Also closes**` field lets the fold mark a batched PR's other rows merged. A new `close` template,
+fed by `panel-suggest.sh close`, offers `session-<N>-close` once every row of the plan's open
+session has landed. `checks/panel-contract.sh`, `panel-suggest.sh`, `fold.sh` and `marker.sh`
+cover each of these and fail without the change. `init.go` ships all five templates, and its test
+now compares every first prompt.
+
+#### Decisions
+
+The build lane's steps live in the workflow's `whenToUse`, not its prompt, because the panel's
+approval warning and NEWLANE-4-S4 need a build prompt to start with `/build-change`. The close
+template is an ops lane on `ops/{name}`, so `session-<N>-close` matches `BRANCH_SESSION_CLOSE`.
+
+#### Surprises
+
+`jq` rewriting `panel.json` reflowed the entire file, so the edits were made by hand instead.
+`init.go`'s fix prompt had already drifted from the shipped config (it was missing the fast-path
+sentence). The old test compared only the ops prompt, so nothing caught it. The first full gate
+went red on `checks/roadmap.sh`: the marker reads the Session plan by `$ROOT/$ROADMAP`, which the
+bypass guard flags, so the marker is now allowed in the guard's own case list, with its reason.
+Round 2 found the close lane named by the plan's order (S4.5 as `session-4-close`). Its fix, one
+past the journal's top for every close, broke OPS-108's rule, which fold.sh and session-close
+state (N is the plan session the close covers), and round 3 caught it. A rule has several
+readers: the fold, the skill and the hook's comment, as well as the code that changed.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-87 — settings.sh reads an empty GATE as build-change does
+
+- **PR**: #226
+- **Session**: S11, started 2026-10-24 09:45 ET
+- **Review**: 2 rounds, peak medium, cap 3 (round 2: one low, the row text, left here)
+- **Gate**: 0 min (no full run before this commit; the final gate follows it)
+- **Cost**: $2.01 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122283 tokens, 0 min
+
+#### What happened
+
+With `GATE=""` in `project.conf`, `checks/settings.sh` reported `lacks ''`, but build-change runs
+`scripts/ci/gate.sh` then (`c.gate || 'scripts/ci/gate.sh'` over `gate_cmd`'s output). The check
+now falls back the same way, only on empty. Three self-tests hold it: an empty GATE passes on the
+template's settings (it failed before the fix), an empty GATE without the default exclusion fails,
+and an absolute GATE with only the default exclusion still fails. `selftest` now passes an
+explicit empty fifth argument through (`${5-$GATE}`).
+
+#### Decisions
+
+The fallback is empty-only. Round 1 widened it to absolute, `~` and `../` paths, mirroring Go's
+`cleanRel`; review showed build-change runs those as given, so the wider fallback turned a correct
+FAIL into a silent pass.
+
+#### Surprises
+
+The row's premise was half wrong: `install` and `update` do not fall back on `GATE=""`, they
+refuse it (`Conf.Mapping`: "not a path inside the repository"). Only build-change falls back, so the
+row's text in `docs/roadmap.md` overstates install. Whether install should accept an empty GATE as
+"not moved" is the owner's call; nothing in this row changes it.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-88 — a plugin check's child shell gets the plugin root; the window cases check exit and posts
+
+- **PR**: #227
+- **Session**: S11, started 2026-10-24 09:45 ET
+- **Review**: 3 rounds, peak medium, cap 3 (round 3 low: its comment finding fixed after it, not re-reviewed; two detector lows left to #232)
+- **Gate**: CANNOT CHECK — the only full gate runs after this commit, on the tree that holds this fragment
+- **Cost**: $5.19 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122384 tokens, 0 min
+
+#### What happened
+
+A plugin script sets `CLAUDUCTOR_FW` in its prologue without exporting it. A `sh -c '…'` child
+whose body names the variable therefore read it as empty, so `plugin/checks/statusline.sh` failed
+its two unwritable-HOME cases when run directly. Through `checks/run.sh`, which exports the
+variable, those cases passed. The plugin builder (`rewrite.go`, `shChildFW`) now puts
+`CLAUDUCTOR_FW="$CLAUDUCTOR_FW"` among such a child's assignments. Each child is judged on its own,
+and a value the template sets on that command is kept. `TestShellChildGetsPluginRoot` walks the
+built plugin with a detector written separately from the rewrite. It fails without the rewrite,
+and it found a third instance the row did not name: `checks/health-lines.sh`'s scheduled-list
+case. In `checks/statusline.sh`, `window()` now requires exit 0 and exactly one post before it
+compares the line, and a status line that exits 3 now fails every window case.
+
+#### Decisions
+
+The fix is in the builder, not the template line, and the export stays off. `health-lines.sh`
+asserts the prologue does not export the variable, and a check's children point it at fixtures on
+purpose. Passing the variable per child keeps both of those true. This repo's copy of the check
+was synced by copying the file. `clauductor update` was not used because it also rewrote
+`.claude/model-roles.json`, which is out of this row's scope.
+
+#### Surprises
+
+Round 1's medium came from the rewrite's first form, which appended its own assignment after a
+deliberate `CLAUDUCTOR_FW=` and so overrode it. Round 2's medium was that this repo's own copy of
+the check was never synced after the template edit. A gate on such a tree runs every shared check
+twice, because `framework_matches_template` fails.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-89 — a docs gate, measured timeouts, API-key-free tests
+
+- **PR**: #225
+- **Session**: S11, started 2026-10-24 09:44 ET
+- **Review**: 3 rounds, peak medium, cap 3 (round 3's medium was OPS-103's absence, which the owner moved to #224; two of its three lows fixed after it, not re-reviewed)
+- **Gate**: CANNOT CHECK — no full gate ran in this lane before the fragment's commit; the final gate's receipt covers the head after it
+- **Cost**: $13.73 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122282 tokens, 0 min
+
+#### What happened
+
+`run-local.sh --docs` gates a PR whose diff is prose. It runs the model's steps and the project's
+`gate_steps docs`, and writes a receipt whose stage is `docs`. The merge guard accepts that receipt
+only after it fetches origin/main and finds the PR's own diff is prose (`.claude/lib/docs-gate.sh`).
+Prose is `*.md` outside `.claude/`, `agents/`, `commands/` and the specs, and not AGENTS.md,
+CLAUDE.md, CLAUDE.local.md or SKILL.md, at any depth and in any case.
+
+The docs gate is opt-in through `GATE_DOCS`. This repo turns it on, and `steps.sh`'s `docs_scope`
+refuses the prose that Go tests read. The build-change gate timeouts are now set from
+`gate-runs.log`: quick 20 min, full 45 min. The short Go suite has `-timeout 5m`. The panel tests
+unset every API-key variable in TestMain through `lanes.APIKeyVars()` (#184).
+
+#### Decisions
+
+- OPS-103, the quick gate skipping the lease, is not batched here, though the roadmap rows and S11's plan said it would be. The owner gave it its own lane and PR, #224, with its own fragment. Whichever of the two merges second rebases and runs the full gate again.
+- The docs gate takes the lease like a full gate does, so it stays out of OPS-103's area.
+- The docs gate is opt-in (`GATE_DOCS`). A project whose tests read prose has to refuse that prose in its own `gate_steps docs` before a docs receipt means anything.
+- Both run-local and the guard fetch origin/main before they list the diff. Against a stale ref, a branch that reverts main's newer code lists only its prose.
+- #184's fix lives in each package's TestMain, through `lanes.APIKeyVars()`, rather than in `steps.sh`. That way it also holds for a bare `go test`.
+- The timeouts come from the log: the longest quick gate ran 722 s and the longest full gate 2024 s.
+
+#### Surprises
+
+- A variable prefix on a function call (`VAR=x f`) leaves VAR set after the call in some sh implementations. The tests unset it explicitly.
+- macOS's case-insensitive file system writes `.Claude/x.md` into `.claude/`, so the verdict folds case before it matches.
+- A rename read as only its destination: `git mv x.sh x.md` looked like prose until `--no-renames`.
+- The plugin build rewrites a literal framework skill path inside a check, so the fixture builds the path in pieces.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### The close (2026-10-24)
+
+All seven planned rows had merged, each with its fragment on main, and the fold took them on its
+first dry run. OPS-103 landed in its own PR (#224), not batched into OPS-89's as the plan wrote,
+because the panel offered it a lane of its own; OPS-126 (5) owns teaching the suggester the plan's
+batches. Two other PRs landed in S11 beside the rows: OPS-126's roadmap row (#230), and OPS-109's
+proposal (#236), approved by the owner the same day, so S12 starts with no owner decision waiting.
+
+The close lane itself was the first one started from OPS-125's `close` template, and it failed at
+the first token: `Unknown command: /session-close:`. The prompt glued a colon onto the command,
+`checks/panel-contract.sh`'s `*/session-close*` glob passed it, and the same colon kept
+build-plugin from namespacing it, so plugin users had it too. At the owner's request the fix went
+first, as its own PR before the close: #237 (`OPS-125:`, no fragment, since OPS-125's was already
+on main and a second would stop the fold). It fixes four copies (the template, this repo's
+`panel.json`, `init.go`, `plugin/`) and adds a leading-command case shown failing on the old
+prompt. Review converged in 1 round at peak low; its two lows (no both-ways fixture, a regex that
+refuses a one-letter command) went to OPS-126 as item (6) and to #223. Gate 1390 s, full, clean.
+Catch-up is on, so the panel re-trusts the merged config with nobody's hands.
+
+`clauductor update`, run to sync this repo's copy of the check, again reflowed
+`.claude/model-roles.json` and re-added `eval.baseline` with no terminal to ask: OPS-119's
+behaviour exactly, a day before S12 builds it. Reverted by hand, and the check copied from the
+template instead.
+
+The plan: S11 marked done; S12 is OPS-126, OPS-109's build and OPS-119, as the owner confirmed;
+OPS-123 and OPS-124, queued but in no session (so Up next could never offer them), go to S13.
+
+### Compound
+
+Ten Raw rows before the close, nine of them today's. Decided: `archive/two-lanes` (two sessions
+waited) → owned by #217, whose scope now also names which session archives a lane-built change;
+`update/non-interactive` → owned by OPS-119. Logged and shipped: `check/mention-not-parse`
+(#237). The other eight stay Raw while young.
+
+### Flow and cost
+
+Flow 30d to 2026-10-24: cycle 1.3h median, lead 2.4h, 34.8 merges/wk, change-fail 4.9%, approval
+wait 3.4h, review rounds 2.2, spend $897.49/wk, 26 in flight (excludes unpriced models:
+claude-haiku-5-5). The close session (usage-report.sh, this session): ~$3.75, session ~$3.13 and
+reviewer ~$0.62, all claude-opus-5-5. The rows' own costs are above, $53.47 in all.
+
+A standing finding the merge guard repeats: six changes sit proposed at once (ops-109-doctor,
+ops-42-routines, panel-25, panel-30, panel-31, panel-46), against at most one. ops-109 builds in
+S12; the rest are older approvals queued after PANEL-46 and OPS-42's re-approval (the owner queue).
+
 ## Session 10 — 2026-10-24 — Rich — one row, one session: records fold at a daily close
 
 **Totals.** Gate 30 min; cost $22.51.
