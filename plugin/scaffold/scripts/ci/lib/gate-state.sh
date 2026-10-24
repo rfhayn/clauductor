@@ -24,8 +24,9 @@
 # `run s` is the run under the lease; `queued s` the wait for it. `steps` (OPS-89) is each step that
 # ran, in order, as `<name>=<seconds>` joined by `;` (`scenario trace=2;secrets=9;…`), or `-` when
 # none ran; a line written before OPS-89 has nine fields and no `steps`. Append-only: a line is never
-# rewritten. Bounded: once it reaches GATE_RUNS_MAX_BYTES (default 1 MiB, some 10,000 runs) it
-# becomes gate-runs.log.1, replacing the one before, and a new log starts; a reader reads .1 first.
+# rewritten. Bounded: once it reaches GATE_RUNS_MAX_BYTES (default 1 MiB, some 10,000 runs) the
+# next full run (under the lease) makes it gate-runs.log.1, replacing the one before, and a new log
+# starts; a reader reads .1 first. Quick runs, unleased, only append.
 
 # gate_state_file: this worktree's state file. gate_runs_file: this repository's run log.
 gate_state_file() { _gs_gd=$(git rev-parse --absolute-git-dir 2>/dev/null) && printf '%s/ci-gate.state\n' "$_gs_gd"; }
@@ -98,7 +99,9 @@ gate_state_end() {
   fi
   _gs_log=$(gate_runs_file) || return 0
   mkdir -p "$(dirname "$_gs_log")" 2>/dev/null || return 0
-  if [ -f "$_gs_log" ] && [ "$(wc -c < "$_gs_log" | tr -d ' ')" -ge "${GATE_RUNS_MAX_BYTES:-1048576}" ]; then
+  # Rotated only by a full run, which holds the lease: a --quick run takes none (OPS-103), and two
+  # runs rotating at once would each move the log, the second over the first's .1.
+  if [ "$_gs_mode" = full ] && [ -f "$_gs_log" ] && [ "$(wc -c < "$_gs_log" | tr -d ' ')" -ge "${GATE_RUNS_MAX_BYTES:-1048576}" ]; then
     mv -f "$_gs_log" "$_gs_log.1" 2>/dev/null
   fi
   case $_gs_queued_at in ''|*[!0-9]*) _gs_queued_at=$_gs_began ;; esac

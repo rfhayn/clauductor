@@ -3,7 +3,7 @@
 | File | What it is |
 |---|---|
 | `steps.sh` | **Yours.** The one definition of the gate's steps: `gate_steps full\|quick`. Put your lint, typecheck and test commands here. A remote CI, if you have one, calls it too. |
-| `run-local.sh` | The full gate (`GATE_RUN`). Takes the machine-wide gate lease, runs the steps, and writes the receipt after a complete, clean run. |
+| `run-local.sh` | The full gate (`GATE_RUN`). Takes the machine-wide gate lease (a `--quick` run takes none), runs the steps, and writes the receipt after a complete, clean run. |
 | `gate.sh` | The same, for an agent (`GATE`): the log goes to `<git-dir>/ci-gate.log`, stdout gets markers, failure lines and a tail. |
 | `gate-wait.sh` | Waits in the foreground, at most `GATE_WAIT_SECONDS` (540) per call, for the gate already started in this checkout, and says PASS (0), FAIL (1), still running (3: call again) or no result (4) for the tree in front of it. Never starts a gate. How a subagent follows a gate the Bash tool moved to the background. |
 | `lib/gate-state.sh` | The run's state file (`<git-dir>/ci-gate.state`, per worktree) and the run log (`<git common dir>/clauductor/gate-runs.log`, one tab-separated line per run: time, lane, branch, sha, mode, result, exit code, run and queue seconds, and each step's seconds as `<name>=<s>;…`; rotates to `.1` at 1 MiB). `run-local.sh` writes both; `gate-wait.sh` reads the state. |
@@ -18,7 +18,9 @@ Every worktree of this repository shares one gate lease, a directory at
 binding one port or one test database starve each other into false reds). `run-local.sh` takes it
 first thing: through `clauductor lock-run` when clauductor is installed, otherwise through
 `lease.sh`. Both implement the same on-disk protocol, so the panel shows who holds the gate and who
-waits, and can cancel a wait, either way. The protocol, its staleness rules and its conformance
+waits, and can cancel a wait, either way. A `--quick` run takes no lease and never queues: it
+writes no receipt and runs nothing that binds a fixed port, socket or database (if your quick steps
+do, move them to the full-only part of `gate_steps`). The protocol, its staleness rules and its conformance
 suite are in the clauductor repo's `docs/panel.md`, *Queue and the gate lock protocol*.
 
 The holder renews its lease every TTL/3 (`CLAUDUCTOR_LEASE_TTL`, default 600 s), so a gate on
