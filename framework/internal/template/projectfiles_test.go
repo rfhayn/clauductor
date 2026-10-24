@@ -9,7 +9,7 @@ import (
 )
 
 // Finding 6: model-roles.json gains the template's new keys and keeps every value the project set.
-func TestMergeAddOnlyKeepsProjectValues(t *testing.T) {
+func TestMergeModelRolesKeepsProjectValues(t *testing.T) {
 	have := `{"roles": {"builder": {"model": "sonnet", "effort": "low"}}, "attribution": {"enabled": false}, "mine": [1]}`
 	want := `{"roles": {"builder": {"model": "opus", "effort": "high", "tiers": {"low": {"model": "sonnet"}}}, "reviewer": {"model": "opus"}},
 	"attribution": {"enabled": true, "trailer": "Co-Authored-By: x"}, "mine": [2, 3], "evals": {"thresholds": {"recall": 0.8}}}`

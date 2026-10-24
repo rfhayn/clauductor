@@ -15,12 +15,16 @@ func TestUpdateKeepsAnEvalReceiptWhole(t *testing.T) {
 	tmpl := tmplDir(t)
 	// The case needs the template's reviewer to still carry the baseline; without it this passes
 	// without exercising the guard.
-	var tr map[string]any
+	var tr struct {
+		Roles map[string]struct {
+			Eval map[string]any `json:"eval"`
+		} `json:"roles"`
+	}
 	traw, _ := os.ReadFile(filepath.Join(tmpl, ".claude/model-roles.json"))
 	if err := json.Unmarshal(traw, &tr); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := tr["roles"].(map[string]any)["reviewer"].(map[string]any)["eval"].(map[string]any)["baseline"]; !ok {
+	if _, ok := tr.Roles["reviewer"].Eval["baseline"]; !ok {
 		t.Fatal("the template's reviewer eval no longer holds a baseline; give this test a fixture")
 	}
 	dir := ownedRepo(t)
