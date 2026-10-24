@@ -9,7 +9,7 @@ echo "- Review $(git diff --name-only --no-renames "origin/$MAIN_BRANCH...HEAD" 
 if [ "${CONTEXT_OFFLINE:-}" = 1 ]; then
   echo "- Open PR for this branch: not asked (offline)"
 elif command -v gh >/dev/null 2>&1; then
-  echo "- Open PR for this branch: $(gh pr view --json number,title,state,url,author -q '"#\(.number) \(.title) [\(.state)] by \(.author.login) \(.url)"' 2>/dev/null || echo "none: push and open one with gh pr create")"
+  echo "- Open PR for this branch: $(gh pr view --json number,title,state,isDraft,url,author -q '"#\(.number) \(.title) [\(.state)\(if .isDraft then ", draft: gh pr ready before the merge" else "" end)] by \(.author.login) \(.url)"' 2>/dev/null || echo "none: push and open one with gh pr create")"
   echo "- You are: $(gh api user --jq .login 2>/dev/null || echo 'CANNOT CHECK (gh api user failed)')"
 else
   echo "- Open PR: CANNOT CHECK (gh is not installed)"

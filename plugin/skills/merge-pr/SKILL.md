@@ -128,6 +128,9 @@ Write the result into the PR body as one line: `Review: converged in <n> round(s
 Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
 
 ### 4. Squash-merge and prune
+A row's PR opens as a draft (`session-start/marker.sh`), and GitHub refuses to merge a draft: when
+the Context block's PR line says `draft`, run `gh pr ready <n>` first.
+
 Write the squash body to a file: the PR's summary, then ONE trailer block. While
 `provenance.enabled` in `.claude/model-roles.json` is true (the template's default), the block has
 the provenance trailers, and `pr-merge-guard` rule 12 refuses a merge without them:

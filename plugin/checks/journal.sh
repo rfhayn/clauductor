@@ -152,6 +152,13 @@ good OPS-12 | awk '{ print } /^The row.s narrative\./ { print ""; print "```"; p
 fgood OPS-12 "a fenced block quoting a section heading and a field"
 good OPS-13 | sed 's/An observation\./a \\| b, escaped as the log writes it/' > "$FD/OPS-13.md"; fgood OPS-13 "an insight row with an escaped \\| in a cell"
 good OPS-14 | sed 's/peak medium/peak minor/' > "$FD/OPS-14.md"; fbad OPS-14 "a peak that is not a severity" "**Review** is not"
+good OPS-15 > "$FD/OPS-15.md"; printf '\nThe second one was about the gate lease.\n' >> "$FD/OPS-15.md"
+fbad OPS-15 "prose under Insights beside a row (the fold would drop it)" "holds only insight rows"
+good OPS-16 > "$FD/OPS-16.md"; printf '\n```\n| 2026-10-23 | a | b | c | d | Raw |\n```\n' >> "$FD/OPS-16.md"
+fbad OPS-16 "a fenced block under Insights (the fold would drop it)" "holds only insight rows"
+good OPS-17 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: 4.20/' > "$FD/OPS-17.md"; fbad OPS-17 "a cost with no \$" "**Cost** is not"
+good OPS-18 | sed 's/^- \*\*Session start\*\*: .*/- **Session start**: about an hour/' > "$FD/OPS-18.md"; fbad OPS-18 "a session start that is not the marker's" "**Session start** is not"
+good OPS-19 | sed 's/^- \*\*Cost\*\*: .*/- **Cost**: CANNOT CHECK — no records/' > "$FD/OPS-19.md"; fgood OPS-19 "a cost that could not be read, said so"
 fi
 
 # ── This project's journal ───────────────────────────────────────────────────────────────────────

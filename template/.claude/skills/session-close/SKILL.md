@@ -41,7 +41,8 @@ row PR that adds a `## Session` heading, and rule 8 holds every PR that changes 
 insights log, whatever its branch, on top of `origin/main`. The rest of that sentence is yours to
 keep: no hook refuses a row PR's edit to the log.
 
-- **A row's close** (this session built one roadmap row): its records are ONE file in the row's own
+- **A row's close** (this session built one roadmap row, in the PR that finishes it: the fold marks
+  the row `✅ merged` by that PR, so a proposal session writes no fragment): its records are ONE file in the row's own
   PR, `<JOURNAL_FRAGMENTS>/<row id>.md`, written last, before the final gate. The shape is
   `docs/journal.d/README.md`'s and `checks/journal.sh` holds it: the PR, the session marker's
   `S<n>` and time (the PR body's first line, from `session-start/marker.sh`), review rounds and peak
@@ -132,7 +133,8 @@ for the person opening the next session.
 ### 5. Verify by existence, never by this skill's report
 Re-run the Context block and read it (AGENTS.md rule 2). The end state: clean tree, nothing ahead
 of `origin`, no unaccounted open PR of yours, no unarchived finished change, at most one proposed,
-journal and insights carrying today's date, `sh .claude/checks/run.sh` green, a status line
+journal and insights carrying today's date (on a row's close, instead: the row's fragment in its
+PR, passing `sh .claude/checks/run.sh journal`), `sh .claude/checks/run.sh` green, a status line
 pointing forward. Then state what is still outstanding **and the change that owns it** (AGENTS.md
 rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of closing.
 

@@ -102,6 +102,7 @@ git worktree remove
 gh pr create
 gh pr view
 gh pr checks
+gh pr ready
 gh pr merge
 gh run list
 gh auth status
@@ -388,6 +389,9 @@ _red "a second step 5" '/^## After the merge/i\
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"
 has .claude/skills/archive-change/SKILL.md 'check-outcome-<id>' "archive queues the outcome check"
 has .claude/skills/merge-pr/SKILL.md 'Agent-Role:' "merge-pr writes the provenance trailers"
+# A row's PR opens as a draft (session-start/marker.sh), and GitHub refuses to squash a draft.
+has .claude/skills/merge-pr/SKILL.md 'run `gh pr ready <n>` first' "merge-pr readies a draft PR before the squash"
+has .claude/skills/merge-pr/context.sh 'isDraft' "merge-pr's context says when the PR is a draft"
 has .claude/workflows/build-change.js "stop('budget'" "build-change stops over budget"
 
 # The reviewer checks that a citing test asserts the THEN (D4).

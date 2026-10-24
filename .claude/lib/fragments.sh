@@ -18,7 +18,8 @@
 #   - **Session start**: <tokens> tokens, <minutes> min    the marker's cost line, or CANNOT CHECK
 #   ## What happened / ## Decisions / ## Surprises / ## Insights    each once, in this order
 # Under ## Insights: rows of the insights log's table (`| Date | Area | Topic | Observation | How to
-# verify | Status |`, six cells, no header), which the fold moves to the top of the log; or `None.`
+# verify | Status |`, six cells, no header), which the fold moves to the top of the log; or `None.`;
+# nothing else, since the fold would drop it.
 # A fragment never carries a `## Session` heading: only the close numbers a session.
 
 FRAGMENT_FIELDS="PR|Session|Review|Gate|Cost|Session start"
@@ -41,6 +42,9 @@ fragment_problems() {
       if (substr($0, 1, length(want)) != want || length($0) == length(want)) bad("line 1 is not \"# " name " — <focus>\" (the id must equal the file name)")
       next
     }
+    # The fold carries only rows out of ## Insights (to the log), so anything else there, a fence
+    # included, would be dropped: refuse it here, where its author still reads why.
+    !fence && cur == "Insights" && /^(```|~~~)/ { bad("line " NR ": ## Insights holds only insight rows or \"None.\" (the fold carries nothing else)"); fence = 1; next }
     # A fenced block is the fragment quoting something: a `## ` or `- **X**:` in it is not shape.
     /^(```|~~~)/ { fence = !fence; next }
     fence { next }
@@ -71,6 +75,7 @@ fragment_problems() {
       rows++; next
     }
     cur == "Insights" && trim($0) == "None." { none = 1; next }
+    cur == "Insights" && trim($0) != "" { bad("line " NR ": ## Insights holds only insight rows or \"None.\" (the fold carries nothing else)"); next }
     END {
       if (NR == 0) { print "the fragment is empty"; exit 1 }
       for (i = 1; i <= nf; i++) if (!(F[i] in got)) bad("no **" F[i] "** field before the first section (- **" F[i] "**: …)")
@@ -78,6 +83,9 @@ fragment_problems() {
       if ("Session" in got && got["Session"] !~ /^S[0-9]+(\.[0-9]+)*, started [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9] [A-Za-z]+/) bad("**Session** is not \"S<n>, started YYYY-MM-DD HH:MM <zone>\" (the marker'"'"'s time)")
       if ("Review" in got && got["Review"] !~ /^[0-9]+ rounds?, peak (critical|high|medium|low|none), cap [0-9]+/) bad("**Review** is not \"<n> round(s), peak <critical|high|medium|low|none>, cap <n>\"")
       if ("Gate" in got && got["Gate"] !~ /^([0-9]+(\.[0-9]+)? min|CANNOT CHECK)/) bad("**Gate** is not \"<minutes> min\" (or CANNOT CHECK and why)")
+      # The fold totals what parses and calls the rest CANNOT CHECK: "4.20" would read as a failure.
+      if ("Cost" in got && got["Cost"] !~ /^(\$[0-9]+(\.[0-9]+)?|CANNOT CHECK)/) bad("**Cost** is not \"$<amount>\" (or CANNOT CHECK and why)")
+      if ("Session start" in got && got["Session start"] !~ /^([0-9]+ tokens, [0-9]+ min|CANNOT CHECK)/) bad("**Session start** is not \"<tokens> tokens, <minutes> min\" (or CANNOT CHECK and why)")
       for (i = next_s; i <= ns; i++) if (!(S[i] in seen)) bad("no \"## " S[i] "\" section")
       if (("Insights" in seen) && !rows && !none) bad("## Insights has neither an insight row nor \"None.\"")
       if (rows && none) bad("## Insights has rows and \"None.\"")
