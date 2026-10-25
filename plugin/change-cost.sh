@@ -43,13 +43,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # lane named otherwise that recorded the stale branch most is taken.
 # The lanes it rejected are named (the one line's "rejected lanes:", --json's rejectedLanes), so a
 # collapse of the figure is visible. Known limits: a lane reused by two sessions, one ending on the
-# branch, counts the other's messages there on main, a detached HEAD or no branch, and its agents; once removed, a lane is lost whose only session switched away from
-# the branch, or in which only agents, never a lead, recorded it; one in which nothing recorded the
-# branch is not found. A lane whose OWN branch its lead never recorded (session 33570cf0 worked in
-# fix-93 recording only other lanes' branches) goes to whichever change its lead recorded last. An agent counts whole once ANY of its messages ran in the
-# change's worktree, so an unrelated agent passing through (a reviewer of another PR, a
-# session-close sweep) is billed whole. And a lead in the MAIN checkout that records the change's
-# stale branch counts, though its work there is not the change's.
+# branch, counts the other's messages there on main, a detached HEAD or no branch, and its agents;
+# once removed, a lane is lost whose only session switched away from the branch, or in which only
+# agents, never a lead, recorded it; one in which nothing recorded the branch is not found. A lane
+# whose OWN branch its lead never recorded (session 33570cf0 worked in fix-93 recording only other
+# lanes' branches) goes to whichever change its lead recorded last. An agent counts whole once ANY
+# of its messages ran in the change's worktree, so an unrelated agent passing through (a reviewer
+# of another PR, a session-close sweep) is billed whole. And a lead in the MAIN checkout that
+# records the change's stale branch counts, though its work there is not the change's.
 # AN AGENT'S OWN AGENTS (OPS-120) record the lead's cwd and branch too, never the parent's, so a
 # reviewer a teammate lane spawned may never touch the worktree: each agent descended (by its
 # .meta.json's parentAgentId, anywhere in its session's subagents/) from one that counts whole
