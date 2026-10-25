@@ -259,7 +259,7 @@
   config (macOS forced through the test's variable). Citing [DOCTOR-3-S1].
 
 ## 3. The panel, and where a user meets doctor
-- [x] 3.1 The panel's machine lines, on macOS only: the registry (`config.LoadProjects`),
+- [x] 3.1 The panel's machine lines, on macOS only, in `framework/internal/cmd/doctor_panel.go`: the registry (`config.LoadProjects`),
   installed (`install.PlistPath`, or a project in the registry), running (`install.RunningPanel`,
   with its `lease.ProcCheck` passed in; the restart named with `install.LaunchdLabel` and
   `install.LogDir`), and the build (`install.FileStamp` of `install.InstalledBinary` against
