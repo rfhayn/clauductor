@@ -74,6 +74,9 @@ authority() {
 # build's do when it ticks tasks.md. So a commit made on a detached HEAD past the tip, or an amend
 # or rebase of it there, and pushed to the branch, has its diff counted. A HEAD main contains is
 # never the branch's, so a merged change, or the main checkout, is judged by its task lines alone.
+# The content signal reaches any branch that edits changes/<id>/, so one that does and also touches
+# a guarded path refuses that change's delegation: a refusal sends the approval to the owner, which
+# is the safe side to err on.
 on_branch() {
   m=${main_ref:-$MAIN_BRANCH}
   git -C "$ROOT" merge-base --is-ancestor HEAD "$m" 2>/dev/null && return 1
