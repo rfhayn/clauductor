@@ -206,7 +206,7 @@ roadmap row ──► /clauductor:propose (just in time) ──► approval ─�
    Claude approves one on their behalf (`change-approval.sh --delegate`, `/clauductor:propose` step 3a) and
    pushes them one line, except a change on a guarded path or one step 3a keeps for the owner. The approval is recorded in
    `proposal.md` with a hash of the design (`change-approval.sh`), so a later edit to `design.md`
-   voids it until it is approved again (by the owner, or by step 3a). The proposal lands on `main` alone.
+   voids it until the owner approves it again (`--delegate` refuses a change approved before). The proposal lands on `main` alone.
 4. **Build per task group** (`/build-change`, or `/clauductor:apply-change` by hand): the loop below.
 5. **Verify** (`/clauductor:verify-change`): every task ticked, every scenario the change adds or modifies
    cited by a test (or escaped with a reason), and the diff touching what `tasks.md` claims.

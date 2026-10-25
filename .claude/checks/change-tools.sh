@@ -64,6 +64,8 @@ A; expect_rc 0 $? "change-approval: the delegated approval holds"
 # change again, whoever approved it before, and a standing approval is never written over.
 A --revoke; expect_rc 0 $? "change-approval --revoke of a delegated approval"
 grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "--revoke keeps the delegated approver in the Status line" || fail "--revoke: $(head -2 "$C/proposal.md")"
+A --revoke; expect_rc 0 $? "change-approval --revoke with no Approved line"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "...leaves the revoked marker as it was" || fail "a second --revoke: $(head -2 "$C/proposal.md")"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a revoked change, even one Claude had approved"
 grep -q -- "--record" "$d/out" && ok "...and names the owner's --record" || fail "no --record in: $(cat "$d/out")"
 A --record Ana; expect_rc 0 $? "change-approval --record approves a revoked change, clearing the marker"
