@@ -1,0 +1,23 @@
+# approval-guarded.txt: the paths a delegated approval may never cover (OPS-127).
+#
+# With APPROVAL_DELEGATED="1" in .claude/project.conf, Claude may record a change's approval for
+# the owner (`change-approval.sh <id> --delegate <owner>`), except for a change whose records
+# (proposal.md, design.md, tasks.md, its spec deltas) name any path below: those loosen a control
+# on Claude, so the owner approves them. One path or path prefix per line, matched as a literal
+# substring of the change's text, so `template/.claude/hooks/` is caught by `.claude/hooks/`.
+# This file is the authority checks/changes.sh iterates; an empty or missing list refuses every
+# delegated approval. Add your own lines; remove one only through a change the owner approves.
+.claude/approval-guarded.txt
+.claude/change-approval.sh
+.claude/checks/changes.sh
+.claude/project.conf
+.claude/hooks/
+.claude/settings
+.claude/review-cap.sh
+.claude/change-cost.sh
+.claude/workflows/build-change.js
+.claude/lib/change.sh
+.claude/lib/conf.sh
+.github/workflows/
+scripts/ci/
+AGENTS.md

@@ -44,6 +44,10 @@ every open change against the shape below.
   "<owner>"` writes the Approved line with a hash of `design.md` and the Risk line, and only on the
   owner's word. An edit to either afterwards voids it: the check fails until the owner approves
   again (`--revoke`, then `--record`).
+- **A delegated approval** (OPS-127): with `APPROVAL_DELEGATED="1"` in `.claude/project.conf`,
+  `--delegate "<owner>"` writes `by Claude (delegated by <owner>)`. It is refused, and the check
+  fails it, for a change whose records name a path in `.claude/approval-guarded.txt` (the controls
+  on Claude), or once the key is off again.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

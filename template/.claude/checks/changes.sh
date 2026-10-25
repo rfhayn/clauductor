@@ -55,6 +55,19 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk design; printf '\nA later thought.\n' >> "$F/$C/design.md"; case_bad "a design edited after approval" "CHANGED since the owner approved"
   mk risk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** normal/'; case_bad "a risk tier changed after approval" "CHANGED since the owner approved"
   mk norisk; edit $C/proposal.md '/^\*\*Risk:\*\*/d'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a proposal with no Risk line" "needs '**Risk:**"
+  # A delegated approval (OPS-127) holds only with APPROVAL_DELEGATED="1" and no guarded path named.
+  delegate() {  # delegate ON: the key set to ON, the guarded list copied, then Claude's approval written
+    printf 'APPROVAL_DELEGATED="%s"\n' "$1" > "$F/.claude/project.conf"; cp "$ROOT/.claude/approval-guarded.txt" "$F/.claude/"
+    edit $C/proposal.md 's/^\*\*Approved:\*\* \([0-9-]*\) by Ana /**Approved:** \1 by Claude (delegated by Ana) /'
+  }
+  mk deleg; delegate 1; case_ok "an approval delegated with APPROVAL_DELEGATED=1 and no guarded path"
+  mk delegoff; delegate 0; case_bad "a delegated approval while APPROVAL_DELEGATED is 0" "APPROVAL_DELEGATED is not"
+  mk delegguard; delegate 1; printf -- '- [ ] 9.1 Edit `template/.claude/hooks/pr-merge-guard.sh`\n' >> "$F/$C/tasks.md"
+  case_bad "a delegated approval of a change naming a guarded path" "names a guarded path"
+  mk delegnolist; delegate 1; rm "$F/.claude/approval-guarded.txt"; case_bad "a delegated approval with no guarded list" "approval-guarded.txt is missing"
+  mk delegempty; delegate 1; grep '^#' "$ROOT/.claude/approval-guarded.txt" > "$F/.claude/approval-guarded.txt"
+  case_bad "a delegated approval with an empty guarded list" "lists no path"
+  mk claudeplain; edit $C/proposal.md 's/ by Ana / by Claude /'; case_bad "an approval by Claude not in the delegated form" "not '(delegated by <owner>)'"
   mk badrisk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** medium/'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a Risk tier that is not low, normal or high" "is not low, normal or high"
   mk budget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15/**Budget:** $25/'; case_bad "a proposal whose budget differs from its roadmap row's" "has 'Budget: \$15'"
   mk nobudget; edit $C/proposal.md '/^\*\*Budget:\*\*/d'; case_bad "a proposal that drops its roadmap row's budget" "proposal.md says 'nothing'"
@@ -233,7 +246,7 @@ for c in "$dir"/*/; do
     # the design as written: an edit to design.md (or the Risk line) after it is a new design.
     if grep -qE '^\*\*Approved:\*\* ' "$p"; then
       out=$(ROOT="$ROOT" sh "$ROOT/.claude/change-approval.sh" "$id" 2>&1) \
-        && ok "$id: approved by the $OWNER_ROLE, and the design is unchanged since ($out)" \
+        && ok "$id: approved, and the design is unchanged since ($out)" \
         || fail "$id: $out. Put it back in front of the $OWNER_ROLE: 'sh .claude/change-approval.sh $id --revoke', then --record once they approve"
     elif grep -qE '^\*\*Status:\*\* awaiting approval' "$p"; then fail "$id: awaiting the $OWNER_ROLE's approval; it cannot merge until they approve ('sh .claude/change-approval.sh $id --record <name>')"
     else fail "$id: proposal.md needs '**Approved:** YYYY-MM-DD by <owner> · design <hash>' (or '**Status:** awaiting approval' while it waits)"; fi

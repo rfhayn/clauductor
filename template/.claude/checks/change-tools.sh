@@ -1,7 +1,8 @@
 #!/bin/sh
 # The scripts a change passes through, each falsified in a throwaway repo:
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
-#                       Risk line voids it; --revoke puts it back to awaiting.
+#                       Risk line voids it; --revoke puts it back to awaiting; --delegate records
+#                       Claude's approval only with APPROVAL_DELEGATED on and no guarded path named.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
@@ -42,6 +43,18 @@ sed 's/^\*\*Risk:\*\* high/**Risk:** low/' "$C/proposal.md" > "$d/p" && cp "$d/p
 A; expect_rc 0 $? "change-approval: restoring the design restores the approval"
 A --revoke; expect_rc 0 $? "change-approval --revoke"
 grep -qx '\*\*Status:\*\* awaiting approval' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back" || fail "--revoke: $(head -2 "$C/proposal.md")"
+# --delegate (OPS-127): refused while the key is off or the change names a guarded path.
+A --record Claude; expect_rc 64 $? "change-approval --record refuses Claude, whose approval goes through --delegate"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses while APPROVAL_DELEGATED is off"
+grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" || fail "no key reason in: $(cat "$d/out")"
+printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$ROOT/.claude/approval-guarded.txt" "$R/.claude/"
+A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
+grep -qE '^\*\*Approved:\*\* 2026-01-02 by Claude \(delegated by Ana\) · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads 'by Claude (delegated by <owner>)'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
+A; expect_rc 0 $? "change-approval: the delegated approval holds"
+cp "$C/design.md" "$d/design.bak"; echo "- **D3** edit \`.claude/settings.json\`" >> "$C/design.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a change naming a guarded path"
+grep -q 'guarded path.*\.claude/settings' "$d/out" && ok "...and names the path" || fail "no guarded path in: $(cat "$d/out")"
+cp "$d/design.bak" "$C/design.md"; rm "$R/.claude/project.conf" "$R/.claude/approval-guarded.txt"
 A --record Ana >/dev/null
 
 # ── verify-change.sh ───────────────────────────────────────────────────────────────────────────
