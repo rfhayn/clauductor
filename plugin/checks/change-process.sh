@@ -95,12 +95,9 @@ report .clauductor/panel.json
 report clauductor panel trust
 EOF
 }
-merge_pr_cmds() {  # the git and gh commands merge-pr may run outside step 5, none of them a pull;
-  # git merge only on the lane's own checkout (cwrite), to catch its branch up to origin/main
+merge_pr_cmds() {  # the git and gh commands merge-pr may run outside step 5, none of them a pull
   cat <<'EOF'
 git diff
-git fetch
-git merge
 git worktree remove
 gh pr create
 gh pr view
@@ -110,6 +107,20 @@ gh pr merge
 gh run list
 gh auth status
 gh api user
+EOF
+}
+# merge_pr_catchup: the code spans, whole, that may catch the PR's branch up to origin/main, and only
+# before step 5, while merge-pr runs in the branch's own checkout (OPS-124, #214). A list of spans,
+# not a rule about how a merge is aimed: the forms that aim one elsewhere (-C, --work-tree, -c
+# core.worktree, GIT_DIR=, env -C, sh -c, a fetch into main:main) are endless, and a span not listed
+# here falls to merge_pr_cmds, which lists no merge and no fetch. And no span outside step 5 changes
+# directory, so a listed merge cannot follow a `cd` on another line or in another span.
+merge_pr_catchup() {
+  cat <<'EOF'
+git fetch origin main
+git merge origin/main
+git merge --no-edit origin/main
+git fetch origin main && git merge origin/main
 EOF
 }
 # merge_pr_spans: reads the whole skill, every line of it, and prints "L <line>" for each line of
@@ -129,14 +140,18 @@ EOF
 # owner's bullet, back to report; a `####` heading is such a line. A blank line ends neither: a
 # list item may go on after one.
 merge_pr_spans() {
-  awk -v cmds="$(merge_pr_cmds | tr '\n' ',')" '
+  awk -v cmds="$(merge_pr_cmds | tr '\n' ',')" -v catchup="$(merge_pr_catchup | tr '\n' ',')" '
     function outside() { return part == "before" || part == "after" }
     function prose(s,   w) {
       if (outside()) { if ((w = pwrite(s)) != "") print "Q " part " " w; return }
       if ((" " s " ") ~ /[^A-Za-z0-9_.\/-](git|gh)[^A-Za-z0-9_-]/) print "P " part
     }
     function span(s,   w) {
-      if (outside()) { if ((w = cwrite(s)) != "") print "W " part " " w; return }
+      if (outside()) {
+        if (part == "before" && (trim(s) in caught)) return
+        if ((w = cwrite(s)) != "") print "W " part " " w
+        return
+      }
       print "S " part " " s
     }
     function flush(   t, i, r, j) {
@@ -149,30 +164,24 @@ merge_pr_spans() {
       prose(t)
     }
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-    # skip(t, j, m): the first word from j on that is not an option of git itself (-C <dir>, ...);
-    # sets aimed when one of them points git at another checkout
+    # skip(t, j, m): the first word from j on that is not an option of git itself (-C <dir>, ...)
     function skip(t, j, m) {
-      aimed = 0
-      for (; j <= m && t[j] ~ /^-/; j++)
-        if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) { if (t[j] != "-c") aimed = 1; j++ }
-        else if (t[j] ~ /^--(git-dir|work-tree)=/) aimed = 1
+      for (; j <= m && t[j] ~ /^-/; j++) if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
       return j
     }
-    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, or ""; a listed
-    # command that moves a checkout (git merge, catching up the lane branch itself) passes only on
-    # the checkout the span runs in: never with -C or the like, never after a cd in the same span
-    function cwrite(s,   n, c, k, m, t, i, j, cmd, moved) {
-      n = split(s, c, /\$\(|[|;&()]+/); moved = 0
+    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, or one that
+    # changes directory (a word cd or pushd anywhere, quoted or after then, as in sh -c), or ""
+    function cwrite(s,   n, c, k, m, t, i, j, cmd) {
+      n = split(s, c, /\$\(|[|;&()]+/)
       for (k = 1; k <= n; k++) {
         if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0) continue
         if (t[1] in moves) return trim(c[k])
-        if (t[1] == "cd" || t[1] == "pushd") moved = 1
         for (i = 1; i <= m; i++) {
+          if (t[i] ~ /^["\047]?(cd|pushd)$/) return trim(c[k])
           if (t[i] == "git" && (j = skip(t, i + 1, m)) <= m) {
             cmd = "git " t[j]
             if (t[j] == "worktree") cmd = cmd " " t[j + 1]
             if (!(cmd in ok)) return trim(c[k])
-            if ((t[j] in moves) && (aimed || moved)) return trim(c[k])
           }
           if (t[i] == "gh" && i < m && !(("gh " t[i + 1] " " t[i + 2]) in ok)) return trim(c[k])
         }
@@ -195,6 +204,7 @@ merge_pr_spans() {
       head[4] = "**The owner\047s step, in your report.**"; name[4] = "report"
       head[5] = "- `git pull --ff-only`, unless step 5 pulled"; name[5] = "owner"
       n = split(cmds, c, ","); for (i = 1; i <= n; i++) if (c[i] != "") ok[c[i]] = 1
+      n = split(catchup, c, ","); for (i = 1; i <= n; i++) if (c[i] != "") caught[c[i]] = 1
       n = split("pull merge reset checkout switch rebase restore stash update-ref", c, " ")
       for (i = 1; i <= n; i++) moves[c[i]] = 1
     }
@@ -415,12 +425,45 @@ git fetch origin main\
 git merge --no-edit origin/main\
 ```
 '
+# Review round 1 (OPS-124): a rule that read how a merge was aimed let each of these through. A
+# catch-up span is listed whole and only before step 5; merge-pr runs after it from the main
+# checkout too, so a bare merge there fast-forwards it.
+_red "a bare merge after the merge" '/^- Leave the roadmap row/i\
+- Then `git merge origin/main`.
+' "text after step 5 names \`git merge origin/main\`"
 _red "a merge into the main checkout by cd" '/^- Leave the roadmap row/i\
 - Then `cd "$main" && git merge origin/main`.
-' "text after step 5 names \`git merge origin/main\`"
-_red "a merge into the main checkout by --work-tree" '/^- Leave the roadmap row/i\
-- Then `git --work-tree="$main" merge origin/main`.
-' "text after step 5 names \`git --work-tree=\"\$main\" merge origin/main\`"
+' "text after step 5 names \`cd \"\$main\"\`"
+_red "a cd on its own line of a fenced block before the catch-up merge" '/^Run the full gate from the branch.s checkout/i\
+```bash\
+cd "$main"\
+git merge --no-edit origin/main\
+```
+' "text before step 5 names \`cd \"\$main\"\`"
+_red "a cd in a span of its own before the catch-up merge" '/^Run the full gate from the branch.s checkout/i\
+Run `cd "$main"`, then `git merge origin/main`.
+' "text before step 5 names \`cd \"\$main\"\`"
+_red "a cd inside a then" '/^Run the full gate from the branch.s checkout/i\
+Run `if true; then cd "$main"; fi`, then `git merge origin/main`.
+' "text before step 5 names \`then cd \"\$main\"\`"
+_red "a merge into the main checkout by sh -c" '/^Run the full gate from the branch.s checkout/i\
+Run `sh -c '\''cd "$main" \&\& git merge origin/main'\''`.
+' "text before step 5 names \`sh -c 'cd \"\$main\"\`"
+_red "a merge into the main checkout by --work-tree" '/^Run the full gate from the branch.s checkout/i\
+Run `git --work-tree="$main" merge origin/main`.
+' "text before step 5 names \`git --work-tree=\"\$main\" merge origin/main\`"
+_red "a merge into the main checkout by GIT_WORK_TREE" '/^Run the full gate from the branch.s checkout/i\
+Run `GIT_WORK_TREE="$main" git merge origin/main`.
+' "text before step 5 names \`GIT_WORK_TREE=\"\$main\" git merge origin/main\`"
+_red "a merge into the main checkout by -c core.worktree" '/^Run the full gate from the branch.s checkout/i\
+Run `git -c core.worktree="$main" merge origin/main`.
+' "text before step 5 names \`git -c core.worktree=\"\$main\" merge origin/main\`"
+_red "a merge into the main checkout by env -C" '/^Run the full gate from the branch.s checkout/i\
+Run `env -C "$main" git merge origin/main`.
+' "text before step 5 names \`env -C \"\$main\" git merge origin/main\`"
+_red "a fetch that moves main" '/^Run the full gate from the branch.s checkout/i\
+Run `git fetch --update-head-ok origin main:main`.
+' "text before step 5 names \`git fetch --update-head-ok origin main:main\`"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"

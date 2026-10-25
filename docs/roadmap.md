@@ -371,8 +371,8 @@ merged; the owner's decisions of 2026-10-21 set how its sessions run:
   for this repository on the owner's Mac: catch-up is on only when `clauductor panel catch-up
   --project <main checkout>` exits 0 and prints `on`, and anything else (`off`, an older
   clauductor, an error) counts as off. merge-pr's report names the step only then. With it on
-  (OPS-118), the panel fast-forwards the checkout, trusts a config the owner's merge brought, rebuilds itself, and
-  sends a notice for whatever it could not do. #164 stays open for its second item.
+  (OPS-118), the panel fast-forwards the checkout, trusts a config the owner's merge brought,
+  rebuilds itself, and sends a notice for whatever it could not do. #164 stays open for its second item.
 - **The records** are kept by a close once a working day, or every 3–4 rows (OPS-108).
 
 The lite edit's sessions map here as: its S7 to S8–S13 (S7 here holds S6's OPS-105), its S8 to
