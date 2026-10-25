@@ -101,21 +101,20 @@ If the line above shows as literal text instead of output, run
    - the change, or a decision in it, is money, legal or business, outward beyond this repo (a
      public site, a payment, a signer, a release), irreversible, or needs the owner at the computer;
    - it adds or amends an ADR or practice record, or its row says the owner approves it;
-   - its `**Risk:**` is lower than its row's own `Risk:` (a row with none is normal);
-   - it replaces an approval the owner gave: its last `**Approved:**` line read `by <owner>`, not
-     `by Claude (delegated …)`. `--revoke` erases that line, so read it first; once it is revoked,
-     read it from `git log -p -- changes/<id>/proposal.md`.
+   - its `**Risk:**` is lower than its row's own `Risk:` (a row with none is normal).
    Otherwise run `sh .claude/change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
-   `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote) and the change
-   names no path `.claude/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt` lists;
-   otherwise it refuses and says why: go to step 3. On success: run `sh .claude/checks/run.sh
+   `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote), the change
+   names no path `.claude/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt` lists,
+   and it was never approved before (a standing Approved line, or a Status line `--revoke` marked
+   `(revoked; was approved by …)`, whoever approved it); otherwise it refuses and says why: go to
+   step 3. On success: run `sh .claude/checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design
    <hash>`; then `PushNotification` the owner ONE line naming the change, its decisions and the PR,
    and go on to step 5's landing without waiting.
    **The owner overrules** on their word: before the proposal lands, `--revoke` in its PR and go to
-   step 4. Once it has landed, revise `design.md` as they decide in a new `proposal: <id>` PR, on a
+   step 4 (from then on `--delegate` refuses it; only their `--record` approves it). Once it has landed, revise `design.md` as they decide in a new `proposal: <id>` PR, on a
    branch of its own cut from `origin/<MAIN_BRANCH>` (`sh .claude/project-config.sh branch ops
    <id>-revise`; never the build's `<BRANCH_CHANGE><id>`), that carries their `--record` (a revoke alone can never pass the gate), and stop any build lane
    already started from the landed design until that PR merges.
@@ -148,11 +147,9 @@ If the line above shows as literal text instead of output, run
   Expect the proposal PR's gate to be red until it is approved (by the owner, or step 3a); that
   red is the control.
 - **An edit to `design.md` or the Risk line after approval voids it** (the hash no longer
-  matches, and the check fails). First read who approved it, since `--revoke` erases the line:
-  when it was the owner, the new approval is theirs too (step 3, never `--delegate`). Then
-  `--revoke`, review the edit as in step 2b, and approve it again the way step 3a decides:
-  `--delegate` when it still holds, otherwise put it in front of the owner and `--record` on their
-  word. Never re-record an approval the owner did not give.
+  matches, and the check fails). `--revoke`, review the edit as in step 2b, and put it in front of
+  the owner (step 3): `--delegate` refuses a change approved before, whoever approved it, so only
+  their `--record` approves it again. Never re-record an approval the owner did not give.
 - A design decision is the owner's even when the answer seems obvious: recommend, never decide,
   unless step 3a's delegation holds for the change. Then decide, and name each decision in the push.
 - Prefer a smaller change that converges over a complete one that does not.

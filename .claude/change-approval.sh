@@ -8,9 +8,16 @@
 #                                                          becomes the Approved line with today's hash
 #   sh .claude/change-approval.sh <id> --delegate "<owner>"  record Claude's approval on the owner's
 #                                                          delegation (OPS-127): only with
-#                                                          APPROVAL_DELEGATED="1" and the change
-#                                                          touching no guarded path
-#   sh .claude/change-approval.sh <id> --revoke            back to `**Status:** awaiting approval`
+#                                                          APPROVAL_DELEGATED="1", the change
+#                                                          touching no guarded path, and a proposal
+#                                                          never approved before (OPS-128)
+#   sh .claude/change-approval.sh <id> --revoke            back to `**Status:** awaiting approval
+#                                                          (revoked; was approved by <who>)`
+#
+# A revoke is final for delegation (OPS-128, the owner's ruling): once a change has been approved
+# and revoked, whoever approved it, only the owner approves it again. --revoke keeps who approved in
+# the Status line, --delegate refuses while that marker or any Approved line stands, and only
+# --record clears it. So an edit after any approval, which voids it, goes to the owner.
 #
 # The Approved line reads `**Approved:** YYYY-MM-DD by <owner> · design <hash>`, or for a delegated
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the
@@ -126,6 +133,9 @@ case "${1:-}" in
   --delegate)
     owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --delegate needs the delegating owner's name" >&2; exit 64; }
     [ -z "$OWNER_NAME" ] || [ "$owner" = "$OWNER_NAME" ] || { echo "change-approval: only OWNER_NAME ($OWNER_NAME) delegates, not $owner" >&2; exit 64; }
+    # A proposal approved before, standing or revoked since, is the owner's to approve again (OPS-128).
+    prior=$(grep -E '^\*\*(Approved:\*\*|Status:\*\* awaiting approval \(revoked)' "$dir/proposal.md" | head -1)
+    [ -z "$prior" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: it was approved before ($prior), so only the $OWNER_ROLE approves it again: 'sh .claude/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     why=$(delegable); [ -z "$why" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"
@@ -137,8 +147,11 @@ case "${1:-}" in
     echo "recorded: $CHANGES_DIR/$id approved by $owner, design $hash"
     ;;
   --revoke)
-    rewrite "**Status:** awaiting approval"
-    echo "revoked: $CHANGES_DIR/$id is awaiting approval again"
+    line=$(grep -E '^\*\*Approved:\*\*' "$dir/proposal.md" | head -1)
+    [ -n "$line" ] || { echo "revoked: $CHANGES_DIR/$id has no Approved line; it is awaiting approval already"; exit 0; }
+    who=$(printf '%s\n' "$line" | sed -nE 's/^\*\*Approved:\*\* [0-9-]+ by (.+) · design .*/\1/p')
+    rewrite "**Status:** awaiting approval (revoked; was approved by ${who:-an unreadable line})"
+    echo "revoked: $CHANGES_DIR/$id is awaiting approval again; only the $OWNER_ROLE approves it now (--record)"
     ;;
   '')
     line=$(grep -E '^\*\*Approved:\*\*' "$dir/proposal.md" | head -1)
