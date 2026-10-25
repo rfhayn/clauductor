@@ -9,6 +9,10 @@
   recommended: a lane closes only when its branch is merged or its claude has exited (D2).
   "Exited" is read as the program's exit (`Dead`), not a gone tmux session, so a restorable lane
   keeps its restore unless its branch merged (revision review M3); the owner confirms it with D2.
+- 2026-10-24: the owner approved D1–D7 as recommended, "with the four as build tasks": the four
+  findings review round 3 left open at 595bfe19 are tasks 1.4, 1.5 and 4.3, not design edits, so
+  `design.md` stays as approved. Where one of them refines `design.md`'s words (when an ended
+  session's hold lifts, D5's retry), the task governs.
 
 ## 1. The close verdict and the socket's route (D2, D4)
 - [ ] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
@@ -90,6 +94,29 @@
   runner recording no stop and no removal; a close whose request context is cancelled before `Close` returns
   still reaches the manager under a live context. Citing [LANECLOSE-3-S1], [LANECLOSE-2-S1],
   [LANECLOSE-2-S3], [LANECLOSE-2-S4], [LANECLOSE-1-S4], [LANECLOSE-4-S1].
+- [ ] 1.4 Review round 3's two verdict findings (the owner's decision of 2026-10-24), in
+  `state/model.go` and `state/stall.go`. **A poll that straddles a `/clear`:** an ended session's
+  hold lifts only on a reading whose poll *started* after `endedAt`, not one merely applied after
+  it. `m.agentsOKAt` is the apply time (`model.go:703`), so `ApplyAgentsTimed` also stores the
+  poll's start (`now - dur`) beside it, and task 1.1's rule compares `endedAt` with that start. A
+  poll can run up to `agentsPollCap` (30 s, `state/blocked.go:224`). **A re-listed session keeps
+  its last `Stop`:** `s.end` drops the stall's saved `Stop` (`stall.go:379-381`) and
+  `stallListed` cannot restore it once `stallPolled` has cleared it (`stall.go:338-357`), so the
+  tasks task 1.1's verdict reads survive `s.end`, kept on the session until a newer `Stop`
+  replaces them or `forgetSessions` drops the session. The stall's own reading is unchanged.
+  Tested in `framework/internal/panel/state/model_lanes_test.go`: an `idle` lane whose session
+  posts `SessionEnd` (reason `clear`) while a poll is under way, that poll then applied listing
+  the old session `idle`, is still held with the ended words, and released by the next poll
+  started after the end; a session whose last `Stop` lists a running subagent, then ended, then
+  listed `idle` again, is held naming the subagent, and released once a later `Stop` lists none;
+  the stall tests pass unchanged. Confirm each test fails with the change reverted. Citing
+  [LANECLOSE-2-S1], [LANECLOSE-2-S3].
+- [ ] 1.5 Review round 3's test finding: task 1.3's cancel test must fail without the check. Its
+  runner stub cancels the request's context on the last plan call **and still returns the plan's
+  normal output**, so the plan stays merged and the unmerged refusal cannot answer in its place;
+  the test asserts the cancellation's answer (not a 409 naming the branch), and no stop and no
+  removal. Run it once with the `r.Context()` check removed and see it fail. Citing
+  [LANECLOSE-4-S1].
 
 ## 2. The socket in the panel's life (D1, D4)
 - [ ] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
@@ -197,5 +224,10 @@
   `.claude/settings.json` and `.claude/skills/`, so if update cannot write either, or stops
   part-way, the builder undoes what it wrote the same way, stops, and asks the owner to run that one command. Held by `TestCommittedPluginIsCurrent`, `checks/skills.sh` and
   `checks/settings.sh`.
+- [ ] 4.3 Review round 3's retry finding (the owner's decision of 2026-10-24): in task 4.2's
+  sentence and task 4.1's docs, on the retry after a timeout **any** "no lane" answer, the
+  manager's own `404 "no lane %q"` (`lanes/close.go:343-345`) among them, means "closed or
+  closing", and is never a cue to try another id from the unknown-id list; that list is read only
+  on a first call. Held by `TestCommittedPluginIsCurrent` and `checks/skills.sh`.
 
 - [ ] Slice: an agent can close a finished panel lane with clauductor lane close, through Close lane's plan and guards, and cannot close a working one
