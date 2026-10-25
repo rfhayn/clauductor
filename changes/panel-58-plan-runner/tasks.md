@@ -30,10 +30,13 @@
     `roadmap-plan.sh` names its row.
   - Its `kind` is `build` for a change row whose proposal is on main, `propose` for one without,
     `ops` for an `ops/` row, `fix` for a `fix/` row, and `close` for the close.
+  - A planned `ID (proposal)` entry is `propose` until its proposal is on main or archived, and
+    has landed after that, counted per entry by the same rule `close` uses (`$tmp/proposed`), so
+    it is never offered as a build.
   - It reads the plan only through `roadmap-plan.sh` and the queue only through `roadmap_queue`:
     no second parser.
   - Tested in `template/.claude/checks/panel-suggest.sh`, citing [PLANRUN-8-S1], [PLANRUN-8-S2],
-    [PLANRUN-8-S3], [PLANRUN-8-S4] and [PLANRUN-8-S5]. The fixture roadmaps are built as the
+    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5] and [PLANRUN-8-S6]. The fixture roadmaps are built as the
     check's OPS-126 cases build theirs.
 - [ ] 1.2 Run `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root
   with the binary built from this checkout. This syncs this repository's `.claude/panel-suggest.sh`
@@ -90,6 +93,15 @@
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and tracks a
     running lane on the item's branch. A lane whose HEAD a merged PR holds (`mergedPRRead`) is not
     adopted.
+  - **The item's branch** comes from the one template whose current Up next list names the item,
+    by its `branch_pattern` with the item's name. When none does, or more than one does, nothing
+    is adopted, and `planRun` names the item.
+  - **A step cut short.** Every step and the catch-up wait take the runtime's context. An error
+    with that context done writes nothing, sends nothing, and leaves `watching`. `StartLane` runs
+    on `context.WithoutCancel` once `starting` is written, so `halt`'s `wg.Wait()` waits for it.
+    Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-2-S9]: the context
+    cancelled during the wait and during `next`, a second runner on the same `plan-run.json`, and
+    a cancel during a stand-in `StartLane` that blocks until released.
   - **Trigger.** While watching, it reads the tracked branch's merged PRs through `mergedPRList`
     with `number,body,mergedAt,mergeCommit`: when the branch leaves the open list, every 5
     minutes, and on start. A PR merged after `since` is the trigger. Merges of other branches are
@@ -117,9 +129,13 @@
     (`catchup.go:411`), retries a failed fetch once 30 seconds later, then checks
     `git merge-base --is-ancestor`.
   - **Catch-up settles.** While catch-up is on for the project, the runner calls `catchUp.wake`
-    for the root and waits, for 15 minutes at most, for a check of that root that began after the
-    fetch to end. `catchUp` gains the hook it waits on (a check's start and end per root). A
-    rebuild restarts the panel inside that check, so the start never begins in the old binary.
+    for the root and waits, for 15 minutes at most, until catch-up has settled. That is a check
+    of the root, begun after the fetch, that ended with the context alive, after which either the
+    main checkout's HEAD contains the merge commit (`git merge-base --is-ancestor <merge> HEAD`),
+    or `catchUp.retries` holds no retry for the root.
+  - `catchUp` gains the hook it waits on: per root, a check's start and end, and whether a retry
+    is pending when it ends. A rebuild restarts the panel inside that check, so the start never
+    begins in the old binary.
   - It runs `next`: `[]` stops, and so do a `decision` or `kind: propose` (D3), a failed or
     timed-out command, and any output but one item.
   - An item with the tracked lane's `row` **and** `kind` stops too: no fragment on main names it
@@ -132,8 +148,9 @@
     [PLANRUN-4-S9].
   - Tested in `framework/internal/panel/planrun_test.go` with a stand-in catch-up hook, citing
     [PLANRUN-2-S8]: a check still running when the runner stops (the rebuild), a second runner
-    started on the same `plan-run.json` (the new binary), a check that ends with no rebuild, and
-    one that never ends.
+    started on the same `plan-run.json` (the new binary), a check that ends with no rebuild, a
+    check that ends on a transient refusal with a retry pending and then a retry that moves HEAD,
+    one that ends on a policy refusal with none pending, and one that never ends.
 - [ ] 4.2 Where the lane runs, in Go, mirroring `planStart` (`web/static/start-plan.js:97-145`)
   over `TemplateBranch`'s facts.
   - A busy branch is a stop, and so is a HEAD a merged PR holds.

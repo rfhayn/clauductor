@@ -128,6 +128,14 @@ Read on 2026-10-25, at `0cfced2b`.
     - or `[]` when there is no plan or no open session.
   - **Its fields.** The item carries `kind` (`build`, `propose`, `ops`, `fix` or `close`), `row`,
     and `decision`, which is the `D` record's text when the plan names one for that row.
+  - **A planned `ID (proposal)` entry** has kind `propose` until its proposal is on main or
+    archived. Then it has landed, though no fragment names it, as `close` already counts it
+    (`panel-suggest.sh`'s `$tmp/proposed`, OPS-126). It is counted per entry: the same id's build
+    entry, in a later session, waits for its own fragment.
+    - So `A (proposal)` then B names B once A's proposal is on main, never A's build, which is a
+      later session's.
+    - A plain entry A whose proposal is on main is A's build. That is the case the runner's
+      merged-proposal stop is about (step 4).
   - **Its name** is the one its kind's list uses: the change id, the `ops/` branch without its
     prefix, `session-N-close`.
     - A `fix/` row's is its branch without its prefix.
@@ -327,6 +335,13 @@ rebuild, a crash) resumes it:
 **Adopt.** While idle, the runner reads `next` on the suggest commands' cadence. A running lane on
 the item's branch is adopted: the runner records its branch, its row, its kind and the time. A lane
 whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
+- **The item's branch** is step 5's lookup, over the Up next lists the last refresh left: the one
+  template whose list names the item gives it, by that template's `branch_pattern` with the
+  item's name.
+- `next` prints no branch, and two templates can share a pattern: build and propose both use
+  `change/{name}`. The list that names the item is what tells them apart.
+- When no list names the item, or more than one does, nothing is adopted, and `planRun` names the
+  item.
 
 **Trigger.** While watching, the runner reads the tracked branch's merged pull requests
 (`mergedPRList`, with `number,body,mergedAt,mergeCommit`):
@@ -335,7 +350,23 @@ whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
 - on start.
 
 A PR merged after `since` is the trigger. Then the runner goes through these steps in order. Each
-one that fails is a stop:
+one that fails is a stop, except one the runtime cut short:
+- **A step cut short is not a stop.** Every step, and step 3's wait, runs under the project
+  runtime's context. Three things cancel that context with the runner part way through:
+  - catch-up's restart (`restarted.Store(r); cancel()`, `run.go:429`);
+  - a config arrival's reload;
+  - the owner's **Trust config…** (`halt`, `live.go:145-160`).
+- When a step ends with that context done, the runner writes nothing and sends nothing. The state
+  stays `watching`, so the next runtime, or the next binary, finds the merge again on start. A
+  stop there would clear the tracked branch and lose the merge.
+- Because the wait ends on the context too, `halt`'s `wg.Wait()`, which runs with the liveSet's
+  lock held, is never held for the wait's 15 minutes.
+- **Step 8 is the exception.** Once `starting` is written, `StartLane` runs on a context detached
+  from the runtime's cancel (`context.WithoutCancel`), under its own timeouts. `halt` and
+  `stopAll` wait for the runtime's goroutines (`live.go:160,172`), so a restart waits for the
+  start to end, and `watching` is written before the runtime stops.
+- A `starting` state is then left only by a process that died during the start. That is the stop
+  "the panel restarted while starting <row>".
 1. **The `Review:` line**, as D8 (b) reads it.
 2. **The close.** When the tracked kind was `close`, the run ends: a stop whose notice says the
    session has closed.
@@ -345,15 +376,27 @@ one that fails is a stop:
      fetch the same ref at the same time, and catch-up already treats its own failed fetch as
      transient (`catchup.go:411-416`).
    - **Then catch-up settles.** While catch-up is on for the project, the runner wakes it
-     (`catchUp.wake`) and waits for a check of the project's root that began after the fetch to
-     end, for 15 minutes at most; past that, it is a stop.
+     (`catchUp.wake`), then waits, for 15 minutes at most, for a check of the project's root that
+     began after the fetch to end. Past 15 minutes, it is a stop.
+   - **Settled** means that check ended with the context alive, and one of these holds:
+     - the main checkout's HEAD contains the merge commit, so the fast-forward ran, and any
+       rebuild with it;
+     - no retry is pending for the root (`catchUp.retries`): the check ended on a refusal of
+       policy (a dirty checkout, a commit with no PR, a config outside the repository), which
+       waits for the next trigger.
+   - A check that ended on a transient refusal (a failed fetch or `gh` call, any timed-out
+     call: `catchup.go:315,415,496,513`) leaves a retry pending, which `retryAfter` runs after
+     1, 3 and 6 minutes. That retry fast-forwards, and may rebuild, so the runner keeps waiting
+     through it, within the same 15 minutes.
    - Why: the same merge often changes `framework/`, so catch-up rebuilds the panel and restarts
      it (CATCHUP-4). The restart's `quiesce` (`selfupdate.go:209`) waits for the panel's claude
-     calls, not for a lane start. A restart during step 8 is the `starting` stop, and one during
-     the new lane's first prompt leaves it `typing`, which is never retyped (`types.go:119-121`).
-   - A check that rebuilds never ends in this process: the panel restarts first. The state is
-     still `watching`, so the new binary finds the merge again on start and runs these steps
-     there.
+     calls, not for a lane start. Step 8 holds the restart until it ends (above), but a restart
+     during the new lane's first prompt leaves it `typing`, which is never retyped
+     (`types.go:119-121`).
+   - A check that rebuilds ends with the panel's context cancelled: the restart cancels it
+     (`run.go:429`), and the check returns on `ctx.Err()`. The wait ends on the same context
+     without a stop, as above. The state is still `watching`, so the new binary finds the merge
+     again on start and runs these steps there.
    - **Beat (b): make the restart's quiesce wait out a `starting` run.** That covers step 8, but
      not the first prompt typed after it, and it holds every rebuild on the runner.
 4. **The next row.** `next` again. `[]` means the plan has no row left. A `decision`, or
@@ -392,7 +435,8 @@ one that fails is a stop:
 **After the start.** The first prompt and a lane that stops short are D7's.
 
 **A restart.** On start, a `starting` state is a stop ("the panel restarted while starting <row>").
-Adoption then tracks the lane if one runs on that branch.
+Since step 8 holds the runtime's stop until it ends, only a process that died leaves one. Adoption
+then tracks the lane if one runs on that branch.
 
 **A stop.**
 - The runner clears the tracked branch, writes `stop`, and sends one notice. The notice is an OS
@@ -424,7 +468,8 @@ Adoption then tracks the lane if one runs on that branch.
 | The merged PR's `Review:` line is capped, NOT converged, missing, doubled or unreadable | Stop, push naming the PR and the line |
 | The merged PR was the session's close | The run ends, push naming the session |
 | The fetch fails twice, 30 seconds apart, or the merge commit is not on the base ref | Stop, push naming the error |
-| Catch-up's check after the fetch has not ended in 15 minutes | Stop, push naming the project |
+| Catch-up has not settled 15 minutes after the fetch (no check ended with the merge in HEAD or no retry pending) | Stop, push naming the project |
+| The runtime's context ends during a step before the start (a restart, an arrival, **Trust config…**) | No stop, no notice: the state stays `watching`, and the next start finds the merge again |
 | `next` fails, times out or prints something unreadable | Stop, push naming the error |
 | `next` prints `[]` | Stop, push: the plan has no row left |
 | `next` names the row and kind that just merged (no fragment on main names it) | Stop, push naming the row and the PR |
