@@ -349,7 +349,7 @@ nsw 0 "a subagent's background Agent call is recorded" "$(swp PostToolUse s1 a11
 nsw 2 "a subagent's stop before the agent it launched has started" "$(swp SubagentStop s1 a11 "$(abt running)")"
 nsw 0 "the agent it launched starts" "$(swp SubagentStart s1 ab12)"
 nsw 2 "a subagent's stop while the agent it launched runs" "$(swp SubagentStop s1 a11 "$(abt running)")"
-case $nsw_out in *"Wait for each agent"*"$WS/s1/ended/ab12"*"Re-run the wait"*"only once the marker exists"*) ok "no-silent-wait: the refusal says to wait for the agent's end marker, and to re-run the wait rather than end the turn" ;;
+case $nsw_out in *"Wait for each agent"*"$WS/s1/ended/ab12"*"Re-run the wait"*"while the agent still runs"*"no longer runs"*"end your turn"*) ok "no-silent-wait: the refusal says to wait for the agent's end marker, to re-run the wait while it runs, and to end the turn once it no longer does" ;;
   *) fail "no-silent-wait: the refusal does not name $WS/s1/ended/ab12 as the agent's wait, or the re-run: $nsw_out" ;; esac
 # A launcher whose agent was stopped (TaskStop: a terminal status, and no marker) may end (#156).
 nsw 0 "another subagent launches the same agent" "$(swp PostToolUse s1 a14 "$agent_bg")"

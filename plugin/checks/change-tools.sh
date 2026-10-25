@@ -160,8 +160,17 @@ cp "$C/tasks.md" "$d/tasks.bak"
 printf -- '- [x] 9.1 Call `config.LoadProjects` from `src/home/greeting.ts` under `/bin/sh`, beside `doctor_test.go`\n- [x] 9.2 Wire `template.Resolve` into `pkg.Func`\n' >> "$C/tasks.md"
 V; rc=$?; expect_rc 0 "$rc" "verify-change reads no code identifier as a path claim"
 [ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
+grep -q '^NOTE task names no path of the repo, so it is not judged (template.Resolve pkg.Func): - \[x\] 9.2' "$d/out" \
+  && ok "...and says the task it could not judge was not judged" || fail "no not-judged note for 9.2: $(grep 9.2 "$d/out")"
+cp "$d/tasks.bak" "$C/tasks.md"
+printf -- '- [x] 9.4 Read `/etc/x.conf`\n' >> "$C/tasks.md"
+V; expect_rc 0 $? "verify-change reads no absolute path as a claim, one with an extension included"
 printf -- '- [x] 9.3 Write `src/home/never.ts`\n' >> "$C/tasks.md"
 V; expect_rc 1 $? "...but still fails a task naming a new path the diff never wrote"
+cp "$d/tasks.bak" "$C/tasks.md"
+# A path of the repo the diff never touched is a claim even with no extension: a directory.
+printf -- '- [x] 9.5 Update `specs/greeting`\n' >> "$C/tasks.md"
+V; expect_rc 1 $? "verify-change fails a task naming an unchanged path of the repo, a directory with no extension"
 cp "$d/tasks.bak" "$C/tasks.md"
 
 sed 's/- \[x\] 1.2/- [ ] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"

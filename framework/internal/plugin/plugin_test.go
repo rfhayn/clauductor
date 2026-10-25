@@ -973,6 +973,13 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 		`v=$(sh -e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
 		"v=$(sh -c '\n  . \"$CLAUDUCTOR_FW/lib/conf.sh\"')",
 		`x="$(sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')"`,
+		// Forms the rewrite does not pass: reported, so a template line using one fails here.
+		`v=$(sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh +e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh -c -- '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		"x=`sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'`",
+		`v=$(/bin/sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
 	} {
 		if got := unpassedChildren(l); len(got) != 1 {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
@@ -983,22 +990,25 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	}
 }
 
-// unpassedChildren returns each child `sh <options, one with c> '<body>'` in the script whose body
-// names CLAUDUCTOR_FW and whose command does not set it among its leading assignments. Written
-// apart from the rewrite's regex, so the two do not share a mistake: the body runs to its closing
-// quote over as many lines as it takes, and the text before the child on its line is read as the
-// shell reads it (commandWords) to find where its command starts (#232).
+// unpassedChildren returns each child `<any shell> <arguments, an option with c among them> '<body>'`
+// in the script whose body names CLAUDUCTOR_FW and whose command does not set it among its leading
+// assignments. Written apart from the rewrite's regex, so the two do not share a mistake: any shell
+// by any path (`/bin/sh`, `bash`), any unquoted arguments (`-o errexit -c`, `+e`, `--`), a body
+// that runs to its closing quote over as many lines as it takes, and the text before the child on
+// its line read as the shell reads it (commandWords) to find where its command starts (#232). A
+// form the rewrite does not pass is then reported here, not shipped with an empty variable.
 func unpassedChildren(s string) []string {
 	var bad []string
-	child := regexp.MustCompile(`(^|[\s;&|(])sh((?:[ \t]+-[A-Za-z]+)+)[ \t]+'`)
+	child := regexp.MustCompile("(^|[\\s;&|(`])((?:[\\w./-]*/)?(?:ba|da|z|k)?sh)((?:[ \\t]+[^\\s'\"]+)+)[ \\t]+'")
+	withC := regexp.MustCompile(`(^|\s)-[A-Za-z]*c[A-Za-z]*(\s|$)`)
 	names := regexp.MustCompile(`\$\{?` + FWVar + `\b`)
 	assign := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 	for _, loc := range child.FindAllStringSubmatchIndex(s, -1) {
 		end := strings.IndexByte(s[loc[1]:], '\'')
-		if !strings.Contains(s[loc[4]:loc[5]], "c") || end < 0 || !names.MatchString(s[loc[1]:loc[1]+end]) {
+		if !withC.MatchString(s[loc[6]:loc[7]]) || end < 0 || !names.MatchString(s[loc[1]:loc[1]+end]) {
 			continue
 		}
-		sh := loc[3]
+		sh := loc[4]
 		words, isCommand := commandWords(s[strings.LastIndexByte(s[:sh], '\n')+1 : sh])
 		if !isCommand {
 			continue
@@ -1035,6 +1045,8 @@ func commandWords(p string) (words []string, isCommand bool) {
 		case c == '$' && i+1 < len(p) && p[i+1] == '(':
 			start, q = i+2, 0
 			i++
+		case c == '`':
+			start, q = i+1, 0
 		case q == '"':
 			if c == '"' {
 				q = 0
