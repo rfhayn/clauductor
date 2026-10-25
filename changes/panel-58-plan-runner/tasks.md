@@ -91,15 +91,16 @@
 - [ ] 3.1 `framework/internal/panel/planrun.go` (new): the runner's loop in the project runtime,
   started beside auto-close.
   - Its state file is `plan-run.json` in `config.ProjectDir(home, project)`, holding `branch`,
-    `row`, `name`, `kind`, `lane`, `started`, `since`, `state` (`idle`, `watching`, `starting`),
-    `stop` and the keys of the notices sent. `waiting` is the runtime's alone, never written. It is written atomically (`config.WriteAtomic`) before each step that
+    `lane`, `started`, `item` (`next`'s item whole, one value, never a subset of its fields),
+    `since`, `state` (`idle`, `watching`, `starting`), `stop` and the keys of the notices sent. `waiting` is the runtime's alone, never written. It is written atomically (`config.WriteAtomic`) before each step that
     starts or stops anything.
   - It runs only while `plan_runner.on` is true and the config is trusted. Otherwise it keeps its
     state and does nothing.
   - **Who may be tracked** (PLANRUN-9).
-    - `candidates(item)` returns the `branch_pattern`s of the templates `Config.TemplateKind`
-      gives the item's kind, with its name, deduplicated, or, when there are none, the reason. No
-      Up next list is read.
+    - `candidates(item)` returns the branches `Config.TemplateBranch(id, item.name, item.issue)`
+      gives the templates `Config.TemplateKind` gives the item's kind, deduplicated. A template it
+      refuses for the item is no candidate. When none is left, it returns the reason, naming
+      `TemplateBranch`'s errors if any. No Up next list is read.
     - `adoptable(item)` looks up the project's running lanes on the candidates itself, and
       returns an `Adoption` or the reason, in design.md's order: no template of the item's kind;
       no lane on any candidate; matching lanes on two candidates; a lane record whose `Template`
@@ -109,7 +110,7 @@
       that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one. It
       carries the lane, the item and `started`, false unless the restart marks it (task 4.2).
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and calls
-    `adoptable` for the item. An allowed lane is tracked with `next`'s row, name and kind, and
+    `adoptable` for the item. An allowed lane is tracked with `next`'s item, whole, and
     `started` false. A refusal sets the runtime's `waiting` to its reason and pushes nothing.
     Tracking a lane or writing a stop clears `waiting`.
   - Tested in `framework/internal/panel/planrun_test.go`, one table over `adoptable`'s reasons
@@ -176,15 +177,16 @@
   over `TemplateBranch`'s facts.
   - A busy branch is a stop, and so is a HEAD a merged PR holds.
   - `adoptable(item)` (task 3.1) runs next: an allowed lane is tracked and nothing starts; "no
-    lane on any candidate" goes on to the mode; any other refusal is a stop naming its reason.
+    template of the item's kind" and "no lane on any candidate" go on to the mode; any other
+    refusal is a stop naming its reason.
   - Otherwise the mode is `existing`, `branch` or `new`.
-  - The runner writes `starting` with the item's row, name, kind and branch and the time. It calls
+  - The runner writes `starting` with the item, whole, its branch and the time. It calls
     `StartLane` on the runtime's context with the template, name, mode, worktree and issue and the
     gate `orchestration()` builds (trust and the 5-hour `QuotaGuard`), never `OverrideQuota`. Then
     it writes `watching` on the new lane's branch, with `started` true.
   - A refusal is a stop naming it.
   - On start, a `starting` state is resolved first (D12), through `adoptable` for the recorded
-    row, name and kind. An allowed lane is tracked with no notice; when it is on the recorded
+    item, whole. An allowed lane is tracked with no notice; when it is on the recorded
     branch, the restart marks the `Adoption` started before `track`. "No lane on any candidate"
     is a stop naming the row, the branch and what step 6 finds there. Any other refusal is a stop
     naming its reason.
@@ -197,6 +199,11 @@
       whose item no list names.
     - [PLANRUN-9-S2]: a propose lane on `change/b` at step 6 while `next` names B's build, and the
       same lane found by a restart's resolution of `starting` for B's build.
+    - [PLANRUN-9-S3]: `next` `["sh", "scripts/next-row.sh"]` with no lane on `change/b`, where
+      step 6 goes on and the fake starter records B's build start, with no notice.
+    - [PLANRUN-9-S4]: a config whose fix template's pattern is `fix/{issue}-{name}`: its lane
+      adopted while idle, the same lane found by a restart's resolution of `starting` and tracked
+      with `started` true, and an item with no issue leaving `waiting` naming the template.
     - [PLANRUN-1-S4]: an untrusted config that starts nothing, then **Trust config…** and the start.
     - [PLANRUN-2-S5]: a merge found on start, then a second restart that starts nothing.
     - [PLANRUN-2-S9]: the context cancelled during the catch-up wait and during `next`'s second

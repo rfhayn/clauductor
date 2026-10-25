@@ -82,7 +82,7 @@ that reloads, `projects.json` moving or removing the project), THE SYSTEM SHALL 
 cut short, not failed: it SHALL write nothing and send no notice. Before the start the state
 SHALL stay `watching`, so the next runtime finds the merge again. During the start it SHALL stay
 `starting`, and no runtime's stop SHALL wait for more than the start's return on its cancelled
-context. The `starting` state SHALL record the item's row, name, kind and branch. WHEN a runtime
+context. The `starting` state SHALL record `next`'s item, whole, and its branch. WHEN a runtime
 starts on a `starting` state, THE SYSTEM SHALL run PLANRUN-9's check for the recorded item and
 track the lane it allows with no notice, or, WHEN no lane runs on any candidate, start nothing and
 stop with a notice naming the row and the branch. And
@@ -423,8 +423,11 @@ list of open issues names only WHEN it is that issue's `<n>-<title slug>`.
 ### Requirement: A lane the runner did not start is tracked only through one check
 THE SYSTEM SHALL read the item's candidate branches in one place. A template is of kind K WHEN its
 suggest command is the `next` argv with its last element replaced by K, element for element. The
-candidates are the `branch_pattern`s of the templates of the item's kind, with the item's name,
-equal ones counted once. THE SYSTEM SHALL track a lane it did not start in that same step only
+candidates are the branches the templates of the item's kind name for the item, filled by the
+same function and from the same fields, the name and the issue, that a start fills its branch
+from, equal ones counted once. A template whose branch cannot be filled for the item is no
+candidate. THE SYSTEM SHALL record `next`'s item whole wherever the run keeps it, never a subset
+of its fields. THE SYSTEM SHALL track a lane it did not start in that same step only
 WHEN one check over those candidates allows it. The check SHALL take only the item, and look up
 the project's running lanes on the candidates itself. It allows WHEN one lane runs on exactly one
 candidate, that lane's recorded template is of the item's kind, and the merged pull requests are
@@ -435,9 +438,9 @@ no template is of the item's kind; no lane runs on any candidate; matching lanes
 one candidate; the lane's template is of another kind or none; the merged pull requests could not
 be read; the lane's HEAD is merged work. A failed read SHALL NOT be taken for no merged pull
 request. While idle, THE SYSTEM SHALL name the reason in `planRun.waiting` and send no notice. At
-step 6, no lane on any candidate SHALL let the step choose a mode. On a restart, it SHALL be
-PLANRUN-2's stop naming the row and the branch. At step 6 and on a restart, every other reason
-SHALL be a stop with its notice.
+step 6, no template of the item's kind and no lane on any candidate SHALL each let the step choose
+a mode. On a restart, no lane on any candidate SHALL be PLANRUN-2's stop naming the row and the
+branch. At step 6 and on a restart, every other reason SHALL be a stop with its notice.
 
 #### Scenario: [PLANRUN-9-S1] While idle, each refusal of the check names its reason
 - **GIVEN** a trusted config with the plan runner on, tracking nothing, and `next` naming A's build
@@ -460,3 +463,19 @@ SHALL be a stop with its notice.
   kind
 - **AND** when instead a runtime starts on a `starting` state for B's build on `change/b`, and that
   propose lane is what runs there, nothing is tracked, and one notice names the same reason
+
+#### Scenario: [PLANRUN-9-S3] A `next` that gives no template a kind still starts at step 6
+- **GIVEN** a trusted config with the plan runner on, `next` `["sh", "scripts/next-row.sh"]`, a
+  tracked merge whose next row is B's build, B's proposal on main, and no lane on `change/b`
+- **WHEN** the runner reaches step 6
+- **THEN** no notice goes out, and a lane of the build template starts on `change/b`
+
+#### Scenario: [PLANRUN-9-S4] A branch pattern with `{issue}` is a candidate from the item's issue
+- **GIVEN** a trusted config with the plan runner on, whose fix template has the branch pattern
+  `fix/{issue}-{name}` and is of kind `fix`, and `next` naming the fix item `typo` with issue `12`
+- **WHEN** a lane of the fix template runs on `fix/12-typo`, and the runner's idle read runs
+- **THEN** `plan-run.json` tracks `fix/12-typo`, with the item whole, issue `12` included
+- **AND** when instead `plan-run.json` is `starting` for that item on `fix/12-typo`, and that lane
+  runs there when the next runtime starts, it is tracked with `started` true and no notice goes out
+- **AND** when the item has no issue, the fix template is no candidate, and `planRun.waiting` names
+  the template and that it needs an issue
