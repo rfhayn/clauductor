@@ -184,12 +184,14 @@ merge_pr_spans() {
     }
     # cwrite(s): the first command of code span s that merge_pr_cmds does not list, one that
     # changes directory (a word cd or pushd anywhere, quoted, escaped, after then or assigned, as
-    # in sh -c or c=cd), one named by a variable ($c), or one that sets GIT_* (an export too), or ""
+    # in sh -c or c=cd), one named by a bare variable with arguments ($c "$main", never a path
+    # like ${CLAUDE_PLUGIN_ROOT}/hooks/... in the plugin build), or one that sets GIT_* (an export
+    # too), or ""
     function cwrite(s,   n, c, k, m, t, i, j, cmd, w) {
       n = split(s, c, /\$\(|[|;&()]+/)
       for (k = 1; k <= n; k++) {
         if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0) continue
-        if (t[1] in moves || t[1] ~ /^["\047]?\$/) return trim(c[k])
+        if (t[1] in moves || (m > 1 && t[1] ~ /^["\047]?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["\047]?$/)) return trim(c[k])
         for (i = 1; i <= m; i++) {
           w = t[i]; gsub(/["\047\\]/, "", w)
           if (w ~ /(^|=)(cd|pushd)$/ || w ~ /^GIT_[A-Z_]*=/) return trim(c[k])
@@ -432,6 +434,11 @@ _green() {  # _green WHAT SED-SCRIPT: step5 on the edited copy objects to nothin
 }
 _green "catching the lane branch up before the gate" '/^Run the full gate from the branch.s checkout/i\
 In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
+'
+# The plugin build rewrites .claude/ paths to ${CLAUDE_PLUGIN_ROOT}/..., and a span may name a
+# variable alone: neither is a command named by a variable.
+_green "a plugin path and a bare variable in spans before step 5" '/^Use the argument if given/i\
+Run `${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`; the session is `$CLAUDE_CODE_SESSION_ID`.
 '
 # Review rounds 1 and 2 (OPS-124): a rule that read how a merge was aimed, then a list of catch-up
 # spans allowed anywhere before step 5, let each of these through. The catch-up is one line in
