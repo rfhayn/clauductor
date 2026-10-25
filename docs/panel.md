@@ -3310,6 +3310,12 @@ clauductor panel install                                      # once projects.js
      others (`/opt/homebrew/bin` for Homebrew's `go`): otherwise re-run `install` once.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
 
+Before step 2 it reads `launchctl print-disabled gui/$UID`. When launchd holds
+`com.clauductor.panel` as disabled (an old uninstall or `launchctl disable` can leave it so),
+every bootstrap would fail with error 5, so `install` stops there, having changed nothing, and
+names the `launchctl enable gui/$UID/com.clauductor.panel` to run before installing again. It
+never runs that command itself.
+
 Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
 where Claude Code's Remote Control is on. It asks once, on a terminal, and only when
 `~/.claude/settings.json` has no `remoteControlAtStartup` (an explicit `true` or `false` is

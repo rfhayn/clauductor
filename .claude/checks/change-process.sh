@@ -39,6 +39,7 @@ has .claude/skills/merge-pr/SKILL.md 'verify-change' "merge-pr runs the verify s
 
 # Approval (D8): recorded with the design's hash.
 has .claude/skills/propose/SKILL.md 'change-approval.sh <id> --record' "propose records approval over the design hash"
+has .claude/skills/propose/SKILL.md 'change-approval.sh <id> --delegate' "propose approves a delegated change through the script that checks the delegation"
 # Review before approval (OPS-76): the rounds are spent before the owner reads it, so a finding does
 # not void an approval; merge-pr then reviews only what changed since. This holds the steps in
 # place; nothing checks that the review ran or that its PR-body line is true.

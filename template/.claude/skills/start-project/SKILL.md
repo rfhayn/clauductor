@@ -24,6 +24,12 @@ If those lines show as literal text, run the commands yourself.
    (`[a-z0-9-]`), `STATUS_MARK` (one character that tells this repo's status line apart from
    others), `OWNER_ROLE` (the word for whoever approves designs: "owner", "founder", "lead") and
    `OWNER_NAME`, `MAIN_BRANCH`, `INSIGHT_AREAS` (5–10 coarse buckets for the insights log).
+   Then offer **delegated approval** (`APPROVAL_DELEGATED`, `"0"` by default): with `"1"`,
+   `/propose` approves a converged proposal itself on the owner's behalf and pushes them one line,
+   except a change touching a path `.claude/lib/approval-guarded.txt` (or the
+   project's own `.claude/local/approval-guarded.txt`) lists, or one `/propose` step 3a keeps for them (money, legal, outward, irreversible, an ADR),
+   which the owner still approves. It holds only once merged to
+   `MAIN_BRANCH`. The choice is the owner's: set it only on their word, never by default.
 2. **The panel config** (`.clauductor/panel.json`): set `name` to `PROJECT_NAME` and
    `tmux_socket` to `PROJECT_SLUG`; make `lanes` and each template's `branch_pattern` use the
    `BRANCH_*` prefixes and `MAIN_BRANCH` (`clauductor install` writes them so when it creates the

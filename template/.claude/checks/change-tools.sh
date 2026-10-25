@@ -1,15 +1,18 @@
 #!/bin/sh
 # The scripts a change passes through, each falsified in a throwaway repo:
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
-#                       Risk line voids it; --revoke puts it back to awaiting; --delegate records
-#                       Claude's approval only with APPROVAL_DELEGATED on and no guarded path named.
+#                       Risk line voids it; --revoke puts it back to awaiting, keeping who approved;
+#                       --delegate records Claude's approval only with APPROVAL_DELEGATED on, no
+#                       guarded path named and no approval before, revoked or standing.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
 #                       message id, at .prices; ignores another branch and another repo; says OVER
 #                       BUDGET past the proposal's budget; reports the budget's kind (hard, soft,
-#                       unreadable); names a model it cannot price; and says CANNOT CHECK, never $0,
-#                       when no transcript ran on the branch, still reporting the budget.
+#                       unreadable); names a model it cannot price; leaves out a lead's messages on
+#                       another branch after its last on the change's (#249); says CANNOT CHECK,
+#                       never $0, when no transcript ran on the branch, still reporting the budget;
+#                       and reads one build's dollars as usage-report.sh reads its session (#253).
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -19,7 +22,7 @@ R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/usage.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/change-approval.sh" "$ROOT/.claude/verify-change.sh" "$ROOT/.claude/scenario-trace.sh" \
-   "$ROOT/.claude/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
+   "$ROOT/.claude/change-cost.sh" "$ROOT/.claude/usage-report.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
 git -C "$R" add -A && git -C "$R" commit -qm base
 git -C "$R" checkout -q -b change/add-greeting-name
@@ -43,11 +46,14 @@ A; expect_rc 1 $? "change-approval: a changed Risk tier voids it"
 sed 's/^\*\*Risk:\*\* high/**Risk:** low/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
 A; expect_rc 0 $? "change-approval: restoring the design restores the approval"
 A --revoke; expect_rc 0 $? "change-approval --revoke"
-grep -qx '\*\*Status:\*\* awaiting approval' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back" || fail "--revoke: $(head -2 "$C/proposal.md")"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Ana)' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back, keeping who approved" || fail "--revoke: $(head -2 "$C/proposal.md")"
 # --delegate (OPS-127): refused while the key is off or the change names a guarded path.
 A --record " claude"; expect_rc 64 $? "change-approval --record refuses Claude (any case, leading space), whose approval goes through --delegate"
 A --record "Claude Code"; expect_rc 64 $? "change-approval --record refuses a name whose first word is Claude, unless it is OWNER_NAME"
 A --record Claudette; expect_rc 0 $? "change-approval --record takes a name that only begins with Claude"
+# fresh: the proposal as /propose drafts it, never approved, so --delegate's other refusals are reached.
+fresh() { sed 's/^\*\*Approved:\*\* .*/**Status:** awaiting approval/; s/^\*\*Status:\*\* awaiting approval (revoked.*/**Status:** awaiting approval/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"; }
+fresh
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses while APPROVAL_DELEGATED is off"
 grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" || fail "no key reason in: $(cat "$d/out")"
 printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$ROOT/.claude/lib/approval-guarded.txt" "$R/.claude/lib/"
@@ -56,6 +62,18 @@ printf '.claude/project.conf\n.claude/lib/approval-guarded.txt\n' >> "$R/.git/in
 A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
 grep -qE '^\*\*Approved:\*\* 2026-01-02 by Claude \(delegated by Ana\) · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads 'by Claude (delegated by <owner>)'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
 A; expect_rc 0 $? "change-approval: the delegated approval holds"
+# A revoke is final for delegation (OPS-128, the owner's ruling): only the owner approves a revoked
+# change again, whoever approved it before, and a standing approval is never written over.
+A --revoke; expect_rc 0 $? "change-approval --revoke of a delegated approval"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "--revoke keeps the delegated approver in the Status line" || fail "--revoke: $(head -2 "$C/proposal.md")"
+A --revoke; expect_rc 0 $? "change-approval --revoke with no Approved line"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "...leaves the revoked marker as it was" || fail "a second --revoke: $(head -2 "$C/proposal.md")"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a revoked change, even one Claude had approved"
+grep -q -- "--record" "$d/out" && ok "...and names the owner's --record" || fail "no --record in: $(cat "$d/out")"
+A --record Ana; expect_rc 0 $? "change-approval --record approves a revoked change, clearing the marker"
+grep -q 'revoked' "$C/proposal.md" && fail "--record left the revoked marker" || ok "--record replaced the revoked Status line"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses to write over a standing Approved line"
+fresh; A --delegate Ana; expect_rc 0 $? "change-approval --delegate still records on a proposal never approved"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch's diff touches a guarded path no task names"
@@ -63,6 +81,7 @@ grep -q 'guarded path.*\.claude/hooks/pr-merge-guard.sh' "$d/out" && ok "...and 
 rm -r "$R/.claude/hooks"
 # With origin/main, the key and the list come from it: the branch cannot turn the key on for itself.
 git -C "$R" update-ref refs/remotes/origin/main main
+fresh
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses when origin/main has the key off, whatever the branch says"
 grep -q 'on origin/main' "$d/out" && ok "...and says it read origin/main" || fail "no origin/main in: $(cat "$d/out")"
 # Main turns the key on and ships the list: a delegation passes, read from origin/main.
@@ -84,21 +103,41 @@ git -C "$R" update-ref refs/remotes/origin/main HEAD
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch commits a rename of a guarded file"
 grep -q 'guarded path.*\.claude/verify-change.sh' "$d/out" && ok "...and names the file it moved" || fail "no verify-change.sh in: $(cat "$d/out")"
 git -C "$R" reset -q --hard HEAD~1
-# The change's branch by its tip, not its name: a detached HEAD there, or a CI pull request's head.
+# The change's branch by its history or its content, not its name (OPS-130): a detached HEAD at its
+# tip or past it, an amend there, or a CI pull request's head. Its first group ticks tasks.md.
+cp "$C/tasks.md" "$d/tasks.bak"; printf '\n<!-- group 1 -->\n' >> "$C/tasks.md"
+git -C "$R" add "$C/tasks.md" && git -C "$R" commit -qm "group 1"
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 git -C "$R" checkout -q --detach
 A; expect_rc 1 $? "change-approval: a detached HEAD at the change's tip still counts its diff"
 git -C "$R" commit -q --allow-empty -m "the pull request's merge commit" && git -C "$R" checkout -q --detach
-A; expect_rc 0 $? "change-approval: a detached HEAD past the change's tip is not its branch"
+A; expect_rc 1 $? "change-approval: a detached HEAD past the change's tip still counts its diff"
+past=$(git -C "$R" rev-parse HEAD) tip=$(git -C "$R" rev-parse origin/main)
+git -C "$R" checkout -q --detach change/add-greeting-name
+git -C "$R" add -f "$R/.claude/hooks/pr-merge-guard.sh" && git -C "$R" commit -q --amend --no-edit
+A; expect_rc 1 $? "change-approval: a detached amend of the change's tip counts its diff, by the change's directory in it"
+git -C "$R" checkout -q --detach "$past"; mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
+git -C "$R" commit -q --allow-empty -m "main moves on" && git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q --detach origin/main~0
+A; expect_rc 0 $? "change-approval: a detached HEAD on main, past the change's tip, is not its branch"
+git -C "$R" update-ref refs/remotes/origin/main "$tip" && git -C "$R" checkout -q --detach "$past"
 (cd "$R" && GITHUB_HEAD_REF=change/add-greeting-name APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name) > "$d/out" 2>&1
 expect_rc 1 $? "change-approval: a CI checkout of the change's pull request (GITHUB_HEAD_REF) counts its diff"
 git -C "$R" checkout -q change/add-greeting-name
 rm -r "$R/.claude/hooks"
+# A change's branch still at main identifies nothing: a branch cut from main is not charged with it.
+git -C "$R" branch -f main HEAD && git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q -b ops/other; mkdir -p "$R/.claude/hooks"; echo '# ops work' > "$R/.claude/hooks/h.sh"
+git -C "$R" add -f "$R/.claude/hooks/h.sh" && git -C "$R" commit -qm "ops work"
+A; expect_rc 0 $? "change-approval: another branch cut from main is not charged with a change branch still at main"
+# The main checkout, with the change's branch at its commit and work of its own, is not the branch.
+git -C "$R" checkout -q main; mkdir -p "$R/.claude/hooks"; echo '# wip' > "$R/.claude/hooks/wip.sh"
+A; expect_rc 0 $? "change-approval: the main checkout is not the change's branch, even at the branch's commit"
+rm -r "$R/.claude/hooks"; git -C "$R" branch -q -D ops/other
 # Merged: on main, the approval still holds.
-git -C "$R" branch -f main HEAD && git -C "$R" checkout -q main
 A; expect_rc 0 $? "change-approval: a delegated approval holds on main after its merge"
 git -C "$R" checkout -q change/add-greeting-name
-git -C "$R" reset -q --hard "$base0" && git -C "$R" branch -f main "$base0"
+git -C "$R" reset -q --hard "$base0" && git -C "$R" branch -f main "$base0" && cp "$d/tasks.bak" "$C/tasks.md"
 git -C "$R" update-ref -d refs/remotes/origin/main
 rm -f "$R/.claude/project.conf" "$R/.claude/lib/approval-guarded.txt"
 A --record Ana >/dev/null
@@ -243,9 +282,9 @@ msg e1 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/live" 1000000 0 >
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 33 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
 { msg e2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/live" 1000000 0                 # $1.00
-  msg e3 claude-haiku-4-5-20251001 "ops/foreign" "$main/.claude/worktrees/live" 1000000 0; } > "$P/$slug/s5.jsonl"  # $1.00
+  msg e3 claude-haiku-4-5-20251001 "ops/foreign" "$main/.claude/worktrees/live" 1000000 0; } > "$P/$slug/s5.jsonl"  # $1.00, not the change's (#249)
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 34 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last; that lead's message on the other branch, after its last on the change's, does not count" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
 git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
 # Votes by session (sessionId) and in time order, from the LEAD's records only. An agent records its
 # lead's CURRENT branch: the lead left lane v1 for v1-next and ops/next, its agent still in v1 then
@@ -274,9 +313,15 @@ cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another
 # OPS-124 (#214): a lead that moves on in the lane after the merge (OPS-118's build lead archived it
 # there on ops/ops-118-archive) recorded the branch most, so v5 is the change's and its agent's $1
 # counts. v6's lead recorded ops/six most and ops/six-close last: the branch is neither, so v6 is not.
+# #249, item 4: the lane counts, but not WHOLE: the lead's own message on ops/archive, after its last
+# on the change's branch, is the archive's work (OPS-118 read $214.17 against its build's $200.24).
 { msg w1 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:01Z"
   msg w2 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:02Z"
-  msg w3 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 0 0 L5 "${T}:03Z"; } > "$P/$slug/L5.jsonl"
+  msg w3 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:03Z"; } > "$P/$slug/L5.jsonl"  # $1.00, not the change's (#249)
+# A second session in v5 that never recorded the branch there: its message on ops/reuse is that
+# work, not the change's; its detached HEAD there is no other branch, and counts (a known limit).
+{ msg wj claude-haiku-4-5-20251001 "ops/reuse" "${V}5" 1000000 0 L5b "${T}:05Z"           # $1.00, not the change's
+  msg wk claude-haiku-4-5-20251001 HEAD "${V}5" 1000000 0 L5b "${T}:06Z"; } > "$P/$slug/L5b.jsonl"  # $1.00
 mkdir -p "$P/$slug/L5/subagents"
 msg w4 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:04Z" > "$P/$slug/L5/subagents/agent-w.jsonl"  # $1.00
 { msg w5 claude-haiku-4-5-20251001 "ops/six" "${V}6" 0 0 L6 "${T}:01Z"
@@ -299,9 +344,9 @@ mkdir -p "$P/$slug/L7/subagents" "$P/$slug/L8/subagents"
 msg wh claude-haiku-4-5-20251001 "ops/seven" "${V}7" 1000000 0 L7 "${T}:05Z" > "$P/$slug/L7/subagents/agent-w.jsonl"  # $1.00, not the change's
 msg wi claude-haiku-4-5-20251001 "ops/v8" "${V}8" 1000000 0 L8 "${T}:05Z" > "$P/$slug/L8/subagents/agent-w.jsonl"     # $1.00, not the change's
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 34 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's, less its lead's and another session's messages on other branches; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
 [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\",\"${V}6\",\"${V}7\",\"${V}8\"]" ] && ok "change-cost: ...and names v6, v7 and v8, not v5, as rejected" || fail "change-cost, lead moved on, rejected: $(cat "$d/out")"
-rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
+rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5b.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
 # OPS-120: a teammate lane's own agents record the hub session's cwd (the main checkout) and branch,
 # never the lane's: OPS-93's reviewers and their /code-review agents did. Each names its parent in
 # its .meta.json, so a descendant of an agent that counts whole counts whole, at any depth; an agent
@@ -351,6 +396,28 @@ case "$(cat "$d/out")" in "CANNOT CHECK"*) ok "...and says CANNOT CHECK, not \$0
 cost --json
 jq -e '.costUsd == null and .budgetUsd == 15 and .budgetKind == "hard" and (.cannot | length > 0)' "$d/out" >/dev/null 2>&1 \
   && ok "...and its --json still reports the budget and its kind, so build-change knows what it cannot enforce" || fail "change-cost --json, CANNOT CHECK: $(cat "$d/out")"
+# OPS-134 (#253): the two readings of one build agree. Session RS built the change in lane rs alone:
+# a workflow stopped and resumed (two runs, wf_a and wf_b), an agent one of them spawned (recording
+# the main checkout, as a nested agent does), and a lead transcript still being written, which ends
+# in a cut-off line read before the agents (#207). usage-report on the session and change-cost on
+# the change sum the same messages, so they read the same dollars.
+P="$d/projects-resumed"; RS=rs-session; T=2026-10-20T10:00
+RD="$P/$slug--claude-worktrees-rs"; mkdir -p "$RD/$RS/subagents/workflows/wf_a" "$RD/$RS/subagents/workflows/wf_b"
+{ msg r1 claude-opus-5-5 "$B" "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:01Z"          # $4.00
+  msg r1 claude-opus-5-5 "$B" "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:01Z"          # streamed again: once
+  msg r2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/rs/framework" 1000000 0 "$RS" "${T}:05Z"  # $1.00
+  printf '{"type":"assistant","mess'; } > "$RD/$RS.jsonl"
+msg ra claude-haiku-4-5-20251001 main "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:02Z" > "$RD/$RS/subagents/workflows/wf_a/agent-wa1.jsonl"  # $1.00
+printf '{"agentType":"workflow-subagent","workflowPhase":"Build"}\n' > "$RD/$RS/subagents/workflows/wf_a/agent-wa1.meta.json"
+msg rb claude-haiku-4-5-20251001 main "$main/.claude/worktrees/rs" 0 1000000 "$RS" "${T}:03Z" > "$RD/$RS/subagents/workflows/wf_b/agent-wb1.jsonl"  # $5.00
+printf '{"agentType":"workflow-subagent","workflowPhase":"Review"}\n' > "$RD/$RS/subagents/workflows/wf_b/agent-wb1.meta.json"
+msg rn claude-haiku-4-5-20251001 main "$main" 1000000 0 "$RS" "${T}:04Z" > "$RD/$RS/subagents/agent-rn1.jsonl"  # $1.00, wb1's own agent
+printf '{"agentType":"general-purpose","parentAgentId":"wb1"}\n' > "$RD/$RS/subagents/agent-rn1.meta.json"
+cost --json; cc=$(jq -r .costUsd "$d/out" 2>/dev/null)
+(cd "$R" && CLAUDE_PROJECTS_DIR="$P" sh .claude/usage-report.sh --session "$RS" --json) > "$d/ur" 2>&1
+ur=$(jq -r '.total_usd * 100 | round / 100' "$d/ur" 2>/dev/null)
+[ "$cc" = 12 ] && [ "$ur" = 12 ] && ok "usage-report on the session and change-cost on its change both read \$12: a resumed workflow's runs, a nested agent, a cut-off lead line, a streamed repeat" \
+  || fail "the readings disagree, or both are wrong (want 12): change-cost $cc, usage-report $ur: $(cat "$d/out" "$d/ur")"
 
 # CHANGE_RECORD_EXTRA (P1.7): the project's own required sections, as checks/changes.sh and rule 9
 # read them (lib/change.sh change_extra_missing).
