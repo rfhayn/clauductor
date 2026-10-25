@@ -13,6 +13,10 @@
   findings review round 3 left open at 595bfe19 are tasks 1.4, 1.5 and 4.3, not design edits, so
   `design.md` stays as approved. Where one of them refines `design.md`'s words (when an ended
   session's hold lifts, D5's retry), the task governs.
+- 2026-10-24: merge-pr's review of the approved proposal found two medium and one low, each fixed
+  in `tasks.md` alone (tasks 1.6, 2.4, 3.2), `design.md` untouched. Task 1.6 adds one hold with
+  new words, "the queues' leases have not been read" or "are not answering": D2's own "a failed
+  read keeps more" applied to the lease source, as the stall's `workJudged` already does.
 
 ## 1. The close verdict and the socket's route (D2, D4)
 - [ ] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
@@ -117,6 +121,19 @@
   the test asserts the cancellation's answer (not a 409 naming the branch), and no stop and no
   removal. Run it once with the `r.Context()` check removed and see it fail. Citing
   [LANECLOSE-4-S1].
+- [ ] 1.6 merge-pr's review of the approved proposal (2026-10-24). **An unread lease source holds
+  every lane**, by D2's "a failed read keeps more": `m.leases` reads `m.v2.queues`, empty until
+  the first good read and kept stale by `ApplyQueues` on an error (`model.go:1709-1716`), so while
+  `len(m.cfg.Queues) > 0` and either `!m.stall.queuesRead` or `!m.v2.queuesSrc.OK`, `CloseHeld`
+  is "the queues' leases have not been read", or "the queues' leases are not answering", checked
+  first, before the `!Running||Dead` exemption, as the stall's `workJudged` (`stall.go:1097`)
+  already refuses to judge then. **Auto-close's words:** every status word `CloseHeld` gives
+  carries auto-close's `"claude is "` prefix ("claude is working", "claude is waiting on you",
+  "claude is starting", …), as LANECLOSE-2-S1 says ("each in auto-close's words") and
+  `TestAutoCloseOnMerge` asserts (`autoclose_integration_test.go:79`). Tested in
+  `model_lanes_test.go`: a `Dead` lane and an `idle` lane, each held before the first
+  `ApplyQueues` and after a failed one, and released after a good read that binds no lease to
+  them; confirm the test fails with the check removed. Citing [LANECLOSE-2-S3].
 
 ## 2. The socket in the panel's life (D1, D4)
 - [ ] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
@@ -163,6 +180,15 @@
   the worktree removed, the branch deleted and the line printed. Citing [LANECLOSE-1-S1],
   [LANECLOSE-1-S2], [LANECLOSE-1-S3], [LANECLOSE-2-S1], [LANECLOSE-2-S3], [LANECLOSE-2-S4],
   [LANECLOSE-4-S1].
+- [ ] 2.4 merge-pr's review of the approved proposal (2026-10-24): **the command's client is
+  tested against the real route.** The socket client the command uses (building the close body,
+  decoding `{"ok","plan"}`, `{"ok","result"}` and `writeLaneErr`'s body) is one exported function
+  in `framework/internal/panel/install` (the package the command already imports for
+  `RunningPanel`), since `panel` cannot import `cmd`. Its consent is `lanes.CloseRequest`: the
+  plan's `deleteBranch` (`close.go:47`) is sent as `branch` (`close.go:59`), which the route's
+  `decodeStrict` would refuse under any other name. Task 2.3 calls that function, not a raw
+  `http.Client`, for the dry run, the `--yes` close and the busy refusal against the real socket.
+  Citing [LANECLOSE-1-S1], [LANECLOSE-1-S2], [LANECLOSE-2-S1].
 
 ## 3. The command (D2, D3)
 - [ ] 3.1 `framework/internal/cmd/lane.go` (new): `clauductor lane close <id> [--yes]`, with no
@@ -196,6 +222,10 @@
   [LANECLOSE-3-S4] (an `owner.json` with no socket, and a panel found by `/healthz` alone, both
   refused for the socket, not the project). `install`'s tests for `mainRoot` pass
   unchanged.
+- [ ] 3.2 merge-pr's review of the approved proposal (2026-10-24): `lane.go` closes through task
+  2.4's client, and task 3.1's stub panel decodes the close body as `lanes.CloseRequest` with
+  `DisallowUnknownFields`, asserting `branch` equals the plan's `deleteBranch` and `worktree` the
+  plan's `worktree`. Citing [LANECLOSE-1-S2].
 
 ## 4. Docs and the production caller (D5, D7)
 - [ ] 4.1 `docs/panel.md`: under *Close lane*, a subsection *Close a lane from the command line*
