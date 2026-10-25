@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/clauductor/clauductor/internal/leakcheck"
 	"github.com/clauductor/clauductor/internal/panel"
+	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -299,4 +300,22 @@ func TestFailingCommandPrintsItsErrorOnce(t *testing.T) {
 			t.Errorf("%s: usage printed %v, want %v:\n%s", c.name, got, c.usage, r.stderr)
 		}
 	}
+	if r := cliIn(t, t.TempDir(), home, "nope"); !strings.Contains(r.stderr, "Run 'clauductor --help' for usage.") {
+		t.Errorf("an unknown command does not point at --help:\n%s", r.stderr)
+	}
+}
+
+// The root's PersistentPreRun silences usage for a command's own failure; cobra runs only the
+// nearest one, so a subcommand that defined its own would bring usage back for its subtree.
+func TestOnlyTheRootHasAPersistentPreRun(t *testing.T) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			if sub.PersistentPreRun != nil || sub.PersistentPreRunE != nil {
+				t.Errorf("%s defines a PersistentPreRun, which replaces the root's", sub.CommandPath())
+			}
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
 }
