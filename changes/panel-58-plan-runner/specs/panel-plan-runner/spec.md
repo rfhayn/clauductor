@@ -53,10 +53,13 @@ or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for
 ### Requirement: The run tracks one lane, and starts the plan's next row when that lane merges
 WHILE the plan runner is on and the config is trusted, THE SYSTEM SHALL track the lane on the
 branch of `next`'s item, whether the runner started it or the owner did, unless that lane's HEAD is
-a merged pull request's head. The item's candidate branches are each template's `branch_pattern`
-with the item's name, equal ones counted once, and THE SYSTEM SHALL adopt a running lane on
-exactly one of them, whether or not any Up next list names the item. WHEN running lanes sit on
-more than one, THE SYSTEM SHALL adopt nothing and say so in `planRun`. WHEN a pull request of the tracked branch has merged since the branch
+a merged pull request's head. A template is of kind K when its suggest command is the `next`
+command with its last word replaced by K. The item's candidate branches are the `branch_pattern`s
+of the templates of its kind, with the item's name, equal ones counted once. THE SYSTEM SHALL
+adopt a running lane on exactly one of them, whether or not any Up next list names the item, and
+only WHEN the lane's recorded template is of the item's kind. WHEN the lane there is of another
+template or of none, or matching lanes run on more than one candidate, THE SYSTEM SHALL adopt
+nothing and say why in `planRun`. WHEN a pull request of the tracked branch has merged since the branch
 was tracked, and the checks of the next three requirements pass, THE SYSTEM SHALL start `next`'s
 item:
 - from the one template whose fresh suggest list names it;
@@ -102,8 +105,10 @@ run with a notice.
 - **AND** when instead `next` names A's proposal and the owner's propose lane on `change/a` has
   already pushed it, so the propose list no longer names A, that lane is tracked all the same,
   with kind `propose`
-- **AND** when instead running lanes sit on `change/a` and on `ops/a`, nothing is tracked, and
-  `planRun` names A and both branches
+- **AND** when instead `next` names A's build and the only lane running is an ops lane on `ops/a`,
+  nothing is tracked
+- **AND** when instead `next` names A's build and the lane on `change/a` is of the propose
+  template, nothing is tracked, and `planRun` names the lane, its template and A's kind
 
 #### Scenario: [PLANRUN-2-S3] The mode follows where the branch already is
 - **GIVEN** a tracked merge whose next row is B

@@ -93,18 +93,18 @@
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and tracks a
     running lane on the item's branch. A lane whose HEAD a merged PR holds (`mergedPRRead`) is not
     adopted.
-  - **The item's branch.** The candidates are each template's `branch_pattern` with the item's
-    name, deduplicated, and no Up next list is read. A running lane on exactly one candidate is
-    adopted with `next`'s kind. Running lanes on two or more adopt nothing, and `planRun` names
-    the item and the branches. Tested in `framework/internal/panel/planrun_test.go`, citing
-    [PLANRUN-2-S2]: a propose lane whose item no list names, and lanes on two candidates.
+  - **The item's kind.** A template is of kind K when its suggest command is `plan_runner.next`
+    with its last word replaced by K. The candidates are the `branch_pattern`s of the templates
+    of the item's kind, with its name, deduplicated, and no Up next list is read.
+    - A running lane on exactly one candidate is adopted with `next`'s kind, when its lane
+      record's `Template` is of that kind.
+    - A lane of another template or of none adopts nothing, and so do matching lanes on two
+      candidates. In both cases `planRun` says why.
+    - The adoption cases are tested in task 4.2, whose start their scenario needs.
   - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
     context. An error with that context done writes nothing and sends nothing: before the start it
-    leaves `watching`, and during it `starting`. Tested in `framework/internal/panel/planrun_test.go`,
-    citing [PLANRUN-2-S9]: the context cancelled during the wait and during `next`, a second
-    runner on the same `plan-run.json`, a runtime reloaded untrusted and then trusted with no
-    restart, and a cancel during a stand-in `StartLane` that blocks in `worktree_setup` until its
-    context ends. In that last case `halt` returns once the stand-in has returned.
+    leaves `watching`, and during it `starting`. Tested in task 4.2, once the wait, `next`'s second
+    run and the start exist.
   - **Trigger.** While watching, it reads the tracked branch's merged PRs through `mergedPRList`
     with `number,body,mergedAt,mergeCommit`: when the branch leaves the open list, every 5
     minutes, and on start. A PR merged after `since` is the trigger. Merges of other branches are
@@ -113,8 +113,7 @@
     `MergedAt` and `MergeCommit` (gh's `{oid}` object), or the runner decodes into its own row.
   - **The close.** When the tracked kind is `close`, the trigger ends the run.
   - Tested in `framework/internal/panel/planrun_test.go` with a stand-in `gh`, citing
-    [PLANRUN-1-S1], [PLANRUN-1-S4], [PLANRUN-2-S2], [PLANRUN-2-S4], [PLANRUN-2-S5] and
-    [PLANRUN-2-S7].
+    [PLANRUN-1-S1], [PLANRUN-2-S4] and [PLANRUN-2-S7].
 - [ ] 3.2 The `Review:` line (D8 (b)).
   - The runner reads the lines of the body that start with `Review:`. It goes on only for exactly
     one, matching `Review: converged in <n> round(s), peak <sev>, at <sha>`, with an optional
@@ -171,6 +170,19 @@
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
+  - Tested in `framework/internal/panel/planrun_test.go`, with a stand-in `gh` and the fake lane
+    starter, citing:
+    - [PLANRUN-2-S2]: an adopted lane whose merge starts the row after it; a propose lane whose
+      item no list names; an ops lane on `ops/a` while `next` names A's build; a propose lane on
+      `change/a` while `next` names A's build; and matching lanes on two candidates, from a
+      config whose templates of one kind have two patterns.
+    - [PLANRUN-1-S4]: an untrusted config that starts nothing, then **Trust config…** and the start.
+    - [PLANRUN-2-S5]: a merge found on start, then a second restart that starts nothing.
+    - [PLANRUN-2-S9]: the context cancelled during the catch-up wait and during `next`'s second
+      run; a second runner on the same `plan-run.json`; a runtime reloaded untrusted and then
+      trusted with no restart; and a cancel during a stand-in `StartLane` that blocks in
+      `worktree_setup` until its context ends, where `halt` returns once the stand-in has
+      returned.
   - The Go mode rule is also run over the cases `framework/internal/panel/web/start_plan_test.go`
     gives `planStart`, from one shared table, so the two copies cannot drift apart unseen.
   - Also tested, in `framework/internal/panel/planrun_integration_test.go` (a real tmux socket and a

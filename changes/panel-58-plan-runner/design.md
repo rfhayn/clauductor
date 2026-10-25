@@ -337,7 +337,12 @@ Read on 2026-10-25, at `0cfced2b`.
     project's catch-up.
   - **What it costs.** A restart during a start ends in a stop and one push when the lane had not
     begun, where the bounded wait would have finished it. The merge's own rebuild cannot cause
-    that, since step 3 waits it out. So the case is rare.
+    that when it fast-forwards with the merge, since step 3 waits it out. So the case is rare.
+    - **The exception.** Step 3 can settle with the checkout behind the merge: on a refusal of
+      policy, or after its last retry failed. The merge's rebuild then waits for catch-up's next
+      trigger, any pull request leaving an open list (`catchup.go:31-33`), and that can land
+      during the start.
+    - Even then the outcome is a stop with its push, or D7's first-prompt push, never silence.
   - **Beat (b): finish the start before the runtime stops.** `StartLane` would run on
     `context.WithoutCancel`, so `halt` waits for it, bounded by `StartLane`'s own timeouts, and
     `watching` is always written. It never leaves a half-made start. The **Start lane** route's
@@ -359,22 +364,37 @@ rebuild, a crash) resumes it:
 `state` is one of:
 - `idle`: no branch is tracked;
 - `watching`: the tracked branch's lane works;
-- `starting`: a start is under way, written before `StartLane` and cleared after it.
+- `starting`: a start is under way. It is written before `StartLane`, and replaced by `watching`
+  when `StartLane` returns with the context alive. A start cut short leaves it for the next
+  runtime (D12).
 
 **Adopt.** While idle, the runner reads `next` on the suggest commands' cadence. A running lane on
 the item's branch is adopted: the runner records its branch, its row, its kind and the time. A lane
 whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
-- **The item's branch.** Each template's `branch_pattern` with the item's name gives a candidate,
-  and equal candidates count once: build and propose both give `change/{name}`. A running lane on
-  exactly one candidate is adopted, and its kind is the one `next` printed.
+- **The templates of the item's kind.** A template emits kind K when its suggest command is the
+  `next` command with its last word replaced by K. The template's build template, whose command
+  is `["sh", ".claude/panel-suggest.sh", "build"]`, emits `build`. A template with any other
+  suggest command emits no kind.
+- **The item's branch.** Each template of the item's kind gives a candidate, its `branch_pattern`
+  with the item's name, and equal candidates count once.
+  - A running lane on a candidate is adopted only when its recorded template (the lane record's
+    `Template`) is one of the item's kind. Its kind is the one `next` printed.
+  - A lane there of another template, or of none, is not adopted. `planRun` names the lane, its
+    template and the item's kind. Example: a propose lane on `change/foo` while `next` names
+    `foo`'s build.
+  - A lane of another kind on another branch is never a candidate. With `next` naming `foo`'s
+    build, an ops lane on `ops/foo` is not looked at.
+  - Matching lanes on two candidates adopt nothing, and `planRun` names the item and both
+    branches.
 - No Up next list is read, for a reason: a list can drop an item while its lane still runs. The
   propose list leaves out a proposal already on its change branch (`panel-suggest.sh`'s
   `branched`), so a list lookup would miss a propose lane once it has pushed. Nothing would then
   start the row after it.
-- When running lanes sit on two candidates, nothing is adopted, and `planRun` names the item and
-  both branches.
 - A start still needs exactly one fresh list to name the item (step 5). Adoption starts nothing,
-  so it needs only the branch.
+  so it needs only the branch and the lane's template.
+- **Beat (b): a `kind` key on each template.** It names the kind outright, but it is a new config
+  key for every project to set, and a version bump. The rule above reads what the config already
+  says.
 
 **Trigger.** While watching, the runner reads the tracked branch's merged pull requests
 (`mergedPRList`, with `number,body,mergedAt,mergeCommit`):
@@ -487,9 +507,12 @@ one that fails is a stop, except one the runtime cut short:
   what step 6 now finds there (a worktree, a branch or nothing), so the owner's start picks the
   right mode. The runner does not start it again: a `worktree_setup` killed part way leaves a
   worktree only the owner can judge.
-- A stop is likely only for a restart that is not the merge's own, since step 3 has already waited
-  out that one. That leaves a later merge's rebuild, a **Trust config…** that reloads, a
-  `projects.json` edit, the panel's exit, or a crash.
+- Step 3 has already waited out the merge's own rebuild when catch-up fast-forwarded with it. So
+  a stop is likely only for another cause:
+  - a later merge's rebuild;
+  - the merge's own rebuild, deferred because step 3 settled with the checkout behind the merge
+    (a refusal of policy, or no retry left: D12);
+  - a **Trust config…** that reloads, a `projects.json` edit, the panel's exit, or a crash.
 
 **A stop.**
 - The runner clears the tracked branch, writes `stop`, and sends one notice. The notice is an OS
@@ -535,7 +558,8 @@ one that fails is a stop, except one the runtime cut short:
 | The 7-day usage is at or above `seven_day_pct`, or unreadable (its window older than 30 minutes included) | Stop, push naming the reading or why there is none |
 | `StartLane` refuses (the 5-hour guard, `path-taken`, `branch-exists`, …) | Stop, push naming the refusal |
 | A runtime stop or a dead process cut a start short (`starting` on the next start) | A lane on the recorded branch is tracked, with no notice; with none, stop, push naming the row, the branch and what is there |
-| Running lanes sit on two of the item's candidate branches while idle | Nothing is adopted; `planRun` names the item and both branches |
+| While idle, the lane on the item's candidate branch is of a template not of the item's kind, or of none | Nothing is adopted; `planRun` names the lane, its template and the item's kind |
+| While idle, lanes of the item's kind run on two of its candidate branches | Nothing is adopted; `planRun` names the item and both branches |
 | The first prompt is not delivered within 10 minutes, or is skipped | Push once; the run keeps tracking the lane |
 | The run's lane is not working and has not moved for the stall time, unstalled and unmerged | Push once; the run keeps tracking the lane |
 | The run's lane is stalled | The stall's push is the one push; `planRun` says the run waits on it |
