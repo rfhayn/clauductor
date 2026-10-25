@@ -14,6 +14,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
 // projectDir is a repository root with a panel.json, and a linked worktree inside it,
@@ -239,4 +240,129 @@ func TestListProjectsNamesEachConfig(t *testing.T) {
 	if n := strings.Count(got, "outside the repository"); n != 2 {
 		t.Errorf("%d configs marked outside, want 2:\n%s", n, got)
 	}
+}
+
+// CheckAdd is every check AddProject makes before it saves, so that a caller asking "would this
+// be refused" (clauductor doctor, to pick the fix it prints) cannot read the rule differently
+// from the command. Each refusal AddProject makes has the same text from CheckAdd, and neither
+// writes the home directory when it refuses.
+func TestCheckAddRefusesWhatAddProjectRefusesAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Unix(1_790_000_000, 0)
+
+	// registered is a home holding project "a" (name "A", socket clauductor).
+	registered := func(t *testing.T) (home, a string, runA signals.Runner) {
+		t.Helper()
+		home = t.TempDir()
+		a, runA = projectDir(t, "A", "")
+		if _, err := AddProject(ctx, AddOptions{Home: home, Project: a, Run: runA, Now: now, Strict: true}); err != nil {
+			t.Fatal(err)
+		}
+		return home, a, runA
+	}
+	cases := []struct {
+		name  string
+		want  string // a part of the refusal
+		setup func(t *testing.T) AddOptions
+	}{
+		{"not a directory", "is not a directory", func(t *testing.T) AddOptions {
+			return AddOptions{Home: t.TempDir(), Project: filepath.Join(t.TempDir(), "missing"), Now: now}
+		}},
+		{"git fails", "git exploded", func(t *testing.T) AddOptions {
+			return AddOptions{Home: t.TempDir(), Project: t.TempDir(), Now: now, Run: func(context.Context, string, []string) ([]byte, error) {
+				return nil, fmt.Errorf("git exploded")
+			}}
+		}},
+		{"git lists no worktree", "returned no worktrees", func(t *testing.T) AddOptions {
+			return AddOptions{Home: t.TempDir(), Project: t.TempDir(), Now: now, Run: func(context.Context, string, []string) ([]byte, error) {
+				return []byte("\n"), nil
+			}}
+		}},
+		{"a linked worktree", "is a linked worktree of", func(t *testing.T) AddOptions {
+			root, run := projectDir(t, "L", "")
+			return AddOptions{Home: t.TempDir(), Project: filepath.Join(root, ".claude", "worktrees", "x"), Run: run, Now: now, Strict: true}
+		}},
+		{"the registry does not load", "projects.json", func(t *testing.T) AddOptions {
+			home := t.TempDir()
+			writeFile(t, config.ProjectsPath(home), "not json")
+			root, run := projectDir(t, "R", "")
+			return AddOptions{Home: home, Project: root, Run: run, Now: now, Strict: true}
+		}},
+		{"the repository is registered under another path", "registered already as", func(t *testing.T) AddOptions {
+			home, _, runA := registered(t)
+			b, runB := projectDir(t, "B", "")
+			// One git common dir for both roots: b is a second path to a's repository.
+			return AddOptions{Home: home, Project: b, Now: now, Strict: true, Run: func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+				if strings.Join(argv, " ") == "git rev-parse --git-common-dir" {
+					return []byte("/shared/.git\n"), nil
+				}
+				if dir == b {
+					return runB(ctx, dir, argv)
+				}
+				return runA(ctx, dir, argv)
+			}}
+		}},
+		{"no config", "no panel config", func(t *testing.T) AddOptions {
+			d := signals.ResolvePath(t.TempDir())
+			return AddOptions{Home: t.TempDir(), Project: d, Now: now, Strict: true, Run: func(context.Context, string, []string) ([]byte, error) {
+				return []byte("worktree " + d + "\nHEAD a\nbranch refs/heads/main\n\n"), nil
+			}}
+		}},
+		{"a registered project whose config no longer loads", "panel config", func(t *testing.T) AddOptions {
+			home, a, runA := registered(t)
+			writeFile(t, filepath.Join(a, config.DefaultConfigRel), `{"name":"A","bogus":1}`)
+			return AddOptions{Home: home, Project: a, Run: runA, Now: now, Strict: true}
+		}},
+		{"an id that is not one", "must match", func(t *testing.T) AddOptions {
+			root, run := projectDir(t, "B", "")
+			return AddOptions{Home: t.TempDir(), Project: root, Run: run, Now: now, Strict: true, ID: "Not An ID"}
+		}},
+		{"an id that is taken", "is taken", func(t *testing.T) AddOptions {
+			home, _, _ := registered(t)
+			b, runB := projectDir(t, "B", "")
+			return AddOptions{Home: home, Project: b, Run: runB, Now: now, Strict: true, ID: "a"}
+		}},
+		{"a tmux socket another project holds", "give this project its own tmux_socket", func(t *testing.T) AddOptions {
+			home, _, _ := registered(t)
+			c, runC := projectDir(t, "C", `,"tmux_socket":"clauductor"`)
+			return AddOptions{Home: home, Project: c, Run: runC, Now: now, Strict: true}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := tc.setup(t)
+			before := treesnap.Take(t, o.Home)
+			_, checkErr := CheckAdd(ctx, o)
+			if d := treesnap.Diff(before, treesnap.Take(t, o.Home)); len(d) > 0 {
+				t.Fatalf("CheckAdd wrote the home directory: %v", d)
+			}
+			_, addErr := AddProject(ctx, o)
+			if checkErr == nil || addErr == nil || !strings.Contains(checkErr.Error(), tc.want) {
+				t.Fatalf("want a refusal holding %q from both, got CheckAdd %v, AddProject %v", tc.want, checkErr, addErr)
+			}
+			if checkErr.Error() != addErr.Error() {
+				t.Errorf("the refusals differ:\n CheckAdd:   %v\n AddProject: %v", checkErr, addErr)
+			}
+			if d := treesnap.Diff(before, treesnap.Take(t, o.Home)); len(d) > 0 {
+				t.Errorf("a refused AddProject wrote the home directory: %v", d)
+			}
+		})
+	}
+
+	t.Run("a project it would add", func(t *testing.T) {
+		home := t.TempDir()
+		root, run := projectDir(t, "Fine", "")
+		o := AddOptions{Home: home, Project: root, Run: run, Now: now, Strict: true}
+		before := treesnap.Take(t, home)
+		if _, err := CheckAdd(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		if d := treesnap.Diff(before, treesnap.Take(t, home)); len(d) > 0 {
+			t.Fatalf("CheckAdd wrote the home directory: %v", d)
+		}
+		if res, err := AddProject(ctx, o); err != nil || !res.Added {
+			t.Fatalf("AddProject after a passing CheckAdd: %+v %v", res, err)
+		}
+	})
 }

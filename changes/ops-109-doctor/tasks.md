@@ -19,6 +19,12 @@
   last in every report (the checks pointer appended to it), `checkDrift`'s `Report.Warnings` loop
   and its filter tested by mutation, and no `install`/`diff` fix printed without a template.
 - 2026-10-24 group 2 (The project (D6)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
+- 2026-10-24 group 3 (The panel, and where a user meets doctor) built, uncommitted (tasks 3.1-3.4
+  ticked): `install.CheckAdd`, the panel lines in `doctor_panel.go`, the prereqs line, and the
+  docs (README, QUICKSTART, panel.md). Panel-line guards were each mutated and seen to fail.
+  Left: the full gate and review. Limit: the sandbox cannot bind ports, so the port-binding tests
+  in `panel/install` (e.g. `TestStatusLineSnippetPostsOnlyToALivePanel`) did not run here.
+- 2026-10-24 group 3 (The panel, and where a user meets doctor) built and reviewed: converged in 2 round(s), peak low; grades R1 fail, R2 pass
 
 ## Decision log
 - 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
@@ -162,6 +168,46 @@
   see it refuse; seen failing on the code before the fix, and by two mutations each (doctor
   ignoring the error; printing the fix beside the refusal).
 
+- 2026-10-24 group 3: `CheckAdd` returns `(AddPlan, error)` and `AddProject` calls it, then saves
+  `plan` when it changed; alternative: an error-only wrapper over an unexported `planAdd`.
+  `design.md` says `AddProject` calls `CheckAdd`; this makes that literally true, so the two
+  cannot drift. Tested by the same refusal text from both and `CheckAdd` writing nothing.
+- 2026-10-24 group 3: doctor tells "the project has no config, so `panel init` then `panel add`
+  would work" from other refusals by comparing `CheckAdd`'s error with `config.LoadConfigRaw`'s
+  own error for `config.OwnConfigPath(main)` plus a not-exist stat; alternative: a typed error from
+  the config package (touches a package the design does not name). Any other refusal prints its
+  text (`refusesHere`) and no fix. A registered project with a missing config gets `panel init`
+  only when the registry reads the project's own file.
+- 2026-10-24 group 3: the panel lines live in `doctor_panel.go`; their subjects are registry,
+  panel, running, build, serves, config, trust (all within `subjectWidth`, 10). Paths print
+  absolute, not `~`; the kickstart fix keeps a literal `$(id -u)` (a paste-ready command).
+  `RunningPanel` is passed `lease.LiveProc` through the `doctorLiveProc` variable so a test can
+  stand in a live pid. When `projects.json` does not load, the registry line FAILs, there is no
+  "not installed" note, and the project's panel lines say they did not run. The `panel install`
+  sentence in the build note and a bare `panel install` fix are printed only when the registry's
+  default project's config loads (else `panel install` would refuse); `CheckAdd` runs with a zero
+  `AddOptions.Now` (it only sets `Added`).
+- 2026-10-24 group 3: the existing doctor tests read the machine's real `~/.clauductor` once the
+  panel lines ran on macOS; they now take an empty HOME through `ownHome`. Alternative: leave them
+  reading the owner's home (passes or fails by whose machine it is).
+- 2026-10-24 group 3: `printPrereqs` prints the doctor line in Go (a `defer`, so the "no script"
+  path ends with it too), not from `prereqs.sh`: the plugin's `/clauductor:init` and `install.sh`
+  run the same script where there may be no binary. Alternative: a line in the script (names a
+  command a plugin user may not have).
+- 2026-10-25 group 3 (review fix): class "a line built from a stand-in value as if it were read":
+  a registry that did not load was replaced by an empty one, so doctor said "0 projects are
+  registered" as ok and told the user to start a panel that cannot start from that registry.
+  Closed at the source: `loadRegistry` returns nil on error and every reader of the registry
+  (`installedLine`, `checkRunning`, `checkBuild`) says only what the plist or the live panel gives,
+  or says "not known"; nothing is built from an empty stand-in. Grepped doctor for other
+  stand-ins: none. Tests assert the absence of the ok and running lines.
+- 2026-10-25 group 3 (review fix): second instance of "a cited test weaker than its scenario's
+  THEN" (first: DOCTOR-1-S4). DOCTOR-2-S7's test compared only the printed fix, not "which then
+  registers it". Class closed by auditing every THEN in the spec that says a printed command then
+  does something (DOCTOR-1-S7, DOCTOR-2-S4, DOCTOR-2-S7): each test now runs the command's effect
+  (S7 registers the project after the note and finds it in the registry, then doctor reports it
+  served).
+
 ## 1. The command and the machine (D1, D2, D7)
 - [x] 1.1 `template/.claude/prereqs.sh`: the `--rows` mode of D1 (one tab-separated line per tool:
   `ok|missing`, level, tool, path or this OS's hint, reason; no heading, no closing line; exit 0),
@@ -213,7 +259,7 @@
   config (macOS forced through the test's variable). Citing [DOCTOR-3-S1].
 
 ## 3. The panel, and where a user meets doctor
-- [ ] 3.1 The panel's machine lines, on macOS only: the registry (`config.LoadProjects`),
+- [x] 3.1 The panel's machine lines, on macOS only: the registry (`config.LoadProjects`),
   installed (`install.PlistPath`, or a project in the registry), running (`install.RunningPanel`,
   with its `lease.ProcCheck` passed in; the restart named with `install.LaunchdLabel` and
   `install.LogDir`), and the build (`install.FileStamp` of `install.InstalledBinary` against
@@ -222,13 +268,13 @@
   a plist and no live panel, a registered project with no plist, an installed binary whose stamp
   the test sets apart from the running one, and an empty home. Citing [DOCTOR-1-S5],
   [DOCTOR-1-S6], [DOCTOR-1-S7].
-- [ ] 3.2 `framework/internal/panel/install/projects.go`: `CheckAdd`, every read-only check
+- [x] 3.2 `framework/internal/panel/install/projects.go`: `CheckAdd`, every read-only check
   `AddProject` runs before it saves (among them: the config loads, the id is free, the repository
   is not registered under another path (`registeredAs`), the socket is no other project's),
   returning its refusal; `AddProject` calls it. Tested in
   `framework/internal/panel/install/projects_test.go`: each refusal from both functions with the
   same text, and `CheckAdd` writing nothing (`internal/treesnap` over the home).
-- [ ] 3.3 The panel's project lines, on macOS with the panel installed, read at the main
+- [x] 3.3 The panel's project lines, on macOS with the panel installed, read at the main
   checkout: the registry (`Find` on the resolved path), then for a served project only the
   config (`install.ConfigPathOf`, `config.LoadConfigRaw`) and trust (`install.ConfigHash` of the
   bytes loaded, `install.TrustedNow`), each fix carrying `--project <main checkout>`; the
@@ -238,7 +284,7 @@
   registered, the same with this project's `panel.json` naming the served project's socket, a
   repository with no `panel.json`, an unknown field, and a linked worktree made with `git worktree
   add`. Citing [DOCTOR-1-S7], [DOCTOR-2-S6], [DOCTOR-2-S7], [DOCTOR-2-S8], [DOCTOR-2-S9].
-- [ ] 3.4 `framework/internal/cmd/prereqs.go`: `printPrereqs` ends with the line naming
+- [x] 3.4 `framework/internal/cmd/prereqs.go`: `printPrereqs` ends with the line naming
   `clauductor doctor`. Tested in `prereqs_test.go`. Docs: a `clauductor doctor` row in
   `README.md`'s command table; `docs/QUICKSTART.md` *Prerequisites* and *Troubleshooting*; and
   `docs/panel.md` *Troubleshooting*.

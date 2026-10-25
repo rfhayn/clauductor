@@ -172,3 +172,37 @@ func TestGitleaksConfigIsCreateOnly(t *testing.T) {
 		t.Errorf("update wrote over the project's .gitleaks.toml:\n%s", got)
 	}
 }
+
+// The prerequisites report ends with the line naming `clauductor doctor`, in the report install
+// and init print, and when the report itself cannot run.
+func TestPrereqsEndsWithTheDoctorLine(t *testing.T) {
+	last := func(s string) string {
+		s = strings.TrimRight(s, "\n")
+		return s[strings.LastIndex(s, "\n")+1:]
+	}
+	const want = "To check this machine and the project again at any time: clauductor doctor"
+	for name, out := range map[string]string{
+		"all present": prereqsReport(t, "Darwin", "git", "jq", "gh", "gitleaks", "claude", "tmux", "node", "python3"),
+		"missing":     prereqsReport(t, "Linux"),
+	} {
+		if !strings.Contains(last(out), want) {
+			t.Errorf("%s: the report's last line is %q, want it to name clauductor doctor:\n%s", name, last(out), out)
+		}
+	}
+	var out bytes.Buffer
+	printPrereqs(&out, t.TempDir())
+	if !strings.Contains(last(out.String()), want) {
+		t.Errorf("with no script the last line is %q:\n%s", last(out.String()), out.String())
+	}
+	// The script itself names no binary: the plugin's init runs it where there may be none.
+	tmpl := tmplDir(t)
+	t.Setenv("PATH", stubPath(t))
+	t.Setenv("PREREQS_OS", "Darwin")
+	raw, err := execCommand("/bin/sh", filepath.Join(tmpl, PrereqsScript)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("clauductor doctor")) {
+		t.Errorf("prereqs.sh prints the doctor line; the Go caller prints it:\n%s", raw)
+	}
+}

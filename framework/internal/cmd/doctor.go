@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/clauductor/clauductor/internal/panel/install"
+	"github.com/clauductor/clauductor/internal/panel/lease"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,8 @@ var (
 	doctorGOOS         = runtime.GOOS
 	doctorRunningStamp = install.RunningStamp
 	doctorFileStamp    = install.FileStamp
+	// doctorLiveProc tells RunningPanel whether the panel's pid is alive.
+	doctorLiveProc = lease.LiveProc
 )
 
 // errDoctorFailed makes `doctor` exit 1 when any line fails, as `diff --exit-code` does. It is
@@ -47,7 +50,7 @@ prints: each is a command you should see the effect of.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rep := &doctorReport{}
 		checkMachine(rep)
-		checkProject(rep)
+		checkPanel(rep, checkProject(rep))
 		rep.print(cmd.OutOrStdout())
 		if fail, _ := rep.counts(); fail > 0 {
 			return errDoctorFailed

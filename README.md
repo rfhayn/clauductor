@@ -67,6 +67,7 @@ Projects get only the `template/` contents — no Go source, no framework code. 
 | `clauductor install --dry-run` | Preview install changes |
 | `clauductor update` | Upgrade the operating model to the latest template |
 | `clauductor diff` | Compare this repository with the template, file by file and key by key |
+| `clauductor doctor` | Check this machine's tools, the template, `gh`, the project and (on macOS) the panel, changing nothing; each problem comes with the command that fixes it |
 | `clauductor plugin build` / `check` | Package the operating model as a Claude Code plugin, or check the committed one is current |
 | `clauductor lock-run` | Run a command while holding the shared gate lease ([docs](docs/panel.md)) |
 | `clauductor panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |

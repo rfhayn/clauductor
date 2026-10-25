@@ -36,6 +36,18 @@ func without(drop ...string) []string {
 	return out
 }
 
+// startHome is the home directory the test process started with.
+var startHome = os.Getenv("HOME")
+
+// ownHome gives a test that has not chosen a home an empty one. Doctor reads the panel's files
+// under the home directory on macOS, and a test must never read (or be answered by) the machine's own.
+func ownHome(t *testing.T) {
+	t.Helper()
+	if os.Getenv("HOME") == startHome {
+		t.Setenv("HOME", t.TempDir())
+	}
+}
+
 // doctor runs the command in the test's current directory on a PATH of path, as macOS.
 func doctor(t *testing.T, path string) (string, error) {
 	t.Helper()
@@ -45,6 +57,7 @@ func doctor(t *testing.T, path string) (string, error) {
 // doctorOn is doctor with prereqs.sh's hints for osName (PREREQS_OS).
 func doctorOn(t *testing.T, path, osName string) (string, error) {
 	t.Helper()
+	ownHome(t)
 	t.Setenv("PATH", path)
 	t.Setenv("PREREQS_OS", osName)
 	t.Cleanup(func() { template.OverrideDir = ""; doctorCmd.SetOut(nil) })
@@ -410,6 +423,7 @@ func TestDoctorContinuationLinesAlign(t *testing.T) {
 // Through the root command, as a user runs it: doctor is registered, and --template-dir reaches
 // the template it reads the tools from.
 func TestDoctorRunsFromRootWithTemplateDir(t *testing.T) {
+	ownHome(t)
 	tmplDir(t)
 	t.Chdir(t.TempDir())
 	dir := t.TempDir()
@@ -441,6 +455,7 @@ func TestDoctorRunsFromRootWithTemplateDir(t *testing.T) {
 // Main, as the binary runs, with stdout, cobra's errors and Main's own stderr all in one buffer
 // (the order the terminal shows), no "Error:" line follows the count and the status is 1.
 func TestDoctorFailureEndsOnTheCountLineInTheTerminal(t *testing.T) {
+	ownHome(t)
 	tmplDir(t)
 	t.Chdir(t.TempDir())
 	t.Setenv("PATH", stubPath(t, without("jq", "gh", "gitleaks")...))
@@ -1086,6 +1101,7 @@ func TestDoctorWritesNothing(t *testing.T) {
 	repoBefore, homeBefore := treesnap.Take(t, top), treesnap.Take(t, home)
 	out, _ := doctor(t, gitPath(t, allTools...))
 	needLine(t, out, "warn", "drift") // the run found the drift it must not touch
+	needLine(t, out, "warn", "trust") // and the untrusted config, which panel trust alone changes
 	if d := treesnap.Diff(repoBefore, treesnap.Take(t, top)); len(d) > 0 {
 		t.Errorf("doctor changed the repository: %v", d)
 	}
