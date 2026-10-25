@@ -42,8 +42,9 @@ every open change against the shape below.
 
 - **The approval covers the design as written.** `clauductor-model change-approval.sh <id> --record
   "<owner>"` writes the Approved line with a hash of `design.md` and the Risk line, and only on the
-  owner's word. An edit to either afterwards voids it: the check fails until the owner approves
-  again (`--revoke`, then `--record`).
+  owner's word; `--delegate "<owner>"` writes one by Claude where `/clauductor:propose` step 3a allows it. An
+  edit to either afterwards voids it: the check fails until it is approved again (`--revoke`, then
+  `--record`, or `--delegate` where step 3a still allows it).
 - **A delegated approval** (OPS-127): with `APPROVAL_DELEGATED="1"` in `.claude/project.conf`,
   `--delegate "<owner>"` writes `by Claude (delegated by <owner>)`. It is refused, and the check
   fails it, once the key is off again, or for a change that touches a path guarded by

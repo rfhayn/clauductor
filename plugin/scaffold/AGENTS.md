@@ -54,7 +54,8 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Only a daily close adds a `## Session N`, never one claimed twice; a row's records go to its fragment, `docs/journal.d/<row id>.md` | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** (the fragment's shape); `session-close/fold.sh`; **`checks/fold.sh`**; writing the fragment: **Nothing. You.** |
 | A PR that changes the journal or insights log lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, any branch); **`checks/merge-guard.sh`** |
 | Review stops at the row's cap by risk; what is left goes to KNOWN LIMITS with its owner | **`${CLAUDE_PLUGIN_ROOT}/review-cap.sh`** via `build-change.js` (`maxRounds`) and `merge-pr` step 3; **`checks/review-cap.sh`** |
-| An open change has the shape build-change reads and records the owner's approval | **`checks/changes.sh`**; `/clauductor:propose` stops for the owner |
+| An open change has the shape build-change reads and records its approval | **`checks/changes.sh`**; `/clauductor:propose` stops for the owner, unless step 3a delegates |
+| A delegated approval holds only while `APPROVAL_DELEGATED="1"` on `origin/<main>` and the change touches no guarded path; what else stays the owner's | **`${CLAUDE_PLUGIN_ROOT}/change-approval.sh`** `--delegate` via `/clauductor:propose` step 3a; **`checks/changes.sh`** re-tests it every run; the rest of step 3a: **Nothing. You.** |
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `${CLAUDE_PLUGIN_ROOT}/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`${CLAUDE_PLUGIN_ROOT}/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
 | A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/clauductor:verify-change`; **`checks/merge-guard.sh`** |
@@ -96,14 +97,17 @@ Run every check with `clauductor-model checks/run.sh`.
 ## Who decides
 
 **The owner decides** (the role named `OWNER_ROLE` in `.claude/project.conf`):
-- a change's proposal and every `design.md` decision;
+- a change's proposal and every `design.md` decision, unless `APPROVAL_DELEGATED="1"` delegates
+  them to Claude (`/clauductor:propose` step 3a): never for a change on a path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt`
+  or `.claude/local/approval-guarded.txt` lists, nor one the decisions below keep;
 - ADRs and practice records (`docs/adr/`, `docs/practices/`);
 - anything irreversible (a production data migration, a deletion, a release);
 - anything outward beyond this repo.
 
 **Everything else runs without asking, merging included**, through `merge-pr` once the merge guard
 passes and review has converged. Reach the owner with `PushNotification` (or the project's
-equivalent) only when blocked on one of the decisions above, and once when a session is done.
+equivalent) only when blocked on one of the decisions above, once per delegated approval, and once when a
+session is done.
 Where several people work, each merges only their own PRs. Claude's memory is per machine, so what
 another person needs goes in the repo. Detail: `docs/conventions.md`; how-to: `docs/playbook.md`;
 models: `.claude/model-roles.json`.

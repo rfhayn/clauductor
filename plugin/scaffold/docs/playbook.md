@@ -2,7 +2,7 @@
 
 This project runs on an operating model for Claude Code: **hands-off sessions** that orchestrate
 **lanes** (one git worktree each, visible on the local panel), a **roadmap queue** of rows,
-**proposals** the owner approves just in time, changes **built and reviewed per task group**, and
+**proposals** approved just in time (by the owner, or on their delegation), changes **built and reviewed per task group**, and
 **merges** that a guard, not a person, holds to the rules. This page is the manual. The rules
 themselves are in `AGENTS.md`; the reasons behind them in `docs/principles.md`.
 
@@ -48,7 +48,7 @@ started from the panel's **New lane** (or by hand), on one branch:
 | Lane | Branch | How many | Starts with |
 |---|---|---|---|
 | build | `change/<id>` | one at a time | `/build-change {"change": "<id>"}` on an approved proposal |
-| propose | `change/<id>` | at most one ahead of the build | `/clauductor:propose <id>`, which stops for the owner |
+| propose | `change/<id>` | at most one ahead of the build | `/clauductor:propose <id>`, which stops for the owner unless step 3a delegates |
 | fix | `fix/<issue>-<slug>` | any that share no files | the issue, the code as built, the gate, `/clauductor:merge-pr` |
 | ops | `ops/<name>` | any that share no files | a tooling, docs or process task |
 | orchestrator | `main` (the main checkout) | one | `/clauductor:session-start` |
@@ -185,7 +185,7 @@ EOF
 ## The change lifecycle
 
 ```
-roadmap row ──► /clauductor:propose (just in time) ──► owner approves ──► proposal lands on main
+roadmap row ──► /clauductor:propose (just in time) ──► approval ────────► proposal lands on main
      ▲                                                              │
      │                                                              ▼
   archive ◄── merge-pr ◄── full gate receipt ◄── /build-change, one task group at a time
@@ -202,9 +202,11 @@ roadmap row ──► /clauductor:propose (just in time) ──► owner approve
    `changes/<id>/{proposal,design,tasks}.md` (`changes/README.md`): a risk tier, the budget, how
    we'll know it worked, and scenarios with IDs (`[CAP-n-Sn]`) the tests will cite.
 3. **The owner approves** the proposal, every design decision and the risk tier: in the PR by
-   default, or on a claude.ai review page (the optional module). The approval is recorded in
+   default, or on a claude.ai review page (the optional module). With `APPROVAL_DELEGATED="1"`,
+   Claude approves one on their behalf (`change-approval.sh --delegate`, `/clauductor:propose` step 3a) and
+   pushes them one line, except a change on a guarded path or one step 3a keeps for the owner. The approval is recorded in
    `proposal.md` with a hash of the design (`change-approval.sh`), so a later edit to `design.md`
-   voids it until the owner approves again. The proposal lands on `main` alone.
+   voids it until it is approved again (by the owner, or by step 3a). The proposal lands on `main` alone.
 4. **Build per task group** (`/build-change`, or `/clauductor:apply-change` by hand): the loop below.
 5. **Verify** (`/clauductor:verify-change`): every task ticked, every scenario the change adds or modifies
    cited by a test (or escaped with a reason), and the diff touching what `tasks.md` claims.
