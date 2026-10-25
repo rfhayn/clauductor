@@ -90,7 +90,12 @@ mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guar
 git -C "$R" checkout -q --detach
 A; expect_rc 1 $? "change-approval: a detached HEAD at the change's tip still counts its diff"
 git -C "$R" commit -q --allow-empty -m "the pull request's merge commit" && git -C "$R" checkout -q --detach
-A; expect_rc 0 $? "change-approval: a detached HEAD past the change's tip is not its branch"
+A; expect_rc 1 $? "change-approval: a detached HEAD past the change's tip still counts its diff (OPS-130)"
+past=$(git -C "$R" rev-parse HEAD) tip=$(git -C "$R" rev-parse origin/main)
+git -C "$R" commit -q --allow-empty -m "main moves on" && git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q --detach origin/main~0
+A; expect_rc 0 $? "change-approval: a detached HEAD on main, past the change's tip, is not its branch"
+git -C "$R" update-ref refs/remotes/origin/main "$tip" && git -C "$R" checkout -q --detach "$past"
 (cd "$R" && GITHUB_HEAD_REF=change/add-greeting-name APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name) > "$d/out" 2>&1
 expect_rc 1 $? "change-approval: a CI checkout of the change's pull request (GITHUB_HEAD_REF) counts its diff"
 git -C "$R" checkout -q change/add-greeting-name
