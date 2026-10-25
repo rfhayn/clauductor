@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,50 +89,20 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 		}
 
 		fmt.Fprintf(out, "Installing Clauductor framework into %s\n", targetDir)
-		src, err := announceTemplate(out)
+		ready, err := prepareInstall(out, targetDir, forceInstall)
+		var foreign foreignRefusal
+		if errors.As(err, &foreign) {
+			if dryRun {
+				fmt.Fprintln(out, foreign.error)
+				fmt.Fprintln(out, "\n--dry-run: no changes made.")
+				return nil
+			}
+			return foreign.error
+		}
 		if err != nil {
 			return err
 		}
-		tmplDir := src.Dir
-
-		allFiles, err := template.ListTemplateFiles()
-		if err != nil {
-			return fmt.Errorf("failed to list template files: %w", err)
-		}
-
-		if !forceInstall {
-			if err := refusePluginModel("install", targetDir); err != nil {
-				return err
-			}
-		}
-
-		// A repository running its own operating model is left alone (ownguard.go).
-		announceOldModel(out, targetDir)
-		if !forceInstall && !ownedByClauductor(targetDir) {
-			overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
-			if err != nil {
-				return err
-			}
-			if len(overwrite)+len(add) > 0 {
-				refusal := refuseForeign("install", targetDir, overwrite, add)
-				if dryRun {
-					fmt.Fprintln(out, refusal)
-					fmt.Fprintln(out, "\n--dry-run: no changes made.")
-					return nil
-				}
-				return refusal
-			}
-		}
-
-		plan, err := planInstall(targetDir, tmplDir, allFiles)
-		if err != nil {
-			return fmt.Errorf("install refused: %w", err)
-		}
-		x, err := planExtras(targetDir, tmplDir, allFiles)
-		if err != nil {
-			return fmt.Errorf("install refused: %w", err)
-		}
-		x.oldStubs = nil // planInstall already replaces them (its FRAMEWORK list)
+		tmplDir, allFiles, plan, x := ready.tmplDir, ready.files, ready.plan, ready.x
 		plan.print(out, dryRun)
 		x.print(out, false)
 		for _, w := range template.SkillCollisions(targetDir, allFiles) {
@@ -166,6 +137,64 @@ func init() {
 	installCmd.Flags().BoolVar(&forceInstall, "force", false, "Install even over an operating model the repository runs itself (overwrites its framework files)")
 	installCmd.Flags().BoolVar(&pruneOld, "prune", false, "Remove the old model's files that the current model replaced, without asking (never a project-owned or unknown file)")
 	addTemplateFlag(installCmd)
+}
+
+// installReady is everything install reads before it changes anything.
+type installReady struct {
+	tmplDir string
+	files   []string
+	plan    *installPlan
+	x       *extras
+}
+
+// foreignRefusal is refuseForeign's error from prepareInstall, marked so install --dry-run can
+// print it and succeed, where every other refusal is an error.
+type foreignRefusal struct{ error }
+
+// prepareInstall is every check install makes before it prints its plan and every reading it plans
+// from, in install's order, writing nothing. install runs it, and so does doctor, which prints
+// `clauductor install` as a fix only when this returns no error (D8): one source for what install
+// refuses, as planUpdate is for update. What it announces goes to out.
+func prepareInstall(out io.Writer, targetDir string, force bool) (*installReady, error) {
+	src, err := announceTemplate(out)
+	if err != nil {
+		return nil, err
+	}
+	tmplDir := src.Dir
+
+	allFiles, err := template.ListTemplateFiles()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list template files: %w", err)
+	}
+
+	if !force {
+		if err := refusePluginModel("install", targetDir); err != nil {
+			return nil, err
+		}
+	}
+
+	// A repository running its own operating model is left alone (ownguard.go).
+	announceOldModel(out, targetDir)
+	if !force && !ownedByClauductor(targetDir) {
+		overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
+		if err != nil {
+			return nil, err
+		}
+		if len(overwrite)+len(add) > 0 {
+			return nil, foreignRefusal{refuseForeign("install", targetDir, overwrite, add)}
+		}
+	}
+
+	plan, err := planInstall(targetDir, tmplDir, allFiles)
+	if err != nil {
+		return nil, fmt.Errorf("install refused: %w", err)
+	}
+	x, err := planExtras(targetDir, tmplDir, allFiles)
+	if err != nil {
+		return nil, fmt.Errorf("install refused: %w", err)
+	}
+	x.oldStubs = nil // planInstall already replaces them (its FRAMEWORK list)
+	return &installReady{tmplDir: tmplDir, files: allFiles, plan: plan, x: x}, nil
 }
 
 // placed is one template file and where it goes.

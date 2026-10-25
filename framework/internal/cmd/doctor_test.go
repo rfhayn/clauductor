@@ -2,15 +2,20 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
 // allTools is every tool prereqs.sh lists.
@@ -70,6 +75,18 @@ func needLine(t *testing.T, out string, parts ...string) string {
 		t.Fatalf("no line holds %q:\n%s", parts, out)
 	}
 	return l
+}
+
+// needExact fails unless some line of the output, trimmed, is exactly want: a fix is a command to
+// paste, so a test asserts all of it.
+func needExact(t *testing.T, out, want string) {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) == want {
+			return
+		}
+	}
+	t.Errorf("no line is exactly %q:\n%s", want, out)
 }
 
 // installFakeGH puts a gh in bin that prints marker to both streams, then stderrLine (when set)
@@ -448,5 +465,631 @@ func TestDoctorFailureEndsOnTheCountLineInTheTerminal(t *testing.T) {
 	}
 	if status != 1 {
 		t.Errorf("exit status %d, want 1", status)
+	}
+}
+
+// realGit is the git the tests run, found before any test replaces PATH.
+var realGit, _ = exec.LookPath("git")
+
+// gitPath is stubPath(tools) with a git that runs the real one: the project's lines read a real
+// repository, and a stub git that exits 0 would show them nothing.
+func gitPath(t *testing.T, tools ...string) string {
+	t.Helper()
+	if realGit == "" {
+		t.Skip("git is not installed")
+	}
+	var rest []string
+	for _, tool := range tools {
+		if tool != "git" {
+			rest = append(rest, tool)
+		}
+	}
+	bin := stubPath(t, rest...)
+	testbin.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\nexec "+install.ShellWord(realGit)+" \"$@\"\n")
+	return bin
+}
+
+// gitIn runs the real git in dir, failing the test on an error.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	c := exec.Command(realGit, args...)
+	c.Dir = dir
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// newRepo is an empty git repository, resolved the way git prints its toplevel.
+func newRepo(t *testing.T) string {
+	t.Helper()
+	if realGit == "" {
+		t.Skip("git is not installed")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "init", "-q")
+	return dir
+}
+
+// installedRepo is a repository `clauductor install` put the model in, with the template the
+// tests use.
+func installedRepo(t *testing.T) string {
+	t.Helper()
+	tmplDir(t)
+	dir := newRepo(t)
+	t.Chdir(dir)
+	var out bytes.Buffer
+	installCmd.SetOut(&out)
+	t.Cleanup(func() { installCmd.SetOut(nil) })
+	if err := installCmd.RunE(installCmd, nil); err != nil {
+		t.Fatalf("install: %v\n%s", err, out.String())
+	}
+	return dir
+}
+
+// [DOCTOR-2-S1] Outside a git repository only the machine is checked, and one note says so.
+func TestDoctorOutsideARepositoryChecksOnlyTheMachine(t *testing.T) {
+	tmplDir(t)
+	t.Chdir(t.TempDir())
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("doctor failed outside a repository: %v\n%s", err, out)
+	}
+	needLine(t, out, "ok", "jq") // a machine line
+	needLine(t, out, "note", "repository", "the project checks did not run")
+	for _, subject := range []string{"model", "drift"} {
+		if l := lineWith(out, subject); l != "" {
+			t.Errorf("a project line ran outside a repository: %s", l)
+		}
+	}
+}
+
+// [DOCTOR-2-S2] A repository with no model is a note naming clauductor install, with no drift
+// line; below the toplevel the fix starts with cd, so it works where it is printed (D8).
+func TestDoctorNoModelIsANoteWithInstall(t *testing.T) {
+	tmplDir(t)
+	top := newRepo(t)
+	sub := filepath.Join(top, "pkg", "deep")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(top)
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	needLine(t, out, "note", "model", "no operating model")
+	needExact(t, out, "fix: clauductor install")
+	needLine(t, out, "ok", "repository", top)
+
+	t.Chdir(sub)
+	out, err = doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	needExact(t, out, "fix: cd "+install.ShellWord(top)+" && clauductor install")
+	if lineWith(out, "fix: clauductor install") != "" {
+		t.Errorf("a fix that would install into the subdirectory was printed:\n%s", out)
+	}
+	if l := lineWith(out, "drift"); l != "" {
+		t.Errorf("a repository with no model has a drift line: %s", l)
+	}
+}
+
+// [DOCTOR-2-S3] A repository running its own model, or the plugin's, is a note and has no drift
+// line.
+func TestDoctorOwnOrPluginModelIsNotCheckedForDrift(t *testing.T) {
+	tmplDir(t)
+	own := newRepo(t)
+	write(t, own, ".claude/skills/mine/SKILL.md", "the project's own skill\n")
+	t.Chdir(own)
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := needLine(t, out, "note", "model", "operating model of its own")
+	if !strings.Contains(l, "install and update refuse") {
+		t.Errorf("the note does not say install and update refuse it: %s", l)
+	}
+	needExact(t, out, "fix: clauductor diff")
+	if lineWith(out, "drift") != "" {
+		t.Errorf("an own model has a drift line:\n%s", out)
+	}
+
+	plugin := newRepo(t)
+	write(t, plugin, ".claude/skills/x/SKILL.md", "x\n")
+	write(t, plugin, pluginMarker, "the plugin\n")
+	t.Chdir(plugin)
+	out, err = doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	needLine(t, out, "note", "model", "clauductor plugin", pluginMarker)
+	if lineWith(out, "drift") != "" || lineWith(out, "own") != "" {
+		t.Errorf("the plugin's marker did not win, or a drift line ran:\n%s", out)
+	}
+}
+
+// drifted installs the model, then edits one framework file and deletes another.
+func drifted(t *testing.T) string {
+	t.Helper()
+	dir := installedRepo(t)
+	write(t, dir, ".claude/hooks/format.sh", "# edited by the project\n")
+	if err := os.Remove(filepath.Join(dir, ".claude/hooks/focus-staleness.sh")); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// [DOCTOR-2-S4] A drifted framework warns with 1 file that differs and 1 missing, and the fixes
+// start with cd <toplevel> when doctor runs from a subdirectory.
+func TestDoctorDriftWarnsWithTheUpdateThatFixesIt(t *testing.T) {
+	top := drifted(t)
+	sub := filepath.Join(top, "docs")
+	t.Chdir(sub)
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("drift is a warning, not a failure: %v\n%s", err, out)
+	}
+	l := needLine(t, out, "warn", "drift")
+	for _, want := range []string{"1 framework file differs", "1 missing"} {
+		if !strings.Contains(l, want) {
+			t.Errorf("the drift line lacks %q: %s", want, l)
+		}
+	}
+	cd := "cd " + install.ShellWord(top) + " && "
+	needExact(t, out, "fix: "+cd+"clauductor update --dry-run")
+	needExact(t, out, "fix: "+cd+"clauductor update")
+	// The fix works where it is printed: update --dry-run from the toplevel sees the same two files.
+	t.Chdir(top)
+	var dry bytes.Buffer
+	updateCmd.SetOut(&dry)
+	updateDryRun = true
+	t.Cleanup(func() { updateCmd.SetOut(nil); updateDryRun = false })
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("the printed update --dry-run failed: %v\n%s", err, dry.String())
+	}
+	for _, f := range []string{".claude/hooks/format.sh", ".claude/hooks/focus-staleness.sh"} {
+		if !strings.Contains(dry.String(), f) {
+			t.Errorf("update --dry-run does not name %s:\n%s", f, dry.String())
+		}
+	}
+	updateDryRun = false
+
+	// The printed update clears the warning: run it from the toplevel, answering its prompts to
+	// overwrite, then doctor again from the subdirectory.
+	var upd bytes.Buffer
+	updateCmd.SetOut(&upd)
+	oldIn := stdin
+	stdin = bufioReader("y\ny\ny\ny\ny\ny\n")
+	t.Cleanup(func() { stdin = oldIn })
+	if err := updateCmd.RunE(updateCmd, nil); err != nil {
+		t.Fatalf("the printed update failed: %v\n%s", err, upd.String())
+	}
+	t.Chdir(sub)
+	out, err = doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	needLine(t, out, "ok", "drift", "matches the template")
+	if l := lineWith(out, "warn", "drift"); l != "" {
+		t.Errorf("the drift warning survived the printed update: %s", l)
+	}
+}
+
+// [DOCTOR-2-S4] A --template-dir doctor was given is carried into the fixes as the resolved
+// absolute directory, quoted, so the fix compares against the template doctor judged and
+// survives the cd.
+func TestDoctorDriftFixCarriesTheTemplateDir(t *testing.T) {
+	tmpl := tmplDir(t) // before drifted changes the directory: it is found relative to it
+	top := drifted(t)
+	copyDir := filepath.Join(t.TempDir(), "my template")
+	if out, err := exec.Command("cp", "-R", tmpl, copyDir).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v\n%s", err, out)
+	}
+	t.Chdir(filepath.Join(top, "docs"))
+	template.OverrideDir = copyDir
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := " --template-dir " + install.ShellWord(copyDir)
+	if !strings.HasPrefix(flag, " --template-dir '") {
+		t.Fatalf("the test's directory needs quoting: %s", flag)
+	}
+	for _, fix := range []string{"clauductor update --dry-run", "clauductor update"} {
+		needExact(t, out, "fix: cd "+install.ShellWord(top)+" && "+fix+flag)
+	}
+}
+
+// [DOCTOR-2-S4] A --template-dir given relative to the subdirectory doctor runs in, and naming a
+// checkout rather than the template, is carried as the template's absolute path: the fix runs
+// after a cd, where the relative path would name something else.
+func TestDoctorDriftFixResolvesARelativeTemplateDir(t *testing.T) {
+	tmpl := tmplDir(t)
+	top := drifted(t)
+	holder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(holder, "my checkout")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cp", "-R", tmpl, filepath.Join(checkout, "template")).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v\n%s", err, out)
+	}
+	sub := filepath.Join(top, "docs")
+	t.Chdir(sub)
+	rel, err := filepath.Rel(sub, checkout)
+	if err != nil || filepath.IsAbs(rel) {
+		t.Fatalf("no relative path from %s to %s: %v", sub, checkout, err)
+	}
+	template.OverrideDir = rel
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := " --template-dir " + install.ShellWord(filepath.Join(checkout, "template"))
+	for _, fix := range []string{"clauductor update --dry-run", "clauductor update"} {
+		needExact(t, out, "fix: cd "+install.ShellWord(top)+" && "+fix+flag)
+	}
+}
+
+// [DOCTOR-2-S2] [DOCTOR-2-S3] With no template the binary can use, install and diff refuse, so the
+// model line prints no fix for either (D8: no fix the command would refuse); the template line's
+// FAIL says why. It still names the command, for once the template is fixed. Both ways a template
+// fails to resolve: a --template-dir that is no template, and a found template of another version.
+func TestDoctorNoTemplatePrintsNoRepositoryFix(t *testing.T) {
+	tmplDir(t)
+	noModel := newRepo(t)
+	sub := filepath.Join(noModel, "docs")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	own := newRepo(t)
+	write(t, own, ".claude/skills/mine/SKILL.md", "the project's own skill\n")
+	fw := t.TempDir()
+	write(t, fw, "template/.claude/lib/conf.sh", "")
+	write(t, fw, "template/.template-version", "99.0.0\n")
+
+	for _, c := range []struct {
+		name  string
+		setup func()
+	}{
+		{"a --template-dir that is no template", func() { template.OverrideDir = filepath.Join("..", "not a template") }},
+		{"a template of another version", func() { template.OverrideDir = ""; t.Setenv("CLAUDUCTOR_FRAMEWORK", fw) }},
+	} {
+		c.setup()
+		t.Chdir(sub)
+		out, err := doctor(t, gitPath(t, allTools...))
+		if !errors.Is(err, errDoctorFailed) {
+			t.Fatalf("%s: the template line did not fail: %v\n%s", c.name, err, out)
+		}
+		needLine(t, out, "FAIL", "template")
+		needLine(t, out, "note", "model", "no operating model", "clauductor install")
+		if l := lineWith(out, "fix:", "clauductor install"); l != "" {
+			t.Errorf("%s: an install fix that would refuse was printed: %s\n%s", c.name, l, out)
+		}
+
+		c.setup()
+		t.Chdir(own)
+		out, _ = doctor(t, gitPath(t, allTools...))
+		needLine(t, out, "note", "model", "operating model of its own", "clauductor diff")
+		if l := lineWith(out, "fix:", "clauductor diff"); l != "" {
+			t.Errorf("%s: a diff fix that would refuse was printed: %s\n%s", c.name, l, out)
+		}
+	}
+}
+
+// [DOCTOR-2-S2] Doctor prints `clauductor install` as a fix only when install itself would run
+// (D8): the model line asks install's own checks (prepareInstall). Each state below has no sign of
+// a model doctor reads, yet install refuses: a framework file the template ships, already there
+// with other content (install calls that a model of the project's own), and a project.conf that
+// puts the gate outside the repository. The test runs the printed install first to see it refuse,
+// then asserts the note still names install, says why it refuses, and prints no install fix.
+func TestDoctorNoModelPrintsNoInstallFixInstallWouldRefuse(t *testing.T) {
+	for _, c := range []struct {
+		name, reason string
+		setup        func(t *testing.T, top string)
+	}{
+		{"a gate of its own", "runs an operating model of its own", func(t *testing.T, top string) {
+			write(t, top, "scripts/ci/gate.sh", "#!/bin/sh\necho our own gate\n")
+		}},
+		{"a gate outside the repository", "is not a path inside the repository", func(t *testing.T, top string) {
+			write(t, top, ".claude/project.conf", "GATE_RUN=../elsewhere/run-local.sh\n")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tmplDir(t)
+			top := newRepo(t)
+			c.setup(t, top)
+			t.Chdir(top)
+			var buf bytes.Buffer
+			installCmd.SetOut(&buf)
+			t.Cleanup(func() { installCmd.SetOut(nil) })
+			if ierr := installCmd.RunE(installCmd, nil); ierr == nil || !strings.Contains(ierr.Error(), c.reason) {
+				t.Fatalf("install did not refuse for %q: %v\n%s", c.reason, ierr, buf.String())
+			}
+
+			out, err := doctor(t, gitPath(t, allTools...))
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			needLine(t, out, "note", "model", "no operating model", "clauductor install", "install refuses here", c.reason)
+			if l := lineWith(out, "fix:", "clauductor install"); l != "" {
+				t.Errorf("an install fix that install refuses was printed: %s\n%s", l, out)
+			}
+		})
+	}
+}
+
+// [DOCTOR-2-S3] Doctor prints `clauductor diff` as a fix only when diff itself would run (D8):
+// the model line runs diff's own reading (template.Survey). A template that resolves (its
+// .claude/lib/conf.sh exists) but whose defaults cannot be read makes diff refuse while the
+// template line is ok; the note still names diff and says why.
+func TestDoctorOwnModelPrintsNoDiffFixDiffWouldRefuse(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file of mode 000")
+	}
+	tmpl := tmplDir(t)
+	copyDir := filepath.Join(t.TempDir(), "tmpl")
+	if out, err := exec.Command("cp", "-R", tmpl, copyDir).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v\n%s", err, out)
+	}
+	defaults := filepath.Join(copyDir, ".claude", "lib", "conf.sh")
+	if err := os.Chmod(defaults, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(defaults, 0o644) })
+	own := newRepo(t)
+	write(t, own, ".claude/skills/mine/SKILL.md", "the project's own skill\n")
+	t.Chdir(own)
+	const reason = "template defaults"
+	template.OverrideDir = copyDir
+	t.Cleanup(func() { template.OverrideDir = "" })
+	var buf bytes.Buffer
+	diffCmd.SetOut(&buf)
+	t.Cleanup(func() { diffCmd.SetOut(nil) })
+	if derr := diffCmd.RunE(diffCmd, nil); derr == nil || !strings.Contains(derr.Error(), reason) {
+		t.Fatalf("diff did not refuse: %v\n%s", derr, buf.String())
+	}
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	needLine(t, out, "note", "model", "operating model of its own", "clauductor diff", "diff refuses here", reason)
+	if l := lineWith(out, "fix:", "clauductor diff"); l != "" {
+		t.Errorf("a diff fix that diff refuses was printed: %s\n%s", l, out)
+	}
+}
+
+// [DOCTOR-2-S4] Doctor prints `clauductor update` as a fix only when update itself would run (D8):
+// the drift line asks update's own planning, so every refusal of update is a refusal here. Each
+// state below drifts the framework AND makes update refuse (a settings.json that does not parse,
+// no .claude/skills/); the test runs the printed update first to see it refuse, then asserts the
+// drift line is a warning that says why and prints no update fix.
+func TestDoctorDriftPrintsNoUpdateFixUpdateWouldRefuse(t *testing.T) {
+	for _, c := range []struct {
+		name, reason string
+		break_       func(t *testing.T, top string)
+	}{
+		{"settings.json that does not parse", "not valid JSON", func(t *testing.T, top string) {
+			write(t, top, ".claude/settings.json", "{bad")
+		}},
+		{"no .claude/skills/", "no .claude/skills/ found", func(t *testing.T, top string) {
+			if err := os.RemoveAll(filepath.Join(top, ".claude/skills")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			top := drifted(t)
+			c.break_(t, top)
+			var buf bytes.Buffer
+			updateCmd.SetOut(&buf)
+			updateDryRun = true
+			t.Cleanup(func() { updateCmd.SetOut(nil); updateDryRun = false })
+			uerr := updateCmd.RunE(updateCmd, nil)
+			updateDryRun = false
+			if uerr == nil || !strings.Contains(uerr.Error(), c.reason) {
+				t.Fatalf("update --dry-run did not refuse for %q: %v", c.reason, uerr)
+			}
+
+			t.Chdir(filepath.Join(top, "docs"))
+			out, err := doctor(t, gitPath(t, allTools...))
+			if err != nil {
+				t.Fatalf("drift is a warning, not a failure: %v\n%s", err, out)
+			}
+			needLine(t, out, "warn", "drift")
+			if lineWith(out, "update refuses here", c.reason) == "" {
+				t.Errorf("the drift line does not say why update refuses (%q):\n%s", c.reason, out)
+			}
+			if f := lineWith(out, "fix:", "clauductor update"); f != "" {
+				t.Errorf("an update fix that update refuses was printed: %s\n%s", f, out)
+			}
+		})
+	}
+}
+
+// [DOCTOR-2-S5] A framework that matches the template is ok, naming its version, and the last
+// line, the count, names the model's own checks.
+func TestDoctorConvergedFrameworkIsOkAndNamesTheChecks(t *testing.T) {
+	top := installedRepo(t)
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("doctor failed on a just-installed repository: %v\n%s", err, out)
+	}
+	src, err := template.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	needLine(t, out, "ok", "drift", "matches the template", "version "+src.Version)
+	needLine(t, out, "ok", "model", "Clauductor's operating model")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if last := lines[len(lines)-1]; last != "Nothing missing or broken. The model's own checks: sh .claude/checks/run.sh" {
+		t.Errorf("the last line is %q, want the nothing-found count naming the model's own checks", last)
+	}
+
+	// Below the toplevel the command is printed to work there.
+	t.Chdir(filepath.Join(top, "docs"))
+	out, _ = doctor(t, gitPath(t, allTools...))
+	lines = strings.Split(strings.TrimSpace(out), "\n")
+	want := "Nothing missing or broken. The model's own checks: cd " + install.ShellWord(top) + " && sh .claude/checks/run.sh"
+	if last := lines[len(lines)-1]; last != want {
+		t.Errorf("from a subdirectory the last line is %q, want %q", last, want)
+	}
+}
+
+// [DOCTOR-3-S2] [DOCTOR-2-S5] In a repository holding Clauductor's model, with one failure and two
+// warnings, the last line is still the count (S2), and it names the model's own checks (S5).
+func TestDoctorModelRepoEndsOnTheCountLine(t *testing.T) {
+	installedRepo(t)
+	// jq missing: one failure; gh and gitleaks missing: two warnings.
+	out, err := doctor(t, gitPath(t, without("jq", "gh", "gitleaks")...))
+	if !errors.Is(err, errDoctorFailed) {
+		t.Errorf("doctor returned %v, want errDoctorFailed", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	want := "1 failed, 2 warnings. The model's own checks: sh .claude/checks/run.sh"
+	if last := lines[len(lines)-1]; last != want {
+		t.Errorf("the last line is %q, want %q:\n%s", last, want, out)
+	}
+}
+
+// A --template-dir of another version is Source.Warning, which Survey copies into its warnings. The
+// template line says it; the drift line does not say it again.
+func TestDoctorTemplateWarningIsSaidOnce(t *testing.T) {
+	tmpl := tmplDir(t)
+	installedRepo(t)
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("cp", "-R", tmpl, other).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v\n%s", err, out)
+	}
+	write(t, other, template.VersionFile, "99.0.0\n")
+	template.OverrideDir = other
+	out, _ := doctor(t, gitPath(t, allTools...))
+	const warning = "using it because --template-dir names it"
+	needLine(t, out, "warn", "template", warning)
+	if n := strings.Count(out, warning); n != 1 {
+		t.Errorf("the template's warning is printed %d times, want once (on the template line):\n%s", n, out)
+	}
+	if l := lineWith(out, "drift", warning); l != "" {
+		t.Errorf("the drift line repeats the template's warning: %s", l)
+	}
+}
+
+// Each of Survey's warnings other than the template's own is a warn line of its own: here the
+// project's openspec-propose skill beside the template's propose.
+func TestDoctorDriftWarnsForEachSurveyWarning(t *testing.T) {
+	top := installedRepo(t)
+	write(t, top, ".claude/skills/openspec-propose/SKILL.md", "the project's OpenSpec skill\n")
+	out, err := doctor(t, gitPath(t, allTools...))
+	if err != nil {
+		t.Fatalf("a warning is not a failure: %v\n%s", err, out)
+	}
+	needLine(t, out, "warn", "drift", "skill trigger collision", "openspec-propose")
+	needLine(t, out, "1 warning")
+}
+
+// A framework that cannot be compared is a note pointing at the template line, not a failure.
+func TestDoctorDriftNotesWhenTheTemplateCannotBeRead(t *testing.T) {
+	installedRepo(t)
+	fw := t.TempDir()
+	write(t, fw, "template/.claude/lib/conf.sh", "")
+	write(t, fw, "template/.template-version", "99.0.0\n")
+	t.Setenv("CLAUDUCTOR_FRAMEWORK", fw)
+	out, _ := doctor(t, gitPath(t, allTools...))
+	needLine(t, out, "note", "drift", "see the template line")
+}
+
+// The main checkout is found as install's mainRoot finds it, for the panel's lines (D6): the
+// first entry of the worktree list, resolved, from the main checkout and from a linked worktree.
+func TestDoctorFindsTheMainCheckout(t *testing.T) {
+	top := newRepo(t)
+	gitIn(t, top, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first")
+	linked := filepath.Join(filepath.Dir(top), filepath.Base(top)+"-lane")
+	gitIn(t, top, "worktree", "add", "-q", "-b", "lane", linked)
+	t.Setenv("PATH", gitPath(t, allTools...))
+
+	t.Chdir(top)
+	r := doctorFindRepo()
+	if r == nil || r.main != top || r.top != top || r.below {
+		t.Fatalf("at the main checkout: %+v", r)
+	}
+	t.Chdir(linked)
+	r = doctorFindRepo()
+	linkedResolved, _ := filepath.EvalSymlinks(linked)
+	if r == nil || r.main != top || r.top != linkedResolved {
+		t.Fatalf("in a linked worktree want top %s and main %s, got %+v", linkedResolved, top, r)
+	}
+}
+
+// The panel's lines are keyed by the main checkout, and a bare first worktree is not one.
+func TestDoctorABareRepositoryHasNoProject(t *testing.T) {
+	if realGit == "" {
+		t.Skip("git is not installed")
+	}
+	bare := t.TempDir()
+	gitIn(t, bare, "init", "-q", "--bare")
+	t.Chdir(bare)
+	t.Setenv("PATH", gitPath(t, allTools...))
+	if r := doctorFindRepo(); r != nil {
+		t.Errorf("a bare repository has no working tree, got %+v", r)
+	}
+}
+
+// A linked worktree of a bare repository lists the bare directory first. That is not a main
+// checkout the panel can serve, so doctor holds no path for it and says why, instead of handing
+// the bare directory to panel add (which refuses it).
+func TestDoctorLinkedWorktreeOfABareRepositoryHasNoMain(t *testing.T) {
+	src := newRepo(t)
+	gitIn(t, src, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first")
+	holder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare := filepath.Join(holder, "bare.git")
+	gitIn(t, src, "clone", "-q", "--bare", src, bare)
+	linked := filepath.Join(holder, "work")
+	gitIn(t, bare, "worktree", "add", "-q", "-b", "lane", linked)
+	t.Setenv("PATH", gitPath(t, allTools...))
+
+	t.Chdir(linked)
+	r := doctorFindRepo()
+	if r == nil {
+		t.Fatal("a linked worktree has a working tree, got no repository")
+	}
+	if r.main != "" || !strings.Contains(r.mainNote, "bare") {
+		t.Errorf("want no main checkout and a note naming the bare worktree, got main %q note %q", r.main, r.mainNote)
+	}
+}
+
+// [DOCTOR-3-S1] Doctor leaves the repository and the home directory as they were, with drift in
+// the repository and an installed panel with an untrusted config in the home.
+func TestDoctorWritesNothing(t *testing.T) {
+	top := drifted(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	write(t, home, "Library/LaunchAgents/"+install.LaunchdLabel+".plist", "<plist/>\n")
+	if _, err := install.AddProject(context.Background(), install.AddOptions{Home: home, Project: top, Strict: true, Now: time.Now()}); err != nil {
+		t.Fatalf("registering the project: %v", err)
+	}
+	oldGOOS := doctorGOOS
+	doctorGOOS = "darwin"
+	t.Cleanup(func() { doctorGOOS = oldGOOS })
+
+	t.Chdir(filepath.Join(top, "docs"))
+	repoBefore, homeBefore := treesnap.Take(t, top), treesnap.Take(t, home)
+	out, _ := doctor(t, gitPath(t, allTools...))
+	needLine(t, out, "warn", "drift") // the run found the drift it must not touch
+	if d := treesnap.Diff(repoBefore, treesnap.Take(t, top)); len(d) > 0 {
+		t.Errorf("doctor changed the repository: %v", d)
+	}
+	if d := treesnap.Diff(homeBefore, treesnap.Take(t, home)); len(d) > 0 {
+		t.Errorf("doctor changed the home directory: %v", d)
 	}
 }

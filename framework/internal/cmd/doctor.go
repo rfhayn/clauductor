@@ -47,6 +47,7 @@ prints: each is a command you should see the effect of.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rep := &doctorReport{}
 		checkMachine(rep)
+		checkProject(rep)
 		rep.print(cmd.OutOrStdout())
 		if fail, _ := rep.counts(); fail > 0 {
 			return errDoctorFailed
@@ -97,6 +98,10 @@ type doctorGroup struct {
 
 type doctorReport struct {
 	groups []*doctorGroup
+	// checks is what doctor names and does not run (the model's own checks, D4), when the
+	// repository holds Clauductor's model. It is appended to the count line, so the count is the
+	// last line in every report and that line names the checks.
+	checks string
 }
 
 func (r *doctorReport) add(group string, l doctorLine) {
@@ -162,11 +167,14 @@ func (r *doctorReport) print(out io.Writer) {
 		fmt.Fprintln(out)
 	}
 	fail, warn := r.counts()
-	if fail == 0 && warn == 0 {
-		fmt.Fprintln(out, "Nothing missing or broken.")
-		return
+	count := "Nothing missing or broken."
+	if fail > 0 || warn > 0 {
+		count = fmt.Sprintf("%d failed, %s", fail, plural(warn, "warning", "warnings"))
 	}
-	fmt.Fprintf(out, "%d failed, %s\n", fail, plural(warn, "warning", "warnings"))
+	if r.checks != "" {
+		count = strings.TrimSuffix(count, ".") + ". The model's own checks: " + r.checks
+	}
+	fmt.Fprintln(out, count)
 }
 
 // checkMachine adds the machine group: the tools, the template, gh. It needs no project.

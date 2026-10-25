@@ -12,6 +12,13 @@
 - 2026-10-24 group 1 review round 3's findings fixed, uncommitted: doctor ends on its count line
   in the terminal (`cmd.Main`, `errReported`), and the gh line is back to the design's table.
 - 2026-10-24 group 1 (The command and the machine (D1, D2, D7)) built and reviewed: converged in 2 round(s), peak none; grades R1 fail, R2 pass
+- 2026-10-24 group 2 (The project, D6) built, uncommitted (tasks 2.1-2.3 ticked): the repository,
+  model and drift lines in `framework/internal/cmd/doctor_project.go`, tests in `doctor_test.go`.
+  Left: group 3 (the panel's lines, `CheckAdd`, the docs and the prereqs line), then the slice.
+- 2026-10-24 group 2 review findings (after the 2-round cap) fixed, uncommitted: the count line is
+  last in every report (the checks pointer appended to it), `checkDrift`'s `Report.Warnings` loop
+  and its filter tested by mutation, and no `install`/`diff` fix printed without a template.
+- 2026-10-24 group 2 (The project (D6)) built and reviewed: converged in 1 round(s), peak low; grades R1 pass
 
 ## Decision log
 - 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
@@ -66,6 +73,95 @@
   `subjectWidth`), under the line's text; alternative: a corrected constant, which drifts the next
   time a width changes.
 
+- 2026-10-24 group 2 (review fix, replacing the footer entry that stood here): the model's own
+  checks are appended to the count line itself, `1 failed, 2 warnings. The model's own checks: sh
+  .claude/checks/run.sh` (and `Nothing missing or broken. The model's own checks: …`), only when
+  the repository holds Clauductor's model. The last line is then the count in every report
+  (DOCTOR-3-S2) and names the checks (DOCTOR-2-S5); *The checks* says the count line "adds" it.
+  Alternatives: a footer after the count line, which made a model repository's last line the
+  pointer and broke S2; a line just before the count, which breaks S5's "the last line names".
+  Below the toplevel it starts `cd <toplevel> &&` like every fix (D8), since
+  `.claude/checks/run.sh` is relative.
+- 2026-10-24 group 2: the project checks live in `doctor_project.go` (the repository, the model,
+  the drift), not `doctor.go`; alternative: one file. doctor.go was already ~300 lines and group
+  3 adds the panel's. `checkProject` returns the `doctorRepo` (toplevel, main checkout, carried
+  `--template-dir`) for group 3's panel lines to read.
+- 2026-10-24 group 2: the `--template-dir` a fix carries is `Source.Dir` of a fresh `Resolve` (the
+  override's resolved directory, which `templateIn` makes absolute); flag appended last
+  (`clauductor update --dry-run --template-dir '<dir>'`); alternative: the flag as typed. A
+  relative path would not survive the `cd`.
+- 2026-10-24 group 2 (review fix, superseding the fallback above and round 1's "relative
+  `--template-dir` that is no template" test): when no template resolves (a `--template-dir` that
+  is none, or a found template of another version), the model line prints NO repository fix,
+  neither `install` nor `diff`: both refuse without a template, and D8 prints no fix the command
+  would refuse. The note still names the command, adding "once the template line is ok", so
+  DOCTOR-2-S2/S3's "names `clauductor install`/`diff`" holds; the template line's FAIL says why.
+  The Abs fallback for an unresolvable override is deleted, not kept: no fix carries the flag
+  then. `diff` is included though the finding named only `install`, since it is the same rule at
+  the same source (`doctorRepo.fixes`). Alternative: print the fix and let the command refuse.
+- 2026-10-24 group 2: the own-model fix is `clauductor diff` (with the `cd` below the toplevel),
+  printed as a `fix:` line although `diff` changes nothing; alternative: prose only. Spec
+  DOCTOR-2-S3 says the note names `clauductor diff`, and `diff` reads the current directory (E2)
+  like `update`, so it needs the same `cd`.
+- 2026-10-24 group 2: the drift line's detail words the counts from `Report.Files`' framework tier
+  ("1 framework file differs, 1 missing, settings.json would change") and every `Report.Warnings`
+  entry but the template's own `Source.Warning` is its own warn line; a Survey error is a note
+  (D2). `settings.json` is named for `missing`, `invalid` or `merge` alike, as `Converged` treats
+  every non-identical status.
+- 2026-10-24 group 2: test 2.3's untrusted-config setup (a plist and a registered project in a
+  temporary home, `doctorGOOS` forced to darwin) is in place, but the panel's lines are group 3's,
+  so until 3.1/3.3 the home half of that snapshot proves only that nothing else writes there
+  (checked by adding a write under HOME: the test fails). Group 3 must keep the test running
+  through its lines.
+- 2026-10-24 group 2 (review round 1, superseding the entry that stood here): DOCTOR-2-S4's
+  "clear the warning on a re-run" IS tested end to end. `update`'s prompts read the package var
+  `stdin`, which a test sets (`bufioReader("y\n...")`, as `prereqs_test.go` does), so the test runs
+  the printed `update` from the toplevel and doctor again from the subdirectory; with the prompts
+  answered "n" it fails. The earlier claim that a test cannot answer the prompts was wrong.
+- 2026-10-24 group 2 (review round 1): class "a test that passes without the code it claims to
+  guard" (three instances: the S4 re-run, `mainCheckout`'s bare-first-worktree case, and
+  `--template-dir`'s Resolve and Abs). Closed by mutation, not by one more test: each guard was
+  disabled in turn and its test seen to fail (the bare case, the Resolve of a checkout to its
+  template/, the Abs of a relative directory). The tests are the linked worktree of a bare
+  repository (a bare repository itself never reaches `mainCheckout`: `rev-parse --show-toplevel`
+  fails there), a relative `--template-dir` naming a checkout from a subdirectory, and a relative
+  `--template-dir` that is no template (where Resolve fails and only the Abs keeps the fix
+  absolute). Group 3 keeps the discipline: a new guard in doctor is mutated before its test is
+  trusted.
+- 2026-10-24 group 2 (review round 3): class "a printed fix that its command would refuse" (D8;
+  three instances: no template, a settings.json that does not parse, no `.claude/skills/`). Closed
+  at one source, not by a guard per case: update's checks and readings that precede its
+  `--dry-run` line moved out of its `RunE` into `planUpdate` (`update.go`), which `update` runs and
+  doctor's drift line runs too (writing to `io.Discard`). Doctor prints the `update` fixes only
+  when it returns no error; otherwise the detail says `update refuses here, so no fix is printed:`
+  and the refusal itself. A refusal added to `planUpdate` reaches doctor with no change here.
+  Alternatives: a doctor-side copy of each precondition (the per-case guard the findings warned
+  about); printing `clauductor install` for the missing skills (needs install's own checks shared
+  too, and the refusal text already names it). Group 3's `CheckAdd` should share
+  `AddProject`'s checks the same way. Tested by mutation (doctor ignoring the error fails both
+  cases of `TestDoctorDriftPrintsNoUpdateFixUpdateWouldRefuse`).
+- 2026-10-24 group 2 (review fix, after the cap): the same class for `install` (a repository with
+  no sign `modelOf` reads, but a framework-tier file the template ships already there with other
+  content, e.g. `scripts/ci/gate.sh`, or a `project.conf` install cannot place: doctor printed
+  `fix: clauductor install`, which refused). Closed as `planUpdate` closed it for `update`:
+  install's read-only checks before it prints its plan (the template, `refusePluginModel`,
+  `foreignModel`/`refuseForeign`, `planInstall`, `planExtras`) moved out of its `RunE` into
+  `prepareInstall` (`install.go`), which `install` runs and doctor's model line runs (writing to
+  `io.Discard`); its error text and order are unchanged, and the foreign refusal is marked
+  (`foreignRefusal`) so `install --dry-run` still prints it and exits 0. Doctor prints the install
+  fix only when it returns no error; otherwise the note still says "has no operating model" and
+  names `clauductor install` (DOCTOR-2-S2's GIVEN holds in that state, so its THEN does too) and
+  adds `install refuses here, so no fix is printed:` with the refusal, as the drift line does
+  (one helper, `refusesHere`). Alternatives: widen `modelOf`'s signs to every framework-tier file
+  (a second reading of install's rule, which drifts); call such a repository "its own model" (S2's
+  GIVEN names it a no-model repository). The sweep found one more fix of the class: `clauductor
+  diff` was guarded only by `Resolve`, while diff's RunE is `template.Survey`, which also refuses
+  when the template's defaults cannot be read; the own-model line now runs `Survey` and prints the
+  diff fix only when it succeeds. Tested by `TestDoctorNoModelPrintsNoInstallFixInstallWouldRefuse`
+  and `TestDoctorOwnModelPrintsNoDiffFixDiffWouldRefuse`, each running the printed command first to
+  see it refuse; seen failing on the code before the fix, and by two mutations each (doctor
+  ignoring the error; printing the fix beside the refusal).
+
 ## 1. The command and the machine (D1, D2, D7)
 - [x] 1.1 `template/.claude/prereqs.sh`: the `--rows` mode of D1 (one tab-separated line per tool:
   `ok|missing`, level, tool, path or this OS's hint, reason; no heading, no closing line; exit 0),
@@ -85,11 +181,11 @@
   stamps are read through package variables a test replaces (`runtime.GOOS`,
   `install.RunningStamp`, `install.FileStamp`). Tested in `framework/internal/cmd/doctor_test.go`
   (new). Citing [DOCTOR-3-S2].
-- [x] 1.3 The tools lines, from `prereqs.sh --rows` in the resolved template, run with `/bin/sh`
+- [x] 1.3 The tools lines in `framework/internal/cmd/doctor.go`, from `prereqs.sh --rows` in the resolved template, run with `/bin/sh`
   as `printPrereqs` runs it, and read strictly (D1). Tested in `doctor_test.go` with a stub `PATH`
   (`testbin`), and a `--template-dir` template whose `prereqs.sh` prints only a human report.
   Citing [DOCTOR-1-S1], [DOCTOR-1-S2].
-- [x] 1.4 The template line, from `template.Resolve` (its error, or `Source.Warning`), and the
+- [x] 1.4 The template line in `framework/internal/cmd/doctor.go`, from `template.Resolve` (its error, or `Source.Warning`), and the
   tools line as a note when no template resolves. Tested in `doctor_test.go` with
   `CLAUDUCTOR_FRAMEWORK` naming a template whose `.template-version` is not the binary's. Citing
   [DOCTOR-1-S3].
@@ -98,21 +194,21 @@
   marker string and exits 0, the output checked for the marker's absence. Citing [DOCTOR-1-S4].
 
 ## 2. The project (D6)
-- [ ] 2.1 The repository line (`git rev-parse --show-toplevel`, and the main checkout as
+- [x] 2.1 The repository line (`git rev-parse --show-toplevel`, and the main checkout as
   `install/candidate.go`'s `mainRoot` finds it: the first entry of `signals.ReadWorktrees`,
   resolved), and the model line with `ownguard.go`'s readings (the plugin marker first, then the
   install marker and the old model's signs, then `ownModelSigns`), the no-model fix `clauductor
   install` as D8 prints it. Tested in `doctor_test.go` with a directory outside any repository, a
   bare `git init` (run from a subdirectory, the fix asserted with its `cd <toplevel> &&`), one
   holding `.claude/skills`, and one holding the plugin marker. Citing [DOCTOR-2-S1], [DOCTOR-2-S2], [DOCTOR-2-S3].
-- [ ] 2.2 The drift line, from `template.Survey` at the toplevel: `Report.Converged`, the counts
+- [x] 2.2 The drift line in `framework/internal/cmd/doctor_project.go`, from `template.Survey` at the toplevel: `Report.Converged`, the counts
   of framework files that differ and are missing, whether `settings.json` would change, each
   `Report.Warnings` entry but the template's own warning, and the fix as D8 prints it (a given
   `--template-dir` carried as the resolved `Source.Dir`, quoted, so it survives the `cd`); the last
   line's `sh .claude/checks/run.sh` for Clauductor's model (D4). Tested in `doctor_test.go` with a repository installed by `install`,
   then one framework file edited and one deleted, run from a subdirectory. Citing [DOCTOR-2-S4],
   [DOCTOR-2-S5].
-- [ ] 2.3 Doctor writes nothing. Tested in `doctor_test.go` with `internal/treesnap` taken over
+- [x] 2.3 Doctor writes nothing. Tested in `framework/internal/cmd/doctor_test.go` with `internal/treesnap` taken over
   the repository and the home directory before and after a run that finds drift and an untrusted
   config (macOS forced through the test's variable). Citing [DOCTOR-3-S1].
 
