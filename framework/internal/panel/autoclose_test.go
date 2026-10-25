@@ -71,15 +71,27 @@ func TestAutoCloseReadsTheVerdictAgainUnderTheLock(t *testing.T) {
 
 			var mu sync.Mutex
 			var ran []string
+			stopped := false // a stop has begun: the lane's claude is gone from here on
 			lm.Exec = func(_ context.Context, argv []string) ([]byte, error) {
+				cmd := strings.Join(argv, " ")
 				mu.Lock()
-				ran = append(ran, strings.Join(argv, " "))
-				mu.Unlock()
-				if strings.Contains(strings.Join(argv, " "), " list-panes ") {
+				defer mu.Unlock()
+				ran = append(ran, cmd)
+				switch {
+				case strings.Contains(cmd, " list-panes "):
+					if stopped {
+						// A close that wrongly went ahead finds the lane gone, so its wait for
+						// the death returns under the fake clock and the test's own
+						// assertions fail, rather than a hang until go test's timeout.
+						return nil, nil
+					}
 					// tmux now: the lane's claude runs (whatever the view's poll showed).
 					return []byte("x\t" + wt + "\t" + wt + "\t0\t\t1\t0\tbuild\n"), nil
+				case strings.Contains(cmd, " send-keys "), strings.Contains(cmd, " kill-session "):
+					stopped = true
+					return nil, nil
 				}
-				return nil, errors.New("unexpected tmux call " + strings.Join(argv, " "))
+				return nil, errors.New("unexpected tmux call " + cmd)
 			}
 			lm.Run = func(_ context.Context, _ string, argv []string) ([]byte, error) {
 				cmd := strings.Join(argv, " ")

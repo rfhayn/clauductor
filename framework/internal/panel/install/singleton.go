@@ -44,10 +44,18 @@ type PanelOwner struct {
 	Started int64  `json:"started"`
 	// Projects are the roots of every project it serves (PANEL-16).
 	Projects []string `json:"projects,omitempty"`
+	// Socket is the path of the panel's command socket, where `clauductor lane close`
+	// reaches it (PANEL-57 D1); "" when it has none (it could not listen, or it is a
+	// panel from before the socket).
+	Socket string `json:"socket,omitempty"`
 }
 
 // ownerPath is the running panel's owner record.
 func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
+
+// CLISocketPath is where a panel listens for `clauductor lane close` (PANEL-57 D1):
+// in the private panel directory, so only the owner's user can open it.
+func CLISocketPath(home string) string { return filepath.Join(config.PanelDir(home), "cli.sock") }
 
 // LockPath is the machine lock a running panel holds with flock(2). The file itself
 // is never removed: a new inode would let a second panel lock it too.

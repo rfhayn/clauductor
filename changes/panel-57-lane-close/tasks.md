@@ -9,6 +9,16 @@
   round(s), peak high (the owner raised the cap to 6, then allowed a narrow 7th; rounds 6–7 on Fable).
   Two lows left from round 7: the auto-close test's negative path fails by a timeout hang, and the
   lock-time tmux rule is in the Decision log, not the spec delta.
+- 2026-10-25 group 2 (tasks 2.1–2.4) built, uncommitted for review. The panel serves `CLIHandler`
+  on `~/.clauductor/panel/cli.sock` (`Options.CLISocket`), `owner.json` names it, and
+  `install.CloseLane` is the command's client. Round 7's F1 (the auto-close test's hang) is fixed
+  too. Next: group 3, the command (`framework/internal/cmd/lane.go`). It owns the three
+  scenarios still MISSING in `scenario-trace.sh --now`: 1-S5, 2-S2 and 3-S2.
+- 2026-10-25 group 2 (The socket in the panel's life) built and reviewed: converged in 2 round(s),
+  peak high. Four lows from round 2 go to group 3's builder: no test starts a panel on the default
+  socket path (`install.CLISocketPath`); `CloseLane`'s cut-off words claim a begun close on a dry
+  run; its doc comment omits that third kind of error; `deadSocketFile` takes its descriptor
+  outside `syscall.ForkLock`. The claudecall flake seen in both groups' gates is #260.
 
 ## Decision log
 - 2026-10-24: the owner directed all six round-3 findings fixed; finding 2 decided as the reviewer
@@ -186,6 +196,78 @@
   unchanged. Replacing also adds nothing to safety.
   Not covered: a Restart of a lane that was running in both readings. tmux carries no pane PID,
   so the respawn cannot be seen. That is not an exit, and the new claude has run no turn.
+- 2026-10-25, group 2: the command's client is `install.CloseLane(ctx, socket, project, id,
+  lanes.CloseRequest)` in a new `install/laneclose.go`, answering `LaneCloseAnswer{Plan, Result}`;
+  a refusal is a `*lanes.LaneError` with the route's status, code and message (a body that is not
+  the route's JSON, such as the mux's own 404 or 405, gives the trimmed body and no code).
+  Alternative: two functions (plan, close), or a client local to `cmd`. Why not: task 2.4 wants
+  one function the panel's tests drive, and `panel` cannot import `cmd`. The `LaneError` lets
+  group 3 print the route's words and choose its exit status.
+- 2026-10-25, group 2: the socket's failures print one line to `o.Out`, "no command socket, so
+  `clauductor lane close` cannot reach this panel: <why>". A path too long for `sun_path` adds its
+  length and the limit (`len(syscall.RawSockaddrUnix{}.Path)`), and a file at the path that is not
+  a socket is left alone and named. A socket server that stops with an error other than
+  `ErrServerClosed` prints "the command socket stopped serving" and the panel serves on.
+  Alternative: fail the start. Why not: D1 says a panel that cannot make its socket starts
+  anyway ([LANECLOSE-3-S4]).
+- 2026-10-25, group 2: the socket is listened on before the owner value is built (so `Socket`
+  names a path that answers), but served only after the Server is wired, beside the TCP serve
+  goroutines. A connection that comes in meanwhile waits in the listen backlog. `Shutdown` runs
+  after the TCP server's, and the deferred `Close` unlinks the file before the machine lock is
+  released. Between `net.Listen` and `Chmod 0600` the socket has the umask's mode, but it sits in
+  the directory `EnsurePrivateDir` has just made 0700, so no other user can reach it then.
+  Alternative: set the process umask around the listen. Why not: the umask is process-wide, and
+  the panel's other goroutines create files at the same time.
+- 2026-10-25, group 2 (round 7's low F1): in `TestAutoCloseReadsTheVerdictAgainUnderTheLock`,
+  the tmux stub now records a stop (`send-keys` or `kill-session`), and from then on `list-panes`
+  shows no lane. A close the guard did not hold now ends at once, instead of waiting out the stop
+  timeout. With `CloseIf`'s held check turned off, all three subtests failed in about 0.3 s, each
+  with its own assertion, not a timeout.
+- 2026-10-25, group 2: task 2.3 asks for a lane program that is "a long `sleep`". The test's
+  program is a loop that waits for a file named after the lane's directory, so that
+  [LANECLOSE-2-S4]'s exited case can end one claude. To the panel and tmux it is the same: a
+  pane command that runs until told. The Needs-you cases of auto-close each get a lane of their
+  own (`bgauto`, `unread`), so no CLI close races auto-close. Their pull requests are listed open
+  first, then merged, because auto-close checks a lane again only when its PR leaves the open
+  list. [LANECLOSE-4-S1] runs in the same panel. The `worktree_teardown` marks every lane it
+  runs for, and sleeps only for lane `slow`, so one panel serves every case.
+- 2026-10-25, group 2: the controls were checked by failing them, then restored. A socket mode
+  of 0644 fails the mode assertion. `MkdirAll` in place of `EnsurePrivateDir` fails the
+  directory's 0700. Not removing the stale socket leaves nothing answering and no socket in
+  `owner.json`. `CloseIf` under the request's context in place of the panel's fails
+  [LANECLOSE-4-S1] (the worktree stays).
+- 2026-10-25, group 2 review round 1, the stale socket's precondition (finding 2): the test
+  plants it with `deadSocketFile`, a socket that is bound and never listened on. `bind` makes
+  the file. A child a parallel test forks may inherit the descriptor, but it cannot accept, so
+  the precondition still asserts that a dial is refused, which is what a killed panel leaves.
+  Alternatives: plant it from a child process that exits, wait until the dial is refused, or
+  drop the dial check. Why not: a child process is a helper leakcheck must then track, a wait
+  only shortens the window, and dropping the check would stop proving that nothing answered
+  before the panel. testbin, leakcheck and testwait had no helper for this. Seven runs of the
+  group's tests together passed.
+- 2026-10-25, group 2 review round 1 (finding 5): `CloseLane` tells apart an error before the
+  connection was made ("the panel's socket … does not answer") and one after the request was
+  sent ("the panel's answer did not arrive (…); a close it had begun, it finishes: see the lane
+  on the panel's page"). The dial records whether it connected. Alternative: classify by error
+  type (`context.Canceled`, `net.OpError`). Why not: a cancel can come on either side of the
+  dial, and only "connected" says whether the panel may have begun (D4). Redirects are not
+  followed (finding 6): a 3xx comes back as a `LaneError` with its status, and the request is
+  sent once.
+- 2026-10-25, group 2 review round 1 (finding 4): lane `slow`'s teardown waits for a release
+  file. The test creates it only after the cancelled command has returned, so the window no
+  longer depends on how fast the machine is. The wait is capped at 60 s, and a cleanup creates
+  the file too, so a failed test leaves no teardown running for long. Uninstall now removes
+  `cli.sock` with the rest of the panel's files (finding 7), and
+  `TestUninstallRemovesPanelFilesButKeepsLiveRegistries` lists it.
+- 2026-10-25, group 2 review round 1: each control was broken on purpose, then restored, and a
+  test failed on its own assertion. The dirty re-check's reason dropped in `CloseIf` fails
+  [LANECLOSE-1-S3] (the Kept line read "the confirmation did not include it", which the old
+  assertion passed). A regular file removed like a socket fails
+  `TestAPanelLeavesAFileAtItsSocketPathThatIsNotASocket`. Every error worded "does not answer"
+  fails `TestCloseLaneTellsNoAnswerFromAnAnswerCutOff`. Redirects followed fails
+  `TestCloseLaneFollowsNoRedirect` (ten requests, the GETs among them). `cli.sock` left out of
+  uninstall's list fails the uninstall test. The stale socket not removed, and `CloseIf` under
+  the request's context, still fail as before.
 
 ## 1. The close verdict and the socket's route (D2, D4)
 - [x] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
@@ -305,11 +387,11 @@
   them; confirm the test fails with the check removed. (Tasks 1.1 and 2.3 cover the scenarios.)
 
 ## 2. The socket in the panel's life (D1, D4)
-- [ ] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
+- [x] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
   omitempty"`), and `CLISocketPath(home)`, `~/.clauductor/panel/cli.sock`. Tested in
   `framework/internal/panel/singleton_test.go`: an `owner.json` naming a socket comes back from
   `RunningPanel` with it, and one from before this change (no field) comes back with it empty.
-- [ ] 2.2 `framework/internal/panel/run.go` and `live.go`: `Options.CLISocket` (default
+- [x] 2.2 `framework/internal/panel/run.go` and `live.go`: `Options.CLISocket` (default
   `install.CLISocketPath(o.Home)`). After the machine lock is held and before the owner value at
   `run.go:354` is built: the socket's directory made private (`config.EnsurePrivateDir`); a socket
   file already at the path removed (any other kind of file left, and the socket skipped);
@@ -327,7 +409,7 @@
   file at the path replaced, and the file gone after `stop`; a 200-byte path leaving the page
   served, the line printed and `Socket` empty. Citing [LANECLOSE-3-S1], [LANECLOSE-3-S3],
   [LANECLOSE-3-S4].
-- [ ] 2.3 The close through the socket, in the same test file, on a throwaway tmux socket
+- [x] 2.3 The close through the socket, in the same test file, on a throwaway tmux socket
   (`throwawaySocket`) with `TrustConfig` and `stallWorld`'s runner (`stall_integration_test.go`)
   faking `claude agents`: a lane whose program is a long `sleep`, its tmux session still there,
   made idle by an `agent(…, "idle", "")` reading for its session, its branch at `main`'s tip. A
@@ -349,7 +431,7 @@
   the worktree removed, the branch deleted and the line printed. Citing [LANECLOSE-1-S1],
   [LANECLOSE-1-S2], [LANECLOSE-1-S3], [LANECLOSE-2-S1], [LANECLOSE-2-S3], [LANECLOSE-2-S4],
   [LANECLOSE-4-S1].
-- [ ] 2.4 merge-pr's review of the approved proposal (2026-10-24): **the command's client is
+- [x] 2.4 merge-pr's review of the approved proposal (2026-10-24): **the command's client is
   tested against the real route.** The socket client the command uses (building the close body,
   decoding `{"ok","plan"}`, `{"ok","result"}` and `writeLaneErr`'s body) is one exported function
   in `framework/internal/panel/install` (the package the command already imports for
@@ -428,5 +510,15 @@
   manager's own `404 "no lane %q"` (`lanes/close.go:343-345`) among them, means "closed or
   closing", and is never a cue to try another id from the unknown-id list; that list is read only
   on a first call. Held by `TestCommittedPluginIsCurrent` and `checks/skills.sh`.
+- [ ] 4.4 Review round 7's spec finding (group 1, 2026-10-25): the spec delta states the lock-time
+  rule, so it stays cited once archived. Under [LANECLOSE-2-S4], add an **AND** line: a lane the
+  panel last read as exited or gone, whose tmux shows claude running when the close takes the lane
+  lock (a Restart or Resume since), or whose tmux does not answer then, is refused the same way,
+  with nothing stopped. That is, after taking the lock, the close decides nothing from a tmux value
+  read before it. Cite [LANECLOSE-2-S4] on `TestCloseIfTakesTheExitFromTmuxNow`
+  (`lanes/close_test.go`) and `TestCLICloseOfAnExitedLaneRestartedSinceThePoll`
+  (`web/cli_test.go`). Task 4.1's refusals table gets the two refusals' words. design.md is not
+  edited: the rule is group 1's Decision log entry, and it narrows D2, never widens it. Held by
+  `.claude/scenario-trace.sh` and `checks/changes.sh`.
 
 - [ ] Slice: an agent can close a finished panel lane with clauductor lane close, through Close lane's plan and guards, and cannot close a working one

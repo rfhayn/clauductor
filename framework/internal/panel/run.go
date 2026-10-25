@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/claudecall"
@@ -58,6 +59,10 @@ type Options struct {
 	Launchd bool
 	// TmuxSocket overrides the config's tmux_socket (tests use a throwaway socket).
 	TmuxSocket string
+	// CLISocket is where the panel listens for `clauductor lane close` (PANEL-57 D1);
+	// "" is install.CLISocketPath(Home). Tests pass a short path: a t.TempDir() home
+	// can be longer than a Unix socket's path may be.
+	CLISocket string
 	// LaneProgram overrides the lane program, `claude` (tests run sh or cat).
 	LaneProgram []string
 	// StopTimeout overrides how long a lane stop waits for /exit (default 10 s).
@@ -346,13 +351,28 @@ func Run(ctx context.Context, o Options) error {
 		roots = append(roots, r.root)
 	}
 
+	// The command socket (PANEL-57 D1), made while the machine lock is held and before
+	// owner.json is first written, so the record names it from the start and every
+	// rewrite (liveSet.writeOwner copies owner) keeps it. Its deferred Close unlinks the
+	// file before the lock's deferred Close releases the machine.
+	cliPath := o.CLISocket
+	if cliPath == "" {
+		cliPath = install.CLISocketPath(o.Home)
+	}
+	cliLn := listenCLISocket(cliPath, o.Out)
+	if cliLn != nil {
+		defer cliLn.Close()
+	} else {
+		cliPath = ""
+	}
+
 	marker := install.MarkerPath(o.Home)
 	// The PID and owner record sit beside the marker, not in it: status-line scripts
 	// read `port` as digits only. A PID that is not running (or runs with another
 	// start time) marks the files stale; SIGKILL skips the removal at exit, which
 	// takes them only while they are still this panel's.
 	owner := install.PanelOwner{PID: os.Getpid(), PStart: lease.ProcStart(os.Getpid()), Project: def.root,
-		Name: def.cfg.Name, Port: port, Started: clk.Now().Unix(), Projects: roots}
+		Name: def.cfg.Name, Port: port, Started: clk.Now().Unix(), Projects: roots, Socket: cliPath}
 	if err := install.ClaimPanelFiles(o.Home, owner); err != nil {
 		return err
 	}
@@ -475,6 +495,20 @@ func Run(ctx context.Context, o Options) error {
 	if ln6 != nil { // [::1]: clauductor.localhost resolves there first
 		go func() { serveErr <- httpSrv.Serve(ln6) }()
 	}
+	// The command socket's server is its own, over CLIHandler alone, so none of the
+	// page's routes is reachable there and the page's guards gain no exemption (D1).
+	// Its BaseContext is the panel's, and CLIHandler closes under ctx (D4). Its end
+	// is said, not fatal: the page serves on without it.
+	var cliSrv *http.Server
+	if cliLn != nil {
+		cliSrv = &http.Server{Handler: srv.CLIHandler(ctx, o.Out), ReadHeaderTimeout: 5 * time.Second,
+			BaseContext: func(net.Listener) context.Context { return ctx }}
+		go func() {
+			if err := cliSrv.Serve(cliLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				fmt.Fprintf(o.Out, "the command socket stopped serving: %v\n", err)
+			}
+		}()
+	}
 
 	url := fmt.Sprintf("http://%s:%d/?t=%s", web.PanelHost(ln6 != nil), port, token)
 	served := fmt.Sprintf("%s (%s)", def.cfg.Name, def.root)
@@ -515,6 +549,9 @@ func Run(ctx context.Context, o Options) error {
 	shutCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
 	_ = httpSrv.Shutdown(shutCtx)
+	if cliSrv != nil {
+		_ = cliSrv.Shutdown(shutCtx)
+	}
 	wg.Wait()
 	ls.stopAll() // every project's runtime, each waited for
 	// The claude calls still running had SIGTERM as the contexts ended: they get
@@ -528,6 +565,44 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	return nil
+}
+
+// listenCLISocket opens the command socket at path (PANEL-57 D1): mode 0600 in a
+// private directory, so the kernel's file permissions are the credential. A socket
+// already at the path is a killed panel's (the caller holds the machine lock, so no
+// live panel listens there) and is replaced; any other kind of file is left as it is.
+// When it cannot listen it says why on out and returns nil: the panel serves the page
+// without it, and owner.json names no socket.
+func listenCLISocket(path string, out io.Writer) net.Listener {
+	without := func(format string, a ...any) net.Listener {
+		fmt.Fprintf(out, "no command socket, so `clauductor lane close` cannot reach this panel: %s\n", fmt.Sprintf(format, a...))
+		return nil
+	}
+	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
+		return without("%v", err)
+	}
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			return without("%s is there and is not a socket, so it is left as it is", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return without("cannot remove the stale socket %s: %v", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return without("%v", err)
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		if limit := len(syscall.RawSockaddrUnix{}.Path); len(path) >= limit {
+			return without("%v (the path is %d bytes; a Unix socket's path must be shorter than %d here)", err, len(path), limit)
+		}
+		return without("%v", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		return without("cannot make %s private: %v", path, err)
+	}
+	return ln
 }
 
 // newLaneManager wires lane control, or returns why it is unavailable. A missing tmux
