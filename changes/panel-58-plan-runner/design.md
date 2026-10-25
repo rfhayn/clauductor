@@ -315,12 +315,17 @@ Read on 2026-10-25, at `0cfced2b`.
     - *Beat:* track only the lanes the runner started. A run could then begin or resume only by an
       action of its own on the page, a second way to start a lane beside **Start lane**.
     - The trigger is a pull request of that branch merging after the runner began tracking it.
-  - **What happens on the merge.** The runner:
+  - **What happens on the merge.** The runner goes through the eight steps of **The runner**'s
+    *Trigger*, numbered as there:
     1. ends the run when the merged PR was the session's close (below);
-    2. otherwise reads the merged PR's `Review:` line (D8), then fetches the config's base ref;
-    3. confirms the merge commit is on it;
+    2. otherwise reads the merged PR's `Review:` line (D8);
+    3. fetches the config's base ref, confirms the merge commit is on it, and waits for catch-up
+       to settle;
     4. reads `next` again;
-    5. starts the item.
+    5. finds the one template of the item's kind whose list names it;
+    6. chooses where the lane runs;
+    7. checks the 7-day ceiling (D4);
+    8. starts the item.
   - **The close.** When the merged PR was the session's close, the run ends with a push: the next
     session starts from the owner's click.
   - **The close holds until the owner starts a lane after it. The owner's decision, 2026-10-25

@@ -86,7 +86,7 @@
   `{"on": false, "next": ["sh", ".claude/panel-suggest.sh", "next"]}`.
   - Then `scripts/build-plugin.sh` again.
   - This repository's own `.clauductor/panel.json` is left alone. PANEL-59 turns it on (D10).
-  - Held by `TestTemplatePanelConfigLoads` (`framework/internal/template/template_test.go:99`,
+  - Held by `TestTemplatePanelConfigLoads` (`framework/internal/template/template_test.go:100`,
     [STALL-1-S29]: the template declares the latest version), `internal/plugin/plugin_test.go` and
     `TestCommittedPluginIsCurrent`.
 - [ ] 2.3 Trust on arrival (CATCHUP-3, D9).
