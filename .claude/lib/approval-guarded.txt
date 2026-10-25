@@ -47,6 +47,12 @@ guard.d
 .claude/skills/merge-pr
 .claude/local/skills/propose
 .claude/local/skills/merge-pr
+# What prints those fragments and runs the health lines, and the table's other script controls
+.claude/extensions.sh
+.claude/machine-quiet.sh
+.claude/panel-suggest.sh
+.claude/compound.sh
+.gitattributes
 # The gate, CI and the secrets scan
 .github/workflows
 .github/dependabot.yml

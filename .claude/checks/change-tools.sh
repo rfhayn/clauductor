@@ -27,7 +27,8 @@ cp -R "$EX/changes/add-greeting-name" "$R/changes/"
 C="$R/changes/add-greeting-name"
 
 # ── change-approval.sh ─────────────────────────────────────────────────────────────────────────
-A() { (cd "$R" && APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name "$@") > "$d/out" 2>&1; }
+# GITHUB_HEAD_REF is cleared so a CI runner's own pull request never names the fixture's branch.
+A() { (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name "$@") > "$d/out" 2>&1; }
 A; expect_rc 1 $? "change-approval: an unapproved change is not approved"
 A --record Ana; expect_rc 0 $? "change-approval --record writes the Approved line"
 grep -qE '^\*\*Approved:\*\* 2026-01-02 by Ana · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads '**Approved:** <date> by <owner> · design <hash>'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
