@@ -177,7 +177,8 @@ while IFS= read -r t; do
     steps=$fp
     case $fp in /build-change*)
       steps="$fp $(grep -m1 'whenToUse:' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null)"
-      grep -qE '^[0-9]+\. \\`sh \.claude/skills/session-start/marker\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
+      # The plugin's build spells the step `clauductor-model skills/…`; either form runs the marker.
+      grep -qE '^[0-9]+\. \\`(sh \.claude/|clauductor-model )skills/session-start/marker\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
         && ok "template $id: build-change's preflight runs the marker itself" || fail "template $id: build-change's preflight does not run sh .claude/skills/session-start/marker.sh, so a build lane starts with no marker"
       grep -qE '^if \(!MARKER_OK\.test\(markerLine\)\) report\.warnings\.push' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
         && ok "template $id: a marker that did not report success reaches report.warnings" || fail "template $id: build-change.js does not push a marker that did not report success to report.warnings, so a failed marker reaches nobody" ;;

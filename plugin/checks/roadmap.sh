@@ -359,8 +359,9 @@ bypass() {
     # call is allowed (OPS-126): the first such call on each line is cut before the scan, so a raw
     # queue read added to the marker, even on that same line, is still flagged.
     strip='s/^$//'
-    case $f in */skills/session-start/marker.sh) strip='s|sh "\$ROOT/\.claude/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"||' ;; esac
-    sed "$strip" "$f" | grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' \
+    # The plugin's build spells the call "$CLAUDUCTOR_FW/roadmap-plan.sh"; both forms are cut.
+    case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|CLAUDUCTOR_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
+    sed -E "$strip" "$f" | grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"
   done
