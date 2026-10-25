@@ -293,6 +293,19 @@ func execCombined(argv ...string) ([]byte, error) {
 
 func guiDomain() string { return "gui/" + strconv.Itoa(os.Getuid()) }
 
+// labelDisabled reads `launchctl print-disabled`'s listing (`"<label>" => disabled`, or `=> true`
+// on some macOS versions) for label.
+func labelDisabled(listing []byte, label string) bool {
+	for _, l := range strings.Split(string(listing), "\n") {
+		name, state, ok := strings.Cut(strings.TrimSpace(l), "=>")
+		if ok && strings.TrimSpace(name) == strconv.Quote(label) {
+			s := strings.TrimSpace(state)
+			return s == "disabled" || s == "true"
+		}
+	}
+	return false
+}
+
 // copyFileAtomic copies src to dst (mode 0755) via a temp file and rename, so a
 // running agent's binary is replaced, never truncated under it.
 func copyFileAtomic(src, dst string) error {
@@ -369,6 +382,12 @@ func Install(o InstallOptions) error {
 		if o.Config == "" {
 			cfg = "" // let the agent follow the project's default path
 		}
+	}
+	// A label launchd holds as disabled fails every bootstrap with error 5, which the retry
+	// below would only repeat (#202). Stop before anything changes; enabling it is the owner's.
+	if out, err := o.Exec("/bin/launchctl", "print-disabled", guiDomain()); err == nil && labelDisabled(out, LaunchdLabel) {
+		return fmt.Errorf("launchd holds %s as disabled (launchctl print-disabled %s), so loading it would fail with error 5: run `launchctl enable %s/%s`, then `clauductor panel install` again",
+			LaunchdLabel, guiDomain(), guiDomain(), LaunchdLabel)
 	}
 	bin := InstalledBinary(o.Home)
 	if err := copyFileAtomic(o.Self, bin); err != nil {
