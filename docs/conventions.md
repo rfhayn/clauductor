@@ -23,8 +23,9 @@ marked merged with it.
 - **No stacked PRs.** If B depends on A, merge A first, then branch B from `main`.
 - **Merge only through `merge-pr`**, which wants gate evidence for the head commit and converged
   review before it runs `gh pr merge --squash`. `pr-merge-guard` refuses `--auto`, `--admin`,
-  a merge of a PR that is not open, and a merge without evidence. A merge clicked on the website runs no hook: that is an accepted
-  residual, not a gap to paper over with branch protection rules the agents cannot satisfy.
+  a merge of a PR that is not open, and a merge without evidence. A merge clicked on the website
+  runs no hook: that is an accepted residual, not a gap to paper over with branch protection rules
+  the agents cannot satisfy.
 - **The main checkout stays on `main`.** Every hook is read from it; work happens in worktrees
   under `.claude/worktrees/<lane>`, one per lane, each cut from `origin/main`.
 - **Propose just in time, at most ONE change proposed ahead** (`docs/principles.md`). To capture

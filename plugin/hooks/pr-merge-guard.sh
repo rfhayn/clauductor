@@ -394,7 +394,7 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # github.com, and an ssh alias (`git@github-work:o/n`) is still this repo. THIS repo is the origin
 # remote (https, ssh or scp form), never a hard-coded name; if it cannot be read, nothing is
 # foreign. A merge naming no repo is this repo's (`cd ../other && gh pr merge 2` is policed — pass
-# -R). GH_REPO / GH_HOST are not read.
+# -R). GH_REPO / GH_HOST are not read: a merge of this repo that names either BLOCKS (at ghpr).
 #
 # repo_key — lowercased owner/name of an owner/name, host/owner/name, https/ssh/scp URL or PR URL.
 repo_key() {
@@ -595,13 +595,26 @@ esac
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
 # gh's default repository (`gh repo set-default`), which in a fork's checkout is not origin, so a
 # read without the merge's -R can judge another repo's PR #n (OPS-132). With no repo named, the read
-# names none either, and resolves exactly as the merge does.
-gh_sel=$pr gh_repo=""
-case "$pr_arg" in http://* | https://*) gh_sel=$pr_arg ;; *) gh_repo=$own_repo ;; esac
+# names none either, and resolves as the merge does only from the same directory and environment:
+# the hook runs in the command's starting directory with the session's environment, so a command
+# that sets GH_REPO or GH_HOST, or names no repo and changes directory, is refused below.
+# run_repo is the same repository for `gh run list`, which takes no PR URL: the URL's host/owner/name.
+gh_sel=$pr gh_repo="" run_repo=""
+case "$pr_arg" in
+  http://* | https://*) gh_sel=$pr_arg; run_repo=$(printf '%s\n' "$pr_arg" | sed -e 's|^[a-z]*://||' -e 's|/pull/.*$||') ;;
+  *) gh_repo=$own_repo; run_repo=$own_repo ;;
+esac
+pr_ref="$gh_sel${gh_repo:+ -R $gh_repo}"
 ghpr() {
   _sub=$1; shift
   if [ -n "$gh_repo" ]; then gh pr "$_sub" "$gh_sel" -R "$gh_repo" "$@"; else gh pr "$_sub" "$gh_sel" "$@"; fi
 }
+if printf '%s' "$cmd" | grep -Eq 'GH_(REPO|HOST)'; then
+  block "this merge names GH_REPO or GH_HOST, which choose the repository gh merges in, and this guard reads PR #$pr without them, so it could judge another repository's PR. Drop them and name the repo: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
+fi
+if [ -z "$run_repo" ] && printf '%s' "$cmd" | grep -Eq '(^|[^A-Za-z0-9_./-])(cd|pushd)([[:blank:]]|$)'; then
+  block "this merge changes directory and names no repository, so gh resolves PR #$pr from that directory while this guard reads it from here, and could judge another repository's PR. Name the repo: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
+fi
 
 # Rule 14 — only an OPEN PR merges (OPS-132). A close is how one session tells another "do not land
 # this", and the lane that opened the PR is not told: #215, closed as a duplicate, landed twelve
@@ -612,7 +625,7 @@ state_errf=$(mktemp "${TMPDIR:-/tmp}/guard-state.XXXXXX") || block "cannot make 
 pr_state=$(ghpr view --json state --jq .state 2>"$state_errf") || pr_state=""
 state_err=$(grep . "$state_errf" | head -n 1); rm -f "$state_errf"
 [ -n "$pr_state" ] || block "cannot read PR #$pr's state (gh: ${state_err:-no answer}), so whether it is still open cannot be checked. Fix what gh reports (gh auth status, the PR number), then retry."
-[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $gh_sel${gh_repo:+ -R $gh_repo} --comments) before anything else. If it should land after all, reopen it first; a merged one has nothing left to merge."
+[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $pr_ref --comments) before anything else. If it should land after all, reopen it first; a merged one has nothing left to merge."
 
 # Rule 2 — gate evidence for the exact head commit.
 #
@@ -646,7 +659,7 @@ if [ -n "$checks" ] && [ "$checks" != "[]" ]; then
       '[ .[] | select(.name | test($d) | not)
              | select(.bucket as $b | ["pass","skipping"] | index($b) | not)
              | "\(.name)=\(.bucket)" ] | join(", ")')
-    block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr --watch), then merge."
+    block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr_ref --watch), then merge."
   fi
 fi
 
@@ -668,8 +681,8 @@ if [ -n "${GATE_PR_CHECKS:-}" ]; then
       '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) | select(.bucket != "pass") | "\(.name)=\(.bucket)" ] | join(", ")')
     [ -z "$bad" ] || notgreen="${notgreen:+$notgreen, }$bad"
   done
-  [ -z "$missing" ] || block "PR #$pr has not reported the checks GATE_PR_CHECKS requires:$missing (CI has not registered them for the head commit yet, or the names in .claude/project.conf are wrong: compare gh pr checks $pr). Wait (gh pr checks $pr --watch), then merge."
-  [ -z "$notgreen" ] || block "PR #$pr's required checks (GATE_PR_CHECKS) are not green: $notgreen. Wait for green (gh pr checks $pr --watch), then merge."
+  [ -z "$missing" ] || block "PR #$pr has not reported the checks GATE_PR_CHECKS requires:$missing (CI has not registered them for the head commit yet, or the names in .claude/project.conf are wrong: compare gh pr checks $pr_ref). Wait (gh pr checks $pr_ref --watch), then merge."
+  [ -z "$notgreen" ] || block "PR #$pr's required checks (GATE_PR_CHECKS) are not green: $notgreen. Wait for green (gh pr checks $pr_ref --watch), then merge."
   say "GATE_PR_CHECKS ($GATE_PR_CHECKS) reported and passed on PR #$pr."
 fi
 
@@ -687,8 +700,11 @@ fi
 
 ci_runs=0
 if [ -n "$REMOTE_WF" ]; then
-  ci_runs=$(gh run list --workflow "$REMOTE_WF" --commit "$head_sha" --json conclusion \
-    --jq '[ .[] | select(.conclusion == "success") ] | length' 2>/dev/null)
+  # In the PR's own repository (run_repo, at ghpr): a fork's default repo has runs of its own.
+  set -- run list --workflow "$REMOTE_WF" --commit "$head_sha" --json conclusion \
+    --jq '[ .[] | select(.conclusion == "success") ] | length'
+  [ -z "$run_repo" ] || set -- "$@" -R "$run_repo"
+  ci_runs=$(gh "$@" 2>/dev/null)
 fi
 if [ "${ci_runs:-0}" -gt 0 ]; then
   say "$REMOTE_WF succeeded for $(printf %.9s "$head_sha")…: gate evidence satisfied."
@@ -724,7 +740,7 @@ esac
 # Rules 3, 4, 7 and 8 read the PR's head branch and its tree at the head SHA.
 head_json=$(ghpr view --json headRefName,headRefOid 2>/dev/null)
 branch=$(printf '%s' "$head_json" | jq -r '.headRefName // empty' 2>/dev/null)
-[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr --json headRefName' answers."
+[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr_ref --json headRefName' answers."
 
 # The head commit, locally: rules 3, 7 and 8 read files at it from local git objects (no API size cap,
 # nothing remote-tracking to be stale). Fetched once if missing; fails CLOSED if still missing.

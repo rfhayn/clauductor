@@ -61,7 +61,8 @@ case "$1 $2" in
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;
-  "run list") echo "${GH_RUNS:-0}" ;;
+  # GH_RUNS_DEFAULT: the successes gh's default repo has for that commit, which a list naming no repo gets.
+  "run list") case "$*" in *" -R "*) echo "${GH_RUNS:-0}" ;; *) echo "${GH_RUNS_DEFAULT-${GH_RUNS:-0}}" ;; esac ;;
   *) exit 1 ;;
 esac
 EOF
@@ -98,10 +99,21 @@ guard 0 "...and an OPEN one, the same in every other way" "gh pr merge 5 --squas
 # ...in every form the guard polices as this repo's merge, and read from the repo the merge NAMES:
 # with -R or a URL, a read of the bare number would judge gh's default repo's PR #5 instead.
 guard 2 "a CLOSED PR merged by this repo's PR URL" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED
-guard 2 "a CLOSED PR merged through gh api" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED
+guard 2 "a CLOSED PR merged through gh api, its number OPEN in gh's default repo" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "an OPEN PR merged through gh api, its number CLOSED in gh's default repo" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
 guard 2 "a CLOSED PR named by -R, its number OPEN in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a CLOSED PR named by URL, its number OPEN in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 0 "an OPEN PR named by -R, its number CLOSED in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
+# The guard reads from the command's starting directory with the session's environment, so what
+# moves gh elsewhere is refused: GH_REPO/GH_HOST, or a cd when no repo is named. -R or a URL pins it.
+guard 2 "GH_REPO before a merge naming no repo" "GH_REPO=acme/app gh pr merge 5 --squash"
+grep -q 'GH_REPO' "$d/err" && ok "merge-guard: ...naming GH_REPO" || fail "merge-guard: GH_REPO refusal does not name it: $(head -3 "$d/err")"
+guard 2 "GH_HOST before a merge named by -R" "GH_HOST=ghe.example.com gh pr merge 5 -R acme/app --squash"
+guard 2 "export GH_REPO, then a merge" "export GH_REPO=acme/app; gh pr merge 5 --squash"
+guard 2 "a cd before a merge naming no repo" "cd /tmp && gh pr merge 5 --squash"
+guard 2 "a cd before a gh api merge of {owner}/{repo}" "cd /tmp && gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "a cd before a merge named by -R" "cd /tmp && gh pr merge 5 -R acme/app --squash"
+guard 0 "a cd before a merge named by this repo's PR URL" "cd /tmp && gh pr merge https://github.com/acme/app/pull/5 --squash"
 receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick
@@ -152,6 +164,9 @@ guard 2 "no remote workflow named, so a remote success does not count" "gh pr me
 echo 'GATE_REMOTE_WORKFLOW="ci.yml"' >> "$R/.claude/project.conf"
 guard 0 "the named remote workflow succeeded" "gh pr merge 5 --squash" GH_RUNS=1
 guard 2 "the named remote workflow has no success on the head" "gh pr merge 5 --squash" GH_RUNS=0
+guard 0 "...a success in the repo -R names, none in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_RUNS=1 GH_RUNS_DEFAULT=0
+guard 2 "...a success only in gh's default repo, for a PR -R names" "gh pr merge 5 -R acme/app --squash" GH_RUNS=0 GH_RUNS_DEFAULT=1
+guard 2 "...a success only in gh's default repo, for a PR named by URL" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_RUNS=0 GH_RUNS_DEFAULT=1
 
 # A receipt written in a linked worktree's git dir counts.
 git -C "$R" worktree add -q "$d/lane" 2>/dev/null
