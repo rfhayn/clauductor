@@ -84,21 +84,41 @@ git -C "$R" update-ref refs/remotes/origin/main HEAD
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch commits a rename of a guarded file"
 grep -q 'guarded path.*\.claude/verify-change.sh' "$d/out" && ok "...and names the file it moved" || fail "no verify-change.sh in: $(cat "$d/out")"
 git -C "$R" reset -q --hard HEAD~1
-# The change's branch by its tip, not its name: a detached HEAD there, or a CI pull request's head.
+# The change's branch by its history or its content, not its name (OPS-130): a detached HEAD at its
+# tip or past it, an amend there, or a CI pull request's head. Its first group ticks tasks.md.
+cp "$C/tasks.md" "$d/tasks.bak"; printf '\n<!-- group 1 -->\n' >> "$C/tasks.md"
+git -C "$R" add "$C/tasks.md" && git -C "$R" commit -qm "group 1"
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 git -C "$R" checkout -q --detach
 A; expect_rc 1 $? "change-approval: a detached HEAD at the change's tip still counts its diff"
 git -C "$R" commit -q --allow-empty -m "the pull request's merge commit" && git -C "$R" checkout -q --detach
-A; expect_rc 0 $? "change-approval: a detached HEAD past the change's tip is not its branch"
+A; expect_rc 1 $? "change-approval: a detached HEAD past the change's tip still counts its diff"
+past=$(git -C "$R" rev-parse HEAD) tip=$(git -C "$R" rev-parse origin/main)
+git -C "$R" checkout -q --detach change/add-greeting-name
+git -C "$R" add -f "$R/.claude/hooks/pr-merge-guard.sh" && git -C "$R" commit -q --amend --no-edit
+A; expect_rc 1 $? "change-approval: a detached amend of the change's tip counts its diff, by the change's directory in it"
+git -C "$R" checkout -q --detach "$past"; mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
+git -C "$R" commit -q --allow-empty -m "main moves on" && git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q --detach origin/main~0
+A; expect_rc 0 $? "change-approval: a detached HEAD on main, past the change's tip, is not its branch"
+git -C "$R" update-ref refs/remotes/origin/main "$tip" && git -C "$R" checkout -q --detach "$past"
 (cd "$R" && GITHUB_HEAD_REF=change/add-greeting-name APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name) > "$d/out" 2>&1
 expect_rc 1 $? "change-approval: a CI checkout of the change's pull request (GITHUB_HEAD_REF) counts its diff"
 git -C "$R" checkout -q change/add-greeting-name
 rm -r "$R/.claude/hooks"
+# A change's branch still at main identifies nothing: a branch cut from main is not charged with it.
+git -C "$R" branch -f main HEAD && git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q -b ops/other; mkdir -p "$R/.claude/hooks"; echo '# ops work' > "$R/.claude/hooks/h.sh"
+git -C "$R" add -f "$R/.claude/hooks/h.sh" && git -C "$R" commit -qm "ops work"
+A; expect_rc 0 $? "change-approval: another branch cut from main is not charged with a change branch still at main"
+# The main checkout, with the change's branch at its commit and work of its own, is not the branch.
+git -C "$R" checkout -q main; mkdir -p "$R/.claude/hooks"; echo '# wip' > "$R/.claude/hooks/wip.sh"
+A; expect_rc 0 $? "change-approval: the main checkout is not the change's branch, even at the branch's commit"
+rm -r "$R/.claude/hooks"; git -C "$R" branch -q -D ops/other
 # Merged: on main, the approval still holds.
-git -C "$R" branch -f main HEAD && git -C "$R" checkout -q main
 A; expect_rc 0 $? "change-approval: a delegated approval holds on main after its merge"
 git -C "$R" checkout -q change/add-greeting-name
-git -C "$R" reset -q --hard "$base0" && git -C "$R" branch -f main "$base0"
+git -C "$R" reset -q --hard "$base0" && git -C "$R" branch -f main "$base0" && cp "$d/tasks.bak" "$C/tasks.md"
 git -C "$R" update-ref -d refs/remotes/origin/main
 rm -f "$R/.claude/project.conf" "$R/.claude/lib/approval-guarded.txt"
 A --record Ana >/dev/null
