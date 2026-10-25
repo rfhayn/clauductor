@@ -43,7 +43,7 @@ and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.g
   will not judge without.
 - `clauductor update` run with `!` has no stdin: it merged settings.json, then cancelled the skill's
   review. The owner copied the template's skill by hand (it matched byte for byte at HEAD).
-- Three claudecall tests flaked under gate load and passed alone: #260 owns
+- Three tests flaked under gate load and passed alone: #260 owns the two in claudecall,
   `TestGateStoppedCallHoldsTheSlotUntilItExits` and now `TestGateStopsATimedOutClaudeWithSIGTERM`;
   #234 owns the stall test that failed group 4's first quick gate.
 - verify-change failed on a task naming `lane.go` bare; it matches a backticked path against the
