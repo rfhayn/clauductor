@@ -290,6 +290,7 @@ const fs = require('fs')
 const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
+const OPENED = 'marker: opened https://github.com/o/r/pull/1 as a draft (session-start: S1 2026-10-01 09:00 ET row DEMO-1)'
 async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null } = {}) {
   const calls = []
   const reviews = [{ findings: round1 }, { findings: [] }]
@@ -298,7 +299,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     calls.push({ prompt, opts })
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
-    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', ...budget,
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, ...budget,
       groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
@@ -411,6 +412,25 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('args.maxRounds overrides the printed cap', r.report.stoppedAt === 'group 3 review' && /after 1 rounds/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
   r = await run([], { args: { maxRounds: 2 }, budget: { reviewCap: 'ERROR: no cap' } })
   t('with args.maxRounds, a refusing review-cap.sh does not stop the run', r.report.stoppedAt === null, [r.report.stoppedAt, r.report.reason])
+  // The marker (OPS-126): the preflight runs marker.sh, and what it says reaches report.warnings.
+  const markerWarned = (r) => r.report.warnings.some((w) => /^marker/.test(w))
+  r = await run([])
+  t('a marker that opened the draft PR adds no warning', r.report.stoppedAt === null && !markerWarned(r), r.report.warnings)
+  r = await run([], { budget: { marker: 'some gh noise\nmarker: WARNING — gh is not installed; the session goes on without a marker' } })
+  t('a marker WARNING (its last line) reaches report.warnings verbatim, and the build goes on', r.report.stoppedAt === null && r.report.warnings.includes('marker: WARNING — gh is not installed; the session goes on without a marker'), r.report.warnings)
+  r = await run([], { budget: { marker: '' } })
+  t('a marker that printed nothing is a warning, not silence', r.report.stoppedAt === null && warned(r, 'marker.sh printed nothing'), r.report.warnings)
+  r = await run([], { budget: { marker: 'marker: WARNING: not run, on a branch other than change/demo' } })
+  t('a marker skipped off the branch is a warning too', warned(r, 'not run, on a branch other than'), r.report.warnings)
+  // Success is a closed set, not "anything but WARNING": a skipped step or a shell error warns.
+  for (const bad of ['marker: skipped (preflight changes nothing)', 'sh: marker.sh: No such file or directory']) {
+    r = await run([], { budget: { marker: bad } })
+    t(`a marker line that is no success form warns, quoting it: ${bad}`, r.report.stoppedAt === null && warned(r, 'did not report a marker', bad), r.report.warnings)
+  }
+  for (const good of ['marker: PR #7 already carries it (session-start: S1 2026-10-01 09:00 ET row DEMO-1)', "marker: put first in PR #7's body (session-start: S1 2026-10-01 09:00 ET row DEMO-1)", "marker: no roadmap row is built on 'change/demo', so this lane is no row's session; no marker"]) {
+    r = await run([], { budget: { marker: good } })
+    t(`a success form adds no warning: ${good.slice(0, 40)}`, !markerWarned(r), r.report.warnings)
+  }
   for (const bad of [0, 1.5, 'three']) {
     r = await run([], { args: { maxRounds: bad } })
     t(`maxRounds ${JSON.stringify(bad)} stops at preflight`, r.report.stoppedAt === 'preflight' && /not a whole number/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])

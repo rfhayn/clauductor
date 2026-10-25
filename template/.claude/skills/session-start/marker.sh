@@ -49,7 +49,12 @@ if [ -z "$sn" ] && [ -f "$ROOT/.claude/roadmap-plan.sh" ]; then
   # A plan that does not parse numbers nothing here: the journal's count below still does.
   # An entry spanning sessions (`S15–S18`) names no one day: the journal's count below numbers
   # it, as panel-suggest numbers that day's close.
-  sn=$(sh "$ROOT/.claude/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" '$1 == "R" && $2 == a { if ($3 ~ /^S[0-9]+(\.[0-9]+)*$/) print $3; exit }')
+  # A change planned twice, `ID (proposal)` then its build: the build's session once its proposal
+  # exists here, else the proposal's. A proposal with no build planned yet names no session for
+  # the build, so the journal's count below numbers it; with no proposal, any entry does.
+  want=proposal; [ -f "$ROOT/$CHANGES_DIR/$(printf '%s\n' "$row" | cut -f5)/proposal.md" ] && want=""
+  sn=$(sh "$ROOT/.claude/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" -v w="$want" '$1 == "R" && $2 == a { s[$6] = $3 }
+    END { v = (w in s) ? s[w] : (w == "proposal" ? s[""] : ""); if (v ~ /^S[0-9]+(\.[0-9]+)*$/) print v }')
 fi
 if [ -z "$sn" ]; then
   top=$(git -C "$ROOT" show "origin/$MAIN_BRANCH:$JOURNAL" 2>/dev/null | sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' | head -1)
@@ -84,7 +89,10 @@ if [ -n "$open" ]; then
 fi
 
 if [ "$(git -C "$ROOT" rev-list --count "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)" = 0 ]; then
-  git -C "$ROOT" commit -q --allow-empty -m "$rowid: Start the row's session ($sn)" || warn "the empty marker commit failed"
+  # From HEAD's tree, never the index: build-change's preflight runs this beside a resumed run's
+  # staged, unreviewed work, which must stay uncommitted (OPS-126).
+  c=$(git -C "$ROOT" commit-tree "HEAD^{tree}" -p HEAD -m "$rowid: Start the row's session ($sn)" 2>/dev/null) \
+    && git -C "$ROOT" update-ref HEAD "$c" || warn "the empty marker commit failed"
 fi
 git -C "$ROOT" push -q -u origin "$branch" 2>/dev/null || warn "git push of $branch failed"
 url=$(gh pr create --draft --head "$branch" --base "$MAIN_BRANCH" --title "$rowid: $summary" \
