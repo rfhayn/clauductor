@@ -106,7 +106,11 @@ on any candidate, start nothing and stop with a notice naming the row, the branc
 it, a lane running there included, whatever the check's candidates were. And
 WHEN the merged pull request was the session's close, whatever its `Review:` line, THE SYSTEM
 SHALL start nothing and end the run with a notice, reading the close before that line, and from then on SHALL track no lane created at or before that merge, until it
-tracks a lane created after it.
+tracks a lane created after it. WHILE watching, WHEN no pull request of the tracked branch has
+merged since it was tracked, the tracked lane has no record in the lane registry, and the branch
+has no open pull request, THE SYSTEM SHALL start nothing and stop with a notice naming the lane, so
+the run is idle and tracks the next lane PLANRUN-9 allows. A failed read of either list SHALL stop
+nothing.
 
 #### Scenario: [PLANRUN-2-S1] A tracked merge starts the plan's next row with no click
 - **GIVEN** a trusted config with the plan runner on, a session plan whose next rows are A then B
@@ -208,6 +212,18 @@ tracks a lane created after it.
   `worktree_setup`, the stop waits only for `StartLane` to return on its cancelled context, and
   `plan-run.json` is still `starting`, for PLANRUN-2-S6 to resolve
 
+#### Scenario: [PLANRUN-2-S10] A tracked lane closed unmerged lets the run go
+- **GIVEN** a runner tracking the lane `a` on `change/a`, whose build failed with no PR merged
+- **WHEN** the owner closes `a`, deleting its registry record, and `change/a` has no open PR
+- **THEN** no lane starts, one notice names `a` and says the run is idle, and `plan-run.json` is
+  `idle`
+- **AND** when the owner then starts row B's lane by hand, the idle read tracks it
+- **AND** when instead `change/a` still has an open PR, or the read of the open list fails, the run
+  keeps watching `change/a` and sends no notice
+- **AND** when instead `a`'s PR merged and auto-close deleted its record, the merge is the trigger
+  and no notice says the lane was closed
+- **AND** when instead `a`'s session exited and its record stays, the run keeps watching
+
 ### Requirement: The run goes on only after a review that converged
 WHEN the tracked pull request merges and it was not the session's close (PLANRUN-2), THE SYSTEM
 SHALL read the `Review:` lines of its body, and go
@@ -248,7 +264,7 @@ WHEN the body holds no such line, more than one, or one it cannot parse.
 Before a start, THE SYSTEM SHALL start nothing and send one notice naming why WHEN:
 - the fetch of the config's base ref fails, and fails again when retried 30 seconds later, or the
   merge commit is not on it;
-- `next` fails, outlasts its timeout, or prints anything but `[]` or one item;
+- `next` fails, outlasts its timeout of 30 seconds, or prints anything but `[]` or one item;
 - `next` prints `[]`;
 - `next`'s item has the row and the kind of the tracked lane whose pull request just merged, which
   no fragment on main names yet;

@@ -138,7 +138,9 @@
     - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
       that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one. It
       carries the lane, the item and `started`, false unless the restart marks it (task 4.2).
-  - **Adopt.** While idle, every 120 seconds, it runs `next` under a timeout and calls
+  - **`next` runs as a suggest command does:** `commandFetch` with 30 seconds
+    (`runtime.go:615`), here and in step 4. Past it, `next` has timed out.
+  - **Adopt.** While idle, every 120 seconds, it runs `next` under that timeout and calls
     `adoptable` for the item. An allowed lane is tracked with `next`'s item, whole, and
     `started` false. A refusal sets the runtime's `waiting` to its reason and pushes nothing.
     A `next` that prints `[]` sets it to "next names no row", and one that fails, times out or
@@ -164,6 +166,13 @@
     with `number,body,mergedAt,mergeCommit`: when the branch leaves the open list, every 5
     minutes, and on start. A PR merged after `since` is the trigger. Merges of other branches are
     never read.
+  - **Released** (design.md, *A tracked lane closed unmerged lets the run go*). At each of those
+    reads, when no PR merged after `since`, the tracked lane has no registry record and the
+    branch's open list (`gh pr list --head <branch> --state open`) is empty, it stops with the
+    notice naming the lane, keyed by the lane and `since`, and goes idle. A failed read of either
+    list stops nothing. Tested in `framework/internal/panel/planrun_test.go` with a stand-in `gh`
+    and a lane registry, citing [PLANRUN-2-S10]: closed with no PR, then B's lane adopted; an
+    open PR; a failed open-list read; merged and auto-closed; an exited lane whose record stays.
   - `mergedRow` (`autoclose.go:149-152`) holds only `Number` and `HeadRefOid`. It gains `Body`,
     `MergedAt` and `MergeCommit` (gh's `{oid}` object), or the runner decodes into its own row.
   - **The close.** When the tracked kind is `close`, the trigger ends the run, before the
@@ -318,7 +327,8 @@
     stall time has passed, the runner sending nothing before or after it turns exact.
 
 ## 7. The page and the docs (D1, D10)
-- [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `branch`, `why`, `at`,
+- [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `why`, `at` (the last
+  stop's text and time),
   `waiting`, `stalled`. `web/static/panel.js` renders it as one line above Up next's rows:
   tracking (marked stalled when `stalled` is true), or the last stop and its time, with `waiting`
   beside the last stop, so neither replaces the other.

@@ -17,13 +17,19 @@ A project can turn on a **plan runner** in `.clauductor/panel.json`. While it is
 is trusted:
 - **It tracks one lane.** That is the lane on the branch of the plan's next row, whether the runner
   started it or the owner did (D6).
-- **It acts when that lane's PR merges.** The runner:
-  1. checks the PR's `Review:` line (D8);
-  2. fetches the base ref and confirms the merge is on it;
-  3. reads the plan's next row again;
-  4. starts it from its template through the same `StartLane` path, and the same trust and 5-hour
-     quota guard, that **Start lane** uses.
+- **It acts when that lane's PR merges.** The runner, in design.md's eight steps:
+  1. ends the run when the merged PR was the session's close (D6), before reading anything else;
+  2. checks the PR's `Review:` line (D8);
+  3. fetches the base ref, confirms the merge is on it, and waits for catch-up to settle;
+  4. reads the plan's next row again;
+  5. finds the one template of the row's kind whose Up next list names it;
+  6. chooses where the lane runs, as the page does;
+  7. checks the 7-day ceiling (D4);
+  8. starts it through the same `StartLane` path, and the same trust and 5-hour quota guard,
+     that **Start lane** uses.
   It adds no new endpoint.
+- **It lets go of a lane closed unmerged.** When the owner closes the tracked lane with no PR
+  open or merged, the run stops with a push and goes idle, and tracks the next lane started.
 - **It runs one lane at a time** (D5). The run ends when the session's close merges, and it
   tracks nothing more until the owner starts a lane after that (D6).
 - **It stops and sends one push saying why** when the next start needs the owner or is unsafe:
@@ -32,7 +38,11 @@ is trusted:
   - the merged PR was a row's proposal, so its build is next and starts with the owner's click;
   - the merged PR's review was capped or did not converge (D8);
   - the account's 7-day usage reaches 95%, or cannot be read (D4);
-  - the plan has no row left;
+  - the plan has no row left, or `next` fails;
+  - the fetch fails, the merge is not on the base ref, or catch-up does not settle in 15 minutes;
+  - `next` names the merged row again, with no fragment on main for it;
+  - no list of a template of the row's kind names it, or two do;
+  - the row's branch is busy, or holds a merged PR's head;
   - the start is refused.
   It also pushes once for a lane of the run that stops short without a stall alert (D7). A stalled
   lane's push stays the stall alert's.

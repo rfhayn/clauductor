@@ -387,7 +387,8 @@ Read on 2026-10-25, at `0cfced2b`.
   - **The first prompt.** The runner pushes when the tracked lane's `started` is true and its
     first prompt is not delivered within 10 minutes of its start, or was skipped. `started` is the
     runner's own mark (**The runner**): a lane the owner started, adopted later, never has it.
-  - The run continues when the lane merges.
+  - The run continues when the lane merges. When the owner closes it unmerged instead, the run
+    stops and goes idle (**Trigger**, *A tracked lane closed unmerged lets the run go*).
   - **Beat (b): the runner pushes on every stall as well.** That sends two pushes for one event.
 
 - **D8. No mediums. The owner's decision, 2026-10-25 ("I don't want any mediums").** **Decided.**
@@ -580,6 +581,10 @@ The state file:
   when `StartLane` starts the lane, and by the stop when it refuses. A start cut short leaves it
   for the next runtime (D12).
 
+**`next`'s timeout** is 30 seconds, here and at step 4: it runs through `commandFetch` with the
+suggest commands' own timeout (`runtime.go:615`), so a `next` slower than a suggest list is
+refused alike.
+
 **Adopt.** While idle, the runner reads `next` every 120 seconds, its own interval (the shortest
 `refresh` the shipped templates' suggest commands use; a project's own `refresh` values do not
 change it), and calls
@@ -695,7 +700,31 @@ guards takes only that function's result.
 - every 5 minutes;
 - on start.
 
-A PR merged after `since` is the trigger. Then the runner goes through these steps in order. Each
+A PR merged after `since` is the trigger.
+
+**A tracked lane closed unmerged lets the run go. The owner's decision, 2026-10-25 ("fix them all
+again"), round 17's finding 1.** **Decided.**
+- At each of those reads, after the merged list finds no PR merged after `since`, the runner
+  stops when both hold:
+  - the tracked lane has no record in the lane registry: **Close lane** and `clauductor lane
+    close` delete it (`stopAndForgetLocked`, `lanes/close.go:379-386`), as **Forget** does for an
+    orphan (`lanes.go:1296`). A lane that exited, or whose session died, keeps its record, so it
+    stays tracked and D7 pushes for it;
+  - the tracked branch has no open PR (`gh pr list --head <branch> --state open`).
+- The stop is like any other: the tracked branch is cleared, one notice goes out, keyed by the
+  lane and its `since`, and the run is idle. The notice reads `<lane> was closed with no merged
+  PR; the run is idle, and tracks the next lane started on the plan's next row`. Idle adoption
+  then tracks the lane the owner starts, through PLANRUN-9 as always.
+- The order matters. Auto-close (PANEL-20) deletes a merged lane's record, so the merged list is
+  read first, and a merge is always the trigger, never a release. A failed read of either list
+  releases nothing: the run keeps watching, and the next read tries again.
+- An open PR keeps the tracking, so a PR the owner merges on GitHub after closing its lane still
+  triggers the run.
+- *Beat:* a Refusals row naming the way out, turning the runner off and on. Each time costs two
+  merged `panel.json` PRs and a **Trust config…** (D9), and until then the run waits in silence
+  on a lane that is gone.
+
+Then the runner goes through these steps in order. Each
 one that fails is a stop, except one the runtime cut short:
 - **A step cut short is not a stop.** Every step, step 3's wait and step 8's `StartLane` run under
   the project runtime's context. These are every caller that cancels it: each `halt` and
@@ -873,6 +902,7 @@ same fields step 8's `StartLane` did.
 |---|---|
 | `on` is false in a trusted config | Nothing starts; `planRun.on` says why; a tracked branch, a `starting` state or the close's hold is written `idle` once, so turning it on again resumes only through adoption |
 | The config is untrusted | Nothing starts; `planRun.on` says why; the state is kept, and trusting the config resumes it |
+| While watching, the tracked lane has no registry record, its branch no open PR and no PR merged after `since` | Stop, push naming the lane; the run is idle, and adoption tracks the next lane started |
 | A version below 8 sets `plan_runner`, `on` without `next`, a `seven_day_pct` outside 1–100, or `on` with `alerts.notify` false | The config does not load, naming the key |
 | A merged config has the runner on (turned on, or any change while on) | Not trusted on arrival; the notice says the config waits for the owner (D9) |
 | The merged PR was the session's close, whatever its `Review:` line | The run ends, push naming the session; adoption then holds for a lane started after the close |
