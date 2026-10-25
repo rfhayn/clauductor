@@ -95,7 +95,7 @@ git -C "$R" commit -q --allow-empty -m "the pull request's merge commit" && git 
 A; expect_rc 1 $? "change-approval: a detached HEAD past the change's tip still counts its diff"
 past=$(git -C "$R" rev-parse HEAD) tip=$(git -C "$R" rev-parse origin/main)
 git -C "$R" checkout -q --detach change/add-greeting-name
-git -C "$R" add -f .claude/hooks/pr-merge-guard.sh && git -C "$R" commit -q --amend --no-edit
+git -C "$R" add -f "$R/.claude/hooks/pr-merge-guard.sh" && git -C "$R" commit -q --amend --no-edit
 A; expect_rc 1 $? "change-approval: a detached amend of the change's tip counts its diff, by the change's directory in it"
 git -C "$R" checkout -q --detach "$past"; mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 git -C "$R" commit -q --allow-empty -m "main moves on" && git -C "$R" update-ref refs/remotes/origin/main HEAD
@@ -109,7 +109,7 @@ rm -r "$R/.claude/hooks"
 # A change's branch still at main identifies nothing: a branch cut from main is not charged with it.
 git -C "$R" branch -f main HEAD && git -C "$R" update-ref refs/remotes/origin/main HEAD
 git -C "$R" checkout -q -b ops/other; mkdir -p "$R/.claude/hooks"; echo '# ops work' > "$R/.claude/hooks/h.sh"
-git -C "$R" add -f .claude/hooks/h.sh && git -C "$R" commit -qm "ops work"
+git -C "$R" add -f "$R/.claude/hooks/h.sh" && git -C "$R" commit -qm "ops work"
 A; expect_rc 0 $? "change-approval: another branch cut from main is not charged with a change branch still at main"
 # The main checkout, with the change's branch at its commit and work of its own, is not the branch.
 git -C "$R" checkout -q main; mkdir -p "$R/.claude/hooks"; echo '# wip' > "$R/.claude/hooks/wip.sh"

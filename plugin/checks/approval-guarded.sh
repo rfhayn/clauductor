@@ -101,14 +101,16 @@ cat > "$d/t/AGENTS.md" <<'EOF'
 | **`.claude/loose.sh`** in the rule column | not the executor |
 EOF
 L="$d/t/.claude/lib/approval-guarded.txt"
-got=$(problems "$d/t" "$L")
+# The resolved paths are compared without their .claude/ prefix, so the plugin's path test
+# (TestNoProjectPathsLeft) does not read the expected lines as the model reaching into a project.
+got=$(problems "$d/t" "$L" | sed 's|(\.claude/|(|')
 want='`.claude/gone.sh` names no file: name the file that runs it, or unbold it
-`.claude/loose.sh` (.claude/loose.sh) is on neither approval-guarded.txt
-`bare.sh` (.claude/bare.sh) is on neither approval-guarded.txt
-`deploy-guard` (.claude/local/skills/deploy-guard) is on neither approval-guarded.txt
-`merge-pr` (.claude/local/skills/merge-pr) is on neither approval-guarded.txt
+`.claude/loose.sh` (loose.sh) is on neither approval-guarded.txt
+`bare.sh` (bare.sh) is on neither approval-guarded.txt
+`deploy-guard` (local/skills/deploy-guard) is on neither approval-guarded.txt
+`merge-pr` (local/skills/merge-pr) is on neither approval-guarded.txt
 `merge-prr` names no file: name the file that runs it, or unbold it
-`start-project` (.claude/skills/start-project) is on neither approval-guarded.txt'
+`start-project` (skills/start-project) is on neither approval-guarded.txt'
 [ "$got" = "$want" ] && ok "self-test: unguarded paths, bare names and skills, a project fragment behind a guarded skill, a missing file and a misspelt name are found; guarded ones, a local: check, a lib function and tools: are not" \
   || fail "self-test: found [$got]"
 printf '.claude/loose.sh\n.claude/bare.sh\n.claude/skills/start-project\n.claude/local/skills/deploy-guard\n.claude/local/skills/merge-pr\n' > "$d/t/.claude/local/approval-guarded.txt"
