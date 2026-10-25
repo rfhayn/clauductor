@@ -462,8 +462,9 @@ async function gateUntilGreen(g, entry) {
   }
 }
 
+let lastCost = pre.costUsd // the last change-cost.sh reading, for each group's own spend
 for (const g of todo) {
-  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], residual: [], commit: null }
+  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], residual: [], commit: null, changeCostUsd: null, groupUsd: null }
   report.groups.push(entry)
   log(`Group ${g.n}: ${g.title} (${g.openTasks} open tasks)`)
 
@@ -551,7 +552,20 @@ for (const g of todo) {
   )
   if (!c || !c.committed) return stop(`group ${g.n} commit`, (c && c.problem) || 'commit agent returned nothing')
   entry.commit = c.sha
-  entry.costUsd = c.costUsd
+  // change-cost.sh reads the CHANGE's running total, every earlier group and run in it, so adding
+  // the groups' readings up counts each spend again (OPS-134: OPS-109's four runs read 22.65, 30.16,
+  // 40.15 and 47.71, summed to $110.51 of a $47.71 change). The total goes under a name that says
+  // so; the group's own spend is the difference from the reading before it, unknown when either is,
+  // or when the reading fell (a lane vote flipped, a worktree's transcripts lost): never negative.
+  entry.changeCostUsd = c.costUsd
+  const spent = c.costUsd != null && lastCost != null ? Math.round((c.costUsd - lastCost) * 100) / 100 : null
+  entry.groupUsd = spent != null && spent >= 0 ? spent : null
+  if (spent != null && spent < 0) {
+    const w = `change-cost.sh read $${c.costUsd} with group ${g.n} committed, below the $${lastCost} before it: the group's own spend is unknown (groupUsd null)`
+    report.warnings.push(w)
+    log(w)
+  }
+  lastCost = c.costUsd
   if (c.costUsd != null) report.costUsd = c.costUsd
   if (overBudget(c.costUsd)) {
     if (!SOFT) return stop(`group ${g.n} budget`, `$${c.costUsd} spent against a budget of $${pre.budgetUsd} with group ${g.n} committed; the owner raises the budget or cuts scope, then re-run`)
