@@ -27,9 +27,16 @@ guarded_list() {
     | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .
 }
 
-# resolve DIR NAME [PLUGIN]: the path NAME stands for in DIR, `plugin:<path>` for one only in the
-# plugin's root PLUGIN, or nothing.
+# resolve DIR NAME [PLUGIN]: every path NAME stands for in DIR (a skill's framework copy and the
+# project's fragment are both the control, so the first match does not hide the rest),
+# `plugin:<path>` for one only in the plugin's root PLUGIN, or nothing.
 resolve() {
+  hits=$(resolve_each "$@")
+  [ -n "$hits" ] || return 0
+  printf '%s\n' "$hits" | grep -v '^plugin:' || printf '%s\n' "$hits" | head -1
+}
+
+resolve_each() {
   n=$2
   case $n in
     '${CLAUDE_PLUGIN_ROOT}/'*) n=".claude/${n#'${CLAUDE_PLUGIN_ROOT}/'}" ;;
@@ -39,12 +46,12 @@ resolve() {
   for c in "$n" ".claude/$n" ".claude/skills/$n" ".claude/local/skills/$n" ".claude/hooks/$n" ".claude/checks/$n" \
            ".claude/lib/$n" ".claude/workflows/$n" ".github/workflows/$n" "scripts/ci/$n"; do
     # A glob (`.claude/health/*.sh`) stands for its directory.
-    [ -e "$1/$c" ] || [ -e "$1/${c%/\**}" ] && { printf '%s\n' "$c"; return; }
+    [ -e "$1/$c" ] || [ -e "$1/${c%/\**}" ] && { printf '%s\n' "$c"; continue; }
     [ -n "${3:-}" ] || continue
     case $c in .claude/local/*) ;; .claude/*)
-      f=${c#.claude/}; [ -e "$3/$f" ] || [ -e "$3/${f%/\**}" ] && { printf 'plugin:%s\n' "$f"; return; } ;;
+      f=${c#.claude/}; [ -e "$3/$f" ] || [ -e "$3/${f%/\**}" ] && printf 'plugin:%s\n' "$f" ;;
     esac
-  done
+  done | grep . && return
   case $n in *[!A-Za-z0-9_]*) return ;; esac
   for f in "$1"/.claude/lib/*.sh ${3:+"$3"/lib/*.sh}; do
     grep -Eq "^$n[[:space:]]*\(\)" "$f" 2>/dev/null || continue
@@ -65,11 +72,13 @@ problems() {
   g=$(guarded_list "$2" "$1")
   [ -n "$g" ] || { echo "the framework's approval-guarded.txt is missing or lists no path"; return; }
   names "$1" | while IFS= read -r n; do
-    p=$(resolve "$1" "$n" "${3:-}")
-    [ -n "$p" ] || { echo "\`$n\` names no file: name the file that runs it, or unbold it"; continue; }
-    case $p in plugin:*) continue ;; esac
-    hit=$(printf '%s\n' "$g" | while IFS= read -r e; do case "/$p/" in (*"/$e/"*) echo y; break ;; esac; done)
-    [ -n "$hit" ] || echo "\`$n\` ($p) is on neither approval-guarded.txt"
+    ps=$(resolve "$1" "$n" "${3:-}")
+    [ -n "$ps" ] || { echo "\`$n\` names no file: name the file that runs it, or unbold it"; continue; }
+    printf '%s\n' "$ps" | while IFS= read -r p; do
+      case $p in plugin:*) continue ;; esac
+      hit=$(printf '%s\n' "$g" | while IFS= read -r e; do case "/$p/" in (*"/$e/"*) echo y; break ;; esac; done)
+      [ -n "$hit" ] || echo "\`$n\` ($p) is on neither approval-guarded.txt"
+    done
   done
 }
 
@@ -78,7 +87,7 @@ problems() {
 # skill, a `local:` check, a lib function and the agents' `tools:` line are not.
 d=$(scratch)
 mkdir -p "$d/t/.claude/lib" "$d/t/.claude/hooks" "$d/t/.claude/skills/merge-pr" "$d/t/.claude/skills/start-project" \
-  "$d/t/.claude/local/skills/deploy-guard" "$d/t/.claude/local/checks" "$d/t/.claude/health" "$d/t/.claude/agents"
+  "$d/t/.claude/local/skills/deploy-guard" "$d/t/.claude/local/skills/merge-pr" "$d/t/.claude/local/checks" "$d/t/.claude/health" "$d/t/.claude/agents"
 : > "$d/t/.claude/hooks/guard.sh"; : > "$d/t/.claude/loose.sh"; : > "$d/t/.claude/bare.sh"; : > "$d/t/.claude/local/checks/q.sh"
 printf 'roadmap_queue() {\n  :\n}\n' > "$d/t/.claude/lib/conf.sh"
 printf '# a comment\n.claude/hooks/\n.claude/skills/merge-pr\n.claude/health\n.claude/lib\n.claude/agents\n.claude/local/checks\n' > "$d/t/.claude/lib/approval-guarded.txt"
@@ -96,11 +105,12 @@ want='`.claude/gone.sh` names no file: name the file that runs it, or unbold it
 `.claude/loose.sh` (.claude/loose.sh) is on neither approval-guarded.txt
 `bare.sh` (.claude/bare.sh) is on neither approval-guarded.txt
 `deploy-guard` (.claude/local/skills/deploy-guard) is on neither approval-guarded.txt
+`merge-pr` (.claude/local/skills/merge-pr) is on neither approval-guarded.txt
 `merge-prr` names no file: name the file that runs it, or unbold it
 `start-project` (.claude/skills/start-project) is on neither approval-guarded.txt'
-[ "$got" = "$want" ] && ok "self-test: unguarded paths, bare names and skills, a missing file and a misspelt name are found; guarded ones, a local: check, a lib function and tools: are not" \
+[ "$got" = "$want" ] && ok "self-test: unguarded paths, bare names and skills, a project fragment behind a guarded skill, a missing file and a misspelt name are found; guarded ones, a local: check, a lib function and tools: are not" \
   || fail "self-test: found [$got]"
-printf '.claude/loose.sh\n.claude/bare.sh\n.claude/skills/start-project\n.claude/local/skills/deploy-guard\n' > "$d/t/.claude/local/approval-guarded.txt"
+printf '.claude/loose.sh\n.claude/bare.sh\n.claude/skills/start-project\n.claude/local/skills/deploy-guard\n.claude/local/skills/merge-pr\n' > "$d/t/.claude/local/approval-guarded.txt"
 want='`.claude/gone.sh` names no file: name the file that runs it, or unbold it
 `merge-prr` names no file: name the file that runs it, or unbold it'
 [ "$(problems "$d/t" "$L")" = "$want" ] && ok "self-test: the project's list guards what the framework's leaves out" \
