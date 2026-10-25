@@ -11,8 +11,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                                                          delegation (OPS-127): only with
 #                                                          APPROVAL_DELEGATED="1", the change
 #                                                          touching no guarded path, ADR or practice
-#                                                          record, neither its proposal nor its row
-#                                                          saying Approval: owner, its Risk not
+#                                                          record, no **Approval:** line in its
+#                                                          proposal and no Approval: owner in its
+#                                                          row (the one naming it), its Risk not
 #                                                          below its row's (OPS-131), and a proposal
 #                                                          never approved before, by its Status
 #                                                          line or its history (OPS-128, OPS-131)
@@ -24,6 +25,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # the Status line, --delegate refuses while that marker or any Approved line stands, or stood in the
 # proposal's history, and only --record clears it; the check fails a delegated line whose history
 # shows an Approved line removed. So an edit after any approval, which voids it, goes to the owner.
+# The history read is firm on origin/<MAIN_BRANCH>; the branch's own can be rewritten, so a revoke
+# made only there is advisory until it lands (#272).
 #
 # The Approved line reads `**Approved:** YYYY-MM-DD by <owner> · design <hash>`, or for a delegated
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the

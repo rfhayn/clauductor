@@ -65,9 +65,12 @@ every open change against the shape below.
   `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.
   And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>` and across a
   rename of its directory, holds an Approved line; the check fails a delegated line whose history
-  shows an Approved line removed. So a hand edit of a revoked Status line, or of the Approved line
-  back in, does not reopen it. That history includes an earlier change's under the same id, so a
-  new change takes a new id.
+  shows an Approved line removed. So once the revoke is on `origin/<main>`, a hand edit of a
+  revoked Status line, or of the Approved line back in, does not reopen it; a revoke only on the
+  branch is lost if the branch's history is rewritten (#272). That history includes an earlier
+  change's under the same id, so a new change takes a new id; and a commit that adds this proposal
+  while deleting another change's can make `--follow` read the other's history, a refusal the
+  owner's `--record` clears (#272).
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.
