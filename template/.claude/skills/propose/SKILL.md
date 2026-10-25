@@ -95,13 +95,16 @@ If the line above shows as literal text instead of output, run
      rounds stopped first, `Review: NOT converged after <n> round(s), peak <sev>, open: <short
      list> at <short sha> · design <hash>`. Only the first lets `merge-pr` skip its review. When
      the owner approves, that hash must be the one in the Approved line. Nothing checks this line.
-3a. **A delegated approval** (OPS-127). Two stops are judgments the script cannot make, so they
+3a. **A delegated approval** (OPS-127). Three stops are judgments the script cannot make, so they
    are this skill step and nothing checks them:
    - step 2b's rounds did not converge: go to step 3;
    - the change, or a decision in it, is money, legal or business, outward beyond this repo (a
      public site, a payment, a signer, a release), irreversible, or needs the owner at the
-     computer: add `**Approval:** owner — <why>` under the proposal's Risk line, so `--delegate`
-     refuses it from then on, and go to step 3.
+     computer;
+   - its row, or the session plan's *The owner decides* cell for it, keeps the approval for the
+     owner in words other than `Approval: owner` (the script reads only that marker).
+   For the last two, add `**Approval:** owner — <why>` under the proposal's Risk line, so
+   `--delegate` refuses it from then on, and go to step 3.
    Otherwise run `sh .claude/change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
    `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote); the change

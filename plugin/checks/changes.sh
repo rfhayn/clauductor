@@ -78,6 +78,8 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   case_bad "a delegated approval of a change whose row says Approval: owner" "row 1.1 says Approval: owner"
   mk delegfloor; delegate 1; edit docs/roadmap.md 's/Risk: low |/Risk: high |/'
   case_bad "a delegated approval whose Risk is below its row's" "below row 1.1's high"
+  mk delegnorow; delegate 1; edit $C/proposal.md '/^\*\*Roadmap row:\*\*/d'
+  case_bad "a delegated approval whose proposal names no roadmap row" "names no **Roadmap row:**"
   mk delegnorepo; delegate 1; rm -rf "$F/.git"; case_bad "a delegated approval outside a git repository (an archive clean room)" "is not a git repository"
   mk delegnomain; delegate 1; git -C "$F" remote add origin "$F/nowhere"; case_bad "a delegated approval in a clone with no origin/main (a shallow CI checkout)" "no origin/main to read"
   mk delegown; delegate 1; mkdir -p "$F/.claude/local"; echo 'src/home' > "$F/.claude/local/approval-guarded.txt"

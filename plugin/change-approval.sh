@@ -194,7 +194,7 @@ case "${1:-}" in
       log=$(git -C "$ROOT" log --no-color --no-ext-diff --format= -p "$ref" -- "$CHANGES_DIR/$id/proposal.md" 2>&1) \
         || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where cannot be read: $log" >&2; exit 1; }
       ! printf '%s\n' "$log" | grep -Eq '^[+-]\*\*Approved:\*\* ' \
-        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where holds an Approved line, so it was approved before and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where holds an Approved line, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     done
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"

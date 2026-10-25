@@ -98,6 +98,18 @@ D; expect_rc 1 $? "change-approval --delegate refuses a Risk below its row's Ris
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 sed 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 9.9/' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a change whose row the roadmap does not hold"
+grep -v '^\*\*Roadmap row:\*\*' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal that names no roadmap row"
+grep -q 'names no \*\*Roadmap row' "$d/out" && ok "...and says no row can be read" || fail "no row reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low, not Risk: high'
+D; expect_rc 1 $? "change-approval --delegate refuses a row whose Change cell says two risks"
+grep -q 'more than one risk' "$d/out" && ok "...and says the floor cannot be read" || fail "no two-risk reason in: $(cat "$d/out")"
+# A history git cannot read refuses: a shim fails only git log -p, the history read.
+mkdir -p "$d/shim"; printf '#!/bin/sh\ncase " $* " in *" log "*" -p "*) echo "fatal: no history" >&2; exit 128 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$d/shim/git"; chmod +x "$d/shim/git"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+cp "$d/fresh.md" "$C/proposal.md"; (cd "$R" && PATH="$d/shim:$PATH" GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name --delegate Ana) > "$d/out" 2>&1
+expect_rc 1 $? "change-approval --delegate refuses when proposal.md's history cannot be read"
+grep -q 'cannot be read: fatal: no history' "$d/out" && ok "...and passes git's error on" || fail "no history-read reason in: $(cat "$d/out")"
 # The row is found through roadmap_queue, so a roadmap its parser rejects refuses, never a scrape.
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 printf '| 1.2 | `ops/other` — x | `src/` | — | maybe |\n' >> "$R/docs/roadmap.md"
