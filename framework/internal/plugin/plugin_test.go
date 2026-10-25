@@ -989,6 +989,40 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
 		}
 	}
+	// A passed child after an assignment whose value is a closed substitution is not reported: the
+	// command still starts where the shell starts it, at the assignment.
+	for _, l := range []string{
+		`REV="$(git rev-parse HEAD)" sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
+		"REV=\"`git rev-parse HEAD`\" sh -c '. \"$ROOT/.claude/lib/conf.sh\"'",
+	} {
+		if got := unpassedChildren(rw.shell("checks/x.sh", l)); len(got) != 0 {
+			t.Errorf("a passed child is reported: %q in %q", got, rw.shell("checks/x.sh", l))
+		}
+	}
+	// Nor is one passed by hand in a form the rewrite does not write: an unquoted substitution's
+	// blanks split no word, and a case pattern's `)` starts a command and closes no substitution.
+	pass := `CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
+	for _, l := range []string{
+		`REV=$(git rev-parse HEAD) ` + pass,
+		`case $1 in a) ` + pass + ` ;; esac`,
+		`x="$(case $1 in a) ` + pass + ` ;; esac)"`,
+	} {
+		if got := unpassedChildren(l); len(got) != 0 {
+			t.Errorf("a child passed by hand is reported: %q in %q", got, l)
+		}
+	}
+	// Those forms unpassed are reported, and the rewrite does not pass them: a template line using
+	// one fails here.
+	for _, l := range []string{
+		`x="$(case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac)"`,
+		`case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac`,
+		rw.shell("checks/x.sh", `REV=$(git rev-parse HEAD) sh -c '. "$ROOT/.claude/lib/conf.sh"'`),
+		rw.shell("checks/x.sh", `case $1 in a) sh -c '. "$ROOT/.claude/lib/conf.sh"' ;; esac`),
+	} {
+		if got := unpassedChildren(l); len(got) != 1 {
+			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
+		}
+	}
 	if got := unpassedChildren("# sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'\nv=$(sh -e '$CLAUDUCTOR_FW/x.sh')"); len(got) != 0 {
 		t.Errorf("a comment, or a sh with no -c, is reported: %q", got)
 	}
@@ -1037,12 +1071,24 @@ func unpassedChildren(s string) []string {
 // are returned. isCommand is false when the child is in a comment or inside a quoted string.
 func commandWords(p string) (words []string, isCommand bool) {
 	start, q := 0, byte(0)
-	// The quote each open `(`, `$(` or backtick was read in, restored at its close: the `"` that
-	// closes `"$(date)"` closes the outer quote, it opens none.
-	var outer []byte
-	inTick, tickQ := false, byte(0)
+	// Each open `(`, `$(` or backtick saves the quote it was read in and where the outer command
+	// started, and its close restores both: the `"` that closes `"$(date)"` closes the outer quote,
+	// and `REV="$(git rev-parse HEAD)" CLAUDUCTOR_FW=… sh` is still one command of assignments. A
+	// frame also counts the `case`s open in it, whose pattern's `)` closes nothing.
+	type frame struct {
+		q            byte
+		start, cases int
+		tick         bool
+	}
+	frames := []frame{{}}
+	keyword := func(i int, k string) bool {
+		e := i + len(k)
+		return strings.HasPrefix(p[i:], k) && (e == len(p) || strings.IndexByte(" \t;)", p[e]) >= 0) &&
+			strings.TrimLeft(p[start:i], " \t") == ""
+	}
 	for i := 0; i < len(p); i++ {
 		c := p[i]
+		top := &frames[len(frames)-1]
 		switch {
 		case q == '\'':
 			if c == '\'' {
@@ -1051,13 +1097,13 @@ func commandWords(p string) (words []string, isCommand bool) {
 		case c == '\\':
 			i++
 		case c == '$' && i+1 < len(p) && p[i+1] == '(':
-			outer = append(outer, q)
+			frames = append(frames, frame{q: q, start: start})
 			start, q = i+2, 0
 			i++
-		case c == '`' && inTick:
-			inTick, q = false, tickQ
+		case c == '`' && top.tick:
+			q, start, frames = top.q, top.start, frames[:len(frames)-1]
 		case c == '`':
-			inTick, tickQ = true, q
+			frames = append(frames, frame{q: q, start: start, tick: true})
 			start, q = i+1, 0
 		case q == '"':
 			if c == '"' {
@@ -1067,11 +1113,19 @@ func commandWords(p string) (words []string, isCommand bool) {
 			q = c
 		case c == '#' && (i == 0 || strings.IndexByte(" \t;&|(", p[i-1]) >= 0):
 			return nil, false
-		case c == '(':
-			outer = append(outer, 0)
+		case keyword(i, "case"):
+			top.cases++
+			i += len("case") - 1
+		case keyword(i, "esac") && top.cases > 0:
+			top.cases--
+			i += len("esac") - 1
+		case c == ')' && top.cases > 0:
 			start = i + 1
-		case c == ')' && len(outer) > 0:
-			q, outer = outer[len(outer)-1], outer[:len(outer)-1]
+		case c == '(':
+			frames = append(frames, frame{q: q, start: start})
+			start = i + 1
+		case c == ')' && len(frames) > 1 && !top.tick:
+			q, start, frames = top.q, top.start, frames[:len(frames)-1]
 		case strings.IndexByte(";&|", c) >= 0:
 			start = i + 1
 		}
@@ -1079,20 +1133,30 @@ func commandWords(p string) (words []string, isCommand bool) {
 	if q != 0 {
 		return nil, false
 	}
+	// A blank splits a word only outside quotes and outside an unquoted `$( … )` or backtick.
 	var w strings.Builder
+	depth, tick := 0, false
 	for i := start; i < len(p); i++ {
 		c := p[i]
-		if q == 0 && (c == ' ' || c == '\t') {
+		switch {
+		case q != 0:
+			if c == q {
+				q = 0
+			}
+		case c == '\'' || c == '"':
+			q = c
+		case c == '`':
+			tick = !tick
+		case c == '(':
+			depth++
+		case c == ')' && depth > 0:
+			depth--
+		case (c == ' ' || c == '\t') && depth == 0 && !tick:
 			if w.Len() > 0 {
 				words = append(words, w.String())
 				w.Reset()
 			}
 			continue
-		}
-		if q == 0 && (c == '\'' || c == '"') {
-			q = c
-		} else if c == q {
-			q = 0
 		}
 		w.WriteByte(c)
 	}
