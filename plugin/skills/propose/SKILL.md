@@ -109,11 +109,13 @@ If the line above shows as literal text instead of output, run
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
    `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote); the change
    touches no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt`
-   lists, nor `ADR_DIR` or `PRACTICES_DIR`; neither the proposal nor its roadmap row (as
-   `origin/<MAIN_BRANCH>` has it) says `Approval: owner`; its `**Risk:**` is not below the row's
+   lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `**Approval:**` line; its roadmap
+   row, the one row of `origin/<MAIN_BRANCH>`'s roadmap that names the change, is the proposal's
+   `**Roadmap row:**` and does not say `Approval: owner`; its `**Risk:**` is not below that row's
    `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
    line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in
-   `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, whoever approved it).
+   `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a rename, whoever
+   approved it).
    Otherwise it refuses and says why: go to step 3. On success: run `clauductor-model checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design

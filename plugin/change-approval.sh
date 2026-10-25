@@ -21,8 +21,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # A revoke is final for delegation (OPS-128, the owner's ruling): once a change has been approved
 # and revoked, whoever approved it, only the owner approves it again. --revoke keeps who approved in
-# the Status line, --delegate refuses while that marker or any Approved line stands, and only
-# --record clears it. So an edit after any approval, which voids it, goes to the owner.
+# the Status line, --delegate refuses while that marker or any Approved line stands, or stood in the
+# proposal's history, and only --record clears it; the check fails a delegated line whose history
+# shows an Approved line removed. So an edit after any approval, which voids it, goes to the owner.
 #
 # The Approved line reads `**Approved:** YYYY-MM-DD by <owner> · design <hash>`, or for a delegated
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the
@@ -103,15 +104,17 @@ on_branch() {
 risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) echo 0 ;; esac; }
 
 # kept: say why the owner keeps this change though no guarded path names it (OPS-131), or nothing:
-# the proposal's `**Approval:** owner` line (propose step 3a writes it for a change that is money,
-# legal or business, outward, irreversible or needs the owner at the computer), its roadmap row's
-# `Approval: owner`, or a `**Risk:**` below the row's (a row with no Risk: is normal), which would
-# lower the review cap the row set. The row is the authority, read as origin/<main> has it like the
-# key; a row it cannot find refuses: one this branch adds, or a roadmap whose table is not
-# `| <id> | Change | … |`, is the owner's to approve.
+# a proposal line `**Approval:** …` (propose step 3a writes `owner — <why>` for a change that is
+# money, legal or business, outward, irreversible or needs the owner at the computer; any other
+# value is read as that too), its roadmap row's `Approval: owner`, or a `**Risk:**` below the row's
+# (a row with no Risk: is normal), which would lower the review cap the row set. The row is the
+# authority, read as origin/<main> has it like the key, and found by the change id it names, never
+# by the proposal's say: a proposal naming another row would choose its own floor. One row must name
+# the change, and it must be the proposal's `**Roadmap row:**`; anything else refuses, as does a
+# roadmap whose table is not `| <id> | Change | … |`.
 kept() {
   prop="$dir/proposal.md"
-  mark=$(grep -E '^\*\*Approval:\*\*[[:space:]]*owner' "$prop" | head -1)
+  mark=$(grep -E '^\*\*Approval:\*\*' "$prop" | head -1)
   [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
   rid=$(proposal_field "$prop" "Roadmap row")
   [ -n "$rid" ] || { echo "proposal.md names no **Roadmap row:**, so its row's Risk and Approval cannot be read"; return; }
@@ -120,14 +123,18 @@ kept() {
   rmf=$(mktemp "${TMPDIR:-/tmp}/approval-roadmap.XXXXXX") || { echo "no temporary file for $ROADMAP, so row $rid cannot be read"; return; }
   authority "$ROOT/$ROADMAP" > "$rmf"
   if tsv=$(roadmap_queue --tsv "$rmf"); then
-    n=$(printf '%s\n' "$tsv" | awk -F'\t' -v r="$rid" '$4 == r { print $1; exit }')
-    line=""; [ -z "$n" ] || line=$(sed -n "${n}p" "$rmf")
+    rows=$(printf '%s\n' "$tsv" | awk -F'\t' -v c="$id" '$5 == c { print $1 "\t" $4 }')
+    n=$(printf '%s\n' "$rows" | grep -c .)
+    line=""; [ "$n" != 1 ] || line=$(sed -n "$(printf '%s\n' "$rows" | cut -f1)p" "$rmf")
     rm -f "$rmf"
   else
     rm -f "$rmf"; echo "$ROADMAP${main_ref:+ on $main_ref} did not parse, so row $rid cannot be read"; return
   fi
-  [ -n "$line" ] || { echo "row $rid is not in $ROADMAP${main_ref:+ on $main_ref}, so its Risk and Approval cannot be read"; return; }
-  printf '%s\n' "$line" | row_change_cell | grep -Eq '(^|[^[:alnum:]])Approval: owner([^[:alnum:]]|$)' \
+  [ "$n" -le 1 ] || { echo "$n rows of $ROADMAP${main_ref:+ on $main_ref} name the change $id ($(printf '%s\n' "$rows" | cut -f2 | tr '\n' ' ')), so its Risk and Approval cannot be read"; return; }
+  [ -n "$line" ] || { echo "no row of $ROADMAP${main_ref:+ on $main_ref} names the change $id, so its Risk and Approval cannot be read"; return; }
+  row=$(printf '%s\n' "$rows" | cut -f2)
+  [ "$row" = "$rid" ] || { echo "proposal.md names row $rid, but row $row${main_ref:+ on $main_ref} is the one that names $id"; return; }
+  printf '%s\n' "$line" | row_change_cell | grep -Eiq '(^|[^[:alnum:]])Approval: owner([^[:alnum:]]|$)' \
     && { echo "row $rid${main_ref:+ on $main_ref} says Approval: owner"; return; }
   rr=$(printf '%s\n' "$line" | row_risks)
   case $(printf '%s\n' "$rr" | grep -c .) in
@@ -178,6 +185,20 @@ $(git -C "$ROOT" ls-files -o --exclude-standard 2>/dev/null)"
   [ -z "$hits" ] || echo "it touches a guarded path (approval-guarded.txt, ADR_DIR, PRACTICES_DIR): $hits; the $OWNER_ROLE approves it"
 }
 
+# history_holds PATTERN WHAT: say where proposal.md's history, on origin/<main> or this branch, has a
+# diff line matching PATTERN (WHAT names it), or that it cannot be read; nothing when neither.
+# --follow carries it across a rename of the change's directory (OPS-131). An unborn HEAD (a
+# repository with no commit yet) has no history to hold one.
+history_holds() {
+  for ref in $main_ref HEAD; do
+    where="this branch"; [ "$ref" = HEAD ] || where=$ref
+    [ "$ref" != HEAD ] || git -C "$ROOT" rev-parse -q --verify HEAD >/dev/null 2>&1 || continue
+    log=$(git -C "$ROOT" log --follow --no-color --no-ext-diff --format= -p "$ref" -- "$CHANGES_DIR/$id/proposal.md" 2>&1) \
+      || { echo "its history on $where cannot be read: $log"; return; }
+    ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
+  done
+}
+
 case "${1:-}" in
   --delegate)
     owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --delegate needs the delegating owner's name" >&2; exit 64; }
@@ -187,15 +208,9 @@ case "${1:-}" in
     [ -z "$prior" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: it was approved before ($prior), so only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     why=$(delegable); [ -z "$why" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why" >&2; exit 1; }
     # --revoke's marker is a line a hand edit of the Status line removes; the history is not
-    # (OPS-131). An Approved line ever committed to proposal.md, on origin/<main> or on this
-    # branch, is an approval before, and one that cannot be read refuses.
-    for ref in $main_ref HEAD; do
-      where="this branch"; [ "$ref" = HEAD ] || where=$ref
-      log=$(git -C "$ROOT" log --no-color --no-ext-diff --format= -p "$ref" -- "$CHANGES_DIR/$id/proposal.md" 2>&1) \
-        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where cannot be read: $log" >&2; exit 1; }
-      ! printf '%s\n' "$log" | grep -Eq '^[+-]\*\*Approved:\*\* ' \
-        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where holds an Approved line, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
-    done
+    # (OPS-131). An Approved line ever committed to proposal.md is an approval before.
+    why=$(history_holds '^[+-]\*\*Approved:\*\* ' "an Approved line"); [ -z "$why" ] \
+      || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"
     ;;
@@ -220,6 +235,10 @@ case "${1:-}" in
     by=""
     if printf '%s\n' "$line" | grep -Eq "$delegated"; then
       why=$(delegable); [ -z "$why" ] || { echo "design $hash: approved by Claude on delegation, which cannot hold: $why"; exit 1; }
+      # --delegate writes over no Approved line, so an Approved line its history shows removed (a
+      # revoke, or one rewritten) means this one was put back by hand, past --delegate (OPS-131).
+      why=$(history_holds '^-\*\*Approved:\*\* ' "a removed Approved line"); [ -z "$why" ] \
+        || { echo "design $hash: approved by Claude on delegation, which cannot hold: $why, so it was revoked or rewritten and only the $OWNER_ROLE approves it again"; exit 1; }
       by=", by Claude on delegation"
       who=$(printf '%s\n' "$line" | sed -E "s/$delegated.*/\\1/")
       [ -z "$OWNER_NAME" ] || [ "$who" = "$OWNER_NAME" ] || { echo "design $hash: delegated by $who, but only OWNER_NAME ($OWNER_NAME) delegates"; exit 1; }

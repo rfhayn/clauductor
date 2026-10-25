@@ -58,12 +58,16 @@ every open change against the shape below.
   `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
   `**Approval:** owner — <why>` (`/clauductor:propose` step 3a writes it for a change that is money, legal or
-  business, outward, irreversible or needs the owner at the computer); whose roadmap row says
-  `Approval: owner` in its Change cell, outside backticks, as `origin/<main>` has the row (a row
-  missing there refuses); or whose `**Risk:**` is below the row's `Risk:` (a row with none is
-  normal). And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`,
-  holds an Approved line, so a hand edit of a revoked Status line does not reopen it. That history
-  includes an earlier change's under the same id, so a new change takes a new id.
+  business, outward, irreversible or needs the owner at the computer; any `**Approval:**` line
+  counts); whose roadmap row says `Approval: owner` (any case) in its Change cell, outside
+  backticks; or whose `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
+  is the one row of `origin/<main>`'s roadmap that names the change's id, and the proposal's
+  `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.
+  And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>` and across a
+  rename of its directory, holds an Approved line; the check fails a delegated line whose history
+  shows an Approved line removed. So a hand edit of a revoked Status line, or of the Approved line
+  back in, does not reopen it. That history includes an earlier change's under the same id, so a
+  new change takes a new id.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

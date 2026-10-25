@@ -3,8 +3,10 @@
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
 #                       Risk line voids it; --revoke puts it back to awaiting, keeping who approved;
 #                       --delegate records Claude's approval only with APPROVAL_DELEGATED on, no
-#                       guarded path named, no Approval: owner in the proposal or its row, a Risk
-#                       not below the row's, and no approval before, revoked, standing or in history.
+#                       guarded path named, no Approval: owner in the proposal or its row (the row
+#                       that names the change, as the proposal must too), a Risk not below the
+#                       row's, and no approval before, revoked, standing or in history (across a
+#                       rename); the check fails a delegated line put back after a revoke.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
@@ -85,9 +87,13 @@ D() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
 grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
+awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. Approval: owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Approval: owner"
 grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Owner'
+D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says `Approval: owner` to keep it'
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names the marker in backticks"
 roadmap '`add-greeting-name` — greet a member by name'
@@ -97,7 +103,23 @@ roadmap '`add-greeting-name` — greet a member by name. Risk: high'
 D; expect_rc 1 $? "change-approval --delegate refuses a Risk below its row's Risk: high"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 sed 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 9.9/' "$d/fresh.md" > "$C/proposal.md"
-A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a change whose row the roadmap does not hold"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal naming a row the roadmap does not hold"
+grep -q 'names row 9.9, but row 1.1' "$d/out" && ok "...and names the change's own row" || fail "no row mismatch in: $(cat "$d/out")"
+# The row is the one that names the change, never the proposal's choice: naming another change's
+# laxer row does not lower the floor or drop its row's marker.
+roadmap '`add-greeting-name` — greet a member by name. Risk: high. Approval: owner'
+printf '| 1.2 | `other-thing` — x. Risk: low | `src/` | — | ⬜ queued |\n' >> "$R/docs/roadmap.md"
+sed 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 1.2/' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal that names another change's laxer row"
+grep -q 'names row 1.2, but row 1.1' "$d/out" && ok "...and names the row that names the change" || fail "no row mismatch in: $(cat "$d/out")"
+roadmap '`other-thing` — x. Risk: low'
+D; expect_rc 1 $? "change-approval --delegate refuses a change no row names"
+grep -q 'no row of .* names the change add-greeting-name' "$d/out" && ok "...and says no row names it" || fail "no missing-row reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+printf '| 1.2 | `add-greeting-name` — again. Risk: low | `src/` | — | ⬜ queued |\n' >> "$R/docs/roadmap.md"
+D; expect_rc 1 $? "change-approval --delegate refuses a change two rows name"
+grep -q '2 rows of .* name the change add-greeting-name (1.1 1.2 )' "$d/out" && ok "...and names both rows" || fail "no two-row reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 grep -v '^\*\*Roadmap row:\*\*' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal that names no roadmap row"
 grep -q 'names no \*\*Roadmap row' "$d/out" && ok "...and says no row can be read" || fail "no row reason in: $(cat "$d/out")"
@@ -131,6 +153,23 @@ grep -q 'history' "$d/out" && ok "...and says the history holds it" || fail "no 
 git -C "$R" reset -q HEAD~1
 git -C "$R" ls-files --error-unmatch "$C/proposal.md" >/dev/null 2>&1 && fail "change-tools: proposal.md is still tracked after undoing its commit"
 D; expect_rc 0 $? "change-approval --delegate records again once that history is gone"
+# The check reads the history too: a delegated line put back by hand after a revoke does not hold,
+# and renaming the change's directory does not hide its history from --delegate.
+b0=$(git -C "$R" rev-parse HEAD); cp -R "$C" "$d/c.bak"
+git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: delegated"
+cp "$C/proposal.md" "$d/delegated0.md"; A --revoke; git -C "$R" commit -qm "proposal: revoked" -- "$C/proposal.md"
+cp "$d/delegated0.md" "$C/proposal.md"
+A; expect_rc 1 $? "change-approval: a delegated line put back by hand after a revoke does not hold"
+grep -q 'removed Approved line' "$d/out" && ok "...and says its history shows one removed" || fail "no removed-line reason in: $(cat "$d/out")"
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" commit -qm "proposal: Status reset by hand" -- "$C/proposal.md"
+git -C "$R" mv changes/add-greeting-name changes/greeting-renamed && git -C "$R" commit -qm "rename the change"
+roadmap '`greeting-renamed` — greet a member by name. Risk: low'
+(cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-renamed --delegate Ana) > "$d/out" 2>&1
+expect_rc 1 $? "change-approval --delegate follows the proposal's history across a rename of its directory"
+grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds the Approved line before the rename" || fail "no history reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch's diff touches a guarded path no task names"
@@ -150,10 +189,11 @@ A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin
 # proposal approved, after which a hand edit of its Status line on the branch does not reopen it.
 cp "$C/proposal.md" "$d/delegated.md"
 git -C "$R" worktree add -q --detach "$d/mainwt" origin/main
-printf '| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | greet by name. Risk: low. Approval: owner | x | — | ⬜ queued |\n' > "$d/mainwt/docs/roadmap.md"
+printf '| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-greeting-name` — greet by name. Risk: low. Approval: owner | x | — | ⬜ queued |\n' > "$d/mainwt/docs/roadmap.md"
 git -C "$d/mainwt" commit -qam "main: the owner keeps 1.1"
 git -C "$R" update-ref refs/remotes/origin/main "$(git -C "$d/mainwt" rev-parse HEAD)"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once origin/main's row says Approval: owner"
+grep -q 'row 1.1 on origin/main says Approval: owner' "$d/out" && ok "...and names main's row" || fail "no main row marker in: $(cat "$d/out")"
 D; expect_rc 1 $? "change-approval --delegate reads the row from origin/main, not the branch's roadmap"
 git -C "$d/mainwt" reset -q --hard HEAD~1
 mkdir -p "$d/mainwt/changes"; cp -R "$C" "$d/mainwt/changes/"; cp "$d/delegated.md" "$d/mainwt/changes/add-greeting-name/proposal.md"
