@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -146,8 +147,11 @@ func modelOf(top string) (whoseModel, string) {
 func checkProject(rep *doctorReport) *doctorRepo {
 	r := doctorFindRepo()
 	if r == nil {
-		rep.add(groupProject, doctorLine{level: levelNote, subject: "repository",
-			detail: "not in a git repository with a working tree; the project checks did not run"})
+		detail := "not in a git repository with a working tree; the project checks did not run"
+		if _, err := exec.LookPath("git"); err != nil { // doctorFindRepo could not ask (#255)
+			detail = "git is not on PATH, so the project checks did not run"
+		}
+		rep.add(groupProject, doctorLine{level: levelNote, subject: "repository", detail: detail})
 		return nil
 	}
 	rep.add(groupProject, doctorLine{level: levelOK, subject: "repository", detail: r.top})

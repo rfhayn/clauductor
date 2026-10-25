@@ -332,3 +332,83 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 		t.Fatalf("a registry with lanes was not kept and reported: %v\n%s", err, out.String())
 	}
 }
+
+// A label launchd holds as disabled fails every bootstrap with error 5 (#202, seen live). The
+// install stops before it changes anything, naming the `launchctl enable` that clears it, and
+// never runs that command itself: enabling a label is the owner's to do.
+func TestInstallStopsOnADisabledLabelNamingTheEnable(t *testing.T) {
+	t.Parallel()
+	for _, listing := range []string{"disabled", "true"} { // macOS prints either, by version
+		home := t.TempDir()
+		project := t.TempDir()
+		writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
+		self := filepath.Join(t.TempDir(), "clauductor")
+		testbin.Write(t, self, "#!/bin/sh\n")
+		var calls []string
+		fake := func(argv ...string) ([]byte, error) {
+			calls = append(calls, strings.Join(argv, " "))
+			switch {
+			case len(argv) > 1 && argv[1] == "print-disabled":
+				return []byte("disabled services = {\n\t\"com.apple.other\" => enabled\n\t\"" + LaunchdLabel + "\" => " + listing + "\n}\n"), nil
+			case len(argv) > 1 && argv[1] == "bootstrap":
+				return []byte("Bootstrap failed: 5: Input/output error"), errors.New("exit status 5")
+			}
+			return nil, nil
+		}
+		old, _ := LoadOrCreateToken(home)
+		f := clock.NewFake(t0)
+		err, _ := driven(f, time.Millisecond, func() error {
+			return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond})
+		})
+		enable := "launchctl enable " + guiDomain() + "/" + LaunchdLabel
+		if err == nil || !strings.Contains(err.Error(), "disabled") || !strings.Contains(err.Error(), enable) {
+			t.Fatalf("%s: the error does not explain the disabled label and name %q: %v", listing, enable, err)
+		}
+		for _, c := range calls {
+			if strings.Contains(c, " enable ") || strings.Contains(c, " bootstrap ") || strings.Contains(c, " bootout ") {
+				t.Errorf("%s: the install ran %q", listing, c)
+			}
+		}
+		if _, err := os.Stat(PlistPath(home)); err == nil {
+			t.Errorf("%s: a stopped install wrote the plist", listing)
+		}
+		if tok, _ := LoadOrCreateToken(home); tok != old {
+			t.Errorf("%s: a stopped install rotated the token", listing)
+		}
+	}
+}
+
+// An enabled label, a listing that names only other labels and a print-disabled that fails all
+// let the install go on.
+func TestInstallGoesOnUnlessTheLabelIsDisabled(t *testing.T) {
+	t.Parallel()
+	for name, answer := range map[string]func() ([]byte, error){
+		"enabled": func() ([]byte, error) { return []byte("\t\"" + LaunchdLabel + "\" => enabled\n"), nil },
+		"another": func() ([]byte, error) { return []byte("\t\"" + LaunchdLabel + ".old\" => disabled\n"), nil },
+		"fails":   func() ([]byte, error) { return []byte("Unrecognized subcommand"), errors.New("exit status 64") },
+	} {
+		home := t.TempDir()
+		project := t.TempDir()
+		writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
+		self := filepath.Join(t.TempDir(), "clauductor")
+		testbin.Write(t, self, "#!/bin/sh\n")
+		bootstrapped := false
+		fake := func(argv ...string) ([]byte, error) {
+			switch {
+			case len(argv) > 1 && argv[1] == "print-disabled":
+				return answer()
+			case len(argv) > 1 && argv[1] == "bootout":
+				return nil, errors.New("exit status 3") // not loaded: no polls
+			case len(argv) > 1 && argv[1] == "bootstrap":
+				bootstrapped = true
+			}
+			return nil, nil
+		}
+		f := clock.NewFake(t0)
+		if err, _ := driven(f, time.Millisecond, func() error {
+			return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, Exec: fake, Self: self, PollDelay: time.Millisecond})
+		}); err != nil || !bootstrapped {
+			t.Errorf("%s: install %v, bootstrapped %v", name, err, bootstrapped)
+		}
+	}
+}

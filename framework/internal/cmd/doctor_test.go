@@ -561,6 +561,18 @@ func TestDoctorOutsideARepositoryChecksOnlyTheMachine(t *testing.T) {
 	}
 }
 
+// With no git on PATH, the project note says git is missing, not that the directory is outside a
+// repository: it is in one (#255).
+func TestDoctorWithNoGitSaysWhyTheProjectChecksDidNotRun(t *testing.T) {
+	tmplDir(t)
+	t.Chdir(newRepo(t))
+	out, _ := doctor(t, stubPath(t, without("git")...))
+	l := needLine(t, out, "note", "repository", "the project checks did not run")
+	if !strings.Contains(l, "git is not on PATH") || strings.Contains(l, "not in a git repository") {
+		t.Errorf("the note does not say git is missing: %q", l)
+	}
+}
+
 // [DOCTOR-2-S2] A repository with no model is a note naming clauductor install, with no drift
 // line; below the toplevel the fix starts with cd, so it works where it is printed (D8).
 func TestDoctorNoModelIsANoteWithInstall(t *testing.T) {

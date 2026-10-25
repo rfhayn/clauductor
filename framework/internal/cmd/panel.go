@@ -111,6 +111,10 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 // runPanel is panel.Run; a test of the restart's exit status stands one in.
 var runPanel = panel.Run
 
+// panelInstallExec runs panel install's launchctl, plutil and osacompile (nil: the real ones); a
+// test of the install doctor prints stands one in, so no test reaches this machine's launchd.
+var panelInstallExec func(argv ...string) ([]byte, error)
+
 var panelConfigCheckConfig string
 
 // panelConfigCheckCmd is how the running panel asks a rebuilt binary to judge a
@@ -418,7 +422,8 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
 		}
 		// The agent serves projects.json (PANEL-16): the plist names no project.
-		if err := install.Install(install.InstallOptions{Home: home, Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System}); err != nil {
+		if err := install.Install(install.InstallOptions{Home: home, Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System,
+			Exec: panelInstallExec}); err != nil {
 			return err
 		}
 		// PANEL-19: where Remote Control is on, asked once (docs/panel.md, Remote
