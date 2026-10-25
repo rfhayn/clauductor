@@ -23,6 +23,7 @@ cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/l
 cp "$CLAUDUCTOR_FW/change-approval.sh" "$CLAUDUCTOR_FW/verify-change.sh" "$CLAUDUCTOR_FW/scenario-trace.sh" \
    "$CLAUDUCTOR_FW/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
+echo "notes" > "$R/docs/notes.md"  # a file of the fork point for a task to rename away
 git -C "$R" add -A && git -C "$R" commit -qm base
 git -C "$R" checkout -q -b change/add-greeting-name
 cp -R "$EX/changes/add-greeting-name" "$R/changes/"
@@ -172,11 +173,10 @@ cp "$d/tasks.bak" "$C/tasks.md"
 printf -- '- [x] 9.5 Update `specs/greeting`\n' >> "$C/tasks.md"
 V; expect_rc 1 $? "verify-change fails a task naming an unchanged path of the repo, a directory with no extension"
 cp "$d/tasks.bak" "$C/tasks.md"
-# A rename's old name is a changed path: a task removing it names what the diff did (a file of the
-# fork point, which verify-change does not read).
+# A rename's old name is a changed path: a task removing it names what the diff did.
 built=$(git -C "$R" rev-parse HEAD)
-git -C "$R" mv .claude/change-cost.sh .claude/cost.sh && git -C "$R" commit -qm "rename"
-printf -- '- [x] 9.6 Remove `.claude/change-cost.sh`\n' >> "$C/tasks.md"
+git -C "$R" mv docs/notes.md docs/old-notes.md && git -C "$R" commit -qm "rename"
+printf -- '- [x] 9.6 Remove `docs/notes.md`\n' >> "$C/tasks.md"
 V; rc=$?; expect_rc 0 "$rc" "verify-change reads a rename's old name as a path the diff changed"
 [ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
 git -C "$R" reset -q --hard "$built"
