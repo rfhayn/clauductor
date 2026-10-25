@@ -49,7 +49,10 @@ If the line above shows as literal text instead of output, run
 
 ### 1. Resolve the PR
 Use the argument if given, else the current branch's PR. If there is none, push the branch and
-open one (`gh pr create --fill`, or a body that says what a user can now do). Check it is yours.
+open one (`gh pr create --fill`, or a body that says what a user can now do). Check it is yours,
+and that it is OPEN (the context's `[OPEN]`). A closed PR is another session's "do not land this":
+find out why it was closed (`gh pr view <n> --comments`) and stop. Do not reopen it to merge it
+unless that reason is gone. `pr-merge-guard` rule 14 refuses a merge of anything not open.
 
 ### 2. Gate evidence for the head commit (blocking)
 Run the full gate from the branch's checkout, with no flags:

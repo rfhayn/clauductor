@@ -52,7 +52,12 @@ case "$1 $2" in
       # GH_STATE_ERR: gh itself fails. GH_STATE set but empty: gh answers with nothing.
       *"--json state "*)
         [ -n "${GH_STATE_ERR:-}" ] && { echo "$GH_STATE_ERR" >&2; exit 1; }
-        echo "${GH_STATE-OPEN}" ;;
+        # GH_STATE_DEFAULT: the same number's state in gh's DEFAULT repo, which a read naming no repo
+        # (no -R, no URL) gets: a fork's checkout after `gh repo set-default <upstream>`.
+        case "$3 $*" in
+          http://* | https://* | *" -R "*) echo "${GH_STATE-OPEN}" ;;
+          *) echo "${GH_STATE_DEFAULT-${GH_STATE-OPEN}}" ;;
+        esac ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;
@@ -87,8 +92,16 @@ guard 2 "a CLOSED PR with full evidence" "gh pr merge 5 --squash" GH_STATE=CLOSE
 grep -q 'CLOSED' "$d/err" && ok "merge-guard: ...naming the state it read" || fail "merge-guard: closed refusal does not name CLOSED: $(head -3 "$d/err")"
 guard 2 "a MERGED PR" "gh pr merge 5 --squash" GH_STATE=MERGED
 guard 2 "gh cannot read the PR's state (fails closed)" "gh pr merge 5 --squash" GH_STATE_ERR="HTTP 401: Bad credentials"
+grep -q 'HTTP 401' "$d/err" && ok "merge-guard: ...naming gh's own error" || fail "merge-guard: state refusal hides gh's error: $(head -3 "$d/err")"
 guard 2 "gh answers the state with nothing (fails closed)" "gh pr merge 5 --squash" GH_STATE=
 guard 0 "...and an OPEN one, the same in every other way" "gh pr merge 5 --squash" GH_STATE=OPEN
+# ...in every form the guard polices as this repo's merge, and read from the repo the merge NAMES:
+# with -R or a URL, a read of the bare number would judge gh's default repo's PR #5 instead.
+guard 2 "a CLOSED PR merged by this repo's PR URL" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED
+guard 2 "a CLOSED PR merged through gh api" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED
+guard 2 "a CLOSED PR named by -R, its number OPEN in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a CLOSED PR named by URL, its number OPEN in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "an OPEN PR named by -R, its number CLOSED in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
 receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick

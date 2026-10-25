@@ -551,7 +551,7 @@ $argv"
 else
   argv=$(merge_argv)
 fi
-many=""; own=""; other=""; unparsed=""; pr_arg=""; pr=""
+many=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""
 while IFS= read -r line; do
   case "$line" in
     M) many=1 ;;
@@ -559,7 +559,9 @@ while IFS= read -r line; do
       named=${line#? }
       key=$(repo_key "$named")
       if [ -z "$key" ]; then unparsed=$named
-      elif [ "$key" = "$this_repo" ]; then own=1
+      elif [ "$key" = "$this_repo" ]; then
+        own=1
+        case "$line" in "R "*) own_repo=$named ;; esac
       else other=$key
       fi
       case "$line" in "P "*) pr_arg=$named ;; esac
@@ -588,14 +590,28 @@ case "$pr_arg" in
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
 
+# ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
+# names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
+# gh's default repository (`gh repo set-default`), which in a fork's checkout is not origin, so a
+# read without the merge's -R can judge another repo's PR #n (OPS-132). With no repo named, the read
+# names none either, and resolves exactly as the merge does.
+gh_sel=$pr gh_repo=""
+case "$pr_arg" in http://* | https://*) gh_sel=$pr_arg ;; *) gh_repo=$own_repo ;; esac
+ghpr() {
+  _sub=$1; shift
+  if [ -n "$gh_repo" ]; then gh pr "$_sub" "$gh_sel" -R "$gh_repo" "$@"; else gh pr "$_sub" "$gh_sel" "$@"; fi
+}
+
 # Rule 14 — only an OPEN PR merges (OPS-132). A close is how one session tells another "do not land
 # this", and the lane that opened the PR is not told: #215, closed as a duplicate, landed twelve
 # minutes later through its own lane's merge. First, before any evidence is read: none of it matters
 # for a PR that must not land. Anything but OPEN blocks, and so does no answer: gh failing, or
 # answering with nothing, has told us nothing, which is not "open".
-pr_state=$(gh pr view "$pr" --json state --jq .state 2>/dev/null) || pr_state=""
-[ -n "$pr_state" ] || block "cannot read PR #$pr's state (gh error?), so whether it is still open cannot be checked. Fix gh auth (gh auth status), then retry."
-[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $pr --comments) before anything else. If it should land after all, reopen it first (gh pr reopen $pr); a merged one has nothing left to merge."
+state_errf=$(mktemp "${TMPDIR:-/tmp}/guard-state.XXXXXX") || block "cannot make a temp file to read PR #$pr's state"
+pr_state=$(ghpr view --json state --jq .state 2>"$state_errf") || pr_state=""
+state_err=$(grep . "$state_errf" | head -n 1); rm -f "$state_errf"
+[ -n "$pr_state" ] || block "cannot read PR #$pr's state (gh: ${state_err:-no answer}), so whether it is still open cannot be checked. Fix what gh reports (gh auth status, the PR number), then retry."
+[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $gh_sel${gh_repo:+ -R $gh_repo} --comments) before anything else. If it should land after all, reopen it first; a merged one has nothing left to merge."
 
 # Rule 2 — gate evidence for the exact head commit.
 #
@@ -610,7 +626,7 @@ pr_state=$(gh pr view "$pr" --json state --jq .state 2>/dev/null) || pr_state=""
 # prints it), whatever gh also wrote to stderr: GH_DEBUG or a notice there must not hide a red check.
 # Otherwise stderr is gh saying why it has none, kept for GATE_PR_CHECKS below.
 checks_errf=$(mktemp "${TMPDIR:-/tmp}/guard-checks.XXXXXX") || block "cannot make a temp file to read PR #$pr's checks"
-checks_out=$(gh pr checks "$pr" --json name,state,bucket 2>"$checks_errf")
+checks_out=$(ghpr checks --json name,state,bucket 2>"$checks_errf")
 checks_stderr=$(cat "$checks_errf"); rm -f "$checks_errf"
 if printf '%s' "$checks_out" | jq -e 'type == "array"' >/dev/null 2>&1; then
   checks=$checks_out checks_err=""
@@ -662,7 +678,7 @@ fi
 # compiled a line. So: the named remote workflow's success on this SHA, or a local receipt. Naming
 # the workflow is the authority, not a list of jobs; renamed, it stops finding runs and blocks,
 # which is the safe direction. GATE_REMOTE_WORKFLOW="" means the local receipt is the only evidence.
-head_sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid 2>/dev/null)
+head_sha=$(ghpr view --json headRefOid --jq .headRefOid 2>/dev/null)
 if [ -z "$head_sha" ]; then
   # gh failed. We have learned nothing; do not read that as "no evidence needed".
   block "cannot read PR #$pr's head SHA (gh error?), so the gate evidence cannot be checked. Fix gh auth, then retry."
@@ -705,7 +721,7 @@ case "$behind" in
 esac
 
 # Rules 3, 4, 7 and 8 read the PR's head branch and its tree at the head SHA.
-head_json=$(gh pr view "$pr" --json headRefName,headRefOid 2>/dev/null)
+head_json=$(ghpr view --json headRefName,headRefOid 2>/dev/null)
 branch=$(printf '%s' "$head_json" | jq -r '.headRefName // empty' 2>/dev/null)
 [ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr --json headRefName' answers."
 
