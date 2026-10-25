@@ -36,42 +36,53 @@ type AddResult struct {
 	Added bool // false: it was registered already
 }
 
-// AddProject registers a project: one git common dir, named by its main worktree. It
-// loads and validates the config, but never trusts it: trusting is `panel trust`.
-func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
+// AddPlan is what CheckAdd found AddProject would do: the registry as it would be saved, and the
+// entry registered or to register. It holds no file's content but the registry's, in memory.
+type AddPlan struct {
+	reg     *config.Projects
+	entry   config.ProjectEntry
+	cfg     *config.Config
+	added   bool // a new entry; false: registered already
+	changed bool // the registry differs from the file (a new entry, config or default)
+}
+
+// CheckAdd runs every check AddProject makes before it saves, and writes nothing: it returns
+// AddProject's own refusal, or the plan AddProject then saves. AddProject calls it, so a caller
+// that asks "would this be refused" (clauductor doctor) and the command itself cannot read the
+// rule two ways.
+func CheckAdd(ctx context.Context, o AddOptions) (AddPlan, error) {
 	if o.Run == nil {
 		o.Run = signals.ExecRunner
 	}
 	root := signals.ResolvePath(o.Project)
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
-		return AddResult{}, fmt.Errorf("%s is not a directory", o.Project)
+		return AddPlan{}, fmt.Errorf("%s is not a directory", o.Project)
 	}
 	wts, err := signals.ReadWorktrees(ctx, o.Run, root)
 	if err != nil {
-		return AddResult{}, fmt.Errorf("%s: %w", root, err)
+		return AddPlan{}, fmt.Errorf("%s: %w", root, err)
 	}
 	if len(wts) == 0 {
-		return AddResult{}, fmt.Errorf("%s: git lists no worktree", root)
+		return AddPlan{}, fmt.Errorf("%s: git lists no worktree", root)
 	}
 	// Two entries for one repository would both claim its worktrees and its lanes:
 	// a project is its main worktree, and a linked one (or a symlink to either)
 	// names the same project.
 	if main := wts[0].Path; main != root {
 		if i := signals.MatchWorktree(wts, root); i > 0 && o.Strict {
-			return AddResult{}, fmt.Errorf("%s is a linked worktree of %s; add that instead (a project is its main worktree)", root, main)
+			return AddPlan{}, fmt.Errorf("%s is a linked worktree of %s; add that instead (a project is its main worktree)", root, main)
 		}
 		root = main
 	}
 	reg, err := config.LoadProjects(o.Home)
 	if err != nil {
-		return AddResult{}, err
+		return AddPlan{}, err
 	}
 	cfgPath := ""
 	if o.Config != "" {
 		cfgPath = signals.ResolvePath(o.Config)
 	}
 	if e := reg.Find(root); e != nil {
-		res := AddResult{Entry: *e}
 		changed := false
 		if cfgPath != "" && e.Config != cfgPath {
 			e.Config, changed = cfgPath, true
@@ -81,51 +92,58 @@ func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
 		}
 		cfg, err := config.LoadConfig(e.ConfigPath())
 		if err != nil {
-			return AddResult{}, err
+			return AddPlan{}, err
 		}
-		res.Entry, res.Cfg = *e, cfg
-		if changed {
-			return res, config.SaveProjects(o.Home, reg)
-		}
-		return res, nil
+		return AddPlan{reg: reg, entry: *e, cfg: cfg, changed: changed}, nil
 	}
 	// One repository, one entry, by git's common dir too (PANEL-22): a second path to
 	// it that resolves elsewhere would claim the same worktrees and lanes.
 	if common, err := commonDir(ctx, o.Run, root); err == nil {
 		if id := registeredAs(ctx, o.Run, reg, root, common); id != "" {
-			return AddResult{}, fmt.Errorf("%s is the repository registered already as %q", root, id)
+			return AddPlan{}, fmt.Errorf("%s is the repository registered already as %q", root, id)
 		}
 	}
 	e := config.ProjectEntry{Root: root, Config: cfgPath, Added: o.Now.Unix()}
 	cfg, err := config.LoadConfig(e.ConfigPath())
 	if err != nil {
-		return AddResult{}, err
+		return AddPlan{}, err
 	}
 	e.ID = o.ID
 	if e.ID == "" {
 		e.ID = reg.Slug(cfg.Name)
 	}
 	if !config.ProjectIDRe.MatchString(e.ID) {
-		return AddResult{}, fmt.Errorf("project id %q must match %s", e.ID, config.ProjectIDRe)
+		return AddPlan{}, fmt.Errorf("project id %q must match %s", e.ID, config.ProjectIDRe)
 	}
 	if reg.Find(e.ID) != nil {
-		return AddResult{}, fmt.Errorf("project id %q is taken; pass --id", e.ID)
+		return AddPlan{}, fmt.Errorf("project id %q is taken; pass --id", e.ID)
 	}
 	e.TmuxSocket = reg.NewSocket(e.ID)
 	// Two projects on one tmux server would each see the other's lanes as strays,
 	// and a lane name used in both would refuse to start in the second.
 	sock := e.Socket(cfg)
 	if other := socketOwner(reg, sock, ""); other != "" {
-		return AddResult{}, fmt.Errorf("tmux socket %q is %s's already; give this project its own tmux_socket in %s", sock, other, e.ConfigPath())
+		return AddPlan{}, fmt.Errorf("tmux socket %q is %s's already; give this project its own tmux_socket in %s", sock, other, e.ConfigPath())
 	}
 	reg.Projects = append(reg.Projects, e)
 	if reg.Default == "" || o.MakeDefault {
 		reg.Default = e.ID
 	}
-	if err := config.SaveProjects(o.Home, reg); err != nil {
+	return AddPlan{reg: reg, entry: e, cfg: cfg, added: true, changed: true}, nil
+}
+
+// AddProject registers a project: one git common dir, named by its main worktree. It
+// loads and validates the config, but never trusts it: trusting is `panel trust`.
+func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
+	plan, err := CheckAdd(ctx, o)
+	if err != nil {
 		return AddResult{}, err
 	}
-	return AddResult{Entry: e, Cfg: cfg, Added: true}, nil
+	res := AddResult{Entry: plan.entry, Cfg: plan.cfg, Added: plan.added}
+	if plan.changed {
+		return res, config.SaveProjects(o.Home, plan.reg)
+	}
+	return res, nil
 }
 
 // ConfigPathOf is the config a --project/--config pair names (PANEL-42, design.md D7):

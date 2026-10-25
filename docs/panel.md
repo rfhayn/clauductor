@@ -3536,6 +3536,12 @@ To update a vendored file, download it with `npm pack <package>@<version>`, copy
 
 ## Troubleshooting
 
+**Run `clauductor doctor` first**, from the project's checkout (a lane's worktree reads the main
+checkout). On macOS it reports whether the panel is installed, running and the build you installed,
+whether the registry lists the project, whether its config loads and whether it is trusted, and
+prints the command that fixes each problem. It changes nothing and runs none of the fixes. The
+entries below explain what each problem means.
+
 ### The panel is down
 
 The lanes are not affected: they run in tmux whether or not the panel is up.

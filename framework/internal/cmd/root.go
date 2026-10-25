@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
+	"io"
+
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -17,6 +21,23 @@ lanes of every project.`,
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// errReported marks an error whose command has already told the user, in its own output, why it
+// exits 1 (doctor's last line is its count). Main exits 1 for it and prints nothing more.
+var errReported = errors.New("reported")
+
+// Main runs the root command as the binary does and returns the process's exit status: a command's
+// error is printed to stderr as "Error: ...", unless the command reported it itself.
+func Main(stderr io.Writer) int {
+	err := Execute()
+	if err == nil {
+		return 0
+	}
+	if !errors.Is(err, errReported) {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+	}
+	return 1
 }
 
 func init() {

@@ -68,59 +68,11 @@ missing, so new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
 			return fmt.Errorf("could not get working directory: %w", err)
 		}
 
-		if !forceUpdate {
-			if err := refusePluginModel("update", targetDir); err != nil {
-				return err
-			}
-		}
-
-		// Verify this looks like a Clauductor project
-		if _, err := os.Stat(filepath.Join(targetDir, ".claude", "skills")); os.IsNotExist(err) {
-			return fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")
-		}
-
-		fmt.Fprintf(out, "Checking for updates in %s\n", targetDir)
-		src, err := announceTemplate(out)
+		plan, err := planUpdate(out, targetDir, forceUpdate)
 		if err != nil {
 			return err
 		}
-		tmplPath := src.Dir
-		files, err := template.ListTemplateFiles()
-		if err != nil {
-			return err
-		}
-
-		// A repository running its own operating model is left alone (ownguard.go).
-		announceOldModel(out, targetDir)
-		if !forceUpdate && !ownedByClauductor(targetDir) {
-			overwrite, add, err := foreignModel(targetDir, tmplPath, files)
-			if err != nil {
-				return err
-			}
-			if len(overwrite)+len(add) > 0 {
-				return refuseForeign("update", targetDir, overwrite, add)
-			}
-		}
-
-		printGuidanceDrift(out, targetDir)
-
-		// Find files that differ from template
-		diffs, err := template.FindDiffs(targetDir)
-		if err != nil {
-			return fmt.Errorf("failed to compare files: %w", err)
-		}
-		settings, err := planProjectSettings(targetDir)
-		if err != nil {
-			return err
-		}
-		x, err := planExtras(targetDir, tmplPath, files)
-		if err != nil {
-			return err
-		}
-		attrs, err := planGitattributes(targetDir)
-		if err != nil {
-			return err
-		}
+		tmplPath, diffs, settings, x, attrs := plan.tmplPath, plan.diffs, plan.settings, plan.x, plan.attrs
 
 		// Separate new files from modified files
 		var newFiles, modifiedFiles []template.FileDiff
@@ -260,6 +212,76 @@ missing, so new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
 		fmt.Fprintln(out, "Update complete.")
 		return nil
 	},
+}
+
+// updatePlan is everything update reads before it changes anything.
+type updatePlan struct {
+	tmplPath string
+	diffs    []template.FileDiff
+	settings *template.SettingsPlan
+	x        *extras
+	attrs    *gitattributesPlan
+}
+
+// planUpdate is every check update makes before its --dry-run line and every reading it plans
+// from, in update's order, writing nothing. update runs it, and so does doctor, which prints
+// `clauductor update` as a fix only when this returns no error (D8): one source for what update
+// refuses, so a refusal added here reaches doctor with it. What it announces goes to out.
+func planUpdate(out io.Writer, targetDir string, force bool) (*updatePlan, error) {
+	if !force {
+		if err := refusePluginModel("update", targetDir); err != nil {
+			return nil, err
+		}
+	}
+
+	// Verify this looks like a Clauductor project
+	if _, err := os.Stat(filepath.Join(targetDir, ".claude", "skills")); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")
+	}
+
+	fmt.Fprintf(out, "Checking for updates in %s\n", targetDir)
+	src, err := announceTemplate(out)
+	if err != nil {
+		return nil, err
+	}
+	tmplPath := src.Dir
+	files, err := template.ListTemplateFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	// A repository running its own operating model is left alone (ownguard.go).
+	announceOldModel(out, targetDir)
+	if !force && !ownedByClauductor(targetDir) {
+		overwrite, add, err := foreignModel(targetDir, tmplPath, files)
+		if err != nil {
+			return nil, err
+		}
+		if len(overwrite)+len(add) > 0 {
+			return nil, refuseForeign("update", targetDir, overwrite, add)
+		}
+	}
+
+	printGuidanceDrift(out, targetDir)
+
+	// Find files that differ from template
+	diffs, err := template.FindDiffs(targetDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compare files: %w", err)
+	}
+	settings, err := planProjectSettings(targetDir)
+	if err != nil {
+		return nil, err
+	}
+	x, err := planExtras(targetDir, tmplPath, files)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := planGitattributes(targetDir)
+	if err != nil {
+		return nil, err
+	}
+	return &updatePlan{tmplPath: tmplPath, diffs: diffs, settings: settings, x: x, attrs: attrs}, nil
 }
 
 // showDiff runs diff between two files and prints the output.

@@ -12,6 +12,9 @@ the project's own `docs/playbook.md` (`template/docs/playbook.md` here).
   panel's lanes), **Go** (to build clauductor; `install.sh` installs Go and tmux if missing)
 - Optional: **python3** (machine-quiet's live-session check; without it, it removes no worktree)
 
+Not sure what you have? Run `clauductor doctor`: it checks these tools, the template and `gh`,
+changes nothing, and prints the install command for anything missing.
+
 ## Install clauductor
 
 ```bash
@@ -152,6 +155,10 @@ framework file: attribution and provenance are `model-roles.json`'s and the bran
 `update` sees `build-change.js` as the template's.
 
 ## Troubleshooting
+
+Run `clauductor doctor` first, from the project. It checks the machine, the project and (on macOS)
+the panel, writes nothing, and prints a `fix:` command under each problem it can name a fix for.
+The entries below are for what it does not cover.
 
 - **A hook blocks everything with "jq is not installed"**: install jq; the hooks fail closed
   without it for the commands they police.
