@@ -54,7 +54,10 @@ done
 
 cd "$ROOT" || exit 2
 repo=${GUARD_REPO:-}
-pr_json=$(gh pr view "$pr" --json title,body,closingIssuesReferences 2>/dev/null)
+# The PR the merge names, as the guard reads it (#267): a bare number resolves through gh's default
+# repository, which in a fork's checkout is another repo's PR.
+[ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run clauductor update)."
+pr_json=$(gh pr view "$GUARD_PR_REF" ${GUARD_PR_REPO:+-R "$GUARD_PR_REPO"} --json title,body,closingIssuesReferences 2>/dev/null)
 [ -n "$pr_json" ] || no "could not read PR #$pr's body and closing issues, so the premise check cannot be evaluated."
 printf '%s' "$pr_json" | jq -e 'type == "object"' >/dev/null 2>&1 \
   || no "PR #$pr's details did not come back as JSON ($(printf '%s' "$pr_json" | head -c 80)), so the premise check cannot be evaluated."

@@ -39,27 +39,38 @@ git -C "$R" checkout -q main
 
 cat > "$d/bin/gh" <<'EOF'
 #!/bin/sh
+# Every PR read answers from the repo it names. *_DEFAULT: the same number in gh's DEFAULT repo, which
+# a read naming no repo (no -R, no URL) gets: a fork's checkout after `gh repo set-default <upstream>`.
+# GH_STATE_HOSTED: the state a read naming a host (-R <host>/<owner>/<name>) gets.
+case "$3 $*" in
+  http://* | https://* | *" -R "*) named=1 ;;
+  *) named="" ;;
+esac
+hosted=""
+case "$(printf '%s\n' "$*" | sed -n 's/.* -R \([^ ]*\).*/\1/p')" in */*/*) hosted=1 ;; esac
 case "$1 $2" in
   "pr checks")
     # GH_CHECKS_ERR: gh itself fails (auth, network). GH_CHECKS=none: gh's own "no checks" answer.
     # GH_CHECKS_NOISE: gh writes to stderr beside a valid answer (GH_DEBUG=1, an upgrade notice).
     [ -n "${GH_CHECKS_ERR:-}" ] && { echo "$GH_CHECKS_ERR" >&2; exit 1; }
     [ -n "${GH_CHECKS_NOISE:-}" ] && echo "$GH_CHECKS_NOISE" >&2
-    [ "${GH_CHECKS:-}" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
-    echo "${GH_CHECKS:-[]}" ;;
+    checks=${GH_CHECKS:-[]}
+    [ -n "$named" ] || checks=${GH_CHECKS_DEFAULT-$checks}
+    [ "$checks" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
+    echo "$checks" ;;
   "pr view")
+    head=$GH_HEAD branch=${GH_BRANCH:-fix/1-x}
+    [ -n "$named" ] || { head=${GH_HEAD_DEFAULT-$head}; branch=${GH_BRANCH_DEFAULT-$branch}; }
     case "$*" in
       # GH_STATE_ERR: gh itself fails. GH_STATE set but empty: gh answers with nothing.
       *"--json state "*)
         [ -n "${GH_STATE_ERR:-}" ] && { echo "$GH_STATE_ERR" >&2; exit 1; }
-        # GH_STATE_DEFAULT: the same number's state in gh's DEFAULT repo, which a read naming no repo
-        # (no -R, no URL) gets: a fork's checkout after `gh repo set-default <upstream>`.
-        case "$3 $*" in
-          http://* | https://* | *" -R "*) echo "${GH_STATE-OPEN}" ;;
-          *) echo "${GH_STATE_DEFAULT-${GH_STATE-OPEN}}" ;;
-        esac ;;
-      *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
-      *headRefOid*) echo "$GH_HEAD" ;;
+        if [ -n "$hosted" ]; then echo "${GH_STATE_HOSTED-${GH_STATE-OPEN}}"
+        elif [ -n "$named" ]; then echo "${GH_STATE-OPEN}"
+        else echo "${GH_STATE_DEFAULT-${GH_STATE-OPEN}}"
+        fi ;;
+      *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$branch" "$head" ;;
+      *headRefOid*) echo "$head" ;;
     esac ;;
   # GH_RUNS_DEFAULT: the successes gh's default repo has for that commit, which a list naming no repo gets.
   "run list") case "$*" in *" -R "*) echo "${GH_RUNS:-0}" ;; *) echo "${GH_RUNS_DEFAULT-${GH_RUNS:-0}}" ;; esac ;;
@@ -73,7 +84,7 @@ receipt() { printf '%s\tfull\t%s\t%s\n' "$1" "${2:-clean}" "${3:-all}" > "$R/.gi
 guard() {  # guard WANT LABEL COMMAND [env assignments...]
   want=$1 label=$2 c=$3; shift 3
   rc=0
-  out=$(payload "$c" "$R" | (cd "$R" && env PATH="$d/bin:$PATH" GH_HEAD="${GH_HEAD:-$MAINSHA}" "$@" sh "$R/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
+  out=$(payload "$c" "${PCWD-$R}" | (cd "$R" && env PATH="$d/bin:$PATH" GH_HEAD="${GH_HEAD:-$MAINSHA}" "$@" sh "$R/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
   expect_rc "$want" "$rc" "merge-guard $( [ "$want" = 2 ] && echo blocks || echo allows ): $label"
   [ "$rc" = "$want" ] || sed 's/^/       /' "$d/err" | head -3
 }
@@ -104,16 +115,69 @@ guard 0 "an OPEN PR merged through gh api, its number CLOSED in gh's default rep
 guard 2 "a CLOSED PR named by -R, its number OPEN in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a CLOSED PR named by URL, its number OPEN in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 0 "an OPEN PR named by -R, its number CLOSED in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
-# The guard reads from the command's starting directory with the session's environment, so what
-# moves gh elsewhere is refused: GH_REPO/GH_HOST, or a cd when no repo is named. -R or a URL pins it.
+# Every read, not only the state: the checks, the head and the head branch each come from the PR the
+# merge names, so each is red (or unevidenced) there and green in gh's default repo, and the inverse.
+RED='[{"name":"test","state":"FAILURE","bucket":"fail"}]'
+guard 2 "red checks on the PR named by -R, green in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_CHECKS="$RED" GH_CHECKS_DEFAULT='[]'
+guard 2 "red checks on the PR named by URL, green in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_CHECKS="$RED" GH_CHECKS_DEFAULT='[]'
+guard 0 "green checks on the PR named by -R, red in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_CHECKS='[]' GH_CHECKS_DEFAULT="$RED"
+guard 2 "the PR named by -R has a head with no receipt; gh's default repo's has one" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$SLICE" GH_HEAD_DEFAULT="$MAINSHA"
+guard 0 "the PR named by -R has the head with the receipt; gh's default repo's has none" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$MAINSHA" GH_HEAD_DEFAULT="$SLICE"
+receipt "$NOSLICE"
+guard 2 "the PR named by -R is a change branch with no slice; gh's default repo's is a fix" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$NOSLICE" GH_BRANCH=change/add-x GH_BRANCH_DEFAULT=fix/1-x
+guard 0 "the PR named by -R is a fix; gh's default repo's is a change branch with no slice" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$NOSLICE" GH_BRANCH=fix/1-x GH_BRANCH_DEFAULT=change/add-x
+receipt "$MAINSHA"
+# What the merge's words leave open, gh fills from its environment and directory, which what runs
+# before the merge can change in more ways than a list could name. So what may come before it is an
+# allowlist, by what the words leave open (#271): nothing before a merge naming no repo, only
+# `cd <path> && ` before -R OWNER/NAME (the host is GH_HOST's), anything before a URL or a hosted -R.
 guard 2 "GH_REPO before a merge naming no repo" "GH_REPO=acme/app gh pr merge 5 --squash"
-grep -q 'GH_REPO' "$d/err" && ok "merge-guard: ...naming GH_REPO" || fail "merge-guard: GH_REPO refusal does not name it: $(head -3 "$d/err")"
-guard 2 "GH_HOST before a merge named by -R" "GH_HOST=ghe.example.com gh pr merge 5 -R acme/app --squash"
-guard 2 "export GH_REPO, then a merge" "export GH_REPO=acme/app; gh pr merge 5 --squash"
+grep -q 'GH_REPO' "$d/err" && ok "merge-guard: ...naming what comes before it" || fail "merge-guard: the refusal does not name what comes before the merge: $(head -3 "$d/err")"
+guard 2 "export GH_REPO, then a merge naming no repo" "export GH_REPO=acme/app; gh pr merge 5 --squash"
+guard 2 "GIT_DIR before a merge naming no repo" "GIT_DIR=../other/.git gh pr merge 5 --squash"
+guard 2 "cd; then a merge naming no repo" "cd; gh pr merge 5 --squash"
+guard 2 "an escaped cd before a merge naming no repo" 'c\d /tmp && gh pr merge 5 --squash'
+guard 2 "a split GH_REPO exported before a merge naming no repo" 'export "GH_""REPO=other/x"; gh pr merge 5 --squash'
+guard 2 "a sourced file before a merge naming no repo" ". ./env.sh; gh pr merge 5 --squash"
 guard 2 "a cd before a merge naming no repo" "cd /tmp && gh pr merge 5 --squash"
+guard 2 "an earlier line before a merge naming no repo" "true
+gh pr merge 5 --squash"
 guard 2 "a cd before a gh api merge of {owner}/{repo}" "cd /tmp && gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
-guard 0 "a cd before a merge named by -R" "cd /tmp && gh pr merge 5 -R acme/app --squash"
+guard 2 "a cd between two gh api calls, the second merging {owner}/{repo}" "gh api user && cd /tmp && gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "a gh api merge of {owner}/{repo} on its own" "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "merge-pr's own form" "gh pr merge 5 --squash --delete-branch --body-file merge-body.md"
+guard 0 "a subject that says cd, after a merge naming no repo" 'gh pr merge 5 --squash --subject "fix cd handling"'
+guard 2 "GH_HOST before a merge named by -R OWNER/NAME" "GH_HOST=ghe.example.com gh pr merge 5 -R acme/app --squash"
+guard 2 "a split GH_HOST exported before a merge named by -R OWNER/NAME" 'export "GH_""HOST=ghe.example.com"; gh pr merge 5 -R acme/app --squash'
+guard 2 "GH_HOST before a gh api merge of repos/OWNER/NAME" "GH_HOST=ghe.example.com gh api -X PUT repos/acme/app/pulls/5/merge"
+guard 0 "a cd before a merge named by -R OWNER/NAME" "cd /tmp && gh pr merge 5 -R acme/app --squash"
+guard 0 "GH_HOST before a merge named by -R HOST/OWNER/NAME" "GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --squash"
 guard 0 "a cd before a merge named by this repo's PR URL" "cd /tmp && gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 0 "GH_HOST before a merge named by this repo's PR URL" "GH_HOST=github.com gh pr merge https://github.com/acme/app/pull/5 --squash"
+# gh api --hostname sends the merge to that host, so the reads name it: -R <host>/<owner>/<name>.
+guard 2 "gh api --hostname H: the PR is CLOSED on H, OPEN on the default host" "gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api --hostname=H: the same, spelled with =" "gh api --hostname=ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 0 "gh api --hostname H: the PR is OPEN on H, CLOSED on the default host" "gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 "gh api --hostname H with {owner}/{repo}" "gh api --hostname ghe.example.com -X PUT repos/{owner}/{repo}/pulls/5/merge"
+# The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge
+# naming no repo passes only from a worktree of this repository.
+O="$d/other"; new_repo "$O"
+git -C "$R" worktree add -q "$d/wt" -b wt-guard 2>/dev/null
+PCWD=$O
+guard 2 "a merge naming no repo, run in another repository" "gh pr merge 5 --squash"
+grep -qF "$O" "$d/err" && ok "merge-guard: ...naming the directory it runs in" || fail "merge-guard: the cwd refusal does not name the cwd: $(head -3 "$d/err")"
+guard 2 "a gh api merge of {owner}/{repo}, run in another repository" "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "a merge named by -R, run in another repository" "gh pr merge 5 -R acme/app --squash"
+PCWD=$d/wt
+guard 0 "a merge naming no repo, run in a worktree of this repository" "gh pr merge 5 --squash"
+PCWD=$R/docs
+guard 0 "a merge naming no repo, run in a subdirectory of this repository" "gh pr merge 5 --squash"
+PCWD=
+guard 2 "a merge naming no repo, with no cwd in the payload" "gh pr merge 5 --squash"
+PCWD=$d/nowhere
+guard 2 "a merge naming no repo, in a cwd that does not exist" "gh pr merge 5 --squash"
+unset PCWD
+git -C "$R" worktree remove --force "$d/wt" && git -C "$R" branch -q -D wt-guard
 receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick

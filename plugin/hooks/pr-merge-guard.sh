@@ -49,7 +49,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # A MERGE IN ANOTHER REPOSITORY is not policed beyond rule 1, but it passes only when the whole
 # command matches one allowlisted plain shape (foreign_shape, below) and its -R owner/name differs
 # from this repo's origin; any other command naming another repo blocks. A merge of THIS repo whose
-# PR is not a number or PR URL (flag-first forms, or no PR at all) BLOCKS.
+# PR is not a number or PR URL (flag-first forms, or no PR at all) BLOCKS, and so does one whose
+# command could make gh resolve another repository than the guard reads (an allowlist, at ghpr).
 #
 # Known residual, accepted: a merge clicked on the website never runs this.
 #
@@ -394,7 +395,8 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # github.com, and an ssh alias (`git@github-work:o/n`) is still this repo. THIS repo is the origin
 # remote (https, ssh or scp form), never a hard-coded name; if it cannot be read, nothing is
 # foreign. A merge naming no repo is this repo's (`cd ../other && gh pr merge 2` is policed — pass
-# -R). GH_REPO / GH_HOST are not read: a merge of this repo that names either BLOCKS (at ghpr).
+# -R). What may come before a merge of this repo depends on what its words leave gh to resolve
+# (GH_REPO, GH_HOST, the directory): an allowlist, at ghpr.
 #
 # repo_key — lowercased owner/name of an owner/name, host/owner/name, https/ssh/scp URL or PR URL.
 repo_key() {
@@ -546,6 +548,21 @@ if [ -n "$this_repo" ] && [ -n "$shaped" ] && [ "$shaped" != "$this_repo" ]; the
 fi
 
 if [ -n "$api_pr" ]; then
+  # `gh api --hostname H` sends the merge to H, so the reads name H too (-R H/<owner>/<name>): read
+  # on the default host, they would judge another server's PR. Read only when it is one plain word.
+  case "$cmd" in
+    *--hostname*)
+      api_host=$(printf '%s' "$cmd" | tr '\n\t' '  ' | awk '{
+          n = 0; s = " " $0 " "
+          while (match(s, /--hostname/)) { n++; s = substr(s, RSTART + RLENGTH) }
+          if (n == 1 && match(" " $0 " ", / --hostname[ =][A-Za-z0-9.-]+ /)) {
+            h = substr(" " $0 " ", RSTART + 12, RLENGTH - 13); print h
+          }
+        }')
+      [ -n "$api_host" ] || block "this gh api merge names --hostname in a form this guard cannot read, so it cannot read the PR on the host the merge goes to. Name it once, plainly: gh api --hostname <host> -X PUT repos/<owner>/<name>/pulls/<n>/merge"
+      [ "$api_repo" != "." ] || block "this gh api merge names --hostname $api_host and {owner}/{repo}, which gh fills from this directory's repository while the merge goes to $api_host. Name the repository: gh api --hostname $api_host -X PUT repos/<owner>/<name>/pulls/$api_pr/merge"
+      api_repo="$api_host/$api_repo" ;;
+  esac
   argv="P $api_pr"
   [ "$api_repo" = "." ] || argv="R $api_repo
 $argv"
@@ -594,11 +611,7 @@ esac
 # ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
 # gh's default repository (`gh repo set-default`), which in a fork's checkout is not origin, so a
-# read without the merge's -R can judge another repo's PR #n (OPS-132). With no repo named, the read
-# names none either, and resolves as the merge does only from the same directory and environment.
-# A command that names GH_REPO or GH_HOST, or names no repo and runs a cd, is refused below; that is
-# a text match, not the whole of it. The hook's directory need not be the payload's cwd, and other
-# spellings (GIT_DIR=, `cd;`, a sourced file) and `gh api --hostname` still pass: #271.
+# read without the merge's -R can judge another repo's PR #n (OPS-132).
 # run_repo is the same repository for `gh run list`, which takes no PR URL: the URL's host/owner/name.
 gh_sel=$pr gh_repo="" run_repo=""
 case "$pr_arg" in
@@ -610,12 +623,58 @@ ghpr() {
   _sub=$1; shift
   if [ -n "$gh_repo" ]; then gh pr "$_sub" "$gh_sel" -R "$gh_repo" "$@"; else gh pr "$_sub" "$gh_sel" "$@"; fi
 }
-if printf '%s' "$cmd" | grep -Eq 'GH_(REPO|HOST)'; then
-  block "this merge names GH_REPO or GH_HOST, which choose the repository gh merges in, and this guard reads PR #$pr without them, so it could judge another repository's PR. Drop them and name the repo: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
-fi
-if [ -z "$run_repo" ] && printf '%s' "$cmd" | grep -Eq '(^|[^A-Za-z0-9_./-])(cd|pushd)([[:blank:]]|$)'; then
-  block "this merge changes directory and names no repository, so gh resolves PR #$pr from that directory while this guard reads it from here, and could judge another repository's PR. Name the repo: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
-fi
+
+# THE READS RESOLVE AS THE MERGE DOES, BY ALLOWLIST. Whatever the merge's words leave open, gh fills
+# from its environment and directory, which the command before the merge can change in more ways
+# than any list of them (GH_REPO=, GIT_DIR=, `cd;`, `c\d`, `export "GH_""REPO=…"`, a sourced file:
+# round 3 of OPS-132 passed each past a text match). So what may come before the merge depends on
+# what its words leave open:
+#   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it.
+#   - -R OWNER/NAME: the host, which gh takes from GH_HOST. Only `cd <path> && ` may come before it.
+#   - no repo (the bare number, gh api's {owner}/{repo}): the repository, from GH_REPO and the
+#     directory's remotes. Nothing may come before it, and the payload's cwd (the Bash tool's
+#     directory, not necessarily this hook's) must be in this repository: a worktree of it shares
+#     its remotes and gh's default repo.
+# Either way the reads run here, with the session's environment, which is also the merge's unless the
+# Bash tool's shell adds to it (a profile exporting GH_REPO): that, no hook can see.
+# merge_prefix — what comes before the merge's gh word, blank runs and newlines squeezed to one
+# space, the ends trimmed; `?` when the command runs gh api more than once (which one merges is the
+# reader's to know, not this text match's).
+merge_prefix() {
+  printf '%s' "$cmd" | LC_ALL=C awk -v api="${api_pr:+1}" '
+    { b = b $0 "\n" }
+    END {
+      re = api ? "gh[ \t\n]+api[ \t\n]" : "gh[ \t]+pr[ \t]+merge"
+      if (!match(b, re)) { print "?"; exit }
+      p = substr(b, 1, RSTART - 1); rest = substr(b, RSTART + RLENGTH)
+      if (api && match(rest, re)) { print "?"; exit }
+      gsub(/[ \t\n]+/, " ", p); sub(/^ /, "", p); sub(/ $/, "", p); print p
+    }'
+}
+# common_dir DIR — the physical path of the git directory DIR's worktree shares; empty if none.
+common_dir() {
+  (cd "$1" 2>/dev/null || exit 1
+   g=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$g" ] && cd "$g" 2>/dev/null && pwd -P)
+}
+pin_hint="Name the repo, and run the merge on its own: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
+prefix=$(merge_prefix)
+case "$pr_arg/$gh_repo" in
+  http://* | https://* | */*/*/*) ;;
+  */?*)
+    case "$prefix" in
+      '') ;;
+      *)
+        printf '%s\n' "$prefix" | grep -Eq '^cd [A-Za-z0-9_./~@:+-]+ &&$' \
+          || block "this merge names its repo without a host (-R $gh_repo), so gh takes the host from GH_HOST, which what comes before it ($prefix) can set while this guard reads without it. Run it on its own or after only 'cd <path> && ', or name the host: gh pr merge $pr -R github.com/$gh_repo --squash --delete-branch" ;;
+    esac ;;
+  *)
+    [ -z "$prefix" ] || block "this merge names no repository and does not run on its own (before it: $prefix), so gh may resolve PR #$pr in another repository than the one this guard reads. $pin_hint"
+    pcwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
+    [ -n "$pcwd" ] || block "this merge names no repository, and the hook payload names no cwd, so which repository gh resolves PR #$pr in cannot be checked. $pin_hint"
+    here_git=$(common_dir .); there_git=$(common_dir "$pcwd")
+    [ -n "$there_git" ] && [ "$there_git" = "$here_git" ] \
+      || block "this merge names no repository and runs in $pcwd, which is not a worktree of the repository this guard reads PR #$pr in ($(pwd -P)), so gh may resolve another repository's PR #$pr. $pin_hint" ;;
+esac
 
 # Rule 14 — only an OPEN PR merges (OPS-132). A close is how one session tells another "do not land
 # this", and the lane that opened the PR is not told: #215, closed as a duplicate, landed twelve
@@ -984,7 +1043,10 @@ if [ -n "$rules" ]; then
     (
       GUARD_PR="$pr" GUARD_HEAD="$head_sha" GUARD_BRANCH="$branch" GUARD_BASE="$base9" GUARD_REPO="$this_repo"
       GUARD_COMMAND="$cmd" GUARD_PAYLOAD="$gtmp/payload" ROOT="$ROOT_HOOK"
-      export GUARD_PR GUARD_HEAD GUARD_BRANCH GUARD_BASE GUARD_REPO GUARD_COMMAND GUARD_PAYLOAD ROOT MAIN_BRANCH
+      # How ghpr names the PR, so a rule reads the PR the merge names (#267): the URL or number,
+      # and the merge's -R word (empty for a URL).
+      GUARD_PR_REF="$gh_sel" GUARD_PR_REPO="$gh_repo"
+      export GUARD_PR GUARD_HEAD GUARD_BRANCH GUARD_BASE GUARD_REPO GUARD_COMMAND GUARD_PAYLOAD ROOT MAIN_BRANCH GUARD_PR_REF GUARD_PR_REPO
       # shellcheck disable=SC2046
       with_timeout "${GUARD_RULE_TIMEOUT:-60}" $(shebang_interp "$gf") "$gf" <"$gtmp/payload" >"$gtmp/out" 2>"$gtmp/err"
     )

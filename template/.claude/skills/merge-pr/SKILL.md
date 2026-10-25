@@ -157,6 +157,9 @@ and, if `attribution.enabled` is true, `attribution.trailer` as its last line. T
 ```bash
 gh pr merge <n> --squash --delete-branch --body-file <file>
 ```
+Run it on its own, from a checkout of this repository: with no repo named, anything before it in
+the command (a change of directory, an environment assignment) is refused; elsewhere name the repo
+with -R.
 The guard reads the file; a `--body "$(…)"` it cannot read is refused. If it names a different
 `Session:` value, use the one it names: it is the session the hook sees.
 
