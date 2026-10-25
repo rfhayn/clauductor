@@ -3,6 +3,12 @@
 ## Progress
 - 2026-10-24 proposed (session 12); nothing built yet. The build starts from `main` once the owner
   approves. The roadmap row stays `⬜ queued` until its build PR opens.
+- 2026-10-24 group 1 built (tasks 1.1–1.6), uncommitted for review. Groups 2 onward not started:
+  `CLIHandler` has no production caller until group 2 serves it on the socket.
+- 2026-10-25 group 1 (The close verdict and the socket's route) built and reviewed: converged in 7
+  round(s), peak high (the owner raised the cap to 6, then allowed a narrow 7th; rounds 6–7 on Fable).
+  Two lows left from round 7: the auto-close test's negative path fails by a timeout hang, and the
+  lock-time tmux rule is in the Decision log, not the spec delta.
 
 ## Decision log
 - 2026-10-24: the owner directed all six round-3 findings fixed; finding 2 decided as the reviewer
@@ -17,9 +23,172 @@
   in `tasks.md` alone (tasks 1.6, 2.4, 3.2), `design.md` untouched. Task 1.6 adds one hold with
   new words, "the queues' leases have not been read" or "are not answering": D2's own "a failed
   read keeps more" applied to the lease source, as the stall's `workJudged` already does.
+- 2026-10-24, group 1: the verdict lives in a new `state/closeheld.go` (`fillCloseHeld`,
+  `closeHeld`, `closeWork`, `statusWords`, `View.LaneCloseHeld`), not in `model.go` or
+  `stall.go`. Alternative: add it to `stall.go`, beside `turnWork`. Why: it reads the stall's
+  state but is not part of the stall, and `stall.go` is already long.
+- 2026-10-24, group 1: the poll's start (task 1.4) is `now - dur` from the *uncapped* duration
+  `ApplyAgentsTimed` is given, stored as `Model.agentsPollStart`. `ApplyAgents` without a
+  duration records `start = now`. Alternative: cap `dur` at `agentsPollCap` as the reading's age
+  is capped. Why: an uncapped start is earlier, so it holds longer, never shorter. The apply
+  happens a moment after the poll ends, so the start comes out slightly late; a `/clear` in that
+  moment could still be lifted by the straddling poll. That window is milliseconds.
+- 2026-10-24, group 1: the `Stop` the verdict reads is a separate `session.closeStop`, merged
+  into as `keepStop` merges into the stall's copy, and set by `restoreKeep` when it is not older.
+  It survives `s.end` and every `stallPolled` clear, and goes only with a newer `Stop` or with the
+  session. A subagent's end is paired at read time, against `s.stall.stops` and `t.ended`.
+  Alternative: stop `s.end` from dropping the stall's saved `Stop`. Why: the task says the stall's
+  own reading stays unchanged; a separate copy keeps more and leaves the stall alone.
+- 2026-10-24, group 1: words D2 does not fix: a lease holds as "it holds or waits for the <queue
+  id> lease", naming the first queue in config order; background work is named by each task's
+  description, or "a <type>" without one, joined "; ". `sessionWorking` remains a last fallback
+  ("claude is working") after `closeWork`. A lane missing from a fresh view is held as "the panel
+  no longer lists lane <id>". Alternative: name every lease, or leave the fallback out. Why: one
+  name is enough to say why; the fallback costs nothing and keeps more.
+- 2026-10-24, group 1: `CloseIf` asks `held` after `closeTarget` and its 404, before
+  `stopAndForgetLocked`, and refuses with 409 `held`, "lane <id> is not closed: <why>". The hub's
+  lock is taken while the lane lock is held. Alternative: ask `held` before taking the lane lock.
+  Why: task 1.2 wants the check made under the lock. No path takes the lane lock while holding
+  the hub's (the hub's closures only touch the model), so the order cannot deadlock.
+- 2026-10-24, group 1: the socket route's answers: unmerged and unknown-branch refusals are 409
+  code `not-merged`; a request cancelled before the close is 503 code `cancelled`, "the request
+  was cancelled before the close began; nothing changed"; an unknown lane is 404 `not-found`,
+  naming each lane as `id (branch)`, `id (no branch)` when the view has none. Writes to `out`
+  share one mutex, and an empty removed or kept list reads "nothing". Alternative: 400 or 410 for
+  the cancellation. Why: 503 says the server did not act, which is the truth here, and the
+  command reads the code, not the status.
+- 2026-10-24, group 1: in `cli_test.go` the manager finds no tmux server, so a close forgets a
+  registered lane; whether claude runs is the hub's view, set directly. "No stop" is asserted as
+  the registry record untouched (a stop starts by marking it `stop`) plus no `git worktree remove`
+  and no `git update-ref`. Alternative: emulate a live tmux session through `Exec`. Why: the
+  handler decides from the view; emulating send-keys, `claude agents` and the wait for death
+  would test the manager's stop, which its own tests already cover.
+- 2026-10-24, group 1: `TestCloseIfAsksHeldUnderTheLock` sleeps `testwait.Scale(100ms)` while
+  the plan holds the lock, and only so the mutant (held asked before the lock) loses the race. The
+  correct code passes deterministically.
+- 2026-10-24, group 1, review round 1: the socket route's `held` also repeats the
+  merged-or-exited rule on the fresh view, sharing `unmergedLive` with the check made before the
+  plan. A lane that read exited when asked and runs again by the time the lock is held is refused
+  with the not-merged words, but under `CloseIf`'s code `held`, not `not-merged`. Alternative: a
+  second callback, or a code `CloseIf` takes as a parameter. Why: the words are what the owner
+  reads; the code changes only which of two refusals the command reports, and both exit 1.
+- 2026-10-24, group 1, review round 1: a lane whose own session has `HookStatus` busy or waiting
+  from a hook heard after the current reading's poll *began* (`agentsPollStart`) is held as
+  "claude is working" or "claude is waiting on you", after the reading check and before the
+  background work. Alternative: compare with the apply time `agentsOKAt`. Why: the poll can read
+  the session before a hook that arrives during it, so the start holds in that case and the
+  apply time would release. `TestCloseHeldByAHookSinceTheReading` fails with `agentsOKAt`. A
+  `PreToolUse` sets no status: it holds only while the turn's prompt left `HookStatus` busy.
+- 2026-10-24, group 1, review round 1: citations corrected to the scenario whose GIVEN each
+  test sets up: the plan's merged answer, and the CLI's exit re-read, cite LANECLOSE-2-S4;
+  `CloseIf`'s held and the CLI's verdict re-read cite 2-S1; one session only cites 2-S3.
+  `TestCLICloseCancelledBeforeItBegins` keeps LANECLOSE-4-S1, as task 1.5 directs. It is
+  4-S1's other side: a close not yet begun when the request goes changes nothing.
+- 2026-10-24, group 1, review round 2: two more holds, after the hook-since-the-reading rule and
+  before the background work. One is a turn whose `Stop` was not heard (`stall.unreported`):
+  `CloseUnheardWords`. The other is a kept `Stop` that is `!reported()` (no `background_tasks`):
+  `CloseNotReportedWords`. Each says "what it left running is not known". The alternative was
+  closeWork alone, which reads a missing list as an empty one. That breaks D2's "a failed read
+  keeps more", and the stall's `lastWaitedOn` already treats both marks as not known. A session
+  with no `Stop` heard at all (no kept stop, not unreported) is still not held by these two.
+  Task 1.6's reading does not ask for that.
+- 2026-10-24, group 1, review round 2: auto-close's lock re-read is tested in the panel package
+  on a hand-built `Runtime` (`autoclose_test.go`): a stub `LaneManager` whose `git fetch`
+  changes the hub, and no tmux. The alternative was the integration harness, which runs a real
+  panel and tmux and has no hook into the plan's middle. The test fails with `held` nil and with
+  `Close`.
+- 2026-10-25, owner: D2's background work includes the last Stop's session_crons and wakeups (STALL-1's wakeupDue)
+- 2026-10-25, group 1, review round 3: the wakeup hold reads the verdict's kept `Stop` with
+  `cronsDue`, the rule `wakeupDue` now calls. It comes after the tasks, worded "its turn ended with
+  a wakeup scheduled (a cron or a one-shot still due)". Alternative: call `wakeupDue`. Why: that
+  reads only the stall's copy, which `s.end` drops; the verdict's copy outlives it (task 1.4).
+- 2026-10-25, group 1, review round 3: a restart is seen by the verdict on its own record of the
+  process (`closePID`, `closeStarted`, kept past `s.end`). Alternative: `stallListed`'s `was`
+  check. Why: `was` is nil after `s.end`, the usual restart path, so it never compares the two
+  processes. A listing naming another process sets `closeSince` to the new start, or to now when
+  the start is not listed. It drops a close `Stop` heard before `closeSince`. An unheard turn
+  holds only while its prompt (`promptAt`) is not before `closeSince`. The stall's
+  `s.stall.unreported` is left as the stall keeps it. Alternative: clear it. Why: task 1.4 keeps
+  the stall's own reading unchanged.
+- 2026-10-25, group 1, review round 3: "no turn since the panel started" holds when there is no
+  kept `Stop` and the process may have run before the panel. When its listed start is known, it
+  decides: a start before `m.startedAt` holds, a later one does not, even at the first poll. With
+  no start listed, being listed at the first poll holds. Alternative: either sign alone holds.
+  Why: a known start is exact, and a claude started between the panel's start and its first poll
+  had every turn heard. Fixtures whose claude starts after the panel (`closeRig`, `newCLIRig`)
+  now begin with an empty first poll.
+- 2026-10-25, group 1, review round 3: `leases(now, registered)`. The verdict binds a registered
+  lane's id whether or not its tmux session runs; the stall's two callers pass false and are
+  unchanged. `ApplyAgentsTimed` takes the iteration's start (`iterStart`); a zero start falls back
+  to now less the duration. Auto-close words a refusal under the lock with the verdict's own
+  words, with no "Close failed:" prefix. The unknown-id refusal uses design.md's words, and
+  "this project has no lanes" when the project has none.
+- 2026-10-25, group 1, review round 4: this replaces round 3's "or to now when the start is not
+  listed". A listing naming another process drops what came before only when the new start is
+  listed. Then `closeSince` is that start, and a close `Stop` or own prompt from before it no
+  longer holds. With no start listed, nothing is dropped and `closeSince` stays as it was. The
+  kept `Stop` and prompt are read as the new process's: they can only hold more, and only until
+  its next `Stop` replaces them. Alternative: a "start not known" verdict that holds until a
+  `Stop` heard after the listing. Why: keeping is the same rule as "cannot tell another process"
+  (a PID or start of 0), needs no new field or words, and never releases. The cost is that the
+  old process's work holds the lane until the new one ends a turn. Cases checked:
+  - a new PID with a known start (before or after the panel, chained after an unknown one);
+  - a new PID with no start;
+  - the same PID, or a PID of 0;
+  - a `Stop` or prompt before or after the listing;
+  - a session that ended, then was re-listed;
+  - the first listing ever.
+  `TestCloseHeldByARestartsTurnBeforeItsListing` runs the failing sequence in two shapes:
+  restarted between two polls, and re-listed after a poll without it. The stall's `end` drops its
+  copy only in the first shape, because `was` is nil after a poll without it.
+- 2026-10-25, group 1, review round 4: a close's re-check under the lane lock reads one lane, not
+  a whole `Snapshot`. It uses `Model.LaneView` and `LaneCloseHeld` through `Hub.Lane` and
+  `Hub.LaneCloseHeld`. `View.LaneCloseHeld` is removed. The verdict reads the leases over the lane
+  views it already built (`leasesIn`). `leases(now, registered)` stays as the stall's entry point.
+  Alternative: keep `Hub.View()`. Why: the re-check runs under the lane lock and the hub's lock,
+  and needs only the lanes and the leases. `session.promptAt` is now `ownPromptAt`, commented
+  against `LastPromptAt`, which also takes a teammate's prompt.
+- 2026-10-25, group 1, review round 5: a kept `Stop` from before this panel started is no turn
+  heard. A Stop restored from stall.json by `ApplyStallState` and `restoreKeep` counts as no
+  `Stop`. "No turn of it has ended since the panel started" holds while the process may have run
+  before the panel: `(st == nil || st.at.Before(m.startedAt)) && liveBeforePanel`. The hold is
+  needed because a whole turn taken while the panel was down leaves no prompt and no unheard
+  mark. Alternative: trust the restored Stop's lists. Why: they would release a lane whose lost
+  turn started a shell. The other readers of the kept Stop were checked:
+  - The not-reported hold comes first and only holds.
+  - `closeWork` and `cronsDue` come after this hold. There, a pre-panel Stop can only be read
+    for a process that started after the panel, and this panel heard all of that process's
+    turns.
+- 2026-10-25, group 1, review round 6: a close never acts on a stale exit. `CloseIf` gives held
+  what tmux says of the lane under the lane lock, as a `types.LiveLane{Read, Running, Dead}` from
+  the `list-panes` its `closeTarget` already runs. `state.Model.LaneView`, and through it
+  `LaneCloseHeld`, `Hub.Lane`, the CLI's held and auto-close's held, may only add a hold from it:
+  - tmux not answering holds (`CloseTmuxUnreadWords`);
+  - a claude tmux shows running, that the last tmux poll showed exited (`Dead`) or gone (not
+    `Running`), holds (`CloseRunsAgainWords`): a Restart or a Resume that ran under the lock
+    first. The panel's readings are of the process before.
+  - Otherwise the view's verdict and its `Dead` stand. A claude that tmux shows exited or gone
+    runs nothing a close could stop, so a stale "running" reading only holds more, and the next
+    poll decides.
+  Cases, the same for auto-close and the CLI. The view's facts are running, dead or gone; tmux
+  now is running, dead, gone or not answering:
+  - tmux not answering: held, whatever the view shows.
+  - view dead or gone, tmux running: held (the finding's failure).
+  - view running, tmux running: the view's verdict.
+  - tmux dead or gone: the view's verdict. It can only hold more than tmux would, and it reads
+    no claude that still runs.
+  `unmergedLive` keeps reading the view's `Dead`. The one stale exit that would waive the merged
+  rule (view dead, tmux running) is held before it.
+  Alternative: replace the view's `Running` and `Dead` with tmux's. Why not: design.md D2 says
+  "a lane whose tmux session is gone is not exempt", so a view-dead lane that tmux shows gone
+  would turn from exempt to refused. That breaks
+  `TestCLICloseRefusesUnmergedUnlessExited`'s exited close, which the round's prompt keeps
+  unchanged. Replacing also adds nothing to safety.
+  Not covered: a Restart of a lane that was running in both readings. tmux carries no pane PID,
+  so the respawn cannot be seen. That is not an exit, and the new claude has run no turn.
 
 ## 1. The close verdict and the socket's route (D2, D4)
-- [ ] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
+- [x] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
   (empty when the lane's work has ended, otherwise why not), filled by `TerminalViews` in a second
   pass from one `m.leases` call once the views are built; the first pass becomes an unexported
   builder that `leaseBinder` calls in place of `TerminalViews`, so the two do not recurse, and
@@ -57,7 +226,7 @@
   at rest while another session
   in the same worktree is working, not held. `TestAutoCloseOnMerge` and the stall tests pass
   unchanged. Citing [LANECLOSE-2-S1], [LANECLOSE-2-S3].
-- [ ] 1.2 `framework/internal/panel/lanes/close.go`: `ClosePlan.Merged` and `ClosePlan.Unmerged`,
+- [x] 1.2 `framework/internal/panel/lanes/close.go`: `ClosePlan.Merged` and `ClosePlan.Unmerged`,
   `branchVerdict`'s `ok` and `why`, set whenever the plan has a branch, even when the worktree
   stays. Tested in `framework/internal/panel/lanes/close_test.go`: a plan for a lane on a merged
   branch carries the `ok` reason and no `Unmerged`, one on an unmerged branch the `why` and no
@@ -70,7 +239,7 @@
   held the lock (a runner stub that blocks under `m.mu`, then the answer flipped before it is
   released) refuses; a nil `held` closes as `Close` did. Citing [LANECLOSE-2-S1],
   [LANECLOSE-2-S4].
-- [ ] 1.3 `framework/internal/panel/web/cli.go` (new): `(*Server).CLIHandler(ctx context.Context,
+- [x] 1.3 `framework/internal/panel/web/cli.go` (new): `(*Server).CLIHandler(ctx context.Context,
   out io.Writer) http.Handler`, a mux of its own serving only `POST
   /api/p/{project}/lanes/{id}/close` through `withProject` and `decodeStrict`, with no cookie and
   no `Origin` check (D1: the socket's mode is the credential). Before the manager is asked: a lane
@@ -98,7 +267,7 @@
   runner recording no stop and no removal; a close whose request context is cancelled before `Close` returns
   still reaches the manager under a live context. Citing [LANECLOSE-3-S1], [LANECLOSE-2-S1],
   [LANECLOSE-2-S3], [LANECLOSE-2-S4], [LANECLOSE-1-S4], [LANECLOSE-4-S1].
-- [ ] 1.4 Review round 3's two verdict findings (the owner's decision of 2026-10-24), in
+- [x] 1.4 Review round 3's two verdict findings (the owner's decision of 2026-10-24), in
   `state/model.go` and `state/stall.go`. **A poll that straddles a `/clear`:** an ended session's
   hold lifts only on a reading whose poll *started* after `endedAt`, not one merely applied after
   it. `m.agentsOKAt` is the apply time (`model.go:703`), so `ApplyAgentsTimed` also stores the
@@ -115,13 +284,13 @@
   listed `idle` again, is held naming the subagent, and released once a later `Stop` lists none;
   the stall tests pass unchanged. Confirm each test fails with the change reverted. Citing
   [LANECLOSE-2-S1], [LANECLOSE-2-S3].
-- [ ] 1.5 Review round 3's test finding: task 1.3's cancel test must fail without the check. Its
+- [x] 1.5 Review round 3's test finding: task 1.3's cancel test must fail without the check. Its
   runner stub cancels the request's context on the last plan call **and still returns the plan's
   normal output**, so the plan stays merged and the unmerged refusal cannot answer in its place;
   the test asserts the cancellation's answer (not a 409 naming the branch), and no stop and no
   removal. Run it once with the `r.Context()` check removed and see it fail. Citing
   [LANECLOSE-4-S1].
-- [ ] 1.6 merge-pr's review of the approved proposal (2026-10-24). **An unread lease source holds
+- [x] 1.6 merge-pr's review of the approved proposal (2026-10-24). **An unread lease source holds
   every lane**, by D2's "a failed read keeps more": `m.leases` reads `m.v2.queues`, empty until
   the first good read and kept stale by `ApplyQueues` on an error (`model.go:1709-1716`), so while
   `len(m.cfg.Queues) > 0` and either `!m.stall.queuesRead` or `!m.v2.queuesSrc.OK`, `CloseHeld`

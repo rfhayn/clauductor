@@ -9,13 +9,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // closeRepo is a project whose lanes are orphans (registry records, no tmux server):
@@ -30,6 +33,8 @@ type closeRepo struct {
 	agents string
 	// hooks are the setup and teardown argvs run (through /usr/bin/env).
 	hooks [][]string
+	// onRun, if set, sees each command before it runs (and may block it).
+	onRun func(argv []string)
 }
 
 func newCloseRepo(t *testing.T) *closeRepo {
@@ -69,6 +74,9 @@ func newCloseRepo(t *testing.T) *closeRepo {
 }
 
 func (r *closeRepo) run(ctx context.Context, dir string, argv []string) ([]byte, error) {
+	if r.onRun != nil {
+		r.onRun(argv)
+	}
 	switch argv[0] {
 	case "git":
 		return signals.ExecRunner(ctx, dir, argv)
@@ -354,5 +362,187 @@ func TestCloseTeardownGetsTheLanePort(t *testing.T) {
 	want := []string{"/usr/bin/env", "CLAUDUCTOR_LANE=ported", "CLAUDUCTOR_PORT=4730", "true"}
 	if strings.Join(r.hooks[0], " ") != strings.Join(want, " ") {
 		t.Fatalf("teardown argv %q, want %q", r.hooks[0], want)
+	}
+}
+
+// [LANECLOSE-2-S4] PANEL-57: the plan carries branchVerdict's answer whether or not the
+// worktree may go, so the command can refuse a live lane on an unmerged branch.
+func TestClosePlanSaysWhetherTheBranchIsMerged(t *testing.T) {
+	t.Parallel()
+	r := newCloseRepo(t)
+	merged := r.lane("merged", "fix/merged", filepath.Join(r.root, ".wt", "merged"))
+	r.commit(merged, "m.txt")
+	r.git(r.root, "merge", "-q", "--no-ff", "-m", "merge", "fix/merged")
+	open := r.lane("open", "fix/open", filepath.Join(r.root, ".wt", "open"))
+	r.commit(open, "o.txt")
+	dirty := r.lane("dirty", "fix/dirty", filepath.Join(r.root, ".wt", "dirty"))
+	r.commit(dirty, "d.txt")
+	r.git(r.root, "merge", "-q", "--no-ff", "-m", "merge", "fix/dirty")
+	if err := os.WriteFile(filepath.Join(dirty, "unsaved.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := func(id string) ClosePlan {
+		t.Helper()
+		p, lerr := r.m.ClosePlan(context.Background(), id)
+		if lerr != nil {
+			t.Fatalf("plan %s: %v", id, lerr)
+		}
+		return p
+	}
+	if p := plan("merged"); p.Merged != "every commit of it is in main" || p.Unmerged != "" || !p.DeleteBranch {
+		t.Errorf("merged: plan %+v", p)
+	}
+	if p := plan("open"); p.Merged != "" || !strings.Contains(p.Unmerged, "not merged into main and has no merged pull request") || p.DeleteBranch {
+		t.Errorf("open: plan %+v", p)
+	}
+	// The worktree stays (untracked work), and the plan still says the branch merged.
+	if p := plan("dirty"); p.Worktree || p.DeleteBranch || p.Merged != "every commit of it is in main" || p.Unmerged != "" || !has(p.Keep, "fix/dirty: its worktree stays") {
+		t.Errorf("dirty: plan %+v", p)
+	}
+}
+
+// heldRepo is a closeRepo whose tmux calls are counted.
+func heldRepo(t *testing.T) (*closeRepo, *atomic.Int64) {
+	t.Helper()
+	r := newCloseRepo(t)
+	var calls atomic.Int64
+	inner := r.m.Exec
+	r.m.Exec = func(ctx context.Context, argv []string) ([]byte, error) {
+		calls.Add(1)
+		return inner(ctx, argv)
+	}
+	return r, &calls
+}
+
+// [LANECLOSE-2-S1] A held answer refuses the close with nothing changed: the registry
+// record, the worktree and the branch stay, and nothing runs after held answers.
+func TestCloseIfHeldChangesNothing(t *testing.T) {
+	t.Parallel()
+	r, calls := heldRepo(t)
+	wt := r.lane("busy", "fix/busy", filepath.Join(r.root, ".wt", "busy"))
+	r.git(r.root, "merge", "-q", "--no-ff", "-m", "merge", "fix/busy")
+	var after int64 = -1
+	held := func(types.LiveLane) string {
+		after = calls.Load()
+		return "claude is working"
+	}
+	_, lerr := r.m.CloseIf(context.Background(), "busy", CloseRequest{Worktree: true, Branch: true}, held)
+	if lerr == nil || lerr.Status != 409 || lerr.Code != "held" || !strings.Contains(lerr.Msg, "claude is working") {
+		t.Fatalf("CloseIf: %+v, want 409 held naming the words", lerr)
+	}
+	if after < 0 || calls.Load() != after {
+		t.Errorf("tmux calls after held answered: %d, at its answer %d", calls.Load(), after)
+	}
+	if _, ok := r.m.Registry.Get("busy"); !ok || !exists(wt) || !r.branchExists("fix/busy") {
+		t.Errorf("a refused close removed something: record %v, worktree %v, branch %v", ok, exists(wt), r.branchExists("fix/busy"))
+	}
+	// A nil held closes as Close does.
+	if res, lerr := r.m.CloseIf(context.Background(), "busy", CloseRequest{Worktree: true, Branch: true}, nil); lerr != nil || exists(wt) || r.branchExists("fix/busy") {
+		t.Fatalf("nil held: %+v %v", res, lerr)
+	}
+}
+
+// The close never acts on a stale exit (PANEL-57 D2, review round 6). held is the panel's own
+// verdict (state.Model.LaneCloseHeld) over a model whose last tmux poll showed the lane's
+// claude exited, or its session gone. When tmux, read under the lock, shows it running
+// (a Restart or a Resume that held the lock first) or does not answer, the close is
+// refused and the record kept; when tmux agrees it exited, the close goes ahead.
+func TestCloseIfTakesTheExitFromTmuxNow(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		polled []types.TmuxLane // the view's last tmux poll (lane x's path is filled in)
+		tmux   string           // list-panes now: "alive", "dead", or "fails"
+		want   string           // the refusal's words; "" closes
+	}{
+		{"exited, then restarted", []types.TmuxLane{{ID: "x", Dead: true}}, "alive", state.CloseRunsAgainWords},
+		{"gone, then resumed", nil, "alive", state.CloseRunsAgainWords},
+		{"exited, tmux not answering", []types.TmuxLane{{ID: "x", Dead: true}}, "fails", state.CloseTmuxUnreadWords},
+		{"exited, and still exited", []types.TmuxLane{{ID: "x", Dead: true}}, "dead", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newCloseRepo(t)
+			wt := r.lane("x", "fix/x", filepath.Join(r.root, ".wt", "x"))
+			r.git(r.root, "merge", "-q", "--no-ff", "-m", "merge", "fix/x")
+			r.m.Exec = func(_ context.Context, argv []string) ([]byte, error) {
+				if !strings.Contains(strings.Join(argv, " "), " list-panes ") {
+					return nil, nil // kill-session and the rest of a close
+				}
+				switch c.tmux {
+				case "alive":
+					return []byte("x\t" + wt + "\t" + wt + "\t0\t\t1\t0\tfix\n"), nil
+				case "dead":
+					return []byte("x\t" + wt + "\t" + wt + "\t1\t0\t1\t0\tfix\n"), nil
+				}
+				return nil, errors.New("tmux: lost server")
+			}
+			now := time.Now()
+			m := state.NewModel(r.m.Cfg, r.root, now)
+			polled := append([]types.TmuxLane(nil), c.polled...)
+			for i := range polled {
+				polled[i].Path = wt
+			}
+			m.ApplyTmux(polled, r.m.Registry.List(), "", nil, now)
+			if got := m.LaneCloseHeld("x", now, nil); got != "" {
+				t.Fatalf("the view's verdict %q: the case needs one that releases", got)
+			}
+			held := func(live types.LiveLane) string { return m.LaneCloseHeld("x", now, &live) }
+			_, lerr := r.m.CloseIf(context.Background(), "x", CloseRequest{Worktree: true, Branch: true}, held)
+			_, kept := r.m.Registry.Get("x")
+			if c.want == "" {
+				if lerr != nil || kept {
+					t.Fatalf("tmux agrees it exited: %+v, record kept %v; want closed", lerr, kept)
+				}
+				return
+			}
+			if lerr == nil || lerr.Status != 409 || lerr.Code != "held" || !strings.Contains(lerr.Msg, c.want) {
+				t.Fatalf("CloseIf: %+v, want 409 held naming %q", lerr, c.want)
+			}
+			if !kept || !exists(wt) || !r.branchExists("fix/x") {
+				t.Errorf("a refused close removed something: record %v, worktree %v, branch %v", kept, exists(wt), r.branchExists("fix/x"))
+			}
+		})
+	}
+}
+
+// [LANECLOSE-2-S1] held is asked under the lane lock: a change made while another call
+// held the lock (here a plan, blocked in gh) is seen, and the close refused.
+func TestCloseIfAsksHeldUnderTheLock(t *testing.T) {
+	t.Parallel()
+	r, _ := heldRepo(t)
+	wt := r.lane("x", "fix/x", filepath.Join(r.root, ".wt", "x"))
+	r.commit(wt, "x.txt") // not merged, so the plan asks gh, under m.mu
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	r.onRun = func(argv []string) {
+		if argv[0] == "gh" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}
+	planned := make(chan struct{})
+	go func() {
+		defer close(planned)
+		r.m.ClosePlan(context.Background(), "x") // blocks in gh under m.mu
+	}()
+	<-entered
+	var words atomic.Value
+	words.Store("") // the view was clear when the caller checked
+	closed := make(chan *LaneError, 1)
+	go func() {
+		_, lerr := r.m.CloseIf(context.Background(), "x", CloseRequest{Worktree: true, Branch: true}, func(types.LiveLane) string { return words.Load().(string) })
+		closed <- lerr
+	}()
+	// Give the close time to reach the lock: a held asked before it would answer "".
+	time.Sleep(testwait.Scale(100 * time.Millisecond))
+	words.Store("claude is working")
+	close(release)
+	<-planned
+	lerr := <-closed
+	if lerr == nil || lerr.Code != "held" {
+		t.Fatalf("CloseIf: %+v, want held", lerr)
+	}
+	if _, ok := r.m.Registry.Get("x"); !ok || !exists(wt) || !r.branchExists("fix/x") {
+		t.Errorf("a refused close removed something")
 	}
 }

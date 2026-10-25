@@ -48,6 +48,12 @@ type ClosePlan struct {
 	Remove       []string `json:"remove"`
 	Keep         []string `json:"keep"`
 	Notes        []string `json:"notes,omitempty"`
+	// Merged and Unmerged are branchVerdict's answer for the plan's branch, whether or
+	// not the worktree may go (PANEL-57: the command closes a live lane only on a
+	// merged branch): why it may be deleted, or why it must stay. Both "" without a
+	// branch.
+	Merged   string `json:"merged,omitempty"`
+	Unmerged string `json:"unmerged,omitempty"`
 }
 
 // CloseRequest is the body of POST …/lanes/{id}/close. DryRun asks for the plan
@@ -66,17 +72,25 @@ type CloseResult struct {
 	Kept    []string `json:"kept"`
 }
 
-// closeTarget is the lane's directory and whether it can be trusted as one.
-func (m *LaneManager) closeTarget(ctx context.Context, id string) (path string, rec types.LaneRecord, registered, running bool) {
+// closeTarget is the lane's directory and whether it can be trusted as one, and what
+// tmux says of it now (live.Running is the lane's session running).
+func (m *LaneManager) closeTarget(ctx context.Context, id string) (path string, rec types.LaneRecord, registered bool, live types.LiveLane) {
 	rec, registered = m.Registry.Get(id)
-	lane, running := m.find(ctx, id)
+	lanes, err := m.List(ctx)
+	live.Read = err == nil
+	var lane types.TmuxLane
+	for _, l := range lanes {
+		if l.ID == id {
+			lane, live.Running, live.Dead = l, true, l.Dead
+		}
+	}
 	switch {
 	case registered && rec.Corrupt == "":
 		path = rec.Path
-	case !registered && running:
+	case !registered && live.Running:
 		path = lane.Path
 	}
-	return path, rec, registered, running
+	return path, rec, registered, live
 }
 
 // worktreeVerdict says why the worktree at path must stay, or "" when `git worktree
@@ -272,7 +286,8 @@ func (m *LaneManager) branchVerdict(ctx context.Context, branch string) (head, o
 
 // planLocked is the plan from the state now. Its lines are the confirmation's.
 func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *LaneError) {
-	path, rec, registered, running := m.closeTarget(ctx, id)
+	path, rec, registered, live := m.closeTarget(ctx, id)
+	running := live.Running
 	if !registered && !running {
 		return ClosePlan{}, laneErr(404, "not-found", "no lane %q", id)
 	}
@@ -301,6 +316,9 @@ func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *La
 			p.Notes = append(p.Notes, fmt.Sprintf("worktree_teardown (%s) runs in it first; if it fails or leaves files, the worktree stays", strings.Join(h.Command, " ")))
 		}
 	}
+	if w.Branch != "" {
+		_, p.Merged, p.Unmerged = m.branchVerdict(ctx, w.Branch)
+	}
 	switch {
 	case w.Branch == "":
 		if held != "" {
@@ -308,13 +326,11 @@ func (m *LaneManager) planLocked(ctx context.Context, id string) (ClosePlan, *La
 		}
 	case !p.Worktree:
 		p.Keep = append(p.Keep, "the branch "+w.Branch+": its worktree stays")
+	case p.Merged != "":
+		p.DeleteBranch = true
+		p.Remove = append(p.Remove, "the local branch "+w.Branch+": "+p.Merged)
 	default:
-		if _, ok, why := m.branchVerdict(ctx, w.Branch); ok != "" {
-			p.DeleteBranch = true
-			p.Remove = append(p.Remove, "the local branch "+w.Branch+": "+ok)
-		} else {
-			p.Keep = append(p.Keep, "the local branch "+w.Branch+": "+why)
-		}
+		p.Keep = append(p.Keep, "the local branch "+w.Branch+": "+p.Unmerged)
 	}
 	if registered && rec.SessionID != "" {
 		p.Keep = append(p.Keep, "the conversation (claude --resume "+rec.SessionID+" still opens it)")
@@ -339,9 +355,9 @@ func (m *LaneManager) ClosePlan(ctx context.Context, id string) (ClosePlan, *Lan
 		return ClosePlan{}, laneErr(400, "invalid", "invalid lane id")
 	}
 	m.mu.Lock()
-	_, _, registered, running := m.closeTarget(ctx, id)
+	_, _, registered, live := m.closeTarget(ctx, id)
 	m.mu.Unlock()
-	if !registered && !running {
+	if !registered && !live.Running {
 		return ClosePlan{}, laneErr(404, "not-found", "no lane %q", id)
 	}
 	// Outside the lane lock: a slow remote must not hold up every other lane.
@@ -362,15 +378,32 @@ func (m *LaneManager) ClosePlan(ctx context.Context, id string) (ClosePlan, *Lan
 // check both allow. A worktree or branch that stays is reported with why; the lane is
 // stopped either way.
 func (m *LaneManager) Close(ctx context.Context, id string, consent CloseRequest) (CloseResult, *LaneError) {
+	return m.CloseIf(ctx, id, consent, nil)
+}
+
+// CloseIf is Close, refused 409 ("held") with nothing changed when held, asked once
+// the lane lock is held and before the lane is stopped, answers why not (PANEL-57
+// D2). A caller's check made before the lock can be minutes old by then (a plan, and
+// another lane's setup or teardown ahead in the lock): this one is not. held gets
+// what tmux says of the lane now, the reading the close acts on: the panel's last
+// tmux poll may predate a Restart or a Resume that held the lock just before, so an
+// exit or a gone session it shows is not one. A nil held is Close.
+func (m *LaneManager) CloseIf(ctx context.Context, id string, consent CloseRequest, held func(types.LiveLane) string) (CloseResult, *LaneError) {
 	res := CloseResult{ID: id, Removed: []string{}, Kept: []string{}}
 	if !config.ValidLaneID(id) {
 		return res, laneErr(400, "invalid", "invalid lane id")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	path, rec, registered, running := m.closeTarget(ctx, id)
+	path, rec, registered, live := m.closeTarget(ctx, id)
+	running := live.Running
 	if !registered && !running {
 		return res, laneErr(404, "not-found", "no lane %q", id)
+	}
+	if held != nil {
+		if why := held(live); why != "" {
+			return res, laneErr(409, "held", "lane %s is not closed: %s", id, why)
+		}
 	}
 	// The teardown's environment is read now: stopAndForgetLocked deletes the lane's
 	// record, and with it the port the teardown is documented to get.
