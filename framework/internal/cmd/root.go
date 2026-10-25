@@ -17,6 +17,11 @@ var rootCmd = &cobra.Command{
 	Long: `Clauductor installs an operating model into a repository (skills, hooks, checks,
 agents and docs), keeps it current, and runs the panel: one local page for the
 lanes of every project.`,
+	// Main prints a command's error; cobra printing it too showed every error twice (#251).
+	SilenceErrors: true,
+	// Set once flags and arguments have passed, so only a mistyped command line prints usage,
+	// never a command's own failure. A subcommand's PersistentPreRun would replace this one.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) { cmd.SilenceUsage = true },
 }
 
 func Execute() error {

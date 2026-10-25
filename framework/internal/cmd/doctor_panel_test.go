@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,8 +118,48 @@ func TestDoctorNoPanelInstalledIsANoteWithTheInstallThatWorks(t *testing.T) {
 	}
 	needNoProblem(t, out)
 
-	// The printed fix is what AddProject does with the project: it registers it.
-	registerProject(t, home, dir)
+	// The printed fix installs the panel: panel install --project's own path, launchd stood in.
+	panelInstallWith(t, dir)
+	reg, err := config.LoadProjects(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := reg.DefaultEntry(); d == nil || d.Root != dir {
+		t.Errorf("panel install --project %s did not make it the default project: %+v", dir, d)
+	}
+	if _, err := os.Stat(install.PlistPath(home)); err != nil {
+		t.Errorf("panel install --project wrote no login agent: %v", err)
+	}
+}
+
+// panelInstallWith runs `clauductor panel install --project dir --remote-control off` in the
+// test's HOME, with launchctl, plutil and osacompile stood in: nothing reaches launchd.
+func panelInstallWith(t *testing.T, dir string) {
+	t.Helper()
+	oldExec, oldProject, oldRemote, oldPort := panelInstallExec, installProject, installRemote, installPort
+	t.Cleanup(func() {
+		panelInstallExec, installProject, installRemote, installPort = oldExec, oldProject, oldRemote, oldPort
+		panelInstallCmd.SetOut(nil)
+	})
+	bootstrapped := false
+	panelInstallExec = func(argv ...string) ([]byte, error) {
+		switch {
+		case len(argv) > 1 && argv[1] == "bootout":
+			return nil, errors.New("exit status 3") // not loaded: the first install
+		case len(argv) > 1 && argv[1] == "bootstrap":
+			bootstrapped = true
+		}
+		return nil, nil
+	}
+	installProject, installRemote, installPort = dir, install.RemoteOff, 4393
+	var out bytes.Buffer
+	panelInstallCmd.SetOut(&out)
+	if err := panelInstallCmd.RunE(panelInstallCmd, nil); err != nil {
+		t.Fatalf("panel install --project %s: %v\n%s", dir, err, out.String())
+	}
+	if !bootstrapped {
+		t.Fatal("panel install did not load the agent through the stand-in")
+	}
 }
 
 // [DOCTOR-1-S7] A panel.json that does not load gets the refusal and no install fix: the command
@@ -183,6 +225,8 @@ func TestDoctorLoginAgentWithNoPanelWarns(t *testing.T) {
 	needExact(t, out, "fix: launchctl kickstart -k gui/$(id -u)/"+install.LaunchdLabel)
 }
 
+// [DOCTOR-1-S5] With no login agent, a registered project and no panel, the running line is a
+// note, and panel install is its fix only while the registry's default config loads.
 func TestDoctorRegisteredProjectWithNoLoginAgentIsANote(t *testing.T) {
 	home := panelHome(t)
 	dir := projectWithConfig(t, "Fine", "")

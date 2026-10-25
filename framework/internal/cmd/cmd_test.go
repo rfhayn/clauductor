@@ -35,11 +35,7 @@ func TestMain(m *testing.M) {
 				return &panel.RestartError{Code: panel.ExitRestart, From: strings.Repeat("a", 40), To: strings.Repeat("b", 40)}
 			}
 		}
-		if err := Execute(); err != nil { // as main does
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(Main(os.Stderr)) // as main does
 	}
 	os.Exit(leakcheck.Main(m)) // fails the run if a helper process outlives it
 }
@@ -276,4 +272,31 @@ func TestPanelHousekeepingCommands(t *testing.T) {
 // reports, and a helper's stderr is its test's to read, not a report's.
 func quickExit() string {
 	return "GORACE=" + strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0")
+}
+
+// A failing command prints its error once (#251): Main prints it, and cobra does not print it
+// first. A command's own failure prints no usage; a mistyped flag still does.
+func TestFailingCommandPrintsItsErrorOnce(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	for _, c := range []struct {
+		name  string
+		args  []string
+		usage bool
+	}{
+		{"a command's refusal", []string{"install"}, false},
+		{"an unknown flag", []string{"install", "--bogus"}, true},
+		{"an unknown command", []string{"nope"}, false},
+	} {
+		r := cliIn(t, t.TempDir(), home, c.args...)
+		if r.code != 1 {
+			t.Errorf("%s: exit %d, want 1\n%s", c.name, r.code, r.stderr)
+		}
+		if n := strings.Count(r.stderr, "Error: "); n != 1 {
+			t.Errorf("%s: %d Error: lines, want 1:\n%s", c.name, n, r.stderr)
+		}
+		if got := strings.Contains(r.stderr, "Usage:"); got != c.usage {
+			t.Errorf("%s: usage printed %v, want %v:\n%s", c.name, got, c.usage, r.stderr)
+		}
+	}
 }
