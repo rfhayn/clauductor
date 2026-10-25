@@ -51,7 +51,8 @@ func TestPrereqsReportsPresentAndMissing(t *testing.T) {
 		"install: brew install gitleaks",
 		"install: brew install gh",
 		"MISSING  tmux      optional",
-		"5 missing",
+		"6 missing",
+		"MISSING  python3   optional",
 	)
 	if strings.Contains(out, "MISSING  git ") || strings.Contains(out, "MISSING  jq ") {
 		t.Errorf("a present tool was reported missing:\n%s", out)
@@ -60,13 +61,48 @@ func TestPrereqsReportsPresentAndMissing(t *testing.T) {
 
 func TestPrereqsHintsPerOS(t *testing.T) {
 	linux := prereqsReport(t, "Linux")
-	wantAll(t, linux, "Prerequisites on Linux", "sudo apt install jq", "github.com/gitleaks/gitleaks/releases", "install_linux.md", "7 missing")
+	wantAll(t, linux, "Prerequisites on Linux", "sudo apt install jq", "github.com/gitleaks/gitleaks/releases", "install_linux.md", "sudo apt install python3", "8 missing")
 	if strings.Contains(linux, "xcode-select") {
 		t.Error("a Linux report gave a macOS hint")
 	}
 	wantAll(t, prereqsReport(t, "WSL"), "Prerequisites on Linux (WSL2)", "sudo apt install git")
 	wantAll(t, prereqsReport(t, "MINGW64_NT"), "WSL2")
-	wantAll(t, prereqsReport(t, "Darwin", "git", "jq", "gh", "gitleaks", "claude", "tmux", "node"), "All present.")
+	wantAll(t, prereqsReport(t, "Darwin", "git", "jq", "gh", "gitleaks", "claude", "tmux", "node", "python3"), "All present.")
+}
+
+// --rows is the machine-readable form doctor reads (OPS-109 D1): one tab-separated line per
+// tool, no heading and no closing line, and the same list the report prints.
+func TestPrereqsRowsMode(t *testing.T) {
+	tmpl := tmplDir(t)
+	bin := stubPath(t, "git", "jq")
+	t.Setenv("PATH", bin)
+	t.Setenv("PREREQS_OS", "Darwin")
+	c := execCommand("/bin/sh", filepath.Join(tmpl, PrereqsScript), "--rows")
+	raw, err := c.Output()
+	if err != nil {
+		t.Fatalf("--rows failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	if len(lines) != 8 {
+		t.Fatalf("want one line per tool (8), got %d:\n%s", len(lines), raw)
+	}
+	for _, l := range lines {
+		if n := len(strings.Split(l, "\t")); n != 5 {
+			t.Errorf("row has %d fields, want 5: %q", n, l)
+		}
+	}
+	for _, want := range []string{
+		"ok\trequired\tgit\t" + filepath.Join(bin, "git") + "\t",
+		"missing\trecommended\tgitleaks\tbrew install gitleaks\t",
+		"missing\toptional\tpython3\tbrew install python3\tmachine-quiet's live-session check",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("rows lack %q:\n%s", want, raw)
+		}
+	}
+	if strings.Contains(string(raw), "Prerequisites on") || strings.Contains(string(raw), "missing.") {
+		t.Errorf("--rows printed the report's heading or closing line:\n%s", raw)
+	}
 }
 
 // The report warns and never fails: a missing script, or nothing on PATH, still lets install go on.

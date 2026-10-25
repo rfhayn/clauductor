@@ -3,6 +3,15 @@
 ## Progress
 - 2026-10-24 proposed (session 12); nothing built yet. The build starts from `main` once the owner
   approves. The roadmap row stays `⬜ queued` until its build PR opens.
+- 2026-10-24 group 1 built, uncommitted (tasks 1.1-1.5 ticked): `prereqs.sh --rows` and python3,
+  the plugin rebuilt, this repo's `.claude/prereqs.sh` synced (`.claude/model-roles.json` drift
+  restored), `doctor.go` with the Machine lines (tools, template, gh) and the summary line.
+  Left: groups 2 and 3 (the Project half, the panel lines, `CheckAdd`, the docs).
+- 2026-10-24 group 1 review round 2's findings fixed, uncommitted: the gh line's causes, the
+  `install:` label, the continuation indent, and a test through `rootCmd` with `--template-dir`.
+- 2026-10-24 group 1 review round 3's findings fixed, uncommitted: doctor ends on its count line
+  in the terminal (`cmd.Main`, `errReported`), and the gh line is back to the design's table.
+- 2026-10-24 group 1 (The command and the machine (D1, D2, D7)) built and reviewed: converged in 2 round(s), peak none; grades R1 fail, R2 pass
 
 ## Decision log
 - 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
@@ -10,8 +19,55 @@
   `CheckAdd` holds every refusal `AddProject` makes before it saves, `registeredAs` included (L5),
   and a carried `--template-dir` is the resolved absolute `Source.Dir` (L6).
 
+- 2026-10-24 group 1: doctor prints each line as `ok|note|warn|FAIL <subject> <detail>` with a
+  following `fix: <command>` line, under a `Machine` heading (a `Project` heading is added only
+  when group 2 gives it a line); alternative: a symbol or colour per level. `design.md` fixes the
+  levels, not the layout; plain labels survive a pipe and a test can grep them.
+- 2026-10-24 group 1 (review fix): class "a test that observes a narrower channel than the
+  scenario's THEN": DOCTOR-1-S4 read only the cobra buffer, so a gh child inheriting the process's
+  stdout/stderr leaked the token unseen. Closed by capturing the process's own stdout and stderr
+  (`captureProcessStreams`) as well as the command's output; verified by setting
+  `c.Stdout, c.Stderr = os.Stdout, os.Stderr`, which now fails the test. The `nil, nil` line stays
+  as the explicit statement of the rule (exec's nil is /dev/null).
+- 2026-10-24 group 1: `prereqs.sh --rows` gives an `ok` row its reason as the fifth field too, so
+  every row has five fields; alternative: an empty fifth field for `ok`. A strict reader (D1) is
+  simpler when no field is optional.
+- 2026-10-24 group 1: the last line pluralises (`1 warning`, `2 warnings`); alternative: the
+  literal `warning(s)` of `design.md`. DOCTOR-3-S2 says "2 warnings"; a count of one reads wrong
+  as `1 warning(s)`.
+- 2026-10-24 group 1: the gh line is printed only when `gh` is on `PATH` (ok when signed in);
+  alternative: a note when `gh` is missing. The tools lines already report a missing `gh`.
+- 2026-10-24 group 1: `doctorGOOS`, `doctorRunningStamp` and `doctorFileStamp` are declared in
+  group 1 as task 1.2 asks, though only group 3's panel lines read them; alternative: declare them
+  in group 3. Task 1.2 names them here.
+- 2026-10-24 group 1 (review round 3): the gh line follows *The checks* table as written, which
+  supersedes the round-2 entry that split the causes by stderr: every non-zero exit of `gh auth
+  token` is a **warn** naming `gh auth login`, and both of gh's streams are discarded (a nil
+  `Stdout` and `Stderr`). What a check prints and at what level is the owner's decision (D8's table
+  and DOCTOR-1-S4); a code-side narrowing was not mine to take. For the owner, if wanted as a
+  later amendment: a gh older than 2.17, a locked keychain and a signed-out host all get the same
+  fix, which clears only the last.
+- 2026-10-24 group 1 (review round 3): class "a scenario test that reads the cobra buffer, not what
+  the user's terminal shows" (second instance after DOCTOR-1-S4's process streams): doctor's exit 1
+  printed `Error: ...` twice after the count line, through cobra and through main.go, and
+  DOCTOR-3-S2's test read only the command's out buffer. Closed at the source: doctor has
+  `SilenceErrors`, its error wraps `errReported`, and `cmd.Main` (called by main.go) exits 1 for a
+  reported error without printing it; the test runs `Main` with the command's out, its err and
+  `Main`'s stderr in ONE buffer, so any line after the count fails it (verified: it fails with
+  `SilenceErrors` off). Alternative: `os.Exit(1)` inside RunE, which skips deferred cleanup and
+  cannot be tested.
+- 2026-10-24 group 1 (review fix): a missing tool's install hint is printed as `install: <hint>`,
+  never `fix:`; alternative: split prereqs.sh's hints into a command and its prose (a sixth
+  `--rows` field, against D1's five), or guess in Go which hints are commands. prereqs.sh's hints
+  are text for people ("see https://...", "(or your distribution's package manager)"), and D8
+  reserves `fix:` for a command to paste; `install:` is the label prereqs.sh's own report uses.
+- 2026-10-24 group 1 (review fix): a continuation line's indent is derived from the prefix the
+  line printed (`hang`), and `fix:`/`install:` sit at `textColumn` (from `levelWidth` and
+  `subjectWidth`), under the line's text; alternative: a corrected constant, which drifts the next
+  time a width changes.
+
 ## 1. The command and the machine (D1, D2, D7)
-- [ ] 1.1 `template/.claude/prereqs.sh`: the `--rows` mode of D1 (one tab-separated line per tool:
+- [x] 1.1 `template/.claude/prereqs.sh`: the `--rows` mode of D1 (one tab-separated line per tool:
   `ok|missing`, level, tool, path or this OS's hint, reason; no heading, no closing line; exit 0),
   and D7's `python3` row with its Linux hint. The human report is otherwise unchanged. Tested in
   `framework/internal/cmd/prereqs_test.go`: a `--rows` test over a stub `PATH` and `PREREQS_OS`,
@@ -22,22 +78,22 @@
   drift it writes (`.claude/model-roles.json`'s `roles.reviewer.eval.baseline`) is OPS-119's
   (`docs/insights-log.md`, *update follows CLAUDUCTOR_FRAMEWORK*), and is restored with `git
   checkout -- .claude/model-roles.json`.
-- [ ] 1.2 `framework/internal/cmd/doctor.go` (new), registered on the root command as `diff` is
+- [x] 1.2 `framework/internal/cmd/doctor.go` (new), registered on the root command as `diff` is
   (`diff.go`), taking `--template-dir` through `addTemplateFlag`: the *Machine* and *Project*
   groups, one line per check as ok, fail, warn or note with its fix, the last line of *The
   checks* in `design.md`, and exit 1 when any line fails. The operating system and both build
   stamps are read through package variables a test replaces (`runtime.GOOS`,
   `install.RunningStamp`, `install.FileStamp`). Tested in `framework/internal/cmd/doctor_test.go`
   (new). Citing [DOCTOR-3-S2].
-- [ ] 1.3 The tools lines, from `prereqs.sh --rows` in the resolved template, run with `/bin/sh`
+- [x] 1.3 The tools lines, from `prereqs.sh --rows` in the resolved template, run with `/bin/sh`
   as `printPrereqs` runs it, and read strictly (D1). Tested in `doctor_test.go` with a stub `PATH`
   (`testbin`), and a `--template-dir` template whose `prereqs.sh` prints only a human report.
   Citing [DOCTOR-1-S1], [DOCTOR-1-S2].
-- [ ] 1.4 The template line, from `template.Resolve` (its error, or `Source.Warning`), and the
+- [x] 1.4 The template line, from `template.Resolve` (its error, or `Source.Warning`), and the
   tools line as a note when no template resolves. Tested in `doctor_test.go` with
   `CLAUDUCTOR_FRAMEWORK` naming a template whose `.template-version` is not the binary's. Citing
   [DOCTOR-1-S3].
-- [ ] 1.5 The gh line: `gh auth token` with its output discarded, its exit status alone read.
+- [x] 1.5 The gh line: `gh auth token` with its output discarded, its exit status alone read.
   Tested in `doctor_test.go` with a stand-in `gh` (`testbin`) that exits 1, then one that prints a
   marker string and exits 0, the output checked for the marker's absence. Citing [DOCTOR-1-S4].
 

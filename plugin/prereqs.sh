@@ -5,12 +5,20 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # one step, and the report says which, so the reader decides.
 #
 #   sh .claude/prereqs.sh
+#   sh .claude/prereqs.sh --rows
+#
+# --rows prints one tab-separated line per tool instead of the report, for `clauductor doctor`:
+# ok|missing, the level, the tool, its path (ok) or this OS's install hint (missing), and the
+# reason. No heading and no closing line; exit 0 as ever.
 #
 # Run by `clauductor install` and `clauductor init` (from the template they install), by the
 # plugin's /clauductor:init (scaffold.sh), and by install.sh. Plain POSIX sh with no tool beyond
 # `uname`, so it runs on a machine missing everything it reports on.
 #
 # PREREQS_OS overrides `uname -s` (Darwin, Linux, WSL): the checks use it to see each OS's hints.
+
+rows=0
+[ "${1:-}" = "--rows" ] && rows=1
 
 os=${PREREQS_OS:-$(uname -s 2>/dev/null)}
 if [ -z "${PREREQS_OS:-}" ] && [ "$os" = Linux ] && [ -r /proc/version ]; then
@@ -37,7 +45,7 @@ hint() {
       esac ;;
     Linux | WSL)
       case $1 in
-        git | jq | tmux) echo "sudo apt install $1   (or your distribution's package manager)" ;;
+        git | jq | tmux | python3) echo "sudo apt install $1   (or your distribution's package manager)" ;;
         gh) echo "see https://github.com/cli/cli/blob/trunk/docs/install_linux.md   (or: brew install gh)" ;;
         gitleaks) echo "a release binary from https://github.com/gitleaks/gitleaks/releases   (or: brew install gitleaks)" ;;
         node) echo "sudo apt install nodejs npm   (or: https://nodejs.org)" ;;
@@ -52,15 +60,23 @@ missing=0
 # row LEVEL TOOL WHY: LEVEL is required, recommended or optional; WHY says what degrades without it.
 row() {
   if command -v "$2" >/dev/null 2>&1; then
-    printf '  ok       %-9s %s\n' "$2" "$(command -v "$2")"
+    if [ "$rows" -eq 1 ]; then
+      printf 'ok\t%s\t%s\t%s\t%s\n' "$1" "$2" "$(command -v "$2")" "$3"
+    else
+      printf '  ok       %-9s %s\n' "$2" "$(command -v "$2")"
+    fi
   else
     missing=$((missing + 1))
-    printf '  MISSING  %-9s %s: %s\n' "$2" "$1" "$3"
-    printf '           %-9s install: %s\n' "" "$(hint "$2")"
+    if [ "$rows" -eq 1 ]; then
+      printf 'missing\t%s\t%s\t%s\t%s\n' "$1" "$2" "$(hint "$2")" "$3"
+    else
+      printf '  MISSING  %-9s %s: %s\n' "$2" "$1" "$3"
+      printf '           %-9s install: %s\n' "" "$(hint "$2")"
+    fi
   fi
 }
 
-echo "Prerequisites on $label (a report: nothing here stops the install):"
+[ "$rows" -eq 1 ] || echo "Prerequisites on $label (a report: nothing here stops the install):"
 row required git "branches, worktrees and the gate all run on git"
 row required jq "the hooks, checks and context scripts read JSON with jq"
 row recommended gh "merge-pr, the PR flow and the health lines call the GitHub CLI"
@@ -68,6 +84,8 @@ row recommended gitleaks "the gate's secret scan SKIPS locally without it and FA
 row recommended claude "Claude Code runs the sessions, skills and agents"
 row optional tmux "the panel's lanes (the panel runs on macOS)"
 row optional node "build-change's process check exercises the workflow with node; without it that check SKIPS"
+row optional python3 "machine-quiet's live-session check; without it, it removes no worktree"
+[ "$rows" -eq 1 ] && exit 0
 if [ "$missing" -eq 0 ]; then
   echo "  All present."
 else
