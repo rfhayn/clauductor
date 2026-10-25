@@ -57,7 +57,9 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk norisk; edit $C/proposal.md '/^\*\*Risk:\*\*/d'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a proposal with no Risk line" "needs '**Risk:**"
   # A delegated approval (OPS-127) holds only with APPROVAL_DELEGATED="1" and no guarded path
   # touched. The fixture writes its own list: a project that has not updated may lack the shipped one.
+  # It is a repository with no remote, the one place the key and the lists are read from disk.
   delegate() {  # delegate ON: the key set to ON, a guarded list, then Claude's approval written
+    new_repo "$F"
     printf 'APPROVAL_DELEGATED="%s"\n' "$1" > "$F/.claude/project.conf"
     printf '# guarded\n.claude/hooks/\nAGENTS.md\n' > "$F/.claude/lib/approval-guarded.txt"
     edit $C/proposal.md 's/^\*\*Approved:\*\* \([0-9-]*\) by Ana /**Approved:** \1 by Claude (delegated by Ana) /'
@@ -68,12 +70,20 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk delegoff; delegate 0; case_bad "a delegated approval while APPROVAL_DELEGATED is 0" "APPROVAL_DELEGATED is not"
   mk delegguard; delegate 1; printf -- '- [ ] 9.1 Edit `template/.claude/hooks/pr-merge-guard.sh`\n' >> "$F/$C/tasks.md"
   case_bad "a delegated approval of a change whose task names a guarded path" "touches a guarded path"
+  mk delegsuffix; delegate 1; printf -- '- [ ] 9.1 Reword `AGENTS.md:40` and `AGENTS.md#who-decides`\n' >> "$F/$C/tasks.md"
+  case_bad "a delegated approval of a change whose task names a guarded path with a line or an anchor" "(approval-guarded.txt): AGENTS.md "
+  mk delegnorepo; delegate 1; rm -rf "$F/.git"; case_bad "a delegated approval outside a git repository (an archive clean room)" "is not a git repository"
+  mk delegnomain; delegate 1; git -C "$F" remote add origin "$F/nowhere"; case_bad "a delegated approval in a clone with no origin/main (a shallow CI checkout)" "no origin/main to read"
   mk delegown; delegate 1; mkdir -p "$F/.claude/local"; echo 'src/home' > "$F/.claude/local/approval-guarded.txt"
   case_bad "a delegated approval of a change touching the project's own guarded path" "src/home/greeting.ts"
   mk delegnolist; delegate 1; rm "$F/.claude/lib/approval-guarded.txt"; case_bad "a delegated approval with no guarded list" "is missing or lists no path"
   mk delegempty; delegate 1; echo '# none' > "$F/.claude/lib/approval-guarded.txt"; case_bad "a delegated approval with an empty guarded list" "is missing or lists no path"
   mk delegwho; delegate 1; echo 'OWNER_NAME="Bea"' >> "$F/.claude/project.conf"; case_bad "an approval delegated by someone not OWNER_NAME" "only OWNER_NAME (Bea) delegates"
   mk claudeplain; edit $C/proposal.md 's/ by Ana / by claude /'; case_bad "an approval by Claude not in the delegated form" "not '(delegated by <owner>)'"
+  mk claudette; edit $C/proposal.md 's/ by Ana / by Claudette /'; case_ok "an approval by an owner whose name only begins with Claude"
+  mk claudeowner; edit $C/proposal.md 's/ by Ana / by Claude Martin /'; echo 'OWNER_NAME="Claude Martin"' > "$F/.claude/project.conf"
+  case_ok "an approval by OWNER_NAME, Claude Martin"
+  mk claudeother; edit $C/proposal.md 's/ by Ana / by Claude Code /'; case_bad "an approval by Claude Code, not OWNER_NAME" "not '(delegated by <owner>)'"
   mk badrisk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** medium/'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a Risk tier that is not low, normal or high" "is not low, normal or high"
   mk budget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15/**Budget:** $25/'; case_bad "a proposal whose budget differs from its roadmap row's" "has 'Budget: \$15'"
   mk nobudget; edit $C/proposal.md '/^\*\*Budget:\*\*/d'; case_bad "a proposal that drops its roadmap row's budget" "proposal.md says 'nothing'"

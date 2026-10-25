@@ -46,6 +46,8 @@ A --revoke; expect_rc 0 $? "change-approval --revoke"
 grep -qx '\*\*Status:\*\* awaiting approval' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back" || fail "--revoke: $(head -2 "$C/proposal.md")"
 # --delegate (OPS-127): refused while the key is off or the change names a guarded path.
 A --record " claude"; expect_rc 64 $? "change-approval --record refuses Claude (any case, leading space), whose approval goes through --delegate"
+A --record "Claude Code"; expect_rc 64 $? "change-approval --record refuses a name whose first word is Claude, unless it is OWNER_NAME"
+A --record Claudette; expect_rc 0 $? "change-approval --record takes a name that only begins with Claude"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses while APPROVAL_DELEGATED is off"
 grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" || fail "no key reason in: $(cat "$d/out")"
 printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$CLAUDUCTOR_FW/lib/approval-guarded.txt" "$R/.claude/lib/"
@@ -63,8 +65,32 @@ rm -r "$R/.claude/hooks"
 git -C "$R" update-ref refs/remotes/origin/main main
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses when origin/main has the key off, whatever the branch says"
 grep -q 'on origin/main' "$d/out" && ok "...and says it read origin/main" || fail "no origin/main in: $(cat "$d/out")"
+# Main turns the key on and ships the list: a delegation passes, read from origin/main.
+base0=$(git -C "$R" rev-parse HEAD)
+git -C "$R" add -f .claude/project.conf .claude/lib/approval-guarded.txt && git -C "$R" commit -qm "main: delegation on"
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin/main has the key on and the list"
+# Main's lists, not the disk's: main guards src/home in a project list this branch has not merged.
+git -C "$R" worktree add -q --detach "$d/mainwt" origin/main
+mkdir -p "$d/mainwt/.claude/local"; echo src/home > "$d/mainwt/.claude/local/approval-guarded.txt"
+git -C "$d/mainwt" add .claude/local/approval-guarded.txt && git -C "$d/mainwt" commit -qm "main: guard src/home"
+git -C "$R" update-ref refs/remotes/origin/main "$(git -C "$d/mainwt" rev-parse HEAD)"
+git -C "$R" worktree remove --force "$d/mainwt"
+A; expect_rc 1 $? "change-approval: a delegated approval fails on a path origin/main's project list guards, absent from the branch"
+grep -q 'guarded path.*src/home/greeting.ts' "$d/out" && ok "...and names the task's path" || fail "no src/home in: $(cat "$d/out")"
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+# A committed rename names both sides: a guarded file cannot move out of its place unseen.
+git -C "$R" mv .claude/verify-change.sh old-verify.sh && git -C "$R" commit -qm "move the verify step"
+A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch commits a rename of a guarded file"
+grep -q 'guarded path.*\.claude/verify-change.sh' "$d/out" && ok "...and names the file it moved" || fail "no verify-change.sh in: $(cat "$d/out")"
+git -C "$R" reset -q --hard HEAD~1
+# Merged: on main, the approval still holds.
+git -C "$R" branch -f main HEAD && git -C "$R" checkout -q main
+A; expect_rc 0 $? "change-approval: a delegated approval holds on main after its merge"
+git -C "$R" checkout -q change/add-greeting-name
+git -C "$R" reset -q --hard "$base0" && git -C "$R" branch -f main "$base0"
 git -C "$R" update-ref -d refs/remotes/origin/main
-rm "$R/.claude/project.conf" "$R/.claude/lib/approval-guarded.txt"
+rm -f "$R/.claude/project.conf" "$R/.claude/lib/approval-guarded.txt"
 A --record Ana >/dev/null
 
 # ── verify-change.sh ───────────────────────────────────────────────────────────────────────────

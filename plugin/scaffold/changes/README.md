@@ -49,7 +49,10 @@ every open change against the shape below.
   fails it, once the key is off again, or for a change that touches a path guarded by
   `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` (the controls on Claude) or `.claude/local/approval-guarded.txt`
   (the project's own). "Touches" means a task line of `tasks.md` names the path or, on the change's
-  branch, its diff changes it. The key and both lists are read from `origin/<main>`.
+  branch, its diff changes it (both sides of a rename). The key and both lists are read from
+  `origin/<main>`; only a repository with no remote reads them from disk. Where neither can be read
+  (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, or a CI checkout without
+  `origin/<main>`) a delegated approval does not hold.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

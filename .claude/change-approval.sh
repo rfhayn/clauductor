@@ -16,7 +16,8 @@
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the
 # change touches no path in lib/approval-guarded.txt or local/approval-guarded.txt: none named in a
 # task line of tasks.md and, on the change's own branch, none in its diff. The key and the lists are
-# read from origin/<MAIN_BRANCH> when it exists, so a branch cannot loosen them for itself. The check
+# read from origin/<MAIN_BRANCH>, so a branch cannot loosen them for itself; only a repository with
+# no remote reads them from disk, and where neither can be read the approval does not hold. The check
 # re-tests all of it every run: turning the key off or touching a guarded path voids the approval
 # like a design edit. The hash is over
 # design.md and the proposal's Risk line (lib/change.sh design_hash), so an edit to either after
@@ -43,8 +44,20 @@ rewrite() {
 
 # ── Delegation (OPS-127) ───────────────────────────────────────────────────────────────────────
 delegated='^\*\*Approved:\*\* [0-9-]+ by Claude \(delegated by (.+)\) · '
-main_ref=""
-git -C "$ROOT" rev-parse -q --verify "refs/remotes/origin/$MAIN_BRANCH" >/dev/null 2>&1 && main_ref="origin/$MAIN_BRANCH"
+# claude_name NAME: true when NAME is Claude's (its first word, any case) and not OWNER_NAME's.
+claude_name() { printf '%s\n' "$1" | grep -Eiq '^[[:space:]]*claude([^[:alnum:]_]|$)' && [ "$1" != "$OWNER_NAME" ]; }
+# The authority is origin/<main> in a clone of a remote, and the disk only in a repository with no
+# remote. Anywhere else delegation cannot be judged, so it does not hold (fail closed): outside a
+# repository (a GATE_CLEAN_ROOM="archive" copy), or a remote with no origin/<main> (a shallow CI
+# checkout; fetch it).
+main_ref="" gap=""
+if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$ROOT" && pwd -P)" ]; then
+  gap="$ROOT is not a git repository's root (a GATE_CLEAN_ROOM=\"archive\" copy?), so origin/$MAIN_BRANCH cannot be read"
+elif git -C "$ROOT" rev-parse -q --verify "refs/remotes/origin/$MAIN_BRANCH" >/dev/null 2>&1; then
+  main_ref="origin/$MAIN_BRANCH"
+elif [ -n "$(git -C "$ROOT" remote 2>/dev/null)" ]; then
+  gap="this clone has a remote but no origin/$MAIN_BRANCH to read the key and the lists from (fetch it; a CI checkout needs fetch-depth: 0)"
+fi
 
 # authority FILE: FILE as origin/<main> has it, when FILE is in this repository and that ref exists
 # (nothing when main lacks it); else as it is on disk: the plugin's own copy, which no branch can
@@ -59,17 +72,23 @@ authority() {
 # lines name and, on its own branch, its diff. An empty framework list refuses: a list that failed
 # to load must not read as "nothing guarded".
 delegable() {
+  [ -z "$gap" ] || { echo "$gap"; return; }
   key=$APPROVAL_DELEGATED
   [ -z "$main_ref" ] || key=$(authority "$ROOT/.claude/project.conf" | sed -n 's/^APPROVAL_DELEGATED=["'\'']*\([^"'\''#[:space:]]*\).*/\1/p' | tail -1)
   [ "$key" = 1 ] || { echo "APPROVAL_DELEGATED is not \"1\" in .claude/project.conf${main_ref:+ on $main_ref}, so only the $OWNER_ROLE approves"; return; }
   fw=$(authority "$ROOT/.claude/lib/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
   [ -n "$fw" ] || { echo ".claude/lib/approval-guarded.txt${main_ref:+ on $main_ref} is missing or lists no path, so no approval can be delegated"; return; }
   own=$(authority "$ROOT/.claude/local/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
-  touched=$(grep -E '^[[:space:]]*- \[[ xX]\]' "$dir/tasks.md" 2>/dev/null | grep -oE '`[^` ]+`' | tr -d '`' | sed 's|^\./||')
-  if [ "$(git -C "$ROOT" symbolic-ref --short -q HEAD 2>/dev/null)" = "$BRANCH_CHANGE$id" ] \
-     && base=$(git -C "$ROOT" merge-base "${main_ref:-$MAIN_BRANCH}" HEAD 2>/dev/null); then
+  # A token's `:line` or `#anchor` is not part of its path.
+  touched=$(grep -E '^[[:space:]]*- \[[ xX]\]' "$dir/tasks.md" 2>/dev/null | grep -oE '`[^` ]+`' | tr -d '`' | sed 's|^\./||; s/[:#].*//')
+  # The change's own branch: checked out by name, a detached HEAD at its tip, or a CI pull request's
+  # head. Its diff names both sides of a rename (--no-renames), so a guarded file cannot move out.
+  b=$(git -C "$ROOT" symbolic-ref --short -q HEAD 2>/dev/null) || b=${GITHUB_HEAD_REF:-}
+  if [ "$b" = "$BRANCH_CHANGE$id" ] || [ -n "$(git -C "$ROOT" for-each-ref --points-at HEAD "refs/heads/$BRANCH_CHANGE$id" "refs/remotes/origin/$BRANCH_CHANGE$id" 2>/dev/null)" ]; then
+    base=$(git -C "$ROOT" merge-base "${main_ref:-$MAIN_BRANCH}" HEAD 2>/dev/null) \
+      || { echo "the change's branch shares no commit with ${main_ref:-$MAIN_BRANCH} here, so its diff cannot be read"; return; }
     touched="$touched
-$(git -C "$ROOT" diff --name-only "$base" 2>/dev/null)
+$(git -C "$ROOT" diff --name-only --no-renames "$base" 2>/dev/null)
 $(git -C "$ROOT" ls-files -o --exclude-standard 2>/dev/null)"
   fi
   # A guarded entry matches whole path segments anywhere in a path.
@@ -91,7 +110,7 @@ case "${1:-}" in
     ;;
   --record)
     owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --record needs the owner's name" >&2; exit 64; }
-    printf '%s\n' "$owner" | grep -Eiq '^[[:space:]]*claude' && { echo "change-approval: Claude's approval is recorded with --delegate, which checks the delegation" >&2; exit 64; }
+    claude_name "$owner" && { echo "change-approval: Claude's approval is recorded with --delegate, which checks the delegation (an owner named Claude sets OWNER_NAME)" >&2; exit 64; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by $owner · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by $owner, design $hash"
     ;;
@@ -110,7 +129,7 @@ case "${1:-}" in
       by=", by Claude on delegation"
       who=$(printf '%s\n' "$line" | sed -E "s/$delegated.*/\\1/")
       [ -z "$OWNER_NAME" ] || [ "$who" = "$OWNER_NAME" ] || { echo "design $hash: delegated by $who, but only OWNER_NAME ($OWNER_NAME) delegates"; exit 1; }
-    elif printf '%s\n' "$line" | grep -Eiq '^\*\*Approved:\*\* [0-9-]+ by[[:space:]]+claude'; then
+    elif claude_name "$(printf '%s\n' "$line" | sed -E 's/^\*\*Approved:\*\* [0-9-]+ by (.+) · design [0-9a-f]{12}$/\1/')"; then
       echo "design $hash: an approval by Claude that is not '(delegated by <owner>)', the one form a delegation is checked in: $line"; exit 1
     fi
     if [ "$rec" = "$hash" ]; then echo "design $hash: approved as written$by"; exit 0; fi
