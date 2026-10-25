@@ -77,8 +77,15 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk delegnomain; delegate 1; git -C "$F" remote add origin "$F/nowhere"; case_bad "a delegated approval in a clone with no origin/main (a shallow CI checkout)" "no origin/main to read"
   mk delegown; delegate 1; mkdir -p "$F/.claude/local"; echo 'src/home' > "$F/.claude/local/approval-guarded.txt"
   case_bad "a delegated approval of a change touching the project's own guarded path" "src/home/greeting.ts"
-  mk delegnolist; delegate 1; rm "$F/.claude/lib/approval-guarded.txt"; case_bad "a delegated approval with no guarded list" "is missing or lists no path"
-  mk delegempty; delegate 1; echo '# none' > "$F/.claude/lib/approval-guarded.txt"; case_bad "a delegated approval with an empty guarded list" "is missing or lists no path"
+  # A plugin's framework list is the plugin's own, out of the fixture's reach, so these two run the
+  # fixture's copy of the script, which reads the fixture's list in either layout.
+  list_bad() {
+    if out=$(ROOT="$F" sh "$F/.claude/change-approval.sh" add-greeting-name 2>&1); then fail "self-test: $1 passed"
+    elif printf '%s\n' "$out" | grep -qF "is missing or lists no path"; then ok "self-test: $1 fails (is missing or lists no path)"
+    else fail "self-test: $1 fails, but not for its list: $out"; fi
+  }
+  mk delegnolist; delegate 1; rm "$F/.claude/lib/approval-guarded.txt"; list_bad "a delegated approval with no guarded list"
+  mk delegempty; delegate 1; echo '# none' > "$F/.claude/lib/approval-guarded.txt"; list_bad "a delegated approval with an empty guarded list"
   mk delegwho; delegate 1; echo 'OWNER_NAME="Bea"' >> "$F/.claude/project.conf"; case_bad "an approval delegated by someone not OWNER_NAME" "only OWNER_NAME (Bea) delegates"
   mk claudeplain; edit $C/proposal.md 's/ by Ana / by claude /'; case_bad "an approval by Claude not in the delegated form" "not '(delegated by <owner>)'"
   mk claudette; edit $C/proposal.md 's/ by Ana / by Claudette /'; case_ok "an approval by an owner whose name only begins with Claude"
