@@ -67,17 +67,22 @@ authority() {
   cat "$1" 2>/dev/null
 }
 
-# on_branch: true when HEAD is at or past a tip of the change's branch, local or origin's, and is
-# not on main. A commit made on a detached HEAD past the tip and pushed to the branch is the
-# branch's, so its diff counts (OPS-130); a HEAD main contains is never the branch's, so a merged
-# change is judged by its task lines alone.
+# on_branch: true when a HEAD that main does not contain is the change's work by its history or its
+# content (OPS-130): at or past a tip of the change's branch, local or origin's, that main does not
+# already contain (a fresh branch still at main identifies nothing, so a branch cut from main is
+# not charged to it), or with commits since main that touch the change's own directory, as every
+# build's do when it ticks tasks.md. So a commit made on a detached HEAD past the tip, or an amend
+# or rebase of it there, and pushed to the branch, has its diff counted. A HEAD main contains is
+# never the branch's, so a merged change, or the main checkout, is judged by its task lines alone.
 on_branch() {
-  [ -z "$(git -C "$ROOT" for-each-ref --points-at HEAD "refs/heads/$BRANCH_CHANGE$id" "refs/remotes/origin/$BRANCH_CHANGE$id" 2>/dev/null)" ] || return 0
-  git -C "$ROOT" merge-base --is-ancestor HEAD "${main_ref:-$MAIN_BRANCH}" 2>/dev/null && return 1
+  m=${main_ref:-$MAIN_BRANCH}
+  git -C "$ROOT" merge-base --is-ancestor HEAD "$m" 2>/dev/null && return 1
   for t in $(git -C "$ROOT" for-each-ref --format='%(objectname)' "refs/heads/$BRANCH_CHANGE$id" "refs/remotes/origin/$BRANCH_CHANGE$id" 2>/dev/null); do
+    git -C "$ROOT" merge-base --is-ancestor "$t" "$m" 2>/dev/null && continue
     git -C "$ROOT" merge-base --is-ancestor "$t" HEAD 2>/dev/null && return 0
   done
-  return 1
+  mb=$(git -C "$ROOT" merge-base "$m" HEAD 2>/dev/null) || return 1
+  [ -n "$(git -C "$ROOT" diff --name-only "$mb" HEAD -- "$CHANGES_DIR/$id/" 2>/dev/null)" ]
 }
 
 # delegable: say why a delegated approval cannot hold for this change, or nothing when it can. It
