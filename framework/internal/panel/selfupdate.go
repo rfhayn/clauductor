@@ -81,8 +81,6 @@ type selfUpdater struct {
 	quiesce func(context.Context, time.Duration) bool
 	// restart ends the run with the exit status recorded (Run's cancel).
 	restart func(*RestartError)
-	// restarted is set once the restart is under way.
-	restarted atomic.Bool
 }
 
 // rebuildKey keys a rebuild's notices: one per fast-forward's commit.
@@ -243,7 +241,6 @@ func (s *selfUpdater) swap(ctx context.Context, rb *install.Rebuild, t catchUpTa
 	}
 	install.RecordBrowserOpen(home, s.clk.Now())
 	fmt.Fprintf(s.out, "catch-up %s: restarting into the build of %s (exit %d)\n", t.root, short(res.to), ExitRestart)
-	s.restarted.Store(true)
 	s.restart(&RestartError{Code: ExitRestart, From: plan.Base, To: res.to})
 }
 

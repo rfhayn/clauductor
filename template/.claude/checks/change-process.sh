@@ -107,6 +107,34 @@ gh auth status
 gh api user
 EOF
 }
+# merge_pr_catchup: the one line that may catch the PR's branch up to origin/main outside step 5
+# (OPS-124, #214), and its one place: alone between step 2's heading and its first line, where
+# merge-pr is in the branch's own checkout and no text before it in the step can aim it elsewhere.
+# One fixed line, not a rule about how a merge is aimed: the forms that aim one elsewhere (-C,
+# --work-tree, -c core.worktree, GIT_DIR=, env -C, sh -c, a fetch into main:main, a sentence) are
+# endless. Anywhere else, or worded otherwise, a merge falls to merge_pr_cmds, which lists no merge
+# and no fetch. And no span outside step 5 changes directory or sets GIT_*, so the line cannot
+# follow a `cd` or an export in step 1.
+merge_pr_catchup() {
+  echo 'In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.'
+}
+# merge_pr_unanchor: the skill on stdin, less the catch-up line where it stands in its one place
+# (once, outside a fence, under the first '### 2.' heading only, so a copy of the heading after the
+# squash-merge anchors nothing). Renamed step 2, the line stays in and is refused: the strip fails
+# closed. The line names its checkout itself, since merge-pr may start in the main checkout.
+merge_pr_unanchor() {
+  awk -v line="$(merge_pr_catchup)" '
+    { l[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (l[i] ~ /^```/) fence = !fence
+        if (!fence && l[i] ~ /^### 2\. /) h2++
+        if (!fence && !done && h2 == 1 && l[i] == line && l[i - 1] == "### 2. Gate evidence for the head commit (blocking)" &&
+            index(l[i + 1], "Run the full gate from the branch\047s checkout") == 1) { done = 1; continue }
+        print l[i]
+      }
+    }'
+}
 # merge_pr_spans: reads the whole skill, every line of it, and prints "L <line>" for each line of
 # step 5 (from its '### 5.' heading to the next heading of level 1 to 3, fences skipped), and:
 # inside step 5, "S <part> <span>" for each code span, in order (a fenced line is one span; an
@@ -131,7 +159,10 @@ merge_pr_spans() {
       if ((" " s " ") ~ /[^A-Za-z0-9_.\/-](git|gh)[^A-Za-z0-9_-]/) print "P " part
     }
     function span(s,   w) {
-      if (outside()) { if ((w = cwrite(s)) != "") print "W " part " " w; return }
+      if (outside()) {
+        if ((w = cwrite(s)) != "") print "W " part " " w
+        return
+      }
       print "S " part " " s
     }
     function flush(   t, i, r, j) {
@@ -149,13 +180,19 @@ merge_pr_spans() {
       for (; j <= m && t[j] ~ /^-/; j++) if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
       return j
     }
-    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, or ""
-    function cwrite(s,   n, c, k, m, t, i, j, cmd) {
+    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, one that
+    # changes directory (a word cd or pushd anywhere, quoted, escaped, after then or assigned, as
+    # in sh -c or c=cd), one named by a bare variable with arguments ($c "$main", never a path
+    # like ${CLAUDE_PLUGIN_ROOT}/hooks/... in the plugin build), or one that sets GIT_* (an export
+    # too), or ""
+    function cwrite(s,   n, c, k, m, t, i, j, cmd, w) {
       n = split(s, c, /\$\(|[|;&()]+/)
       for (k = 1; k <= n; k++) {
         if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0) continue
-        if (t[1] in moves) return trim(c[k])
+        if (t[1] in moves || (m > 1 && t[1] ~ /^["\047]?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["\047]?$/)) return trim(c[k])
         for (i = 1; i <= m; i++) {
+          w = t[i]; gsub(/["\047\\]/, "", w)
+          if (w ~ /(^|=)(cd|pushd)$/ || w ~ /^GIT_[A-Z_]*=/) return trim(c[k])
           if (t[i] == "git" && (j = skip(t, i + 1, m)) <= m) {
             cmd = "git " t[j]
             if (t[j] == "worktree") cmd = cmd " " t[j + 1]
@@ -231,7 +268,7 @@ step5_part() {  # step5_part PART: the part as an objection names it
   esac
 }
 step5() {  # step5 SKILL.md: prints each rule step 5 breaks, one per line; nothing when it holds
-  _rec=$(merge_pr_spans < "$1")
+  _rec=$(merge_pr_unanchor < "$1" | merge_pr_spans)
   _s=$(printf '%s\n' "$_rec" | sed -n 's/^L //p')
   [ -n "$_s" ] || { echo "it has no step 5"; return; }
   printf '%s\n' "$_s" | grep -qF 'git worktree list --porcelain' ||
@@ -251,16 +288,16 @@ step5() {  # step5 SKILL.md: prints each rule step 5 breaks, one per line; nothi
       'S '*)
         _ps=${_r#S }
         printf '%s\n' "$_allow" | grep -qxF -- "$_ps" ||
-          echo "$(step5_part "${_ps%% *}") names \`${_ps#* }\`, which its list does not allow there"
+          printf '%s\n' "$(step5_part "${_ps%% *}") names \`${_ps#* }\`, which its list does not allow there"
         ;;
       'P '*) echo "$(step5_part "${_r#P }") names git or gh outside a code span" ;;
       'W '*)
         _w=${_r#W }
-        echo "$(step5_part "${_w%% *}") names \`${_w#* }\`, which merge_pr_cmds does not list (outside step 5, merge-pr runs only what it lists)"
+        printf '%s\n' "$(step5_part "${_w%% *}") names \`${_w#* }\`, which merge_pr_cmds does not list (outside step 5, merge-pr runs only what it lists)"
         ;;
       'Q '*)
         _q=${_r#Q }
-        echo "$(step5_part "${_q%% *}") names \`${_q#* }\` outside a code span, a git command that moves a checkout"
+        printf '%s\n' "$(step5_part "${_q%% *}") names \`${_q#* }\` outside a code span, a git command that moves a checkout"
         ;;
       'X step5') echo "a second '### 5.' heading: step 5 comes once" ;;
       'X owner') echo "a line starts like the owner's pull bullet but is not the first bullet of the owner's step" ;;
@@ -382,6 +419,109 @@ _red "a pull named outside a code span after step 5" '/^- Leave the roadmap row/
 _red "a second step 5" '/^## After the merge/i\
 ### 5. Sync again
 ' "a second '### 5.' heading"
+# A legitimate edit passes (OPS-124, #214): a rule that refuses every edit to merge-pr is no
+# guard either. Catching the lane's own branch up to origin/main, by merge_pr_catchup's line in its
+# place, is not a write to the main checkout; the same merge aimed at the main checkout stays red.
+_green() {  # _green WHAT SED-SCRIPT: step5 on the edited copy objects to nothing
+  _n=$((_n + 1))
+  sed "$2" "$_skill" > "$_d/step5-$_n.md"
+  _o=$(step5 "$_d/step5-$_n.md")
+  if cmp -s "$_skill" "$_d/step5-$_n.md"; then fail "step 5's green case '$1' edits nothing: re-anchor it"
+  elif [ -z "$_o" ]; then ok "step 5's check passes $1"
+  else fail "step 5's check refuses $1: $(printf '%s' "$_o" | head -n 1)"; fi
+}
+_green "catching the lane branch up before the gate" '/^Run the full gate from the branch.s checkout/i\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
+'
+# The plugin build rewrites .claude/ paths to ${CLAUDE_PLUGIN_ROOT}/..., and a span may name a
+# variable alone: neither is a command named by a variable.
+_green "a plugin path and a bare variable in spans before step 5" '/^Use the argument if given/i\
+Run `${CLAUDE_PLUGIN_ROOT}/hooks/pr-merge-guard.sh`; the session is `$CLAUDE_CODE_SESSION_ID`.
+'
+# Review rounds 1 and 2 (OPS-124): a rule that read how a merge was aimed, then a list of catch-up
+# spans allowed anywhere before step 5, let each of these through. The catch-up is one line in
+# one place; worded otherwise or placed otherwise it is refused, and so is a cd or an export
+# before it in its place.
+_catch='/^Run the full gate from the branch.s checkout/i\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
+'
+_red "the catch-up line after the squash-merge" '/^### 5\. Sync/i\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
+' "text before step 5 names \`git fetch origin main\`"
+_red "the catch-up line aimed by the sentence before it" '/^Run the full gate from the branch.s checkout/i\
+In the main checkout, catch main up.\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
+' "text before step 5 names \`git fetch origin main\`"
+_red "the catch-up line aimed by the sentence after it" '/^Run the full gate from the branch.s checkout/i\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.\
+Do that in the main checkout.
+' "text before step 5 names \`git fetch origin main\`"
+_red "the catch-up line under a second step 2 heading after the squash-merge" '/^### 5\. Sync/i\
+### 2. Gate evidence for the head commit (blocking)\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.\
+Run the full gate from the branch'\''s checkout again.
+' "text before step 5 names \`git fetch origin main\`"
+_red "the catch-up in a fenced block" '/^Run the full gate from the branch.s checkout/i\
+```bash\
+git fetch origin main\
+git merge --no-edit origin/main\
+```
+' "text before step 5 names \`git fetch origin main\`"
+_red "an export of GIT_WORK_TREE before the catch-up line" "$_catch"'/^Use the argument if given/i\
+```bash\
+export GIT_WORK_TREE="$main" GIT_DIR="$main/.git"\
+```
+' "text before step 5 names \`export GIT_WORK_TREE=\"\$main\" GIT_DIR=\"\$main/.git\"\`"
+_red "a quoted cd before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `"cd" "$main"`.
+' "text before step 5 names \`\"cd\" \"\$main\"\`"
+_red "an escaped cd before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `\\cd "$main"`.
+' 'cd "$main"`, which merge_pr_cmds does not list'
+_red "a cd by a variable before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `c=cd; $c "$main"`.
+' "text before step 5 names \`c=cd\`"
+_red "a command named by a variable before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `"$c" "$main"`.
+' "text before step 5 names \`\"\$c\" \"\$main\"\`"
+# Merge-pr runs after the squash-merge from the main checkout too, so a bare merge there
+# fast-forwards it.
+_red "a bare merge after the merge" '/^- Leave the roadmap row/i\
+- Then `git merge origin/main`.
+' "text after step 5 names \`git merge origin/main\`"
+_red "a merge into the main checkout by cd" '/^- Leave the roadmap row/i\
+- Then `cd "$main" && git merge origin/main`.
+' "text after step 5 names \`cd \"\$main\"\`"
+_red "a cd on its own line of a fenced block before the catch-up merge" '/^Run the full gate from the branch.s checkout/i\
+```bash\
+cd "$main"\
+git merge --no-edit origin/main\
+```
+' "text before step 5 names \`cd \"\$main\"\`"
+_red "a cd in a span of its own before the catch-up merge" '/^Run the full gate from the branch.s checkout/i\
+Run `cd "$main"`, then `git merge origin/main`.
+' "text before step 5 names \`cd \"\$main\"\`"
+_red "a cd inside a then" '/^Run the full gate from the branch.s checkout/i\
+Run `if true; then cd "$main"; fi`, then `git merge origin/main`.
+' "text before step 5 names \`then cd \"\$main\"\`"
+_red "a merge into the main checkout by sh -c" '/^Run the full gate from the branch.s checkout/i\
+Run `sh -c '\''cd "$main" \&\& git merge origin/main'\''`.
+' "text before step 5 names \`sh -c 'cd \"\$main\"\`"
+_red "a merge into the main checkout by --work-tree" '/^Run the full gate from the branch.s checkout/i\
+Run `git --work-tree="$main" merge origin/main`.
+' "text before step 5 names \`git --work-tree=\"\$main\" merge origin/main\`"
+_red "a merge into the main checkout by GIT_WORK_TREE" '/^Run the full gate from the branch.s checkout/i\
+Run `GIT_WORK_TREE="$main" git merge origin/main`.
+' "text before step 5 names \`GIT_WORK_TREE=\"\$main\" git merge origin/main\`"
+_red "a merge into the main checkout by -c core.worktree" '/^Run the full gate from the branch.s checkout/i\
+Run `git -c core.worktree="$main" merge origin/main`.
+' "text before step 5 names \`git -c core.worktree=\"\$main\" merge origin/main\`"
+_red "a merge into the main checkout by env -C" '/^Run the full gate from the branch.s checkout/i\
+Run `env -C "$main" git merge origin/main`.
+' "text before step 5 names \`env -C \"\$main\" git merge origin/main\`"
+_red "a fetch that moves main" '/^Run the full gate from the branch.s checkout/i\
+Run `git fetch --update-head-ok origin main:main`.
+' "text before step 5 names \`git fetch --update-head-ok origin main:main\`"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"

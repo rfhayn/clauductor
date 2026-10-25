@@ -29,6 +29,16 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # branch there before its own, and ended on its own: that lane is not the change's, and the
 # messages that recorded the branch in it do not count either. A lead hopping in from another lane
 # carries that lane's branch into its first message, then records the change's: that lane is.
+# A lead that MOVES ON in the lane after the merge (OPS-124, #214) records the change's branch most:
+# OPS-118's build lead recorded its branch 709 times, then ops/ops-118-archive 237, and its
+# proposal lead 1823, then ops/session-9-close 552, so a vote by the last branch alone read $0. A
+# session votes for the change when its lead recorded the branch there last, or more often than
+# any other branch (a tie falls back to last), unless the lane is NAMED after the branch it ended
+# on: PANEL-48's close lane, session-3-close, recorded PANEL-48's branch 168 times and
+# ops/session-3-close 86, and is the close's lane, not the change's. Known limits: a counted lane
+# counts whole, the work its lead did there after moving on included (OPS-118 reads $214.17
+# against build-change's $200.24); a close lane named otherwise that recorded the stale branch most
+# is taken.
 # The lanes it rejected are named (the one line's "rejected lanes:", --json's rejectedLanes), so a
 # collapse of the figure is visible. Known limits: a lane reused by two sessions, one ending on the
 # branch, counts whole for it; once removed, a lane is lost whose only session switched away from
@@ -121,8 +131,12 @@ votes=$( [ -z "$lfiles" ] || tag $lfiles | jq -cR --argjson ls "$lanesjson" "$ta
            | select($file | contains("/subagents/") | not) | (.cwd // "") as $c
            | first($ls[] as $w | select($c == $w or ($c | startswith($w + "/"))) | $w) as $l
            | {l: $l, s: (.sessionId // $file), t: (.timestamp // ""), b: .gitBranch}' 2>/dev/null \
-         | jq -rs --arg b "$branch" --arg m "$MAIN_BRANCH" 'group_by(.l)[] | .[0].l as $l
-           | [ group_by(.s)[] | sort_by(.t) | map(.b | select(. != $m and . != "HEAD" and . != "")) | last ]
+         | jq -rs --arg b "$branch" --arg m "$MAIN_BRANCH" 'group_by(.l)[] | .[0].l as $l | ($l | split("/") | last) as $name
+           | [ group_by(.s)[] | sort_by(.t) | map(.b | select(. != $m and . != "HEAD" and . != ""))
+               | (group_by(.) | map({b: .[0], n: length}) | sort_by(-.n)) as $c | last as $last
+               | $last, (if ($last // "" | split("/")[1:] | join("/")) != $name
+                           and (($c | length) == 1 or (($c | length) > 1 and $c[0].n > $c[1].n))
+                         then $c[0].b else empty end) ]
            | (if any(.[]; . == $b) then "+" else "-" end) + $l' 2>/dev/null)
 roots=$( { git -C "$ROOT" worktree list --porcelain 2>/dev/null \
              | awk -v b="branch refs/heads/$branch" '/^worktree /{p=substr($0,10)} $0==b{print p}'
