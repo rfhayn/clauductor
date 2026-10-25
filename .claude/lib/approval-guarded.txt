@@ -1,0 +1,34 @@
+# approval-guarded.txt: the paths a delegated approval may never cover (OPS-127).
+#
+# With APPROVAL_DELEGATED="1" in .claude/project.conf, Claude may record a change's approval for
+# the owner (`change-approval.sh <id> --delegate <owner>`), except for a change that names one of
+# these paths in a task line of its tasks.md, or whose branch's diff touches one: those loosen a
+# control on Claude, so the owner approves them. One path or directory per line (a trailing `/`
+# is optional), matched on whole path segments anywhere in a path, so `.claude/hooks` covers
+# `template/.claude/hooks/x.sh`.
+#
+# This file is the framework's list: `clauductor update` keeps it current, so add nothing here.
+# Your own paths go in .claude/local/approval-guarded.txt, the same format. In a git repository
+# with origin/<MAIN_BRANCH>, the key and both lists are read from that ref, never from the branch
+# under test, so a branch cannot loosen them for itself. An empty list refuses every delegation.
+.claude/lib/approval-guarded.txt
+.claude/local/approval-guarded.txt
+.claude/change-approval.sh
+.claude/verify-change.sh
+.claude/scenario-trace.sh
+.claude/review-cap.sh
+.claude/change-cost.sh
+.claude/model-roles.json
+.claude/project.conf
+.claude/settings.json
+.claude/settings.local.json
+.claude/hooks
+.claude/checks
+.claude/agents
+.claude/lib
+.claude/workflows/build-change.js
+.claude/skills/propose
+.claude/skills/merge-pr
+.github/workflows
+scripts/ci
+AGENTS.md

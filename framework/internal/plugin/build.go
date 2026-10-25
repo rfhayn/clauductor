@@ -286,8 +286,6 @@ func place(rel string) (string, fileKind, error) {
 			return sub, kindPlugin, nil // statusline.sh, roadmap-queue.sh, ...: the model's own scripts
 		case strings.HasSuffix(sub, ".json"), strings.HasSuffix(sub, ".conf"):
 			return "", kindScaffold, nil // project.conf, model-roles.json: the project's values
-		case sub == "approval-guarded.txt":
-			return "", kindScaffold, nil // the project's own guarded paths, which it adds to (OPS-127)
 		}
 		return "", 0, fmt.Errorf("template file %s: the plugin packager does not know whether it is the framework's or the project's (framework/internal/plugin/build.go, place)", rel)
 	}

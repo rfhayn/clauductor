@@ -46,8 +46,10 @@ every open change against the shape below.
   again (`--revoke`, then `--record`).
 - **A delegated approval** (OPS-127): with `APPROVAL_DELEGATED="1"` in `.claude/project.conf`,
   `--delegate "<owner>"` writes `by Claude (delegated by <owner>)`. It is refused, and the check
-  fails it, for a change whose records name a path in `.claude/approval-guarded.txt` (the controls
-  on Claude), or once the key is off again.
+  fails it, once the key is off again, or for a change that touches a path guarded by
+  `.claude/lib/approval-guarded.txt` (the controls on Claude) or `.claude/local/approval-guarded.txt`
+  (the project's own). "Touches" means a task line of `tasks.md` names the path or, on the change's
+  branch, its diff changes it. The key and both lists are read from `origin/<main>`.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

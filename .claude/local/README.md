@@ -17,6 +17,7 @@ run after the enabled modules'. Each point's contract:
 | `skills/<skill>/*.md` | the skill's `## Project steps` include line | Markdown appended to that template skill's instructions, in file-name order. |
 | `conflicts.tsv` | session-close's shared-file table | One row per shared file: the file, a TAB, what to do on a conflict. `#` comments allowed. |
 | `roadmap.d/*.sh` | `roadmap_queue` (`lib/conf.sh`), on every read of the change queue in any mode | stdin: the `--tsv` rows; `ROOT` and `ROADMAP` in its environment; run in the project root. **Exit 0** accepts; anything else makes the queue UNKNOWN for every reader, each stdout line naming a refused row. No network: it runs on every read. |
+| `approval-guarded.txt` | `change-approval.sh` (OPS-127), read from `origin/<main>` when it exists | One path or directory per line, `#` comments allowed, added to `.claude/lib/approval-guarded.txt`: a change that touches one is never approved on delegation (`APPROVAL_DELEGATED`). |
 | `hook-expectations.tsv` | `checks/hooks.sh`, the registration table | One row per hook script THIS project registers in `settings.json`: script, exit, proof (`out:<ERE>`, `file:<path>` or `exit`), payload JSON, why; TAB-separated, `#` comments allowed. A registered hook with no row fails. |
 
 Every script runs per its own `#!` line (`#!/usr/bin/env bash` runs under bash, never forced
