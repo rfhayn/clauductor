@@ -11,7 +11,8 @@
 # Your own paths go in .claude/local/approval-guarded.txt, the same format. The key and both lists
 # are read from origin/<MAIN_BRANCH>, never from the branch under test, so a branch cannot loosen
 # them for itself (a repository with no remote reads the disk). An empty list refuses every
-# delegation. The list follows AGENTS.md's "What executes each rule": what runs a control is here.
+# delegation. The list follows AGENTS.md's "What executes each rule": what runs a control is here,
+# and checks/approval-guarded.sh fails a path the table names in bold that neither list guards.
 .claude/lib/approval-guarded.txt
 .claude/local/approval-guarded.txt
 # The approval, the verify step and what build-change is handed

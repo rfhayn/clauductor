@@ -67,6 +67,27 @@ authority() {
   cat "$1" 2>/dev/null
 }
 
+# on_branch: true when a HEAD that main does not contain is the change's work by its history or its
+# content (OPS-130): at or past a tip of the change's branch, local or origin's, that main does not
+# already contain (a fresh branch still at main identifies nothing, so a branch cut from main is
+# not charged to it), or with commits since main that touch the change's own directory, as every
+# build's do when it ticks tasks.md. So a commit made on a detached HEAD past the tip, or an amend
+# or rebase of it there, and pushed to the branch, has its diff counted. A HEAD main contains is
+# never the branch's, so a merged change, or the main checkout, is judged by its task lines alone.
+# The content signal reaches any branch that edits changes/<id>/, so one that does and also touches
+# a guarded path refuses that change's delegation: a refusal sends the approval to the owner, which
+# is the safe side to err on.
+on_branch() {
+  m=${main_ref:-$MAIN_BRANCH}
+  git -C "$ROOT" merge-base --is-ancestor HEAD "$m" 2>/dev/null && return 1
+  for t in $(git -C "$ROOT" for-each-ref --format='%(objectname)' "refs/heads/$BRANCH_CHANGE$id" "refs/remotes/origin/$BRANCH_CHANGE$id" 2>/dev/null); do
+    git -C "$ROOT" merge-base --is-ancestor "$t" "$m" 2>/dev/null && continue
+    git -C "$ROOT" merge-base --is-ancestor "$t" HEAD 2>/dev/null && return 0
+  done
+  mb=$(git -C "$ROOT" merge-base "$m" HEAD 2>/dev/null) || return 1
+  [ -n "$(git -C "$ROOT" diff --name-only "$mb" HEAD -- "$CHANGES_DIR/$id/" 2>/dev/null)" ]
+}
+
 # delegable: say why a delegated approval cannot hold for this change, or nothing when it can. It
 # iterates the guarded lists (the authority) against what the change touches: the paths its task
 # lines name and, on its own branch, its diff. An empty framework list refuses: a list that failed
@@ -81,10 +102,11 @@ delegable() {
   own=$(authority "$ROOT/.claude/local/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
   # A token's `:line` or `#anchor` is not part of its path.
   touched=$(grep -E '^[[:space:]]*- \[[ xX]\]' "$dir/tasks.md" 2>/dev/null | grep -oE '`[^` ]+`' | tr -d '`' | sed 's|^\./||; s/[:#].*//')
-  # The change's own branch: checked out by name, a detached HEAD at its tip, or a CI pull request's
-  # head. Its diff names both sides of a rename (--no-renames), so a guarded file cannot move out.
+  # The change's own branch: checked out by name, a CI pull request's head, or any HEAD at or past
+  # its tip (on_branch). Its diff names both sides of a rename (--no-renames), so a guarded file
+  # cannot move out.
   b=$(git -C "$ROOT" symbolic-ref --short -q HEAD 2>/dev/null) || b=${GITHUB_HEAD_REF:-}
-  if [ "$b" = "$BRANCH_CHANGE$id" ] || [ -n "$(git -C "$ROOT" for-each-ref --points-at HEAD "refs/heads/$BRANCH_CHANGE$id" "refs/remotes/origin/$BRANCH_CHANGE$id" 2>/dev/null)" ]; then
+  if [ "$b" = "$BRANCH_CHANGE$id" ] || on_branch; then
     base=$(git -C "$ROOT" merge-base "${main_ref:-$MAIN_BRANCH}" HEAD 2>/dev/null) \
       || { echo "the change's branch shares no commit with ${main_ref:-$MAIN_BRANCH} here, so its diff cannot be read"; return; }
     touched="$touched
