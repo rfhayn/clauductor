@@ -45,6 +45,8 @@ guard.d
 .claude/workflows/build-change.js
 .claude/skills/propose
 .claude/skills/merge-pr
+.claude/local/skills/propose
+.claude/local/skills/merge-pr
 # The gate, CI and the secrets scan
 .github/workflows
 .github/dependabot.yml

@@ -84,6 +84,16 @@ git -C "$R" mv .claude/verify-change.sh old-verify.sh && git -C "$R" commit -qm 
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch commits a rename of a guarded file"
 grep -q 'guarded path.*\.claude/verify-change.sh' "$d/out" && ok "...and names the file it moved" || fail "no verify-change.sh in: $(cat "$d/out")"
 git -C "$R" reset -q --hard HEAD~1
+# The change's branch by its tip, not its name: a detached HEAD there, or a CI pull request's head.
+mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
+git -C "$R" checkout -q --detach
+A; expect_rc 1 $? "change-approval: a detached HEAD at the change's tip still counts its diff"
+git -C "$R" commit -q --allow-empty -m "the pull request's merge commit" && git -C "$R" checkout -q --detach
+A; expect_rc 0 $? "change-approval: a detached HEAD past the change's tip is not its branch"
+(cd "$R" && GITHUB_HEAD_REF=change/add-greeting-name APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name) > "$d/out" 2>&1
+expect_rc 1 $? "change-approval: a CI checkout of the change's pull request (GITHUB_HEAD_REF) counts its diff"
+git -C "$R" checkout -q change/add-greeting-name
+rm -r "$R/.claude/hooks"
 # Merged: on main, the approval still holds.
 git -C "$R" branch -f main HEAD && git -C "$R" checkout -q main
 A; expect_rc 0 $? "change-approval: a delegated approval holds on main after its merge"
