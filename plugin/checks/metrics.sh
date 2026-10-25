@@ -387,6 +387,37 @@ grep -q '^UNPRICED (excluded from the total.*claude-mystery-9' "$d/u" && ok "usa
 expect_rc 2 "$rc" "usage-report with no session to report is CANNOT CHECK (exit 2), not \$0"
 grep -q '^CANNOT CHECK — no session to report' "$d/u" && ok "...and says why" || fail "usage-report no session: $(cat "$d/u")"
 U --session nope; expect_rc 2 $? "usage-report on an unknown session is CANNOT CHECK"
+# #207: a transcript still being written ends in a line cut off with no newline. `jq -R` over the
+# session's files joined it to the next file's first line, so `fromjson?` dropped both, and with them
+# a whole message: here the agent's $2 (the session file is read first, then its agents').
+mkdir -p "$S/sid3/subagents"
+{ msg n1 2026-09-29T15:00:00 main claude-opus-5-5 '{"input_tokens":250000}'; printf '{"type":"assistant","mess'; } > "$S/sid3.jsonl"   # $1, then cut off
+msg n2 2026-09-29T15:01:00 main claude-opus-5-5 '{"input_tokens":500000}' > "$S/sid3/subagents/agent-eee.jsonl"   # $2
+echo '{"agentType":"builder"}' > "$S/sid3/subagents/agent-eee.meta.json"
+U --session sid3 --json
+jq -e '.total_usd == 3 and .messages == 2' "$d/u" >/dev/null \
+  && ok "usage-report: a line cut off with no newline is skipped, and the next file's first message still counts" || fail "usage-report, cut-off line: $(cat "$d/u")"
+# Nor does a meta cut off mid-write cost the agents after it their role: one jq over every meta
+# stopped there, pooling them under `?`. Caught only where a broken meta is read first, and find
+# lists a directory in the file system's order (ext4's is a hash seeded per file system), so a find
+# that lists in name order, `-exec CMD {} +` included, puts agent-a00 before the builder's.
+mkdir -p "$d/sortfind"
+cat > "$d/sortfind/find" <<EOF
+#!/bin/sh
+n=0; for a; do [ "\$a" = -exec ] && break; n=\$((n+1)); done
+if [ "\$n" -eq "\$#" ]; then $(command -v find) "\$@" | LC_ALL=C sort; exit 0; fi
+f=\$(mktemp "$d/sortfind/list.XXXXXX") || exit 2
+( i=0; for a; do i=\$((i+1)); shift; [ "\$i" -le "\$n" ] && set -- "\$@" "\$a"; done; $(command -v find) "\$@" ) | LC_ALL=C sort > "\$f"
+i=0; for a; do i=\$((i+1)); shift; if [ "\$i" -gt \$((n+1)) ]; then case \$a in '{}'|+|';') ;; *) set -- "\$@" "\$a" ;; esac; fi; done
+while IFS= read -r p; do set -- "\$@" "\$p"; done < "\$f"; rm -f "\$f"
+exec "\$@"
+EOF
+chmod +x "$d/sortfind/find"
+printf '{"agentTy' > "$S/sid3/subagents/agent-a00.meta.json"
+(cd "$R" && env PATH="$d/sortfind:$PATH" CLAUDE_PROJECTS_DIR="$P" USAGE_NOW=$NOW sh .claude/usage-report.sh --session sid3 --json) > "$d/u" 2>&1
+jq -e '.total_usd == 3 and (.by_role | map(.name) | index("builder") != null) and (.by_role | map(.name) | index("?") == null)' "$d/u" >/dev/null \
+  && ok "usage-report: a meta cut off mid-write loses no other agent's role" || fail "usage-report, cut-off meta: $(cat "$d/u")"
+rm -rf "$S/sid3" "$S/sid3.jsonl"
 
 # ── The health line ──────────────────────────────────────────────────────────────────────────
 out=$(CONTEXT_OFFLINE=1 sh "$ROOT/.claude/health/flow.sh")
