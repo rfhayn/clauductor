@@ -63,6 +63,10 @@ refuse a lane's own id when run inside that lane.
 - **AND** the lane's tmux session, worktree and branch are untouched
 - **AND** a lane waiting on the owner, a lane starting, and a lane whose reading is not current
   are refused the same way, each in auto-close's words
+- **AND** a lane whose session the panel has heard of only from its tool hooks, with no
+  `claude agents` reading yet, is refused with "claude has not been read yet"
+- **AND** a lane whose session has ended while its claude still runs (after a `/clear`, whose new
+  session no lane record holds) is refused with "its session ended while claude still runs"
 - **AND** run without `--yes`, it is refused the same way, and no plan is printed
 
 #### Scenario: [LANECLOSE-2-S2] A lane does not close itself
@@ -79,10 +83,11 @@ refuse a lane's own id when run inside that lane.
 - **THEN** it is refused naming the background work, and exits 1, and the lane keeps running
 - **AND** an idle lane that holds or waits for a queue's lease is refused the same way, naming the
   lease, and so is a lane whose claude has exited while it holds one
-- **AND** another session busy in the same worktree does not hold the lane: only the lane's own
-  session is read
+- **AND** another session busy in the same worktree, one no claude of the lane's runs, does not
+  hold the lane: only the lane's own session is read
 - **AND** with `lanes_auto_close` `on_merge` and the lane's pull request merged, auto-close does
-  not close it either, and asks in Needs you with the same reason
+  not close it either, and asks in Needs you with the same reason, as it does for a lane whose
+  claude has not been read yet
 - **AND** once a later `Stop` lists no such task, the lane may close
 
 #### Scenario: [LANECLOSE-2-S4] An idle lane on unmerged work is refused; an exited one closes and keeps its branch
@@ -94,7 +99,7 @@ refuse a lane's own id when run inside that lane.
 - **AND** a lane whose plan names no branch is refused the same way, "its branch is not known"
 - **AND** a registered lane whose tmux session is gone, on that branch, is refused the same way,
   and the page still offers to restore it
-- **AND** when that lane's claude has exited instead, the close goes ahead: the lane is stopped
+- **AND** when the idle lane's claude has exited instead, the close goes ahead: the lane is stopped
   and forgotten, and the **Kept** lines keep the branch, saying it is not merged
 
 ### Requirement: Reach the panel only as the owner's user, never from a browser

@@ -110,7 +110,24 @@ Read on 2026-10-24, at `24aa88ee`.
     waited-for lease is held, whatever claude is doing: the lease covers a gate no `Stop` lists
     (E11). Otherwise, a lane whose claude has exited or is gone (`!Running || Dead`) may close:
     its session's background work ends with it. Otherwise claude must be idle on a current
-    reading (E3's rule), and the lane's own session, the one `tv.SessionID` names, must be at
+    `claude agents` reading: `m.agentReading` returns one for the lane's session, and its status
+    is `idle`. E3's rule (`Status == "idle" && !Approx`) is not enough on its own:
+    `sessionStatus` (`state/blocked.go:49-71`) answers idle, and not approximate, when it has no
+    reading and no hook status at all, as for a session heard only from `PreToolUse` right after a
+    panel start, before the first `claude agents` answer (which a login-refresh lock can hold
+    back, panel-claude-calls). Such a lane may be mid-turn, and is held: "claude has not been
+    read yet". A hook's `idle` alone is approximate already, and held as E3 holds it. The lane's
+    session can also have ended while its program runs: `/clear` gives the same claude a new
+    session id that no lane record holds (`state/context.go:81`, LANECTX-2-S8), the record's id
+    drops out of `claude agents`, and `ApplyAgents` ends it (`HookStatus` "ended",
+    `binding.go:136`). The panel then cannot tell what the new session is doing, so the lane is
+    held, in its own words, until its program exits: "its session ended while claude still runs
+    (a /clear?): close it from the page". Once the panel forgets the ended session
+    (`forgetSessions`, `blocked.go:167`), the lane reads as one never heard from and is held as
+    "starting", still held. This is a stated cost: after a `/clear`, neither the command nor auto-close
+    closes the lane, and the owner does (auto-close used to close it, reading the ended session's
+    last `idle` while the new one might be busy). Then the
+    lane's own session, the one `tv.SessionID` names, must be at
     rest: not working by STALL-1's rule (`sessionWorking`), and its last `Stop` listing no shell,
     monitor or teammate, whatever its status (`taskOpen`, as `turnWork` reads it), and no subagent
     (not marked ended) or workflow running or pending (`taskWorking`, `inFlight`). A type STALL-1
@@ -157,11 +174,25 @@ Read on 2026-10-24, at `24aa88ee`.
   returns each held lane's queue id, in a new map, so `judgeStalls`' reading is unchanged.
   `CloseHeld` reads like auto-close's reasons: "claude is working", "waiting on you", "starting",
   any status with "(not a current reading)" when it is approximate, "its turn ended on background
-  work: <the task's description>", or "it holds or waits for the <queue> lease". `statusWords`
+  work: <the task's description>", "it holds or waits for the <queue> lease", "claude has not
+  been read yet", or "its session ended while claude still runs (a /clear?): close it from the
+  page". `statusWords`
   moves to `state` with it.
 
   The socket's route refuses, before the manager is asked to close anything, a lane whose
-  `CloseHeld` is set; then it asks for the plan, and refuses an unmerged lane as above. The view
+  `CloseHeld` is set; then it asks for the plan, and refuses an unmerged lane as above. The plan
+  can take about a minute (`git fetch`, `worktreeVerdict`'s `git status` and `branchVerdict`'s
+  `rev-parse`, `for-each-ref` and `gh pr list`, under three 20 s bounds), and `Close` can then
+  wait for the manager's lock up to `HookTimeout` (5 minutes, `lanes/lifecycle.go:31`) behind
+  another lane's `worktree_setup` or teardown, or auto-close's own `Close`. So the check that
+  counts is made under that lock: a close goes through a new `LaneManager.CloseIf(ctx, id,
+  consent, held func() string)`, which calls `held` once it holds `m.mu` and before
+  `stopAndForgetLocked`, and refuses 409 with nothing changed when it answers. `Close` becomes
+  `CloseIf` with no `held`, so the page's route is unchanged. The socket's route passes a `held`
+  that reads `CloseHeld` from a fresh `Hub.View()`, and auto-close passes the same over its hub.
+  That takes the hub's lock inside the manager's; no path takes them the other way, since every
+  `Hub.Update` and `Hub.Read` closure touches the model alone and `m.changed` only signals a
+  channel (`live.go:115`). The view
   lists every registered lane and every tmux session on the panel's socket (`TermLaneView`,
   `state/model.go:1387`), so a lane it does not list is refused as unknown (LANECLOSE-1-S4). A
   lane started seconds ago may not be listed yet, and refusing it is the safe side. The CLI also
@@ -170,12 +201,15 @@ Read on 2026-10-24, at `24aa88ee`.
   and auto-close where it is on for the lane's type (`AutoCloseOf`; off by default, E3). It reads
   no config to choose them, since a lane type's `auto_close` overrides the project's
   `lanes_auto_close` and the CLI does not know the lane's type. That check only gives a clearer
-  message: the panel's rule is the authority, and a lane running the command is never idle. The
-  view can be a few seconds old, and claude can start working between the check and the stop.
+  message: the panel's rule is the authority, and a lane running the command is never idle. Even
+  read under the lock, the view is only as current as the panel's last reading of the lane, and
+  claude can start working between that reading and the stop.
   `Close` then stops it as Stop does (E2). This narrows the window and cannot close it, as the
   detached recheck narrows its own (`close.go:129`).
   **Auto-close reads the same `CloseHeld`** in place of its own rule, so it too stops closing a
-  lane whose turn ended on background work or that holds a lease (E11). That is a fix to
+  lane whose turn ended on background work, that holds a lease, or whose claude has no current
+  `claude agents` reading yet (a session heard only from its tool hooks), or whose session ended
+  while its program still runs (after a `/clear`) (E11). That is a fix to
   PANEL-20's behaviour, and the owner's to approve with this decision. **Beat: the stricter rule
   for the command only,** leaving auto-close on E3's rule. Two rules for one question, one of them
   knowingly unsafe.
@@ -206,8 +240,12 @@ Read on 2026-10-24, at `24aa88ee`.
   `CLIHandler` is given, not the request's. A panel shutting down still cancels it, which keeps
   more (E6). No deadline is added: each step keeps its own bound, the teardown its 5 minutes. An
   agent's Bash timeout or a Ctrl-C then leaves the close finished, not the lane stopped with its
-  clean, merged worktree left behind. The page's route keeps the request's context, as it does
-  today.
+  clean, merged worktree left behind. A timeout before `Close` begins changes nothing: with
+  `--yes` the CLI asks for the plan twice (its dry run, then the close route's own), each up to
+  about a minute, so D5's sentence gives the `--yes` call a 10-minute Bash timeout, Bash's
+  ceiling. That covers the usual case, not the worst (two plans, a 5-minute wait for the
+  manager's lock, the teardown's 5 minutes and the removal's 60 s): a call that times out
+  reports "outcome not received: see the panel's log line", and the close still finishes. The page's route keeps the request's context, as it does today.
   **Beat: the request's context, as the page.** It is safe (a cancelled read keeps more), but the
   CLI is likelier than a browser tab to be cut off mid-close, and what it leaves is the half-done
   state this row exists to clear.
@@ -216,7 +254,9 @@ Read on 2026-10-24, at `24aa88ee`.
   `template/.claude/skills/session-close/SKILL.md`'s *Close the lanes* rule gains one sentence.
   For each lane whose pull request merged and that is still open: run `clauductor lane close
   <id>` from the repository, then, only when the plan's first line names the merged branch, the
-  same with `--yes`, and put the plan's Keeps lines, if any, in the final message. The id to try
+  same with `--yes` under a 10-minute Bash timeout (D4), and put the plan's Keeps lines, if any,
+  in the final message (or, when the call timed out, that its outcome was not received and is in
+  the panel's log). The id to try
   first is the folder name of the merged branch's worktree in `git worktree list` (a new lane's
   worktree is `<worktree_dir>/<id>`, `lanes/lanes.go:712`; a lane started on an existing worktree
   may differ). When that id is unknown, the refusal's `id (branch)` list names the lane on the

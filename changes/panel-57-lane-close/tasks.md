@@ -18,11 +18,13 @@
   `leases` also returns each held lane's queue id in a new map (its callers at `stall.go:620` and
   in `judgeStalls` take the new value and ignore it). The verdict, in D2's order: a lease held or
   waited for holds the lane whatever claude is doing; otherwise `!Running||Dead` may close;
-  otherwise E3's rule, then the lane's own session (`tv.SessionID`, looked up in `m.sessions`)
-  checked with `sessionWorking` and with its last `Stop`'s tasks (a `taskOpen` type whatever its
+  otherwise E3's rule and a current `claude agents` reading of `idle` for the lane's session
+  (`m.agentReading` non-nil), else held as "claude has not been read yet"; then the lane's own
+  session (`tv.SessionID`, looked up in `m.sessions`) checked with `sessionWorking` and with its last `Stop`'s tasks (a `taskOpen` type whatever its
   status, as `turnWork` reads it; a `taskWorking` type when `inFlight`, a subagent not marked
   ended), with no `unheard` limit on the tasks. No other session in the worktree is read. `statusWords` moves to `state` from
-  `autoclose.go`, and `pollAutoClose` reads `CloseHeld` in place of its own rule. Tested in
+  `autoclose.go`, and `pollAutoClose` reads `CloseHeld` in place of its own rule and closes
+  through `CloseIf` (task 1.2) with a `held` that reads `CloseHeld` from its hub. Tested in
   `framework/internal/panel/state/model_lanes_test.go`: a table over `busy`, `waiting`, `running`,
   `idle`, an exited program (`Dead`), a gone session (`!Running`), and each of `busy` and `idle`
   with `Approx`, checking the verdict and the words; then an `idle` lane whose session's last
@@ -31,7 +33,12 @@
   the task and the last three not; a running subagent still held after `stallUnheard` × the stall
   time has passed; an `idle` lane bound to a queue's live holder, then to a waiter, held naming the
   lease, and not once the lease is gone; a `Dead` lane bound to a holder still held; a lane whose
-  session the panel has not heard from held as "starting"; and an `idle` lane whose own session is
+  session the panel has not heard from held as "starting"; a lane whose session is known only from
+  a `PreToolUse` hook, with no agents reading (so `sessionStatus` answers `idle`, not approximate),
+  held as "claude has not been read yet", and not once an agents reading of `idle` arrives; a
+  running lane whose record's session `ApplyAgents` has ended (dropped from the reading, as after
+  a `/clear`) held as "its session ended while claude still runs (a /clear?): close it from the
+  page", and as "starting" once `forgetSessions` drops it; and an `idle` lane whose own session is
   at rest while another session
   in the same worktree is working, not held. `TestAutoCloseOnMerge` and the stall tests pass
   unchanged. Citing [LANECLOSE-2-S1], [LANECLOSE-2-S3].
@@ -40,7 +47,14 @@
   stays. Tested in `framework/internal/panel/lanes/close_test.go`: a plan for a lane on a merged
   branch carries the `ok` reason and no `Unmerged`, one on an unmerged branch the `why` and no
   `Merged`, one on a dirty worktree whose branch merged still carries `Merged`, and the existing
-  plans' other fields are unchanged. Citing [LANECLOSE-2-S4].
+  plans' other fields are unchanged. `LaneManager.CloseIf(ctx, id, consent, held func() string)`:
+  `held` called once `m.mu` is held and before `stopAndForgetLocked`, an answer refused 409
+  (`held`) with nothing changed; `Close` is `CloseIf` with a nil `held`. Tested in the same file:
+  a `held` that answers leaves the registry, the tmux session, the worktree and the branch as
+  they were, and the runner records no stop; a `held` that sees a change made while another call
+  held the lock (a runner stub that blocks under `m.mu`, then the answer flipped before it is
+  released) refuses; a nil `held` closes as `Close` did. Citing [LANECLOSE-2-S1],
+  [LANECLOSE-2-S4].
 - [ ] 1.3 `framework/internal/panel/web/cli.go` (new): `(*Server).CLIHandler(ctx context.Context,
   out io.Writer) http.Handler`, a mux of its own serving only `POST
   /api/p/{project}/lanes/{id}/close` through `withProject` and `decodeStrict`, with no cookie and
@@ -48,7 +62,9 @@
   the project's `Hub.View()` does not list is refused 404 with the view's lanes as `id (branch)`;
   one whose `CloseHeld` is set, 409 with it. Then the plan; a lane whose view is not `Dead` and
   whose plan has an empty `Merged` is refused 409 before anything changes: "its branch is not
-  merged: <`Unmerged`>", or "its branch is not known" when the plan has no branch. Then the dry run as `closeLane` answers it, or `Close` under
+  merged: <`Unmerged`>", or "its branch is not known" when the plan has no branch. Then the dry
+  run as `closeLane` answers it; or, for a close, `CloseIf` with a `held` that reads `CloseHeld`
+  from a fresh `Hub.View()` (task 1.2), under
   the handler's `ctx` (the panel's), with no added deadline, and one line to `out` per close:
   `lane <id> (<project>) closed by clauductor lane close: removed …; kept …`. Tested in
   `framework/internal/panel/web/cli_test.go` (new) through `httptest`, with the project's lanes
@@ -58,7 +74,9 @@
   is refused 409 naming it, and the runner records no removal, while the same lane with its
   program exited is closed with the branch kept; an idle lane whose plan has no branch (its
   worktree gone) is refused "its branch is not known"; a registered lane with no tmux session on
-  an unmerged branch is refused, and on a merged one is closed; an id the view does not list is
+  an unmerged branch is refused, and on a merged one is closed; a lane whose view is clear when
+  asked and sets `CloseHeld` before `Close` holds the lock (the runner's `git fetch` stub sets the
+  hub's view) is refused 409 with no removal; an id the view does not list is
   refused with its lanes and their branches; a close whose request context is cancelled before `Close` returns
   still reaches the manager under a live context. Citing [LANECLOSE-3-S1], [LANECLOSE-2-S1],
   [LANECLOSE-2-S3], [LANECLOSE-2-S4], [LANECLOSE-1-S4], [LANECLOSE-4-S1].
@@ -144,21 +162,26 @@
 - [ ] 4.1 `docs/panel.md`: under *Close lane*, a subsection *Close a lane from the command line*
   (the command, run from the project's checkout with no `--project`, plan first, `--yes`, the
   verdict, merged-or-exited, and the self refusal, the finish after an interrupt, where its line
-  goes); under *Close a lane when its PR merges*, that background work in flight or a lease holds
-  it, and the same in `lanes_auto_close`'s `Doc` in `framework/internal/panel/config/fields.go`,
-  with the generated reference refreshed (`go generate ./internal/panel/config`, held by
+  goes); under *Close a lane when its PR merges*, that background work in flight, a lease, or no
+  current `claude agents` reading yet holds it, and the same in `lanes_auto_close`'s `Doc` in `framework/internal/panel/config/fields.go`,
+  with the files it generates refreshed (`go generate ./internal/panel/config`: the config table
+  in `docs/panel.md` and the field's `description` in `docs/panel.schema.json`, both held by
   `TestGeneratedFilesAreCurrent`); and under *Security model* the socket (mode 0600, the one route, no token).
   `README.md`'s command table: a `clauductor lane close` row.
 - [ ] 4.2 `template/.claude/skills/session-close/SKILL.md`, the *Close the lanes* rule, D5's
   sentence (run from the repository; the lane's id tried from its worktree's folder name, else,
   when that id is unknown, from the refusal's `id (branch)` list; `--yes` only when the plan's
-  first line names the merged branch, and a lane on another branch left to the owner, named); `template/.claude/settings.json`'s `permissions.allow`, `Bash(clauductor lane close
+  first line names the merged branch, and a lane on another branch left to the owner, named;
+  `--yes` under a 10-minute Bash timeout, and a call that timed out reported as its outcome not
+  received, in the panel's log); `template/.claude/settings.json`'s `permissions.allow`, `Bash(clauductor lane close
   *)` (D7). Then `scripts/build-plugin.sh`, and `env -u CLAUDUCTOR_FRAMEWORK framework/clauductor
   update` from the repository root with the binary built from this checkout, its `Template:` line
   checked to name this worktree's `template/`. Commit only `.claude/skills/session-close/SKILL.md`
-  and `.claude/settings.json` from it; any other tracked drift it writes is OPS-119's, restored
-  with `git checkout --`. An agent's sandbox denies writing `.claude/settings.json`, so if update
-  cannot write it, the builder stops and asks the owner to run that one command. Held by `TestCommittedPluginIsCurrent`, `checks/skills.sh` and
+  and `.claude/settings.json` from it; any other drift it writes is OPS-119's: a tracked file
+  restored with `git checkout --`, and a file it created (a `??` line in `git status
+  --porcelain` that was not there before update ran) removed. An agent's sandbox may deny writing
+  `.claude/settings.json` and `.claude/skills/`, so if update cannot write either, or stops
+  part-way, the builder undoes what it wrote the same way, stops, and asks the owner to run that one command. Held by `TestCommittedPluginIsCurrent`, `checks/skills.sh` and
   `checks/settings.sh`.
 
 - [ ] Slice: an agent can close a finished panel lane with clauductor lane close, through Close lane's plan and guards, and cannot close a working one

@@ -29,8 +29,11 @@ forced.
   subagent, a workflow, a background shell, a teammate) and its branch is merged: an idle lane is
   not a finished one. A lane whose tmux session is gone, which the page offers to restore, closes
   only when its branch is merged. Auto-close reads the same verdict for the work, so it too stops closing a
-  lane whose turn ended on background work or that holds a lease: a fix to PANEL-20 the owner
-  approves with D2. A lane cannot close itself.
+  lane whose turn ended on background work, that holds a lease, whose claude has not yet been
+  read by `claude agents`, or whose session ended while claude still runs (after a `/clear`,
+  which the owner then closes from the page): a fix to PANEL-20 the owner approves with D2. Both
+  make their final check under the lock the close takes, which narrows the window in which a lane
+  that starts working is stopped, but cannot close it: the panel reads claude every few seconds. A lane cannot close itself.
 - **Reached over a socket only the owner's user can open** (D1). The panel serves the close on
   `~/.clauductor/panel/cli.sock` (mode 0600, in the 0700 panel directory). No browser can reach it,
   and the CLI holds no token.
@@ -54,7 +57,7 @@ forced.
   `framework/internal/panel/state/model.go` and `framework/internal/panel/state/stall.go` (the
   shared verdict, and the leases it reads), `framework/internal/panel/lanes/close.go` (the plan
   says whether the branch is merged), `framework/internal/panel/config/fields.go` (auto-close's
-  reference line), `template/.claude/settings.json`
+  reference line) and the `docs/panel.schema.json` it generates, `template/.claude/settings.json`
   (D7), this repository's own `.claude/skills/session-close/SKILL.md` and `.claude/settings.json`
   (synced), and `README.md`'s command table.
 
@@ -90,9 +93,12 @@ This change adds a new capability, `panel-lane-close` (LANECLOSE-1 to LANECLOSE-
 - **Any change to what Close removes or keeps,** or to the page's route and its guards.
 
 ## How we'll know
-- **Signal:** in the 14 days after it merges, no idle lane whose pull request merged survives a
-  session close with a Needs-you ask (`PR merged: close lane <id>?`, `autoclose.go:97`) still standing: at the next session
-  start, the page shows none. Each lane a session closed has its `closed by clauductor lane close`
+- **Signal:** in the 14 days after it merges, no lane whose pull request merged and whose work
+  has ended (its `CloseHeld` empty) survives a session close with a Needs-you ask (`PR merged:
+  close lane <id>?`, `autoclose.go:97`) still standing: at the next session start, the page shows
+  none. A lane still asked about because D2 holds it (a lease, background work, claude busy) is
+  not a miss; its ask names why. One held because its session ended after a `/clear` is not a
+  miss either, but is counted and named in the check, so a hold that is common shows. Each lane a session closed has its `closed by clauductor lane close`
   line in the panel's log. A lane closed that the owner did not mean to lose (a working lane, or
   one whose worktree or branch held unmerged work) is a miss and gets a fix row. If no session
   close in the 14 days met such a lane, the signal is "not exercised" and the check is re-queued
