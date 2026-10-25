@@ -290,8 +290,10 @@ const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
 const OPENED = 'marker: opened https://github.com/o/r/pull/1 as a draft (session-start: S1 2026-10-01 09:00 ET row DEMO-1)'
-async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null } = {}) {
+async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null, groups = null } = {}) {
   const calls = []
+  // commitCost: change-cost.sh's reading after each commit, one for every commit or a list in commit order.
+  const costs = [].concat(commitCost)
   const reviews = [{ findings: round1 }, { findings: [] }]
   let h = 0
   const agent = async (prompt, opts) => {
@@ -299,11 +301,11 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
     if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, ...budget,
-      groups: [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
+      groups: groups || [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
     if (label.startsWith('review:')) return reviews.shift()
-    if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: commitCost }
+    if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: costs.length > 1 ? costs.shift() : costs[0] }
     if (label === 'verify') return { passed: true, output: 'ok' }
     throw new Error(`unexpected agent label ${label}`)
   }
@@ -393,6 +395,18 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('a budget whose kind was not reported is treated as hard, and the warning says so', r.report.stoppedAt === 'budget' && warned(r, '$10', 'HARD'), [r.report.stoppedAt, r.report.warnings])
   r = await run([], { budget: { budgetUsd: null, budgetKind: 'none', costUsd: 4 } })
   t('no **Budget:** line: no stop and no budget warning', r.report.stoppedAt === null && !r.report.warnings.some((w) => /budget/i.test(w)), [r.report.stoppedAt, r.report.warnings])
+  // OPS-134 (#253): change-cost.sh's figure is the CHANGE's running total, so a group's reading after
+  // its commit holds every group before it, across resumed runs too. OPS-109's four runs read 22.65,
+  // 30.16, 40.15 and 47.71, and adding the groups' figures up made $110.51 of a $47.71 change. Each
+  // group carries the running total under a name that says so, and its own spend beside it: the
+  // difference from the reading before it (preflight's for the run's first group).
+  const g3 = [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 1 }, { n: 3, title: 'Screens', openTasks: 2 }]
+  r = await run([], { args: { resume: 2 }, groups: g3, budget: { costUsd: 22.65 }, commitCost: [40.15, 47.71] })
+  const gs = r.report.groups
+  t('a resumed run reports each group\'s own spend (groupUsd 17.5, then 7.56), from preflight\'s reading on', r.report.stoppedAt === null && gs.length === 2 && gs[0].groupUsd === 17.5 && gs[1].groupUsd === 7.56, gs)
+  t('...the change\'s running total as changeCostUsd, and no group figure named costUsd to be added up', gs.length === 2 && gs[0].changeCostUsd === 40.15 && gs[1].changeCostUsd === 47.71 && gs.every((g) => !('costUsd' in g)) && r.report.costUsd === 47.71, gs)
+  r = await run([], { args: { resume: 2 }, groups: g3, budget: { costUsd: null }, commitCost: [null, 47.71] })
+  t('a reading that could not be taken leaves that group\'s spend and the next one\'s unknown (null), never a running total passed off as a spend', r.report.groups.length === 2 && r.report.groups.every((g) => g.groupUsd === null), r.report.groups)
   // The stub above answers budgetKind itself, so what makes it ONE reading is the preflight prompt:
   // the budget comes from change-cost.sh's JSON, and the agent is told not to parse proposal.md.
   const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''

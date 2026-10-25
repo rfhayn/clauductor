@@ -34,10 +34,12 @@
 # session votes for the change when its lead recorded the branch there last, or more often than
 # any other branch (a tie falls back to last), unless the lane is NAMED after the branch it ended
 # on: PANEL-48's close lane, session-3-close, recorded PANEL-48's branch 168 times and
-# ops/session-3-close 86, and is the close's lane, not the change's. Known limits: a counted lane
-# counts whole, the work its lead did there after moving on included (OPS-118 reads $214.17
-# against build-change's $200.24); a close lane named otherwise that recorded the stale branch most
-# is taken.
+# ops/session-3-close 86, and is the close's lane, not the change's. A counted lane does not count
+# WHOLE (#249): a lead's own messages there on a named other branch, after its last on the change's
+# in that lane, or from a session that never recorded it there, are the next work (OPS-118 read
+# $214.17 with its archive's, $206.37 without, against build-change's $200.24). Known limits: an
+# agent the lead ran there after moving on still counts, recording no branch of its own; a close
+# lane named otherwise that recorded the stale branch most is taken.
 # The lanes it rejected are named (the one line's "rejected lanes:", --json's rejectedLanes), so a
 # collapse of the figure is visible. Known limits: a lane reused by two sessions, one ending on the
 # branch, counts whole for it; once removed, a lane is lost whose only session switched away from
@@ -183,15 +185,24 @@ files=$(printf '%s\n%s\n' "$files" "$nested" | grep -v '^$' | sort -u)
 # shellcheck disable=SC2086
 tag $files | jq -cR --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" "$tagged"'
   | select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
-  | any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .) as $inwt
+  | (first($wts[] as $w | select($cwd == $w or ($cwd | startswith($w + "/"))) | $w) // null) as $wr
   | {f: $file, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
-           and ($inwt or ($cwd | startswith($lanes) | not))),
-     inwt: $inwt}' 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson agents "$agentsjson" "$USAGE_JQ_DEFS"'
+           and (($wr != null) or ($cwd | startswith($lanes) | not))),
+     inwt: ($wr != null), r: $wr, lead: ($file | contains("/subagents/") | not),
+     s: (.sessionId // $file), t: (.timestamp // ""), b: (.gitBranch // "")}' 2>/dev/null \
+| jq -s --slurpfile r "$roles" --arg c "$id" --arg b "$branch" --arg m "$MAIN_BRANCH" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson agents "$agentsjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
-  | [ group_by(.f)[] | (.[0].f | IN($agents[])) as $agent
-      | .[] | select(.onb or .inwt or $agent) ]
+  | [ to_entries[] | .value + {n: .key} ] as $all
+  # A lead that moved on in a counted lane (#249): its messages there on a named other branch, after
+  # its last on $b in that lane (or with none there at all), are the next work, not this change.
+  | ([ $all[] | select(.lead and .inwt) ] | group_by([.s, .r])
+      | map(sort_by(.t) | (map(.b == $b) | rindex(true)) as $last
+            | to_entries[] | select((.value.b | IN($b, $m, "HEAD", "")) | not)
+            | select($last == null or .key > $last) | {key: (.value.n | tostring), value: true})
+      | from_entries) as $moved
+  | [ $all | group_by(.f)[] | (.[0].f | IN($agents[])) as $agent
+      | .[] | select(.onb or (.inwt and ($moved[.n | tostring] | not)) or $agent) ]
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
   | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd
     | { model: $x.model, priced: ($usd != null), usd: ($usd // 0) } ]

@@ -15,7 +15,8 @@
 #     names a missing meta is pooled under `?`, never guessed;
 #   - a streamed response repeats its message id on several lines: the caller dedupes by id;
 #   - a model (or fast mode) with no price is UNPRICED (usd null), listed, never costed at zero;
-#   - a line cut off mid-write is skipped, not fatal (jq -R + fromjson?).
+#   - a line cut off mid-write is skipped, not fatal (jq -R + fromjson?), and never joined to the
+#     next file's first line (each file's lines tagged by its own awk, #207).
 #
 # Dollars are list-price API equivalents: on a subscription they are a proxy for how fast the
 # limit drains, not a bill. Everything needs jq.
@@ -120,16 +121,19 @@ usage_records() {
       else
         echo '{}' > "$_tmp/metas.json"; : > "$_tmp/agents"
       fi
-      # shellcheck disable=SC2046
-      { printf '%s\n' "$_f"; cat "$_tmp/agents"; } | while IFS= read -r _t; do printf '%s\0' "$_t"; done \
-        | xargs -0 jq -cR --slurpfile p "$_tmp/prices.json" --slurpfile metas "$_tmp/metas.json" \
+      # Each line tagged `<file>\t<json>` by one awk per file (#207, the shape OPS-120 fixed in
+      # change-cost.sh): `jq -R` over several files joins a line cut off with no newline (a
+      # transcript still being written) to the next file's first line, and `fromjson?` drops both.
+      # awk ends every file's last line, and stops at a file it cannot open, so one awk per file.
+      # The split is at the LAST tab: a JSON line holds none raw.
+      { printf '%s\n' "$_f"; cat "$_tmp/agents"; } | while IFS= read -r _t; do awk '{ print FILENAME "\t" $0 }' "$_t" 2>/dev/null; done \
+        | jq -cR --slurpfile p "$_tmp/prices.json" --slurpfile metas "$_tmp/metas.json" \
             --arg since "$_since" --arg sid "$_sid" --arg mainf "$_f" "$USAGE_JQ_DEFS"'
-          select(contains("\"usage\"")) | (fromjson? // empty)
+          select(contains("\"usage\"")) | split("\t") | (.[:-1] | join("\t")) as $file | (.[-1] | fromjson? // empty)
           | select(.type == "assistant" and (.message.usage | type) == "object" and (.message.model // "") != ""
                    and .message.model != "<synthetic>")
           | select($since == "" or ((.timestamp // "") >= $since))
           | . as $e
-          | (input_filename) as $file
           | { id: ($e.message.id // $e.uuid // ($file + ":" + ($e.timestamp // ""))),
               ts: (($e.timestamp // "") | sub("\\.[0-9]+"; "") | (fromdateiso8601? // 0)),
               sid: $sid,
