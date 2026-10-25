@@ -27,7 +27,8 @@
   - Once every entry has landed, the item is the session's close. With no plan or no open session,
     `next` prints `[]`.
   - The item is `{name, title, detail, issue, kind, row}`, plus `decision` when a `D` record of
-    `roadmap-plan.sh` names its row.
+    `roadmap-plan.sh` names its row. Its `issue` is `#<n>` for a `fix/` row whose name is
+    `<n>-<slug>`, the fix kind's form, and `""` for every other item (D2).
   - Its `kind` is `build` for a change row whose proposal is on main, `propose` for one without,
     `ops` for an `ops/` row, `fix` for a `fix/` row, and `close` for the close.
   - A planned `ID (proposal)` entry is `propose` until its proposal is on main or archived, and
@@ -36,7 +37,7 @@
   - It reads the plan only through `roadmap-plan.sh` and the queue only through `roadmap_queue`:
     no second parser.
   - Tested in `template/.claude/checks/panel-suggest.sh`, citing [PLANRUN-8-S1], [PLANRUN-8-S2],
-    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5] and [PLANRUN-8-S6]. The fixture roadmaps are built as the
+    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5], [PLANRUN-8-S6] and [PLANRUN-8-S7]. The fixture roadmaps are built as the
     check's OPS-126 cases build theirs.
 - [ ] 1.2 Run `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root
   with the binary built from this checkout. This syncs this repository's `.claude/panel-suggest.sh`
@@ -99,11 +100,13 @@
   - **Who may be tracked** (PLANRUN-9).
     - `candidates(item)` returns the branches `Config.TemplateBranch(id, item.name, item.issue)`
       gives the templates `Config.TemplateKind` gives the item's kind, deduplicated. A template it
-      refuses for the item is no candidate. When none is left, it returns the reason, naming
-      `TemplateBranch`'s errors if any. No Up next list is read.
+      refuses for the item is no candidate. When none is left, it returns the reason in one of
+      refusal 1's two forms: no template of the kind, or each one refused, naming
+      `TemplateBranch`'s errors. No Up next list is read.
     - `adoptable(item)` looks up the project's running lanes on the candidates itself, and
-      returns an `Adoption` or the reason, in design.md's order: no template of the item's kind;
-      no lane on any candidate; matching lanes on two candidates; a lane record whose `Template`
+      returns an `Adoption` or the reason, in design.md's order: no template of the item's kind
+      (either form); no lane on any candidate; running lanes, of any template, on more than one
+      candidate; a lane record whose `Template`
       is of another kind or empty; `mergedPRRead` returned an error (never read as no merged
       PR); a HEAD a merged PR holds, naming the PR.
     - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
@@ -112,14 +115,20 @@
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and calls
     `adoptable` for the item. An allowed lane is tracked with `next`'s item, whole, and
     `started` false. A refusal sets the runtime's `waiting` to its reason and pushes nothing.
-    Tracking a lane or writing a stop clears `waiting`.
+    A `next` that prints `[]` sets it to "next names no row", and one that fails, times out or
+    prints something unreadable sets it to the error, with no stop and no push. It is empty
+    while the runner is not idle, off or untrusted. Tracking a lane or writing a stop clears it.
   - Tested in `framework/internal/panel/planrun_test.go`, one table over `adoptable`'s reasons
     with a stand-in `gh`, citing [PLANRUN-9-S1], its rows in the same order: `next`
     `["sh", "scripts/next-row.sh"]`; an ops lane on `ops/a` while `next` names A's build; build
     lanes on two candidates, from a config with two build templates of different patterns; a
     propose lane on `change/a`; a lane with no template; a stand-in `gh` that fails the
     merged-PR read; and a HEAD merged PR #8 holds. Each case asserts its `planRun.waiting`
-    reason, that `plan-run.json` stays `idle`, and that no notice goes out.
+    reason, that `plan-run.json` stays `idle`, and that no notice goes out. Two rows beyond the
+    scenario: a build lane on one candidate and a propose lane on another (lanes on two
+    candidates), and a fix template whose pattern names `{issue}` (refusal 1's second form).
+  - Tested in the same file, citing [PLANRUN-7-S2]'s idle `next` cases: a stand-in `next` that
+    fails, and one that prints `[]`, each with no notice and its `waiting`.
   - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
     context. An error with that context done writes nothing and sends nothing: before the start it
     leaves `watching`, and during it `starting`. Tested in task 4.2, once the wait, `next`'s second
@@ -187,9 +196,9 @@
   - A refusal is a stop naming it.
   - On start, a `starting` state is resolved first (D12), through `adoptable` for the recorded
     item, whole. An allowed lane is tracked with no notice; when it is on the recorded
-    branch, the restart marks the `Adoption` started before `track`. "No lane on any candidate"
-    is a stop naming the row, the branch and what step 6 finds there. Any other refusal is a stop
-    naming its reason.
+    branch, the restart marks the `Adoption` started before `track`. "No template of the item's
+    kind" and "no lane on any candidate" are each a stop naming the row, the branch and what step
+    6 finds there. Any other refusal is a stop naming its reason.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
@@ -200,10 +209,15 @@
     - [PLANRUN-9-S2]: a propose lane on `change/b` at step 6 while `next` names B's build, and the
       same lane found by a restart's resolution of `starting` for B's build.
     - [PLANRUN-9-S3]: `next` `["sh", "scripts/next-row.sh"]` with no lane on `change/b`, where
-      step 6 goes on and the fake starter records B's build start, with no notice.
-    - [PLANRUN-9-S4]: a config whose fix template's pattern is `fix/{issue}-{name}`: its lane
-      adopted while idle, the same lane found by a restart's resolution of `starting` and tracked
-      with `started` true, and an item with no issue leaving `waiting` naming the template.
+      step 6 goes on and the fake starter records B's build start, with no notice; and a
+      restart's resolution of `starting` for that start under the same `next`, which tracks
+      nothing and sends the cut-short notice.
+    - [PLANRUN-9-S4]: the shipped fix template (`fix/{name}`, a first prompt naming `{issue}`)
+      and the item `12-typo` with issue `#12`: its lane adopted while idle; the same lane found by
+      a restart's resolution of `starting` and tracked with `started` true; a start the fake
+      starter records with issue `#12`, whose request `RenderTemplate` renders with no error and
+      a first prompt naming `#12` (a stand-in `gh` lists issue 12 for step 5); and a `fix/{issue}-{name}`
+      pattern leaving `waiting` naming the template and its invalid branch.
     - [PLANRUN-1-S4]: an untrusted config that starts nothing, then **Trust config…** and the start.
     - [PLANRUN-2-S5]: a merge found on start, then a second restart that starts nothing.
     - [PLANRUN-2-S9]: the context cancelled during the catch-up wait and during `next`'s second
@@ -247,8 +261,8 @@
   - The idle lane: a tracked lane that is not stalled and not merged, none of whose live sessions is
     working, and that has not moved for `alerts.stall_minutes` (30 when 0), gets one notice. It
     uses the stall's own `sessionWorking` and last-movement reading, not a copy.
-  - A stalled lane gets no notice from the runner, and the run's state reads "waiting on <lane>:
-    stalled".
+  - A stalled lane gets no notice from the runner, and the run's state reads "`<lane>` is
+    stalled". `planRun.waiting` stays empty: it is the idle read's alone.
   - Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-6-S1], [PLANRUN-6-S2] and
     [PLANRUN-6-S3].
 

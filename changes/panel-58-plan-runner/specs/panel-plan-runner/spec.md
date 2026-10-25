@@ -84,8 +84,8 @@ SHALL stay `watching`, so the next runtime finds the merge again. During the sta
 `starting`, and no runtime's stop SHALL wait for more than the start's return on its cancelled
 context. The `starting` state SHALL record `next`'s item, whole, and its branch. WHEN a runtime
 starts on a `starting` state, THE SYSTEM SHALL run PLANRUN-9's check for the recorded item and
-track the lane it allows with no notice, or, WHEN no lane runs on any candidate, start nothing and
-stop with a notice naming the row and the branch. And
+track the lane it allows with no notice, or, WHEN no template is of the item's kind or no lane runs
+on any candidate, start nothing and stop with a notice naming the row and the branch. And
 WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
 run with a notice.
 
@@ -317,7 +317,7 @@ THE SYSTEM SHALL send one notice naming the lane, and SHALL send none for a lane
 not stalled and has not merged, and no live session of it is working and the lane has not moved,
 both in the stall's terms, for `alerts.stall_minutes` (30 when that is 0), THE SYSTEM SHALL send
 one notice naming the lane. WHEN the tracked lane is stalled, THE SYSTEM SHALL send no notice of its
-own, and `planRun` SHALL say the run waits on that lane, stalled. In each case THE SYSTEM SHALL keep
+own, and `planRun`'s state SHALL say that the tracked lane is stalled. In each case THE SYSTEM SHALL keep
 tracking the lane, and go on WHEN it merges.
 
 #### Scenario: [PLANRUN-6-S1] A first prompt not delivered is pushed, and the run goes on
@@ -341,15 +341,18 @@ tracking the lane, and go on WHEN it merges.
 - **GIVEN** a tracked lane with its pull request open, stalled
 - **WHEN** the notifier and the runner's tick run
 - **THEN** the stall's notice goes out and the runner sends none
-- **AND** `/api/state`'s `planRun` says the run waits on that lane, stalled
+- **AND** `/api/state`'s `planRun` state says that lane is stalled, and its `waiting` is empty
 
 ### Requirement: Each notice of the run goes out once, and the page shows the run
 THE SYSTEM SHALL send each notice of the runner once, as a macOS notification and through the push
 (`panel-stall`'s third requirement). SHALL record it in `plan-run.json` by its reason and the merge
 or row it names, so that a restart does not send it again. `/api/state` SHALL carry `planRun`, with
-`on`, the state, the row, the lane, the last stop's text and time, and `waiting`, the reason
-PLANRUN-9's check last refused while idle, each in its own field. The page SHALL show them as one
-line above Up next, with `waiting` beside the last stop, neither replacing the other.
+`on`, the state, the row, the lane, the last stop's text and time, and `waiting`, each in its own
+field. `waiting` SHALL be what the last idle read found: PLANRUN-9's refusal, or that `next`
+named no row, or that it failed, naming the error. While idle, a `next` that fails SHALL send no
+notice. `waiting` SHALL be empty while the runner is not idle, and while it is off or the config
+is untrusted. The page SHALL show them as one line above Up next, with `waiting` beside the last
+stop, neither replacing the other.
 
 #### Scenario: [PLANRUN-7-S1] A stop's notice is not sent again after a restart
 - **GIVEN** a run stopped at a capped review of #9, its notice sent
@@ -367,6 +370,8 @@ line above Up next, with `waiting` beside the last stop, neither replacing the o
 - **AND** when that run is idle and PLANRUN-9's check then refuses, waiting for a lane on
   `change/a`, `planRun` still carries the stop naming "#9" and carries `waiting` naming
   `change/a`, and the page's line shows both
+- **AND** when that idle run's `next` then fails, no notice goes out and `waiting` names the
+  error; when it prints `[]`, `waiting` says `next` names no row
 
 ### Requirement: `panel-suggest.sh next` names the plan's next row, in the plan's order
 `panel-suggest.sh next` SHALL print, from `origin/<main>`, a JSON array of at most one item:
@@ -377,11 +382,13 @@ line above Up next, with `waiting` beside the last stop, neither replacing the o
 - or, once every entry of the open session has landed, that session's close;
 - or `[]` when there is no plan or no open session.
 
-The item SHALL carry `name`, `title`, `kind` (`build`, `propose`, `ops`, `fix` or `close`), `row`
-and, WHEN the plan's *The owner decides* names its row, `decision`. Its `name` SHALL be the one
-its kind's list uses: the change id, the `ops/` branch without its prefix, the close's
-`session-N-close`, and for a `fix/` row its branch without its prefix, which the fix template's
-list of open issues names only WHEN it is that issue's `<n>-<title slug>`.
+The item SHALL carry `name`, `title`, `detail`, `issue`, `kind` (`build`, `propose`, `ops`, `fix`
+or `close`), `row` and, WHEN the plan's *The owner decides* names its row, `decision`. Its `name`
+SHALL be the one its kind's list uses: the change id, the `ops/` branch without its prefix, the
+close's `session-N-close`, and for a `fix/` row its branch without its prefix, which the fix
+template's list of open issues names only WHEN it is that issue's `<n>-<title slug>`. Its `issue`
+SHALL be `#<n>` for a `fix/` row whose name is `<n>-<slug>`, the form the fix kind's list gives
+the same issue, and empty for every other item.
 
 #### Scenario: [PLANRUN-8-S1] The next row is the plan's next, not the first template's
 - **GIVEN** an open session whose plan lists an ops row A, then a change row B whose proposal is on
@@ -420,6 +427,13 @@ list of open issues names only WHEN it is that issue's `<n>-<title slug>`.
 - **THEN** it prints A with `kind` `propose`, and then B with `kind` `ops`
 - **AND** with A's proposal on main and B's fragment on main, it prints the open session's close
 
+#### Scenario: [PLANRUN-8-S7] A fix row carries its issue, and no other item does
+- **GIVEN** an open session whose plan lists a fix row on `fix/12-typo`, then an ops row B
+- **WHEN** `panel-suggest.sh next` runs, and again with the fix row's fragment on main
+- **THEN** it prints the fix row with `kind` `fix`, `name` `12-typo` and `issue` `#12`, and then B
+  with `issue` empty
+- **AND** a fix row on `fix/typo`, with no number, prints with `issue` empty
+
 ### Requirement: A lane the runner did not start is tracked only through one check
 THE SYSTEM SHALL read the item's candidate branches in one place. A template is of kind K WHEN its
 suggest command is the `next` argv with its last element replaced by K, element for element. The
@@ -434,13 +448,15 @@ candidate, that lane's recorded template is of the item's kind, and the merged p
 read and none has the lane's HEAD as its head. Every path that tracks such a lane SHALL go through
 that check: adoption while idle, step 6, and a restart's resolution of a `starting` state. WHEN
 the check refuses, THE SYSTEM SHALL track nothing, and the reason SHALL be one of, in this order:
-no template is of the item's kind; no lane runs on any candidate; matching lanes run on more than
-one candidate; the lane's template is of another kind or none; the merged pull requests could not
-be read; the lane's HEAD is merged work. A failed read SHALL NOT be taken for no merged pull
-request. While idle, THE SYSTEM SHALL name the reason in `planRun.waiting` and send no notice. At
-step 6, no template of the item's kind and no lane on any candidate SHALL each let the step choose
-a mode. On a restart, no lane on any candidate SHALL be PLANRUN-2's stop naming the row and the
-branch. At step 6 and on a restart, every other reason SHALL be a stop with its notice.
+no template is of the item's kind, or each one of it was refused for the item, the reason saying
+which and naming each refused template's error; no lane runs on any candidate; lanes, of any
+template, run on more than one candidate; the lane's template is of another kind or none; the
+merged pull requests could not be read; the lane's HEAD is merged work. A failed read SHALL NOT be
+taken for no merged pull request. While idle, THE SYSTEM SHALL name the reason in
+`planRun.waiting` and send no notice. At step 6, no template of the item's kind and no lane on any
+candidate SHALL each let the step choose a mode. On a restart, each of those two SHALL be
+PLANRUN-2's stop naming the row and the branch. At step 6 and on a restart, every other reason
+SHALL be a stop with its notice.
 
 #### Scenario: [PLANRUN-9-S1] While idle, each refusal of the check names its reason
 - **GIVEN** a trusted config with the plan runner on, tracking nothing, and `next` naming A's build
@@ -469,13 +485,20 @@ branch. At step 6 and on a restart, every other reason SHALL be a stop with its 
   tracked merge whose next row is B's build, B's proposal on main, and no lane on `change/b`
 - **WHEN** the runner reaches step 6
 - **THEN** no notice goes out, and a lane of the build template starts on `change/b`
+- **AND** when instead a runtime starts on a `starting` state for that start on `change/b`, under
+  the same `next`, nothing is tracked, no lane starts, and one notice says a restart cut short the
+  start of B on `change/b`, naming what is there now
 
-#### Scenario: [PLANRUN-9-S4] A branch pattern with `{issue}` is a candidate from the item's issue
-- **GIVEN** a trusted config with the plan runner on, whose fix template has the branch pattern
-  `fix/{issue}-{name}` and is of kind `fix`, and `next` naming the fix item `typo` with issue `12`
+#### Scenario: [PLANRUN-9-S4] A fix row is tracked and started with its issue
+- **GIVEN** a trusted config with the plan runner on, whose fix template, of kind `fix`, has the
+  shipped branch pattern `fix/{name}` and a first prompt naming `{issue}`, and `next` naming the
+  fix item `12-typo` with issue `#12`
 - **WHEN** a lane of the fix template runs on `fix/12-typo`, and the runner's idle read runs
-- **THEN** `plan-run.json` tracks `fix/12-typo`, with the item whole, issue `12` included
+- **THEN** `plan-run.json` tracks `fix/12-typo`, with the item whole, issue `#12` included
 - **AND** when instead `plan-run.json` is `starting` for that item on `fix/12-typo`, and that lane
   runs there when the next runtime starts, it is tracked with `started` true and no notice goes out
-- **AND** when the item has no issue, the fix template is no candidate, and `planRun.waiting` names
-  the template and that it needs an issue
+- **AND** when instead a tracked merge's next row is that item, no lane runs on `fix/12-typo` and
+  the fix list names `12-typo`, a lane of the fix template starts there, its first prompt naming
+  `#12`
+- **AND** when the fix template's pattern is instead `fix/{issue}-{name}`, it is no candidate, and
+  `planRun.waiting` names the template and that its branch is not a valid branch name
