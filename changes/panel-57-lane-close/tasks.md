@@ -592,7 +592,7 @@
   [LANECLOSE-3-S4] (an `owner.json` with no socket, and a panel found by `/healthz` alone, both
   refused for the socket, not the project). `install`'s tests for `mainRoot` pass
   unchanged.
-- [x] 3.2 merge-pr's review of the approved proposal (2026-10-24): `lane.go` closes through task
+- [x] 3.2 merge-pr's review of the approved proposal (2026-10-24): `framework/internal/cmd/lane.go` closes through task
   2.4's client, and task 3.1's stub panel decodes the close body as `lanes.CloseRequest` with
   `DisallowUnknownFields`, asserting `branch` equals the plan's `deleteBranch` and `worktree` the
   plan's `worktree`. Citing [LANECLOSE-1-S2].
