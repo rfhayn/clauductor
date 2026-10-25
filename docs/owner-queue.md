@@ -32,6 +32,7 @@ printing every open item and nothing else.
 - [ ] 2026-10-18 — OPS-95 (`ops/ops-95-team-queue`): file one test issue to check whether bot-made writes show `performed_via_github_app` and mine don't. You okay it yourself; no session files it. First create the two labels, `team-queue` and `approved`, once. Until this is done, every line of session-start's team-queue listing says `approval: source unverifiable`.
 
 ## Done
+- [x] 2026-10-24 — OPS-127 (#246): turn delegated approval on for this repo ("This repo turns it on"). The permission classifier refused Claude's own edit; **done 2026-10-25 in #246 itself, on the owner's direct instruction in its session**. It holds once #246 is on `origin/main`.
 - [x] 2026-10-22 — Session 6's leftover remote branches `fix/92-daemon-lease-flake` (#169) and `ops/ops-96-s6-tidy` (#166): **deleted 2026-10-22 on the owner's go**, by session 7's lane, after both were bundled into `.git/clauductor/branches-2026-10-22-s7.bundle` (verified).
 - [x] 2026-10-21 — OPS-108 (the session plan, S8): its change to guard rules 7 and 8, as its row states it. **Approved 2026-10-21**; it is reviewed at Risk high (3 rounds).
 - [x] 2026-10-21 — Batched PRs (`docs/conventions.md`, the session plan): **allowed 2026-10-21 only where the rows share files**, titled with the first row's id (`OPS-89: … (with OPS-103)`), the body saying "Also closes OPS-103", both rows merged with it.

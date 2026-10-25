@@ -1,0 +1,61 @@
+# approval-guarded.txt: the paths a delegated approval may never cover (OPS-127).
+#
+# With APPROVAL_DELEGATED="1" in .claude/project.conf, Claude may record a change's approval for
+# the owner (`change-approval.sh <id> --delegate <owner>`), except for a change that names one of
+# these paths in a task line of its tasks.md, or whose branch's diff touches one: those loosen a
+# control on Claude, so the owner approves them. One path or directory per line (a trailing `/`
+# is optional), matched on whole path segments anywhere in a path, so `.claude/hooks` covers
+# `template/.claude/hooks/x.sh`.
+#
+# This file is the framework's list: `clauductor update` keeps it current, so add nothing here.
+# Your own paths go in .claude/local/approval-guarded.txt, the same format. The key and both lists
+# are read from origin/<MAIN_BRANCH>, never from the branch under test, so a branch cannot loosen
+# them for itself (a repository with no remote reads the disk). An empty list refuses every
+# delegation. The list follows AGENTS.md's "What executes each rule": what runs a control is here.
+.claude/lib/approval-guarded.txt
+.claude/local/approval-guarded.txt
+# The approval, the verify step and what build-change is handed
+.claude/change-approval.sh
+.claude/verify-change.sh
+.claude/scenario-trace.sh
+.claude/archive-change.sh
+.claude/review-cap.sh
+.claude/change-cost.sh
+.claude/project-config.sh
+.claude/roadmap-queue.sh
+.claude/owner-queue.sh
+.claude/model-roles.json
+.claude/evals
+.claude/project.conf
+.claude/settings.json
+.claude/settings.local.json
+# Hooks, checks and guard rules, the framework's, a module's and the project's (guard.d matches
+# .claude/local/guard.d and .claude/modules/<m>/guard.d)
+.claude/hooks
+.claude/checks
+.claude/local/checks
+.claude/local/roadmap.d
+.claude/local/hook-expectations.tsv
+.claude/health
+.claude/local/health
+.claude/modules
+guard.d
+.claude/agents
+.claude/lib
+.claude/workflows/build-change.js
+.claude/skills/propose
+.claude/skills/merge-pr
+.claude/local/skills/propose
+.claude/local/skills/merge-pr
+# What prints those fragments and runs the health lines, and the table's other script controls
+.claude/extensions.sh
+.claude/machine-quiet.sh
+.claude/panel-suggest.sh
+.claude/compound.sh
+.gitattributes
+# The gate, CI and the secrets scan
+.github/workflows
+.github/dependabot.yml
+.gitleaks.toml
+scripts/ci
+AGENTS.md

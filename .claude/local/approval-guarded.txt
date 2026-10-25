@@ -1,0 +1,5 @@
+# This repo's own guarded paths, added to .claude/lib/approval-guarded.txt (OPS-127): a change that
+# touches one is never approved on delegation. The local controls AGENTS.md's table names:
+# the team-queue states ("approved only by an `approved` label") and the roadmap tracker.
+.claude/local/context.d
+.claude/local/roadmap-tracker.sh
