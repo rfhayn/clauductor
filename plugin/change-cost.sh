@@ -43,7 +43,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # lane named otherwise that recorded the stale branch most is taken.
 # The lanes it rejected are named (the one line's "rejected lanes:", --json's rejectedLanes), so a
 # collapse of the figure is visible. Known limits: a lane reused by two sessions, one ending on the
-# branch, counts whole for it; once removed, a lane is lost whose only session switched away from
+# branch, counts the other's messages there on main, a detached HEAD or no branch, and its agents; once removed, a lane is lost whose only session switched away from
 # the branch, or in which only agents, never a lead, recorded it; one in which nothing recorded the
 # branch is not found. A lane whose OWN branch its lead never recorded (session 33570cf0 worked in
 # fix-93 recording only other lanes' branches) goes to whichever change its lead recorded last. An agent counts whole once ANY of its messages ran in the
@@ -106,14 +106,11 @@ projects=${CLAUDE_PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}
 slug=$(printf '%s' "$main" | sed 's/[^A-Za-z0-9]/-/g')
 dirs=$(find "$projects" -maxdepth 1 -type d -name "$slug*" 2>/dev/null)
 bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$branch\"" "$p" 2>/dev/null; done)
-# Every transcript is read tagged: each line as `<file>\t<json>`, every file's last line ended, and
-# $tagged undoing it into one record with $file in scope. A transcript still being written ends in a
-# cut-off line: jq reading the files stops there, dropping every file after it, and `jq -R` joins it
-# to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped. One
-# awk per file, since awk stops at a file it cannot open (one deleted since it was listed). The
-# split is at the LAST tab, since a JSON line holds none raw (the file lists split on blanks anyway).
-tag() { for f in "$@"; do awk '{ print FILENAME "\t" $0 }' "$f" 2>/dev/null; done; }
-tagged='split("\t") | (.[:-1] | join("\t")) as $file | .[-1] | fromjson? // empty'
+# Every transcript is read tagged, lib/usage.sh's one way (usage_tag, USAGE_TAGGED): each line as
+# `<file>\t<json>`, so a cut-off line is skipped and every file after it still read. The file lists
+# here split on blanks anyway.
+tag() { usage_tag "$@"; }
+tagged=$USAGE_TAGGED
 # The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
 # message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
 wt="$main/.claude/worktrees/"

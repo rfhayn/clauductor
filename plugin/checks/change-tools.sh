@@ -319,6 +319,10 @@ cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another
 { msg w1 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:01Z"
   msg w2 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:02Z"
   msg w3 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:03Z"; } > "$P/$slug/L5.jsonl"  # $1.00, not the change's (#249)
+# A second session in v5 that never recorded the branch there: its message on ops/reuse is that
+# work, not the change's; its detached HEAD there is no other branch, and counts (a known limit).
+{ msg wj claude-haiku-4-5-20251001 "ops/reuse" "${V}5" 1000000 0 L5b "${T}:05Z"           # $1.00, not the change's
+  msg wk claude-haiku-4-5-20251001 HEAD "${V}5" 1000000 0 L5b "${T}:06Z"; } > "$P/$slug/L5b.jsonl"  # $1.00
 mkdir -p "$P/$slug/L5/subagents"
 msg w4 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:04Z" > "$P/$slug/L5/subagents/agent-w.jsonl"  # $1.00
 { msg w5 claude-haiku-4-5-20251001 "ops/six" "${V}6" 0 0 L6 "${T}:01Z"
@@ -341,9 +345,9 @@ mkdir -p "$P/$slug/L7/subagents" "$P/$slug/L8/subagents"
 msg wh claude-haiku-4-5-20251001 "ops/seven" "${V}7" 1000000 0 L7 "${T}:05Z" > "$P/$slug/L7/subagents/agent-w.jsonl"  # $1.00, not the change's
 msg wi claude-haiku-4-5-20251001 "ops/v8" "${V}8" 1000000 0 L8 "${T}:05Z" > "$P/$slug/L8/subagents/agent-w.jsonl"     # $1.00, not the change's
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 34 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's, less its lead's and another session's messages on other branches; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
 [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\",\"${V}6\",\"${V}7\",\"${V}8\"]" ] && ok "change-cost: ...and names v6, v7 and v8, not v5, as rejected" || fail "change-cost, lead moved on, rejected: $(cat "$d/out")"
-rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
+rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5b.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
 # OPS-120: a teammate lane's own agents record the hub session's cwd (the main checkout) and branch,
 # never the lane's: OPS-93's reviewers and their /code-review agents did. Each names its parent in
 # its .meta.json, so a descendant of an agent that counts whole counts whole, at any depth; an agent

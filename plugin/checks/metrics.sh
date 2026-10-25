@@ -397,6 +397,13 @@ echo '{"agentType":"builder"}' > "$S/sid3/subagents/agent-eee.meta.json"
 U --session sid3 --json
 jq -e '.total_usd == 3 and .messages == 2' "$d/u" >/dev/null \
   && ok "usage-report: a line cut off with no newline is skipped, and the next file's first message still counts" || fail "usage-report, cut-off line: $(cat "$d/u")"
+# Nor does a meta cut off mid-write cost the agents after it their role: one jq over every meta
+# stopped there, pooling them under `?`. Caught only where find lists a broken meta first, so one
+# sits on each side of the builder's.
+printf '{"agentTy' > "$S/sid3/subagents/agent-a00.meta.json"; printf '{"agentTy' > "$S/sid3/subagents/agent-zzz.meta.json"
+U --session sid3 --json
+jq -e '.total_usd == 3 and (.by_role | map(.name) | index("builder") != null) and (.by_role | map(.name) | index("?") == null)' "$d/u" >/dev/null \
+  && ok "usage-report: a meta cut off mid-write loses no other agent's role" || fail "usage-report, cut-off meta: $(cat "$d/u")"
 rm -rf "$S/sid3" "$S/sid3.jsonl"
 
 # ── The health line ──────────────────────────────────────────────────────────────────────────

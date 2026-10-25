@@ -16,7 +16,8 @@
 #   - a streamed response repeats its message id on several lines: the caller dedupes by id;
 #   - a model (or fast mode) with no price is UNPRICED (usd null), listed, never costed at zero;
 #   - a line cut off mid-write is skipped, not fatal (jq -R + fromjson?), and never joined to the
-#     next file's first line (each file's lines tagged by its own awk, #207).
+#     next file's first line (usage_tag: each file's lines tagged by its own awk, #207); a meta.json
+#     cut off mid-write loses only its own agent's role.
 #
 # Dollars are list-price API equivalents: on a subscription they are a proxy for how fast the
 # limit drains, not a bill. Everything needs jq.
@@ -41,6 +42,17 @@ usage_dirs() {
   for _d in "$_p/$_s--claude-worktrees-"*; do [ -d "$_d" ] && printf '%s\n' "$_d"; done
   return 0
 }
+
+# usage_tag FILE...: every line of each file as `<file>\t<line>`, and USAGE_TAGGED the jq that undoes
+# it, with $file in scope (`... | jq -cR "$USAGE_TAGGED"' | ...'`): the one way change-cost.sh and
+# usage_records read transcripts and metas. A transcript still being written ends in a cut-off line:
+# jq reading the files stops there, dropping every file after it, and `jq -R` joins it to the next
+# file's first line (#207), so `fromjson?` drops both. awk ends each file's lines apart, and a
+# cut-off one is skipped. One awk per file, since awk stops at a file it cannot open (one deleted
+# since it was listed). The split is at the LAST tab: a JSON line holds none raw.
+usage_tag() { for _tf in "$@"; do awk '{ print FILENAME "\t" $0 }' "$_tf" 2>/dev/null; done; }
+# shellcheck disable=SC2016
+USAGE_TAGGED='split("\t") | (.[:-1] | join("\t")) as $file | .[-1] | fromjson? // empty'
 
 # The jq definitions every reader shares.
 #   price($p; $m)   the .prices entry for model id $m: the longest key that prefixes it (a context
@@ -114,22 +126,22 @@ usage_records() {
       fi
       _sub="$_d/$_sid/subagents"
       if [ -d "$_sub" ]; then
-        find "$_sub" -name '*.meta.json' -exec jq -c '{f: input_filename, m: .}' {} + 2>/dev/null \
+        # One meta cut off mid-write would stop a jq reading them all, pooling every agent after it
+        # under `?`: tagged like the transcripts.
+        find "$_sub" -name '*.meta.json' 2>/dev/null | while IFS= read -r _t; do usage_tag "$_t"; done \
+          | jq -cR "$USAGE_TAGGED"' | {f: $file, m: .}' 2>/dev/null \
           | jq -s 'map({key: (.f | sub(".*/"; "") | sub("\\.meta\\.json$"; "") | sub("^agent-"; "")), value: .m}) | from_entries' \
           > "$_tmp/metas.json" 2>/dev/null || echo '{}' > "$_tmp/metas.json"
         find "$_sub" -name '*.jsonl' > "$_tmp/agents" 2>/dev/null
       else
         echo '{}' > "$_tmp/metas.json"; : > "$_tmp/agents"
       fi
-      # Each line tagged `<file>\t<json>` by one awk per file (#207, the shape OPS-120 fixed in
-      # change-cost.sh): `jq -R` over several files joins a line cut off with no newline (a
-      # transcript still being written) to the next file's first line, and `fromjson?` drops both.
-      # awk ends every file's last line, and stops at a file it cannot open, so one awk per file.
-      # The split is at the LAST tab: a JSON line holds none raw.
-      { printf '%s\n' "$_f"; cat "$_tmp/agents"; } | while IFS= read -r _t; do awk '{ print FILENAME "\t" $0 }' "$_t" 2>/dev/null; done \
+      # Each line tagged by usage_tag (#207): one cut off at the end of the session's file is never
+      # joined to its first agent's first line.
+      { printf '%s\n' "$_f"; cat "$_tmp/agents"; } | while IFS= read -r _t; do usage_tag "$_t"; done \
         | jq -cR --slurpfile p "$_tmp/prices.json" --slurpfile metas "$_tmp/metas.json" \
             --arg since "$_since" --arg sid "$_sid" --arg mainf "$_f" "$USAGE_JQ_DEFS"'
-          select(contains("\"usage\"")) | split("\t") | (.[:-1] | join("\t")) as $file | (.[-1] | fromjson? // empty)
+          select(contains("\"usage\"")) | '"$USAGE_TAGGED"'
           | select(.type == "assistant" and (.message.usage | type) == "object" and (.message.model // "") != ""
                    and .message.model != "<synthetic>")
           | select($since == "" or ((.timestamp // "") >= $since))

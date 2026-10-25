@@ -405,8 +405,13 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   const gs = r.report.groups
   t('a resumed run reports each group\'s own spend (groupUsd 17.5, then 7.56), from preflight\'s reading on', r.report.stoppedAt === null && gs.length === 2 && gs[0].groupUsd === 17.5 && gs[1].groupUsd === 7.56, gs)
   t('...the change\'s running total as changeCostUsd, and no group figure named costUsd to be added up', gs.length === 2 && gs[0].changeCostUsd === 40.15 && gs[1].changeCostUsd === 47.71 && gs.every((g) => !('costUsd' in g)) && r.report.costUsd === 47.71, gs)
-  r = await run([], { args: { resume: 2 }, groups: g3, budget: { costUsd: null }, commitCost: [null, 47.71] })
+  // A reading that could not be taken after group 2's commit: carrying 22.65 across it would bill
+  // group 3 with both groups' spend.
+  r = await run([], { args: { resume: 2 }, groups: g3, budget: { costUsd: 22.65 }, commitCost: [null, 47.71] })
   t('a reading that could not be taken leaves that group\'s spend and the next one\'s unknown (null), never a running total passed off as a spend', r.report.groups.length === 2 && r.report.groups.every((g) => g.groupUsd === null), r.report.groups)
+  // A reading that FELL (a lane vote flipped, a worktree's transcripts lost) is no spend either.
+  r = await run([], { args: { resume: 2 }, groups: g3, budget: { costUsd: 22.65 }, commitCost: [20.1, 25.3] })
+  t('a reading below the one before it leaves that group\'s spend unknown and warns, never a negative spend', r.report.groups[0].groupUsd === null && r.report.groups[1].groupUsd === 5.2 && warned(r, 'group 2', '22.65', '20.1'), [r.report.groups, r.report.warnings])
   // The stub above answers budgetKind itself, so what makes it ONE reading is the preflight prompt:
   // the budget comes from change-cost.sh's JSON, and the agent is told not to parse proposal.md.
   const pf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
