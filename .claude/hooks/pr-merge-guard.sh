@@ -594,9 +594,10 @@ esac
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
 # gh's default repository (`gh repo set-default`), which in a fork's checkout is not origin, so a
 # read without the merge's -R can judge another repo's PR #n (OPS-132). With no repo named, the read
-# names none either, and resolves as the merge does only from the same directory and environment:
-# the hook runs in the command's starting directory with the session's environment, so a command
-# that sets GH_REPO or GH_HOST, or names no repo and changes directory, is refused below.
+# names none either, and resolves as the merge does only from the same directory and environment.
+# A command that names GH_REPO or GH_HOST, or names no repo and runs a cd, is refused below; that is
+# a text match, not the whole of it. The hook's directory need not be the payload's cwd, and other
+# spellings (GIT_DIR=, `cd;`, a sourced file) and `gh api --hostname` still pass: #271.
 # run_repo is the same repository for `gh run list`, which takes no PR URL: the URL's host/owner/name.
 gh_sel=$pr gh_repo="" run_repo=""
 case "$pr_arg" in
