@@ -66,7 +66,7 @@ A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses when origin
 grep -q 'on origin/main' "$d/out" && ok "...and says it read origin/main" || fail "no origin/main in: $(cat "$d/out")"
 # Main turns the key on and ships the list: a delegation passes, read from origin/main.
 base0=$(git -C "$R" rev-parse HEAD)
-git -C "$R" add -f .claude/project.conf .claude/lib/approval-guarded.txt && git -C "$R" commit -qm "main: delegation on"
+(cd "$R" && git add -f .claude/project.conf .claude/lib/approval-guarded.txt && git commit -qm "main: delegation on")
 git -C "$R" update-ref refs/remotes/origin/main HEAD
 A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin/main has the key on and the list"
 # Main's lists, not the disk's: main guards src/home in a project list this branch has not merged.
@@ -79,7 +79,7 @@ A; expect_rc 1 $? "change-approval: a delegated approval fails on a path origin/
 grep -q 'guarded path.*src/home/greeting.ts' "$d/out" && ok "...and names the task's path" || fail "no src/home in: $(cat "$d/out")"
 git -C "$R" update-ref refs/remotes/origin/main HEAD
 # A committed rename names both sides: a guarded file cannot move out of its place unseen.
-git -C "$R" mv .claude/verify-change.sh old-verify.sh && git -C "$R" commit -qm "move the verify step"
+(cd "$R" && git mv .claude/verify-change.sh old-verify.sh && git commit -qm "move the verify step")
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch commits a rename of a guarded file"
 grep -q 'guarded path.*\.claude/verify-change.sh' "$d/out" && ok "...and names the file it moved" || fail "no verify-change.sh in: $(cat "$d/out")"
 git -C "$R" reset -q --hard HEAD~1
