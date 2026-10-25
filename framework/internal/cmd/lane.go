@@ -25,6 +25,11 @@ import (
 // replaces it so a stub panel can stand in for a real one.
 var laneProc lease.ProcCheck = lease.LiveProc
 
+// laneRun runs the git that finds the current directory's main checkout; a test points
+// it at a runner without the process's GIT_DIR, which a git hook exports and which would
+// aim the read at the outer repository.
+var laneRun signals.Runner = signals.ExecRunner
+
 var laneCloseYes bool
 
 var laneCmd = &cobra.Command{
@@ -49,11 +54,7 @@ refusal exits 1 with the panel's reason.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		return runLaneClose(cmd.Context(), cmd.OutOrStdout(), home, args[0], laneCloseYes)
+		return runLaneClose(cmd.Context(), cmd.OutOrStdout(), os.UserHomeDir, args[0], laneCloseYes)
 	},
 }
 
@@ -71,14 +72,19 @@ func laneSelfWords(id string) error {
 }
 
 // runLaneClose is `clauductor lane close <id> [--yes]`, run from the current directory
-// with CLAUDUCTOR_LANE read from the environment. A returned error is the exit 1.
-func runLaneClose(ctx context.Context, out io.Writer, home, id string, yes bool) error {
+// with CLAUDUCTOR_LANE read from the environment. homeDir is asked only after the self
+// refusal, which reads nothing (D2). A returned error is the exit 1.
+func runLaneClose(ctx context.Context, out io.Writer, homeDir func() (string, error), id string, yes bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	// Before anything is read: the caller's own lane (E8).
 	if self := os.Getenv("CLAUDUCTOR_LANE"); self != "" && self == id {
 		return laneSelfWords(id)
+	}
+	home, err := homeDir()
+	if err != nil {
+		return err
 	}
 
 	// The panel, checked first: the live one, at the socket its owner record names.
@@ -126,7 +132,7 @@ func laneProject(ctx context.Context, home string, owner *install.PanelOwner) (*
 	if err != nil {
 		return nil, err
 	}
-	root, _, err := install.MainWorktree(ctx, signals.ExecRunner, wd)
+	root, _, err := install.MainWorktree(ctx, laneRun, wd)
 	if err != nil {
 		return nil, fmt.Errorf("%v, so it is in no project the panel serves: run this in one of them (`clauductor panel list` names them)", err)
 	}
@@ -134,12 +140,7 @@ func laneProject(ctx context.Context, home string, owner *install.PanelOwner) (*
 	if err != nil {
 		return nil, err
 	}
-	var e *config.ProjectEntry
-	for i := range reg.Projects {
-		if reg.Projects[i].Root == root {
-			e = &reg.Projects[i]
-		}
-	}
+	e := reg.Find(root)
 	if e == nil {
 		return nil, fmt.Errorf("%s is not a registered project, so nothing was closed: run this in a project the panel serves (`clauductor panel list` names them)", root)
 	}

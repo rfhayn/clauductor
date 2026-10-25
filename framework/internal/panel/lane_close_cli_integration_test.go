@@ -40,6 +40,35 @@ func shortSocket(t *testing.T) string {
 	return filepath.Join(dir, "s")
 }
 
+// shortHome is a temporary home whose install.CLISocketPath fits sun_path (E10: 104
+// bytes on macOS, 108 on Linux, the terminating NUL included). It tries the temporary
+// directory first, and /tmp only when that path is too long (a t.TempDir() home on
+// macOS, or one under the TMPDIR leakcheck sets); where neither gives a short enough
+// writable home, the test is skipped saying why.
+func shortHome(t *testing.T) string {
+	t.Helper()
+	max := len(syscall.RawSockaddrUnix{}.Path)
+	home, err := os.MkdirTemp("", "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	n := len(install.CLISocketPath(home))
+	if n < max {
+		return home
+	}
+	why := fmt.Sprintf("the socket path in a home under the temporary directory is %d bytes, too long for sun_path (%d)", n, max)
+	home, err = os.MkdirTemp("/tmp", "h")
+	if err != nil {
+		t.Skipf("%s, and /tmp gives no home: %v", why, err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	if n := len(install.CLISocketPath(home)); n >= max {
+		t.Skipf("%s, and under /tmp it is %d bytes", why, n)
+	}
+	return home
+}
+
 // deadSocketFile leaves a socket file at path with nothing listening on it, as a killed
 // panel leaves one. The socket is bound, never listened on: bind makes the file, and a
 // child a parallel test forks meanwhile may inherit the descriptor but cannot accept on
@@ -303,19 +332,11 @@ func TestAPanelLeavesAFileAtItsSocketPathThatIsNotASocket(t *testing.T) {
 
 // [LANECLOSE-3-S1] A panel given no CLISocket, as `clauductor panel` starts one, listens
 // at install.CLISocketPath(home), names it in owner.json, and answers the close there.
-// The home is short (E10), under /tmp: a t.TempDir() home on macOS, or one under the
-// TMPDIR leakcheck sets, is too long for the socket's path.
+// The home must be short enough for the socket's path (E10): see shortHome.
 func TestThePanelListensOnTheDefaultSocketPath(t *testing.T) {
 	t.Parallel()
-	home, err := os.MkdirTemp("/tmp", "h")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(home) })
+	home := shortHome(t)
 	want := install.CLISocketPath(home)
-	if n, max := len(want), len(syscall.RawSockaddrUnix{}.Path); n >= max {
-		t.Fatalf("the test's socket path %s is %d bytes, too long for sun_path (%d)", want, n, max)
-	}
 	root := multiRepo(t, "Alpha", noServerSocket())
 	var out outLog
 	p := startPanelWith(t, root, home, noServerSocket(), func(o *Options) { o.CLISocket, o.Out = "", &out })
@@ -326,7 +347,7 @@ func TestThePanelListensOnTheDefaultSocketPath(t *testing.T) {
 	if fi, err := os.Lstat(want); err != nil || fi.Mode()&os.ModeSocket == 0 || fi.Mode().Perm() != 0o600 {
 		t.Errorf("the default socket %s: %v %v, want a socket of mode 0600", want, fi, err)
 	}
-	_, err = install.CloseLane(context.Background(), want, project, "x", lanes.CloseRequest{DryRun: true})
+	_, err := install.CloseLane(context.Background(), want, project, "x", lanes.CloseRequest{DryRun: true})
 	if le := laneErrOf(t, "closing an unknown lane on the default socket", err); le.Status != http.StatusNotFound || le.Code != "not-found" {
 		t.Errorf("unknown lane on the default socket: %+v, want the route's 404 not-found", le)
 	}

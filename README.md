@@ -72,6 +72,7 @@ Projects get only the `template/` contents — no Go source, no framework code. 
 | `clauductor panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |
 | `clauductor panel init` | Write a starter `.clauductor/panel.json` for the project, from what the repository already says |
 | `clauductor panel --uninstall-hooks` | Remove the panel's hooks from `~/.claude/settings.json` |
+| `clauductor lane close <id> [--yes]` | Close a finished lane of the running panel from the project's checkout: the plan first, the close with `--yes`; a lane still working is refused, and so is one on unmerged work unless its claude has exited (that lane closes and keeps its branch) ([docs](docs/panel.md#close-a-lane-from-the-command-line)) |
 
 ## Documentation
 

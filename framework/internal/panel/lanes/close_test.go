@@ -442,7 +442,7 @@ func TestCloseIfHeldChangesNothing(t *testing.T) {
 	}
 }
 
-// The close never acts on a stale exit (PANEL-57 D2, review round 6). held is the panel's own
+// [LANECLOSE-2-S4] The close never acts on a stale exit (PANEL-57 D2, review round 6). held is the panel's own
 // verdict (state.Model.LaneCloseHeld) over a model whose last tmux poll showed the lane's
 // claude exited, or its session gone. When tmux, read under the lock, shows it running
 // (a Restart or a Resume that held the lock first) or does not answer, the close is

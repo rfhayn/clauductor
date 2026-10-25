@@ -323,7 +323,7 @@ func TestCLICloseRefusesUnmergedUnlessExited(t *testing.T) {
 	}
 }
 
-// A lane the view shows exited, whose claude tmux shows running when the close acts (a
+// [LANECLOSE-2-S4] A lane the view shows exited, whose claude tmux shows running when the close acts (a
 // Restart since the panel's last tmux poll), is refused under the lane lock, with
 // nothing stopped or removed: the exit that waives the merged rule is a stale one.
 func TestCLICloseOfAnExitedLaneRestartedSinceThePoll(t *testing.T) {

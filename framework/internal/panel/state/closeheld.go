@@ -29,6 +29,17 @@ const (
 	CloseWakeupWords = "its turn ended with a wakeup scheduled (a cron or a one-shot still due)"
 )
 
+// The rest of closeHeld's fixed words, constants so that docs/panel.md's refusals
+// table is checked against every one (TestEveryCloseWordIsDocumented). A lease's
+// refusal names its queue, and a status's is "claude is" and statusWords.
+const (
+	CloseQueuesUnreadWords  = "the queues' leases have not been read"
+	CloseQueuesFailingWords = "the queues' leases are not answering"
+	CloseNotReadWords       = "claude has not been read yet"
+	// CloseWorkWords is followed by ": " and the task's description.
+	CloseWorkWords = "its turn ended on background work"
+)
+
 // closeHook records what the verdict reads of a hook beyond the stall's marks: when
 // the session's own last prompt came, so a restart can tell a turn of the process
 // before it from one of its own.
@@ -142,10 +153,10 @@ func (m *Model) closeHeld(tv TermLaneView, queue map[string]string, now time.Tim
 	// lease, and a lease covers a gate no Stop lists, so it holds even an exited claude.
 	if len(m.cfg.Queues) > 0 {
 		if !m.stall.queuesRead {
-			return "the queues' leases have not been read"
+			return CloseQueuesUnreadWords
 		}
 		if !m.v2.queuesSrc.OK {
-			return "the queues' leases are not answering"
+			return CloseQueuesFailingWords
 		}
 	}
 	if q, ok := queue[tv.Worktree]; ok && tv.Worktree != "" {
@@ -171,7 +182,7 @@ func (m *Model) closeHeld(tv TermLaneView, queue map[string]string, now time.Tim
 	// sessionStatus answers idle, not approximate, with no reading and no hook status
 	// at all: such a lane may be mid-turn.
 	if s == nil || m.agentReading(s, now) == nil {
-		return "claude has not been read yet"
+		return CloseNotReadWords
 	}
 	// A current reading outranks hooks in sessionStatus, but a prompt or a permission
 	// request heard since the poll began may not be in it: the poll can have read the
@@ -205,7 +216,7 @@ func (m *Model) closeHeld(tv TermLaneView, queue map[string]string, now time.Tim
 		return CloseNoTurnWords
 	}
 	if w := closeWork(s); w != "" {
-		return "its turn ended on background work: " + w
+		return CloseWorkWords + ": " + w
 	}
 	// The owner's ruling of 2026-10-25: D2's background work includes the last Stop's
 	// session_crons and wakeups, read as the stall's wakeupDue reads them.

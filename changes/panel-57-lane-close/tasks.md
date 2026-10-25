@@ -29,6 +29,21 @@
   package's GIT_DIR-free runner; the default-path test needs a writable `/tmp`; the stub skips its
   consent check on a dry answer it cannot read; `RunE` reads `$HOME` before the self refusal; a
   hand-written loop duplicates `config.Projects.Find`.
+- 2026-10-25 group 4 (tasks 4.1, 4.3, 4.4) built, uncommitted for review; group 3's five lows are
+  fixed. Task 4.2 is built but for one step, so it stays unticked: the template edits and
+  `scripts/build-plugin.sh` are done; `env -u CLAUDUCTOR_FRAMEWORK framework/clauductor update`
+  (its `Template:` line named this worktree's `template/`) stopped on the sandbox's denial to
+  open `.claude/settings.json`, having written nothing (`git status --porcelain` unchanged, no
+  file newer than the run's start), so there was nothing to undo. Left: the owner runs that one
+  command from the worktree's root, keeps only `.claude/skills/session-close/SKILL.md` and
+  `.claude/settings.json` from it, and ticks 4.2.
+- 2026-10-25 group 4 (Docs and the production caller) built and reviewed: converged in 3
+  round(s), peak low. The owner ran `clauductor update` (its `Template:` line named this
+  worktree's `template/`). It merged `.claude/settings.json`, the one allow rule and nothing more.
+  Its skill review had no stdin and cancelled, so the owner copied the template's `SKILL.md` over
+  this repo's copy, which matched it byte for byte at HEAD. No other drift. Round 1's finding 4
+  stays as D5 words it (disputed, Decision log). Round 3's two lows, both about hardening
+  `TestEveryCloseWordIsDocumented`, are #265's.
 
 ## Decision log
 - 2026-10-24: the owner directed all six round-3 findings fixed; finding 2 decided as the reviewer
@@ -313,6 +328,65 @@
   `TMPDIR` is long enough (114 bytes with the home) to overflow macOS's 104-byte `sun_path`.
   Alternative: `os.MkdirTemp("", …)` as `shortSocket` does. Why not: that failed on this Mac.
   With run.go's default path changed, it failed on owner.json's socket, the file and the dial.
+- 2026-10-25, group 4 (group 3's low 4): `runLaneClose` takes `homeDir func() (string, error)`
+  and calls it after the self refusal; `RunE` passes `os.UserHomeDir`. Alternative: a second
+  self check in `RunE` before the home lookup. Why not: two copies of the one ordering rule, and
+  the in-process tests would not hold the order. Broken on purpose (the home read first):
+  `TestLaneCloseRefusesItsOwnLaneWithNoHome` failed with `$HOME is not defined`.
+- 2026-10-25, group 4 (group 3's low 2): `shortHome` tries `os.MkdirTemp("", "h")`, falls back to
+  `/tmp` only when `CLISocketPath` would not fit `len(syscall.RawSockaddrUnix{}.Path)` (104 on
+  macOS, 108 on Linux; the NUL counts), and skips naming both reasons when `/tmp` gives no home or
+  is too long too. A first `MkdirTemp("")` that errors fails the test rather than falling back:
+  the brief allows `/tmp` only for the length, and every `t.TempDir()` there would fail as well.
+  Exercised: a 90-byte `TMPDIR` took the `/tmp` branch and passed; the same inside the sandbox
+  (no `/tmp`) skipped with both reasons.
+- 2026-10-25, group 4 (group 3's lows 1 and 3): `laneRun` is set to `gitFreeRunner` in
+  `newLaneWorld`, so every in-process case gets it. Broken on purpose (the override removed),
+  with `GIT_DIR` exported, the cases answered for the outer repository and failed; restored,
+  they pass with it exported. The stub's consent check now errors on a close whose dry answer
+  holds no `lanes.ClosePlan`: with the plan stored as a pointer (which the old check skipped
+  silently), the three `--yes` tests failed.
+- 2026-10-25, group 4 (task 4.1): the command's docs are a `####` under *Close lane* with their
+  own refusals table, in the panel's words, the two lock-time refusals (task 4.4) among them, and
+  the retry rule of task 4.3; the socket is a *Security model* bullet and a line in *What the
+  panel writes to disk*. Alternative: a `###` section beside *Close a lane when its PR merges*.
+  Why not: the task names it a subsection of *Close lane*. The log line's place is given as
+  `~/.clauductor/panel/logs/` (`install.LogDir`), where the docs already name the launchd logs.
+- 2026-10-25, group 4 (task 4.2): D5's sentence is appended to the *Close the lanes* rule as one
+  sentence, and names the Bash tool's `timeout: 600000` for the 10-minute bound. The final
+  message carries the plan's **Keeps** lines, as D5 words it, not the result's **Kept**. Review
+  round 1 of group 4 asked for the result's **Kept** instead; not applied, since it changes D5's
+  words (design.md, D5), and returned to the owner as disputed. A reason to keep D5's: a `--yes`
+  that timed out has no result, while the plan's **Keeps** came from the dry run before it.
+- 2026-10-25, group 4 review round 1: the first dry run runs under the same 10-minute timeout as
+  `--yes`, and one that timed out is named for the owner in the final message (nothing changed).
+  D5 sets no timeout for it; the alternative, none, leaves a hung panel holding session-close.
+- 2026-10-25, group 4 review round 1: `closeHeld`'s fixed words became constants
+  (`CloseQueuesUnreadWords`, `CloseQueuesFailingWords`, `CloseNotReadWords`, `CloseWorkWords`,
+  the last a prefix before ": " and the tasks), same values, so
+  `TestEveryCloseWordIsDocumented` (`state/closeheld_docs_test.go`) finds every reason by parsing
+  the package's non-test source for `Close*Words` constants and checks each in `docs/panel.md`.
+  Alternative: a hand-kept list in the test. Why not: a new reason would not be on it. Left
+  literal: the lease words (they name the queue), `claude is <status>` (statusWords' map) and
+  `LaneGoneWords` (a func of the id); the refusals table names them, unchecked. The docs' table is
+  now one row per reason in the code's words, with the panel-restart hold named as a change to
+  PANEL-20's auto-close; the auto-close paragraph and the `lanes_auto_close` Doc point to it.
+  The test reads `docs/panel.md`, so `scripts/ci/steps.sh` `race_select` now maps that file to
+  `internal/panel/state` too (the `race-scope` check required it).
+- 2026-10-25, group 4 review round 2: `TestEveryCloseWordIsDocumented` walks the authority, the
+  reasons themselves: every `return` of `closeHeld` and `LaneCloseHeld` and every assignment to
+  `CloseHeld` in `LaneView`, parsed from `closeheld.go`. Each must be a `Close*Words` constant or
+  a string literal whose words are in `docs/panel.md`, or a form the test's `closeForms` names by
+  its source with the docs words it must show (the lease, `claude is <status>`, the background
+  work prefix, `LaneGoneWords`, and the pass-throughs). Alternative: promote the remaining
+  literals to constants, or narrow the comment. Why not: the walk catches a new literal and a new
+  form alike, with no rule a future edit must remember. The route's branch and cancelled words
+  (`web/cli.go`) stay outside it, which the test's comment says by naming the functions it walks.
+  Auto-close's scope is stated once in the same words in three places: every reason in the table
+  but its last two (the branch, read on auto-close's own stricter terms, and a cancelled request).
+- 2026-10-25, group 4 (task 4.4): `TestCLICloseOfAnExitedLaneRestartedSinceThePoll` covers the
+  restart at the route; tmux not answering is covered in `TestCloseIfTakesTheExitFromTmuxNow`
+  alone, both cited `[LANECLOSE-2-S4]`. No new test: the task asks for the citations only.
 
 ## 1. The close verdict and the socket's route (D2, D4)
 - [x] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
@@ -524,7 +598,7 @@
   plan's `worktree`. Citing [LANECLOSE-1-S2].
 
 ## 4. Docs and the production caller (D5, D7)
-- [ ] 4.1 `docs/panel.md`: under *Close lane*, a subsection *Close a lane from the command line*
+- [x] 4.1 `docs/panel.md`: under *Close lane*, a subsection *Close a lane from the command line*
   (the command, run from the project's checkout with no `--project`, plan first, `--yes`, the
   verdict, merged-or-exited, and the self refusal, the finish after an interrupt, where its line
   goes); under *Close a lane when its PR merges*, that background work in flight, a lease, no
@@ -534,7 +608,7 @@
   in `docs/panel.md` and the field's `description` in `docs/panel.schema.json`, both held by
   `TestGeneratedFilesAreCurrent`); and under *Security model* the socket (mode 0600, the one route, no token).
   `README.md`'s command table: a `clauductor lane close` row.
-- [ ] 4.2 `template/.claude/skills/session-close/SKILL.md`, the *Close the lanes* rule, D5's
+- [x] 4.2 `template/.claude/skills/session-close/SKILL.md`, the *Close the lanes* rule, D5's
   sentence (run from the repository; the lane's id tried from its worktree's folder name, else,
   when that id is unknown, from the refusal's `id (branch)` list; `--yes` only when the plan's
   first line names the merged branch, and a lane on another branch left to the owner, named;
@@ -550,12 +624,12 @@
   `.claude/settings.json` and `.claude/skills/`, so if update cannot write either, or stops
   part-way, the builder undoes what it wrote the same way, stops, and asks the owner to run that one command. Held by `TestCommittedPluginIsCurrent`, `checks/skills.sh` and
   `checks/settings.sh`.
-- [ ] 4.3 Review round 3's retry finding (the owner's decision of 2026-10-24): in task 4.2's
+- [x] 4.3 Review round 3's retry finding (the owner's decision of 2026-10-24): in task 4.2's
   sentence and task 4.1's docs, on the retry after a timeout **any** "no lane" answer, the
   manager's own `404 "no lane %q"` (`lanes/close.go:343-345`) among them, means "closed or
   closing", and is never a cue to try another id from the unknown-id list; that list is read only
   on a first call. Held by `TestCommittedPluginIsCurrent` and `checks/skills.sh`.
-- [ ] 4.4 Review round 7's spec finding (group 1, 2026-10-25): the spec delta states the lock-time
+- [x] 4.4 Review round 7's spec finding (group 1, 2026-10-25): the spec delta states the lock-time
   rule, so it stays cited once archived. Under [LANECLOSE-2-S4], add an **AND** line: a lane the
   panel last read as exited or gone, whose tmux shows claude running when the close takes the lane
   lock (a Restart or Resume since), or whose tmux does not answer then, is refused the same way,

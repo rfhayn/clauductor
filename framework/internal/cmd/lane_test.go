@@ -102,11 +102,14 @@ func (s *stubPanel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a := s.dry
 	if !req.DryRun {
 		a = s.close
-		if m, ok := s.dry.body.(map[string]any); ok {
-			if p, ok := m["plan"].(lanes.ClosePlan); ok && (req.Branch != p.DeleteBranch || req.Worktree != p.Worktree) {
-				s.t.Errorf("the close's consent is worktree=%v branch=%v, want the plan's worktree=%v deleteBranch=%v",
-					req.Worktree, req.Branch, p.Worktree, p.DeleteBranch)
-			}
+		// The command closes only after a plan, so a close with no plan in the dry
+		// answer is itself the fault; skipping the check there would hide it.
+		m, _ := s.dry.body.(map[string]any)
+		if p, ok := m["plan"].(lanes.ClosePlan); !ok {
+			s.t.Errorf("a close was asked (worktree=%v branch=%v) when the dry run's answer %v holds no plan", req.Worktree, req.Branch, s.dry.body)
+		} else if req.Branch != p.DeleteBranch || req.Worktree != p.Worktree {
+			s.t.Errorf("the close's consent is worktree=%v branch=%v, want the plan's worktree=%v deleteBranch=%v",
+				req.Worktree, req.Branch, p.Worktree, p.DeleteBranch)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -207,6 +210,10 @@ func newLaneWorld(t *testing.T, dry, close stubAnswer) *laneWorld {
 	claimAs(t, home, install.PanelOwner{PID: stubPID, PStart: stubStart, Port: 1, Projects: []string{root}, Socket: stub.sock})
 	t.Chdir(root)
 	t.Setenv("CLAUDUCTOR_LANE", "")
+	// The command's git, without a hook's GIT_DIR (laneRun's comment).
+	old := laneRun
+	t.Cleanup(func() { laneRun = old })
+	laneRun = gitFreeRunner
 	return &laneWorld{home: home, root: root, stub: stub}
 }
 
@@ -214,7 +221,7 @@ func newLaneWorld(t *testing.T, dry, close stubAnswer) *laneWorld {
 func (w *laneWorld) run(t *testing.T, id string, yes bool) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	err := runLaneClose(context.Background(), &out, w.home, id, yes)
+	err := runLaneClose(context.Background(), &out, func() (string, error) { return w.home, nil }, id, yes)
 	return out.String(), err
 }
 
@@ -444,6 +451,16 @@ func TestLaneCloseCommandExitsOneOnItsOwnLane(t *testing.T) {
 	}
 	if _, err := os.Stat(config.PanelDir(home)); !os.IsNotExist(err) {
 		t.Errorf("the panel directory was made: %v", err)
+	}
+}
+
+// [LANECLOSE-2-S2] The self refusal comes before $HOME is read: with HOME unset, the
+// command on its own lane still gives the fixed refusal, not a home-directory error.
+func TestLaneCloseRefusesItsOwnLaneWithNoHome(t *testing.T) {
+	t.Parallel()
+	r := cliEnv(t, t.TempDir(), t.TempDir(), []string{"HOME=", "CLAUDUCTOR_LANE=a"}, "lane", "close", "a")
+	if r.code != 1 || !strings.Contains(r.stderr, "does not close itself") || !strings.Contains(r.stderr, "Close lane") || r.stdout != "" {
+		t.Errorf("exit %d\nstdout: %s\nstderr: %s\nwant exit 1 with the self refusal", r.code, r.stdout, r.stderr)
 	}
 }
 

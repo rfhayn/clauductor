@@ -165,7 +165,22 @@ rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of
   command's output in this session.
 - **A check that could not run learned nothing.** `gh` failing on expired auth is not "no open PRs".
 - **Close the lanes**: every build, proposal and fix lane is landed, handed off in the journal, or
-  stopped, and the main checkout is back on `main`.
+  stopped, and the main checkout is back on `main`. For each panel lane whose pull request merged
+  and that is still open, run `clauductor lane close <id>` from the repository under a 10-minute
+  Bash timeout (`timeout: 600000`; the plan; skip this when `clauductor` is not on `PATH` or no
+  panel runs), trying first the id that is the folder name of the merged branch's worktree in
+  `git worktree list`, and, when that id is unknown, the id the refusal's `id (branch)` list
+  gives the merged branch; a dry run that times out changed nothing, and the final message names
+  its lane for the owner; then, only when the
+  plan's first line (`lane <id> on <branch>`) names the merged branch, the same with `--yes`
+  under the same timeout, and put the plan's **Keeps** lines, if
+  any, in the final message; a lane on another branch gets nothing more, and the final message
+  names the merged branch whose lane was not found, for the owner, as it names any refusal with
+  its reason and lane; and when the `--yes` call timed out, its outcome is unknown, so run the dry run once more
+  under the same timeout and name the lane for the owner: with its plan when one comes back (the
+  panel still lists it), "closed or closing" with the panel's log line pointed to when **any**
+  `no lane …` answer comes back (a retry never reads the `id (branch)` list for another id: that
+  list is read only on a first call), or "outcome unknown" when the retry times out too.
 - **Do not manufacture work to look thorough.** If the record is current, say so and stop.
 - **Never force the gate green by weakening a test.** A red gate at close is the session's real
   finding, and it goes in the journal.
