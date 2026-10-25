@@ -24,7 +24,8 @@ is trusted:
   4. starts it from its template through the same `StartLane` path, and the same trust and 5-hour
      quota guard, that **Start lane** uses.
   It adds no new endpoint.
-- **It runs one lane at a time** (D5). The run ends when the session's close merges (D6).
+- **It runs one lane at a time** (D5). The run ends when the session's close merges, and it
+  tracks nothing more until the owner starts a lane after that (D6).
 - **It stops and sends one push saying why** when the next start needs the owner or is unsafe:
   - a decision in the plan names the next row, or the next row is a change with no proposal yet
     (D3);
@@ -54,9 +55,10 @@ is trusted:
   - `docs/roadmap.md`, the PANEL-59 row (in this proposal PR);
   - `template/.claude/panel-suggest.sh` and its check `template/.claude/checks/panel-suggest.sh`
     (D2);
+  - `template/.claude/roadmap-plan.sh`, whose `D` records gain the session (D2);
   - their generated copies in `plugin/`;
-  - this repository's own `.claude/panel-suggest.sh` and `.claude/checks/panel-suggest.sh`
-    (synced by `clauductor update`);
+  - this repository's own `.claude/panel-suggest.sh`, `.claude/roadmap-plan.sh` and
+    `.claude/checks/panel-suggest.sh` (synced by `clauductor update`);
   - `framework/internal/cmd/panel.go`, the help text of `config-check`, which prints the runner
     too (D9).
 

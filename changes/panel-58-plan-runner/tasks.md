@@ -22,13 +22,22 @@
 - [ ] 1.1 `template/.claude/panel-suggest.sh` gains the kind `next`, in its usage line and its
   header.
   - It prints at most one item from the plan's order within the open session, the one `close`
-    reads. That is the first entry not landed and not a batch's later row, by the rules `build`,
-    `ops`, `propose` and `close` already apply.
+    reads. That is the first entry not landed and not a batch's later row, landed as `close`
+    counts it, never by the other kinds' offer rules: the entry is chosen whatever its roadmap
+    state (in flight, deferred) and whatever its name (`feature/REL-1-release`), and its name is
+    its kind's form even where no list would offer it (D2).
   - Once every entry has landed, the item is the session's close. With no plan or no open session,
     `next` prints `[]`.
   - The item is `{name, title, detail, issue, kind, row}`, plus `decision` when a `D` record of
-    `roadmap-plan.sh` names its row. Its `issue` is `#<n>` for a `fix/` row whose name is
-    `<n>-<slug>`, the fix kind's form, and `""` for every other item (D2).
+    `roadmap-plan.sh` for the open session names its row. Its `issue` is `#<n>` for a `fix/` row
+    whose name is `<n>-<slug>`, the fix kind's form, and `""` for every other item (D2): only the
+    fix kind prints `issue` today (`panel-suggest.sh:51`), so `next` adds it for the others.
+  - `decision` is the open session's *The owner decides* cell parts for the row, joined by `; `.
+    A decision of an earlier session is never carried.
+  - `template/.claude/roadmap-plan.sh` gains a fourth field on its `D` records, `D id decision
+    session`. Its one other reader, `.claude/local/roadmap-tracker.sh` (`:136`, `:178`), reads the
+    first three and is unchanged. The new field is held in
+    `template/.claude/checks/panel-suggest.sh`, which runs the parser.
   - Its `kind` is `build` for a change row whose proposal is on main, `propose` for one without,
     `ops` for an `ops/` row, `fix` for a `fix/` row, and `close` for the close.
   - A planned `ID (proposal)` entry is `propose` until its proposal is on main or archived, and
@@ -37,11 +46,12 @@
   - It reads the plan only through `roadmap-plan.sh` and the queue only through `roadmap_queue`:
     no second parser.
   - Tested in `template/.claude/checks/panel-suggest.sh`, citing [PLANRUN-8-S1], [PLANRUN-8-S2],
-    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5], [PLANRUN-8-S6] and [PLANRUN-8-S7]. The fixture roadmaps are built as the
-    check's OPS-126 cases build theirs.
+    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5], [PLANRUN-8-S6], [PLANRUN-8-S7] and
+    [PLANRUN-8-S8]. The fixture roadmaps are built as the check's OPS-126 cases build theirs.
 - [ ] 1.2 Run `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root
-  with the binary built from this checkout. This syncs this repository's `.claude/panel-suggest.sh`
-  and `.claude/checks/panel-suggest.sh`. Held by `TestCommittedPluginIsCurrent`.
+  with the binary built from this checkout. This syncs this repository's `.claude/panel-suggest.sh`,
+  `.claude/roadmap-plan.sh` and `.claude/checks/panel-suggest.sh`. Held by
+  `TestCommittedPluginIsCurrent`.
 
 ## 2. The switch and its trust (D1, D9)
 - [ ] 2.1 `framework/internal/panel/config`: the `plan_runner` key.
@@ -108,11 +118,13 @@
       (either form); no lane on any candidate; running lanes, of any template, on more than one
       candidate; a lane record whose `Template`
       is of another kind or empty; `mergedPRRead` returned an error (never read as no merged
-      PR); a HEAD a merged PR holds, naming the PR.
+      PR); a HEAD a merged PR holds, naming the PR; and, only while the close's stop holds, a
+      lane whose `LaneRecord.Created` (`types/types.go:101`) is not later than its `closed`,
+      "started before the session closed".
     - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
       that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one. It
       carries the lane, the item and `started`, false unless the restart marks it (task 4.2).
-  - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and calls
+  - **Adopt.** While idle, every 120 seconds, it runs `next` under a timeout and calls
     `adoptable` for the item. An allowed lane is tracked with `next`'s item, whole, and
     `started` false. A refusal sets the runtime's `waiting` to its reason and pushes nothing.
     A `next` that prints `[]` sets it to "next names no row", and one that fails, times out or
@@ -126,7 +138,8 @@
     merged-PR read; and a HEAD merged PR #8 holds. Each case asserts its `planRun.waiting`
     reason, that `plan-run.json` stays `idle`, and that no notice goes out. Two rows beyond the
     scenario: a build lane on one candidate and a propose lane on another (lanes on two
-    candidates), and a fix template whose pattern names `{issue}` (refusal 1's second form).
+    candidates), and a fix template whose pattern names `{issue}` (refusal 1's second form). A
+    third, while the close's stop holds: a lane whose `Created` is the merge's time (refusal 7).
   - Tested in the same file, citing [PLANRUN-7-S2]'s idle `next` cases: a stand-in `next` that
     fails, and one that prints `[]`, each with no notice and its `waiting`.
   - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
@@ -139,7 +152,10 @@
     never read.
   - `mergedRow` (`autoclose.go:149-152`) holds only `Number` and `HeadRefOid`. It gains `Body`,
     `MergedAt` and `MergeCommit` (gh's `{oid}` object), or the runner decodes into its own row.
-  - **The close.** When the tracked kind is `close`, the trigger ends the run.
+  - **The close.** When the tracked kind is `close`, the trigger ends the run. Its stop carries
+    `closed`, the merge's time. While that stop holds, idle adoption tracks only a lane created
+    after it (refusal 7, shown in `waiting`, no push), and the first such lane tracked ends the
+    hold. The owner's **Start lane** after the close is that lane.
   - Tested in `framework/internal/panel/planrun_test.go` with a stand-in `gh`, citing
     [PLANRUN-1-S1], [PLANRUN-2-S4] and [PLANRUN-2-S7].
 - [ ] 3.2 The `Review:` line (D8 (b)).
@@ -172,7 +188,12 @@
     yet. A tracked `propose` followed by the same row's `build` is its own stop: the proposal
     merged, and its build starts with the owner's click.
   - It runs every template's suggest command once through `suggestSource` and applies the results
-    as a refresh does, then requires exactly one list to name the item.
+    as a refresh does, then requires exactly one list to name the item. Two or more is a stop
+    naming the templates.
+  - When no list names it (an in-flight or deferred row, a name a lane cannot take), it calls
+    `adoptable(item)` first: an allowed lane is tracked and nothing starts. Any refusal, 1 and 2
+    included, is a stop naming the row, its roadmap state, the reason and, when a lane cannot take
+    the name, that name.
   - Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-4-S1], [PLANRUN-4-S2],
     [PLANRUN-4-S3], [PLANRUN-4-S4], [PLANRUN-4-S5], [PLANRUN-4-S6], [PLANRUN-4-S8] and
     [PLANRUN-4-S9].
@@ -191,7 +212,9 @@
   - Otherwise the mode is `existing`, `branch` or `new`.
   - The runner writes `starting` with the item, whole, its branch and the time. It calls
     `StartLane` on the runtime's context with the template, name, mode, worktree and issue and the
-    gate `orchestration()` builds (trust and the 5-hour `QuotaGuard`), never `OverrideQuota`. Then
+    gate built as the route builds it: `lanes.StartGate{Trusted, QuotaGuard}` from
+    `orchestration()`'s fields, since the route's `startGate` (`web/routes.go:365-369`) is
+    unexported in package `web`. It is trust and the 5-hour `QuotaGuard`, never `OverrideQuota`. Then
     it writes `watching` on the new lane's branch, with `started` true.
   - A refusal is a stop naming it.
   - On start, a `starting` state is resolved first (D12), through `adoptable` for the recorded
