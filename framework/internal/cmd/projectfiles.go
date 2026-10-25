@@ -83,7 +83,7 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 	}
 	if have, ok := read(targetDir, template.ModelRolesPath); ok {
 		if want, ok := read(tmplDir, template.ModelRolesPath); ok {
-			merged, added, err := template.MergeAddOnly(have, want)
+			merged, added, err := template.MergeModelRoles(have, want)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", template.ModelRolesPath, err)
 			}

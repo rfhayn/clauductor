@@ -9,11 +9,11 @@ import (
 )
 
 // Finding 6: model-roles.json gains the template's new keys and keeps every value the project set.
-func TestMergeAddOnlyKeepsProjectValues(t *testing.T) {
+func TestMergeModelRolesKeepsProjectValues(t *testing.T) {
 	have := `{"roles": {"builder": {"model": "sonnet", "effort": "low"}}, "attribution": {"enabled": false}, "mine": [1]}`
 	want := `{"roles": {"builder": {"model": "opus", "effort": "high", "tiers": {"low": {"model": "sonnet"}}}, "reviewer": {"model": "opus"}},
 	"attribution": {"enabled": true, "trailer": "Co-Authored-By: x"}, "mine": [2, 3], "evals": {"thresholds": {"recall": 0.8}}}`
-	got, added, err := MergeAddOnly([]byte(have), []byte(want))
+	got, added, err := MergeModelRoles([]byte(have), []byte(want))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +34,55 @@ func TestMergeAddOnlyKeepsProjectValues(t *testing.T) {
 	if len(m["mine"].([]any)) != 1 {
 		t.Error("the project's array changed")
 	}
-	same, added, _ := MergeAddOnly([]byte(want), []byte(want))
+	same, added, _ := MergeModelRoles([]byte(want), []byte(want))
 	if len(added) != 0 || string(same) != want {
 		t.Error("nothing to add must leave the file byte for byte")
+	}
+}
+
+// OPS-119: an eval holding a receipt, on either side, is left whole; one without a receipt, and
+// the rest of the role around it, still gain the template's new keys.
+func TestMergeModelRolesKeepsAReceiptWhole(t *testing.T) {
+	for _, tc := range []struct{ name, have, want, added string }{
+		{"project receipt",
+			`{"roles": {"reviewer": {"model": "opus", "eval": {"receipt": "r.json", "why": "x"}}}}`,
+			`{"roles": {"reviewer": {"model": "opus", "tiers": {}, "eval": {"baseline": "opus/high", "why": "y"}}}}`,
+			"roles.reviewer.tiers"},
+		{"template receipt",
+			`{"roles": {"reviewer": {"eval": {"baseline": "opus/high"}}}}`,
+			`{"roles": {"reviewer": {"eval": {"receipt": "r.json", "recall": 1}}}}`,
+			""},
+		{"baselines merge",
+			`{"roles": {"reviewer": {"eval": {"baseline": "opus/high"}}}}`,
+			`{"roles": {"reviewer": {"eval": {"baseline": "opus/high", "why": "y"}}}}`,
+			"roles.reviewer.eval.why"},
+		{"a role named eval",
+			`{"roles": {"eval": {"receipt": "mine"}}}`,
+			`{"roles": {"eval": {"receipt": "mine", "model": "opus"}}}`,
+			"roles.eval.model"},
+	} {
+		_, added, err := MergeModelRoles([]byte(tc.have), []byte(tc.want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(added, " "); got != tc.added {
+			t.Errorf("%s: added %q, want %q", tc.name, got, tc.added)
+		}
+	}
+}
+
+// OPS-119: survey reports no missing key for a receipt that update would leave alone.
+func TestSurveyQuietOnAnEvalReceipt(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "want.json"), filepath.Join(dir, "have.json")
+	if err := os.WriteFile(src, []byte(`{"roles": {"reviewer": {"eval": {"baseline": "opus/high"}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte(`{"roles": {"reviewer": {"eval": {"receipt": "r.json"}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if note := configNote(ModelRolesPath, src, dst, nil); note != "" {
+		t.Errorf("survey says %q of a receipt update keeps whole", note)
 	}
 }
 
