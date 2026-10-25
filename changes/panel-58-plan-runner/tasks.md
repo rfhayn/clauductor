@@ -54,7 +54,8 @@
     the key.
   - `runEntries` adds `plan runner runs %q, starting lanes until the 7-day usage reaches %v%%` while
     `on` is true, with `next` as its command, so `RunList` and `SidecarRefusals` both read it.
-    The line ends `, adopting lanes of kinds <kinds>` (sorted), or `, adopting no lane: no
+    The line ends `, adopting lanes of kinds <kinds>` (each kind once, sorted, joined by `, `), or
+    `, adopting no lane: no
     template's suggest command is %q with its last element replaced`.
   - `Config.TemplateKind(t)` (new) is the one reading of the kind rule: a template is of kind K
     when its suggest command is `plan_runner.next` with its last element replaced by K, element
@@ -90,8 +91,8 @@
 - [ ] 3.1 `framework/internal/panel/planrun.go` (new): the runner's loop in the project runtime,
   started beside auto-close.
   - Its state file is `plan-run.json` in `config.ProjectDir(home, project)`, holding `branch`,
-    `row`, `kind`, `lane`, `since`, `state` (`idle`, `watching`, `starting`), `stop` and the keys
-    of the notices sent. It is written atomically (`config.WriteAtomic`) before each step that
+    `row`, `name`, `kind`, `lane`, `started`, `since`, `state` (`idle`, `watching`, `starting`),
+    `stop` and the keys of the notices sent. `waiting` is the runtime's alone, never written. It is written atomically (`config.WriteAtomic`) before each step that
     starts or stops anything.
   - It runs only while `plan_runner.on` is true and the config is trusted. Otherwise it keeps its
     state and does nothing.
@@ -99,20 +100,25 @@
     - `candidates(item)` returns the `branch_pattern`s of the templates `Config.TemplateKind`
       gives the item's kind, with its name, deduplicated, or, when there are none, the reason. No
       Up next list is read.
-    - `adoptable(lane, item)` returns an `Adoption` or the reason: no candidates; no lane on
-      any; a lane record whose `Template` is of another kind or empty; matching lanes on two
-      candidates; a HEAD a merged PR holds (`mergedPRRead`).
+    - `adoptable(item)` looks up the project's running lanes on the candidates itself, and
+      returns an `Adoption` or the reason, in design.md's order: no template of the item's kind;
+      no lane on any candidate; matching lanes on two candidates; a lane record whose `Template`
+      is of another kind or empty; `mergedPRRead` returned an error (never read as no merged
+      PR); a HEAD a merged PR holds, naming the PR.
     - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
-      that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one.
+      that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one. It
+      carries the lane, the item and `started`, false unless the restart marks it (task 4.2).
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and calls
-    `adoptable` for the item. An allowed lane is tracked with `next`'s kind. A refusal writes its
-    reason to `planRun` and pushes nothing.
+    `adoptable` for the item. An allowed lane is tracked with `next`'s row, name and kind, and
+    `started` false. A refusal sets the runtime's `waiting` to its reason and pushes nothing.
+    Tracking a lane or writing a stop clears `waiting`.
   - Tested in `framework/internal/panel/planrun_test.go`, one table over `adoptable`'s reasons
-    with a stand-in `gh`, citing [PLANRUN-9-S1]: an ops lane on `ops/a` while `next` names A's
-    build; a propose lane on `change/a`; a lane with no template; build lanes on two candidates,
-    from a config with two build templates of different patterns; and `next`
-    `["sh", "scripts/next-row.sh"]`. Each case asserts its `planRun` reason and that
-    `plan-run.json` stays `idle`.
+    with a stand-in `gh`, citing [PLANRUN-9-S1], its rows in the same order: `next`
+    `["sh", "scripts/next-row.sh"]`; an ops lane on `ops/a` while `next` names A's build; build
+    lanes on two candidates, from a config with two build templates of different patterns; a
+    propose lane on `change/a`; a lane with no template; a stand-in `gh` that fails the
+    merged-PR read; and a HEAD merged PR #8 holds. Each case asserts its `planRun.waiting`
+    reason, that `plan-run.json` stays `idle`, and that no notice goes out.
   - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
     context. An error with that context done writes nothing and sends nothing: before the start it
     leaves `watching`, and during it `starting`. Tested in task 4.2, once the wait, `next`'s second
@@ -169,17 +175,19 @@
 - [ ] 4.2 Where the lane runs, in Go, mirroring `planStart` (`web/static/start-plan.js:97-145`)
   over `TemplateBranch`'s facts.
   - A busy branch is a stop, and so is a HEAD a merged PR holds.
-  - A lane already in the worktree is tracked through `adoptable` (task 3.1), and a refusal is a
-    stop naming its reason.
+  - `adoptable(item)` (task 3.1) runs next: an allowed lane is tracked and nothing starts; "no
+    lane on any candidate" goes on to the mode; any other refusal is a stop naming its reason.
   - Otherwise the mode is `existing`, `branch` or `new`.
-  - The runner writes `starting` with the item's row, kind and branch and the time. It calls
+  - The runner writes `starting` with the item's row, name, kind and branch and the time. It calls
     `StartLane` on the runtime's context with the template, name, mode, worktree and issue and the
     gate `orchestration()` builds (trust and the 5-hour `QuotaGuard`), never `OverrideQuota`. Then
-    it writes `watching` on the new lane's branch.
+    it writes `watching` on the new lane's branch, with `started` true.
   - A refusal is a stop naming it.
-  - On start, a `starting` state is resolved first (D12). A lane running on the recorded branch is
-    tracked through `adoptable` with no notice, and a refusal is a stop naming its reason.
-    Otherwise it is a stop naming the row, the branch and what step 6 finds there.
+  - On start, a `starting` state is resolved first (D12), through `adoptable` for the recorded
+    row, name and kind. An allowed lane is tracked with no notice; when it is on the recorded
+    branch, the restart marks the `Adoption` started before `track`. "No lane on any candidate"
+    is a stop naming the row, the branch and what step 6 finds there. Any other refusal is a stop
+    naming its reason.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
@@ -226,8 +234,9 @@
   - Tested in `framework/internal/panel/push_test.go`, citing [STALL-3-S13]. Tested in
     `framework/internal/panel/planrun_test.go`, citing [PLANRUN-7-S1].
 - [ ] 6.2 A lane that stops short.
-  - The first prompt: a lane the runner started whose `PromptState` is not `delivered` 10 minutes
-    after its start, or is `skipped`, gets one notice.
+  - The first prompt: a tracked lane whose `plan-run.json` records `started` true, and whose
+    `PromptState` is not `delivered` 10 minutes after its start, or is `skipped`, gets one notice.
+    A lane with `started` false gets none. Nothing else infers who started it.
   - The idle lane: a tracked lane that is not stalled and not merged, none of whose live sessions is
     working, and that has not moved for `alerts.stall_minutes` (30 when 0), gets one notice. It
     uses the stall's own `sessionWorking` and last-movement reading, not a copy.
@@ -237,9 +246,10 @@
     [PLANRUN-6-S3].
 
 ## 7. The page and the docs (D1, D10)
-- [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `branch`, `why`, `at`.
-  `web/static/panel.js` renders it as one line above Up next's rows: tracking, waiting on a stalled
-  lane, or the last stop and its time.
+- [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `branch`, `why`, `at`,
+  `waiting`. `web/static/panel.js` renders it as one line above Up next's rows: tracking, waiting
+  on a stalled lane, or the last stop and its time, with `waiting` beside the last stop, so
+  neither replaces the other.
   - Tested in `framework/internal/panel/web/plan_run_view_test.go`, over the state's JSON and the
     page's rendered line, citing [PLANRUN-7-S2].
 - [ ] 7.2 `docs/panel.md` gains a *Plan runner* section: the key, what it starts and when, every

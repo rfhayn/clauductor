@@ -13,8 +13,8 @@ load a config that sets it in a version below 8, sets `on` true with no `next`, 
 `seven_day_pct` outside 1 to 100, or sets `on` true while `alerts.notify` is false, naming the key.
 WHILE `on` is true THE SYSTEM SHALL list the runner in the config's run list as
 `plan runner runs <next>, starting lanes until the 7-day usage reaches <pct>%`, followed by
-`, adopting lanes of kinds <kinds>`, the kinds of PLANRUN-9 that have a template, in sorted
-order, or, WHEN no template has one, by `, adopting no lane: no template's suggest command is
+`, adopting lanes of kinds <kinds>`, the kinds of PLANRUN-9 that have a template, each once, in
+sorted order, joined by `, `, or, WHEN no template has one, by `, adopting no lane: no template's suggest command is
 <next> with its last element replaced`. WHILE `on` is false
 or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for the runner.
 
@@ -82,8 +82,9 @@ that reloads, `projects.json` moving or removing the project), THE SYSTEM SHALL 
 cut short, not failed: it SHALL write nothing and send no notice. Before the start the state
 SHALL stay `watching`, so the next runtime finds the merge again. During the start it SHALL stay
 `starting`, and no runtime's stop SHALL wait for more than the start's return on its cancelled
-context. WHEN a runtime starts on a `starting` state, THE SYSTEM SHALL track a lane that runs on
-the recorded branch with no notice, as PLANRUN-9 allows, or, WHEN none runs, start nothing and
+context. The `starting` state SHALL record the item's row, name, kind and branch. WHEN a runtime
+starts on a `starting` state, THE SYSTEM SHALL run PLANRUN-9's check for the recorded item and
+track the lane it allows with no notice, or, WHEN no lane runs on any candidate, start nothing and
 stop with a notice naming the row and the branch. And
 WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
 run with a notice.
@@ -308,8 +309,11 @@ saying why.
   `five_hour` alone, no lane starts, and the notice says the 7-day reading is 31 minutes old
 
 ### Requirement: A lane of the run that stops short is pushed once
-WHEN a lane the runner started has not had its first prompt delivered within 10 minutes of its
-start, or had it skipped, THE SYSTEM SHALL send one notice naming the lane. WHEN the tracked lane is
+THE SYSTEM SHALL record in `plan-run.json` whether it started the tracked lane: true for its own
+start, and for the lane on the recorded branch that a restart's resolution of a `starting` state
+tracks (PLANRUN-2), and false for every other lane PLANRUN-9 allows. WHEN a lane so recorded as
+started has not had its first prompt delivered within 10 minutes of its start, or had it skipped,
+THE SYSTEM SHALL send one notice naming the lane, and SHALL send none for a lane not so recorded. WHEN the tracked lane is
 not stalled and has not merged, and no live session of it is working and the lane has not moved,
 both in the stall's terms, for `alerts.stall_minutes` (30 when that is 0), THE SYSTEM SHALL send
 one notice naming the lane. WHEN the tracked lane is stalled, THE SYSTEM SHALL send no notice of its
@@ -322,6 +326,10 @@ tracking the lane, and go on WHEN it merges.
 - **THEN** one notice naming the lane goes out at 00:10, and none at 00:20
 - **AND** when the lane's pull request later merges, the row after it starts
 - **AND** when instead the first prompt is `skipped`, one notice names the lane
+- **AND** a lane the owner started at 00:00 and the runner adopted, its first prompt `pending` at
+  00:10, gets no notice
+- **AND** a lane on the recorded branch that a restart's resolution tracked, its first prompt
+  `pending` 10 minutes after the recorded start, gets one notice naming it
 
 #### Scenario: [PLANRUN-6-S2] A lane that stops with no open work is pushed once
 - **GIVEN** `alerts.stall_minutes` 30, and a tracked lane whose gate failed with no pull request and
@@ -339,8 +347,9 @@ tracking the lane, and go on WHEN it merges.
 THE SYSTEM SHALL send each notice of the runner once, as a macOS notification and through the push
 (`panel-stall`'s third requirement). SHALL record it in `plan-run.json` by its reason and the merge
 or row it names, so that a restart does not send it again. `/api/state` SHALL carry `planRun`, with
-`on`, the state, the row, the lane, and the last stop's text and time, which the page shows as one
-line above Up next.
+`on`, the state, the row, the lane, the last stop's text and time, and `waiting`, the reason
+PLANRUN-9's check last refused while idle, each in its own field. The page SHALL show them as one
+line above Up next, with `waiting` beside the last stop, neither replacing the other.
 
 #### Scenario: [PLANRUN-7-S1] A stop's notice is not sent again after a restart
 - **GIVEN** a run stopped at a capped review of #9, its notice sent
@@ -355,6 +364,9 @@ line above Up next.
   Up next names the lane
 - **AND** for the stopped run, `planRun` carries the stop's text naming "#9" and its time, and the
   page's line shows it
+- **AND** when that run is idle and PLANRUN-9's check then refuses, waiting for a lane on
+  `change/a`, `planRun` still carries the stop naming "#9" and carries `waiting` naming
+  `change/a`, and the page's line shows both
 
 ### Requirement: `panel-suggest.sh next` names the plan's next row, in the plan's order
 `panel-suggest.sh next` SHALL print, from `origin/<main>`, a JSON array of at most one item:
@@ -413,25 +425,32 @@ THE SYSTEM SHALL read the item's candidate branches in one place. A template is 
 suggest command is the `next` argv with its last element replaced by K, element for element. The
 candidates are the `branch_pattern`s of the templates of the item's kind, with the item's name,
 equal ones counted once. THE SYSTEM SHALL track a lane it did not start in that same step only
-WHEN one check over those candidates allows it: the lane runs on exactly one candidate, its
-recorded template is of the item's kind, and its HEAD is not a merged pull request's head. Every
-path that tracks such a lane SHALL go through that check: adoption while idle, step 6's lane
-already in the item's worktree, and a restart's resolution of a `starting` state. WHEN the check
-refuses, THE SYSTEM SHALL track nothing and name the reason in `planRun`: no template is of the
-item's kind, the lane's template is of another kind or none, matching lanes run on more than one
-candidate, or the lane's HEAD is merged work. At step 6 and on a restart, where a run is under
-way, the refusal SHALL also be a stop with its notice.
+WHEN one check over those candidates allows it. The check SHALL take only the item, and look up
+the project's running lanes on the candidates itself. It allows WHEN one lane runs on exactly one
+candidate, that lane's recorded template is of the item's kind, and the merged pull requests are
+read and none has the lane's HEAD as its head. Every path that tracks such a lane SHALL go through
+that check: adoption while idle, step 6, and a restart's resolution of a `starting` state. WHEN
+the check refuses, THE SYSTEM SHALL track nothing, and the reason SHALL be one of, in this order:
+no template is of the item's kind; no lane runs on any candidate; matching lanes run on more than
+one candidate; the lane's template is of another kind or none; the merged pull requests could not
+be read; the lane's HEAD is merged work. A failed read SHALL NOT be taken for no merged pull
+request. While idle, THE SYSTEM SHALL name the reason in `planRun.waiting` and send no notice. At
+step 6, no lane on any candidate SHALL let the step choose a mode. On a restart, it SHALL be
+PLANRUN-2's stop naming the row and the branch. At step 6 and on a restart, every other reason
+SHALL be a stop with its notice.
 
 #### Scenario: [PLANRUN-9-S1] While idle, each refusal of the check names its reason
 - **GIVEN** a trusted config with the plan runner on, tracking nothing, and `next` naming A's build
-- **WHEN** in turn: only an ops lane runs, on `ops/a`; a lane of the propose template runs on
-  `change/a`; a lane started with no template runs on `change/a`; lanes of the build kind run on
-  two candidates, from a config whose two build templates have different patterns; and `next` is
-  `["sh", "scripts/next-row.sh"]` while a build lane runs on `change/a`
-- **THEN** in each case nothing is tracked
-- **AND** `planRun` names, in turn: that it waits for a lane on `change/a`; the lane, the propose
-  template and A's kind; the lane and that it has no template; A and both branches; and A's kind
-  with no template's suggest command matching `next`
+- **WHEN** in turn: `next` is `["sh", "scripts/next-row.sh"]` while a build lane runs on
+  `change/a`; only an ops lane runs, on `ops/a`; lanes of the build kind run on two candidates,
+  from a config whose two build templates have different patterns; a lane of the propose template
+  runs on `change/a`; a lane started with no template runs on `change/a`; reading the merged pull
+  requests fails while a build lane runs on `change/a`; and a build lane runs on `change/a` whose
+  HEAD is merged pull request #8's head
+- **THEN** in each case nothing is tracked, `plan-run.json` stays `idle`, and no notice goes out
+- **AND** `planRun.waiting` names, in turn: A's kind with no template's suggest command matching
+  `next`; that it waits for a lane on `change/a`; A and both branches; the lane, the propose
+  template and A's kind; the lane and that it has no template; the failed read; and #8
 
 #### Scenario: [PLANRUN-9-S2] Step 6 and a restart refuse through the same check
 - **GIVEN** a tracked merge whose next row is B's build, B's proposal on main, and a lane of the
