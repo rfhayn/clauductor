@@ -244,9 +244,9 @@ Read on 2026-10-25, at `0cfced2b`.
 - **D7. A lane of the run that stops short gets one push, from the stall alert when it stalls and
   from the runner when it does not.** **Recommended.**
   - **When the lane is stalled.** A failed gate never merges, so the run waits on the lane. When
-    PANEL-51 marks the lane stalled, the stall's push is the one push, and the run's state says
-    "`<lane>` is stalled". That is the state's text, never `planRun.waiting`, which is the idle
-    read's alone (**Adopt**).
+    PANEL-51 marks the lane stalled, the stall's push is the one push, and `planRun.stalled` is
+    true: the stall's own reading of the tracked lane, never a copy, and never written to
+    `plan-run.json`. It is never `planRun.waiting`, which is the idle read's alone (**Adopt**).
   - **When it is not.** A lane can stop with no open work, for example after a failed gate with no
     PR and no receipt; STALL-1 then marks nothing. The runner pushes once when both hold for the
     stall time (`alerts.stall_minutes`, or 30 when that is 0):
@@ -612,8 +612,10 @@ same fields step 8's `StartLane` did.
 - **No template of the item's kind, or no lane on any candidate: none runs.** A stop: "a restart
   cut short the start of <row> on <branch>". Refusal 1 is reachable here, since step 6 goes on
   past it to a start. The notice names
-  what step 6 now finds there (a worktree, a branch or nothing), so the owner's start picks the
-  right mode. The runner does not start it again: a `worktree_setup` killed part way leaves a
+  what step 6 now finds there (a lane running, a worktree, a branch or nothing), so the owner's
+  start picks the right mode. A lane running there is named even when no template has the kind:
+  the cut start may have finished `StartLane` and died before `watching`, and the owner then
+  knows the row's work is under way rather than meeting `path-taken`. The runner does not start it again: a `worktree_setup` killed part way leaves a
   worktree only the owner can judge.
 - Step 3 has already waited out the merge's own rebuild when catch-up fast-forwarded with it. So
   a stop is likely only for another cause:
@@ -629,8 +631,9 @@ same fields step 8's `StartLane` did.
 - `stop.key` is the reason and the merge or row it is about. A restart does not send the same
   notice twice.
 - `/api/state` carries `planRun`: `on`, the state, the row, the lane, the last stop's text and
-  time, and `waiting`, the idle refusal's reason. Up next shows them as one line above its rows,
-  with `waiting` beside the last stop, so neither overwrites the other.
+  time, `waiting`, what the last idle read found (**Adopt**), and `stalled`, true while the
+  tracked lane is stalled (D7). Up next shows them as one line above its rows, with `waiting`
+  beside the last stop, so neither overwrites the other.
 
 **What it never does.**
 - It never starts a lane while `on` is false or the config is untrusted.
@@ -656,8 +659,8 @@ same fields step 8's `StartLane` did.
 | Catch-up has not settled 15 minutes after the fetch (no check ended with the merge in HEAD or no retry pending) | Stop, push naming the project |
 | The runtime's context ends during a step before the start (the panel's exit, an arrival's reload, a **Trust config…** that reloads, `projects.json` moving or removing the project) | No stop, no notice: the state stays `watching`, and the next start finds the merge again |
 | A merged `panel.json` arrives while the runner is on | The runtime is reloaded untrusted, and the runner sends nothing; catch-up's notice says the config waits for the owner. After **Trust config…**, the run goes on at its next trigger |
-| `next` fails, times out or prints something unreadable | Stop, push naming the error |
-| `next` prints `[]` | Stop, push: the plan has no row left |
+| After a merge (step 4), `next` fails, times out or prints something unreadable | Stop, push naming the error |
+| After a merge (step 4), `next` prints `[]` | Stop, push: the plan has no row left |
 | `next` names the row and kind that just merged (no fragment on main names it) | Stop, push naming the row and the PR |
 | The tracked lane was a row's proposal, and `next` names that row's build | Stop, push: the proposal merged, and its build starts with the owner's click |
 | The next row has a decision in the plan, or is a change with no proposal on main | Stop, push naming the row and the decision; the row stays offered |
@@ -671,4 +674,4 @@ same fields step 8's `StartLane` did.
 | While idle, `next` prints `[]`, fails, times out or prints something unreadable | Nothing is adopted, and no push; `planRun.waiting` says so, naming the error |
 | The first prompt is not delivered within 10 minutes, or is skipped | Push once; the run keeps tracking the lane |
 | The run's lane is not working and has not moved for the stall time, unstalled and unmerged | Push once; the run keeps tracking the lane |
-| The run's lane is stalled | The stall's push is the one push; `planRun`'s state says the lane is stalled |
+| The run's lane is stalled | The stall's push is the one push; `planRun.stalled` is true |

@@ -317,7 +317,7 @@ THE SYSTEM SHALL send one notice naming the lane, and SHALL send none for a lane
 not stalled and has not merged, and no live session of it is working and the lane has not moved,
 both in the stall's terms, for `alerts.stall_minutes` (30 when that is 0), THE SYSTEM SHALL send
 one notice naming the lane. WHEN the tracked lane is stalled, THE SYSTEM SHALL send no notice of its
-own, and `planRun`'s state SHALL say that the tracked lane is stalled. In each case THE SYSTEM SHALL keep
+own, and `planRun.stalled` SHALL be true, read from the stall's own state. In each case THE SYSTEM SHALL keep
 tracking the lane, and go on WHEN it merges.
 
 #### Scenario: [PLANRUN-6-S1] A first prompt not delivered is pushed, and the run goes on
@@ -341,14 +341,14 @@ tracking the lane, and go on WHEN it merges.
 - **GIVEN** a tracked lane with its pull request open, stalled
 - **WHEN** the notifier and the runner's tick run
 - **THEN** the stall's notice goes out and the runner sends none
-- **AND** `/api/state`'s `planRun` state says that lane is stalled, and its `waiting` is empty
+- **AND** `/api/state`'s `planRun.stalled` is true, and its `waiting` is empty
 
 ### Requirement: Each notice of the run goes out once, and the page shows the run
 THE SYSTEM SHALL send each notice of the runner once, as a macOS notification and through the push
 (`panel-stall`'s third requirement). SHALL record it in `plan-run.json` by its reason and the merge
 or row it names, so that a restart does not send it again. `/api/state` SHALL carry `planRun`, with
-`on`, the state, the row, the lane, the last stop's text and time, and `waiting`, each in its own
-field. `waiting` SHALL be what the last idle read found: PLANRUN-9's refusal, or that `next`
+`on`, the state, the row, the lane, the last stop's text and time, `waiting` and `stalled`, each in
+its own field. `waiting` SHALL be what the last idle read found: PLANRUN-9's refusal, or that `next`
 named no row, or that it failed, naming the error. While idle, a `next` that fails SHALL send no
 notice. `waiting` SHALL be empty while the runner is not idle, and while it is off or the config
 is untrusted. The page SHALL show them as one line above Up next, with `waiting` beside the last

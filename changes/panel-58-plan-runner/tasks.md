@@ -261,16 +261,17 @@
   - The idle lane: a tracked lane that is not stalled and not merged, none of whose live sessions is
     working, and that has not moved for `alerts.stall_minutes` (30 when 0), gets one notice. It
     uses the stall's own `sessionWorking` and last-movement reading, not a copy.
-  - A stalled lane gets no notice from the runner, and the run's state reads "`<lane>` is
-    stalled". `planRun.waiting` stays empty: it is the idle read's alone.
+  - A stalled lane gets no notice from the runner, and `planRun.stalled` is true, read from the
+    stall's own state, never written to `plan-run.json`. `planRun.waiting` stays empty: it is
+    the idle read's alone.
   - Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-6-S1], [PLANRUN-6-S2] and
     [PLANRUN-6-S3].
 
 ## 7. The page and the docs (D1, D10)
 - [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `branch`, `why`, `at`,
-  `waiting`. `web/static/panel.js` renders it as one line above Up next's rows: tracking, waiting
-  on a stalled lane, or the last stop and its time, with `waiting` beside the last stop, so
-  neither replaces the other.
+  `waiting`, `stalled`. `web/static/panel.js` renders it as one line above Up next's rows:
+  tracking (marked stalled when `stalled` is true), or the last stop and its time, with `waiting`
+  beside the last stop, so neither replaces the other.
   - Tested in `framework/internal/panel/web/plan_run_view_test.go`, over the state's JSON and the
     page's rendered line, citing [PLANRUN-7-S2].
 - [ ] 7.2 `docs/panel.md` gains a *Plan runner* section: the key, what it starts and when, every
