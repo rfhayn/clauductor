@@ -102,7 +102,9 @@ If the line above shows as literal text instead of output, run
      public site, a payment, a signer, a release), irreversible, or needs the owner at the computer;
    - it adds or amends an ADR or practice record, or its row says the owner approves it;
    - its `**Risk:**` is lower than its row's own `Risk:` (a row with none is normal);
-   - it replaces an approval the owner gave (`by <owner>`, not `by Claude (delegated …)`).
+   - it replaces an approval the owner gave: its last `**Approved:**` line read `by <owner>`, not
+     `by Claude (delegated …)`. `--revoke` erases that line, so read it first; once it is revoked,
+     read it from `git log -p -- changes/<id>/proposal.md`.
    Otherwise run `sh .claude/change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
    `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote) and the change
@@ -146,9 +148,11 @@ If the line above shows as literal text instead of output, run
   Expect the proposal PR's gate to be red until it is approved (by the owner, or step 3a); that
   red is the control.
 - **An edit to `design.md` or the Risk line after approval voids it** (the hash no longer
-  matches, and the check fails). `--revoke`, review the edit as in step 2b, then approve it again
-  the way step 3a decides: `--delegate` when it still holds, otherwise put it in front of the
-  owner and `--record` on their word. Never re-record an approval the owner did not give.
+  matches, and the check fails). First read who approved it, since `--revoke` erases the line:
+  when it was the owner, the new approval is theirs too (step 3, never `--delegate`). Then
+  `--revoke`, review the edit as in step 2b, and approve it again the way step 3a decides:
+  `--delegate` when it still holds, otherwise put it in front of the owner and `--record` on their
+  word. Never re-record an approval the owner did not give.
 - A design decision is the owner's even when the answer seems obvious: recommend, never decide,
   unless step 3a's delegation holds for the change. Then decide, and name each decision in the push.
 - Prefer a smaller change that converges over a complete one that does not.
