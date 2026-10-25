@@ -22,6 +22,7 @@ every open change against the shape below.
 **Roadmap row:** <row id>
 **Risk:** low | normal | high
 **Budget:** $N                                         ← when the roadmap row has `Budget: $N`; `$N, soft` if the owner made it soft
+**Approval:** owner — <why>                            ← only when the owner keeps it (`/clauductor:propose` step 3a)
 
 ## Why
 <the problem, and why now>
@@ -54,7 +55,14 @@ every open change against the shape below.
   branch, its diff changes it (both sides of a rename). The key and both lists are read from
   `origin/<main>`; only a repository with no remote reads them from disk. Where neither can be read
   (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, or a CI checkout without
-  `origin/<main>`) a delegated approval does not hold.
+  `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
+  a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
+  `**Approval:** owner — <why>` (`/clauductor:propose` step 3a writes it for a change that is money, legal or
+  business, outward, irreversible or needs the owner at the computer); whose roadmap row says
+  `Approval: owner` in its Change cell, outside backticks, as `origin/<main>` has the row (a row
+  missing there refuses); or whose `**Risk:**` is below the row's `Risk:` (a row with none is
+  normal). And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`,
+  holds an Approved line, so a hand edit of a revoked Status line does not reopen it.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

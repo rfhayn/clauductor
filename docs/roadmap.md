@@ -366,7 +366,9 @@ merged; the owner's decisions of 2026-10-21 set how its sessions run:
   normal unless its Change cell says `Risk: low` or `Risk: high`. Past the cap, what is left goes
   to KNOWN LIMITS with an issue or row that owns it, unless the owner says otherwise.
   `.claude/review-cap.sh <row>` reads it (the rounds are `REVIEW_CAPS` in `.claude/project.conf`):
-  build-change's `maxRounds` defaults to it and merge-pr step 3 stops at it (OPS-108).
+  build-change's `maxRounds` defaults to it and merge-pr step 3 stops at it (OPS-108). A change
+  row's `Risk:` is a floor too: Claude approves on delegation no proposal whose `**Risk:**` is
+  below it, and none whose row says `Approval: owner` (`change-approval.sh`, OPS-131).
 - **One row, one session, one PR; a daily close folds the records** (OPS-108). A row's session
   opens its PR as a draft at the start (`session-start/marker.sh`) and writes its records to
   `docs/journal.d/<row id>.md` in that PR, never to the journal, the insights log or a Status here.
@@ -397,7 +399,7 @@ names only what stays the owner's (OPS-128): what `APPROVAL_DELEGATED` delegates
 scheduling and splits, and a proposal's design and approval) is left out, unless the change
 touches a path `.claude/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt` lists, the decision is
 an ADR, money, legal or business, outward or irreversible, or needs the owner at the computer, or
-the row itself says the owner approves it (`/propose` step 3a).
+the row's Change cell says `Approval: owner` (`/propose` step 3a; `change-approval.sh` refuses it).
 
 The owner keeps a dashboard of this plan, refreshed at each session start and close:
 `.claude/local/roadmap-tracker.sh` builds its data from this table and the queue. The panel's

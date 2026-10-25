@@ -4,7 +4,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
 #                       Risk line voids it; --revoke puts it back to awaiting, keeping who approved;
 #                       --delegate records Claude's approval only with APPROVAL_DELEGATED on, no
-#                       guarded path named and no approval before, revoked or standing.
+#                       guarded path named, no Approval: owner in the proposal or its row, a Risk
+#                       not below the row's, and no approval before, revoked, standing or in history.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
@@ -22,7 +23,11 @@ mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
 cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/usage.sh" "$R/.claude/lib/"
 cp "$CLAUDUCTOR_FW/change-approval.sh" "$CLAUDUCTOR_FW/verify-change.sh" "$CLAUDUCTOR_FW/scenario-trace.sh" \
    "$CLAUDUCTOR_FW/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
+cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
+# roadmap CHANGE: the example's row 1.1 with CHANGE as its Change cell.
+roadmap() { printf '| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | %s | `src/home/` | — | ⬜ queued |\n' "$1" > "$R/docs/roadmap.md"; }
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 git -C "$R" add -A && git -C "$R" commit -qm base
 git -C "$R" checkout -q -b change/add-greeting-name
 cp -R "$EX/changes/add-greeting-name" "$R/changes/"
@@ -73,6 +78,48 @@ A --record Ana; expect_rc 0 $? "change-approval --record approves a revoked chan
 grep -q 'revoked' "$C/proposal.md" && fail "--record left the revoked marker" || ok "--record replaced the revoked Status line"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses to write over a standing Approved line"
 fresh; A --delegate Ana; expect_rc 0 $? "change-approval --delegate still records on a proposal never approved"
+# What the owner keeps beyond the guarded lists (OPS-131): a proposal or row marked Approval: owner,
+# a Risk below the row's, an ADR or a practice record, and a proposal its history shows approved.
+# D: --delegate from the fresh proposal, so each case is refused for its own reason or not at all.
+fresh; cp "$C/proposal.md" "$d/fresh.md"
+D() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
+awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
+grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. Approval: owner'
+D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Approval: owner"
+grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says `Approval: owner` to keep it'
+D; expect_rc 0 $? "change-approval --delegate passes a row that only names the marker in backticks"
+roadmap '`add-greeting-name` — greet a member by name'
+D; expect_rc 1 $? "change-approval --delegate refuses a Risk below its row's, a row with none being normal"
+grep -q 'low.*below.*normal' "$d/out" && ok "...and names both tiers" || fail "no tiers in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: high'
+D; expect_rc 1 $? "change-approval --delegate refuses a Risk below its row's Risk: high"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+sed 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 9.9/' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a change whose row the roadmap does not hold"
+# The row is found through roadmap_queue, so a roadmap its parser rejects refuses, never a scrape.
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+printf '| 1.2 | `ops/other` — x | `src/` | — | maybe |\n' >> "$R/docs/roadmap.md"
+D; expect_rc 1 $? "change-approval --delegate refuses when the roadmap does not parse, its row aside"
+grep -q 'did not parse' "$d/out" && ok "...and says the roadmap did not parse" || fail "no parse reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+for rec in docs/adr/0009-greeting.md docs/practices/PRAC-0009-greeting.md; do
+  mkdir -p "$R/${rec%/*}"; echo x > "$R/$rec"
+  D; expect_rc 1 $? "change-approval --delegate refuses a change that adds $rec"
+  grep -q "guarded path.*$rec" "$d/out" && ok "...and names it" || fail "no $rec in: $(cat "$d/out")"
+  rm -r "$R/${rec%/*}"
+done
+# A hand edit of the Status line drops --revoke's marker; the branch's history still holds the approval.
+D; expect_rc 0 $? "change-approval --delegate records with every stop clear"
+git -C "$R" add "$C/proposal.md" && git -C "$R" commit -qm "proposal: delegated"
+A --revoke
+D; expect_rc 1 $? "change-approval --delegate refuses a proposal whose branch history holds an Approved line"
+grep -q 'history' "$d/out" && ok "...and says the history holds it" || fail "no history in: $(cat "$d/out")"
+git -C "$R" reset -q HEAD~1
+git -C "$R" ls-files --error-unmatch "$C/proposal.md" >/dev/null 2>&1 && fail "change-tools: proposal.md is still tracked after undoing its commit"
+D; expect_rc 0 $? "change-approval --delegate records again once that history is gone"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch's diff touches a guarded path no task names"
@@ -88,6 +135,24 @@ base0=$(git -C "$R" rev-parse HEAD)
 (cd "$R" && git add -f .claude/project.conf .claude/lib/approval-guarded.txt && git commit -qm "main: delegation on")
 git -C "$R" update-ref refs/remotes/origin/main HEAD
 A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin/main has the key on and the list"
+# Main's row, not the branch's, and main's history (OPS-131): main marks the row, or lands the
+# proposal approved, after which a hand edit of its Status line on the branch does not reopen it.
+cp "$C/proposal.md" "$d/delegated.md"
+git -C "$R" worktree add -q --detach "$d/mainwt" origin/main
+printf '| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | greet by name. Risk: low. Approval: owner | x | — | ⬜ queued |\n' > "$d/mainwt/docs/roadmap.md"
+git -C "$d/mainwt" commit -qam "main: the owner keeps 1.1"
+git -C "$R" update-ref refs/remotes/origin/main "$(git -C "$d/mainwt" rev-parse HEAD)"
+A; expect_rc 1 $? "change-approval: a delegated approval fails once origin/main's row says Approval: owner"
+D; expect_rc 1 $? "change-approval --delegate reads the row from origin/main, not the branch's roadmap"
+git -C "$d/mainwt" reset -q --hard HEAD~1
+mkdir -p "$d/mainwt/changes"; cp -R "$C" "$d/mainwt/changes/"; cp "$d/delegated.md" "$d/mainwt/changes/add-greeting-name/proposal.md"
+git -C "$d/mainwt" add changes && git -C "$d/mainwt" commit -qm "proposal: landed"
+git -C "$R" update-ref refs/remotes/origin/main "$(git -C "$d/mainwt" rev-parse HEAD)"
+git -C "$R" worktree remove --force "$d/mainwt"
+D; expect_rc 1 $? "change-approval --delegate refuses a proposal whose history on origin/main holds an Approved line"
+grep -q "history on origin/main" "$d/out" && ok "...and says main's history holds it" || fail "no main history in: $(cat "$d/out")"
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+cp "$d/delegated.md" "$C/proposal.md"
 # Main's lists, not the disk's: main guards src/home in a project list this branch has not merged.
 git -C "$R" worktree add -q --detach "$d/mainwt" origin/main
 mkdir -p "$d/mainwt/.claude/local"; echo src/home > "$d/mainwt/.claude/local/approval-guarded.txt"

@@ -10,8 +10,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   sh .claude/change-approval.sh <id> --delegate "<owner>"  record Claude's approval on the owner's
 #                                                          delegation (OPS-127): only with
 #                                                          APPROVAL_DELEGATED="1", the change
-#                                                          touching no guarded path, and a proposal
-#                                                          never approved before (OPS-128)
+#                                                          touching no guarded path, ADR or practice
+#                                                          record, neither its proposal nor its row
+#                                                          saying Approval: owner, its Risk not
+#                                                          below its row's (OPS-131), and a proposal
+#                                                          never approved before, by its Status
+#                                                          line or its history (OPS-128, OPS-131)
 #   sh .claude/change-approval.sh <id> --revoke            back to `**Status:** awaiting approval
 #                                                          (revoked; was approved by <who>)`
 #
@@ -96,6 +100,46 @@ on_branch() {
   [ -n "$(git -C "$ROOT" diff --name-only "$mb" HEAD -- "$CHANGES_DIR/$id/" 2>/dev/null)" ]
 }
 
+risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) echo 0 ;; esac; }
+
+# kept: say why the owner keeps this change though no guarded path names it (OPS-131), or nothing:
+# the proposal's `**Approval:** owner` line (propose step 3a writes it for a change that is money,
+# legal or business, outward, irreversible or needs the owner at the computer), its roadmap row's
+# `Approval: owner`, or a `**Risk:**` below the row's (a row with no Risk: is normal), which would
+# lower the review cap the row set. The row is the authority, read as origin/<main> has it like the
+# key; a row it cannot find refuses: one this branch adds, or a roadmap whose table is not
+# `| <id> | Change | … |`, is the owner's to approve.
+kept() {
+  prop="$dir/proposal.md"
+  mark=$(grep -E '^\*\*Approval:\*\*[[:space:]]*owner' "$prop" | head -1)
+  [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
+  rid=$(proposal_field "$prop" "Roadmap row")
+  [ -n "$rid" ] || { echo "proposal.md names no **Roadmap row:**, so its row's Risk and Approval cannot be read"; return; }
+  # The row as main has it, found through roadmap_queue so a project's ROADMAP_PARSER decides what a
+  # row is; its Change cell is read from the line the parser names, as review-cap.sh reads it.
+  rmf=$(mktemp "${TMPDIR:-/tmp}/approval-roadmap.XXXXXX") || { echo "no temporary file for $ROADMAP, so row $rid cannot be read"; return; }
+  authority "$ROOT/$ROADMAP" > "$rmf"
+  if tsv=$(roadmap_queue --tsv "$rmf"); then
+    n=$(printf '%s\n' "$tsv" | awk -F'\t' -v r="$rid" '$4 == r { print $1; exit }')
+    line=""; [ -z "$n" ] || line=$(sed -n "${n}p" "$rmf")
+    rm -f "$rmf"
+  else
+    rm -f "$rmf"; echo "$ROADMAP${main_ref:+ on $main_ref} did not parse, so row $rid cannot be read"; return
+  fi
+  [ -n "$line" ] || { echo "row $rid is not in $ROADMAP${main_ref:+ on $main_ref}, so its Risk and Approval cannot be read"; return; }
+  printf '%s\n' "$line" | row_change_cell | grep -Eq '(^|[^[:alnum:]])Approval: owner([^[:alnum:]]|$)' \
+    && { echo "row $rid${main_ref:+ on $main_ref} says Approval: owner"; return; }
+  rr=$(printf '%s\n' "$line" | row_risks)
+  case $(printf '%s\n' "$rr" | grep -c .) in
+    0) rr=normal ;;
+    1) ;;
+    *) echo "row $rid's Change cell says more than one risk ($(echo $rr)), so its floor cannot be read"; return ;;
+  esac
+  pr=$(proposal_field "$prop" Risk)
+  [ "$(risk_rank "$pr")" -ge "$(risk_rank "$rr")" ] \
+    || echo "its **Risk:** ${pr:-(none)} is below row $rid's $rr (a row with no Risk: is normal), which would lower the review cap the row set"
+}
+
 # delegable: say why a delegated approval cannot hold for this change, or nothing when it can. It
 # iterates the guarded lists (the authority) against what the change touches: the paths its task
 # lines name and, on its own branch, its diff. An empty framework list refuses: a list that failed
@@ -107,7 +151,11 @@ delegable() {
   [ "$key" = 1 ] || { echo "APPROVAL_DELEGATED is not \"1\" in .claude/project.conf${main_ref:+ on $main_ref}, so only the $OWNER_ROLE approves"; return; }
   fw=$(authority "$CLAUDUCTOR_FW/lib/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
   [ -n "$fw" ] || { echo ".claude/lib/approval-guarded.txt${main_ref:+ on $main_ref} is missing or lists no path, so no approval can be delegated"; return; }
+  kept=$(kept); [ -z "$kept" ] || { echo "$kept; the $OWNER_ROLE approves it"; return; }
+  # ADRs and practice records are the owner's (Who decides): their directories are guarded too.
+  # project.conf, which names them, is itself guarded, so a branch cannot move them aside.
   own=$(authority "$ROOT/.claude/local/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
+  own=$(printf '%s\n%s\n%s\n' "$own" "$ADR_DIR" "$PRACTICES_DIR" | sed 's|/$||' | grep .)
   # A token's `:line` or `#anchor` is not part of its path.
   touched=$(grep -E '^[[:space:]]*- \[[ xX]\]' "$dir/tasks.md" 2>/dev/null | grep -oE '`[^` ]+`' | tr -d '`' | sed 's|^\./||; s/[:#].*//')
   # The change's own branch: checked out by name, a CI pull request's head, or any HEAD at or past
@@ -127,7 +175,7 @@ $(git -C "$ROOT" ls-files -o --exclude-standard 2>/dev/null)"
       case "/$p/" in (*"/$g/"*) printf '%s\n' "$p" ;; esac
     done
   done | sort -u | tr '\n' ' ')
-  [ -z "$hits" ] || echo "it touches a guarded path (approval-guarded.txt): $hits; the $OWNER_ROLE approves it"
+  [ -z "$hits" ] || echo "it touches a guarded path (approval-guarded.txt, ADR_DIR, PRACTICES_DIR): $hits; the $OWNER_ROLE approves it"
 }
 
 case "${1:-}" in
@@ -138,6 +186,16 @@ case "${1:-}" in
     prior=$(grep -E '^\*\*(Approved:\*\*|Status:\*\* awaiting approval \(revoked)' "$dir/proposal.md" | head -1)
     [ -z "$prior" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: it was approved before ($prior), so only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     why=$(delegable); [ -z "$why" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why" >&2; exit 1; }
+    # --revoke's marker is a line a hand edit of the Status line removes; the history is not
+    # (OPS-131). An Approved line ever committed to proposal.md, on origin/<main> or on this
+    # branch, is an approval before, and one that cannot be read refuses.
+    for ref in $main_ref HEAD; do
+      where="this branch"; [ "$ref" = HEAD ] || where=$ref
+      log=$(git -C "$ROOT" log --no-color --no-ext-diff --format= -p "$ref" -- "$CHANGES_DIR/$id/proposal.md" 2>&1) \
+        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where cannot be read: $log" >&2; exit 1; }
+      ! printf '%s\n' "$log" | grep -Eq '^[+-]\*\*Approved:\*\* ' \
+        || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: its history on $where holds an Approved line, so it was approved before and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+    done
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"
     ;;

@@ -351,8 +351,9 @@ bypass() {
       # OPS-108: the daily close's fold writes each folded row's Status cell (no parser writes), at
       # the line roadmap_queue --tsv names, and re-parses the result with roadmap_queue --check;
       # review-cap.sh reads a row's Risk: from the line roadmap_queue names, because the --tsv
-      # summary column may be shortened by a project's own parser.
-      */skills/session-close/fold.sh|"$1"/review-cap.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
+      # summary column may be shortened by a project's own parser; change-approval.sh (OPS-131)
+      # does the same with main's copy of the roadmap, which it gives roadmap_queue as a file.
+      */skills/session-close/fold.sh|"$1"/review-cap.sh|"$1"/change-approval.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
     esac
     # OPS-125: the marker reads a row's session from the `## Session plan` through its one parser,
     # roadmap-plan.sh (no queue table); the row itself comes from roadmap_queue --tsv. Only that

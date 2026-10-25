@@ -44,6 +44,16 @@ design_hash() {
   { cat "$1/design.md" 2>/dev/null; grep -E '^\*\*Risk:\*\*' "$1/proposal.md" 2>/dev/null; } | sha256_hex | cut -c1-12
 }
 
+# row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
+# roadmap table line on stdin, backticked spans removed: a backticked `Risk: high` is the row
+# talking ABOUT a risk, not stating its own. review-cap.sh reads a row's Risk from it, and
+# change-approval.sh its Risk and its `Approval: owner`.
+row_change_cell() { sed 's/`[^`]*`//g' | awk -F'|' '{ print $3 }'; }
+
+# row_risks: each distinct `Risk: low|normal|high` in the Change cell of the roadmap line on stdin,
+# one per line (none: the row is normal; more than one: its risk cannot be read).
+row_risks() { row_change_cell | grep -oE 'Risk: (low|normal|high)' | sed 's/^Risk: //' | sort -u; }
+
 # spec_scenarios FILE: one line per scenario header, tab-separated:
 #   <section> <requirement name> <id or -> <whole header text>
 # <section> is ADDED, MODIFIED, REMOVED or RENAMED inside a delta, LIVING in a living spec.
