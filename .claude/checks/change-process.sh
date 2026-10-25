@@ -116,17 +116,20 @@ EOF
 # and no fetch. And no span outside step 5 changes directory or sets GIT_*, so the line cannot
 # follow a `cd` or an export in step 1.
 merge_pr_catchup() {
-  echo 'First catch the branch up: `git fetch origin main && git merge origin/main`.'
+  echo 'In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.'
 }
 # merge_pr_unanchor: the skill on stdin, less the catch-up line where it stands in its one place
-# (once, outside a fence). Renamed step 2, the line stays in and is refused: the strip fails closed.
+# (once, outside a fence, under the first '### 2.' heading only, so a copy of the heading after the
+# squash-merge anchors nothing). Renamed step 2, the line stays in and is refused: the strip fails
+# closed. The line names its checkout itself, since merge-pr may start in the main checkout.
 merge_pr_unanchor() {
   awk -v line="$(merge_pr_catchup)" '
     { l[NR] = $0 }
     END {
       for (i = 1; i <= NR; i++) {
         if (l[i] ~ /^```/) fence = !fence
-        if (!fence && !done && l[i] == line && l[i - 1] == "### 2. Gate evidence for the head commit (blocking)" &&
+        if (!fence && l[i] ~ /^### 2\. /) h2++
+        if (!fence && !done && h2 == 1 && l[i] == line && l[i - 1] == "### 2. Gate evidence for the head commit (blocking)" &&
             index(l[i + 1], "Run the full gate from the branch\047s checkout") == 1) { done = 1; continue }
         print l[i]
       }
@@ -426,25 +429,30 @@ _green() {  # _green WHAT SED-SCRIPT: step5 on the edited copy objects to nothin
   else fail "step 5's check refuses $1: $(printf '%s' "$_o" | head -n 1)"; fi
 }
 _green "catching the lane branch up before the gate" '/^Run the full gate from the branch.s checkout/i\
-First catch the branch up: `git fetch origin main && git merge origin/main`.
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
 '
 # Review rounds 1 and 2 (OPS-124): a rule that read how a merge was aimed, then a list of catch-up
 # spans allowed anywhere before step 5, let each of these through. The catch-up is one line in
 # one place; worded otherwise or placed otherwise it is refused, and so is a cd or an export
 # before it in its place.
 _catch='/^Run the full gate from the branch.s checkout/i\
-First catch the branch up: `git fetch origin main && git merge origin/main`.
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
 '
 _red "the catch-up line after the squash-merge" '/^### 5\. Sync/i\
-First catch the branch up: `git fetch origin main && git merge origin/main`.
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
 ' "text before step 5 names \`git fetch origin main\`"
 _red "the catch-up line aimed by the sentence before it" '/^Run the full gate from the branch.s checkout/i\
 In the main checkout, catch main up.\
-First catch the branch up: `git fetch origin main && git merge origin/main`.
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.
 ' "text before step 5 names \`git fetch origin main\`"
 _red "the catch-up line aimed by the sentence after it" '/^Run the full gate from the branch.s checkout/i\
-First catch the branch up: `git fetch origin main && git merge origin/main`.\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.\
 Do that in the main checkout.
+' "text before step 5 names \`git fetch origin main\`"
+_red "the catch-up line under a second step 2 heading after the squash-merge" '/^### 5\. Sync/i\
+### 2. Gate evidence for the head commit (blocking)\
+In the branch'\''s checkout, first catch it up: `git fetch origin main && git merge origin/main`.\
+Run the full gate from the branch'\''s checkout again.
 ' "text before step 5 names \`git fetch origin main\`"
 _red "the catch-up in a fenced block" '/^Run the full gate from the branch.s checkout/i\
 ```bash\
