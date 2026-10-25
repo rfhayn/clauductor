@@ -57,13 +57,14 @@ diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-la
 
 ## Who decides, and what runs unattended
 
-**The owner decides:** a change's proposal and every `design.md` decision; ADRs and practice
+**The owner decides:** a change's proposal and every `design.md` decision, unless
+`APPROVAL_DELEGATED="1"` delegates them and `/clauductor:propose` step 3a finds nothing that keeps them; ADRs and practice
 records; a production deploy and anything else irreversible; anything outward beyond this repo.
 **Everything else runs without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
 comments on this repo, and the squash-merge through `merge-pr`. A session runs `session-start` to
 `session-close` hands-off and reaches the owner only by `PushNotification` (or your equivalent):
-at an owner decision, an environment fault, a gate that stays red, or review not converging, and
-once at the end, one line. Work that needs the owner at the computer goes in the owner queue.
+at an owner decision, an environment fault, a gate that stays red, or review not converging, once
+per delegated approval, and once at the end, one line. Work that needs the owner at the computer goes in the owner queue.
 
 **One row, one session, one PR.** A row's PR writes its records to one fragment,
 `docs/journal.d/<row id>.md` (`JOURNAL_FRAGMENTS`; the shape is that directory's README), and never

@@ -1,8 +1,9 @@
 #!/bin/sh
 # The scripts a change passes through, each falsified in a throwaway repo:
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
-#                       Risk line voids it; --revoke puts it back to awaiting; --delegate records
-#                       Claude's approval only with APPROVAL_DELEGATED on and no guarded path named.
+#                       Risk line voids it; --revoke puts it back to awaiting, keeping who approved;
+#                       --delegate records Claude's approval only with APPROVAL_DELEGATED on, no
+#                       guarded path named and no approval before, revoked or standing.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
@@ -43,11 +44,14 @@ A; expect_rc 1 $? "change-approval: a changed Risk tier voids it"
 sed 's/^\*\*Risk:\*\* high/**Risk:** low/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"
 A; expect_rc 0 $? "change-approval: restoring the design restores the approval"
 A --revoke; expect_rc 0 $? "change-approval --revoke"
-grep -qx '\*\*Status:\*\* awaiting approval' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back" || fail "--revoke: $(head -2 "$C/proposal.md")"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Ana)' "$C/proposal.md" && ok "--revoke puts '**Status:** awaiting approval' back, keeping who approved" || fail "--revoke: $(head -2 "$C/proposal.md")"
 # --delegate (OPS-127): refused while the key is off or the change names a guarded path.
 A --record " claude"; expect_rc 64 $? "change-approval --record refuses Claude (any case, leading space), whose approval goes through --delegate"
 A --record "Claude Code"; expect_rc 64 $? "change-approval --record refuses a name whose first word is Claude, unless it is OWNER_NAME"
 A --record Claudette; expect_rc 0 $? "change-approval --record takes a name that only begins with Claude"
+# fresh: the proposal as /propose drafts it, never approved, so --delegate's other refusals are reached.
+fresh() { sed 's/^\*\*Approved:\*\* .*/**Status:** awaiting approval/; s/^\*\*Status:\*\* awaiting approval (revoked.*/**Status:** awaiting approval/' "$C/proposal.md" > "$d/p" && cp "$d/p" "$C/proposal.md"; }
+fresh
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses while APPROVAL_DELEGATED is off"
 grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" || fail "no key reason in: $(cat "$d/out")"
 printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$ROOT/.claude/lib/approval-guarded.txt" "$R/.claude/lib/"
@@ -56,6 +60,18 @@ printf '.claude/project.conf\n.claude/lib/approval-guarded.txt\n' >> "$R/.git/in
 A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
 grep -qE '^\*\*Approved:\*\* 2026-01-02 by Claude \(delegated by Ana\) · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads 'by Claude (delegated by <owner>)'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
 A; expect_rc 0 $? "change-approval: the delegated approval holds"
+# A revoke is final for delegation (OPS-128, the owner's ruling): only the owner approves a revoked
+# change again, whoever approved it before, and a standing approval is never written over.
+A --revoke; expect_rc 0 $? "change-approval --revoke of a delegated approval"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "--revoke keeps the delegated approver in the Status line" || fail "--revoke: $(head -2 "$C/proposal.md")"
+A --revoke; expect_rc 0 $? "change-approval --revoke with no Approved line"
+grep -qx '\*\*Status:\*\* awaiting approval (revoked; was approved by Claude (delegated by Ana))' "$C/proposal.md" && ok "...leaves the revoked marker as it was" || fail "a second --revoke: $(head -2 "$C/proposal.md")"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a revoked change, even one Claude had approved"
+grep -q -- "--record" "$d/out" && ok "...and names the owner's --record" || fail "no --record in: $(cat "$d/out")"
+A --record Ana; expect_rc 0 $? "change-approval --record approves a revoked change, clearing the marker"
+grep -q 'revoked' "$C/proposal.md" && fail "--record left the revoked marker" || ok "--record replaced the revoked Status line"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses to write over a standing Approved line"
+fresh; A --delegate Ana; expect_rc 0 $? "change-approval --delegate still records on a proposal never approved"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch's diff touches a guarded path no task names"
@@ -63,6 +79,7 @@ grep -q 'guarded path.*\.claude/hooks/pr-merge-guard.sh' "$d/out" && ok "...and 
 rm -r "$R/.claude/hooks"
 # With origin/main, the key and the list come from it: the branch cannot turn the key on for itself.
 git -C "$R" update-ref refs/remotes/origin/main main
+fresh
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses when origin/main has the key off, whatever the branch says"
 grep -q 'on origin/main' "$d/out" && ok "...and says it read origin/main" || fail "no origin/main in: $(cat "$d/out")"
 # Main turns the key on and ships the list: a delegation passes, read from origin/main.

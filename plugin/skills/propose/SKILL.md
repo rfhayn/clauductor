@@ -2,14 +2,15 @@
 name: propose
 model: opus
 effort: xhigh
-description: "Propose the next change just in time: check nothing else is proposed ahead, read the specs it touches, draft changes/<id>/{proposal,design,tasks}.md (and spec deltas), put it in front of the owner for approval, and STOP until they approve. On approval, record it and land the proposal. TRIGGER when the user says 'propose <row>', 'propose the next change', 'write the proposal for', or a panel propose lane starts."
+description: "Propose the next change just in time: check nothing else is proposed ahead, read the specs it touches, draft changes/<id>/{proposal,design,tasks}.md (and spec deltas), review it to convergence, then approve it on the owner's delegation (APPROVAL_DELEGATED) or put it in front of the owner and STOP until they approve. On approval, record it and land the proposal. TRIGGER when the user says 'propose <row>', 'propose the next change', 'write the proposal for', or a panel propose lane starts."
 argument-hint: <change-id or roadmap row> [description]
 ---
 
 # Propose a change
 
 A proposal is written when its roadmap row is NEXT, never earlier, and nothing is built until the
-owner approves its design (AGENTS.md, *Who decides*). The format is in `changes/README.md`, and
+owner approves its design (AGENTS.md, *Who decides*), or Claude does on the owner's delegation
+(`APPROVAL_DELEGATED`, step 3a). The format is in `changes/README.md`, and
 `${CLAUDE_PLUGIN_ROOT}/examples/changes/add-greeting-name/` is a complete one that the checks hold correct.
 
 ## The fast path: no proposal at all
@@ -49,8 +50,8 @@ If the line above shows as literal text instead of output, run
 2. **Draft** `changes/<id>/proposal.md`, `design.md`, `tasks.md` and any
    `specs/<capability>/spec.md` deltas, in the shapes `changes/README.md` gives:
    - `proposal.md` opens with `**Status:** awaiting approval`, the `**Roadmap row:**`, a
-     `**Risk:** low | normal | high` (your recommendation: it picks the build's models, and the
-     owner approves it with the design) and, when the row carries `Budget: $N`, `**Budget:** $N`:
+     `**Risk:** low | normal | high` (your recommendation: it picks the build's models and review cap,
+     and is approved with the design, by the owner or on their delegation: step 3a) and, when the row carries `Budget: $N`, `**Budget:** $N`:
      write `**Budget:** $N, soft` when the owner wants an overrun reported while the build goes on
      (this line, not the design's prose, is what `build-change` reads; unmarked is hard).
      It ends with `## How we'll know`: the `**Signal:**` you will observe, and `**Check on:**
@@ -94,7 +95,30 @@ If the line above shows as literal text instead of output, run
      rounds stopped first, `Review: NOT converged after <n> round(s), peak <sev>, open: <short
      list> at <short sha> · design <hash>`. Only the first lets `merge-pr` skip its review. When
      the owner approves, that hash must be the one in the Approved line. Nothing checks this line.
-3. **Put it in front of the owner, and STOP.**
+3a. **A delegated approval** (OPS-127). Go to step 3 instead when any of these holds; the script
+   tests none of them, so this list is a skill step and nothing checks it:
+   - step 2b's rounds did not converge;
+   - the change, or a decision in it, is money, legal or business, outward beyond this repo (a
+     public site, a payment, a signer, a release), irreversible, or needs the owner at the computer;
+   - it adds or amends an ADR or practice record, or its row says the owner approves it;
+   - its `**Risk:**` is lower than its row's own `Risk:` (a row with none is normal).
+   Otherwise run `clauductor-model change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
+   `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
+   `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote), the change
+   names no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt` lists,
+   and it was never approved before (a standing Approved line, or a Status line `--revoke` marked
+   `(revoked; was approved by …)`, whoever approved it); otherwise it refuses and says why: go to
+   step 3. On success: run `clauductor-model checks/run.sh
+   changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
+   beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design
+   <hash>`; then `PushNotification` the owner ONE line naming the change, its decisions and the PR,
+   and go on to step 5's landing without waiting.
+   **The owner overrules** on their word: before the proposal lands, `--revoke` in its PR and go to
+   step 4 (from then on `--delegate` refuses it; only their `--record` approves it). Once it has landed, revise `design.md` as they decide in a new `proposal: <id>` PR, on a
+   branch of its own cut from `origin/<MAIN_BRANCH>` (`clauductor-model project-config.sh branch ops
+   <id>-revise`; never the build's `<BRANCH_CHANGE><id>`), that carries their `--record` (a revoke alone can never pass the gate), and stop any build lane
+   already started from the landed design until that PR merges.
+3. **Put it in front of the owner, and STOP** (any case step 3a sends here).
    - `REVIEW_PAGE="none"`: push, and open the PR `proposal: <id>`, whose body lists every
      decision awaiting the owner (recommendation and alternative), the slice line and the
      `Review:` line.
@@ -107,7 +131,8 @@ If the line above shows as literal text instead of output, run
    decision in `design.md` **as they decided it**, not as recommended. Review the revision as in
    step 2b (the diff since the reviewed commit is enough) and replace the `Review:` line before
    asking again, so what the owner approves is what was reviewed.
-5. **On approval**: `clauductor-model change-approval.sh <id> --record "<owner>"` (it writes
+5. **On approval** (step 3a recorded a delegated one already: skip to the landing):
+   `clauductor-model change-approval.sh <id> --record "<owner>"` (it writes
    `**Approved:** <date> by <owner> · design <hash>`: the approval covers `design.md` and the Risk
    line exactly as they stand), run `clauductor-model checks/run.sh changes`, then land the proposal alone through `merge-pr`
    (under a review page, the PR's body carries the `Review:` line too). Step 2b reviewed it, so
@@ -119,11 +144,14 @@ If the line above shows as literal text instead of output, run
 ## Rules
 - No `changes/<id>/` on `main` without an `**Approved:**` line: `checks/changes.sh` fails on
   `awaiting approval`, so the gate cannot write a receipt and `pr-merge-guard` refuses the merge.
-  Expect the proposal PR's gate to be red until the owner approves; that red is the control.
+  Expect the proposal PR's gate to be red until it is approved (by the owner, or step 3a); that
+  red is the control.
 - **An edit to `design.md` or the Risk line after approval voids it** (the hash no longer
-  matches, and the check fails). Put it back in front of the owner (`--revoke`, then `--record` on
-  their word). Never re-record an approval the owner did not give.
-- A design decision is the owner's even when the answer seems obvious: recommend, never decide.
+  matches, and the check fails). `--revoke`, review the edit as in step 2b, and put it in front of
+  the owner (step 3): `--delegate` refuses a change approved before, whoever approved it, so only
+  their `--record` approves it again. Never re-record an approval the owner did not give.
+- A design decision is the owner's even when the answer seems obvious: recommend, never decide,
+  unless step 3a's delegation holds for the change. Then decide, and name each decision in the push.
 - Prefer a smaller change that converges over a complete one that does not.
 
 ## Project steps
