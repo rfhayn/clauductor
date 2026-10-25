@@ -28,6 +28,10 @@
     its kind's form even where no list would offer it (D2).
   - Once every entry has landed, the item is the session's close. With no plan or no open session,
     `next` prints `[]`.
+  - When that first entry not landed is an id no roadmap row has, `next` prints nothing on stdout,
+    `next: the session plan names <id>, which is no roadmap row` on stderr, and exits non-zero.
+    It never joins the plan to the queue as the other kinds do (`panel-suggest.sh:153` skips
+    such an id), so it never passes it (D2).
   - The item is `{name, title, detail, issue, kind, row}`, plus `decision` when a `D` record of
     `roadmap-plan.sh` for the open session names its row. Its `issue` is `#<n>` for a `fix/` row
     whose name is `<n>-<slug>`, the fix kind's form, and `""` for every other item (D2): only the
@@ -46,8 +50,9 @@
   - It reads the plan only through `roadmap-plan.sh` and the queue only through `roadmap_queue`:
     no second parser.
   - Tested in `template/.claude/checks/panel-suggest.sh`, citing [PLANRUN-8-S1], [PLANRUN-8-S2],
-    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5], [PLANRUN-8-S6], [PLANRUN-8-S7] and
-    [PLANRUN-8-S8]. The fixture roadmaps are built as the check's OPS-126 cases build theirs.
+    [PLANRUN-8-S3], [PLANRUN-8-S4], [PLANRUN-8-S5], [PLANRUN-8-S6], [PLANRUN-8-S7],
+    [PLANRUN-8-S8] and [PLANRUN-8-S9]. The fixture roadmaps are built as the check's OPS-126 cases
+    build theirs.
 - [ ] 1.2 Run `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root
   with the binary built from this checkout. This syncs this repository's `.claude/panel-suggest.sh`,
   `.claude/roadmap-plan.sh` and `.claude/checks/panel-suggest.sh`. Held by
@@ -120,7 +125,8 @@
       is of another kind or empty; `mergedPRRead` returned an error (never read as no merged
       PR); a HEAD a merged PR holds, naming the PR; and, only while the close's stop holds, a
       lane whose `LaneRecord.Created` (`types/types.go:101`) is not later than its `closed`,
-      "started before the session closed".
+      "started before the session closed", naming the lane and the way through (close it keeping
+      its worktree and branch, then start the row from Up next; design.md D6).
     - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
       that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one. It
       carries the lane, the item and `started`, false unless the restart marks it (task 4.2).

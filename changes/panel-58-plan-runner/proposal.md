@@ -27,7 +27,7 @@ is trusted:
 - **It runs one lane at a time** (D5). The run ends when the session's close merges, and it
   tracks nothing more until the owner starts a lane after that (D6).
 - **It stops and sends one push saying why** when the next start needs the owner or is unsafe:
-  - a decision in the plan names the next row, or the next row is a change with no proposal yet
+  - a decision in the open session's plan names the next row, or the next row is a change with no proposal yet
     (D3);
   - the merged PR was a row's proposal, so its build is next and starts with the owner's click;
   - the merged PR's review was capped or did not converge (D8);

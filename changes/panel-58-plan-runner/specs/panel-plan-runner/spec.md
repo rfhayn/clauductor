@@ -144,9 +144,10 @@ tracks a lane created after it.
   closed
 - **AND** when `next` then names the next session's first row A, and a build lane the owner
   started before the close merged runs on `change/a`, it is not tracked, no notice goes out, and
-  `planRun.waiting` names the lane and says it started before the session closed
-- **AND** when that lane is gone and the owner starts a lane on `change/a` after the close, that
-  lane is tracked, which ends the hold
+  `planRun.waiting` names the lane, says it started before the session closed, and says to close
+  it keeping its worktree and start the row from Up next
+- **AND** when the owner closes that lane keeping its worktree and starts a lane on `change/a`
+  after the close, that lane is tracked, which ends the hold
 
 #### Scenario: [PLANRUN-2-S8] A start waits for the rebuild its merge sets off
 - **GIVEN** a project with catch-up on, a runner tracking `change/a`, and A's pull request #9,
@@ -222,18 +223,20 @@ Before a start, THE SYSTEM SHALL start nothing and send one notice naming why WH
   no fragment on main names yet;
 - the tracked lane was a row's proposal (`kind: propose`) and `next`'s item is that row's build,
   the notice saying the proposal merged and that its build starts with the owner's click;
-- the plan's *The owner decides* names the item's row, or the item is a proposal to write;
+- the open session's *The owner decides* names the item's row (the item's `decision`,
+  PLANRUN-8), or the item is a proposal to write;
 - no template's fresh suggest list names the item and PLANRUN-9's check allows no running lane
   for it, the notice naming the row, its roadmap state and the check's reason; or more than one
   list names it;
 - the item's branch is busy, or its branch's or worktree's HEAD is a merged pull request's head;
 - `StartLane` refuses.
 
-WHEN the plan's *The owner decides* names the item's row, the item SHALL stay offered in Up next.
+WHEN the open session's *The owner decides* names the item's row, the item SHALL stay offered in
+Up next.
 
 #### Scenario: [PLANRUN-4-S1] A decision still the owner's stops the run
-- **GIVEN** a tracked merge whose next row is B, and a plan whose *The owner decides* reads
-  `B: set its budget`
+- **GIVEN** a tracked merge whose next row is B, and a plan whose open session's *The owner
+  decides* reads `B: set its budget`
 - **WHEN** the runner reads `next`
 - **THEN** no lane starts, one notice names B and "set its budget", and B is still offered in Up
   next
@@ -267,7 +270,7 @@ WHEN the plan's *The owner decides* names the item's row, the item SHALL stay of
 - **THEN** in each case no lane starts, and one notice names B
 - **AND** when B is instead `in flight`, so no list offers it, and a build lane runs on `change/b`,
   that lane is tracked, no lane starts and no notice goes out
-- **AND** when B is `in flight` with no lane running, or is named `feature/B-release`, no lane
+- **AND** when B is `in flight` with no lane running, or is the ops row `ops/B-Release`, no lane
   starts, and one notice names B and its state, and for the second, that name
 
 #### Scenario: [PLANRUN-4-S7] A busy branch, or a refused start, stops the run
@@ -397,6 +400,10 @@ stop, neither replacing the other.
 - or, once every entry of the open session has landed, that session's close;
 - or `[]` when there is no plan or no open session.
 
+WHEN that first entry not landed is an id that no roadmap row has, `panel-suggest.sh next` SHALL
+print nothing on stdout, print a line naming the id on stderr, and exit non-zero. It SHALL NOT
+pass the id for the entry after it.
+
 The item SHALL carry `name`, `title`, `detail`, `issue`, `kind` (`build`, `propose`, `ops`, `fix`
 or `close`), `row` and, WHEN the open session's own *The owner decides* cell names its row,
 `decision`: the text of each part of that cell naming the row, joined by `; ` in the cell's order.
@@ -465,6 +472,13 @@ the same issue, and empty for every other item.
   `feature/A-release`
 - **AND** with A merged on the roadmap, it prints B
 
+#### Scenario: [PLANRUN-8-S9] A planned id with no roadmap row fails `next`, naming it
+- **GIVEN** an open session whose plan lists X, which no roadmap row has, then an ops row B, with
+  neither landed
+- **WHEN** `panel-suggest.sh next` runs
+- **THEN** it exits non-zero, prints nothing on stdout, and its stderr names X
+- **AND** with a fragment on main naming X, it prints B
+
 ### Requirement: A lane the runner did not start is tracked only through one check
 THE SYSTEM SHALL read the item's candidate branches in one place. A template is of kind K WHEN its
 suggest command is the `next` argv with its last element replaced by K, element for element. The
@@ -485,7 +499,8 @@ no template is of the item's kind, or each one of it was refused for the item, t
 which and naming each refused template's error; no lane runs on any candidate; lanes, of any
 template, run on more than one candidate; the lane's template is of another kind or none; the
 merged pull requests could not be read; the lane's HEAD is merged work; the lane started before
-the session closed, while the close holds. A failed read SHALL NOT be
+the session closed, while the close holds, the reason naming the lane and the way through: close
+it keeping its worktree and branch, and start the row from Up next. A failed read SHALL NOT be
 taken for no merged pull request. While idle, THE SYSTEM SHALL name the reason in
 `planRun.waiting` and send no notice. At step 6, no template of the item's kind and no lane on any
 candidate SHALL each let the step choose a mode. On a restart, each of those two SHALL be

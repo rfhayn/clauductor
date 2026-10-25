@@ -139,10 +139,34 @@ Read on 2026-10-25, at `0cfced2b`.
     - Why: skipping it would name the entry after it. On the merge before, the runner would start
       that one while an earlier entry has not landed (D5), and never read the skipped entry's
       decision (D3).
-    - The runner then tracks a lane already running on it, or stops: step 5, below. A name a lane
-      cannot take is never listed, so it always stops there, naming the row.
+    - The runner then tracks a lane already running on it, or stops: step 5, below. An `ops/` or
+      `fix/` row whose name a lane cannot take is never listed, so it always stops there, naming
+      the row and the name.
+    - A change row with such a name never reaches step 5. `roadmap-queue.sh:150` makes every id
+      outside `fix/` and `ops/` a change, and a proposal is on main only under a `changes/`
+      directory of the id's own name, which a slashed id cannot have. So `next` prints it as
+      `kind: propose`, and step 4 stops on D3's "a change with no proposal", naming the row.
+      Either way the run stops at that row, never past it.
     - *Beat:* `next` prints `[]` for such an entry. The runner would then read "the plan has no row
       left" (step 4), the wrong stop, and an in-flight row's running lane would never be tracked.
+  - **A planned id with no roadmap row fails `next`, naming the id. The owner's decision,
+    2026-10-25 ("For a planned id with no roadmap row, fail naming it"), round 14's finding 3.**
+    **Decided.**
+    - The case: the first open-session entry not landed, as `close` counts it, is an id no
+      roadmap row has. `.claude/local/roadmap-tracker.sh:175-176` names its usual cause, a row
+      another PR adds, and a typo the other. `close` counts it not landed: it is not merged or
+      cancelled on the roadmap and no fragment names it (`panel-suggest.sh:134-137`). With no row
+      it has no kind and no name, so no item can describe it.
+    - `next` exits non-zero and prints `next: the session plan names <id>, which is no roadmap
+      row` on stderr, and nothing on stdout. While idle, the runner's `waiting` shows that error,
+      with no push (the failing idle `next`, **Adopt**). At step 4 a failed `next` is a stop with
+      its push, naming it.
+    - An entry after a landed one is still read in order: the failure comes only when the id is
+      the first entry not landed. An id with no row that a fragment names has landed, and is
+      passed as `close` passes it.
+    - *Beat:* skip the id, as the join of the plan to the queue does today (`panel-suggest.sh:153`,
+      "a planned id with no queue row is skipped"). `next` would name the entry after it, and the
+      runner would start that one while this one has not landed (D5).
   - **Its fields.** The item carries `name`, `title`, `detail` and `issue`, and `kind` (`build`,
     `propose`, `ops`, `fix` or `close`), `row`, and `decision`. Of the other kinds, only `fix`
     prints an `issue` (`panel-suggest.sh:51`); the build, propose, ops and close items carry
@@ -197,7 +221,18 @@ Read on 2026-10-25, at `0cfced2b`.
   - **Beyond the row's surfaces.** This adds `template/.claude/panel-suggest.sh`, its check and the
     plugin build. Round 13 added `template/.claude/roadmap-plan.sh`'s fourth `D` field, held by
     the same check (`template/.claude/checks/panel-suggest.sh`, which already runs the parser).
-    That is one field of a script the row already reads through, so step 0c does not split it.
+    - **Step 0c's re-measure** (`/propose`: a row that has taken on items has its write surfaces
+      counted). Counted at round 14, the change writes seven surfaces: the panel's Go
+      (`framework/internal/panel`), `framework/internal/cmd/panel.go`,
+      `template/.clauductor/panel.json` (this repository's is PANEL-59's), `docs/panel.md` with
+      `docs/panel.schema.json`, `docs/roadmap.md` (the PANEL-59 row), the template's
+      `panel-suggest.sh` and `roadmap-plan.sh`, and their check. The plugin and
+      this repository's copies are generated (`build-plugin.sh`, `clauductor update`) and are
+      not written by hand.
+    - That is past step 0c's "about three". The split it points to is D11's beat (b), which no
+      half ships alone (AGENTS.md rule 3). D11 keeps one change, in seven groups each sized for
+      one review round. Round 13's `roadmap-plan.sh` field lands in group 1 with the `next` kind
+      that reads it, so it adds no group.
   - **Beat (b): Go reads the plan's `pos` fields itself, or takes Up next's first item.**
     - The first is a second parser of the plan, which the one-parser rule forbids.
     - The second is the wrong row (E3).
@@ -276,7 +311,7 @@ Read on 2026-10-25, at `0cfced2b`.
       `closed`, the close's merge time. While it holds, `adoptable` allows only a lane whose
       `LaneRecord.Created` (`types/types.go:101`, set once by `StartLane`, `lanes/lanes.go:719`) is
       later than that time. An earlier lane is its refusal "started before the session closed",
-      which `waiting` names, with no push.
+      which `waiting` names with the way through (below), with no push.
     - Why: every other stop ends in `idle`, and idle adoption is how a stopped run resumes (D6,
       **Which lane**). After the close, `next` is the next session's first row. A lane the owner
       had started on it beside the run, before the close merged, would be adopted with no click,
@@ -285,6 +320,14 @@ Read on 2026-10-25, at `0cfced2b`.
     - The owner's **Start lane** on `next`'s row after the close is that click: the lane is
       adopted, tracking it replaces the stop, and the hold ends with it. Every path that tracks a
       lane goes through `adoptable` (**Who may be tracked**), so the hold binds every one of them.
+    - **Its cost, and the way through.** A lane started before the close stays refused for as
+      long as it runs: a restart or resume keeps its `Created`, and **Start lane** on the row is
+      refused while the lane holds its branch and worktree. The way through is to close that lane
+      keeping its worktree and branch (`lanes.CloseRequest` with `Worktree` and `Branch` false,
+      `lanes/close.go:56-60`), then **Start lane** on the row, which runs in the kept worktree
+      (NEWLANE-1). The commits stay; the lane's conversation is what is lost. The refusal's
+      reason says so: `<lane> started before the session's close merged; the run tracks only a
+      lane started after it: close <lane>, keeping its worktree, and start the row from Up next`.
     - *Beat:* a close that turns the runner off. The owner would then switch it back on in the
       config, a merged `panel.json` change that waits for **Trust config…** (D9), each session.
   - **Beat (b): run on into the next session.**
@@ -520,7 +563,8 @@ guards takes only that function's result.
   6. **merged work**: the lane's HEAD is a merged PR's head, and the reason names the PR;
   7. **started before the session closed**: only while the close's stop holds (D6, **The
      close**), a lane whose `Created` is not later than the close's merge time. The reason names
-     the lane and the close. It is reached only while idle: the state is the close's stop, so no
+     the lane and the way through (D6, **Its cost, and the way through**): close it keeping its
+     worktree, and start the row from Up next. It is reached only while idle: the state is the close's stop, so no
      step 6 runs and no restart finds `starting`.
 
   A lane of another kind on another branch is never a candidate. With `next` naming `foo`'s
@@ -738,7 +782,8 @@ same fields step 8's `StartLane` did.
 | After a merge (step 4), `next` prints `[]` | Stop, push: the plan has no row left |
 | `next` names the row and kind that just merged (no fragment on main names it) | Stop, push naming the row and the PR |
 | The tracked lane was a row's proposal, and `next` names that row's build | Stop, push: the proposal merged, and its build starts with the owner's click |
-| The next row has a decision in the plan, or is a change with no proposal on main | Stop, push naming the row and the decision; the row stays offered |
+| The next row has a decision in the open session's *The owner decides*, or is a change with no proposal on main (a change row named `feature/…` among them) | Stop, push naming the row and the decision; the row stays offered |
+| `next` fails because the next planned id has no roadmap row | While idle, `planRun.waiting` names the id, with no push; at step 4, a stop with a push naming it |
 | No template's fresh Up next names the item (an entry not `queued`, or a name a lane cannot take, included), and `adoptable` allows a running lane for it | That lane is tracked, and nothing starts |
 | No template's fresh Up next names the item, and `adoptable` refuses | Stop, push naming the row, its roadmap state and the reason |
 | More than one template's fresh Up next names the item | Stop, push naming the item and the templates |
