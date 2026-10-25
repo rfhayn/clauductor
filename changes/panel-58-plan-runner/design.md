@@ -5,7 +5,7 @@ Read on 2026-10-25, at `0cfced2b`.
 
 - **E1. A lane starts only from the page.**
   - `StartLane` (`framework/internal/panel/lanes/lanes.go:1377`) is reached from one route, `startLane`
-    (`framework/internal/panel/web/routes.go:130`).
+    (`framework/internal/panel/web/routes.go:119`).
   - That route passes `startGate()` (`web/routes.go:365`): the config's trust and the quota guard,
     from `orchestration()` (`framework/internal/panel/queues.go:24-35`).
   - `StartRequest` (`lanes.go:589`) carries the type, the mode (`new`, `existing`, `branch`, `root`),
@@ -168,7 +168,9 @@ Read on 2026-10-25, at `0cfced2b`.
       "a planned id with no queue row is skipped"). `next` would name the entry after it, and the
       runner would start that one while this one has not landed (D5).
   - **Its fields.** The item carries `name`, `title`, `detail` and `issue`, and `kind` (`build`,
-    `propose`, `ops`, `fix` or `close`), `row`, and `decision`. Of the other kinds, only `fix`
+    `propose`, `ops`, `fix` or `close`), `row`, and `decision`. `row` is the roadmap row's id,
+    and empty for the close, which is no roadmap row: the close ends the run at the merge's step
+    1, before step 4 compares rows, and `planRun` names the close by its lane. Of the other kinds, only `fix`
     prints an `issue` (`panel-suggest.sh:51`); the build, propose, ops and close items carry
     `{name, title, detail}` alone (`:148`, `:197`). `next` always prints it (**Its `issue`**,
     below).
@@ -274,6 +276,16 @@ Read on 2026-10-25, at `0cfced2b`.
   - **Each window's own time.** `QuotaWindow` gains `at`, set by `foldQuota` on each window a post
     carries. The 30 minutes are measured on the `seven_day` window's `at`, never on `Quota.At`
     (E9).
+  - **Why 30 minutes holds, against how often a post comes.** The status line posts to `/status`
+    (`web/server.go:166`, from `.claude/statusline.sh`) only while a session of the project
+    is active: Claude Code refreshes it as the conversation updates, and an idle session
+    posts nothing. The merge the runner acts on is, in the run's own flow, the tracked lane's
+    `merge-pr`, so that lane's last post is minutes old at step 8. A merge made after more than
+    30 minutes with no active session (a click on GitHub after a quiet hour) reads as unreadable,
+    and the run stops with its push. That is the direction this rule takes on purpose: no
+    fallback reader is added, and the owner's **Start lane** click starts the row, with a session
+    that posts. *Beat:* a longer limit, or none, which starts a lane on a reading the account may
+    have moved past.
   - **The other guards still apply.** The 5-hour quota guard still refuses through `StartLane`,
     and the runner never sets `OverrideQuota`.
   - **No new reader.** The 7-day reading is the one the page's quota gauge already shows, so no
@@ -355,6 +367,23 @@ Read on 2026-10-25, at `0cfced2b`.
     stall time (`alerts.stall_minutes`, or 30 when that is 0):
     - no live session of the lane is working;
     - the lane has not moved (both in STALL-1's sense).
+  - **An approximate stall gets no push from either, for a bounded time. The owner's decision,
+    2026-10-25 ("Let's fix everything"), round 16's finding 2.** **Decided.**
+    - STALL-3-S3 sends no push for an approximate stall, and the runner sends none for a stalled
+      lane, approximate or not: `planRun.stalled` is true for both, and the page shows the stall
+      with its `≈`.
+    - The gap is bounded. A stall that begins across a restart (STALL-1-S25), which catch-up's
+      rebuild after a `framework/` merge makes routine (CATCHUP-4), is approximate until the
+      panel has run for one stall time since its start. Then it is exact, and its one push goes
+      out (STALL-1-S25, at 01:30). A stall that is approximate because the `claude agents`
+      source is not current (STALL-1-S11) stays so while the source is not current. That gap is
+      not bounded by the runner: the page shows the lane stalled with its `≈` throughout, and a
+      source that has not succeeded within 10 minutes of the start is named in STALL-1's
+      warning. It is STALL-1's limit, which this change takes as it stands.
+    - Why: STALL-3-S3 exists so that an approximate reading never interrupts the owner. A runner
+      push for it would bring back the false alarm S3 refuses, for the run's lane alone.
+    - *Beat:* the runner pushes once for an approximate stall of its own lane, keyed as its other
+      notices are.
   - **The first prompt.** The runner pushes when the tracked lane's `started` is true and its
     first prompt is not delivered within 10 minutes of its start, or was skipped. `started` is the
     runner's own mark (**The runner**): a lane the owner started, adopted later, never has it.
@@ -375,6 +404,26 @@ Read on 2026-10-25, at `0cfced2b`.
       `capped`, or `NOT converged`, or has none, or more than one, or one it cannot parse.
     - It goes on after `Review: converged in <n> round(s), peak <sev>, at <sha>`, whatever the
       peak: the peak is the worst finding of any round, fixed ones included.
+    - **The grammar is the line's head, and what follows it is not read. The owner's decision,
+      2026-10-25 ("Let's fix everything"), round 16's finding 1.** **Decided.**
+      - A line goes on when it starts `Review: converged in <n> `, then `round(s)`, `rounds` or
+        `round`, then `, peak <sev>, at <sha>`. `<sev>` is one of `none`, `low`, `medium`, `high`,
+        `critical`. `<sha>` is 7 to 40 lowercase hex characters, ended by the line's end or by a
+        character that is not hex. Whatever follows the sha (` · design <hash>`, a parenthesis, a
+        `;`, a sentence) is not read.
+      - Why: merge-pr, propose and apply-change (`template/.claude/skills/*/SKILL.md`) prescribe
+        the head alone, and the line's tail is where a PR says what was fixed after the last
+        round. Of this repository's last 40 merged PRs, 33 lines say `converged in`. An exact
+        grammar with an optional `· design <hash>` accepts 15 of them. The head accepts 31 with
+        `round(s)` alone, and 32 with `rounds` too: #266 writes `3 rounds`. The one it still
+        stops on is #213's `converged in 4 groups (…)`, a per-group summary no writer prescribes,
+        and a stop there is the fail-closed reading.
+      - The tail may say more than the head: #256's `converged in 6 round(s) … (rounds past the
+        cap of 3, on the owner's word …); see KNOWN LIMITS`. The head is the PR's claim that
+        review converged, and merge-pr is what holds it to that (its step 3); the runner does not
+        re-judge the review.
+      - *Beat:* make merge-pr forbid any tail, with a check over merged bodies. It fights the
+        practice above, and it reaches beyond this row into the skills and their checks.
     - A proposal PR's line, which also ends `· design <hash>`, reads the same.
 
 - **D9. A merged config with the runner on is never trusted on arrival.** **Recommended.**
@@ -506,8 +555,15 @@ The state file:
 ```json
 {"branch": "change/panel-58-plan-runner", "lane": "panel-58-plan-runner", "started": true,
  "item": {"row": "PANEL-58", "name": "panel-58-plan-runner", "kind": "build", "issue": "", "…": "…"},
- "since": 1761400000, "state": "watching", "stop": {"why": "…", "key": "…", "at": 1761400000}}
+ "since": 1761400000, "state": "watching", "stop": {"why": "…", "key": "…", "at": 1761400000},
+ "sent": ["first-prompt:panel-58-plan-runner:1761400000"]}
 ```
+
+- `sent` is the key of every notice of the run that is not a stop: D7's first-prompt push and
+  its push for a lane that stops short. Each key is the notice's reason, the lane, and the
+  lane's start time, so a later lane on the same branch is not taken for it. A stop's key is
+  `stop.key`. Every key is written before its notice is sent (**A stop**), and `sent` is cleared
+  with the tracked branch.
 
 - `item` is `next`'s item, whole, as it printed it (`{name, title, detail, issue, kind, row}`,
   plus `decision`). The runner records it as one value and never a chosen few of its fields. So

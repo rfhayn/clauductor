@@ -211,8 +211,11 @@ tracks a lane created after it.
 ### Requirement: The run goes on only after a review that converged
 WHEN the tracked pull request merges and it was not the session's close (PLANRUN-2), THE SYSTEM
 SHALL read the `Review:` lines of its body, and go
-on only when there is exactly one and it reads `Review: converged in <n> round(s), peak <sev>, at
-<sha>`, with or without a closing `· design <hash>`, whatever the peak. THE SYSTEM SHALL stop, with
+on only when there is exactly one and it starts `Review: converged in <n> round(s), peak <sev>, at
+<sha>`, whatever the peak, where `round(s)` may also read `rounds` or `round`, `<sev>` is one of
+`none`, `low`, `medium`, `high` and `critical`, and `<sha>` is 7 to 40 lowercase hex characters
+ended by the line's end or a character that is not hex. Whatever follows the sha SHALL NOT be
+read. THE SYSTEM SHALL stop, with
 a notice naming the pull request and the line, WHEN that line reads `capped` or `NOT converged`, or
 WHEN the body holds no such line, more than one, or one it cannot parse.
 
@@ -221,6 +224,10 @@ WHEN the body holds no such line, more than one, or one it cannot parse.
 - **WHEN** A's pull request merges with the line `Review: converged in 2 round(s), peak medium, at
   abc1234`
 - **THEN** the row after A starts
+- **AND** the row after A starts the same way when the line is instead `Review: converged in 1
+  round(s), peak low, at 8da629eb (three lows fixed after it)`, `Review: converged in 2 round(s),
+  peak medium, at 59b438a6 · design 0d8677f3b540 (merge-pr step 3)`, `Review: converged in 1
+  round(s), peak none, at dffb89cd3`, or `Review: converged in 3 rounds, peak medium, at e2af9de6`
 
 #### Scenario: [PLANRUN-3-S2] A review capped past a medium stops the run
 - **GIVEN** a runner tracking `change/a`
@@ -231,7 +238,10 @@ WHEN the body holds no such line, more than one, or one it cannot parse.
 #### Scenario: [PLANRUN-3-S3] A review that did not converge, or none to read, stops the run
 - **GIVEN** a runner tracking `change/a`
 - **WHEN** A's pull request merges, in turn with `Review: NOT converged after 3 round(s), peak high,
-  open: one at abc1234`, with no `Review:` line, with two of them, and with `Review: looks fine`
+  open: one at abc1234`, with no `Review:` line, with two of them, with `Review: looks fine`, with
+  `Review: converged in 4 groups (group 1: 1 round, peak low), at bbacccf9`, with `Review:
+  converged in 1 round(s), peak minor, at abc1234`, and with `Review: converged in 1 round(s), peak
+  low, at abc12`
 - **THEN** in each case no lane starts, and one notice names the pull request and why
 
 ### Requirement: The run stops, and says why, before any start it cannot make safely
@@ -246,7 +256,8 @@ Before a start, THE SYSTEM SHALL start nothing and send one notice naming why WH
   the notice saying the proposal merged and that its build starts with the owner's click;
 - the open session's *The owner decides* names the item's row (the item's `decision`,
   PLANRUN-8), or the item is a proposal to write;
-- no template's fresh suggest list names the item and PLANRUN-9's check allows no running lane
+- no fresh suggest list of a template of the item's kind (of any template, WHEN no template is of
+  any kind: PLANRUN-2) names the item and PLANRUN-9's check allows no running lane
   for it, the notice naming the row, its roadmap state and the check's reason; or more than one
   list names it;
 - the item's branch is busy, or its branch's or worktree's HEAD is a merged pull request's head;
@@ -287,7 +298,8 @@ Up next.
 
 #### Scenario: [PLANRUN-4-S6] An item no template lists, or two do, stops the run
 - **GIVEN** a tracked merge whose next item is B
-- **WHEN** in turn no template's fresh suggest list names B, and two lists name it
+- **WHEN** in turn no fresh suggest list of a template of B's kind names B, and two such lists name
+  it
 - **THEN** in each case no lane starts, and one notice names B
 - **AND** when B is instead `in flight`, so no list offers it, and a build lane runs on `change/b`,
   that lane is tracked, no lane starts and no notice goes out
@@ -355,8 +367,9 @@ started has not had its first prompt delivered within 10 minutes of its start, o
 THE SYSTEM SHALL send one notice naming the lane, and SHALL send none for a lane not so recorded. WHEN the tracked lane is
 not stalled and has not merged, and no live session of it is working and the lane has not moved,
 both in the stall's terms, for `alerts.stall_minutes` (30 when that is 0), THE SYSTEM SHALL send
-one notice naming the lane. WHEN the tracked lane is stalled, THE SYSTEM SHALL send no notice of its
-own, and `planRun.stalled` SHALL be true, read from the stall's own state. In each case THE SYSTEM SHALL keep
+one notice naming the lane. WHEN the tracked lane is stalled, approximate or not, THE SYSTEM SHALL
+send no notice of its own, and `planRun.stalled` SHALL be true, read from the stall's own state:
+an approximate stall's one push is the stall's, once it is no longer approximate (STALL-1-S25). In each case THE SYSTEM SHALL keep
 tracking the lane, and go on WHEN it merges.
 
 #### Scenario: [PLANRUN-6-S1] A first prompt not delivered is pushed, and the run goes on
@@ -381,6 +394,10 @@ tracking the lane, and go on WHEN it merges.
 - **WHEN** the notifier and the runner's tick run
 - **THEN** the stall's notice goes out and the runner sends none
 - **AND** `/api/state`'s `planRun.stalled` is true, and its `waiting` is empty
+- **AND** when instead the lane's stall began across a restart at 01:00, with `alerts.stall_minutes`
+  30, so it is approximate until 01:30, the runner sends no notice at 01:01 or at 01:29 while
+  `planRun.stalled` is true, and at 01:30 the stall's one push goes out and the runner's tick still
+  sends none
 
 ### Requirement: Each notice of the run goes out once, and the page shows the run
 THE SYSTEM SHALL send each notice of the runner once, as a macOS notification and through the push
@@ -429,7 +446,8 @@ print nothing on stdout, print a line naming the id on stderr, and exit non-zero
 pass the id for the entry after it.
 
 The item SHALL carry `name`, `title`, `detail`, `issue`, `kind` (`build`, `propose`, `ops`, `fix`
-or `close`), `row` and, WHEN the open session's own *The owner decides* cell names its row,
+or `close`), `row` (the roadmap row's id, and empty for the close, which is no roadmap row) and,
+WHEN the open session's own *The owner decides* cell names its row,
 `decision`: the text of each part of that cell naming the row, joined by `; ` in the cell's order.
 A part in another session's cell SHALL NOT be the item's `decision`. Its `name`
 SHALL be the one its kind's list uses, even WHEN that list would not offer it: the change id, the `ops/` branch without its prefix, the

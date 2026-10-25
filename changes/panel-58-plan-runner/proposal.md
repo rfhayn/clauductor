@@ -38,7 +38,8 @@ is trusted:
   lane's push stays the stall alert's.
 - **The switch** (D1). `plan_runner: {on, next, seven_day_pct}` is a config version 8 key.
   - It is off by default, and shows in **Trust config…**'s run list.
-  - It is a load error while `alerts.notify` is false, so the runner never stops in silence.
+  - Turning it on is a load error while `alerts.notify` is false, so the runner never stops in
+    silence.
   - A merged config with it on is never trusted on arrival, whether it turns the runner on or
     changes anything while it is on: the owner's click turns it on, and approves what it starts
     from (D9).

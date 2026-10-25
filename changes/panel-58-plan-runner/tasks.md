@@ -30,9 +30,10 @@
     `next` prints `[]`.
   - When that first entry not landed is an id no roadmap row has, `next` prints nothing on stdout,
     `next: the session plan names <id>, which is no roadmap row` on stderr, and exits non-zero.
-    It never joins the plan to the queue as the other kinds do (`panel-suggest.sh:153` skips
-    such an id), so it never passes it (D2).
-  - The item is `{name, title, detail, issue, kind, row}`, plus `decision` when a `D` record of
+    It joins the plan to the queue as the other kinds do, but never skips such an id as their
+    join does (`panel-suggest.sh:153`), so it never passes it (D2).
+  - The item is `{name, title, detail, issue, kind, row}` (`row` empty for the close), plus
+    `decision` when a `D` record of
     `roadmap-plan.sh` for the open session names its row. Its `issue` is `#<n>` for a `fix/` row
     whose name is `<n>-<slug>`, the fix kind's form, and `""` for every other item (D2): only the
     fix kind prints `issue` today (`panel-suggest.sh:51`), so `next` adds it for the others.
@@ -175,13 +176,15 @@
     line is capped, and one with none, each ending the run with the hold.
 - [ ] 3.2 The `Review:` line (D8 (b)), for a merged PR that was not the session's close.
   - The runner reads the lines of the body that start with `Review:`. It goes on only for exactly
-    one, matching `Review: converged in <n> round(s), peak <sev>, at <sha>`, with an optional
-    ` · design <hash>`.
+    one whose head matches `^Review: converged in [0-9]+ (round\(s\)|rounds|round), peak
+    (none|low|medium|high|critical), at [0-9a-f]{7,40}([^0-9a-f]|$)`, and never reads what
+    follows the sha (design.md D8 (b)).
   - It stops naming the PR and the line for `capped`, `NOT converged`, none, two, or any other
     text.
   - Tested in `framework/internal/panel/planrun_test.go`, a table over the formats in
-    `template/.claude/skills/merge-pr/SKILL.md`, citing [PLANRUN-3-S2] and [PLANRUN-3-S3]. The
-    converged rows' going on is asserted there as no stop; [PLANRUN-3-S1]'s start is task 4.2's.
+    `template/.claude/skills/merge-pr/SKILL.md` and the lines PLANRUN-3-S1 and S3 quote from
+    merged PRs, citing [PLANRUN-3-S2] and [PLANRUN-3-S3]. The converged rows' going on is
+    asserted there as no stop; [PLANRUN-3-S1]'s start is task 4.2's.
 
 ## 4. The start (D2, D3, D5, D6)
 - [ ] 4.1 After the trigger and the review line, the runner goes through the steps in `design.md`'s
@@ -293,10 +296,11 @@
     rules.
   - The title names the project while the config is trusted, else "clauductor panel".
   - Each is recorded in `plan-run.json` by its key before it is sent (at most once: design.md,
-    **A stop**), so a restart does not send it
-    again.
-  - The notifier's push filter admits the runner's notices beside `stalled` and catch-up's, and
-    still no other alert.
+    **A stop**), so a restart does not send it again: a stop's in `stop.key`, D7's in `sent`
+    (design.md, the state file).
+  - The runner's notices go out beside the notifier, as catch-up's do: `pushNotice`'s filter
+    still admits only `stalled` (`n.Stall == nil` pushes nothing, `push.go:324`), and the runner calls its own sender, as
+    catch-up calls `sendCatchUp` (`push.go:289`). No other alert is pushed.
   - Tested in `framework/internal/panel/push_test.go`, citing [STALL-3-S13]. Tested in
     `framework/internal/panel/planrun_test.go`, citing [PLANRUN-7-S1].
 - [ ] 6.2 A lane that stops short.
@@ -306,11 +310,12 @@
   - The idle lane: a tracked lane that is not stalled and not merged, none of whose live sessions is
     working, and that has not moved for `alerts.stall_minutes` (30 when 0), gets one notice. It
     uses the stall's own `sessionWorking` and last-movement reading, not a copy.
-  - A stalled lane gets no notice from the runner, and `planRun.stalled` is true, read from the
-    stall's own state, never written to `plan-run.json`. `planRun.waiting` stays empty: it is
-    the idle read's alone.
+  - A stalled lane, approximate or not, gets no notice from the runner, and `planRun.stalled` is
+    true, read from the stall's own state, never written to `plan-run.json`. `planRun.waiting`
+    stays empty: it is the idle read's alone.
   - Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-6-S1], [PLANRUN-6-S2] and
-    [PLANRUN-6-S3].
+    [PLANRUN-6-S3], the last with a stall begun across a restart that is approximate until one
+    stall time has passed, the runner sending nothing before or after it turns exact.
 
 ## 7. The page and the docs (D1, D10)
 - [ ] 7.1 `/api/state` carries `planRun`: `on`, `state`, `row`, `lane`, `branch`, `why`, `at`,
