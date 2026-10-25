@@ -53,9 +53,10 @@ or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for
 ### Requirement: The run tracks one lane, and starts the plan's next row when that lane merges
 WHILE the plan runner is on and the config is trusted, THE SYSTEM SHALL track the lane on the
 branch of `next`'s item, whether the runner started it or the owner did, unless that lane's HEAD is
-a merged pull request's head. The item's branch is the one template whose Up next list names the
-item, by that template's `branch_pattern` with the item's name, and WHEN no list names it or more
-than one does, THE SYSTEM SHALL adopt nothing and say so in `planRun`. WHEN a pull request of the tracked branch has merged since the branch
+a merged pull request's head. The item's candidate branches are each template's `branch_pattern`
+with the item's name, equal ones counted once, and THE SYSTEM SHALL adopt a running lane on
+exactly one of them, whether or not any Up next list names the item. WHEN running lanes sit on
+more than one, THE SYSTEM SHALL adopt nothing and say so in `planRun`. WHEN a pull request of the tracked branch has merged since the branch
 was tracked, and the checks of the next three requirements pass, THE SYSTEM SHALL start `next`'s
 item:
 - from the one template whose fresh suggest list names it;
@@ -72,11 +73,14 @@ with the panel's context alive, and either the main checkout's HEAD contains the
 no retry of catch-up is pending for the root. That way a rebuild the merge sets off, a retried one
 included, restarts the panel before the start and never during it. SHALL stop with a notice WHEN
 catch-up has not settled within 15 minutes of the fetch. WHEN the project runtime's context ends
-during a step before the start (catch-up's restart, a config arrival's reload, **Trust
-config…**), THE SYSTEM SHALL treat the step as cut short, not failed: it SHALL write nothing, send
-no notice, and leave the state `watching`, so the next runtime finds the merge again. Once a start
-has begun, it SHALL run to its end, and the runtime's stop SHALL wait for it. SHALL stop with a
-notice WHEN it finds a start that a dead process interrupted. And
+during a step, whatever ends it (the panel's exit, a config arrival's reload, a **Trust config…**
+that reloads, `projects.json` moving or removing the project), THE SYSTEM SHALL treat the step as
+cut short, not failed: it SHALL write nothing and send no notice. Before the start the state
+SHALL stay `watching`, so the next runtime finds the merge again. During the start it SHALL stay
+`starting`, and no runtime's stop SHALL wait for more than the start's return on its cancelled
+context. WHEN a runtime starts on a `starting` state, THE SYSTEM SHALL track a lane that runs on
+the recorded branch with no notice, or, WHEN none runs, start nothing and stop with a notice
+naming the row and the branch. And
 WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
 run with a notice.
 
@@ -95,6 +99,11 @@ run with a notice.
 - **WHEN** the owner starts a lane on A's branch, and the runner's next tick runs
 - **THEN** `plan-run.json` tracks A's branch
 - **AND** when A's pull request merges, the row after A starts
+- **AND** when instead `next` names A's proposal and the owner's propose lane on `change/a` has
+  already pushed it, so the propose list no longer names A, that lane is tracked all the same,
+  with kind `propose`
+- **AND** when instead running lanes sit on `change/a` and on `ops/a`, nothing is tracked, and
+  `planRun` names A and both branches
 
 #### Scenario: [PLANRUN-2-S3] The mode follows where the branch already is
 - **GIVEN** a tracked merge whose next row is B
@@ -115,12 +124,13 @@ run with a notice.
 - **WHEN** the panel starts, and later restarts again
 - **THEN** the row after A starts once, at the first start, and the second restart starts nothing
 
-#### Scenario: [PLANRUN-2-S6] A start a dead panel interrupted stops the run
-- **GIVEN** `plan-run.json` in state `starting` for B, left by a panel process killed during the
-  start
-- **WHEN** the panel starts
-- **THEN** no lane starts, and one notice says the panel restarted while starting B
-- **AND** when a lane runs on B's branch, it is tracked
+#### Scenario: [PLANRUN-2-S6] The next runtime resolves a start that was cut short
+- **GIVEN** `plan-run.json` in state `starting` for B on `change/b`, left by a runtime stopped
+  during `StartLane`, or by a panel process killed during it
+- **WHEN** the next runtime starts, and a lane runs on `change/b`
+- **THEN** no lane starts, no notice goes out, and `plan-run.json` is `watching` `change/b`
+- **AND** when instead no lane runs on `change/b`, no lane starts, and one notice says a restart
+  cut short the start of B on `change/b`, naming what is there now
 
 #### Scenario: [PLANRUN-2-S7] The session's close ends the run
 - **GIVEN** a runner tracking the lane `session-13-close` of the close template
@@ -142,20 +152,30 @@ run with a notice.
   restarted the panel, and the row after A then starts once, in the rebuilt panel
 - **AND** when instead the check ends on a refusal of policy (a dirty main checkout) with no retry
   pending, the row after A starts after it ends
+- **AND** when instead the check and each of catch-up's retries fail on a fetch, so the last one
+  leaves no retry pending, the row after A starts after the last retry ends, within the 15 minutes
 - **AND** when instead catch-up has not settled within 15 minutes, no lane starts, and one notice
   names the project and says catch-up has not settled
 
 #### Scenario: [PLANRUN-2-S9] A step the runtime cuts short is not a stop
-- **GIVEN** a runner tracking `change/a`, and A's pull request #9, which changes `panel.json`,
-  merged with a converged `Review:` line
-- **WHEN** the project's runtime is restarted while the runner is waiting for catch-up or running
-  `next`, in turn by the config's arrival, and by the owner's **Trust config…**
-- **THEN** in each case no notice goes out, and `plan-run.json` is still `watching` `change/a`
-  with no `stop`
-- **AND** the restarted runtime starts the row after A once
+- **GIVEN** a runner tracking `change/a`, and A's pull request #9 merged with a converged
+  `Review:` line
+- **WHEN** the project's runtime is stopped while the runner is waiting for catch-up or running
+  `next`: in turn by the panel's exit, by `projects.json` moving the project to another config
+  path, and by the owner's **Trust config…** while the config file on disk differs from the bytes
+  the runtime loaded
+- **THEN** in each case the runner sends no notice, and `plan-run.json` is still `watching`
+  `change/a` with no `stop`
+- **AND** the next runtime starts the row after A once
 - **AND** the runtime's stop is not held for the wait's 15 minutes
-- **AND** when instead the restart comes during `StartLane`, the start runs to its end, and
-  `plan-run.json` is `watching` the new lane's branch before the runtime stops
+- **AND** when instead #9 changes `panel.json`, its arrival reloads the runtime on a config that is
+  not trusted: the runner sends no notice, catch-up's notice says the config waits for the owner,
+  no lane starts, and `plan-run.json` is still `watching` `change/a`
+- **AND** after the owner's **Trust config…** of those bytes, which restarts nothing, the row
+  after A starts once, at the runner's next trigger
+- **AND** when instead the runtime is stopped during a `StartLane` that blocks in
+  `worktree_setup`, the stop waits only for `StartLane` to return on its cancelled context, and
+  `plan-run.json` is still `starting`, for PLANRUN-2-S6 to resolve
 
 ### Requirement: The run goes on only after a review that converged
 WHEN the tracked pull request merges, THE SYSTEM SHALL read the `Review:` lines of its body, and go

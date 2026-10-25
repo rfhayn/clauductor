@@ -93,15 +93,18 @@
   - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and tracks a
     running lane on the item's branch. A lane whose HEAD a merged PR holds (`mergedPRRead`) is not
     adopted.
-  - **The item's branch** comes from the one template whose current Up next list names the item,
-    by its `branch_pattern` with the item's name. When none does, or more than one does, nothing
-    is adopted, and `planRun` names the item.
-  - **A step cut short.** Every step and the catch-up wait take the runtime's context. An error
-    with that context done writes nothing, sends nothing, and leaves `watching`. `StartLane` runs
-    on `context.WithoutCancel` once `starting` is written, so `halt`'s `wg.Wait()` waits for it.
-    Tested in `framework/internal/panel/planrun_test.go`, citing [PLANRUN-2-S9]: the context
-    cancelled during the wait and during `next`, a second runner on the same `plan-run.json`, and
-    a cancel during a stand-in `StartLane` that blocks until released.
+  - **The item's branch.** The candidates are each template's `branch_pattern` with the item's
+    name, deduplicated, and no Up next list is read. A running lane on exactly one candidate is
+    adopted with `next`'s kind. Running lanes on two or more adopt nothing, and `planRun` names
+    the item and the branches. Tested in `framework/internal/panel/planrun_test.go`, citing
+    [PLANRUN-2-S2]: a propose lane whose item no list names, and lanes on two candidates.
+  - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
+    context. An error with that context done writes nothing and sends nothing: before the start it
+    leaves `watching`, and during it `starting`. Tested in `framework/internal/panel/planrun_test.go`,
+    citing [PLANRUN-2-S9]: the context cancelled during the wait and during `next`, a second
+    runner on the same `plan-run.json`, a runtime reloaded untrusted and then trusted with no
+    restart, and a cancel during a stand-in `StartLane` that blocks in `worktree_setup` until its
+    context ends. In that last case `halt` returns once the stand-in has returned.
   - **Trigger.** While watching, it reads the tracked branch's merged PRs through `mergedPRList`
     with `number,body,mergedAt,mergeCommit`: when the branch leaves the open list, every 5
     minutes, and on start. A PR merged after `since` is the trigger. Merges of other branches are
@@ -150,16 +153,21 @@
     [PLANRUN-2-S8]: a check still running when the runner stops (the rebuild), a second runner
     started on the same `plan-run.json` (the new binary), a check that ends with no rebuild, a
     check that ends on a transient refusal with a retry pending and then a retry that moves HEAD,
-    one that ends on a policy refusal with none pending, and one that never ends.
+    one that ends on a policy refusal with none pending, a check whose retries all fail until none
+    is pending, and one that never ends.
 - [ ] 4.2 Where the lane runs, in Go, mirroring `planStart` (`web/static/start-plan.js:97-145`)
   over `TemplateBranch`'s facts.
   - A busy branch is a stop, and so is a HEAD a merged PR holds.
   - A lane already in the worktree is adopted.
   - Otherwise the mode is `existing`, `branch` or `new`.
-  - The runner writes `starting`, calls `StartLane` with the template, name, mode, worktree and
-    issue and the gate `orchestration()` builds (trust and the 5-hour `QuotaGuard`), never
-    `OverrideQuota`, then writes `watching` on the new lane's branch.
-  - A refusal is a stop naming it. On start, a `starting` state is a stop.
+  - The runner writes `starting` with the item's row, kind and branch and the time. It calls
+    `StartLane` on the runtime's context with the template, name, mode, worktree and issue and the
+    gate `orchestration()` builds (trust and the 5-hour `QuotaGuard`), never `OverrideQuota`. Then
+    it writes `watching` on the new lane's branch.
+  - A refusal is a stop naming it.
+  - On start, a `starting` state is resolved first (D12). A lane running on the recorded branch is
+    tracked with no notice. Otherwise it is a stop naming the row, the branch and what step 6 finds
+    there.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].

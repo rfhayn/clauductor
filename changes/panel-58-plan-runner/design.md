@@ -271,6 +271,11 @@ Read on 2026-10-25, at `0cfced2b`.
   - **The cost.** While the runner is on, every merged `panel.json` change waits for the owner's
     **Trust config…**, and the runner pauses until then (an untrusted config runs nothing). The
     file changes rarely.
+    - The arrival reloads the runtime on the new file, untrusted (`serveArrived`). The runner
+      sends nothing, since catch-up's arrival notice already says the config waits.
+    - The owner's **Trust config…** of those same bytes then only marks the runtime trusted
+      (`live.go:778-783`). It restarts nothing, so the run goes on at its next trigger, within 5
+      minutes, and finds the merge again.
   - **When the merge rebuilds the panel.** `config.Check` gains whether the runner is on, so
     `config-check` prints it and the running binary reads it.
   - **An answer with no `plan_runner` reads as off.** It comes from an older binary, say one a
@@ -315,6 +320,30 @@ Read on 2026-10-25, at `0cfced2b`.
       caller until the runner merged (AGENTS.md rule 3).
     - Each group here is sized for one review round.
 
+- **D12. A start a restart cuts short stays `starting`, and the next runtime resolves it.**
+  **Recommended.**
+  - Step 8's `StartLane` runs on the runtime's context, as every other step does. A runtime stop
+    during it cancels it. `plan-run.json` keeps `starting` with the item's row, kind and branch.
+    On start, the next runtime tracks a lane it finds running on that branch, or stops with one
+    push when none runs (**A restart**).
+  - **Why.** `halt` and `stopAll` hold the liveSet's lock (`ls.mu`) while they wait for the
+    runtime's goroutines (`live.go:145-175`). A start that has to finish first holds that lock for
+    the whole `StartLane`, `worktree_setup` included, which alone may run 5 minutes (`HookTimeout`,
+    `lanes/lifecycle.go:31,95`). Everything else that takes `ls.mu` waits with it:
+    - catch-up's targets for every project (`catchUpTargets`, `live.go:294`);
+    - a config's arrival (`serveArrived`);
+    - the page's **Trust config…**, **Add**, **Remove** and **Init**.
+    On a self-restart the HTTP server is already down by then. One lane's setup would hold every
+    project's catch-up.
+  - **What it costs.** A restart during a start ends in a stop and one push when the lane had not
+    begun, where the bounded wait would have finished it. The merge's own rebuild cannot cause
+    that, since step 3 waits it out. So the case is rare.
+  - **Beat (b): finish the start before the runtime stops.** `StartLane` would run on
+    `context.WithoutCancel`, so `halt` waits for it, bounded by `StartLane`'s own timeouts, and
+    `watching` is always written. It never leaves a half-made start. The **Start lane** route's
+    `StartLane` runs on its request's context, which no runtime waits for. So this wait would be
+    new, and it would land on every project's catch-up and the page's admin calls.
+
 ## The runner
 
 The runner is one loop of the project's runtime, next to auto-close. It acts only while
@@ -335,13 +364,17 @@ rebuild, a crash) resumes it:
 **Adopt.** While idle, the runner reads `next` on the suggest commands' cadence. A running lane on
 the item's branch is adopted: the runner records its branch, its row, its kind and the time. A lane
 whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
-- **The item's branch** is step 5's lookup, over the Up next lists the last refresh left: the one
-  template whose list names the item gives it, by that template's `branch_pattern` with the
-  item's name.
-- `next` prints no branch, and two templates can share a pattern: build and propose both use
-  `change/{name}`. The list that names the item is what tells them apart.
-- When no list names the item, or more than one does, nothing is adopted, and `planRun` names the
-  item.
+- **The item's branch.** Each template's `branch_pattern` with the item's name gives a candidate,
+  and equal candidates count once: build and propose both give `change/{name}`. A running lane on
+  exactly one candidate is adopted, and its kind is the one `next` printed.
+- No Up next list is read, for a reason: a list can drop an item while its lane still runs. The
+  propose list leaves out a proposal already on its change branch (`panel-suggest.sh`'s
+  `branched`), so a list lookup would miss a propose lane once it has pushed. Nothing would then
+  start the row after it.
+- When running lanes sit on two candidates, nothing is adopted, and `planRun` names the item and
+  both branches.
+- A start still needs exactly one fresh list to name the item (step 5). Adoption starts nothing,
+  so it needs only the branch.
 
 **Trigger.** While watching, the runner reads the tracked branch's merged pull requests
 (`mergedPRList`, with `number,body,mergedAt,mergeCommit`):
@@ -351,22 +384,27 @@ whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
 
 A PR merged after `since` is the trigger. Then the runner goes through these steps in order. Each
 one that fails is a stop, except one the runtime cut short:
-- **A step cut short is not a stop.** Every step, and step 3's wait, runs under the project
-  runtime's context. Three things cancel that context with the runner part way through:
-  - catch-up's restart (`restarted.Store(r); cancel()`, `run.go:429`);
-  - a config arrival's reload;
-  - the owner's **Trust config…** (`halt`, `live.go:145-160`).
+- **A step cut short is not a stop.** Every step, step 3's wait and step 8's `StartLane` run under
+  the project runtime's context. These are every caller that cancels it: each `halt` and
+  `stopAll` site, read from the code:
+  - the panel's exit, `stopAll` (`run.go:519`), after a signal or after catch-up's restart
+    (`restarted.Store(r); cancel()`, `run.go:429`);
+  - a config arrival's reload (`serveArrived`, `catchup.go:1024`);
+  - the owner's **Trust config…**, only when the file on disk differs from the bytes the runtime
+    loaded (`live.go:786`). A Trust of the loaded bytes calls only `markTrusted`
+    (`live.go:778-783`), which cancels nothing;
+  - `projects.json` following: the project moved to another root or config (`restartStop`,
+    `live.go:351`) or removed (`stop`, `live.go:358`). The page's **Add** and **Remove** reach
+    the runtimes this way.
 - When a step ends with that context done, the runner writes nothing and sends nothing. The state
   stays `watching`, so the next runtime, or the next binary, finds the merge again on start. A
   stop there would clear the tracked branch and lose the merge.
-- Because the wait ends on the context too, `halt`'s `wg.Wait()`, which runs with the liveSet's
-  lock held, is never held for the wait's 15 minutes.
-- **Step 8 is the exception.** Once `starting` is written, `StartLane` runs on a context detached
-  from the runtime's cancel (`context.WithoutCancel`), under its own timeouts. `halt` and
-  `stopAll` wait for the runtime's goroutines (`live.go:160,172`), so a restart waits for the
-  start to end, and `watching` is written before the runtime stops.
-- A `starting` state is then left only by a process that died during the start. That is the stop
-  "the panel restarted while starting <row>".
+- Because every step ends on the context, `halt`'s `wg.Wait()`, which runs with the liveSet's lock
+  held, waits only for the step to see its cancel. It is never held for the wait's 15 minutes, or
+  for a lane's `worktree_setup` (D12).
+- **A start cut short stays `starting`** (D12). `starting` is written before `StartLane`, so a
+  runtime stop during the start, or a process that dies, leaves it. The next runtime resolves it
+  on start (**A restart**, below).
 1. **The `Review:` line**, as D8 (b) reads it.
 2. **The close.** When the tracked kind was `close`, the run ends: a stop whose notice says the
    session has closed.
@@ -381,17 +419,22 @@ one that fails is a stop, except one the runtime cut short:
    - **Settled** means that check ended with the context alive, and one of these holds:
      - the main checkout's HEAD contains the merge commit, so the fast-forward ran, and any
        rebuild with it;
-     - no retry is pending for the root (`catchUp.retries`): the check ended on a refusal of
-       policy (a dirty checkout, a commit with no PR, a config outside the repository), which
-       waits for the next trigger.
+     - no retry is pending for the root (`catchUp.retries`). `retryAfter` leaves none in two
+       cases, and both wait for catch-up's next trigger (`retryAfter`, `catchup.go:233-243`):
+       - the check ended on a refusal of policy: a dirty checkout, a commit with no PR, a config
+         outside the repository;
+       - the check was the last retry, and it failed too: the entry is dropped once
+         `rt.n >= len(catchUpRetries)`.
+       Either way the checkout stays behind the merge. The new lane does not need it: a new
+       worktree is cut from the fetched base ref.
    - A check that ended on a transient refusal (a failed fetch or `gh` call, any timed-out
      call: `catchup.go:315,415,496,513`) leaves a retry pending, which `retryAfter` runs after
      1, 3 and 6 minutes. That retry fast-forwards, and may rebuild, so the runner keeps waiting
      through it, within the same 15 minutes.
    - Why: the same merge often changes `framework/`, so catch-up rebuilds the panel and restarts
      it (CATCHUP-4). The restart's `quiesce` (`selfupdate.go:209`) waits for the panel's claude
-     calls, not for a lane start. Step 8 holds the restart until it ends (above), but a restart
-     during the new lane's first prompt leaves it `typing`, which is never retyped
+     calls, not for a lane start. A restart during the start would cut it short (D12), and a
+     restart during the new lane's first prompt leaves it `typing`, which is never retyped
      (`types.go:119-121`).
    - A check that rebuilds ends with the panel's context cancelled: the restart cancels it
      (`run.go:429`), and the check returns on `ctx.Err()`. The wait ends on the same context
@@ -428,15 +471,25 @@ one that fails is a stop, except one the runtime cut short:
    - The Go rule runs over the same cases as `planStart`'s own test, `web/start_plan_test.go`, so
      the two copies cannot drift apart unseen.
 7. **The ceiling**, D4.
-8. **The start.** `state: starting`, then `StartLane` with the template, the name, the mode, the
-   worktree and the item's issue, through the same `StartGate` the route passes. Then
-   `state: watching` on the new lane's branch, with `since` set to now.
+8. **The start.** `state: starting`, with the item's row, kind and branch and the time. Then
+   `StartLane` with the template, the name, the mode, the worktree and the item's issue, through
+   the same `StartGate` the route passes, on the runtime's context. Then `state: watching` on the
+   new lane's branch, with `since` set to now. A `StartLane` that returns with the context done
+   writes nothing: the state stays `starting`.
 
 **After the start.** The first prompt and a lane that stops short are D7's.
 
-**A restart.** On start, a `starting` state is a stop ("the panel restarted while starting <row>").
-Since step 8 holds the runtime's stop until it ends, only a process that died leaves one. Adoption
-then tracks the lane if one runs on that branch.
+**A restart.** On start, a runtime that finds `starting` resolves it before anything else:
+- **A lane runs on the recorded branch.** The start got far enough. The runner tracks the lane,
+  `watching` with `since` set to the recorded time, and sends no notice. A first prompt the cut
+  left undelivered is D7's push.
+- **None runs.** A stop: "a restart cut short the start of <row> on <branch>". The notice names
+  what step 6 now finds there (a worktree, a branch or nothing), so the owner's start picks the
+  right mode. The runner does not start it again: a `worktree_setup` killed part way leaves a
+  worktree only the owner can judge.
+- A stop is likely only for a restart that is not the merge's own, since step 3 has already waited
+  out that one. That leaves a later merge's rebuild, a **Trust config…** that reloads, a
+  `projects.json` edit, the panel's exit, or a crash.
 
 **A stop.**
 - The runner clears the tracked branch, writes `stop`, and sends one notice. The notice is an OS
@@ -469,7 +522,8 @@ then tracks the lane if one runs on that branch.
 | The merged PR was the session's close | The run ends, push naming the session |
 | The fetch fails twice, 30 seconds apart, or the merge commit is not on the base ref | Stop, push naming the error |
 | Catch-up has not settled 15 minutes after the fetch (no check ended with the merge in HEAD or no retry pending) | Stop, push naming the project |
-| The runtime's context ends during a step before the start (a restart, an arrival, **Trust config…**) | No stop, no notice: the state stays `watching`, and the next start finds the merge again |
+| The runtime's context ends during a step before the start (the panel's exit, an arrival's reload, a **Trust config…** that reloads, `projects.json` moving or removing the project) | No stop, no notice: the state stays `watching`, and the next start finds the merge again |
+| A merged `panel.json` arrives while the runner is on | The runtime is reloaded untrusted, and the runner sends nothing; catch-up's notice says the config waits for the owner. After **Trust config…**, the run goes on at its next trigger |
 | `next` fails, times out or prints something unreadable | Stop, push naming the error |
 | `next` prints `[]` | Stop, push: the plan has no row left |
 | `next` names the row and kind that just merged (no fragment on main names it) | Stop, push naming the row and the PR |
@@ -480,7 +534,8 @@ then tracks the lane if one runs on that branch.
 | A lane already runs on the item's branch | It is adopted; nothing starts |
 | The 7-day usage is at or above `seven_day_pct`, or unreadable (its window older than 30 minutes included) | Stop, push naming the reading or why there is none |
 | `StartLane` refuses (the 5-hour guard, `path-taken`, `branch-exists`, …) | Stop, push naming the refusal |
-| The panel restarted during a start | Stop, push; a lane on that branch is adopted |
+| A runtime stop or a dead process cut a start short (`starting` on the next start) | A lane on the recorded branch is tracked, with no notice; with none, stop, push naming the row, the branch and what is there |
+| Running lanes sit on two of the item's candidate branches while idle | Nothing is adopted; `planRun` names the item and both branches |
 | The first prompt is not delivered within 10 minutes, or is skipped | Push once; the run keeps tracking the lane |
 | The run's lane is not working and has not moved for the stall time, unstalled and unmerged | Push once; the run keeps tracking the lane |
 | The run's lane is stalled | The stall's push is the one push; `planRun` says the run waits on it |
