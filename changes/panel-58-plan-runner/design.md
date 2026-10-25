@@ -224,10 +224,13 @@ Read on 2026-10-25, at `0cfced2b`.
 
 - **D6. The run tracks one branch, starts on its merge, and ends at the session's close.**
   **Recommended.** The mechanism is below.
-  - **Which lane the run tracks.**
+  - **Which lane the run tracks. Adoption is the owner's decision, 2026-10-25 ("Keep adoption").**
+    **Decided.**
     - It tracks the lane on the branch of `next`'s item, whether the runner started it or the owner
       did. That is how a run begins and how a stopped run resumes: the owner starts the next row's
       lane, and the runner adopts it.
+    - *Beat:* track only the lanes the runner started. A run could then begin or resume only by an
+      action of its own on the page, a second way to start a lane beside **Start lane**.
     - The trigger is a pull request of that branch merging after the runner began tracking it.
   - **What happens on the merge.** The runner:
     1. reads the merged PR's `Review:` line (D8);
@@ -408,7 +411,10 @@ runtime's `waiting`, which `/api/state` shows beside the last stop. `waiting` is
 - `next names no row`, when `next` prints `[]`;
 - `next` failed, with its error, when it fails, times out or prints something unreadable. While
   idle this is no stop and no push, as an idle refusal is not: nothing has stopped, and the next
-  read runs it again.
+  read runs it again. **Page-only is the owner's decision, 2026-10-25 ("keep the failing-next
+  case page-only"), round 10's finding 2.** **Decided.** *Beat:* a D7-shaped push once `next`
+  has failed for the stall time. A failure that lasts is still a stop when it matters: the merge's
+  own read of `next` (step 4) stops with a push.
 
 It is empty while the runner is not idle, and while `on` is false or the config is untrusted,
 where `planRun.on` says why. Tracking a lane or writing a stop clears it.
