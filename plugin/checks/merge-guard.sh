@@ -50,6 +50,10 @@ case "$1 $2" in
     echo "${GH_CHECKS:-[]}" ;;
   "pr view")
     case "$*" in
+      # GH_STATE_ERR: gh itself fails. GH_STATE set but empty: gh answers with nothing.
+      *"--json state "*)
+        [ -n "${GH_STATE_ERR:-}" ] && { echo "$GH_STATE_ERR" >&2; exit 1; }
+        echo "${GH_STATE-OPEN}" ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;
@@ -78,6 +82,14 @@ guard 2 "no evidence at all" "gh pr merge 5 --squash --delete-branch"
 receipt "$MAINSHA"
 guard 0 "a full clean receipt for the head" "gh pr merge 5 --squash --delete-branch"
 case "$out" in *'"additionalContext"'*"passed in full"*) ok "merge-guard: its confirmation reaches Claude as additionalContext" ;; *) fail "merge-guard: no additionalContext on an allowed merge: $out" ;; esac
+# Rule 14 — only an OPEN PR merges (OPS-132, #217): a close is how one session tells another "do
+# not land this", and #215 landed twelve minutes after its close. Everything else here is green.
+guard 2 "a CLOSED PR with full evidence" "gh pr merge 5 --squash" GH_STATE=CLOSED
+grep -q 'CLOSED' "$d/err" && ok "merge-guard: ...naming the state it read" || fail "merge-guard: closed refusal does not name CLOSED: $(head -3 "$d/err")"
+guard 2 "a MERGED PR" "gh pr merge 5 --squash" GH_STATE=MERGED
+guard 2 "gh cannot read the PR's state (fails closed)" "gh pr merge 5 --squash" GH_STATE_ERR="HTTP 401: Bad credentials"
+guard 2 "gh answers the state with nothing (fails closed)" "gh pr merge 5 --squash" GH_STATE=
+guard 0 "...and an OPEN one, the same in every other way" "gh pr merge 5 --squash" GH_STATE=OPEN
 receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick

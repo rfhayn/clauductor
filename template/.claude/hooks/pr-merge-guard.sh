@@ -39,6 +39,8 @@
 #      outright: the owner's decision, which no receipt excuses. A receipt must also have been
 #      scored on the head's suite. Scope: ACCIDENTAL drift; a receipt is self-reported, so a
 #      deliberate forger is review's and the owner's to catch (lib/change-guard.sh, SCOPE).
+#  14. A merge is blocked unless the PR's state is OPEN, read before any evidence; a state gh cannot
+#      read blocks too. A close is how one session tells another not to land a PR (OPS-132).
 #   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5 and 6 were project-specific, and so
 #   was the other half of 8, which the artifacts module adds as an extension rule.)
@@ -585,6 +587,15 @@ case "$pr_arg" in
   *) case "$pr_arg" in '' | *[!0-9]*) ;; *) pr=$pr_arg ;; esac ;;
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
+
+# Rule 14 — only an OPEN PR merges (OPS-132). A close is how one session tells another "do not land
+# this", and the lane that opened the PR is not told: #215, closed as a duplicate, landed twelve
+# minutes later through its own lane's merge. First, before any evidence is read: none of it matters
+# for a PR that must not land. Anything but OPEN blocks, and so does no answer: gh failing, or
+# answering with nothing, has told us nothing, which is not "open".
+pr_state=$(gh pr view "$pr" --json state --jq .state 2>/dev/null) || pr_state=""
+[ -n "$pr_state" ] || block "cannot read PR #$pr's state (gh error?), so whether it is still open cannot be checked. Fix gh auth (gh auth status), then retry."
+[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $pr --comments) before anything else. If it should land after all, reopen it first (gh pr reopen $pr); a merged one has nothing left to merge."
 
 # Rule 2 — gate evidence for the exact head commit.
 #

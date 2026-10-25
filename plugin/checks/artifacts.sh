@@ -312,6 +312,7 @@ cat > "$d/bin/gh" <<'EOF'
 case "$1 $2" in
   "pr checks") echo '[]' ;;
   "pr view") case "$*" in
+      *"--json state "*) echo OPEN ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$GH_BRANCH" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;

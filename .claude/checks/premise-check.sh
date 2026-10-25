@@ -192,6 +192,7 @@ case "$1 $2" in
   "pr view")
     case "$*" in
       *closingIssuesReferences*) [ -n "${FAKE_PR:-}" ] && printf '%s\n' "$FAKE_PR" ;;
+      *"--json state "*) echo OPEN ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$GH_BRANCH" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;
