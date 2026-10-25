@@ -54,6 +54,11 @@
     the key.
   - `runEntries` adds `plan runner runs %q, starting lanes until the 7-day usage reaches %v%%` while
     `on` is true, with `next` as its command, so `RunList` and `SidecarRefusals` both read it.
+    The line ends `, adopting lanes of kinds <kinds>` (sorted), or `, adopting no lane: no
+    template's suggest command is %q with its last element replaced`.
+  - `Config.TemplateKind(t)` (new) is the one reading of the kind rule: a template is of kind K
+    when its suggest command is `plan_runner.next` with its last element replaced by K, element
+    for element. `runEntries` and the runner's `candidates` both call it.
   - Run `go generate ./internal/panel/config` for `docs/panel.md`'s table and
     `docs/panel.schema.json`.
   - Tested in `framework/internal/panel/config/config_test.go`, citing [PLANRUN-1-S2] and
@@ -90,17 +95,24 @@
     starts or stops anything.
   - It runs only while `plan_runner.on` is true and the config is trusted. Otherwise it keeps its
     state and does nothing.
-  - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and tracks a
-    running lane on the item's branch. A lane whose HEAD a merged PR holds (`mergedPRRead`) is not
-    adopted.
-  - **The item's kind.** A template is of kind K when its suggest command is `plan_runner.next`
-    with its last word replaced by K. The candidates are the `branch_pattern`s of the templates
-    of the item's kind, with its name, deduplicated, and no Up next list is read.
-    - A running lane on exactly one candidate is adopted with `next`'s kind, when its lane
-      record's `Template` is of that kind.
-    - A lane of another template or of none adopts nothing, and so do matching lanes on two
-      candidates. In both cases `planRun` says why.
-    - The adoption cases are tested in task 4.2, whose start their scenario needs.
+  - **Who may be tracked** (PLANRUN-9).
+    - `candidates(item)` returns the `branch_pattern`s of the templates `Config.TemplateKind`
+      gives the item's kind, with its name, deduplicated, or, when there are none, the reason. No
+      Up next list is read.
+    - `adoptable(lane, item)` returns an `Adoption` or the reason: no candidates; no lane on
+      any; a lane record whose `Template` is of another kind or empty; matching lanes on two
+      candidates; a HEAD a merged PR holds (`mergedPRRead`).
+    - `track(Adoption)` is the only writer of `watching` for a lane the runner did not start in
+      that same step. `Adoption`'s fields are unexported, and only `adoptable` builds one.
+  - **Adopt.** While idle, on the suggest cadence, it runs `next` under a timeout and calls
+    `adoptable` for the item. An allowed lane is tracked with `next`'s kind. A refusal writes its
+    reason to `planRun` and pushes nothing.
+  - Tested in `framework/internal/panel/planrun_test.go`, one table over `adoptable`'s reasons
+    with a stand-in `gh`, citing [PLANRUN-9-S1]: an ops lane on `ops/a` while `next` names A's
+    build; a propose lane on `change/a`; a lane with no template; build lanes on two candidates,
+    from a config with two build templates of different patterns; and `next`
+    `["sh", "scripts/next-row.sh"]`. Each case asserts its `planRun` reason and that
+    `plan-run.json` stays `idle`.
   - **A step cut short.** Every step, the catch-up wait and `StartLane` take the runtime's
     context. An error with that context done writes nothing and sends nothing: before the start it
     leaves `watching`, and during it `starting`. Tested in task 4.2, once the wait, `next`'s second
@@ -157,7 +169,8 @@
 - [ ] 4.2 Where the lane runs, in Go, mirroring `planStart` (`web/static/start-plan.js:97-145`)
   over `TemplateBranch`'s facts.
   - A busy branch is a stop, and so is a HEAD a merged PR holds.
-  - A lane already in the worktree is adopted.
+  - A lane already in the worktree is tracked through `adoptable` (task 3.1), and a refusal is a
+    stop naming its reason.
   - Otherwise the mode is `existing`, `branch` or `new`.
   - The runner writes `starting` with the item's row, kind and branch and the time. It calls
     `StartLane` on the runtime's context with the template, name, mode, worktree and issue and the
@@ -165,17 +178,17 @@
     it writes `watching` on the new lane's branch.
   - A refusal is a stop naming it.
   - On start, a `starting` state is resolved first (D12). A lane running on the recorded branch is
-    tracked with no notice. Otherwise it is a stop naming the row, the branch and what step 6 finds
-    there.
+    tracked through `adoptable` with no notice, and a refusal is a stop naming its reason.
+    Otherwise it is a stop naming the row, the branch and what step 6 finds there.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
   - Tested in `framework/internal/panel/planrun_test.go`, with a stand-in `gh` and the fake lane
     starter, citing:
-    - [PLANRUN-2-S2]: an adopted lane whose merge starts the row after it; a propose lane whose
-      item no list names; an ops lane on `ops/a` while `next` names A's build; a propose lane on
-      `change/a` while `next` names A's build; and matching lanes on two candidates, from a
-      config whose templates of one kind have two patterns.
+    - [PLANRUN-2-S2]: an adopted lane whose merge starts the row after it, and a propose lane
+      whose item no list names.
+    - [PLANRUN-9-S2]: a propose lane on `change/b` at step 6 while `next` names B's build, and the
+      same lane found by a restart's resolution of `starting` for B's build.
     - [PLANRUN-1-S4]: an untrusted config that starts nothing, then **Trust config…** and the start.
     - [PLANRUN-2-S5]: a merge found on start, then a second restart that starts nothing.
     - [PLANRUN-2-S9]: the context cancelled during the catch-up wait and during `next`'s second

@@ -108,7 +108,9 @@ Read on 2026-10-25, at `0cfced2b`.
       silence is the failure this row exists to avoid.
   - **Trust:**
     - The plan runner becomes one of the config's run entries (E13), with the line
-      `plan runner runs <next>, starting lanes until the 7-day usage reaches <pct>%`.
+      `plan runner runs <next>, starting lanes until the 7-day usage reaches <pct>%`, then
+      `, adopting lanes of kinds <kinds>`, or `, adopting no lane: no template's suggest command
+      is <next> with its last element replaced` (**Who may be tracked**).
       **Trust config…** then shows what the owner turns on.
     - Because it is on that list, an attached project's sidecar holds `next` to ATTACH-3's rule
       (literal argv, nothing outside the repository) with no change to that rule.
@@ -324,8 +326,8 @@ Read on 2026-10-25, at `0cfced2b`.
   **Recommended.**
   - Step 8's `StartLane` runs on the runtime's context, as every other step does. A runtime stop
     during it cancels it. `plan-run.json` keeps `starting` with the item's row, kind and branch.
-    On start, the next runtime tracks a lane it finds running on that branch, or stops with one
-    push when none runs (**A restart**).
+    On start, the next runtime tracks a lane it finds running on that branch when `adoptable`
+    allows it, or stops with one push when none runs or the check refuses (**A restart**).
   - **Why.** `halt` and `stopAll` hold the liveSet's lock (`ls.mu`) while they wait for the
     runtime's goroutines (`live.go:145-175`). A start that has to finish first holds that lock for
     the whole `StartLane`, `worktree_setup` included, which alone may run 5 minutes (`HookTimeout`,
@@ -364,28 +366,57 @@ rebuild, a crash) resumes it:
 `state` is one of:
 - `idle`: no branch is tracked;
 - `watching`: the tracked branch's lane works;
-- `starting`: a start is under way. It is written before `StartLane`, and replaced by `watching`
-  when `StartLane` returns with the context alive. A start cut short leaves it for the next
-  runtime (D12).
+- `starting`: a start is under way. It is written before `StartLane`. It is replaced by `watching`
+  when `StartLane` starts the lane, and by the stop when it refuses. A start cut short leaves it
+  for the next runtime (D12).
 
-**Adopt.** While idle, the runner reads `next` on the suggest commands' cadence. A running lane on
-the item's branch is adopted: the runner records its branch, its row, its kind and the time. A lane
-whose HEAD a merged PR already holds is not adopted, and `planRun` says why.
-- **The templates of the item's kind.** A template emits kind K when its suggest command is the
-  `next` command with its last word replaced by K. The template's build template, whose command
-  is `["sh", ".claude/panel-suggest.sh", "build"]`, emits `build`. A template with any other
-  suggest command emits no kind.
-- **The item's branch.** Each template of the item's kind gives a candidate, its `branch_pattern`
-  with the item's name, and equal candidates count once.
-  - A running lane on a candidate is adopted only when its recorded template (the lane record's
-    `Template`) is one of the item's kind. Its kind is the one `next` printed.
-  - A lane there of another template, or of none, is not adopted. `planRun` names the lane, its
-    template and the item's kind. Example: a propose lane on `change/foo` while `next` names
-    `foo`'s build.
-  - A lane of another kind on another branch is never a candidate. With `next` naming `foo`'s
-    build, an ops lane on `ops/foo` is not looked at.
-  - Matching lanes on two candidates adopt nothing, and `planRun` names the item and both
-    branches.
+**Adopt.** While idle, the runner reads `next` on the suggest commands' cadence, and tracks a lane
+on the item's branch that `adoptable` allows (below): it records its branch, its row, its kind and
+the time.
+
+**Who may be tracked: one check, one write site** (PLANRUN-9). Three paths track a lane the runner
+did not start in that same step: adoption while idle, step 6's lane already in the worktree, and
+**A restart**'s lane on the recorded branch. Rounds 5 and 6 of this proposal's review each found a
+path the kind rule missed, so the rule lives in one function each path calls, and the write it
+guards takes only that function's result.
+- **`candidates(item)` → (branches, reason).**
+  - A template is of kind K when its suggest command is the `next` argv with its last element
+    replaced by K, element for element. The template's build template, whose command is
+    `["sh", ".claude/panel-suggest.sh", "build"]`, is of kind `build`. A template with any other
+    suggest command is of no kind.
+  - The candidates are the `branch_pattern`s of the templates of the item's kind, with the item's
+    name, equal ones counted once.
+  - An empty result carries its reason: no template's suggest command is `next` with its last
+    element replaced by the item's kind. A `next` of another shape (a project's own script, or an
+    `sh -c` wrapper, whose last element is the whole script) gives no template a kind. Adoption
+    would then never happen, so the reason is not left to silence:
+    - `planRun` shows it while idle;
+    - the runner's run-list line for **Trust config…** names the kinds that have a template, or
+      that none does (PLANRUN-1), so the owner reads it before trusting the config.
+  - The kind reading itself is one function in `config`, which `runEntries` and `candidates`
+    both call.
+- **`adoptable(lane, item)` → (Adoption, reason)**, over `candidates(item)`. It allows a lane
+  running on exactly one candidate, whose recorded template (the lane record's `Template`,
+  `types/types.go:115`, set only by a template start) is of the item's kind, and whose HEAD no
+  merged PR holds (`mergedPRRead`). Its refusals, each a `planRun` line:
+  - no candidates: `candidates`' reason;
+  - no lane on any candidate: the run waits for one, and `planRun` names the branches;
+  - the lane's template is of another kind, or it has none: the line names the lane, its template
+    and the item's kind. Example: a propose lane on `change/foo` while `next` names `foo`'s
+    build. This is the lane of a proposal amended after it merged, which would otherwise be
+    tracked as the build;
+  - matching lanes on two candidates: the line names the item and both branches;
+  - the lane's HEAD is merged work.
+
+  A lane of another kind on another branch is never a candidate. With `next` naming `foo`'s
+  build, an ops lane on `ops/foo` is not looked at.
+- **One write site.** `track(Adoption)` is the only writer of `watching` for a lane the runner did
+  not start in that same step. `Adoption`'s fields are unexported, and only `adoptable` builds
+  one, so no path can track a lane without the check. Step 8 writes `watching` for the lane its
+  own `StartLane` returned, which is not this case.
+- **Where a refusal goes.** While idle, it is a `planRun` line and no push: nothing has stopped,
+  and the owner's lane runs on. At step 6 and on a restart, a run is under way, so a refusal is a
+  stop with its push, naming the same reason.
 - No Up next list is read, for a reason: a list can drop an item while its lane still runs. The
   propose list leaves out a proposal already on its change branch (`panel-suggest.sh`'s
   `branched`), so a list lookup would miss a propose lane once it has pushed. Nothing would then
@@ -486,7 +517,8 @@ one that fails is a stop, except one the runtime cut short:
    - a branch or worktree whose HEAD a merged PR already holds (`mergedPRRead`) is a stop. That is
      merged work, a finished propose lane on the same `change/<id>` among it, and a lane would
      build on it;
-   - a lane already in the worktree is adopted, and nothing starts;
+   - a lane already in the worktree is tracked when `adoptable` allows it, and nothing starts;
+     when it refuses, it is a stop naming the reason;
    - otherwise `existing`, `branch` or `new`.
    - The Go rule runs over the same cases as `planStart`'s own test, `web/start_plan_test.go`, so
      the two copies cannot drift apart unseen.
@@ -500,9 +532,11 @@ one that fails is a stop, except one the runtime cut short:
 **After the start.** The first prompt and a lane that stops short are D7's.
 
 **A restart.** On start, a runtime that finds `starting` resolves it before anything else:
-- **A lane runs on the recorded branch.** The start got far enough. The runner tracks the lane,
-  `watching` with `since` set to the recorded time, and sends no notice. A first prompt the cut
-  left undelivered is D7's push.
+- **A lane runs on the recorded branch.** The start got far enough. When `adoptable` allows the
+  lane for the recorded item, the runner tracks it, `watching` with `since` set to the recorded
+  time, and sends no notice. A first prompt the cut left undelivered is D7's push. When it
+  refuses (the owner started a lane of another template there meanwhile), it is a stop naming
+  the reason.
 - **None runs.** A stop: "a restart cut short the start of <row> on <branch>". The notice names
   what step 6 now finds there (a worktree, a branch or nothing), so the owner's start picks the
   right mode. The runner does not start it again: a `worktree_setup` killed part way leaves a
@@ -554,12 +588,11 @@ one that fails is a stop, except one the runtime cut short:
 | The next row has a decision in the plan, or is a change with no proposal on main | Stop, push naming the row and the decision; the row stays offered |
 | No template's fresh Up next names the item, or more than one does | Stop, push naming the item |
 | The item's branch is busy, or holds work already merged | Stop, push naming the branch |
-| A lane already runs on the item's branch | It is adopted; nothing starts |
+| A lane already runs on the item's branch | Tracked when `adoptable` allows it, and nothing starts; when it refuses, stop, push naming its reason |
 | The 7-day usage is at or above `seven_day_pct`, or unreadable (its window older than 30 minutes included) | Stop, push naming the reading or why there is none |
 | `StartLane` refuses (the 5-hour guard, `path-taken`, `branch-exists`, …) | Stop, push naming the refusal |
-| A runtime stop or a dead process cut a start short (`starting` on the next start) | A lane on the recorded branch is tracked, with no notice; with none, stop, push naming the row, the branch and what is there |
-| While idle, the lane on the item's candidate branch is of a template not of the item's kind, or of none | Nothing is adopted; `planRun` names the lane, its template and the item's kind |
-| While idle, lanes of the item's kind run on two of its candidate branches | Nothing is adopted; `planRun` names the item and both branches |
+| A runtime stop or a dead process cut a start short (`starting` on the next start) | A lane on the recorded branch that `adoptable` allows is tracked, with no notice; when it refuses, stop, push naming its reason; with none, stop, push naming the row, the branch and what is there |
+| While idle, `adoptable` refuses: no template of the item's kind, a lane of another template or of none, matching lanes on two candidates, merged work | Nothing is adopted, and no push; `planRun` names the reason |
 | The first prompt is not delivered within 10 minutes, or is skipped | Push once; the run keeps tracking the lane |
 | The run's lane is not working and has not moved for the stall time, unstalled and unmerged | Push once; the run keeps tracking the lane |
 | The run's lane is stalled | The stall's push is the one push; `planRun` says the run waits on it |

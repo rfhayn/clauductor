@@ -81,7 +81,7 @@ is trusted:
   never a raw git error) hold for the runner's starts. It chooses the mode as the page does and
   goes through the same server checks.
 
-This change adds a new capability, `panel-plan-runner` (PLANRUN-1 to PLANRUN-8).
+This change adds a new capability, `panel-plan-runner` (PLANRUN-1 to PLANRUN-9).
 
 ## Out of scope
 - **Running on into the next session** (D6). A refusal: each session's plan entry is the owner's

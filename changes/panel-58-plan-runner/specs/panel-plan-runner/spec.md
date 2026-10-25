@@ -12,7 +12,10 @@ key, with `on` (default false), `next` (an argv) and `seven_day_pct` (default 95
 load a config that sets it in a version below 8, sets `on` true with no `next`, sets
 `seven_day_pct` outside 1 to 100, or sets `on` true while `alerts.notify` is false, naming the key.
 WHILE `on` is true THE SYSTEM SHALL list the runner in the config's run list as
-`plan runner runs <next>, starting lanes until the 7-day usage reaches <pct>%`. WHILE `on` is false
+`plan runner runs <next>, starting lanes until the 7-day usage reaches <pct>%`, followed by
+`, adopting lanes of kinds <kinds>`, the kinds of PLANRUN-9 that have a template, in sorted
+order, or, WHEN no template has one, by `, adopting no lane: no template's suggest command is
+<next> with its last element replaced`. WHILE `on` is false
 or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for the runner.
 
 #### Scenario: [PLANRUN-1-S1] With no key, a merge starts nothing
@@ -30,11 +33,14 @@ or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for
 - **THEN** each fails to load, with an error naming the key
 
 #### Scenario: [PLANRUN-1-S3] Trust config… names the runner
-- **GIVEN** a config with `plan_runner.on` true, `next` `["sh", ".claude/panel-suggest.sh", "next"]`
-  and no `seven_day_pct`
+- **GIVEN** a config with `plan_runner.on` true, `next` `["sh", ".claude/panel-suggest.sh", "next"]`,
+  no `seven_day_pct`, and two templates whose suggest commands are
+  `["sh", ".claude/panel-suggest.sh", "propose"]` and `["sh", ".claude/panel-suggest.sh", "build"]`
 - **WHEN** its run list is printed for **Trust config…**
 - **THEN** it holds the line `plan runner runs ["sh" ".claude/panel-suggest.sh" "next"], starting
-  lanes until the 7-day usage reaches 95%`
+  lanes until the 7-day usage reaches 95%, adopting lanes of kinds build, propose`
+- **AND** with `next` `["sh", "scripts/next-row.sh"]` instead, the line ends `, adopting no lane: no
+  template's suggest command is ["sh" "scripts/next-row.sh"] with its last element replaced`
 - **AND** with `on` false the run list holds no plan runner line
 
 #### Scenario: [PLANRUN-1-S4] An untrusted config runs nothing, and trusting it resumes the run
@@ -52,14 +58,9 @@ or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for
 
 ### Requirement: The run tracks one lane, and starts the plan's next row when that lane merges
 WHILE the plan runner is on and the config is trusted, THE SYSTEM SHALL track the lane on the
-branch of `next`'s item, whether the runner started it or the owner did, unless that lane's HEAD is
-a merged pull request's head. A template is of kind K when its suggest command is the `next`
-command with its last word replaced by K. The item's candidate branches are the `branch_pattern`s
-of the templates of its kind, with the item's name, equal ones counted once. THE SYSTEM SHALL
-adopt a running lane on exactly one of them, whether or not any Up next list names the item, and
-only WHEN the lane's recorded template is of the item's kind. WHEN the lane there is of another
-template or of none, or matching lanes run on more than one candidate, THE SYSTEM SHALL adopt
-nothing and say why in `planRun`. WHEN a pull request of the tracked branch has merged since the branch
+branch of `next`'s item, whether the runner started it or the owner did. A lane the runner did not
+start in that same step SHALL be tracked only as PLANRUN-9 allows, whether or not any Up next list
+names the item. WHEN a pull request of the tracked branch has merged since the branch
 was tracked, and the checks of the next three requirements pass, THE SYSTEM SHALL start `next`'s
 item:
 - from the one template whose fresh suggest list names it;
@@ -82,8 +83,8 @@ cut short, not failed: it SHALL write nothing and send no notice. Before the sta
 SHALL stay `watching`, so the next runtime finds the merge again. During the start it SHALL stay
 `starting`, and no runtime's stop SHALL wait for more than the start's return on its cancelled
 context. WHEN a runtime starts on a `starting` state, THE SYSTEM SHALL track a lane that runs on
-the recorded branch with no notice, or, WHEN none runs, start nothing and stop with a notice
-naming the row and the branch. And
+the recorded branch with no notice, as PLANRUN-9 allows, or, WHEN none runs, start nothing and
+stop with a notice naming the row and the branch. And
 WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
 run with a notice.
 
@@ -105,17 +106,13 @@ run with a notice.
 - **AND** when instead `next` names A's proposal and the owner's propose lane on `change/a` has
   already pushed it, so the propose list no longer names A, that lane is tracked all the same,
   with kind `propose`
-- **AND** when instead `next` names A's build and the only lane running is an ops lane on `ops/a`,
-  nothing is tracked
-- **AND** when instead `next` names A's build and the lane on `change/a` is of the propose
-  template, nothing is tracked, and `planRun` names the lane, its template and A's kind
 
 #### Scenario: [PLANRUN-2-S3] The mode follows where the branch already is
 - **GIVEN** a tracked merge whose next row is B
 - **WHEN** in turn B's branch has a worktree with no lane in it, B's branch exists with no worktree,
   and a lane already runs in B's worktree
 - **THEN** the runner starts B's lane in `existing` mode, then in `branch` mode, and in the third
-  case starts nothing and tracks the running lane
+  case, where the running lane is of B's kind, starts nothing and tracks the running lane
 - **AND** when B's branch's HEAD is a merged pull request's head, nothing starts, nothing is
   adopted, and one notice names the branch
 
@@ -410,3 +407,37 @@ list of open issues names only WHEN it is that issue's `<n>-<title slug>`.
   and no fragment naming A
 - **THEN** it prints A with `kind` `propose`, and then B with `kind` `ops`
 - **AND** with A's proposal on main and B's fragment on main, it prints the open session's close
+
+### Requirement: A lane the runner did not start is tracked only through one check
+THE SYSTEM SHALL read the item's candidate branches in one place. A template is of kind K WHEN its
+suggest command is the `next` argv with its last element replaced by K, element for element. The
+candidates are the `branch_pattern`s of the templates of the item's kind, with the item's name,
+equal ones counted once. THE SYSTEM SHALL track a lane it did not start in that same step only
+WHEN one check over those candidates allows it: the lane runs on exactly one candidate, its
+recorded template is of the item's kind, and its HEAD is not a merged pull request's head. Every
+path that tracks such a lane SHALL go through that check: adoption while idle, step 6's lane
+already in the item's worktree, and a restart's resolution of a `starting` state. WHEN the check
+refuses, THE SYSTEM SHALL track nothing and name the reason in `planRun`: no template is of the
+item's kind, the lane's template is of another kind or none, matching lanes run on more than one
+candidate, or the lane's HEAD is merged work. At step 6 and on a restart, where a run is under
+way, the refusal SHALL also be a stop with its notice.
+
+#### Scenario: [PLANRUN-9-S1] While idle, each refusal of the check names its reason
+- **GIVEN** a trusted config with the plan runner on, tracking nothing, and `next` naming A's build
+- **WHEN** in turn: only an ops lane runs, on `ops/a`; a lane of the propose template runs on
+  `change/a`; a lane started with no template runs on `change/a`; lanes of the build kind run on
+  two candidates, from a config whose two build templates have different patterns; and `next` is
+  `["sh", "scripts/next-row.sh"]` while a build lane runs on `change/a`
+- **THEN** in each case nothing is tracked
+- **AND** `planRun` names, in turn: that it waits for a lane on `change/a`; the lane, the propose
+  template and A's kind; the lane and that it has no template; A and both branches; and A's kind
+  with no template's suggest command matching `next`
+
+#### Scenario: [PLANRUN-9-S2] Step 6 and a restart refuse through the same check
+- **GIVEN** a tracked merge whose next row is B's build, B's proposal on main, and a lane of the
+  propose template still running on `change/b` with commits not yet merged
+- **WHEN** the runner reaches step 6
+- **THEN** no lane starts, nothing is tracked, and one notice names the lane, its template and B's
+  kind
+- **AND** when instead a runtime starts on a `starting` state for B's build on `change/b`, and that
+  propose lane is what runs there, nothing is tracked, and one notice names the same reason
