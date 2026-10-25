@@ -19,6 +19,16 @@
   socket path (`install.CLISocketPath`); `CloseLane`'s cut-off words claim a begun close on a dry
   run; its doc comment omits that third kind of error; `deadSocketFile` takes its descriptor
   outside `syscall.ForkLock`. The claudecall flake seen in both groups' gates is #260.
+- 2026-10-25 group 3 (tasks 3.1–3.2) built, uncommitted for review: `clauductor lane close <id>
+  [--yes]` in `framework/internal/cmd/lane.go`, tested against a stub panel in `lane_test.go`;
+  `install.MainWorktree`, which `mainRoot` now calls. Group 2's four lows are fixed too (a test on
+  the default socket path, `CloseLane`'s dry-run words and doc comment, `deadSocketFile` under
+  `ForkLock`). Next: group 4, the docs and the production caller (D5, D7).
+- 2026-10-25 group 3 (The command) built and reviewed: converged in 1 round(s), peak low. Five
+  lows go to group 4's builder: `laneProject` runs git through `signals.ExecRunner`, not the
+  package's GIT_DIR-free runner; the default-path test needs a writable `/tmp`; the stub skips its
+  consent check on a dry answer it cannot read; `RunE` reads `$HOME` before the self refusal; a
+  hand-written loop duplicates `config.Projects.Find`.
 
 ## Decision log
 - 2026-10-24: the owner directed all six round-3 findings fixed; finding 2 decided as the reviewer
@@ -268,6 +278,41 @@
   `TestCloseLaneFollowsNoRedirect` (ten requests, the GETs among them). `cli.sock` left out of
   uninstall's list fails the uninstall test. The stale socket not removed, and `CloseIf` under
   the request's context, still fail as before.
+- 2026-10-25, group 3: the command's output. The plan's first line is `lane <id> on <branch>`,
+  or `lane <id>, its branch not known` for a plan with none (only an exited lane gets that far);
+  then `Removes:`, `Keeps:` with each line as `  - <line>`, an empty list printed not at all (as
+  the page shows none), and the notes as plain lines. With `--yes` the plan is printed first, then
+  `Closed lane <id>.` (the page's own title), `Removed:` and `Kept:` the same way. Alternative:
+  no title line, or print the lists only. Why: D3 fixes the first line and the lists, not their
+  layout; the title says the close happened when both lists are empty.
+- 2026-10-25, group 3: a refusal is returned as the panel's `*lanes.LaneError`, so `main` prints
+  `Error: <the panel's message>` to stderr and exits 1, as every other command's error does. The
+  message itself is unchanged. Alternative: print the bare message and exit 1 by hand. Why not:
+  it would need an exit path of its own beside `main`'s, for a prefix.
+- 2026-10-25, group 3: `install.MainWorktree(ctx, run, path)` returns `(main, top string, err
+  error)`, its error a "not-git" `*Refusal` with `mainRoot`'s own words, so `mainRoot` calls it
+  and keeps only its linked-worktree check. Alternative: return the main worktree alone. Why not:
+  `mainRoot` needs the top to refuse a linked worktree, and computing it twice would run git twice.
+- 2026-10-25, group 3: a live panel whose socket does not answer is said by `CloseLane`'s own
+  not-answering error, which now ends "nothing was asked of it (`clauductor panel` starts a
+  panel)" (the design's "a socket that does not answer … naming `clauductor panel`"). Alternative:
+  a typed error the command wraps. Why not: `CloseLane` is the command's one client, and the
+  words are true wherever it is used. A cut-off dry run now says "a dry run changes nothing, so ask
+  again" instead of claiming a begun close (group 2's low).
+- 2026-10-25, group 3: the stub panel's `[LANECLOSE-3-S2]` socket is one still served, not a dead
+  file, and the test counts its connections (`ConnState`): a dead file could not show a connection
+  attempt, a served one shows it. With `RunningPanel` bypassed (owner.json trusted), the test
+  failed connecting twice. Other controls broken on purpose, each failing its own assertion, then
+  restored: the self check (the process check called, and the subprocess not refusing); matching
+  by the worktree's top instead of the main checkout (the linked worktree refused); the served
+  check (delta's close asked); the consent built from `worktree` for `branch` (the stub's
+  `DisallowUnknownFields` decode and its consent assertion); the empty-socket check (refused for
+  the project instead); the notes dropped (`[LANECLOSE-1-S1]`'s output).
+- 2026-10-25, group 3 (group 2's low 1): `TestThePanelListensOnTheDefaultSocketPath` starts a
+  panel with no `CLISocket` and a home made by `os.MkdirTemp("/tmp", "h")`: under leakcheck the
+  `TMPDIR` is long enough (114 bytes with the home) to overflow macOS's 104-byte `sun_path`.
+  Alternative: `os.MkdirTemp("", …)` as `shortSocket` does. Why not: that failed on this Mac.
+  With run.go's default path changed, it failed on owner.json's socket, the file and the dial.
 
 ## 1. The close verdict and the socket's route (D2, D4)
 - [x] 1.1 `framework/internal/panel/state/model.go` and `state/stall.go`: `TermLaneView.CloseHeld`
@@ -442,7 +487,7 @@
   Citing [LANECLOSE-1-S1], [LANECLOSE-1-S2], [LANECLOSE-2-S1].
 
 ## 3. The command (D2, D3)
-- [ ] 3.1 `framework/internal/cmd/lane.go` (new): `clauductor lane close <id> [--yes]`, with no
+- [x] 3.1 `framework/internal/cmd/lane.go` (new): `clauductor lane close <id> [--yes]`, with no
   `--project` (D7), registered on the root command as `panel` is (`panel.go`). An id equal to
   `$CLAUDUCTOR_LANE` refused before anything is read, in fixed words naming the page's Close lane,
   and auto-close where it is on for the lane's type. The panel first, from
@@ -473,7 +518,7 @@
   [LANECLOSE-3-S4] (an `owner.json` with no socket, and a panel found by `/healthz` alone, both
   refused for the socket, not the project). `install`'s tests for `mainRoot` pass
   unchanged.
-- [ ] 3.2 merge-pr's review of the approved proposal (2026-10-24): `lane.go` closes through task
+- [x] 3.2 merge-pr's review of the approved proposal (2026-10-24): `lane.go` closes through task
   2.4's client, and task 3.1's stub panel decodes the close body as `lanes.CloseRequest` with
   `DisallowUnknownFields`, asserting `branch` equals the plan's `deleteBranch` and `worktree` the
   plan's `worktree`. Citing [LANECLOSE-1-S2].

@@ -28,9 +28,11 @@ type LaneCloseAnswer struct {
 // takes (a plan's DeleteBranch is sent as Branch). req.DryRun asks for the plan alone.
 //
 // A refusal is a *lanes.LaneError carrying the status, the code and the message as
-// the panel wrote them; any other error is the socket not answering, or an answer
-// that cannot be read. It is the one client `clauductor lane close` uses, so the
-// panel's tests drive the real route through it.
+// the panel wrote them. Any other error is one of three: the socket not answering
+// (nothing was sent, so nothing changed); a request sent and then cut off before its
+// answer (a close the panel had begun finishes there, D4, so its outcome is unknown
+// here); or an answer that cannot be read. It is the one client `clauductor lane
+// close` uses, so the panel's tests drive the real route through it.
 func CloseLane(ctx context.Context, socket, project, id string, req lanes.CloseRequest) (LaneCloseAnswer, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -60,7 +62,10 @@ func CloseLane(ctx context.Context, socket, project, id string, req lanes.CloseR
 	resp, err := client.Do(hreq)
 	switch {
 	case err != nil && !connected.Load():
-		return LaneCloseAnswer{}, fmt.Errorf("the panel's socket %s does not answer: %w", socket, err)
+		return LaneCloseAnswer{}, fmt.Errorf("the panel's socket %s does not answer: %w; nothing was asked of it (`clauductor panel` starts a panel)", socket, err)
+	case err != nil && req.DryRun:
+		// A dry run changes nothing, so a lost answer leaves nothing begun.
+		return LaneCloseAnswer{}, fmt.Errorf("the panel's answer did not arrive (%w); a dry run changes nothing, so ask again", err)
 	case err != nil:
 		// Sent, so not "nothing happened": a close the panel had begun runs to its end
 		// there (D4), whatever became of this request.

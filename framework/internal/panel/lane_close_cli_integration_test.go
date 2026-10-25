@@ -45,8 +45,13 @@ func shortSocket(t *testing.T) string {
 // child a parallel test forks meanwhile may inherit the descriptor but cannot accept on
 // it, so a dial is refused whatever runs beside the test. (A listener closed with
 // SetUnlinkOnClose(false) still answers while such a child holds it.)
+//
+// The descriptor lives only under syscall.ForkLock held for reading, as testbin holds
+// it: every fork takes it for writing, so no child inherits the descriptor at all.
 func deadSocketFile(t *testing.T, path string) {
 	t.Helper()
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +298,41 @@ func TestAPanelLeavesAFileAtItsSocketPathThatIsNotASocket(t *testing.T) {
 	}
 	if o, raw := readOwnerFile(t, home); o.Socket != "" || strings.Contains(raw, `"socket"`) {
 		t.Errorf("owner.json names a socket: %s", raw)
+	}
+}
+
+// [LANECLOSE-3-S1] A panel given no CLISocket, as `clauductor panel` starts one, listens
+// at install.CLISocketPath(home), names it in owner.json, and answers the close there.
+// The home is short (E10), under /tmp: a t.TempDir() home on macOS, or one under the
+// TMPDIR leakcheck sets, is too long for the socket's path.
+func TestThePanelListensOnTheDefaultSocketPath(t *testing.T) {
+	t.Parallel()
+	home, err := os.MkdirTemp("/tmp", "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	want := install.CLISocketPath(home)
+	if n, max := len(want), len(syscall.RawSockaddrUnix{}.Path); n >= max {
+		t.Fatalf("the test's socket path %s is %d bytes, too long for sun_path (%d)", want, n, max)
+	}
+	root := multiRepo(t, "Alpha", noServerSocket())
+	var out outLog
+	p := startPanelWith(t, root, home, noServerSocket(), func(o *Options) { o.CLISocket, o.Out = "", &out })
+	project := projectIDOf(t, p)
+	if o, _ := readOwnerFile(t, home); o.Socket != want {
+		t.Errorf("owner.json names socket %q, want the default %q (panel said: %s)", o.Socket, want, out.String())
+	}
+	if fi, err := os.Lstat(want); err != nil || fi.Mode()&os.ModeSocket == 0 || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the default socket %s: %v %v, want a socket of mode 0600", want, fi, err)
+	}
+	_, err = install.CloseLane(context.Background(), want, project, "x", lanes.CloseRequest{DryRun: true})
+	if le := laneErrOf(t, "closing an unknown lane on the default socket", err); le.Status != http.StatusNotFound || le.Code != "not-found" {
+		t.Errorf("unknown lane on the default socket: %+v, want the route's 404 not-found", le)
+	}
+	p.stop()
+	if _, err := os.Lstat(want); !os.IsNotExist(err) {
+		t.Errorf("the default socket is still there after the panel exits: %v", err)
 	}
 }
 

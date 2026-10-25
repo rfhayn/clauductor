@@ -37,7 +37,8 @@ func serveUnix(t *testing.T, h http.Handler) string {
 
 // A socket nothing listens on reads as not answering; a request the panel received and
 // did not answer before the command gave up does not: by D4 a close it had begun runs
-// to its end, so the error must not suggest nothing happened.
+// to its end, so the error must not suggest nothing happened. A dry run cut off the
+// same way began nothing, and must not say a close may finish.
 func TestCloseLaneTellsNoAnswerFromAnAnswerCutOff(t *testing.T) {
 	t.Parallel()
 	missing := filepath.Join(t.TempDir(), "none.sock")
@@ -57,6 +58,20 @@ func TestCloseLaneTellsNoAnswerFromAnAnswerCutOff(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "does not answer") || !strings.Contains(err.Error(), "did not arrive") ||
 		!strings.Contains(err.Error(), "finishes") {
 		t.Errorf("a request cut off after it was sent: %v, want the answer not arriving and the close finished", err)
+	}
+
+	// A dry run cut off the same way began nothing: its words must not claim a close.
+	got2 := make(chan struct{})
+	sock2 := serveUnix(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(got2)
+		<-r.Context().Done()
+	}))
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() { <-got2; cancel2() }()
+	_, err = CloseLane(ctx2, sock2, "p", "a", lanes.CloseRequest{DryRun: true})
+	if err == nil || !strings.Contains(err.Error(), "did not arrive") || !strings.Contains(err.Error(), "a dry run changes nothing") ||
+		strings.Contains(err.Error(), "finishes") || strings.Contains(err.Error(), "begun") {
+		t.Errorf("a dry run cut off after it was sent: %v, want the answer not arriving and nothing begun", err)
 	}
 }
 
